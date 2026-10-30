@@ -65,3 +65,20 @@ it('Requirements tab holds the require-2FA policy and links each passkey and ses
   expect(screen.getByRole('link', { name: 'Two-factor & sign-in requirements' })).toHaveAttribute('aria-current', 'page');
   expect(vi.mocked(adminRequest)).not.toHaveBeenCalledWith('/security/dashboard');
 });
+
+it('shows an Admin probe blocks tile to a bans.read admin, from the admin-probe read', async () => {
+  const probe = { policy: { enabled: true }, stats: { activeBlocks: 2, blocksLast24h: 5, refusedRequests: 17 }, topOffenders: [], scope: 'instance', propagationSecs: 30 };
+  vi.mocked(adminRequest).mockImplementation(async (path: string) => ({ status: 200, etag: null, data: (path === '/security/admin-probe' ? probe : { generatedAt: 1_800_000_000, protection: full.protection! }) as never }));
+  renderInShell(() => <AdminSecurityCenter />, { loadMe: holding(['bans.read']), route: () => ({ section: 'security', rest: ['overview'] }) });
+  const tile = await screen.findByTestId('secdash-admin-probe');
+  expect(within(tile).getByText('2')).toBeInTheDocument();
+  expect(within(tile).getByText('5 in 24 h · 17 requests refused')).toBeInTheDocument();
+  expect(within(tile).getByRole('link', { name: 'Open admin probe protection' })).toBeInTheDocument();
+});
+
+it('leaves the Admin probe tile out without bans.read', async () => {
+  returning({ generatedAt: 1_800_000_000, posture: full.posture! });
+  renderInShell(() => <AdminSecurityCenter />, { loadMe: holding(['diagnostics.read']), route: () => ({ section: 'security', rest: ['overview'] }) });
+  expect(await screen.findByTestId('secdash-posture')).toBeInTheDocument();
+  expect(screen.queryByTestId('secdash-admin-probe')).toBeNull();
+});

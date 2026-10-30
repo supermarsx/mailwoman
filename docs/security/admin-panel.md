@@ -230,6 +230,15 @@ as a block is only reached after 20 misses in a few minutes. Users who share
 one public address (a company NAT) share its score: put such networks on the
 allowlist if one scanner there must not lock the others out.
 
+**In the console.** Security centre > Aggregate and adaptive protection has an
+"Admin probe protection" card: the policy in plain words, each setting editable
+in place (with identity confirmation), the sources blocked now with Unblock,
+and the counters and top offenders since the server started. The card repeats
+the warning above, since a block also stops that address from using the mail
+app: add shared company networks (an office, a VPN) to "Never-blocked
+networks". The Security centre Overview has an "Admin probe blocks" tile for
+administrators who can read IP bans.
+
 **Audit and logs.**
 
 * Each block writes the security event `admin-probe-blocked` with the source,

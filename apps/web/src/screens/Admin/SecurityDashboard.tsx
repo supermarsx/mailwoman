@@ -12,6 +12,7 @@
 
 import { createSignal, For, onCleanup, onMount, Show, useContext, type JSX } from 'solid-js';
 import { loadSecurityDashboard, type CheckStatus, type SecurityDashboard } from '../../api/admin/securityDashboard.ts';
+import { adminProbeApi, type AdminProbeOverview } from '../../api/admin/adminProbe.ts';
 import { t, formatNumber, formatPercent, formatDateTime, formatLocale, formatTime } from '../../i18n';
 import { AsyncError } from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
@@ -45,16 +46,28 @@ export function countryName(code: string): string {
   }
 }
 
-export function SecurityDashboardView(props: { load?: () => Promise<SecurityDashboard> }): JSX.Element {
+export function SecurityDashboardView(props: { load?: () => Promise<SecurityDashboard>; loadProbe?: () => Promise<AdminProbeOverview> }): JSX.Element {
   const shell = useContext(ShellContext);
   const [data, setData] = createSignal<SecurityDashboard>();
+  // Admin-probe blocks (t100) come from their own read, with bans.read; a failure
+  // or a missing capability leaves the tile out.
+  const [probe, setProbe] = createSignal<AdminProbeOverview>();
+  const probeAllowed = (): boolean => (shell ? shell.can.can('bans.read') : props.loadProbe !== undefined);
+  async function reloadProbe(): Promise<void> {
+    if (!probeAllowed()) return;
+    try {
+      const found = await (props.loadProbe ?? (async () => (await adminProbeApi.overview()).data))();
+      setProbe(found && typeof found === 'object' && 'policy' in found && 'stats' in found ? found : undefined);
+    } catch { setProbe(undefined); }
+  }
   const [error, setError] = createSignal<unknown>();
   const [busy, setBusy] = createSignal(false);
   async function reload(): Promise<void> {
     if (busy()) return;
     setBusy(true);
     try {
-      setData(await (props.load ?? loadSecurityDashboard)());
+      const [dashboard] = await Promise.all([(props.load ?? loadSecurityDashboard)(), reloadProbe()]);
+      setData(dashboard);
       setError(undefined);
     } catch (cause) {
       setError(cause);
@@ -113,6 +126,11 @@ export function SecurityDashboardView(props: { load?: () => Promise<SecurityDash
             <StatTile testId="secdash-locks" label={t('admin-secdash-locks')} value={p().activeLocks}
               detail={t('admin-secdash-locks-detail', { admin: p().activeAdminLocks, bans: p().activeBans })}
               href={tab('locks')} onLink={go(tab('locks'))} linkLabel={t('admin-secdash-open-locks')} />
+          )}</Show>
+          <Show when={probeAllowed() ? probe() : undefined}>{(p) => (
+            <StatTile testId="secdash-admin-probe" label={t('admin-secdash-admin-probe')} value={p().policy.enabled ? p().stats.activeBlocks : t('admin-secdash-admin-probe-off')}
+              detail={t('admin-secdash-admin-probe-detail', { day: p().stats.blocksLast24h, refused: p().stats.refusedRequests })}
+              href={tab('protection')} onLink={go(tab('protection'))} linkLabel={t('admin-secdash-open-admin-probe')} />
           )}</Show>
           <Show when={d().admins}>{(a) => (
             <StatTile testId="secdash-admins" label={t('admin-secdash-admin-sessions')} value={a().activeSessions}

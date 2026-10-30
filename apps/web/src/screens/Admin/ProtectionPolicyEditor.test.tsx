@@ -89,15 +89,15 @@ describe('Adaptive protection editor', () => {
     const a = api();
     render(() => <ProtectionPolicyEditor api={a} canWrite />);
     const row = await screen.findByTestId('protect-rule-client-requests');
-    const input = within(row).getByLabelText('Requests per client');
+    const input = within(row).getByLabelText('Requests per address (not signed in)');
     fireEvent.input(input, { target: { value: '2000000' } });
-    fireEvent.click(within(row).getByRole('button', { name: 'Save Requests per client' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Save Requests per address (not signed in)' }));
     expect(await within(row).findByRole('alert')).toHaveTextContent('The largest allowed value is 1,000,000.');
     expect(a.save).not.toHaveBeenCalled();
     fireEvent.input(input, { target: { value: '450' } });
-    fireEvent.click(within(row).getByRole('button', { name: 'Save Requests per client' }));
+    fireEvent.click(within(row).getByRole('button', { name: 'Save Requests per address (not signed in)' }));
     await waitFor(() => expect(a.save).toHaveBeenCalledWith([{ key: 'security.protection.clientRequests', value: 450, etag: '"clientRequests-1"' }], undefined));
-    const reset = await within(await screen.findByTestId('protect-rule-client-requests')).findByRole('button', { name: 'Reset Requests per client to its default' });
+    const reset = await within(await screen.findByTestId('protect-rule-client-requests')).findByRole('button', { name: 'Reset Requests per address (not signed in) to its default' });
     expect(screen.getByTestId('protect-rule-client-requests')).toHaveTextContent('Default: 600');
     await waitFor(() => expect(reset).not.toBeDisabled());
     fireEvent.click(reset);
@@ -116,7 +116,7 @@ describe('Adaptive protection editor', () => {
   it('is read-only without settings.write', async () => {
     render(() => <ProtectionPolicyEditor api={api()} canWrite={false} />);
     expect(await screen.findByTestId('protection-readonly')).toBeInTheDocument();
-    expect(within(screen.getByTestId('protect-rule-client-requests')).getByLabelText('Requests per client')).toBeDisabled();
+    expect(within(screen.getByTestId('protect-rule-client-requests')).getByLabelText('Requests per address (not signed in)')).toBeDisabled();
   });
 
   it('simulates a sample request and says which rule decided', async () => {

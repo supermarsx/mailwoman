@@ -70,3 +70,18 @@ export const simResult = style({
   },
 });
 export const verdict = style({ margin: 0, fontWeight: vars.weight.bold, lineHeight: 1.5 });
+
+// t97 admin-probe card.
+export const warnNote = style({
+  margin: 0, padding: vars.space[3], lineHeight: 1.5, fontSize: '0.9rem',
+  border: `${vars.border.rule} solid ${vars.color.border}`, borderRadius: vars.radius.md,
+  boxShadow: `inset 4px 0 0 ${vars.color.warning}`,
+  selectors: { '[dir="rtl"] &': { boxShadow: `inset -4px 0 0 ${vars.color.warning}` } },
+});
+export const counters = style({ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 9rem), 1fr))', gap: vars.space[3] });
+export const counter = style({
+  display: 'flex', flexDirection: 'column', gap: vars.space[1], padding: vars.space[3],
+  border: `${vars.border.hair} solid ${vars.color.border}`, borderRadius: vars.radius.sm, fontVariantNumeric: 'tabular-nums',
+});
+globalStyle(`${counter} > strong`, { fontSize: '1.25rem' });
+export const srCaption = style({ position: 'absolute', inlineSize: '1px', blockSize: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' });

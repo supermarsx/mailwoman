@@ -11,9 +11,11 @@ import { KNOWN_KEYS, keySlug } from './Settings/keys.ts';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
 import { ProtectionPolicyEditor } from './ProtectionPolicyEditor.tsx';
+import { AdminProbeCard } from './AdminProbeCard.tsx';
+import type { AdminProbeApi } from '../../api/admin/adminProbe.ts';
 import { formatSeconds } from './protectionRules.ts';
 import type { ProtectionPolicyApi } from '../../api/admin/requestProtection.ts';
-export function RequestProtection(props:{api?:ProtectionApi;policyApi?:ProtectionPolicyApi}):JSX.Element {
+export function RequestProtection(props:{api?:ProtectionApi;policyApi?:ProtectionPolicyApi;probeApi?:AdminProbeApi}):JSX.Element {
  void loadCatalog('admin-settings');void loadCatalog('admin-security');
  const shell=useContext(ShellContext);const api=()=>props.api??protectionApi;
  const [status,setStatus]=createSignal<ProtectionStatus>();const [subjects,setSubjects]=createSignal<ProtectionSubject[]>([]);const [events,setEvents]=createSignal<ProtectionEvent[]>([]);
@@ -50,6 +52,7 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  <p class={css.note}>{t('admin-protection-explanation')}</p><p class={css.note}>{t('admin-protect-not-country')}</p><Feedback kind="success" as="toast" message={success()}/>
  <Show when={status()}>{current=><div class={css.card}><h3 class={css.heading}>{t('admin-protection-current-policy')}</h3><p>{t('admin-protection-modes',{rate:t(`admin-protection-mode-${current().policy.rateMode}`),adaptive:t(`admin-protection-mode-${current().policy.adaptiveMode}`)})}</p><p class={css.note}>{t('admin-protection-retention',{subjects:current().subjectCapacity,events:current().eventCapacity,days:current().eventRetentionSecs/86400,seconds:current().propagationSecs})}</p><p class={css.note}>{t('admin-protection-coverage')}</p></div>}</Show>
  <Show when={shell?.can.can('settings.read')}><details class={css.card}><summary>{t('admin-protection-configure')}</summary><div class={css.grid}><For each={KNOWN_KEYS.filter(key=>key.startsWith('security.protection.'))}>{key=><button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('settings',[key]))}>{t(`admin-settings-key-${keySlug(key)}`)}</button>}</For></div></details></Show>
+ <AdminProbeCard api={props.probeApi}/>
  <ProtectionPolicyEditor api={props.policyApi} canWrite={!shell || shell.can.can('settings.write')} onSaved={()=>void reload()}/>
  <div class={css.card}><h3 class={css.heading}>{t('admin-protection-subjects')}</h3><p class={css.note}>{t('admin-protection-counts-note')}</p><DataTable caption={t('admin-protection-subjects')} columns={subjectColumns()} rows={subjects()} rowKey={row=>row.subjectKey} state={loading()?'loading':error()?'error':'ready'} errorText={error()} onRetry={()=>void reload()} emptyText={t('admin-protection-empty')} rowActions={row=><Show when={shell?.can.can('bans.write')}><button class="btn btn--ghost btn--sm" aria-label={t('admin-protection-clear-target',{subject:identity(row)})} onClick={()=>setSelected(row)}>{t('admin-protection-clear')}</button></Show>}/><Show when={subjectCursor()}><button class="btn" disabled={loading()} onClick={()=>void next('subjects')}>{t('admin-protection-next')}</button></Show></div>
  <div class={css.card}><h3 class={css.heading}>{t('admin-protection-history')}</h3><DataTable caption={t('admin-protection-history')} columns={eventColumns()} rows={events()} rowKey={row=>row.id} state={loading()?'loading':error()?'error':'ready'} errorText={error()} onRetry={()=>void reload()} emptyText={t('admin-protection-history-empty')}/><Show when={eventCursor()}><button class="btn" disabled={loading()} onClick={()=>void next('events')}>{t('admin-protection-next')}</button></Show></div>
