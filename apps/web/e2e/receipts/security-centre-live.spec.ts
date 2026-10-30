@@ -13,6 +13,7 @@ import { ADMIN } from '../admin/admin-path.ts';
 import { adminLogin } from '../admin/admin-login.ts';
 import type {Page,TestInfo,APIRequestContext} from '@playwright/test';
 import path from 'node:path';
+import http from 'node:http';
 
 test.describe.configure({timeout:300000});
 const skipPhone=(info:TestInfo)=>test.skip(info.project.name==='phone','the 390 legs run in the chromium and firefox projects');
@@ -172,4 +173,63 @@ test('Adaptive protection: summary, preset diff, inline edit with step-up, reset
  await sim.getByLabel('Use my unsaved changes and the selected preset').uncheck();
  await sim.getByRole('button',{name:'Check'}).click();
  await expect(result).toHaveAttribute('data-action','allow');
+});
+
+/** One GET from another loopback address (127.0.0.2), so a block never hits the browser. */
+function probeFrom(base:string,pathname:string):Promise<number>{
+ const url=new URL(pathname,base);
+ return new Promise((resolve,reject)=>{const req=http.request({host:'127.0.0.1',port:url.port,path:url.pathname,method:'GET',localAddress:'127.0.0.2',headers:{host:url.host}},res=>{res.resume();resolve(res.statusCode??0);});req.on('error',reject);req.end();});
+}
+async function probePolicy(page:Page,values:Record<string,unknown>):Promise<void>{
+ const current=await page.request.get(`${ADMIN}/security/admin-probe`);expect(current.status()).toBe(200);
+ const saved=await page.request.put(`${ADMIN}/security/admin-probe/policy`,{headers:{'if-match':current.headers()['etag']!},data:{values}});
+ expect(saved.status(),await saved.text()).toBe(200);
+}
+
+test('Admin probe protection: plain explanation, inline edit with step-up, a real block on the Overview, and Unblock',async({page},info)=>{
+ skipPhone(info);
+ const base=info.project.use.baseURL!;
+ await adminLogin(page);
+ try{
+  await page.goto(`${ADMIN}#/security/protection`);
+  const card=page.getByTestId('admin-probe-card');
+  await expect(card.getByTestId('admin-probe-summary')).toContainText('Grace:');
+  await expect(card.getByTestId('admin-probe-mail-warning')).toContainText('the mail app included');
+  // Inline edit through the UI: tarpit off, with step-up.
+  const row=card.getByTestId('admin-probe-row-tarpit-delay-ms');
+  await row.getByRole('spinbutton').fill('0');
+  const saved=page.waitForResponse(r=>r.url().endsWith(`${ADMIN}/security/admin-probe/policy`)&&r.request().method()==='PUT'&&r.ok());
+  await row.getByRole('button',{name:/^Save /}).click();
+  await stepUp(page,saved);
+  await expect(card.getByTestId('admin-probe-summary')).toContainText('each miss is answered after 0');
+  // A short policy for the run, then probes from 127.0.0.2 until it is blocked.
+  await probePolicy(page,{graceAllowance:2,blockAfter:2});
+  let last=0;for(let i=0;i<12&&last!==429;i++)last=await probeFrom(base,'/wp-admin');
+  expect(last).toBe(429);
+  // The Overview tile counts it.
+  for(const width of WIDTHS){
+   await page.setViewportSize({width,height:width>800?900:844});
+   await page.goto(`${ADMIN}#/security`);
+   const tile=page.getByTestId('secdash-admin-probe');
+   await expect(tile).toBeVisible();
+   expect(Number((await tile.locator('p').first().innerText()).replace(/\D/g,''))).toBeGreaterThanOrEqual(1);
+   await page.screenshot({path:shot(info,`overview-probe-${width}`),fullPage:true});
+   await tile.getByRole('link',{name:'Open admin probe protection'}).click();
+   const blocks=page.getByTestId('admin-probe-blocks');
+   await expect(blocks.getByText('127.0.0.0/24')).toBeVisible();
+   await expect(page.getByTestId('admin-probe-offenders')).toBeVisible();
+   await noSideScroll(page);
+   await page.getByTestId('admin-probe-card').screenshot({path:shot(info,`admin-probe-card-${width}`)});
+  }
+  // Unblock, confirmed.
+  const removed=page.waitForResponse(r=>r.url().includes(`${ADMIN}/security/admin-probe/blocks/`)&&r.request().method()==='DELETE');
+  await page.getByRole('button',{name:'Unblock 127.0.0.0/24'}).click();
+  await page.getByRole('alertdialog').getByRole('button',{name:'Unblock',exact:true}).click();
+  await stepUp(page,removed);
+  expect((await removed).status()).toBe(204);
+  await expect(page.getByTestId('admin-probe-no-blocks')).toBeVisible();
+  expect(await probeFrom(base,'/healthz')).not.toBe(429);
+ }finally{
+  await probePolicy(page,{graceAllowance:null,blockAfter:null,tarpitDelayMs:null});
+ }
 });

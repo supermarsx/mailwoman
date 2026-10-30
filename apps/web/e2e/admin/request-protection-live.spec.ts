@@ -4,14 +4,14 @@ async function csrf(page:Page,path:string):Promise<Record<string,string>>{const 
 async function setting(page:Page,key:string,value:unknown):Promise<unknown>{
  const path=`${ADMIN}/settings/${key}`;const current=await page.request.get(path);expect(current.status()).toBe(200);const before=await current.json();const saved=await page.request.put(path,{headers:{...await csrf(page,path),'if-match':current.headers()['etag']!},data:{globalValue:value}});expect(saved.status(), await saved.text()).toBe(200);return before.globalValue;
 }
-test('adaptive controls show real evidence and clear the current client with fresh proof @phone',async({page})=>{
+test('adaptive controls show real evidence and clear the signed-in mailbox (counted on its account, t97) with fresh proof @phone',async({page})=>{
  test.setTimeout(150_000);await new Promise(resolve=>setTimeout(resolve,3200));await page.goto(ADMIN);
  await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect.poll(async()=>(await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
  const originals=new Map<string,unknown>();
  const set=async(key:string,value:unknown):Promise<void>=>{const old=await setting(page,key,value);if(!originals.has(key))originals.set(key,old);};
  try{
-  for(const [key,value] of Object.entries({adaptiveMode:'off',rateMode:'off',adaptiveAccounts:false,adaptiveAdmins:false,shortAbsoluteAnomalies:1,shortRatioPercent:0,longAbsoluteAnomalies:0,longRatioPercent:0,throttleSecs:60,signals:['malformed']}))await set(`security.protection.${key}`,value);
+  for(const [key,value] of Object.entries({adaptiveMode:'off',rateMode:'off',adaptiveClients:false,adaptiveAdmins:false,shortAbsoluteAnomalies:1,shortRatioPercent:0,longAbsoluteAnomalies:0,longRatioPercent:0,throttleSecs:60,signals:['malformed']}))await set(`security.protection.${key}`,value);
   await page.goto(`${ADMIN}#/observability/protection`);await expect(page.getByRole('heading',{name:'Aggregate and adaptive protection'})).toBeVisible();
   await expect(page.getByText('Request budgets: Off. Adaptive protection: Off.')).toBeVisible();
   await page.getByText('Configure modes, windows, thresholds, and exemptions').click();
@@ -26,7 +26,7 @@ test('adaptive controls show real evidence and clear the current client with fre
   await page.goto(`${ADMIN}#/observability/protection`);
   await expect(page.getByText('Request budgets: Off. Adaptive protection: Observe only.')).toBeVisible();
   const history=page.getByRole('table',{name:'Protection decisions'});await expect(history.getByText('Short-window anomaly count').first()).toBeVisible();
-  const state=page.getByRole('table',{name:'Current subject state'});const target=state.locator('tbody tr').filter({has:page.getByRole('button',{name:/Clear protection state for Client address/})}).first();
+  const state=page.getByRole('table',{name:'Current subject state'});const target=state.locator('tbody tr').filter({has:page.getByRole('button',{name:/Clear protection state for Mailbox account/})}).first();
   await expect(target).toBeVisible();await target.getByRole('button',{name:/Clear protection state/}).click();
   await expect(page.getByRole('alertdialog')).toContainText('does not change policy');
   const cleared=page.waitForResponse(response=>response.url().includes(`${ADMIN}/bans/protection/subjects/`)&&response.request().method()==='DELETE'&&response.status()===204);
