@@ -141,6 +141,8 @@ pub enum Text {
 pub enum Kind {
     /// An exact owned mailbox ID or upstream folder path; null selects discovery.
     FolderRole,
+    /// Bounded plain-text response templates; never executable HTML.
+    MessageTemplates,
     Bool,
     Int {
         min: i64,
@@ -187,6 +189,9 @@ impl Kind {
     /// The wire description the admin UI validates against (UX5).
     pub fn describe(&self) -> Value {
         match *self {
+            Kind::MessageTemplates => {
+                json!({"type":"messageTemplates","maxItems":20,"maxTitleLength":80,"maxBodyLength":8000,"maxBytes":65536})
+            }
             Kind::FolderRole => json!({ "type": "folderRole", "maxLength": 512 }),
             Kind::Bool => json!({ "type": "bool" }),
             Kind::AttachmentList { .. } => {
@@ -389,6 +394,209 @@ use Scopes::{
 
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
+    def!(
+        "mail.composeWindow",
+        Kind::Enum(&["tab", "window"]),
+        "\"tab\"",
+        GDU,
+        "mail",
+        "Preferred composer location"
+    ),
+    def!(
+        "mail.replyCopyToOriginal",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Offer original folder for reply copies"
+    ),
+    def!(
+        "mail.forwardMode",
+        Kind::Enum(&["inline", "attachment"]),
+        "\"inline\"",
+        GDU,
+        "mail",
+        "Preferred forwarding format"
+    ),
+    def!(
+        "mail.cache.refreshOnOpen",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Refresh cached mail in the background on opening"
+    ),
+    def!(
+        "mail.cache.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: enabled"
+    ),
+    def!(
+        "mail.cache.mailboxes",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: mailboxes"
+    ),
+    def!(
+        "mail.cache.messages",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: messages"
+    ),
+    def!(
+        "mail.cache.freshSeconds",
+        int(0, 3600),
+        r#"30"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: freshSeconds"
+    ),
+    def!(
+        "mail.cache.maxAgeSeconds",
+        int(1, 86400),
+        r#"300"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: maxAgeSeconds"
+    ),
+    def!(
+        "mail.cache.maxEntries",
+        int(1, 512),
+        r#"32"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: maxEntries"
+    ),
+    def!(
+        "mail.cache.maxBytes",
+        int(65536, 268435456),
+        r#"16777216"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: maxBytes"
+    ),
+    def!(
+        "mail.cache.prefetchEnabled",
+        Kind::Bool,
+        r#"false"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: prefetchEnabled"
+    ),
+    def!(
+        "mail.cache.hoverEnabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: hoverEnabled"
+    ),
+    def!(
+        "mail.cache.focusEnabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: focusEnabled"
+    ),
+    def!(
+        "mail.cache.dwellMs",
+        int(0, 10000),
+        r#"200"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: dwellMs"
+    ),
+    def!(
+        "mail.cache.idleEnabled",
+        Kind::Bool,
+        r#"false"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: idleEnabled"
+    ),
+    def!(
+        "mail.cache.idleDelayMs",
+        int(100, 60000),
+        r#"1500"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: idleDelayMs"
+    ),
+    def!(
+        "mail.cache.maxConcurrency",
+        int(1, 4),
+        r#"1"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: maxConcurrency"
+    ),
+    def!(
+        "mail.cache.maxQueued",
+        int(1, 64),
+        r#"8"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: maxQueued"
+    ),
+    def!(
+        "mail.cache.preloadMessages",
+        Kind::Bool,
+        r#"false"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: preloadMessages"
+    ),
+    def!(
+        "mail.cache.excludedFolders",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 256
+        },
+        r#"["role:trash","role:junk"]"#,
+        GDU,
+        "mail",
+        "Browser session mail cache: excludedFolders"
+    ),
+    def!(
+        "mail.templates.enabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Plain-text response templates: enabled"
+    ),
+    def!(
+        "mail.templates.allowPersonal",
+        Kind::Bool,
+        "true",
+        GDA,
+        "mail",
+        "Plain-text response templates: allowPersonal"
+    ),
+    def!(
+        "mail.templates.shared",
+        Kind::MessageTemplates,
+        "[]",
+        GDA,
+        "mail",
+        "Plain-text response templates: shared"
+    ),
+    def!(
+        "mail.templates.personal",
+        Kind::MessageTemplates,
+        "[]",
+        GDU,
+        "mail",
+        "Plain-text response templates: personal"
+    ),
     def!(
         "accounts.linkingEnabled",
         Kind::Bool,
@@ -3435,7 +3643,70 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
     {
         return bad("must contain uppercase two-letter country codes".into());
     }
+    if def.key == "mail.cache.excludedFolders"
+        && !value.as_array().is_some_and(|items| {
+            items.iter().all(|item| {
+                item.as_str().is_some_and(|v| {
+                    v.strip_prefix("id:").is_some_and(|id| !id.is_empty())
+                        || v.strip_prefix("role:").is_some_and(|role| {
+                            matches!(
+                                role,
+                                "inbox" | "drafts" | "sent" | "trash" | "junk" | "archive"
+                            )
+                        })
+                })
+            })
+        })
+    {
+        return bad("use id:<folder ID> or role:inbox/drafts/sent/trash/junk/archive".into());
+    }
     match def.kind {
+        Kind::MessageTemplates => {
+            let Some(items) = value.as_array() else {
+                return bad("must be a template list".into());
+            };
+            if items.len() > 20 || value.to_string().len() > 65536 {
+                return bad("template list exceeds its size limit".into());
+            }
+            let mut ids = std::collections::HashSet::new();
+            for (index, item) in items.iter().enumerate() {
+                let invalid = || {
+                    Refusal::invalid(
+                        &format!("{field}/{index}"),
+                        "expected unique id, plain title and plain text body within their limits",
+                    )
+                };
+                let object = item.as_object().ok_or_else(invalid)?;
+                if object.len() != 3
+                    || !object.contains_key("id")
+                    || !object.contains_key("title")
+                    || !object.contains_key("body")
+                {
+                    return Err(invalid());
+                }
+                let id = object["id"].as_str().ok_or_else(invalid)?;
+                let title = object["title"].as_str().ok_or_else(invalid)?;
+                let body = object["body"].as_str().ok_or_else(invalid)?;
+                if id.is_empty()
+                    || id.len() > 64
+                    || !id
+                        .bytes()
+                        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+                    || !ids.insert(id)
+                    || title.trim().is_empty()
+                    || title.chars().count() > 80
+                    || title.chars().any(char::is_control)
+                    || body.trim().is_empty()
+                    || body.chars().count() > 8000
+                    || body
+                        .chars()
+                        .any(|c| c.is_control() && !matches!(c, '\n' | '\r' | '\t'))
+                {
+                    return Err(invalid());
+                }
+            }
+            Ok(value.clone())
+        }
         Kind::FolderRole => mw_engine::folder_roles::parse_target(value)
             .map(|_| value.clone())
             .map_err(|detail| Refusal::invalid(field, detail)),
@@ -3570,7 +3841,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             b.is_ascii_uppercase()
                         } else if matches!(
                             def.key,
-                            "security.protection.exemptClients"
+                            "mail.cache.excludedFolders"
+                                | "security.protection.exemptClients"
                                 | "security.protection.exemptAccounts"
                                 | "security.protection.exemptAdmins"
                                 | "security.protection.userAgentPatterns"
@@ -4122,6 +4394,100 @@ impl From<StoreError> for CeilingError {
 mod tests {
     use super::*;
     use mw_store::ServerKey;
+
+    #[test]
+    fn mail_cache_policy_is_bounded_and_speculation_opt_in() {
+        for key in [
+            "enabled",
+            "mailboxes",
+            "messages",
+            "freshSeconds",
+            "maxAgeSeconds",
+            "maxEntries",
+            "maxBytes",
+            "prefetchEnabled",
+            "hoverEnabled",
+            "focusEnabled",
+            "dwellMs",
+            "idleEnabled",
+            "idleDelayMs",
+            "maxConcurrency",
+            "maxQueued",
+            "preloadMessages",
+            "excludedFolders",
+        ] {
+            let def = lookup(&format!("mail.cache.{key}")).unwrap();
+            assert_eq!(def.scopes, Scopes::GlobalDomainUser);
+            assert!(validate(def, &def.default_value(), "/value").is_ok());
+        }
+        assert_eq!(
+            lookup("mail.cache.prefetchEnabled")
+                .unwrap()
+                .default_value(),
+            json!(false)
+        );
+        assert_eq!(
+            lookup("mail.cache.preloadMessages")
+                .unwrap()
+                .default_value(),
+            json!(false)
+        );
+        assert!(
+            validate(
+                lookup("mail.cache.maxConcurrency").unwrap(),
+                &json!(5),
+                "/value"
+            )
+            .is_err()
+        );
+        assert!(
+            validate(
+                lookup("mail.cache.excludedFolders").unwrap(),
+                &json!(["trash"]),
+                "/value"
+            )
+            .is_err()
+        );
+        assert!(
+            validate(
+                lookup("mail.cache.excludedFolders").unwrap(),
+                &json!(["id:abc", "role:trash"]),
+                "/value"
+            )
+            .is_ok()
+        );
+    }
+    #[test]
+    fn message_templates_preserve_plaintext_and_reject_unbounded_or_ambiguous_input() {
+        let def = lookup("mail.templates.personal").unwrap();
+        let value = json!([{"id":"reply_1","title":"Resposta","body":"  Hello\r\n\t<literal>  "}]);
+        assert_eq!(validate(def, &value, "/value").unwrap(), value);
+        for bad in [
+            json!([{"id":"a","title":"t","body":"b","html":true}]),
+            json!([{"id":"a","title":"t","body":"b"},{"id":"a","title":"t","body":"b"}]),
+            json!([{"id":"a","title":"t","body":"\u{0000}"}]),
+            json!([{"id":"a","title":"t","body":"x".repeat(8001)}]),
+            json!([{"id":"a","title":" ","body":"b"}]),
+        ] {
+            assert!(validate(def, &bad, "/value").is_err());
+        }
+        let oversized: Vec<_> = (0..20)
+            .map(|n| json!({"id":format!("a{n}"),"title":"t","body":"é".repeat(4000)}))
+            .collect();
+        assert!(validate(def, &json!(oversized), "/value").is_err());
+        assert!(
+            !lookup("mail.templates.shared")
+                .unwrap()
+                .scopes
+                .allows(SettingScope::User)
+        );
+        assert!(
+            !lookup("mail.templates.allowPersonal")
+                .unwrap()
+                .scopes
+                .allows(SettingScope::User)
+        );
+    }
 
     fn no_env(_: &str) -> Option<String> {
         None

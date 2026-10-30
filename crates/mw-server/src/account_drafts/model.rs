@@ -38,6 +38,12 @@ pub struct EditorState {
     #[serde(default)]
     pub request_receipt: bool,
     #[serde(default)]
+    pub attach_public_key: bool,
+    #[serde(default)]
+    pub include_file_hashes: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sent_mailbox_id: Option<String>,
+    #[serde(default)]
     pub request_delivery_receipt: bool,
     #[serde(default)]
     pub open_tracking: bool,
@@ -77,6 +83,10 @@ impl EditorState {
             || !matches!(self.body_format.as_str(), "plain" | "html")
             || !header(&self.subject, 4096)
             || !header(&self.identity_id, 512)
+            || self
+                .sent_mailbox_id
+                .as_ref()
+                .is_some_and(|value| value.is_empty() || !header(value, 512))
             || self
                 .importance
                 .as_deref()
@@ -177,6 +187,20 @@ mod tests {
         assert_eq!(spec["bcc"][0]["email"], "private@example.test");
         assert!(state.to.contains("unfinished"));
         assert!(spec.get("htmlBody").is_none());
+    }
+    #[test]
+    fn outgoing_options_roundtrip_without_affecting_unsent_mime() {
+        let mut state: EditorState = serde_json::from_value(json!({"version":1,"bodyFormat":"plain","attachPublicKey":true,"includeFileHashes":true,"sentMailboxId":"archive"})).unwrap();
+        state.validate().unwrap();
+        let encoded = serde_json::to_value(&state).unwrap();
+        assert_eq!(encoded["attachPublicKey"], true);
+        assert_eq!(encoded["includeFileHashes"], true);
+        assert_eq!(encoded["sentMailboxId"], "archive");
+        assert!(state.compose_spec().get("sentMailboxId").is_none());
+        for invalid in ["".to_string(), "x".repeat(513), "bad\r\nfield".into()] {
+            state.sent_mailbox_id = Some(invalid);
+            assert_eq!(state.validate(), Err("invalidDraftState"));
+        }
     }
     #[test]
     fn protected_content_and_header_injection_are_refused() {

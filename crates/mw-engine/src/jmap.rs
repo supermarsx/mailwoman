@@ -3189,6 +3189,9 @@ impl Engine {
                 signature_html: None,
                 signature_text: None,
                 signature_name: None,
+                organization: None,
+                auto_bcc: None,
+                pgp_key_id: None,
                 sent_mailbox_id: sent,
                 source: "configured".to_string(),
             })
@@ -3232,6 +3235,9 @@ impl Engine {
                     signature_html: si.signature_html.clone(),
                     signature_text: si.signature_text.clone(),
                     signature_name: None,
+                    organization: None,
+                    auto_bcc: None,
+                    pgp_key_id: None,
                     sent_mailbox_id: sent.clone(),
                     source: "server".to_string(),
                 })
@@ -4454,12 +4460,18 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
                     .collect()
             })
             .unwrap_or_default(),
-        headers: match importance_pair(spec) {
-            Ok(Some((importance, priority))) => vec![
-                ("Importance".into(), importance.into()),
-                ("X-Priority".into(), priority.into()),
-            ],
-            _ => Vec::new(), // Every public composition entry validates the spec first.
+        headers: {
+            let mut headers = match importance_pair(spec) {
+                Ok(Some((importance, priority))) => vec![
+                    ("Importance".into(), importance.into()),
+                    ("X-Priority".into(), priority.into()),
+                ],
+                _ => Vec::new(), // Every public composition entry validates the spec first.
+            };
+            if let Ok(Some(value)) = organization_header(spec) {
+                headers.push(("Organization".into(), value.into()));
+            }
+            headers
         },
         attachments: Vec::new(),
     }
@@ -4543,6 +4555,7 @@ fn has_control(s: &str) -> bool {
 /// characters from it instead.
 fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> {
     importance_pair(spec)?;
+    organization_header(spec)?;
     let invalid = |property: &'static str, why: String| InvalidProperty { property, why };
     for field in ["to", "cc", "bcc", "replyTo"] {
         for addr in parse_addrs(spec.get(field)) {
@@ -4586,6 +4599,33 @@ fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> 
     Ok(())
 }
 
+fn organization_header(spec: &Value) -> std::result::Result<Option<&str>, InvalidProperty> {
+    let invalid = || InvalidProperty {
+        property: "header:Organization:asText",
+        why: "requires one control-free text header of at most 255 characters".into(),
+    };
+    let mut organization = None;
+    if let Some(properties) = spec.as_object() {
+        for (key, value) in properties {
+            let Some(header) = key.strip_prefix("header:") else {
+                continue;
+            };
+            let (name, form) = header.split_once(':').unwrap_or((header, ""));
+            if !name.eq_ignore_ascii_case("Organization") {
+                continue;
+            }
+            if form != "asText" || organization.is_some() {
+                return Err(invalid());
+            }
+            let value = value.as_str().ok_or_else(invalid)?;
+            if value.chars().count() > 255 || value.chars().any(char::is_control) {
+                return Err(invalid());
+            }
+            organization = Some(value);
+        }
+    }
+    Ok(organization)
+}
 /// Only the explicit matching pair is supported. Header names follow JMAP's
 /// case-insensitive matching; duplicate forms never produce ambiguous MIME.
 fn importance_pair(
@@ -5717,6 +5757,9 @@ fn identity_json(row: &IdentityRow) -> Value {
         "name": row.name,
         "email": row.email,
         "replyTo": row.reply_to,
+        "organization": row.organization,
+        "autoBcc": row.auto_bcc,
+        "pgpKeyId": row.pgp_key_id,
         "signatureHtml": row.signature_html,
         "signatureText": row.signature_text,
         "sentMailboxId": row.sent_mailbox_id,

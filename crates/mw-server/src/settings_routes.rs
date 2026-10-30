@@ -1558,6 +1558,17 @@ async fn user_put(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if key == "mail.templates.personal" {
+        for policy in ["mail.templates.enabled", "mail.templates.allowPersonal"] {
+            let effective = match user_entry(&state, &subject, policy).await {
+                Ok(value) => value,
+                Err(response) => return response,
+            };
+            if effective.value != Value::Bool(true) {
+                return user_locked(&key, &effective);
+            }
+        }
+    }
     let current = match user_entry(&state, &subject, &key).await {
         Ok(e) => e,
         Err(r) => return r,

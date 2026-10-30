@@ -1325,3 +1325,104 @@ async fn the_deployment_appearance_is_stored_and_served() {
     assert_eq!(got["theme"], "grove-dark");
     assert_eq!(got["brandName"], "Acme Mail");
 }
+
+#[tokio::test]
+async fn mail_cache_and_response_templates_obey_effective_user_policy() {
+    let (s, _pop, u, _account) = engine_user("mw-cache-templates-policy").await;
+    let a = admin(&s.base).await;
+    let base = &s.base;
+    assert_eq!(
+        entry(&u, base, "mail.cache.prefetchEnabled").await["value"],
+        false
+    );
+    assert_eq!(
+        send(
+            u.put(format!("{base}/api/settings/mail.cache.maxEntries"))
+                .json(&json!({"value":12}))
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        send(
+            u.put(format!("{base}/api/settings/mail.cache.maxConcurrency"))
+                .json(&json!({"value":9}))
+        )
+        .await
+        .0,
+        422
+    );
+    assert_eq!(
+        put_global(
+            &a,
+            base,
+            "mail.cache.enabled",
+            json!({"globalValue":false,"locked":true})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        send(
+            u.put(format!("{base}/api/settings/mail.cache.enabled"))
+                .json(&json!({"value":true}))
+        )
+        .await
+        .0,
+        403
+    );
+    let template = json!([{"id":"thanks","title":"Thanks","body":"Thank you.\n  Signed"}]);
+    let url = format!("{base}/api/settings/mail.templates.personal");
+    assert_eq!(
+        send(u.put(&url).json(&json!({"value":template}))).await.0,
+        200
+    );
+    assert_eq!(
+        entry(&u, base, "mail.templates.personal").await["value"],
+        template
+    );
+    assert_eq!(
+        put_global(
+            &a,
+            base,
+            "mail.templates.allowPersonal",
+            json!({"globalValue":false})
+        )
+        .await
+        .0,
+        200
+    );
+    let (status, body) = send(u.put(&url).json(&json!({"value":[]}))).await;
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "setting_locked");
+    assert_eq!(send(u.delete(&url)).await.0, 200);
+    assert_eq!(
+        put_global(
+            &a,
+            base,
+            "mail.templates.allowPersonal",
+            json!({"globalValue":true})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        send(u.put(&url).json(&json!({"value":template}))).await.0,
+        200
+    );
+    assert_eq!(
+        put_global(
+            &a,
+            base,
+            "mail.templates.enabled",
+            json!({"globalValue":false,"locked":true})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(send(u.put(&url).json(&json!({"value":[]}))).await.0, 403);
+}

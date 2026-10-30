@@ -119,6 +119,12 @@ struct IdentityDto {
     reply_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     signature_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    organization: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    auto_bcc: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pgp_key_id: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -363,6 +369,152 @@ async fn identities_list(State(state): State<AppState>, headers: HeaderMap) -> R
     }
 }
 
+fn identity_profile_valid(dto: &IdentityDto) -> bool {
+    let header = |v: &str, max: usize| v.chars().count() <= max && !v.chars().any(char::is_control);
+    if dto.name.trim().is_empty()
+        || !header(&dto.name, 255)
+        || mw_smtp::validate_mailbox(dto.email.trim()).is_err()
+        || dto.email != dto.email.trim()
+    {
+        return false;
+    }
+    if dto.organization.as_deref().is_some_and(|v| !header(v, 255))
+        || dto
+            .pgp_key_id
+            .as_deref()
+            .is_some_and(|v| v.is_empty() || !header(v, 128))
+        || dto
+            .signature_name
+            .as_deref()
+            .is_some_and(|v| v.is_empty() || !header(v, 255))
+    {
+        return false;
+    }
+    dto.auto_bcc
+        .as_deref()
+        .is_none_or(|v| identity_address_list_valid(v, 20))
+        && dto
+            .reply_to
+            .as_deref()
+            .is_none_or(|v| identity_address_list_valid(v, 20))
+}
+fn identity_address_list_valid(raw: &str, max: usize) -> bool {
+    if raw.chars().count() > 4096 || raw.chars().any(char::is_control) {
+        return false;
+    }
+    if raw.trim().is_empty() {
+        return true;
+    }
+    let mut entries = Vec::new();
+    let mut current = String::new();
+    let (mut quoted, mut angle, mut escaped) = (false, false, false);
+    for c in raw.chars() {
+        if escaped {
+            current.push(c);
+            escaped = false;
+            continue;
+        }
+        if c == '\\' && quoted {
+            current.push(c);
+            escaped = true;
+            continue;
+        }
+        if c == '"' && !angle {
+            quoted = !quoted;
+        } else if c == '<' && !quoted {
+            if angle {
+                return false;
+            }
+            angle = true;
+        } else if c == '>' && !quoted {
+            if !angle {
+                return false;
+            }
+            angle = false;
+        }
+        if matches!(c, ',' | ';') && !quoted && !angle {
+            if !current.trim().is_empty() {
+                entries.push(current.trim().to_owned());
+            }
+            current.clear();
+        } else {
+            current.push(c);
+        }
+    }
+    if quoted || angle || escaped {
+        return false;
+    }
+    if !current.trim().is_empty() {
+        entries.push(current.trim().to_owned());
+    }
+    !entries.is_empty()
+        && entries.len() <= max
+        && entries.iter().all(|entry| {
+            let addr = if let Some((display, tail)) = entry.split_once('<') {
+                if display.contains('>')
+                    || !tail.ends_with('>')
+                    || tail[..tail.len() - 1].contains(['<', '>'])
+                {
+                    return false;
+                }
+                tail[..tail.len() - 1].trim()
+            } else {
+                entry.as_str()
+            };
+            mw_smtp::validate_mailbox(addr).is_ok()
+        })
+}
+async fn identity_references_valid(
+    store: &Store,
+    owner: &str,
+    native_account: &str,
+    dto: &IdentityDto,
+) -> Result<bool, StoreError> {
+    if let Some(name) = &dto.signature_name {
+        if !store
+            .list_personal_signatures(owner)
+            .await?
+            .iter()
+            .any(|row| &row.name == name)
+        {
+            return Ok(false);
+        }
+    }
+    if let Some(id) = &dto.pgp_key_id {
+        if store
+            .native_personal_subject(native_account)
+            .await?
+            .as_deref()
+            != Some(owner)
+        {
+            return Ok(false);
+        }
+        let Some(key) = store.get_crypto_key(native_account, id).await? else {
+            return Ok(false);
+        };
+        if !key.is_own || key.kind != "pgp" || key.trust == "revoked" {
+            return Ok(false);
+        }
+        let Some(public) = key.public_key else {
+            return Ok(false);
+        };
+        if !mw_crypto::pgp::inspect_key(&public).is_ok_and(|info| {
+            info.state == "valid"
+                && info.can_sign
+                && info.user_ids.iter().any(|uid| {
+                    uid.state == "valid"
+                        && uid
+                            .address
+                            .as_deref()
+                            .is_some_and(|address| address.eq_ignore_ascii_case(&dto.email))
+                })
+        }) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
 async fn identities_upsert(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -372,13 +524,18 @@ async fn identities_upsert(
         Ok(a) => a,
         Err(r) => return r,
     };
-    if body.name.trim().is_empty() || body.email.trim().is_empty() {
-        return bad_request("an identity needs a name and an email");
+    if !identity_profile_valid(&body) {
+        return bad_request("invalid identity profile or recipient list");
     }
     let account = match personal_record_owner(&state, &headers, true).await {
         Ok(owner) => owner,
         Err(response) => return response,
     };
+    match identity_references_valid(&state.store, &account, &session.account_id, &body).await {
+        Ok(true) => {}
+        Ok(false) => return bad_request("the selected signature or signing key is unavailable"),
+        Err(e) => return server_error("identity references", e),
+    }
     match identity_address_allowed(&state, &session, &body.email).await {
         Ok(true) => {},
         Ok(false) => return (StatusCode::FORBIDDEN, Json(json!({"error":"This address is not authorized for sending. Choose your account address or an administrator-approved alias.", "code":"forbiddenFrom"}))).into_response(),
@@ -1001,6 +1158,9 @@ async fn do_upsert_identity(
             signature_html: existing.as_ref().and_then(|row| row.signature_html.clone()),
             signature_text: existing.as_ref().and_then(|row| row.signature_text.clone()),
             signature_name: dto.signature_name.clone(),
+            organization: dto.organization.clone(),
+            auto_bcc: dto.auto_bcc.clone(),
+            pgp_key_id: dto.pgp_key_id.clone(),
             sent_mailbox_id: existing
                 .as_ref()
                 .and_then(|row| row.sent_mailbox_id.clone()),
@@ -1089,6 +1249,9 @@ fn identity_to_dto(row: &IdentityRow) -> IdentityDto {
         email: row.email.clone(),
         reply_to: row.reply_to.clone(),
         signature_name: row.signature_name.clone(),
+        organization: row.organization.clone(),
+        auto_bcc: row.auto_bcc.clone(),
+        pgp_key_id: row.pgp_key_id.clone(),
     }
 }
 
@@ -1591,6 +1754,113 @@ mod tests {
         assert_eq!(list[0].name, "Mine");
     }
 
+    #[test]
+    fn identity_profile_rejects_header_injection_and_invalid_recipient_lists() {
+        let mut dto:IdentityDto=serde_json::from_value(json!({"name":"Work","email":"me@example.org","organization":"Example","autoBcc":"\"Audit, Team\" <audit@example.org>; second@example.org"})).unwrap();
+        assert!(identity_profile_valid(&dto));
+        for raw in [
+            "x@example.org\r\nBcc: victim@example.org",
+            "bad",
+            "Name <ok@example.org> trailing",
+            "\"unclosed <x@example.org>",
+        ] {
+            dto.auto_bcc = Some(raw.into());
+            assert!(!identity_profile_valid(&dto));
+        }
+        dto.auto_bcc = Some(
+            (0..21)
+                .map(|n| format!("u{n}@example.org"))
+                .collect::<Vec<_>>()
+                .join(","),
+        );
+        assert!(!identity_profile_valid(&dto));
+        dto.auto_bcc = None;
+        dto.organization = Some("x\nBcc: bad@example.org".into());
+        assert!(!identity_profile_valid(&dto));
+        dto.organization = Some("é".repeat(256));
+        assert!(!identity_profile_valid(&dto));
+        dto.organization = None;
+        dto.reply_to = Some("bad\r\nTo: x@example.org".into());
+        assert!(!identity_profile_valid(&dto));
+    }
+    #[tokio::test]
+    async fn identity_references_require_owned_signature_and_valid_own_signing_key() {
+        let store = store().await;
+        let account = seed_account(&store, "owner@example.org").await;
+        let owner = store
+            .native_personal_subject(&account)
+            .await
+            .unwrap()
+            .unwrap();
+        let mut dto: IdentityDto = serde_json::from_value(
+            json!({"name":"Work","email":"owner@example.org","signatureName":"foreign"}),
+        )
+        .unwrap();
+        assert!(
+            !identity_references_valid(&store, &owner, &account, &dto)
+                .await
+                .unwrap()
+        );
+        dto.signature_name = None;
+        dto.pgp_key_id = Some("own-key".into());
+        assert!(
+            !identity_references_valid(&store, &owner, &account, &dto)
+                .await
+                .unwrap()
+        );
+        let generated =
+            mw_crypto::pgp::generate_key("Owner <owner@example.org>", "test-pass").unwrap();
+        let mut key = mw_store::CryptoKeyRow {
+            id: "own-key".into(),
+            account_id: account.clone(),
+            kind: "pgp".into(),
+            is_own: true,
+            addresses_json: "[]".into(),
+            fingerprint: generated.fingerprint,
+            key_id: generated.key_id,
+            algorithm: "ed25519".into(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            expires_at: None,
+            public_key: Some(generated.public_key_armored),
+            cert_pem: None,
+            trust: "verified".into(),
+            autocrypt: false,
+            source: "import".into(),
+            encrypted_private_backup: None,
+            verified_at: None,
+            key_history_json: "[]".into(),
+        };
+        store.upsert_crypto_key(&key).await.unwrap();
+        assert!(
+            identity_references_valid(&store, &owner, &account, &dto)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !identity_references_valid(&store, "foreign-owner", &account, &dto)
+                .await
+                .unwrap()
+        );
+        dto.email = "different@example.org".into();
+        assert!(!identity_references_valid(&store, &owner, &account, &dto).await.unwrap());
+        dto.email = "owner@example.org".into();
+        key.is_own = false;
+        store.upsert_crypto_key(&key).await.unwrap();
+        assert!(
+            !identity_references_valid(&store, &owner, &account, &dto)
+                .await
+                .unwrap()
+        );
+        key.is_own = true;
+        key.trust = "revoked".into();
+        store.upsert_crypto_key(&key).await.unwrap();
+        assert!(
+            !identity_references_valid(&store, &owner, &account, &dto)
+                .await
+                .unwrap()
+        );
+    }
+
     // ── identities ────────────────────────────────────────────────────────────
 
     #[tokio::test]
@@ -1606,6 +1876,9 @@ mod tests {
                 email: "sales@example.com".into(),
                 reply_to: Some("help@example.com".into()),
                 signature_name: Some("work".into()),
+                organization: Some("Example Company".into()),
+                auto_bcc: Some("Audit <audit@example.com>; second@example.com".into()),
+                pgp_key_id: Some("pgp-test".into()),
             },
         )
         .await
@@ -1620,6 +1893,12 @@ mod tests {
         // signatureName persists (0020 column) and survives the GET round-trip.
         assert_eq!(list[0].signature_name.as_deref(), Some("work"));
 
+        assert_eq!(list[0].organization.as_deref(), Some("Example Company"));
+        assert_eq!(
+            list[0].auto_bcc.as_deref(),
+            Some("Audit <audit@example.com>; second@example.com")
+        );
+        assert_eq!(list[0].pgp_key_id.as_deref(), Some("pgp-test"));
         assert!(do_delete_identity(&s, &a1, &id).await.unwrap());
         assert!(do_list_identities(&s, &a1).await.unwrap().is_empty());
     }
@@ -1667,6 +1946,9 @@ mod tests {
             signature_html: Some("<p>Provider</p>".into()),
             signature_text: Some("Provider text".into()),
             signature_name: None,
+            organization: None,
+            auto_bcc: None,
+            pgp_key_id: None,
             sent_mailbox_id: Some("sent".into()),
             source: "server".into(),
         })
@@ -1681,6 +1963,9 @@ mod tests {
                 email: "primary@example.org".into(),
                 reply_to: None,
                 signature_name: Some("local-template".into()),
+                organization: None,
+                auto_bcc: None,
+                pgp_key_id: None,
             },
         )
         .await
@@ -1710,6 +1995,9 @@ mod tests {
                 email: "sales@example.com".into(),
                 reply_to: None,
                 signature_name: None,
+                organization: None,
+                auto_bcc: None,
+                pgp_key_id: None,
             },
         )
         .await
@@ -1728,6 +2016,9 @@ mod tests {
                     email: "evil@example.com".into(),
                     reply_to: None,
                     signature_name: None,
+                    organization: None,
+                    auto_bcc: None,
+                    pgp_key_id: None,
                 },
             )
             .await

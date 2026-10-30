@@ -1369,3 +1369,109 @@ User-agent protection is independently enabled (`userAgentMode: enforce`) even w
 `userAgentPatterns` and `userAgentExceptions` accept at most 32 case-insensitive Rust regular expressions, each at most 256 bytes, with bounded compiled size and no backreferences/lookaround. Additional matches use the custom weak class. Exceptions affect only this dimension, never other sign-in, rate or adaptive protections. Source addresses use the existing trusted-proxy rules and keyed identifiers; raw headers are not retained. The editor simulator previews the same classifier and policy without updating counters.
 
 The optional [client interface access gate](client-access.md) has a dedicated redacted, conditional API rather than plaintext settings-registry keys. Access-key and entry-slug restrictions both default to disabled.
+
+## Session mail cache and speculative reads
+
+The `mail.cache.*` policies apply to the current authenticated mailbox session.
+Global/domain defaults and locks govern user overrides. This cache stores only
+session memory; it does not enable persistent offline storage. Opening a cached
+folder or message can paint immediately while the authenticated transport refreshes
+it. Changes, sign-out and account-authority transitions invalidate cached data.
+Serialized UTF-8 payload bytes count against the configured budget; browser object
+and allocator overhead is not included in that number.
+
+<a id="mail.cache.enabled"></a>
+`mail.cache.enabled` — Enable session-memory caching. Default: `true`.
+
+<a id="mail.cache.mailboxes"></a>
+`mail.cache.mailboxes` — Cache folder first pages. Default: `true`.
+
+<a id="mail.cache.messages"></a>
+`mail.cache.messages` — Cache opened message payloads. Default: `true`.
+
+<a id="mail.cache.refreshOnOpen"></a>
+`mail.cache.refreshOnOpen` — Refresh in the background on every explicit open; false permits fresh-cache reuse. Default: `true`.
+
+<a id="mail.cache.freshSeconds"></a>
+`mail.cache.freshSeconds` — Fresh reuse interval,0–3600seconds, clamped to maximum age. Default: `30`.
+
+<a id="mail.cache.maxAgeSeconds"></a>
+`mail.cache.maxAgeSeconds` — Maximum age,1–86400seconds. Default: `300`.
+
+<a id="mail.cache.maxEntries"></a>
+`mail.cache.maxEntries` — LRU entry limit,1–512. Default: `32`.
+
+<a id="mail.cache.maxBytes"></a>
+`mail.cache.maxBytes` — Serialized payload budget,65536–268435456bytes. Default: `16777216`.
+
+<a id="mail.cache.prefetchEnabled"></a>
+`mail.cache.prefetchEnabled` — Master opt-in for speculative reads. Default: `false`.
+
+<a id="mail.cache.hoverEnabled"></a>
+`mail.cache.hoverEnabled` — Pointer dwell triggers, only when master enabled. Default: `true`.
+
+<a id="mail.cache.focusEnabled"></a>
+`mail.cache.focusEnabled` — Keyboard focus triggers, only when master enabled. Default: `true`.
+
+<a id="mail.cache.dwellMs"></a>
+`mail.cache.dwellMs` — Pointer/focus dwell,0–10000milliseconds. Default: `200`.
+
+<a id="mail.cache.idleEnabled"></a>
+`mail.cache.idleEnabled` — Idle folder warming, only when master enabled. Default: `false`.
+
+<a id="mail.cache.idleDelayMs"></a>
+`mail.cache.idleDelayMs` — Idle delay,100–60000milliseconds. Default: `1500`.
+
+<a id="mail.cache.maxConcurrency"></a>
+`mail.cache.maxConcurrency` — Background read concurrency,1–4. Default: `1`.
+
+<a id="mail.cache.maxQueued"></a>
+`mail.cache.maxQueued` — Waiting speculative requests,1–64. Default: `8`.
+
+<a id="mail.cache.preloadMessages"></a>
+`mail.cache.preloadMessages` — Allow speculative message payload reads. Default: `false`.
+
+<a id="mail.cache.excludedFolders"></a>
+`mail.cache.excludedFolders` — Exact role:<role> or id:<folder ID> exclusions, up to100rules. Default: `["role:trash","role:junk"]`.
+
+Speculative reads use the existing configured transport and never activate a
+reader, mark messages read, issue read receipts, fetch attachments, or fetch/sign
+remote images. Foreground reads take priority; disablement and authority changes
+cancel pending work. Save-Data, hidden documents and offline state suppress new
+speculative work. Existing sanitizer/quarantine rules still apply to displayed
+message bodies.
+
+## Plain-text response templates
+
+<a id="mail.templates.enabled"></a>
+`mail.templates.enabled` defaults to true and supports global/domain/user defaults
+and locks. It controls template use; it never sends a message automatically.
+
+<a id="mail.templates.allowPersonal"></a>
+`mail.templates.allowPersonal` defaults to true and is administrative only
+(global/domain/admin-user). False refuses new personal-template writes; removal
+remains available.
+
+<a id="mail.templates.shared"></a>
+`mail.templates.shared` defaults to an empty list and is administrative only.
+
+<a id="mail.templates.personal"></a>
+`mail.templates.personal` defaults to an empty list and supports user overrides.
+Writes require effective enabled and allowPersonal policies. Each list permits
+20 unique entries with exact fields id/title/body: ASCII identifier1–64,
+nonblank title1–80 Unicode characters without controls, and nonblank literal body
+up to8000 Unicode characters permitting line breaks and tabs. The serialized list
+is limited to65536bytes. Unknown fields, duplicate IDs and forbidden controls are
+rejected. Text and whitespace are preserved; templates are never evaluated as code
+or HTML.
+
+<a id="mail.composeWindow"></a>
+`mail.composeWindow` chooses tab (default) or window for composing; global/domain/user policy.
+<a id="mail.replyCopyToOriginal"></a>
+`mail.replyCopyToOriginal` defaults false; prefer the original folder for reply copies when allowed.
+<a id="mail.forwardMode"></a>
+`mail.forwardMode` chooses inline (default) or attachment forwarding; global/domain/user policy.
+
+### Sending identity defaults
+
+An account's saved sending identities retain an optional organization (up to 255 characters), automatic Bcc recipient list (up to 20 addresses and 4096 characters), and associated OpenPGP signing-key ID. These are defaults for the composer, not additional permission to use a sender address. Reply-To and the selected signature remain separate fields. Header control characters and invalid recipient lists are refused. Signature references must belong to the current personal identity; signing-key associations must refer to a valid, own, signing-capable OpenPGP key in the current native account. Existing identities are preserved when upgrading. SQLite and PostgreSQL persist the fields, including store transfers.

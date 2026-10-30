@@ -250,6 +250,9 @@ async fn personal_documents_are_realm_bound_and_legacy_values_remain_inert() {
                 signature_html: None,
                 signature_text: None,
                 signature_name: None,
+                organization: None,
+                auto_bcc: None,
+                pgp_key_id: None,
                 sent_mailbox_id: None,
                 source: "configured".into(),
             })

@@ -2173,6 +2173,7 @@ mod admin_controls_0033 {
             ("owner_subject",'T',"!","po1-delivery-owner"),("id",'T',"!","owned-profile"),("name",'T',"=","Work"),("email",'T',"!","owner@example.test"),
             ("reply_to",'T',"~","reply@example.test"),("signature_html",'T',"~","<p>Rich</p>"),("signature_text",'T',"~","Plain"),("signature_name",'T',"~","Work"),
             ("sent_mailbox_id",'T',"~","sent-personal"),("source",'T',"=configured","configured"),
+            ("organization",'T',"~","Example Organization"),("auto_bcc",'T',"~","Audit <audit@example.test>"),("pgp_key_id",'T',"~","owned-key"),
         ]},
         NewTable {name:"personal_notification_rules",copied:true,cols:&[
             ("owner_subject",'T',"!","po1-delivery-owner"),("rule_json",'T',"!","[]"),("quiet_hours_json",'T',"!","{}"),("enabled",'I',"=0","1"),("updated_at",'T',"!",TS),

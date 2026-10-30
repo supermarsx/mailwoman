@@ -8,12 +8,12 @@ impl Store {
     pub async fn upsert_personal_identity(&self, i: &IdentityRow) -> Result<(), StoreError> {
         let affected = q(
             "INSERT INTO personal_identity
-                 (id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+                 (id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
              ON CONFLICT(owner_subject,id) DO UPDATE SET
                  name = excluded.name, email = excluded.email, reply_to = excluded.reply_to,
                  signature_html = excluded.signature_html, signature_text = excluded.signature_text,
-                 signature_name = excluded.signature_name,
+                 signature_name = excluded.signature_name, organization = excluded.organization, auto_bcc = excluded.auto_bcc, pgp_key_id = excluded.pgp_key_id,
                  sent_mailbox_id = excluded.sent_mailbox_id, source = excluded.source
              WHERE personal_identity.owner_subject = excluded.owner_subject",
         )
@@ -27,6 +27,9 @@ impl Store {
         .bind(i.signature_name.as_deref())
         .bind(i.sent_mailbox_id.as_deref())
         .bind(&i.source)
+        .bind(i.organization.as_deref())
+        .bind(i.auto_bcc.as_deref())
+        .bind(i.pgp_key_id.as_deref())
         .execute(&self.backend)
         .await?;
         if affected == 0 {
@@ -41,7 +44,7 @@ impl Store {
         owner_subject: &str,
     ) -> Result<Vec<IdentityRow>, StoreError> {
         let rows = q(
-            "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source
+            "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id
              FROM personal_identity WHERE owner_subject = ?1 ORDER BY source, email",
         )
         .bind(owner_subject)
@@ -57,7 +60,7 @@ impl Store {
         id: &str,
     ) -> Result<Option<IdentityRow>, StoreError> {
         let row = q(
-            "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source
+            "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id
              FROM personal_identity WHERE id = ?1 AND owner_subject = ?2",
         )
         .bind(id).bind(owner_subject)
@@ -265,6 +268,9 @@ fn identity_from_row(r: &Row) -> IdentityRow {
         signature_html: r.get_opt_string("signature_html"),
         signature_text: r.get_opt_string("signature_text"),
         signature_name: r.get_opt_string("signature_name"),
+        organization: r.get_opt_string("organization"),
+        auto_bcc: r.get_opt_string("auto_bcc"),
+        pgp_key_id: r.get_opt_string("pgp_key_id"),
         sent_mailbox_id: r.get_opt_string("sent_mailbox_id"),
         source: r.get_string("source"),
     }
@@ -305,6 +311,9 @@ mod tests {
             signature_html: Some("<p>Rich</p>".into()),
             signature_text: Some("Plain".into()),
             signature_name: Some("work".into()),
+            organization: Some(format!("Company {owner}")),
+            auto_bcc: Some("Audit <audit@example.test>; second@example.test".into()),
+            pgp_key_id: Some(format!("key-{owner}")),
             sent_mailbox_id: None,
             source: "configured".into(),
         };
@@ -342,6 +351,17 @@ mod tests {
                 .unwrap()
                 .is_some()
         );
+        let row = store
+            .get_personal_identity("po1-a", "shared-provider-id")
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(row.organization.as_deref(), Some("Company po1-a"));
+        assert_eq!(
+            row.auto_bcc.as_deref(),
+            Some("Audit <audit@example.test>; second@example.test")
+        );
+        assert_eq!(row.pgp_key_id.as_deref(), Some("key-po1-a"));
         let rules = NotificationRulesRow {
             account_id: "po1-a".into(),
             enabled: true,

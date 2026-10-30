@@ -923,6 +923,9 @@ async fn sender_test_identity(h: &Harness, id: &str, address: &str) {
             signature_html: None,
             signature_text: None,
             signature_name: None,
+            organization: None,
+            auto_bcc: None,
+            pgp_key_id: None,
             sent_mailbox_id: None,
             source: "configured".into(),
         })
@@ -1068,6 +1071,9 @@ async fn sender_authority_foreign_identity_is_indistinguishable_from_missing() {
             signature_html: None,
             signature_text: None,
             signature_name: None,
+            organization: None,
+            auto_bcc: None,
+            pgp_key_id: None,
             sent_mailbox_id: None,
             source: "configured".into(),
         })
@@ -1324,5 +1330,51 @@ async fn importance_headers_refuse_injection_duplicates_and_conflicting_pairs_be
             "{response}"
         );
         assert_eq!(h.submitter.calls(), 0);
+    }
+}
+
+#[tokio::test]
+async fn organization_header_reaches_smtp_and_refuses_ambiguous_or_unsafe_forms() {
+    let h = setup(SentAppend::Accept, Smtp::Deliver).await;
+    let mut draft = draft_create();
+    draft[1]["create"]["draft"]["header:organization:asText"] = json!("Example Company");
+    let response=jmap(&h,json!([draft,["EmailSubmission/set",{"create":{"s1":{"emailId":"#draft","mailwomanHoldSeconds":0}}},"send"]])).await;
+    assert!(
+        result(&response, "send")["created"]["s1"].is_object(),
+        "{response}"
+    );
+    {
+        let messages = h.submitter.raw_messages.lock().unwrap();
+        assert_eq!(messages.len(), 1);
+        let raw = String::from_utf8_lossy(&messages[0]);
+        assert!(
+            raw.split("\r\n\r\n")
+                .next()
+                .unwrap()
+                .lines()
+                .any(|line| line == "Organization: Example Company"),
+            "{raw}"
+        );
+    }
+    for extra in [
+        json!({"header:Organization:asText":"Company\r\nBcc:other@example.org"}),
+        json!({"header:Organization:asText":"Company","header:organization:asText":"Other"}),
+        json!({"header:Organization:asText":["Company"]}),
+        json!({"header:Organization":"Company"}),
+        json!({"header:Organization:asRaw":"Company"}),
+        json!({"header:Organization:asText":"x".repeat(256)}),
+    ] {
+        let mut draft = draft_create();
+        draft[1]["create"]["draft"]
+            .as_object_mut()
+            .unwrap()
+            .extend(extra.as_object().unwrap().clone());
+        let response = jmap(&h, json!([draft])).await;
+        assert_eq!(
+            result(&response, "c1")["notCreated"]["draft"]["type"],
+            "invalidProperties",
+            "{response}"
+        );
+        assert_eq!(h.submitter.calls(), 1);
     }
 }
