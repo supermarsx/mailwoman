@@ -282,11 +282,14 @@ printf 'build: %s\n' "$(tr '\n' ' ' < "$DEPLOY_TEST_BUILD_ARGS" | cut -d' ' -f1-
 
 run init --project "$PROJECT" --port "$PORT"
 SERVER_KEY=$(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env")
+BOOTSTRAP_ADMIN_USER=$(awk -F= '$1 == "MW_ADMIN_USER" {print $2}' "$STATE/app.env")
+[[ $BOOTSTRAP_ADMIN_USER =~ ^admin-[0-9a-f]{12}$ ]] || fail 'init wrote no readable random admin username'
 run init
 # Repeating the setup options unchanged is accepted; a different value is refused.
 run init --project "$PROJECT" --port "$PORT"
 reject init --port $((PORT + 1))
 [[ $(awk -F= '$1 == "MW_SERVER_KEY" {print $2}' "$STATE/app.env") == "$SERVER_KEY" ]] || fail 'init rotated key'
+[[ $(awk -F= '$1 == "MW_ADMIN_USER" {print $2}' "$STATE/app.env") == "$BOOTSTRAP_ADMIN_USER" ]] || fail 'init renamed the existing administrator'
 printf 'DEPLOY_LITERAL_TEST=dollar$sign with spaces and "quotes"\n' >> "$STATE/app.env"
 run doctor
 mkdir "$STATE/.lock"

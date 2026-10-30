@@ -21,6 +21,14 @@ helm install mailwoman packaging/helm/mailwoman \
 
 ## Security posture (defaults)
 
+The chart does not create or default an administrator identity. For a new account,
+choose a readable name once, for example `admin-$(openssl rand -hex 6)`, and persist
+that value in your deployment configuration or existing credential Secret before
+installing. Supply the same `MW_ADMIN_USER` on subsequent releases; keep the
+password in your organization's secret-management system. Do not generate a new
+name inside a Helm template on every render or upgrade. Existing explicit names
+remain valid and must not be renamed as part of an upgrade.
+
 The pod ships locked down out of the box:
 
 - runs as non-root uid/gid 65532; `runAsNonRoot: true`

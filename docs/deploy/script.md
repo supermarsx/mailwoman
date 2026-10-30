@@ -170,7 +170,9 @@ and the state directory uses `0700` on filesystems supporting Unix permissions.
 - `backups/`: data and configuration snapshots. `rollback.path` identifies the
   snapshot taken before the most recent deployment attempt.
 
-The admin username is initially `admin`; retrieve its generated password privately
+New installations receive a readable random username, `admin-` followed by 12 hex
+characters. Setup prints the username and saves it as `MW_ADMIN_USER`; existing
+installations keep their configured name across deploys and upgrades. Retrieve its generated password privately
 from `app.env`. `init` also writes a random `MW_METRICS_TOKEN`, the bearer token
 for `/metrics`; [monitoring.md](monitoring.md) covers metrics, `check` and
 `ALERT_HOOK`. Mailbox users authenticate against their mail provider. Secrets are

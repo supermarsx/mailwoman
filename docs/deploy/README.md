@@ -88,11 +88,25 @@ pluggable Postgres, layered Valkey/Redis cache, observability) adds:
 
 ## Configuration (environment)
 
+Valid sessions survive normal server restarts when the database and its sealing
+key are retained. Without an explicit key, SQLite creates a `.server-key` sidecar
+beside the database; back up both files together. Do not delete or replace the key
+to repair a startup error. On Windows, generated sidecars are protected with
+DPAPI and must be opened by the same OS identity; use a managed `MW_SERVER_KEY`
+for portable backups or deployments across identities. PostgreSQL requires an
+explicit key or key-file path shared by its replicas. In-memory databases remain
+ephemeral. Sessions still expire and remain subject to logout and revocation.
+
+An old session encrypted with a previously discarded ephemeral key cannot be
+recovered; users need to sign in once after that upgrade. Thereafter the saved
+key is reused by the server and administrative CLI commands.
+
 | Env | Default | Meaning |
 |-----|---------|---------|
 | `MW_BIND` | `0.0.0.0:8080` | Listen address for the HTTP server. |
 | `MW_DB_PATH` | `mailwoman.db` | Store DSN. A bare path or `sqlite://…` selects the SQLite backend (default); a `postgres://…` DSN selects Postgres (V6, see [`postgres.md`](./postgres.md)). |
-| `MW_SERVER_KEY` | *(ephemeral)* | Hex-encoded 32-byte key sealing upstream creds. **Set it** in production so sessions survive restarts; keep it secret. Generate: `openssl rand -hex 32`. |
+| `MW_SERVER_KEY` | *(persistent SQLite sidecar)* | Hex-encoded 32-byte key sealing stored secrets. Overrides key files. Keep the same key across restarts and replicas. Generate: `openssl rand -hex 32`. |
+| `MW_SERVER_KEY_FILE` | `<SQLite database>.server-key` | Persistent key file, loaded or atomically created. Required for PostgreSQL when `MW_SERVER_KEY` is unset; replicas must share the same key. Unix files require private permissions (`0600`). Generated Windows files use DPAPI for the server's OS identity. |
 | `MW_RENDER_BIN` | *(auto-detect)* | Path to `mw-render`. The image sets `/usr/local/bin/mw-render`. |
 | `MW_WEB_DIR` | *(embedded)* | Serve the SPA from disk instead of the embedded copy (dev override). |
 | `MW_COOKIE_SECURE` | `false` | Mark the session cookie `Secure`. **Set `true` behind TLS** (i.e. always in production). |
@@ -163,6 +177,21 @@ without it.
   body no longer overrides it.
 * Desktop and mobile apps built before this release still send the server they
   found to `/api/login` and are refused; rebuild them from this release.
+
+### New administrator names
+
+For a new installation, `deploy.sh init` generates a readable username such as
+`admin-7a93c284f016` using six cryptographically random bytes. It prints the
+username and saves it with the independently generated password in the private
+`app.env` file (`MW_ADMIN_USER` / `MW_ADMIN_PASSWORD`). Retrieve the password
+privately from that file; setup output never prints it.
+
+The name is generated once. Re-running setup, deploying, restarting or upgrading
+keeps the existing file and identity, including an explicitly configured username.
+This change never renames existing administrators. Back up `app.env` with the data.
+You may edit the initial username before the first deployment. Its random suffix
+reduces predictable account-name guessing; password authentication and MFA remain
+necessary.
 
 ### Moving the admin console
 

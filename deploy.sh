@@ -575,14 +575,17 @@ fi
 initialize() {
     [[ ! -e $STATE/deploy.env && ! -e $STATE/app.env ]] || die "Partial configuration found; retain the existing key and complete both deploy.env and app.env"
     need od
-    local key password metrics admin_path='' byte alphabet=abcdefghijkmnpqrstuvwxyz23456789
+    local key password metrics admin_user admin_path='' byte alphabet=abcdefghijkmnpqrstuvwxyz23456789
     key=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
     password=$(od -An -N24 -tx1 /dev/urandom | tr -d ' \n')
     metrics=$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')
+    # First configuration creation only: retain this readable random identity in
+    # app.env across deploys, restarts and upgrades, just like the password/key.
+    admin_user="admin-$(od -An -N6 -tx1 /dev/urandom | tr -d ' \n')"
     # The admin console's path: 20 characters from a 32-symbol alphabet (5 random
     # bits each), the same shape the server generates on a first start.
     for byte in $(od -An -N20 -tu1 /dev/urandom); do admin_path+=${alphabet:$((byte & 31)):1}; done
-    [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 && ${#admin_path} == 20 ]] || die "Failed to generate secrets"
+    [[ ${#key} == 64 && ${#password} == 48 && ${#metrics} == 64 && ${#admin_path} == 20 && $admin_user =~ ^admin-[0-9a-f]{12}$ ]] || die "Failed to generate secrets"
     # New installations get the Helm chart's limits; deploy.env files written
     # before these keys existed keep running without one.
     MEMORY_LIMIT=1g
@@ -592,7 +595,8 @@ initialize() {
 # Raw Docker environment: values are literal; do not quote or escape dollars.
 # Preserve MW_SERVER_KEY across upgrades. Back up this file with the data.
 MW_SERVER_KEY=$key
-MW_ADMIN_USER=admin
+# Generated only for this new installation. Keep this identity on upgrades.
+MW_ADMIN_USER=$admin_user
 MW_ADMIN_PASSWORD=$password
 # The admin console answers only at this path (generated for this install;
 # /admin and every other path answer 404). Fewer scans and drive-by sign-in
@@ -620,6 +624,7 @@ MW_METRICS_TOKEN=$metrics
 EOF
     chmod 600 "$STATE/deploy.env" "$STATE/app.env"
     log "Created $STATE/deploy.env and app.env (admin credentials and the metrics token are in app.env)"
+    log "Admin username: $admin_user (MW_ADMIN_USER in app.env; retrieve the password privately from that file)"
     log "Admin console path: /$admin_path/ under the public URL (kept in app.env as MW_ADMIN_PATH)"
 }
 # The country database for country sign-in policies (t96): DB-IP "IP to Country
