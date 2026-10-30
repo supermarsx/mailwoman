@@ -1,9 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import { renderWithApp, mkEmail } from '../appHarness.tsx';
 import { SearchBox } from './SearchBox.tsx';
 import { relatedSearchActions } from './ReaderSearchMenu.tsx';
 import type { AppState } from '../../state/store.ts';
+
+afterEach(() => vi.useRealTimers());
 
 async function setup(): Promise<{ app: AppState; input: HTMLInputElement }> {
   const { app } = renderWithApp(() => <SearchBox />, { emails: [mkEmail('a', { subject: 'Hello' })] });
@@ -20,6 +22,67 @@ const submit = (input: HTMLInputElement, text: string): void => {
 };
 
 describe('SearchBox (t88)', () => {
+  it('searches the latest typed query after a short pause without submitting', async () => {
+    const {app,input}=await setup();
+    const search=vi.spyOn(app,'searchMessages');
+    vi.useFakeTimers();
+    fireEvent.input(input,{target:{value:'he'}});
+    await vi.advanceTimersByTimeAsync(150);
+    fireEvent.input(input,{target:{value:'hello'}});
+    await vi.advanceTimersByTimeAsync(249);
+    expect(search).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(1);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith('hello',{semantic:false});
+    expect(app.search()).toBe('hello');
+  });
+
+  it('submits immediately once and cancels queued typing when cleared', async () => {
+    const {app,input}=await setup();
+    const search=vi.spyOn(app,'searchMessages');
+    vi.useFakeTimers();
+    submit(input,'hello');
+    expect(search).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(search).toHaveBeenCalledTimes(1);
+    fireEvent.input(input,{target:{value:'later'}});
+    fireEvent.keyDown(input,{key:'Escape'});
+    await vi.advanceTimersByTimeAsync(400);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(input.value).toBe('');
+    expect(app.searchActive()).toBe(false);
+  });
+
+  it('waits for composed text and never searches an unfinished IME sequence', async () => {
+    const {app,input}=await setup();
+    const search=vi.spyOn(app,'searchMessages');
+    vi.useFakeTimers();
+    fireEvent.compositionStart(input);
+    fireEvent.input(input,{target:{value:'東'}});
+    fireEvent.submit(input.closest('form')!);
+    await vi.advanceTimersByTimeAsync(400);
+    expect(search).not.toHaveBeenCalled();
+    fireEvent.compositionEnd(input,{target:{value:'東京'}});
+    await vi.advanceTimersByTimeAsync(250);
+    expect(search).toHaveBeenCalledTimes(1);
+    expect(search).toHaveBeenCalledWith('東京',{semantic:false});
+  });
+
+  it('cancels a typed query when a folder navigation or external search supersedes it', async () => {
+    const {app,input}=await setup();
+    const search=vi.spyOn(app,'searchMessages');
+    vi.useFakeTimers();
+    fireEvent.input(input,{target:{value:'old mailbox query'}});
+    await app.selectMailbox('archive');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(search).not.toHaveBeenCalled();
+    fireEvent.input(input,{target:{value:'old typed query'}});
+    await app.searchMessageField('from','alice@example.org');
+    await vi.advanceTimersByTimeAsync(400);
+    expect(input.value).toBe('from:"alice@example.org"');
+    expect(search).not.toHaveBeenCalled();
+  });
+
   it('opens guided filters before searching and applies a friendly field through the existing editor', async () => {
     const {app,input}=await setup();
     const toggle=await screen.findByRole('button',{name:'Filters'});

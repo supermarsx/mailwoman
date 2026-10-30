@@ -7,7 +7,7 @@
 // searches; a search started elsewhere (a "Search this sender" action) arrives
 // through `app.search()` and lands in the input too.
 
-import { createEffect, createSignal, createUniqueId, on, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../../state/context.ts';
 import { loadCatalog, t } from '../../i18n/index.ts';
 import { Icon } from '../Icon.tsx';
@@ -15,6 +15,8 @@ import * as a11y from '../mailA11y.css.ts';
 import { SemanticSearchToggle } from '../../modules/assist/index.ts';
 import { SearchFilterBar } from './SearchFilterBar.tsx';
 import * as css from './searchBar.css.ts';
+
+export const LIVE_SEARCH_DELAY_MS = 250;
 
 /** Submits an `Email/query` (engine → mw-search online, reduced cached search
  *  offline). */
@@ -27,19 +29,42 @@ export function SearchBox(): JSX.Element {
   // V7 semantic search (§14.3): off by default; the toggle only renders when the
   // `search-semantic` Assist capability is granted, and its state rides the query.
   const [semantic, setSemantic] = createSignal(false);
+  let pending: ReturnType<typeof setTimeout> | undefined;
+  let composing = false;
+  const cancelPending = (): void => { clearTimeout(pending); pending = undefined; };
+  onCleanup(cancelPending);
   // A search started or refined elsewhere, or cleared, shows in the input.
-  createEffect(on(app.search, (value) => setQuery(value), { defer: true }));
+  createEffect(on(app.search, (value) => { cancelPending(); setQuery(value); }, { defer: true }));
+  // A delayed query belongs to the mailbox where it was typed. Never carry it
+  // into a different account or folder while the user is navigating.
+  const scope = createMemo(() => JSON.stringify([app.accountId(), app.linkedMailboxId?.(), app.me()?.username,
+    app.selectedMailboxId(), app.switchingMailbox?.()]));
+  createEffect(on(scope, () => { cancelPending(); composing = false; setQuery(app.search()); }, { defer: true }));
   let input!: HTMLInputElement;
   let filtersButton!: HTMLButtonElement;
   const closeFilters = (): void => { setFiltersOpen(false); filtersButton.focus(); };
 
   const run = (text: string): void => {
+    cancelPending();
     setQuery(text);
     void app.searchMessages(text, { semantic: semantic() });
   };
   const clear = (): void => {
+    cancelPending();
     setQuery('');
     void app.clearSearch();
+  };
+  const typed = (text: string): void => {
+    cancelPending();
+    setQuery(text);
+    if (composing || app.switchingMailbox?.()) return;
+    if (!text.trim()) { if (app.searchActive()) clear(); return; }
+    const owner = scope();
+    pending = setTimeout(() => {
+      pending = undefined;
+      if (composing || owner !== scope()) return;
+      run(text);
+    }, LIVE_SEARCH_DELAY_MS);
   };
   const showClear = (): boolean => app.searchActive() || query() !== '';
 
@@ -50,7 +75,7 @@ export function SearchBox(): JSX.Element {
         role="search"
         onSubmit={(e) => {
           e.preventDefault();
-          run(query());
+          if (!composing) run(query());
         }}
       >
         <input
@@ -60,7 +85,9 @@ export function SearchBox(): JSX.Element {
           aria-label={t('mail-search-label')}
           placeholder={t('mail-search-placeholder')}
           value={query()}
-          onInput={(e) => setQuery(e.currentTarget.value)}
+          onInput={(e) => typed(e.currentTarget.value)}
+          onCompositionStart={() => { composing = true; cancelPending(); }}
+          onCompositionEnd={(e) => { composing = false; typed(e.currentTarget.value); }}
           onKeyDown={(e) => {
             if (e.key === 'Escape' && filtersOpen()) {
               e.preventDefault(); e.stopPropagation(); closeFilters(); return;
