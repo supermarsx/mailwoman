@@ -12,7 +12,7 @@
 // headers form a companion navigable row. All user-controlled event titles are
 // bidi-isolated (`<bdi>` for display, `isolate()` for accessible names).
 
-import { For, Match, Show, Switch, createEffect, createMemo, createSignal, type JSX } from 'solid-js';
+import { For, Index, Match, Show, Switch, createEffect, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { t, isolate } from '../../i18n';
 import type { CalendarController } from './controller.ts';
 import type { CalendarView, EventInstance } from './types.ts';
@@ -40,9 +40,14 @@ import {
   weekdayNames,
 } from './datetime.ts';
 import * as css from './calendar.css.ts';
-import { inAllDayRow, inkOn, layoutColumns, type ColumnSlot } from './layout.ts';
+import { inAllDayRow, inkOn, layoutColumns, layoutRowSpans, spansDays, type ColumnSlot, type RowSpans, type SpanBar } from './layout.ts';
 
 const HOUR_PX = 48;
+/** Bar lanes before "+N more": the time grid's all-day row, and a month week. */
+const ALL_DAY_LANES = 3;
+const MONTH_LANES = 3;
+/** Rows a month cell shows in all: bar lanes first, then single-day chips. */
+const MONTH_ROWS = 4;
 
 export interface ViewProps {
   controller: CalendarController;
@@ -56,12 +61,43 @@ function eventsCount(n: number): string {
   return t('calendar-events-count', { count: n });
 }
 
-/** Accessible name for one event instance: time + isolated title (or "all day"). */
+/** The states an event shows besides its time and title (t92): tentative,
+ *  cancelled, and free (TRANSP:TRANSPARENT). Each has its own look, and each is
+ *  spoken, so none of them is told by colour or pattern alone. */
+function eventStates(inst: EventInstance): string[] {
+  const out: string[] = [];
+  if (inst.event.status === 'tentative') out.push(t('calendar-status-tentative'));
+  if (inst.event.status === 'cancelled') out.push(t('calendar-status-cancelled'));
+  if (inst.event.freeBusyStatus === 'free') out.push(t('calendar-busy-free'));
+  return out;
+}
+
+function withStates(inst: EventInstance, label: string): string {
+  const states = eventStates(inst);
+  return states.length === 0 ? label : t('calendar-event-with-status', { event: label, status: states.join(', ') });
+}
+
+/** Accessible name for one event instance: time + isolated title (or "all day"),
+ *  then its tentative / cancelled / free state. */
 function eventLabel(inst: EventInstance): string {
   const title = isolate(inst.event.title);
-  return inst.allDay
-    ? t('calendar-event-allday', { title })
-    : t('calendar-event-at', { time: formatTime(inst.start), title });
+  return withStates(
+    inst,
+    inst.allDay
+      ? t('calendar-event-allday', { title })
+      : t('calendar-event-at', { time: formatTime(inst.start), title }),
+  );
+}
+
+/** Accessible name for a bar covering several days: its whole date range, so a
+ *  bar cut at a week edge still says where the event starts and ends. */
+function spanLabel(inst: EventInstance): string {
+  if (!spansDays(inst)) return eventLabel(inst);
+  const title = isolate(inst.event.title);
+  const last = new Date(Math.max(inst.end.getTime() - 1, inst.start.getTime()));
+  const start = inst.allDay ? formatFull(inst.start) : `${formatFull(inst.start)} ${formatTime(inst.start)}`;
+  const end = inst.allDay ? formatFull(last) : `${formatFull(inst.end)} ${formatTime(inst.end)}`;
+  return withStates(inst, t('calendar-event-range', { title, start, end }));
 }
 
 /** The live-region / cell announcement for a focused day. */
@@ -69,9 +105,11 @@ function announceDay(controller: CalendarController, day: Date): string {
   return t('calendar-announce', { date: formatFull(day), events: eventsCount(controller.instancesForDay(day).length) });
 }
 
-/** An event chip's calendar tint and the ink that reads on it. `background-color`
- *  (not the shorthand) so the tentative hatch from the stylesheet still layers on. */
+/** An event chip's calendar tint and the ink that reads on it. A free event
+ *  (TRANSP:TRANSPARENT) is outlined in the calendar colour instead of filled:
+ *  it does not block the time (t92). */
 function chipStyle(inst: EventInstance): JSX.CSSProperties {
+  if (inst.event.freeBusyStatus === 'free') return { 'border-color': inst.color };
   return { 'background-color': inst.color, color: inkOn(inst.color) };
 }
 
@@ -79,6 +117,128 @@ function chipStyle(inst: EventInstance): JSX.CSSProperties {
 function chipStatus(inst: EventInstance): string | undefined {
   const s = inst.event.status;
   return s === 'cancelled' || s === 'tentative' ? s : undefined;
+}
+
+/** `data-busy="free"` on an event that does not block time. */
+function chipBusy(inst: EventInstance): string | undefined {
+  return inst.event.freeBusyStatus === 'free' ? 'free' : undefined;
+}
+
+/** Diagonal hatching for a tentative event, drawn as an SVG pattern in the
+ *  chip's own ink (`currentColor`): no CSS gradient (style rules, t92). */
+function Hatch(): JSX.Element {
+  const id = `mw-cal-hatch-${createUniqueId()}`;
+  return (
+    <svg class={css.hatch} aria-hidden="true" data-testid="event-hatch">
+      <defs>
+        <pattern id={id} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+          <rect width="2" height="6" fill="currentColor" />
+        </pattern>
+      </defs>
+      <rect width="100%" height="100%" fill={`url(#${id})`} />
+    </svg>
+  );
+}
+
+/** The parts every event chip shares: the hatch when tentative, then the text. */
+function ChipBody(props: { inst: EventInstance; children: JSX.Element }): JSX.Element {
+  return (
+    <>
+      <Show when={props.inst.event.status === 'tentative'}>
+        <Hatch />
+      </Show>
+      <span class={css.chipText}>{props.children}</span>
+    </>
+  );
+}
+
+/** Every instance touching any of `days`, once each, in start order. */
+function instancesForDays(c: CalendarController, days: readonly Date[], keep: (i: EventInstance) => boolean): EventInstance[] {
+  const seen = new Map<string, EventInstance>();
+  for (const d of days) for (const i of c.instancesForDay(d)) if (keep(i) && !seen.has(i.key)) seen.set(i.key, i);
+  return [...seen.values()].sort((a, b) => a.start.getTime() - b.start.getTime());
+}
+
+/** One bar of a row: starts in its first column's cell and reaches across
+ *  `span` columns (logical inline size, so it grows leftwards under RTL). */
+function SpanBarButton(props: {
+  bar: SpanBar<EventInstance>;
+  class: string;
+  tabindex?: number | undefined;
+  conflict: boolean;
+  onOpen: (i: EventInstance) => void;
+}): JSX.Element {
+  const inst = (): EventInstance => props.bar.item;
+  const edge = (): string | undefined => {
+    const b = props.bar;
+    if (b.continuesBefore && b.continuesAfter) return 'both';
+    if (b.continuesBefore) return 'before';
+    if (b.continuesAfter) return 'after';
+    return undefined;
+  };
+  return (
+    <button
+      type="button"
+      class={props.class}
+      tabindex={props.tabindex}
+      data-testid="span-bar"
+      data-span={props.bar.span}
+      data-continues={edge()}
+      data-status={chipStatus(inst())}
+      data-busy={chipBusy(inst())}
+      style={{ ...chipStyle(inst()), 'inline-size': `calc(${props.bar.span} * (100% + ${css.spanGap}) - ${css.spanGap})` }}
+      title={inst().event.title}
+      aria-label={spanLabel(inst())}
+      onClick={(e) => {
+        e.stopPropagation();
+        props.onOpen(inst());
+      }}
+    >
+      <ChipBody inst={inst()}>
+        {inst().allDay || props.bar.continuesBefore ? '' : `${formatTime(inst().start)} `}
+        <bdi>{inst().event.title}</bdi>
+        <Show when={props.conflict}>
+          <span class={css.conflictBadge} aria-label={t('calendar-conflict')}>!</span>
+        </Show>
+      </ChipBody>
+    </button>
+  );
+}
+
+/** The lane stack of one day cell: a bar where one starts in this column, an
+ *  empty slot where a bar passes through or the lane is free, so every cell of
+ *  the row keeps the bars on the same lines. */
+function SpanLanes(props: {
+  spans: RowSpans<EventInstance>;
+  col: number;
+  barClass: string;
+  tabindex?: number | undefined;
+  hasConflict: (id: string) => boolean;
+  onOpen: (i: EventInstance) => void;
+}): JSX.Element {
+  const lanes = (): number[] => Array.from({ length: props.spans.lanes }, (_, i) => i);
+  return (
+    <For each={lanes()}>
+      {(lane) => {
+        const bar = (): SpanBar<EventInstance> | undefined => props.spans.bars.find((b) => b.lane === lane && b.startCol === props.col);
+        return (
+          <div class={css.spanLane}>
+            <Show when={bar()}>
+              {(b) => (
+                <SpanBarButton
+                  bar={b()}
+                  class={props.barClass}
+                  tabindex={props.tabindex}
+                  conflict={props.hasConflict(b().item.event.id)}
+                  onOpen={props.onOpen}
+                />
+              )}
+            </Show>
+          </div>
+        );
+      }}
+    </For>
+  );
 }
 
 /** How many day-columns each time-grid view shows. */
@@ -114,6 +274,7 @@ function EventChip(props: {
       type="button"
       class={css.eventBlock}
       data-status={chipStatus(props.inst)}
+      data-busy={chipBusy(props.inst)}
       style={{
         ...chipStyle(props.inst),
         top: `${props.top}px`,
@@ -126,10 +287,12 @@ function EventChip(props: {
       aria-label={eventLabel(props.inst)}
       onClick={() => props.onOpen(props.inst)}
     >
-      {formatTime(props.inst.start)} <bdi>{props.inst.event.title}</bdi>
-      <Show when={props.conflict}>
-        <span class={css.conflictBadge} aria-label={t('calendar-conflict')}>{t('calendar-conflict')}</span>
-      </Show>
+      <ChipBody inst={props.inst}>
+        {formatTime(props.inst.start)} <bdi>{props.inst.event.title}</bdi>
+        <Show when={props.conflict}>
+          <span class={css.conflictBadge} aria-label={t('calendar-conflict')}>{t('calendar-conflict')}</span>
+        </Show>
+      </ChipBody>
     </button>
   );
 }
@@ -143,7 +306,9 @@ export function TimeGridView(props: ViewProps): JSX.Element {
 
   // All-day and day-or-longer events live in the all-day row, never the hourly grid.
   const timed = (day: Date): EventInstance[] => c.instancesForDay(day).filter((i) => !inAllDayRow(i));
-  const allDay = (day: Date): EventInstance[] => c.instancesForDay(day).filter(inAllDayRow);
+  // t92: all-day and day-or-longer events are bars across the days they cover,
+  // cut at the view's edges; past three lanes a day says "+N more".
+  const allDaySpans = createMemo(() => layoutRowSpans(instancesForDays(c, days(), inAllDayRow), days(), ALL_DAY_LANES));
 
   /** A day's timed instances with their minute span and overlap column. */
   function placed(day: Date): Array<{ inst: EventInstance; top: number; height: number; slot: ColumnSlot }> {
@@ -227,27 +392,33 @@ export function TimeGridView(props: ViewProps): JSX.Element {
         <div class={`${css.gutter} ${css.allDayLabel}`}>
           {t('calendar-all-day')}
         </div>
-        <For each={days()}>
-          {(d) => (
-            <div class={css.allDayCell}>
-              <For each={allDay(d)}>
-                {(inst) => (
-                  <button
-                    type="button"
-                    class={css.allDayChip}
-                    data-status={chipStatus(inst)}
-                    style={chipStyle(inst)}
-                    title={inst.event.title}
-                    aria-label={eventLabel(inst)}
-                    onClick={() => props.onOpenEvent(inst)}
-                  >
-                    <bdi>{inst.event.title}</bdi>
-                  </button>
-                )}
-              </For>
+        <Index each={days()}>
+          {(d, col) => (
+            <div class={css.allDayCell} data-testid="all-day-cell" data-date={dateToCalDate(d())}>
+              <SpanLanes
+                spans={allDaySpans()}
+                col={col}
+                barClass={css.allDayChip}
+                hasConflict={(id) => c.hasConflict(id)}
+                onOpen={props.onOpenEvent}
+              />
+              <Show when={(allDaySpans().hidden[col] ?? 0) > 0}>
+                <button
+                  type="button"
+                  class={css.moreLink}
+                  data-testid="span-more"
+                  aria-label={t('calendar-more-label', { count: allDaySpans().hidden[col] ?? 0, date: formatFull(d()) })}
+                  onClick={() => {
+                    c.setView('day');
+                    c.goToDate(d());
+                  }}
+                >
+                  {t('calendar-more', { count: allDaySpans().hidden[col] ?? 0 })}
+                </button>
+              </Show>
             </div>
           )}
-        </For>
+        </Index>
       </div>
       <div class={css.timeBody} style={{ 'grid-template-columns': cols() }}>
         <div class={css.gutter}>
@@ -356,12 +527,19 @@ export function MonthView(props: ViewProps): JSX.Element {
         onKeyDown={onKeyDown}
       >
         <For each={weeks()}>
-          {(week) => (
+          {(week) => {
+            // t92: events covering several days are one bar per week row.
+            const spans = createMemo(() => layoutRowSpans(instancesForDays(c, week, spansDays), week, MONTH_LANES));
+            return (
             <div role="row" class={css.monthRow}>
               <For each={week}>
-                {(day) => {
+                {(day, colIndex) => {
+                  const col = (): number => colIndex();
                   const inMonth = (): boolean => day.getMonth() === focus().getMonth();
                   const evs = (): EventInstance[] => c.instancesForDay(day);
+                  const singles = (): EventInstance[] => evs().filter((i) => !spansDays(i));
+                  const chipRoom = (): number => Math.max(0, MONTH_ROWS - spans().lanes);
+                  const more = (): number => (spans().hidden[col()] ?? 0) + Math.max(0, singles().length - chipRoom());
                   const isActive = (): boolean => sameDay(day, active());
                   return (
                     <div
@@ -379,13 +557,22 @@ export function MonthView(props: ViewProps): JSX.Element {
                       }}
                     >
                       <span class={isToday(day) ? css.dayNumToday : css.dayNum} aria-hidden="true">{day.getDate()}</span>
-                      <For each={evs().slice(0, 4)}>
+                      <SpanLanes
+                        spans={spans()}
+                        col={col()}
+                        barClass={css.monthEvent}
+                        tabindex={-1}
+                        hasConflict={(id) => c.hasConflict(id)}
+                        onOpen={props.onOpenEvent}
+                      />
+                      <For each={singles().slice(0, chipRoom())}>
                         {(inst) => (
                           <button
                             type="button"
                             tabindex={-1}
                             class={css.monthEvent}
                             data-status={chipStatus(inst)}
+                            data-busy={chipBusy(inst)}
                             style={chipStyle(inst)}
                             title={inst.event.title}
                             aria-label={eventLabel(inst)}
@@ -394,23 +581,28 @@ export function MonthView(props: ViewProps): JSX.Element {
                               props.onOpenEvent(inst);
                             }}
                           >
-                            {inst.allDay ? '' : `${formatTime(inst.start)} `}
-                            <bdi>{inst.event.title}</bdi>
-                            <Show when={c.hasConflict(inst.event.id)}>
-                              <span class={css.conflictBadge} aria-label={t('calendar-conflict')}>!</span>
-                            </Show>
+                            <ChipBody inst={inst}>
+                              {inst.allDay ? '' : `${formatTime(inst.start)} `}
+                              <bdi>{inst.event.title}</bdi>
+                              <Show when={c.hasConflict(inst.event.id)}>
+                                <span class={css.conflictBadge} aria-label={t('calendar-conflict')}>!</span>
+                              </Show>
+                            </ChipBody>
                           </button>
                         )}
                       </For>
-                      <Show when={evs().length > 4}>
-                        <span class={css.dimText}>{t('calendar-more', { count: evs().length - 4 })}</span>
+                      <Show when={more() > 0}>
+                        <span class={css.dimText} data-testid="month-more" aria-label={t('calendar-more-label', { count: more(), date: formatFull(day) })}>
+                          {t('calendar-more', { count: more() })}
+                        </span>
                       </Show>
                     </div>
                   );
                 }}
               </For>
             </div>
-          )}
+            );
+          }}
         </For>
       </div>
     </div>

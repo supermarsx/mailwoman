@@ -18,6 +18,7 @@ auth-invalid-credentials = Invalid credentials
 # response as a wrong password, so this states a possibility, not a diagnosis.
 auth-refused-note = If the email address and password are correct, the account may have been disabled by an administrator. A disabled account cannot sign in until an administrator enables it again.
 auth-unreachable = Could not reach the server
+auth-upstream-protocol = Sign-in stopped: the mail server sent a reply this server could not read. Try again later, or tell your administrator.
 # The server has no mail server configured for the address's domain.
 auth-address-not-configured = This address is not set up on this server. Contact your administrator.
 # The server says why it refused (an administrator chose to explain refusals):

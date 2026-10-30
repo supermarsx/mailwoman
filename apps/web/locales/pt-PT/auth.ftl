@@ -17,6 +17,7 @@ auth-invalid-credentials = Credenciais inválidas
 # response as a wrong password, so this states a possibility, not a diagnosis.
 auth-refused-note = Se o endereço de e-mail e a palavra-passe estiverem corretos, a conta pode ter sido desativada por um administrador. Uma conta desativada não pode iniciar sessão até que um administrador a volte a ativar.
 auth-unreachable = Não foi possível contactar o servidor
+auth-upstream-protocol = O início de sessão parou: o servidor de correio enviou uma resposta que este servidor não conseguiu ler. Tente novamente mais tarde ou contacte o administrador.
 # The server has no mail server configured for the address's domain.
 auth-address-not-configured = Este endereço não está configurado neste servidor. Contacte o seu administrador.
 # The server says why it refused (an administrator chose to explain refusals):

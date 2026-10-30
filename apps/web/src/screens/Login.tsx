@@ -139,6 +139,10 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         setError(t('auth-account-disabled'));
       } else if (err instanceof ApiError && err.status === 403 && err.code === 'signinNotAllowed') {
         setError(t('auth-signin-not-allowed'));
+      } else if (err instanceof ApiError && err.status === 502 && err.code === 'upstreamProtocol') {
+        // The mail server answered, but not in a form this server could read
+        // (t92). Not a password problem, so it is not shown as one.
+        setError(t('auth-upstream-protocol'));
       } else if (err instanceof ApiError && err.status === 404) {
         // No upstream the operator configured places this address.
         setError(t('auth-address-not-configured'));

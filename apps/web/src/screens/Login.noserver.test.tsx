@@ -96,4 +96,18 @@ describe('Login › no server entry (t32-h9)', () => {
     expect(document.querySelectorAll('form input')).toHaveLength(2);
     expect(screen.queryByTestId('login-refused-note')).toBeNull();
   });
+
+  it('says the mail server reply could not be read, not that the credentials are wrong (t92)', async () => {
+    const client = fakeClient({
+      login: vi.fn(async () => {
+        throw new ApiError(502, 'upstream protocol', { code: 'upstreamProtocol' });
+      }),
+    });
+    renderLogin(client);
+    signIn('ada@example.org');
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('the mail server sent a reply this server could not read');
+    expect(alert).not.toHaveTextContent('Invalid credentials');
+    expect(screen.queryByTestId('login-refused-note')).toBeNull();
+  });
 });

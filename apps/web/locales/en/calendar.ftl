@@ -40,7 +40,7 @@ calendar-synced = Synced calendar
 # -- Grid / views ------------------------------------------------------------
 calendar-all-day = all-day
 calendar-all-day-full = All day
-calendar-more = { $count } more
+calendar-more = +{ $count } more
 calendar-conflict = conflict
 calendar-no-events-30 = No events in the next 30 days.
 calendar-events-count = { $count ->
@@ -59,6 +59,13 @@ calendar-announce = { $date }, { $events }
 # One event's accessible name: start time + (isolated) title.
 calendar-event-at = { $time } { $title }
 calendar-event-allday = All day: { $title }
+calendar-event-range = { $title }, { $start } to { $end }
+calendar-busy-free = Shows as free
+calendar-event-with-status = { $event } ({ $status })
+calendar-more-label = { $count } more { $count ->
+    [one] event
+   *[other] events
+  } on { $date }
 
 # -- Event editor ------------------------------------------------------------
 calendar-editor-new = New event

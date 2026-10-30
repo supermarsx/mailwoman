@@ -8,7 +8,7 @@
 // lines, focus as an outline, today as a yellow `signal` block. Event colours
 // are the user's (inline) and are not touched.
 
-import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
+import { createVar, globalStyle, style, styleVariants } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 /** Fallback ink on a user-chosen event colour. The colour is user data with no
@@ -39,6 +39,12 @@ const controlFace = { fontFamily: 'inherit', lineHeight: 1.05 } as const;
 
 const hair = `${vars.border.hair} solid ${vars.color.border}`;
 const rule = `${vars.border.rule} solid ${vars.color.borderStrong}`;
+
+// t92: the space between two neighbouring day cells' content boxes (borders +
+// padding). A bar covering N days is N cells wide less one gap, so its ends line
+// up with the first and last day's content edges.
+const spanGapVar = createVar();
+export const spanGap = spanGapVar;
 
 export const module = style({
   display: 'flex',
@@ -264,7 +270,11 @@ export const monthCell = style({
   border: hair,
   padding: '2px',
   minHeight: '4.5rem',
-  overflow: 'hidden',
+  // Visible: a multi-day bar starts in its first day's cell and reaches across
+  // the next ones (t92). Chips clip their own text.
+  overflow: 'visible',
+  minWidth: 0,
+  vars: { [spanGapVar]: `calc(2 * ${vars.border.hair} + 4px)` },
   display: 'flex',
   flexDirection: 'column',
   gap: '1px',
@@ -554,7 +564,7 @@ export const timeGridView = style({ display: 'flex', flexDirection: 'column', mi
 export const gridRow = style({ display: 'grid' });
 export const timeBody = style({ display: 'grid', flex: 1, position: 'relative' });
 export const allDayLabel = style({ fontSize: '0.7rem', textAlign: 'end', paddingInlineEnd: '4px' });
-export const allDayCell = style({ minHeight: '1.5rem', padding: '2px' });
+export const allDayCell = style({ minHeight: '1.5rem', padding: '2px', minWidth: 0, vars: { [spanGapVar]: '4px' } });
 
 export const fbCell = styleVariants({
   free: [fbCellBase, { background: vars.color.bg }],
@@ -587,18 +597,82 @@ globalStyle(body,{'@container':{'mw-calendar (max-width: 40rem)':{flexDirection:
 globalStyle(sidebar,{'@container':{'mw-calendar (max-width: 40rem)':{width:'auto',maxHeight:'40%',borderInlineEnd:0,borderBlockEnd:rule}}});
 globalStyle(main,{'@container':{'mw-calendar (max-width: 40rem)':{minHeight:0}}});
 
-// ── event status (Outlook-style) ─────────────────────────────────────────────
-// Cancelled: faded and struck through. Tentative: diagonal hatching over the
-// calendar colour (the chips set `background-color` inline, so the image layers
-// on top), plus a slight fade. The list rows have no tint, so tentative fades
-// only. `data-status` is set by the views for these two statuses only.
+// ── multi-day bars (t92) ─────────────────────────────────────────────────────
+// One lane per stacked bar, the same in every cell of a row, so a bar that
+// starts in one cell lines up with the empty lanes of the cells it crosses.
 
-const tentativeHatch =
-  'repeating-linear-gradient(135deg, rgba(255,255,255,0.38) 0 4px, transparent 4px 8px)';
+export const spanLane = style({ position: 'relative', blockSize: '1.1rem', flexShrink: 0, marginBlockEnd: '1px' });
+
+for (const chip of [allDayChip, monthEvent]) {
+  // The hatch and the text are layered inside the chip.
+  globalStyle(chip, { position: 'relative' });
+  globalStyle(`${spanLane} > ${chip}`, {
+    position: 'absolute',
+    insetBlock: 0,
+    insetInlineStart: 0,
+    margin: 0,
+    zIndex: 1,
+    display: 'block',
+    boxSizing: 'border-box',
+    whiteSpace: 'nowrap',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    textAlign: 'start',
+  });
+  // Cut at a week edge: the cut end is square, so the bar reads as continuing.
+  globalStyle(`${spanLane} > ${chip}[data-continues="before"], ${spanLane} > ${chip}[data-continues="both"]`, {
+    borderStartStartRadius: 0,
+    borderEndStartRadius: 0,
+  });
+  globalStyle(`${spanLane} > ${chip}[data-continues="after"], ${spanLane} > ${chip}[data-continues="both"]`, {
+    borderStartEndRadius: 0,
+    borderEndEndRadius: 0,
+  });
+}
+
+/** "+N more" under the all-day lanes: opens that day. */
+export const moreLink = style({
+  appearance: 'none',
+  border: 'none',
+  background: 'transparent',
+  padding: '0 2px',
+  font: 'inherit',
+  fontSize: '0.7rem',
+  color: vars.color.textDim,
+  cursor: 'pointer',
+  textDecoration: 'underline',
+  selectors: { '&:focus-visible': focusOutline },
+});
+
+// ── event status (Outlook-style) ─────────────────────────────────────────────
+// Cancelled: faded and struck through. Tentative: diagonal hatching in the
+// chip's ink, drawn by an inline SVG pattern (views.tsx `Hatch`), plus a slight
+// fade. Free (TRANSP:TRANSPARENT): outlined in the calendar colour (set inline)
+// on the page background, not filled, since it does not block the time. The
+// views also put each state in the accessible name. No CSS gradient (t92).
+
+export const hatch = style({
+  position: 'absolute',
+  insetBlock: 0,
+  insetInline: 0,
+  inlineSize: '100%',
+  blockSize: '100%',
+  opacity: 0.3,
+  pointerEvents: 'none',
+});
+
+/** The chip's text, above the hatch. */
+export const chipText = style({ position: 'relative' });
 
 for (const chip of [eventBlock, allDayChip, monthEvent]) {
   globalStyle(`${chip}[data-status="cancelled"]`, { opacity: 0.55, textDecoration: 'line-through' });
-  globalStyle(`${chip}[data-status="tentative"]`, { backgroundImage: tentativeHatch, opacity: 0.85 });
+  globalStyle(`${chip}[data-status="tentative"]`, { opacity: 0.85 });
+  globalStyle(`${chip}[data-busy="free"]`, {
+    backgroundColor: vars.color.bg,
+    color: vars.color.text,
+    borderWidth: '2px',
+    borderStyle: 'solid',
+  });
 }
 for (const row of [agendaRow, scheduleRow]) {
   globalStyle(`${row}[data-status="cancelled"]`, { opacity: 0.55, textDecoration: 'line-through' });

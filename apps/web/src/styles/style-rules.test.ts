@@ -78,18 +78,6 @@ const ALLOWLIST: Allowed[] = [
     reason: 'hatch on a tentative RSVP dot and an invited agenda block: the status is not shown by colour alone',
   },
   {
-    file: 'modules/calendar/calendar.css.ts',
-    rule: 'gradient',
-    text: 'repeating-linear-gradient(',
-    reason: 'hatch on a tentative event chip: the status is not shown by colour alone',
-  },
-  {
-    file: 'modules/calendar/calendar.css.ts',
-    rule: 'colour',
-    text: "'repeating-linear-gradient(135deg, rgba(255,255,255,0.38) 0 4px, transparent 4px 8px)'",
-    reason: 'light hatch over a user-chosen event colour; the colour is user data with no theme counterpart',
-  },
-  {
     file: 'components/event-card/eventCard.css.ts',
     rule: 'colour',
     text: '`${vars.border.rule} solid rgba(0,0,0,0.15)`',

@@ -38,7 +38,7 @@ calendar-synced = Calendário sincronizado
 # -- Grid / views ------------------------------------------------------------
 calendar-all-day = dia inteiro
 calendar-all-day-full = Dia inteiro
-calendar-more = Mais { $count }
+calendar-more = +{ $count }
 calendar-conflict = conflito
 calendar-no-events-30 = Sem eventos nos próximos 30 dias.
 calendar-events-count = { $count ->
@@ -57,6 +57,13 @@ calendar-announce = { $date }, { $events }
 # One event's accessible name: start time + (isolated) title.
 calendar-event-at = { $time } { $title }
 calendar-event-allday = Dia inteiro: { $title }
+calendar-event-range = { $title }, de { $start } a { $end }
+calendar-busy-free = Mostra como livre
+calendar-event-with-status = { $event } ({ $status })
+calendar-more-label = Mais { $count } { $count ->
+    [one] evento
+   *[other] eventos
+  } em { $date }
 
 # -- Event editor ------------------------------------------------------------
 calendar-editor-new = Novo evento

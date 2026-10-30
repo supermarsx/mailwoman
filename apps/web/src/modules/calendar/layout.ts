@@ -75,3 +75,88 @@ export function inkOn(color: string): string {
   // Contrast against white = 1.05/(L+0.05); against #111 = (L+0.05)/0.0556.
   return 1.05 / (lum + 0.05) >= (lum + 0.05) / 0.0556 ? '#fff' : '#111';
 }
+
+/** One event's bar across a run of consecutive day columns (t92). */
+export interface SpanBar<T> {
+  item: T;
+  /** First column the bar covers (0 = the row's first day). */
+  startCol: number;
+  /** Number of columns the bar covers (>= 1). */
+  span: number;
+  /** Stacking lane within the row (0 = top). */
+  lane: number;
+  /** The event started before the row's first day (the bar is cut there). */
+  continuesBefore: boolean;
+  /** The event ends after the row's last day. */
+  continuesAfter: boolean;
+}
+
+export interface RowSpans<T> {
+  /** Bars that fit in `maxLanes`, in lane then column order. */
+  bars: SpanBar<T>[];
+  /** Lanes the visible bars use (0..maxLanes). */
+  lanes: number;
+  /** Per column: how many events of this row are not shown there ("+N more"). */
+  hidden: number[];
+}
+
+/**
+ * Lay out events as bars over one row of consecutive days (a week row of the
+ * month grid, or the all-day row of the time grid). Each event covers the
+ * columns of the days it touches (end exclusive: an all-day event ending at
+ * midnight does not cover the next day), cut at the row's edges, so an event
+ * running across a week boundary becomes one bar per week with the
+ * `continues*` flags set. Lanes are greedy: earlier start first, longer bar
+ * first, so a long event keeps one lane across the row. A bar that needs a lane
+ * beyond `maxLanes` is hidden, and every column it covers counts it in `hidden`.
+ * Column order is logical (column 0 is the first day); right-to-left placement is
+ * the stylesheet's (logical insets), so the same layout serves both directions.
+ */
+export function layoutRowSpans<T extends { start: Date; end: Date }>(
+  items: readonly T[],
+  days: readonly Date[],
+  maxLanes: number,
+): RowSpans<T> {
+  const n = days.length;
+  const hidden = Array.from({ length: n }, () => 0);
+  if (n === 0) return { bars: [], lanes: 0, hidden };
+  const dayStart = days.map((d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime());
+  const rowEnd = new Date(days[n - 1]!.getFullYear(), days[n - 1]!.getMonth(), days[n - 1]!.getDate() + 1).getTime();
+  const colOf = (t: number): number => {
+    let col = 0;
+    for (let i = 0; i < n; i++) if (dayStart[i]! <= t) col = i;
+    return col;
+  };
+  const placed = items.flatMap((item) => {
+    const s = item.start.getTime();
+    // A zero-length event still covers the day it is on.
+    const e = Math.max(item.end.getTime(), s + 1);
+    if (e <= dayStart[0]! || s >= rowEnd) return [];
+    const startCol = s < dayStart[0]! ? 0 : colOf(s);
+    const endCol = e > rowEnd ? n - 1 : colOf(e - 1);
+    return [{ item, s, startCol, span: endCol - startCol + 1, continuesBefore: s < dayStart[0]!, continuesAfter: e > rowEnd }];
+  });
+  placed.sort((a, b) => a.startCol - b.startCol || b.span - a.span || a.s - b.s);
+  const laneEnds: number[] = [];
+  const bars: SpanBar<T>[] = [];
+  for (const p of placed) {
+    let lane = laneEnds.findIndex((end) => end < p.startCol);
+    if (lane < 0) lane = laneEnds.length;
+    laneEnds[lane] = p.startCol + p.span - 1;
+    if (lane >= maxLanes) {
+      for (let c = p.startCol; c < p.startCol + p.span; c++) hidden[c]! += 1;
+      continue;
+    }
+    bars.push({ item: p.item, startCol: p.startCol, span: p.span, lane, continuesBefore: p.continuesBefore, continuesAfter: p.continuesAfter });
+  }
+  bars.sort((a, b) => a.lane - b.lane || a.startCol - b.startCol);
+  const lanes = bars.reduce((m, b) => Math.max(m, b.lane + 1), 0);
+  return { bars, lanes, hidden };
+}
+
+/** True when an instance covers more than one calendar day (end exclusive). */
+export function spansDays(inst: Pick<EventInstance, 'start' | 'end'>): boolean {
+  const s = inst.start;
+  const last = new Date(Math.max(inst.end.getTime() - 1, s.getTime()));
+  return s.getFullYear() !== last.getFullYear() || s.getMonth() !== last.getMonth() || s.getDate() !== last.getDate();
+}
