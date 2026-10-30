@@ -10,7 +10,7 @@ import { basePath } from '../api/basePath.ts';
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
-import { TwoFactorChallenge } from './Settings/index.ts';
+import { TwoFactorChallenge } from './Settings/TwoFactorChallenge.tsx';
 import { authCard, authPage } from '../styles/authCard.css.ts';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 import { publicConfig, type PublicConfig } from '../api/publicConfig.ts';

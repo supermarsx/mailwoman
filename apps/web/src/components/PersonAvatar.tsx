@@ -4,18 +4,12 @@ import {apiFetch} from '../api/http.ts';
 import {withBase} from '../api/basePath.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {loadCatalog,t} from '../i18n';
-import {AVATAR_COLORS} from './senderIcons/palette.ts';
+import {avatarPresentation} from './avatarPresentation.ts';
 import {senderDomainIcon} from './senderIcons/match.ts';
 import './person-avatar.css';
 import './senderIcons/palette.css';
 
-export function avatarPresentation(name:string,address:string):{initials:string;color:string;palette:number} {
- const label=(name.trim()||address.split('@')[0]||'?').replace(/[\p{Cc}\p{Cf}]/gu,'');
- const words=label.split(/[\s._-]+/u).filter(Boolean);const initials=words.slice(0,2).map(word=>Array.from(word)[0]??'').join('').toLocaleUpperCase().slice(0,4)||'?';
- let hash=2166136261;for(const character of (address.trim()||label).toLowerCase())hash=Math.imul(hash^character.codePointAt(0)!,16777619)>>>0;
- const palette=hash%AVATAR_COLORS.length;
- return {initials,color:AVATAR_COLORS[palette]!,palette};
-}
+export {avatarPresentation};
 /** Generated locally by default. Contact mode asks only our authenticated server;
  * it never requests a sender-provided URL or an external avatar service. */
 export function PersonAvatar(props:{name?:string|undefined;address?:string|undefined}):JSX.Element {

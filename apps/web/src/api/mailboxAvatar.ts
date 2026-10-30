@@ -8,7 +8,7 @@
 // (palette index from the address, as before) and the foreground is chosen
 // automatically for WCAG AA contrast against the background.
 import type { IconName } from '../components/Icon.tsx';
-import { avatarPresentation } from '../components/PersonAvatar.tsx';
+import { avatarPresentation } from '../components/avatarPresentation.ts';
 import { AVATAR_COLORS } from '../components/senderIcons/palette.ts';
 import { contrastRatio } from '../theme/contrast.ts';
 
