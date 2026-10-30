@@ -605,6 +605,95 @@ async fn put_global(
     Ok(with_etag(Json(item), &etag))
 }
 
+/// One key as `GET /settings/<key>` describes it (t97: the Adaptive protection
+/// page reads its rules through this).
+pub(crate) async fn describe_setting(state: &AppState, key: &str) -> Result<Value, AdminApiError> {
+    Ok(one(state, key).await?.0)
+}
+
+/// t97: write several global values in one request, as the generic route writes
+/// each (registry validation, env pins, ceilings, a `setting-changed` audit row
+/// per key, cache invalidation). `Value::Null` returns a key to its default.
+/// Every change is checked before any is written, so a refused value leaves the
+/// whole set unchanged; `etag` (the key's `etag`) refuses a stale write with
+/// `412`. The caller checks capabilities and step-up.
+pub(crate) async fn write_global_values(
+    state: &AppState,
+    ctx: &AdminCtx,
+    changes: &[(String, Value, Option<String>)],
+) -> Result<Vec<Value>, AdminApiError> {
+    let mut planned = Vec::with_capacity(changes.len());
+    for (index, (key, value, etag)) in changes.iter().enumerate() {
+        let field = format!("/changes/{index}/value");
+        let def = def_of(key)?;
+        registry::refuse_if_dedicated(def).map_err(refusal)?;
+        let current = state.store.get_setting_policy(key).await?;
+        let stored = policy_json(current.as_ref());
+        if let Some(expected) = etag
+            && expected.trim_matches('"') != etag_of(&stored).trim_matches('"')
+        {
+            return Err(AdminApiError::stale(
+                current.as_ref().map(|p| p.updated_by.as_str()),
+                current.as_ref().map(|p| p.updated_at),
+            )
+            .at(format!("/changes/{index}")));
+        }
+        let global_value = if value.is_null() {
+            None
+        } else {
+            registry::refuse_if_pinned(def, &registry::process_env).map_err(refusal)?;
+            let valid = registry::validate(def, value, &field).map_err(refusal)?;
+            registry::ceiling(
+                &state.store,
+                &actor_of(ctx, Capability::SettingsWrite),
+                key,
+                CeilingTarget::Global,
+                value,
+            )
+            .await
+            .map_err(ceiling_err)?;
+            Some(valid.to_string())
+        };
+        planned.push((key.clone(), def, current, stored, global_value));
+    }
+    let mut out = Vec::with_capacity(planned.len());
+    for (key, def, current, stored, global_value) in planned {
+        let keep_row = global_value.is_some()
+            || current
+                .as_ref()
+                .is_some_and(|p| p.global_locked || p.allow_user_override != def.user_override);
+        let row = keep_row.then(|| SettingPolicyRow {
+            key: key.clone(),
+            global_value: global_value.clone(),
+            allow_user_override: current
+                .as_ref()
+                .map_or(def.user_override, |p| p.allow_user_override),
+            global_locked: current.as_ref().is_some_and(|p| p.global_locked),
+            updated_by: ctx.username.clone(),
+            updated_at: now(),
+        });
+        if !state
+            .store
+            .compare_setting_policy(&key, current.as_ref(), row.as_ref())
+            .await?
+        {
+            return Err(AdminApiError::stale(None, None));
+        }
+        if key.starts_with("security.protection.") {
+            state.request_protection.invalidate();
+        }
+        audit(
+            state,
+            ctx,
+            &key,
+            json!({ "scope": "global", "before": stored, "after": policy_json(row.as_ref()) }),
+        )
+        .await;
+        out.push(one(state, &key).await?.0);
+    }
+    Ok(out)
+}
+
 async fn delete_global(
     State(state): State<AppState>,
     ctx: AdminCtx,

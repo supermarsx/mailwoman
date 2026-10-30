@@ -2,8 +2,13 @@
 //! Never infer abuse from a generic HTTP status code.
 mod api;
 mod config;
+/// The Adaptive protection page's policy editor and simulator (t97).
+mod editor;
 use crate::{AppState, admin_ctx::AdminApiError};
-pub(crate) use api::register;
+pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
+    api::register(r);
+    editor::register(r);
+}
 use axum::{
     extract::{Request, State},
     http::{StatusCode, header},

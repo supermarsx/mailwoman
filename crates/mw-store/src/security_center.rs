@@ -386,6 +386,177 @@ impl Store {
     }
 }
 
+// ── t97: the security centre overview ────────────────────────────────────────
+// Read-only aggregates for the admin Overview tiles. Every query is bounded and
+// returns counts or short lists; no credential material is read.
+
+/// One known mailbox account and the second factors it has.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FactorAccount {
+    pub account_id: String,
+    /// The address last used to sign in (or the stored account user name).
+    pub address: Option<String>,
+    pub totp: bool,
+    pub passkey: bool,
+}
+/// Failed and blocked sign-ins in one time bucket.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SigninBucket {
+    /// Bucket start, Unix seconds.
+    pub t: i64,
+    pub failed: i64,
+    pub blocked: i64,
+}
+/// A source of failed sign-ins.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SigninSource {
+    pub ip: String,
+    pub country: Option<String>,
+    pub count: i64,
+}
+/// A recent security audit row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SecurityAuditItem {
+    pub id: String,
+    pub ts: String,
+    pub actor: String,
+    pub action: String,
+    pub target: Option<String>,
+}
+impl Store {
+    /// Every known mailbox account with its factor flags (t97). Known accounts are
+    /// the same union the posture count uses.
+    pub async fn security_factor_accounts(&self) -> Result<Vec<FactorAccount>, StoreError> {
+        let rows = q("WITH known AS (SELECT id AS account_id FROM accounts UNION SELECT account_id FROM sessions UNION SELECT account_id FROM signin_identity) SELECT known.account_id AS account_id, COALESCE((SELECT s.address FROM signin_identity s WHERE s.account_id=known.account_id),(SELECT a.username FROM accounts a WHERE a.id=known.account_id)) AS address, CAST(CASE WHEN EXISTS(SELECT 1 FROM totp_secrets t WHERE t.account_id=known.account_id AND t.confirmed=1) THEN 1 ELSE 0 END AS BIGINT) AS totp, CAST(CASE WHEN EXISTS(SELECT 1 FROM webauthn_credentials w WHERE w.account_id=known.account_id) THEN 1 ELSE 0 END AS BIGINT) AS passkey FROM known LIMIT 200000")
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| FactorAccount {
+                account_id: r.get_string("account_id"),
+                address: r.get_opt_string("address"),
+                totp: r.get_i64("totp") != 0,
+                passkey: r.get_i64("passkey") != 0,
+            })
+            .collect())
+    }
+    /// Failed and blocked sign-ins since `since`, summed per `width`-second bucket
+    /// (repeats folded into one history row count once per repeat).
+    pub async fn security_signin_buckets(
+        &self,
+        since: i64,
+        width: i64,
+        surface: Option<&str>,
+    ) -> Result<Vec<SigninBucket>, StoreError> {
+        let width = width.max(60);
+        let rows = q("SELECT CAST((last_seen/?2)*?2 AS BIGINT) AS b, CAST(SUM(CASE WHEN result='failure' THEN repeat_count ELSE 0 END) AS BIGINT) AS failed, CAST(SUM(CASE WHEN result='blocked' THEN repeat_count ELSE 0 END) AS BIGINT) AS blocked FROM signin_event WHERE last_seen>=?1 AND result IN ('failure','blocked') AND (?3 IS NULL OR surface=?3) GROUP BY b ORDER BY b")
+            .bind(since)
+            .bind(width)
+            .bind(surface)
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| SigninBucket {
+                t: r.get_i64("b"),
+                failed: r.get_i64("failed"),
+                blocked: r.get_i64("blocked"),
+            })
+            .collect())
+    }
+    /// The sources with the most failed or blocked sign-ins since `since`.
+    pub async fn security_signin_sources(
+        &self,
+        since: i64,
+        limit: i64,
+    ) -> Result<Vec<SigninSource>, StoreError> {
+        let rows = q("SELECT ip, MAX(geo_country) AS country, CAST(SUM(repeat_count) AS BIGINT) AS n FROM signin_event WHERE last_seen>=?1 AND result IN ('failure','blocked') AND ip<>'' GROUP BY ip ORDER BY n DESC, ip LIMIT ?2")
+            .bind(since)
+            .bind(limit.clamp(1, 50))
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| SigninSource {
+                ip: r.get_string("ip"),
+                country: r.get_opt_string("country"),
+                count: r.get_i64("n"),
+            })
+            .collect())
+    }
+    /// The countries with the most failed or blocked sign-ins since `since`.
+    pub async fn security_signin_countries(
+        &self,
+        since: i64,
+        limit: i64,
+    ) -> Result<Vec<(String, i64)>, StoreError> {
+        let rows = q("SELECT geo_country AS country, CAST(SUM(repeat_count) AS BIGINT) AS n FROM signin_event WHERE last_seen>=?1 AND result IN ('failure','blocked') AND geo_country IS NOT NULL AND geo_country<>'' GROUP BY geo_country ORDER BY n DESC, geo_country LIMIT ?2")
+            .bind(since)
+            .bind(limit.clamp(1, 50))
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| (r.get_string("country"), r.get_i64("n")))
+            .collect())
+    }
+    /// The latest successful administrator sign-ins: (user name, time, source).
+    pub async fn security_recent_admin_signins(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<(String, i64, String)>, StoreError> {
+        let rows = q("SELECT username_attempted, last_seen, ip FROM signin_event WHERE surface='admin' AND result='success' ORDER BY last_seen DESC, id DESC LIMIT ?1")
+            .bind(limit.clamp(1, 50))
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                (
+                    r.get_string("username_attempted"),
+                    r.get_i64("last_seen"),
+                    r.get_string("ip"),
+                )
+            })
+            .collect())
+    }
+    /// Request-protection actions since `since`: (enforced, observed only).
+    pub async fn security_protection_event_counts(
+        &self,
+        since: i64,
+    ) -> Result<(i64, i64), StoreError> {
+        let row = q("SELECT CAST(COALESCE(SUM(CASE WHEN enforced=1 THEN 1 ELSE 0 END),0) AS BIGINT) AS enforced, CAST(COALESCE(SUM(CASE WHEN enforced=1 THEN 0 ELSE 1 END),0) AS BIGINT) AS observed FROM request_protection_event WHERE observed_at>=?1 AND action<>'cleared'")
+            .bind(since)
+            .fetch_optional(&self.backend)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        Ok((row.get_i64("enforced"), row.get_i64("observed")))
+    }
+    /// The latest security audit rows: the `security` category plus the policy,
+    /// step-up, console-path and protection-policy actions, and every
+    /// change to a `twofa.`, `session.` or `security.` setting.
+    pub async fn security_recent_audit(
+        &self,
+        limit: i64,
+    ) -> Result<Vec<SecurityAuditItem>, StoreError> {
+        let rows = q("SELECT id, ts, actor, action, target FROM audit_log WHERE category='security' OR action IN ('twofa-policy-set','passkey-policy-refused','step-up-refused','step-up-locked','admin-console-path-changed','admin-console-path-applied','admin-console-path-generated','protection-policy-changed') OR (action='setting-changed' AND (target LIKE 'setting:twofa.%' OR target LIKE 'setting:session.%' OR target LIKE 'setting:security.%')) ORDER BY ts DESC, id DESC LIMIT ?1")
+            .bind(limit.clamp(1, 50))
+            .fetch_all(&self.backend)
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| SecurityAuditItem {
+                id: r.get_string("id"),
+                ts: r.get_string("ts"),
+                actor: r.get_string("actor"),
+                action: r.get_string("action"),
+                target: r.get_opt_string("target"),
+            })
+            .collect())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

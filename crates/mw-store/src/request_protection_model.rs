@@ -370,6 +370,166 @@ fn trigger(
     .then_some(ratio)
 }
 
+// ── t97: the "what would happen" simulator ───────────────────────────────────
+// A pure evaluation of one sample request against a policy, with the same rules
+// as `State::admit` and `State::observe`. It never touches stored counters.
+
+/// The sample the Adaptive protection page describes.
+#[derive(Clone, Copy, Debug, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SimInput {
+    /// Requests from this subject in the current rate window, this one included.
+    #[serde(default)]
+    pub requests_in_window: u32,
+    /// Counts in the short window before this request.
+    #[serde(default)]
+    pub short: Counts,
+    /// Counts in the long window before this request.
+    #[serde(default)]
+    pub long: Counts,
+    /// What this request is (`normal` or an anomaly kind).
+    #[serde(default)]
+    pub signal: Option<Signal>,
+    /// A throttle already ran and has not decayed (the next crossing blocks).
+    #[serde(default)]
+    pub previously_throttled: bool,
+}
+/// One rule and whether it fired.
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimRule {
+    pub rule: Reason,
+    pub enabled: bool,
+    pub value: u64,
+    pub threshold: u64,
+    pub fired: bool,
+}
+#[derive(Clone, Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SimOutcome {
+    pub action: Action,
+    /// The rule that decided, if any.
+    pub reason: Option<Reason>,
+    /// `false` in observe mode: the action is only recorded.
+    pub enforced: bool,
+    /// How long the action lasts, seconds.
+    pub duration_secs: u32,
+    /// Whether this request's signal counts as an anomaly under the policy.
+    pub signal_counted: bool,
+    pub rules: Vec<SimRule>,
+}
+fn ratio_value(counts: Counts) -> u64 {
+    (counts.anomalous * 100)
+        .checked_div(counts.normal + counts.anomalous)
+        .unwrap_or(0)
+}
+fn sim_window(
+    counts: Counts,
+    w: WindowPolicy,
+    adaptive_on: bool,
+    anomaly: bool,
+    absolute: Reason,
+    ratio: Reason,
+) -> [SimRule; 2] {
+    let total = counts.normal + counts.anomalous;
+    [
+        SimRule {
+            rule: absolute,
+            enabled: adaptive_on && w.absolute_anomalies > 0,
+            value: counts.anomalous,
+            threshold: u64::from(w.absolute_anomalies),
+            fired: anomaly
+                && w.absolute_anomalies > 0
+                && counts.anomalous >= u64::from(w.absolute_anomalies),
+        },
+        SimRule {
+            rule: ratio,
+            enabled: adaptive_on && w.ratio_percent > 0,
+            value: ratio_value(counts),
+            threshold: u64::from(w.ratio_percent),
+            fired: anomaly
+                && w.ratio_percent > 0
+                && total >= u64::from(w.minimum_samples)
+                && counts.anomalous * 100 >= total * u64::from(w.ratio_percent),
+        },
+    ]
+}
+/// Evaluate one sample request: the rate budget at admission, then the adaptive
+/// windows once its signal is known. Both are reported; the decision follows
+/// `State::admit` (an enforced adaptive action wins over an observed rate one).
+pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
+    let signal = input.signal.unwrap_or(Signal::Normal);
+    let adaptive_on = policy.adaptive_mode != Mode::Off;
+    let anomaly = adaptive_on && signal.bit() & policy.signals != 0;
+    let counted = |c: Counts| Counts {
+        normal: c.normal + u64::from(adaptive_on && signal == Signal::Normal),
+        anomalous: c.anomalous + u64::from(anomaly),
+    };
+    let rate_on = policy.rate_mode != Mode::Off && policy.rate_limit > 0;
+    let mut rules = vec![SimRule {
+        rule: Reason::RequestRate,
+        enabled: rate_on,
+        value: u64::from(input.requests_in_window),
+        threshold: u64::from(policy.rate_limit),
+        fired: rate_on && input.requests_in_window > policy.rate_limit,
+    }];
+    rules.extend(sim_window(
+        counted(input.short),
+        policy.short,
+        adaptive_on,
+        anomaly,
+        Reason::ShortAbsolute,
+        Reason::ShortRatio,
+    ));
+    rules.extend(sim_window(
+        counted(input.long),
+        policy.long,
+        adaptive_on,
+        anomaly,
+        Reason::LongAbsolute,
+        Reason::LongRatio,
+    ));
+    let adaptive = rules[1..].iter().find(|r| r.fired).map(|r| {
+        let block = input.previously_throttled;
+        (
+            if block {
+                Action::Block
+            } else {
+                Action::Throttle
+            },
+            r.rule,
+            policy.adaptive_mode == Mode::Enforce,
+            if block {
+                policy.block_secs
+            } else {
+                policy.throttle_secs
+            },
+        )
+    });
+    let rate = rules[0].fired.then_some((
+        Action::Throttle,
+        Reason::RequestRate,
+        policy.rate_mode == Mode::Enforce,
+        policy.rate_window_secs,
+    ));
+    let chosen = match (adaptive, rate) {
+        (Some(a), Some(r)) => Some(if a.2 || !r.2 { a } else { r }),
+        (a, r) => a.or(r),
+    };
+    let (action, reason, enforced, duration_secs) = match chosen {
+        Some((action, reason, enforced, secs)) => (action, Some(reason), enforced, secs),
+        None => (Action::Allow, None, false, 0),
+    };
+    SimOutcome {
+        action,
+        reason,
+        enforced,
+        duration_secs,
+        signal_counted: anomaly,
+        rules,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -526,5 +686,94 @@ mod tests {
         let decision = state.admit(&policy, 1);
         assert!(decision.enforced);
         assert_eq!(decision.reason, Some(Reason::LongAbsolute));
+    }
+    #[test]
+    fn simulator_agrees_with_the_live_state_machine() {
+        let policy = policy();
+        // The live machine and the simulator pick the same action and rule for
+        // the next malformed request after `previous` earlier ones.
+        for previous in [0_i64, 1, 2, 5] {
+            let mut state = State::default();
+            for i in 0..previous {
+                state.observe(&policy, i, Signal::Malformed);
+            }
+            let throttled = state.stage() > 0;
+            let (short, long) = state.counts(&policy, previous);
+            let live = state.observe(&policy, previous, Signal::Malformed);
+            let sim = simulate(
+                &policy,
+                &SimInput {
+                    requests_in_window: 1,
+                    short,
+                    long,
+                    signal: Some(Signal::Malformed),
+                    previously_throttled: throttled,
+                },
+            );
+            assert!(sim.signal_counted);
+            if !throttled {
+                assert_eq!((sim.action, sim.reason), (live.action, live.reason));
+            }
+        }
+        let quiet = simulate(
+            &policy,
+            &SimInput {
+                requests_in_window: 1,
+                signal: Some(Signal::Normal),
+                ..Default::default()
+            },
+        );
+        assert_eq!(quiet.action, Action::Allow);
+        assert!(!quiet.signal_counted);
+        let sample = |previously_throttled| SimInput {
+            requests_in_window: 1,
+            long: Counts {
+                normal: 0,
+                anomalous: 2,
+            },
+            signal: Some(Signal::Malformed),
+            previously_throttled,
+            ..Default::default()
+        };
+        let blocked = simulate(&policy, &sample(true));
+        assert_eq!(
+            (blocked.action, blocked.reason, blocked.duration_secs),
+            (Action::Block, Some(Reason::LongAbsolute), 300)
+        );
+        let mut observe = policy.clone();
+        observe.adaptive_mode = Mode::Observe;
+        let observed = simulate(&observe, &sample(false));
+        assert_eq!(
+            (observed.action, observed.enforced, observed.duration_secs),
+            (Action::Throttle, false, 3)
+        );
+        let mut rate = policy.clone();
+        rate.rate_mode = Mode::Enforce;
+        let limited = simulate(
+            &rate,
+            &SimInput {
+                requests_in_window: 11,
+                signal: Some(Signal::Normal),
+                ..Default::default()
+            },
+        );
+        assert_eq!(
+            (limited.action, limited.reason, limited.enforced),
+            (Action::Throttle, Some(Reason::RequestRate), true)
+        );
+        // An anomaly kind the policy does not select is not counted.
+        let ignored = simulate(
+            &policy,
+            &SimInput {
+                requests_in_window: 1,
+                long: Counts {
+                    normal: 0,
+                    anomalous: 9,
+                },
+                signal: Some(Signal::PermissionDenied),
+                ..Default::default()
+            },
+        );
+        assert_eq!(ignored.action, Action::Allow);
     }
 }

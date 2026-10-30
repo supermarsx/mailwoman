@@ -15,7 +15,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-const PREFIX: &str = "security.protection.";
+pub(super) const PREFIX: &str = "security.protection.";
 const CACHE_TTL: Duration = Duration::from_secs(30);
 #[derive(Clone, Debug)]
 pub(super) struct Config {
@@ -78,7 +78,9 @@ impl Config {
         }
         (!policy.off()).then_some(policy)
     }
-    fn parse(rows: Vec<settings_registry::Effective>) -> Result<Self, ()> {
+    /// Also used by the policy editor (t97) to refuse a write that would leave an
+    /// unusable policy, and by its simulator to try a draft.
+    pub(super) fn parse(rows: Vec<settings_registry::Effective>) -> Result<Self, ()> {
         let values: BTreeMap<String, Value> =
             rows.into_iter().map(|row| (row.key, row.value)).collect();
         let get = |key: &str| values.get(&format!("{PREFIX}{key}")).ok_or(());

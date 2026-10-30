@@ -619,9 +619,14 @@ async fn revoke_remembered(
     }
 }
 
+/// The Overview's mini dashboard (t97).
+#[path = "security_dashboard.rs"]
+mod dashboard;
+
 pub(crate) fn register_admin(r: &mut impl crate::admin_router::AdminRegistrar) {
     use crate::capabilities::Capability;
     use axum::http::Method;
+    dashboard::register(r);
     r.admin_endpoint(
         Method::GET,
         "/security/posture",
