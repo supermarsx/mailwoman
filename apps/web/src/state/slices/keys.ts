@@ -349,6 +349,18 @@ export function createKeysSlice(ctx: SliceContext): KeysSlice {
     const bundle = (await vault(acct).get(key.fingerprint))?.encryptedPrivateBundle ?? key.encryptedPrivateBackup;
     if (bundle === null) throw new Error('No private key is held for this key');
     if (started !== epoch) throw mailboxChanged();
+    // The worker's unlockKey only caches the bundle and passphrase; it does not
+    // check them. A trial signature does, so a wrong passphrase (another
+    // mailbox's, say) is refused here rather than at send time.
+    if (key.kind === 'pgp') {
+      try {
+        await worker.sign({ kind: 'pgp', data: 'unlock check', encryptedPrivateBundle: bundle, passphrase, detached: true });
+      } catch {
+        if (started !== epoch) throw mailboxChanged();
+        throw new Error('The passphrase does not unlock this key');
+      }
+      if (started !== epoch) throw mailboxChanged();
+    }
     const keyRef = await worker.unlockKey({ encryptedPrivateBundle: bundle, passphrase });
     if (started !== epoch || accountId() !== acct) {
       // Unlocked for a mailbox that is no longer open: lock it straight away.

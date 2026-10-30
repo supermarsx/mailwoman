@@ -177,6 +177,17 @@ describe('keys slice — a vault per mailbox (t87 D11)', () => {
     dispose();
   });
 
+  it('refuses a passphrase that does not open the key (another mailbox passphrase), unlocking nothing', async () => {
+    const server = makeServer();
+    const { slice, dispose } = makeSlice(server.client);
+    await slice.loadKeys();
+    vi.spyOn(getCryptoWorker(), 'sign').mockRejectedValueOnce(new Error('bad passphrase'));
+    const unlock = vi.spyOn(getCryptoWorker(), 'unlockKey');
+    await expect(slice.unlockOwnKey(slice.ownKeys()[0]!, 'other-mailbox-pass')).rejects.toThrow('does not unlock');
+    expect(unlock).not.toHaveBeenCalled();
+    dispose();
+  });
+
   it('a load the switch overtook does not install the old mailbox keys', async () => {
     const server = makeServer();
     const { slice, dispose } = makeSlice(server.client);
