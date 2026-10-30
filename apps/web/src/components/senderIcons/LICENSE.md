@@ -28,3 +28,14 @@ For these and/or other purposes and motivations, and without any expectation of 
     4. Affirmer understands and acknowledges that Creative Commons is not a party to this document and has no duty or obligation with respect to this CC0 or use of the Work.
 
 For more information, please see <https://creativecommons.org/publicdomain/zero/1.0>.
+
+
+## Additional artwork provenance
+
+The Simple Icons CC0 notice above applies only to the imported Simple Icons paths. `assets/openrouter.svg`, `assets/olx.svg`, `assets/xtb.svg`, and `assets/etoro.svg` are official brand-owner artwork bundled for identification; copyright and trademark rights remain with their respective owners. Their exact sources are listed in SOURCES.md. OpenRouter is used in the supplied Grape color on white under its published brand guidance. Original text monograms and civic artwork are application-created fallback identifiers, not official marks. No license to third-party trademarks is asserted.
+
+All additional `assets/*-site.*`, `assets/trading212.png` and `assets/ibkr.png` files are official site favicon/touch-icon artwork, not Simple Icons or CC0. Their original URLs and official referring domains are recorded in SOURCES.md; trademark/copyright remains with the owners. Files are bundled without remote runtime fetches.
+
+The bank favicon/touch-icon assets (`cgd`, `santanderpt`, `novobanco`, `bpi`, `creditoagricola`, `montepio`, `bancoctt`, `activobank`, `big`, `bancoinvest`, `bancobest`, `abanca`) are likewise official owner artwork, not CC0; see each source row.
+
+This same owner-artwork classification includes the subsequently acquired `millenniumbcp.ico` and `carregosa.ico`. Every bundled asset is catalogued with its primary source in SOURCES.md.

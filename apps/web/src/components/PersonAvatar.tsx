@@ -8,6 +8,7 @@ import {avatarPresentation} from './avatarPresentation.ts';
 import {senderDomainIcon} from './senderIcons/match.ts';
 import './person-avatar.css';
 import './senderIcons/palette.css';
+import './senderIcons/brands.css';
 
 export {avatarPresentation};
 /** Generated locally by default. Contact mode asks only our authenticated server;
@@ -34,5 +35,5 @@ export function PersonAvatar(props:{name?:string|undefined;address?:string|undef
    }catch{/* Unavailable photos fall back to local initials without retries. */}
   })();
  });
- return <Show when={mode()!=='off'}><span class="person-avatar" aria-hidden="true" data-avatar-color={appearance().palette} data-sender-icon={!photo()?brand()?.id:undefined} data-tooltip={!photo()&&brand()?t('avatars-domain-icon',{name:brand()!.name}):undefined}><Show when={photo()} fallback={<Show when={brand()} fallback={appearance().initials}>{icon=><svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><For each={icon().paths}>{path=><path d={path}/>}</For></svg>}</Show>}>{url=><img src={url()} alt="" onError={()=>setPhoto('')}/>}</Show></span></Show>;
+ return <Show when={mode()!=='off'}><span class="person-avatar" aria-hidden="true" data-avatar-color={appearance().palette} data-sender-icon={!photo()?brand()?.id:undefined} data-tooltip={!photo()&&brand()?t('avatars-domain-icon',{name:brand()!.name}):undefined}><Show when={photo()} fallback={<Show when={brand()} fallback={appearance().initials}>{icon=><Show when={icon().asset} fallback={<Show when={icon().monogram} fallback={<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><For each={icon().paths}>{path=><path d={path}/>}</For></svg>}>{text=><span class="person-avatar__monogram" data-length={text().length}>{text()}</span>}</Show>}>{asset=><img class="person-avatar__brand" src={asset()} alt=""/>}</Show>}</Show>}>{url=><img src={url()} alt="" onError={()=>setPhoto('')}/>}</Show></span></Show>;
 }

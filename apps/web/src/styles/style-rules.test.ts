@@ -25,6 +25,13 @@ import { join, relative, resolve, sep } from 'node:path';
 
 import {AVATAR_COLORS} from '../components/senderIcons/palette.ts';
 import {contrastRatio} from '../theme/contrast.ts';
+import {ALL_SENDER_ICONS} from '../components/senderIcons/match.ts';
+
+// Brand identification deliberately preserves supplied colours rather than
+// inheriting the interface accent. The exact selector/declaration scope is
+// checked below so this exception cannot exempt general interface styling.
+const brandCss=readFileSync(resolve('src/components/senderIcons/brands.css'),'utf8');
+const brandColors=[...new Set(brandCss.match(/#[a-fA-F0-9]{6}\b/g)??[])];
 
 type Rule = 'gradient' | 'blurred-shadow' | 'radius' | 'colour' | 'physical';
 
@@ -45,6 +52,7 @@ interface Allowed {
 
 // Each entry needs a reason; an entry that matches nothing fails the test (no stale exemptions).
 const ALLOWLIST: Allowed[] = [
+  ...brandColors.map((text):Allowed=>({file:'components/senderIcons/brands.css',rule:'colour',text,reason:'bundled sender brand artwork uses its identifying accent; exact brand-only selectors checked below'})),
   ...AVATAR_COLORS.map((text):Allowed=>({file:'components/senderIcons/palette.css',rule:'colour',text,reason:'stable sender identity colour; generated palette paired with white initials at AA contrast'})),
   {
     file: 'modules/calendar/calendar.css.ts',
@@ -374,4 +382,22 @@ it('avatar palette exceptions remain exact generated identity colours with reada
  const css=readFileSync(join(SRC,'components/senderIcons/palette.css'),'utf8');
  expect([...css.matchAll(/background-color:(#[a-f0-9]{6})/g)].map(match=>match[1])).toEqual([...AVATAR_COLORS]);
  for(const color of AVATAR_COLORS) expect(contrastRatio(color,'#ffffff'),color).toBeGreaterThanOrEqual(4.5);
+});
+
+it('brand colour exceptions are confined to known sender tiles with readable ink',()=>{
+ const icons=new Map(ALL_SENDER_ICONS.map(icon=>[icon.id,icon]));
+ const colors=new Map<string,Record<string,string>>();
+ const lines=brandCss.replace(/\/\*[\s\S]*?\*\//g,'').trim().split(/\r?\n/).filter(line=>line.trim());
+ for(const line of lines){
+  const rule=/^\.person-avatar\[data-sender-icon="([a-z0-9-]+)"\] \{ ((?:(?:background-color|color|border-color):#[a-fA-F0-9]{6}; ?)+)\}$/.exec(line);
+  expect(rule,line).not.toBeNull();
+  if(!rule)continue;
+  expect(icons.has(rule[1]!)).toBe(true);
+  const values=colors.get(rule[1]!)??{};
+  for(const match of rule[2]!.matchAll(/(background-color|color|border-color):(#[a-fA-F0-9]{6})/g))values[match[1]!]=match[2]!;
+  colors.set(rule[1]!,values);
+ }
+ for(const [id,values] of colors){const icon=icons.get(id)!;if(icon.asset)continue;
+  expect(contrastRatio(values['background-color']!,values['color']!),id).toBeGreaterThanOrEqual(icon.monogram?4.5:3);
+ }
 });

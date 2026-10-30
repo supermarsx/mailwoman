@@ -1,3 +1,4 @@
+import {EXPANDED_SENDER_ICONS} from './expanded.ts';
 import {SENDER_ICONS,type SenderIcon} from './catalog.ts';
 
 const CIVIC_PATH='M12 2 2 7v2h20V7L12 2ZM4 11h3v8H4v-8Zm6.5 0h3v8h-3v-8Zm6.5 0h3v8h-3v-8ZM2 21h20v2H2v-2Z';
@@ -7,6 +8,16 @@ const GOVERNMENT_ICONS=[
  government('Segurança Social',['seg-social.pt','seg-social.gov.pt']),
  government('Justiça',['justica.gov.pt','irn.mj.pt']),
  government('SNS 24',['sns24.gov.pt']),
+ government('Instituto do Emprego e Formação Profissional',['iefp.pt']),
+ government('Instituto da Mobilidade e dos Transportes',['imt-ip.pt']),
+ government('ANACOM',['anacom.pt']),
+ government('Autoridade de Supervisão de Seguros e Fundos de Pensões',['asf.com.pt']),
+ government('Comissão do Mercado de Valores Mobiliários',['cmvm.pt']),
+ government('Banco de Portugal',['bportugal.pt']),
+ government('Instituto Nacional de Estatística',['ine.pt']),
+ government('Instituto dos Registos e do Notariado',['irn.justica.gov.pt']),
+ government('Agência para a Integração, Migrações e Asilo',['aima.gov.pt']),
+ government('Direção-Geral do Ensino Superior',['dges.gov.pt']),
  government('Portugal',['gov.pt']),
  government('United Kingdom government',['gov.uk']),
  government('United States government',['gov']),
@@ -17,7 +28,8 @@ const GOVERNMENT_ICONS=[
  government('Canada government',['gc.ca']),
  government('Australia government',['gov.au']),
 ];
-const domains=[...SENDER_ICONS,...GOVERNMENT_ICONS].flatMap(icon=>icon.domains.map(domain=>({domain,icon}))).sort((a,b)=>b.domain.length-a.domain.length);
+export const ALL_SENDER_ICONS=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...GOVERNMENT_ICONS];
+const domains=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...GOVERNMENT_ICONS].flatMap(icon=>icon.domains.map(domain=>({domain,icon}))).sort((a,b)=>b.domain.length-a.domain.length);
 
 /** Domain hints only, never authentication evidence. Do not match display names,
  * substring lookalikes, public mailbox providers or user-controlled hosting. */

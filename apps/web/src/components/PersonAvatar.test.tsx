@@ -40,3 +40,13 @@ it('discards a late photo when the component address changes',async()=>{
  state.mode='contacts';let resolve!:(value:Response)=>void;state.fetch.mockImplementationOnce(()=>new Promise<Response>(done=>resolve=done)).mockResolvedValue(new Response(null,{status:204}));
  const create=vi.fn(()=> 'blob:photo');vi.stubGlobal('URL',class extends URL {static override createObjectURL=create;static override revokeObjectURL=vi.fn();});const [address,setAddress]=createSignal('ana@example.org');render(()=><PersonAvatar name="Ana" address={address()}/>);setAddress('other@example.org');resolve(new Response(new Uint8Array([1,2]),{headers:{'content-type':'image/png'}}));await waitFor(()=>expect(state.fetch).toHaveBeenCalledTimes(2));expect(create).not.toHaveBeenCalled();
 });
+
+it('renders bundled official artwork or an honest compact monogram without external requests',()=>{
+ const view=render(()=><><PersonAvatar address="mail@openrouter.ai"/><PersonAvatar address="mail@olx.pt"/><PersonAvatar address="mail@credibom.pt"/></>);
+ for(const id of ['openrouter','olx']){
+  const tile=view.container.querySelector(`[data-sender-icon="${id}"]`)!;const img=tile.querySelector('img')!;
+  expect(img).toHaveClass('person-avatar__brand');expect(img.src.startsWith('data:image/')||new URL(img.src,location.href).origin===location.origin).toBe(true);expect(tile).not.toHaveAttribute('style');
+ }
+ expect(view.container.querySelector('[data-sender-icon="credibom"] .person-avatar__monogram')).toHaveTextContent('CB');
+ expect(state.fetch).not.toHaveBeenCalled();
+});
