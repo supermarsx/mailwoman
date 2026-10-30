@@ -65,7 +65,8 @@ const EXEMPT: [&str; 3] = [
 const MAX_CHANGES: usize = 32;
 
 /// The presets. `balanced` is the registry default thresholds with both
-/// protections enforced; `relaxed` only records (observe) with looser
+/// protections enforced; in every preset a signed-in mailbox or administrator
+/// gets more requests than an anonymous address; `relaxed` only records (observe) with looser
 /// thresholds; `strict` enforces tighter thresholds and longer blocks. A preset
 /// never touches the exemption lists or the storage-failure behaviour.
 pub(crate) fn presets() -> Value {
@@ -74,8 +75,8 @@ pub(crate) fn presets() -> Value {
             "security.protection.rateMode": "observe",
             "security.protection.adaptiveMode": "observe",
             "security.protection.clientRequests": 1200,
-            "security.protection.accountRequests": 600,
-            "security.protection.adminRequests": 240,
+            "security.protection.accountRequests": 3600,
+            "security.protection.adminRequests": 2400,
             "security.protection.shortAbsoluteAnomalies": 40,
             "security.protection.shortRatioPercent": 70,
             "security.protection.longAbsoluteAnomalies": 200,
@@ -87,8 +88,8 @@ pub(crate) fn presets() -> Value {
             "security.protection.rateMode": "enforce",
             "security.protection.adaptiveMode": "enforce",
             "security.protection.clientRequests": 600,
-            "security.protection.accountRequests": 300,
-            "security.protection.adminRequests": 120,
+            "security.protection.accountRequests": 1800,
+            "security.protection.adminRequests": 1200,
             "security.protection.shortAbsoluteAnomalies": 20,
             "security.protection.shortRatioPercent": 50,
             "security.protection.longAbsoluteAnomalies": 100,
@@ -100,8 +101,8 @@ pub(crate) fn presets() -> Value {
             "security.protection.rateMode": "enforce",
             "security.protection.adaptiveMode": "enforce",
             "security.protection.clientRequests": 300,
-            "security.protection.accountRequests": 150,
-            "security.protection.adminRequests": 60,
+            "security.protection.accountRequests": 900,
+            "security.protection.adminRequests": 600,
             "security.protection.shortAbsoluteAnomalies": 10,
             "security.protection.shortRatioPercent": 30,
             "security.protection.longAbsoluteAnomalies": 50,
@@ -413,5 +414,36 @@ mod tests {
                 "{key}"
             );
         }
+    }
+    #[test]
+    fn signed_in_allowances_exceed_the_anonymous_one_in_defaults_and_presets() {
+        let default = |key: &str| {
+            settings_registry::lookup(&format!("{PREFIX}{key}"))
+                .unwrap()
+                .default_value()
+                .as_u64()
+                .unwrap()
+        };
+        let anonymous = default("clientRequests");
+        assert!(default("accountRequests") > anonymous);
+        assert!(default("adminRequests") > anonymous);
+        let p = presets();
+        for name in ["relaxed", "balanced", "strict"] {
+            let get = |key: &str| p[name][format!("{PREFIX}{key}")].as_u64().unwrap();
+            assert!(get("accountRequests") > get("clientRequests"), "{name}");
+            assert!(get("adminRequests") > get("clientRequests"), "{name}");
+        }
+        assert_eq!(
+            p["balanced"][format!("{PREFIX}clientRequests")],
+            json!(anonymous)
+        );
+        assert_eq!(
+            p["balanced"][format!("{PREFIX}accountRequests")],
+            json!(default("accountRequests"))
+        );
+        assert_eq!(
+            p["balanced"][format!("{PREFIX}adminRequests")],
+            json!(default("adminRequests"))
+        );
     }
 }

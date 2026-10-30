@@ -1121,15 +1121,15 @@ State is bounded to 20,000 subjects and 10,000 decision events. Expired state is
 
 <a id="security.protection.clientRequests"></a>
 
-`security.protection.clientRequests` (default `600`): Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver.
+`security.protection.clientRequests` (default `600`): Requests per window from one source address that is not signed in, and every sign-in or identity-confirmation request, across replicas. A request with a valid mailbox or admin session uses its own allowance instead. Zero disables this dimension; the source address comes only from the trusted proxy resolver.
 
 <a id="security.protection.accountRequests"></a>
 
-`security.protection.accountRequests` (default `300`): Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver.
+`security.protection.accountRequests` (default `1800`): Requests per window for one signed-in mailbox, across its sessions, devices and addresses and across replicas. Kept above the anonymous allowance so signed-in use has more room than an unknown address. Zero disables this dimension.
 
 <a id="security.protection.adminRequests"></a>
 
-`security.protection.adminRequests` (default `120`): Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver.
+`security.protection.adminRequests` (default `1200`): Requests per window for one signed-in administrator, across replicas. Kept above the anonymous allowance. Zero disables this dimension.
 
 <a id="security.protection.rateWindowSecs"></a>
 

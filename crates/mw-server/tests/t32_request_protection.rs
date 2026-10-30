@@ -201,7 +201,8 @@ async fn typed_json_anomalies_enforce_but_ordinary_not_found_and_observe_mode_do
     for mode in ["enforce", "observe"] {
         let (base, store) = fixture(&[
             ("security.protection.adaptiveMode", json!(mode)),
-            ("security.protection.adaptiveAccounts", json!(false)),
+            // t97: a signed-in caller is counted on its account, not its address.
+            ("security.protection.adaptiveClients", json!(false)),
             ("security.protection.adaptiveAdmins", json!(false)),
             ("security.protection.shortAbsoluteAnomalies", json!(2)),
             ("security.protection.shortRatioPercent", json!(0)),
@@ -259,7 +260,8 @@ async fn admin_login(caller: &reqwest::Client, base: &str, user: &str, password:
 async fn protection_history_is_scoped_private_and_clear_requires_fresh_proof_and_revision() {
     let (base, _) = fixture(&[
         ("security.protection.adaptiveMode", json!("observe")),
-        ("security.protection.adaptiveAccounts", json!(false)),
+        // t97: the signed-in subject is counted on its account, not its address.
+        ("security.protection.adaptiveClients", json!(false)),
         ("security.protection.adaptiveAdmins", json!(false)),
         ("security.protection.shortAbsoluteAnomalies", json!(1)),
     ])
@@ -445,10 +447,11 @@ async fn protection_history_is_scoped_private_and_clear_requires_fresh_proof_and
 }
 #[tokio::test]
 async fn real_settings_write_invalidates_off_cache_before_next_request() {
+    // t97: a signed-in administrator is charged to its own budget, not its address.
     let (base, _) = fixture(&[
-        ("security.protection.clientRequests", json!(1)),
+        ("security.protection.clientRequests", json!(0)),
         ("security.protection.accountRequests", json!(0)),
-        ("security.protection.adminRequests", json!(0)),
+        ("security.protection.adminRequests", json!(1)),
         ("security.protection.rateWindowSecs", json!(3600)),
     ])
     .await;

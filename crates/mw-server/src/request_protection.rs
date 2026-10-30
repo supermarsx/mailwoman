@@ -373,20 +373,93 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         charged: Default::default(),
         signal: AtomicU8::new(0),
     });
-    if let Some(source) = source
-        && let Err(error) = context
-            .admit("client", &source.to_canonical().to_string())
-            .await
-    {
-        return response(error);
-    }
+    let anonymous_only = sign_in_route(request.uri().path());
     REQUEST
         .scope(context.clone(), async move {
+            // t97: a request with a valid mailbox or admin session is charged to
+            // that identity (per account or administrator, a larger allowance),
+            // not to its source address; anonymous requests and every sign-in or
+            // identity-confirmation route stay on the strict per-address budget.
+            let identified = if anonymous_only {
+                false
+            } else {
+                match identify(&context.state, request.headers(), request.uri().path()).await {
+                    Ok(found) => found,
+                    Err(limited) => return limited,
+                }
+            };
+            if !identified
+                && let Some(source) = source
+                && let Err(error) = context
+                    .admit("client", &source.to_canonical().to_string())
+                    .await
+            {
+                return response(error);
+            }
             let result = next.run(request).await;
             context.observe(result.status()).await;
             result
         })
         .await
+}
+
+/// Sign-in, second-factor, recovery, password and identity-confirmation routes:
+/// always on the per-address budget, whatever cookie the request carries.
+fn sign_in_route(path: &str) -> bool {
+    let admin = mw_admin::config::admin_path();
+    if let Some(suffix) = path.strip_prefix(&admin) {
+        return suffix == "/login"
+            || suffix.starts_with("/login/")
+            || suffix.starts_with("/step-up")
+            || suffix == "/me/password"
+            || suffix.starts_with("/passkeys/login");
+    }
+    path == "/api/login"
+        || path.starts_with("/api/login/")
+        || path.starts_with("/api/sso/")
+        || path.starts_with("/api/security/step-up")
+        || path.starts_with("/api/password")
+        || path.starts_with("/api/passkeys/login")
+        || path == "/oauth/token"
+        || path.starts_with("/oidc/")
+}
+
+/// Whether the request carries a valid session, charging its identity when it
+/// does. `Err` is the refusal when that identity is over its own budget.
+async fn identify(
+    state: &AppState,
+    headers: &axum::http::HeaderMap,
+    path: &str,
+) -> Result<bool, Response> {
+    let admin = mw_admin::config::admin_path();
+    if path
+        .strip_prefix(&admin)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    {
+        return match crate::admin_ctx::AdminCtx::resolve(state, headers).await {
+            Ok(_) => Ok(true),
+            Err(error) if error.status == StatusCode::TOO_MANY_REQUESTS => Err(response(error)),
+            Err(_) => Ok(false),
+        };
+    }
+    let session = if let Some(token) = crate::push_relay::bearer_token(headers) {
+        let hash = crate::push_relay::hash_token(&token);
+        if !matches!(state.store.get_native_session(&hash).await, Ok(Some(_))) {
+            return Ok(false);
+        }
+        token
+    } else if let Some(id) = crate::cookie_value(headers) {
+        id
+    } else {
+        return Ok(false);
+    };
+    // A stored session only: the in-memory idle clock is left to the handler,
+    // so a forged cookie never seeds it and an expired one is still deleted there.
+    let Ok(row) = state.store.get_primary_session(&session).await else {
+        return Ok(false);
+    };
+    session_account(&row).await?;
+    Ok(true)
 }
 
 #[cfg(test)]

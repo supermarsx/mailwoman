@@ -30,23 +30,30 @@ fn client(ip: u8) -> reqwest::Client {
         .unwrap()
 }
 async fn fixture(name: &str) -> (String, Store) {
+    fixture_with(name, &[]).await
+}
+async fn fixture_with(name: &str, values: &[(&str, Value)]) -> (String, Store) {
     let upstream = serve(mw_mock_jmap::router()).await;
     let db = common::test_db::unique_db_path(name);
     let key = "6b69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b";
     let store = Store::open(db.to_str().unwrap(), ServerKey::from_hex(key).unwrap())
         .await
         .unwrap();
-    store
-        .put_setting_policy(&SettingPolicyRow {
-            key: "signin.retryCooldownSecs".into(),
-            global_value: Some("0".into()),
-            allow_user_override: false,
-            global_locked: false,
-            updated_by: "fixture".into(),
-            updated_at: 1,
-        })
-        .await
-        .unwrap();
+    for (key, value) in
+        std::iter::once(("signin.retryCooldownSecs", json!(0))).chain(values.iter().cloned())
+    {
+        store
+            .put_setting_policy(&SettingPolicyRow {
+                key: key.into(),
+                global_value: Some(value.to_string()),
+                allow_user_override: false,
+                global_locked: false,
+                updated_by: "fixture".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+    }
     let (router, _) = build_app_full(
         AppConfig {
             db_path: db.to_string_lossy().into(),
@@ -452,5 +459,113 @@ async fn simulator_explains_the_decision_without_moving_counters() {
             .unwrap()
             .status(),
         403
+    );
+}
+
+#[tokio::test]
+async fn signed_in_requests_get_more_room_than_an_anonymous_address() {
+    // Enforced budgets: 3 per address, 20 per mailbox, 20 per administrator.
+    let (base, _store) = fixture_with(
+        "t97-authenticated-leeway",
+        &[
+            ("security.protection.rateMode", json!("enforce")),
+            ("security.protection.clientRequests", json!(3)),
+            ("security.protection.accountRequests", json!(20)),
+            ("security.protection.adminRequests", json!(20)),
+            ("security.protection.rateWindowSecs", json!(3600)),
+        ],
+    )
+    .await;
+    // Anonymous: the fourth request from one address is refused.
+    let anonymous = client(2);
+    for _ in 0..3 {
+        assert_eq!(
+            anonymous
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401
+        );
+    }
+    assert_eq!(
+        anonymous
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    // A signed-in mailbox: the sign-in is charged to its address (1 of 3), then
+    // its requests go to the mailbox's own, larger budget.
+    let mailbox = client(3);
+    let login = mailbox
+        .post(format!("{base}/api/login"))
+        .json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(login.status(), 200);
+    for i in 0..10 {
+        assert_eq!(
+            mailbox
+                .get(format!("{base}/api/me"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200,
+            "signed-in request {i}"
+        );
+    }
+    // A signed-in administrator, likewise.
+    let admin = client(4);
+    admin_login(&admin, &base, "root", "hunter2").await;
+    for i in 0..10 {
+        assert_eq!(
+            admin
+                .get(format!("{base}/admin/session"))
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200,
+            "admin request {i}"
+        );
+    }
+    // A forged session cookie is anonymous: charged to its address.
+    let forged = client(5);
+    let mut last = 0;
+    for _ in 0..4 {
+        last = forged
+            .get(format!("{base}/api/me"))
+            .header("cookie", "mw_session=forged-session-id")
+            .send()
+            .await
+            .unwrap()
+            .status()
+            .as_u16();
+    }
+    assert_eq!(last, 429);
+    // Sign-in routes stay on the address budget even with a valid session.
+    for _ in 0..3 {
+        let _ = mailbox
+            .post(format!("{base}/api/login"))
+            .json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS}))
+            .send()
+            .await
+            .unwrap();
+    }
+    assert_eq!(
+        mailbox
+            .post(format!("{base}/api/login"))
+            .json(&json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
     );
 }

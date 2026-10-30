@@ -1898,23 +1898,23 @@ pub static REGISTRY: &[SettingDef] = &[
         "600",
         G,
         "security",
-        "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."
+        "Requests per window from one source address that is not signed in, and every sign-in or identity-confirmation request, across replicas. A request with a valid mailbox or admin session uses its own allowance instead. Zero disables this dimension; the source address comes only from the trusted proxy resolver."
     ),
     def!(
         "security.protection.accountRequests",
         int(0, 1000000),
-        "300",
+        "1800",
         G,
         "security",
-        "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."
+        "Requests per window for one signed-in mailbox, across its sessions, devices and addresses and across replicas. Kept above the anonymous allowance so signed-in use has more room than an unknown address. Zero disables this dimension."
     ),
     def!(
         "security.protection.adminRequests",
         int(0, 1000000),
-        "120",
+        "1200",
         G,
         "security",
-        "Aggregate request allowance across replicas for this verified subject dimension. Zero disables this dimension; source clients use only the trusted proxy address resolver."
+        "Requests per window for one signed-in administrator, across replicas. Kept above the anonymous allowance. Zero disables this dimension."
     ),
     def!(
         "security.protection.rateWindowSecs",
