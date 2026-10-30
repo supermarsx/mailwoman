@@ -1,4 +1,7 @@
 .reader__metadata-line { display:flex; align-items:baseline; gap:.5rem; min-inline-size:0; margin-block:.25rem; font-size:.72rem; }
+/* t110: the row is as tall as the authentication chip from the start, so the chip
+   arriving after the body (and the notice bars) are shown moves nothing below. */
+.reader__metadata-line { min-block-size:1.625rem; }
 .reader__metadata-line > * { min-inline-size:0; }
 .reader__metadata-line .time-helper { margin:0; flex:0 1 auto; }
 .reader__metadata-line .time-helper summary { max-inline-size:100%; }

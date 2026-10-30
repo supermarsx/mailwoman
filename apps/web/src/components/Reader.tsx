@@ -1,4 +1,4 @@
-import {AsyncPending,AsyncError} from './AsyncState.tsx';
+import {AsyncError} from './AsyncState.tsx';
 import {RemoteImageDownloads} from './RemoteImageDownloads.tsx';
 import {SaveToNextcloud} from '../modules/nextcloud/SaveToNextcloud.tsx';
 import {
@@ -315,7 +315,9 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         <div id={panelId} class={noticeCss.panel} hidden={collapsed()}>
       <section class="reader__attachments" aria-label={t('mail-attachments')} data-testid="reader-attachments">
         <Show when={everOpen()}>
-        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<AsyncPending message={t('mail-attachment-policy-loading')}/>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
+        {/* While the policy loads, the same strip with icons only (t110): the
+            panel keeps its height, so the body below never moves. */}
+        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div aria-busy="true" title={t('mail-attachment-policy-loading')}><ThumbnailStrip items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <ThumbnailStrip
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
