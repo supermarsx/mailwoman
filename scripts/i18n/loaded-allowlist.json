@@ -1,0 +1,30 @@
+{
+  "_comment": "check-loaded.mjs (t112): files whose t() calls run only on behalf of a part that loads the catalog itself. Each entry adds `catalogs` to what `file` may rely on; `reason` names who loads them. Keep this short: prefer loadCatalog() where the id is shown.",
+  "entries": [
+    {
+      "file": "apps/web/src/modules/assist/types.ts",
+      "catalogs": ["assist"],
+      "reason": "disclosureSentence() is rendered only by modules/assist/Disclosure.tsx, which loads assist"
+    },
+    {
+      "file": "apps/web/src/state/slices/notes.ts",
+      "catalogs": ["notes"],
+      "reason": "note create/pin toasts follow actions taken in modules/notes, which loads notes"
+    },
+    {
+      "file": "apps/web/src/state/slices/tasks.ts",
+      "catalogs": ["tasks"],
+      "reason": "the create-failed toast follows a create in modules/tasks, which loads tasks"
+    },
+    {
+      "file": "apps/web/src/screens/Settings/service.ts",
+      "catalogs": ["settings", "settings-policy"],
+      "reason": "error texts for Settings screens (load both) and LinkedMailboxFactor (loads settings); a policy request reference is only shown next to a settings-policy error"
+    },
+    {
+      "file": "apps/web/src/screens/Mailbox.tsx",
+      "catalogs": ["workspace-tabs"],
+      "reason": "the unsaved-tab close dialog opens from closing a tab in SubTabStrip, which loads workspace-tabs"
+    }
+  ]
+}

@@ -11,7 +11,9 @@ name: a11y
 #   • i18n-catalogs  — catalog completeness (every static t() id resolves in `en`; the
 #                      locales in src/i18n/locales.ts match the catalog dirs; per-locale
 #                      coverage vs `en` is printed, not enforced) + no-hardcoded-string
-#                      scan (fails on a NEW un-t()'d user-facing JSX literal).
+#                      scan (fails on a NEW un-t()'d user-facing JSX literal) + raw-id
+#                      check (t112: an id missing from `en`, or shown where its catalog
+#                      is not loaded, fails).
 #
 # A SEPARATE workflow (not ci.yml) to avoid the single-file ci.yml collision. The
 # Playwright specs (apps/web/e2e/{a11y,i18n-rtl}.spec.ts) run under a config this
@@ -59,6 +61,8 @@ jobs:
         run: pnpm -C apps/web install --frozen-lockfile
       - name: catalog completeness (every t() id resolves in en; locale set matches; coverage report)
         run: node scripts/i18n/check-catalog.mjs
+      - name: no raw message ids (every id in en, its catalog loaded where it is shown)
+        run: node scripts/i18n/check-loaded.mjs
       - name: no new hardcoded user-facing JSX literals
         run: node scripts/i18n/no-hardcoded-strings.mjs
       - name: i18n script tests
