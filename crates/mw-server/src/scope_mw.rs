@@ -243,6 +243,12 @@ pub(crate) async fn rest_scope_guard(
             if let Err(resp) = key_account_gate(&state, &granted.account_id).await {
                 return resp;
             }
+            // t98: a profile can turn API keys off for the key's account.
+            if let Err(resp) =
+                crate::feature_gate::admit_account(&state, &granted.account_id, "api_keys").await
+            {
+                return resp;
+            }
             req.extensions_mut()
                 .insert(RestFolders::from_grant(&granted.scope.folders));
             let source = if cookie_account.is_some() {
@@ -278,9 +284,15 @@ pub(crate) async fn mcp_scope_guard(
                 Ok(i) => {
                     if i.active
                         && let Some(account_id) = i.account_id
-                        && let Err(resp) = key_account_gate(&state, &account_id).await
                     {
-                        return resp;
+                        if let Err(resp) = key_account_gate(&state, &account_id).await {
+                            return resp;
+                        }
+                        if let Err(resp) =
+                            crate::feature_gate::admit_account(&state, &account_id, "mcp").await
+                        {
+                            return resp;
+                        }
                     }
                 }
                 Err(e) => return crate::account_gate::unavailable("mcp token", e),
@@ -306,6 +318,12 @@ pub(crate) async fn mcp_scope_guard(
     {
         Ok(granted) => {
             if let Err(resp) = key_account_gate(&state, &granted.account_id).await {
+                return resp;
+            }
+            // t98: a profile can turn MCP access off for the key's account.
+            if let Err(resp) =
+                crate::feature_gate::admit_account(&state, &granted.account_id, "mcp").await
+            {
                 return resp;
             }
             next.run(req).await

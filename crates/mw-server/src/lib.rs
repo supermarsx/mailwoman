@@ -154,6 +154,7 @@ pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
 mod diagnostics;
+mod feature_gate;
 mod feature_jmap;
 mod features;
 mod hosting_connections;
@@ -1575,6 +1576,11 @@ fn router(
         // t91: innermost, so it sees only requests every guard below admitted.
         // A request without `Idempotency-Key` passes through untouched.
         .layer(middleware::from_fn(idempotency::layer))
+        // t98: feature profiles: refuse a feature that is off for the subject.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            feature_gate::guard,
+        ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             maintenance_mode::guard,
