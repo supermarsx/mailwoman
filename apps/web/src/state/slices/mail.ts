@@ -673,7 +673,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails,
         ...(renamed ? { name: fresh.name } : {}),
         ...(moved ? { parentId: fresh.parentId } : {}),
-        ...(upstream ? { mailwomanUpstreamName: fresh.mailwomanUpstreamName! } : {}),
+        ...(upstream ? { mailwomanUpstreamName: fresh.mailwomanUpstreamName!, ...(typeof fresh.mailwomanPath === 'string' ? { mailwomanPath: fresh.mailwomanPath } : {}) } : {}),
         ...(rights ? { myRights: fresh.myRights! } : {}),
       };
     }));

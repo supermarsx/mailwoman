@@ -3,7 +3,7 @@ import {useSetting} from './useSetting.ts';
 import {LockNote} from './LockNote.tsx';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {t} from '../../i18n';
-import type {PreferenceFolder} from './folderPreferenceModel.ts';
+import {folderPathLabel,type PreferenceFolder} from './folderPreferenceModel.ts';
 import * as css from './styles.css.ts';
 import * as own from './FolderRoles.css.ts';
 export const SPECIAL_ROLES=['inbox','drafts','sent','trash','junk','archive'] as const;
@@ -34,7 +34,7 @@ function RoleField(props:{role:typeof SPECIAL_ROLES[number];folders:Accessor<rea
   <select id={`folder-role-${props.role}`} class={`${css.input} ${own.select}`} value={value()} disabled={disabled()} aria-describedby="folder-role-help" onChange={event=>{const selected=event.currentTarget.value;if(selected==='auto')void save(null);else if(selected.startsWith('id:'))void save({id:selected.slice(3)});}}>
    <option value="auto">{t('settings-folder-role-auto')}</option>
    <Show when={configuredPath()}>{path=><option value={`path:${path()}`}>{t('settings-folder-role-path',{path:path()})}</option>}</Show>
-   <For each={props.folders().filter(folder=>folder.mailwomanSearchQuery===undefined)}>{folder=><option value={`id:${folder.id}`}>{folder.mailwomanUpstreamName??folder.name}</option>}</For>
+   <For each={props.folders().filter(folder=>folder.mailwomanSearchQuery===undefined)}>{folder=><option value={`id:${folder.id}`}>{folderPathLabel(folder)}</option>}</For>
    <Show when={current()&&'id'in current()!&&!props.folders().some(folder=>`id:${folder.id}`===value())}><option value={value()}>{t('settings-folder-role-missing')}</option></Show>
   </select>
   <LockNote locked={setting.locked()}/>

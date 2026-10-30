@@ -1,6 +1,6 @@
 import {expect,it} from 'vitest';
 import {FOLDER_ICONS} from '../../api/accountPreferences.ts';
-import {folderIcon,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
+import {folderIcon,folderPathLabel,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
 it('offers fifty native custom icons and role-specific defaults',()=>{
  expect(new Set(FOLDER_ICONS).size).toBe(50);
  expect(folderIcon({id:'a',name:'Inbox',role:'inbox'},{})).toBe('inbox');
@@ -21,4 +21,8 @@ it('moves in either direction and ignores unknown drag targets',()=>{
 it('uses a search icon for virtual folders while honoring custom icons', () => {
  expect(folderIcon({id:'s',name:'Invoices',mailwomanSearchQuery:'{}'},{})).toBe('search');
  expect(folderIcon({id:'s',name:'Invoices',mailwomanSearchQuery:'{}'},{folderIcons:{s:'star'}})).toBe('star');
+});
+it('labels a folder by its decoded path, never the modified UTF-7 server spelling (t92)', () => {
+ expect(folderPathLabel({id:'d',name:'Ältere',mailwomanUpstreamName:'Entw&APw-rfe/&AMQ-ltere',mailwomanPath:'Entwürfe/Ältere'})).toBe('Entwürfe/Ältere');
+ expect(folderPathLabel({id:'k',name:'Корзина',mailwomanUpstreamName:'&BBoEPgRABDcEOAQ9BDA-'})).toBe('Корзина');
 });

@@ -1,6 +1,10 @@
 import type { IconName } from '../../components/Icon.tsx';
 import { FOLDER_ICONS, type AccountUiPreferences } from '../../api/accountPreferences.ts';
-export interface PreferenceFolder { mailwomanUpstreamName?: string; id: string; name: string; role?: string | null; mailwomanSearchQuery?: string }
+export interface PreferenceFolder { mailwomanUpstreamName?: string; mailwomanPath?: string; id: string; name: string; role?: string | null; mailwomanSearchQuery?: string }
+/** A folder's full path as people read it: the server's decoded path (t92), never the raw modified UTF-7 spelling. */
+export function folderPathLabel(folder: PreferenceFolder): string {
+  return folder.mailwomanPath ?? folder.name;
+}
 const ROLE_ICONS: Readonly<Record<string, IconName>> = {inbox:'inbox',sent:'sent',drafts:'edit',trash:'delete',junk:'alert',archive:'archive',outbox:'clock',important:'flag',all:'mail'};
 export function folderIcon(folder: PreferenceFolder, preferences: AccountUiPreferences): IconName {
   const custom = preferences.folderIcons?.[folder.id];

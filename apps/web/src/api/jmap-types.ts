@@ -50,6 +50,8 @@ export interface EmailBodyValue {
 export interface Mailbox {
   /** Native upstream path for owned special-folder configuration. */
   mailwomanUpstreamName?: string;
+  /** The full upstream path in readable form (modified UTF-7 decoded, t92). */
+  mailwomanPath?: string;
   id: Id;
   name: string;
   parentId: Id | null;

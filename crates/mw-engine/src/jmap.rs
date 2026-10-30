@@ -515,6 +515,9 @@ impl Engine {
                 "id": m.id,
                 "name": rt.backend.decode_mailbox_name(&tree.name(m)),
                 "mailwomanUpstreamName": m.name,
+                // t92: the full server path in readable form (modified UTF-7
+                // decoded), for screens that show the whole path.
+                "mailwomanPath": rt.backend.decode_mailbox_name(&m.name),
                 "parentId": tree.parent_id(m),
                 "role": role,
                 "sortOrder": role_sort_order(role),
