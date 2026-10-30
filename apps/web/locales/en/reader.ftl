@@ -41,3 +41,10 @@ reader-zoom-reset-help = Reset the message to 100%
 reader-zoom-reset-menu = Reset zoom ({ $level }%)
 reader-zoom = Message zoom (%)
 reader-zoom-help = The size messages open at, from 50% to 200%. Only the message body scales, never the app, and printing always uses 100%. The zoom buttons beside the message actions change it too.
+
+reader-attachments-summary = { $count ->
+    [one] 1 attachment
+   *[other] { $count } attachments
+} · { $size }
+reader-attachments-show = Show attachments
+reader-attachments-hide = Hide attachments

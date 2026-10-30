@@ -3,11 +3,11 @@ import {RemoteImageDownloads} from './RemoteImageDownloads.tsx';
 import {SaveToNextcloud} from '../modules/nextcloud/SaveToNextcloud.tsx';
 import {
   createEffect,
-  For,
   createMemo,
   createResource,
   createSignal,
   on,
+  onCleanup,
   onMount,
   Show,
   type JSX,
@@ -70,12 +70,17 @@ import {
 } from '../api/remote-images.ts';
 import { extractHtmlBody } from '../state/slices/mail.ts';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
+import { LinkedFilesBar } from './LinkedFilesBar.tsx';
+import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
+import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
+import { formatBytes } from '../i18n/format.ts';
+import { writeSetting } from '../api/settings.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
 import { resourceValue } from './resourceValue.ts';
 import { useReaderZoom } from './readerZoom.ts';
 import { ReaderZoomBox } from './ReaderZoomBox.tsx';
-import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, signedSource, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
+import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
@@ -193,7 +198,10 @@ function quoteDate(iso: string | null | undefined): string {
 }
 
 /** Attachment thumbnails + the on-click viewer, rendered AROUND (never inside)
- *  the sandboxed message iframe. Each viewer keeps its own sandbox (§2.4). In a
+ *  the sandboxed message iframe. Since t110 they sit in a collapsible reader
+ *  notice bar ("3 attachments · 4.2 MB"), last in the notice stack; the open or
+ *  closed state is the user's `reader.attachmentsCollapsed` setting (default
+ *  open, as before), and the thumbnails load only once the bar is open. Each viewer keeps its own sandbox (§2.4). In a
  *  locked-down max-security mode attachments open ONLY through this re-encode
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
 export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void }): JSX.Element {
@@ -266,9 +274,47 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
     ),
   );
 
+  onMount(() => void loadCatalog('reader'));
+  const collapseSetting = () => effectiveSettings()['reader.attachmentsCollapsed'];
+  const [collapsedLocal, setCollapsedLocal] = createSignal<boolean | null>(null);
+  const collapsed = (): boolean => collapsedLocal() ?? collapseSetting()?.value === true;
+  /** Mount the thumbnails on first open, then keep them (no refetch on toggle). */
+  const [everOpen, setEverOpen] = createSignal(false);
+  createEffect(() => { if (!collapsed()) setEverOpen(true); });
+  function toggle(): void {
+    const next = !collapsed();
+    setCollapsedLocal(next);
+    const entry = collapseSetting();
+    if (entry && !entry.locked) void writeSetting('reader.attachmentsCollapsed', next).catch(() => undefined);
+  }
+  const totalSize = createMemo(() => items().reduce((sum, item) => sum + item.size, 0));
+  const summaryText = (): string => t('reader-attachments-summary', { count: items().length, size: formatBytes(totalSize()) });
+  const tooltip = (): string => [summaryText(), ...items().slice(0, 8).map((item) => `${isolate(item.name)} · ${formatBytes(item.size)}`), ...(items().length > 8 ? ['…'] : [])].join('\n');
+  const panelId = `reader-attachments-${Math.random().toString(36).slice(2)}`;
+  const cloudEnabled = (): boolean => app.nextcloud.enabled() && cloudAccount === app.accountId();
+  const cloudActions = createMemo<ContextAction[]>(() => items().map((item, i) => ({ id: `nc${i}`, label: t('nextcloud-save-attachment', { name: isolate(item.name) }), icon: 'nextcloud', disabled: !decision(item)?.allowed, run: () => { setCloudItem(item); } })));
+  const cloudMenu = createContextMenu({ label: () => t('nextcloud-save-options'), scope: () => props.email.id, actions: cloudActions });
+
   return (
     <Show when={items().length > 0}>
+      <ReaderNoticeBar
+        label={t('mail-attachments')}
+        testid="reader-attachments-bar"
+        state={collapsed() ? 'collapsed' : 'expanded'}
+        icon="attachment"
+        tooltip={tooltip()}
+        actions={<>
+          <Show when={cloudEnabled()}>
+            <NoticeButton icon="nextcloud" label={t('nextcloud-save-panel-label')} haspopup="menu" expanded={cloudMenu.isOpen()} onClick={(e) => cloudMenu.open(e)} onKeyDown={cloudMenu.keydown} />
+          </Show>
+          <NoticeButton icon={collapsed() ? 'chevronDown' : 'chevronUp'} iconOnly label={collapsed() ? t('reader-attachments-show') : t('reader-attachments-hide')} expanded={!collapsed()} controls={panelId} testid="reader-attachments-toggle" onClick={toggle} />
+        </>}
+        after={<>
+        {cloudMenu.menu()}
+        <Show when={cloudEnabled() && cloudItem()} keyed>{item=><div class={noticeCss.panel}><section aria-label={t('nextcloud-save-options')}><button type="button" class="btn" onClick={()=>setCloudItem(null)}>{t('nextcloud-save-close')}</button><SaveToNextcloud {...(cloudAccount?{accountId:cloudAccount}:{})} attachment={{emailId:props.email.id,blobId:item.blobId,name:item.name}} service={app.nextcloud.service} onSaved={()=>setCloudItem(null)}/></section></div>}</Show>
+        <div id={panelId} class={noticeCss.panel} hidden={collapsed()}>
       <section class="reader__attachments" aria-label={t('mail-attachments')} data-testid="reader-attachments">
+        <Show when={everOpen()}>
         <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<AsyncPending message={t('mail-attachment-policy-loading')}/>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <ThumbnailStrip
           items={items()}
@@ -277,9 +323,6 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
           resolveThumb={(item)=>blobUrlFor(item)}
         />
         </Show>
-        <Show when={app.nextcloud.enabled() && cloudAccount===app.accountId()}>
-          <div aria-label={t('nextcloud-save-options')}><For each={items()}>{item=><button type="button" class="btn" disabled={!decision(item)?.allowed} onClick={()=>setCloudItem(item)}>{t('nextcloud-save-attachment',{name:isolate(item.name)})}</button>}</For></div>
-          <Show when={cloudItem()} keyed>{item=><section aria-label={t('nextcloud-save-options')}><button type="button" class="btn" onClick={()=>setCloudItem(null)}>{t('nextcloud-save-close')}</button><SaveToNextcloud {...(cloudAccount?{accountId:cloudAccount}:{})} attachment={{emailId:props.email.id,blobId:item.blobId,name:item.name}} service={app.nextcloud.service} onSaved={()=>setCloudItem(null)}/></section>}</Show>
         </Show>
         <Show when={openItem()}>
           {(item) => (
@@ -322,6 +365,11 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
           )}
         </Show>
       </section>
+        </div>
+        </>}
+      >
+        <span class={noticeCss.headline}>{summaryText()}</span>
+      </ReaderNoticeBar>
     </Show>
   );
 }
@@ -511,24 +559,6 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
   );
 }
 
-function RemoteFileDownloads(props: { emailId: string; scope: string; urls: string[]; links: string[] }): JSX.Element {
-  const [pending, setPending] = createSignal(false); const [failed, setFailed] = createSignal(false);
-  const [selected, setSelected] = createSignal('');
-  createEffect(on(() => props.scope, () => { setSelected(''); setFailed(false); setPending(false); }));
-  async function download(url: string): Promise<void> {
-    const scope = props.scope; setPending(true); setFailed(false);
-    try {
-      const response = await signContent(props.emailId, { files: [url] });
-      const path = response.files.find(file => file.url === url)?.src;
-      const src = path ? signedSource(path, 'f') : null;
-      if (!src) throw new Error('File was refused');
-      if (props.scope !== scope) return;
-      const link = document.createElement('a'); link.href = src; link.download = ''; link.rel = 'noopener noreferrer'; link.referrerPolicy = 'no-referrer'; document.body.append(link); link.click(); link.remove();
-    } catch { if (props.scope === scope) setFailed(true); }
-    finally { if (props.scope === scope) setPending(false); }
-  }
-  return <section aria-label={t('privacy-linked-files')}><details><summary>{t('privacy-linked-files')}</summary><For each={props.urls}>{url => <p><span dir="auto">{new URL(url).hostname}{new URL(url).pathname}</span> <button type="button" class="btn" disabled={pending()} onClick={() => void download(url)}>{t('privacy-download-file')}</button></p>}</For><Show when={props.links.some(url => !props.urls.includes(url))}><label>{t('privacy-other-link')}<select value={selected()} onChange={e => setSelected(e.currentTarget.value)}><option value="">{t('privacy-select-link')}</option><For each={props.links.filter(url => !props.urls.includes(url))}>{url => <option value={url}>{url}</option>}</For></select></label><button type="button" class="btn" disabled={pending() || !selected()} onClick={() => { const url = selected(); if (props.links.includes(url)) void download(url); }}>{t('privacy-download-file')}</button></Show></details><Show when={failed()}><p role="alert">{t('privacy-file-failed')}</p></Show></section>;
-}
 
 interface ReaderProps {
   onExport?: (messageId: string) => void;
@@ -658,6 +688,16 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   function collectListHeaders(raw:string|null,url:string):void {
     if(url===messageHeaderUrl())setListHeaders(raw===null?null:{scope:receiptDocumentKey(),url,raw});
   }
+  // t110: the mailing-list bar sits above the body, and its headers come from a
+  // separate fetch (SpamScore). The body and the notice stack wait for that answer
+  // (raw headers, or an empty string on failure), at most 0.5 s, so the bar never appears
+  // above a body that is already shown.
+  const [headerWaitOver,setHeaderWaitOver]=createSignal<string|null>(null);
+  createEffect(on(receiptDocumentKey,(key)=>{const timer=setTimeout(()=>setHeaderWaitOver(key),500);onCleanup(()=>clearTimeout(timer));}));
+  const listHeadersSettled=():boolean=>{
+    const url=messageHeaderUrl();if(url===null||headerWaitOver()===receiptDocumentKey())return true;
+    const h=listHeaders();return h!==null&&h.scope===receiptDocumentKey()&&h.url===url;
+  };
   function receiptDidDisplay(html:string,key:string|undefined):void {
     if(key===receiptDocumentKey()&&html===bodySrcdoc()){setReceiptDisplayed({key,html});setBodyDisplays(n=>n+1);}
   }
@@ -909,6 +949,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
 
   const showRemoteBar = (): boolean =>
     fullMode() && (hasBlockedContent(blockedReport()) || activeGrant() !== null);
+  /** The notice stack appears with the body (t110), never before it settles. */
+  const noticesReady = (): boolean =>
+    listHeadersSettled() && (bodySrcdoc() !== null || showDecrypt() || !(app.readLoading() || readerBody.loading || privacy.loading || grants.loading));
 
   async function reloadOpenMessage(): Promise<void> {
     const id = emailId();
@@ -1004,7 +1047,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
 
-              <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
               {/* One action row (t57): reply group, View conversation (threads of more
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
@@ -1012,33 +1054,42 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />
             </header>
-            <AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} />
+            {/* The reader notice bars (t110, ReaderNoticeBar.tsx), in one stack and a
+                fixed order: mailing list, remote images, linked files, attachments
+                (last, so its expanded thumbnails sit right above the body). The
+                stack and the body appear together, once the body is ready and the
+                list headers have settled (or 0.5 s have passed), so no bar pushes
+                the body down after it is shown. */}
+            <Show when={noticesReady()}>
+              <div class={noticeCss.stack} data-testid="reader-notice-stack">
+                <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
+                <Show when={showRemoteBar()}>
+                  <RemoteContentBar
+                    emailId={email().id}
+                    sender={sender()}
+                    report={blockedReport()}
+                    activeGrant={activeGrant()}
+                    mode={bannerMode()}
+                    decodedTrackers={remoteLoad.trackers()}
+                    onGrant={onRemoteGrant}
+                    onRevoke={onRemoteRevoke}
+                    {...(props.onOpenSettings ? { onOpenPrivacySettings: () => props.onOpenSettings?.('privacy') } : {})}
+                  />
+                </Show>
+                <Show when={currentBody()?.refs.links.length}><LinkedFilesBar emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
+                <AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} />
+              </div>
+            </Show>
             <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
               <InviteCard accountId={accountId()} emailId={email().id} />
             )}</Show>
-            {/* Remote-content bar (§S8/S9): blocked-image/tracker count + the
-                4 grant scopes, above the body it governs. */}
-            <Show when={showRemoteBar()}>
-              <RemoteContentBar
-                emailId={email().id}
-                sender={sender()}
-                report={blockedReport()}
-                activeGrant={activeGrant()}
-                mode={bannerMode()}
-                decodedTrackers={remoteLoad.trackers()}
-                onGrant={onRemoteGrant}
-                onRevoke={onRemoteRevoke}
-                {...(props.onOpenSettings ? { onOpenPrivacySettings: () => props.onOpenSettings?.('privacy') } : {})}
-              />
-            </Show>
-            <Show when={currentBody()?.refs.links.length}><RemoteFileDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
             <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
             <Show
               when={showDecrypt()}
               fallback={
                 <Show
-                  when={bodySrcdoc() !== null}
+                  when={bodySrcdoc() !== null && listHeadersSettled()}
                   fallback={<Show when={app.readLoading() || readerBody.loading || privacy.loading || grants.loading} fallback={<p class="reader__empty">{t('mail-no-content')}</p>}>{messageLoading()}</Show>}
                 >
                   {/*

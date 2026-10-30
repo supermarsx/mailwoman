@@ -37,8 +37,6 @@ privacy-allowed = Allowed
 privacy-refused = Refused by policy
 privacy-failed = Failed
 
-privacy-other-link = Download another message link as a file
-privacy-select-link = Select a link from this message
 privacy-policy-values = Remote-content policy
 privacy-cache-summary = Cache and tracking protection
 privacy-traffic-summary = Outbound traffic processing
@@ -77,3 +75,15 @@ privacy-trusted-links-invalid = Enter up to 100 domain names with at least two l
 privacy-trusted-links-save = Save trusted domains
 privacy-trusted-links-subdomains = Also trust subdomains (mail.example.com for example.com)
 privacy-trusted-links-subdomains-help = Off: only the exact domain is trusted. On: any name ending in .example.com is trusted as well.
+
+privacy-linked-files-count = { $count ->
+    [one] One file linked in this message
+   *[other] { $count } files linked in this message
+}
+privacy-linked-links = Links in this message
+privacy-linked-files-show = Show files
+privacy-linked-links-show = Download a link
+privacy-linked-files-help = Downloads go through this server, so the file host does not see your address. A file's size is known only once it is downloaded.
+privacy-linked-links-help = A link in this message can be downloaded as a file through this server, so its host does not see your address.
+privacy-linked-file-item = Download { $name } from { $host }
+privacy-linked-other-item = Download { $link }

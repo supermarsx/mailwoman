@@ -1,4 +1,5 @@
-// Remote-images banner (t16 §S8/S9, e14b; compact single line since t55) — the
+// Remote-images banner (t16 §S8/S9, e14b; compact single line since t55; on the
+// shared ReaderNoticeBar frame since t110) — the
 // reader affordance for the image proxy's deny-by-default remote images (SPEC
 // §7.2). STANDALONE and presentational: it takes the blocked-content report,
 // the message context, the policy mode and the grant/revoke callbacks as props
@@ -25,9 +26,9 @@ import { Show, createMemo, createSignal, type JSX } from 'solid-js';
 import { t } from '../i18n/index.ts';
 import { toast } from './toast/toast.ts';
 import { runRecoverable } from './recoverableAction.ts';
-import { Icon, type IconName } from './Icon.tsx';
+import { type IconName } from './Icon.tsx';
+import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
-import * as css from './remote-content-bar.css.ts';
 import type { RemoteMode } from '../api/remote-content.ts';
 import {
   scopeFor,
@@ -173,34 +174,35 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
     onError: () => toast.error(t('remote-change-failed', { reason: t('common-failure-refused') })),
   });
 
+  // The shared notice frame (t110, ReaderNoticeBar.tsx): same row, tooltip and
+  // buttons as the other reader bars. Blocked (and block mode) carries the
+  // warning rule; shown / proxy / direct are neutral.
+  const state = (): string => (mode() === 'ask' ? (granted() ? 'shown' : 'blocked') : mode());
   return (
-    <section class={css.root} aria-label={t('remote-bar-label')} data-tooltip-placement="below" data-testid="remote-content-bar" data-state={mode() === 'ask' ? (granted() ? 'shown' : 'blocked') : mode()}>
-      <div class={css.row}>
-        <span class={css.mark} aria-hidden="true"><Icon name={icon()} /></span>
-        {/* Polite: announces "Images shown" after Show images, never takes focus. */}
-        <span class={css.summary} role="status" aria-live="polite" data-tooltip={`${fullText()}\n${help()}`} tabIndex={0}>
-          <span class={css.headline}>{headline()}</span>
-          <Show when={trackerText()}>{(text) => <span class={css.trackers}>{SEP}{text()}</span>}</Show>
-        </span>
-        <span class={css.actions}>
-          <Show when={mode() === 'ask' && !granted()}>
-            <button type="button" class={`${css.btn} ${css.btnPrimary}`} disabled={pending()} aria-busy={slow() !== null} data-detached-local="" data-tooltip={t('remote-banner-show-help')} aria-label={t('remote-banner-show')} onClick={() => void grant('single')}>
-              <Icon name="eye" /><span class={css.label}>{slowLabel() ?? t('remote-banner-show')}</span>
-            </button>
-          </Show>
-          <Show when={mode() === 'ask' && granted()}>
-            <button type="button" class={css.btn} disabled={pending()} data-detached-local="" data-tooltip={undoHelp()} aria-label={`${t('remote-banner-undo')}: ${undoHelp()}`} onClick={() => void undo()}>
-              <Icon name="restore" /><span class={css.label}>{slowLabel() ?? t('remote-banner-undo')}</span>
-            </button>
-          </Show>
-          <Show when={menuActions().length > 0}>
-            <button type="button" class={`${css.btn} ${css.iconBtn}`} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-label={t('remote-banner-more')} data-tooltip={t('remote-banner-more')} onClick={(e) => menu.open(e)} onKeyDown={menu.keydown}>
-              <span class={css.chevron}><Icon name="chevron" /></span>
-            </button>
-          </Show>
-        </span>
-      </div>
-      {menu.menu()}
-    </section>
+    <ReaderNoticeBar
+      label={t('remote-bar-label')}
+      testid="remote-content-bar"
+      state={state()}
+      tone={state() === 'blocked' || state() === 'block' ? 'warning' : 'neutral'}
+      icon={icon()}
+      live
+      tooltip={`${fullText()}\n${help()}`}
+      actions={<>
+        <Show when={mode() === 'ask' && !granted()}>
+          <NoticeButton icon="eye" primary label={slowLabel() ?? t('remote-banner-show')} ariaLabel={t('remote-banner-show')} tooltip={t('remote-banner-show-help')} disabled={pending()} busy={slow() !== null} detachedLocal onClick={() => void grant('single')} />
+        </Show>
+        <Show when={mode() === 'ask' && granted()}>
+          <NoticeButton icon="restore" label={slowLabel() ?? t('remote-banner-undo')} ariaLabel={`${t('remote-banner-undo')}: ${undoHelp()}`} tooltip={undoHelp()} disabled={pending()} detachedLocal onClick={() => void undo()} />
+        </Show>
+        <Show when={menuActions().length > 0}>
+          <NoticeButton icon="chevron" menu iconOnly label={t('remote-banner-more')} haspopup="menu" expanded={menu.isOpen()} onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} />
+        </Show>
+      </>}
+      after={menu.menu()}
+    >
+      {/* Polite: announces "Images shown" after Show images, never takes focus. */}
+      <span class={noticeCss.headline}>{headline()}</span>
+      <Show when={trackerText()}>{(text) => <span class={noticeCss.detail}>{SEP}{text()}</span>}</Show>
+    </ReaderNoticeBar>
   );
 }

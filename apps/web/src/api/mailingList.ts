@@ -63,3 +63,15 @@ export function listMailDraft(link:ListLink):{to:string;subject:string;bodyText:
  const escaped=bodyText.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
  return {to:decodeURIComponent(url.pathname),subject,bodyText,bodyHtml:bodyText?`<p>${escaped.replace(/\r\n|\r|\n/g,'<br>')}</p>`:''};
 }
+
+/** The list's display identity from List-Id (RFC 2919): its phrase when there is
+ * one ("Example news" <news.example.org>), else the id itself. Untrusted text:
+ * capped, single-valued, no control characters; `null` when absent or unusable. */
+export function mailingListName(raw:string):string|null {
+ const values=mailHeaderValues(raw).get('list-id');if(values?.length!==1)return null;
+ const value=values[0]!.trim();if(!value||value.length>512||control(value,true))return null;
+ const match=/^(.*?)<([^<>\s]+)>\s*$/.exec(value);
+ const phrase=(match?match[1]!:'').trim().replace(/^"(.*)"$/,'$1').replace(/\\(.)/g,'$1').trim();
+ const id=(match?match[2]!:value).trim();
+ const name=phrase||id;return name.length>0&&name.length<=200?name:null;
+}

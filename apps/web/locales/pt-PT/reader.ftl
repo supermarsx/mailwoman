@@ -44,3 +44,10 @@ reader-zoom-reset-help = Repor a mensagem a 100%
 reader-zoom-reset-menu = Repor zoom ({ $level }%)
 reader-zoom = Zoom das mensagens (%)
 reader-zoom-help = O tamanho com que as mensagens abrem, de 50% a 200%. Só o corpo da mensagem muda de escala, nunca a aplicação, e a impressão usa sempre 100%. Os botões de zoom junto às ações da mensagem também o alteram.
+
+reader-attachments-summary = { $count ->
+    [one] 1 anexo
+   *[other] { $count } anexos
+} · { $size }
+reader-attachments-show = Mostrar anexos
+reader-attachments-hide = Ocultar anexos

@@ -86,9 +86,11 @@ test('signed proxy and CID images load without frame cookies; hostile SVG remain
   await page.screenshot({path:info.outputPath('svg-preview.png'),fullPage:true});
   // 3da161a0 opens an attachment in its own workspace tab; closing it returns to the message tab.
   await page.getByRole('button',{name:'Close hostile.svg',exact:true}).click();await expect(page.getByRole('tab',{name:subject,exact:true})).toHaveAttribute('aria-selected','true');
-  await page.getByText('Files linked in this message',{exact:true}).click();const download=page.waitForEvent('download');await page.getByRole('button',{name:'Download through the server'}).first().click();expect((await download).suggestedFilename()).toBe('document.txt');
-  await page.getByLabel('Download another message link as a file').selectOption('http://1.2.3.4/fixture.png');
-  const arbitraryDownload=page.waitForEvent('download'); await page.getByRole('button',{name:'Download through the server'}).last().click(); expect((await arbitraryDownload).suggestedFilename()).toBe('fixture.png');
+  // t110: the linked-files bar; its menu lists the file links, then the other links.
+  const filesBar=page.getByTestId('linked-files-bar').filter({visible:true});
+  await filesBar.getByRole('button',{name:'Show files'}).click();const download=page.waitForEvent('download');await page.getByRole('menuitem',{name:/^Download .document\.txt. from /}).click();expect((await download).suggestedFilename()).toBe('document.txt');
+  await filesBar.getByRole('button',{name:'Show files'}).click();
+  const arbitraryDownload=page.waitForEvent('download'); await page.getByRole('menuitem',{name:/^Download .1\.2\.3\.4\/fixture\.png.$/}).click(); expect((await arbitraryDownload).suggestedFilename()).toBe('fixture.png');
   }finally{
     try{
       if(signedIn)await resetMailbox(page,mine);

@@ -17,6 +17,9 @@ export function signedPoints(value: number): string {
  * and a ham/neutral/spam band). The rule breakdown opens in the same popover as
  * the composer's security chip, never inline.
  */
+/** `onHeaders` gets null when a fetch starts, the raw header block when it
+ *  arrives and '' when it fails or times out (t110: the reader's notice bars wait
+ *  for a settled answer before they appear). */
 export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url:string)=>void }): JSX.Element {
   onMount(() => void loadCatalog('spam-score'));
   let current:AbortController|undefined;
@@ -25,7 +28,7 @@ export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url
     current?.abort();const abort=new AbortController();current=abort;
     props.onHeaders?.(null,url);
     const timeout=setTimeout(()=>abort.abort(),10000);
-    try{const raw=await fetchMailHeaders(url,abort.signal);if(current===abort&&!abort.signal.aborted)props.onHeaders?.(raw,url);return parseSpamScores(raw);}catch{return [];}finally{clearTimeout(timeout);}
+    try{const raw=await fetchMailHeaders(url,abort.signal);if(current===abort&&!abort.signal.aborted)props.onHeaders?.(raw,url);return parseSpamScores(raw);}catch{if(current===abort)props.onHeaders?.('',url);return [];}finally{clearTimeout(timeout);}
   });
   const ready=()=>scores.state==='ready'?scores.latest:[];
   return <div class="spam-score" role="group" aria-label={t('mail-spam-score')}>

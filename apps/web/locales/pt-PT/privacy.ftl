@@ -40,8 +40,6 @@ privacy-allowed = Permitido
 privacy-refused = Recusado pela política
 privacy-failed = Falhou
 
-privacy-other-link = Transferir outra ligação da mensagem como ficheiro
-privacy-select-link = Selecione uma ligação desta mensagem
 privacy-policy-values = Política de conteúdo remoto
 privacy-cache-summary = Cache e proteção contra rastreio
 privacy-traffic-summary = Processamento do tráfego de saída
@@ -80,3 +78,15 @@ privacy-trusted-links-invalid = Introduza até 100 nomes de domínio com pelo me
 privacy-trusted-links-save = Guardar domínios de confiança
 privacy-trusted-links-subdomains = Confiar também nos subdomínios (mail.example.com para example.com)
 privacy-trusted-links-subdomains-help = Desligado: só o domínio exato é de confiança. Ligado: qualquer nome terminado em .example.com também é de confiança.
+
+privacy-linked-files-count = { $count ->
+    [one] Um ficheiro ligado nesta mensagem
+   *[other] { $count } ficheiros ligados nesta mensagem
+}
+privacy-linked-links = Ligações nesta mensagem
+privacy-linked-files-show = Mostrar ficheiros
+privacy-linked-links-show = Transferir uma ligação
+privacy-linked-files-help = As transferências passam por este servidor, pelo que o servidor do ficheiro não vê o seu endereço. O tamanho de um ficheiro só é conhecido depois de transferido.
+privacy-linked-links-help = Uma ligação nesta mensagem pode ser transferida como ficheiro através deste servidor, pelo que o respetivo servidor não vê o seu endereço.
+privacy-linked-file-item = Transferir { $name } de { $host }
+privacy-linked-other-item = Transferir { $link }

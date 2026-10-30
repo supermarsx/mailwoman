@@ -96,10 +96,13 @@ describe('Reader signed privacy pipeline',()=>{
 
 it('downloads an arbitrary message link only after explicit selection and action', async () => {
   await open([message('m1','<a href="https://files.test/download?id=7">a file</a>')]);
-  const select = await screen.findByLabelText('Download another message link as a file');
+  // t110: the linked-files bar; its menu lists the link, nothing is fetched before a choice.
+  const show = await screen.findByRole('button',{name:'Download a link'});
+  expect(screen.getByTestId('linked-files-bar')).toHaveTextContent('Links in this message');
   expect(requests).toEqual([]);
-  fireEvent.change(select,{target:{value:'https://files.test/download?id=7'}});
-  fireEvent.click(screen.getByRole('button',{name:'Download through the server'}));
+  fireEvent.click(show);
+  expect(requests).toEqual([]);
+  fireEvent.click(await screen.findByRole('menuitem',{name:/Download .*files\.test\/download/}));
   await waitFor(()=>expect(requests).toContainEqual({emailId:'m1',files:['https://files.test/download?id=7']}));
 });
 it('folds the server decoded count into the banner, read once, never as a separate line',async()=>{
@@ -108,6 +111,33 @@ it('folds the server decoded count into the banner, read once, never as a separa
   const stats=vi.mocked(fetch).mock.calls.filter(([u])=>String(u).includes('/api/rc/stats?'));
   expect(stats).toHaveLength(1);
   expect(screen.queryByText(/recently decoded/)).toBeNull();
+});
+
+// t110: every notice above the body is the same bar, in one stack and a fixed
+// order (list, images, files, attachments); attachments collapse in place.
+describe('Reader notice bars',()=>{
+  it('stacks the remote-images, linked-files and attachments bars on one frame, in order',async()=>{
+    policy.mode='ask';
+    const html='<p>Report</p><img src="https://cdn.example.test/image.png"><a href="https://files.example.test/q3/report%20final.pdf">report</a>';
+    const email={...message('m1',html),hasAttachment:true,attachments:[{partId:'2',blobId:'a1',name:'notes.txt',type:'text/plain',size:2048},{partId:'3',blobId:'a2',name:'plan.pdf',type:'application/pdf',size:1024*1024}]} as Email;
+    await open([email]);
+    const stack=await screen.findByTestId('reader-notice-stack');
+    await waitFor(()=>expect([...stack.querySelectorAll('[data-notice-bar]')].map(bar=>bar.getAttribute('data-testid'))).toEqual(['remote-content-bar','linked-files-bar','reader-attachments-bar']));
+    const bars=[...stack.querySelectorAll<HTMLElement>('[data-notice-bar]')];
+    expect(new Set(bars.map(bar=>bar.className)).size).toBe(1);
+    expect(screen.getByTestId('linked-files-bar')).toHaveTextContent(/One file linked in this message · \u2068files\.example\.test\u2069/);
+    fireEvent.click(screen.getByRole('button',{name:'Show files'}));
+    expect(screen.getByRole('menuitem',{name:/Download \u2068report final\.pdf\u2069 from \u2068files\.example\.test\u2069/})).toBeInTheDocument();
+    expect(requests.some(r=>r.files)).toBe(false);
+    const attachments=screen.getByTestId('reader-attachments-bar');
+    expect(attachments).toHaveTextContent(/^2 attachments · 1 MB/);
+    const toggle=screen.getByTestId('reader-attachments-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded','true');expect(screen.getByTestId('reader-attachments').parentElement).not.toHaveAttribute('hidden');
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-expanded','false');expect(toggle).toHaveAccessibleName('Show attachments');
+    expect(screen.getByTestId('reader-attachments').parentElement).toHaveAttribute('hidden');
+    expect(document.getElementById(toggle.getAttribute('aria-controls')!)).toBe(screen.getByTestId('reader-attachments').parentElement);
+  });
 });
 
 // t60: the mailbox route's <Suspense> wraps the whole shell. A reader that reads
