@@ -94,7 +94,8 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
             // verdict + DLP + sender-control + mail-rule families ride the same
             // envelope; private-key ops run client-side (WASM), never here.
             "urn:mailwoman:crypto": {},
-            "urn:mailwoman:security": {}
+            "urn:mailwoman:security": {},
+            "urn:mailwoman:search": {"exactFromDomain": true}
         },
         "accounts": {
             account_id: { "name": username, "isPersonal": true, "isReadOnly": false, "accountCapabilities": {
@@ -106,7 +107,8 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
                 "urn:mailwoman:notes": {},
                 "urn:mailwoman:contacts": {},
                 "urn:mailwoman:crypto": {},
-                "urn:mailwoman:security": {}
+                "urn:mailwoman:security": {},
+            "urn:mailwoman:search": {"exactFromDomain": true}
             } }
         },
         "primaryAccounts": {
@@ -120,7 +122,8 @@ pub fn session_json(account_id: &str, username: &str) -> Value {
             "urn:mailwoman:notes": account_id,
             "urn:mailwoman:contacts": account_id,
             "urn:mailwoman:crypto": account_id,
-            "urn:mailwoman:security": account_id
+            "urn:mailwoman:security": account_id,
+            "urn:mailwoman:search": account_id
         },
         "username": username,
         "apiUrl": "/jmap/api",

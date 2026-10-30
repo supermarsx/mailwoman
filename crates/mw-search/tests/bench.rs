@@ -84,6 +84,11 @@ fn synthetic_corpus() -> Vec<IndexDoc> {
             stable_id: format!("m{i}"),
             account_id: "acct".to_string(),
             mailbox_id: rng.pick(&mailboxes).to_string(),
+            from_domains: from
+                .rsplit_once('@')
+                .and_then(|(_, domain)| mw_search::normalize_sender_domain(domain))
+                .into_iter()
+                .collect(),
             from,
             to,
             cc: String::new(),

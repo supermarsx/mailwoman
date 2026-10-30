@@ -194,6 +194,8 @@ pub enum Clause {
     },
     /// Prefix / wildcard text: a `*` glob in the term (`term*`, `*term`, `t*m`).
     Wildcard { field: TextField, value: String },
+    /// Exact normalized sender mailbox domain (`from-domain:`), never display-name text.
+    FromDomain(String),
     /// Exact JMAP keyword present (`tag:`, `is:read`, `is:flagged`).
     Keyword(String),
     /// Exact JMAP keyword absent (`is:unread` = not `$seen`).
@@ -295,6 +297,7 @@ fn is_operator(name: &str) -> bool {
     matches!(
         name,
         "from"
+            | "from-domain"
             | "to"
             | "cc"
             | "subject"
@@ -429,6 +432,7 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
     let f = field.to_ascii_lowercase();
     let clause = match f.as_str() {
         "from" => text_clause(TextField::From, value, phrase),
+        "from-domain" => Clause::FromDomain(value.trim().to_ascii_lowercase()),
         "to" => text_clause(TextField::To, value, phrase),
         "cc" => text_clause(TextField::Cc, value, phrase),
         "subject" => text_clause(TextField::Subject, value, phrase),
@@ -701,6 +705,36 @@ impl Parser {
     }
 }
 
+/// Normalize a DNS A-label domain for exact mailbox-domain matching.
+/// A display name, address, wildcard, or partial suffix is never a domain.
+pub fn normalize_sender_domain(value: &str) -> Option<String> {
+    let domain = value.trim().to_ascii_lowercase();
+    if domain.is_empty()
+        || domain.len() > 253
+        || !domain.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label.as_bytes()[0].is_ascii_alphanumeric()
+                && label.as_bytes()[label.len() - 1].is_ascii_alphanumeric()
+                && label
+                    .bytes()
+                    .all(|c| c.is_ascii_alphanumeric() || c == b'-')
+        })
+    {
+        return None;
+    }
+    Some(domain)
+}
+
+fn valid_sender_domains(expr: &Expr) -> bool {
+    match expr {
+        Expr::Clause(Clause::FromDomain(domain)) => normalize_sender_domain(domain).is_some(),
+        Expr::And(items) | Expr::Or(items) => items.iter().all(valid_sender_domains),
+        Expr::Not(inner) => valid_sender_domains(inner),
+        _ => true,
+    }
+}
+
 /// Parse operator text into an [`Expr`]. Empty/whitespace input → [`Expr::All`].
 pub(crate) fn parse_expr(text: &str) -> Result<Expr, String> {
     // Before `lex`, deliberately: it collects the whole input into a `Vec<char>`
@@ -728,12 +762,42 @@ pub(crate) fn parse_expr(text: &str) -> Result<Expr, String> {
     if p.pos != p.toks.len() {
         return Err("trailing tokens after query".to_string());
     }
+    if !valid_sender_domains(&expr) {
+        return Err("from-domain requires a complete DNS domain".into());
+    }
     Ok(expr)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sender_domain_operator_is_exact_normalized_and_validated() {
+        assert_eq!(
+            parse_expr("from-domain:\"EXAMPLE.org\"").unwrap(),
+            Expr::Clause(Clause::FromDomain("example.org".into()))
+        );
+        for bad in [
+            "",
+            "@example.org",
+            "*.example.org",
+            "example..org",
+            "example.org.",
+            "-example.org",
+            "example-.org",
+            "bad domain",
+            "日本.example",
+        ] {
+            assert!(
+                parse_expr(&format!("from-domain:\"{bad}\"")).is_err(),
+                "{bad}"
+            );
+        }
+        assert!(parse_expr("-from-domain:*.example.org").is_err());
+        assert!(normalize_sender_domain(&format!("{}.org", "x".repeat(64))).is_none());
+        assert!(normalize_sender_domain("xn--bcher-kva.example").is_some());
+    }
 
     fn cl(text: &str) -> Expr {
         parse_expr(text).expect("parse")

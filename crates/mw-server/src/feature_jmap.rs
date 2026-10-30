@@ -128,6 +128,16 @@ pub(crate) async fn admit(
     request: &Value,
 ) -> Result<(), Response> {
     refuse_foreign_account(state, session, request)?;
+    if state.engine.is_none() && requests_exact_sender_domain(request) {
+        return Err((
+            axum::http::StatusCode::BAD_REQUEST,
+            axum::Json(serde_json::json!({
+                "code": "searchOperatorUnsupported",
+                "error": "This mailbox does not support exact sender-domain search."
+            })),
+        )
+            .into_response());
+    }
     let required = required_features(request);
     let receipt_send = request
         .get("methodCalls")
@@ -184,9 +194,39 @@ pub(crate) async fn admit(
     Ok(())
 }
 
+fn requests_exact_sender_domain(request: &Value) -> bool {
+    request
+        .get("methodCalls")
+        .and_then(Value::as_array)
+        .is_some_and(|calls| {
+            calls.iter().any(|call| {
+                call.get(0).and_then(Value::as_str) == Some("Email/query")
+                    && call
+                        .get(1)
+                        .and_then(|args| args.get("filter"))
+                        .is_some_and(mw_engine::query::has_exact_sender_domain_filter)
+            })
+        })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn exact_domain_proxy_guard_detects_operators_without_matching_literal_text() {
+        let query =
+            |filter| serde_json::json!({"methodCalls":[["Email/query",{"filter":filter},"q"]]});
+        assert!(requests_exact_sender_domain(&query(
+            serde_json::json!({"text":"from-domain:example.org"})
+        )));
+        assert!(requests_exact_sender_domain(&query(
+            serde_json::json!({"operator":"OR","conditions":[{"text":"-from-domain:example.org"}]})
+        )));
+        assert!(!requests_exact_sender_domain(&query(
+            serde_json::json!({"text":"subject:\"from-domain:example.org\""})
+        )));
+    }
     use serde_json::json;
     #[test]
     fn email_import_requires_import_before_any_batch_member_runs() {

@@ -132,6 +132,15 @@ pub(crate) fn build_index_doc(
         account_id: account_id.to_string(),
         mailbox_id: mailbox_id.to_string(),
         from: addr_str(&email.from),
+        from_domains: email
+            .from
+            .iter()
+            .flatten()
+            .filter_map(|address| address.email.rsplit_once('@'))
+            .filter_map(|(_, domain)| mw_search::normalize_sender_domain(domain))
+            .collect::<std::collections::BTreeSet<_>>()
+            .into_iter()
+            .collect(),
         to: addr_str(&email.to),
         cc: addr_str(&email.cc),
         subject: email.subject.clone().unwrap_or_default(),
@@ -324,6 +333,47 @@ fn parse_date_bound(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sender_domain_uses_mailbox_addresses_not_display_names_and_keeps_scope() {
+        let email = Email {
+            from: Some(vec![EmailAddress {
+                name: Some("fake@target.test".into()),
+                email: "alice@OTHER.test".into(),
+            }]),
+            ..Email::default()
+        };
+        let document = build_index_doc(
+            "mail",
+            "account",
+            "owned",
+            &email,
+            vec![],
+            vec![],
+            String::new(),
+            false,
+            None,
+            None,
+        );
+        assert_eq!(document.from_domains, ["other.test"]);
+        let idx = mw_search::Index::open_in_ram().unwrap();
+        idx.upsert(&document).unwrap();
+        let search = |domain: &str, mailboxes: &[String]| {
+            let filter = text(&format!("from-domain:{domain}"));
+            idx.search(
+                &build_search_query(&filter, Sort::default(), mailboxes, None),
+                20,
+            )
+            .unwrap()
+        };
+        assert_eq!(search("other.test", &["owned".into()]), ["mail"]);
+        assert!(search("target.test", &["owned".into()]).is_empty());
+        assert!(search("other.test", &["foreign".into()]).is_empty());
+        assert_eq!(
+            crate::jmap::session_json("account", "alice")["capabilities"]["urn:mailwoman:search"]["exactFromDomain"],
+            true
+        );
+    }
 
     /// One index holding one message of mailbox `mb-a`; returns the ids the
     /// compiled query selects from it.

@@ -22,7 +22,7 @@ mod query;
 /// the default search path is byte-identical to 26.18.
 pub mod rerank;
 
-pub use query::{Clause, Expr, Sort, SortField, TextField};
+pub use query::{Clause, Expr, Sort, SortField, TextField, normalize_sender_domain};
 pub use rerank::{cosine, rerank_by_cosine};
 
 use std::ops::Bound;
@@ -55,6 +55,9 @@ pub struct IndexDoc {
     pub account_id: String,
     pub mailbox_id: String,
     pub from: String,
+    /// Domains extracted from parsed From mailboxes, separately from display text.
+    #[serde(default)]
+    pub from_domains: Vec<String>,
     pub to: String,
     pub cc: String,
     pub subject: String,
@@ -239,6 +242,7 @@ struct Fields {
     has_calendar: Field,
     calendar_end: Field,
     bulk: Field,
+    from_domain: Field,
 }
 
 /// Fast-field names used for sorting (must match the schema below).
@@ -293,6 +297,8 @@ fn build_schema() -> (Schema, Fields) {
     // t94: list/bulk header signal. Added after the t78 fields, so an index from
     // before t94 is cleared and refilled the same way (the backfill).
     let bulk = sb.add_u64_field("bulk", INDEXED);
+    // Exact address domains; schema comparison triggers normal startup backfill.
+    let from_domain = sb.add_text_field("from_domain", STRING);
     let schema = sb.build();
     let fields = Fields {
         stable_id,
@@ -315,6 +321,7 @@ fn build_schema() -> (Schema, Fields) {
         has_calendar,
         calendar_end,
         bulk,
+        from_domain,
     };
     (schema, fields)
 }
@@ -434,6 +441,13 @@ impl Index {
         td.add_text(f.account_id, &doc.account_id);
         td.add_text(f.mailbox, &doc.mailbox_id);
         td.add_text(f.from, &doc.from);
+        for domain in doc
+            .from_domains
+            .iter()
+            .filter_map(|d| normalize_sender_domain(d))
+        {
+            td.add_text(f.from_domain, domain);
+        }
         td.add_text(f.to, &doc.to);
         td.add_text(f.cc, &doc.cc);
         td.add_text(f.subject, &doc.subject);
@@ -857,6 +871,10 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
                 wildcard_field_query(fld, &pattern)
             })
         }
+        Clause::FromDomain(domain) => match normalize_sender_domain(domain) {
+            Some(domain) => term_query(f.from_domain, &domain),
+            None => Box::new(EmptyQuery),
+        },
         Clause::Keyword(kw) => term_query(f.keywords, kw),
         Clause::NotKeyword(kw) => negate(term_query(f.keywords, kw)),
         Clause::Mailbox(m) => term_query(f.mailbox, m),
@@ -1037,6 +1055,34 @@ fn u64_term(field: Field, value: u64) -> Box<dyn Query> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sender_domain_matches_only_exact_address_domains_and_composes() {
+        let idx = Index::open_in_ram().unwrap();
+        let mut docs = Vec::new();
+        for (id, domain) in [
+            ("exact", "Example.ORG"),
+            ("sub", "sub.example.org"),
+            ("suffix", "example.org.evil"),
+            ("prefix", "evil-example.org"),
+            ("other", "elsewhere.org"),
+        ] {
+            let mut document = doc(id, "report", "pretend@example.org real@elsewhere.org");
+            document.from_domains = vec![domain.into()];
+            docs.push(document);
+        }
+        idx.upsert_batch(&docs).unwrap();
+        let run = |query| idx.search(&parse_query(query).unwrap(), 100).unwrap();
+        assert_eq!(run("from-domain:example.org"), vec!["exact"]);
+        assert_eq!(run("from-domain:EXAMPLE.ORG subject:report"), vec!["exact"]);
+        assert_eq!(
+            run("from-domain:example.org -subject:report"),
+            Vec::<String>::new()
+        );
+        let mut either = run("from-domain:example.org OR from-domain:elsewhere.org");
+        either.sort();
+        assert_eq!(either, vec!["exact", "other"]);
+    }
 
     fn doc(id: &str, subject: &str, from: &str) -> IndexDoc {
         IndexDoc {
@@ -1454,6 +1500,38 @@ mod tests {
         let idx = Index::open(&dir).expect("a t78 index reopens");
         assert!(idx.inner.schema().get_field("bulk").is_ok());
         drop(idx);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn sender_domain_schema_upgrade_clears_old_documents_then_accepts_backfill() {
+        let dir = temp_dir("schema-sender-domain");
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let (schema, _) = build_schema();
+            let mut builder = Schema::builder();
+            for (_, entry) in schema.fields() {
+                if entry.name() != "from_domain" {
+                    builder.add_field(entry.clone());
+                }
+            }
+            let old = TantivyIndex::create_in_dir(&dir, builder.build()).unwrap();
+            let mut writer: IndexWriter = old.writer(15_000_000).unwrap();
+            let mut document = TantivyDocument::default();
+            document.add_text(old.schema().get_field("stable_id").unwrap(), "old");
+            writer.add_document(document).unwrap();
+            writer.commit().unwrap();
+        }
+        let idx = Index::open(&dir).unwrap();
+        assert_eq!(idx.num_docs(), 0);
+        let mut rebuilt = doc("rebuilt", "report", "alice@example.org");
+        rebuilt.from_domains = vec!["example.org".into()];
+        idx.upsert(&rebuilt).unwrap();
+        assert_eq!(find(&idx, "from-domain:example.org"), vec!["rebuilt"]);
+        drop(idx);
+        let reopened = Index::open(&dir).unwrap();
+        assert_eq!(find(&reopened, "from-domain:example.org"), vec!["rebuilt"]);
+        drop(reopened);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

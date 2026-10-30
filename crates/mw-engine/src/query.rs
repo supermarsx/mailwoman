@@ -7,6 +7,28 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Whether a JMAP filter requests the Mailwoman exact sender-domain extension.
+/// The proxy must not silently turn it into an upstream full-text search.
+pub fn has_exact_sender_domain_filter(filter: &serde_json::Value) -> bool {
+    fn contains(expr: &mw_search::Expr) -> bool {
+        match expr {
+            mw_search::Expr::Clause(mw_search::Clause::FromDomain(_)) => true,
+            mw_search::Expr::And(items) | mw_search::Expr::Or(items) => items.iter().any(contains),
+            mw_search::Expr::Not(inner) => contains(inner),
+            _ => false,
+        }
+    }
+    filter
+        .get("text")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|text| mw_search::parse_query(text).ok())
+        .is_some_and(|query| contains(&query.expr))
+        || filter
+            .get("conditions")
+            .and_then(serde_json::Value::as_array)
+            .is_some_and(|items| items.iter().any(has_exact_sender_domain_filter))
+}
+
 /// The frozen `Email/query` filter (§2.1). Fields are optional; absent = no
 /// constraint. `serde(default)` so partial JMAP filters deserialize.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]

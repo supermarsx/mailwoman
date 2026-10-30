@@ -1265,3 +1265,38 @@ async fn caldav_event_round_trip_and_repull() {
         .delete_resource(&format!("{}/{}.ics", href.trim_end_matches('/'), uid), None)
         .await;
 }
+
+#[tokio::test]
+async fn all_day_event_set_get_update_and_export_keep_date_semantics() {
+    let h = setup().await;
+    let created = h
+        .call(
+            "CalendarEvent/set",
+            json!({"create":{"day":{
+                "title":"All day", "start":"2026-10-30T00:00:00", "duration":"P2D",
+                "timeZone":"Europe/London", "showWithoutTime":true
+            }}}),
+        )
+        .await;
+    let id = created["created"]["day"]["id"]
+        .as_str()
+        .expect("created event");
+    let got = h.call("CalendarEvent/get", json!({"ids":[id]})).await;
+    assert_eq!(got["list"][0]["showWithoutTime"], true);
+    let updated = h
+        .call(
+            "CalendarEvent/set",
+            json!({"update":{id:{
+                "title":"Updated all day", "start":"2026-11-02T00:00:00", "showWithoutTime":true
+            }}}),
+        )
+        .await;
+    assert!(updated["notUpdated"].get(id).is_none(), "{updated}");
+    let got = h.call("CalendarEvent/get", json!({"ids":[id]})).await;
+    assert_eq!(got["list"][0]["showWithoutTime"], true);
+    assert_eq!(got["list"][0]["duration"], "P2D");
+    let exported = h.call("CalendarEvent/export", json!({"ids":[id]})).await;
+    let blob = exported["blob"].as_str().unwrap();
+    assert!(blob.contains("DTSTART;VALUE=DATE:20261102\r\n"), "{blob}");
+    assert!(blob.contains("DTEND;VALUE=DATE:20261104\r\n"), "{blob}");
+}

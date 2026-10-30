@@ -789,7 +789,12 @@ mod tests {
         assert_eq!(summary.removed, 2);
         assert_eq!(summary.failed, 0);
         for id in &ids {
-            assert!(engine.search().fetch_doc(id).unwrap().is_some());
+            let rebuilt = engine.search().fetch_doc(id).unwrap().unwrap();
+            assert_eq!(
+                rebuilt.from_domains,
+                ["x"],
+                "reconciliation rebuilds exact domains from stored From addresses"
+            );
         }
         assert!(engine.search().fetch_doc("gone").unwrap().is_none());
         assert!(engine.search().fetch_doc("orphan").unwrap().is_none());
