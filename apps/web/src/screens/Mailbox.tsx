@@ -393,7 +393,6 @@ export function MailboxScreen(): JSX.Element {
   createEffect(()=>{const destination=surface(),accountId=app.accountId();untrack(()=>{
     if(destination==='mail'){if(activePane()?.surface)subTabs.activate('mail');return;}
     if(!surfaceAllowed(destination))return;
-    if(app.linkedMailboxId?.()&&destination!=='attachments'&&destination!=='outbox'){router.navigate('mail');return;}
     if(!accountId)return;
     const module=APP_NAV_MODULES.find(item=>item.id===destination);
     const kind=destination==='attachments'?'attachments':destination==='outbox'?'outbox':'module';
@@ -840,7 +839,7 @@ export function MailboxScreen(): JSX.Element {
 
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
             reachable from the nav rail — the explicit mount step V2 lacked. */}
-        <Show when={!app.linkedMailboxId?.()}><nav class="sidebar__nav sidebar__nav--apps" aria-label={t('mail-nav-apps')}>
+        <nav class="sidebar__nav sidebar__nav--apps" aria-label={t('mail-nav-apps')}>
           <For each={shownModules()}>
             {(m) => (
               <button
@@ -856,7 +855,7 @@ export function MailboxScreen(): JSX.Element {
               </button>
             )}
           </For>
-        </nav></Show>
+        </nav>
         </div>
         <div class="sidebar__footer">
         <Show when={folderMode()!=='compact'||narrow()}><QuotaMeter accountId={app.accountId()} refresh={app.mailboxes()}/></Show>

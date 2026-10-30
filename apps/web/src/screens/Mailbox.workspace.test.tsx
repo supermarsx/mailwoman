@@ -1,6 +1,7 @@
 import {createSignal} from 'solid-js';
 import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
+import {loadFeatures,clearFeatures} from '../state/features.ts';
 import {loadSettings} from '../api/settings.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
@@ -35,6 +36,24 @@ function mount(attachment=false) {
   return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
+  it('opens linked mailbox application tabs through actual nav clicks and honors feature policy',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    vi.spyOn(app,'linkedMailboxId').mockReturnValue('verified-child');
+    const {container}=show();
+    try{
+      for(const name of ['Calendar','Tasks','Notes','Contacts','Keys']){
+        const nav=await screen.findByRole('navigation',{name:'Apps'});
+        fireEvent.click(within(nav).getByRole('button',{name}));
+        await waitFor(()=>expect(location.hash).toBe(`#/${name.toLowerCase()}`));
+        expect(screen.getByRole('tab',{name})).toHaveAttribute('aria-selected','true');
+        expect(container.querySelector(`[data-surface="${name.toLowerCase()}"]`)).not.toBeNull();
+      }
+      await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{keys:{enabled:false,limits:{},settings:{}}}}))});
+      await waitFor(()=>expect(within(screen.getByRole('navigation',{name:'Apps'})).queryByRole('button',{name:'Keys'})).toBeNull());
+      await waitFor(()=>expect(location.hash).toBe('#/mail'));
+    }finally{clearFeatures();vi.restoreAllMocks();}
+  });
+
   it('attempts a separate composer window when configured and retains its tab if popups are blocked',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.composeWindow':{value:'window',source:'user',locked:false}}}),{headers:{'content-type':'application/json'}})});
@@ -234,6 +253,7 @@ describe('retained mailbox workspace',()=>{
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>new URL(input instanceof Request?input.url:String(input),location.href).pathname==='/api/attachments/policy'?new Response(JSON.stringify(policy),{status:200,headers:{'content-type':'application/json'}}):new Response(null,{status:404})));
     const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
     fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Show attachments'}));
     // The pending policy strip is deliberately inert; wait for the real controls.
     await waitFor(()=>expect(document.querySelector('[data-policy="ready"]')).toBeInTheDocument());
     const item=await screen.findByRole('option',{name:/report.txt/});fireEvent.click(item);
