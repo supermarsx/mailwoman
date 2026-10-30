@@ -153,6 +153,7 @@ pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
 mod admin_dashboard;
+mod health_probes;
 pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
@@ -1414,6 +1415,8 @@ fn router(
         .layer(Extension(v7.plugins.clone()))
         .layer(Extension(v7.assist.clone()));
     let provider_plugins = v7.plugins.clone();
+    // t103: keep the Health panel's numbers on `/metrics` current.
+    health_probes::spawn_metrics_refresher(state.clone(), v7.plugins.clone());
 
     // ── V7 MOUNT (plan §3 e14) ────────────────────────────────────────────────
     // The five e9 route factories + the extra e14 endpoints, each layered with the
@@ -4815,7 +4818,7 @@ async fn sanitize(
         return resp;
     }
     let clean = match &state.render_bin {
-        Some(bin) => match run_render_child(bin, &body.html).await {
+        Some(bin) => match health_probes::track_render(run_render_child(bin, &body.html)).await {
             Ok(html) => html,
             Err(e) if state.render_jail_required => {
                 // S6/DQ4 fail-closed: the jailed child was expected but failed. Do NOT
@@ -4868,7 +4871,9 @@ async fn import_oft(
         return resp;
     }
     let result = match &state.render_bin {
-        Some(bin) => run_render_child_cfb(bin, &body.content_base64).await,
+        Some(bin) => {
+            health_probes::track_render(run_render_child_cfb(bin, &body.content_base64)).await
+        }
         None => {
             // S6/DQ4 + SPEC §7.5: the hostile OLE2/MS-OXMSG parse has NO safe
             // in-process path — the native `from_oft` parser was removed from the

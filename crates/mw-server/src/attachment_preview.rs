@@ -66,12 +66,17 @@ async fn preview(
         return super::render_unavailable();
     };
     let Ok(_permit) = WORKERS.try_acquire() else {
+        crate::health_probes::render_busy();
         return error(
             StatusCode::TOO_MANY_REQUESTS,
             "attachment preview workers are busy; retry shortly",
         );
     };
-    let result = tokio::time::timeout(std::time::Duration::from_secs(15), run(bin, &body)).await;
+    let result = crate::health_probes::track_render_timeout(
+        std::time::Duration::from_secs(15),
+        run(bin, &body),
+    )
+    .await;
     match result {
         Ok(Ok(mut value)) => {
             // The worker parses these fields from the supplied MIME bytes;

@@ -1,4 +1,5 @@
-//! Read-only dashboard aggregation. No upstream probes or credential reads.
+//! Read-only dashboard aggregation. No credential reads; the Health panel's
+//! bounded probes live in [`crate::health_probes`].
 use crate::{
     AppState,
     admin_ctx::{AdminApiError, AdminCtx},
@@ -7,7 +8,7 @@ use crate::{
 };
 use axum::{
     Json,
-    extract::State,
+    extract::{Extension, Query, State},
     http::{Method, StatusCode, header},
     response::{IntoResponse, Response},
 };
@@ -19,6 +20,29 @@ use std::{
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/dashboard", C::DashboardRead, summary);
+    r.admin_endpoint(Method::GET, "/dashboard/health", C::DashboardRead, health);
+}
+
+#[derive(serde::Deserialize, Default)]
+struct HealthQuery {
+    /// `1` skips the few-second cache (the panel's Refresh button).
+    #[serde(default)]
+    fresh: Option<String>,
+}
+
+/// `GET /admin/dashboard/health[?fresh=1]` — the Health panel alone, so it can
+/// reload in place. Needs Dashboard read access for all domains (it describes
+/// the whole server).
+async fn health(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    plugins: Option<Extension<crate::plugins::PluginRegistry>>,
+    Query(q): Query<HealthQuery>,
+) -> Result<Response, AdminApiError> {
+    ctx.require_unscoped(C::DashboardRead)?;
+    let fresh = q.fresh.as_deref() == Some("1");
+    let value = crate::health_probes::health(&state, plugins.as_ref().map(|e| &e.0), fresh).await;
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response())
 }
 
 fn counts(
@@ -116,7 +140,11 @@ async fn active_webmail_sessions(
     Ok(count)
 }
 
-async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response, AdminApiError> {
+async fn summary(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+    plugins: Option<Extension<crate::plugins::PluginRegistry>>,
+) -> Result<Response, AdminApiError> {
     let work = async {
         let now = std::time::SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -130,6 +158,14 @@ async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Respons
         } else {
             None
         };
+        let health = if global {
+            Some(crate::health_probes::health(&state, plugins.as_ref().map(|e| &e.0), false).await)
+        } else {
+            None
+        };
+        let search_bytes = health
+            .as_ref()
+            .and_then(|h| h["components"]["search"]["metrics"]["bytes"].as_u64());
         let mut unavailable = serde_json::Map::new();
         let active_sessions = match tokio::time::timeout(
             Duration::from_millis(800),
@@ -232,8 +268,8 @@ async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Respons
         totals["activeSessions"] = json!(active_sessions);
         let value = json!({"server":global.then(||json!({"version":env!("CARGO_PKG_VERSION"),"buildSha":option_env!("MW_BUILD_SHA"),"mode":if state.engine.is_some(){"engine"}else{"proxy"},"uptimeSecs":state.started.elapsed().as_secs(),"startedAt":state.started_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),"basePath":state.base_path.as_ref()})),
             "counts":totals,"security":null,
-            "storage":store.as_ref().map(|s|json!({"dbBytes":s.db_bytes,"walBytes":s.wal_bytes,"searchIndexBytes":null,"dataVolume":null})),
-            "health":store.as_ref().map(|s|json!({"dbPingMs":s.db_ping_ms,"migration":{"applied":s.migration_applied,"expected":s.migration_expected},"engine":null,"outbox":null,"searchIndex":null,"renderSandbox":null,"pluginRuntime":null})),
+            "storage":store.as_ref().map(|s|json!({"dbBytes":s.db_bytes,"walBytes":s.wal_bytes,"searchIndexBytes":search_bytes,"dataVolume":null})),
+            "health":health,
             "traffic":global.then(||json!({"windowMins":60,"series":crate::http_metrics::traffic_series()})),
             "recentAudit":audit,"blockedAccounts":null,"warnings":warnings,"checklist":checklist,"unavailable":unavailable});
         Ok::<_, AdminApiError>(([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response())
