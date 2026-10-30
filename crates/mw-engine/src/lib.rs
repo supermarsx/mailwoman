@@ -35,6 +35,7 @@ pub mod sieve_jmap;
 mod sieve_scripts;
 pub mod state;
 pub mod submission;
+pub mod sync_health;
 pub mod thread;
 pub mod v6;
 pub mod v7;
