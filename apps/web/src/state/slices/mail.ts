@@ -61,6 +61,7 @@ import {
   type SetError,
 } from '../../api/jmap-types.ts';
 import { t, isolate, loadCatalog } from '../../i18n/index.ts';
+import { EMPTY_QUERY, offlineQueryOf, parseQuery, serializeQuery, serverQueryText, setField, setScope } from '../../search/searchQuery.ts';
 import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
@@ -202,7 +203,12 @@ export interface MailSlice {
    *  optional `semantic` flag (V7 §14.3) requests embedding re-ranking; it is only
    *  ever set when the Assist semantic-search toggle is on. */
   searchMessages(query: string, opts?: { semantic?: boolean }): Promise<void>;
-  searchMessageField(field:'from'|'subject',value:string):Promise<void>;
+  /** Start or refine a search from a message (t88): with a search active the
+   *  field is set in the current query (replacing the same field), else a new
+   *  search starts. `in` takes a mailbox id and sets the folder scope. The value
+   *  is written as one quoted operator value, so its text cannot become
+   *  operators (`subject:"a \" OR from:x"`). */
+  searchMessageField(field:'from'|'subject'|'in',value:string):Promise<void>;
   /** Clear search and reload the selected mailbox. */
   clearSearch(): Promise<void>;
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
@@ -1599,7 +1605,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // whole result, which is why `total` may honestly be the row count here and
     // nowhere else.
     if (isOffline() && ctx.searchOffline) {
-      const hits = ctx.searchOffline({ text: query });
+      const hits = ctx.searchOffline(offlineQueryOf(query));
       setPageSource(null);
       setMessages(hits);
       setLoadedStart(0);
@@ -1615,18 +1621,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1). The
     // semantic flag (V7 §14.3) is added only when the Assist toggle is on.
     const filter: FilterCondition = {
-      text: query,
+      // `in:` names (as the filter bar writes them) become mailbox ids here.
+      text: serverQueryText(query, mailboxes()),
       ...(opts?.semantic === true ? { semantic: true } : {}),
     };
     await loadFirstPage(acct, { kind: 'search', filter });
   }
 
-  /** Message metadata uses typed filters, never query-language interpolation. */
-  async function searchMessageField(field:'from'|'subject',value:string):Promise<void> {
+  /** Message metadata goes into the query as one quoted, escaped operator
+   *  value (searchQuery.ts quote()), never as raw query text. */
+  async function searchMessageField(field:'from'|'subject'|'in',value:string):Promise<void> {
     const acct=accountId();
     if(acct===null||!value.trim()||value.length>4096||[...value].some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))return;
-    clearSelection();setSearch(`${field}: ${value}`);setSearchActive(true);
-    await loadFirstPage(acct,{kind:'search',filter:{[field]:value}});
+    const base=searchActive()?parseQuery(search()):EMPTY_QUERY;
+    let next;
+    if(field==='in'){
+      const box=mailboxes().find(m=>m.id===value);if(!box)return;
+      next=setScope(base,box,mailboxes());
+    } else next=setField(base,field,value.trim());
+    // Metadata is always written quoted, so a subject such as `a OR b` stays one phrase.
+    next={terms:next.terms.map(term=>term.kind==='field'&&term.op===field&&field!=='in'?{...term,quoted:true}:term)};
+    await searchMessages(serializeQuery(next));
   }
 
   async function listAttachments(): Promise<AttachmentItem[]> {

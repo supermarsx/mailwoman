@@ -19,6 +19,8 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:'pin',run:()=>app.pinMessage(id,!message.pinned)},
   ];
   for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)rows.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
+  // t88: scope a search to the message's folder (its chip shows in the filter bar).
+  {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)rows.push({id:'search:in',label:t('search-refine-folder'),icon:'search',run:()=>app.searchMessageField('in',folder)});}
   for(const [role,label,icon,run] of [
    ['archive','mail-archive','archive',()=>app.archiveMessage(id)],
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],

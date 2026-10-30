@@ -47,6 +47,7 @@ import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
 import { AutoTag, type TagSuggestion } from '../modules/assist/index.ts';
 import type { SenderControlRequest, SenderControlResult } from './security/model.ts';
+import { ReaderSearchMenu } from './search/ReaderSearchMenu.tsx';
 import { defaultSenderControl } from './security/model.ts';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
 import { bodyFrameDoc } from '../viewers/sandbox.ts';
@@ -974,7 +975,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             <header class="reader__header">
               <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
               <div class="reader__meta">
-                <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span>
+                <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}<ReaderSearchMenu email={email()} /></span>
                 <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
                 <Show when={(email().cc ?? []).length > 0}>
                   <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>

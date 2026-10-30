@@ -68,57 +68,13 @@ import { useActions } from '../keymap/index.ts';
 // V7 Assist in the mailbox (plan §14.3, e14b): the chat panel + the semantic-search
 // toggle. Both are gated on the Assist gateway/capabilities, so a Disabled gateway
 // renders NOTHING and the mailbox is unchanged.
-import { AssistPanel, SemanticSearchToggle } from '../modules/assist/index.ts';
+import { AssistPanel } from '../modules/assist/index.ts';
+// t88: the search input, its icon buttons and the filter chips.
+import { SearchBox } from '../components/search/SearchBox.tsx';
 
 // The nav-rail app modules: the four V3 PIM modules + the V4 key-management
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
 const APP_NAV_MODULES = [...APP_MODULES, KEYS_MODULE];
-
-/** The search box above the message list; submits an `Email/query` (engine →
- *  mw-search online, reduced cached search offline). */
-function SearchBox(): JSX.Element {
-  const app = useApp();
-  const [query, setQuery] = createSignal(app.search());
-  // V7 semantic search (§14.3): off by default; the toggle only renders when the
-  // `search-semantic` Assist capability is granted, and its state rides the query.
-  const [semantic, setSemantic] = createSignal(false);
-
-  return (
-    <form
-      class="mail-search"
-      role="search"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void app.searchMessages(query(), { semantic: semantic() });
-      }}
-    >
-      <input
-        class="mail-search__input"
-        type="search"
-        aria-label={t('mail-search-label')}
-        placeholder={t('mail-search-placeholder')}
-        value={query()}
-        onInput={(e) => setQuery(e.currentTarget.value)}
-      />
-      <button type="submit" class={`btn btn--ghost mail-search__submit ${a11y.focusable}`}>
-        {t('mail-search')}
-      </button>
-      <Show when={app.searchActive()}>
-        <button
-          type="button"
-          class={`btn btn--ghost mail-search__clear ${a11y.focusable}`}
-          onClick={() => {
-            setQuery('');
-            void app.clearSearch();
-          }}
-        >
-          {t('mail-search-clear')}
-        </button>
-      </Show>
-      <SemanticSearchToggle config={app.assist.config()} enabled={semantic()} onChange={setSemantic} />
-    </form>
-  );
-}
 
 /** Refetch the open PIM module after a pushed change (plan §1.8 realtime). */
 function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void {

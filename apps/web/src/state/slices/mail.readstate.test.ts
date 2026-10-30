@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import {parseQuery} from '../../search/searchQuery.ts';
 import { createRoot } from 'solid-js';
 import { createMailSlice, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
@@ -426,10 +427,30 @@ describe('authoritative folder count reconciliation',()=>{
   });
 });
 
-it('related subject search keeps operator-like metadata out of the query parser',async()=>{
+it('related subject search keeps operator-like metadata inside one quoted value',async()=>{
  await withSlice([msg('a')],async(mail,server)=>{
   server.jmap.mockClear();await mail.searchMessageField('subject','a " OR from:other');
   const query=server.jmap.mock.calls.flatMap(call=>(call[0] as JmapRequest).methodCalls).find(call=>call[0]==='Email/query');
-  expect(query?.[1]['filter']).toEqual({subject:'a " OR from:other'});
+  // t88: the metadata rides the query text as one escaped phrase, which the
+  // engine (query.rs quoted_escapes_keep_operators_inside_the_value) reads back
+  // as a single subject clause; parseQuery here agrees.
+  expect(query?.[1]['filter']).toEqual({text:'subject:"a \\" OR from:other"'});
+  expect(parseQuery(mail.search()).terms).toEqual([{kind:'field',op:'subject',value:'a " OR from:other',negated:false,quoted:true}]);
+ });
+});
+
+it('related searches refine an active search and set the folder scope (t88)',async()=>{
+ await withSlice([msg('a')],async(mail,server)=>{
+  await mail.searchMessages('subject:y');
+  await mail.searchMessageField('from','x@example.org');
+  expect(mail.search()).toBe('subject:y from:"x@example.org"');
+  const box=mail.mailboxes()[0]!;
+  server.jmap.mockClear();await mail.searchMessageField('in',box.id);
+  const query=server.jmap.mock.calls.flatMap(call=>(call[0] as JmapRequest).methodCalls).find(call=>call[0]==='Email/query');
+  expect(mail.search()).toContain('in:');
+  expect(String((query?.[1]['filter'] as {text?:string}|undefined)?.text)).toContain(`in:${box.id}`);
+  await mail.clearSearch();
+  await mail.searchMessageField('from','x@example.org');
+  expect(mail.search()).toBe('from:"x@example.org"');
  });
 });
