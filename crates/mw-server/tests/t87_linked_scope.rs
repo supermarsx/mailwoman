@@ -821,3 +821,46 @@ async fn keys_oauth_grants_and_push_made_in_a_linked_mailbox_go_with_the_link() 
     assert_eq!(parent_rows[0].endpoint, shared);
 }
 
+/// The process-wide count of real linking-policy resolutions (t99's profile:
+/// four per linked request, about 25 settings queries each).
+fn resolutions() -> u64 {
+    mw_server::observability::install_prometheus_recorder()
+        .render()
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("mw_linked_policy_resolutions_total ")
+                .and_then(|v| v.trim().parse::<f64>().ok())
+        })
+        .map_or(0, |v| v as u64)
+}
+
+#[tokio::test]
+async fn the_linking_policy_is_resolved_once_and_a_settings_change_applies_at_once() {
+    // Installed before any request so every resolution is counted.
+    let _ = resolutions();
+    let f = Fixture::start("mw-t87-memo").await;
+    use reqwest::Method as M;
+    let me = || f.child(M::GET, "/api/me");
+    json_of(me().send().await.unwrap(), 200).await;
+    // Warm: parent and source each passed once; further linked requests reuse
+    // the pass (at most one resolution per request, here none).
+    let before = resolutions();
+    for _ in 0..5 {
+        json_of(me().send().await.unwrap(), 200).await;
+    }
+    let spent = resolutions() - before;
+    assert!(spent <= 5, "{spent} resolutions for 5 linked requests");
+    assert_eq!(spent, 0, "a warm linked request resolves nothing");
+
+    // An admin turns linking off: the very next linked request is refused.
+    policy(&f.db, "accounts.linkingEnabled", "false").await;
+    let (status, body) = status_and_body(me()).await;
+    assert_eq!(
+        (status, body["code"].clone()),
+        (403, json!("linkingDisabled")),
+        "{body}"
+    );
+    // And on again: allowed again at once (a refusal is never memoized).
+    policy(&f.db, "accounts.linkingEnabled", "true").await;
+    json_of(me().send().await.unwrap(), 200).await;
+}

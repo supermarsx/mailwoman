@@ -172,6 +172,7 @@ impl Sql {
     }
 
     pub(crate) async fn execute(self, backend: &Backend) -> Result<u64, sqlx::Error> {
+        let _bump = crate::settings_policy::WriteNote::new(self.sql);
         match backend {
             Backend::Sqlite(p) => Ok(build_sqlite(self.sql, &self.args)
                 .execute(p)
@@ -289,6 +290,7 @@ impl Sql {
     }
 
     pub(crate) async fn execute_tx(self, tx: &mut Tx) -> Result<u64, sqlx::Error> {
+        let _bump = crate::settings_policy::WriteNote::new(self.sql);
         match tx {
             Tx::Sqlite(t) => Ok(build_sqlite(self.sql, &self.args)
                 .execute(&mut **t)

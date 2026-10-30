@@ -111,13 +111,154 @@ async fn maximum(state: &AppState) -> Result<usize, Response> {
     .clamp(1, 16) as usize)
 }
 async fn require_enabled(state: &AppState, session: &mw_store::Session) -> Result<(), Response> {
+    // t87/t99: a linked request checks this up to four times (parent and source,
+    // in `resolve` and again in `enforce_context`), and each resolution costs
+    // about 25 settings queries. A session that passed recently, under the same
+    // settings write generation, passes again without resolving. Only a pass is
+    // kept, so a refusal is always fresh and any settings write ends every pass.
+    let key = memo::Key::of(session);
+    if memo::passed(&key) {
+        return Ok(());
+    }
+    let generation = mw_store::settings_policy::settings_generation();
+    memo::note_resolution();
     if !supported(state, session).await? {
         return Err(failure(StatusCode::CONFLICT, "linkedBackendUnsupported"));
     }
     if enabled(state, session).await? {
+        memo::remember(key, generation);
         Ok(())
     } else {
         Err(failure(StatusCode::FORBIDDEN, "linkingDisabled"))
+    }
+}
+
+/// The per-session memo of a passed linking-policy check (t87, from t99's
+/// profile). An entry holds for [`memo::TTL`] at most, and only while no
+/// statement has written a settings-resolution table since it was resolved
+/// (`mw_store::settings_policy::settings_generation`), so an admin change
+/// applies to the next request. The TTL bounds what another server process
+/// sharing the database can leave stale.
+pub(crate) mod memo {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::{Duration, Instant};
+
+    pub(crate) const TTL: Duration = Duration::from_secs(5);
+    const CAPACITY: usize = 4096;
+
+    /// What the check reads from the session itself, besides its id.
+    #[derive(Clone, PartialEq, Eq, Hash, Debug)]
+    pub(crate) struct Key {
+        session: String,
+        jmap_url: String,
+        api_url: String,
+    }
+    impl Key {
+        pub(crate) fn of(session: &mw_store::Session) -> Self {
+            Key {
+                session: session.id.clone(),
+                jmap_url: session.jmap_url.clone(),
+                api_url: session.api_url.clone(),
+            }
+        }
+    }
+
+    struct Entry {
+        generation: u64,
+        at: Instant,
+    }
+    static PASSED: Mutex<Option<HashMap<Key, Entry>>> = Mutex::new(None);
+    static RESOLUTIONS: AtomicU64 = AtomicU64::new(0);
+
+    fn fresh(entry: &Entry, generation: u64, now: Instant) -> bool {
+        entry.generation == generation && now.duration_since(entry.at) < TTL
+    }
+
+    pub(crate) fn passed(key: &Key) -> bool {
+        let generation = mw_store::settings_policy::settings_generation();
+        let now = Instant::now();
+        let mut guard = PASSED.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(HashMap::new);
+        match map.get(key) {
+            Some(entry) if fresh(entry, generation, now) => true,
+            Some(_) => {
+                map.remove(key);
+                false
+            }
+            None => false,
+        }
+    }
+
+    /// Keep a pass resolved under `generation` (read BEFORE resolving, so a
+    /// write that raced the resolution leaves the entry already stale).
+    pub(crate) fn remember(key: Key, generation: u64) {
+        let now = Instant::now();
+        let current = mw_store::settings_policy::settings_generation();
+        let mut guard = PASSED.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(HashMap::new);
+        if map.len() >= CAPACITY {
+            map.retain(|_, entry| fresh(entry, current, now));
+            if map.len() >= CAPACITY {
+                map.clear();
+            }
+        }
+        map.insert(
+            key,
+            Entry {
+                generation,
+                at: now,
+            },
+        );
+    }
+
+    /// Count a real resolution: here and as the Prometheus counter
+    /// `mw_linked_policy_resolutions_total` (no labels, no identifiers).
+    pub(crate) fn note_resolution() {
+        RESOLUTIONS.fetch_add(1, Ordering::Relaxed);
+        metrics::counter!("mw_linked_policy_resolutions_total").increment(1);
+    }
+
+    /// How many times this process resolved the linking policy (not answered
+    /// from the memo).
+    #[allow(dead_code)]
+    pub(crate) fn resolutions() -> u64 {
+        RESOLUTIONS.load(Ordering::Relaxed)
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        fn key(id: &str) -> Key {
+            Key {
+                session: id.into(),
+                jmap_url: "engine".into(),
+                api_url: "engine".into(),
+            }
+        }
+
+        #[test]
+        fn a_pass_is_kept_until_a_settings_write_or_the_ttl() {
+            let generation = mw_store::settings_policy::settings_generation();
+            remember(key("memo-a"), generation);
+            assert!(passed(&key("memo-a")));
+            assert!(!passed(&key("memo-other")));
+            // Another URL pair is another key (a domain refresh changed it).
+            let mut moved = key("memo-a");
+            moved.jmap_url = "https://jmap.example".into();
+            assert!(!passed(&moved));
+            // A pass resolved under an older generation is stale.
+            remember(key("memo-b"), generation.wrapping_sub(1));
+            assert!(!passed(&key("memo-b")));
+            // The TTL.
+            let old = Entry {
+                generation,
+                at: Instant::now() - TTL - Duration::from_millis(1),
+            };
+            assert!(!fresh(&old, generation, Instant::now()));
+        }
     }
 }
 

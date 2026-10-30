@@ -30,6 +30,72 @@
 //!
 //! Timestamps are unix seconds and booleans are 0/1 (0033 wire contract).
 
+/// The settings write generation of this process (t87, the linked-mailbox
+/// policy memo): bumped by every statement this store runs against a table the
+/// resolution chain reads, so a cache of resolved values can tell at once that
+/// an admin or user change happened. It is bumped both before and after the
+/// statement (see [`WriteNote`]) so a reader that resolved while the write was
+/// in flight never keeps its result under the newer generation. Another server
+/// process sharing the database does not see it: callers also bound their
+/// caches with a short TTL.
+static SETTINGS_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// The current settings write generation (see [`SETTINGS_GENERATION`]).
+pub fn settings_generation() -> u64 {
+    SETTINGS_GENERATION.load(std::sync::atomic::Ordering::Acquire)
+}
+
+/// Tables whose rows can change an effective setting for some subject.
+const RESOLUTION_TABLES: &[&str] = &[
+    "setting_value",
+    "setting_policy",
+    "personal_setting_value",
+    "user_group",
+    "feature_profile",
+    "settings",
+    "domains",
+    "domain_config",
+    "session_principal",
+    "identity_binding",
+    "identity_principal",
+];
+
+/// Whether `sql` writes one of [`RESOLUTION_TABLES`].
+pub(crate) fn writes_resolution_table(sql: &str) -> bool {
+    let lower = sql.trim_start().to_ascii_lowercase();
+    if lower.starts_with("select") {
+        return false;
+    }
+    lower
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .any(|word| {
+            RESOLUTION_TABLES.contains(&word)
+                || RESOLUTION_TABLES
+                    .iter()
+                    .any(|t| word.starts_with(t) && word[t.len()..].starts_with('_'))
+        })
+}
+
+/// Bumps the generation when created and again when dropped, around one write
+/// statement to a resolution table (a no-op for any other statement).
+pub(crate) struct WriteNote(bool);
+impl WriteNote {
+    pub(crate) fn new(sql: &str) -> Self {
+        let hit = writes_resolution_table(sql);
+        if hit {
+            SETTINGS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        }
+        Self(hit)
+    }
+}
+impl Drop for WriteNote {
+    fn drop(&mut self) {
+        if self.0 {
+            SETTINGS_GENERATION.fetch_add(1, std::sync::atomic::Ordering::AcqRel);
+        }
+    }
+}
+
 use crate::backend::{Row, Tx, q};
 use crate::{Store, StoreError};
 
@@ -1439,5 +1505,47 @@ mod policy_batch_tests {
                 )
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod t87_generation {
+    use super::*;
+
+    #[test]
+    fn writes_to_resolution_tables_are_recognised_and_reads_are_not() {
+        for sql in [
+            "INSERT INTO setting_policy(key) VALUES(?1)",
+            "DELETE FROM setting_value WHERE key=?1",
+            "UPDATE user_group SET name=?1",
+            "INSERT INTO user_group_member(a) VALUES(?1)",
+            "DELETE FROM feature_profile_assignment WHERE id=?1",
+            "INSERT INTO personal_setting_value(a) VALUES(?1)",
+            "INSERT INTO settings(key,value) VALUES(?1,?2)",
+        ] {
+            assert!(writes_resolution_table(sql), "{sql}");
+        }
+        for sql in [
+            "SELECT * FROM setting_value",
+            "INSERT INTO messages(id) VALUES(?1)",
+            "UPDATE sessions SET last_seen=?1",
+            "DELETE FROM linked_grant WHERE link_id=?1",
+        ] {
+            assert!(!writes_resolution_table(sql), "{sql}");
+        }
+    }
+
+    #[test]
+    fn a_write_note_bumps_before_and_after() {
+        let before = settings_generation();
+        {
+            let _note = WriteNote::new("DELETE FROM setting_policy WHERE key=?1");
+            assert!(settings_generation() > before);
+        }
+        assert!(settings_generation() >= before + 2);
+        let quiet = settings_generation();
+        drop(WriteNote::new("UPDATE sessions SET x=1"));
+        // Other tests may write concurrently; a non-resolution write itself adds nothing.
+        let _ = quiet;
     }
 }
