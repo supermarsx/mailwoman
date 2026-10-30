@@ -1,35 +1,35 @@
-/** Mirrors the audited server scope. Unknown mailbox APIs fail closed while a
- * child is selected; omitting a selector would execute against the primary. */
+import manifest from './linked-scope.json';
+
+/** Mirrors the audited server scope: both sides read `linked-scope.json`
+ * (t87), and the server refuses any selector outside its `mailbox` rules.
+ * Unknown mailbox APIs fail closed while a child is selected; omitting a
+ * selector would execute against the primary. */
 export type LinkedRoute='mailbox'|'primary'|'public'|'signed'|'unsupported';
-const mailbox=new Set([
-  '/api/me','/jmap/session','/jmap/api','/api/settings','/api/account/preferences',
-  '/api/account/appearance','/api/account/signatures','/api/account/notifications',
-  '/api/account/saved-searches','/api/account/identities','/api/account/sender/resolve',
-  '/api/account/mdn-policy','/api/account/drafts','/api/account/drafts/resolve',
-  '/api/account/session/activity','/api/attachments/policy','/api/security/step-up',
-  '/api/security/step-up/passkey','/api/security/dlp/config','/api/security/watermark',
-  '/api/rc/policy','/api/rc/sign','/api/rc/stats','/api/sanitize','/api/policy',
-  '/api/mail/delivery-status','/api/attachments/preview',
-  // t82: remote-image grants are per mailbox account, like its privacy settings.
-  '/api/remote-images/grants','/api/remote-images/grant','/api/remote-images/revoke',
-]);
-function segments(path:string,prefix:string,count:number):boolean {
-  if(!path.startsWith(prefix))return false;
-  const tail=path.slice(prefix.length).split('/');
-  return tail.length===count&&tail.every(Boolean);
+type Scope=Exclude<LinkedRoute,'unsupported'>;
+interface Rule {path?:string;prefix?:string;segments?:number;suffix?:string;scope:Scope;resource?:boolean}
+const rules=manifest.routes as readonly Rule[];
+const SCOPES:ReadonlySet<string>=new Set(['mailbox','primary','public','signed']);
+for(const rule of rules){
+  // A malformed rule must break the build's tests, not silently widen a scope.
+  if(!SCOPES.has(rule.scope)||(rule.path===undefined)===(rule.prefix===undefined)
+    ||(rule.prefix!==undefined&&!(Number.isInteger(rule.segments)&&rule.segments!>0))
+    ||(rule.resource&&rule.scope!=='mailbox'))throw new Error(`Invalid linked scope rule ${JSON.stringify(rule)}`);
+}
+function matches(rule:Rule,path:string):boolean {
+  if(rule.path!==undefined)return path===rule.path;
+  if(!path.startsWith(rule.prefix!))return false;
+  const tail=path.slice(rule.prefix!.length).split('/');
+  return tail.length===rule.segments&&tail.every(Boolean)&&(rule.suffix===undefined||tail[tail.length-1]===rule.suffix);
 }
 export function linkedUnsignedResource(path:string):boolean {
-  return segments(path,'/jmap/download/',3)||segments(path,'/api/export/',1);
+  return rules.some(rule=>rule.resource===true&&matches(rule,path));
 }
 export function linkedRoute(path:string):LinkedRoute {
-  if(mailbox.has(path)||['/api/settings/','/api/account/signatures/','/api/account/saved-searches/','/api/account/identities/','/api/account/drafts/','/jmap/upload/'].some(prefix=>segments(path,prefix,1))
-    ||(path.endsWith('/cleanup')&&segments(path,'/api/account/drafts/',2))||linkedUnsignedResource(path))return 'mailbox';
-  if(path==='/api/accounts'||path==='/api/accounts/link'||segments(path,'/api/accounts/',1)
-    ||(path.endsWith('/switch')&&segments(path,'/api/accounts/',2))
-    ||(path.endsWith('/confirm')&&segments(path,'/api/accounts/challenges/',2))
-    ||path==='/api/logout')return 'primary';
-  if(path==='/api/public-config'||path==='/api/signin/challenge')return 'public';
-  if(['/api/rc/i/','/api/rc/p/','/api/rc/f/','/api/rc/d/'].some(prefix=>segments(path,prefix,1)))return 'signed';
+  // `mailbox` wins over the others so a path never leaves the selected mailbox
+  // because a broader primary rule also matches it.
+  for(const scope of ['mailbox','primary','public','signed'] as const){
+    if(rules.some(rule=>rule.scope===scope&&matches(rule,path)))return scope;
+  }
   return 'unsupported';
 }
 

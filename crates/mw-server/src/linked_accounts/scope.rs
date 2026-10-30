@@ -4,58 +4,86 @@ use axum::{
     middleware::Next,
 };
 
-fn id_path(path: &str, prefix: &str, segments: usize) -> bool {
-    path.strip_prefix(prefix).is_some_and(|tail| {
-        tail.split('/').count() == segments && tail.split('/').all(|v| !v.is_empty())
-    })
+/// The linked-mailbox scope (t87): ONE list, shared with the web client's
+/// `linkedAccountRouting.ts`. Only its `mailbox` rules are allowed with a
+/// selector; `primary`, `public` and `signed` are client routing only and are
+/// refused here like any unlisted path.
+const MANIFEST: &str = include_str!("../../../../apps/web/src/api/linked-scope.json");
+
+#[derive(serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Rule {
+    path: Option<String>,
+    prefix: Option<String>,
+    segments: Option<usize>,
+    suffix: Option<String>,
+    scope: String,
+    #[serde(default)]
+    resource: bool,
+    #[serde(default)]
+    #[allow(dead_code)]
+    note: Option<String>,
 }
+#[derive(serde::Deserialize)]
+struct Manifest {
+    routes: Vec<Rule>,
+}
+
+impl Rule {
+    fn matches(&self, path: &str) -> bool {
+        if let Some(exact) = &self.path {
+            return path == exact;
+        }
+        let (Some(prefix), Some(segments)) = (&self.prefix, self.segments) else {
+            return false;
+        };
+        path.strip_prefix(prefix.as_str()).is_some_and(|tail| {
+            let parts: Vec<&str> = tail.split('/').collect();
+            parts.len() == segments
+                && parts.iter().all(|v| !v.is_empty())
+                && self
+                    .suffix
+                    .as_deref()
+                    .is_none_or(|suffix| parts.last() == Some(&suffix))
+        })
+    }
+}
+
+/// The `mailbox` rules, parsed once. A malformed manifest panics at first use
+/// (and in the unit test below), never widening the scope.
+fn mailbox_rules() -> &'static [Rule] {
+    static RULES: std::sync::LazyLock<Vec<Rule>> = std::sync::LazyLock::new(|| {
+        let manifest: Manifest =
+            serde_json::from_str(MANIFEST).expect("linked-scope.json is valid");
+        for rule in &manifest.routes {
+            assert!(
+                matches!(
+                    rule.scope.as_str(),
+                    "mailbox" | "primary" | "public" | "signed"
+                ) && rule.path.is_some() != rule.prefix.is_some()
+                    && (rule.prefix.is_none() || rule.segments.is_some_and(|n| n > 0))
+                    && (!rule.resource || rule.scope == "mailbox"),
+                "invalid linked scope rule {:?} {:?}",
+                rule.path,
+                rule.prefix
+            );
+        }
+        manifest
+            .routes
+            .into_iter()
+            .filter(|rule| rule.scope == "mailbox")
+            .collect()
+    });
+    &RULES
+}
+
 pub(crate) fn allowed(path: &str) -> bool {
-    matches!(
-        path,
-        "/api/me"
-            | "/api/policy"
-            | "/jmap/session"
-            | "/jmap/api"
-            | "/api/settings"
-            | "/api/account/preferences"
-            | "/api/account/appearance"
-            | "/api/account/signatures"
-            | "/api/account/notifications"
-            | "/api/account/saved-searches"
-            | "/api/account/identities"
-            | "/api/account/sender/resolve"
-            | "/api/account/mdn-policy"
-            | "/api/account/drafts"
-            | "/api/account/drafts/resolve"
-            | "/api/account/session/activity"
-            | "/api/attachments/policy"
-            | "/api/security/step-up"
-            | "/api/security/step-up/passkey"
-            | "/api/security/dlp/config"
-            | "/api/security/watermark"
-            | "/api/sanitize"
-            | "/api/attachments/preview"
-            | "/api/mail/delivery-status"
-            | "/api/rc/sign"
-            | "/api/rc/stats"
-            | "/api/rc/policy"
-            // t82: remote-image grants belong to the mailbox account (the
-            // handlers apply them to the session account, which is the child
-            // in a linked context), like its privacy settings above.
-            | "/api/remote-images/grants"
-            | "/api/remote-images/grant"
-            | "/api/remote-images/revoke"
-    ) || id_path(path, "/api/settings/", 1)
-        || id_path(path, "/api/account/signatures/", 1)
-        || id_path(path, "/api/account/saved-searches/", 1)
-        || id_path(path, "/api/account/identities/", 1)
-        || id_path(path, "/api/account/drafts/", 1)
-        || (path.ends_with("/cleanup") && id_path(path, "/api/account/drafts/", 2))
-        || id_path(path, "/jmap/upload/", 1)
-        || resource(path)
+    mailbox_rules().iter().any(|rule| rule.matches(path))
 }
 fn resource(path: &str) -> bool {
-    id_path(path, "/jmap/download/", 3) || id_path(path, "/api/export/", 1)
+    mailbox_rules()
+        .iter()
+        .any(|rule| rule.resource && rule.matches(path))
 }
 pub(crate) async fn guard(
     State(state): State<AppState>,
@@ -132,6 +160,22 @@ pub(crate) async fn guard(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Hand-written, reviewed expectations shared with the web client's test
+    /// (`linkedAccountRouting.test.ts`). Both matchers must agree with this
+    /// list, so they cannot drift apart (t87).
+    const CASES: &str = include_str!("../../../../apps/web/src/api/linked-scope.cases.json");
+
+    fn cases(key: &str) -> Vec<String> {
+        let value: serde_json::Value = serde_json::from_str(CASES).expect("cases parse");
+        value[key]
+            .as_array()
+            .unwrap_or_else(|| panic!("cases.{key}"))
+            .iter()
+            .map(|v| v.as_str().expect("path").to_owned())
+            .collect()
+    }
+
     #[test]
     fn linked_scope_is_explicit_and_excludes_primary_security_and_streams() {
         for path in [
@@ -153,7 +197,7 @@ mod tests {
             "/api/security/passkeys",
             "/api/session/rotate",
             "/oidc/token",
-            "/oauth/decision",
+            "/oauth/token",
             "/jmap/ws",
             "/jmap/eventsource",
             "/admin/settings",
@@ -161,7 +205,42 @@ mod tests {
             "/api/image-proxy",
             "/api/remote-images/grant/x",
             "/api/account/identities/x/more",
+            "/api/masked",
+            "/api/zeroaccess/enable",
+            "/api/password",
+            "/api/account/2fa/totp/begin",
         ] {
+            assert!(!allowed(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn the_server_agrees_with_the_shared_case_list() {
+        for path in cases("mailbox") {
+            assert!(allowed(&path), "mailbox: {path}");
+            assert!(!resource(&path), "not a resource: {path}");
+        }
+        for path in cases("resource") {
+            assert!(allowed(&path) && resource(&path), "resource: {path}");
+        }
+        // Client-only routing classes are refused WITH a selector.
+        for key in ["primary", "public", "signed", "unsupported"] {
+            for path in cases(key) {
+                assert!(
+                    !allowed(&path),
+                    "{key} must be refused with a selector: {path}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn documented_refusals_match_no_rule() {
+        let value: serde_json::Value = serde_json::from_str(MANIFEST).expect("manifest parses");
+        let refused = value["refused"].as_array().expect("refused list");
+        assert!(!refused.is_empty());
+        for entry in refused {
+            let path = entry["path"].as_str().expect("path");
             assert!(!allowed(path), "{path}");
         }
     }

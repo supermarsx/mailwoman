@@ -17,7 +17,7 @@ describe('linked mailbox transport authority',()=>{
   });
   it('refuses unsupported child operations without contacting the primary',async()=>{
     const send=vi.fn();vi.stubGlobal('fetch',send);
-    await expect(apiFetch('/api/nextcloud/list')).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});
+    await expect(apiFetch('/api/masked')).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});
     expect(send).not.toHaveBeenCalled();
   });
   it('uses explicit discovery probes without promoting the active selection',async()=>{

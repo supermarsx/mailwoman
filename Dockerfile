@@ -47,6 +47,8 @@ COPY apps/mobile/src-tauri /src/apps/mobile/src-tauri
 COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
 # The server embeds this inert shell independently of optional SPA assets.
 COPY apps/web/public/workspace-popup.html /src/apps/web/public/workspace-popup.html
+# The linked-mailbox scope is one list shared with the web client (t87).
+COPY apps/web/src/api/linked-scope.json /src/apps/web/src/api/linked-scope.json
 
 # ---------------------------------------------------------------------------
 # Stage 2 — build: compile the Rust workspace independently of the web build.

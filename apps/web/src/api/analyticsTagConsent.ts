@@ -1,4 +1,4 @@
-import { storageAuthorityHeaders } from './storageAuthority.ts';
+import { personStorageAuthorityHeaders } from './storageAuthority.ts';
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 
@@ -15,7 +15,7 @@ export const TAG_PROVIDER_NAMES: Record<string, string> = {
 
 export async function loadBrowserTagStatus(signal?: AbortSignal): Promise<BrowserTagStatus | null> {
   try {
-    const response = await apiFetch(withBase('/api/analytics/status'), { ...(signal ? { signal } : {}), headers: storageAuthorityHeaders() });
+    const response = await apiFetch(withBase('/api/analytics/status'), { ...(signal ? { signal } : {}), headers: personStorageAuthorityHeaders() });
     if (!response.ok) return null;
     const body = await response.json() as { browserTag?: unknown };
     const tag = body.browserTag as Partial<BrowserTagStatus> | null | undefined;
