@@ -11,7 +11,7 @@
 // small labels in tracked capitals (P5), state never by colour alone (P6).
 // Logical properties throughout, so the layout mirrors under `dir=rtl`.
 
-import { style, globalStyle } from '@vanilla-extract/css';
+import { createVar, style, globalStyle } from '@vanilla-extract/css';
 import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.css.ts';
 import { subsectionSurface } from './subsectionLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
@@ -98,6 +98,13 @@ export const badgeDeferred = style({
   fontStyle: 'italic',
 });
 
+// The admin's Interface density (My preferences, t101): `data-density` on :root
+// sets the block padding of table cells. Comfortable keeps the previous 8px.
+const cellPadBlock = createVar();
+globalStyle(':root', { vars: { [cellPadBlock]: vars.space[3] } });
+globalStyle(':root[data-density="compact"]', { vars: { [cellPadBlock]: vars.space[2] } });
+globalStyle(':root[data-density="relaxed"]', { vars: { [cellPadBlock]: vars.space[4] } });
+
 export const table = style({
   width: '100%',
   borderCollapse: 'collapse',
@@ -106,7 +113,7 @@ export const table = style({
 
 globalStyle(`${table} th, ${table} td`, {
   textAlign: 'start',
-  padding: `${vars.space[3]} ${vars.space[4]}`,
+  padding: `${cellPadBlock} ${vars.space[4]}`,
   borderBottom: `${vars.border.hair} solid ${vars.color.border}`,
   verticalAlign: 'top',
 });
@@ -119,7 +126,7 @@ globalStyle(`${table} thead th`, {
   fontSize: '0.75rem',
   whiteSpace: 'nowrap',
   borderBottom: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-  paddingBottom: `calc(${vars.space[3]} - 1px)`,
+  paddingBottom: `calc(${cellPadBlock} - 1px)`,
 });
 
 globalStyle(`:lang(ar) ${table} thead th, :lang(ja) ${table} thead th, :lang(zh) ${table} thead th`, {

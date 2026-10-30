@@ -18,6 +18,7 @@ import { THEMES, type ThemeTokens } from './tokens.ts';
 import { ACCENT_IDS } from './accentMath.ts';
 import { ACCENT_SHADES } from './accents.ts';
 import { LEGACY_COLOR_PROPERTIES } from './publicTokens.ts';
+import { emittedThemeTokens } from './uiFontToken.ts';
 
 /** Legacy `app.css` custom properties, mapped from a theme palette. */
 function legacyVars(c: ThemeTokens['color']): Record<string, string> {
@@ -33,7 +34,7 @@ function legacyVars(c: ThemeTokens['color']): Record<string, string> {
 // `vars.*` have values before the theme slice sets the attribute. A user who
 // chose a light pack sees this for the first frame only; no inline script may
 // run before the bundle under the CSP.
-createGlobalTheme(':root', vars, THEMES.dark);
+createGlobalTheme(':root', vars, emittedThemeTokens(THEMES.dark));
 globalStyle(':root', { vars: legacyVars(THEMES.dark.color) });
 
 // Structural tokens for plain-CSS files (`app.css` and the other `.css` files
@@ -66,7 +67,7 @@ globalStyle(':root', {
 // Per-theme: contract vars + the legacy bridge under the same selector.
 (Object.keys(THEMES) as ThemeName[]).forEach((name) => {
   const selector = `:root[data-theme="${name}"]`;
-  createGlobalTheme(selector, vars, THEMES[name]);
+  createGlobalTheme(selector, vars, emittedThemeTokens(THEMES[name]));
   globalStyle(selector, { vars: legacyVars(THEMES[name].color) });
 });
 
@@ -156,9 +157,9 @@ globalStyle(':root[data-density="relaxed"]', {
 // BEFORE `app.css` in the built stylesheet, so an `app.css` rule of equal
 // specificity wins: `app.css` must not restate a property set here.
 globalStyle('body', {
-  // `--mw-ui-font` is an optional inline override set by the font setting;
-  // falls back to the theme's ui font stack.
-  fontFamily: `var(--mw-ui-font, ${vars.font.ui})`,
+  // `vars.font.ui` already resolves the font setting's `--mw-ui-font` override
+  // (uiFontToken.ts), as it does for every other rule that uses the token.
+  fontFamily: vars.font.ui,
   fontSize: vars.fontSize.base,
   lineHeight: vars.lineHeight.ui,
   background: vars.color.bg,
