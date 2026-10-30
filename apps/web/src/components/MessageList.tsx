@@ -21,6 +21,7 @@ import { TagChips } from './TagChips.tsx';
 import { EventHint } from './EventHint.tsx';
 import { MessageActions } from './MessageActions.tsx';
 import { OfflineQueueNotice } from './OfflineQueueNotice.tsx';
+import { createBackgroundLoadToast } from './backgroundLoadToast.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
@@ -701,12 +702,23 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
   const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending());
   const skeletonRows = (): number => Math.max(4, Math.min(16, Math.ceil((globalThis.innerHeight || 800) / rowHeight())));
 
+  // Loading under rows already on screen (a reload, a folder switch, the next
+  // page) is reported in the corner toast (t111), after 400 ms, one toast at a
+  // time. An empty list shows the skeleton above instead.
+  const loadToast = createBackgroundLoadToast({ id: 'mail-list-loading', testId: 'mail-loading-toast' });
+  createEffect(() => {
+    const shown = rows().length > 0;
+    const key = !shown ? null : app.listLoading() ? 'mail-loading' : app.loadingMore() ? 'mail-loading-more' : null;
+    if (key === null) loadToast.finish();
+    else loadToast.start(t(key));
+  });
+  onCleanup(() => loadToast.cancel());
+
   return (
     <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
       <ListToolbar selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
-      <Show when={app.listLoading() && rows().length > 0}><div class="list__loading" role="status">{t('mail-loading')}</div></Show>
         <Show when={rows().length > 0} fallback={
           <Show when={showSkeleton()} fallback={
             <Show when={sync.failed()} fallback={<p class="list__empty">{t('mail-empty')}</p>}>

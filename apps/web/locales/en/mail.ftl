@@ -32,6 +32,7 @@ mail-search-clear = Clear
 # -- Message list ------------------------------------------------------------
 mail-list-label = Messages
 mail-loading = Loading messages…
+mail-loading-more = Loading older messages…
 mail-empty = No messages
 mail-unknown-sender = (unknown sender)
 mail-no-subject = (no subject)

@@ -103,6 +103,27 @@ export const icon = style({
   height: '16px',
 });
 
+const spin = keyframes({ to: { transform: 'rotate(360deg)' } });
+
+/** The busy toast's icon (t111): a ring with one arc in the tone's colour, the icon's size.
+ *  Reduced motion: the ring stays still; the message says the work is running. */
+export const spinner = style({
+  flex: 'none',
+  boxSizing: 'border-box',
+  width: '16px',
+  height: '16px',
+  border: `2px solid ${vars.color.borderStrong}`,
+  borderTopColor: 'currentColor',
+  borderRadius: '50%',
+  animation: `${spin} 0.8s linear infinite`,
+  '@media': {
+    [REDUCED]: { animation: 'none' },
+  },
+  selectors: {
+    ':root[data-reduced-motion] &': { animation: 'none' },
+  },
+});
+
 export const iconTone = styleVariants({
   success: { color: vars.color.success },
   info: { color: vars.color.accent },

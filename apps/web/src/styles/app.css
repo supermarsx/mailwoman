@@ -996,11 +996,7 @@ body {
   }
 }
 
-/* Folder changes retain the viewport; only a delayed progress badge appears. */
-.list__loading { position:absolute; z-index:2; inset-block-start:4rem; inset-inline-end:1rem; padding:.35rem .65rem; background:var(--bg); color:var(--text); border:var(--border-rule) solid var(--border-strong); pointer-events:none; opacity:0; animation:mail-progress-enter .12s ease-out .15s forwards; }
-@keyframes mail-progress-enter { to { opacity:1; } }
-@media(prefers-reduced-motion:reduce) { .list__loading { animation:none; opacity:1; } }
-:root[data-reduced-motion] .list__loading { animation:none; opacity:1; }
+/* Folder changes retain the viewport; a delayed corner toast reports the load (t111, components/backgroundLoadToast.ts). */
 
 .login__card > .field { margin-block: 0 1rem; }
 #login-domain-hint { margin-block: -.35rem 1rem; text-align: start; }

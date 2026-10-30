@@ -225,10 +225,13 @@ function Toast(props: {
       aria-live={props.item.tone === 'error' ? undefined : 'off'}
       data-testid={props.item.testId ?? 'toast'}
       data-tone={props.item.tone}
+      data-busy={props.item.busy ? 'true' : undefined}
       data-toast-id={props.item.id}
       data-paused={toastsPaused() && props.item.pausable ? 'true' : undefined}
     >
-      <ToneIcon tone={props.item.tone} />
+      <Show when={props.item.busy} fallback={<ToneIcon tone={props.item.tone} />}>
+        <span class={`${css.spinner} ${css.iconTone[props.item.tone]}`} data-toast-spinner="" aria-hidden="true" />
+      </Show>
       <span class={css.message}>{props.item.message}</span>
       <Show when={props.item.countdown && Number.isFinite(props.item.duration)}>
         <span class={css.countdown} aria-hidden="true">

@@ -54,6 +54,8 @@ export interface ToastOptions {
   onClose?: (reason: ToastCloseReason) => void;
   /** `data-testid` of the toast element (default `toast`). */
   testId?: string;
+  /** Work in progress (t111): a spinner takes the tone icon's place. */
+  busy?: boolean;
 }
 
 export interface ToastItem {
@@ -66,6 +68,7 @@ export interface ToastItem {
   readonly countdown: boolean;
   readonly pausable: boolean;
   readonly testId: string | undefined;
+  readonly busy: boolean;
 }
 
 export const TOAST_DURATIONS = {
@@ -138,6 +141,7 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
     countdown: opts.countdown === true,
     pausable: opts.pausable !== false,
     testId: opts.testId,
+    busy: opts.busy === true,
   };
   const old = clocks.get(id);
   if (old !== undefined) clearTimeout(old.handle);
