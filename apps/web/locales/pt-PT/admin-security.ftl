@@ -310,3 +310,5 @@ admin-protect-decision-short-absolute = { $bad } pedidos invulgares em { $window
 admin-protect-decision-short-ratio = { $bad } de { $total } pedidos em { $window } foram invulgares (último: { $signal }). Ação durante { $duration }.
 admin-protect-decision-long-absolute = { $bad } pedidos invulgares em { $window } (último: { $signal }). Ação durante { $duration }.
 admin-protect-decision-long-ratio = { $bad } de { $total } pedidos em { $window } foram invulgares (último: { $signal }). Ação durante { $duration }.
+admin-security-tab-geoip = Base de dados de países
+admin-obs-geo-open-database = Abrir a página da base de dados de países

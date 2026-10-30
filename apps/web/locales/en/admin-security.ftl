@@ -307,3 +307,5 @@ admin-protect-decision-short-absolute = { $bad } unusual requests in { $window }
 admin-protect-decision-short-ratio = { $bad } of { $total } requests in { $window } were unusual (last: { $signal }). Action for { $duration }.
 admin-protect-decision-long-absolute = { $bad } unusual requests in { $window } (last: { $signal }). Action for { $duration }.
 admin-protect-decision-long-ratio = { $bad } of { $total } requests in { $window } were unusual (last: { $signal }). Action for { $duration }.
+admin-security-tab-geoip = Country database
+admin-obs-geo-open-database = Open the country database page

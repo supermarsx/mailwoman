@@ -279,6 +279,7 @@ admin-crumb-backends = Back ends
 admin-crumb-bans = IP ban list
 admin-crumb-locks = Temporary sign-in locks
 admin-crumb-geography = Sign-in country policy
+admin-crumb-geoip = Country database
 admin-crumb-protection = Aggregate and adaptive protection
 admin-crumb-inbound = Inbound access
 admin-crumb-deployment = Deployment checks

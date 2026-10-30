@@ -126,7 +126,11 @@ pub(crate) async fn check(
     }
     match policy.decision(surface, &country_lookup(source)) {
         "allow" => Ok(()),
-        "unavailable" => Err(unavailable()),
+        "unavailable" => {
+            // Fail closed: an active policy without a usable database refuses.
+            crate::geoip::note_refusal();
+            Err(unavailable())
+        }
         _ => Err(AdminApiError::new(
             StatusCode::FORBIDDEN,
             "signinGeographyDenied",
@@ -191,6 +195,9 @@ pub(crate) async fn session_guard(
     }
     let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
     let decision = policy.decision(surface, &country_lookup(source));
+    if decision == "unavailable" {
+        crate::geoip::note_refusal();
+    }
     if decision == "allow" {
         return next.run(request).await;
     }

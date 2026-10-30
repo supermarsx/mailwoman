@@ -165,7 +165,9 @@ the destinations a caller can name.
 
 Every outbound request the server makes for itself has a **traffic class**:
 `remote_content`, `ics_feeds`, `keyservers`, `webhooks`, `admin_detect`, `pki`,
-`dns_auth`, `unsubscribe`, `siem`, `oauth`, `update_check`. A route lists the
+`dns_auth`, `unsubscribe`, `siem`, `oauth`, `update_check`, `geoip` (country
+database downloads, HTTPS only, up to 128 MB, redirects only to the starting
+host or the provider's listed storage host). A route lists the
 classes it carries; a class that no live route lists goes direct. A route can be
 global or scoped to one mail domain, and a domain route replaces the global one
 for the classes it lists. The route is chosen by the class (a constant in the

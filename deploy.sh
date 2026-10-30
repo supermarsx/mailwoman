@@ -56,6 +56,7 @@ BUILD_INCREMENTAL=1
 AUTO_ROLLBACK=true
 REQUIRE_SIGNATURE=false
 DRY_RUN=false
+GEOIP=false
 TIMEOUT=180
 SNAPSHOT=
 INIT_OPTIONS=false
@@ -102,6 +103,9 @@ Commands (default: deploy):
                     deploy.env); list replaced data volumes and old built images
   timers            Write systemd service/timer units for backup and check into
                     the state directory and print them with equivalent cron lines
+  geoip             Download DB-IP IP to Country Lite (CC BY 4.0, db-ip.com) into
+                    the state directory; the next deploy hands it to a server
+                    that has no country database yet (MW_GEOIP_SEED)
 
 Options:
   --state-dir PATH   Deployment files/backups (default: <repo>/.deploy.local)
@@ -138,6 +142,8 @@ Options:
   --yes             Confirm the deletion asked for with --replaced
   --identity FILE   With restore of a .tar.age archive: the age identity (private
                     key) to decrypt it with; .tar.gpg uses your gpg keyring
+  --geoip           With init or deploy: also run the geoip command (the open
+                    DB-IP country database that country sign-in policies use)
   --dry-run         Describe the operation without writing or contacting Docker
   -h, --help        Show this help
 
@@ -222,7 +228,7 @@ port_in_use() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
 declare -A REQUESTED=()
 while (($#)); do
     case "$1" in
-        init|deploy|doctor|status|check|logs|stop|start|restart|backup|rollback|restore|prune|timers)
+        init|deploy|doctor|status|check|logs|stop|start|restart|backup|rollback|restore|prune|timers|geoip)
             $ACTION_SET && die "Specify only one command"
             ACTION=$1; ACTION_SET=true
             if [[ $ACTION == restore ]]; then need_value "$@"; SNAPSHOT=$2; shift; fi ;;
@@ -249,6 +255,7 @@ while (($#)); do
         --yes) ASSUME_YES=true ;;
         --identity) need_value "$@"; IDENTITY=$2; shift ;;
         --dry-run) DRY_RUN=true ;;
+        --geoip) GEOIP=true ;;
         -h|--help) usage; exit 0 ;;
         *) die "Unknown argument: $1 (see --help)" ;;
     esac
@@ -273,6 +280,7 @@ if $INIT_OPTIONS && [[ $ACTION != init && $ACTION != deploy ]]; then die "Setup 
 if { $PRUNE_REPLACED || $ASSUME_YES; } && [[ $ACTION != prune ]]; then die "--replaced and --yes apply only to prune"; fi
 if $ASSUME_YES && ! $PRUNE_REPLACED; then die "--yes confirms --replaced; give both"; fi
 if [[ -n $IDENTITY && $ACTION != restore ]]; then die "--identity applies only to restore"; fi
+if $GEOIP && [[ $ACTION != init && $ACTION != deploy ]]; then die "--geoip applies only to init and deploy (or run the geoip command)"; fi
 
 # Update before reading configuration, creating state or touching containers.
 # Keep this in a function: Bash has parsed its whole body before pull can replace
@@ -614,11 +622,50 @@ EOF
     log "Created $STATE/deploy.env and app.env (admin credentials and the metrics token are in app.env)"
     log "Admin console path: /$admin_path/ under the public URL (kept in app.env as MW_ADMIN_PATH)"
 }
+# The country database for country sign-in policies (t96): DB-IP "IP to Country
+# Lite", CC BY 4.0 (attribution "IP Geolocation by DB-IP", https://db-ip.com),
+# one file a month, no account. Fetched on the host over HTTPS only, size-capped
+# and checked for the MaxMind DB marker; render() mounts the directory read-only
+# and names the file in MW_GEOIP_SEED, which the server installs only while its
+# data directory (/data/geoip) holds no database. After that the console
+# (Security > Country database) and its schedule keep it current.
+GEOIP_FILE=dbip-country-lite.mmdb
+fetch_geoip() {
+    local dir=$STATE/geoip tmp year month prev release url fetched='' bytes
+    if $DRY_RUN; then log "Dry run: would download DB-IP IP to Country Lite into $dir"; return; fi
+    need curl; need gzip
+    mkdir -p "$dir"; chmod 755 "$dir"
+    year=$(date -u +%Y); month=$((10#$(date -u +%m)))
+    if ((month == 1)); then printf -v prev '%04d-12' "$((year - 1))"; else printf -v prev '%04d-%02d' "$year" "$((month - 1))"; fi
+    tmp=$(mktemp "$dir/.download.XXXXXX")
+    # A month's file appears during its first day; fall back to last month's.
+    for release in "$(printf '%04d-%02d' "$year" "$month")" "$prev"; do
+        url="https://download.db-ip.com/free/dbip-country-lite-$release.mmdb.gz"
+        if curl --proto '=https' --tlsv1.2 --fail --silent --show-error --max-filesize 134217728 \
+            --connect-timeout 15 --max-time 300 --output "$tmp" "$url"; then fetched=$release; break; fi
+    done
+    [[ -n $fetched ]] || { rm -f -- "$tmp"; die "Could not download DB-IP IP to Country Lite (see https://db-ip.com/db/download/ip-to-country-lite)"; }
+    if ! gzip -dc -- "$tmp" | head -c 268435457 > "$tmp.mmdb"; then rm -f -- "$tmp" "$tmp.mmdb"; die "The DB-IP download is not valid gzip"; fi
+    rm -f -- "$tmp"
+    bytes=$(wc -c < "$tmp.mmdb")
+    if ((bytes > 268435456)) || ! LC_ALL=C grep -qa 'MaxMind\.com' "$tmp.mmdb"; then
+        rm -f -- "$tmp.mmdb"; die "The DB-IP download is not a MaxMind DB (.mmdb) file"
+    fi
+    chmod 644 "$tmp.mmdb"
+    mv -f -- "$tmp.mmdb" "$dir/$GEOIP_FILE"
+    printf '%s\n' "$fetched" > "$dir/release"
+    log "Downloaded DB-IP IP to Country Lite $fetched ($bytes bytes) to $dir/$GEOIP_FILE"
+    log "Licence CC BY 4.0: show 'IP Geolocation by DB-IP' (https://db-ip.com) where country results are used"
+    log "The next deploy hands it to the server, which installs it only when it has no country database yet"
+}
+
 if [[ ! -f $STATE/deploy.env ]]; then
     [[ $ACTION == init || $ACTION == deploy ]] || die "Run init first"
     initialize
 fi
 if [[ $ACTION == init || $ACTION == deploy || $ACTION == doctor ]]; then validate_app_env "$STATE/app.env"; fi
+if $GEOIP || [[ $ACTION == geoip ]]; then fetch_geoip; fi
+if [[ $ACTION == geoip ]]; then exit 0; fi
 if [[ $ACTION == init ]]; then log "Configuration ready. Edit it as needed, then run deploy."; exit 0; fi
 
 preflight() {
@@ -749,12 +796,21 @@ pem_certificates() {
 
 render() {
     local directory=$1 secure=true trust='' upstream='' caddyfile caddy_env root_pem limits='' cpus=$CPU_LIMIT host_cpus
+    local seed_env='' seed_volume='' seed_dir
     [[ $EXPOSURE != local ]] || secure=false
     # Client addresses come from the proxy network's peers unless app.env says otherwise.
     if [[ $EXPOSURE == network && -n $PROXY_SUBNETS ]] && ! grep -Eq '^MW_(TRUSTED_PROXIES|FORWARDED_MODE)=' "$directory/app.env"; then
         trust=$'\n'"      MW_TRUSTED_PROXIES: '$PROXY_SUBNETS'"$'\n'"      MW_FORWARDED_MODE: xff"
     fi
     if [[ -n $UPSTREAM_DEFAULT ]]; then upstream=$'\n'"      MW_UPSTREAM_DEFAULT: '$UPSTREAM_DEFAULT'"; fi
+    # A country database fetched by `deploy.sh geoip`: mounted read-only and
+    # installed by the server only into an empty /data/geoip (see fetch_geoip).
+    if [[ -f $STATE/geoip/$GEOIP_FILE ]]; then
+        seed_dir=$(cd -- "$STATE/geoip" && pwd -P)
+        [[ $seed_dir != *[\'\",]* && $seed_dir != *[[:space:]]* ]] || die "Cannot mount the country database directory (quote, comma or space in its path): $seed_dir"
+        seed_env=$'\n'"      MW_GEOIP_SEED: /geoip-seed/$GEOIP_FILE"
+        seed_volume=", '$seed_dir:/geoip-seed:ro'"
+    fi
     if [[ -n $MEMORY_LIMIT ]]; then limits+=$'\n'"    mem_limit: $MEMORY_LIMIT"; fi
     if [[ -n $cpus ]]; then
         # Docker refuses a CPU limit above the CPUs it can use.
@@ -799,9 +855,9 @@ services:
       MW_PLUGIN_DIR: /usr/lib/mailwoman/plugins
       MW_MODE: '$MODE'
       MW_PUBLIC_URL: '$PUBLIC_URL'
-      MW_COOKIE_SECURE: '$secure'$trust$upstream
+      MW_COOKIE_SECURE: '$secure'$trust$upstream$seed_env
       MW_IMAGE_DIGEST: '${IMAGE_DIGEST:-$IMAGE_ID}'
-    volumes: ['app_data:/data']
+    volumes: ['app_data:/data'$seed_volume]
     healthcheck:
       test: [CMD, /usr/local/bin/mailwoman, healthcheck, --url, 'http://127.0.0.1:8080/healthz']
       interval: 5s

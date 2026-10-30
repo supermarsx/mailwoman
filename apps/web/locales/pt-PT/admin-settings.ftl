@@ -554,7 +554,7 @@ admin-settings-help-security-signin-geo-scope = Desativado por predefinição. A
 admin-settings-key-security-signin-geo-mode = Lista de países permitidos ou negados
 admin-settings-help-security-signin-geo-mode = «Permitir» admite apenas os países listados; «negar» recusa os países listados. Os endereços desconhecidos utilizam a sua própria política explícita.
 admin-settings-key-security-signin-geo-countries = Códigos de país do início de sessão
-admin-settings-help-security-signin-geo-countries = Matriz JSON de códigos de país de duas letras maiúsculas, por exemplo ["PT", "GB"]. Utiliza apenas o MW_GEOIP_DB fornecido pelo operador; não é contactado nenhum serviço de localização externo.
+admin-settings-help-security-signin-geo-countries = Matriz JSON de códigos de país de duas letras maiúsculas, por exemplo ["PT", "GB"]. Utiliza apenas a base de dados local de países (Segurança > Base de dados de países, ou MW_GEOIP_DB); os endereços nunca são enviados para um serviço de localização.
 admin-settings-key-security-signin-geo-unknown = Política para endereços de origem sem correspondência
 admin-settings-help-security-signin-geo-unknown = Permitir ou negar endereços ausentes de uma base de dados local legível, endereços privados incluídos. Bases de dados em falta ou ilegíveis recusam sempre os inícios de sessão com a política ativa, mesmo quando os endereços desconhecidos são permitidos.
 

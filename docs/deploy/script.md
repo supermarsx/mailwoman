@@ -238,6 +238,22 @@ the [deployment reference](README.md). PostgreSQL, custom volume mounts, in-app
 TLS and sub-path hosting need a separately managed Compose deployment; this
 script deliberately keeps its backup/restore contract to SQLite plus `/data`.
 
+### Country database (optional)
+
+Country sign-in policies need a local country database. `bash deploy.sh init
+--geoip` (or `bash deploy.sh geoip` at any later time) downloads DB-IP "IP to
+Country Lite" on the host: HTTPS only (`curl --proto =https`), this month's file
+or last month's, at most 128 MB, unpacked to at most 256 MB and checked for the
+MaxMind DB marker. It is saved as `<state>/geoip/dbip-country-lite.mmdb`. The next
+`deploy` mounts `<state>/geoip` read-only at `/geoip-seed` and sets
+`MW_GEOIP_SEED`; the server installs the file (after validating it) only when its
+data directory `/data/geoip`, on the `data` volume, holds no database yet. From
+then on the admin console (Security → Country database) downloads updates on its
+schedule. The data is licensed CC BY 4.0: show "IP Geolocation by DB-IP" with a
+link to https://db-ip.com where country results are used. See
+[Country database](../admin/country-database.md) for the other providers, the
+data directory and `MW_GEOIP_DB`.
+
 ## Updates and daily operations
 
 ```sh

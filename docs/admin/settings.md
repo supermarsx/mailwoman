@@ -1040,9 +1040,10 @@ do not count as rejected credentials. Existing permanent bans remain until an op
 `security.signin.geoScope` is off by default; mailbox, admin, and all apply to new sign-ins only.
 `security.signin.geoMode` selects allow (default) or deny for the uppercase two-letter country
 list `security.signin.geoCountries` (default empty). `security.signin.geoUnknown` explicitly
-allows or denies unmapped addresses (default deny). An active policy with missing or unreadable
-`MW_GEOIP_DB` refuses admission, including when unknown addresses are allowed. The local database
-is operator supplied and cached until restart; no external lookup occurs. Inspect the current-source
+allows or denies unmapped addresses (default deny). An active policy with a missing or unreadable
+country database refuses admission, including when unknown addresses are allowed. The local database
+is managed under Security → Country database or supplied with `MW_GEOIP_DB`
+([Country database](country-database.md)); lookups never leave the server. Inspect the current-source
 diagnostic under Observability before enabling. Existing authenticated requests and sessions are
 not governed by this initial sign-in policy; broader session geofencing is not implemented here.
 

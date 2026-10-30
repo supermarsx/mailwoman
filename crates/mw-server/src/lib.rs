@@ -133,6 +133,9 @@ mod server_text;
 mod signin_challenge;
 mod signin_cooldown;
 mod signin_geography;
+/// The local country database, managed from the console (t96).
+#[doc(hidden)]
+pub mod geoip;
 mod signin_guard;
 pub(crate) mod step_up;
 pub mod twofa_routes;
@@ -1057,6 +1060,7 @@ async fn build_app_inner(
     // policy overlay applies, and set the admin cookie name (t29-e6).
     webhooks::reject_legacy_inbound_secret()?;
     let config_snapshot = config_routes::BootConfigSnapshot::from_config(&config);
+    let geoip_dir = geoip::data_dir(&config.db_path);
     let admin_overlay = admin_apply::env_overlay()?;
     let key = match &config.server_key_hex {
         Some(h) => ServerKey::from_hex(h).map_err(|_| anyhow!("MW_SERVER_KEY is not valid hex"))?,
@@ -1361,6 +1365,7 @@ async fn build_app_inner(
         directory: directory.clone(),
     };
     jobs::start(state.clone());
+    geoip::start(state.clone(), geoip_dir);
     let v7 = V7Extensions {
         directory,
         passwd: passwd_backend,

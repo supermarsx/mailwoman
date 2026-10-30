@@ -554,7 +554,7 @@ admin-settings-help-security-signin-geo-scope = Off by default. Apply only to ne
 admin-settings-key-security-signin-geo-mode = Country allow or deny list
 admin-settings-help-security-signin-geo-mode = Allow permits only listed countries; deny refuses listed countries. Unknown addresses use their own explicit policy.
 admin-settings-key-security-signin-geo-countries = Sign-in country codes
-admin-settings-help-security-signin-geo-countries = JSON array of uppercase two-letter country codes, for example ["PT", "GB"]. Uses only the operator-supplied MW_GEOIP_DB; no external location service is contacted.
+admin-settings-help-security-signin-geo-countries = JSON array of uppercase two-letter country codes, for example ["PT", "GB"]. Uses only the local country database (Security > Country database, or MW_GEOIP_DB); addresses are never sent to a location service.
 admin-settings-key-security-signin-geo-unknown = Unmapped source address policy
 admin-settings-help-security-signin-geo-unknown = Allow or deny addresses absent from a readable local database, including private addresses. Missing or unreadable databases always refuse active-policy sign-ins, even when unknown addresses are allowed.
 

@@ -41,13 +41,15 @@ function inPlace(e: MouseEvent, go: () => void): void {
 }
 
 /** Warning code → its sentence and the section that fixes it. */
-const WARNINGS: Record<string, { text: (count: number) => string; section: string | null }> = {
+const WARNINGS: Record<string, { text: (count: number) => string; section: string | null; rest?: string[] }> = {
   'blocked-accounts': { text: (count) => t('admin-dash-warn-blocked-accounts', { count }), section: 'domains' },
   'no-trusted-proxy-with-ip-rules': { text: (count) => t('admin-dash-warn-no-trusted-proxy', { count }), section: 'access' },
   'allowlist-bypass-env': { text: (count) => t('admin-dash-warn-allowlist-bypass', { count }), section: 'access' },
   'metrics-token-unset': { text: (count) => t('admin-dash-warn-metrics-token', { count }), section: 'observability' },
   'pending-migrations': { text: (count) => t('admin-dash-warn-pending-migrations', { count }), section: null },
   'upstream-cert-expiring': { text: (count) => t('admin-dash-warn-cert-expiring', { count }), section: 'domains' },
+  'geoip-database-missing': { text: () => t('admin-dash-warn-geoip-missing'), section: 'security', rest: ['geoip'] },
+  'geoip-database-stale': { text: () => t('admin-dash-warn-geoip-stale'), section: 'security', rest: ['geoip'] },
 };
 
 const CHECKLIST: Record<string, () => string> = {
@@ -187,7 +189,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
             <For each={d().warnings}>
               {(w) => {
                 const known = WARNINGS[w.code];
-                const link = props.sectionLink(known?.section ?? null);
+                const link = props.sectionLink(known?.section ?? null, known?.rest);
                 return (
                   <li class={css.warning} data-warning={w.code}>
                     <Icon name="alert" />

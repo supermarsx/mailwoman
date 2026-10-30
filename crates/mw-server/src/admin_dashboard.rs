@@ -221,6 +221,13 @@ async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Respons
                 json!({"id":"preferred-domain","done":domains.iter().any(|d|d.preferred),"href":domains_href,"optional":true}),
             ]
         };
+        // t96: a missing or stale country database while a country policy is
+        // active (sign-ins are refused, or classified from old data).
+        let warnings = if global {
+            crate::geoip::dashboard_warnings(&state).await
+        } else {
+            Vec::new()
+        };
         let mut totals = counts(&snapshot, scope);
         totals["activeSessions"] = json!(active_sessions);
         let value = json!({"server":global.then(||json!({"version":env!("CARGO_PKG_VERSION"),"buildSha":option_env!("MW_BUILD_SHA"),"mode":if state.engine.is_some(){"engine"}else{"proxy"},"uptimeSecs":state.started.elapsed().as_secs(),"startedAt":state.started_at.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs(),"basePath":state.base_path.as_ref()})),
@@ -228,7 +235,7 @@ async fn summary(State(state): State<AppState>, ctx: AdminCtx) -> Result<Respons
             "storage":store.as_ref().map(|s|json!({"dbBytes":s.db_bytes,"walBytes":s.wal_bytes,"searchIndexBytes":null,"dataVolume":null})),
             "health":store.as_ref().map(|s|json!({"dbPingMs":s.db_ping_ms,"migration":{"applied":s.migration_applied,"expected":s.migration_expected},"engine":null,"outbox":null,"searchIndex":null,"renderSandbox":null,"pluginRuntime":null})),
             "traffic":global.then(||json!({"windowMins":60,"series":crate::http_metrics::traffic_series()})),
-            "recentAudit":audit,"blockedAccounts":null,"warnings":[],"checklist":checklist,"unavailable":unavailable});
+            "recentAudit":audit,"blockedAccounts":null,"warnings":warnings,"checklist":checklist,"unavailable":unavailable});
         Ok::<_, AdminApiError>(([(header::CACHE_CONTROL, "no-store")], Json(value)).into_response())
     };
     tokio::time::timeout(Duration::from_secs(3), work)

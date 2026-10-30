@@ -69,7 +69,9 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-search-dir"></a>`MW_SEARCH_DIR` | readOnly | path | next to the database | boot | search index location (memory or a path) | needed before the database opens or to reach the console |
 | <a id="mw-wkd-dir"></a>`MW_WKD_DIR` | readOnly | path |  | boot | WKD files directory | needed before the database opens or to reach the console |
 | <a id="mw-abuse-spool"></a>`MW_ABUSE_SPOOL` | readOnly | path |  | boot | abuse report (ARF) spool directory | needed before the database opens or to reach the console |
-| <a id="mw-geoip-db"></a>`MW_GEOIP_DB` | readOnly | path |  | boot | local GeoIP database file | needed before the database opens or to reach the console |
+| <a id="mw-geoip-db"></a>`MW_GEOIP_DB` | readOnly | path |  | boot | local country database file; when set it overrides the console-managed one | needed before the database opens or to reach the console |
+| <a id="mw-geoip-dir"></a>`MW_GEOIP_DIR` | readOnly | path | geoip/ next to a SQLite database | boot | directory for the console-managed country database | needed before the database opens or to reach the console |
+| <a id="mw-geoip-seed"></a>`MW_GEOIP_SEED` | readOnly | path |  | boot | country database installed when the data directory has none | needed before the database opens or to reach the console |
 
 ## Admin console bootstrap
 

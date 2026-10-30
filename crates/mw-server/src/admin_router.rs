@@ -96,6 +96,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::signin_guard::register(r);
     crate::request_protection::register(r);
     crate::signin_geography::register(r);
+    crate::geoip::register(r);
     crate::deployment_security::register(r);
     crate::console_path::register(r);
     crate::request_budget::register(r);

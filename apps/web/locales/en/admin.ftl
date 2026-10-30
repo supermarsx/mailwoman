@@ -604,6 +604,7 @@ admin-egress-class-analytics = Optional usage analytics
 admin-egress-class-nextcloud = Nextcloud files and DAV requests
 admin-egress-class-oauth = OAuth provider requests
 admin-egress-class-update_check = Update checks
+admin-egress-class-geoip = Country database downloads
 admin-egress-class-sieve = ManageSieve rules transport
 admin-egress-class-push = Browser push delivery
 
@@ -641,7 +642,7 @@ admin-obs-lock-unlocked = Unlocked { $surface } sign-in for { $ip }.
 
 admin-obs-geo-title = Sign-in country policy
 admin-obs-geo-note = This diagnostic evaluates your trusted source address. Country policy affects new sign-ins only; existing sessions are not revoked. Review the result before enabling a policy, including the administrator sign-in decision.
-admin-obs-geo-unavailable = The local country database is missing or unreadable. Active country policies refuse sign-in in this state, even when unmapped addresses are allowed. Configure MW_GEOIP_DB and restart after replacing or repairing the database.
+admin-obs-geo-unavailable = The local country database is missing or unreadable. Active country policies refuse sign-in in this state, even when unmapped addresses are allowed. Download or upload a database on the Country database page; it takes effect without a restart. When MW_GEOIP_DB is set, fix or replace the file it names instead.
 admin-obs-geo-refresh = Refresh diagnostic
 admin-obs-geo-configure = Configure country policy
 admin-obs-geo-field = Policy detail

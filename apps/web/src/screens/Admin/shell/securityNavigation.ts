@@ -9,6 +9,7 @@ export const SECURITY_TABS: readonly { id: string; label: string; capability: Ca
   {id:'bans',label:'admin-obs-bans',capability:'bans.read',unscoped:true},
   {id:'locks',label:'admin-obs-locks-title',capability:'bans.read',unscoped:true},
   {id:'geography',label:'admin-obs-geo-title',capability:'bans.read',unscoped:true},
+  {id:'geoip',label:'admin-security-tab-geoip',capability:'security.read',unscoped:true},
   {id:'protection',label:'admin-protection-title',capability:'bans.read',unscoped:true},
   {id:'policy',label:'admin-nav-security-policy',capability:'security.read',unscoped:true},
   {id:'inbound',label:'admin-inbound-title',capability:'security.read',unscoped:true},

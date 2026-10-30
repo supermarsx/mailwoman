@@ -14,6 +14,7 @@ const BanList=lazy(()=>import('./BanList.tsx').then(m=>({default:m.BanList})));
 const BanEditor=lazy(()=>import('./BanEditor.tsx').then(m=>({default:m.BanEditor})));
 const AutomaticLocks=lazy(()=>import('./AutomaticLocks.tsx').then(m=>({default:m.AutomaticLocks})));
 const SigninGeography=lazy(()=>import('./SigninGeography.tsx').then(m=>({default:m.SigninGeographyPage})));
+const CountryDatabase=lazy(()=>import('./CountryDatabase.tsx').then(m=>({default:m.CountryDatabase})));
 const RequestProtection=lazy(()=>import('./RequestProtection.tsx').then(m=>({default:m.RequestProtection})));
 const SecurityPolicy=lazy(()=>import('./SecurityPolicy/index.tsx').then(m=>({default:m.AdminSecurityPolicy})));
 const InboundAllowlist=lazy(()=>import('./InboundAllowlist.tsx').then(m=>({default:m.InboundAllowlist})));
@@ -36,6 +37,7 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
         <Match when={selected()==='bans'}><Show when={shell?.router.route().rest[1]==='new'} fallback={<BanList/>}><Show when={!shell || shell.can.can('bans.write')} fallback={<p role="alert">{t('admin-security-tab-denied')}</p>}><BanEditor/></Show></Show></Match>
         <Match when={selected()==='locks'}><AutomaticLocks/></Match>
         <Match when={selected()==='geography'}><SigninGeography/></Match>
+        <Match when={selected()==='geoip'}><CountryDatabase/></Match>
         <Match when={selected()==='protection'}><RequestProtection/></Match>
         <Match when={selected()==='policy'}><SecurityPolicy/></Match>
         <Match when={selected()==='inbound'}><InboundAllowlist/></Match>

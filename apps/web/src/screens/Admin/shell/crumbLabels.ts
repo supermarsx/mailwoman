@@ -71,7 +71,7 @@ export function sectionCrumbLabel(id: string, label: () => string): string | nul
 export const CRUMB_WORDS: readonly string[] = [
   'new', 'edit', 'clone', 'guided', 'overview', 'configure', 'clients', 'register', 'manage',
   'connections', 'diagnostics', 'policy', 'aliases', 'alias-new', 'alias-edit', 'alias-clone', 'backends',
-  'bans', 'locks', 'geography', 'protection', 'inbound', 'deployment', 'console', 'sessions',
+  'bans', 'locks', 'geography', 'geoip', 'protection', 'inbound', 'deployment', 'console', 'sessions',
   'audit', 'statistics', 'telemetry',
   'directory', 'webhooks', 'keys', 'hosting', 'ssh', 'domains', 'mailboxes',
   'application', 'authentication', 'jobs', 'mode', 'destinations', 'proxies', 'totp', 'security',

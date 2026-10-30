@@ -589,6 +589,7 @@ admin-egress-class-analytics = Análises de utilização opcionais
 admin-egress-class-nextcloud = Ficheiros Nextcloud e pedidos DAV
 admin-egress-class-oauth = Pedidos a fornecedores OAuth
 admin-egress-class-update_check = Verificações de atualizações
+admin-egress-class-geoip = Transferências da base de dados de países
 admin-egress-class-sieve = Transporte de regras ManageSieve
 admin-egress-class-push = Entrega de push do browser
 
@@ -626,7 +627,7 @@ admin-obs-lock-unlocked = Início de sessão { $surface } desbloqueado para { $i
 
 admin-obs-geo-title = Política de países para início de sessão
 admin-obs-geo-note = Este diagnóstico avalia o seu endereço de origem fidedigno. A política de países afeta apenas os novos inícios de sessão; as sessões existentes não são revogadas. Reveja o resultado antes de ativar uma política, sem esquecer a decisão sobre o início de sessão de administrador.
-admin-obs-geo-unavailable = A base de dados local de países está em falta ou ilegível. Neste estado, as políticas de países ativas recusam o início de sessão, mesmo quando os endereços não mapeados são permitidos. Configure MW_GEOIP_DB e reinicie depois de substituir ou reparar a base de dados.
+admin-obs-geo-unavailable = A base de dados local de países está em falta ou ilegível. Neste estado, as políticas de países ativas recusam o início de sessão, mesmo quando os endereços não mapeados são permitidos. Transfira ou carregue uma base de dados na página Base de dados de países; tem efeito sem reiniciar. Quando MW_GEOIP_DB está definida, corrija ou substitua o ficheiro que indica.
 admin-obs-geo-refresh = Atualizar diagnóstico
 admin-obs-geo-configure = Configurar política de países
 admin-obs-geo-field = Detalhe da política

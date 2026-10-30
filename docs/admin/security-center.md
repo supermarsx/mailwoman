@@ -3,8 +3,8 @@
 The account Security centre contains authentication factors, active sessions,
 sign-in history, remembered devices and account activity. Session listings show
 client metadata and opaque handles, never authentication tokens or passwords.
-Country labels use only the operator's local `MW_GEOIP_DB`; without it no country
-is displayed. Exporting sign-in history requires recent verification.
+Country labels use only the local country database ([Country database](country-database.md):
+downloaded or uploaded in the console, or `MW_GEOIP_DB`); without one no country is displayed. Exporting sign-in history requires recent verification.
 
 ## Administrator navigation
 

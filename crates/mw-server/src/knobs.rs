@@ -794,7 +794,23 @@ pub static CATALOGUE: &[Knob] = &[
         Path,
         R::Boot,
         "",
-        "local GeoIP database file",
+        "local country database file; when set it overrides the console-managed one",
+    ),
+    boot(
+        "MW_GEOIP_DIR",
+        Gr::Storage,
+        Path,
+        R::Boot,
+        "geoip/ next to a SQLite database",
+        "directory for the console-managed country database",
+    ),
+    boot(
+        "MW_GEOIP_SEED",
+        Gr::Storage,
+        Path,
+        R::Boot,
+        "",
+        "country database installed when the data directory has none",
     ),
     // ── Admin console bootstrap ────────────────────────────────────────────────
     boot(

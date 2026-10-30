@@ -277,6 +277,7 @@ admin-crumb-backends = Servidores de origem
 admin-crumb-bans = Lista de IPs banidos
 admin-crumb-locks = Bloqueios temporários de início de sessão
 admin-crumb-geography = Política de países para início de sessão
+admin-crumb-geoip = Base de dados de países
 admin-crumb-protection = Proteção agregada e adaptativa
 admin-crumb-inbound = Acesso de entrada
 admin-crumb-deployment = Verificações da implementação
