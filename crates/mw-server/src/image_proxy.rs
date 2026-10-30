@@ -1088,11 +1088,25 @@ async fn proxy_image(
         .lock()
         .expect("image cache lock")
         .trim(policy.cache_bytes);
-    if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&key) {
+    let cached_response = || {
+        let (etag, png) = cache().lock().expect("image cache lock").get(&key)?;
         if if_none_match(&headers, &etag) {
-            return not_modified(&etag);
+            return Some(not_modified(&etag));
         }
-        return image_response(png, etag);
+        Some(image_response(png, etag))
+    };
+    if let Some(response) = cached_response() {
+        return response;
+    }
+    let deadline = Instant::now() + policy.fetch.timeouts.total;
+    let Some(_flight) =
+        remote_content::image_flight::acquire(&session.account_id, &key.route, &q.url, deadline)
+            .await
+    else {
+        return remote_content::busy_response();
+    };
+    if let Some(response) = cached_response() {
+        return response;
     }
 
     // A failure remembered for this URL (t56) answers at once, before the rate
@@ -1147,6 +1161,7 @@ async fn proxy_image(
             &q.url,
         ),
         &policy,
+        deadline,
     )
     .await
     {

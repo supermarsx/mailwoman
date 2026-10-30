@@ -35,6 +35,47 @@ use common::test_db;
 const KEY_HEX: &str = "2f2e3d4c5b6a79889796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f2";
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
+#[tokio::test]
+async fn concurrent_signed_and_legacy_misses_each_fetch_once() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
+    let f = fixture(proxy, "mw-rc-single-flight").await;
+    f.grant().await;
+    let upstream = "http://1.2.3.4/single-flight.png";
+    let (status, signed) = f.sign(&[upstream], &[]).await;
+    assert_eq!(status, 200);
+    for legacy in [false, true] {
+        let mut jobs = Vec::new();
+        let barrier = Arc::new(tokio::sync::Barrier::new(12));
+        for _ in 0..12 {
+            let client = if legacy {
+                f.user.clone()
+            } else {
+                f.anon.clone()
+            };
+            let mut url = reqwest::Url::parse(&f.base).unwrap();
+            if legacy {
+                url.set_path("/api/image-proxy");
+                url.query_pairs_mut()
+                    .append_pair("url", upstream)
+                    .append_pair("emailId", &f.email_id);
+            } else {
+                url.set_path(&image_src(&signed));
+            }
+            let barrier = barrier.clone();
+            jobs.push(tokio::spawn(async move {
+                barrier.wait().await;
+                let response = client.get(url).send().await.unwrap();
+                assert_eq!(response.status(), 200);
+                assert!(response.bytes().await.unwrap().starts_with(b"\x89PNG"));
+            }));
+        }
+        for job in jobs {
+            job.await.unwrap();
+        }
+        assert_eq!(seen.lock().unwrap().connections, if legacy { 2 } else { 1 });
+    }
+}
+
 /// A 4×4 opaque PNG (larger than a tracking pixel).
 fn png(w: u32, h: u32) -> Vec<u8> {
     // Built here (not a fixture) so the size is visible in the test.

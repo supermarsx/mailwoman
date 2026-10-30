@@ -76,6 +76,8 @@ const MAX_PART_RAW_BYTES: usize = 32 * 1024 * 1024;
 /// Timeouts, concurrency caps, negative cache and load outcomes (t56).
 #[path = "remote_fetch_limits.rs"]
 pub(crate) mod fetch_limits;
+#[path = "remote_image_flight.rs"]
+pub(super) mod image_flight;
 #[path = "remote_membership.rs"]
 mod membership;
 #[path = "remote_tracker_stats.rs"]
@@ -852,7 +854,8 @@ async fn fetch_image(
         .lock()
         .expect("image cache lock")
         .trim(policy.cache_bytes);
-    if let Some((etag, png)) = cache().lock().expect("image cache lock").get(&key) {
+    let cached_response = || {
+        let (etag, png) = cache().lock().expect("image cache lock").get(&key)?;
         let tracker = policy.trackers && png == TRANSPARENT_PIXEL;
         if tracker {
             tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
@@ -868,9 +871,24 @@ async fn fetch_image(
                 "cross-origin-resource-policy",
                 HeaderValue::from_static("cross-origin"),
             );
-            return response;
+            return Some(response);
         }
-        return signed_image(png, etag, tracker);
+        Some(signed_image(png, etag, tracker))
+    };
+    if let Some(response) = cached_response() {
+        return response;
+    }
+    let deadline = std::time::Instant::now() + policy.fetch.timeouts.total;
+    let Some(_flight) = image_flight::acquire(&claims.a, &key.route, &claims.u, deadline).await
+    else {
+        fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, false, claims.x);
+        fetch_limits::record_retryable_failure(
+            &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
+        );
+        return busy_response();
+    };
+    if let Some(response) = cached_response() {
+        return response;
     }
     let outcome = |loaded: bool| {
         fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, loaded, claims.x);
@@ -920,6 +938,7 @@ async fn fetch_image(
         domain.as_deref(),
         (&claims.a, &claims.e, &claims.u),
         &policy,
+        deadline,
     )
     .await
     {
@@ -967,7 +986,7 @@ async fn fetch_image(
 /// network failure. Returns the body and its declared type, or the response to
 /// send.
 ///
-/// The total deadline starts here, before any wait, so an image answers within
+/// The total deadline includes single-flight admission before any fetch slot, so network work stays within
 /// `privacy.fetchTotalTimeoutMs` whether it queued, fetched or both.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn guarded_fetch(
@@ -979,10 +998,10 @@ pub(super) async fn guarded_fetch(
     domain: Option<&str>,
     (account, message, raw_url): (&str, &str, &str),
     policy: &crate::remote_policy::PrivacyPolicy,
+    deadline: std::time::Instant,
 ) -> Result<(Vec<u8>, Option<String>), Response> {
     let limits = policy.fetch;
     let started = std::time::Instant::now();
-    let deadline = started + limits.timeouts.total;
     let Some(_slot) = fetch_limits::acquire(account, message, &limits, deadline).await else {
         tracing::debug!(
             target: "mw_server::remote_content",
@@ -997,6 +1016,9 @@ pub(super) async fn guarded_fetch(
         return Err(busy_response());
     };
     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+    if remaining.is_zero() {
+        return Err(busy_response());
+    }
     let timeouts = mw_egress::FetchTimeouts {
         total: remaining.max(std::time::Duration::from_millis(1)),
         ..limits.timeouts
@@ -1053,7 +1075,7 @@ pub(super) fn failed_response(refusal: mw_egress::Refusal) -> Response {
 
 /// No fetch slot in time, or the replica is at its ceiling. Not remembered:
 /// nothing is wrong with the image.
-fn busy_response() -> Response {
+pub(super) fn busy_response() -> Response {
     let mut response = (StatusCode::SERVICE_UNAVAILABLE, "image proxy busy").into_response();
     let h = response.headers_mut();
     h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
