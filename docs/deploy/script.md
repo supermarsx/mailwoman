@@ -24,6 +24,21 @@ rebuild Rust, reusing Cargo's registry and target caches where possible.
 The first build still compiles the dependencies; changing the toolchain or
 pruning the builder cache can require another expensive build.
 
+### Tabs open across a deploy
+
+A browser tab opened before a deploy keeps running the previous web build and
+loads that build's hashed files (`/assets/<name>-<hash>.js`) as it opens lazy
+pages. The new image does not contain them. At each start the server copies the
+hashed files of the build it serves into `/data/retained-assets` (beside the
+database, in the backed-up data volume) and keeps the files of the last 5 builds,
+each for 14 days after a newer build replaced it, within 512 MiB. Those requests
+are then answered with the same immutable files. When a tab still cannot load a
+file, the app checks whether the server has a newer build, shows "A new version is
+available, reloading…" and reloads once (no automatic reload while an editor has
+unsaved changes). `index.html` is always sent with `Cache-Control: no-cache`, so a
+new tab gets the new build. Add `MW_RETAINED_ASSETS_DIR=off` to `app.env` to disable retention; deploy.sh
+needs no other setting for it.
+
 Docker Rust builds enable incremental compilation for workspace/path crates in
 its persistent target cache. Optimization remains release level3 with16 codegen
 units, overflow checks and stripping unchanged. The first build after enabling

@@ -60,6 +60,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-server-key"></a>`MW_SERVER_KEY` | readOnly | secret | generated at first start | boot | 32-byte key that seals every stored secret | needed before the database opens or to reach the console |
 | <a id="mw-db-path"></a>`MW_DB_PATH` | readOnly | dsn | mailwoman.db | boot | SQLite path or PostgreSQL URL | needed before the database opens or to reach the console |
 | <a id="mw-web-dir"></a>`MW_WEB_DIR` | readOnly | path | embedded | boot | serve the web client from this directory | needed before the database opens or to reach the console |
+| <a id="mw-retained-assets-dir"></a>`MW_RETAINED_ASSETS_DIR` | readOnly | path | retained-assets beside the SQLite database | boot | keep the hashed web files of the last 5 builds (14 days after replacement) for tabs still running one; off disables | needed before the database opens or to reach the console |
 | <a id="mw-redis-url"></a>`MW_REDIS_URL` | readOnly | url |  | boot | shared cache | needed before the database opens or to reach the console |
 | <a id="mw-upload-dir"></a>`MW_UPLOAD_DIR` | readOnly | path | the database | boot | sealed upload directory | needed before the database opens or to reach the console |
 | <a id="mw-render-bin"></a>`MW_RENDER_BIN` | readOnly | path |  | boot | render sandbox binary | needed before the database opens or to reach the console |

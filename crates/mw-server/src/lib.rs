@@ -62,6 +62,7 @@ pub mod push_relay;
 mod request_history;
 pub mod sharing;
 mod source_bans;
+mod static_resilience;
 pub mod tls;
 pub mod watermark;
 pub mod wkd;
@@ -894,6 +895,8 @@ pub(crate) struct AppState {
     /// this trusted process without the jail.
     render_jail_required: bool,
     web_dir: Option<PathBuf>,
+    /// t102: hashed files of earlier builds, served to tabs still running one.
+    retained_assets: Option<Arc<static_resilience::Retained>>,
     /// The deployment's explicit cookie-`Secure` setting. A floor only — the
     /// effective value per response comes from
     /// [`ExternalBase::cookie_secure`], which raises it when the request
@@ -1349,6 +1352,7 @@ async fn build_app_inner(
         scheduler: jobs::new_scheduler(),
         render_bin,
         render_jail_required,
+        retained_assets: retained_assets(&config.db_path, config.web_dir.as_deref()).await,
         web_dir: config.web_dir,
         cookie_secure,
         external,
@@ -5151,6 +5155,13 @@ async fn static_handler(
     if let Some(resp) = serve_asset(&state, path, &headers) {
         return resp;
     }
+    // t102: a tab of an earlier build importing one of its chunks, or a browser
+    // checking a worker registration this build does not serve.
+    if let Some(resp) = serve_retained_asset(&state, path, &headers)
+        .or_else(|| static_resilience::worker_fallback(path, &headers))
+    {
+        return resp;
+    }
     if let Some(resp) = redirect_page_trailing_slash(&original, app_path, base) {
         return resp;
     }
@@ -5366,6 +5377,31 @@ fn base_shim_response(base: &str, req: &HeaderMap) -> Response {
 /// and no way to break out of the string literal.
 fn base_shim_body(base: &str) -> String {
     format!("window.__MW_BASE__=\"{base}/\";\n")
+}
+
+/// t102: record the build being served and keep earlier builds' hashed files
+/// ([`static_resilience`]). Off when there is no place to keep them.
+async fn retained_assets(
+    db_path: &str,
+    web_dir: Option<&Path>,
+) -> Option<Arc<static_resilience::Retained>> {
+    let dir = static_resilience::location(db_path)?;
+    let web_dir = web_dir.map(Path::to_path_buf);
+    tokio::task::spawn_blocking(move || {
+        let current = static_resilience::current_build(web_dir.as_deref());
+        static_resilience::Retained::snapshot(dir, current)
+    })
+    .await
+    .ok()
+    .flatten()
+}
+
+/// A hashed file of an earlier build, with the same headers the build gave it.
+fn serve_retained_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {
+    let bytes = state.retained_assets.as_ref()?.read(path)?;
+    let mime = mime_guess::from_path(path).first_or_octet_stream();
+    let bytes = adapt_asset_to_base(path, bytes, &state.base_path);
+    Some(asset_response(path, mime.as_ref(), bytes, req))
 }
 
 fn serve_asset(state: &AppState, path: &str, req: &HeaderMap) -> Option<Response> {

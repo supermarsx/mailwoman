@@ -717,6 +717,14 @@ pub static CATALOGUE: &[Knob] = &[
         "serve the web client from this directory",
     ),
     boot(
+        "MW_RETAINED_ASSETS_DIR",
+        Gr::Storage,
+        Path,
+        R::Boot,
+        "retained-assets beside the SQLite database",
+        "keep the hashed web files of the last 5 builds (14 days after replacement) for tabs still running one; off disables",
+    ),
+    boot(
         "MW_REDIS_URL",
         Gr::Storage,
         Url,
