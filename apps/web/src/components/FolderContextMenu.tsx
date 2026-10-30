@@ -7,11 +7,13 @@ import {loadCatalog,t} from '../i18n';
 import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import {FolderRenameField,prefersRenameDialog,RenameFolderDialog,useCanRename,useRenameContext} from './RenameFolder.tsx';
+import {DeleteFolderDialog} from './DeleteFolder.tsx';
+import {canDeleteFolder} from '../api/deleteFolder.ts';
 import {useActions} from '../keymap/index.ts';
 import * as renameCss from './renameFolder.css.ts';
 import * as css from './contextMenu.css.ts';
 export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
- const app=useApp();const [empty,setEmpty]=createSignal(false);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
+ const app=useApp();const [empty,setEmpty]=createSignal(false);const [deleting,setDeleting]=createSignal(false);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
  const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal<'inline'|'dialog'|null>(null);let row:HTMLDivElement|undefined;
  // Ask for the empty-folder and rename abilities now, so the first menu opened already has them.
  onMount(()=>{void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');ability();renameContext();});
@@ -37,10 +39,11 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
   if(props.onOpenTab)rows.splice(1,0,{id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
   if(box.mailwomanSearchQuery===undefined&&props.canShare())rows.push({id:'sharing',label:t('mail-nav-sharing'),icon:'users',run:()=>selectThen(props.onShare)});
   if(canRename(box))rows.push({id:'rename',label:t('rename-folder-action'),icon:'edit',run:startRename});
+  if(canDeleteFolder(box,app.mailboxes(),renameContext()))rows.push({id:'delete-folder',label:t('delete-folder-action'),icon:'delete',run:()=>{const target=app.mailboxes().find(value=>value.id===box.id);if(target&&canDeleteFolder(target,app.mailboxes(),renameContext()))setDeleting(true);}});
   // Any real folder (t45): ordinary folders move to Trash, Trash and Junk empty for good.
   if(canEmpty(box))rows.push({id:'empty',label:t('empty-folder-action'),icon:'delete',run:()=>{if(app.mailboxes().some(value=>value.id===box.id)&&canEmpty(box))setEmpty(true);}});
   return rows;
  },onError:()=>app.showToast('error',t('mail-context-failed'))});
- onCleanup(observePreferenceAccount(()=>{context.close(false);setEmpty(false);setRenaming(null);}));
- return <div ref={row} class={css.folderRow} classList={{[renameCss.editing]:renaming()==='inline'}} onContextMenu={e=>{if(renaming()==='inline')return;props.onProbe();context.open(e);}} onKeyDown={e=>{if(renaming()==='inline')return;if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))props.onProbe();context.keydown(e);}}>{props.children}<Show when={renaming()==='inline'&&renameContext()}>{value=><FolderRenameField box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} context={value()} onDone={endRename}/>}</Show>{context.menu()}<Show when={renaming()==='dialog'&&renameContext()}>{value=><RenameFolderDialog box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} context={value()} onClose={endRename}/>}</Show><Show when={empty()&&ability()}>{value=><EmptyFolderDialog box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} ability={value()} onClose={()=>setEmpty(false)}/>}</Show></div>;
+ onCleanup(observePreferenceAccount(()=>{context.close(false);setEmpty(false);setRenaming(null);setDeleting(false);}));
+ return <div ref={row} class={css.folderRow} classList={{[renameCss.editing]:renaming()==='inline'}} onContextMenu={e=>{if(renaming()==='inline')return;props.onProbe();context.open(e);}} onKeyDown={e=>{if(renaming()==='inline')return;if(e.key==='ContextMenu'||(e.shiftKey&&e.key==='F10'))props.onProbe();context.keydown(e);}}>{props.children}<Show when={renaming()==='inline'&&renameContext()}>{value=><FolderRenameField box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} context={value()} onDone={endRename}/>}</Show>{context.menu()}<Show when={deleting()&&renameContext()}>{value=><DeleteFolderDialog box={props.box} context={value()} onClose={()=>{setDeleting(false);queueMicrotask(()=>row?.querySelector<HTMLElement>('.sidebar__box')?.focus());}}/>}</Show><Show when={renaming()==='dialog'&&renameContext()}>{value=><RenameFolderDialog box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} context={value()} onClose={endRename}/>}</Show><Show when={empty()&&ability()}>{value=><EmptyFolderDialog box={app.mailboxes().find(item=>item.id===props.box.id)??props.box} ability={value()} onClose={()=>setEmpty(false)}/>}</Show></div>;
 }
