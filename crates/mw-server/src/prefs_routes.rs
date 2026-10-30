@@ -1842,7 +1842,11 @@ mod tests {
                 .unwrap()
         );
         dto.email = "different@example.org".into();
-        assert!(!identity_references_valid(&store, &owner, &account, &dto).await.unwrap());
+        assert!(
+            !identity_references_valid(&store, &owner, &account, &dto)
+                .await
+                .unwrap()
+        );
         dto.email = "owner@example.org".into();
         key.is_own = false;
         store.upsert_crypto_key(&key).await.unwrap();

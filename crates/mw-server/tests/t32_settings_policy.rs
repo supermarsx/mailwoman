@@ -1374,6 +1374,36 @@ async fn mail_cache_and_response_templates_obey_effective_user_policy() {
         403
     );
     let template = json!([{"id":"thanks","title":"Thanks","body":"Thank you.\n  Signed"}]);
+    assert_eq!(
+        put_global(
+            &a,
+            base,
+            "mail.templates.shared",
+            json!({"globalValue":template})
+        )
+        .await
+        .0,
+        200
+    );
+    assert_eq!(
+        entry(&u, base, "mail.templates.shared").await["value"],
+        template
+    );
+    assert_eq!(
+        entry(&u, base, "mail.templates.allowPersonal").await["value"],
+        true
+    );
+    for (key, value) in [
+        ("mail.templates.shared", json!([])),
+        ("mail.templates.allowPersonal", json!(false)),
+    ] {
+        let (status, body) = send(
+            u.put(format!("{base}/api/settings/{key}"))
+                .json(&json!({"value":value})),
+        )
+        .await;
+        assert_eq!(status, 403, "{key}: {body}");
+    }
     let url = format!("{base}/api/settings/mail.templates.personal");
     assert_eq!(
         send(u.put(&url).json(&json!({"value":template}))).await.0,

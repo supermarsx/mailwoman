@@ -1453,7 +1453,7 @@ and locks. It controls template use; it never sends a message automatically.
 remains available.
 
 <a id="mail.templates.shared"></a>
-`mail.templates.shared` defaults to an empty list and is administrative only.
+`mail.templates.shared` defaults to an empty list. Administrators control writes; authenticated users can read the shared library and the effective `mail.templates.allowPersonal` flag for their own account. Neither setting accepts ordinary user writes.
 
 <a id="mail.templates.personal"></a>
 `mail.templates.personal` defaults to an empty list and supports user overrides.

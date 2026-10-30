@@ -278,6 +278,7 @@ impl SettingDef {
         self.scopes == Scopes::GlobalDomainUser
             || PUBLIC_KEYS.contains(&self.key)
             || self.key == "receipts.dsnAllowed"
+            || matches!(self.key, "mail.templates.shared" | "mail.templates.allowPersonal")
             // t39-e7: the storage meter warns at the admin's thresholds; the
             // user reads them and cannot change them (scope is global/domain).
             || matches!(self.key, "quota.warnEnabled" | "quota.warnThresholds")
