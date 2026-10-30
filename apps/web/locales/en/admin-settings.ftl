@@ -440,6 +440,8 @@ admin-settings-key-reader-loading-delay-ms = Message loading delay
 admin-settings-help-reader-loading-delay-ms = Delay only the loading indicator, between 0 and 1000 milliseconds. Message delivery is never delayed.
 admin-settings-key-reader-zoom = Message zoom
 admin-settings-help-reader-zoom = Default message body zoom in percent, from 50 to 200; the reader uses its nearest zoom step. Only the message scales, and printing uses 100%.
+admin-settings-key-reader-attachments-collapsed = Attachments bar collapsed
+admin-settings-help-reader-attachments-collapsed = Whether the reader's attachments bar starts collapsed, showing only the count and total size. The user's last open or close is saved here. Off by default: the attachments are shown.
 
 admin-settings-key-login-show-domain-hint = Show preferred domain on sign-in
 admin-settings-help-login-show-domain-hint = Show which domain accepts a username without an email suffix. Hidden by default. This only changes the hint; signing in with a username still works.

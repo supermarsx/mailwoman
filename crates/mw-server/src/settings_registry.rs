@@ -1600,6 +1600,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "message body zoom in percent; the reader snaps it to its zoom steps"
     ),
     def!(
+        "reader.attachmentsCollapsed",
+        Kind::Bool,
+        "false",
+        GDU,
+        "reader",
+        "start the reader's attachments bar collapsed (t110)"
+    ),
+    def!(
         "ui.language",
         Kind::Locale,
         "\"browser\"",

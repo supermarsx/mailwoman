@@ -878,6 +878,7 @@ These keys support global and domain defaults, administrator locks and user over
 | <a id="reader.loading"></a>`reader.loading` | skeleton, indicator, none | skeleton |
 | <a id="reader.loadingDelayMs"></a>`reader.loadingDelayMs` | 0–1000 milliseconds | 120 |
 | <a id="reader.zoom"></a>`reader.zoom` | 50–200 percent (the reader snaps to 50, 67, 75, 90, 100, 110, 125, 150, 175, 200) | 100 |
+| <a id="reader.attachmentsCollapsed"></a>`reader.attachmentsCollapsed` | true, false (the reader's attachments bar starts collapsed; the user's last toggle is saved here) | false |
 
 Automatic colors adapt in dark themes and preserve original colors in light themes. Inversion reverses message colors while counter-inverting images. Adaptive mode removes sender foreground/background overrides while preserving layout and media sources. Loader delay affects only feedback, never delivery.
 

@@ -440,6 +440,8 @@ admin-settings-key-reader-loading-delay-ms = Atraso do carregamento das mensagen
 admin-settings-help-reader-loading-delay-ms = Atrasar apenas o indicador de carregamento, entre 0 e 1000 milissegundos. A apresentação da mensagem nunca é atrasada.
 admin-settings-key-reader-zoom = Zoom das mensagens
 admin-settings-help-reader-zoom = Zoom predefinido do corpo da mensagem em percentagem, de 50 a 200; o leitor usa o passo de zoom mais próximo. Só a mensagem muda de escala e a impressão usa 100%.
+admin-settings-key-reader-attachments-collapsed = Barra de anexos recolhida
+admin-settings-help-reader-attachments-collapsed = Se a barra de anexos do leitor começa recolhida, mostrando só o número e o tamanho total. A última escolha do utilizador fica guardada aqui. Desligado por predefinição: os anexos são mostrados.
 
 admin-settings-key-login-show-domain-hint = Mostrar o domínio preferido no início de sessão
 admin-settings-help-login-show-domain-hint = Mostrar qual o domínio que aceita um nome de utilizador sem sufixo de e-mail. Oculto por predefinição. Isto só altera a sugestão; iniciar sessão com um nome de utilizador continua a funcionar.
