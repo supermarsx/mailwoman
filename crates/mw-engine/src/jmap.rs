@@ -58,6 +58,11 @@ mod empty_folder;
 #[path = "events_view_tests.rs"]
 mod events_view_tests;
 
+// t94: `mailwomanFocus` (the Focused inbox rules) through the private `email_get`.
+#[cfg(test)]
+#[path = "focus_tests.rs"]
+mod focus_tests;
+
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
 pub fn session_json(account_id: &str, username: &str) -> Value {
@@ -1301,10 +1306,18 @@ impl Engine {
             raw_derived: wants_raw_derived,
             calendar: wants_calendar,
         };
-        let assembled = match self.build_emails(&requested, fill).await {
+        let mut assembled = match self.build_emails(&requested, fill).await {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
+        // t94: the Focused / Other decision, only when the request names it.
+        let wants_focus = args
+            .get("properties")
+            .and_then(Value::as_array)
+            .is_some_and(|named| named.iter().any(|p| p == crate::focus::FOCUS_PROPERTY));
+        if wants_focus && let Err(e) = self.fill_focus(account_id, &mut assembled).await {
+            return server_fail(&e);
+        }
 
         // `list` is positional against the request: a repeated id is answered
         // twice, because de-duplicating it drops an entry the client asked for.

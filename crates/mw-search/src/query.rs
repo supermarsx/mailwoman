@@ -206,6 +206,9 @@ pub enum Clause {
     Pinned(bool),
     /// `has:calendar` (t78): the message carries calendar content.
     HasCalendar(bool),
+    /// t94: the message carries a list, bulk or automated-mail header
+    /// ([`crate::IndexDoc::list_signal`]). Engine-built only; no operator.
+    Bulk(bool),
     /// t78: some event in the message can still be running at or after this
     /// Unix second (the Events view's "upcoming only").
     CalendarEndAfter(i64),

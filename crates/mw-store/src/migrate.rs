@@ -553,6 +553,21 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "focused_sender",
+        // t94: user-chosen Focused inbox overrides; personal content keyed by
+        // the owner subject like the signatures below.
+        select: "SELECT owner_subject, sender, tab, updated_at FROM focused_sender",
+        insert: "INSERT INTO focused_sender (owner_subject, sender, tab, updated_at) VALUES (?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "owner_subject"),
+                t(r, "sender"),
+                t(r, "tab"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
         name: "personal_signature",
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.

@@ -211,6 +211,7 @@ fn attachment_text_is_full_text_searchable() {
         // A term that exists ONLY in the attachment (W19).
         attachment_text: "netsuite purchaseorder 4471 grandtotal".into(),
         calendar: None,
+        list_signal: None,
     };
     idx.upsert(&doc).expect("index");
 

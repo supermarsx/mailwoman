@@ -60,6 +60,7 @@ use crate::AppState;
 
 mod badge_scope;
 mod contact_photo;
+mod focused_senders;
 pub(crate) mod personal_storage;
 mod receipt_preferences;
 mod sender_resolution;
@@ -1145,6 +1146,8 @@ pub(crate) fn prefs_router() -> Router<AppState> {
         )
         .merge(receipt_preferences::router())
         .merge(contact_photo::router())
+        // t94: Focused inbox overrides, per user.
+        .merge(focused_senders::router())
         // t32-e10b (f01): the settings model C, user side.
         .merge(crate::settings_routes::user_router())
 }

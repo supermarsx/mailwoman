@@ -14,6 +14,7 @@ pub mod calendar_hint;
 pub mod change;
 pub mod dispatcher;
 pub mod engine;
+pub mod focus;
 pub mod folder_roles;
 mod header_privacy;
 pub mod identity;

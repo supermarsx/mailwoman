@@ -125,6 +125,7 @@ pub(crate) fn build_index_doc(
     attachment_text: String,
     pinned: bool,
     calendar: Option<mw_search::CalendarHint>,
+    list_signal: Option<String>,
 ) -> IndexDoc {
     IndexDoc {
         stable_id: stable_id.to_string(),
@@ -143,6 +144,7 @@ pub(crate) fn build_index_doc(
         attachment_text,
         pinned,
         calendar,
+        list_signal,
     }
 }
 

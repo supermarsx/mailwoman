@@ -81,6 +81,13 @@ pub struct IndexDoc {
     /// `#[serde(default)]` so an index doc written before this field still loads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub calendar: Option<CalendarHint>,
+    /// t94: the first header that marks the message as list, bulk or automated
+    /// mail (`list-unsubscribe`, `list-id`, `precedence` with `bulk`/`list`/`junk`,
+    /// or `auto-submitted` other than `no`), read once at ingest so the Focused
+    /// inbox needs no body fetch. `None` when the message carries none of them.
+    /// `#[serde(default)]` so an index doc written before this field still loads.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub list_signal: Option<String>,
 }
 
 /// The calendar summary of one message (t78): what an Events row shows and what
@@ -231,6 +238,7 @@ struct Fields {
     doc_json: Field,
     has_calendar: Field,
     calendar_end: Field,
+    bulk: Field,
 }
 
 /// Fast-field names used for sorting (must match the schema below).
@@ -282,6 +290,9 @@ fn build_schema() -> (Schema, Fields) {
     // (see `clear_index_files`) and start-up reconciliation refills it.
     let has_calendar = sb.add_u64_field("has_calendar", INDEXED);
     let calendar_end = sb.add_i64_field("calendar_end", INDEXED);
+    // t94: list/bulk header signal. Added after the t78 fields, so an index from
+    // before t94 is cleared and refilled the same way (the backfill).
+    let bulk = sb.add_u64_field("bulk", INDEXED);
     let schema = sb.build();
     let fields = Fields {
         stable_id,
@@ -303,6 +314,7 @@ fn build_schema() -> (Schema, Fields) {
         doc_json,
         has_calendar,
         calendar_end,
+        bulk,
     };
     (schema, fields)
 }
@@ -448,6 +460,7 @@ impl Index {
         if let Some(end) = doc.calendar.as_ref().and_then(|c| c.end_utc) {
             td.add_i64(f.calendar_end, end);
         }
+        td.add_u64(f.bulk, u64::from(doc.list_signal.is_some()));
         let json = serde_json::to_string(doc)
             .map_err(|e| SearchError::Io(format!("serialize IndexDoc: {e}")))?;
         td.add_text(f.doc_json, json);
@@ -850,6 +863,7 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
         Clause::HasAttachment(b) => u64_term(f.has_attachment, u64::from(*b)),
         Clause::Pinned(b) => u64_term(f.pinned, u64::from(*b)),
         Clause::HasCalendar(b) => u64_term(f.has_calendar, u64::from(*b)),
+        Clause::Bulk(b) => u64_term(f.bulk, u64::from(*b)),
         Clause::CalendarEndAfter(at) => Box::new(RangeQuery::new(
             Bound::Included(Term::from_field_i64(f.calendar_end, *at)),
             Bound::Unbounded,
@@ -1380,6 +1394,66 @@ mod tests {
         let again = Index::open(&dir).unwrap();
         assert_eq!(again.num_docs(), 1);
         drop(again);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+    /// t94: the list/bulk header signal is stored on the document and backs the
+    /// engine-built `Bulk` clause; it survives a relocation.
+    #[test]
+    fn list_signal_is_stored_and_selects_bulk_documents() {
+        let idx = Index::open_in_ram().unwrap();
+        idx.upsert(&IndexDoc {
+            list_signal: Some("list-unsubscribe".into()),
+            ..doc("news", "Weekly", "news@shop.example")
+        })
+        .unwrap();
+        idx.upsert(&doc("person", "Lunch", "ana@example.net"))
+            .unwrap();
+        let run = |expr: Expr| {
+            idx.search(
+                &SearchQuery {
+                    raw: String::new(),
+                    expr,
+                    sort: Sort::default(),
+                },
+                0,
+            )
+            .unwrap()
+        };
+        assert_eq!(run(Expr::Clause(Clause::Bulk(true))), vec!["news"]);
+        assert_eq!(run(Expr::Clause(Clause::Bulk(false))), vec!["person"]);
+        idx.relocate("news", "elsewhere").unwrap();
+        assert_eq!(
+            idx.fetch_doc("news")
+                .unwrap()
+                .unwrap()
+                .list_signal
+                .as_deref(),
+            Some("list-unsubscribe")
+        );
+        assert_eq!(idx.fetch_doc("person").unwrap().unwrap().list_signal, None);
+    }
+
+    /// t94: an index written under the t78 schema (no `bulk` field) is stale
+    /// too, so it is cleared and refilled from the store: the backfill.
+    #[test]
+    fn an_index_without_the_bulk_field_is_cleared() {
+        let dir = temp_dir("schema-t94");
+        std::fs::create_dir_all(&dir).unwrap();
+        {
+            let (schema, _) = build_schema();
+            let mut sb = Schema::builder();
+            for (_, entry) in schema.fields() {
+                if entry.name() != "bulk" {
+                    sb.add_field(entry.clone());
+                }
+            }
+            let old = TantivyIndex::create_in_dir(&dir, sb.build()).unwrap();
+            let mut w: IndexWriter = old.writer(15_000_000).unwrap();
+            w.commit().unwrap();
+        }
+        let idx = Index::open(&dir).expect("a t78 index reopens");
+        assert!(idx.inner.schema().get_field("bulk").is_ok());
+        drop(idx);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

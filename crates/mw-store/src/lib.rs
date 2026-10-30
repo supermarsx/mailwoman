@@ -43,6 +43,7 @@ mod admin_passkeys;
 pub use admin_passkeys::{AdminPasskey, AdminSessionFactor};
 pub mod account_drafts;
 pub mod contact_photos;
+pub mod focused_senders;
 pub mod nextcloud_links;
 pub mod nextcloud_pim;
 pub mod package_tracking;
