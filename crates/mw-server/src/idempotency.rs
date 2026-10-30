@@ -93,11 +93,10 @@ fn owner(headers: &HeaderMap) -> Option<Vec<u8>> {
     if let Some(token) = crate::push_relay::bearer_token(headers) {
         out.extend_from_slice(b"bearer\0");
         out.extend_from_slice(token.as_bytes());
-    } else if let Some(cookie) = crate::cookie_value(headers) {
+    } else {
+        let cookie = crate::cookie_value(headers)?;
         out.extend_from_slice(b"cookie\0");
         out.extend_from_slice(cookie.as_bytes());
-    } else {
-        return None;
     }
     for name in [crate::linked_accounts::SELECTOR, "x-mailwoman-account"] {
         out.push(0);
@@ -121,20 +120,20 @@ fn record_id(owner: &[u8], method: &str, path: &str, key: &str) -> [u8; 32] {
 /// made for another body: then `Err(())` when it is still live).
 fn slot(id: [u8; 32], request_hash: [u8; 32], now: Instant) -> Result<Arc<Slot>, ()> {
     let mut ledger = ledger().lock().unwrap_or_else(|e| e.into_inner());
-    if let Some(existing) = ledger.slots.get(&id) {
-        if now.duration_since(existing.created) < TTL {
-            if existing.request_hash == request_hash {
-                return Ok(existing.clone());
-            }
-            // Another body under a live key is refused, unless the key's request
-            // did not succeed (nothing kept, nothing running): then the key is free.
-            let free = existing
-                .answer
-                .try_lock()
-                .is_ok_and(|answer| answer.is_none());
-            if !free {
-                return Err(());
-            }
+    if let Some(existing) = ledger.slots.get(&id)
+        && now.duration_since(existing.created) < TTL
+    {
+        if existing.request_hash == request_hash {
+            return Ok(existing.clone());
+        }
+        // Another body under a live key is refused, unless the key's request
+        // did not succeed (nothing kept, nothing running): then the key is free.
+        let free = existing
+            .answer
+            .try_lock()
+            .is_ok_and(|answer| answer.is_none());
+        if !free {
+            return Err(());
         }
     }
     if ledger.slots.len() >= MAX_ENTRIES {
