@@ -69,7 +69,7 @@ export function Breadcrumbs(props: BreadcrumbsProps): JSX.Element {
                 observer.observe(el);
                 onCleanup(() => observer.disconnect());
               };
-              createEffect(() => { item().label; queueMicrotask(sync); });
+              createEffect(() => { void item().label; queueMicrotask(sync); });
               // `plain`: the level is not a link or button, so the text itself is the
               // item (and, on the last level, carries `aria-current`).
               const name = (plain = false): JSX.Element => (

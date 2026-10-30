@@ -58,6 +58,7 @@ async function round(page:Page):Promise<Record<string,number>>{
 }
 
 test.describe('t99 warm navigation',()=>{
+  // eslint-disable-next-line no-empty-pattern -- Playwright passes fixtures first; only the test info is needed.
   test.beforeEach(({},info)=>{test.skip(info.project.name==='phone','desktop layout; the phone drawer is covered elsewhere');});
 
   test('a second round over Settings, Calendar and Contacts refetches nothing the client keeps, inside the budgets',async({page},info)=>{

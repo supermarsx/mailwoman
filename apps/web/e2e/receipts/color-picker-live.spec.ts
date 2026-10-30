@@ -75,6 +75,7 @@ async function openNav(page: Page): Promise<void> {
   if (narrow(page) && await drawer.isVisible()) await drawer.click();
 }
 
+// eslint-disable-next-line no-empty-pattern -- Playwright passes fixtures first; only the test info is needed.
 test.beforeEach(async ({}, info) => {
   test.skip(info.project.name === 'phone', 'widths are set per test for Chromium and Firefox');
   await new Promise((resolve) => setTimeout(resolve, 3100));

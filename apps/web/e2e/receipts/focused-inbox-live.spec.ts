@@ -33,6 +33,7 @@ function deliver(to:string,m:{from:string;subject:string},n:number):Promise<void
 }
 test.describe.configure({timeout:300000});
 let seeded=false;
+// eslint-disable-next-line no-empty-pattern -- Playwright passes fixtures first; only the test info is needed.
 test.beforeEach(async({},info)=>{
  test.skip(info.project.name==='phone','the 390 legs run in the chromium and firefox projects');
  if(!seeded){for(const [n,m] of fixtures.entries())await deliver('testuser@example.org',m,n);seeded=true;await new Promise(r=>setTimeout(r,3100));}

@@ -50,6 +50,7 @@ function deliver():Promise<void>{
 }
 test.describe.configure({timeout:300000});
 let seeded=false;
+// eslint-disable-next-line no-empty-pattern -- Playwright passes fixtures first; only the test info is needed.
 test.beforeEach(async({},info)=>{test.skip(info.project.name==='phone','widths are set per leg; the phone project repeats chromium');if(!seeded){await deliver();seeded=true;await new Promise(r=>setTimeout(r,3100));}});
 
 const shotDir=(info:TestInfo):string=>{const dir=process.env['MW_T79_SHOTS'];const d=dir?path.join(dir,process.env['MW_T79_LABEL']??'run'):info.outputPath('t79');fs.mkdirSync(d,{recursive:true});return d;};

@@ -57,7 +57,7 @@ it('renders fractional milliseconds from the server without losing the resolutio
  render(()=><RequestHistory/>);await screen.findByText(/History covers/);
  expect(screen.getByTestId('spark-p95')).toHaveTextContent('999 μs');
  expect(screen.getByRole('region',{name:'Response time, median'})).toHaveTextContent('123 μs');
- expect(screen.getByTestId('spark-p95')).not.toHaveTextContent(/0 ms/);
+ expect(screen.getByTestId('spark-p95')).not.toHaveTextContent(/\b0 ms/);
 });
 
 const tracked=():History=>{const value=sample();value.series=[
