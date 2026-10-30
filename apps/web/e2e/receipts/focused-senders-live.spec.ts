@@ -76,6 +76,10 @@ async function clearOverrides(page:Page):Promise<void>{
 
 /** Contact, the message to Dave, and the thread root, through the app's own JMAP; then the inbound mail. */
 async function seed(page:Page,accountId:string):Promise<void>{
+ // On a fresh stack the index is still being built from the 30-message seed;
+ // mail that lands during that rebuild can be missing from it for a while.
+ // Wait until a search finds the stack's own seed first.
+ await expect.poll(async()=>((await jmap(page,[['Email/query',{accountId,filter:{text:'"Question about the API 29"'},calculateTotal:true,limit:1},'q']]))[0]![1]['total'] as number|undefined)??0,{timeout:120000,intervals:[1000,2000,5000],message:'the index answers'}).toBeGreaterThan(0);
  const boxes=(await jmap(page,[['Mailbox/get',{accountId,ids:null},'m']]))[0]![1]['list'] as Array<{id:string;name:string;role:string|null}>;
  let sent=boxes.find(b=>b.role==='sent')?.id;
  if(!sent){
@@ -151,10 +155,16 @@ for(const width of [1440,390]){
   try{
    // The server's decisions, as Email/get answers them.
    await expect.poll(async()=>{
-    const q=await jmap(page,[['Email/query',{accountId,filter:{text:run},limit:20},'q'],['Email/get',{accountId,'#ids':{resultOf:'q',name:'Email/query',path:'/ids'},properties:['subject','mailboxIds','mailwomanFocus']},'g']]);
+    // New mail reaches the store when the client syncs; on a fresh account the
+    // upstream connection can drop once while the seed creates the Sent folder,
+    // and a reload reconnects.
+    await page.reload();await expect(page.getByRole('button',{name:'Compose',exact:true}).first()).toBeVisible({timeout:60000});
+    // Listed from the Inbox, not searched: on a fresh server the index may still be filling.
+    const inbox=((await jmap(page,[['Mailbox/get',{accountId,ids:null},'m']]))[0]![1]['list'] as Array<{id:string;role:string|null}>).find(b=>b.role==='inbox')!.id;
+    const q=await jmap(page,[['Email/query',{accountId,filter:{inMailbox:inbox},sort:[{property:'receivedAt',isAscending:false}],limit:100},'q'],['Email/get',{accountId,'#ids':{resultOf:'q',name:'Email/query',path:'/ids'},properties:['subject','mailboxIds','mailwomanFocus']},'g']]);
     const list=q[1]![1]['list'] as Array<{subject:string;mailwomanFocus?:{tab:string;reason:string}}>;
     return Object.fromEntries((Object.keys(S) as Key[]).map(k=>[k,list.find(e=>e.subject===S[k].subject)?.mailwomanFocus?.reason??null]));
-   },{timeout:90000,message:'mailwomanFocus reasons'}).toEqual({news:'listHeader',contact:'contact',wrote:'correspondent',thread:'thread',person:'default'});
+   },{timeout:150000,intervals:[2000,5000,10000],message:'mailwomanFocus reasons'}).toEqual({news:'listHeader',contact:'contact',wrote:'correspondent',thread:'thread',person:'default'});
    await page.reload();
    await expect(tabs(page)).toBeVisible({timeout:60000});
    await expect.poll(()=>split(page),{timeout:60000}).toEqual({news:'Other',contact:'Focused',wrote:'Focused',thread:'Focused',person:'Focused'});
