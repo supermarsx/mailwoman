@@ -10,7 +10,7 @@
 // is offered as a tooltip (only when it is actually cut). Labels are `dir="auto"`
 // so a name in another script keeps its own direction inside an RTL trail.
 
-import { Index, Show, type JSX } from 'solid-js';
+import { Index, Show, createEffect, onCleanup, type JSX } from 'solid-js';
 import { Icon } from '../Icon.tsx';
 import * as css from './breadcrumbs.css.ts';
 
@@ -55,6 +55,21 @@ export function Breadcrumbs(props: BreadcrumbsProps): JSX.Element {
                 const full = item().label;
                 if (text && full) syncTooltip(event.currentTarget as HTMLElement, text, full);
               };
+              // The tooltip layer reads the description in the capture phase, before
+              // a hover handler here could run, so the attribute is kept current
+              // ahead of time: whenever the text's box or the name changes.
+              const sync = (): void => {
+                const full = item().label;
+                if (text && full) syncTooltip((text.closest('a,button') as HTMLElement | null) ?? text, text, full);
+              };
+              const attach = (el: HTMLSpanElement): void => {
+                text = el;
+                if (typeof ResizeObserver === 'undefined') return;
+                const observer = new ResizeObserver(sync);
+                observer.observe(el);
+                onCleanup(() => observer.disconnect());
+              };
+              createEffect(() => { item().label; queueMicrotask(sync); });
               // `plain`: the level is not a link or button, so the text itself is the
               // item (and, on the last level, carries `aria-current`).
               const name = (plain = false): JSX.Element => (
@@ -67,7 +82,7 @@ export function Breadcrumbs(props: BreadcrumbsProps): JSX.Element {
                   }
                 >
                   <span
-                    ref={text}
+                    ref={attach}
                     class={`${css.label} ${last() ? css.current : ''}`}
                     dir="auto"
                     data-crumb-label=""
