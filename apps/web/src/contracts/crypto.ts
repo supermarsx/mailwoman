@@ -116,7 +116,12 @@ export interface EncryptResult {
 }
 
 /** `decrypt` argument. */
-export interface ReaderSanitizePolicy { blockTrackers: boolean; cleanLinks: boolean }
+export interface ReaderSanitizePolicy {
+  blockTrackers: boolean;
+  cleanLinks: boolean;
+  /** Explicit consent/policy: show the allowlisted remainder, never raw HTML. */
+  allowSanitizedHtml?: boolean;
+}
 export interface DecryptRequest {
   /** Reader-only policy, consumed before the WASM crypto call. */
   readerPolicy?: ReaderSanitizePolicy;
@@ -144,6 +149,8 @@ export interface DecryptRequest {
  */
 export interface DecryptResult {
   plaintextHtml?: string;
+  /** Already allowlist-sanitized alternative for explicit reader consent. Never raw HTML. */
+  sanitizedHtmlAlternative?: string;
   plaintextText?: string;
   subject?: string;
   signature: SignatureVerdict;

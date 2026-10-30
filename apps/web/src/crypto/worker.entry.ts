@@ -16,7 +16,7 @@
 // nothing to the mail critical path.
 
 import init, * as mw from '../wasm/mw-crypto/mw_crypto.js';
-import initSanitize, { sanitizeEmailHtmlReaderStrip, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
+import initSanitize, { sanitizeEmailHtmlReaderStrip, sanitizeEmailHtmlReader, sanitizeEmailHtmlReaderSafe, sanitizeEmailHtmlReaderSafeStrip } from '../wasm/mw-sanitize/mw_sanitize.js';
 import type { CryptoWorkerRequest, CryptoWorkerResponse } from './worker.ts';
 import { sanitizeDecryptResult, type RawDecryptResult } from './sanitize.ts';
 
@@ -110,10 +110,11 @@ function normalizeResult(method: string, value: unknown): unknown {
 // the worker; non-HTML kept as escaped text). See `sanitize.ts` (plan §1.3).
 async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
   if (method === 'sanitizeReader') {
-    const args = rawArgs as { html?: unknown; blockTrackers?: unknown; cleanLinks?: unknown };
+    const args = rawArgs as { html?: unknown; blockTrackers?: unknown; cleanLinks?: unknown; allowSanitizedHtml?: unknown };
     if (typeof args?.html !== 'string' || args.html.length > 8 * 1024 * 1024 || typeof args.blockTrackers !== 'boolean' || typeof args.cleanLinks !== 'boolean') throw new Error('Invalid reader sanitizer request');
     await ensureSanitize();
-    return sanitizeEmailHtmlReader(args.html, args.blockTrackers, args.cleanLinks);
+    if (args.allowSanitizedHtml !== undefined && typeof args.allowSanitizedHtml !== 'boolean') throw new Error('Invalid reader sanitizer consent');
+    return (args.allowSanitizedHtml === true ? sanitizeEmailHtmlReaderSafe : sanitizeEmailHtmlReader)(args.html, args.blockTrackers, args.cleanLinks);
   }
   const fn = METHODS[method];
   if (fn === undefined) throw new Error(`unknown crypto method: ${method}`);
@@ -122,9 +123,11 @@ async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
   const value = fn(cryptoArgs);
   if (method === 'decrypt') {
     await ensureSanitize();
-    const policy = readerPolicy as { blockTrackers?: unknown; cleanLinks?: unknown } | undefined;
-    const sanitize = policy === undefined ? sanitizeEmailHtmlReaderStrip : (html: string) => sanitizeEmailHtmlReader(html, policy.blockTrackers !== false, policy.cleanLinks !== false);
-    return sanitizeDecryptResult(value as RawDecryptResult, sanitize);
+    const policy = readerPolicy as { blockTrackers?: unknown; cleanLinks?: unknown; allowSanitizedHtml?: unknown } | undefined;
+    if (policy?.allowSanitizedHtml !== undefined && typeof policy.allowSanitizedHtml !== 'boolean') throw new Error('Invalid reader sanitizer consent');
+    const sanitize = policy === undefined ? sanitizeEmailHtmlReaderStrip : (html: string) => (policy.allowSanitizedHtml === true ? sanitizeEmailHtmlReaderSafe : sanitizeEmailHtmlReader)(html, policy.blockTrackers !== false, policy.cleanLinks !== false);
+    const safeAlternative = policy === undefined ? sanitizeEmailHtmlReaderSafeStrip : (html: string) => sanitizeEmailHtmlReaderSafe(html, policy.blockTrackers !== false, policy.cleanLinks !== false);
+    return sanitizeDecryptResult(value as RawDecryptResult, sanitize, safeAlternative);
   }
   return normalizeResult(method, value);
 }

@@ -45,19 +45,29 @@ export function looksLikeHtml(s: string): boolean {
 export function sanitizeDecryptResult(
   raw: RawDecryptResult,
   sanitizeHtml: (html: string) => string,
+  safeAlternative?: (html: string) => string,
 ): DecryptResult {
   const base: Omit<DecryptResult, 'plaintextHtml' | 'plaintextText'> = { signature: raw.signature };
   if (raw.subject != null) base.subject = raw.subject;
   if (raw.verification !== undefined) base.verification = raw.verification;
   if (raw.aead != null) base.aead = raw.aead;
 
+  const htmlResult = (input: string): DecryptResult => {
+    const plaintextHtml = sanitizeHtml(input);
+    // Only the exact canonical quarantine wrapper requests an alternative.
+    // No raw input or crypto key material is retained outside this worker call.
+    if (safeAlternative && plaintextHtml.startsWith('<pre data-mw-body-blocked="true">')) {
+      return { ...base, plaintextHtml, sanitizedHtmlAlternative: safeAlternative(input) };
+    }
+    return { ...base, plaintextHtml };
+  };
   // If the worker already produced HTML, sanitize it; otherwise inspect the text.
   if (raw.plaintextHtml !== undefined) {
-    return { ...base, plaintextHtml: sanitizeHtml(raw.plaintextHtml) };
+    return htmlResult(raw.plaintextHtml);
   }
   const text = raw.plaintextText ?? '';
   if (looksLikeHtml(text)) {
-    return { ...base, plaintextHtml: sanitizeHtml(text) };
+    return htmlResult(text);
   }
   return { ...base, plaintextText: text };
 }

@@ -58,6 +58,55 @@ export function sanitizeEmailHtmlReader(html, block_trackers, clean_links) {
 }
 
 /**
+ * Explicit consent permits the sanitized remainder, not active/raw markup.
+ * @param {string} html
+ * @param {boolean} block_trackers
+ * @param {boolean} clean_links
+ * @returns {string}
+ */
+export function sanitizeEmailHtmlReaderSafe(html, block_trackers, clean_links) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(html, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.sanitizeEmailHtmlReaderSafe(retptr, ptr0, len0, block_trackers, clean_links);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred2_0 = r0;
+        deferred2_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
+ * @param {string} html
+ * @returns {string}
+ */
+export function sanitizeEmailHtmlReaderSafeStrip(html) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const retptr = wasm.__wbindgen_add_to_stack_pointer(-16);
+        const ptr0 = passStringToWasm0(html, wasm.__wbindgen_export, wasm.__wbindgen_export2);
+        const len0 = WASM_VECTOR_LEN;
+        wasm.sanitizeEmailHtmlReaderSafeStrip(retptr, ptr0, len0);
+        var r0 = getDataViewMemory0().getInt32(retptr + 4 * 0, true);
+        var r1 = getDataViewMemory0().getInt32(retptr + 4 * 1, true);
+        deferred2_0 = r0;
+        deferred2_1 = r1;
+        return getStringFromWasm0(r0, r1);
+    } finally {
+        wasm.__wbindgen_add_to_stack_pointer(16);
+        wasm.__wbindgen_export3(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * Reader quarantine with all remote resources stripped, including decrypted
  * messages whose caller has not supplied a remote-content reader policy.
  * @param {string} html

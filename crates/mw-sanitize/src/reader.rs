@@ -26,6 +26,14 @@ pub fn sanitize_email_html_reader(input: &str, opts: &crate::SanitizeOptions) ->
     }
 }
 
+/// Explicit reader consent changes whole-body quarantine into allowlist
+/// sanitization, never into raw HTML rendering. Active elements, handlers,
+/// executable URLs and unsafe CSS are still removed by the generic pipeline.
+/// Remote resources retain the caller's existing strip/placeholder policy.
+pub fn sanitize_email_html_reader_safe(input: &str, opts: &crate::SanitizeOptions) -> String {
+    crate::sanitize_email_html_with(input, opts)
+}
+
 #[derive(Default)]
 struct Inspect {
     blocked: Cell<bool>,

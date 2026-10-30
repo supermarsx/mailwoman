@@ -19,6 +19,13 @@ export function sanitizeEmailHtml(html: string): string;
 export function sanitizeEmailHtmlReader(html: string, block_trackers: boolean, clean_links: boolean): string;
 
 /**
+ * Explicit consent permits the sanitized remainder, not active/raw markup.
+ */
+export function sanitizeEmailHtmlReaderSafe(html: string, block_trackers: boolean, clean_links: boolean): string;
+
+export function sanitizeEmailHtmlReaderSafeStrip(html: string): string;
+
+/**
  * Reader quarantine with all remote resources stripped, including decrypted
  * messages whose caller has not supplied a remote-content reader policy.
  */
@@ -30,6 +37,8 @@ export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly sanitizeEmailHtml: (a: number, b: number, c: number) => void;
     readonly sanitizeEmailHtmlReader: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly sanitizeEmailHtmlReaderSafe: (a: number, b: number, c: number, d: number, e: number) => void;
+    readonly sanitizeEmailHtmlReaderSafeStrip: (a: number, b: number, c: number) => void;
     readonly sanitizeEmailHtmlReaderStrip: (a: number, b: number, c: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;

@@ -49,3 +49,25 @@ pub fn sanitize_email_html_reader_wasm(
 pub fn sanitize_email_html_reader_strip_wasm(html: &str) -> String {
     crate::sanitize_email_html_reader(html, &crate::SanitizeOptions::STRIP)
 }
+
+/// Explicit consent permits the sanitized remainder, not active/raw markup.
+#[wasm_bindgen(js_name = sanitizeEmailHtmlReaderSafe)]
+pub fn sanitize_email_html_reader_safe_wasm(
+    html: &str,
+    block_trackers: bool,
+    clean_links: bool,
+) -> String {
+    crate::sanitize_email_html_reader_safe(
+        html,
+        &crate::SanitizeOptions {
+            remote_images: crate::RemoteImages::Placeholder,
+            block_trackers,
+            clean_links,
+        },
+    )
+}
+
+#[wasm_bindgen(js_name = sanitizeEmailHtmlReaderSafeStrip)]
+pub fn sanitize_email_html_reader_safe_strip_wasm(html: &str) -> String {
+    crate::sanitize_email_html_reader_safe(html, &crate::SanitizeOptions::STRIP)
+}

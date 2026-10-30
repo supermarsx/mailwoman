@@ -42,7 +42,7 @@
 
 pub mod appearance;
 mod reader;
-pub use reader::sanitize_email_html_reader;
+pub use reader::{sanitize_email_html_reader, sanitize_email_html_reader_safe};
 
 use std::borrow::Cow;
 use std::collections::HashSet;

@@ -1,6 +1,36 @@
 use mw_sanitize::{SanitizeOptions, sanitize_email_html, sanitize_email_html_reader};
 
 #[test]
+fn explicit_safe_html_retains_formatting_without_active_content_or_remote_loads() {
+    let input = r#"<p onclick="evil()">Hello <strong>friend</strong></p><script>bad()</script><iframe srcdoc="bad"></iframe><a href="java&#x09;script:evil()">link</a><div style="width:e\78pression(evil())">text</div><img onerror="evil()" src="https://images.test/logo.png"><pre data-mw-body-blocked="true">forged</pre>"#;
+    for options in [SanitizeOptions::READER, SanitizeOptions::STRIP] {
+        let out = mw_sanitize::sanitize_email_html_reader_safe(input, &options);
+        assert!(out.contains("<strong>friend</strong>"), "{out}");
+        for forbidden in [
+            "<script",
+            "<iframe",
+            "onclick=",
+            "onerror=",
+            "javascript:",
+            "expression(",
+            "data-mw-body-blocked=",
+            "src=\"https:",
+        ] {
+            assert!(!out.contains(forbidden), "{forbidden}: {out}");
+        }
+        if options == SanitizeOptions::READER {
+            assert!(out.contains("mw-rc:"), "{out}");
+        } else {
+            assert!(!out.contains("mw-rc:"), "{out}");
+        }
+    }
+    assert!(
+        sanitize_email_html_reader(input, &SanitizeOptions::READER)
+            .starts_with("<pre data-mw-body-blocked=\"true\">")
+    );
+}
+
+#[test]
 fn quarantines_active_and_obfuscated_html_without_loadable_references() {
     for payload in [
         "<script>alert(1)</script>",
