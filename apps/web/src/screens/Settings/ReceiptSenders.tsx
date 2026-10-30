@@ -1,6 +1,7 @@
 import {createEffect,createSignal,For,onCleanup,Show,type JSX} from 'solid-js';
 import {loadReceiptSenders,saveReceiptSender,ReceiptPolicyError,type ReceiptSenderSnapshot} from '../../api/receipts.ts';
 import {t} from '../../i18n';
+import {isMailbox} from '../../api/jmap.ts';
 import {useEditorGuard,useEntityNavigation} from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 import * as layout from './MailTransfer.css.ts';
@@ -28,13 +29,13 @@ function SenderEditor(props:{accountId:string;locked:boolean;address:string;snap
  onCleanup(()=>{version++;controller?.abort();});
  const guard=useEditorGuard(()=>!saved()&&(address()!==props.address||decision()!==(initial()?.decision??'never')),busy);
  async function save(remove:boolean):Promise<void>{
-  if(props.locked||busy())return;const epoch=version;controller=new AbortController();setBusy(true);setError('');
+  if(props.locked||busy())return;if(!remove&&!isMailbox(address())){setError('receipts-save-error');return;}const epoch=version;controller=new AbortController();setBusy(true);setError('');
   try{await saveReceiptSender(address(),remove?null:decision(),props.snapshot.revision,controller.signal);if(epoch!==version)return;setSaved(true);await props.onDone();}
   catch(reason){if(epoch===version)setError(reason instanceof ReceiptPolicyError&&reason.status===412?'receipts-senders-conflict':'receipts-save-error');}
   finally{if(epoch===version)setBusy(false);}
  }
  return <section class={css.section}><h3 class={css.heading}>{t('receipts-senders-editor')}</h3><form class={layout.fields} onSubmit={event=>{event.preventDefault();void save(false);}}><fieldset class={layout.fields} disabled={props.locked||busy()}>
-  <label class={layout.label}>{t('receipts-sender-address')}<input class={css.input} type="email" required maxlength={254} value={address()} disabled={!!props.address} onInput={event=>setAddress(event.currentTarget.value)}/></label>
+  <label class={layout.label}>{t('receipts-sender-address')}<input class={css.input} type="text" inputMode="email" autocapitalize="off" spellcheck={false} required maxlength={254} value={address()} disabled={!!props.address} onInput={event=>setAddress(event.currentTarget.value)}/></label>
   <label class={layout.label}>{t('receipts-sender-decision')}<select class={css.input} value={decision()} onChange={event=>setDecision(event.currentTarget.value as 'always'|'never')}><option value="never">{t('receipts-sender-never')}</option><option value="always">{t('receipts-sender-always')}</option></select></label>
  </fieldset><Show when={error()}><p role="alert">{t(error())}</p></Show>
   <div class={css.actions}><button class={css.button} type="submit" disabled={props.locked||busy()}>{t('receipts-senders-save')}</button><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onDone)}>{t('receipts-back')}</button></div>

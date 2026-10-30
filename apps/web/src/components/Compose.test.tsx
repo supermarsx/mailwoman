@@ -145,6 +145,34 @@ describe('Compose', () => {
     expect(within(select).getByRole('option', { name: /Personal/ })).toBeInTheDocument();
   });
 
+  it('submits internationalized sender and recipients unchanged without browser email validation blocking SMTPUTF8',async()=>{
+    const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
+    await app.login({username:'me@example.org',password:'p'});
+    const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.change(screen.getByLabelText('From'),{target:{value:'__custom_from__'}});
+    const from=screen.getByLabelText(/^From address for this message/) as HTMLInputElement;
+    fireEvent.input(from,{target:{value:'δοκιμή@παράδειγμα.δοκιμή'}});
+    fireEvent.input(screen.getByLabelText('To'),{target:{value:'用户@例子.测试'}});
+    expect(from.checkValidity()).toBe(true);
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));
+    await waitFor(()=>expect(send).toHaveBeenCalledWith(expect.objectContaining({fromOverride:'δοκιμή@παράδειγμα.δοκιμή',to:'用户@例子.测试'})));
+  });
+
+  it('refuses invalid custom senders even when a submit event bypasses browser validation',async()=>{
+    const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
+    await app.login({username:'me@example.org',password:'p'});
+    const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
+    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.change(screen.getByLabelText('From'),{target:{value:'__custom_from__'}});
+    const from=screen.getByLabelText(/^From address for this message/) as HTMLInputElement;
+    fireEvent.input(from,{target:{value:'a@example.org,b@example.org'}});
+    fireEvent.input(screen.getByLabelText('To'),{target:{value:'you@example.org'}});
+    fireEvent.submit(from.form!);
+    await screen.findByText('Enter one valid email address for the sender.');
+    expect(send).not.toHaveBeenCalled();
+  });
+
   it('expands a quick reply without losing its draft or external-recipient safeguard', async () => {
     const { app } = renderWithApp(() => <Compose embedded initial={{ compact: true, mode: 'reply', to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Quoted text', bodyHtml: '<p>Quoted text</p>', inReplyTo: ['original@example.org'], references: [], attachments: [], quotesDecrypted: false }} onClose={() => undefined} />, { identities: IDENTITIES });
     await app.login({ username: 'me@example.org', password: 'p' });

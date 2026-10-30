@@ -2,7 +2,8 @@ import type { PasswordAuthentication, PasswordMechanism } from "./domain-auth.ts
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
 
 export type UsernameFormat = { format: 'fullEmail' | 'localUser' } | { format: 'domainUser'; domain: string } | { format: 'userRealm'; realm: string } | { format: 'custom'; template: string; realm?: string };
-export interface ConnectionSecurity { mode: 'fixed' | 'auto'; allowed: ('implicit' | 'starttls' | 'none')[]; allowPlaintext: boolean; serverName?: string; caPem?: string }
+export interface SmtpTransportPolicy { dane: 'off' | 'opportunistic' | 'required'; mtaSts: 'off' | 'auto' | 'required'; policyDomain?: string }
+export interface ConnectionSecurity { mode: 'fixed' | 'auto'; allowed: ('implicit' | 'starttls' | 'none')[]; allowPlaintext: boolean; serverName?: string; caPem?: string; smtpPolicy?: SmtpTransportPolicy }
 export interface DomainBackend { id: string; role: 'mail' | 'submission' | 'rules'; protocol: 'imap' | 'pop3' | 'jmap' | 'smtp' | 'sieve' | 'ews'; enabled?: boolean; preferred?: boolean; priority?: number; endpoint?: DomainEndpoint; sessionUrl?: string; ews?: { endpointUrl: string; authentication: 'basic'; caPem?: string }; username?: UsernameFormat }
 export interface DomainEndpoint { authentication?: PasswordAuthentication; security?: ConnectionSecurity; host: string; port: number; tls: 'implicit' | 'starttls' | 'none'; auth: 'password'; allowPrivate?: boolean }
 export interface DomainUpstream { ews?: NonNullable<DomainBackend['ews']> | null; version?: 2; backends?: DomainBackend[]; failover?: boolean; imap?: DomainEndpoint | null; pop3?: DomainEndpoint | null; smtp?: DomainEndpoint | null; sieve?: DomainEndpoint | null; jmap?: { sessionUrl: string } | null; dav?: { caldavUrl?: string; carddavUrl?: string } | null }

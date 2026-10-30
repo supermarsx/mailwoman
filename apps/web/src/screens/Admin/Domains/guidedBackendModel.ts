@@ -27,6 +27,11 @@ export function guidedBackendProblem(rows:readonly DomainBackend[],status:Domain
       const wire=row.endpoint;
       if(!wire||!guidedHost(wire.host)||!Number.isInteger(wire.port)||wire.port<1||wire.port>65535)return 'admin-domain-guided-invalid-endpoint';
       const security=wire.security;
+      const smtpPolicy=security?.smtpPolicy;
+      if(smtpPolicy){
+        const enabled=smtpPolicy.dane!=='off'||smtpPolicy.mtaSts!=='off';
+        if(row.protocol!=='smtp'||enabled&&(security?.mode!=='fixed'||security.allowed.includes('none')||!!security.serverName)||smtpPolicy.mtaSts!=='off'&&!/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/iu.test(smtpPolicy.policyDomain??''))return 'admin-domain-guided-backend-security';
+      }
       if(security&&(!status.transportSecurity?.runtimeReady||!security.allowed.length||new Set(security.allowed).size!==security.allowed.length||(security.mode==='fixed'&&security.allowed.length!==1)||(security.allowed.includes('none')&&!security.allowPlaintext)))return 'admin-domain-guided-backend-security';
       const auth=wire.authentication;
       if(auth&&(!status.authentication?.runtimeReady||!auth.mechanisms.length||new Set(auth.mechanisms).size!==auth.mechanisms.length||(auth.mode==='fixed'&&auth.mechanisms.length!==1)||auth.mechanisms.some(m=>!status.authentication?.protocols[row.protocol]?.includes(m))))return 'admin-domain-guided-backend-auth';

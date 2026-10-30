@@ -104,6 +104,12 @@ describe('isMailbox', () => {
       'bob@example.test',
       'first.last+tag@sub.example.test',
       'møt@example.com',
+      '用户@例子.测试',
+      'δοκιμή@παράδειγμα.δοκιμή',
+      '"a b"@example.test',
+      '"a,>b@c"@example.test',
+      '"a\\"b\\\\c"@example.test',
+      'user@[IPv6:2001:db8::1]',
       'user@[192.0.2.1]',
       "o'brien@example.test",
     ]) {
@@ -127,7 +133,21 @@ describe('isMailbox', () => {
       '\tx@example.test',
       'a@b>',
       '<a@b',
-      '"a b"@example.test',
+      '"unterminated@example.test',
+      '"a"b@example.test',
+      '.a@example.test',
+      'a..b@example.test',
+      'a.@example.test',
+      'a@-example.test',
+      'a@example-.test',
+      'a@example.test.',
+      'a@exa_mple.test',
+      'a@example.test/path',
+      'a@exa%6dple.test',
+      'a@[256.0.0.1]',
+      'a@[ipv6:2001:db8::1]',
+      `${'é'.repeat(33)}@example.test`,
+      `${'a'.repeat(65)}@example.test`,
       'a\\@b@example.test',
       'a@b,c@d',
       'a@b;c@d',
@@ -136,6 +156,20 @@ describe('isMailbox', () => {
     ]) {
       expect(isMailbox(bad), JSON.stringify(bad)).toBe(false);
     }
+  });
+  it('preserves quoted delimiters and international addresses while parsing display-name lists',()=>{
+    const raw='"Team, EU" <"a,>b@c"@例子.测试>, "quoted\\"name"@example.org; 用户@例子.测试';
+    expect(parseRecipients(raw)).toEqual([{name:'Team, EU',email:'"a,>b@c"@例子.测试'},{name:null,email:'"quoted\\"name"@example.org'},{name:null,email:'用户@例子.测试'}]);
+    expect(invalidRecipients(raw)).toEqual([]);
+  });
+  it('measures SMTPUTF8 local and path limits in octets and validates IDNA label bounds',()=>{
+    expect(isMailbox(`${'é'.repeat(32)}@example.test`)).toBe(true);
+    expect(isMailbox(`"${'é'.repeat(31)}"@example.test`)).toBe(true);
+    expect(isMailbox(`"${'é'.repeat(32)}"@example.test`)).toBe(false);
+    expect(isMailbox(`${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`)).toBe(true);
+    expect(isMailbox(`${'a'.repeat(64)}@${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(62)}`)).toBe(false);
+    expect(isMailbox(`x@${'é'.repeat(64)}.test`)).toBe(false);
+    expect(isMailbox(`x@${'a'.repeat(64)}.test`)).toBe(false);
   });
 });
 

@@ -88,7 +88,7 @@ import {
 } from './compose/crypto-jmap.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { parseRecipients, uploadBlob } from '../api/jmap.ts';
+import { isMailbox, parseRecipients, uploadBlob } from '../api/jmap.ts';
 import { CAP_CORE } from '../api/jmap-types.ts';
 // V7 last-mile mailbox integration (plan §2.7/§14, e14b). All ADDITIVE: each block
 // is gated so a deployment with no directory / disabled Assist / no Nextcloud sees
@@ -1211,6 +1211,7 @@ export function Compose(props: {
     if(remoteWriter?.isBusy())await remoteWriter.settled();
     if(!ownsDraft())return;
     setError(null);
+    if(customFrom()&&!isMailbox(fromOverride().trim())){setError(t('mail-compose-from-invalid'));return;}
     if(externalMode()==='confirm' && outside().length && reviewedRecipients()!==recipientReviewKey()){
       setError(t('mail-external-confirm-required'));return;
     }
@@ -1467,7 +1468,7 @@ export function Compose(props: {
             </select>
           </label>
           </Show>
-          <Show when={customFrom()}><label class="field compose__from"><span>{t('mail-compose-from-alias')}</span><input type="email" required maxlength={254} autocomplete="off" value={fromOverride()} onInput={event=>setFromOverride(event.currentTarget.value)} aria-describedby={fromHelpId}/><small id={fromHelpId}>{t('mail-compose-from-alias-help')}</small></label></Show>
+          <Show when={customFrom()}><label class="field compose__from"><span>{t('mail-compose-from-alias')}</span><input type="text" inputMode="email" required maxlength={320} autocomplete="off" autocapitalize="off" spellcheck={false} value={fromOverride()} onInput={event=>setFromOverride(event.currentTarget.value)} aria-describedby={fromHelpId}/><small id={fromHelpId}>{t('mail-compose-from-alias-help')}</small></label></Show>
 
         <label class="field compose__to">
           <span>{t('mail-compose-to')}</span>
@@ -1762,7 +1763,7 @@ export function Compose(props: {
                 </RibbonItem></Show>
                 <RibbonItem><label><input type="checkbox" checked={attachPublicKey()} disabled={busy()} onChange={e=>setAttachPublicKey(e.currentTarget.checked)}/>{t('mail-compose-attach-public-key')}</label></RibbonItem>
                 <RibbonItem><label><input type="checkbox" checked={includeFileHashes()} disabled={busy()} onChange={e=>setIncludeFileHashes(e.currentTarget.checked)}/>{t('mail-compose-include-hashes')}</label><Show when={includeFileHashes()&&!hashesReady()}><span role="status" data-testid="compose-hash-status">{t(hashResult()?.error?'mail-compose-hashes-failed':'mail-compose-hashes-pending')}</span></Show></RibbonItem>
-                <RibbonItem><label class="compose-rib__field"><span>{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
+                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
                 <SendOptions
                   deliveryLocked={settings()['mail.requestDeliveryReceipt']?.locked===true}
                   receiptLocked={settings()['mail.requestReadReceipt']?.locked===true}

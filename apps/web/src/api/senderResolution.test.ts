@@ -15,6 +15,9 @@ describe('one-message sender resolution',()=>{
   request.mockResolvedValue(new Response(JSON.stringify({email:'alias@example.org',identityId:'upstream-1'})));
   expect((await resolveSender('alias@example.org',preferenceAccount())).identityId).toBe('upstream-1');
  });
+ it('preserves international and quoted local parts while resolving authorization',async()=>{
+  for(const email of ['δοκιμή@παράδειγμα.δοκιμή','"a,>b@c"@例子.测试']){request.mockResolvedValue(new Response(JSON.stringify({email,identityId:null})));expect((await resolveSender(email,preferenceAccount())).email).toBe(email);expect(JSON.parse(request.mock.calls.at(-1)![1].body)).toEqual({email});}
+ });
  it('refuses address lists and header injection before requests',async()=>{
   for(const email of ['a@example.org,b@example.org','a@example.org\r\nBcc: b@example.org','Name <a@example.org>',''])await expect(resolveSender(email,preferenceAccount())).rejects.toThrow('mail-compose-from-invalid');
   expect(request).not.toHaveBeenCalled();
@@ -29,6 +32,6 @@ describe('one-message sender resolution',()=>{
   await expect(resolveSender('alias@example.org',preferenceAccount())).rejects.toThrow('mail-compose-account-changed');
  });
  it('refuses a substituted address or malformed identity',async()=>{
-  for(const result of [{email:'other@example.org',identityId:null},{email:'alias@example.org',identityId:''}]){request.mockResolvedValue(new Response(JSON.stringify(result)));await expect(resolveSender('alias@example.org',preferenceAccount())).rejects.toThrow('mail-compose-from-unavailable');}
+  for(const result of [{email:'other@example.org',identityId:null},{email:'ALIAS@example.org',identityId:null},{email:'alias@example.org',identityId:''}]){request.mockResolvedValue(new Response(JSON.stringify(result)));await expect(resolveSender('alias@example.org',preferenceAccount())).rejects.toThrow('mail-compose-from-unavailable');}
  });
 });

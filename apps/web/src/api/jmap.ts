@@ -392,7 +392,7 @@ export function splitAddressList(raw: string): string[] {
       i += 1;
       continue;
     }
-    if (c === '"' && !angle) quoted = !quoted;
+    if (c === '"') quoted = !quoted;
     else if (c === '<' && !quoted) angle = true;
     else if (c === '>' && !quoted) angle = false;
     if ((c === ',' || c === ';') && !quoted && !angle) {
@@ -428,28 +428,55 @@ function displayName(raw: string): string | null {
  */
 export function parseRecipients(raw: string): EmailAddress[] {
   return splitAddressList(raw).map((entry) => {
-    const m = /^([^<>]*)<([^<>]*)>$/.exec(entry);
-    if (m === null) return { name: null, email: entry };
-    return { name: displayName(m[1]!), email: m[2]!.trim() };
+    let quoted=false,open=-1,close=-1,invalid=false;
+    for(let i=0;i<entry.length;i++){
+      const c=entry[i]!;
+      if(c==='\\'&&quoted){i++;continue;}
+      if(c==='"'){quoted=!quoted;continue;}
+      if(!quoted&&c==='<'){if(open!==-1)invalid=true;open=i;}
+      if(!quoted&&c==='>'){if(open===-1||close!==-1)invalid=true;close=i;}
+    }
+    if(invalid||quoted||open===-1||close!==entry.length-1)return {name:null,email:entry};
+    return {name:displayName(entry.slice(0,open)),email:entry.slice(open+1,close).trim()};
   });
 }
 
-/** RFC 5321 §4.5.3.1: 64-octet local part + `@` + 255-octet domain. */
-const MAX_ADDR_BYTES = 320;
+/** SMTP path excludes its enclosing angle brackets: at most 254 UTF-8 octets. */
+const MAX_ADDR_BYTES = 254;
 
 /**
  * Whether the server will accept `addr` as a recipient. This restates
- * `validate_mailbox` in `crates/mw-smtp/src/addr.rs`, which `Email/set` applies
- * to every `to` address of a draft: non-empty, at most 320 bytes, no control
- * character, no whitespace, none of `< > " \ , ; ( )`, and exactly one `@` with
- * text on both sides. The server's check is the one that counts; this one lets
- * the composer name the bad entry before a request is made.
+ * `validate_mailbox` in `crates/mw-smtp/src/addr.rs`. Internationalized dot-atoms
+ * and quoted local parts are preserved byte-for-byte. IDNA conversion is only
+ * used to validate DNS labels, never to rewrite the submitted address.
  */
 export function isMailbox(addr: string): boolean {
   if (addr.length === 0 || new TextEncoder().encode(addr).length > MAX_ADDR_BYTES) return false;
-  if (/[\p{Cc}\p{White_Space}<>"\\,;()]/u.test(addr)) return false;
-  const parts = addr.split('@');
-  return parts.length === 2 && parts[0]!.length > 0 && parts[1]!.length > 0;
+  if (/[\p{Cc}\p{Cs}]/u.test(addr)) return false;
+  let separator=-1;
+  if(addr.startsWith('"')){
+    for(let i=1;i<addr.length;i++){
+      const c=addr[i]!;
+      if(c==='\\'){const escaped=addr[++i];if(!escaped||escaped.charCodeAt(0)<32||escaped.charCodeAt(0)>126)return false;continue;}
+      if(c==='"'){if(addr[i+1]!=='@')return false;separator=i+1;break;}
+      if(c.charCodeAt(0)>127&&/\p{White_Space}/u.test(c))return false;
+    }
+  }else{
+    separator=addr.indexOf('@');
+    const local=addr.slice(0,separator);
+    if(!local||local.startsWith('.')||local.endsWith('.')||local.includes('..'))return false;
+    for(const c of local)if(c.charCodeAt(0)<128?!/[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]/.test(c):/\p{White_Space}/u.test(c))return false;
+  }
+  if(separator<1||new TextEncoder().encode(addr.slice(0,separator)).length>64)return false;
+  const domain=addr.slice(separator+1);
+  if(!domain||/[\p{White_Space}@%/\\?#]/u.test(domain))return false;
+  if(domain.startsWith('[')&&domain.endsWith(']')){
+    const literal=domain.slice(1,-1);
+    if(literal.startsWith('IPv6:')){try{return new URL(`http://[${literal.slice(5)}]`).hostname.startsWith('[');}catch{return false;}}
+    const octets=literal.split('.');return octets.length===4&&octets.every(part=>/^(?:0|[1-9]\d{0,2})$/.test(part)&&Number(part)<=255);
+  }
+  if(/[:[\]]/.test(domain)||domain.endsWith('.'))return false;
+  try{const ascii=new URL(`http://${domain}`).hostname;return ascii.length<=253&&ascii.split('.').every(label=>label.length>=1&&label.length<=63&&/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/i.test(label));}catch{return false;}
 }
 
 /** The entries of a recipient field that are not a mailbox, as typed. */

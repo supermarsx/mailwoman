@@ -312,7 +312,10 @@ export function Webhooks(): JSX.Element {
             {(f) => (
               <input
                 id={f.id}
-                type="email"
+                type="text"
+                inputMode="email"
+                autocapitalize="off"
+                spellcheck={false}
                 autocomplete="off"
                 value={accountId()}
                 aria-describedby={f.describedBy}

@@ -1,11 +1,13 @@
 import { For, Show, type JSX } from 'solid-js';
-import type { ConnectionSecurity, DomainEndpoint } from '../../../api/admin/domains.ts';
+import type { ConnectionSecurity, DomainEndpoint, SmtpTransportPolicy } from '../../../api/admin/domains.ts';
 import { t } from '../../../i18n';
 import * as css from '../../Settings/styles.css.ts';
 
-export function TransportFields(props: { value: DomainEndpoint; ready: boolean; update: (value: DomainEndpoint) => void }): JSX.Element {
+export function TransportFields(props: { value: DomainEndpoint; protocol?: string; ready: boolean; update: (value: DomainEndpoint) => void }): JSX.Element {
   const security = (): ConnectionSecurity => props.value.security ?? { mode: 'fixed', allowed: [props.value.tls], allowPlaintext: props.value.tls === 'none' };
   const change = (patch: Partial<ConnectionSecurity>) => props.update({ ...props.value, security: { ...security(), ...patch } });
+  const smtpPolicy = (): SmtpTransportPolicy => security().smtpPolicy ?? { dane: 'off', mtaSts: 'off' };
+  const changePolicy = (patch: Partial<SmtpTransportPolicy>) => change({ smtpPolicy: { ...smtpPolicy(), ...patch } });
   function text(key: 'serverName' | 'caPem', value: string): void {
     const next = { ...security() };
     if (value) next[key] = value; else delete next[key];
@@ -21,6 +23,12 @@ export function TransportFields(props: { value: DomainEndpoint; ready: boolean; 
       <label class={css.field}>{t('backend-security-server-name')}<input class={css.input} maxlength="253" value={security().serverName ?? ''} onInput={event => text('serverName', event.currentTarget.value)} title={t('backend-security-server-name-help')} /><small>{t('backend-security-server-name-help')}</small></label>
       <label class={css.field}>{t('backend-security-ca')}<textarea class={css.input} rows="6" maxlength="65536" value={security().caPem ?? ''} onInput={event => text('caPem', event.currentTarget.value)} title={t('backend-security-ca-help')} /><small>{t('backend-security-ca-help')}</small></label>
       <p class={css.meta}>{t('backend-security-verify')}</p>
+      <Show when={props.protocol === 'smtp'}>
+        <label class={css.field}>{t('backend-security-dane')}<select class={css.select} value={smtpPolicy().dane} onChange={event => changePolicy({ dane: event.currentTarget.value as SmtpTransportPolicy['dane'] })}><option value="off">{t('backend-security-policy-off')}</option><option value="opportunistic">{t('backend-security-dane-auto')}</option><option value="required">{t('backend-security-policy-required')}</option></select><small>{t('backend-security-dane-help')}</small></label>
+        <label class={css.field}>{t('backend-security-sts')}<select class={css.select} value={smtpPolicy().mtaSts} onChange={event => changePolicy({ mtaSts: event.currentTarget.value as SmtpTransportPolicy['mtaSts'] })}><option value="off">{t('backend-security-policy-off')}</option><option value="auto">{t('backend-security-sts-auto')}</option><option value="required">{t('backend-security-policy-required')}</option></select></label>
+        <Show when={smtpPolicy().mtaSts !== 'off'}><label class={css.field}>{t('backend-security-policy-domain')}<input class={css.input} required maxlength="253" value={smtpPolicy().policyDomain ?? ''} onInput={event => changePolicy({ policyDomain: event.currentTarget.value })} /><small>{t('backend-security-policy-domain-help')}</small></label></Show>
+        <p class={css.meta}>{t('backend-security-policy-help')}</p>
+      </Show>
     </Show>
   </fieldset>;
 }

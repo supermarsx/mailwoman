@@ -7,6 +7,20 @@ import { expectNoAxeViolations, expectNoInlineStyle } from '../shell/uxTestkit.t
 
 const domain: DomainDetail = { name: 'example.org', enabled: true, preferred: false, upstream: { imap: { host: 'mail.example.org', port: 993, tls: 'implicit', auth: 'password' }, smtp: { host: 'mail.example.org', port: 465, tls: 'implicit', auth: 'password' } }, settings: {}, allowlist: [], blocklist: [], updatedAt: 1, mode: 'engine', aliases: [], hosts: [], etag: 'v1', mappingEtag: 'm1', preferenceEtag: 'p1' };
 
+it('saves explicit SMTP endpoint policies without applying recipient-domain policies', async () => {
+  const save = vi.fn<typeof domainsApi.save>(async () => domain);
+  renderInShell(() => <BackendEditor domain={domain} backend={domainBackends(domain.upstream).find(row => row.protocol === 'smtp')} api={{ ...domainsApi, save }} advancedReady={true} onSaved={async () => {}} onBack={() => {}} />);
+  fireEvent.click(await screen.findByLabelText('Customize transport security'));
+  fireEvent.change(screen.getByLabelText(/^DANE verification/), { target: { value: 'required' } });
+  fireEvent.change(screen.getByLabelText('MTA-STS verification'), { target: { value: 'auto' } });
+  fireEvent.input(screen.getByLabelText(/^SMTP policy domain/), { target: { value: 'relay.example.org' } });
+  fireEvent.submit(screen.getByRole('button', { name: 'Save backend' }).closest('form')!);
+  await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
+  expect(save.mock.calls[0]?.[1].upstream?.backends).toEqual(expect.arrayContaining([
+    expect.objectContaining({ protocol: 'smtp', endpoint: expect.objectContaining({ security: expect.objectContaining({ smtpPolicy: { dane: 'required', mtaSts: 'auto', policyDomain: 'relay.example.org' } }) }) }),
+  ]));
+});
+
 it('saves a dedicated backend page with stable IDs, explicit priority and preserved sibling services', async () => {
   const save = vi.fn<typeof domainsApi.save>(async () => domain); const onSaved = vi.fn(async () => {});
   const { container } = renderInShell(() => <BackendEditor domain={domain} api={{ ...domainsApi, save }} advancedReady={false} onSaved={onSaved} onBack={() => {}} />);

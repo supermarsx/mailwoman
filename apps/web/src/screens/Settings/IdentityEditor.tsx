@@ -1,7 +1,7 @@
 import {preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import { createSignal, Show, type JSX, createResource, For, useContext, onMount } from 'solid-js';
 import {AppContext} from '../../state/context.ts';
-import {invalidRecipients,parseRecipients} from '../../api/jmap.ts';
+import {isMailbox,invalidRecipients,parseRecipients} from '../../api/jmap.ts';
 import type { Identity } from './types.ts';
 import { SettingsError, type SettingsService } from './service.ts';
 import { isTransientFailure, showFailure } from '../../components/recoverableAction.ts';
@@ -15,9 +15,9 @@ const owner=preferenceAccount();
 const app=useContext(AppContext);onMount(()=>{void app?.loadKeys().catch(()=>undefined);});
 const ownKeys=()=>app?.keys().filter(key=>key.kind==='pgp'&&key.isOwn&&key.hasPrivate&&key.trust!=='revoked'&&(!key.expiresAt||Date.parse(key.expiresAt)>Date.now()))??[];
 const [draft,setDraft]=createSignal<Identity>(structuredClone(props.initial??{id:'',name:'',email:''}));const [baseline,setBaseline]=createSignal(JSON.stringify(draft()));const [busy,setBusy]=createSignal(false);const [fieldError,setFieldError]=createSignal('');const guard=useEditorGuard(()=>JSON.stringify(draft())!==baseline(),busy);const [signatures]=createResource(()=>props.service.listSignatures().catch(()=>[]));
-async function save():Promise<void>{if(busy())return;if(owner!==preferenceAccount()){setFieldError(t('settings-sig-account-changed'));return;}if(draft().name.trim()===''||! /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(draft().email.trim())){setFieldError(t('settings-ident-error-fields'));return;}
+async function save():Promise<void>{if(busy())return;if(owner!==preferenceAccount()){setFieldError(t('settings-sig-account-changed'));return;}if(draft().name.trim()===''||!isMailbox(draft().email.trim())){setFieldError(t('settings-ident-error-fields'));return;}
 const optional=draft(),bcc=optional.autoBcc??'',organization=optional.organization??'',reply=optional.replyTo??'';
-if([...organization].length>255||/[\p{Cc}]/u.test(organization)||[...bcc].length>4096||/[\p{Cc}]/u.test(bcc)||invalidRecipients(bcc).length>0||parseRecipients(bcc).length>20||reply&&(invalidRecipients(reply).length>0||parseRecipients(reply).length!==1)||optional.pgpKeyId&&!ownKeys().some(key=>key.id===optional.pgpKeyId)){setFieldError(t('settings-ident-error-optional'));return;}
+if([...organization].length>255||/[\p{Cc}]/u.test(organization)||[...bcc].length>4096||/[\p{Cc}]/u.test(bcc)||invalidRecipients(bcc).length>0||parseRecipients(bcc).length>20||reply&&!isMailbox(reply)||optional.pgpKeyId&&!ownKeys().some(key=>key.id===optional.pgpKeyId)){setFieldError(t('settings-ident-error-optional'));return;}
 setFieldError('');setBusy(true);const value={...draft(),name:draft().name.trim(),email:draft().email.trim()},submitted=JSON.stringify(draft());
 // t91: a create is keyed (service.ts); a transient failure gets one toast whose Retry sends the same identity again.
 const persist=async():Promise<void>=>{if(owner!==preferenceAccount())return;await props.service.upsertIdentity(value);if(owner!==preferenceAccount())return;setBaseline(submitted);toast.success(t('settings-saved'));await props.onSaved();};
@@ -37,7 +37,10 @@ return <section class={css.section} aria-label={t(props.initial?'settings-ident-
             <span class={css.label}>{t('settings-ident-email-label')}</span>
             <input
               class={css.input}
-              type="email"
+              type="text"
+              inputMode="email"
+              autocapitalize="off"
+              spellcheck={false}
               autocomplete="email"
               aria-label={t('settings-ident-email-label')}
               value={draft().email}
@@ -48,7 +51,10 @@ return <section class={css.section} aria-label={t(props.initial?'settings-ident-
             <span class={css.label}>{t('settings-ident-replyto-label')}</span>
             <input
               class={css.input}
-              type="email"
+              type="text"
+              inputMode="email"
+              autocapitalize="off"
+              spellcheck={false}
               aria-label={t('settings-ident-replyto-label')}
               value={draft().replyTo ?? ''}
               onInput={(e) => setDraft({ ...draft(), replyTo: e.currentTarget.value })}
