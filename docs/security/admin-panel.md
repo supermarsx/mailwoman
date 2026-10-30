@@ -176,7 +176,102 @@ exportable from the Observability section (and via `mailwoman admin`).
 
 Failed admin logins feed a login monitor and a ban list emitted in **fail2ban-compatible
 log format**, so an operator can wire the existing fail2ban tooling against Mailwoman's
-admin surface without a bespoke parser.
+admin surface without a bespoke parser. Sources that search for the console are
+handled by [admin-probe protection](#admin-probe-protection).
+
+## Admin-probe protection
+
+A hidden console path stops scanners from finding the console. Admin-probe
+protection (26.20, `security.adminProbe.*`) also stops them from searching for
+it: a source that keeps looking is slowed and then blocked. It is on by default
+and leaves room for honest mistakes.
+
+**What counts as a miss.** Each of these costs the client's source one point:
+
+| Signal | When |
+|---|---|
+| `probe-path` | The path contains an entry of `security.adminProbe.probePaths` as whole segments, any case (`/wp-admin`, `/blog/wp-login.php`, `/.env`, `/manager/html`, and `/admin` once the console has moved). The console's own path and the server's own prefixes (`/api`, `/jmap`, `/.well-known`, …) never count. |
+| `slug-guess` | A path with as many segments as the console path answered 404. File names a browser or crawler asks for on its own (`favicon.ico`, `robots.txt`, `*.png`, `*.xml`, …) do not count. |
+| `admin-signin-failed` | `POST {console}/login…` refused (401, or 429 from the sign-in limit). |
+| `admin-unauthenticated` | An admin API call answered 401. A request that carries a session cookie counts once per cookie, so an expired console tab that keeps polling costs one point. The console page, `{console}/session` and sign-out do not count. |
+
+**Room for innocent failures.**
+
+* The score drains continuously at `graceAllowance` points per `windowSecs`
+  (default 10 per 10 minutes). The first 10 misses in a window do nothing, so a
+  mistyped URL or a stale `/admin` bookmark never triggers anything.
+* A successful admin sign-in clears its source's score and repeat count.
+* `security.adminProbe.allowlist` networks (office, VPN) are never counted.
+* A configured trusted proxy is never counted itself. Behind one, the source is
+  the forwarded client address (`MW_FORWARDED_MODE` + `MW_TRUSTED_PROXIES`); a
+  forwarded header from any other peer is ignored, so rotating it does not
+  reset the score.
+* IPv6 sources are counted per /64, IPv4 per address.
+
+**Escalation.**
+
+1. Above the grace allowance, each further miss is answered after
+   `tarpitDelayMs` (1.5 s). Requests that are not misses are never delayed.
+2. At `graceAllowance + blockAfter` misses (20 by default) the source is
+   blocked for `blockSecs` (15 minutes).
+3. A block that starts within `repeatWindowSecs` (24 h) of the previous one
+   ending lasts twice as long as the previous one, up to `maxBlockSecs` (24 h).
+   After a quiet `repeatWindowSecs`, the next block is a first block again.
+4. Every block expires.
+
+**The blocked answer.** While blocked, every request from the source, on any
+path and with any method, gets the same answer: `429` (or `403`, per
+`blockStatus`) with `Retry-After`, `Cache-Control: no-store` and
+`{"code":"sourceUnavailable","error":"Request unavailable."}`, the same body
+a deployment IP ban gives. The console path is answered the same way as every
+other path, so a block says nothing about where the console is or whether it
+exists. A blocked source cannot use the mail app either; that is deliberate,
+as a block is only reached after 20 misses in a few minutes. Users who share
+one public address (a company NAT) share its score: put such networks on the
+allowlist if one scanner there must not lock the others out.
+
+**Audit and logs.**
+
+* Each block writes the security event `admin-probe-blocked` with the source,
+  masked by default (`auditIp = masked`: IPv4 /24, IPv6 /48; `full` records the
+  address), an opaque source id, the signal, the repeat count and the length.
+* Unblocking writes `admin-probe-unblocked` and a policy change writes
+  `admin-probe-policy-changed`, both with the admin and the before/after.
+* With `fail2banLog` on (default) each block also writes one line for fail2ban
+  with the full address; see [fail2ban](../deploy/fail2ban.md#admin-probe-blocks).
+
+**API (for the Security centre).** All under the console path; reads need
+`bans.read`, writes `bans.write` for all domains and a step-up (`banManage`).
+
+| Route | |
+|---|---|
+| `GET {console}/security/admin-probe` | `policy` (every key), `stats` (`blocksTotal`, `blocksLast24h`, `activeBlocks`, `refusedRequests`, `tarpittedRequests`, `clearedBySignin`, `signals` by kind, `trackedSources`, `capacity`, `evictedSources`, `since`), `topOffenders` (10 rows: `id`, `source`, `score`, `signals`, `lastSignal`, `strikes`, `blocked`, `blockedUntil`, `retryAfterSecs`), `scope: "instance"`. Sends an `ETag`. |
+| `PUT {console}/security/admin-probe/policy` | `{"values":{"graceAllowance":20,…}}`, keys without the `security.adminProbe.` prefix, `null` restores a default. Validated like the registry (422), `If-Match` (412), 409 for a key an environment variable pins. Answers like the `GET`. |
+| `GET {console}/security/admin-probe/blocks` | `{"blocks":[…]}`, the active blocks. |
+| `DELETE {console}/security/admin-probe/blocks/{id}` | Lifts one block (204, 404 when not blocked). The repeat count is kept. |
+
+The generic settings route refuses these keys with `useDedicatedRoute`.
+
+**Locked out?** An admin whose own address is blocked can wait for
+`Retry-After`, sign in from another network and unblock it, or set
+`MW_ADMIN_PROBE_ENABLED=false` and restart (the pin turns the protection off
+and active blocks are not applied while it is off).
+
+**Limits.**
+
+* State is per process. The table holds 10 000 sources; when it is full, idle
+  sources go first, then the least recently seen unblocked one. Active blocks
+  are also saved to the database and read back at start (up to 1 000).
+* With several instances behind a load balancer, each counts only the requests
+  it receives and enforces only its own blocks, so a scanner spread across
+  instances gets up to that many times the allowance before every instance has
+  blocked it. A block made on one instance reaches the others only when they
+  restart. Use the fail2ban jail (or a block at the load balancer) for a ban
+  that covers every instance at once. Policy changes reach other instances
+  within 30 seconds.
+* The source address is only as good as the proxy configuration: without
+  `MW_TRUSTED_PROXIES` behind a reverse proxy, every request comes from the
+  proxy, which is never counted, so the protection does nothing.
 
 ## Session domain separation (why it matters)
 

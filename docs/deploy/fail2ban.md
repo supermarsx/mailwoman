@@ -13,13 +13,20 @@ The files are in `deploy/fail2ban/`:
 |------|------------|
 | `deploy/fail2ban/filter.d/mailwoman.conf` | `/etc/fail2ban/filter.d/mailwoman.conf` |
 | `deploy/fail2ban/jail.d/mailwoman.conf` | `/etc/fail2ban/jail.d/mailwoman.conf` |
+| `deploy/fail2ban/filter.d/mailwoman-admin-probe.conf` | `/etc/fail2ban/filter.d/mailwoman-admin-probe.conf` |
 
 ```sh
 install -m 0644 deploy/fail2ban/filter.d/mailwoman.conf /etc/fail2ban/filter.d/
+install -m 0644 deploy/fail2ban/filter.d/mailwoman-admin-probe.conf /etc/fail2ban/filter.d/
 install -m 0644 deploy/fail2ban/jail.d/mailwoman.conf /etc/fail2ban/jail.d/
 fail2ban-client reload
 fail2ban-client status mailwoman
+fail2ban-client status mailwoman-admin-probe
 ```
+
+The jail file has two jails: `mailwoman` (failed sign-ins) and
+`mailwoman-admin-probe` (sources the server blocked for searching for the admin
+console, see [below](#admin-probe-blocks)).
 
 ## The log line
 
@@ -50,6 +57,51 @@ the code differ.
 - On webmail, only failures the server classifies as rejected credentials
   (`signin_guard::credential_rejection`) are logged this way; an upstream
   outage, for example, is not.
+
+## Admin-probe blocks
+
+The server's [admin-probe protection](../security/admin-panel.md#admin-probe-protection)
+counts requests that search for the admin console (`/wp-admin`, `/.env`, guessed
+console paths, refused admin sign-ins) with a grace allowance, and blocks a
+source that goes past it. Each block writes one line:
+
+```text
+2026-10-29T23:41:02.118Z  WARN mailwoman.http.request{route_class="static"}: mw_server::admin_probe: 2026-10-29T23:41:02Z mailwoman[admin-probe]: source blocked; signal=probe-path strike=1 blockSecs=900 rhost=203.0.113.7
+```
+
+```ini
+failregex = mailwoman\[admin-probe\]: source blocked; .*rhost=<HOST>
+```
+
+This is `admin_probe::FAIL2BAN_PROBE_FAILREGEX` in
+`crates/mw-server/src/admin_probe.rs`; a unit test there fails if the shipped
+filter differs.
+
+- The server has already applied its grace allowance, so the jail bans on the
+  first line (`maxretry = 1`). The shipped jail bans for 6 hours, longer each
+  time (`bantime.increment`).
+- `rhost=` is always the full client address, whatever
+  `security.adminProbe.auditIp` says for the audit log: a jail bans
+  addresses. Turn the line off with `security.adminProbe.fail2banLog = false`.
+- `signal=` is the miss that crossed the threshold (`probe-path`, `slug-guess`,
+  `admin-signin-failed`, `admin-unauthenticated`), `strike=` the repeat count.
+- An allowlisted address (`security.adminProbe.allowlist`) is never blocked, so
+  it never appears. Add the same networks to the jail's `ignoreip`.
+- The server's block is per instance; the firewall ban covers every instance
+  behind the same host.
+
+Example `/etc/fail2ban/jail.d/mailwoman.local` override for a stricter policy:
+
+```ini
+[mailwoman-admin-probe]
+bantime  = 1d
+bantime.increment = true
+bantime.maxtime = 4w
+ignoreip = 127.0.0.1/8 ::1 192.0.2.0/24
+```
+
+Test the filter with `fail2ban-regex` as below, using
+`/etc/fail2ban/filter.d/mailwoman-admin-probe.conf`.
 
 ## Log source
 
