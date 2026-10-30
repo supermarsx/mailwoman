@@ -317,13 +317,15 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         <Show when={everOpen()}>
         {/* While the policy loads, the same strip with icons only (t110): the
             panel keeps its height, so the body below never moves. */}
-        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div aria-busy="true" title={t('mail-attachment-policy-loading')}><ThumbnailStrip items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
+        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div data-testid="async-pending" data-policy="pending" role="status" aria-label={t('mail-attachment-policy-loading')} aria-busy="true" inert><ThumbnailStrip items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
+        <div data-policy="ready">
         <ThumbnailStrip
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
           resolveThumb={(item)=>blobUrlFor(item)}
         />
+        </div>
         </Show>
         </Show>
         <Show when={openItem()}>

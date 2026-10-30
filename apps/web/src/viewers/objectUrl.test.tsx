@@ -155,8 +155,8 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
       </AppContext.Provider>
     ));
 
-    await waitFor(()=>expect(container.querySelectorAll('.mw-thumb')).toHaveLength(12));
-    const thumbs = container.querySelectorAll<HTMLButtonElement>('.mw-thumb');
+    await waitFor(()=>expect(container.querySelectorAll('[data-policy="ready"] .mw-thumb')).toHaveLength(12));
+    const thumbs = container.querySelectorAll<HTMLButtonElement>('[data-policy="ready"] .mw-thumb');
     expect(thumbs.length).toBe(12);
     expect(created).toBe(0);
 
@@ -185,8 +185,8 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
         <AttachmentsPane email={emailWith(parts)} />
       </AppContext.Provider>
     ));
-    await waitFor(()=>expect(container.querySelectorAll('.mw-thumb')).toHaveLength(4));
-    fireEvent.click(container.querySelector<HTMLButtonElement>('.mw-thumb')!);
+    await waitFor(()=>expect(container.querySelectorAll('[data-policy="ready"] .mw-thumb')).toHaveLength(4));
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-policy="ready"] .mw-thumb')!);
     await waitFor(() => expect(created).toBe(1));
     expect(revoked).toBe(0);
 
@@ -205,7 +205,7 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
       </AppContext.Provider>
     ));
     await waitFor(() => expect(created).toBe(6)); // six thumbnails
-    fireEvent.click(container.querySelector<HTMLButtonElement>('.mw-thumb')!);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('[data-policy="ready"] .mw-thumb')!);
     await waitFor(() => expect(created).toBe(7)); // + the opened attachment
 
     unmount();
@@ -248,7 +248,7 @@ describe('attachment policy admission before object URLs',()=>{
   vi.mocked(fetch).mockImplementationOnce(()=>new Promise<Response>(done=>{resolve=done;}));
   const {container,unmount}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={emailWith(items(2,'image/png'))}/></AppContext.Provider>);
   expect(screen.getByTestId('async-pending')).toBeInTheDocument();
-  expect(container.querySelector('.mw-thumb')).toBeNull();expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[data-policy="ready"] .mw-thumb')).toBeNull();expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);
   resolve(new Response(JSON.stringify(allowedPolicy),{status:200}));
   await waitFor(()=>expect(created).toBe(2));
   unmount();expect(revoked).toBe(2);expect(live.size).toBe(0);
@@ -257,7 +257,7 @@ describe('attachment policy admission before object URLs',()=>{
   vi.mocked(fetch).mockResolvedValueOnce(new Response(null,{status:503}));
   const {container,unmount}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={emailWith(items(2,'image/png'))}/></AppContext.Provider>);
   expect(await screen.findByRole('alert')).toBeInTheDocument();
-  expect(container.querySelector('.mw-thumb')).toBeNull();expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);
+  expect(container.querySelector('[data-policy="ready"] .mw-thumb')).toBeNull();expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button',{name:'Retry'}));
   await waitFor(()=>expect(created).toBe(2));
   unmount();expect(revoked).toBe(2);expect(live.size).toBe(0);
@@ -265,8 +265,8 @@ describe('attachment policy admission before object URLs',()=>{
  it('keeps explicitly disabled previews closed without creating object URLs',async()=>{
   vi.mocked(fetch).mockResolvedValueOnce(new Response(JSON.stringify({...allowedPolicy,previewAllowed:false}),{status:200}));
   const {container,unmount}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={emailWith(items(1,'image/png'))}/></AppContext.Provider>);
-  await waitFor(()=>expect(container.querySelector('.mw-thumb')).not.toBeNull());
-  fireEvent.click(container.querySelector<HTMLButtonElement>('.mw-thumb')!);
+  await waitFor(()=>expect(container.querySelector('[data-policy="ready"] .mw-thumb')).not.toBeNull());
+  fireEvent.click(container.querySelector<HTMLButtonElement>('[data-policy="ready"] .mw-thumb')!);
   await waitFor(()=>expect(screen.getByText(/Attachment previews are disabled/)).toBeInTheDocument());
   expect(created).toBe(0);expect(fetch).toHaveBeenCalledTimes(1);unmount();expect(live.size).toBe(0);
  });
