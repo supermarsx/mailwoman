@@ -67,3 +67,5 @@ export const charts = style({
   gap: vars.space[5],
   paddingTop: vars.space[3],
 });
+/** t106: the history chart cards sit apart from the status rows above them. */
+export const chartsGap = style({ paddingTop: vars.space[3] });

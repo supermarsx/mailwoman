@@ -17,8 +17,8 @@
 //     in place (same id) with a short error toast.
 //   - Closed by the user: it stays closed until that piece of work ends.
 //
-// Empty lists keep their skeleton (t43): the caller only starts this while
-// content is already on screen.
+// Empty lists keep their skeleton (t43); mailbox loading also uses this
+// controller so a slow initial load has the same named progress feedback.
 
 import { toast as toastStore, type ToastOptions, type ToastTone } from './toast/toast.ts';
 

@@ -11,10 +11,10 @@ import * as auditCss from '../shell/audit.css.ts';
 // Not on this page because the server cannot read them honestly: quota usage
 // (nothing measures it), backups (host-side), recent error log lines (log viewer).
 
-import { For, Match, Show, Switch, createResource, createSignal, createEffect, onCleanup, type JSX } from 'solid-js';
+import { For, Match, Show, Switch, createResource, createSignal, createEffect, onCleanup, onMount, type JSX } from 'solid-js';
 import { AsyncPending } from '../../../components/AsyncState.tsx';
 import { resourceValue } from '../../../components/resourceValue.ts';
-import { isolate, t } from '../../../i18n';
+import { isolate, loadCatalog, t } from '../../../i18n';
 import { useOptionalPersonalPreferences } from '../shell/personalPreferences.tsx';
 import { dashboardPreferences, type DashboardPreferences, type DashboardWidgetId } from './preferences.ts';
 import { useShell } from '../shell/context.ts';
@@ -23,7 +23,8 @@ import { hrefFor, sectionPath } from '../shell/router.ts';
 import { isConsoleLocation } from '../../../api/adminPath.ts';
 import { StatTile } from '../shell/StatTile.tsx';
 import { RequestHistory } from '../RequestHistory.tsx';
-import { BarChart } from '../shell/BarChart.tsx';
+import { BarRows } from '../shell/BarChart.tsx';
+import { ChartCard } from '../shell/ChartCard.tsx';
 import { Feedback } from '../shell/Feedback.tsx';
 import { Icon } from '../shell/icons.tsx';
 import type { Capability } from '../shell/can.ts';
@@ -87,6 +88,7 @@ function writeHidden(user: string, ids: string[]): void {
 
 export function Dashboard(): JSX.Element {
   const shellCtx = useShell();
+  onMount(() => void loadCatalog('admin-stats'));
   const preferences = useOptionalPersonalPreferences();
   const layout = () => dashboardPreferences(preferences?.data()['dashboard']);
   const [resource, { refetch }] = createResource(() => shellCtx.services.loadDashboard());
@@ -398,11 +400,19 @@ function BlockedAccounts(props: {
         {t('admin-dash-blocked-title', { count: b().total })}
       </h3>
       <p class={admin.note}>{t('admin-dash-blocked-note')}</p>
-      <BarChart
+      <ChartCard
+        testId="chart-blocked"
         title={t('admin-dash-blocked-chart')}
-        bars={b().byDomain.map((r) => ({ label: r.domain, value: r.accounts }))}
-        format={formatCount}
-      />
+        unit={t('admin-stats-unit-accounts')}
+        summary={t('admin-stats-bars-about', { count: b().byDomain.length })}
+        table={{
+          columns: [t('admin-shell-chart-col-item'), t('admin-shell-chart-col-value')],
+          numeric: [false, true],
+          rows: b().byDomain.map((r) => [r.domain, formatCount(r.accounts)]),
+        }}
+      >
+        <BarRows bars={b().byDomain.map((r) => ({ label: r.domain, value: r.accounts }))} format={formatCount} />
+      </ChartCard>
       <ul class={css.list}>
         <For each={b().byDomain}>
           {(row) => {

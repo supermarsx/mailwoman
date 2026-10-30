@@ -3,6 +3,7 @@ import { screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { InboxTabs } from './InboxTabs.tsx';
 import { mkEmail, renderWithApp } from './appHarness.tsx';
 import { clearSettings, loadSettings, type Fetcher } from '../api/settings.ts';
+import { registerResource } from '../i18n/registry.ts';
 
 const json = (status: number, body: unknown): Response =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -81,6 +82,21 @@ describe('InboxTabs (t73: mail.focusedInbox, off by default)', () => {
     await app.selectMailbox('archive');
     await waitFor(() => expect(screen.queryByRole('tablist')).toBeNull());
     expect(app.focusedInboxShown()).toBe(false);
+  });
+
+  it('keeps the focused tab mounted and clickable while another catalog arrives', async () => {
+    const { app } = await signedIn();
+    await focusedSetting({ value: true, source: 'user' });
+    const other = await screen.findByRole('tab', { name: /Other/ });
+    other.focus();
+    fireEvent.pointerDown(other);
+    registerResource('en', 'inbox-tabs-late-fixture = Loaded');
+    expect(screen.getByRole('tab', { name: /Other/ })).toBe(other);
+    expect(document.activeElement).toBe(other);
+    fireEvent.pointerUp(other);
+    fireEvent.click(other);
+    expect(app.inboxTab()).toBe('other');
+    expect(other).toHaveAttribute('aria-selected', 'true');
   });
 
   it('offers no unified-inbox control and the store has no such flag', async () => {

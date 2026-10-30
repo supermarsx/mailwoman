@@ -324,3 +324,4 @@ admin-crumb-entity-backend = Back end
 admin-crumb-backend-mail = Mail
 admin-crumb-backend-submission = Sending
 admin-crumb-backend-rules = Rules
+admin-crumb-client-access = Client access

@@ -94,3 +94,6 @@ admin-accounts-access-state-help = These actions end the account’s sessions. T
 admin-accounts-passkey-count = Passkeys: { $count }
 admin-accounts-revoke-passkeys = Revoke all passkeys
 admin-accounts-revoke-passkeys-help = Removes this administrator’s passkeys and recovery codes and signs out all their sessions.
+
+admin-accounts-random-suffix = Randomize suffix
+admin-accounts-random-suffix-help = New accounts start with a readable prefix and a random suffix. You can edit the username or generate a fresh suffix before creating the account.

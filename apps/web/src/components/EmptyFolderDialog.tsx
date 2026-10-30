@@ -82,6 +82,7 @@ export function EmptyFolderDialog(props:{box:Mailbox;ability:EmptyAbility;onClos
   <ConfirmDialog open title={t('empty-folder-title',{name:isolate(value().name)})} body={body(value())}
    confirmLabel={t(value().outcome==='trash'?'empty-folder-confirm-trash':'empty-folder-confirm-destroy')} cancelLabel={t('empty-folder-cancel')}
    danger={value().outcome==='destroy'} testId="empty-folder-confirm"
+   typedConfirmationCaseSensitive={false}
    {...(value().outcome==='destroy'&&value().total>TYPED_CONFIRMATION_OVER?{typedConfirmation:value().name}:{})}
    onConfirm={confirm} onCancel={close}/>
  }</Show>;

@@ -4,6 +4,8 @@ import { apiFetch } from '../api/http.ts';
 import { transportBase } from '../api/transport.ts';
 import { bodyFrameDoc } from './sandbox.ts';
 import { formatNumber, t } from '../i18n';
+import { displayText, leetspeakEnabled } from '../i18n/presentation.ts';
+import { leetspeakHtml } from './leetspeak.ts';
 
 interface ExtractedFile { name: string; mime: string; size: number; dataBase64: string; kind: 'file' | 'message' }
 interface Preview { format: 'eml' | 'tnef'; subject?: string; from?: string; to?: string; date?: string; text?: string; html?: string; attachments: ExtractedFile[]; warnings: string[] }
@@ -45,10 +47,11 @@ export function MessageAttachmentViewer(props: ViewerProps): JSX.Element {
     <Show when={preview.loading}><p role="status">{t('common-viewer-loading')}</p></Show>
     <Show when={failure()}><p role="alert">{failure()}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={preview()} keyed>{message => <>
-      <h2>{message.subject || props.name}</h2>
+      <h2>{displayText(message.subject || props.name)}</h2>
+      <Show when={message.html?.startsWith('<pre data-mw-body-blocked="true">')}><p role="status">{t('privacy-body-blocked')}</p></Show>
       <p>{message.from}</p><p>{message.to}</p><p>{message.date}</p>
       <For each={message.warnings}>{warning => <p role="status">{warning}</p>}</For>
-      <iframe class="mw-viewer__frame mw-viewer__frame--text" title={message.subject || props.name} sandbox="" srcdoc={message.html ? bodyFrameDoc('sanitized-no-media', { html: message.html }) : bodyFrameDoc('plain-text', { text: message.text ?? '' })} />
+      <iframe class="mw-viewer__frame mw-viewer__frame--text" title={message.subject || props.name} sandbox="" srcdoc={message.html ? bodyFrameDoc('sanitized-no-media', { html: leetspeakEnabled() ? leetspeakHtml(message.html) : message.html }) : bodyFrameDoc('plain-text', { text: displayText(message.text ?? '') })} />
       <Show when={message.attachments.length}><h3>{t('common-message-preview-attachments')}</h3><ul><For each={message.attachments}>{file => <li><span>{file.name} ({t('common-message-preview-size-bytes', { count: formatNumber(file.size) })})</span> <button class="btn btn--ghost" onClick={() => download(file)}>{t('common-message-preview-download')}</button></li>}</For></ul></Show>
     </>}</Show>
   </section>;

@@ -81,3 +81,16 @@ it('does not write a freshly announced bridge twice when its load event follows'
  ready();fireEvent.load(frame);fireEvent.load(frame);
  expect(writes()).toHaveLength(1);
 });
+
+it('passes explicit consent to the authenticated bridge and permits only popup navigation',()=>{
+ const view=render(()=><DirectReaderFrame html="<p>Links</p>" title="Consent" linksEnabled/>);
+ const frame=screen.getByTitle('Consent') as HTMLIFrameElement;
+ expect(frame.getAttribute('sandbox')).toBe('allow-scripts allow-popups allow-popups-to-escape-sandbox');
+ expect(frame.getAttribute('referrerpolicy')).toBe('no-referrer');
+ const post=vi.spyOn(frame.contentWindow!,'postMessage');
+ const token=new URL(frame.src).hash.slice(1);const value=new URLSearchParams(token).get('token');
+ fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data:{type:'mw-reader-ready',token:value}}));
+ expect(post).toHaveBeenCalledWith(expect.objectContaining({type:'mw-reader-frame',linksEnabled:true}),'*');
+ view.unmount();render(()=><DirectReaderFrame html="<p>Other message</p>" title="No consent"/>);
+ expect(screen.getByTitle('No consent')).toHaveAttribute('sandbox','allow-scripts');
+});

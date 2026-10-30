@@ -12,8 +12,9 @@ import { createStore, reconcile } from 'solid-js/store';
 import { protectionPolicyApi, type PolicyChange, type PresetName, type ProtectionPolicy, type ProtectionPolicyApi, type SimRequest, type SimResult, type SimSignal } from '../../api/admin/requestProtection.ts';
 import type { AdminSetting } from '../../api/admin/settings.ts';
 import { t, formatNumber } from '../../i18n';
+import {useSavingToast} from './shell/useSavingToast.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
-import { PRESETS, RULE_GROUPS, SIGNALS, currentValue, formatSeconds, fullKey, isSeconds, presetDiff, ruleSlug, sameValue, validateRule } from './protectionRules.ts';
+import { PRESETS, RULE_GROUPS, SIGNALS, USER_AGENT_CATEGORIES, currentValue, formatSeconds, fullKey, isSeconds, presetDiff, ruleSlug, sameValue, validateRule } from './protectionRules.ts';
 import * as css from './protectionPolicy.css.ts';
 import * as loading from '../../components/asyncState.css.ts';
 
@@ -32,6 +33,7 @@ export function ProtectionPolicyEditor(props: ProtectionPolicyEditorProps): JSX.
   const [drafts, setDrafts] = createStore<Record<string, unknown>>({});
   const [rowError, setRowError] = createStore<Record<string, string>>({});
   const [busyKey, setBusyKey] = createSignal<string | null>(null);
+  useSavingToast(()=>busyKey()!==null,()=>t('admin-protect-saving'));
   const [saved, setSaved] = createSignal('');
   const [preset, setPreset] = createSignal<PresetName | null>(null);
   const [presetError, setPresetError] = createSignal('');
@@ -172,6 +174,7 @@ export function describeValue(rule: AdminSetting, v: unknown): string {
   if (typeof v === 'boolean') return t(v ? 'admin-protect-on' : 'admin-protect-off');
   if (rule.kind.type === 'enum') return t(`admin-protect-value-${String(v)}`);
   if (Array.isArray(v)) {
+    if (short === 'userAgentCategories') return v.length === 0 ? t('admin-protect-none') : v.map((s) => t(`admin-protect-ua-category-${String(s)}`)).join(', ');
     if (short === 'signals') return v.length === 0 ? t('admin-protect-none') : v.map((s) => t(`admin-protect-signal-${String(s)}`)).join(', ');
     return v.length === 0 ? t('admin-protect-none') : v.join(', ');
   }
@@ -234,14 +237,14 @@ function RuleRow(props: {
     if (kind.type === 'enum') return <select id={id()} value={String(shown())} disabled={off} onChange={(e) => props.onDraft(e.currentTarget.value)}>
       <For each={kind.values ?? []}>{(o) => <option value={o}>{t(`admin-protect-value-${o}`)}</option>}</For>
     </select>;
-    if (kind.type === 'stringList' && short() === 'signals') {
+    if (kind.type === 'stringList' && (short() === 'signals' || short() === 'userAgentCategories')) {
       const list = (): string[] => (shown() as string[] | undefined) ?? [];
       return <fieldset class={css.signals} id={id()} disabled={off}><legend class={css.srLegend}>{t(`admin-protect-rule-${slug()}`)}</legend>
-        <For each={SIGNALS}>{(s) => <label class={css.signal}><input type="checkbox" checked={list().includes(s)} onChange={(e) => props.onDraft(e.currentTarget.checked ? [...list(), s] : list().filter((x) => x !== s))} />{t(`admin-protect-signal-${s}`)}</label>}</For>
+        <For each={short() === 'signals' ? SIGNALS : USER_AGENT_CATEGORIES}>{(s) => <label class={css.signal}><input type="checkbox" checked={list().includes(s)} onChange={(e) => props.onDraft(e.currentTarget.checked ? [...list(), s] : list().filter((x) => x !== s))} />{t(`admin-protect-${short() === 'signals' ? 'signal' : 'ua-category'}-${s}`)}</label>}</For>
       </fieldset>;
     }
     if (kind.type === 'stringList') return <textarea id={id()} rows={3} disabled={off} value={((shown() as string[] | undefined) ?? []).join('\n')}
-      onInput={(e) => props.onDraft(e.currentTarget.value.split(/[\n,]/).map((x) => x.trim()).filter((x) => x !== ''))} />;
+      onInput={(e) => props.onDraft(e.currentTarget.value.split(short().startsWith('userAgent') ? /\n/ : /[\n,]/).map((x) => x.trim()).filter((x) => x !== ''))} />;
     return <span class={css.number}><input id={id()} type="number" inputmode="numeric" min={kind.min} max={kind.max} step="1" value={String(shown() ?? '')} disabled={off}
       onInput={(e) => { const n = e.currentTarget.valueAsNumber; props.onDraft(Number.isNaN(n) ? e.currentTarget.value : n); }} />
       <Show when={isSeconds(short()) && typeof shown() === 'number'}><span class={css.note}>{formatSeconds(shown() as number)}</span></Show>
@@ -263,7 +266,7 @@ function RuleRow(props: {
       <Show when={props.error}><p class={css.error} role="alert">{props.error}</p></Show>
       <div class={css.actions}>
         <button class="btn btn--sm" disabled={props.disabled || pinned() || !changed() || props.busy} onClick={() => props.onSave(props.draft)}
-          aria-label={t('admin-protect-save-rule', { rule: t(`admin-protect-rule-${slug()}`) })}>{props.busy ? t('admin-protect-saving') : t('admin-protect-save')}</button>
+          aria-busy={props.busy} aria-label={t('admin-protect-save-rule', { rule: t(`admin-protect-rule-${slug()}`) })}>{t('admin-protect-save')}</button>
         <Show when={changed()}><button class="btn btn--ghost btn--sm" onClick={() => props.onDraft(undefined)}>{t('admin-protect-cancel')}</button></Show>
         <button class="btn btn--ghost btn--sm" disabled={props.disabled || pinned() || isDefault() || props.busy} onClick={() => props.onReset()}
           aria-label={t('admin-protect-reset-rule', { rule: t(`admin-protect-rule-${slug()}`) })}>{t('admin-protect-reset')}</button>
@@ -285,6 +288,8 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
   const [longGood, setLongGood] = createSignal(0);
   const [throttled, setThrottled] = createSignal(false);
   const [useDraft, setUseDraft] = createSignal(false);
+  const [useUserAgent, setUseUserAgent] = createSignal(false);
+  const [userAgent, setUserAgent] = createSignal('');
   const [result, setResult] = createSignal<SimResult>();
   const [error, setError] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -297,6 +302,7 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
     try {
       const body: SimRequest = { subjectKind: kind(), sample: { requestsInWindow: requests(), short: { normal: shortGood(), anomalous: shortBad() }, long: { normal: longGood(), anomalous: longBad() }, signal: signal(), previouslyThrottled: throttled() } };
       if (subject().trim()) body.subjectValue = subject().trim();
+      if (useUserAgent()) body.userAgent = userAgent();
       if (useDraft() && Object.keys(draft()).length > 0) body.draft = draft();
       setResult(await props.api.simulate(body));
     } catch (cause) {
@@ -317,6 +323,8 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
       <h3 id="protect-sim-h" class={css.title}>{t('admin-protect-sim-title')}</h3>
       <p class={css.note}>{t('admin-protect-sim-help')}</p>
       <form class={css.simForm} onSubmit={(e) => void run(e)}>
+        <label class={css.check}><input type="checkbox" checked={useUserAgent()} onChange={(e) => setUseUserAgent(e.currentTarget.checked)} />{t('admin-protect-sim-ua-enable')}</label>
+        <Show when={useUserAgent()}><label class="field">{t('admin-protect-sim-ua')}<input maxlength="4096" value={userAgent()} onInput={(e) => setUserAgent(e.currentTarget.value)} /></label><p class={css.note}>{t('admin-protect-sim-ua-help')}</p></Show>
         <label class="field">{t('admin-protect-sim-kind')}
           <select value={kind()} onChange={(e) => setKind(e.currentTarget.value as SimRequest['subjectKind'])}>
             <option value="client">{t('admin-protect-sim-kind-client')}</option>
@@ -342,6 +350,7 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
       <Show when={result()}>{(r) => (
         <div class={css.simResult} data-testid="protection-sim-result" data-action={r().action} aria-live="polite">
           <p class={css.verdict}>{verdict(r())}</p>
+          <Show when={r().userAgent}>{(ua) => <p class={css.note}>{t('admin-protect-sim-ua-result', { category: ua().classification ? t(`admin-protect-ua-category-${ua().classification}`) : t('admin-protect-none') })} <Show when={ua().exempt}>{t('admin-protect-sim-ua-exempt')}</Show></p>}</Show>
           <Show when={!r().signalCounted && signal() !== 'normal' && !r().off && !r().exempt}><p class={css.note}>{t('admin-protect-sim-not-counted')}</p></Show>
           <Show when={r().rules.length > 0}>
             <table class={css.diff}>

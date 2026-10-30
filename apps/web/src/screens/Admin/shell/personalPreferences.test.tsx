@@ -8,12 +8,13 @@ import { mockAdminApi } from '../testkit.tsx';
 import { holding, offlineShell } from './testkit.tsx';
 import { expectNoAxeViolations, expectNoInlineStyle } from './uxTestkit.ts';
 import type { SectionDef } from './sections.ts';
+import {toasts,resetToasts} from '../../../components/toast/toast.ts';
 
 type Response = { data: Record<string, unknown>; etag: string | null };
 function deferred() { let resolve!: (value: Response) => void; const promise = new Promise<Response>(yes => { resolve = yes; }); return { promise, resolve }; }
 let prefs!: PersonalPreferences;
 function Probe() { prefs = usePersonalPreferences(); return <span>{prefs.loading() ? 'loading' : 'ready'}</span>; }
-beforeEach(() => { localStorage.clear(); history.replaceState(null, '', '/admin'); });
+beforeEach(() => { resetToasts();localStorage.clear(); history.replaceState(null, '', '/admin'); });
 afterEach(() => vi.unstubAllGlobals());
 
 it('queues edits while saving, advances ETags, and preserves unknown preferences', async () => {
@@ -21,12 +22,15 @@ it('queues edits while saving, advances ETags, and preserves unknown preferences
   const save = vi.fn<AdminPreferencesApi['save']>().mockImplementationOnce(() => pending.promise).mockImplementation(async data => ({ data, etag: 'v3' }));
   render(() => <PersonalPreferencesProvider username="alice" api={{ load: async () => ({ data: { future: { retained: true } }, etag: 'v1' }), save }}><Probe /></PersonalPreferencesProvider>);
   await screen.findByText('ready');
+  expect(toasts()).toHaveLength(0);
   prefs.appearance.setTheme('paper'); prefs.appearance.setDensity('compact');
+  const notice=toasts()[0]!;expect(notice).toMatchObject({busy:true,persistent:true});
   expect(save).toHaveBeenCalledTimes(1);
   pending.resolve({ data: {}, etag: 'v2' });
   await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
   expect(save.mock.calls[1]).toEqual([{ future: { retained: true }, appearance: expect.objectContaining({ theme: 'paper', density: 'compact' }) }, 'v2']);
   await waitFor(() => expect(prefs.saving()).toBe(false));
+  expect(toasts()).toHaveLength(1);expect(toasts()[0]).toMatchObject({id:notice.id,tone:'success',busy:false,persistent:false});
   expect(localStorage.getItem('mw.admin.appearance')).toBeNull();
 });
 
@@ -86,6 +90,27 @@ it('disables edits after a failed save and explains that reload discards changes
   expect(density).toHaveValue('cozy');
 });
 
+it('navigates preference subtabs by keyboard and retains values across panels', async () => {
+  history.replaceState(null, '', '/admin#/preferences/layout');
+  render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} preferencesApi={{ load: async () => ({ data: {}, etag: 'v1' }), save: async data => ({data,etag:'v2'}) }} sections={[{ id: 'preferences', group: 'personal', icon: 'preferences', label: () => 'My preferences', component: Page }]} />);
+  const layout=await screen.findByRole('tab',{name:'Reading and layout'});
+  expect(layout).toHaveAttribute('aria-selected','true');
+  expect(screen.getAllByRole('tabpanel')).toHaveLength(1);
+  const density=screen.getByRole('combobox',{name:'Interface density'});
+  await waitFor(()=>expect(density).not.toBeDisabled());
+  fireEvent.change(density,{target:{value:'compact'}});
+  layout.focus();fireEvent.keyDown(layout,{key:'ArrowRight'});
+  await waitFor(()=>expect(screen.getByRole('tab',{name:'Dashboard'})).toHaveAttribute('aria-selected','true'));
+  expect(location.hash).toBe('#/preferences/dashboard');
+  await waitFor(()=>expect(screen.getByRole('tab',{name:'Dashboard'})).toHaveFocus());
+  fireEvent.keyDown(screen.getByRole('tab',{name:'Dashboard'}),{key:'Home'});
+  await waitFor(()=>expect(screen.getByRole('tab',{name:'Appearance'})).toHaveAttribute('aria-selected','true'));
+  fireEvent.click(layout);
+  await waitFor(()=>expect(screen.getByRole('combobox',{name:'Interface density'})).toHaveValue('compact'));
+  expect(screen.getByRole('combobox',{name:'Interface density'})).toBe(density);
+  await expectNoAxeViolations(screen.getByTestId('admin-personal-preferences'));
+});
+
 it('uses personal security endpoints without writing secrets to preferences', async () => {
   history.replaceState(null, '', '/admin#/preferences');
   const calls: { path: string; body: unknown }[] = [];
@@ -101,6 +126,7 @@ it('uses personal security endpoints without writing secrets to preferences', as
   }));
   const save = vi.fn<AdminPreferencesApi['save']>().mockImplementation(async data => ({ data, etag: 'v2' }));
   render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} loadMe={async () => ({ kind: 'listed', me: { username: 'alice', accountId: 'account-alice', displayName: null, roles: [], capabilities: [], domainScope: null, totpEnrolled: false } })} preferencesApi={{ load: async () => ({ data: {}, etag: 'v1' }), save }} sections={[{ id: 'preferences', group: 'personal', icon: 'preferences', label: () => 'My preferences', component: Page }]} />);
+  fireEvent.click(await screen.findByRole('tab', { name: 'Personal security' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Manage authenticator and recovery codes' }));
   fireEvent.click(await screen.findByRole('button', { name: 'Set up authenticator' }));
   expect(await screen.findByLabelText('Manual setup key')).toHaveValue('TESTSETUPKEY');

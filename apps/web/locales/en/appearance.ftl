@@ -138,3 +138,9 @@ appearance-custom-safe = Recovery: add appearanceSafe=1 to the page query to ope
 
 appearance-custom-accent = Custom accent colour
 appearance-custom-accent-reset = Use named or theme accent
+
+appearance-text-mode-label = Text style
+appearance-text-mode-normal = Normal text
+appearance-text-mode-leet = Leetspeak (1337)
+appearance-text-mode-help = Use leetspeak for interface labels and message reading. Editing and sent messages keep their original text.
+appearance-text-mode-example = Hello, Mailwoman!

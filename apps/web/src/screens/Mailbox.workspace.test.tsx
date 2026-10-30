@@ -1,3 +1,5 @@
+import {createSignal} from 'solid-js';
+import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
 import {loadSettings} from '../api/settings.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
@@ -12,6 +14,7 @@ import { RealtimeContext } from '../realtime/context.ts';
 import { createRealtimeController } from '../realtime/controller.ts';
 import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
 import { setReadingPane } from '../components/readingPane.ts';
+import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 
 beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 
@@ -32,6 +35,131 @@ function mount(attachment=false) {
   return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
+  it.each([false,true])('keeps one folder region and placeholders for visible rows while custom folders collapsed=%s',async collapsed=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    const custom=Array.from({length:15},(_,index)=>({id:`custom-${index}`,name:`Project ${index}`,parentId:null,role:null,sortOrder:10+index,totalEmails:0,unreadEmails:0}));
+    const initial=[...app.mailboxes(),...custom];
+    const [boxes,setBoxes]=createSignal(initial);
+    vi.spyOn(app,'mailboxes').mockImplementation(boxes);
+    setAccountUiPreferences({folderHidden:['custom-0'],userFoldersCollapsed:collapsed});
+    const {container}=show();
+    await screen.findByRole('button',{name:'User folders'});
+    const region=container.querySelector('[data-folder-region]')!;
+    const nav=region.parentElement!;
+    const children=nav.children.length;
+    const expected=initial.filter(box=>box.role).length+1+(collapsed?0:14);
+    expect(region.querySelectorAll('button')).toHaveLength(expected);
+    expect(region.querySelector('#sidebar-user-folders')).toHaveProperty('hidden',collapsed);
+    setBoxes([]);
+    await waitFor(()=>expect(region.querySelectorAll('[data-folder-skeleton]')).toHaveLength(expected));
+    expect(container.querySelector('[data-folder-region]')).toBe(region);
+    expect(nav.children).toHaveLength(children);
+    expect(region.querySelectorAll('.sidebar__folder-rows:not([hidden])')).toHaveLength(0);
+    setBoxes(initial);
+    await waitFor(()=>expect(region.querySelector('[data-folder-skeleton]')).toBeNull());
+    expect(region.querySelectorAll('button')).toHaveLength(expected);
+    expect(nav.children).toHaveLength(children);
+  });
+
+  it('displays folder and workspace labels in leetspeak without persisting transformed titles',async()=>{
+    const {app,realtime,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    setAdminLeetspeak(true);
+    try{
+      show();
+      const inbox=await screen.findByRole('button',{name:'1n80x'});
+      fireEvent.click(inbox);
+      expect(app.selectedMailboxId()).toBe('inbox');
+      expect(app.mailboxes().find(box=>box.id==='inbox')?.name).toBe('Inbox');
+      expect(realtime.subTabs.tabs().find(tab=>tab.id==='mail')?.title).toBe('Mail');
+      setAdminLeetspeak(false);
+      expect(screen.getByRole('tab',{name:'Mail'})).toBeInTheDocument();
+      expect(screen.getByRole('button',{name:'Inbox'})).toBeInTheDocument();
+    }finally{setAdminLeetspeak(null);}
+  });
+
+  it('collapses user folders independently of system folders and hiding the selected folder returns to Inbox',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    const boxes=[...app.mailboxes(),{id:'projects',name:'Projects',parentId:null,role:null,sortOrder:5,totalEmails:0,unreadEmails:0}];
+    vi.spyOn(app,'mailboxes').mockReturnValue(boxes);
+    show();
+    const disclosure=await screen.findByRole('button',{name:'User folders'});
+    expect(disclosure).toHaveAttribute('aria-expanded','true');
+    fireEvent.click(disclosure);
+    expect(accountUiPreferences().userFoldersCollapsed).toBe(true);
+    expect(screen.queryByRole('button',{name:'Projects'})).toBeNull();
+    expect(screen.getByRole('button',{name:'Inbox'})).toBeVisible();
+    fireEvent.click(disclosure);
+    const projects=screen.getByRole('button',{name:'Projects'});
+    fireEvent.click(projects);await waitFor(()=>expect(app.selectedMailboxId()).toBe('projects'));
+    fireEvent.keyDown(projects,{key:'F10',shiftKey:true});
+    fireEvent.click(await screen.findByRole('menuitem',{name:'Hide from sidebar'}));
+    await waitFor(()=>expect(app.selectedMailboxId()).toBe('inbox'));
+    expect(screen.queryByRole('button',{name:'Projects'})).toBeNull();
+    expect(app.mailboxes().some(box=>box.id==='projects')).toBe(true);
+    setAccountUiPreferences({folderHidden:[]});
+    expect(screen.getByRole('button',{name:'Projects'})).toBeVisible();
+  });
+  it('shows the message-list toggle only for the active specific message tab',async()=>{
+    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
+    const toggle=()=>screen.queryByRole('button',{name:'Show or hide message list'});
+    expect(toggle()).not.toBeInTheDocument();
+    fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    await waitFor(()=>expect(toggle()).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
+    expect(toggle()).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('tab',{name:'Subject a'}));
+    expect(toggle()).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Compose'}));
+    expect(toggle()).not.toBeInTheDocument();
+  });
+  it('keeps an explicit module deep link and its parameter over the saved active mail tab',async()=>{
+    history.replaceState(null,'','#/contacts/person-7');
+    const {app,realtime}=mount();
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'mail',kind:'messages',pinned:true},{id:'settings:acct1',kind:'settings',pinned:false}],activeId:'settings:acct1',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Contacts'})).toHaveAttribute('aria-selected','true'));
+    expect(location.hash).toBe('#/contacts/person-7');
+    expect(realtime.subTabs.tabs().some(tab=>tab.id==='settings:acct1')).toBe(true);
+  });
+  it.each([true,false])('opens an initial module link with no saved tabs when resume is %s',async(resume)=>{
+    history.replaceState(null,'','#/contacts/person-7');
+    const {app}=mount();
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.resumeTabs':{value:resume,source:'global',locked:true}}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Contacts'})).toHaveAttribute('aria-selected','true'));
+    expect(location.hash).toBe('#/contacts/person-7');
+  });
+  it.each([true,false])('keeps explicit Mail over a saved Contacts tab when resume is %s',async(resume)=>{
+    const {app,realtime}=mount();
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'mail',kind:'messages',pinned:true},{id:'surface:acct1:contacts',kind:'module',reference:'contacts',pinned:false}],activeId:'surface:acct1:contacts',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.resumeTabs':{value:resume,source:'global',locked:true}}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('mail'));
+    await new Promise(resolve=>setTimeout(resolve,0));
+    expect(realtime.subTabs.activeId()).toBe('mail');expect(location.hash).toBe('#/mail');
+    expect(realtime.subTabs.tabs().some(tab=>tab.title==='Contacts')).toBe(resume);
+  });
+  it('restores the saved active Contacts tab when there is no explicit initial route',async()=>{
+    history.replaceState(null,'',location.pathname);
+    const {app,realtime}=mount();
+    localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify({version:2,accountId:'acct1',storageAuthority:'test-storage-authority-acct1',tabs:[{id:'mail',kind:'messages',pinned:true},{id:'surface:acct1:contacts',kind:'module',reference:'contacts',pinned:false}],activeId:'surface:acct1:contacts',layout:'tabs'}));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{}}),{headers:{'Content-Type':'application/json'}})});
+    await app.login({username:'me@example.org',password:'p'});
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('surface:acct1:contacts'));
+  });
+  it.each([true,false])('preserves navigation before settings finish loading when resume is %s',async(resume)=>{
+    history.replaceState(null,'','#/contacts/person-7');
+    const {app,realtime,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    let resolve!:(response:Response)=>void;
+    const loading=loadSettings({refresh:true,fetcher:()=>new Promise<Response>(done=>{resolve=done;})});
+    show();
+    fireEvent.click(screen.getByRole('button',{name:'Tasks'}));
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('surface:acct1:tasks'));
+    resolve(new Response(JSON.stringify({settings:{'mail.resumeTabs':{value:resume,source:'global',locked:true}}}),{headers:{'Content-Type':'application/json'}}));
+    await loading;await new Promise(done=>setTimeout(done,0));
+    expect(realtime.subTabs.activeId()).toBe('surface:acct1:tasks');expect(location.hash).toBe('#/tasks');
+  });
   it('does not overwrite newer user intent when attachment restoration finishes late',async()=>{
     let finish!:(value:Awaited<ReturnType<typeof workspaceAttachments.resolveWorkspaceAttachment>>)=>void;
     const pending=new Promise<Awaited<ReturnType<typeof workspaceAttachments.resolveWorkspaceAttachment>>>(resolve=>{finish=resolve;});
@@ -94,6 +222,8 @@ describe('retained mailbox workspace',()=>{
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>new URL(input instanceof Request?input.url:String(input),location.href).pathname==='/api/attachments/policy'?new Response(JSON.stringify(policy),{status:200,headers:{'content-type':'application/json'}}):new Response(null,{status:404})));
     const {app,realtime}=mount(true);await app.login({username:'me@example.org',password:'p'});
     fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    // The pending policy strip is deliberately inert; wait for the real controls.
+    await waitFor(()=>expect(document.querySelector('[data-policy="ready"]')).toBeInTheDocument());
     const item=await screen.findByRole('option',{name:/report.txt/});fireEvent.click(item);
     expect(screen.getByRole('tab',{name:'report.txt'})).toHaveAttribute('aria-selected','true');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();

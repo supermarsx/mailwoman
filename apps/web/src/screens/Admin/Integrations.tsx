@@ -1,3 +1,5 @@
+import {Feedback} from './shell/Feedback.tsx';
+import {useSavingToast} from './shell/useSavingToast.ts';
 // Admin › Integrations (§19). Webhooks (outbound and inbound; `Webhooks.tsx`,
 // t28-e18) + MCP/API-key oversight (list + revoke), and whether this deployment
 // has an LDAP directory and a Nextcloud bridge configured.
@@ -100,9 +102,11 @@ export function Integrations(props:{category?:string} = {}): JSX.Element {
   const [integrations, setIntegrations] = createSignal<IntegrationsConfig>(UNKNOWN_INTEGRATIONS);
   const [keys, setKeys] = createSignal<ApiKeyInfo[]>([]);
   const [error, setError] = createSignal<string | null>(null);
+  const [actionError,setActionError]=createSignal<string|null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
   const [pending, setPending] = createSignal<PendingUnattended | null>(null);
   const [saving, setSaving] = createSignal(false);
+  useSavingToast(saving,()=>t('admin-integrations-unattended-saving'));
 
   // Focus-trapped confirmation dialog; Esc and Cancel close it without a request.
   const [dialogEl, setDialogEl] = createSignal<HTMLDivElement>();
@@ -121,16 +125,18 @@ export function Integrations(props:{category?:string} = {}): JSX.Element {
   onMount(() => void reload());
 
   async function onRevokeKey(id: string): Promise<void> {
+    setActionError(null);
     try {
       await api.revokeApiKey(id);
       await reload();
     } catch {
-      setError(t('admin-integrations-revoke-error'));
+      setActionError(t('admin-integrations-revoke-error'));
     }
   }
 
   function askUnattended(key: ApiKeyInfo, approve: boolean): void {
     setNotice(null);
+    setActionError(null);
     setError(null);
     setPending({ key, approve });
   }
@@ -157,7 +163,7 @@ export function Integrations(props:{category?:string} = {}): JSX.Element {
     // Either way the list is read again, so the row shows what the server holds.
     await reload();
     if (failure !== null) {
-      setError(failure);
+      setActionError(failure);
     } else if (error() === null) {
       setNotice(
         approve
@@ -175,11 +181,8 @@ export function Integrations(props:{category?:string} = {}): JSX.Element {
           {error()}
         </p>
       </Show>
-      <Show when={notice()}>
-        <p class={css.note} role="status" data-testid="integration-unattended-notice">
-          {notice()}
-        </p>
-      </Show>
+      <Feedback kind="error" as="toast" message={actionError()}/>
+      <Feedback kind="success" as="toast" message={notice()} testId="integration-unattended-notice"/>
 
       <Show when={visible('overview')}><div class={css.card}>
         <div class={css.listRow}>
@@ -327,13 +330,11 @@ export function Integrations(props:{category?:string} = {}): JSX.Element {
                 <button
                   type="button"
                   class="btn btn--primary"
-                  data-testid="admin-unattended-confirm"
+                  data-testid="admin-unattended-confirm" aria-busy={saving()}
                   disabled={saving()}
                   onClick={() => void confirmUnattended()}
                 >
-                  {saving()
-                    ? t('admin-integrations-unattended-saving')
-                    : change().approve
+                  {change().approve
                       ? t('admin-integrations-unattended-approve')
                       : t('admin-integrations-unattended-withdraw')}
                 </button>

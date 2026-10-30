@@ -17,7 +17,7 @@
 
 import { Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { loadCatalog, isolate, t } from '../../../i18n';
+import { loadCatalog, isolate, rawT, t } from '../../../i18n';
 import { createFocusTrap } from '../../../components/a11y';
 import { Feedback, describeAdminError } from './Feedback.tsx';
 import * as css from './shell.css.ts';
@@ -34,6 +34,8 @@ export interface ConfirmDialogProps {
   danger?: boolean;
   /** When set, the confirm button works only after this exact text is typed. */
   typedConfirmation?: string;
+  /** Folder-name confirmations may ignore letter case; exact matching is the default. */
+  typedConfirmationCaseSensitive?: boolean;
   /** May return a promise; a rejection keeps the dialog open with the error. */
   onConfirm: () => void | Promise<void>;
   onCancel: () => void;
@@ -65,7 +67,9 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
   let typedInput: HTMLInputElement | undefined;
   let cancelButton: HTMLButtonElement | undefined;
 
-  const matches = (): boolean => props.typedConfirmation === undefined || typed() === props.typedConfirmation;
+  const matches = (): boolean => props.typedConfirmation === undefined || (props.typedConfirmationCaseSensitive === false
+    ? typed().toLowerCase() === props.typedConfirmation.toLowerCase()
+    : typed() === props.typedConfirmation);
 
   function cancel(): void {
     if (!busy()) props.onCancel();
@@ -118,7 +122,7 @@ function ConfirmDialogOpen(props: ConfirmDialogProps): JSX.Element {
         <Show when={props.typedConfirmation}>
           {(target) => (
             <label class="field">
-              <span>{t('admin-shell-confirm-type', { name: isolate(target()) })}</span>
+              <span>{rawT('admin-shell-confirm-type', { name: isolate(target()) })}</span>
               <input
                 ref={typedInput}
                 type="text"

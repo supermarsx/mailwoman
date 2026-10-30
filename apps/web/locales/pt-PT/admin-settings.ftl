@@ -803,3 +803,9 @@ admin-settings-key-access-protocols = Protocolos de acesso ao correio
 admin-settings-help-access-protocols = Com que protocolos de servidor de correio estes utilizadores podem entrar: imap, pop3, ews. Entradas através de um servidor JMAP seguem esse servidor.
 admin-settings-key-limit-linked-mailboxes = Caixas ligadas por utilizador
 admin-settings-help-limit-linked-mailboxes = Quantas caixas de correio um utilizador pode ligar, abaixo do máximo do servidor. 0 significa que só se aplica o máximo do servidor.
+
+admin-settings-key-login-show-account-help-notice = Mostrar ajuda da conta no início de sessão
+admin-settings-help-login-show-account-help-notice = Mostra uma breve explicação após uma tentativa de início de sessão sem sucesso. Oculta por predefinição; não revela se uma conta existe ou está desativada.
+
+admin-settings-key-appearance-leetspeak = Estilo de texto leetspeak
+admin-settings-help-appearance-leetspeak = Apresenta os textos da interface e a leitura das mensagens em leetspeak. O texto original e editável não é alterado. Os utilizadores podem escolher texto normal, salvo se esta definição estiver bloqueada.

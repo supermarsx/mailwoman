@@ -155,10 +155,8 @@ calendar-events-count-people = { $count ->
 }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = 重複がある日の予定あり時間 (1 時間ごと)。
 calendar-fb-whose = カレンダー
 calendar-fb-own = 自分
-calendar-fb-own-only = 出席者の空き状況は表示されません。サーバーは自分のカレンダーの予定あり時間のみを報告します。
 calendar-fb-unavailable = 予定あり時間を読み込めませんでした。
 calendar-fb-cell = { $principal } の { $hour }: { $status }
 calendar-fb-busy = 予定あり

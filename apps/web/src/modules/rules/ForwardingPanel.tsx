@@ -1,5 +1,5 @@
 import { createEffect, createSignal, on, Show, type JSX } from 'solid-js';
-import { t } from '../../i18n';
+import { rawT, t } from '../../i18n';
 import type { RulesSlice } from '../../state/slices/rules.ts';
 import type { SieveApi, SieveCapability } from './sieve-api.ts';
 import * as css from './styles.css.ts';
@@ -24,7 +24,7 @@ export function ForwardingPanel(props: { slice: RulesSlice; api: SieveApi }): JS
   async function save(event: SubmitEvent): Promise<void> {
     event.preventDefault(); const api=props.api; if (busy()) return; setBusy(true); setError('');
     const ruleId=id();
-    try { await props.slice.saveRule({ ...(ruleId ? { id:ruleId } : {}), name:t('rules-forward-title'), matchAll:true, conditions:[],
+    try { await props.slice.saveRule({ ...(ruleId ? { id:ruleId } : {}), name:rawT('rules-forward-title'), matchAll:true, conditions:[],
       actions:[{ type:keep() ? 'forwardCopy' : 'forward', value:address() }], enabled:enabled(), runsAt:cap()?.['urn:mailwoman:policy']?.runsAt ?? 'server-sieve' }); }
     catch (failure) { if (api===props.api) setError(failure instanceof Error ? failure.message : String(failure)); }
     finally { if (api===props.api) setBusy(false); }

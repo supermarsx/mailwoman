@@ -2,12 +2,14 @@
 // Status, provider and licence key, downloads, upload, rollback and a test lookup.
 // Every refresh keeps the page mounted (t75): state lives in signals, and the
 // last good status stays on screen while an action runs.
-import { createSignal, For, onMount, Show, useContext, type JSX } from 'solid-js';
+import { createSignal, createUniqueId, For, onCleanup, onMount, Show, useContext, type JSX } from 'solid-js';
 import { geoipApi, type GeoipApi, type GeoipConfig, type GeoipLookup, type GeoipProvider, type GeoipStatus } from '../../api/admin/geoip.ts';
 import { formatBytes, formatDateTime, formatNumber, loadCatalog, t } from '../../i18n';
 import { ShellContext } from './shell/context.ts';
 import { sectionPath } from './shell/router.ts';
 import { DataTable } from './shell/DataTable.tsx';
+import {toast} from '../../components/toast/index.ts';
+import {useSavingToast} from './shell/useSavingToast.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
 import * as css from './admin.css.ts';
@@ -29,6 +31,7 @@ export function CountryDatabase(props: { api?: GeoipApi }): JSX.Element {
   const [clearKey, setClearKey] = createSignal(false);
   const [caPem, setCaPem] = createSignal<string>();
   const [busy, setBusy] = createSignal<string>('');
+  useSavingToast(()=>busy()==='save',()=>t('admin-geoip-saving'));
   const [error, setError] = createSignal('');
   const [notice, setNotice] = createSignal('');
   const [file, setFile] = createSignal<File>();
@@ -36,6 +39,56 @@ export function CountryDatabase(props: { api?: GeoipApi }): JSX.Element {
   const [lookup, setLookup] = createSignal<GeoipLookup>();
   const [lookupError, setLookupError] = createSignal('');
   let fileInput: HTMLInputElement | undefined;
+  const downloadToastId = `geoip-download:${createUniqueId()}`;
+  let disposed = false;
+  let downloadEpoch = 0;
+  let progressTimer: ReturnType<typeof setTimeout> | undefined;
+  onCleanup(() => { disposed = true; downloadEpoch++; clearTimeout(progressTimer); toast.dismiss(downloadToastId); });
+
+  function progressMessage(progress: GeoipStatus['downloadProgress']): string {
+    const phase = progress?.phase ?? 'checking';
+    const label = t(`admin-geoip-progress-${phase}`);
+    const received = progress?.receivedBytes;
+    if (received == null || !Number.isFinite(received) || received < 0) return label;
+    const total = progress?.totalBytes;
+    return total != null && Number.isFinite(total) && total >= received
+      ? t('admin-geoip-progress-total', { phase: label, received: formatBytes(received), total: formatBytes(total) })
+      : t('admin-geoip-progress-bytes', { phase: label, received: formatBytes(received) });
+  }
+  async function download(force: boolean): Promise<void> {
+    if (busy() || disposed) return;
+    setBusy(force ? 'download' : 'check'); setError(''); setNotice('');
+    const epoch = ++downloadEpoch;
+    const active = (): boolean => !disposed && downloadEpoch === epoch;
+    const showProgress = (progress?: GeoipStatus['downloadProgress']): void => {
+      toast.info(progressMessage(progress), { id: downloadToastId, busy: true, persistent: true, duration: Infinity, testId: 'geoip-download-toast' });
+    };
+    showProgress();
+    const poll = async (): Promise<void> => {
+      try {
+        const next = await api().read();
+        if (!active()) return;
+        if (next.data.downloadProgress) showProgress(next.data.downloadProgress);
+      } catch { /* The download response is authoritative; a status poll can be transient. */ }
+      if (active()) progressTimer = setTimeout(() => void poll(), 750);
+    };
+    progressTimer = setTimeout(() => void poll(), 500);
+    try {
+      const next = await (force ? api().download() : api().check());
+      if (!active()) return;
+      downloadEpoch++; clearTimeout(progressTimer);
+      accept(next);
+      toast.success(outcomeText(next), { id: downloadToastId, testId: 'geoip-download-toast' });
+      // A refresh failure must not turn an installed database into a failed download.
+      try { const r = await api().read(); if (!disposed && downloadEpoch === epoch + 1) accept(r.data, r.etag); } catch { /* Keep the authoritative action result. */ }
+    } catch (cause) {
+      if (!active()) return;
+      downloadEpoch++; clearTimeout(progressTimer);
+      toast.error(describeAdminError(cause), { id: downloadToastId, testId: 'geoip-download-toast', action: { label: t('common-retry'), run: () => download(force) } });
+    } finally {
+      if (!disposed && downloadEpoch === epoch + 1) setBusy('');
+    }
+  }
 
   const writable = (): boolean => (!shell || shell.can.can('security.write')) && status()?.writable === true;
   const dirty = (): boolean => !!draft() && (JSON.stringify(draft()) !== baseline() || licenceKey() !== '' || clearKey() || caPem() !== undefined);
@@ -127,7 +180,7 @@ export function CountryDatabase(props: { api?: GeoipApi }): JSX.Element {
     </div>
     <p class={css.note}>{t('admin-geoip-intro')}</p>
     <Show when={error()}><Feedback kind="error" message={error()} /></Show>
-    <Show when={notice()}><p role="status">{notice()}</p></Show>
+    <Feedback kind="success" as="toast" message={notice()}/>
     <Show when={status()} fallback={<Show when={!error()}><p role="status">{t('admin-geoip-loading')}</p></Show>}>{s => <>
       <Show when={s().state !== 'loaded' && s().policyActive}><Feedback kind="error" message={t('admin-geoip-refusing')} /></Show>
       <Show when={s().state !== 'loaded' && !s().policyActive}><Feedback kind="info" message={t('admin-geoip-missing-inactive')} /></Show>
@@ -150,8 +203,8 @@ export function CountryDatabase(props: { api?: GeoipApi }): JSX.Element {
 
       <Show when={s().managedBy === 'console'}>
         <div class={ux.pageActions} role="group" aria-label={t('admin-geoip-actions')}>
-          <button type="button" class="btn btn--primary" disabled={!writable() || !!busy()} onClick={() => void act('download', () => api().download(), outcomeText)}>{busy() === 'download' ? t('admin-geoip-downloading') : t('admin-geoip-download')}</button>
-          <button type="button" class="btn" disabled={!writable() || !!busy()} onClick={() => void act('check', () => api().check(), outcomeText)}>{busy() === 'check' ? t('admin-geoip-checking') : t('admin-geoip-check')}</button>
+          <button type="button" class="btn btn--primary" disabled={!writable() || !!busy()} aria-busy={busy() === 'download'} onClick={() => void download(true)}>{t('admin-geoip-download')}</button>
+          <button type="button" class="btn" disabled={!writable() || !!busy()} aria-busy={busy() === 'check'} onClick={() => void download(false)}>{t('admin-geoip-check')}</button>
           <button type="button" class="btn" disabled={!writable() || !!busy() || !s().previous} onClick={() => void act('rollback', () => api().rollback(), () => t('admin-geoip-rolled-back'))}>{t('admin-geoip-rollback')}</button>
         </div>
         <Show when={s().previous}>{p => <p class={css.note}>{t('admin-geoip-previous', { source: sourceLabel(p().source), built: p().buildEpoch ? formatDateTime(p().buildEpoch! * 1000) : '—' })}</p>}</Show>
@@ -200,7 +253,7 @@ export function CountryDatabase(props: { api?: GeoipApi }): JSX.Element {
                 <For each={[...new Set([...INTERVALS, d().intervalDays])].sort((a, b) => a - b)}>{n => <option value={String(n)}>{t('admin-geoip-interval-days', { count: n })}</option>}</For>
               </select><small>{t('admin-geoip-interval-help')}</small></label>
             <p class={ux.fieldsetHelp}>{t('admin-geoip-step-up')}</p>
-            <div><button type="submit" class="btn btn--primary" disabled={!writable() || !!busy() || !dirty()}>{busy() === 'save' ? t('admin-geoip-saving') : t('admin-geoip-save')}</button></div>
+            <div><button type="submit" class="btn btn--primary" aria-busy={busy()==='save'} disabled={!writable() || !!busy() || !dirty()}>{t('admin-geoip-save')}</button></div>
           </fieldset>
         </form>}</Show>
       </Show>

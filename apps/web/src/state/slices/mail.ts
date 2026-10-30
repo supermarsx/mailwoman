@@ -1,6 +1,7 @@
 import {resolveSender} from '../../api/senderResolution.ts';
+import {newIdempotencyKey} from '../../api/recovery.ts';
 import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.ts';
-import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
+import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
 import {forgetSession,rememberActiveMailbox,restoreMailbox,restoreView} from '../sessionRestore.ts';
 import { swrCachesEnabled } from '../../api/swrCache.ts';
@@ -63,7 +64,7 @@ import {
   type SetError,
 } from '../../api/jmap-types.ts';
 import { t, isolate, loadCatalog } from '../../i18n/index.ts';
-import { EMPTY_QUERY, offlineQueryOf, parseQuery, serializeQuery, serverQueryText, setField, setScope } from '../../search/searchQuery.ts';
+import { EMPTY_QUERY, excludedSearchMailboxes, offlineQueryOf, parseQuery, serializeQuery, serverQueryText, setField, setScope } from '../../search/searchQuery.ts';
 import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
@@ -175,7 +176,8 @@ export interface SendInput {
 export interface MailSlice {
   linkedMailboxId:Accessor<string|null>;
   switchingMailbox:Accessor<boolean>;
-  switchLinkedMailbox(linkId:string|null):Promise<void>;
+  switchingMailboxName:Accessor<string|null>;
+  switchLinkedMailbox(linkId:string|null,label?:string):Promise<void>;
   me: Accessor<Me | null>;
   authChecked: Accessor<boolean>;
   mailboxes: Accessor<Mailbox[]>;
@@ -196,6 +198,7 @@ export interface MailSlice {
   draftsMailboxId: Accessor<Id | null>;
   /** JMAP `downloadUrl` template for blob/attachment/EML fetches (from session). */
   downloadUrl: Accessor<string | null>;
+  supportsFromDomainSearch: Accessor<boolean>;
 
   // ── V2 integration (t4-e13): search, attachments, export, push refetch ──
   /** Current search query string (empty when browsing a mailbox). */
@@ -212,7 +215,7 @@ export interface MailSlice {
    *  search starts. `in` takes a mailbox id and sets the folder scope. The value
    *  is written as one quoted operator value, so its text cannot become
    *  operators (`subject:"a \" OR from:x"`). */
-  searchMessageField(field:'from'|'subject'|'in',value:string):Promise<void>;
+  searchMessageField(field:'from'|'from-domain'|'subject'|'in',value:string):Promise<void>;
   /** Clear search and reload the selected mailbox. */
   clearSearch(): Promise<void>;
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
@@ -389,6 +392,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   const [me, setMe] = createSignal<Me | null>(null);
   const [switchingMailbox,setSwitchingMailbox]=createSignal(false);
+  const [switchingMailboxName,setSwitchingMailboxName]=createSignal<string|null>(null);
   let primaryIdentity:Me|null=null;
   const [authChecked, setAuthChecked] = createSignal(false);
   const [accountId, setAccountId] = createSignal<string | null>(null);
@@ -434,6 +438,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     view.dispose=()=>{readerViews.delete(view);if(activeReader()===view) setActiveReader(null);dispose();};
     readerViews.add(view);return view;
   }
+  const [exactFromDomain,setExactFromDomain]=createSignal(false);
+  const supportsFromDomainSearch=()=>exactFromDomain()||isOffline();
   const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
   const [search, setSearch] = createSignal('');
   const [searchActive, setSearchActive] = createSignal(false);
@@ -519,6 +525,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     writeSetting(FOCUSED_INBOX_SETTING, on).catch(() => undefined);
   }
   const [pendingUndo, setPendingUndo] = createSignal<PendingUndo | null>(null);
+  let undoToastId=UNDO_TOAST_ID;
   const focusedSenders = createFocusedSenders();
   const [blocked, setBlocked] = createSignal<string[]>(loadList(BLOCK_KEY));
 
@@ -540,11 +547,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     ttlMs = 10_000,
     actionLabel = t('mail-undo-action'),
     hardDeadline = false,
+    notice: {id?:string;tone?:'info'|'warning'} = {},
   ): void {
     const entry: PendingUndo = { label, actionLabel, run, expiresAt: Date.now() + ttlMs };
     setPendingUndo(entry);
-    toast.info(label, {
-      id: UNDO_TOAST_ID,
+    const id=notice.id??UNDO_TOAST_ID;
+    if(undoToastId!==id)toast.dismiss(undoToastId);
+    undoToastId=id;
+    toast[notice.tone??'info'](label, {
+      id,
       duration: ttlMs,
       countdown: true,
       pausable: !hardDeadline,
@@ -556,7 +567,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
   function dismissUndo(): void {
     setPendingUndo(null);
-    toast.dismiss(UNDO_TOAST_ID);
+    toast.dismiss(undoToastId);
   }
   async function undoNow(): Promise<void> {
     const p = pendingUndo();
@@ -1012,6 +1023,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     ids: readonly Id[],
     targetMailboxId: Id,
     label: (count: number) => string,
+    progress = false,
   ): Promise<void> {
     const acct = accountId();
     const current = captureMailAuthority();
@@ -1020,6 +1032,16 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (acct === null || !current()) return;
     let taken = takeFromList(ids);
     if (taken.length === 0) return;
+    const total=taken.length;
+    const folder=isolate(mailboxes().find(box=>box.id===targetMailboxId)?.name??t('mail-folder-fallback'));
+    const progressId=progress?`mail-move:${newIdempotencyKey()}`:undefined;
+    let finished=false,refusedCount=0;
+    const offline=isOffline()&&!!ctx.enqueueOffline;
+    const queuedOffline=new Set<Id>();
+    const stopObserving=progressId?observePreferenceAccount(()=>{if(!current())toast.dismiss(progressId);}):()=>{};
+    const fail=(message:string):void=>{if(progressId){finished=true;toast.error(message,{id:progressId,testId:'mail-move-result'});}else showToast('error',message);};
+    if(progressId)toast.info(t(offline?'mail-toast-move-queueing':'mail-toast-moving',{count:total,folder}),{id:progressId,busy:true,persistent:true,duration:Infinity,testId:'mail-move-progress'});
+    try {
     const queue = ctx;
     // The id of each queued move, when the move was queued and the queue says
     // which item it became (a context without the offline slice says nothing).
@@ -1032,6 +1054,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           emailId: email.id,
           mailboxIds: { [targetMailboxId]: true },
         });
+        queuedOffline.add(email.id);
         if (typeof queued === 'string') queuedIds.set(email.id, queued);
       }
     } else {
@@ -1053,25 +1076,28 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         restore(taken);
         await finishCounts();
         if (!current()) return;
-        showToast('error', t('mail-toast-move-failed'));
+        fail(t('mail-toast-move-failed'));
         return;
       }
       if (!current()) return;
       const refused = refusedUpdates(res, Object.keys(patches));
       if (refused.size > 0) {
+        refusedCount=refused.size;
         followReaders(taken.filter((x) => refused.has(x.email.id)), true);
         restore(taken.filter((x) => refused.has(x.email.id)));
         taken = taken.filter((x) => !refused.has(x.email.id));
-        showToast('error', t('mail-toast-update-refused', { count: refused.size }));
+        if(!progressId)showToast('error', t('mail-toast-update-refused', { count: refused.size }));
       }
       await finishCounts(res);
       if (!current()) return;
       ctx.broadcastChange?.();
-      if (taken.length === 0) return;
+      if (taken.length === 0) {if(progressId)fail(t('mail-toast-update-refused',{count:refusedCount}));return;}
     }
     if (!current()) return;
     const moved = taken;
-    showUndo(label(moved.length), async () => {
+    const completed=progressId&&refusedCount>0?t('mail-toast-move-partial',{count:moved.length,total,failed:refusedCount,folder}):progressId&&offline?t('mail-toast-move-queued',{count:moved.length,folder}):label(moved.length);
+    finished=true;
+    showUndo(completed, async () => {
       if (!current()) return;
       // Still waiting in the offline queue: take it out, and the server never
       // hears of the move.
@@ -1111,7 +1137,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         }
       }
       restore([...back, ...reverse]);
-    });
+    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{});
+    } catch(error) {
+      if(!progressId)throw error;
+      if(current()){if(offline)restore(taken.filter(item=>!queuedOffline.has(item.email.id)));fail(t('mail-toast-move-failed'));}
+    } finally {
+      stopObserving();
+      if(progressId&&(!current()||!finished))toast.dismiss(progressId);
+    }
   }
   async function archiveMessage(ids: Id | readonly Id[]): Promise<void> {
     const target = roleOf(mailboxes(), 'archive');
@@ -1131,6 +1164,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
     await relocateWithUndo(asIds(ids), target, (count) =>
       count === 1 ? t('mail-toast-trashed') : t('mail-toast-trashed-count', { count }),
+      true,
     );
   }
   async function markSpam(ids: Id | readonly Id[]): Promise<void> {
@@ -1149,7 +1183,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if (box === undefined) return count === 1 ? t('mail-toast-moved') : t('mail-toast-moved-count', { count });
       const folder = isolate(box.name);
       return count === 1 ? t('mail-toast-moved-to', { folder }) : t('mail-toast-moved-to-count', { folder, count });
-    });
+    },true);
   }
 
   // ── sweep ─────────────────────────────────────────────────────────────────
@@ -1308,6 +1342,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const session = verifiedSession??await client.session();
     if (!current()) return;
     setDownloadUrl(session.downloadUrl);
+    setExactFromDomain((session.capabilities['urn:mailwoman:search'] as {exactFromDomain?:boolean}|undefined)?.exactFromDomain===true);
     const primary = session.primaryAccounts[CAP_MAIL];
     const acct = primary ?? Object.keys(session.accounts)[0] ?? null;
     setAccountId(acct);
@@ -1623,12 +1658,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       await clearSearch();
       return;
     }
+    const excluded=excludedSearchMailboxes(parseQuery(query),mailboxes());
     // Offline: the reduced substring search over the cached header slice. It is
     // not a server query, so there is nothing to page: the cached slice IS the
     // whole result, which is why `total` may honestly be the row count here and
     // nowhere else.
     if (isOffline() && ctx.searchOffline) {
-      const hits = ctx.searchOffline(offlineQueryOf(query));
+      const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})});
       setPageSource(null);
       setMessages(hits);
       setLoadedStart(0);
@@ -1643,9 +1679,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // The whole operator string rides `filter.text`; the engine routes it to
     // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1). The
     // semantic flag (V7 §14.3) is added only when the Assist toggle is on.
+    const text=serverQueryText(query, mailboxes());
     const filter: FilterCondition = {
       // `in:` names (as the filter bar writes them) become mailbox ids here.
-      text: serverQueryText(query, mailboxes()),
+      ...(text.trim()?{text}:{}),
+      ...(excluded.length?{inMailboxOtherThan:excluded}:{}),
       ...(opts?.semantic === true ? { semantic: true } : {}),
     };
     await loadFirstPage(acct, { kind: 'search', filter });
@@ -1653,7 +1691,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   /** Message metadata goes into the query as one quoted, escaped operator
    *  value (searchQuery.ts quote()), never as raw query text. */
-  async function searchMessageField(field:'from'|'subject'|'in',value:string):Promise<void> {
+  async function searchMessageField(field:'from'|'from-domain'|'subject'|'in',value:string):Promise<void> {
+    if(field==='from-domain'&&!supportsFromDomainSearch())return;
     const acct=accountId();
     if(acct===null||!value.trim()||value.length>4096||[...value].some(character=>character.charCodeAt(0)<32||character.charCodeAt(0)===127))return;
     const base=searchActive()?parseQuery(search()):EMPTY_QUERY;
@@ -2064,12 +2103,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
-  async function switchLinkedMailbox(linkId:string|null):Promise<void> {
+  async function switchLinkedMailbox(linkId:string|null,label?:string):Promise<void> {
     if(switchingMailbox()||linkId===(activeLinkedMailbox()?.linkId??null))return;
     const owner=preferenceAccount();
     if(!owner?.storageAuthority||!primaryIdentity?.storageAuthority)throw new Error(t('linked-accounts-changed'));
     const current=()=>preferenceAccountIsCurrent(owner);
     const api=createLinkedAccountsApi();
+    setSwitchingMailboxName(label??(linkId===null?primaryIdentity.username:null));
     setSwitchingMailbox(true);
     try {
       const selected=linkId===null?null:(await api.authorize(linkId)).context;
@@ -2087,19 +2127,20 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         for(const view of readerViews)view.closeMessage();
         setActiveReader(null);cancelMarkRead();dismissUndo();beginListRequest();
         setMailboxes([]);setMessages([]);setSelectedMailboxId(null);setSelectionRaw(new Set<Id>());
-        setOpenEmail(null);setSanitizedHtml(null);setDownloadUrl(null);setSearch('');setSearchActive(false);
+        setOpenEmail(null);setSanitizedHtml(null);setDownloadUrl(null);setExactFromDomain(false);setSearch('');setSearchActive(false);
         setPageSource(null);setTotal(null);setLoadedStart(0);setExhausted(true);setListLoading(false);setLoadingMore(false);
         installLinkedMailbox(selected);setMe(user);setAccountId(user.accountId);
         activateAccountPreferences(user.accountId,user.storageAuthority);
       });
       rememberActiveMailbox(primaryIdentity.storageAuthority,linkId);
       await loadMailboxes(discovery);
-    }finally{api.dispose();setSwitchingMailbox(false);}
+    }finally{api.dispose();batch(()=>{setSwitchingMailbox(false);setSwitchingMailboxName(null);});}
   }
 
   return {
     linkedMailboxId:()=>activeLinkedMailbox()?.linkId??null,
     switchingMailbox,
+    switchingMailboxName,
     switchLinkedMailbox,
     me,
     authChecked,
@@ -2118,6 +2159,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     sentMailboxId: () => roleOf(mailboxes(), 'sent'),
     draftsMailboxId: () => roleOf(mailboxes(), 'drafts'),
     downloadUrl,
+    supportsFromDomainSearch,
     search,
     searchActive,
     searchMessages,

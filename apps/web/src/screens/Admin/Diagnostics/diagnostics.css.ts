@@ -16,6 +16,18 @@ globalStyle(`${section} > h2`, { margin: 0 });
 export const page = style({ display: 'flex', flexDirection: 'column', gap: vars.space[6], minInlineSize: 0 });
 export const intro = style({ margin: 0, color: vars.color.textDim, maxInlineSize: '72ch', lineHeight: 1.5 });
 export const toolbar = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[3], minInlineSize: 0 });
+export const checkTableScroll=style({maxInlineSize:'100%',minInlineSize:0,overflowX:'auto',border:`1px solid ${vars.color.border}`,selectors:{'&:focus-visible':focusRing}});
+export const checkTable=style({inlineSize:'100%',minInlineSize:'56rem',borderCollapse:'collapse',tableLayout:'fixed'});
+globalStyle(`${checkTable} caption`,{textAlign:'start',padding:vars.space[3],fontWeight:vars.weight.bold});
+globalStyle(`${checkTable} th, ${checkTable} td`,{padding:vars.space[3],textAlign:'start',verticalAlign:'top',borderBlockEnd:`1px solid ${vars.color.border}`,overflowWrap:'anywhere'});
+globalStyle(`${checkTable} thead th`,{background:vars.color.bgAlt,fontWeight:vars.weight.bold});
+globalStyle(`${checkTable} th:nth-child(1)`,{inlineSize:'22%'});
+globalStyle(`${checkTable} thead th:nth-child(2)`,{inlineSize:'12%'});
+globalStyle(`${checkTable} thead th:nth-child(3)`,{inlineSize:'34%'});
+globalStyle(`${checkTable} thead th:nth-child(4)`,{inlineSize:'12%'});
+globalStyle(`${checkTable} thead th:nth-child(5)`,{inlineSize:'20%'});
+globalStyle(`${checkTable} tbody th`,{fontWeight:vars.weight.medium});
+globalStyle(`${checkTable} td > * + *`,{marginBlockStart:vars.space[3]});
 
 /** Cards flow in one column on a phone, two or more where there is room. */
 export const cards = style({

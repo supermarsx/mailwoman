@@ -71,7 +71,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
   // Set when the server refused the credentials (401). A disabled account gets
   // the same 401 as a wrong password — the server keeps one shape so the refusal
   // does not reveal account state — so the form cannot say WHICH it was; it adds
-  // a note naming the other possibility.
+  // an optional administrator-enabled note names the other possibility.
   const [refused, setRefused] = createSignal(false);
   // The id of the server's answer to a failed sign-in, when it sent one
   // (`X-Request-Id`), so a support request can name it.
@@ -220,7 +220,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
             {error()}
           </p>
         </Show>
-        <Show when={refused()}>
+        <Show when={refused() && config()?.showAccountHelpNotice === true}>
           <p class="login__hint" data-testid="login-refused-note">
             {t('auth-refused-note')}
           </p>

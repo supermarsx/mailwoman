@@ -230,3 +230,4 @@ admin-crumb-posture = Postura de segurança
 admin-crumb-tools = Ferramentas
 admin-crumb-history = Histórico
 admin-crumb-report = Relatório
+admin-diagx-table-actions = Ações

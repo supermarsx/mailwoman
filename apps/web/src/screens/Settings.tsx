@@ -1,3 +1,4 @@
+import {TextModePreference} from './Settings/TextModePreference.tsx';
 import {LinkedAccounts} from './Settings/LinkedAccounts.tsx';
 import {useSettingsScroll} from './Settings/useSettingsScroll.ts';
 import {RetainedSettingsSection} from './Settings/RetainedSettingsSection.tsx';
@@ -170,6 +171,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   const accentHold = useSetting('appearance.accent', '');
   const densityHold = useSetting('appearance.density', '');
   const fontHold = useSetting('appearance.font', 'default');
+  const leetspeakHold = useSetting('appearance.leetspeak', false);
   const badgeHold = useSetting('appearance.badgeColor', 'default');
   createEffect(() => {
     const value = badgeHold.value();
@@ -291,6 +293,10 @@ export function Settings(props: SettingsProps): JSX.Element {
           </div>
           <LockNote id="settings-font-lock" locked={fontHold.locked()} />
         </div>
+
+        <TextModePreference enabled={leetspeakHold.value()} disabled={leetspeakHold.locked()} busy={leetspeakHold.saving()} describedBy={leetspeakHold.locked()?'settings-leetspeak-lock':undefined} onChange={next=>void leetspeakHold.set(next)}/>
+        <LockNote id="settings-leetspeak-lock" locked={leetspeakHold.locked()}/>
+        <Show when={leetspeakHold.error()}>{message=><p role="alert" class={customizationCss.prose}>{message()}</p>}</Show>
 
         <div class={css.row}>
           <span class={css.label} id="settings-layout">

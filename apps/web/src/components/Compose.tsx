@@ -25,7 +25,7 @@ import {
   type JSX,
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { t, isolate, loadCatalog } from '../i18n/index.ts';
+import { rawT, t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 import { AsyncBoundary } from './ErrorBoundary.tsx';
 import type { RichTextApi } from './compose/RichTextEditor.tsx';
@@ -1091,10 +1091,10 @@ export function Compose(props: {
    *  the link, and its expiry and password state, as text or as a paragraph. */
   function insertShareLink(file: File, link: ShareLink): void {
     setOversized((cur) => cur.filter((f) => f !== file));
-    const head = t('nextcloud-share-body', { name: file.name, size: `${megabytes(file.size)} MB`, url: link.url });
+    const head = rawT('nextcloud-share-body', { name: file.name, size: `${megabytes(file.size)} MB`, url: link.url });
     const notes = [
-      ...(link.expiresAt ? [t('nextcloud-share-body-expires', { date: link.expiresAt })] : []),
-      ...(link.passwordProtected ? [t('nextcloud-share-body-password')] : []),
+      ...(link.expiresAt ? [rawT('nextcloud-share-body-expires', { date: link.expiresAt })] : []),
+      ...(link.passwordProtected ? [rawT('nextcloud-share-body-password')] : []),
     ].join(' ');
     const api = editorApi();
     if (richMode() && api !== null) {
@@ -1215,7 +1215,7 @@ export function Compose(props: {
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
-          ? t('mail-compose-encrypted-subject')
+          ? rawT('mail-compose-encrypted-subject')
           : subject();
       const attached = attachments();
       // Only the images the body still shows go out (none for ciphertext or a

@@ -114,6 +114,25 @@ describe('Settings', () => {
     expect(group).toHaveAttribute('aria-describedby','settings-font-lock');
   });
 
+  it('writes display-only leetspeak and keeps Normal text available to restore it',async()=>{
+    const fetcher=vi.fn(async(_url:unknown,init?:RequestInit)=>new Response(JSON.stringify(init?.method==='PUT'?{value:JSON.parse(String(init.body)).value,source:'user',locked:false}:{settings:{'appearance.leetspeak':{value:false,source:'default',locked:false}}}),{status:200}));
+    await loadSettings({fetcher});renderSettings();
+    fireEvent.click(screen.getByRole('button',{name:'Leetspeak (1337)'}));
+    await vi.waitFor(()=>expect(screen.getByRole('button',{name:'Leetspeak (1337)'})).toHaveAttribute('aria-pressed','true'));
+    expect(screen.getByTestId('text-mode-example')).toHaveTextContent('Hello, Mailwoman! → H3ll0, M41lw0m4n!');
+    fireEvent.click(screen.getByRole('button',{name:'Normal text'}));
+    await vi.waitFor(()=>expect(screen.getByRole('button',{name:'Normal text'})).toHaveAttribute('aria-pressed','true'));
+    expect(fetcher.mock.calls.filter(([,init])=>init?.method==='PUT').map(([,init])=>JSON.parse(String(init?.body)).value)).toEqual([true,false]);
+  });
+
+  it('honors a domain leetspeak lock and describes why both choices are disabled',async()=>{
+    await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:{'appearance.leetspeak':{value:true,source:'domain',locked:true,lockedBy:'domain'}}}),{status:200})});
+    renderSettings();const group=screen.getByRole('group',{name:'Text style'});
+    expect(group).toHaveAttribute('aria-describedby',expect.stringContaining('settings-leetspeak-lock'));
+    for(const button of group.querySelectorAll('button'))expect(button).toBeDisabled();
+    expect(screen.getByRole('button',{name:'Leetspeak (1337)'})).toHaveAttribute('aria-pressed','true');
+  });
+
   it('the close button and backdrop click both invoke onClose', () => {
     const { onClose } = renderSettings();
     fireEvent.click(screen.getByRole('button', { name: 'Close settings' }));

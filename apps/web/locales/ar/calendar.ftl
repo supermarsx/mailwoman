@@ -173,10 +173,8 @@ calendar-events-count-people = { $count ->
 }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = أوقات انشغالك في يوم التعارض، حسب الساعة.
 calendar-fb-whose = التقاويم
 calendar-fb-own = تقاويمك
-calendar-fb-own-only = لا يُعرض توفّر الحاضرين. يُبلغ الخادم عن أوقات الانشغال لتقاويمك فقط.
 calendar-fb-unavailable = تعذّر تحميل أوقات انشغالك.
 calendar-fb-cell = { $principal } في { $hour }: { $status }
 calendar-fb-busy = مشغول

@@ -1,0 +1,27 @@
+import {createSignal} from 'solid-js';
+import {afterEach,expect,it,vi} from 'vitest';
+import {cleanup,render,screen,waitFor} from '@solidjs/testing-library';
+import {MessageList} from './MessageList.tsx';
+import {makeClient} from './appHarness.tsx';
+import {createAppState} from '../state/store.ts';
+import {AppContext} from '../state/context.ts';
+import {ToastRegion,resetToasts,toasts} from './toast/index.ts';
+vi.mock('./initialSync.ts',()=>({createInitialSync:()=>({pending:()=>false,running:()=>false,failed:()=>false,status:()=> 'ready',retry:()=>undefined})}));
+afterEach(()=>{cleanup();resetToasts();vi.useRealTimers();localStorage.clear();});
+it('shows a named spinner for an empty folder, updates for account switching, and clears on completion and unmount',async()=>{
+ const app=createAppState(makeClient({emails:[]}));
+ await app.login({username:'me@example.org',password:'p'});
+ const [loading,setLoading]=createSignal(false),[switching,setSwitching]=createSignal(false),[name,setName]=createSignal<string|null>(null);
+ const state={...app,listLoading:loading,switchingMailbox:switching,switchingMailboxName:name};
+ render(()=><AppContext.Provider value={state}><MessageList/><ToastRegion/></AppContext.Provider>);
+ await waitFor(()=>expect(screen.getByRole('region',{name:'Messages'})).toBeInTheDocument());
+ vi.useFakeTimers();setLoading(true);vi.advanceTimersByTime(399);expect(toasts()).toHaveLength(0);
+ vi.advanceTimersByTime(1);expect(toasts()).toHaveLength(1);
+ expect(screen.getByTestId('mail-loading-toast')).toHaveTextContent('Inbox');
+ expect(screen.getByTestId('mail-loading-toast').querySelector('[data-toast-spinner]')).not.toBeNull();
+ setName('Work mailbox');setSwitching(true);setLoading(false);
+ expect(toasts()).toHaveLength(1);expect(screen.getByTestId('mail-loading-toast')).toHaveTextContent('Work mailbox');
+ setSwitching(false);expect(toasts()).toHaveLength(0);
+ setLoading(true);vi.advanceTimersByTime(400);expect(toasts()).toHaveLength(1);
+ cleanup();expect(toasts()).toHaveLength(0);
+});

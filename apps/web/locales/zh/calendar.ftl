@@ -158,10 +158,8 @@ calendar-events-count-people =
     }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = 冲突当天你的忙碌时间，按小时显示。
 calendar-fb-whose = 日历
 calendar-fb-own = 你的
-calendar-fb-own-only = 不显示参与者的空闲状态。服务器只报告你自己日历的忙碌时间。
 calendar-fb-unavailable = 无法加载你的忙碌时间。
 calendar-fb-cell = { $principal } 在 { $hour }：{ $status }
 calendar-fb-busy = 忙碌

@@ -55,6 +55,7 @@ export type IconName =
   | 'filter'
   | 'chevron'
   | 'check'
+  | 'bulkSelect'
   | 'alert'
   | 'info'
   | 'eye'
@@ -119,6 +120,8 @@ const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const
 const F = { fill: 'currentColor' } as const;
 
 const PATHS: Record<IconName, () => JSX.Element> = {
+  // A checked row and an empty row make selection mode distinct from confirmation.
+  bulkSelect: () => <g fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 3.5 L3 5 L5.5 2 M8 3.5 H14.5 M8 11.5 H14.5" /><rect x="1.5" y="9" width="4.5" height="4.5" rx="1" /></g>,
   // t86: Settings section glyphs (same 16 px grid, 2 px stroke, currentColor).
   // Two envelopes, one behind the other: the linked mailboxes.
   mailboxes: () => <path d="M4 1 H15 V10 M1 4 H12 V14 H1 Z M1 4 L6.5 9 L12 4" {...S} />,

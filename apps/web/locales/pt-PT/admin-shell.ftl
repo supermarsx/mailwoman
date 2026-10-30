@@ -320,3 +320,4 @@ admin-crumb-entity-backend = Servidor de origem
 admin-crumb-backend-mail = Correio
 admin-crumb-backend-submission = Envio
 admin-crumb-backend-rules = Regras
+admin-crumb-client-access = Acesso ao cliente

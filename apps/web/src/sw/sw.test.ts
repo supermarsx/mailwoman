@@ -209,6 +209,25 @@ describe('strategies', () => {
     expect(await out.response?.text()).toBe('<!doctype html><title>shell</title>');
   });
 
+  it.each([200, 404])('purges the offline shell when a client gate is observed with status %s', async status => {
+    const sw = boot();
+    sw.network.fetch = async () => reply(TEST_SHELL, 'text/html');
+    await sw.install();
+    expect(sw.caches.urls()).toContain(`${ORIGIN}/`);
+    sw.network.fetch = async () => new Response(status === 200 ? TEST_SHELL : 'Not found', { status, headers: { 'content-type': 'text/html', 'x-mailwoman-client-gate': 'enabled', 'cache-control': 'no-store' } });
+    expect((await sw.fetch('/', { mode: 'navigate' })).response?.status).toBe(status);
+    expect(sw.caches.urls()).not.toContain(`${ORIGIN}/`);
+    sw.network.fetch = offline;
+    expect((await sw.fetch('/', { mode: 'navigate' })).error).toBeInstanceOf(TypeError);
+  });
+  it('never precaches a gated shell even when it matches the trusted build', async () => {
+    const sw = boot();
+    sw.network.fetch = async () => new Response(TEST_SHELL, { headers: { 'content-type': 'text/html', 'x-mailwoman-client-gate': 'enabled' } });
+    await sw.install();
+    expect(sw.caches.urls()).not.toContain(`${ORIGIN}/`);
+    sw.network.fetch = offline;
+    expect((await sw.fetch('/', { mode: 'navigate' })).error).toBeInstanceOf(TypeError);
+  });
   it('an online navigation to the shell URL replaces the stored shell', async () => {
     // A new build: only its own index.html matches the manifest.
     const sw = bootWorker(undefined, { digests: defaultDigests({ '/index.html': digestOf('new shell') }) });

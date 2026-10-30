@@ -10,6 +10,7 @@ import type { PresetName } from '../../api/admin/requestProtection.ts';
 export const PROTECTION_PREFIX = 'security.protection.';
 
 export const RULE_GROUPS: readonly { id: string; keys: readonly string[] }[] = [
+  { id: 'user-agent', keys: ['userAgentMode', 'userAgentCategories', 'userAgentWeakRequests', 'userAgentCrawlerRequests', 'userAgentWindowSecs', 'userAgentMaxAction', 'userAgentScope', 'userAgentAdaptive', 'userAgentPatterns', 'userAgentExceptions'] },
   { id: 'budget', keys: ['rateMode', 'clientRequests', 'accountRequests', 'adminRequests', 'rateWindowSecs'] },
   { id: 'unusual', keys: ['adaptiveMode', 'signals', 'adaptiveClients', 'adaptiveAccounts', 'adaptiveAdmins', 'shortWindowSecs', 'shortAbsoluteAnomalies', 'shortRatioPercent', 'shortMinimumSamples', 'longWindowSecs', 'longAbsoluteAnomalies', 'longRatioPercent', 'longMinimumSamples', 'normalCapPerBucket'] },
   { id: 'actions', keys: ['throttleSecs', 'blockSecs', 'decaySecs'] },
@@ -17,6 +18,7 @@ export const RULE_GROUPS: readonly { id: string; keys: readonly string[] }[] = [
 ];
 
 export const SIGNALS = ['malformed', 'oversized', 'credential-rejected', 'permission-denied', 'body-deadline', 'admin-route-miss'] as const;
+export const USER_AGENT_CATEGORIES = ['missing', 'uncommon', 'automation', 'search', 'ai-training', 'ai-search', 'ai-user'] as const;
 
 export const PRESETS: readonly PresetName[] = ['relaxed', 'balanced', 'strict'];
 

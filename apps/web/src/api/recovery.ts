@@ -55,6 +55,8 @@ export interface RecoveryOptions {
   maxRetryAfterMs?: number;
   /** Per-attempt timeout in ms; 0 for none. Default 20000. */
   timeoutMs?: number;
+  /** Typed application outcomes that should reach the UI without a transient-status retry. */
+  nonRetryableCodes?: readonly string[];
   /** Longest wait for the browser to come back online. Default 600000. */
   offlineWaitMs?: number;
   /** Re-read and re-apply after a 409/412: the request to send instead, or null. */
@@ -286,6 +288,7 @@ export async function recoverRequest(
         n -= 1;
         continue;
       }
+      if(options.nonRetryableCodes?.includes((await errorCode(response))??''))return response;
       const transient = TRANSIENT.has(response.status) || response.status === 429;
       if (!transient || !idempotent || n >= attempts) return response;
       let delay = backoffDelay(n, base, cap);

@@ -21,6 +21,7 @@ import {
 } from '../../api/admin/webhooks.ts';
 import { AdminProblemError } from './shell/adminApi.ts';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
+import {useSavingToast} from './shell/useSavingToast.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import { FormField } from './shell/FormField.tsx';
 import { loadCatalog, t } from '../../i18n';
@@ -79,6 +80,7 @@ export function Webhooks(): JSX.Element {
   const [actions, setActions] = createSignal<string[]>(['run_rules']);
   const [errors, setErrors] = createSignal<FieldErrors>({});
   const [saving, setSaving] = createSignal(false);
+  useSavingToast(saving,()=>t('admin-webhooks-add-saving'));
 
   const [created, setCreated] = createSignal<{ webhook: AdminWebhook; secret: string } | null>(null);
   const [toDelete, setToDelete] = createSignal<AdminWebhook | null>(null);
@@ -398,8 +400,8 @@ export function Webhooks(): JSX.Element {
             </fieldset>
           </Show>
           <div class={css.confirmActions}>
-            <button type="submit" class="btn btn--primary" disabled={saving()} data-testid="admin-webhooks-create">
-              {saving() ? t('admin-webhooks-add-saving') : t('admin-webhooks-add-submit')}
+            <button type="submit" class="btn btn--primary" disabled={saving()} aria-busy={saving()} data-testid="admin-webhooks-create">
+              {t('admin-webhooks-add-submit')}
             </button>
           </div>
         </form>

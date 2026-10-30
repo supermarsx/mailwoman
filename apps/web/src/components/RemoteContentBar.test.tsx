@@ -198,3 +198,16 @@ describe('RemoteContentBar — recovery (t82)', () => {
     await vi.waitFor(() => expect(toasts().filter((t) => t.tone === 'error')).toHaveLength(0));
   });
 });
+
+
+describe('RemoteContentBar failure recovery',()=>{
+  it('keeps Undo and offers Retry for failed shown images without changing consent',()=>{
+    const retry=vi.fn(),revoke=vi.fn();
+    render(()=><RemoteContentBar {...CTX} report={report()} activeGrant={{scopeKind:'single',scopeValue:'M1',grantedAt:''}} imageFailures={{count:2,retrying:false}} onRetryImages={retry} onRevoke={revoke}/>);
+    expect(screen.getByRole('button',{name:/^Undo/})).toBeVisible();fireEvent.click(screen.getByRole('button',{name:'Retry'}));expect(retry).toHaveBeenCalledOnce();expect(revoke).not.toHaveBeenCalled();
+  });
+  it('never offers Retry after privacy policy blocks the images',()=>{
+    render(()=><RemoteContentBar {...CTX} mode="block" report={report()} imageFailures={{count:2,retrying:false}} onRetryImages={()=>undefined}/>);
+    expect(screen.queryByRole('button',{name:'Retry'})).toBeNull();
+  });
+});

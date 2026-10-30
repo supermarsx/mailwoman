@@ -7,7 +7,7 @@
 // searches; a search started elsewhere (a "Search this sender" action) arrives
 // through `app.search()` and lands in the input too.
 
-import { createEffect, createSignal, on, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createSignal, createUniqueId, on, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../../state/context.ts';
 import { loadCatalog, t } from '../../i18n/index.ts';
 import { Icon } from '../Icon.tsx';
@@ -22,12 +22,16 @@ export function SearchBox(): JSX.Element {
   const app = useApp();
   onMount(() => void loadCatalog('search'));
   const [query, setQuery] = createSignal(app.search());
+  const [filtersOpen, setFiltersOpen] = createSignal(false);
+  const filtersId = createUniqueId();
   // V7 semantic search (§14.3): off by default; the toggle only renders when the
   // `search-semantic` Assist capability is granted, and its state rides the query.
   const [semantic, setSemantic] = createSignal(false);
   // A search started or refined elsewhere, or cleared, shows in the input.
   createEffect(on(app.search, (value) => setQuery(value), { defer: true }));
   let input!: HTMLInputElement;
+  let filtersButton!: HTMLButtonElement;
+  const closeFilters = (): void => { setFiltersOpen(false); filtersButton.focus(); };
 
   const run = (text: string): void => {
     setQuery(text);
@@ -58,6 +62,9 @@ export function SearchBox(): JSX.Element {
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
           onKeyDown={(e) => {
+            if (e.key === 'Escape' && filtersOpen()) {
+              e.preventDefault(); e.stopPropagation(); closeFilters(); return;
+            }
             // Esc clears (and restores the folder) instead of the browser's own
             // clear, which would leave the results of the old query showing.
             if (e.key === 'Escape' && showClear()) {
@@ -93,12 +100,20 @@ export function SearchBox(): JSX.Element {
         >
           <Icon name="search" />
         </button>
+        <button
+          ref={filtersButton} type="button" class={`btn btn--ghost ${css.filtersToggle}`}
+          aria-expanded={filtersOpen()} aria-controls={filtersId}
+          title={t('search-guided-help')} data-testid="search-guided-toggle"
+          onClick={() => setFiltersOpen(value => !value)}
+        ><Icon name="filter" />{t('search-guided-button')}</button>
         <SemanticSearchToggle config={app.assist.config()} enabled={semantic()} onChange={setSemantic} />
       </form>
-      <div class={css.reveal} data-open={app.searchActive()}>
-        <div class={css.revealInner} inert={!app.searchActive()}>
-          <Show when={app.searchActive()}>
+      <div class={css.reveal} data-open={app.searchActive() || filtersOpen()}>
+        <div id={filtersId} class={css.revealInner} inert={!app.searchActive() && !filtersOpen()}
+          onKeyDown={event => { if(event.key === 'Escape' && filtersOpen()){event.preventDefault();event.stopPropagation();closeFilters();} }}>
+          <Show when={app.searchActive() || filtersOpen()}>
             <SearchFilterBar
+              guided={filtersOpen()}
               text={query}
               onChange={run}
               mailboxes={app.mailboxes}

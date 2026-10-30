@@ -2,9 +2,28 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { MessageList } from './MessageList.tsx';
 import { renderWithApp, mkEmail } from './appHarness.tsx';
+import { clearSettings, loadSettings } from '../api/settings.ts';
 
 describe('MessageList (virtualized)', () => {
   beforeEach(() => localStorage.clear());
+
+  it('keeps sparse message previews readable when leetspeak is enabled and restored', async () => {
+    // The live JMAP fixture can return null previews even though the static model
+    // annotates this field as a string. Rendering used to tolerate those values.
+    const sparse = mkEmail('sparse', { subject: 'Readable message', preview: null as unknown as string });
+    const { app, result } = renderWithApp(() => <MessageList />, { emails: [sparse] });
+    await app.login({ username: 'me@example.org', password: 'p' });
+    await screen.findByText('Readable message');
+    try {
+      await loadSettings({ refresh: true, fetcher: async () => new Response(JSON.stringify({ settings: { 'appearance.leetspeak': { value: true, source: 'user', locked: false } } }), { headers: { 'content-type': 'application/json' } }) });
+      await screen.findByText('R34d48l3 m355493');
+      expect(result.container.querySelector('.list__preview')?.textContent).toBe('');
+      expect(app.messages()[0]?.subject).toBe('Readable message');
+      expect(app.messages()[0]?.preview).toBeNull();
+      clearSettings();
+      await screen.findByText('Readable message');
+    } finally { clearSettings(); }
+  });
 
   it('mounts only a window of rows for a huge list', async () => {
     const emails = Array.from({ length: 5000 }, (_, i) =>

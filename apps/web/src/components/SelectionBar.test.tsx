@@ -15,6 +15,7 @@ function actions(spy: (id: string) => void): SelectionAction[] {
 
 function mount(opts: { width?: number; total?: number } = {}) {
   const [count, setCount] = createSignal(0);
+  const [busy,setBusy]=createSignal(false);
   const ran: string[] = [];
   const selectAll = vi.fn(() => setCount(opts.total ?? 10));
   const clear = vi.fn(() => setCount(0));
@@ -29,10 +30,10 @@ function mount(opts: { width?: number; total?: number } = {}) {
     <section id="pane" style={{ position: 'relative' }}>
       <button id="row" type="button">Row</button>
       <button id="row2" type="button">Row 2</button>
-      <SelectionBar count={count()} total={opts.total ?? 10} selectAll={selectAll} clear={clear} actions={list} returnFocus={returnFocus} scope="s" />
+      <SelectionBar busy={busy()} count={count()} total={opts.total ?? 10} selectAll={selectAll} clear={clear} actions={list} returnFocus={returnFocus} scope="s" />
     </section>
   ));
-  return { setCount, ran, selectAll, clear, returnFocus, move };
+  return { setCount, setBusy, ran, selectAll, clear, returnFocus, move };
 }
 
 /** Lay the bar out at `pane` px: buttons are 36px, the count 80px. */
@@ -62,6 +63,13 @@ describe('inlineCount', () => {
 });
 
 describe('SelectionBar', () => {
+  it('disables More while a folder refresh is busy and opens it when ready',async()=>{
+    stubLayout(300);const {setCount,setBusy}=mount();setCount(2);setBusy(true);
+    const more=await screen.findByRole('button',{name:'More selection actions'});
+    expect(more).toBeDisabled();fireEvent.click(more);expect(screen.queryByRole('menu')).toBeNull();
+    setBusy(false);expect(more).toBeEnabled();fireEvent.click(more);
+    expect(screen.getByRole('menu',{name:'More selection actions'})).toBeVisible();
+  });
   it('appears with the first selection, shows and announces the count, and goes when it is empty', async () => {
     const { setCount } = mount();
     expect(screen.queryByRole('toolbar')).toBeNull();

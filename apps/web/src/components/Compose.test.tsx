@@ -7,10 +7,13 @@ import { renderWithApp, makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { AssistService } from '../modules/assist/index.ts';
-import { isolate } from '../i18n/index.ts';
+import {setAdminLeetspeak} from '../i18n/presentation.ts';
+import { isolate, t } from '../i18n/index.ts';
 import type { Identity, JmapRequest } from '../api/jmap-types.ts';
 import { resetClientPolicy } from '../api/policy.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
+
+afterEach(()=>setAdminLeetspeak(null));
 
 // ── V7 (e14b) integration doubles ────────────────────────────────────────────
 function json(body: unknown, status = 200): Response {
@@ -354,7 +357,7 @@ describe('Compose', () => {
     expect(uploadCalls).toHaveLength(0);
   });
 
-  it('offers a Nextcloud share link for a file over the limit and inserts the link (t39)', async () => {
+  it('inserts an original Nextcloud share description even with leetspeak interface enabled (t39)', async () => {
     vi.stubGlobal('fetch', mockUploadFetch());
     const calls: string[] = [];
     const cloud = async (input: string, init?: RequestInit): Promise<Response> => {
@@ -378,9 +381,10 @@ describe('Compose', () => {
     expect(within(screen.getByTestId('compose-attach')).queryByRole('alert')).toBeNull();
     const go = within(panel).getByRole('button', { name: 'Upload and insert link' });
     await waitFor(() => expect(go).toBeEnabled());
+    setAdminLeetspeak(true);expect(t('nextcloud-share-body-password')).not.toBe('The link is password-protected.');
     fireEvent.click(go);
     await waitFor(() => expect(screen.queryByTestId('compose-share-link')).toBeNull());
-    const body = screen.getByLabelText('Body') as HTMLTextAreaElement;
+    const body = screen.getByLabelText(t('mail-compose-body')) as HTMLTextAreaElement;
     expect(body.value).toContain('big.bin (0 MB): https://cloud.example/s/Tok');
     expect(body.value).toContain('The link works until 2026-12-31. The link is password-protected.');
     expect(calls.filter((call) => call.startsWith('PUT'))).toHaveLength(2);

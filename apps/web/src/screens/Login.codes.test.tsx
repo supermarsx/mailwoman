@@ -73,7 +73,7 @@ describe('Login › explained refusals', () => {
     expect(screen.queryByTestId('login-reference')).toBeNull();
   });
 
-  it('a uniform 401 keeps the old text and note', async () => {
+  it('a uniform 401 keeps its generic text and hides account help by default', async () => {
     renderLogin(
       client(async () => {
         throw new ApiError(401, 'invalid credentials', { requestId: 'req-1' });
@@ -81,7 +81,7 @@ describe('Login › explained refusals', () => {
     );
     await signIn();
     expect(await screen.findByRole('alert')).toHaveTextContent(t('auth-invalid-credentials'));
-    expect(screen.getByTestId('login-refused-note')).toBeInTheDocument();
+    expect(screen.queryByTestId('login-refused-note')).toBeNull();
     expect(screen.getByTestId('login-reference')).toHaveTextContent('req-1');
   });
 });

@@ -10,7 +10,7 @@
 // it inside JSX makes the node re-render when a catalog loads or the locale flips.
 
 export { LocaleProvider, useI18n, type I18nContext } from './provider.tsx';
-export { t, type TArgs } from './registry.ts';
+export { t, rawT, type TArgs } from './registry.ts';
 export { loadCatalog, useCatalog, preloadCatalogs } from './catalog.ts';
 export { isolate, isolateDir, stripIsolates } from './bidi.ts';
 export {

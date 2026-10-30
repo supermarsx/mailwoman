@@ -7,6 +7,13 @@ import { vars } from '../../theme/contract.css.ts';
 
 /** The input row keeps its height when the clear button comes and goes. */
 export const form = style({ alignItems: 'center' });
+export const filtersToggle = style({ display:'inline-flex', alignItems:'center', gap:'0.3rem', flex:'none', whiteSpace:'nowrap', selectors:{'&[aria-expanded="true"]':{background:vars.color.selection}} });
+export const guided = style({ padding:'0.6rem', display:'grid', gap:'0.55rem', background:vars.color.bgAlt, borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}` });
+export const guidedHint = style({ margin:0, color:vars.color.textDim, fontSize:'0.8rem' });
+export const quickFields = style({ display:'flex', flexWrap:'wrap', gap:'0.35rem' });
+export const quickField = style({ display:'inline-flex', alignItems:'center', gap:'0.35rem', minBlockSize:'32px' });
+export const quickFlags = style({ display:'flex', flexWrap:'wrap', gap:'0.5rem 1rem' });
+export const trashToggle = style({ flex:'none', marginInlineStart:'auto' });
 
 /** Opens by growing its one grid row from 0 to its content height; the
  *  duration is the motion token, which is ~0 under prefers-reduced-motion. */

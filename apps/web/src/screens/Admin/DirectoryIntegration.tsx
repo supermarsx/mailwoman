@@ -1,7 +1,7 @@
 import { createSignal, For, Index, onMount, Show, type JSX } from 'solid-js';
 import { directoryApi, type DirectoryConfiguration, type DirectoryEntry, type DirectoryWrite } from '../../api/admin/directory.ts';
 import { loadCatalog, t } from '../../i18n';
-import { describeAdminError } from './shell/Feedback.tsx';
+import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 const secretValue = (row: DirectoryWrite): string => row.password.action === 'set' ? row.password.value : '';
 const draft = (entry: DirectoryEntry): DirectoryWrite => {
@@ -21,7 +21,7 @@ export function DirectoryIntegration(props: { canWrite: boolean; service?: typeo
   return <section aria-label={t('directory-title')} class={css.section}>
     <h3>{t('directory-title')}</h3><p>{t('directory-help')}</p>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
-    <Show when={saved()}><p role="status">{t('directory-saved')}</p></Show>
+    <Feedback kind="success" as="toast" message={saved()?t('directory-saved'):null}/>
     <button type="button" class="btn" disabled={busy()} onClick={() => void load()}>{t('directory-reload')}</button>
     <Show when={config()}>{current => <>
       <Show when={current().restartRequired}><p role="status">{t('directory-restart')}</p></Show>

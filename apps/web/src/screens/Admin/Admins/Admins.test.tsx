@@ -100,6 +100,31 @@ describe('admin accounts and roles', () => {
     expect(screen.queryByRole('button', { name: 'Create admin' })).not.toBeInTheDocument();
     await expectNoAxeViolations(container);
   });
+  it('suggests a random suffix only on creation without marking the untouched form dirty', async () => {
+    const api = service(); const { route } = renderAccounts(api);
+    fireEvent.click(await screen.findByRole('button', { name: 'Create admin' }));
+    expect((screen.getByRole('textbox', { name: 'Username' }) as HTMLInputElement).value).toMatch(/^admin-[a-f0-9]{12}$/);
+    const back = screen.getByRole('button', { name: 'Back to admin accounts' });
+    await waitFor(() => expect(back).toBeEnabled());
+    fireEvent.click(back);
+    await waitFor(() => expect(route().rest).toEqual([]));
+    expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    expect(api.write).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Alice (alice)' }));
+    expect(screen.queryByRole('button', { name: 'Randomize suffix' })).not.toBeInTheDocument();
+  });
+  it('keeps a readable custom prefix when regenerating and submits the visible username unchanged', async () => {
+    const api = service(); renderAccounts(api, '/admin#/admins/new');
+    const input = await screen.findByRole('textbox', { name: 'Username' });
+    fireEvent.input(input, { target: { value: 'helpdesk-0123456789ab' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Randomize suffix' }));
+    const generated = (input as HTMLInputElement).value;
+    expect(generated).toMatch(/^helpdesk-[a-f0-9]{12}$/);
+    expect(generated).not.toBe('helpdesk-0123456789ab');
+    fireEvent.input(screen.getByLabelText('New password (at least 12 characters)'), { target: { value: 'temporary-password' } });
+    fireEvent.submit(screen.getByRole('form', { name: 'Create admin' }));
+    await waitFor(() => expect(api.write).toHaveBeenCalledWith('/admins', 'POST', { username: generated, displayName: generated, password: 'temporary-password', roles: [] }));
+  });
   it('keeps account creation off the list and submits only from its dedicated page', async () => {
     const api = service(); const { route, container } = renderAccounts(api);
     await screen.findByRole('button', { name: 'Alice (alice)' });

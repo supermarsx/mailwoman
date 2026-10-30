@@ -2,6 +2,7 @@ import { For, Show, createSignal, createEffect, on, onMount, onCleanup, type JSX
 import { adminSessionGeneration } from '../../../api/adminSession.ts';
 import { loadCatalog, t } from '../../../i18n';
 import { adminsApi, type AdminAccountsApi, type AdminAccount, type AdminRole, type AdminMe, type AdminSession, type RoleGrant, type Override } from '../../../api/admin/admins.ts';
+import { randomAdminUsername } from './randomUsername.ts';
 import { AdminSessionTable } from './SessionTable.tsx';
 import { revokeSessionBatch } from '../../../api/sessionRevocation.ts';
 import { Feedback } from '../shell/Feedback.tsx';
@@ -32,6 +33,7 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
   const [password, setPassword] = createSignal('');
   const [createPassword, setCreatePassword] = createSignal('');
   const [username, setUsername] = createSignal('');
+  const [initialUsername, setInitialUsername] = createSignal('');
   const [createName, setCreateName] = createSignal('');
   const [grants, setGrants] = createSignal<RoleGrant[]>([]);
   const [domainText, setDomainText] = createSignal<Record<string, string>>({});
@@ -84,14 +86,15 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
   });
   const grantKey = (rows: RoleGrant[]): string => JSON.stringify([...rows].sort((a, b) => a.roleId.localeCompare(b.roleId)).map(row => [row.roleId, row.domains === null ? null : [...row.domains].sort()]));
   const overrideKey = (rows: Override[]): string => JSON.stringify([...rows].sort((a, b) => a.capability.localeCompare(b.capability)).map(row => [row.capability, row.effect]));
-  const dirty = () => creating() ? Boolean(username() || createName() || createPassword()) : editing() && Boolean(selected()) && (
+  const dirty = () => creating() ? Boolean(username() !== initialUsername() || createName() || createPassword()) : editing() && Boolean(selected()) && (
     name() !== selected()!.displayName || Boolean(password()) || grantKey(normalizedGrants()) !== grantKey(selected()!.roles) || overrideKey(overrides()) !== overrideKey(selected()!.overrides)
   );
   useDirtyGuard(dirty);
   createEffect(on(() => [route().rest[0], loaded()] as const, () => {
     const found = accounts().find(a => a.id === route().rest[0]);
     if (found) select(found); else setSelected(undefined);
-    setSecret(''); setPassword(''); setUsername(''); setCreateName(''); setCreatePassword(''); setSuccess(null);
+    const suggested = creating() ? randomAdminUsername() : '';
+    setInitialUsername(suggested); setSecret(''); setPassword(''); setUsername(suggested); setCreateName(''); setCreatePassword(''); setSuccess(null);
   }));
   const path = () => `/admins/${encodeURIComponent(selected()!.id)}`;
   onMount(() => { void loadCatalog('admin-admins'); setBusy(true); void reload().catch(e => showAdminError(e, { key: 'admins-load', retry: () => reload() }, setError)).finally(() => setBusy(false)); });
@@ -111,12 +114,14 @@ export function AdminAdmins(props: { service?: AdminAccountsApi }): JSX.Element 
             e.preventDefault();
             void run(async () => {
               const created = await api.write<AdminAccount>('/admins', 'POST', { username: username(), displayName: createName().trim() || username(), password: createPassword(), roles: [] });
-              setCreatePassword(''); setUsername(''); setCreateName('');
+              setCreatePassword(''); setInitialUsername(''); setUsername(''); setCreateName('');
               if (created.id) { setAccounts(rows => [...rows, created]); go([created.id, 'edit']); } else go();
             });
           }}>
             <fieldset class={ux.fieldset} disabled={busy()}><legend>{t('admin-accounts-identity')}</legend>
               <label class={css.field}>{t('admin-accounts-username')}<input class={ux.control} required maxLength={64} autocomplete="off" value={username()} onInput={e => setUsername(e.currentTarget.value)} /></label>
+              <div class={ux.pageActions}><button class="btn btn--ghost" type="button" onClick={() => setUsername(randomAdminUsername(username()))}>{t('admin-accounts-random-suffix')}</button></div>
+              <p class={ux.fieldsetHelp}>{t('admin-accounts-random-suffix-help')}</p>
               <label class={css.field}>{t('admin-accounts-display-name')}<input class={ux.control} maxLength={128} value={createName()} onInput={e => setCreateName(e.currentTarget.value)} /></label>
               <label class={css.field}>{t('admin-accounts-password')}<input class={ux.control} required type="password" minLength={12} autocomplete="new-password" value={createPassword()} onInput={e => setCreatePassword(e.currentTarget.value)} /></label>
             </fieldset>

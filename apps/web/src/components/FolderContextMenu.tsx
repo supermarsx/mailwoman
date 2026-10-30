@@ -10,7 +10,7 @@ import {FolderRenameField,prefersRenameDialog,RenameFolderDialog,useCanRename,us
 import {useActions} from '../keymap/index.ts';
 import * as renameCss from './renameFolder.css.ts';
 import * as css from './contextMenu.css.ts';
-export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
+export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void}):JSX.Element {
  const app=useApp();const [empty,setEmpty]=createSignal(false);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
  const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal<'inline'|'dialog'|null>(null);let row:HTMLDivElement|undefined;
  // Ask for the empty-folder and rename abilities now, so the first menu opened already has them.
@@ -29,6 +29,11 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
    {id:'pin',label:t(pinned.includes(box.id)?'mail-unpin':'mail-pin'),icon:'pin',run:()=>{const current=accountUiPreferences().folderPinned??[];setAccountUiPreferences({folderPinned:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
    {id:'refresh',label:t('mail-context-refresh'),icon:'refresh',run:()=>selectThen(()=>{void app.refreshCurrentMailbox();})},
    {id:'settings',label:t('mail-context-folder-settings'),icon:'settings',run:props.onSettings}];
+  if(box.role!=='inbox')rows.push({id:'hide',label:t('mail-context-hide-folder'),icon:'eye',run:()=>{
+   const hidden=accountUiPreferences().folderHidden??[];
+   if(!hidden.includes(box.id))setAccountUiPreferences({folderHidden:[...hidden,box.id]});
+   props.onHidden?.();
+  }});
   if(props.onOpenTab)rows.splice(1,0,{id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
   if(box.mailwomanSearchQuery===undefined&&props.canShare())rows.push({id:'sharing',label:t('mail-nav-sharing'),icon:'users',run:()=>selectThen(props.onShare)});
   if(canRename(box))rows.push({id:'rename',label:t('rename-folder-action'),icon:'edit',run:startRename});

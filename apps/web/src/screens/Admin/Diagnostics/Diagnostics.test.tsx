@@ -22,7 +22,7 @@ function api(overrides: Partial<DiagnosticsApi> = {}, runs: Run[] = [SERVER]): D
   };
 }
 function at(rest: string[]): () => AdminRoute { return () => ({ section: 'diagnostics', rest }); }
-const card = (name: string): HTMLElement => screen.getByRole('article', { name });
+const card = (name: string): HTMLElement => screen.getByRole('row', { name });
 
 describe('diagnostics model', () => {
   it('maps tabs, statuses and groups', () => {
@@ -46,12 +46,26 @@ describe('diagnostics model', () => {
 });
 
 describe('diagnostics screen', () => {
+  it('renders a named accessible check table with distinct microsecond duration and retained details/actions',async()=>{
+    const {container}=renderInShell(()=><Diagnostics api={api()}/>,{route:at(['server'])});
+    const table=await screen.findByRole('table',{name:'Server'});
+    expect(within(table).getAllByRole('columnheader').map(header=>header.textContent)).toEqual(['Check','Status','Result','Duration','Actions']);
+    const row=within(table).getByRole('row',{name:'Database connection'});
+    expect(within(row).getByRole('rowheader')).toHaveTextContent('Database connection');
+    expect(row.querySelector('[data-diag-duration]')).toHaveTextContent(/420 [µμ]s/u);
+    expect(within(row).getAllByText(/420 [µμ]s/u)).toHaveLength(1);
+    expect(row.querySelector('details summary')).toHaveTextContent('Details');
+    expect(within(row).getByRole('button',{name:'Run again'})).toBeEnabled();
+    expect(screen.getByRole('region',{name:'Server'})).toHaveAttribute('tabindex','0');
+    expect(screen.queryByRole('article',{name:'Database connection'})).toBeNull();
+    await expectNoAxeViolations(container);
+  });
   it('shows every sub-tab and opens the one in the route', async () => {
     renderInShell(() => <Diagnostics api={api()} />, { route: at(['posture']) });
     const nav = await screen.findByRole('navigation', { name: 'Diagnostics pages' });
     expect(within(nav).getAllByRole('link').map((a) => a.textContent)).toEqual(['Overview', 'Server', 'Connectivity', 'Mail backends', 'Security posture', 'Tools', 'History', 'Report']);
     expect(within(nav).getByRole('link', { name: 'Security posture' })).toHaveAttribute('aria-current', 'page');
-    const hsts = await screen.findByRole('article', { name: 'HSTS' });
+    const hsts = await screen.findByRole('row', { name: 'HSTS' });
     expect(within(hsts).getByTestId('diag-status')).toHaveTextContent('Warning');
     // Warn and Fail carry "How to fix"; OK and Not run do not.
     expect(within(hsts).getByText('How to fix')).toBeInTheDocument();
@@ -106,7 +120,7 @@ describe('diagnostics screen', () => {
       answer = () => resolve({ run: serverRun('s2', 200, [check('database-connectivity', 'fail'), check('database-write', 'pass')]), historySaved: true, auditSaved: true });
     }));
     renderInShell(() => <Diagnostics api={api({ run })} />, { route: at(['server']) });
-    const db = await screen.findByRole('article', { name: 'Database connection' });
+    const db = await screen.findByRole('row', { name: 'Database connection' });
     await vi.waitFor(() => expect(within(db).getByTestId('diag-status')).toHaveTextContent('OK'));
     const tabsBefore = screen.getByRole('navigation', { name: 'Diagnostics pages' });
     fireEvent.click(within(db).getByRole('button', { name: 'Run again' }));
@@ -119,14 +133,14 @@ describe('diagnostics screen', () => {
     await vi.waitFor(() => expect(within(db).getByTestId('diag-status')).toHaveTextContent('Failed'));
     expect(within(db).getByText('How to fix')).toBeInTheDocument();
     // Same element: the card updated in place, the page was not swapped.
-    expect(screen.getByRole('article', { name: 'Database connection' })).toBe(db);
+    expect(screen.getByRole('row', { name: 'Database connection' })).toBe(db);
     expect(screen.getByRole('navigation', { name: 'Diagnostics pages' })).toBe(tabsBefore);
   });
 
   it('raises a failed run as a corner toast whose Retry runs it again', async () => {
     const run = vi.fn().mockRejectedValueOnce(Object.assign(new Error('busy'), { status: 429 })).mockResolvedValue({ run: SERVER, historySaved: true, auditSaved: true });
     renderInShell(() => <Diagnostics api={api({ run })} />, { route: at(['server']) });
-    const db = await screen.findByRole('article', { name: 'Database connection' });
+    const db = await screen.findByRole('row', { name: 'Database connection' });
     await vi.waitFor(() => expect(within(db).getByRole('button', { name: 'Run again' })).toBeEnabled());
     fireEvent.click(within(db).getByRole('button', { name: 'Run again' }));
     const toast = await screen.findByTestId('admin-request-error');
@@ -139,7 +153,7 @@ describe('diagnostics screen', () => {
     const writeText = vi.fn<(value: string) => Promise<void>>(async () => undefined);
     Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } });
     renderInShell(() => <Diagnostics api={api()} />, { route: at(['server']) });
-    const db = await screen.findByRole('article', { name: 'Database connection' });
+    const db = await screen.findByRole('row', { name: 'Database connection' });
     fireEvent.click(await within(db).findByRole('button', { name: 'Copy Check ID' }));
     await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('database-connectivity'));
   });
@@ -148,20 +162,20 @@ describe('diagnostics screen', () => {
     const backends: Run = { id: 'b0', suite: 'backends', startedAt: 90, status: 'fail', results: [BACKEND, check('b.test:smtp', 'fail', { domain: 'b.test', backendId: 'smtp', protocol: 'smtp', category: 'backend' })] };
     const domains = vi.fn(async () => [{ name: 'a.test', enabled: true, failover: true, backends: 2 }]);
     renderInShell(() => <Diagnostics api={api({ start: vi.fn(), job: vi.fn(), domains }, [SERVER, backends])} />, { route: at(['backends']) });
-    const imap = await screen.findByRole('article', { name: 'a.test · imap' });
+    const imap = await screen.findByRole('row', { name: 'a.test · imap' });
     expect(within(imap).getByText('implicit · TLSv1.3')).toBeInTheDocument();
     expect(within(imap).getByText('No')).toBeInTheDocument();
     expect(within(card('b.test · smtp')).getByText('How to fix')).toBeInTheDocument();
     expect(await screen.findByTestId('diag-failover')).toHaveTextContent('Failover on · 2 mail backends');
     fireEvent.input(screen.getByLabelText('Filter checks, domains or backends'), { target: { value: 'b.test' } });
-    expect(screen.queryByRole('article', { name: 'a.test · imap' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('row', { name: 'a.test · imap' })).not.toBeInTheDocument();
     expect(card('b.test · smtp')).toBeInTheDocument();
   });
 
   it('runs the DNS tool for a saved domain in its card', async () => {
     const dns = vi.fn(async () => ({ domain: 'a.test', mx: { records: [{ preference: 10, host: 'mx.a.test' }], error: null }, spf: { present: true, records: ['v=spf1 -all'], error: null }, dmarc: { present: false, records: [], error: null }, srv: [] }));
     renderInShell(() => <Diagnostics api={api({ dns, domains: async () => [{ name: 'a.test', enabled: true, failover: false, backends: 1 }] })} />, { route: at(['connectivity']) });
-    const tool = await screen.findByRole('article', { name: 'DNS records' });
+    const tool = await screen.findByRole('row', { name: 'DNS records' });
     const go = within(tool).getByRole('button', { name: 'Run' });
     await vi.waitFor(() => expect(go).toBeEnabled());
     fireEvent.click(go);
@@ -205,9 +219,9 @@ describe('diagnostics screen', () => {
     const [route, setRoute] = createSignal<AdminRoute>({ section: 'diagnostics', rest: ['server'] });
     const a = api();
     renderInShell(() => <Diagnostics api={a} />, { route });
-    await screen.findByRole('article', { name: 'Database connection' });
+    await screen.findByRole('row', { name: 'Database connection' });
     setRoute({ section: 'diagnostics', rest: ['posture'] });
-    expect(await screen.findByRole('article', { name: 'HSTS' })).toBeInTheDocument();
+    expect(await screen.findByRole('row', { name: 'HSTS' })).toBeInTheDocument();
     expect(a.history).toHaveBeenCalledTimes(1);
   });
 });

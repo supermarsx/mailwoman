@@ -132,3 +132,9 @@ appearance-custom-safe = Recuperação: adicione appearanceSafe=1 à query da p�
 
 appearance-custom-accent = Cor de destaque personalizada
 appearance-custom-accent-reset = Usar a cor de destaque nomeada ou do tema
+
+appearance-text-mode-label = Estilo do texto
+appearance-text-mode-normal = Texto normal
+appearance-text-mode-leet = Leetspeak (1337)
+appearance-text-mode-help = Use leetspeak nos textos da interface e na leitura das mensagens. A edição e as mensagens enviadas mantêm o texto original.
+appearance-text-mode-example = Olá, Mailwoman!

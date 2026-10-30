@@ -177,7 +177,7 @@ describe('admin assist screen', () => {
       capabilityGrants: ['dictation', 'assistant'],
       dataCeilings: { accounts: ['acct-1', 'acct-2'], folders: ['inbox', 'archive'], includeE2ee: true, includeAttachments: true },
     });
-    await waitFor(() => expect(screen.getByTestId('save-result')).toHaveTextContent(/Saved/));
+    await waitFor(() => expect(screen.getByTestId('admin-form-save-toast')).toHaveTextContent(/Saved/));
   });
 
   it('does not offer the form when the configuration could not be read', async () => {

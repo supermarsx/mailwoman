@@ -97,3 +97,6 @@ admin-accounts-access-state-help = Estas ações terminam as sessões da conta. 
 admin-accounts-passkey-count = Chaves de acesso: { $count }
 admin-accounts-revoke-passkeys = Revogar todas as chaves de acesso
 admin-accounts-revoke-passkeys-help = Remove as chaves de acesso e os códigos de recuperação deste administrador e termina todas as respetivas sessões.
+
+admin-accounts-random-suffix = Gerar novo sufixo
+admin-accounts-random-suffix-help = As novas contas começam com um prefixo legível e um sufixo aleatório. Pode editar o nome de utilizador ou gerar um novo sufixo antes de criar a conta.

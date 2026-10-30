@@ -5,7 +5,7 @@ import { AsyncPending } from '../../components/AsyncState.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { ShellContext } from './shell/context.ts';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
-import { describeAdminError } from './shell/Feedback.tsx';
+import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import { sectionPath } from './shell/router.ts';
 import * as css from './admin.css.ts';
 import './telemetry.css';
@@ -35,7 +35,7 @@ export function Telemetry(props:{api?:TelemetryApi}):JSX.Element {
   return <section class={css.subsectionBody} aria-label={t('admin-telemetry-title')}>
     <h2>{t('admin-telemetry-title')}</h2><p>{t('admin-telemetry-help')}</p>
     <button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('observability'))}>{t('admin-telemetry-back')}</button>
-    <Show when={error()}><p role="alert">{error()}</p></Show><Show when={saved()}><p role="status">{t('admin-telemetry-saved')}</p></Show>
+    <Show when={error()}><p role="alert">{error()}</p></Show><Feedback kind="success" as="toast" message={saved()?t('admin-telemetry-saved'):null}/>
     <Show when={view()?.restartRequired}><p role="status">{t('admin-telemetry-restart')}</p></Show>
     <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('admin-telemetry-reload')}</button>}><AsyncPending/></Show>}>{value=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
       <AdminSubsection title={t('admin-telemetry-collector')} description={t('admin-telemetry-collector-help')}>

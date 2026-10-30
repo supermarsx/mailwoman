@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { fireEvent, screen, waitFor } from '@solidjs/testing-library';
+import {ToastRegion} from '../../components/toast/index.ts';
 import { Integrations } from './Integrations.tsx';
 import { mockAdminApi, renderWithAdmin } from './testkit.tsx';
 import { AdminApiError, type ApiKeyInfo } from '../../state/slices/admin.ts';
@@ -164,12 +165,13 @@ describe('Admin › Integrations', () => {
     });
 
     it('approving asks first, naming the owner, the key, its scope and what approval means', async () => {
-      const setApiKeyUnattendedSend = vi.fn(async () => undefined);
+      let complete!:()=>void;
+      const setApiKeyUnattendedSend = vi.fn(()=>new Promise<void>(resolve=>{complete=resolve;}));
       const listApiKeys = vi
         .fn<() => Promise<ApiKeyInfo[]>>()
         .mockResolvedValueOnce([REQUESTED])
         .mockResolvedValue([{ ...REQUESTED, unattendedSendApproved: true }]);
-      renderWithAdmin(() => <Integrations />, mockAdminApi({ listApiKeys, setApiKeyUnattendedSend }));
+      renderWithAdmin(() => <><Integrations /><ToastRegion/></>, mockAdminApi({ listApiKeys, setApiKeyUnattendedSend }));
 
       fireEvent.click(await screen.findByRole('button', { name: 'Approve unattended send for key mwk_req456' }));
       const dialog = screen.getByRole('dialog');
@@ -186,11 +188,17 @@ describe('Admin › Integrations', () => {
         "The approval takes effect immediately, from the key's next send. No restart is needed.",
       );
 
+      expect(screen.queryByTestId('integration-unattended-notice')).toBeNull();
       fireEvent.click(screen.getByTestId('admin-unattended-confirm'));
+      expect(screen.getByTestId('admin-unattended-confirm')).toHaveAttribute('aria-busy','true');
+      expect(screen.getByTestId('admin-unattended-confirm')).not.toHaveTextContent('Saving');
+      expect(screen.getByTestId('toast-region')).toHaveTextContent('Saving');
+      complete();
       await waitFor(() => expect(screen.getByTestId('unattended-state-k2')).toHaveTextContent('Approved'));
       expect(setApiKeyUnattendedSend).toHaveBeenCalledTimes(1);
       expect(setApiKeyUnattendedSend).toHaveBeenCalledWith('k2', true);
       expect(screen.queryByRole('dialog')).toBeNull();
+      expect(screen.getByTestId('toast-region')).toContainElement(screen.getByTestId('integration-unattended-notice'));
       expect(screen.getByRole('status')).toHaveTextContent(
         'Unattended send approved for key mwk_req456. It is in effect now.',
       );

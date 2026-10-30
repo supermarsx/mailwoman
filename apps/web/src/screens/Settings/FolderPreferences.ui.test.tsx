@@ -3,6 +3,20 @@ import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {FolderPreferences} from './FolderPreferences.tsx';
 import type {AccountUiPreferences} from '../../api/accountPreferences.ts';
+it('keeps hidden folders manageable and restores their hidden ancestors without modifying mail',async()=>{
+ const [prefs,setPrefs]=createSignal<AccountUiPreferences>({folderHidden:['a'],userFoldersCollapsed:true});
+ const update=vi.fn((patch:AccountUiPreferences)=>setPrefs(value=>({...value,...patch})));
+ render(()=><FolderPreferences folders={()=>[{id:'inbox',name:'Inbox',role:'inbox'},{id:'a',name:'Projects'},{id:'b',name:'Child',parentId:'a'}]} preferences={prefs} onChange={update}/>);
+ expect(await screen.findByRole('button',{name:'Hide Inbox from sidebar'})).toBeDisabled();
+ expect(screen.getByRole('checkbox',{name:'Collapse user folders in the sidebar'})).toBeChecked();
+ fireEvent.click(screen.getByRole('button',{name:'Show Child in sidebar'}));
+ expect(update).toHaveBeenLastCalledWith({folderHidden:[]});
+ fireEvent.click(screen.getByRole('button',{name:'Hide Projects from sidebar'}));
+ expect(screen.getByRole('button',{name:'Show Child in sidebar'})).toBeVisible();
+ expect(screen.getByRole('button',{name:'Show Projects in sidebar'})).toBeVisible();
+ fireEvent.click(screen.getByRole('checkbox',{name:'Collapse user folders in the sidebar'}));
+ expect(update).toHaveBeenLastCalledWith({userFoldersCollapsed:false});
+});
 it('offers fifty native icons plus automatic and saves only the changed folder preference',async()=>{
  const [prefs,setPrefs]=createSignal<AccountUiPreferences>({});const update=vi.fn((patch:AccountUiPreferences)=>setPrefs(value=>({...value,...patch})));
  render(()=><FolderPreferences folders={()=>[{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]} preferences={prefs} onChange={update}/>);

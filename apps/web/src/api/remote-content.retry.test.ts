@@ -1,9 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { requestImageRetry, signContent } from './remote-content.ts';
+import { replaceFailedImages, requestImageRetry, signContent } from './remote-content.ts';
 
 // t56: "Retry images" re-signs with retry:true so the server forgets the 60 s
 // remembered failures for those URLs; an ordinary sign never sends it.
 describe('signContent retry', () => {
+  it('replaces only failed references and refuses off-server replacements', () => {
+    const base='https://mail.example';
+    const images=[{url:'https://img.example/good',src:`${base}/api/rc/i/good`,ref:'good'}, {url:'https://img.example/bad',src:`${base}/api/rc/i/bad`,ref:'bad'}];
+    const html=`<img src="${images[0]!.src}"><img src="${images[1]!.src}">`;
+    const replacements=images.map(image=>({...image,src:`${image.src}-new`}));
+    const result=replaceFailedImages(html,images,['bad'],replacements,base);
+    expect(result.html).toBe(html.replace('/i/bad','/i/bad-new'));
+    expect(result.imageSources[0]).toBe(images[0]);
+    expect(result.imageSources[1]).toBe(replacements[1]);
+    expect(replaceFailedImages(html,images,['bad'],[{...images[1]!,src:'https://external.example/image'}],base)).toEqual({html,imageSources:images});
+  });
   afterEach(() => { vi.unstubAllGlobals(); });
   function stub(): ReturnType<typeof vi.fn> {
     const fetchMock = vi.fn(async () => new Response(JSON.stringify({ images: [], parts: [], files: [], refused: [] }), { status: 200, headers: { 'content-type': 'application/json' } }));

@@ -1,3 +1,4 @@
+import {displayText} from '../i18n/presentation.ts';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import {preferenceAccount,observePreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import { toast } from './toast/index.ts';
@@ -124,7 +125,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
     if(props.onCloseMany)props.onCloseMany(ids);else for(const each of ids){if(props.onClose)props.onClose(each);else subTabs.close(each);}
     if(owned)queueMicrotask(()=>{const next=subTabs.activeId();if(next&&(document.activeElement===null||document.activeElement===document.body))document.getElementById(tabDomId(next))?.focus();});
   }
-  const context=createContextMenu({label:()=>props.tab.title,scope:()=>`${preferenceAccount()?.generation}:${id()}:${subTabs.tabs().some(tab=>tab.id===id())}`,actions:()=>{
+  const context=createContextMenu({label:()=>displayText(props.tab.title),scope:()=>`${preferenceAccount()?.generation}:${id()}:${subTabs.tabs().some(tab=>tab.id===id())}`,actions:()=>{
     if(!subTabs.tabs().some(tab=>tab.id===id()))return [];
     const side=sides(),actions:ContextAction[]=[];
     if(props.canClose?.(id())!==false)actions.push({id:'close',label:t('mail-subtab-close',{title:props.tab.title}),icon:'close',run:close});
@@ -169,7 +170,7 @@ function SubTabButton(props: { tab: SubTab; active: boolean; onClose?: (id:strin
           if (e.button === 1) close();
         }}
       >
-        {props.tab.title}
+        {displayText(props.tab.title)}
       </button>
       <Show when={props.tab.pinned}><span class="subtab__star" role="img" aria-label={t('workspace-tabs-starred')} data-tooltip={t('workspace-tabs-starred')}><Icon name="star"/></span></Show>
       <Show when={props.active && props.canClose?.(id()) !== false}><button

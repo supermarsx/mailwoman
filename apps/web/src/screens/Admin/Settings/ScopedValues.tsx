@@ -21,6 +21,7 @@ import {
 import { AdminProblemError } from '../shell/adminApi.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { DataTable } from '../shell/DataTable.tsx';
+import {useSavingToast} from '../shell/useSavingToast.ts';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { FormField } from '../shell/FormField.tsx';
 import { HelpNote } from '../shell/HelpNote.tsx';
@@ -66,6 +67,7 @@ export function ScopedValues(props: ScopedValuesProps): JSX.Element {
   const [formError, setFormError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  useSavingToast(busy,()=>t('admin-ux-form-saving'));
   const [removing, setRemoving] = createSignal<ScopedValue | null>(null);
   const [preview, setPreview] = createSignal<{ value: unknown; locked: boolean } | null>(null);
 
@@ -227,15 +229,15 @@ export function ScopedValues(props: ScopedValuesProps): JSX.Element {
               <span>{t('admin-settings-domain-locked')}</span>
             </label>
           </Show>
-          <button type="submit" class="btn btn--primary" disabled={busy()}>
-            {busy() ? t('admin-ux-form-saving') : t(isDomain() ? 'admin-settings-domain-save' : 'admin-settings-user-save')}
+          <button type="submit" class="btn btn--primary" aria-busy={busy()} disabled={busy()}>
+            {t(isDomain() ? 'admin-settings-domain-save' : 'admin-settings-user-save')}
           </button>
         </form>
       </Show>
       <div aria-live="polite">
         <Feedback kind="success" message={done()} />
       </div>
-      <Feedback kind="error" message={formError()} />
+      <Feedback kind="error" as="toast" message={formError()} />
 
       <ConfirmDialog
         open={removing() !== null}

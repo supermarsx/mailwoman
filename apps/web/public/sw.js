@@ -414,6 +414,15 @@ async function cacheFirst(request) {
   return res;
 }
 
+// A configured client-entry gate requires online admission. Do not retain a
+// verified old shell after observing the policy, or cache the unlocked shell.
+async function discardGatedShell(res) {
+  if (res.headers.get('x-mailwoman-client-gate') !== 'enabled') return false;
+  const cache = await openCache();
+  try { await cache?.delete(SHELL_URL); } catch { /* optional cache unavailable */ }
+  return true;
+}
+
 function isShellDocument(request, res) {
   return (
     res.status === 200 &&
@@ -427,7 +436,7 @@ async function shellFallback(request) {
   try {
     const res = await fetch(request);
     // Keep the stored shell current, and put it back after a logout purge.
-    if (isShellDocument(request, res) && await matchesManifest('/index.html', res)) {
+    if (!await discardGatedShell(res) && isShellDocument(request, res) && await matchesManifest('/index.html', res)) {
       const cache = await openCache();
       if (cache) await store(cache, SHELL_URL, res);
     }
@@ -465,7 +474,7 @@ self.addEventListener('install', (event) => {
         SHELL_URLS.map(async (url) => {
           try {
             const res = await fetch(url);
-            if (cache && res.status === 200 && !isAnalyticsTagged(res) && await matchesManifest('/index.html', res)) await store(cache, url, res);
+            if (!await discardGatedShell(res) && cache && res.status === 200 && !isAnalyticsTagged(res) && await matchesManifest('/index.html', res)) await store(cache, url, res);
           } catch {
             // Offline at install: the shell is stored on the next navigation.
           }

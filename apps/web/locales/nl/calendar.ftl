@@ -166,10 +166,8 @@ calendar-events-count-people = { $count ->
 }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = Je bezette tijd op de dag van het conflict, per uur.
 calendar-fb-whose = Agenda's
 calendar-fb-own = Van jou
-calendar-fb-own-only = De beschikbaarheid van deelnemers wordt niet getoond. De server meldt alleen bezette tijd voor je eigen agenda's.
 calendar-fb-unavailable = Je bezette tijd kon niet worden geladen.
 calendar-fb-cell = { $principal } om { $hour }: { $status }
 calendar-fb-busy = Bezet

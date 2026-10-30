@@ -75,7 +75,7 @@ export const CRUMB_WORDS: readonly string[] = [
   'audit', 'statistics', 'telemetry',
   'directory', 'webhooks', 'keys', 'hosting', 'ssh', 'domains', 'mailboxes',
   'application', 'authentication', 'jobs', 'mode', 'destinations', 'proxies', 'totp', 'security',
-  'requirements',
+  'requirements', 'client-access',
   // t105: the Diagnostics sub-tabs (#/diagnostics/<tab>).
   'server', 'connectivity', 'posture', 'tools', 'history', 'report',
 ];
@@ -270,6 +270,7 @@ export function settingCrumbLabel(key: string, label: (key: string) => string): 
 // ── Route grammar ─────────────────────────────────────────────────────────────
 export type CrumbSpec =
   | { kind: 'word'; word: string }
+  | { kind: 'message'; id: string; fallback: string }
   | { kind: 'setting'; key: string }
   | { kind: 'name'; text: string }
   | { kind: 'entity'; entity: EntityKind; id: string; parent?: string }
@@ -288,6 +289,9 @@ export function specFor(section: string, rest: readonly string[], i: number): Cr
   const seg = rest[i] ?? '';
   const word = wordOf(seg);
   switch (section) {
+    case 'preferences':
+      if(i===0&&['appearance','layout','dashboard','security'].includes(seg))return {kind:'message',id:`admin-personal-${seg}`,fallback:seg};
+      break;
     case 'settings':
       if (i === 0) return { kind: 'setting', key: seg };
       break;
@@ -323,6 +327,7 @@ export function specFor(section: string, rest: readonly string[], i: number): Cr
 /** The label of one spec; `null` while it loads. */
 export function specLabel(spec: CrumbSpec, label: (key: string) => string): string | null {
   switch (spec.kind) {
+    case 'message': return translated(spec.id,spec.fallback,'preference tab');
     case 'word': return wordLabel(spec.word);
     case 'setting': return settingCrumbLabel(spec.key, label);
     case 'name': return spec.text;

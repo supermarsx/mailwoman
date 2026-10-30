@@ -157,26 +157,28 @@ describe('Login', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
   });
 
-  // A disabled account is refused with the SAME 401 body as a wrong password
-  // (t27 plan §4 e3: one shape, so the refusal is not an account-state oracle).
-  // The screen therefore cannot say "this account is disabled"; it states the
-  // possibility next to the refusal.
-  it('a 401 also says the account may have been disabled', async () => {
-    const client = fakeClient({
-      login: vi.fn(async () => {
-        throw new ApiError(401, 'invalid credentials');
-      }),
-    });
-    renderLogin(client);
-    // Control: the note is not part of the form before a refusal.
-    expect(screen.queryByTestId('login-refused-note')).toBeNull();
-
-    fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'x' } });
-    fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
-
-    const note = await screen.findByTestId('login-refused-note');
-    expect(note).toHaveTextContent('the account may have been disabled by an administrator');
+  // Account state remains private: the optional help is identical for all 401s.
+  it.each([undefined, false, true])('shows refusal help only when explicitly enabled (%s)', async (enabled) => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => new Response(
+      String(input).endsWith('/api/public-config')
+        ? JSON.stringify({ brandName: 'Help policy test', showAccountHelpNotice: enabled })
+        : '[]', { status: 200, headers: { 'content-type': 'application/json' } },
+    )));
+    try {
+      const client = fakeClient({ login: vi.fn(async () => { throw new ApiError(401, 'invalid credentials'); }) });
+      renderLogin(client);
+      await screen.findByRole('heading', { name: 'Help policy test' });
+      expect(screen.queryByTestId('login-refused-note')).toBeNull();
+      fireEvent.input(screen.getByLabelText('Email or username'), { target: { value: 'x' } });
+      fireEvent.input(screen.getByLabelText('Password'), { target: { value: 'y' } });
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
+      expect(await screen.findByRole('alert')).toHaveTextContent('Invalid credentials');
+      if (enabled === true) {
+        expect(screen.getByTestId('login-refused-note')).toHaveTextContent('the account may have been disabled by an administrator');
+      } else {
+        expect(screen.queryByTestId('login-refused-note')).toBeNull();
+      }
+    } finally { vi.unstubAllGlobals(); }
   });
 
   it('an unreachable server does not show the disabled-account note', async () => {

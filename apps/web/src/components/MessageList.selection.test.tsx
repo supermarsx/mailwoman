@@ -42,6 +42,28 @@ afterEach(() => {
 });
 
 describe('MessageList selection', () => {
+  it('keeps the bulk bar open while selection mode is active, including after selecting none', async () => {
+    const { app } = await setup();
+    const toggle = screen.getByRole('button', { name: 'Select messages' });
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle.querySelector('[data-icon="bulkSelect"]')).not.toBeNull();
+    expect(screen.getByTestId('bulk-bar')).toBeInTheDocument();
+    expect(screen.getByTestId('bulk-delete')).toBeDisabled();
+    fireEvent.click(row('Subject a'));
+    expect(screen.getByTestId('bulk-delete')).toBeEnabled();
+    fireEvent.click(row('Subject a'));
+    expect(app.selectedIds().size).toBe(0);
+    expect(screen.getByTestId('bulk-bar')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('bulk-select-all'));
+    expect(app.selectedIds().size).toBe(EMAILS.length);
+    fireEvent.click(screen.getByTestId('bulk-select-all'));
+    expect(app.selectedIds().size).toBe(0);
+    expect(toggle).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('bulk-bar')).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(screen.queryByTestId('bulk-bar')).not.toBeInTheDocument();
+  });
   it('selects by ordinary taps in explicit selection mode and clears back to opening messages',async()=>{
     const {app}=await setup();const open=vi.spyOn(app,'openMessage');
     fireEvent.click(screen.getByRole('button',{name:'Select messages'}));fireEvent.click(row('Subject a'));fireEvent.click(row('Subject b'));

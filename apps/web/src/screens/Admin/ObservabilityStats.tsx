@@ -1,13 +1,23 @@
-import {createResource,For,Show,type JSX} from 'solid-js';
-import {t} from '../../i18n';
+// Admin › Observability › Statistics (t106 layout).
+//
+// One period control at the top applies to every figure, chart and table that
+// covers a period. Below it three sections: key figures (stat tiles), charts
+// (one card each) and tables. Figures that are a reading of "now" (accounts,
+// sessions, storage, outbox) say so in their labels and reload with the page's
+// refresh. Loading keeps the page in place: skeletons the size of the final
+// cards on the first load, the last render dimmed on later ones (t75).
+
+import {createResource,For,Show,onMount,type JSX} from 'solid-js';
+import {loadCatalog,t} from '../../i18n';
 import {useShell} from './shell/context.ts';
-import {AsyncPending} from '../../components/AsyncState.tsx';
-import {RequestHistory} from './RequestHistory.tsx';
-import {BarChart} from './shell/BarChart.tsx';
+import {resourceValue} from '../../components/resourceValue.ts';
+import {createRequestHistory,HistoryNotes,PeriodPicker,TrafficCharts,TrafficTables,TrafficTiles} from './RequestHistory.tsx';
 import {StatTile} from './shell/StatTile.tsx';
-import {formatMs,formatBytes} from './Dashboard/format.ts';
+import {BarRows} from './shell/BarChart.tsx';
+import {ChartCard,StatsSection,TileSkeleton} from './shell/ChartCard.tsx';
+import {formatBytes,formatCount,formatMs} from './Dashboard/format.ts';
 import * as css from './Dashboard/dashboard.css.ts';
-import * as admin from './admin.css.ts';
+import * as stats from './shell/stats.css.ts';
 import {num,obj,type DashboardHealth} from '../../api/admin/health.ts';
 
 /** Messages not yet sent: due, retrying or being sent (t103 outbox probe). */
@@ -27,18 +37,76 @@ function outboxFailedHour(h: DashboardHealth | null | undefined): number | null 
   const u = num(s, 'uncertain');
   return f === null || u === null ? null : f + u;
 }
+
+const ACCOUNT_KEYS=['provisionedUsers','accountsSignedIn24h','accountsSignedIn7d','domains','activeSessions','activeAdminSessions'] as const;
+
+function Group(props:{title:string;children:JSX.Element}):JSX.Element {
+ return <div class={stats.group} role="group" aria-label={props.title}><h4 class={stats.groupTitle}>{props.title}</h4><div class={stats.tiles}>{props.children}</div></div>;
+}
+
 export function ObservabilityStats():JSX.Element {
  const shell=useShell();
- const [result,{refetch}]=createResource(()=>shell.can.can('dashboard.read'),()=>shell.services.loadDashboard());
- const data=()=>{if(result.state==='pending'||result.state==='unresolved'||result.error)return undefined;const value=result.latest;return value?.kind==='ok'?value.data:undefined;};
+ onMount(()=>void loadCatalog('admin-stats'));
+ const canDash=()=>shell.can.can('dashboard.read');
+ const [result,{refetch}]=createResource(()=>canDash()||undefined,()=>shell.services.loadDashboard());
+ const history=createRequestHistory();
+ const dash=()=>{const value=resourceValue(result);return value?.kind==='ok'?value.data:undefined;};
+ const dashFirstLoad=()=>canDash()&&result.loading&&dash()===undefined;
+ const dashMissing=()=>canDash()&&!result.loading&&dash()===undefined;
+ const busy=()=>history.loading()||result.loading;
+ const stale=()=>busy()&&(history.data()!==undefined||dash()!==undefined);
  const unavailable=()=>t('admin-shell-not-available');
- return <section class={css.page} aria-label={t('admin-obs-statistics')}><div class={css.head}><h2>{t('admin-obs-statistics')}</h2><Show when={shell.can.can('dashboard.read')}><button class="btn" disabled={result.loading} onClick={()=>void refetch()}>{t('admin-dash-refresh')}</button></Show></div>
- <section class={admin.card}><RequestHistory refreshToken={data()}/></section>
- <Show when={shell.can.can('dashboard.read')}><Show when={!result.loading||data()} fallback={<AsyncPending variant="page"/>}><Show when={data()} fallback={<p role="status">{unavailable()}</p>}>{value=><>
- <section class={admin.card}><h3>{t('admin-obs-accounts')}</h3><div class={css.charts}>
- <For each={['provisionedUsers','accountsSignedIn24h','accountsSignedIn7d','domains','activeSessions','activeAdminSessions'] as const}>{key=><StatTile label={t(`admin-obs-count-${key}`)} value={value().counts[key]}/>}</For>
- </div></section>
- <section class={admin.card}><h3>{t('admin-dash-security')}</h3><Show when={value().security} fallback={<p>{unavailable()}</p>}>{security=><div class={css.charts}><StatTile label={t('admin-dash-failed-webmail')} value={security().failedLogins24h.webmail}/><StatTile label={t('admin-dash-failed-admin')} value={security().failedLogins24h.admin}/><StatTile label={t('admin-dash-active-blocks')} value={security().activeBlocks}/></div>}</Show><Show when={value().blockedAccounts}>{blocked=><BarChart title={t('admin-dash-blocked-chart')} bars={blocked().byDomain.map(row=>({label:row.domain,value:row.accounts}))}/>}</Show></section>
- <section class={admin.card}><h3>{t('admin-dash-storage')}</h3><div class={css.charts}><StatTile label={t('admin-dash-db-size')} value={value().storage?.dbBytes??null} format={formatBytes}/><StatTile label={t('admin-dash-wal-size')} value={value().storage?.walBytes??null} format={formatBytes}/><StatTile label={t('admin-dash-index-size')} value={value().storage?.searchIndexBytes??null} format={formatBytes}/><StatTile label={t('admin-obs-db-latency')} value={value().health?.dbPingMs??null} format={formatMs}/><StatTile label={t('admin-obs-outbox-pending')} value={outboxWaiting(value().health)}/><StatTile label={t('admin-obs-outbox-failed-hour')} value={outboxFailedHour(value().health)}/></div></section>
- </>}</Show></Show></Show></section>;
+ const skeletons=(n:number)=><For each={Array.from({length:n})}>{()=><TileSkeleton/>}</For>;
+ return <section class={css.page} aria-label={t('admin-obs-statistics')} aria-busy={busy()} data-testid="statistics">
+  <div class={css.head}><h2>{t('admin-obs-statistics')}</h2></div>
+  <PeriodPicker history={history} refreshLabel={t('admin-stats-refresh')} onRefresh={()=>{if(canDash())void refetch();}}/>
+  <HistoryNotes history={history}/>
+  <div class={`${stats.view} ${stale()?stats.stale:''}`}>
+   <StatsSection kind="tiles" title={t('admin-stats-key-figures')} testId="stats-tiles">
+    <Group title={t('admin-stats-group-traffic')}><TrafficTiles history={history}/></Group>
+    <Show when={canDash()}>
+     <Show when={!dashMissing()} fallback={<p role="status">{unavailable()}</p>}>
+      <Group title={t('admin-obs-accounts')}>
+       <Show when={dash()} fallback={skeletons(ACCOUNT_KEYS.length)}>{value=><For each={ACCOUNT_KEYS}>{key=><StatTile label={t(`admin-obs-count-${key}`)} value={value().counts[key]} format={formatCount}/>}</For>}</Show>
+      </Group>
+      <Group title={t('admin-dash-security')}>
+       <Show when={dash()} fallback={skeletons(3)}>{value=><Show when={value().security} fallback={<p class={stats.cardUnit}>{unavailable()}</p>}>{security=><>
+        <StatTile label={t('admin-dash-failed-webmail')} value={security().failedLogins24h.webmail} format={formatCount}/>
+        <StatTile label={t('admin-dash-failed-admin')} value={security().failedLogins24h.admin} format={formatCount}/>
+        <StatTile label={t('admin-dash-active-blocks')} value={security().activeBlocks} format={formatCount}/>
+       </>}</Show>}</Show>
+      </Group>
+      <Group title={t('admin-stats-group-storage')}>
+       <Show when={dash()} fallback={skeletons(6)}>{value=><>
+        <StatTile label={t('admin-dash-db-size')} value={value().storage?.dbBytes??null} format={formatBytes}/>
+        <StatTile label={t('admin-dash-wal-size')} value={value().storage?.walBytes??null} format={formatBytes}/>
+        <StatTile label={t('admin-dash-index-size')} value={value().storage?.searchIndexBytes??null} format={formatBytes}/>
+        <StatTile label={t('admin-obs-db-latency')} value={value().health?.dbPingMs??null} format={formatMs}/>
+        <StatTile label={t('admin-obs-outbox-pending')} value={outboxWaiting(value().health)} format={formatCount}/>
+        <StatTile label={t('admin-obs-outbox-failed-hour')} value={outboxFailedHour(value().health)} format={formatCount}/>
+       </>}</Show>
+      </Group>
+     </Show>
+    </Show>
+   </StatsSection>
+   <StatsSection kind="charts" title={t('admin-stats-charts')} testId="stats-charts">
+    <div class={stats.charts}>
+     <TrafficCharts history={history}/>
+     <Show when={dash()?.blockedAccounts}>{blocked=>{
+      const bars=()=>blocked().byDomain.map(row=>({label:row.domain,value:row.accounts}));
+      return <ChartCard testId="chart-blocked" title={t('admin-dash-blocked-chart')} unit={t('admin-stats-unit-accounts')}
+       summary={t('admin-stats-bars-about',{count:bars().length})}
+       table={{columns:[t('admin-shell-chart-col-item'),t('admin-shell-chart-col-value')],numeric:[false,true],rows:bars().map(b=>[b.label,formatCount(b.value)])}}
+       empty={bars().length===0?t('admin-stats-empty-blocked'):undefined}>
+       <BarRows bars={bars()} format={formatCount}/>
+      </ChartCard>;
+     }}</Show>
+    </div>
+   </StatsSection>
+   <StatsSection kind="tables" title={t('admin-stats-tables')} testId="stats-tables">
+    <div class={stats.tables}><TrafficTables history={history}/></div>
+   </StatsSection>
+  </div>
+  <Show when={dashFirstLoad()}><span class={stats.cardUnit} role="status">{t('admin-stats-loading')}</span></Show>
+ </section>;
 }

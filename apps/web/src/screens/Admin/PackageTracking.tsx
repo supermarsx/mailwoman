@@ -2,7 +2,7 @@ import {createSignal,onMount,Show,useContext,type JSX} from 'solid-js';
 import {ShellContext} from './shell/context.ts';
 import {adminRequest} from './shell/adminApi.ts';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
-import {describeAdminError} from './shell/Feedback.tsx';
+import {Feedback, describeAdminError} from './shell/Feedback.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import {AdminSubsection} from './AdminSubsection.tsx';
 import {loadCatalog,t} from '../../i18n';
@@ -18,7 +18,7 @@ export function PackageTracking():JSX.Element {
   async function load():Promise<void>{setBusy(true);setError('');try{const result=await adminRequest<{provider:Provider|null}>('/package-tracking');accept(result.data.provider,result.etag??'');}catch(error){setError(describeAdminError(error));}finally{setBusy(false);}}
   async function save(event:SubmitEvent):Promise<void>{event.preventDefault();if(busy()||readOnly())return;setBusy(true);setError('');setSaved(false);try{const result=await adminRequest<{provider:Provider}>('/package-tracking',{method:'PUT',ifMatch:etag(),body:{enabled:enabled(),refreshSecs:interval(),...(key()?{apiKey:key()}:{})}});accept(result.data.provider,result.etag??'');setSaved(true);}catch(error){setError(describeAdminError(error));}finally{setBusy(false);}}
   onMount(()=>{void loadCatalog('packages');void load();});
-  return <section class={css.subsectionBody} aria-label={t('packages-admin-title')}><h2>{t('packages-admin-title')}</h2><p>{t('packages-admin-help')}</p><Show when={error()}><p role="alert">{error()}</p></Show><Show when={saved()}><p role="status">{t('packages-admin-saved')}</p></Show>
+  return <section class={css.subsectionBody} aria-label={t('packages-admin-title')}><h2>{t('packages-admin-title')}</h2><p>{t('packages-admin-help')}</p><Show when={error()}><p role="alert">{error()}</p></Show><Feedback kind="success" as="toast" message={saved()?t('packages-admin-saved'):null}/>
     <Show when={ready()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void load()}>{t('packages-reload')}</button>}><AsyncPending/></Show>}><form class={css.subsectionBody} onSubmit={event=>void save(event)}><AdminSubsection title={t('packages-admin-provider')} description={t('packages-admin-provider-help')}>
       <label><input type="checkbox" checked={enabled()} disabled={busy()||readOnly()} onChange={event=>setEnabled(event.currentTarget.checked)}/>{t('packages-admin-enabled')}</label>
       <label class="field"><span>{t('packages-admin-key')}</span><input type="password" autocomplete="new-password" maxlength={512} required={!configured()} value={key()} disabled={busy()||readOnly()} onInput={event=>setKey(event.currentTarget.value)} aria-describedby="package-key-help"/><small id="package-key-help">{t(configured()?'packages-admin-key-retain':'packages-admin-key-help')}</small></label>

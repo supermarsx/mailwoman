@@ -12,7 +12,7 @@ import { Icon } from '../../components/Icon.tsx';
 // (plan §1.6). Reuses the V2 design tokens (`--bg`/`--surface`/… in app.css).
 
 import { For, Show, createEffect, createMemo, createSignal, on, onMount, untrack, type JSX } from 'solid-js';
-import { t, loadCatalog } from '../../i18n';
+import { rawT, t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
 import { noteBodyText } from '../../state/slices/notes.ts';
 import { ColorField } from '../../components/color/ColorPicker.tsx';
@@ -57,7 +57,7 @@ export function NotesModule(): JSX.Element {
 
   async function newNote(): Promise<void> {
     try {
-      const note = await app.createNote({ title: t('notes-untitled') });
+      const note = await app.createNote({ title: rawT('notes-untitled') });
       select(note.id);
     } catch {
       // The slice has shown the error; there is no note to open.

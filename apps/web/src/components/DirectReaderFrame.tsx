@@ -2,8 +2,9 @@ import { batch, createEffect, createSignal, onCleanup, onMount, Show, type JSX }
 import { withBase } from '../api/basePath.ts';
 import { t } from '../i18n/index.ts';
 import { ReaderZoomBox } from './ReaderZoomBox.tsx';
-/** The wrapper runs only its fixed bridge; actual mail always uses sandbox="". */
-export function DirectReaderFrame(props: { html: string; title: string; documentKey?:string; onDisplayed?: (html:string,key:string|undefined)=>void }): JSX.Element {
+/** Only the fixed bridge runs scripts; the inner mail sandbox never does.
+ * The Reader remounts this wrapper when message-link consent changes. */
+export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; onDisplayed?: (html:string,key:string|undefined)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
   const newToken = ():string => Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
   const [token,setToken] = createSignal(newToken());
@@ -58,6 +59,6 @@ export function DirectReaderFrame(props: { html: string; title: string; document
     timeout = setTimeout(() => setFailed(true), 10_000);
     onCleanup(() => { clearTimeout(timeout);clearTimeout(fallback);clearTimeout(loadedFallback); for (const host of hosts) if (receive) host.removeEventListener('message', receive); hosts.clear(); });
   });
-  createEffect(() => { const html = props.html,key=props.documentKey; void bridges(); if (ready()) {sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, revision:++revision }, '*');} });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" title={props.title} sandbox="allow-scripts" referrerPolicy="no-referrer" onLoad={loaded} src={`${withBase('/api/rc/frame')}${compatible()?'?coep=require-corp':''}#${fragment()}`} /></ReaderZoomBox></>;
+  createEffect(() => { const html = props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true; void bridges(); if (ready()) {sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, linksEnabled, revision:++revision }, '*');} });
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" title={props.title} sandbox={props.linksEnabled?'allow-scripts allow-popups allow-popups-to-escape-sandbox':'allow-scripts'} referrerPolicy="no-referrer" onLoad={loaded} src={`${withBase('/api/rc/frame')}${compatible()?'?coep=require-corp':''}#${fragment()}`} /></ReaderZoomBox></>;
 }

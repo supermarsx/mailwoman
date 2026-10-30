@@ -1,6 +1,6 @@
 // The floating selection bar (t58).
 //
-// While one or more messages are selected, a compact bar floats over the bottom
+// While selection mode is active or messages are selected, a compact bar floats over the bottom
 // centre of the list pane: the count, Select all / Select none, the selection's
 // actions as icon buttons, a More menu for whatever does not fit on one line,
 // and × to clear the selection. It is NON-MODAL: no backdrop, no focus trap, and
@@ -35,8 +35,10 @@ export interface SelectionAction {
 }
 
 export interface SelectionBarProps {
-  /** Selected messages; the bar shows while this is above zero. */
+  /** Selected messages; the bar also shows for an explicitly active selection mode. */
   count: number;
+  active?: boolean;
+  dismiss?: () => void;
   /** Selectable messages in the view; Select all turns into Select none at this count. */
   total: number;
   selectAll: () => void;
@@ -69,7 +71,7 @@ export function SelectionBar(props: SelectionBarProps): JSX.Element {
       <span class={css.live} role="status" aria-live="polite" aria-atomic="true" data-testid="selection-bar-status">
         {props.count > 0 ? t('selection-bar-announce', { count: props.count }) : ''}
       </span>
-      <Show when={props.count > 0}>
+      <Show when={props.active || props.count > 0}>
         <Bar {...props} />
       </Show>
     </>
@@ -95,7 +97,9 @@ function Bar(props: SelectionBarProps): JSX.Element {
     restoreFocus: () => props.returnFocus(),
   });
   createEffect(() => { if (!menu.isOpen()) setExpanded(null); });
+  createEffect(() => { if (props.count === 0) menu.close(); });
   function openMenu(id: string, label: string, items: () => ContextAction[], trigger: HTMLElement): void {
+    if (props.count === 0 || props.busy) return;
     if (menu.isOpen() && expanded() === id) { menu.close(); return; }
     setMenuLabel(label);
     setMenuItems(() => items);
@@ -103,7 +107,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
     menu.openAbove(trigger);
   }
   function activate(action: SelectionAction, trigger: HTMLElement): void {
-    if (action.disabled || props.busy) return;
+    if (props.count === 0 || action.disabled || props.busy) return;
     if (action.menu) openMenu(action.id, action.label, action.menu, trigger);
     else void action.run?.();
   }
@@ -112,9 +116,10 @@ function Bar(props: SelectionBarProps): JSX.Element {
       id: action.id,
       label: action.menu ? `${action.label}…` : action.label,
       icon: action.icon,
-      disabled: action.disabled === true || props.busy === true,
+      disabled: props.count === 0 || action.disabled === true || props.busy === true,
       // A submenu opens from the More button, once More has closed.
       run: () => {
+        if (props.count === 0 || props.busy || action.disabled) return;
         if (action.menu && moreButton) {
           const trigger = moreButton;
           queueMicrotask(() => openMenu(action.id, action.label, action.menu!, trigger));
@@ -152,7 +157,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
   createEffect(on(() => [props.count, props.actions.length, props.busy], () => queueMicrotask(measure), { defer: true }));
 
   // ── keyboard ─────────────────────────────────────────────────────────────
-  const controls = (): HTMLButtonElement[] => [...bar.querySelectorAll<HTMLButtonElement>('button')];
+  const controls = (): HTMLButtonElement[] => [...bar.querySelectorAll<HTMLButtonElement>('button:not(:disabled)')];
   let stop = 0;
   function syncStops(): void {
     const list = controls();
@@ -160,7 +165,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
     if (stop >= list.length) stop = list.length - 1;
     list.forEach((el, i) => { el.tabIndex = i === stop ? 0 : -1; });
   }
-  createEffect(on(() => [fit(), props.actions.length, all()], () => queueMicrotask(syncStops)));
+  createEffect(on(() => [fit(), props.actions.length, props.count, props.busy, all()], () => queueMicrotask(syncStops)));
   function focusBar(): void {
     syncStops();
     controls()[stop]?.focus();
@@ -247,7 +252,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
             aria-label={action().label}
             aria-haspopup={action().menu ? 'menu' : undefined}
             aria-expanded={action().menu ? expanded() === id : undefined}
-            disabled={action().disabled === true || props.busy === true}
+            disabled={props.count === 0 || action().disabled === true || props.busy === true}
             onClick={(e) => activate(action(), e.currentTarget)}
           >
             <Icon name={action().icon} />
@@ -262,6 +267,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
           class={css.button}
           data-slot=""
           data-testid="bulk-more"
+          disabled={props.count === 0 || props.busy}
           aria-label={t('selection-bar-more')}
           aria-haspopup="menu"
           aria-expanded={expanded() === 'more'}
@@ -271,7 +277,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
         </button>
       </Show>
       <span class={css.separator} aria-hidden="true" />
-      <button type="button" class={css.button} aria-label={t('selection-bar-clear')} data-testid="bulk-clear" onClick={() => props.clear()}>
+      <button type="button" class={css.button} aria-label={t('selection-bar-clear')} data-testid="bulk-clear" onClick={() => (props.dismiss ?? props.clear)()}>
         <Icon name="close" />
       </button>
       {menu.menu()}

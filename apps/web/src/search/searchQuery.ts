@@ -16,10 +16,10 @@
 
 import type { OfflineQuery } from '../offline/search.ts';
 
-/** Operators the engine knows (`is_operator`). Anything else is a literal word. */
+/** Engine operators plus the local-only include:trash option. Unknown fields stay literal. */
 export const OPERATORS = [
-  'from', 'to', 'cc', 'subject', 'body', 'text', 'filename', 'tag', 'in', 'has', 'is',
-  'before', 'after', 'larger', 'smaller', 'pinned',
+  'from', 'from-domain', 'to', 'cc', 'subject', 'body', 'text', 'filename', 'tag', 'in', 'has', 'is',
+  'before', 'after', 'larger', 'smaller', 'pinned', 'include',
 ] as const;
 export type Operator = (typeof OPERATORS)[number];
 
@@ -51,6 +51,7 @@ export function canonicalValue(op: Operator, value: string): string {
     return value;
   }
   if (op === 'is') return lower === 'starred' ? 'flagged' : lower;
+  if (op === 'include') return lower;
   if (op === 'larger' || op === 'smaller') return lower;
   return value;
 }
@@ -419,9 +420,9 @@ export function resolveScope(value: string, all: readonly ScopeMailbox[]): Scope
  *  `in:` matches ids). Everything else is the input as typed. */
 export function serverQueryText(input: string, all: readonly ScopeMailbox[]): string {
   const query = parseQuery(input);
-  if (!query.terms.some((t) => t.kind === 'field' && t.op === 'in')) return input;
+  if (!query.terms.some((t) => t.kind === 'field' && (t.op === 'in' || isTrashOption(t)))) return input;
   return serializeQuery({
-    terms: query.terms.map((t) => {
+    terms: query.terms.filter(t=>!isTrashOption(t)).map((t) => {
       if (t.kind !== 'field' || t.op !== 'in') return t;
       const box = resolveScope(t.value, all);
       return box && box.id !== t.value ? { ...t, value: box.id, quoted: false } : t;
@@ -434,21 +435,51 @@ export function setScope(query: SearchQuery, mailbox: ScopeMailbox | null, all: 
   return setOptionalField(query, 'in', mailbox === null ? null : scopeValue(mailbox, all));
 }
 
+/** A client search option, never sent as an unsupported server text operator. */
+function isTrashOption(term:Term):boolean {return term.kind==='field'&&term.op==='include'&&term.value.toLowerCase()==='trash';}
+export function includesTrash(query:SearchQuery):boolean {return query.terms.some(term=>isTrashOption(term)&&term.kind==='field'&&!term.negated);}
+export function setIncludeTrash(query:SearchQuery,enabled:boolean):SearchQuery {
+  const terms=query.terms.filter(term=>!isTrashOption(term));
+  if(!enabled)return {terms};
+  // Metadata must AND the whole retained expression, not become part of its
+  // last OR branch when the text is parsed again.
+  const grouped=(term:Term):Term=>{
+    if(term.kind!=='expr')return term;
+    let depth=0;
+    for(const token of lex(term.text)){
+      if(token.t==='lparen')depth++;
+      else if(token.t==='rparen')depth=Math.max(0,depth-1);
+      else if(token.t==='or'&&depth===0)return {...term,text:`(${term.text})`};
+    }
+    return term;
+  };
+  return {terms:[...terms.map(grouped),fieldTerm('include','trash')]};
+}
+
+/** Specific folder scopes remain explicit; ordinary all-folder searches omit Trash. */
+export function excludedSearchMailboxes(query:SearchQuery,all:readonly ScopeMailbox[]):string[] {
+  if(includesTrash(query)||query.terms.some(term=>term.kind==='field'&&term.op==='in'&&!term.negated))return [];
+  return all.filter(box=>box.role==='trash').map(box=>box.id);
+}
+
 // ---------------------------------------------------------------------------
 // Offline (reduced cached-header search, offline/search.ts)
 // ---------------------------------------------------------------------------
 
 /** The reduced offline filter for a query, when every term has one; else the
  *  whole input as one substring, which is what offline search always did. */
-export function offlineQueryOf(input: string): OfflineQuery {
+export function offlineQueryOf(input: string, all?:readonly ScopeMailbox[]): OfflineQuery {
   const query = parseQuery(input);
   const out: { -readonly [K in keyof OfflineQuery]: OfflineQuery[K] } = {};
   const texts: string[] = [];
   for (const term of query.terms) {
+    if(isTrashOption(term))continue;
     if (term.kind === 'expr' || term.negated && !(term.kind === 'field' && term.op === 'has')) return { text: input };
     if (term.kind === 'text') { texts.push(term.value); continue; }
     const { op, value } = term;
-    if ((op === 'from' || op === 'to' || op === 'subject' || op === 'body') && out[op] === undefined) out[op] = value;
+    if(op==='in'&&all){out.inMailbox=resolveScope(value,all)?.id??value;}
+    else if ((op === 'from' || op === 'to' || op === 'subject' || op === 'body') && out[op] === undefined) out[op] = value;
+    else if (op === 'from-domain' && out.fromDomain === undefined) out.fromDomain = value;
     else if (op === 'text') texts.push(value);
     else if (op === 'has' && value === 'attachment') out.hasAttachment = !term.negated;
     else if (op === 'is' && (value === 'unread' || value === 'read')) out[value === 'unread' ? 'notKeyword' : 'hasKeyword'] = '$seen';

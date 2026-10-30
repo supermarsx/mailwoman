@@ -39,6 +39,20 @@ describe('mailbox switching publication',()=>{
       expect(client.login).toHaveBeenCalledOnce();expect(client.logout).not.toHaveBeenCalled();
     }finally{dispose();}});
   });
+  it('publishes the pending destination until a switch succeeds or fails',async()=>{
+    const client=transport();let release!:(value:JmapSession)=>void;
+    await createRoot(async dispose=>{try{
+      const mail=createMailSlice({client,showToast:vi.fn()});await mail.login({username:'parent',password:'p'});
+      vi.mocked(client.session).mockImplementationOnce(()=>new Promise(resolve=>{release=resolve;}));
+      const switching=mail.switchLinkedMailbox('child-link','Work mailbox');
+      expect(mail.switchingMailbox()).toBe(true);expect(mail.switchingMailboxName()).toBe('Work mailbox');
+      await vi.waitFor(()=>expect(client.session).toHaveBeenCalledTimes(2));release(discovery(true));await switching;
+      expect(mail.switchingMailbox()).toBe(false);expect(mail.switchingMailboxName()).toBeNull();
+      vi.mocked(client.session).mockRejectedValueOnce(new Error('Offline'));
+      const returning=mail.switchLinkedMailbox(null);expect(mail.switchingMailboxName()).toBe('parent@example.org');
+      await expect(returning).rejects.toThrow('Offline');expect(mail.switchingMailboxName()).toBeNull();expect(mail.switchingMailbox()).toBe(false);
+    }finally{dispose();}});
+  });
   it('does not replace the current mailbox when effective child identity mismatches',async()=>{
     const client=transport();
     await createRoot(async dispose=>{try{

@@ -7,7 +7,7 @@
 // and then "Saved" in place.
 
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
+import { screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Suspense, type JSX } from 'solid-js';
 import { AdminSettings } from './index.tsx';
 import type { AdminSetting } from '../../../api/admin/settings.ts';
@@ -127,7 +127,7 @@ describe('Save on a setting page keeps the page (t75)', () => {
     const b = boundary(() => (
       <AdminSettings route={{ section: 'settings', rest: [BUDGET.key] }} load={list} loadOne={loadOne} />
     ));
-    render(b.ui);
+    renderInShell(b.ui);
     const page = await screen.findByTestId('admin-settings');
     const detail = await screen.findByTestId('setting-detail');
     const domains = (await screen.findByRole('heading', { name: t('admin-settings-domains') })).closest('section')!;
@@ -159,8 +159,10 @@ describe('Save on a setting page keeps the page (t75)', () => {
     fireEvent.input(within(domains).getByRole('textbox', { name: t('admin-settings-domain') }), { target: { value: 'example.org' } });
     fireEvent.input(within(domains).getByRole('spinbutton', { name: t('admin-settings-domain-value') }), { target: { value: '64' } });
     fireEvent.click(within(domains).getByRole('button', { name: t('admin-settings-domain-save') }));
-    // The button says it is saving, in place.
-    expect(await within(domains).findByRole('button', { name: t('admin-ux-form-saving') })).toBeInTheDocument();
+    // Progress is in the shared toast; the mounted form keeps its readable action.
+    expect(within(domains).getByRole('button', {name:t('admin-settings-domain-save')})).toHaveAttribute('aria-busy','true');
+    expect(await screen.findByText(t('admin-ux-form-saving'))).toBeInTheDocument();
+    expect(within(domains).queryByText(t('admin-ux-form-saving'))).toBeNull();
     expect(screen.getByTestId('setting-detail')).toBe(detail);
     reloads.release();
     await waitFor(() => expect(within(domains).getByRole('button', { name: t('admin-settings-domain-save') })).toBeInTheDocument());

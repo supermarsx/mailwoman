@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {parseQuery} from '../../search/searchQuery.ts';
+import {toasts} from '../../components/toast/toast.ts';
 import { createRoot } from 'solid-js';
 import { createMailSlice, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
@@ -135,8 +136,10 @@ function fakeServer(seed: Email[]): FakeServer {
 async function withSlice(
   seed: Email[],
   run: (mail: MailSlice, server: FakeServer, toast: ReturnType<typeof vi.fn>) => Promise<void>,
+  exactFromDomain=false,
 ): Promise<void> {
   const server = fakeServer(seed);
+  if(exactFromDomain)vi.mocked(server.client.session).mockResolvedValue({...SESSION,capabilities:{'urn:mailwoman:search':{exactFromDomain:true}}});
   const toast = vi.fn();
   const ctx: SliceContext = { client: server.client, showToast: toast };
   await createRoot(async (dispose) => {
@@ -299,8 +302,9 @@ describe('bulk actions are one request', () => {
       expect(mail.messages().map((m) => m.id)).toEqual(['b']);
       expect(server.stored('a').mailboxIds).toEqual({ work: true });
       expect(server.stored('b').mailboxIds).toEqual({ inbox: true });
-      expect(toast).toHaveBeenCalledWith('error', 'The server refused the change for one message');
-      expect(mail.pendingUndo()?.label).toBe(`2 messages moved to ${'⁨'}Work${'⁩'}`);
+      expect(toast).not.toHaveBeenCalled();
+      expect(mail.pendingUndo()?.label).toBe(`Moved 2 of 3 messages to ${'⁨'}Work${'⁩'}; 1 could not be moved`);
+      expect(toasts().find(item=>item.message===mail.pendingUndo()?.label)).toMatchObject({tone:'warning',busy:false,action:{label:'Undo'}});
     });
   });
 
@@ -434,7 +438,7 @@ it('related subject search keeps operator-like metadata inside one quoted value'
   // t88: the metadata rides the query text as one escaped phrase, which the
   // engine (query.rs quoted_escapes_keep_operators_inside_the_value) reads back
   // as a single subject clause; parseQuery here agrees.
-  expect(query?.[1]['filter']).toEqual({text:'subject:"a \\" OR from:other"'});
+  expect(query?.[1]['filter']).toEqual({text:'subject:"a \\" OR from:other"',inMailboxOtherThan:['trash']});
   expect(parseQuery(mail.search()).terms).toEqual([{kind:'field',op:'subject',value:'a " OR from:other',negated:false,quoted:true}]);
  });
 });
@@ -453,4 +457,14 @@ it('related searches refine an active search and set the folder scope (t88)',asy
   await mail.searchMessageField('from','x@example.org');
   expect(mail.search()).toBe('from:"x@example.org"');
  });
+});
+
+it.each([false,true])('only sends exact domain searches to an advertising server: %s',async(supported)=>{
+ await withSlice([msg('a')],async(mail,server)=>{
+  expect(mail.supportsFromDomainSearch()).toBe(supported);server.jmap.mockClear();
+  await mail.searchMessageField('from-domain','example.org');
+  const query=server.jmap.mock.calls.flatMap(call=>(call[0] as JmapRequest).methodCalls).find(call=>call[0]==='Email/query');
+  if(supported)expect(query?.[1]['filter']).toEqual({text:'from-domain:"example.org"',inMailboxOtherThan:['trash']});
+  else expect(query).toBeUndefined();
+ },supported);
 });

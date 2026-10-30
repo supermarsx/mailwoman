@@ -1,3 +1,4 @@
+import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import { toasts, resetToasts } from './toast/index.ts';
 import { describe, it, expect, vi } from 'vitest';
@@ -27,6 +28,21 @@ function fakeBar(initial: BarMode): BarModeHandle & { calls: BarMode[] } {
 
 describe('SubTabStrip as the workspaceTabs bar (t38)', () => {
   const barRoot = (): HTMLElement => document.querySelector('[data-bar="workspaceTabs"]') as HTMLElement;
+  it('transforms only displayed tab labels and preserves title/identity through activation',()=>{
+    const controller=createRealtimeController({subTabs:{openWindow:vi.fn()}});
+    controller.subTabs.open({kind:'messages',title:'Inbox Messages'});
+    const original=controller.subTabs.tabs()[0]!;
+    setAdminLeetspeak(true);
+    try{
+      renderStrip(controller);
+      fireEvent.click(screen.getByRole('tab',{name:'1n80x M3554935'}));
+      expect(controller.subTabs.activeId()).toBe(original.id);
+      expect(controller.subTabs.tabs()[0]!.title).toBe('Inbox Messages');
+      setAdminLeetspeak(false);
+      expect(screen.getByRole('tab',{name:'Inbox Messages'})).toBeInTheDocument();
+    }finally{setAdminLeetspeak(null);}
+  });
+
   it('pinned: the strip is shown with a pin and no handle', () => {
     const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
     controller.subTabs.open({ kind: 'messages', title: 'Inbox' });

@@ -21,6 +21,7 @@
 // falls back to its device-local behaviour.
 
 import { createSignal } from 'solid-js';
+import {configureMailLeetspeak} from '../i18n/presentation.ts';
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
 import { idempotentWrite } from './recovery.ts';
@@ -172,6 +173,7 @@ export async function deleteSetting(key: string, fetcher: Fetcher = defaultFetch
 // ── shared state ─────────────────────────────────────────────────────────────
 
 const [settingsMap, setSettingsMap] = createSignal<SettingsMap>({});
+configureMailLeetspeak(()=>settingsMap()['appearance.leetspeak']?.value===true);
 const [settingsStatus, setSettingsStatus] = createSignal<'idle' | 'loading' | 'ready' | 'signed-out' | 'error'>(
   'idle',
 );

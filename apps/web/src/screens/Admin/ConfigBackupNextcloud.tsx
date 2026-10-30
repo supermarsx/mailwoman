@@ -3,7 +3,7 @@
 import {Show,createEffect,createSignal,useContext,type JSX} from 'solid-js';
 import {adminRequest} from './shell/adminApi.ts';
 import {ShellContext} from './shell/context.ts';
-import {describeAdminError} from './shell/Feedback.tsx';
+import {Feedback, describeAdminError} from './shell/Feedback.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import {formatNumber,t} from '../../i18n';
 import * as css from './admin.css.ts';
@@ -52,7 +52,7 @@ export function ConfigBackupNextcloud():JSX.Element{
     <p>{t('admin-ncbackup-help')}</p>
     <Show when={allowed()} fallback={<p class={css.note}>{t('admin-ncbackup-no-permission')}</p>}>
     <Show when={error()}><p role="alert">{error()}</p></Show>
-    <Show when={status()}><p role="status">{status()}</p></Show>
+    <Feedback kind="success" as="toast" message={status()}/>
     <form onSubmit={save}>
       <label class="field"><span>{t('admin-ncbackup-url')}</span><input type="url" required maxlength={2048} placeholder="https://cloud.example.com" value={form().baseUrl} disabled={busy()} onInput={event=>change({baseUrl:event.currentTarget.value})}/><small>{t('admin-ncbackup-url-help')}</small></label>
       <label class="field"><span>{t('admin-ncbackup-username')}</span><input required maxlength={256} autocomplete="off" value={form().username} disabled={busy()} onInput={event=>change({username:event.currentTarget.value})}/></label>

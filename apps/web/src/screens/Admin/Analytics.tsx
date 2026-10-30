@@ -8,7 +8,7 @@ import { ShellContext } from './shell/context.ts';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
 import { AnalyticsTag } from './AnalyticsTag.tsx';
 import type { AnalyticsTagApi } from '../../api/admin/analyticsTag.ts';
-import { describeAdminError } from './shell/Feedback.tsx';
+import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
 export function Analytics(props:{api?:AnalyticsApi;tagApi?:AnalyticsTagApi}):JSX.Element {
@@ -35,7 +35,7 @@ export function Analytics(props:{api?:AnalyticsApi;tagApi?:AnalyticsTagApi}):JSX
   const change=(patch:Partial<AnalyticsConfig>):void=>{setSaved(false);setConfig(value=>value&&({...value,...patch}));};
   onMount(()=>{void loadCatalog('admin-analytics');void reload();});
   return <div class={css.subsectionBody}><h2>{t('admin-analytics-title')}</h2><p>{t('admin-analytics-help')}</p>
-    <Show when={error()}><p role="alert">{error()}</p></Show><Show when={saved()}><p role="status">{t('admin-analytics-saved')}</p></Show>
+    <Show when={error()}><p role="alert">{error()}</p></Show><Feedback kind="success" as="toast" message={saved()?t('admin-analytics-saved'):null}/>
     <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('admin-analytics-reload')}</button>}><AsyncPending /></Show>}>{value=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
       <AdminSubsection title={t('admin-analytics-collector')}>
         <label><input type="checkbox" checked={value().enabled} disabled={!writable()||busy()} onChange={event=>change({enabled:event.currentTarget.checked})}/> {t('admin-analytics-enabled')}</label>

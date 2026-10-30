@@ -15,10 +15,11 @@ import * as css from './searchBar.css.ts';
 import {
   addTerm, chipsOf, isDateValue, isSizeValue, parseQuery, removeTerms, replaceTerm, resolveScope, serializeQuery,
   serializeTerm, setRange, setScope, toggleTerm, valueIn, type Chip, type ChipKind, type Operator, type ScopeMailbox,
-  type SearchQuery, type Term,
+  includesTrash, setIncludeTrash, type SearchQuery, type Term,
 } from '../../search/searchQuery.ts';
 
 export interface SearchFilterBarProps {
+  guided?: boolean;
   /** The input's current text (the chips follow it as it is typed). */
   text: Accessor<string>;
   /** Write this text into the input and search with it. */
@@ -69,14 +70,19 @@ function toggleLabel(kind: ChipKind, term: Term | undefined): string {
 export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
   const query = createMemo(() => parseQuery(props.text()));
   const scopeChip = createMemo(() => chipsOf(query()).find((c) => c.kind === 'scope') ?? null);
+  const specificScope=()=>{const chip=scopeChip();const term=chip?termAt(query(),chip):undefined;return term?.kind==='field'&&!term.negated;};
   // The scope chip is always shown (first), even with no `in:` (= all folders).
-  const chips = createMemo(() => chipsOf(query()).filter((c) => c.kind !== 'scope'));
+  const chips = createMemo(() => chipsOf(query()).filter((c) => c.kind !== 'scope' && !c.terms.every(index => {
+    const term=query().terms[index];return term?.kind==='field' && term.op==='include' && term.value.toLowerCase()==='trash';
+  })));
   const [editing, setEditing] = createSignal<Editing | null>(null);
   let addButton!: HTMLButtonElement;
 
   const commit = (next: SearchQuery): void => {
+    const anchor=editing()?.anchor;
     setEditing(null);
     props.onChange(serializeQuery(next));
+    if(anchor)queueMicrotask(()=>{if(anchor.isConnected)anchor.focus();});
   };
 
   const scopeName = (): string => {
@@ -153,7 +159,38 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
     },
   });
 
+  const quickFields: readonly ChipKind[] = ['from','to','subject','body','date','scope'];
+  const quickFlags = [
+    {op:'has',value:'attachment',alike:['attachment'],label:'search-chip-attachment'},
+    {op:'is',value:'unread',alike:['unread','read'],label:'search-chip-unread'},
+    {op:'is',value:'flagged',alike:['flagged','unflagged'],label:'search-chip-flagged'},
+  ] as const;
+  const enabledFlag=(op:Operator,value:string):boolean=>query().terms.some(term=>term.kind==='field'&&term.op===op&&term.value===value&&!term.negated);
+  const removeFlag=(op:Operator,value:string):void=>commit(removeTerms(query(),query().terms.flatMap((term,index)=>term.kind==='field'&&term.op===op&&term.value===value&&!term.negated?[index]:[])));
+
   return (
+    <>
+    <Show when={props.guided}>
+      <section class={css.guided} aria-label={t('search-guided-title')}>
+        <p class={css.guidedHint}>{t('search-guided-help')}</p>
+        <div class={css.quickFields}>
+          <For each={quickFields}>{kind=><button type="button" class={`btn btn--ghost ${css.quickField}`}
+            aria-haspopup="dialog" aria-expanded={editing()?.kind===kind}
+            onClick={event=>setEditing({kind,chip:chipsOf(query()).find(chip=>chip.kind===kind)??null,anchor:event.currentTarget})}
+          ><Icon name={CHIP_ICON[kind]??'filter'} />{t(FIELD_LABEL[kind]??'search-field-other')}</button>}</For>
+        </div>
+        <div class={css.quickFlags}>
+          <For each={quickFlags}>{flag=><label class={css.check}><input type="checkbox"
+            checked={enabledFlag(flag.op,flag.value)}
+            onChange={event=>event.currentTarget.checked?addFlag(flag.op,flag.value,flag.alike):removeFlag(flag.op,flag.value)}
+          />{t(flag.label)}</label>}</For>
+          <label class={css.check}><input type="checkbox" disabled={specificScope()} title={specificScope()?t('search-include-trash-scoped'):undefined} checked={includesTrash(query())}
+            onChange={event=>commit(setIncludeTrash(query(),event.currentTarget.checked))}
+          />{t('search-include-trash')}</label>
+        </div>
+        <Show when={specificScope()}><p class={css.guidedHint}>{t('search-include-trash-scoped')}</p></Show>
+      </section>
+    </Show>
     <div class={css.bar} role="toolbar" aria-label={t('search-filters-label')} data-testid="search-filter-bar">
       <span class={css.chip} data-kind="scope">
         <button
@@ -205,6 +242,9 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
         ref={addButton} type="button" class={`${css.add} ${a11y.focusable}`} aria-haspopup="menu" aria-expanded={addMenu.isOpen()}
         data-testid="search-add-filter" onClick={(e) => addMenu.open(e)}
       ><Icon name="plus" />{t('search-add-filter')}</button>
+      <Show when={!props.guided}><label class={`${css.check} ${css.trashToggle}`}><input type="checkbox" disabled={specificScope()} title={specificScope()?t('search-include-trash-scoped'):undefined} checked={includesTrash(query())}
+        onChange={event=>commit(setIncludeTrash(query(),event.currentTarget.checked))}
+      />{t('search-include-trash')}</label></Show>
       {addMenu.menu()}
       <Show when={editing()}>
         {(state) => (
@@ -215,6 +255,7 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
         )}
       </Show>
     </div>
+    </>
   );
 }
 

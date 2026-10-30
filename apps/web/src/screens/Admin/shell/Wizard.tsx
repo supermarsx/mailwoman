@@ -7,7 +7,8 @@
 // screen-reader and keyboard users land at the top of the new step. While the
 // wizard holds unsaved input it registers with the dirty-state guard.
 
-import { For, Show, createSignal, createUniqueId, type JSX } from 'solid-js';
+import { For, Show, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js';
+import { toast } from '../../../components/toast/index.ts';
 import { t } from '../../../i18n';
 import { Feedback, describeAdminError } from './Feedback.tsx';
 import { useDirtyGuard } from './useDirtyGuard.ts';
@@ -44,9 +45,10 @@ export function Wizard(props: WizardProps): JSX.Element {
   const [index, setIndex] = createSignal(0);
   // A step's check stays on the step; a failed save is a toast (t32 f39).
   const [problem, setProblem] = createSignal<string | null>(null);
-  const [saveError, setSaveError] = createSignal<string | null>(null);
   const [saving, setSaving] = createSignal(false);
   const [saved, setSaved] = createSignal(false);
+  const saveToastId = `admin-wizard-save-${id}`;
+  onCleanup(() => { if (saving()) toast.dismiss(saveToastId); });
   let heading: HTMLHeadingElement | undefined;
 
   useDirtyGuard(() => !saved() && (props.dirty?.() ?? false));
@@ -74,14 +76,16 @@ export function Wizard(props: WizardProps): JSX.Element {
   }
 
   async function save(): Promise<void> {
+    if (saving() || saved()) return;
     setSaving(true);
+    toast.info(t('admin-ux-form-saving'), { id: saveToastId, busy: true, persistent: true, duration: Infinity, testId: 'admin-wizard-save-toast' });
     setProblem(null);
-    setSaveError(null);
     try {
       await props.onSave();
       setSaved(true);
+      toast.success(t('admin-shell-wizard-saved'), { id: saveToastId, testId: 'admin-wizard-save-toast' });
     } catch (err) {
-      setSaveError(describeAdminError(err));
+      toast.error(describeAdminError(err), { id: saveToastId, testId: 'admin-wizard-save-toast' });
     } finally {
       setSaving(false);
     }
@@ -123,10 +127,6 @@ export function Wizard(props: WizardProps): JSX.Element {
         </dl>
       </Show>
       <Feedback kind="error" message={problem()} />
-      <Feedback kind="error" as="toast" message={saveError()} />
-      <Show when={saved()}>
-        <Feedback kind="success" message={t('admin-shell-wizard-saved')} />
-      </Show>
       <div class={css.wizardActions}>
         <div class={css.rowActions}>
           <Show when={props.onCancel}>
@@ -147,7 +147,7 @@ export function Wizard(props: WizardProps): JSX.Element {
               </button>
             }
           >
-            <button type="button" class="btn btn--primary" disabled={saving() || saved()} onClick={() => void save()}>
+            <button type="button" class="btn btn--primary" aria-busy={saving()} disabled={saving() || saved()} onClick={() => void save()}>
               {props.saveLabel ?? t('admin-shell-save')}
             </button>
           </Show>

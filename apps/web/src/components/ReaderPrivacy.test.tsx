@@ -49,6 +49,35 @@ async function open(emails:Email[]) {
 }
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
 describe('Reader signed privacy pipeline',()=>{
+  it('does not mistake literal quarantine-marker text for a blocked body', async () => {
+    await open([message('m1', '<p>Example: data-mw-body-blocked="true"</p><img src="https://cdn.example.test/image.png">')]);
+    await waitFor(() => expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    expect(screen.queryByTestId('reader-body-blocked')).not.toBeInTheDocument();
+  });
+  it('fails closed to escaped text when the sanitizer fails, never signing cached HTML', async () => {
+    vi.mocked(getCryptoWorker().sanitizeReader).mockRejectedValue(new Error('worker unavailable'));
+    const email = message('m1', '<p>Unchecked cached body</p><img src="https://cdn.example.test/image.png">');
+    email.preview = '<script>unsafe text</script>Safe fallback';
+    await open([email]);
+    await screen.findByTestId('reader-body-blocked');
+    await waitFor(() => expect(frame()?.srcdoc).toContain('&lt;script&gt;unsafe text&lt;/script&gt;Safe fallback'));
+    expect(frame()?.srcdoc).not.toContain('Unchecked cached body');
+    expect(frame()?.srcdoc).not.toContain('cdn.example.test');
+    expect(requests).toEqual([]);
+    expect(screen.queryByRole('button', { name: /Enable links/ })).not.toBeInTheDocument();
+  });
+  it('nullifies a quarantined body before signing any remote content', async () => {
+    vi.mocked(getCryptoWorker().sanitizeReader).mockResolvedValue('<pre data-mw-body-blocked="true">Safe words only</pre>');
+    const email = message('m1', '<script>evil()</script><img src="https://cdn.example.test/image.png">');
+    const original = email.bodyValues!['1']!.value;
+    const app = await open([email]);
+    await screen.findByTestId('reader-body-blocked');
+    await waitFor(() => expect(frame()?.srcdoc).toContain('Safe words only'));
+    expect(frame()?.srcdoc).not.toContain('evil()');
+    expect(frame()?.srcdoc).not.toContain('cdn.example.test');
+    expect(requests).toEqual([]);
+    expect(app.openEmail()?.bodyValues?.['1']?.value).toBe(original);
+  });
   it('loads proxy images through signed URLs and maps CID references to the message part',async()=>{
     await open([message('m1','<p>Private body</p><img src="https://cdn.example.test/image.png"><img src="cid:logo@test">')]);
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));

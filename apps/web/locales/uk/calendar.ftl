@@ -174,10 +174,8 @@ calendar-events-count-people = { $count ->
 }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = Ваш зайнятий час у день конфлікту, за годинами.
 calendar-fb-whose = Календарі
 calendar-fb-own = Ваші
-calendar-fb-own-only = Доступність учасників не показується. Сервер повідомляє зайнятий час лише для ваших власних календарів.
 calendar-fb-unavailable = Не вдалося завантажити ваш зайнятий час.
 calendar-fb-cell = { $principal } о { $hour }: { $status }
 calendar-fb-busy = Зайнято

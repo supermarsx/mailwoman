@@ -35,7 +35,9 @@ export function ReadReceipt(props:{accountId:string;emailId:string;active:boolea
   const current=decision();if(!current||current.handled||current.action==='none')return;
   if(automatic&&(!props.fullView||current.action!=='automatic'))return;
   const epoch=version,account=props.accountId,email=props.emailId;setAttempted(true);setBusy(true);
-  try{await (props.api??api).send(account,email,automatic,controller!.signal);if(epoch===version)setDecision({...current,handled:true,action:'none'});}
+  // Its own signal, never aborted: the decision effect aborts `controller` whenever it
+  // reloads, and cutting a sent receipt off mid-request loses its outcome (t93).
+  try{await (props.api??api).send(account,email,automatic,new AbortController().signal);if(epoch===version)setDecision({...current,handled:true,action:'none'});}
   catch{if(epoch===version)setError(true);}
   finally{if(epoch===version)setBusy(false);}
  }

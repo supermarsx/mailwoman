@@ -8,6 +8,7 @@ import { createMailSlice, extractHtmlBody, type MailSlice } from './mail.ts';
 import { clearSettings, loadSettings, type Fetcher } from '../../api/settings.ts';
 import type { SliceContext } from './context.ts';
 import { isolate } from '../../i18n/index.ts';
+import {toast as toastStore,toasts} from '../../components/toast/toast.ts';
 import { listDrafts, saveDraft } from '../../components/compose/drafts-store.ts';
 import type { Client, Me } from '../../api/client.ts';
 import {
@@ -888,6 +889,50 @@ describe('mail slice — a refused send', () => {
 // ═════════════════════════════════════════════════════════════════════════════
 
 describe('mail slice — archive / trash / spam / move', () => {
+  beforeEach(()=>toastStore.clear());
+  it('shows a counted destination spinner during Trash and replaces that same toast with Undo',async()=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
+      let finish!:(value:JmapResponse)=>void;
+      jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+      const moving=mail.trashMessage(['a','b']);
+      const progress=toasts().find(item=>item.testId==='mail-move-progress')!;
+      expect(progress).toMatchObject({busy:true,persistent:true,duration:Infinity});
+      expect(progress.message).toContain('2 messages');expect(progress.message).toContain('Trash');
+      finish({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null,b:null}},'set']],sessionState:'s'});
+      await moving;
+      expect(toasts()).toHaveLength(1);
+      expect(toasts()[0]).toMatchObject({id:progress.id,busy:false,persistent:false,action:{label:'Undo'}});
+      mail.dismissUndo();expect(toasts()).toHaveLength(0);
+    });
+  });
+  it('replaces partial move progress with one warning and Undo only for the successful subset',async()=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap,toast})=>{
+      jmap.mockImplementationOnce(async()=>({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null},notUpdated:{b:{type:'forbidden'}}},'set']],sessionState:'s'}));
+      await mail.moveMessage(['a','b'],'archive');
+      expect(toasts()).toHaveLength(1);expect(toasts()[0]).toMatchObject({tone:'warning',busy:false,action:{label:'Undo'}});
+      expect(toasts()[0]?.message).toContain('1 of 2');expect(toasts()[0]?.message).toContain('Archive');
+      expect(toast).not.toHaveBeenCalled();expect(mail.messages().map(item=>item.id)).toEqual(['b']);
+      await mail.undoNow();expect(mail.messages().map(item=>item.id).sort()).toEqual(['a','b']);
+    });
+  });
+  it('dismisses an in-flight move on account transition and refuses stale completion',async()=>{
+    await withInbox([email('a')],async(mail,{jmap})=>{
+      let finish!:(value:JmapResponse)=>void;
+      jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+      const moving=mail.trashMessage('a');expect(toasts().some(item=>item.busy)).toBe(true);
+      suspendAccountPreferences();expect(toasts()).toHaveLength(0);
+      finish({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null}},'set']],sessionState:'s'});
+      await moving;expect(toasts()).toHaveLength(0);expect(mail.pendingUndo()).toBeNull();
+    });
+  });
+  it('turns transport failure into one error and restores the removed row',async()=>{
+    await withInbox([email('a')],async(mail,{jmap,toast})=>{
+      jmap.mockRejectedValueOnce(new Error('offline'));
+      await mail.trashMessage('a');expect(toasts()).toHaveLength(1);
+      expect(toasts()[0]).toMatchObject({tone:'error',busy:false,testId:'mail-move-result'});
+      expect(toast).not.toHaveBeenCalled();expect(mail.messages().map(item=>item.id)).toEqual(['a']);
+    });
+  });
   const cases = [
     ['archiveMessage', 'archive', 'Archived'],
     ['trashMessage', 'trash', 'Moved to Trash'],
@@ -1126,6 +1171,15 @@ describe('mail slice — reading a message', () => {
 });
 
 describe('mail slice — search', () => {
+  it('excludes Trash in all-folder server queries and strips the opt-in before transport',async()=>{
+    await withInbox([email('a')],async(mail,{jmap})=>{
+      const filter=()=>{const requests=jmap.mock.calls.map(call=>call[0] as JmapRequest);return requests.flatMap(request=>request.methodCalls).filter(call=>call[0]==='Email/query').at(-1)?.[1]['filter'];};
+      await mail.searchMessages('hello');expect(filter()).toEqual({text:'hello',inMailboxOtherThan:['trash']});
+      await mail.searchMessages('hello include:trash');expect(filter()).toEqual({text:'hello'});
+      await mail.searchMessages('in:Trash hello');expect(filter()).toEqual({text:'in:trash hello'});
+      await mail.searchMessages('include:trash');expect(filter()).toEqual({});
+    });
+  });
   it('runs a query, marks search active, and clearing restores the mailbox', async () => {
     await withInbox([email('a')], async (mail) => {
       await mail.searchMessages('subject:hi');
@@ -1163,7 +1217,7 @@ describe('mail slice — search', () => {
     await withDeps([email('a')], { online: () => false, searchOffline }, async (mail, { jmap }) => {
       jmap.mockClear();
       await mail.searchMessages('anything');
-      expect(searchOffline).toHaveBeenCalledWith({ text: 'anything' });
+      expect(searchOffline).toHaveBeenCalledWith({ text: 'anything',inMailboxOtherThan:['trash'] });
       expect(mail.messages().map((m) => m.id)).toEqual(['cached']);
       expect(jmap).not.toHaveBeenCalled();
       expect(mail.searchActive()).toBe(true);

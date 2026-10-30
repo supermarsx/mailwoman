@@ -10,7 +10,7 @@ import { useShell } from '../shell/context.ts';
 import { clearAdminError, toastAdminError } from '../shell/requestErrorToast.ts';
 import type { DnsReport, ProbeReport } from '../../../api/admin/domains.ts';
 import type { Check, DetectResult, DiagnosticsApi, Run } from './api.ts';
-import { CheckCard, type CardRow } from './Card.tsx';
+import { CheckCard, CheckTable, type CardRow } from './Card.tsx';
 import { KNOWN_CHECKS, backendFacts, cardStatus, groupOf, isKnownCheck, keyOf, latestChecks, latestRun, type CardStatus, type CheckGroup, type LatestCheck } from './model.ts';
 import type { DiagnosticsStore, Suite } from './store.ts';
 import * as css from './diagnostics.css.ts';
@@ -58,7 +58,7 @@ function ServerCard(props: { store: DiagnosticsStore; id: string; latest: Latest
     const result = POSTURE_CLAIMS.has(c.id) && (c.status === 'pass' || c.status === 'warn') ? t(c.status === 'pass' ? 'admin-diagx-posture-met' : 'admin-diagx-posture-not-met') : c.summary;
     return [
       { label: t('admin-diagx-row-result'), value: result },
-      { label: t('admin-diagx-row-duration'), value: duration(c) },
+      { kind: 'duration', label: t('admin-diagx-row-duration'), value: duration(c) },
       { label: t('admin-diagx-row-checked'), value: <time dateTime={new Date(props.latest!.run.startedAt * 1000).toISOString()}>{when(props.latest!.run.startedAt)}</time> },
       { label: t('admin-diagx-row-id'), value: c.id, mono: c.id },
     ];
@@ -84,7 +84,7 @@ export function ServerGroup(props: { store: DiagnosticsStore; group: Exclude<Che
   const items = createMemo(() => serverChecks(props.store.runs(), props.group));
   const ids = createMemo(() => items().map((i) => i.id), undefined, { equals: (a, b) => a.length === b.length && a.every((id, n) => id === b[n]) });
   const latest = (id: string): LatestCheck | undefined => items().find((i) => i.id === id)?.latest;
-  return <div class={css.cards}><For each={ids()}>{(id) => <ServerCard store={props.store} id={id} latest={latest(id)} />}</For></div>;
+  return <CheckTable caption={t(`admin-diagx-tab-${props.group}`)}><For each={ids()}>{(id) => <ServerCard store={props.store} id={id} latest={latest(id)} />}</For></CheckTable>;
 }
 
 // ── Mail backends ─────────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ function BackendCard(props: { store: DiagnosticsStore; check: Check }): JSX.Elem
     if (f.tls !== undefined || f.tlsVersion !== undefined) out.push({ label: t('admin-diagx-row-tls'), value: [f.tls, f.tlsVersion].filter(Boolean).join(' · '), mono: [f.tls, f.tlsVersion].filter(Boolean).join(' ') });
     if (f.capabilityCount !== undefined) out.push({ label: t('admin-diagx-row-capabilities'), value: String(f.capabilityCount) });
     if (f.credentialsSent !== undefined) out.push({ label: t('admin-diagx-row-credentials'), value: yesNo(f.credentialsSent) });
-    out.push({ label: t('admin-diagx-row-duration'), value: duration(c) });
+    out.push({ kind: 'duration', label: t('admin-diagx-row-duration'), value: duration(c) });
     return out;
   };
   const key = (): string => keyOf(props.check, 'backends');
@@ -166,7 +166,7 @@ export function BackendsTab(props: { store: DiagnosticsStore; api: DiagnosticsAp
           <label>{t('admin-diag-filter')}<input type="search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
           <label>{t('admin-diag-status')}<select value={status()} onChange={(e) => setStatus(e.currentTarget.value)}><option value="">{t('admin-diag-all')}</option><For each={['ok', 'warn', 'fail', 'skipped']}>{(value) => <option value={value}>{t(`admin-diagx-status-${value}`)}</option>}</For></select></label>
         </div>
-        <div class={css.cards}><For each={results().map((c) => c.id)} fallback={<p class={css.intro}>{t(r().results.length ? 'admin-diag-no-match' : 'admin-diag-no-checks')}</p>}>{(id) => <Show when={results().find((c) => c.id === id)}>{(check) => <BackendCard store={props.store} check={check()} />}</Show>}</For></div>
+        <CheckTable caption={t('admin-diagx-backend-results')}><For each={results().map((c) => c.id)} fallback={<tr><td colSpan={5}>{t(r().results.length ? 'admin-diag-no-match' : 'admin-diag-no-checks')}</td></tr>}>{(id) => <Show when={results().find((c) => c.id === id)}>{(check) => <BackendCard store={props.store} check={check()} />}</Show>}</For></CheckTable>
       </>}</Show>
     </section>
   </div>;
@@ -251,7 +251,7 @@ export function ConnectivityTools(props: { api: DiagnosticsApi; canDiscover: () 
         <For each={domains()}>{(name) => <option value={name}>{name}</option>}</For>
       </select></label>
     </div>
-    <div class={css.cards}>
+    <CheckTable caption={t('admin-diagx-domain-tools')}>
       <Show when={props.api.dns}><CheckCard check="tool-dns" title={t('admin-diagx-tool-dns')} purpose={t('admin-diagx-tool-dns-purpose')} status={dns().status} rows={dnsRows()} fix={t('admin-diagx-tool-dns-fix')} raw={dns().result} onRun={() => void runDns()} runDisabled={!canRun()} /></Show>
       <Show when={props.api.probe}><CheckCard check="tool-tls" title={t('admin-diagx-tool-tls')} purpose={t('admin-diagx-tool-tls-purpose')} status={probe().status} rows={probeRows()} fix={t('admin-diagx-tool-tls-fix')} raw={probe().result} onRun={() => void runProbe()} runDisabled={!canRun()} /></Show>
       <Show when={props.api.detect}>
@@ -259,7 +259,7 @@ export function ConnectivityTools(props: { api: DiagnosticsApi; canDiscover: () 
           <div class={css.filters}><label>{t('admin-diagx-detect-name')}<input type="text" inputmode="url" autocomplete="off" placeholder={domain()} value={discover()} onInput={(e) => setDiscover(e.currentTarget.value)} /></label></div>
         </CheckCard>
       </Show>
-    </div>
+    </CheckTable>
   </section>;
 }
 

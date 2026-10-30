@@ -7,7 +7,7 @@
 // same menu. Sizes are not shown: the server learns a file's size only when it
 // downloads it, and nothing is fetched before the user asks.
 
-import { createEffect, createMemo, createSignal, on, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, on, Show, type JSX } from 'solid-js';
 import { signContent, signedSource } from '../api/remote-content.ts';
 import { t } from '../i18n/index.ts';
 import { toast } from './toast/toast.ts';
@@ -38,7 +38,7 @@ function shortLink(url: string): string {
   try { const u = new URL(url); return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`; } catch { return url; }
 }
 
-export function LinkedFilesBar(props: { emailId: string; scope: string; urls: readonly string[]; links: readonly string[] }): JSX.Element {
+export function LinkedFilesBar(props: { emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; urls: readonly string[]; links: readonly string[] }): JSX.Element {
   const [pending, setPending] = createSignal(false);
   createEffect(on(() => props.scope, () => setPending(false)));
   const files = createMemo(() => props.urls.map(linkedFile));
@@ -88,7 +88,7 @@ export function LinkedFilesBar(props: { emailId: string; scope: string; urls: re
       state={files().length > 0 ? 'files' : 'links'}
       icon={files().length > 0 ? 'file' : 'link'}
       tooltip={tooltip()}
-      actions={<NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} />}
+      actions={<><Show when={props.onToggleLinks}><NoticeButton icon="link" disabled={props.linksReady===false&&!props.linksEnabled} busy={props.linksReady===false&&!props.linksEnabled} label={t(props.linksReady===false&&!props.linksEnabled?'privacy-links-loading':props.linksEnabled?'privacy-links-disable':'privacy-links-enable')} tooltip={t('privacy-links-enable-help')} testid="message-links-toggle" detachedLocal onClick={()=>props.onToggleLinks?.()}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>}
       after={menu.menu()}
     >
       <span class={noticeCss.headline}>{headline()}</span>

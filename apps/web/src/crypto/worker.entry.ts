@@ -16,7 +16,7 @@
 // nothing to the mail critical path.
 
 import init, * as mw from '../wasm/mw-crypto/mw_crypto.js';
-import initSanitize, { sanitizeEmailHtml, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
+import initSanitize, { sanitizeEmailHtmlReaderStrip, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
 import type { CryptoWorkerRequest, CryptoWorkerResponse } from './worker.ts';
 import { sanitizeDecryptResult, type RawDecryptResult } from './sanitize.ts';
 
@@ -123,7 +123,7 @@ async function runMethod(method: string, rawArgs: unknown): Promise<unknown> {
   if (method === 'decrypt') {
     await ensureSanitize();
     const policy = readerPolicy as { blockTrackers?: unknown; cleanLinks?: unknown } | undefined;
-    const sanitize = policy === undefined ? sanitizeEmailHtml : (html: string) => sanitizeEmailHtmlReader(html, policy.blockTrackers !== false, policy.cleanLinks !== false);
+    const sanitize = policy === undefined ? sanitizeEmailHtmlReaderStrip : (html: string) => sanitizeEmailHtmlReader(html, policy.blockTrackers !== false, policy.cleanLinks !== false);
     return sanitizeDecryptResult(value as RawDecryptResult, sanitize);
   }
   return normalizeResult(method, value);

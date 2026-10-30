@@ -196,6 +196,9 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
   // Realtime push (plan §2.2): the controller's reconciler fires `onChanged`
   // for the datatypes that actually moved → refetch the live list / outbox.
   // `startRealtime()`/`stopRealtime()` are driven by App around the session.
+  // Push refreshes have no awaiting UI. Keep the last Outbox rows on a transport
+  // interruption; explicit refresh callers still receive errors, and transport
+  // authentication handling continues to invalidate an expired session.
   const realtime = createRealtimeSlice(ctx, {
     onChanged: (accountId, types) => {
       if (accountId !== mail.accountId()) return;
@@ -204,13 +207,13 @@ export function createAppState(client: Client, deps: AppStateDeps = {}): AppStat
       // open folder. An Email-only change refreshes the open folder.
       if (types.includes('Mailbox')) void mail.refreshFolders().catch(() => undefined);
       else if (types.includes('Email')) void mail.refreshCurrentMailbox();
-      if (types.includes('EmailSubmission')) void outbox.refreshOutbox();
+      if (types.includes('EmailSubmission')) void outbox.refreshOutbox().catch(() => undefined);
     },
     // An open linked mailbox (t46) arrives on the same stream, already matched
     // to the verified link and its storage authority.
     onActiveLinkedChanged: (types) => {
       if (types.includes('Email') || types.includes('Mailbox')) void mail.refreshCurrentMailbox();
-      if (types.includes('EmailSubmission')) void outbox.refreshOutbox();
+      if (types.includes('EmailSubmission')) void outbox.refreshOutbox().catch(() => undefined);
     },
   });
 

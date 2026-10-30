@@ -19,8 +19,9 @@ function bridge(options: { opener?: object | null; openerThrows?: boolean } = {}
   else parent['opener'] = options.opener ?? null;
   let listener: ((event: { origin: string; source: unknown; data: unknown }) => void) | undefined;
   const replaced: string[] = [];
+  const sandboxes:string[]=[];
   const frame = (): Record<string, unknown> => {
-    const element: Record<string, unknown> = { srcdoc: '', style: {}, setAttribute() {}, addEventListener() {},
+    const element: Record<string, unknown> = { srcdoc: '', style: {}, setAttribute(name:string,value:string) {if(name==='sandbox')sandboxes.push(value);}, addEventListener() {},
       cloneNode: () => frame(), replaceWith: (next: { srcdoc: string }) => { replaced.push(next.srcdoc); } };
     return element;
   };
@@ -29,7 +30,7 @@ function bridge(options: { opener?: object | null; openerThrows?: boolean } = {}
   new Function('location', 'parent', 'document', 'addEventListener', source)(location, parent, document,
     (type: string, handler: typeof listener) => { if (type === 'message') listener = handler; });
   const send = (from: unknown, data: unknown, origin = ORIGIN) => listener!({ origin, source: from, data });
-  return { parent, posted, replaced, send };
+  return { parent, posted, replaced, send, sandboxes };
 }
 const body = (html = '<p>hi</p>') => ({ type: 'mw-reader-frame', token: TOKEN, html, revision: 1 });
 
@@ -69,4 +70,13 @@ it('refuses everything but its parent when it has no readable opener', () => {
     frame.send(frame.parent, body());
     expect(frame.replaced).toEqual(['<p>hi</p>']);
   }
+});
+
+it('permits only popups after authenticated explicit consent and revokes them on the next document',()=>{
+ const frame=bridge();expect(frame.sandboxes).toEqual(['']);
+ frame.send({}, {...body(),linksEnabled:true});expect(frame.sandboxes).toEqual(['']);
+ frame.send(frame.parent,{...body(),linksEnabled:true});expect(frame.sandboxes.at(-1)).toBe('allow-popups allow-popups-to-escape-sandbox');
+ frame.send(frame.parent,{...body(),linksEnabled:'true'});expect(frame.sandboxes.at(-1)).toBe('');
+ frame.send(frame.parent,body());expect(frame.sandboxes.at(-1)).toBe('');
+ expect(frame.sandboxes.every(tokens=>!tokens.includes('allow-scripts')&&!tokens.includes('allow-same-origin')&&!tokens.includes('allow-top-navigation'))).toBe(true);
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import { renderWithApp, mkEmail } from '../appHarness.tsx';
 import { SearchBox } from './SearchBox.tsx';
@@ -20,6 +20,51 @@ const submit = (input: HTMLInputElement, text: string): void => {
 };
 
 describe('SearchBox (t88)', () => {
+  it('opens guided filters before searching and applies a friendly field through the existing editor', async () => {
+    const {app,input}=await setup();
+    const toggle=await screen.findByRole('button',{name:'Filters'});
+    expect(toggle).toHaveAttribute('aria-expanded','false');
+    fireEvent.click(toggle);
+    const guided=await screen.findByRole('region',{name:'Guided search'});
+    expect(app.searchActive()).toBe(false);
+    const from=within(guided).getByRole('button',{name:'From'});
+    fireEvent.click(from);
+    const editor=await screen.findByRole('dialog',{name:'Edit filter: From'});
+    fireEvent.input(within(editor).getByRole('textbox'),{target:{value:'Alice Example'}});
+    fireEvent.click(within(editor).getByRole('button',{name:'Apply'}));
+    await waitFor(()=>expect(input.value).toBe('from:"Alice Example"'));
+    expect(app.search()).toBe(input.value);
+    await waitFor(()=>expect(document.activeElement).toBe(from));
+    fireEvent.click(within(guided).getByRole('checkbox',{name:'Has attachment'}));
+    await waitFor(()=>expect(input.value).toBe('from:"Alice Example" has:attachment'));
+    expect(screen.getAllByRole('toolbar',{name:'Search filters'})).toHaveLength(1);
+  });
+
+  it('keeps the Trash choice in the canonical query and closes guidance with Escape without clearing it', async () => {
+    const {app,input}=await setup();
+    submit(input,'invoice -from:spam@example.org');
+    const toggle=await screen.findByRole('button',{name:'Filters'});
+    fireEvent.click(toggle);
+    const guided=await screen.findByRole('region',{name:'Guided search'});
+    const trash=within(guided).getByRole('checkbox',{name:'Include Trash'});
+    expect(trash).not.toBeChecked();
+    fireEvent.click(trash);
+    await waitFor(()=>expect(input.value).toBe('invoice -from:spam@example.org include:trash'));
+    expect(app.search()).toBe(input.value);
+    expect(within(bar()).queryByRole('button',{name:/Filter: include:trash/})).toBeNull();
+    fireEvent.input(input,{target:{value:'subject:hello include:trash'}});
+    expect(trash).toBeChecked();
+    fireEvent.keyDown(trash,{key:'Escape'});
+    expect(screen.queryByRole('region',{name:'Guided search'})).toBeNull();
+    expect(toggle).toHaveAttribute('aria-expanded','false');
+    expect(document.activeElement).toBe(toggle);
+    expect(input.value).toBe('subject:hello include:trash');
+    fireEvent.click(within(bar()).getByRole('checkbox',{name:'Include Trash'}));
+    await waitFor(()=>expect(input.value).toBe('subject:hello'));
+    fireEvent.input(input,{target:{value:'in:trash subject:hello'}});
+    expect(within(bar()).getByRole('checkbox',{name:'Include Trash'})).toBeDisabled();
+  });
+
   it('icon buttons: a magnifier submits, × clears; both have names and tooltips', async () => {
     const { app, input } = await setup();
     const go = screen.getByRole('button', { name: 'Search' });
@@ -141,3 +186,10 @@ describe('related search actions (t88)', () => {
   });
 });
 
+
+it('includes exact sender-domain in related searches only when supported',()=>{
+ const email=mkEmail('domain',{from:[{name:'A',email:'a@EXAMPLE.org'}]});const run=vi.fn();
+ expect(relatedSearchActions(email,['inbox'],run).some(row=>row.id==='search:from-domain')).toBe(false);
+ const action=relatedSearchActions(email,['inbox'],run,true).find(row=>row.id==='search:from-domain');
+ expect(action).toBeDefined();action!.run();expect(run).toHaveBeenCalledWith('from-domain','example.org');
+});

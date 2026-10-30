@@ -14,6 +14,7 @@ import { ShellContext } from '../shell/context.ts';
 import { adminDocsHref } from '../shell/docsLink.ts';
 import { fieldAnchorAttrs } from '../shell/fieldAnchors.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
+import {useSavingToast} from '../shell/useSavingToast.ts';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { FieldHistory } from '../shell/FieldHistory.tsx';
 import { FormField, type FieldWiring } from '../shell/FormField.tsx';
@@ -82,6 +83,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
   const [formError, setFormError] = createSignal<string | null>(null);
   const [done, setDone] = createSignal<string | null>(null);
   const [busy, setBusy] = createSignal(false);
+  useSavingToast(busy,()=>t('admin-ux-form-saving'));
   const [lossConfirmation, setLossConfirmation] = createSignal<GlobalWrite | null>(null);
   const [preview, setPreview] = createSignal<GlobalWrite | null>(null);
 
@@ -301,8 +303,8 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
               }}
             />
             <div class={ux.saveBar}>
-              <button type="submit" class="btn btn--primary" disabled={busy() || !writable() || !dirty()}>
-                {busy() ? t('admin-ux-form-saving') : t('admin-settings-save')}
+              <button type="submit" class="btn btn--primary" aria-busy={busy()} disabled={busy() || !writable() || !dirty()}>
+                {t('admin-settings-save')}
               </button>
               <RevertToDefault
                 label={label()}
@@ -320,7 +322,7 @@ export function SettingDetail(props: SettingDetailProps): JSX.Element {
             <div aria-live="polite">
               <Feedback kind="success" message={done()} />
             </div>
-            <Feedback kind="error" message={formError()} />
+            <Feedback kind="error" as="toast" message={formError()} />
           </form>
 
           <Show when={s().scopes !== 'global' && dedicated() === null}>

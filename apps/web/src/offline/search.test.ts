@@ -28,6 +28,12 @@ const corpus: Email[] = [
 ];
 
 describe('matchesOffline', () => {
+  it('keeps excluded Trash out of cached results and honors an explicit Trash scope',()=>{
+    const inbox=email({id:'inbox-hit'}),trash=email({id:'trash-hit',mailboxIds:{trash:true}});
+    expect(offlineSearch([inbox,trash],{inMailboxOtherThan:['trash']})).toEqual([inbox]);
+    expect(offlineSearch([inbox,trash],{})).toEqual([inbox,trash]);
+    expect(offlineSearch([inbox,trash],{inMailbox:'trash'})).toEqual([trash]);
+  });
   it('free text matches across from/to/subject/preview, case-insensitively', () => {
     expect(matchesOffline(corpus[0]!, { text: 'QUARTERLY' })).toBe(true);
     expect(matchesOffline(corpus[0]!, { text: 'alice@work' })).toBe(true);
@@ -74,4 +80,10 @@ describe('offlineSearch', () => {
   it('returns an empty array on no match', () => {
     expect(offlineSearch(corpus, { text: 'zzzzz' })).toEqual([]);
   });
+});
+
+it('matches sender domains exactly rather than display names or substrings',()=>{
+ const matches=(address:string,name='')=>matchesOffline(email({id:'domain',from:[{email:address,name}]}),{fromDomain:'example.org'});
+ expect(matches('sender@EXAMPLE.ORG')).toBe(true);
+ for(const address of ['sender@evil-example.org','sender@example.org.evil','sender@sub.example.org','example.org@evil.org'])expect(matches(address,'sender@example.org')).toBe(false);
 });

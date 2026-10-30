@@ -803,3 +803,9 @@ admin-settings-key-access-protocols = Mail access protocols
 admin-settings-help-access-protocols = Which mail server protocols these users may sign in with: imap, pop3, ews. Sign-ins through a JMAP server follow that server.
 admin-settings-key-limit-linked-mailboxes = Linked mailboxes per user
 admin-settings-help-limit-linked-mailboxes = How many mailboxes a user may link, below the server maximum. 0 means only the server maximum applies.
+
+admin-settings-key-login-show-account-help-notice = Show account-help notice on sign-in
+admin-settings-help-login-show-account-help-notice = Show a short explanation after an unsuccessful sign-in. Hidden by default; the notice does not reveal whether an account exists or is disabled.
+
+admin-settings-key-appearance-leetspeak = Leetspeak text style
+admin-settings-help-appearance-leetspeak = Display interface labels and read-only message text in leetspeak. Original message and editable text stay unchanged. Users can choose normal text unless this setting is locked.

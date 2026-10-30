@@ -12,3 +12,13 @@ it('rejects executable, relative, credentialed and control-character addresses',
 it('bounds the review list and still disables every additional destination',()=>{
  const result=reviewMessageLinks(Array.from({length:110},(_,i)=>`<a href="https://example.org/${i}">Link</a>`).join(''),'Review');expect(result.links).toHaveLength(100);expect(result.truncated).toBe(true);expect(new DOMParser().parseFromString(result.html,'text/html').querySelectorAll('a[href]')).toHaveLength(0);
 });
+
+it('enables only validated destinations with isolated navigation after explicit consent',()=>{
+ const source='<a href="https://example.org/path" target="_self" ping="https://tracker.example" download>Visit</a><a href="mailto:friend@example.org">Write</a><a href="javascript:alert(1)">Bad</a><a href="data:text/html,evil">Data</a><a href="custom:thing">Custom</a><a href="#foot">Foot</a>';
+ const doc=new DOMParser().parseFromString(reviewMessageLinks(source,'Review',true).html,'text/html');
+ const links=doc.querySelectorAll('a');
+ for(const i of [0,1]){expect(links[i]?.getAttribute('target')).toBe('_blank');expect(links[i]?.getAttribute('rel')).toBe('noopener noreferrer');expect(links[i]?.getAttribute('referrerpolicy')).toBe('no-referrer');expect(links[i]?.hasAttribute('aria-disabled')).toBe(false);}
+ for(const i of [2,3,4])expect(links[i]?.hasAttribute('href')).toBe(false);
+ expect(links[0]?.hasAttribute('ping')).toBe(false);expect(links[0]?.hasAttribute('download')).toBe(false);expect(links[5]?.getAttribute('href')).toBe('#foot');expect(links[5]?.hasAttribute('target')).toBe(false);
+ expect(new DOMParser().parseFromString(reviewMessageLinks(source,'Review',false).html,'text/html').querySelectorAll('a[href]')).toHaveLength(1);
+});

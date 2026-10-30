@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { SettingsFormPage, validateSettingField, type SettingsGroup, type SettingsLoad } from './SettingsFormPage.tsx';
+import { toasts } from '../../../../components/toast/index.ts';
 import { anyDirty } from '../useDirtyGuard.ts';
 import { renderInShell } from '../testkit.tsx';
 import { stripIsolates } from '../../../../i18n';
@@ -143,6 +144,27 @@ describe('SettingsFormPage', () => {
     expect(screen.getByTestId('save-result')).toHaveTextContent('Nothing was saved. Fix the 2 fields marked below.');
   });
 
+  it('shows no initial success, keeps Save readable while pending, and replaces progress with one success toast', async () => {
+    let finish!: () => void;
+    setup({save: () => new Promise<void>(resolve => {finish=resolve;})});
+    await screen.findByTestId('save-bar');
+    expect(screen.queryByTestId('admin-form-save-toast')).toBeNull();
+    fireEvent.input(field('Port'), {target:{value:'2525'}});
+    const save=screen.getByRole('button',{name:'Save'});
+    fireEvent.click(save);
+    expect(save).toBeDisabled();
+    expect(save).toHaveAttribute('aria-busy','true');
+    expect(screen.getByTestId('admin-form-save-toast')).toHaveTextContent('Saving');
+    expect(toasts().find(item=>item.testId==='admin-form-save-toast')).toMatchObject({busy:true,persistent:true,duration:Infinity});
+    expect(screen.getByTestId('save-result')).toBeEmptyDOMElement();
+    finish();
+    await waitFor(()=>expect(screen.getByTestId('admin-form-save-toast')).toHaveTextContent('Saved 1 change.'));
+    expect(screen.getAllByTestId('admin-form-save-toast')).toHaveLength(1);
+    expect(screen.getByTestId('save-result')).toBeEmptyDOMElement();
+    expect(save).toHaveAttribute('aria-busy','false');
+    expect(toasts().find(item=>item.testId==='admin-form-save-toast')).toMatchObject({busy:false,persistent:false});
+  });
+
   it('sends only the changed fields with If-Match, then announces the result', async () => {
     const { save } = setup();
     await screen.findByTestId('save-bar');
@@ -153,7 +175,7 @@ describe('SettingsFormPage', () => {
     await waitFor(() => expect(save).toHaveBeenCalledTimes(1));
     expect(save.mock.calls[0]![0]).toEqual({ 'smtp.port': 2525, 'smtp.tls': false, 'relay.password': 'n3w' });
     expect((save.mock.calls[0]![1] as { ifMatch: string }).ifMatch).toBe('"v1"');
-    await waitFor(() => expect(screen.getByTestId('save-result')).toHaveTextContent('Saved 3 changes.'));
+    await waitFor(() => expect(screen.getByTestId('admin-form-save-toast')).toHaveTextContent('Saved 3 changes.'));
     expect(screen.getByTestId('save-bar')).toHaveTextContent('No unsaved changes');
     expect(field('Relay password')).toHaveValue('');
   });
@@ -165,6 +187,7 @@ describe('SettingsFormPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     await waitFor(() => expect(document.activeElement).toBe(field('Port')));
     expect(field('Port')).toHaveAccessibleDescription(/outside the allowed range/);
+    expect(screen.queryByTestId('admin-form-save-toast')).toBeNull();
     expect(screen.getByTestId('save-bar')).toHaveTextContent('1 unsaved change');
   });
 
@@ -188,7 +211,7 @@ describe('SettingsFormPage', () => {
     await waitFor(() => expect(screen.queryByTestId('stale-notice')).toBeNull());
     expect(tags).toEqual(['"v1"', '"v5"']);
     await waitFor(() => expect(screen.getByTestId('save-bar')).toHaveTextContent('No unsaved changes'));
-    expect(screen.getByTestId('save-result')).toHaveTextContent('Saved 1 change.');
+    expect(screen.getByTestId('admin-form-save-toast')).toHaveTextContent('Saved 1 change.');
     expect(load).toHaveBeenCalledTimes(1);
   });
 

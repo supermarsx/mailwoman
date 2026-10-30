@@ -10,6 +10,8 @@
 // Both dialogs (conversation, link review) are the existing themed modals.
 
 import {createEffect,createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
+import {useRealtime} from '../realtime/context.ts';
+import {ReaderSearchMenu,relatedSearchActions} from './search/ReaderSearchMenu.tsx';
 import {useApp} from '../state/context.ts';
 import {settings} from '../api/settings.ts';
 import type {Email} from '../api/jmap-types.ts';
@@ -33,7 +35,7 @@ import {focusActions} from './MessageContextMenu.tsx';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,sweep:12,print:13,export:14,zoom:10.5,
+ reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,sweep:12,print:13,export:14,zoom:10.5,search:6.5,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -55,6 +57,7 @@ export function ReaderToolbar(props:{
  security:{value:SecurityMode;floor:SecurityMode|null;onChange:(mode:SecurityMode)=>void};
 }):JSX.Element {
  const app=useApp();
+ const realtime=useRealtime();
  const [sweeping,setSweeping]=createSignal(false);
  const id=()=>props.email.id;
  const sender=()=>props.email.from?.[0]?.email??'';
@@ -84,6 +87,7 @@ export function ReaderToolbar(props:{
   links:{id:'links',
    inline:()=><ReaderAction icon="link" label={t('mail-links-review',{count:linkReview.count()})} help={t('mail-links-help')} testId="reader-links" popup="dialog" expanded={linkReview.isOpen()} badge={linkReview.count()} onClick={()=>linkReview.open()}/>,
    menu:()=>[{id:'links',label:t('mail-links-review',{count:linkReview.count()}),icon:'link',run:()=>linkReview.open()}]},
+  search:{id:'search',inline:()=><ReaderSearchMenu email={props.email}/>,menu:()=>[{id:'search-related',label:t('search-refine-menu'),icon:'search',children:relatedSearchActions(props.email,app.mailboxes().map(m=>m.id),(field,value)=>{if(realtime.subTabs.tabs().some(tab=>tab.id==='mail'))realtime.subTabs.activate('mail');void app.searchMessageField(field,value);},app.supportsFromDomainSearch()),run:()=>{}}]},
   pin:plain({id:'pin',icon:icon('pin'),label:()=>pinned()?t('mail-unpin'):t('mail-pin'),help:()=>t('mail-action-help-pin'),pressed:pinned,run:()=>void app.pinMessage(id(),!pinned()),local:true}),
   read:plain({id:'read',icon:()=>unread()?'mailRead':'mail',label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
   flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged()),local:true}),
@@ -103,7 +107,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderViewMode value={props.security.value} floor={props.security.floor} onChange={props.security.onChange} scope={`${app.accountId()}:${id()}`}/>,
    menu:()=>viewModeActions(props.security,true)},
  };
- const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom',...(sender()!==''?['sweep']:[]),'security'],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom','search',...(sender()!==''?['sweep']:[]),'security'],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
 
  // ── Fitting ────────────────────────────────────────────────────────────────
  const [folded,setFolded]=createSignal<ReadonlySet<string>>(new Set(),{equals:(a,b)=>a.size===b.size&&[...a].every(value=>b.has(value))});

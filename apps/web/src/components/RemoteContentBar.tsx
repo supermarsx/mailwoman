@@ -52,6 +52,8 @@ export interface RemoteContentBarProps {
   activeGrant?: RemoteImageGrant | null;
   /** Settled count of trackers removed beyond the HTML ones (server-decoded). */
   decodedTrackers?: { count: number; limited: boolean } | null;
+  imageFailures?: {count:number;retrying:boolean}|null;
+  onRetryImages?:()=>void;
   /** Persist a grant for a scope. Defaults to a no-op. */
   onGrant?: (scope: GrantScope, options?: MutationOptions) => Promise<void> | void;
   /** Revoke a grant. Defaults to a no-op. */
@@ -193,6 +195,9 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
         </Show>
         <Show when={mode() === 'ask' && granted()}>
           <NoticeButton icon="restore" label={slowLabel() ?? t('remote-banner-undo')} ariaLabel={`${t('remote-banner-undo')}: ${undoHelp()}`} tooltip={undoHelp()} disabled={pending()} detachedLocal onClick={() => void undo()} />
+        </Show>
+        <Show when={props.imageFailures && props.imageFailures.count>0 && props.onRetryImages && (mode()==='proxy'||(mode()==='ask'&&granted()))}>
+          <NoticeButton icon="restore" label={props.imageFailures?.retrying?t('common-retrying'):t('remote-images-toast-retry')} tooltip={t('remote-images-toast-failed',{count:props.imageFailures?.count??0})} disabled={pending()||props.imageFailures?.retrying===true} detachedLocal onClick={()=>props.onRetryImages?.()} />
         </Show>
         <Show when={menuActions().length > 0}>
           <NoticeButton icon="chevron" menu iconOnly label={t('remote-banner-more')} haspopup="menu" expanded={menu.isOpen()} onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} />

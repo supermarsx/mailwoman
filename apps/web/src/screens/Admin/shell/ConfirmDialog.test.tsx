@@ -1,4 +1,5 @@
-import { describe, it, expect, vi } from 'vitest';
+import {setAdminLeetspeak} from '../../../i18n/presentation.ts';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import { ConfirmDialog } from './ConfirmDialog.tsx';
@@ -28,7 +29,15 @@ function Harness(props: { onConfirm: () => void | Promise<void>; typed?: string 
   );
 }
 
+afterEach(()=>setAdminLeetspeak(null));
+
 describe('ConfirmDialog', () => {
+  it('keeps the typed confirmation instruction and required token canonical in leetspeak mode',async()=>{
+    setAdminLeetspeak(true);const confirm=vi.fn();render(()=><Harness onConfirm={confirm} typed="Trash"/>);fireEvent.click(screen.getByRole('button',{name:'Revoke'}));
+    const field=await screen.findByLabelText(`Type ${isolate('Trash')} to confirm`);const button=screen.getByRole('button',{name:'Revoke sessions'});
+    fireEvent.input(field,{target:{value:'7r45h'}});expect(button).toBeDisabled();
+    fireEvent.input(field,{target:{value:'Trash'}});expect(button).toBeEnabled();fireEvent.click(button);await waitFor(()=>expect(confirm).toHaveBeenCalledOnce());
+  });
   it('is a modal alertdialog named after the object, with the consequence as its description', async () => {
     render(() => <Harness onConfirm={() => undefined} />);
     fireEvent.click(screen.getByRole('button', { name: 'Revoke' }));

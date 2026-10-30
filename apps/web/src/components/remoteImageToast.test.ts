@@ -6,6 +6,8 @@ import { createRoot, createSignal } from 'solid-js';
 import {
   createImageLoadToast,
   createRemoteImageLoad,
+  AUTO_RETRY_DELAY_MS,
+  MAX_AUTO_RETRIES,
   LOAD_CAP_MS,
   POLL_MS,
   STATS_SETTLE_MS,
@@ -152,12 +154,25 @@ describe('createRemoteImageLoad', () => {
     const h = setup(vi.fn(async () => answers.shift() ?? stats({ imagesLoaded: 0, imagesFailed: 5 })));
     h.setSource(body('L1', { total: 5 }));
     await vi.advanceTimersByTimeAsync(POLL_MS);
-    expect(h.s.shown.map((x) => x.message)).toEqual(['Loading images…']);
+    expect(h.s.shown.map((x) => x.message)).toEqual(['Loading images…', 'Loading images… 0/5']);
     await vi.advanceTimersByTimeAsync(POLL_MS);
     expect(h.s.shown.at(-1)).toMatchObject({ tone: 'warning', message: "5 images couldn't load", action: 'Retry' });
     const polls = h.fetch.mock.calls.length;
     await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);
     expect(h.fetch).toHaveBeenCalledTimes(polls);
+    h.dispose();
+  });
+
+  it('a late display reuses final counters from polling without another stats request',async()=>{
+    const h=setup(vi.fn(async()=>stats({imagesLoaded:10,imagesFailed:2})));
+    h.setSource(body('L1'));
+    await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(h.fetch).toHaveBeenCalledTimes(1);
+    expect(h.hook.trackers()).toEqual({count:2,limited:false});
+    h.setDisplayed(1);h.setDisplayed(2);
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);
+    expect(h.fetch).toHaveBeenCalledTimes(1);
+    expect(h.s.shown.at(-1)).toMatchObject({tone:'warning',message:"2 images couldn't load"});
     h.dispose();
   });
 
@@ -177,7 +192,7 @@ describe('createRemoteImageLoad', () => {
     const h = setup(vi.fn(async () => stats({ imagesLoaded: 1, imagesFailed: 0 })));
     h.setSource(body('L1', { total: 5 }));
     await vi.advanceTimersByTimeAsync(LOAD_CAP_MS + POLL_MS);
-    expect(h.s.shown.map((x) => x.message)).toEqual(['Loading images…']);
+    expect(h.s.shown.map((x) => x.message)).toEqual(['Loading images…', 'Loading images… 1/5']);
     expect(h.s.dismissed).toContain('remote-images');
     h.dispose();
   });
@@ -195,6 +210,34 @@ describe('createRemoteImageLoad', () => {
     expect(JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body))).toMatchObject({ retry: true });
     vi.unstubAllGlobals();
     h.dispose();
+  });
+
+  it('shows actual progress and retries only transient failed references, then settles on success',async()=>{
+    const reference='a'.repeat(64);let recovered=false;
+    const h=setup(vi.fn(async()=>stats(recovered?{imagesLoaded:2,imagesFailed:0,failedImageRefs:[],retryableImageRefs:[]}:{imagesLoaded:1,imagesFailed:1,failedImageRefs:[reference],retryableImageRefs:[reference]})));
+    h.setSource(body('L1',{total:2}));await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(h.s.shown.some(x=>x.message==='Loading images… 1/2')).toBe(true);
+    await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS);
+    expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);
+    recovered=true;h.setSource(body('L2',{total:2}));await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(h.s.shown.some(x=>x.message.includes('Retry 1/2'))).toBe(true);
+    expect(h.s.shown.at(-1)?.message).toBe('Images loaded');expect(h.hook.failures()).toBeNull();
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.retry).toHaveBeenCalledTimes(1);h.dispose();
+  });
+  it('permanent failures never auto-retry but remain available for explicit Retry',async()=>{
+    const reference='b'.repeat(64);const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:1,failedImageRefs:[reference],retryableImageRefs:[]})));
+    h.setSource(body('L1',{total:1}));await vi.advanceTimersByTimeAsync(POLL_MS+AUTO_RETRY_DELAY_MS*3);
+    expect(h.retry).not.toHaveBeenCalled();h.hook.retry();expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);h.dispose();
+  });
+  it('automatic recovery is capped and a message/account switch cancels pending retries',async()=>{
+    const reference='c'.repeat(64);const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:1,failedImageRefs:[reference],retryableImageRefs:[reference]})));
+    h.setSource(body('L0',{total:1}));
+    for(let attempt=1;attempt<=MAX_AUTO_RETRIES;attempt++){
+      await vi.advanceTimersByTimeAsync(POLL_MS+AUTO_RETRY_DELAY_MS);expect(h.retry).toHaveBeenCalledTimes(attempt);h.setSource(body(`L${attempt}`,{total:1}));
+    }
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.retry).toHaveBeenCalledTimes(MAX_AUTO_RETRIES);
+    h.setSource(body('new',{scope:'other-account:other-message',total:1}));await vi.advanceTimersByTimeAsync(POLL_MS);
+    h.setSource(null);await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS);expect(h.retry).toHaveBeenCalledTimes(MAX_AUTO_RETRIES);h.dispose();
   });
 
   it('toast off (admin/user setting): no toast, the stats read still happens once', async () => {

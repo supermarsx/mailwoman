@@ -23,7 +23,16 @@ function AccountItemDialog(props:{id:string;trigger:HTMLButtonElement;busy:boole
     };
     const focusin=(event:FocusEvent)=>{if(!panel.contains(event.target as Node))focusFirst();};
     panel.addEventListener('keydown',keydown);doc.addEventListener('focusin',focusin);focusFirst();
-    onCleanup(()=>{panel.removeEventListener('keydown',keydown);doc.removeEventListener('focusin',focusin);if(props.trigger.isConnected)props.trigger.focus();});
+    onCleanup(()=>{
+      panel.removeEventListener('keydown',keydown);doc.removeEventListener('focusin',focusin);
+      if(!props.trigger.isConnected)return;
+      // Moving focus into this portal closes a folded ribbon group's popup.
+      // Return to its visible More button rather than a now-hidden control.
+      const group=props.trigger.closest('[data-ribbon-group]');
+      const more=group?.querySelector<HTMLButtonElement>('[data-ribbon-more]');
+      if(more&&props.trigger.closest('[hidden],[inert]'))more.focus();
+      else props.trigger.focus();
+    });
   });
   return <Portal mount={props.trigger.ownerDocument.body}><div class={css.backdrop} onClick={event=>{if(event.target===event.currentTarget)props.close();}}>
     <section ref={panel} id={props.id} class={css.panel} role="dialog" aria-modal="true" aria-label={t('mail-insert-account-title')} aria-busy={props.busy} tabIndex={-1}>{props.children}</section>

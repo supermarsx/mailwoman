@@ -1,11 +1,11 @@
 import {For,Show,createSignal,createUniqueId,onMount,type JSX} from 'solid-js';
 import {inboundAllowlistApi,type InboundAllowlistApi,type InboundConfig,type InboundView} from '../../api/admin/inboundAllowlist.ts';
-import {loadCatalog,t} from '../../i18n';
+import {loadCatalog,rawT,t} from '../../i18n';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import {useShell} from './shell/context.ts';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
 import {ConfirmDialog} from './shell/ConfirmDialog.tsx';
-import {describeAdminError} from './shell/Feedback.tsx';
+import {Feedback, describeAdminError} from './shell/Feedback.tsx';
 import {DataTable} from './shell/DataTable.tsx';
 import {AdminSubsection} from './AdminSubsection.tsx';
 import {dnsLimits,inboundDraft,inboundConfig,inboundProblem,type InboundDraft} from './inboundAllowlistModel.ts';
@@ -33,7 +33,7 @@ export function InboundAllowlist(props:{api?:InboundAllowlistApi}):JSX.Element {
  return <section class={css.section}>
   <h2 class={css.heading}>{t('admin-inbound-title')}</h2><p class={css.note}>{t('admin-inbound-help')}</p>
   <Show when={readable()} fallback={<p role="alert">{t('admin-inbound-unscoped')}</p>}>
-   <Show when={error()}><p role="alert">{error()}</p></Show><Show when={saved()}><p role="status">{t('admin-inbound-saved')}</p></Show>
+   <Show when={error()}><p role="alert">{error()}</p></Show><Feedback kind="success" as="toast" message={saved()?t('admin-inbound-saved'):null}/>
    <Show when={conflict()}><p role="alert">{t('admin-inbound-conflict')}</p></Show>
    <div class={ux.pageActions}><button type="button" class="btn" disabled={busy()} onClick={()=>void reload()}>{t('admin-inbound-refresh')}</button><Show when={dirty()}><button type="button" class="btn" disabled={busy()} onClick={()=>{setDraft(JSON.parse(baseline()) as InboundDraft);setSaved(false);}}>{t('admin-inbound-reset')}</button></Show></div>
    <Show when={draft()} fallback={<Show when={busy()}><AsyncPending/></Show>}>{value=><form class={css.subsectionBody} onSubmit={submit}>
@@ -60,7 +60,7 @@ export function InboundAllowlist(props:{api?:InboundAllowlistApi}):JSX.Element {
     ]}/>
    </AdminSubsection>}</Show>
   </Show>
-  <ConfirmDialog open={pending()!==undefined} title={t('admin-inbound-confirm-title')} body={t('admin-inbound-lockout')} typedConfirmation={t('admin-inbound-confirm-word')} confirmLabel={t('admin-inbound-save')} onCancel={()=>setPending(undefined)} onConfirm={save}>
+  <ConfirmDialog open={pending()!==undefined} title={t('admin-inbound-confirm-title')} body={t('admin-inbound-lockout')} typedConfirmation={rawT('admin-inbound-confirm-word')} confirmLabel={t('admin-inbound-save')} onCancel={()=>setPending(undefined)} onConfirm={save}>
    <Show when={pending()}>{value=><For each={['admin','webmail'] as const}>{surface=><p><strong>{t(`admin-inbound-${surface}`)}</strong>: {t(value()[surface].enabled?'admin-inbound-on':'admin-inbound-off')} · {t('admin-inbound-cidrs')}: {value()[surface].cidrs.join(', ')||'—'}</p>}</For>}</Show>
   </ConfirmDialog>
  </section>;

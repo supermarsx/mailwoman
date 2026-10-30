@@ -5,6 +5,7 @@ import { loadCatalog, t, formatDateTime } from '../../i18n';
 import * as css from '../Settings/styles.css.ts';
 import { DataTable, type Column } from './shell/DataTable.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
+import {Feedback} from './shell/Feedback.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import * as sessionCss from './sessions.css.ts';
 import { ShellContext } from './shell/context.ts';
@@ -79,7 +80,7 @@ export function AdminSessions(): JSX.Element {
     <button type="button" disabled={busy() || !canRevoke()} title={shell?.can.reason('sessions.revoke') ?? undefined} onClick={() => void run(false)}>{t('admin-sessions-preview')}</button>
     <Show when={preview()}>{(review) => <><p role="status">{t('admin-sessions-count', { count: review().sessions.length })}</p><button type="button" disabled={busy() || !canRevoke() || review().sessions.length === 0} onClick={() => void run(true)}>{t('admin-sessions-confirm')}</button></>}</Show>
     <Show when={(preview() ?? (sessions.error ? undefined : sessions.latest))?.truncated}><p>{t('admin-sessions-truncated')}</p></Show>
-    <Show when={notice()}>{value=><p role={value().problem?'alert':'status'}>{value().text}</p>}</Show>
+    <Feedback kind={notice()?.problem?'error':'success'} as="toast" message={notice()?.text}/>
     <Show when={canRevoke()}><div class={css.actions}><label><input type="checkbox" aria-label={t('admin-session-select-visible')} checked={shown().length>0&&chosen().length===shown().length} disabled={busy()||shown().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(shown().map(row=>row.handle)):new Set<string>())}/>{t('admin-session-select-visible')}</label><button type="button" disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('admin-session-revoke-selected',{count:chosen().length})}</button></div></Show>
     <DataTable caption={t('admin-session-mailbox-title')} columns={columns()} rows={shown()} rowKey={(row) => row.handle}
       state={sessions.error ? 'error' : sessions.loading && !sessions.latest ? 'loading' : 'ready'}

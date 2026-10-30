@@ -23,7 +23,8 @@
 // `frame: 'none'` the form is drawn without the page heading, for a form that
 // sits inside a list's detail pane (`labelledBy` names the pane's heading).
 
-import { For, Show, createMemo, createSignal, createUniqueId, onMount, untrack, type JSX } from 'solid-js';
+import { For, Show, createMemo, createSignal, createUniqueId, onCleanup, onMount, untrack, type JSX } from 'solid-js';
+import { toast } from '../../../../components/toast/index.ts';
 import { t } from '../../../../i18n';
 import { PasswordInput } from '../../../../components/PasswordInput.tsx';
 import { Feedback } from '../Feedback.tsx';
@@ -187,6 +188,12 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
   const [initial, setInitial] = createSignal<Record<string, unknown>>({});
   const [draft, setDraft] = createSignal<Record<string, unknown>>({});
   const [saving, setSaving] = createSignal(false);
+  const saveToastId = `admin-form-save-${id}`;
+  onCleanup(() => { if (saving()) toast.dismiss(saveToastId); });
+  const beginSave = (): void => {
+    setSaving(true);
+    toast.info(t('admin-ux-form-saving'), { id: saveToastId, busy: true, persistent: true, duration: Infinity, testId: 'admin-form-save-toast' });
+  };
   const [result, setResult] = createSignal<string | null>(null);
 
   const fields = createMemo(() => props.groups.flatMap((g) => g.fields));
@@ -268,11 +275,12 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
     }
     const changed: Record<string, unknown> = {};
     for (const fid of changedIds()) changed[fid] = draft()[fid];
-    setSaving(true);
+    beginSave();
     try {
       const out = await etag.write(async (ifMatch) => (await props.save(changed, { ifMatch, values: draft() })) ?? {});
       applySaved(out.values, changed);
     } catch (err) {
+      toast.dismiss(saveToastId);
       if (etag.conflict() === null) {
         const at = errors.fromError(err);
         if (at !== null) {
@@ -297,17 +305,18 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
     const next = { ...initial(), ...stored };
     setInitial(next);
     setDraft({ ...next });
-    setResult(t('admin-ux-form-saved', { count: Object.keys(changed).length }));
+    toast.success(t('admin-ux-form-saved', { count: Object.keys(changed).length }), { id: saveToastId, testId: 'admin-form-save-toast' });
   }
 
   async function keepMine(): Promise<void> {
     const changed: Record<string, unknown> = {};
     for (const fid of changedIds()) changed[fid] = draft()[fid];
-    setSaving(true);
+    beginSave();
     try {
       const out = await etag.keepMine<{ etag?: string | null; values?: Record<string, unknown> }>();
       applySaved(out.values, changed);
     } catch (err) {
+      toast.dismiss(saveToastId);
       if (etag.conflict() === null) errors.fromError(err);
     } finally {
       setSaving(false);
@@ -355,7 +364,7 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
             </Show>
           )}
         </For>
-        <Feedback kind="error" message={errors.formError()} />
+        <Feedback kind="error" as="toast" message={errors.formError()} />
         <StaleNotice conflict={etag.conflict()} onReload={() => load()} onKeepMine={() => keepMine()} />
         <div class={ux.saveBar} data-testid="save-bar">
           <p class={ux.saveCount} aria-live="polite">
@@ -365,8 +374,8 @@ export function SettingsFormPage(props: SettingsFormPageProps): JSX.Element {
             <button type="button" class="btn btn--ghost" disabled={saving() || changedIds().length === 0} onClick={discard}>
               {t('admin-ux-form-discard')}
             </button>
-            <button type="submit" class="btn btn--primary" disabled={saving() || (changedIds().length === 0 && !props.allowUnchanged)}>
-              {saving() ? t('admin-ux-form-saving') : (props.saveLabel ?? t('admin-shell-save'))}
+            <button type="submit" class="btn btn--primary" aria-busy={saving()} disabled={saving() || (changedIds().length === 0 && !props.allowUnchanged)}>
+              {props.saveLabel ?? t('admin-shell-save')}
             </button>
           </div>
         </div>

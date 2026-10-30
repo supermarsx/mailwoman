@@ -11,6 +11,7 @@ import type {ComposeInitial} from './compose/reply.ts';
 import { createMemo, createSignal, createEffect, on, For, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t, isolate } from '../i18n/index.ts';
+import {displayText} from '../i18n/presentation.ts';
 import { formatDateWith } from '../i18n/format.ts';
 import { messageTimeZone } from './TimeHelpers.tsx';
 import { useActions } from '../keymap/index.ts';
@@ -183,7 +184,7 @@ function MessageRow(props: {
           <SelectedMark selected={props.selected} />
           {/* isolate the sender: it shares a line with the date, so a spoofed
               display name must not reorder surrounding UI (SPEC §24). */}
-          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={email().from?.[0]?.name??undefined} address={email().from?.[0]?.email}/>{isolate(senderLabel(email().from))}</span>
+          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={email().from?.[0]?.name??undefined} address={email().from?.[0]?.email}/>{isolate(displayText(senderLabel(email().from)))}</span>
           <Show when={email().keywords?.['$flagged'] === true}>
             <span class={`list__flag ${bulk.flagMark}`} data-testid="row-flagged" role="img" aria-label={t('mail-flagged')}>
               <Icon name="flag" />
@@ -203,8 +204,8 @@ function MessageRow(props: {
           </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
-        <span class="list__subject">{email().subject ?? t('mail-no-subject')}</span>
-        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{email().preview}</span>
+        <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
+        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span>
         <TagChips email={email()} />
       </button>
       <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
@@ -305,7 +306,7 @@ function ThreadHeadRow(props: {
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
         <span class={`list__line1 ${rowCss.line1}`}>
           <SelectedMark selected={props.selected} />
-          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={rep().from?.[0]?.name??undefined} address={rep().from?.[0]?.email}/>{isolate(senderLabel(rep().from))}</span>
+          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={rep().from?.[0]?.name??undefined} address={rep().from?.[0]?.email}/>{isolate(displayText(senderLabel(rep().from)))}</span>
           <span class={thread.count} aria-label={t('mail-thread-count', { count: props.row.count })}>
             {props.row.count}
           </span>
@@ -314,8 +315,8 @@ function ThreadHeadRow(props: {
           </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
-        <span class="list__subject">{rep().subject ?? t('mail-no-subject')}</span>
-        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{rep().preview}</span>
+        <span class="list__subject">{displayText(rep().subject ?? t('mail-no-subject'))}</span>
+        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span>
       </button>
       <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>
@@ -327,7 +328,7 @@ function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void}): JSX.El
   const label = (opt: ReadingPane): string => t(`mail-reading-pane-${opt}`);
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
-      <button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="check"/></button>
+      <button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button>
       <EmptyTrash/><div class="list-reading-pane-controls"><span class={thread.toolbarLabel}>{t('mail-reading-pane')}</span>
       <For each={READING_PANE_OPTIONS}>
         {(opt) => (
@@ -735,15 +736,16 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
   const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending());
   const skeletonRows = (): number => Math.max(4, Math.min(16, Math.ceil((globalThis.innerHeight || 800) / rowHeight())));
 
-  // Loading under rows already on screen (a reload, a folder switch, the next
-  // page) is reported in the corner toast (t111), after 400 ms, one toast at a
-  // time. An empty list shows the skeleton above instead.
+  // One delayed spinner covers initial loads, folder changes and linked/primary
+  // account switches. Updating the destination replaces this toast in place.
   const loadToast = createBackgroundLoadToast({ id: 'mail-list-loading', testId: 'mail-loading-toast' });
   createEffect(() => {
-    const shown = rows().length > 0;
-    const key = !shown ? null : app.listLoading() ? 'mail-loading' : app.loadingMore() ? 'mail-loading-more' : null;
-    if (key === null) loadToast.finish();
-    else loadToast.start(t(key));
+    const switching = app.switchingMailbox();
+    const loading = app.listLoading() || sync.pending();
+    const destination = switching ? app.switchingMailboxName() : app.mailboxes().find(box => box.id === app.selectedMailboxId())?.name;
+    if (switching || loading) loadToast.start(destination ? t('mail-loading-mailbox', {name: destination}) : t('mail-loading'));
+    else if (app.loadingMore()) loadToast.start(t('mail-loading-more'));
+    else loadToast.finish();
   });
   onCleanup(() => loadToast.cancel());
 
@@ -763,7 +765,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
         }>
           <div
             class="list__scroll"
-            classList={{ [barCss.listInset]: app.selectedIds().size > 0 }}
+            classList={{ [barCss.listInset]: selecting() || app.selectedIds().size > 0 }}
             inert={app.listLoading()}
             ref={scroller}
             onScroll={onScroll}
@@ -844,7 +846,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
         </Show>
       {/* The floating selection bar (t58): over the list, after it in tab order.
           It never takes focus itself; Esc/F6 in it come back to the cursor row. */}
-      <MailSelectionBar onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>
+      <MailSelectionBar selecting={selecting()} onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>
       {contextMenu.menu()}
     </section>
   );

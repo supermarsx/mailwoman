@@ -230,3 +230,4 @@ admin-crumb-posture = Security posture
 admin-crumb-tools = Tools
 admin-crumb-history = History
 admin-crumb-report = Report
+admin-diagx-table-actions = Actions

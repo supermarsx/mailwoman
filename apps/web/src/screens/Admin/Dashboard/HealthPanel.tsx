@@ -9,7 +9,9 @@
 import { For, Show, createEffect, createSignal, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { Icon, type IconName } from '../shell/icons.tsx';
-import { Sparkline, type SparkPoint } from '../shell/Sparkline.tsx';
+import { type SparkPoint } from '../shell/Sparkline.tsx';
+import { SeriesCard } from '../shell/SeriesCard.tsx';
+import * as stats from '../shell/stats.css.ts';
 import { hrefFor } from '../shell/router.ts';
 import {
   HEALTH_COMPONENTS,
@@ -404,17 +406,17 @@ export function HealthPanel(props: HealthPanelProps): JSX.Element {
         </For>
       </ul>
       <Show when={history().length >= 2}>
-        <div class={css.charts} data-testid="dash-health-history">
+        <div class={`${stats.charts} ${css.chartsGap}`} data-testid="dash-health-history">
           <span class={shell.srOnly}>{t('admin-dash-h-history', { n: history().length })}</span>
-          <Sparkline title={t('admin-dash-h-chart-db')} points={points(history(), 'dbPingMs')} format={formatMs} formatSet={formatMsSet} />
+          <SeriesCard title={t('admin-dash-h-chart-db')} points={points(history(), 'dbPingMs')} format={formatMs} formatSet={formatMsSet} formatTime={formatTime} />
           <Show when={history().some((s) => typeof s.renderPingMs === 'number')}>
-            <Sparkline title={t('admin-dash-h-chart-render')} points={points(history(), 'renderPingMs')} format={formatMs} formatSet={formatMsSet} />
+            <SeriesCard title={t('admin-dash-h-chart-render')} points={points(history(), 'renderPingMs')} format={formatMs} formatSet={formatMsSet} formatTime={formatTime} />
           </Show>
           <Show when={history().some((s) => typeof s.outboxQueued === 'number')}>
-            <Sparkline title={t('admin-dash-h-chart-outbox')} points={points(history(), 'outboxQueued')} format={formatCount} />
+            <SeriesCard title={t('admin-dash-h-chart-outbox')} points={points(history(), 'outboxQueued')} format={formatCount} formatTime={formatTime} />
           </Show>
           <Show when={history().some((s) => typeof s.searchPending === 'number')}>
-            <Sparkline title={t('admin-dash-h-chart-search')} points={points(history(), 'searchPending')} format={formatCount} />
+            <SeriesCard title={t('admin-dash-h-chart-search')} points={points(history(), 'searchPending')} format={formatCount} formatTime={formatTime} />
           </Show>
         </div>
       </Show>

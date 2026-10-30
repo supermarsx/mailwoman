@@ -831,3 +831,23 @@ mail-focus-always-other = Mover sempre para Outras
 mail-focus-moved-focused = As mensagens de { $sender } passam a ir para Destaques.
 mail-focus-moved-other = As mensagens de { $sender } passam a ir para Outras.
 mail-focus-save-failed = Não foi possível guardar a escolha da caixa de entrada destacada para este remetente. Tente novamente.
+
+mail-context-search-domain = Pesquisar mensagens deste domínio
+
+mail-loading-mailbox = A carregar { $name }…
+mail-user-folders = Pastas do utilizador
+mail-context-hide-folder = Ocultar da barra lateral
+mail-folder-fallback = pasta
+mail-toast-moving = { $count ->
+    [one] A mover uma mensagem para { $folder }…
+   *[other] A mover { $count } mensagens para { $folder }…
+    }
+mail-toast-move-queueing = { $count ->
+    [one] A colocar uma mensagem na fila para mover para { $folder }…
+   *[other] A colocar { $count } mensagens na fila para mover para { $folder }…
+    }
+mail-toast-move-queued = { $count ->
+    [one] Uma mensagem na fila para mover para { $folder }
+   *[other] { $count } mensagens na fila para mover para { $folder }
+    }
+mail-toast-move-partial = { $count } de { $total } mensagens movidas para { $folder }; não foi possível mover { $failed }

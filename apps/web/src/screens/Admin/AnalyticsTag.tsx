@@ -6,7 +6,7 @@ import { Icon } from '../../components/Icon.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { ShellContext } from './shell/context.ts';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
-import { describeAdminError } from './shell/Feedback.tsx';
+import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 import * as ux from './shell/ux.css.ts';
 import * as tag from './analyticsTag.css.ts';
@@ -105,7 +105,7 @@ export function AnalyticsTag(props: { api?: AnalyticsTagApi }): JSX.Element {
       <li>{t('admin-analytics-tag-scope-privacy')}</li>
     </ul>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
-    <Show when={saved()}><p role="status">{t('admin-analytics-tag-saved')}</p></Show>
+    <Feedback kind="success" as="toast" message={saved()?t('admin-analytics-tag-saved'):null}/>
     <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={() => void reload()}>{t('admin-analytics-reload')}</button>}><AsyncPending /></Show>}>{value => <form class={css.subsectionBody} onSubmit={event => void save(event)} aria-label={t('admin-analytics-tag-title')}>
       <label class={ux.checkboxRow}><input type="checkbox" checked={value().enabled} disabled={disabled()} onChange={event => change({ enabled: event.currentTarget.checked })} /> {t('admin-analytics-tag-enabled')}</label>
       <label class="field"><span>{t('admin-analytics-tag-provider')}</span>

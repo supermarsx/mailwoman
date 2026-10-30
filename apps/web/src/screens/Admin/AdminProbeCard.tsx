@@ -12,6 +12,7 @@ import { adminProbeApi, type AdminProbeApi, type AdminProbeKey, type AdminProbeO
 import { t, formatNumber, formatDateTime } from '../../i18n';
 import { formatDurationMs } from '../../i18n/format.ts';
 import { ShellContext } from './shell/context.ts';
+import {useSavingToast} from './shell/useSavingToast.ts';
 import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
 import { sameValue } from './protectionRules.ts';
@@ -71,6 +72,7 @@ export function AdminProbeCard(props: { api?: AdminProbeApi | undefined }): JSX.
   const [drafts, setDrafts] = createStore<Partial<Record<AdminProbeKey, unknown>>>({});
   const [rowError, setRowError] = createStore<Partial<Record<AdminProbeKey, string>>>({});
   const [busy, setBusy] = createSignal<string | null>(null);
+  useSavingToast(()=>busy()!==null,()=>t('admin-protect-saving'));
   const [saved, setSaved] = createSignal('');
   const [unblocking, setUnblocking] = createSignal<AdminProbeSource>();
 
@@ -244,7 +246,7 @@ function ProbeRow(props: {
       <Show when={props.error}><p class={css.error} role="alert">{props.error}</p></Show>
       <div class={css.actions}>
         <button class="btn btn--sm" disabled={props.disabled || !changed() || props.busy} onClick={() => props.onSave(props.draft)}
-          aria-label={t('admin-protect-save-rule', { rule: label() })}>{props.busy ? t('admin-protect-saving') : t('admin-protect-save')}</button>
+          aria-busy={props.busy} aria-label={t('admin-protect-save-rule', { rule: label() })}>{t('admin-protect-save')}</button>
         <Show when={changed()}><button class="btn btn--ghost btn--sm" onClick={() => props.onDraft(undefined)}>{t('admin-protect-cancel')}</button></Show>
         <button class="btn btn--ghost btn--sm" disabled={props.disabled || isDefault() || props.busy} onClick={() => props.onReset()}
           aria-label={t('admin-protect-reset-rule', { rule: label() })}>{t('admin-protect-reset')}</button>

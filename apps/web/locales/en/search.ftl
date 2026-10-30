@@ -3,6 +3,10 @@
 search-submit-help = Search (Enter)
 search-clear-help = Clear search (Esc)
 search-filters-label = Search filters
+search-guided-button = Filters
+search-guided-title = Guided search
+search-guided-help = Choose who, what or when to find. Add filters to narrow your results.
+search-include-trash = Include Trash
 search-add-filter = Add filter
 search-chip-edit = Edit filter: { $label }
 search-chip-switch = Switch filter: { $label }
@@ -54,3 +58,7 @@ search-refine-menu = Search related messages
 search-refine-sender = Search messages from this sender
 search-refine-subject = Search messages with this subject
 search-refine-folder = Search in this folder
+
+search-refine-domain = Search messages from this domain
+
+search-include-trash-scoped = Include Trash applies when searching all folders. The selected folder is searched directly.

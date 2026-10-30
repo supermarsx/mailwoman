@@ -28,8 +28,10 @@
 // the browser keeps its own shortcuts: nothing outside the sandbox sees them.
 
 import { createSignal, onCleanup, onMount } from 'solid-js';
-import { loadSettings, settings, SettingsApiError, writeSetting } from '../api/settings.ts';
-import { onPageHide } from '../api/unloadFlush.ts';
+import { loadSettings, settings, settingsLoadStatus, SettingsApiError, writeSetting } from '../api/settings.ts';
+import { onPageHide, pendingWrite } from '../api/unloadFlush.ts';
+import { newIdempotencyKey } from '../api/recovery.ts';
+import { observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 import { useActions } from '../keymap/index.ts';
 import * as css from './readerZoom.css.ts';
 
@@ -56,8 +58,8 @@ export function stepZoom(level: number, direction: 1 | -1): number {
 }
 
 // The level the user just chose, shown at once while its write is in flight
-// (and kept for the session when the write cannot be stored: signed out,
-// offline). `null` means "what the settings map says".
+// (also journaled under the authenticated storage authority until acknowledged).
+// Signed-out choices remain session-only. `null` means "what the settings map says".
 const [chosen, setChosen] = createSignal<number | null>(null);
 
 /** The effective zoom level in percent (reactive). */
@@ -100,11 +102,40 @@ let queued: number | null = null;
 let lastStart = 0;
 let timer: ReturnType<typeof setTimeout> | undefined;
 let unloadHooked = false;
+let epoch = 0;
+let intent: PendingZoom | null = null;
+let intentPersisted = false;
+interface PendingZoom { token: string; next: number; base: number; inflight: number | null }
+const validStep = (value: unknown): value is number => typeof value === 'number' && (ZOOM_STEPS as readonly number[]).includes(value);
+function parsePending(raw: unknown): PendingZoom | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const p = raw as Partial<PendingZoom>;
+  return typeof p.token === 'string' && p.token.length > 0 && p.token.length <= 100 && validStep(p.next) && validStep(p.base) && (p.inflight === null || validStep(p.inflight)) ? p as PendingZoom : null;
+}
+const pending = (owner: PreferenceAccount | null) => pendingWrite(owner?.storageAuthority ? `mw.reader-zoom:v1:${owner.storageAuthority}` : '', parsePending);
+function persist(): void {
+  const slot = pending(preferenceAccount());
+  slot.write(intent);
+  intentPersisted = intent !== null && slot.read()?.token === intent.token;
+}
+function forgetIntent(): void {
+  const slot = pending(preferenceAccount());
+  if (intent && slot.read()?.token === intent.token) slot.write(null);
+  intent = null;
+  intentPersisted = false;
+}
 
 const storedZoom = (): number => snapZoom(settings()[ZOOM_SETTING]?.value ?? DEFAULT_ZOOM);
 
 function pump(): void {
   if (writing || queued === null) return;
+  const saved = pending(preferenceAccount()).read();
+  if (readerZoomLocked() || (intent && (saved ? saved.token !== intent.token : intentPersisted))) {
+    queued = null;
+    setChosen(null);
+    forgetIntent();
+    return;
+  }
   const wait = bursting ? lastStart + WRITE_SPACING - Date.now() : 0;
   if (wait > 0) {
     timer ??= setTimeout(() => { timer = undefined; pump(); }, wait);
@@ -114,28 +145,43 @@ function pump(): void {
   queued = null;
   if (next === storedZoom()) {
     if (chosen() === next) setChosen(null);
+    forgetIntent();
     return;
   }
+  const currentEpoch = epoch;
+  const owner = preferenceAccount();
+  const current = () => currentEpoch === epoch && (owner ? preferenceAccountIsCurrent(owner) : preferenceAccount() === null);
+  const token = intent?.token;
+  if (intent) { intent = { ...intent, inflight: next }; persist(); }
   writing = true;
   lastStart = Date.now();
   peers();
   writeSetting(ZOOM_SETTING, next).then(
     () => {
+      if (!current()) return;
+      if (intent && pending(owner).read()?.token === intent.token) {
+        if (intent.token === token) forgetIntent();
+        else { intent = { ...intent, base: next, inflight: null }; persist(); }
+      }
       if (chosen() === next && queued === null) setChosen(null);
       try { channel?.postMessage({ type: 'zoom' }); } catch { /* no peers */ }
     },
     (e: unknown) => {
-      // A lock that arrived since the map loaded wins; any other failure keeps
-      // the chosen level for this session only.
+      if (!current()) return;
+      // A lock that arrived since the map loaded wins; transient failures keep
+      // the latest durable intent for the next authenticated settings load.
       if (e instanceof SettingsApiError && e.code === 'setting_locked') {
         queued = null;
         setChosen(null);
+        forgetIntent();
       }
     },
-  ).finally(() => { writing = false; pump(); });
+  ).finally(() => { if (current()) { writing = false; pump(); } });
 }
 
 function store(next: number): void {
+  intent = { token: newIdempotencyKey(), next, base: intent?.base ?? storedZoom(), inflight: intent?.inflight ?? null };
+  persist(); // Save before starting transport: pagehide may never finish a request.
   queued = next;
   const now = Date.now();
   bursting = now - lastStep < BURST_GAP;
@@ -143,7 +189,7 @@ function store(next: number): void {
   if (!bursting && timer !== undefined) { clearTimeout(timer); timer = undefined; }
   if (!unloadHooked) {
     unloadHooked = true;
-    onPageHide(() => { if (timer !== undefined) { clearTimeout(timer); timer = undefined; lastStart = 0; pump(); } });
+    onPageHide(() => { clearTimeout(timer); timer = undefined; lastStart = 0; bursting = false; pump(); });
   }
   pump();
 }
@@ -163,6 +209,10 @@ export const resetZoom = (): void => setReaderZoom(DEFAULT_ZOOM);
 
 /** Forget the session-only level (sign-out, tests). */
 export function clearReaderZoom(): void {
+  epoch++;
+  writing = false;
+  intent = null;
+  intentPersisted = false;
   setChosen(null);
   queued = null;
   clearTimeout(timer);
@@ -171,6 +221,31 @@ export function clearReaderZoom(): void {
   lastStep = 0;
   bursting = false;
 }
+
+observePreferenceAccount(owner => {
+  clearReaderZoom();
+  if (!owner?.storageAuthority || !pending(owner).read()) return;
+  // Defer until the account transition has cleared the previous settings map.
+  queueMicrotask(() => {
+    if (!preferenceAccountIsCurrent(owner)) return;
+    void loadSettings({ refresh: true }).then(() => {
+      if (!preferenceAccountIsCurrent(owner) || settingsLoadStatus() !== 'ready' || intent) return;
+      const slot = pending(owner);
+      const saved = slot.read();
+      if (!saved) return;
+      const server = storedZoom();
+      if (readerZoomLocked() || server === saved.next || (server !== saved.base && server !== saved.inflight)) {
+        slot.write(null);
+        return;
+      }
+      intent = saved;
+      intentPersisted = true;
+      setChosen(saved.next);
+      queued = saved.next;
+      pump();
+    });
+  });
+});
 
 /** Wheel distance (CSS px) for one zoom step; a mouse notch is ~100, a pinch less. */
 const WHEEL_STEP = 50;

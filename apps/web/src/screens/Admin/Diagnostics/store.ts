@@ -128,7 +128,8 @@ export function createDiagnosticsStore(api: () => DiagnosticsApi): DiagnosticsSt
     }
     setJob(undefined);
     keep(value.run);
-    setNotice(value.termination === 'cancelled' ? t('admin-diag-cancelled') : value.limited ? t('admin-diag-limited') : !value.historySaved ? t('admin-diag-not-saved') : undefined);
+    if(value.termination==='cancelled')toast.info(t('admin-diag-cancelled'),{id:'admin-diag-cancel'});
+    setNotice(value.limited ? t('admin-diag-limited') : !value.historySaved ? t('admin-diag-not-saved') : undefined);
     return value.run;
   }
 
@@ -167,7 +168,7 @@ export function createDiagnosticsStore(api: () => DiagnosticsApi): DiagnosticsSt
   async function cancel(): Promise<void> {
     const current = job();
     if (!current) return;
-    try { await api().cancel?.(current.run.id); clearAdminError('diag-cancel'); setNotice(t('admin-diag-cancelling')); }
+    try { await api().cancel?.(current.run.id); clearAdminError('diag-cancel'); toast.info(t('admin-diag-cancelling'),{id:'admin-diag-cancel'}); }
     catch (e) { fail(e, 'diag-cancel', cancel); }
   }
 

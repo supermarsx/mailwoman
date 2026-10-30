@@ -70,11 +70,17 @@ export function createLinkedAccountsApi() {
    *  only, never on a refusal such as a 401 for a wrong password. */
   async function request<T>(path:string,method='GET',body?:unknown,headers?:Record<string,string>,mode:'once'|'idempotent'|'keyed'=method==='PUT'?'idempotent':'once'):Promise<T> {
     if(mode!=='keyed')return send<T>(path,method,body,headers,mode==='idempotent'?{recovery:{idempotent:true}}:{});
+    // The server classifies a mail-backend timeout after 25s. Let that answer
+    // arrive; retry only an unclassified transport failure, with the same key.
+    const recovery:Omit<RecoveryOptions,'idempotent'|'idempotencyKey'>=path.endsWith('/renew')?{
+      timeoutMs:30_000,attempts:2,offlineWaitMs:30_000,
+      nonRetryableCodes:['linkedServerUnreachable','linkedPasswordRejected','linkedRenewLimit'],
+    }:{};
     // The key is remembered by a digest of the request (never by the password itself), so pressing
     // the button again after a failure in transit reuses it.
     const identity=await requestDigest(`${method} ${path} ${JSON.stringify(body??null)}`);
-    if(identity===null)return send<T>(path,method,body,headers,keyedWrite(newIdempotencyKey()));
-    return keyedAttempt(`linked:${identity}`,key=>send<T>(path,method,body,headers,keyedWrite(key)));
+    if(identity===null)return send<T>(path,method,body,headers,keyedWrite(newIdempotencyKey(),recovery));
+    return keyedAttempt(`linked:${identity}`,key=>send<T>(path,method,body,headers,keyedWrite(key,recovery)));
   }
   async function send<T>(path:string,method:string,body:unknown,headers:Record<string,string>|undefined,recovery:{recovery?:RecoveryOptions}):Promise<T> {
     if(!owner?.storageAuthority||!authority||!preferenceAccountIsCurrent(owner)||controller.signal.aborted)throw new DOMException('Account changed','AbortError');

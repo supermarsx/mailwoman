@@ -1,4 +1,7 @@
-import { describe, it, expect, vi } from 'vitest';
+import {setAdminLeetspeak} from '../../i18n/presentation.ts';
+import {t} from '../../i18n/index.ts';
+afterEach(()=>setAdminLeetspeak(null));
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { createRoot } from 'solid-js';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { AppContext } from '../../state/context.ts';
@@ -119,6 +122,13 @@ describe('NotesModule', () => {
     // Bravo is pinned, so it sorts ahead of Alpha.
     expect(options[0]).toHaveTextContent('Bravo');
     expect(options[1]).toHaveTextContent('Alpha');
+  });
+
+  it('keeps newly stored note defaults unchanged while interface leetspeak is enabled',async()=>{
+    setAdminLeetspeak(true);const {slice}=setup([]);await waitFor(()=>expect(slice.notesLoading()).toBe(false));
+    expect(t('notes-untitled')).not.toBe('Untitled note');
+    fireEvent.click(screen.getByRole('button',{name:t('notes-new')}));
+    await waitFor(()=>expect(slice.notes().some(note=>note.title==='Untitled note')).toBe(true));
   });
 
   it('creates a new note and opens it', async () => {

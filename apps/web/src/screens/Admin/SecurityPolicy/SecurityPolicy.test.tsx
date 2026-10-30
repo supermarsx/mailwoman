@@ -110,7 +110,7 @@ describe('Security policy screen', () => {
       maxSecurityFloor: 'plain-text',
       dlpRulesJson: JSON.stringify([RULE]),
     });
-    await waitFor(() => expect(screen.getByTestId('save-result')).toHaveTextContent(/Saved 2 changes/));
+    await waitFor(() => expect(screen.getByTestId('admin-form-save-toast')).toHaveTextContent(/Saved 2 changes/));
     expect(screen.getByTestId('save-bar')).toHaveTextContent('No unsaved changes');
   });
 

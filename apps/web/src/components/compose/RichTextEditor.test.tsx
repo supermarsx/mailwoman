@@ -2,10 +2,20 @@ import { describe, it, expect, beforeAll } from 'vitest';
 import { createSignal } from 'solid-js';
 import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { RichTextEditor, type RichTextApi } from './RichTextEditor.tsx';
+import { registerResource } from '../../i18n/registry.ts';
 
 beforeAll(()=>{Object.defineProperty(Range.prototype,'getClientRects',{configurable:true,value:()=>[]});Object.defineProperty(Range.prototype,'getBoundingClientRect',{configurable:true,value:()=>({left:0,right:0,top:0,bottom:0,width:0,height:0})});});
 
 describe('RichTextEditor (W1)', () => {
+  it('keeps an open colour picker mounted when another translation catalog arrives',async()=>{
+    render(()=><RichTextEditor initialHtml="<p>Keep this</p>" ariaLabel="Body" onChange={()=>undefined}/>);
+    fireEvent.click(screen.getByRole('button',{name:/^Font color:/}));
+    const dialog=await screen.findByRole('dialog',{name:'Font color'});
+    const field=screen.getByRole('textbox',{name:'Hex'});
+    registerResource('en','t93-late-catalog = Loaded');
+    expect(screen.getByRole('dialog',{name:'Font color'})).toBe(dialog);
+    expect(field.isConnected).toBe(true);
+  });
   it('switches ribbon groups without changing the document',()=>{
     let html='';render(()=><RichTextEditor initialHtml="<p>Keep this</p>" ariaLabel="Body" onChange={value=>html=value}/>);
     expect(screen.getByLabelText('Font size')).toBeVisible();

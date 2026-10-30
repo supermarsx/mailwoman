@@ -20,7 +20,9 @@ import { AppContext, useApp } from '../state/context.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createEntryMotion } from '../shell/createEntryMotion.ts';
 import * as motion from '../styles/motion.css.ts';
-import { t, isolate, loadCatalog } from '../i18n/index.ts';
+import { t, rawT, isolate, loadCatalog } from '../i18n/index.ts';
+import {displayText,leetspeakEnabled} from '../i18n/presentation.ts';
+import {leetspeakHtml} from '../viewers/leetspeak.ts';
 import { formatDateTime } from '../i18n/format.ts';
 import { useActions } from '../keymap/index.ts';
 import * as a11y from './mailA11y.css.ts';
@@ -41,16 +43,16 @@ import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
 import { MailingListActions } from './MailingListActions.tsx';
 import {ReaderToolbar} from './ReaderToolbar.tsx';
+import {createMessageLinkConsent} from './messageLinkConsent.ts';
 import {reviewMessageLinks} from '../viewers/messageLinks.ts';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
 // Gated on the `auto-tag` Assist capability, so a Disabled gateway renders nothing.
 import { AutoTag, type TagSuggestion } from '../modules/assist/index.ts';
 import type { SenderControlRequest, SenderControlResult } from './security/model.ts';
-import { ReaderSearchMenu } from './search/ReaderSearchMenu.tsx';
 import { defaultSenderControl } from './security/model.ts';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
-import { bodyFrameDoc } from '../viewers/sandbox.ts';
+import { bodyFrameDoc, escapeHtml } from '../viewers/sandbox.ts';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { pickSignerArmors } from '../crypto/signerMatch.ts';
@@ -80,7 +82,7 @@ import { DirectReaderFrame } from './DirectReaderFrame.tsx';
 import { resourceValue } from './resourceValue.ts';
 import { useReaderZoom } from './readerZoom.ts';
 import { ReaderZoomBox } from './ReaderZoomBox.tsx';
-import { remotePolicy, remoteServerBase, signContent, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
+import { remotePolicy, remoteServerBase, signContent, replaceFailedImages, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
@@ -699,11 +701,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const [headerWaitOver,setHeaderWaitOver]=createSignal<string|null>(null);
   createEffect(on(receiptDocumentKey,(key)=>{const timer=setTimeout(()=>setHeaderWaitOver(key),500);onCleanup(()=>clearTimeout(timer));}));
   const listHeadersSettled=():boolean=>{
-    const url=messageHeaderUrl();if(url===null||headerWaitOver()===receiptDocumentKey())return true;
+    if(headerWaitOver()===receiptDocumentKey())return true;
+    // The remote-content policy too (t93): until it is known the images bar
+    // would show the blocked fallback, then change to the real mode.
+    if(resourceValue(privacy)===undefined)return false;
+    const url=messageHeaderUrl();if(url===null)return true;
     const h=listHeaders();return h!==null&&h.scope===receiptDocumentKey()&&h.url===url;
   };
   function receiptDidDisplay(html:string,key:string|undefined):void {
-    if(key===receiptDocumentKey()&&html===bodySrcdoc()){setReceiptDisplayed({key,html});setBodyDisplays(n=>n+1);}
+    if(!currentBody()?.blocked&&key===receiptDocumentKey()&&html===bodySrcdoc()){setReceiptDisplayed({key,html});setBodyDisplays(n=>n+1);}
   }
   // Keyed by a string, so only a change to these values (or the message) asks
   // again: any other preference write (the zoom level, t79) replaces the settings
@@ -713,7 +719,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
-  const [readerBody] = createResource(
+  const [readerBody, {mutate:mutateReaderBody}] = createResource(
     () => {
       const email = app.openEmail(); const account = app.accountId();
       if (!email || !account || privacy.loading || grants.loading) return null;
@@ -722,11 +728,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     async k => {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
       try { if (k.decrypted === null) html = await getCryptoWorker().sanitizeReader({ html: extractHtmlBody(k.email), blockTrackers: false, cleanLinks: true }); }
-      catch { effective = BLOCKED_POLICY; failed = true; }
-      const cancelled = () => ({ emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0 });
+      catch { effective = BLOCKED_POLICY; failed = true; html = `<pre>${escapeHtml(plainTextOf(k.email))}</pre>`; }
+      // Only the worker's canonical quarantine wrapper is a verdict; ordinary
+      // message text may legitimately mention the marker as an example.
+      const blocked = failed || html.startsWith('<pre data-mw-body-blocked="true">');
+      if (blocked) effective = BLOCKED_POLICY;
+      const cancelled = () => ({ blocked: false, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
       const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode;
       if (!current()) return cancelled();
-      const refs = readerReferences(html); const cidParts: Record<string,string> = {};
+      const refs = blocked ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html); const cidParts: Record<string,string> = {};
       const walk = (part: unknown): void => {
         if (!part || typeof part !== 'object') return;
         const p = part as { cid?: string; blobId?: string; subParts?: unknown[] };
@@ -746,7 +756,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
-      return { emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed, images: signed.images.length };
+      return { blocked, emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
   const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() ? body : undefined; };
@@ -764,13 +774,17 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const mode = maxsec.effectiveMode(sender());
     const text = decryptedText(); if (text !== null) return bodyFrameDoc('plain-text', { text }, frameOptions());
     if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decryptedHtml() ?? plainTextOf(email) }, frameOptions());
-    if (mode === 'sanitized-no-media') return bodyFrameDoc(mode, { html: currentBody()?.html ?? decryptedHtml() ?? app.sanitizedHtml() }, frameOptions());
     const body = currentBody(); if (!body || body.emailId !== email.id || body.account !== app.accountId()) return null;
+    if (body.blocked || mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: body.html }, frameOptions());
     return bodyFrameDoc('full-sanitized', { html: body.html }, { ...frameOptions(), direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
 
-  const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:reviewMessageLinks(html,t('mail-links-inert'));});
-  const bodySrcdoc=()=>reviewedBody()?.html??null;
+  const linkConsentScope=()=>JSON.stringify([receiptDocumentKey(),maxsec.effectiveMode(sender()),policy(),currentBody()?.blocked??false]);
+  const linksReady=()=>!currentBody()?.blocked&&resourceValue(privacy)!==undefined&&!privacy.loading&&!readerBody.loading&&currentBody()!==undefined;
+  const {enabled:linksEnabled,toggle:toggleLinks}=createMessageLinkConsent(linkConsentScope,linksReady);
+  const linkFrameState=createMemo(()=>({enabled:linksEnabled()}));
+  const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:reviewMessageLinks(html,t('mail-links-inert'),linksEnabled());});
+  const bodySrcdoc=createMemo(()=>{const html=reviewedBody()?.html;return html===undefined?null:leetspeakEnabled()?leetspeakHtml(html):html;});
   const receiptDocument=createMemo(()=>({key:receiptDocumentKey(),html:bodySrcdoc()}));
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
@@ -784,10 +798,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const decText = decryptedText();
     if (decText !== null) return { source: { text: decText }, decrypted: true };
     if (armor() !== null) return { source: {}, decrypted: false };
+    if (currentBody()?.blocked) return { source: { html: currentBody()!.sanitized }, decrypted: false };
     if (maxsec.effectiveMode(sender()) === 'plain-text') {
       return { source: { text: plainTextOf(email) }, decrypted: false };
     }
-    const html = app.sanitizedHtml();
+    const html = currentBody()?.sanitized ?? null;
     return { source: html !== null ? { html } : { text: plainTextOf(email) }, decrypted: false };
   }
 
@@ -827,22 +842,22 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const date = quoteDate(email.sentAt ?? email.receivedAt);
     const outlook = effectiveSettings()['mail.quoteStyle']?.value === 'outlook';
     const outlookFields = [
-      { label: t('mail-quote-header-from'), value: stripIsolates(addressList(email.from)) },
-      ...(date ? [{ label: t('mail-quote-header-sent'), value: date }] : []),
-      { label: t('mail-quote-header-to'), value: stripIsolates(addressList(email.to)) },
-      ...((email.cc ?? []).length ? [{ label: t('mail-quote-header-cc'), value: stripIsolates(addressList(email.cc ?? null)) }] : []),
-      { label: t('mail-quote-header-subject'), value: stripIsolates(email.subject ?? '') },
+      { label: rawT('mail-quote-header-from'), value: stripIsolates(addressList(email.from)) },
+      ...(date ? [{ label: rawT('mail-quote-header-sent'), value: date }] : []),
+      { label: rawT('mail-quote-header-to'), value: stripIsolates(addressList(email.to)) },
+      ...((email.cc ?? []).length ? [{ label: rawT('mail-quote-header-cc'), value: stripIsolates(addressList(email.cc ?? null)) }] : []),
+      { label: rawT('mail-quote-header-subject'), value: stripIsolates(email.subject ?? '') },
     ];
 
     if (mode === 'forward') {
       const lines = [
-        t('mail-forward-heading'),
-        t('mail-forward-from', { addr: stripIsolates(addressList(email.from)) }),
-        ...(date !== '' ? [t('mail-forward-date', { date })] : []),
-        t('mail-forward-subject', { subject: stripIsolates(email.subject ?? '') }),
-        t('mail-forward-to', { addr: stripIsolates(addressList(email.to)) }),
+        rawT('mail-forward-heading'),
+        rawT('mail-forward-from', { addr: stripIsolates(addressList(email.from)) }),
+        ...(date !== '' ? [rawT('mail-forward-date', { date })] : []),
+        rawT('mail-forward-subject', { subject: stripIsolates(email.subject ?? '') }),
+        rawT('mail-forward-to', { addr: stripIsolates(addressList(email.to)) }),
         ...((email.cc ?? []).length > 0
-          ? [t('mail-forward-cc', { addr: stripIsolates(addressList(email.cc ?? null)) })]
+          ? [rawT('mail-forward-cc', { addr: stripIsolates(addressList(email.cc ?? null)) })]
           : []),
       ];
       const quote = outlook ? await quoteForOutlook(shown.source, outlookFields) : await quoteForForward(shown.source, lines);
@@ -859,7 +874,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         attachments: parts
           .filter((a) => a.blobId !== null && a.blobId !== undefined && a.blobId !== '')
           .map((a) => ({
-            name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : t('mail-attachment-unnamed'),
+            name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : rawT('mail-attachment-unnamed'),
             blobId: a.blobId as string,
             size: a.size,
             contentType: a.type.length > 0 ? a.type : null,
@@ -877,8 +892,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const recipients = replyRecipients(email, mode, own);
     const attribution =
       date !== ''
-        ? t('mail-quote-attribution', { date, name: authorName })
-        : t('mail-quote-attribution-undated', { name: authorName });
+        ? rawT('mail-quote-attribution', { date, name: authorName })
+        : rawT('mail-quote-attribution-undated', { name: authorName });
     const quote = outlook ? await quoteForOutlook(shown.source, outlookFields) : await quoteForReply(shown.source, attribution);
     return {
       mode,
@@ -951,8 +966,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const blockedReport = createMemo(() => { const report = analyzeBlockedContent(currentBody()?.sanitized ?? app.sanitizedHtml()); return { ...report, trackerCount: policy().trackers ? report.trackerCount : 0 }; });
   const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
 
+  // Only once the policy is known (t93): before it, bannerMode() is the blocked
+  // fallback, and the bar flashed "blocked by your privacy settings" in proxy mode.
   const showRemoteBar = (): boolean =>
-    fullMode() && (hasBlockedContent(blockedReport()) || activeGrant() !== null);
+    !currentBody()?.blocked && fullMode() && resourceValue(privacy) !== undefined && (hasBlockedContent(blockedReport()) || activeGrant() !== null);
   /** The notice stack appears with the body (t110), never before it settles. */
   const noticesReady = (): boolean =>
     listHeadersSettled() && (bodySrcdoc() !== null || showDecrypt() || !(app.readLoading() || readerBody.loading || privacy.loading || grants.loading));
@@ -986,16 +1003,28 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // reader on screen reads or toasts; a message switch drops both.
   const bodyLoadIds = new WeakMap<object, string>(); let bodyLoadSeq = 0;
   const bodyLoadId = (body: object): string => { let id = bodyLoadIds.get(body); if (id === undefined) { id = String(++bodyLoadSeq); bodyLoadIds.set(body, id); } return id; };
+  async function retryFailedImages(references?:readonly string[]):Promise<void> {
+    const body=currentBody(),account=app.accountId();if(!body||body.blocked||!account||props.active===false||!fullMode())return;
+    const allowed=()=>props.active!==false&&fullMode()&&(policy().mode==='proxy'||(policy().mode==='ask'&&activeGrant()!==null));
+    if(!allowed())return;
+    if(references===undefined){await reloadOpenMessage();return;}
+    const ids=new Set(references);const failed=body.imageSources.filter(image=>image.ref&&ids.has(image.ref));
+    if(!failed.length)return;
+    const signed=await signContent(body.emailId,{urls:failed.map(image=>image.url)},account,{retry:true});
+    if(currentBody()!==body||app.accountId()!==account||emailId()!==body.emailId||!allowed())return;
+    const {html,imageSources}=replaceFailedImages(body.html,body.imageSources,references,signed.images);
+    mutateReaderBody({...body,html,imageSources});
+  }
   const remoteLoad = createRemoteImageLoad({
     source: () => {
       const body = currentBody(); const account = app.accountId();
-      if (props.active === false || !body || account === null || !fullMode()) return null;
+      if (props.active === false || !body || body.blocked || account === null || !fullMode()) return null;
       const p = body.policy;
-      return { scope: `${account}:${body.emailId}`, emailId: body.emailId, load: bodyLoadId(body), total: body.images, stats: p.trackers && (p.mode === 'proxy' || (p.mode === 'ask' && activeGrant() !== null)) };
+      return { scope: `${account}:${body.emailId}`, emailId: body.emailId, load: bodyLoadId(body), total: body.images, stats: (p.mode === 'proxy' || (p.mode === 'ask' && activeGrant() !== null)) };
     },
     displayed: bodyDisplays,
     toastEnabled: () => effectiveSettings()['privacy.remoteImagesToast']?.value !== false,
-    retry: () => void reloadOpenMessage(),
+    retry: retryFailedImages,
   });
   // The banner keeps the last known mode while the policy refetches, so it does
   // not flash "blocked by your privacy settings" (presentation only: the body
@@ -1020,9 +1049,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           <>
             <Show when={props.view}>{(view) => <RemoteChangeNotice view={view()} />}</Show>
             <header class="reader__header">
-              <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{email().subject ?? t('mail-no-subject')}</h2>
+              <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText(email().subject ?? rawT('mail-no-subject'))}</h2>
               <div class="reader__meta">
-                <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}<ReaderSearchMenu email={email()} /></span>
+                <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span>
                 <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
                 <Show when={(email().cc ?? []).length > 0}>
                   <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
@@ -1075,12 +1104,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     activeGrant={activeGrant()}
                     mode={bannerMode()}
                     decodedTrackers={remoteLoad.trackers()}
+                    imageFailures={remoteLoad.failures()}
+                    onRetryImages={remoteLoad.retry}
                     onGrant={onRemoteGrant}
                     onRevoke={onRemoteRevoke}
                     {...(props.onOpenSettings ? { onOpenPrivacySettings: () => props.onOpenSettings?.('privacy') } : {})}
                   />
                 </Show>
-                <Show when={currentBody()?.refs.links.length}><LinkedFilesBar emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
+                <Show when={(reviewedBody()?.links.length??0)>0}><LinkedFilesBar linksReady={linksReady()} linksEnabled={linksEnabled()} onToggleLinks={toggleLinks} emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
                 <AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} />
               </div>
             </Show>
@@ -1088,6 +1119,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <InviteCard accountId={accountId()} emailId={email().id} />
             )}</Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
+            <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live>{t('privacy-body-blocked')}</ReaderNoticeBar></Show>
             <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
             <Show
               when={showDecrypt()}
@@ -1103,8 +1135,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, scripts cannot run and the frame has an
                     opaque origin with no access to the parent.
                   */}
-                  <Show when={!isNativeAuth() && fullMode()} fallback={<ReaderZoomBox><Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox="" srcdoc={doc.html ?? ''} />}</Show></ReaderZoomBox>}>
-                    <DirectReaderFrame html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay}/>
+                  <Show when={!isNativeAuth() && fullMode()} fallback={<ReaderZoomBox><Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox={linksEnabled()?'allow-popups allow-popups-to-escape-sandbox':''} referrerPolicy="no-referrer" srcdoc={doc.html ?? ''} />}</Show></ReaderZoomBox>}>
+                    <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay}/>}</Show>
                   </Show>
                 </Show>
               }

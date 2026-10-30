@@ -15,6 +15,7 @@ export const SECURITY_TABS: readonly { id: string; label: string; capability: Ca
   {id:'inbound',label:'admin-inbound-title',capability:'security.read',unscoped:true},
   {id:'deployment',label:'admin-security-tab-deployment',capability:'diagnostics.read',unscoped:true},
   {id:'console',label:'admin-security-tab-console',capability:'security.read',unscoped:true},
+  {id:'client-access',label:'admin-client-access-title',capability:'settings.read',unscoped:true},
   {id:'sessions',label:'admin-nav-sessions',capability:'sessions.read'},
 ];
 export function canOpenSecurityTab(can: Can, tab: (typeof SECURITY_TABS)[number]): boolean {

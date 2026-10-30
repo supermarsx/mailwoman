@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
+import { screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
+import { renderInShell as render } from './testkit.tsx';
 import { Wizard } from './Wizard.tsx';
 import { anyDirty } from './useDirtyGuard.ts';
 import { AdminApiError } from '../../../state/slices/admin.ts';
@@ -66,6 +67,24 @@ describe('Wizard', () => {
     expect(await screen.findByRole('status')).toHaveTextContent('Saved.');
   });
 
+  it('only toasts after a save gesture and replaces persistent progress without inline success',async()=>{
+    let finish!:()=>void;
+    render(()=><DomainWizard onSave={()=>new Promise<void>(resolve=>{finish=resolve;})}/>);
+    expect(screen.queryByTestId('admin-wizard-save-toast')).toBeNull();
+    fireEvent.input(screen.getByLabelText('Domain name'),{target:{value:'example.org'}});
+    fireEvent.click(screen.getByRole('button',{name:'Next'}));
+    fireEvent.click(screen.getByRole('button',{name:'Next'}));
+    const button=screen.getByRole('button',{name:'Save'});
+    fireEvent.click(button);
+    expect(button).toBeDisabled();
+    expect(button).toHaveAttribute('aria-busy','true');
+    expect(screen.getByTestId('admin-wizard-save-toast')).toHaveTextContent('Saving');
+    finish();
+    await waitFor(()=>expect(screen.getByTestId('admin-wizard-save-toast')).toHaveTextContent('Saved.'));
+    expect(screen.getAllByRole('status')).toHaveLength(1);
+    expect(document.querySelector('section [role="status"]')).toBeNull();
+  });
+
   it('a failed save stays on the review with the reason', async () => {
     render(() => <DomainWizard onSave={async () => Promise.reject(new AdminApiError(409, 'exists'))} />);
     fireEvent.input(screen.getByLabelText('Domain name'), { target: { value: 'example.org' } });
@@ -84,7 +103,7 @@ describe('Wizard', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Next' }));
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
-    await screen.findByRole('status');
+    await waitFor(() => expect(screen.getByTestId('admin-wizard-save-toast')).toHaveTextContent('Saved.'));
     expect(anyDirty()).toBe(false);
   });
 });

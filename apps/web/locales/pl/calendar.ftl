@@ -178,10 +178,8 @@ calendar-events-count-people =
     }
 
 # -- Free/busy grid ----------------------------------------------------------
-calendar-fb-caption = Twój zajęty czas w dniu konfliktu, według godzin.
 calendar-fb-whose = Kalendarze
 calendar-fb-own = Twoje
-calendar-fb-own-only = Dostępność uczestników nie jest wyświetlana. Serwer zgłasza zajęty czas tylko dla Twoich kalendarzy.
 calendar-fb-unavailable = Nie udało się wczytać Twojego zajętego czasu.
 calendar-fb-cell = { $principal } o { $hour }: { $status }
 calendar-fb-busy = Zajęty

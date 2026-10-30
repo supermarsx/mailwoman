@@ -13,7 +13,7 @@ import {MiniCalendar} from './MiniCalendar.tsx';
 // below is the mock-backed variant.
 
 import { For, Index, Show, createSignal, createUniqueId, onMount, type JSX } from 'solid-js';
-import { t, loadCatalog } from '../../i18n';
+import { rawT, t, loadCatalog } from '../../i18n';
 import { toast } from '../../components/toast/index.ts';
 import type { Calendar, CalendarEvent } from '../../api/pim-types.ts';
 import { createCalendarController, type CalendarBackend, type CalendarController } from './controller.ts';
@@ -332,7 +332,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                 )}
               </Index>
             </ul>
-            <button type="button" class={`${css.button} ${css.addCalendar}`} onClick={() => void c.createCalendar(t('calendar-new-calendar-name'), '#22c55e')}>
+            <button type="button" class={`${css.button} ${css.addCalendar}`} onClick={() => void c.createCalendar(rawT('calendar-new-calendar-name'), '#22c55e')}>
               {t('calendar-add-calendar')}
             </button>
           </div>

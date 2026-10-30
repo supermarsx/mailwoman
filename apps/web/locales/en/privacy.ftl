@@ -87,3 +87,12 @@ privacy-linked-files-help = Downloads go through this server, so the file host d
 privacy-linked-links-help = A link in this message can be downloaded as a file through this server, so its host does not see your address.
 privacy-linked-file-item = Download { $name } from { $host }
 privacy-linked-other-item = Download { $link }
+
+privacy-links-enable = Enable links
+privacy-links-disable = Disable links
+privacy-links-enable-help = Allow links in this message to open in a new tab. You can disable them again.
+
+privacy-links-loading = Preparing links…
+
+privacy-body-blocked = Message HTML blocked for safety
+privacy-body-blocked-detail = This body contains potentially unsafe content or could not be checked. Only safe text is shown. The original message is unchanged.

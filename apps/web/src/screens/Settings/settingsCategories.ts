@@ -26,7 +26,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     { id: 'mail-transfer', label: 'mail-transfer-title', icon: 'transfer', terms: 'import export download eml mbox' },
   ] },
   { id: 'interface', label: 'settings-category-interface', sections: [
-    { id: 'appearance', label: 'settings-appearance', icon: 'palette', terms: 'theme dark light color accent badge unread counter css javascript font density branding toolbar language' },
+    { id: 'appearance', label: 'settings-appearance', icon: 'palette', terms: 'theme dark light color accent badge unread counter css javascript font density branding toolbar language leetspeak 1337 text texto normal' },
     { id: 'shortcuts', label: 'settings-nav-keyboard-display', icon: 'keyboard', terms: 'keyboard display key hotkey drag selection' },
     { id: 'notifications', label: 'settings-notif-title', icon: 'bell', terms: 'push alerts sound browser' },
     { id: 'time', label: 'settings-time-title', icon: 'clock', terms: 'timezone date clock iana' },

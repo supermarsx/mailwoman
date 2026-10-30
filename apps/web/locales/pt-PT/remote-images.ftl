@@ -44,3 +44,6 @@ remote-images-toast-failed = { $count ->
    *[other] Não foi possível carregar { $count } imagens
 }
 remote-images-toast-retry = Tentar novamente
+
+remote-images-toast-progress = A carregar imagens… { $loaded }/{ $total }
+remote-images-toast-retrying-progress = A carregar imagens… { $loaded }/{ $total } · Tentativa { $attempt }/{ $max }

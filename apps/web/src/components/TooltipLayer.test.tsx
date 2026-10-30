@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from 'vitest';
 import { TooltipLayer, tooltipDescription } from './TooltipLayer.tsx';
+import * as css from './tooltip.css.ts';
 
 beforeEach(() => { vi.useFakeTimers(); });
 afterEach(() => { vi.useRealTimers(); });
@@ -187,4 +188,39 @@ it('opens below its anchor inside a data-tooltip-placement="below" row, so it ne
   // Without the hint the bubble still prefers the space above.
   expect(Number.parseFloat(screen.getByRole('tooltip').style.top)).toBeLessThan(200);
   vi.unstubAllGlobals();
+});
+
+it('a bubble opened by keyboard focus lets clicks through until a pointer hovers its control (t93)', async () => {
+  render(() => <><button aria-label="Close Contacts" /><TooltipLayer /></>);
+  const button = screen.getByRole('button', { name: 'Close Contacts' });
+  fireEvent.focusIn(button);
+  await settle();
+  const tooltip = screen.getByRole('tooltip');
+  expect(tooltip).toHaveTextContent('Close Contacts');
+  // Focus only: the bubble must not take the taps meant for what it covers.
+  expect(tooltip.classList.contains(css.passive)).toBe(true);
+  fireEvent.pointerOver(button, { pointerType: 'mouse' });
+  expect(screen.getByRole('tooltip').classList.contains(css.passive)).toBe(false);
+});
+
+it('a bubble opened by hover stays hoverable (t93)', async () => {
+  render(() => <><button aria-label="Refresh" /><TooltipLayer /></>);
+  fireEvent.pointerOver(screen.getByRole('button', { name: 'Refresh' }), { pointerType: 'mouse' });
+  expect(screen.getByRole('tooltip').classList.contains(css.passive)).toBe(false);
+});
+
+it('a key press that moves a control under a still pointer opens no help there (t93)', async () => {
+  render(() => <><button aria-label="Contacts" /><button aria-label="Close Contacts" /><TooltipLayer /></>);
+  const tab = screen.getByRole('button', { name: 'Contacts' });
+  const close = screen.getByRole('button', { name: 'Close Contacts' });
+  // jsdom's pointer events carry no coordinates; a MouseEvent of the same type does.
+  const at = (type: string, target: Element, x: number, y: number) => fireEvent(target, new MouseEvent(type, { bubbles: true, clientX: x, clientY: y }));
+  at('pointermove', tab, 40, 12);
+  fireEvent.keyDown(tab, { key: 'ArrowLeft', ctrlKey: true, shiftKey: true });
+  // The tab moved; Chromium re-targets hover to the close button now under the pointer.
+  at('pointerover', close, 40, 12);
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
+  // Moving the pointer is pointing at it again.
+  at('pointerover', close, 44, 14);
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Close Contacts');
 });

@@ -12,7 +12,7 @@ import {accountUiPreferences, accountUiPreferenceStatus, FOLDER_ICONS, retryAcco
 import {preferenceAccount, preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
-import {folderIcon, moveFolder, orderedFolders, type PreferenceFolder} from './folderPreferenceModel.ts';
+import {folderIcon, folderIsHidden, shownFolderIds, moveFolder, orderedFolders, type PreferenceFolder} from './folderPreferenceModel.ts';
 import * as css from './styles.css.ts';
 import * as folderCss from './FolderPreferences.css.ts';
 export interface FolderPreferencesProps {
@@ -68,6 +68,8 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  function pin(id:string):void {const ids=(prefs().folderPinned??[]).filter(value=>value!==id);update({folderPinned:pinned(id)?ids:[...ids,id]});}
  return <Show when={editing()} keyed fallback={<section class={css.section} aria-label={t('settings-folders-title')}>
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
+  <p class={css.prose}>{t('settings-folders-hidden-help')}</p>
+  <label class={css.field}><input type="checkbox" checked={prefs().userFoldersCollapsed===true} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>{t('settings-folders-collapse-user')}</label>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
   <Show when={!props.onChange}><FocusedInboxPreference/></Show>
   <Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show>
@@ -79,6 +81,10 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
     <td><Icon name={folderIcon(folder,prefs())}/> {folder.name}<Show when={prefs().folderLabels?.[folder.id]?.length}><small class={css.meta}>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</small></Show></td><td><div class={folderCss.actions}>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-edit',{name:folder.name})} onClick={()=>void navigation.navigate({section:'folders',editor:{kind:'edit',id:folder.id}})}><Icon name="edit"/></button>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)} onClick={()=>pin(folder.id)}><Icon name="star"/></button>
+     <button type="button" class={css.ghost} disabled={folder.role==='inbox'} aria-label={t(folderIsHidden(folder,props.folders(),prefs())?'settings-folders-show':'settings-folders-hide',{name:folder.name})} onClick={()=>{
+      const hidden=prefs().folderHidden??[];
+      update({folderHidden:folderIsHidden(folder,props.folders(),prefs())?shownFolderIds(folder,props.folders(),hidden):[...hidden,folder.id]});
+     }}><Icon name="eye"/>{t(folderIsHidden(folder,props.folders(),prefs())?'settings-folders-show-short':'settings-folders-hide-short')}</button>
      <button type="button" class={css.ghost} draggable="true" aria-label={t('settings-folders-drag',{name:folder.name})} onDragStart={event=>{setDragging(folder.id);event.dataTransfer?.setData('text/plain',folder.id);}} onDragEnd={()=>setDragging(null)}><Icon name="sort"/></button>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-up',{name:folder.name})} disabled={!canMove(folder.id,folders()[index()-1]?.id)} onClick={()=>move(folder.id,folders()[index()-1]!.id)}><Icon name="chevronUp"/></button>
      <button type="button" class={css.ghost} aria-label={t('settings-folders-down',{name:folder.name})} disabled={!canMove(folder.id,folders()[index()+1]?.id)} onClick={()=>move(folder.id,folders()[index()+1]!.id)}><Icon name="chevronDown"/></button>

@@ -23,7 +23,7 @@ export function InboxTabs(): JSX.Element {
   const count = (messages: readonly Email[]): number | null =>
     listCount(folderCountMode(), messages.length, messages.filter((m) => m.keywords?.['$seen'] !== true).length);
 
-  const tab = (id: 'focused' | 'other', label: string, messages: () => readonly Email[]): JSX.Element => (
+  const tab = (id: 'focused' | 'other', label: () => string, messages: () => readonly Email[]): JSX.Element => (
     <button
       type="button"
       role="tab"
@@ -41,7 +41,7 @@ export function InboxTabs(): JSX.Element {
         (e.currentTarget.parentElement?.querySelector(`[data-testid="inbox-tab-${next}"]`) as HTMLElement | null)?.focus();
       }}
     >
-      {label}
+      {label()}
       <Show when={count(messages())}>{(n) => <span class={`${css.count} inbox-tabs__count`}>{n()}</span>}</Show>
     </button>
   );
@@ -49,8 +49,8 @@ export function InboxTabs(): JSX.Element {
   return (
     <Show when={app.focusedInboxShown()}>
       <div class={`${css.row} inbox-tabs`} role="tablist" aria-label={t('mail-inbox-filter')} data-testid="inbox-tabs">
-        {tab('focused', t('mail-inbox-focused'), app.focusedMessages)}
-        {tab('other', t('mail-inbox-other'), app.otherMessages)}
+        {tab('focused', () => t('mail-inbox-focused'), app.focusedMessages)}
+        {tab('other', () => t('mail-inbox-other'), app.otherMessages)}
       </div>
     </Show>
   );

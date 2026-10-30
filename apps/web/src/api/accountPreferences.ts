@@ -31,6 +31,8 @@ export interface AccountUiPreferences {
   workspaceSplitRatio?: number;
   folderPinned?: string[];
   folderOrder?: string[];
+  userFoldersCollapsed?: boolean;
+  folderHidden?: string[];
   folderIcons?: Record<string, FolderIcon>;
   tags?: Record<string, AccountTag>;
   folderLabels?: Record<string,string[]>;

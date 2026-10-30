@@ -58,6 +58,14 @@ describe('recoverRequest', () => {
     expect(s.send).toHaveBeenCalledTimes(3);
   });
 
+  it('returns configured typed transient outcomes with their body intact, while other 502s retry',async()=>{
+    const s=sender([json(502,{code:'typedOutcome'})]);
+    const done=run(s,{idempotent:true,nonRetryableCodes:['typedOutcome']});await vi.runAllTimersAsync();
+    expect(await (await done).json()).toEqual({code:'typedOutcome'});expect(s.send).toHaveBeenCalledTimes(1);
+    const generic=sender([json(502,{code:'different'}),json(200)]);
+    const retried=run(generic,{idempotent:true,nonRetryableCodes:['typedOutcome']});await vi.runAllTimersAsync();expect((await retried).status).toBe(200);expect(generic.send).toHaveBeenCalledTimes(2);
+  });
+
   it('never retries a request that is not idempotent', async () => {
     const s = sender([json(503)]);
     const done = run(s, { idempotent: false }, { method: 'POST', body: 'x' });

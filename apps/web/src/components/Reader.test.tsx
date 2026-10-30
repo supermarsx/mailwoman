@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Suspense } from 'solid-js';
 import { Reader } from './Reader.tsx';
@@ -10,6 +10,10 @@ import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-typ
 import { formatDateTime } from '../i18n/format.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { initSync, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
+beforeAll(() => initSync({ module: readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) }));
 // These tests count threading downloads; spam-header fetching has its own suite.
 vi.mock('./security/SpamScore.tsx', () => ({ SpamScore: () => null }));
 vi.mock('./security/DeliveryStatus.tsx', () => ({ DeliveryStatus: () => null }));
@@ -96,7 +100,7 @@ async function click(name: 'Reply' | 'Reply all' | 'Forward', onCompose: ReturnT
 }
 
 describe('Reader: opening a message suspends nothing around it', () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it('the list beside the reader stays the same mounted node while the verdict and grants load', async () => {
     // Every request the reader makes outside the app client is held open, so
@@ -147,6 +151,7 @@ describe('Reader: opening a message suspends nothing around it', () => {
 
 describe('Reader: Reply, Reply all, Forward', () => {
   beforeEach(() => {
+    vi.spyOn(getCryptoWorker(), 'sanitizeReader').mockImplementation(async r => sanitizeEmailHtmlReader(r.html, r.blockTrackers, r.cleanLinks));
     localStorage.clear();
     downloads = [];
     downloadStatus = 200;
@@ -162,7 +167,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       }),
     );
   });
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
   it('shows the three actions first in the toolbar, as labelled buttons, and the Cc line', async () => {
     await openReader(ORIGINAL);

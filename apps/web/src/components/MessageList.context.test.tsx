@@ -60,9 +60,10 @@ it('effective policy disables modifier selection and dragging while ordinary ope
 it('context searches use the indicated sender or subject as typed field values',async()=>{
  const app=createAppState(makeClient({emails:[mkEmail('a',{subject:'Quoted " OR from:other',from:[{email:'sender@example.org',name:'Name'}]})]}));
  render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});
- await waitFor(()=>expect(app.messages()).toHaveLength(1));const search=vi.spyOn(app,'searchMessageField').mockResolvedValue();const row=screen.getByText('Quoted " OR from:other').closest('button')!;
- fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search this sender'}));expect(search).toHaveBeenLastCalledWith('from','sender@example.org');
- fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search the same subject'}));expect(search).toHaveBeenLastCalledWith('subject','Quoted " OR from:other');
+ await waitFor(()=>expect(app.messages()).toHaveLength(1));const search=vi.spyOn(app,'searchMessageField').mockResolvedValue();vi.spyOn(app,'supportsFromDomainSearch').mockReturnValue(true);const row=screen.getByText('Quoted " OR from:other').closest('button')!;
+ fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search related messages'}));fireEvent.click(screen.getByRole('menuitem',{name:'Search this sender'}));expect(search).toHaveBeenLastCalledWith('from','sender@example.org');
+ fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search related messages'}));fireEvent.click(screen.getByRole('menuitem',{name:'Search messages from this domain'}));expect(search).toHaveBeenLastCalledWith('from-domain','example.org');
+ fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Search related messages'}));fireEvent.click(screen.getByRole('menuitem',{name:'Search the same subject'}));expect(search).toHaveBeenLastCalledWith('subject','Quoted " OR from:other');
 });
 it('an action chosen from a row menu that re-renders the row gives focus back to that row\'s More actions',async()=>{
  const app=createAppState(makeClient({emails:[mkEmail('a',{subject:'Focus A'}),mkEmail('b',{subject:'Focus B'})]}));

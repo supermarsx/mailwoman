@@ -842,3 +842,23 @@ mail-focus-always-other = Always move to Other
 mail-focus-moved-focused = Messages from { $sender } now go to Focused.
 mail-focus-moved-other = Messages from { $sender } now go to Other.
 mail-focus-save-failed = The Focused inbox choice for this sender could not be saved. Try again.
+
+mail-context-search-domain = Search messages from this domain
+
+mail-loading-mailbox = Loading { $name }…
+mail-user-folders = User folders
+mail-context-hide-folder = Hide from sidebar
+mail-folder-fallback = folder
+mail-toast-moving = { $count ->
+    [one] Moving one message to { $folder }…
+   *[other] Moving { $count } messages to { $folder }…
+    }
+mail-toast-move-queueing = { $count ->
+    [one] Queuing one message to move to { $folder }…
+   *[other] Queuing { $count } messages to move to { $folder }…
+    }
+mail-toast-move-queued = { $count ->
+    [one] Queued one message to move to { $folder }
+   *[other] Queued { $count } messages to move to { $folder }
+    }
+mail-toast-move-partial = Moved { $count } of { $total } messages to { $folder }; { $failed } could not be moved

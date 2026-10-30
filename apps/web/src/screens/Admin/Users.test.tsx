@@ -3,6 +3,13 @@ import { fireEvent, screen } from '@solidjs/testing-library';
 import { Users } from './Users.tsx';
 import { mockAdminApi, renderWithAdmin } from './testkit.tsx';
 import type { UserSummary } from '../../state/slices/admin.ts';
+import { loadUserTable } from '../../api/admin/usersTable.ts';
+
+// t107: the list is the server-driven table (`GET /admin/users/table`).
+vi.mock('../../api/admin/usersTable.ts', async (original) => ({
+  ...(await original<typeof import('../../api/admin/usersTable.ts')>()),
+  loadUserTable: vi.fn(),
+}));
 
 const U: UserSummary = {
   accountId: 'alice@example.com',
@@ -13,10 +20,21 @@ const U: UserSummary = {
 };
 
 describe('Admin › Users', () => {
-  it('lists provisioned users with quota', async () => {
-    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
-    expect(await screen.findByText('alice@example.com')).toBeInTheDocument();
-    expect(screen.getByText('1000 / 50')).toBeInTheDocument();
+  it('lists users in the table, with the list read from the table endpoint only', async () => {
+    const listUsers = vi.fn(async () => [U]);
+    vi.mocked(loadUserTable).mockResolvedValue({
+      rows: [{ ...U, loginAddress: U.accountId, directoryAddress: U.accountId, legacyBinding: false, displayName: null, status: 'active', state: 'active', deletedAt: null, lastSigninAt: null, lastSeenAt: null, createdAt: null, twoFactor: 'none', twoFactorMethods: [], adminRole: null, profile: null, linkedMailboxes: 0 }],
+      total: 1, unfilteredTotal: 1, offset: 0, limit: 50, facets: { domains: ['example.com'], roles: [], profiles: [] },
+    });
+    renderWithAdmin(() => <Users />, mockAdminApi({ listUsers }));
+    expect(await screen.findByRole('link', { name: 'alice@example.com' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Provision user' })).toBeInTheDocument();
+    expect(listUsers).not.toHaveBeenCalled();
+  });
+
+  it('shows the quota on the user page', async () => {
+    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
+    expect(await screen.findByText('1000 / 50')).toBeInTheDocument();
   });
 
   it('provisions a user', async () => {

@@ -24,3 +24,13 @@ it('does not retry an uncertain result when the same body is redisplayed',async(
  fireEvent.click(await screen.findByRole('button',{name:'Send read receipt'}));await screen.findByRole('status');setDisplayed(false);setDisplayed(true);
  await waitFor(()=>expect(api.load).toHaveBeenCalledTimes(2));expect(api.send).toHaveBeenCalledTimes(1);expect(screen.queryByRole('button',{name:'Send read receipt'})).not.toBeInTheDocument();
 });
+it('a receipt being sent is not aborted when the decision reloads (t93)',async()=>{
+ const api=service();let finish:()=>void=()=>undefined;let sent:AbortSignal|undefined;
+ vi.mocked(api.send).mockImplementation((_a,_e,_automatic,signal)=>{sent=signal;return new Promise<void>(resolve=>{finish=resolve;});});
+ const [displayed,setDisplayed]=createSignal(true);
+ render(()=><ReadReceipt accountId="a" emailId="m" active displayed={displayed()} fullView={false} api={api}/>);
+ fireEvent.click(await screen.findByRole('button',{name:'Send read receipt'}));await waitFor(()=>expect(api.send).toHaveBeenCalledTimes(1));
+ setDisplayed(false);setDisplayed(true);await waitFor(()=>expect(api.load).toHaveBeenCalledTimes(2));
+ expect(sent?.aborted).toBe(false);finish();
+ expect(api.send).toHaveBeenCalledTimes(1);
+});

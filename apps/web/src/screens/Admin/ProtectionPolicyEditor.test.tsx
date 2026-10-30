@@ -61,6 +61,33 @@ describe('protection rule helpers', () => {
 });
 
 describe('Adaptive protection editor', () => {
+  it('edits conservative User-Agent controls without splitting regex commas and simulates a missing header', async () => {
+    const p = policy();
+    p.rules.push(
+      setting('userAgentMode', { ...modes, values: [...modes.values] }, 'enforce', 'enforce'),
+      setting('userAgentCategories', { type: 'stringList', maxItems: 7 }, ['missing', 'search'], ['missing', 'search']),
+      setting('userAgentPatterns', { type: 'stringList', maxItems: 32 }, [], []),
+    );
+    const a = api({ policy: vi.fn(async () => p), save: vi.fn(async () => []), simulate: vi.fn(async (): Promise<SimResult> => ({ action: 'allow', reason: null, enforced: false, durationSecs: 0, signalCounted: false, off: false, exempt: false, rules: [], userAgent: { classification: 'missing', claimedOnly: true, exempt: false } })) });
+    render(() => <ProtectionPolicyEditor api={a} canWrite />);
+    const mode = await screen.findByTestId('protect-rule-user-agent-mode');
+    expect(within(mode).getByRole('combobox')).toHaveValue('enforce');
+    expect(mode).toHaveTextContent('independent');
+    const categories = screen.getByTestId('protect-rule-user-agent-categories');
+    fireEvent.click(within(categories).getByRole('checkbox', { name: 'AI training crawlers' }));
+    fireEvent.click(within(categories).getByRole('button', { name: 'Save Categories to count' }));
+    await waitFor(() => expect(a.save).toHaveBeenCalledWith([{ key: 'security.protection.userAgentCategories', value: ['missing', 'search', 'ai-training'], etag: '"userAgentCategories-1"' }], undefined));
+    const patterns = screen.getByTestId('protect-rule-user-agent-patterns');
+    await waitFor(() => expect(within(patterns).getByRole('textbox')).toBeEnabled());
+    fireEvent.input(within(patterns).getByRole('textbox'), { target: { value: 'ExampleBot/[0-9]{2,4}\n^CustomAgent/' } });
+    fireEvent.click(within(patterns).getByRole('button', { name: 'Save Additional User-Agent patterns' }));
+    await waitFor(() => expect(a.save).toHaveBeenLastCalledWith([{ key: 'security.protection.userAgentPatterns', value: ['ExampleBot/[0-9]{2,4}', '^CustomAgent/'], etag: '"userAgentPatterns-1"' }], undefined));
+    const sim = screen.getByTestId('protection-simulator');
+    fireEvent.click(within(sim).getByRole('checkbox', { name: 'Test User-Agent protection' }));
+    fireEvent.click(within(sim).getByRole('button', { name: 'Check' }));
+    await waitFor(() => expect(a.simulate).toHaveBeenCalledWith(expect.objectContaining({ userAgent: '' })));
+    expect(await screen.findByText('Unverified header classification: Missing header.')).toBeVisible();
+  });
   it('explains today\'s policy in words', async () => {
     render(() => <ProtectionPolicyEditor api={api()} canWrite />);
     const summary = await screen.findByTestId('protection-summary');

@@ -35,6 +35,14 @@ it('opens a modal, traps focus, and cancels without mutating the draft',async()=
  expect(screen.queryByRole('dialog')).toBeNull();expect(trigger).toHaveFocus();expect(onFiles).not.toHaveBeenCalled();expect(backend.file).not.toHaveBeenCalled();
  fireEvent.click(trigger);fireEvent.keyDown(screen.getByRole('dialog'),{key:'Escape'});expect(screen.queryByRole('dialog')).toBeNull();expect(trigger).toHaveFocus();
 });
+it('returns focus to the ribbon group when opening the modal hides its trigger',async()=>{
+ render(()=><div data-ribbon-group><button data-ribbon-more>More Attachments commands</button><div data-ribbon-popover><InsertAccountItem service={()=>service()} onFiles={vi.fn()}/></div></div>);
+ const trigger=screen.getByRole('button',{name:'Insert account item'});trigger.focus();fireEvent.click(trigger);
+ const dialog=await screen.findByRole('dialog');await within(dialog).findByRole('option',{name:'Actual item'});
+ trigger.closest<HTMLElement>('[data-ribbon-popover]')!.hidden=true;
+ fireEvent.keyDown(dialog,{key:'Escape'});
+ expect(screen.queryByRole('dialog')).toBeNull();expect(screen.getByRole('button',{name:'More Attachments commands'})).toHaveFocus();
+});
 it('keeps the modal and restored focus in the detached composer document',async()=>{
  const frame=document.createElement('iframe');document.body.append(frame);const doc=frame.contentDocument!;const host=doc.createElement('div');doc.body.append(host);
  const view=render(()=><InsertAccountItem service={()=>service()} onFiles={vi.fn()}/>,{container:host});

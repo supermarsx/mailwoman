@@ -7,9 +7,12 @@ import type { Email, EmailAddress } from '../api/jmap-types.ts';
 
 /** The offline-supported subset of the frozen `Email/query` filter (§2.1). */
 export interface OfflineQuery {
+  inMailbox?:string;
+  inMailboxOtherThan?:string[];
   /** Free text — matches from / to / subject / preview. */
   text?: string;
   from?: string;
+  fromDomain?: string;
   to?: string;
   subject?: string;
   /** Offline `body` is best-effort: the cached preview only (full bodies may not
@@ -31,6 +34,8 @@ function includesCI(haystack: string, needle: string): boolean {
 
 /** Does one cached header match the offline query? All present fields must match. */
 export function matchesOffline(email: Email, q: OfflineQuery): boolean {
+  if(q.inMailbox!==undefined&&email.mailboxIds[q.inMailbox]!==true)return false;
+  if(q.inMailboxOtherThan?.some(id=>email.mailboxIds[id]===true))return false;
   if (q.text !== undefined) {
     const blob = [
       addressText(email.from),
@@ -40,6 +45,7 @@ export function matchesOffline(email: Email, q: OfflineQuery): boolean {
     ].join(' ');
     if (!includesCI(blob, q.text)) return false;
   }
+  if (q.fromDomain !== undefined && !email.from?.some(address=>{const at=address.email.lastIndexOf('@');return at>0&&address.email.slice(at+1).toLowerCase()===q.fromDomain!.toLowerCase();})) return false;
   if (q.from !== undefined && !includesCI(addressText(email.from), q.from)) return false;
   if (q.to !== undefined && !includesCI(addressText(email.to), q.to)) return false;
   if (q.subject !== undefined && !includesCI(email.subject ?? '', q.subject)) return false;

@@ -1,5 +1,6 @@
 import {UserAccessActions} from './UserAccessActions.tsx';
-import * as lifecycle from './userLifecycle.css.ts';
+import { UsersTable } from './Users/UsersTable.tsx';
+import { loadCatalog } from '../../i18n/catalog.ts';
 import * as auditCss from './shell/audit.css.ts';
 import { ShellContext } from './shell/context.ts';
 import { adminRequest } from './shell/adminApi.ts';
@@ -18,7 +19,7 @@ import { AsyncPending } from '../../components/AsyncState.tsx';
 import { createSignal, createResource, useContext, For, Index, Show, onMount, type JSX } from 'solid-js';
 import { useAdmin } from './context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../state/slices/admin.ts';
-import { t, formatDateTime } from '../../i18n';
+import { t } from '../../i18n';
 import { Feedback } from './shell/Feedback.tsx';
 import * as css from './admin.css.ts';
 
@@ -61,7 +62,7 @@ function UserList(props: { accountId?: string; provision?: boolean }): JSX.Eleme
       setError(t('admin-users-load-error'));
     }
   }
-  onMount(() => void reload());
+  onMount(() => { void loadCatalog('admin-users'); if (props.accountId || props.provision) void reload(); });
 
   async function onProvision(e: Event): Promise<void> {
     e.preventDefault();
@@ -158,7 +159,7 @@ function UserList(props: { accountId?: string; provision?: boolean }): JSX.Eleme
         <section class={css.card}><h3>{t('admin-users-access-title')}</h3><p class={css.note}>{t('admin-users-access-help')}</p><UserAccessActions user={u()} onChanged={reload}/></section>
         <section class={css.card}><h3>{t('admin-users-col-sessions')}</h3><button type="button" class="btn btn--ghost" aria-label={t('admin-users-revoke-for',{account:u().accountId})} onClick={()=>void onRevoke(u())}>{t('admin-revoke')}</button></section>
       </>}</Index></Show>
-      <Show when={!props.accountId&&!props.provision}><div class={css.card}><Show when={users().length>0} fallback={<p class={css.note}>{t('admin-users-empty')}</p>}><div class={css.tableWrap}><table class={css.table} aria-label={t('admin-users-title')}><thead><tr><th>{t('admin-users-col-account')}</th><th>{t('admin-users-col-quota')}</th><th>{t('admin-users-col-flags')}</th><th class={lifecycle.actionColumn}>{t('admin-users-configure')}</th></tr></thead><tbody><For each={users()}>{u=><tr><td dir="auto"><a href={hrefFor(sectionPath('users',[u.accountId]))}>{u.domain?`${u.username}@${u.domain}`:u.username}</a><Show when={u.lastSigninAt}><p class={css.note}>{t('admin-users-last-signin')}: {formatDateTime(new Date(u.lastSigninAt!*1000))}</p></Show></td><td>{u.quota?`${u.quota.bytesLimit} / ${u.quota.msgLimit}`:'—'}</td><td><Show when={u.status==='deleted'}><span class={css.badge}>{t('admin-users-deleted')}</span></Show><Show when={u.flags.disabled||u.status==='disabled'}><span class={css.badge}>{t('admin-users-disabled')}</span></Show><Show when={u.flags.forcePasswordChange}><span class={css.badge}>{t('admin-users-force-change')}</span></Show></td><td class={lifecycle.actionColumn}><UserAccessActions user={u} onChanged={reload} configureHref={hrefFor(sectionPath('users',[u.accountId]))}/></td></tr>}</For></tbody></table></div></Show></div></Show>
+      <Show when={!props.accountId&&!props.provision}><UsersTable/></Show>
     </section>
   );
 }

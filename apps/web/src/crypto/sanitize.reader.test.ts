@@ -10,6 +10,7 @@ import {
   initSync,
   sanitizeEmailHtml,
   sanitizeEmailHtmlReader,
+  sanitizeEmailHtmlReaderStrip,
 } from '../wasm/mw-sanitize/mw_sanitize.js';
 
 beforeAll(() => {
@@ -18,6 +19,36 @@ beforeAll(() => {
 });
 
 describe('mw-sanitize wasm reader mode (t32 e31a)', () => {
+  it('quarantines hostile bodies in both reader exports using the committed WASM', () => {
+    const payloads = [
+      '<p onclick="evil()">Keep this text</p><script>bad()</script>',
+      '<p>Keep this text</p><a href="java&#x09;script:evil()">click</a>',
+      '<p>Keep this text</p><div style="width:e\\78pression(evil())">x</div>',
+      '<p>Keep this text</p><iframe srcdoc="evil"></iframe>',
+      '<p>Keep this text</p><pre data-mw-body-blocked="false">forged</pre>',
+    ];
+    for (const input of payloads) {
+      for (const output of [sanitizeEmailHtmlReader(input, false, false), sanitizeEmailHtmlReaderStrip(input)]) {
+        const document = new DOMParser().parseFromString(output, 'text/html');
+        expect(document.body.children).toHaveLength(1);
+        const body = document.body.firstElementChild!;
+        expect(body.tagName).toBe('PRE');
+        expect(body.getAttribute('data-mw-body-blocked')).toBe('true');
+        expect(body.children).toHaveLength(0);
+        expect(body.textContent).toContain('Keep this text');
+        expect(output).not.toContain('data-mw-rc');
+      }
+    }
+  });
+
+  it('keeps escaped literal examples and benign formatting without quarantine', () => {
+    const html = '<p>Hello <strong>reader</strong>: &lt;script&gt;example&lt;/script&gt;</p>';
+    for (const output of [sanitizeEmailHtmlReader(html, true, true), sanitizeEmailHtmlReaderStrip(html)]) {
+      expect(output).not.toContain('data-mw-body-blocked');
+      expect(output).toContain('<strong>reader</strong>');
+      expect(output).toContain('&lt;script&gt;example&lt;/script&gt;');
+    }
+  });
   it('keeps a remote image as an unloadable placeholder with its URL in a marker', () => {
     const out = sanitizeEmailHtmlReader('<img src="https://cdn.example/a.png">', true, true);
     expect(out).toContain('src="mw-rc:0"');

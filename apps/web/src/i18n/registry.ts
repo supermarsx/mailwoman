@@ -18,6 +18,7 @@ import { FluentBundle, FluentResource, type FluentVariable } from '@fluent/bundl
 import { mapBundleSync } from '@fluent/sequence';
 import { SOURCE_LOCALE, fallbackChain, type Locale } from './locales.ts';
 import { pseudoLocalize } from './pseudo.ts';
+import {displayText} from './presentation.ts';
 
 /** Args accepted by `t()` — Fluent variables (string | number | Date | …). */
 export type TArgs = Record<string, FluentVariable>;
@@ -85,7 +86,7 @@ export function registerResource(locale: Locale, source: string): void {
  * or a genuinely missing key) — never throws, so a missing string degrades to a
  * visible token rather than a blank screen.
  */
-export function t(id: string, args?: TArgs): string {
+export function rawT(id: string, args?: TArgs): string {
   const bundles = chain();
   if (bundles.length > 0) {
     const bundle = mapBundleSync(bundles, id);
@@ -102,6 +103,12 @@ export function t(id: string, args?: TArgs): string {
     }
   }
   return id;
+}
+
+/** Presentation only. Generated message content and editable defaults use rawT. */
+export function t(id:string,args?:TArgs):string {
+  const text=rawT(id,args);
+  return text===id ? text : displayText(text);
 }
 
 /**

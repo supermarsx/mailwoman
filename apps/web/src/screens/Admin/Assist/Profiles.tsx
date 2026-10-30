@@ -22,7 +22,7 @@ import { t } from '../../../i18n';
 import { PasswordInput } from '../../../components/PasswordInput.tsx';
 import { getAdminSetting, putGlobal, type AdminSetting } from '../../../api/admin/settings.ts';
 import { ScopedValues } from '../Settings/ScopedValues.tsx';
-import { describeAdminError } from '../shell/Feedback.tsx';
+import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
 import * as ux from '../shell/ux.css.ts';
 import { formatMeasured } from '../Dashboard/format.ts';
@@ -465,7 +465,7 @@ export function AssistProfiles(props: AssistProfilesProps): JSX.Element {
                   {t('assist-profiles-default-save')}
                 </button>
               </div>
-              <p role="status">{assignDone()}</p>
+              <Feedback kind="success" as="toast" message={assignDone()}/>
             </div>
             <p class={css.note}>{t('assist-profiles-assign-ids', { ids: (profiles() ?? []).map((p) => `${p.id} (${nameOf(p.id)})`).join(', ') || '-' })}</p>
             <h4 class={css.subHeading}>{t('assist-profiles-by-domain')}</h4>

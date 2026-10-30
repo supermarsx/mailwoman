@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  EMPTY_QUERY, canonicalize, chipsOf, fieldTerm, parseQuery, quote, removeTerms, replaceTerm, resolveScope,
+  EMPTY_QUERY, offlineQueryOf, canonicalize, chipsOf, fieldTerm, parseQuery, quote, removeTerms, replaceTerm, resolveScope,
   serializeQuery, serverQueryText, setField, setOptionalField, setRange, setScope, toggleTerm, valueIn,
-  type SearchQuery,
+  type SearchQuery, includesTrash, setIncludeTrash, excludedSearchMailboxes,
 } from './searchQuery.ts';
 
 const rt = (input: string): string => serializeQuery(parseQuery(input));
@@ -160,4 +160,39 @@ describe('folder scope', () => {
     expect(serverQueryText('from:a', boxes)).toBe('from:a');
     expect(serverQueryText('in:nowhere', boxes)).toBe('in:nowhere');
   });
+});
+
+describe('Trash search option',()=>{
+ const boxes=[{id:'inbox',name:'Inbox',role:'inbox'},{id:'bin',name:'Trash',role:'trash'}];
+ it('excludes Trash by default but respects explicit folder scope and the opt-in',()=>{
+  expect(excludedSearchMailboxes(parseQuery('hello'),boxes)).toEqual(['bin']);
+  expect(excludedSearchMailboxes(parseQuery('in:Trash hello'),boxes)).toEqual([]);
+  const query=setIncludeTrash(parseQuery('hello'),true);
+  expect(includesTrash(parseQuery(serializeQuery(query)))).toBe(true);
+  expect(excludedSearchMailboxes(query,boxes)).toEqual([]);
+  expect(serverQueryText(serializeQuery(query),boxes)).toBe('hello');
+  expect(offlineQueryOf(serializeQuery(query),boxes)).toEqual({text:'hello'});
+  expect(serializeQuery(setIncludeTrash(query,false))).toBe('hello');
+ });
+ it('keeps an OR expression grouped when adding metadata and strips only the option',()=>{
+  const query=setIncludeTrash(parseQuery('from:a OR from:b'),true);
+  const text=serializeQuery(query);
+  expect(text).toBe('(from:a OR from:b) include:trash');
+  expect(includesTrash(parseQuery(text))).toBe(true);
+  expect(serverQueryText(text,boxes)).toBe('(from:a OR from:b)');
+  expect(serializeQuery(setIncludeTrash(setIncludeTrash(parseQuery(text),false),true))).toBe(text);
+  expect(serverQueryText('subject:"include:trash"',boxes)).toBe('subject:"include:trash"');
+ });
+ it('resolves an explicit offline Trash scope and supports an option-only query',()=>{
+  expect(offlineQueryOf('in:Trash hello',boxes)).toEqual({inMailbox:'bin',text:'hello'});
+  expect(serverQueryText('include:trash',boxes)).toBe('');
+  expect(offlineQueryOf('include:trash',boxes)).toEqual({});
+ });
+});
+
+it('round-trips exact sender-domain operators and preserves them for offline matching',()=>{
+ const input='from-domain:"example.org"';
+ expect(parseQuery(input).terms).toEqual([{kind:'field',op:'from-domain',value:'example.org',negated:false,quoted:true}]);
+ expect(serializeQuery(parseQuery(input))).toBe(input);
+ expect(offlineQueryOf(input)).toEqual({fromDomain:'example.org'});
 });

@@ -5,7 +5,7 @@ export function remoteServerBase(): string { return isNativeAuth() ? nativeServe
 
 export type RemoteMode = 'block' | 'ask' | 'proxy' | 'direct';
 export interface RemotePolicy { mode: RemoteMode; trackers: boolean; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; remoteImageDownloads?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
-export interface SignedContent { images: { url: string; src: string }[]; parts: { blobId: string; src: string }[]; files: { url: string; src: string }[]; imageDownloads?:{url:string;src:string}[]; refused: { url?: string; blobId?: string; reason: string }[] }
+export interface SignedContent { images: { url: string; src: string; ref?: string }[]; parts: { blobId: string; src: string }[]; files: { url: string; src: string }[]; imageDownloads?:{url:string;src:string}[]; refused: { url?: string; blobId?: string; reason: string }[] }
 export interface ReaderReferences { urls: string[]; cids: string[]; trackers: number; files: string[]; links: string[] }
 export const BLOCKED_POLICY: RemotePolicy = { mode: 'block', trackers: true, cleanLinks: true, allowDirect: false, locked: { mode: true, trackers: true, cleanLinks: true } };
 export const EMPTY_SIGNED: SignedContent = { images: [], parts: [], files: [], refused: [] };
@@ -50,6 +50,21 @@ export function readerReferences(html: string): ReaderReferences {
 export function signedSource(src: string, kind: 'i' | 'p' | 'f' | 'd', base = remoteServerBase()): string | null {
   try { const server = new URL(base); const prefix = server.pathname.replace(/\/$/, '') + `/api/rc/${kind}/`; const url = new URL(src, server); return !url.username && !url.password && url.origin === server.origin && url.pathname.startsWith(prefix) && /^[A-Za-z0-9_.-]+$/.test(url.pathname.slice(prefix.length)) && !url.search && !url.hash ? url.href : null; } catch { return null; }
 }
+/** Refresh only failed signed sources, retaining successful URLs and their cache entries. */
+export function replaceFailedImages(html: string, images: SignedContent['images'], failedRefs: readonly string[], replacements: SignedContent['images'], base = remoteServerBase()): { html: string; imageSources: SignedContent['images'] } {
+  const refs = new Set(failedRefs);
+  const byUrl = new Map(replacements.map(image => [image.url, image]));
+  const imageSources = images.map(image => {
+    if (!image.ref || !refs.has(image.ref)) return image;
+    const replacement = byUrl.get(image.url);
+    if (!replacement) return image;
+    const oldSrc = signedSource(image.src, 'i', base), newSrc = signedSource(replacement.src, 'i', base);
+    if (!oldSrc || !newSrc) return image;
+    html = html.split(oldSrc).join(newSrc);
+    return replacement;
+  });
+  return { html, imageSources };
+}
 /** Replaces sanitizer placeholders only. Unapproved references remain inert. */
 export function rewriteReaderContent(html: string, signed: SignedContent, policy: RemotePolicy, cidParts: Readonly<Record<string, string>>, origin = remoteServerBase()): string {
   const doc = documentOf(html);
@@ -82,13 +97,14 @@ export function rewriteReaderContent(html: string, signed: SignedContent, policy
 /** Server-side counters for one open message. `imagesLoaded`/`imagesFailed` are
  *  optional (t56 adds them): absent means the server does not report per-image
  *  results, and callers must not invent a failure count. */
-export interface RemoteContentStats { count: number; limited: boolean; windowSecs: number; imagesLoaded?: number; imagesFailed?: number }
+export interface RemoteContentStats { count: number; limited: boolean; windowSecs: number; imagesLoaded?: number; imagesFailed?: number; failedImageRefs?: string[]; retryableImageRefs?: string[] }
 const counter = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 export async function decodedTrackerStats(emailId: string): Promise<RemoteContentStats> {
   const response = await apiFetch(withBase(`/api/rc/stats?emailId=${encodeURIComponent(emailId)}`));
   if (!response.ok) throw new Error('Unable to load image diagnostics');
-  const value = await response.json() as { decodedTrackersReplaced?: unknown; limited?: unknown; windowSecs?: unknown; imagesLoaded?: unknown; imagesFailed?: unknown };
+  const value = await response.json() as { decodedTrackersReplaced?: unknown; limited?: unknown; windowSecs?: unknown; imagesLoaded?: unknown; imagesFailed?: unknown; failedImageRefs?: unknown; retryableImageRefs?: unknown };
   if (!counter(value.decodedTrackersReplaced)) throw new Error('Invalid image diagnostics');
   if (typeof value.limited !== 'boolean' || typeof value.windowSecs !== 'number' || !Number.isSafeInteger(value.windowSecs) || value.windowSecs <= 0) throw new Error('Invalid image diagnostic window');
-  return { count: value.decodedTrackersReplaced, limited: value.limited, windowSecs: value.windowSecs, ...(counter(value.imagesLoaded) ? { imagesLoaded: value.imagesLoaded } : {}), ...(counter(value.imagesFailed) ? { imagesFailed: value.imagesFailed } : {}) };
+  const references = (v: unknown): v is string[] => Array.isArray(v) && v.length <= 256 && v.every(x => typeof x === "string" && /^[a-f0-9]{64}$/.test(x)) && new Set(v).size === v.length;
+  return { ...(references(value.failedImageRefs) ? {failedImageRefs:value.failedImageRefs} : {}), ...(references(value.retryableImageRefs) ? {retryableImageRefs:value.retryableImageRefs} : {}), count: value.decodedTrackersReplaced, limited: value.limited, windowSecs: value.windowSecs, ...(counter(value.imagesLoaded) ? { imagesLoaded: value.imagesLoaded } : {}), ...(counter(value.imagesFailed) ? { imagesFailed: value.imagesFailed } : {}) };
 }

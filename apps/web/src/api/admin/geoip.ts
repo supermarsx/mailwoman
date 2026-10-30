@@ -30,6 +30,7 @@ export interface GeoipStatus {
   previous: { source: string; release?: string | null; buildEpoch?: number; sizeBytes?: number; installedAt?: number; sha256?: string } | null;
   policyActive: boolean;
   busy: boolean;
+  downloadProgress?: { phase: 'checking' | 'downloading' | 'verifying' | 'installing'; receivedBytes: number | null; totalBytes: number | null } | null;
   config: GeoipConfig;
   providers: GeoipProvider[];
   schedule: { autoUpdate: boolean; lastCheckAt: number | null; lastSuccessAt: number | null; nextCheckAt: number | null; lastError: string | null; failures: number; waitingForFirstDownload: boolean };

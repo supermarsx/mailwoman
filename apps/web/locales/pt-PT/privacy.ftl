@@ -90,3 +90,12 @@ privacy-linked-files-help = As transferências passam por este servidor, pelo qu
 privacy-linked-links-help = Uma ligação nesta mensagem pode ser transferida como ficheiro através deste servidor, pelo que o respetivo servidor não vê o seu endereço.
 privacy-linked-file-item = Transferir { $name } de { $host }
 privacy-linked-other-item = Transferir { $link }
+
+privacy-links-enable = Ativar ligações
+privacy-links-disable = Desativar ligações
+privacy-links-enable-help = Permitir que as ligações nesta mensagem abram num novo separador. Pode voltar a desativá-las.
+
+privacy-links-loading = A preparar ligações…
+
+privacy-body-blocked = HTML da mensagem bloqueado por segurança
+privacy-body-blocked-detail = Este corpo contém conteúdo potencialmente inseguro ou não pôde ser verificado. Apenas é apresentado texto seguro. A mensagem original permanece inalterada.

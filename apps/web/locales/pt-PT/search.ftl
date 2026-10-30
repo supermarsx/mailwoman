@@ -5,6 +5,10 @@
 search-submit-help = Pesquisar (Enter)
 search-clear-help = Limpar pesquisa (Esc)
 search-filters-label = Filtros de pesquisa
+search-guided-button = Filtros
+search-guided-title = Pesquisa guiada
+search-guided-help = Escolha quem, o quê ou quando procurar. Adicione filtros para limitar os resultados.
+search-include-trash = Incluir Lixo
 search-add-filter = Adicionar filtro
 search-chip-edit = Editar filtro: { $label }
 search-chip-switch = Alternar filtro: { $label }
@@ -56,3 +60,7 @@ search-refine-menu = Pesquisar mensagens relacionadas
 search-refine-sender = Pesquisar mensagens deste remetente
 search-refine-subject = Pesquisar mensagens com este assunto
 search-refine-folder = Pesquisar nesta pasta
+
+search-refine-domain = Pesquisar mensagens deste domínio
+
+search-include-trash-scoped = Incluir o Lixo aplica-se à pesquisa em todas as pastas. A pasta selecionada é pesquisada diretamente.

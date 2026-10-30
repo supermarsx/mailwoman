@@ -56,7 +56,9 @@ it('says plainly that emptying Trash is permanent and makes a large one type the
  expect(dialog).toHaveTextContent('All 150 messages in Trash will be deleted permanently. This cannot be undone.');
  const confirm=screen.getByRole('button',{name:'Delete permanently'});expect(confirm).toBeDisabled();
  fireEvent.input(screen.getByRole('textbox'),{target:{value:'Tras'}});expect(confirm).toBeDisabled();
- fireEvent.input(screen.getByRole('textbox'),{target:{value:'Trash'}});expect(confirm).toBeEnabled();
+ for(const value of ['Trash','TRASH','tRaSh','trash']){
+  fireEvent.input(screen.getByRole('textbox'),{target:{value}});expect(confirm).toBeEnabled();
+ }
  fireEvent.click(confirm);
  await waitFor(()=>expect(screen.queryByRole('alertdialog')).toBeNull());
  await waitFor(()=>expect(toasts().find(item=>item.testId==='empty-folder-result')?.message).toContain('Deleted 150 messages from'));

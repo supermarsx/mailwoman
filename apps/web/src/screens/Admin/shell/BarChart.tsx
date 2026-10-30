@@ -24,28 +24,13 @@ export interface BarChartProps {
 export function BarChart(props: BarChartProps): JSX.Element {
   const id = createUniqueId();
   const fmt = (n: number): string => (props.format ? props.format(n) : formatNumber(n));
-  const max = (): number => Math.max(0, ...props.bars.map((b) => b.value));
-  /** The bar's share of the largest value, in whole percent (a class per step, no style attribute). */
-  const share = (v: number): number => (max() > 0 ? Math.min(100, Math.max(0, Math.round((v / max()) * 100))) : 0);
   return (
     <section class={css.chart} aria-labelledby={`${id}-title`} data-testid={props.testId}>
       <h3 id={`${id}-title`} class={css.chartTitle}>
         {props.title}
       </h3>
       <Show when={props.bars.length > 0} fallback={<p class={css.chartSummary}>{props.emptyText}</p>}>
-        <ul class={css.bars} aria-hidden="true">
-          <For each={props.bars}>
-            {(b) => (
-              <li class={css.barRow} title={`${b.label}: ${fmt(b.value)}`}>
-                <span class={css.barLabel}>{b.label}</span>
-                <span class={css.barTrack}>
-                  <span class={`${css.barFill} ${css.barWidth[share(b.value)]}`} data-share={share(b.value)} />
-                </span>
-                <span class={css.barValue}>{fmt(b.value)}</span>
-              </li>
-            )}
-          </For>
-        </ul>
+        <BarRows bars={props.bars} format={props.format} />
         <table class={css.srOnly}>
           <caption>{props.title}</caption>
           <thead>
@@ -67,5 +52,31 @@ export function BarChart(props: BarChartProps): JSX.Element {
         </table>
       </Show>
     </section>
+  );
+}
+
+/**
+ * The bars alone, hidden from assistive technology (t106: also used inside a
+ * ChartCard, whose table carries the values).
+ */
+export function BarRows(props: { bars: readonly Bar[]; format?: ((n: number) => string) | undefined }): JSX.Element {
+  const fmt = (n: number): string => (props.format ? props.format(n) : formatNumber(n));
+  const max = (): number => Math.max(0, ...props.bars.map((b) => b.value));
+  /** The bar's share of the largest value, in whole percent (a class per step, no style attribute). */
+  const share = (v: number): number => (max() > 0 ? Math.min(100, Math.max(0, Math.round((v / max()) * 100))) : 0);
+  return (
+    <ul class={css.bars} aria-hidden="true">
+      <For each={props.bars}>
+        {(b) => (
+          <li class={css.barRow} title={`${b.label}: ${fmt(b.value)}`}>
+            <span class={css.barLabel}>{b.label}</span>
+            <span class={css.barTrack}>
+              <span class={`${css.barFill} ${css.barWidth[share(b.value)]}`} data-share={share(b.value)} />
+            </span>
+            <span class={css.barValue}>{fmt(b.value)}</span>
+          </li>
+        )}
+      </For>
+    </ul>
   );
 }

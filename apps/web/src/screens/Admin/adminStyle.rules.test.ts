@@ -19,9 +19,9 @@
 //                        a style belongs in a class;
 //             - colour   a colour literal in the markup (`fill="#…"`, `rgb(…)`).
 //
-// Existing files that break a rule are listed in ALLOWLIST with the lane that owns the fix;
-// an entry that no longer matches fails, so the list only shrinks. It is empty since f33
-// gave the Plugins buttons and checkbox rows their own focus rules. The self-test block
+// Intentional exceptions are listed in ALLOWLIST with their owning lane and evidence;
+// an entry that no longer matches fails. The diagnostics table is deliberately wider
+// than its bounded scroll region, whose phone containment is browser-tested. The self-test block
 // shows each check finding a seeded defect. `MW_ADMIN_STYLE_SRC` points the scan at another
 // `screens/Admin` tree (used to show the gate failing on a seeded copy).
 
@@ -43,12 +43,17 @@ interface Allowed {
   rule: AdminRule;
   text: string;
   /** The lane that owns the fix. */
-  owner: 'f33';
+  owner: 'f33' | 'diagnostics-tables';
   reason: string;
 }
 
 // Each entry: the finding as reported, the owner, and why it is here. A stale entry fails.
-const ALLOWLIST: Allowed[] = [];
+const ALLOWLIST: Allowed[] = [{
+  file: 'Diagnostics/diagnostics.css.ts', rule: 'width',
+  text: 'checkTable: minInlineSize 56rem without max-width',
+  owner: 'diagnostics-tables',
+  reason: 'Five-column data table is inside the named, keyboard-focusable checkTableScroll region with maxInlineSize 100% and overflowX auto. diagnostics-table-live verifies containment at 390px; shrinking the table would make its columns unreadable.',
+}];
 
 // ── source handling ─────────────────────────────────────────────────────────
 

@@ -8,7 +8,7 @@ import { holding, offlineShell } from './shell/testkit.tsx';
 const nav = (): HTMLElement => screen.getByRole('navigation', { name: 'Admin sections' });
 // Each section is its own lazy chunk; under the full parallel suite the import can
 // take longer than the default 1 s lookup.
-const findRegion = (name: string): Promise<HTMLElement> => screen.findByRole('region', { name }, { timeout: 5000 });
+const findRegion = (name: string, timeout = 5000): Promise<HTMLElement> => screen.findByRole('region', { name }, { timeout });
 
 beforeEach(() => {
   history.replaceState(null, '', '/admin');
@@ -78,7 +78,7 @@ describe('AdminScreen (gate + shell)', () => {
   it('a nav click opens the section, puts it in the URL and marks it current', { timeout: 20_000 }, async () => {
     render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
     fireEvent.click(await within(await screen.findByRole('navigation', { name: 'Admin sections' })).findByRole('link', { name: 'Observability' }));
-    expect(await findRegion('Observability')).toBeInTheDocument();
+    expect(await findRegion('Observability', 15_000)).toBeInTheDocument();
     expect(location.pathname + location.hash).toBe('/admin#/observability');
     expect(within(nav()).getByRole('link', { name: 'Observability' })).toHaveAttribute('aria-current', 'page');
     expect(within(nav()).getByRole('link', { name: 'Dashboard' })).not.toHaveAttribute('aria-current');

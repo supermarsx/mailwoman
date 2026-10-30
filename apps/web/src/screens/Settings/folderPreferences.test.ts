@@ -1,6 +1,6 @@
 import {expect,it} from 'vitest';
 import {FOLDER_ICONS} from '../../api/accountPreferences.ts';
-import {folderIcon,folderPathLabel,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
+import {folderIcon,folderIsHidden,shownFolderIds,folderPathLabel,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
 it('offers fifty native custom icons and role-specific defaults',()=>{
  expect(new Set(FOLDER_ICONS).size).toBe(50);
  expect(folderIcon({id:'a',name:'Inbox',role:'inbox'},{})).toBe('inbox');
@@ -25,4 +25,10 @@ it('uses a search icon for virtual folders while honoring custom icons', () => {
 it('labels a folder by its decoded path, never the modified UTF-7 server spelling (t92)', () => {
  expect(folderPathLabel({id:'d',name:'Ältere',mailwomanUpstreamName:'Entw&APw-rfe/&AMQ-ltere',mailwomanPath:'Entwürfe/Ältere'})).toBe('Entwürfe/Ältere');
  expect(folderPathLabel({id:'k',name:'Корзина',mailwomanUpstreamName:'&BBoEPgRABDcEOAQ9BDA-'})).toBe('Корзина');
+});
+it('hides descendants by parent IDs, protects Inbox and terminates cyclic folder metadata',()=>{
+ const folders=[{id:'i',name:'Inbox',role:'inbox'},{id:'a',name:'A'},{id:'b',name:'B',parentId:'a'},{id:'c',name:'C',parentId:'b'},{id:'x',name:'A/Other'},{id:'cycle',name:'Cycle',parentId:'cycle'}];
+ const prefs={folderHidden:['a','i'],folderPinned:['b']};
+ expect(folders.map(folder=>folderIsHidden(folder,folders,prefs))).toEqual([false,true,true,true,false,false]);
+ expect(shownFolderIds(folders[3]!,folders,['a','b','c','x'])).toEqual(['x']);
 });

@@ -5,10 +5,11 @@ import {inspectMessageLink} from '../viewers/messageLinks.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import type {Email} from '../api/jmap-types.ts';
 
-const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn(),archive:vi.fn(),trash:vi.fn(),spam:vi.fn()}));
+const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn(),archive:vi.fn(),trash:vi.fn(),spam:vi.fn(),search:vi.fn()}));
+vi.mock('../realtime/context.ts',()=>({useRealtime:()=>({subTabs:{tabs:()=>[],activate:vi.fn()}})}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:state.jmap})}));
 vi.mock('../api/settings.ts',()=>({settings:()=>({'reader.actionStyle':{value:'icons'}})}));
-vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',mailboxes:()=>[],openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:state.search,mailboxes:()=>[],openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
 
 const email=(over:Partial<Email>={}):Email=>({id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@example.org'}],keywords:{$seen:true},mailboxIds:{inbox:true},...over}) as Email;
 const thread=(ids:string[])=>({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:ids}],notFound:[]},'thread']]});
@@ -21,6 +22,13 @@ beforeEach(()=>activateAccountPreferences('a'));
 afterEach(()=>{suspendAccountPreferences();vi.clearAllMocks();vi.unstubAllGlobals();vi.restoreAllMocks();});
 
 describe('reader action row: conversation and links',()=>{
+ it('moves related search into the actions row and preserves domain search',async()=>{
+  state.jmap.mockResolvedValue(thread(['m1']));toolbar();
+  const trigger=await screen.findByRole('button',{name:'Search related messages'});
+  expect(trigger.closest('[role="toolbar"]')).not.toBeNull();fireEvent.click(trigger);
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Search messages from this domain'}));
+  expect(state.search).toHaveBeenCalledWith('from-domain','example.org');
+ });
  it('shows View conversation only for a thread of more than one message',async()=>{
   state.jmap.mockResolvedValueOnce(thread(['m1']));
   toolbar();

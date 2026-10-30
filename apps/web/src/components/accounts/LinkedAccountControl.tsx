@@ -95,9 +95,11 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
   async function select(id:string|null):Promise<void>{
     if(!await confirmShellNavigation())return;
     setError('');
+    const choice=listed()?mailboxChoices(listed()!,unreadFor).find(item=>item.linkId===id):undefined;
+    const label=choice?.nickname||choice?.address||choice?.name;
     // t91: the switch is retried by the transport; a final transient failure gets one toast with Retry.
-    try{await app.switchLinkedMailbox(id);dismissFailure('linked:switch');}
-    catch(cause){if(isTransientFailure(cause))showFailure({key:'linked:switch',error:cause,message:reason=>t('linked-accounts-switch-failed-reason',{reason}),retry:()=>app.switchLinkedMailbox(id)});else setError(linkedAccountError(cause));}
+    try{await app.switchLinkedMailbox(id,label);dismissFailure('linked:switch');}
+    catch(cause){if(isTransientFailure(cause))showFailure({key:'linked:switch',error:cause,message:reason=>t('linked-accounts-switch-failed-reason',{reason}),retry:()=>app.switchLinkedMailbox(id,label)});else setError(linkedAccountError(cause));}
   }
   const renewAccount=()=>{const id=renewing();return id?listed()?.accounts.find(account=>account.id===id):undefined;};
   const renewLabel=(id:string):string=>{const account=listed()?.accounts.find(item=>item.id===id);return mailboxNickname(id)||account?.address||account?.displayName||'';};

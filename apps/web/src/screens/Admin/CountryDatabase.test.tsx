@@ -30,6 +30,65 @@ function api(initial: GeoipStatus = missing): GeoipApi & { current: GeoipStatus 
 }
 
 describe('country database page', () => {
+  it('shows actual byte progress in one toast and replaces it on completion', async () => {
+    const transport = api();
+    let finish!: (value: GeoipStatus) => void;
+    transport.download = vi.fn(() => new Promise<GeoipStatus>(resolve => { finish = resolve; }));
+    renderInShell(() => <CountryDatabase api={transport} />);
+    const button = await screen.findByRole('button', {name: 'Download now'});
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await screen.findByTestId('geoip-download-toast');
+    const toast = () => screen.getByTestId('geoip-download-toast');
+    expect(toast()).toHaveAttribute('data-busy', 'true');
+    expect(screen.getByRole('region', {name: 'Country database'})).not.toHaveTextContent('Checking the country database source');
+    transport.current = {...missing, busy: true, downloadProgress: {phase: 'downloading', receivedBytes: 1024, totalBytes: 4096}};
+    await waitFor(() => expect(toast()).toHaveTextContent('1 kB of 4 kB'), {timeout: 2000});
+    transport.current = loaded;
+    finish({...loaded, outcome: {result: 'installed'}});
+    await waitFor(() => expect(toast()).toHaveTextContent('The new database is installed and in use.'));
+    expect(screen.getAllByTestId('geoip-download-toast')).toHaveLength(1);
+    expect(toast()).not.toHaveAttribute('data-busy', 'true');
+  });
+
+  it('offers a real retry after failure and removes pending progress on disposal', async () => {
+    const transport = api();
+    transport.download = vi.fn().mockRejectedValueOnce(new Error('Connection lost')).mockImplementationOnce(() => new Promise(() => {}));
+    const view = renderInShell(() => <CountryDatabase api={transport} />);
+    const button = await screen.findByRole('button', {name: 'Download now'});
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+    await screen.findByTestId('geoip-download-toast');
+    const toast = () => screen.getByTestId('geoip-download-toast');
+    await waitFor(() => expect(toast()).not.toHaveAttribute('data-busy', 'true'));
+    fireEvent.click(within(toast()).getByRole('button', {name: 'Retry'}));
+    await waitFor(() => expect(transport.download).toHaveBeenCalledTimes(2));
+    expect(screen.getByTestId('geoip-download-toast')).toHaveAttribute('data-busy', 'true');
+    view.unmount();
+    expect(screen.queryByTestId('geoip-download-toast')).not.toBeInTheDocument();
+  });
+
+  it('ignores a status poll completing after the download response', async () => {
+    const transport = api();
+    let finish!: (value: GeoipStatus) => void;
+    let finishPoll!: (value: {data: GeoipStatus; etag: string}) => void;
+    transport.download = vi.fn(() => new Promise<GeoipStatus>(resolve => { finish = resolve; }));
+    renderInShell(() => <CountryDatabase api={transport} />);
+    const button = await screen.findByRole('button', {name: 'Download now'});
+    await waitFor(() => expect(button).toBeEnabled());
+    transport.read = vi.fn()
+      .mockImplementationOnce(() => new Promise(resolve => { finishPoll = resolve; }))
+      .mockResolvedValue({data: loaded, etag: '"e2"'});
+    fireEvent.click(button);
+    await waitFor(() => expect(transport.read).toHaveBeenCalledOnce(), {timeout: 2000});
+    finish({...loaded, outcome: {result: 'installed'}});
+    await waitFor(() => expect(screen.getByTestId('geoip-download-toast')).toHaveAttribute('data-tone', 'success'));
+    finishPoll({data: {...missing, busy: true, downloadProgress: {phase: 'downloading', receivedBytes: 12, totalBytes: null}}, etag: '"old"'});
+    await Promise.resolve();
+    expect(screen.getByTestId('geoip-download-toast')).toHaveAttribute('data-tone', 'success');
+    expect(screen.getByRole('table', {name: 'Country database status'})).toHaveTextContent('Loaded');
+  });
+
   it('shows the fail-closed warning while missing, downloads in place, and looks up an address', async () => {
     const transport = api();
     renderInShell(() => <CountryDatabase api={transport} />);

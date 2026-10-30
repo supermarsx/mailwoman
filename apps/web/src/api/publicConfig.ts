@@ -7,6 +7,7 @@ export interface PublicConfig {
   maintenance?: {enabled:boolean;message:string;retryAfterSecs:number};
   rememberSignins?: boolean;
   showRememberedHint?: boolean;
+  showAccountHelpNotice?: boolean;
   logoUrl?: string | null;
   faviconUrl?: string | null;
   loginBackgroundUrl?: string | null;

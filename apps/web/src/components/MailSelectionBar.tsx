@@ -16,6 +16,7 @@ import type { Id } from '../api/jmap-types.ts';
 export function MailSelectionBar(props: {
   onCompose?: ((initial: ComposeInitial) => void) | undefined;
   onClear: () => void;
+  selecting?: boolean;
   returnFocus: () => void;
 }): JSX.Element {
   void loadCatalog('selection-bar'); // t112: its ids show wherever it is mounted
@@ -23,7 +24,7 @@ export function MailSelectionBar(props: {
   const [busy, setBusy] = createSignal(false);
   const controller = new AbortController();
   onCleanup(() => controller.abort());
-  const targets = (): Id[] => app.actionTargets();
+  const targets = (): Id[] => [...app.selectedIds()];
   const chosen = () => {
     const sel = app.selectedIds();
     return app.messages().filter((m) => sel.has(m.id));
@@ -90,9 +91,11 @@ export function MailSelectionBar(props: {
   return (
     <SelectionBar
       count={app.selectedIds().size}
+      active={props.selecting === true}
       total={app.listMessages().length}
       selectAll={() => app.selectAllInView()}
-      clear={props.onClear}
+      clear={() => app.clearSelection()}
+      dismiss={props.onClear}
       actions={actions()}
       returnFocus={props.returnFocus}
       scope={`${app.accountId()}:${app.selectedMailboxId()}`}

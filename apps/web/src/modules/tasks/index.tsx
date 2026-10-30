@@ -20,7 +20,7 @@ import {
   useContext,
   type JSX,
 } from 'solid-js';
-import { t, loadCatalog } from '../../i18n';
+import { rawT, t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
 import { isDone } from '../../state/slices/tasks.ts';
 import type { Id } from '../../api/jmap-types.ts';
@@ -104,14 +104,14 @@ export function TasksModule(): JSX.Element {
     const id = mailId().trim();
     if (id === '' || noList()) return;
     setMailId('');
-    await app.convertMailToTask(id, targetList(), { title: t('tasks-followup-mail', { id }) });
+    await app.convertMailToTask(id, targetList(), { title: rawT('tasks-followup-mail', { id }) });
   }
 
   async function convertEvent(): Promise<void> {
     const id = eventId().trim();
     if (id === '' || noList()) return;
     setEventId('');
-    await app.convertEventToTask(id, targetList(), { title: t('tasks-prep-event', { id }) });
+    await app.convertEventToTask(id, targetList(), { title: rawT('tasks-prep-event', { id }) });
   }
 
   function selectAll(): void {

@@ -81,7 +81,7 @@ describe('one account indicator',()=>{
     expect(within(menu).queryByText(/Manage/)).toBeNull();
     expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(2);
     fireEvent.click(within(menu).getAllByRole('menuitemradio')[1]!);
-    await waitFor(()=>expect(sw).toHaveBeenCalledWith('link-1'));
+    await waitFor(()=>expect(sw).toHaveBeenCalledWith('link-1','child@example.org'));
     expect(within(topBar()).queryByRole('button',{name:/^Mailbox account/})).toBeNull();
     expect(indicators(container)).toHaveLength(1);
   });

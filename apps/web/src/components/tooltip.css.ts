@@ -12,3 +12,10 @@ export const tooltip = style({
   fontFamily: vars.font.ui, fontSize: '0.8125rem', lineHeight: 1.45,
   pointerEvents: 'auto',
 });
+
+// A bubble opened by keyboard focus has no pointer over it, so it need not be
+// hoverable (WCAG 1.4.13 is about pointer-triggered content). It lets taps and
+// clicks through to whatever it covers, such as the phone's menu button under a
+// focused tab's close button (t93). It becomes hoverable once a pointer hovers
+// its control.
+export const passive = style({ pointerEvents: 'none' });

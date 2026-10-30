@@ -20,17 +20,19 @@ export function inspectMessageLink(raw:string,label:string):MessageLink|null{
  return {href:url.href,label:label.slice(0,256),host:url.host,kind:'web',warnings};
 }
 /** Only display copies enter here. Source MIME, quotes and exports stay intact.
- * All body navigation is inert; destinations open only from app-owned review. */
-export function reviewMessageLinks(html:string,help:string):ReviewedMessage{
+ * Body navigation is inert until explicit consent for this message. Only
+ * validated destinations can then open a new context without an opener/referrer. */
+export function reviewMessageLinks(html:string,help:string,enabled=false):ReviewedMessage{
  const doc=new DOMParser().parseFromString(html,'text/html');const links:MessageLink[]=[];const seen=new Set<string>();let truncated=false;
  for(const anchor of doc.querySelectorAll('a,area')){
   const raw=anchor.getAttribute('href');
   if(raw&&!raw.startsWith('#')){
    const link=inspectMessageLink(raw,anchor.textContent?.trim()??'');
    if(link&&!seen.has(link.href)){seen.add(link.href);if(links.length<100)links.push(link);else truncated=true;}
-   anchor.removeAttribute('href');anchor.setAttribute('aria-disabled','true');anchor.setAttribute('title',help);
+   if(enabled&&link){anchor.setAttribute('href',link.href);anchor.removeAttribute('aria-disabled');anchor.removeAttribute('title');anchor.setAttribute('target','_blank');anchor.setAttribute('rel','noopener noreferrer');anchor.setAttribute('referrerpolicy','no-referrer');}
+   else{anchor.removeAttribute('href');anchor.setAttribute('aria-disabled','true');anchor.setAttribute('title',help);}
   }
-  anchor.removeAttribute('target');anchor.removeAttribute('ping');anchor.removeAttribute('download');
+  if(!enabled||!anchor.hasAttribute('href')||raw?.startsWith('#'))anchor.removeAttribute('target');anchor.removeAttribute('ping');anchor.removeAttribute('download');
  }
  return {html:'<!doctype html>'+doc.documentElement.outerHTML,links,truncated};
 }

@@ -20,7 +20,7 @@ export const receiptPolicyApi:ReceiptPolicyApi={
 export interface ReceiptDecision {accountId:string;emailId:string;requestedBy:string;handled:boolean;action:'none'|'ask'|'automatic'}
 export async function loadReceiptDecision(accountId:string,emailId:string,signal:AbortSignal):Promise<ReceiptDecision|null>{
  const response=await apiFetch(withBase(`/api/account/mdn-decision/${encodeURIComponent(emailId)}`),{credentials:'same-origin',signal});
- if(response.status===404)return null;if(!response.ok)throw new ReceiptPolicyError(response.status);
+ if(response.status===204||response.status===404)return null;if(!response.ok)throw new ReceiptPolicyError(response.status);
  const value=await response.json() as Partial<ReceiptDecision>;
  if(value.accountId!==accountId||value.emailId!==emailId||typeof value.requestedBy!=='string'||typeof value.handled!=='boolean'||!['none','ask','automatic'].includes(value.action??''))throw new Error('Invalid receipt decision');
  return value as ReceiptDecision;

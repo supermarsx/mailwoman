@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createSignal } from 'solid-js';
 import { render } from 'solid-js/web';
 import type { SettingEntry, SettingsMap } from '../api/settings.ts';
+import { activateAccountPreferences, suspendAccountPreferences } from '../api/accountPreferenceLifecycle.ts';
 
 const state = vi.hoisted(() => ({
   handlers: new Map<string, (e: KeyboardEvent) => boolean | void>(),
@@ -15,6 +16,7 @@ vi.mock('../api/settings.ts', async (original) => {
   return {
     ...actual,
     settings: () => map(),
+    settingsLoadStatus: vi.fn(() => 'ready'),
     loadSettings: vi.fn(async () => undefined),
     writeSetting: vi.fn(async (key: string, value: unknown): Promise<SettingEntry> => {
       state.writes.push([key, value]);
@@ -38,11 +40,110 @@ const css = await import('./readerZoom.css.ts');
 const flush = async (): Promise<void> => { for (let i = 0; i < 4; i++) await Promise.resolve(); };
 
 beforeEach(() => {
+  suspendAccountPreferences();
+  localStorage.clear();
   setMap({});
   state.writes = [];
   state.fail = null;
   state.handlers.clear();
   zoom.clearReaderZoom();
+});
+
+describe('durable zoom intent', () => {
+  const authority = 'zoom_test_authority_alice';
+  const slot = `mw.reader-zoom:v1:${authority}:pending`;
+  const entry = (value: number, locked = false): SettingEntry => ({ value, source: 'user', locked });
+  const read = () => JSON.parse(localStorage.getItem(slot) ?? 'null') as {token:string;next:number;base:number;inflight:number|null}|null;
+  async function owner(): Promise<void> { activateAccountPreferences('alice', authority); await flush(); }
+  it('retains the latest rapid click across pagehide while an older write is in flight, then replays after reload', async () => {
+    const { writeSetting } = await import('../api/settings.ts');
+    await owner();
+    let finish!: (value: SettingEntry) => void;
+    vi.mocked(writeSetting).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    zoom.zoomIn(); zoom.zoomIn(); zoom.zoomIn();
+    window.dispatchEvent(new Event('pagehide'));
+    expect(read()).toMatchObject({ next: 150, base: 100, inflight: 110 });
+    suspendAccountPreferences(); // Old page is gone; old transport must not touch new state.
+    setMap({ 'reader.zoom': entry(110) });
+    await owner(); await flush();
+    expect(state.writes.at(-1)).toEqual(['reader.zoom', 150]);
+    expect(zoom.readerZoom()).toBe(150);
+    finish(entry(110)); await flush();
+    expect(zoom.readerZoom()).toBe(150);
+    expect(read()).toBeNull();
+  });
+  it('does not replay against a newer server choice or an administrator lock', async () => {
+    for (const locked of [false, true]) {
+      suspendAccountPreferences();
+      localStorage.setItem(slot, JSON.stringify({token:'pending',next:150,base:100,inflight:110}));
+      setMap({ 'reader.zoom': entry(locked ? 100 : 175, locked) });
+      await owner();
+      expect(state.writes).toHaveLength(0);
+      expect(read()).toBeNull();
+    }
+  });
+  it('leaves pending intent intact when the settings refresh failed', async () => {
+    const { settingsLoadStatus } = await import('../api/settings.ts');
+    vi.mocked(settingsLoadStatus).mockReturnValueOnce('error');
+    localStorage.setItem(slot, JSON.stringify({token:'pending',next:150,base:100,inflight:110}));
+    await owner();
+    expect(state.writes).toHaveLength(0);
+    expect(read()?.next).toBe(150);
+  });
+  it('an older acknowledgement never deletes another window\'s pending token', async () => {
+    const { writeSetting } = await import('../api/settings.ts');
+    await owner();
+    let finish!: (value: SettingEntry) => void;
+    vi.mocked(writeSetting).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    zoom.zoomIn(); zoom.zoomIn();
+    localStorage.setItem(slot, JSON.stringify({token:'other-window',next:175,base:100,inflight:110}));
+    finish(entry(110)); await flush();
+    window.dispatchEvent(new Event('pagehide')); await flush();
+    expect(read()?.token).toBe('other-window');
+    expect(state.writes).toHaveLength(0);
+  });
+  it('account transition discards a queued level and ignores an old completion while the new account writes', async () => {
+    const { writeSetting } = await import('../api/settings.ts');
+    await owner();
+    let finishOld!: (value: SettingEntry) => void;
+    let finishNew!: (value: SettingEntry) => void;
+    vi.mocked(writeSetting).mockImplementationOnce(() => new Promise(resolve => { finishOld = resolve; }));
+    zoom.zoomIn(); zoom.zoomIn();
+    activateAccountPreferences('bob', 'zoom_test_authority_bob'); await flush();
+    expect(zoom.readerZoom()).toBe(100);
+    vi.mocked(writeSetting).mockImplementationOnce(() => new Promise(resolve => { finishNew = resolve; }));
+    zoom.zoomOut(); zoom.zoomOut();
+    finishOld(entry(110)); await flush();
+    expect(state.writes).toHaveLength(0);
+    expect(zoom.readerZoom()).toBe(75);
+    finishNew(entry(90)); await flush();
+    window.dispatchEvent(new Event('pagehide')); await flush();
+    expect(state.writes).toEqual([['reader.zoom',75]]);
+  });
+  it('does not send an older queued level after another window acknowledged and cleared the journal', async () => {
+    const { writeSetting } = await import('../api/settings.ts');
+    await owner();
+    let finish!: (value: SettingEntry) => void;
+    vi.mocked(writeSetting).mockImplementationOnce(() => new Promise(resolve => { finish = resolve; }));
+    zoom.zoomIn(); zoom.zoomIn();
+    expect(read()?.next).toBe(125);
+    localStorage.removeItem(slot);
+    finish(entry(110)); await flush();
+    window.dispatchEvent(new Event('pagehide')); await flush();
+    expect(state.writes).toHaveLength(0);
+    expect(read()).toBeNull();
+  });
+  it('does not refresh the shared settings map without a pending intent', async () => {
+    const { loadSettings } = await import('../api/settings.ts');
+    vi.mocked(loadSettings).mockClear();
+    await owner();
+    expect(loadSettings).not.toHaveBeenCalled();
+  });
+  it('rejects malformed pending levels instead of replaying unvalidated storage', async () => {
+    localStorage.setItem(slot, JSON.stringify({token:'pending',next:151,base:100,inflight:null}));
+    await owner();
+    expect(state.writes).toHaveLength(0);
+  });
 });
 
 describe('zoom steps', () => {

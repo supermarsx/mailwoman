@@ -109,7 +109,7 @@ export const SECTIONS: readonly SectionDef[] = [
     group: 'security',
     icon: 'twofactor',
     label: () => t('admin-security-center-title'),
-    anyCapabilities: ['security.read','bans.read','diagnostics.read','sessions.read'],
+    anyCapabilities: ['security.read','bans.read','diagnostics.read','sessions.read','settings.read'],
     component: screen(() => import('../SecurityCenter.tsx').then((m) => m.AdminSecurityCenter), true),
   },
   {

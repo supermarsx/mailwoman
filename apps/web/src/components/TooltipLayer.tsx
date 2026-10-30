@@ -35,6 +35,8 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
   const scopeWindow=scopeDocument.defaultView ?? window;
   const id = `tooltip-${createUniqueId()}`;
   const [text, setText] = createSignal<string | null>(null);
+  // Opened from a pointer hover (hoverable) or from keyboard focus (click-through).
+  const [hoverable, setHoverable] = createSignal(false);
   let target: HTMLElement | null = null;
   let bubble: HTMLDivElement | undefined;
   let nativeTitle: string | null = null;
@@ -50,6 +52,10 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
   // sits there. That is not the user pointing at it, so it opens no help, which
   // would otherwise cover the controls next to it and take their clicks.
   let pressedAt: { x: number; y: number } | null = null;
+  // Where the pointer last was. A key press can change the layout under it as a
+  // press can (Ctrl+Shift+Arrow moving a tab moves its close button under a still
+  // pointer), so a key press starts the same "until it moves" window (t93).
+  let lastPointer: { x: number; y: number } | null = null;
   const stillSincePress = (event: PointerEvent) => pressedAt !== null && Math.abs(event.clientX - pressedAt.x) < 2 && Math.abs(event.clientY - pressedAt.y) < 2;
 
   const clearHide = () => { clearTimeout(hideTimer); };
@@ -94,15 +100,15 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
   };
   const schedulePosition = () => { scopeWindow.cancelAnimationFrame(frame); frame = scopeWindow.requestAnimationFrame(position); };
   const find = (event: Event) => isElement(event.target) ? event.target.closest<HTMLElement>(controls) : null;
-  const show = (element: HTMLElement | null) => {
+  const show = (element: HTMLElement | null, byPointer = false) => {
     if (!element || Date.now() < pointerUntil) return;
     if (element === dismissed) return;
     restoreDismissed();
-    if (target === element) { clearHide(); return; }
+    if (target === element) { clearHide(); if (byPointer) setHoverable(true); return; }
     hide();
     const description = tooltipDescription(element);
     if (!description) return;
-    target = element; nativeTitle = element.getAttribute('title');
+    target = element; nativeTitle = element.getAttribute('title'); setHoverable(byPointer);
     element.removeAttribute('title');
     {
       if (!element.isConnected || target !== element) { hide(); return; }
@@ -142,11 +148,12 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     });
     observer.observe(scopeDocument.body, {subtree:true,childList:true,attributes:true,attributeFilter:['title','data-tooltip','aria-label']});
     const over = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') lastPointer = { x: event.clientX, y: event.clientY };
       if (event.pointerType === 'touch' || stillSincePress(event)) return;
       pressedAt = null;
-      const element=find(event); if (element!==dismissed) pointerUntil=0; show(element);
+      const element=find(event); if (element!==dismissed) pointerUntil=0; show(element, true);
     };
-    const move = (event: PointerEvent) => { if (pressedAt && !stillSincePress(event)) pressedAt = null; };
+    const move = (event: PointerEvent) => { if (event.pointerType !== 'touch') lastPointer = { x: event.clientX, y: event.clientY }; if (pressedAt && !stillSincePress(event)) pressedAt = null; };
     const out = (event: PointerEvent) => {
       if (!(isNode(event.target)) || !(target?.contains(event.target) || bubble?.contains(event.target) || dismissed?.contains(event.target))) return;
       if (dismissed && !(isNode(event.relatedTarget) && dismissed.contains(event.relatedTarget))) restoreDismissed();
@@ -155,10 +162,10 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
     };
     const focus = (event: FocusEvent) => show(find(event));
     const blur = () => { restoreDismissed(); hide(); };
-    const key = (event: KeyboardEvent) => { pointerUntil = 0; pressedAt = null; if (event.key === 'Escape') hide(true); };
+    const key = (event: KeyboardEvent) => { pointerUntil = 0; pressedAt = lastPointer; if (event.key === 'Escape') hide(true); };
     // Pointer activation can focus a button after pointerdown. Do not reopen
     // its tooltip over the new page/tab as a side effect of that focus.
-    const down = (event: PointerEvent) => { pointerUntil = Date.now() + 1000; pressedAt = event.pointerType === 'touch' ? null : { x: event.clientX, y: event.clientY }; hide(true); };
+    const down = (event: PointerEvent) => { pointerUntil = Date.now() + 1000; pressedAt = event.pointerType === 'touch' ? null : { x: event.clientX, y: event.clientY }; lastPointer = pressedAt; hide(true); };
     scopeDocument.addEventListener('pointerover', over, true); scopeDocument.addEventListener('pointerout', out, true);
     scopeDocument.addEventListener('pointermove', move, true);
     scopeDocument.addEventListener('focusin', focus); scopeDocument.addEventListener('focusout', blur);
@@ -179,5 +186,5 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
       scopeWindow.visualViewport?.removeEventListener('scroll', schedulePosition);
     });
   });
-  return <Portal mount={scopeDocument.body}><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} onPointerEnter={clearHide} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
+  return <Portal mount={scopeDocument.body}><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} classList={{ [css.passive]: !hoverable() }} onPointerEnter={clearHide} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
 }

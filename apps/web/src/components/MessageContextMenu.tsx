@@ -2,7 +2,7 @@ import {onCleanup,type Accessor} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import {loadCatalog,t} from '../i18n';
-import {relatedSearchValue} from './messageSearch.ts';
+import {relatedSearchValue,relatedSenderDomain} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
@@ -28,9 +28,12 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:'flag',run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
    {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:'pin',run:()=>app.pinMessage(id,!message.pinned)},
   ];
-  for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)rows.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
+  const searches:ContextAction[]=[];
+  for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)searches.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
   // t88: scope a search to the message's folder (its chip shows in the filter bar).
-  {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)rows.push({id:'search:in',label:t('search-refine-folder'),icon:'search',run:()=>app.searchMessageField('in',folder)});}
+  {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)searches.push({id:'search:in',label:t('search-refine-folder'),icon:'search',run:()=>app.searchMessageField('in',folder)});}
+  const domain=relatedSenderDomain(message);if(domain&&app.supportsFromDomainSearch())searches.splice(1,0,{id:'search:from-domain',label:t('mail-context-search-domain'),icon:'domains',run:()=>app.searchMessageField('from-domain',domain)});
+  if(searches.length)rows.push({id:'search',label:t('search-refine-menu'),icon:'search',children:searches,run:()=>{}});
   // t94: the sender's Focused inbox override; the current choice is checked.
   for(const row of focusActions(app,message))rows.push(row);
   for(const [role,label,icon,run] of [
