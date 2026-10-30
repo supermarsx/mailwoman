@@ -399,6 +399,9 @@ async fn every_registered_capability_route_rejects_missing_capability_and_non_ad
         admin_router::{Access, registry},
         capabilities::Capability,
     };
+    // t100: this test calls every route from one address on purpose; admin-probe
+    // protection would (correctly) block it partway. Its own tests are t100_*.
+    unsafe { std::env::set_var("MW_ADMIN_PROBE_ENABLED", "false") };
     let base = server().await;
     let root = root(&base).await;
     let role: Value = root

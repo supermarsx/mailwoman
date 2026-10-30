@@ -123,6 +123,7 @@ pub mod jobs;
 // and session-management routes over `mw-mfa` + the 0015 store tables. The
 // `gate_login` hook is called from both login branches below; `twofa_router()` is
 // merged into `router()`.
+mod admin_probe;
 pub(crate) mod alerts;
 pub(crate) mod audit;
 mod deployment_security;
@@ -913,6 +914,8 @@ pub(crate) struct AppState {
     sessions: Arc<SessionGuard>,
     signin_cooldown: Arc<signin_cooldown::Cooldown>,
     request_protection: Arc<request_protection::Runtime>,
+    /// t100: per-source admin-probe score and blocks (see `admin_probe`).
+    admin_probe: Arc<admin_probe::Runtime>,
     signin_challenges: Arc<signin_challenge::IssuanceLimiter>,
     hardening: HardeningConfig,
     /// V4 crypto/security endpoint config (plan §3 e7).
@@ -1336,6 +1339,7 @@ async fn build_app_inner(
         tracing::info!("serving under sub-path {base_path} (MW_BASE_PATH)");
     }
     let request_protection = request_protection::Runtime::start(store.clone());
+    let admin_probe = admin_probe::Runtime::start(store.clone());
     let state = AppState {
         started_at: std::time::SystemTime::now(),
         started: std::time::Instant::now(),
@@ -1354,6 +1358,7 @@ async fn build_app_inner(
         sessions: Arc::new(SessionGuard::new()),
         signin_cooldown: Arc::new(signin_cooldown::Cooldown::default()),
         request_protection,
+        admin_probe,
         signin_challenges: Arc::new(signin_challenge::IssuanceLimiter::default()),
         hardening: config.hardening,
         security: config.security,
@@ -1617,6 +1622,12 @@ fn router(
         .layer(middleware::from_fn_with_state(
             state.clone(),
             request_protection::guard,
+        ))
+        // t100: a source blocked for probing for the console gets one answer for
+        // every path, before any other source guard or route sees the request.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_probe::guard,
         ))
         // V5 (plan §2.2; t31 D10): CORS/preflight for the native shell origins
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes

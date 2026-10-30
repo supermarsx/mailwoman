@@ -693,6 +693,9 @@ async fn the_admin_path_is_in_no_answer_outside_it() {
 
 #[tokio::test]
 async fn the_admin_path_is_in_no_answer_outside_it_under_a_base_path() {
+    // t100: this test calls every route from one address on purpose; admin-probe
+    // protection would (correctly) block it partway. Its own tests are t100_*.
+    unsafe { std::env::set_var("MW_ADMIN_PROBE_ENABLED", "false") };
     let s = spawn(Env {
         base_path: Some("/mail"),
         admin_path: Some("/ops-h15q7zx"),

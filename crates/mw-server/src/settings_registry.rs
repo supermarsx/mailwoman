@@ -375,6 +375,9 @@ const fn per_address(mut d: SettingDef) -> SettingDef {
     d
 }
 
+/// The admin-probe policy route (t100, `admin_probe::ROUTE`).
+const ADMIN_PROBE_ROUTE: &str = "/security/admin-probe";
+
 const fn dedicated(mut d: SettingDef, route: &'static str) -> SettingDef {
     d.dedicated_route = Some(route);
     d
@@ -2085,6 +2088,173 @@ pub static REGISTRY: &[SettingDef] = &[
         "security",
         "Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action."
     ),
+    // ── Admin-probe protection (t100, admin_probe.rs) ────────────────────────
+    dedicated(
+        pin(
+            def!(
+                "security.adminProbe.enabled",
+                Kind::Bool,
+                "true",
+                G,
+                "security",
+                "Count requests that look for the admin console per client network (IPv4 address, IPv6 /64) and slow, then block, a source that keeps going. The grace allowance absorbs typos and stale bookmarks."
+            ),
+            "MW_ADMIN_PROBE_ENABLED",
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.graceAllowance",
+            int(0, 1000),
+            "10",
+            G,
+            "security",
+            "Misses per window that are ignored. The score drains continuously at this many points per window."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.windowSecs",
+            int(60, 86400),
+            "600",
+            G,
+            "security",
+            "The window the grace allowance applies to."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.blockAfter",
+            int(1, 1000),
+            "10",
+            G,
+            "security",
+            "Misses beyond the grace allowance that start a block. Misses in between are answered after the tarpit delay."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.tarpitDelayMs",
+            int(0, 10000),
+            "1500",
+            G,
+            "security",
+            "Delay added to each counted miss above the grace allowance. Zero turns the tarpit off. Requests that are not misses are never delayed."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.blockSecs",
+            int(60, 604800),
+            "900",
+            G,
+            "security",
+            "Length of the first block. Every request from a blocked source gets the same answer, whatever its path."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.maxBlockSecs",
+            int(60, 2592000),
+            "86400",
+            G,
+            "security",
+            "A repeat block doubles the previous length up to this cap."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.repeatWindowSecs",
+            int(0, 2592000),
+            "86400",
+            G,
+            "security",
+            "A block that starts within this long after the previous one ended counts as a repeat. After a quiet period this long, the next block is a first block again."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.blockStatus",
+            Kind::Enum(&["429", "403"]),
+            "\"429\"",
+            G,
+            "security",
+            "HTTP status of the blocked answer, sent with Retry-After."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.signals",
+            Kind::StringList {
+                max_len: 4,
+                max_item: 32
+            },
+            "[\"probe-path\",\"slug-guess\",\"admin-signin-failed\",\"admin-unauthenticated\"]",
+            G,
+            "security",
+            "Which misses count: probe-path (a path on the probe list), slug-guess (a 404 at the console's path depth), admin-signin-failed (a refused admin sign-in) and admin-unauthenticated (an admin API call without a valid admin session)."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.probePaths",
+            Kind::StringList {
+                max_len: 100,
+                max_item: 128
+            },
+            "[\"/admin\",\"/administrator\",\"/wp-admin\",\"/wp-login.php\",\"/xmlrpc.php\",\"/phpmyadmin\",\"/pma\",\"/myadmin\",\"/adminer.php\",\"/.env\",\"/.git\",\"/manager/html\",\"/admin.php\",\"/cpanel\",\"/webadmin\",\"/server-status\",\"/actuator\",\"/vendor/phpunit\",\"/cgi-bin\",\"/boaform\"]",
+            G,
+            "security",
+            "Paths scanners ask for. A request whose path contains one of these as whole segments (any case) counts as a miss; the console's own path never does."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.allowlist",
+            Kind::StringList {
+                max_len: 100,
+                max_item: 64
+            },
+            "[]",
+            G,
+            "security",
+            "IP addresses or CIDR networks (office, VPN) that are never counted or blocked. Forwarded addresses are trusted only through configured proxies."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.auditIp",
+            Kind::Enum(&["masked", "full"]),
+            "\"masked\"",
+            G,
+            "security",
+            "How a blocked source appears in the audit log and the Security centre: masked (IPv4 /24, IPv6 /48) or full. The fail2ban line always carries the full address."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "security.adminProbe.fail2banLog",
+            Kind::Bool,
+            "true",
+            G,
+            "security",
+            "Write one fail2ban-readable line (mailwoman[admin-probe]: source blocked; ... rhost=<address>) when a source is blocked."
+        ),
+        ADMIN_PROBE_ROUTE,
+    ),
     def!(
         "security.signin.geoEnforceSessions",
         Kind::Bool,
@@ -3290,14 +3460,29 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             "security.protection.exemptClients"
                                 | "security.protection.exemptAccounts"
                                 | "security.protection.exemptAdmins"
+                                | "security.adminProbe.allowlist"
                         ) {
                             !b.is_ascii_control()
+                        } else if def.key == "security.adminProbe.probePaths" {
+                            b.is_ascii_alphanumeric() || b"/._~-%+@:".contains(&b)
                         } else {
                             b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'-' | b'.')
                         }
                     })
-                    || (def.key == "security.protection.exemptClients"
-                        && crate::scope_mw::proxy::Cidr::parse(text).is_none())
+                    || (matches!(
+                        def.key,
+                        "security.protection.exemptClients" | "security.adminProbe.allowlist"
+                    ) && crate::scope_mw::proxy::Cidr::parse(text).is_none())
+                    || (def.key == "security.adminProbe.probePaths"
+                        && (!text.starts_with('/') || text == "/" || text.contains("//")))
+                    || (def.key == "security.adminProbe.signals"
+                        && !matches!(
+                            text,
+                            "probe-path"
+                                | "slug-guess"
+                                | "admin-signin-failed"
+                                | "admin-unauthenticated"
+                        ))
                     || (def.key == "links.trustedDomains" && !link_trust::is_canonical(text))
                     || (def.key == "security.protection.signals"
                         && !matches!(

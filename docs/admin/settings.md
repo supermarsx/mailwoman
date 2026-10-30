@@ -1214,6 +1214,32 @@ State is bounded to 20,000 subjects and 10,000 decision events. Expired state is
 
 `security.protection.storageFailure` (default `"closed"`): Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action.
 
+<a id="security.adminProbe"></a>
+### Admin-probe protection (`security.adminProbe.*`)
+
+Counts requests that look for the admin console, per client network (an IPv4
+address or an IPv6 /64, resolved through the trusted-proxy rules), and slows
+then blocks a source that keeps going. These keys are changed through
+`PUT {console}/security/admin-probe/policy` (step-up `banManage`), not the
+generic settings route. See [Admin-probe protection](../security/admin-panel.md#admin-probe-protection).
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| <a id="security.adminProbe.enabled"></a>`security.adminProbe.enabled` | `true` | bool | On or off. `MW_ADMIN_PROBE_ENABLED` pins it. |
+| <a id="security.adminProbe.graceAllowance"></a>`security.adminProbe.graceAllowance` | `10` | 0–1000 | Misses per window that are ignored; the score drains at this many points per window. |
+| <a id="security.adminProbe.windowSecs"></a>`security.adminProbe.windowSecs` | `600` | 60–86400 | The grace window. |
+| <a id="security.adminProbe.blockAfter"></a>`security.adminProbe.blockAfter` | `10` | 1–1000 | Misses above the grace allowance that start a block. |
+| <a id="security.adminProbe.tarpitDelayMs"></a>`security.adminProbe.tarpitDelayMs` | `1500` | 0–10000 | Delay on each counted miss above the grace allowance (0 = off). |
+| <a id="security.adminProbe.blockSecs"></a>`security.adminProbe.blockSecs` | `900` | 60–604800 | First block. |
+| <a id="security.adminProbe.maxBlockSecs"></a>`security.adminProbe.maxBlockSecs` | `86400` | 60–2592000 | Cap for repeat blocks, which double each time. Must be at least `blockSecs`. |
+| <a id="security.adminProbe.repeatWindowSecs"></a>`security.adminProbe.repeatWindowSecs` | `86400` | 0–2592000 | A block starting this soon after the previous one ended is a repeat. |
+| <a id="security.adminProbe.blockStatus"></a>`security.adminProbe.blockStatus` | `"429"` | `429`, `403` | Status of the blocked answer (with `Retry-After`). |
+| <a id="security.adminProbe.signals"></a>`security.adminProbe.signals` | all four | `probe-path`, `slug-guess`, `admin-signin-failed`, `admin-unauthenticated` | Which misses count. |
+| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 20 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, …) | up to 100, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
+| <a id="security.adminProbe.allowlist"></a>`security.adminProbe.allowlist` | `[]` | up to 100 IPs/CIDRs | Never counted or blocked. |
+| <a id="security.adminProbe.auditIp"></a>`security.adminProbe.auditIp` | `"masked"` | `masked`, `full` | Source in the audit log and the API: IPv4 /24 and IPv6 /48, or the address. |
+| <a id="security.adminProbe.fail2banLog"></a>`security.adminProbe.fail2banLog` | `true` | bool | Write the `mailwoman[admin-probe]` line on each block. |
+
 <a id="mail.requestDeliveryReceipt"></a>
 
 `mail.requestDeliveryReceipt` defaults to false and controls the saved delivery-notification preference for new messages. The separate `receipts.dsnAllowed` policy governs whether the request is permitted; SMTP DSN support is still required.

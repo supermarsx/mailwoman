@@ -307,6 +307,9 @@ fn the_scanner_sees_every_form() {
 
 #[tokio::test]
 async fn every_registered_route_refuses_a_caller_without_a_session() {
+    // t100: this test calls every route from one address on purpose; admin-probe
+    // protection would (correctly) block it partway. Its own tests are t100_*.
+    unsafe { std::env::set_var("MW_ADMIN_PROBE_ENABLED", "false") };
     let dir = test_db::unique_dir("mw-t32-e24a-scan");
     let config = AppConfig {
         db_path: dir.join("mw.db").to_string_lossy().into_owned(),
