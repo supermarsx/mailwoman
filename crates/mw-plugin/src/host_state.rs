@@ -857,17 +857,27 @@ pub(crate) fn new_store(
 /// Map a failed guest-export call onto a typed [`PluginError`] — a resource-limit
 /// trip is `LimitExceeded` (host survives), never a panic (plan §2.1).
 pub(crate) fn map_call_err(store: &Store<HostState>, err: wasmtime::Error) -> PluginError {
+    use crate::health::{CallFailure, record};
     if store.data().limits.oom {
+        record(CallFailure::Limit);
         return PluginError::LimitExceeded("linear-memory ceiling exceeded".into());
     }
     if let Some(trap) = err.downcast_ref::<wasmtime::Trap>() {
         return match trap {
             wasmtime::Trap::Interrupt => {
+                record(CallFailure::Limit);
                 PluginError::LimitExceeded("wall-clock deadline exceeded".into())
             }
-            wasmtime::Trap::OutOfFuel => PluginError::LimitExceeded("fuel exhausted".into()),
-            other => PluginError::Runtime(format!("guest trap: {other}")),
+            wasmtime::Trap::OutOfFuel => {
+                record(CallFailure::Limit);
+                PluginError::LimitExceeded("fuel exhausted".into())
+            }
+            other => {
+                record(CallFailure::Trap);
+                PluginError::Runtime(format!("guest trap: {other}"))
+            }
         };
     }
+    record(CallFailure::Runtime);
     PluginError::Runtime(err.to_string())
 }

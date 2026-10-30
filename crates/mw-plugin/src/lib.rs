@@ -38,6 +38,7 @@ mod adapter;
 mod bindings;
 pub mod doctor;
 mod engine;
+pub mod health;
 mod host_state;
 pub mod signature;
 

@@ -60,6 +60,10 @@ pub enum Job {
         #[serde(rename = "cfbBase64")]
         cfb_base64: String,
     },
+    /// Health check (t103): `{"ping":true}` answers with this worker's version
+    /// and no other work, so the admin Health panel can time a full spawn,
+    /// jail and round trip without handing the worker any mail.
+    Ping { ping: bool },
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -70,6 +74,9 @@ pub struct Output {
     pub subject: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub preview: Option<attachment::AttachmentPreview>,
+    /// The worker's version (ping jobs only).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// Process one job line: parse, enforce limits, sanitize (HTML) or import (CFB).
@@ -87,6 +94,7 @@ pub fn process_line(line: &str) -> Result<String, String> {
                 html: mw_sanitize::sanitize_email_html(&html),
                 subject: None,
                 preview: None,
+                version: None,
             }
         }
         Job::Preview {
@@ -101,8 +109,13 @@ pub fn process_line(line: &str) -> Result<String, String> {
                 html: preview.html.clone(),
                 subject: preview.subject.clone(),
                 preview: Some(preview),
+                version: None,
             }
         }
+        Job::Ping { .. } => Output {
+            version: Some(env!("CARGO_PKG_VERSION").to_string()),
+            ..Output::default()
+        },
         Job::Cfb { cfb_base64 } => {
             let bytes = base64::engine::general_purpose::STANDARD
                 .decode(cfb_base64.as_bytes())
@@ -118,6 +131,7 @@ pub fn process_line(line: &str) -> Result<String, String> {
                 html: mw_sanitize::sanitize_email_html(&parsed.body),
                 subject: parsed.subject,
                 preview: None,
+                version: None,
             }
         }
     };
@@ -127,6 +141,18 @@ pub fn process_line(line: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_ping_answers_with_the_version_and_does_no_other_work() {
+        let out: serde_json::Value =
+            serde_json::from_str(&process_line(r#"{"ping":true}"#).unwrap()).unwrap();
+        assert_eq!(out["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(out["html"], "");
+        // An HTML frame is still an HTML frame.
+        let html: serde_json::Value =
+            serde_json::from_str(&process_line(r#"{"html":"<b>x</b>"}"#).unwrap()).unwrap();
+        assert!(html.get("version").is_none());
+    }
 
     /// The seam the render *binary* actually calls (`main` → [`enter_render_jail`])
     /// had no test on any platform. It can only be driven off Linux: on Linux a
