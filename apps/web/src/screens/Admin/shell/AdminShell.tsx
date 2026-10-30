@@ -21,7 +21,7 @@ import { createFocusTrap, createRovingTabindex } from '../../../components/a11y'
 import type { Can } from './can.ts';
 import { useBranding, brandAssetUrl } from '../../../branding.ts';
 import * as brandCss from '../branding.css.ts';
-import { GROUPS, canOpenSection, type SectionDef } from './sections.ts';
+import { COMMON_SECTIONS, GROUPS, canOpenSection, prefetchSectionsWhenIdle, preloadSection, type SectionDef } from './sections.ts';
 import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
 import { Breadcrumbs, type Crumb } from './Breadcrumbs.tsx';
@@ -92,6 +92,16 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   onMount(() => void loadCatalog('admin-ux'));
   // The boot placeholder (t72) fades out over the mounted frame.
   onMount(releaseBootSplash);
+  // t99: the sections opened most load their code while the console is idle;
+  // the rest load on hover or focus of their link (preloadSection above).
+  onMount(() => {
+    if (import.meta.env.MODE === 'test') return;
+    const timer = setTimeout(() => {
+      const open = new Set(groups().flatMap((g) => g.items.map((s) => s.id)));
+      prefetchSectionsWhenIdle(COMMON_SECTIONS.filter((id) => open.has(id)), props.sections);
+    }, 2500);
+    onCleanup(() => clearTimeout(timer));
+  });
   onMount(() => void loadCatalog('admin-branding'));
 
   // Fields of the sections this admin may open, for the palette (UX10).
@@ -166,6 +176,8 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
                       data-section={s.id}
                       aria-current={props.route.section === s.id ? 'page' : undefined}
                       onClick={(e) => inPlace(e, () => go(s.id))}
+                      onPointerEnter={() => preloadSection(s.id, props.sections)}
+                      onFocus={() => preloadSection(s.id, props.sections)}
                     >
                       <Icon name={s.icon} />
                       <span>{s.label()}</span>

@@ -168,6 +168,11 @@ export function App(): JSX.Element {
   const inMail = (): boolean => app.me() !== null && !held();
 
   onMount(() => {
+    // t99: when the last visit had a mail session open (the boot splash drew the
+    // mailbox shape), start fetching and evaluating the mailbox chunk now, while
+    // /api/me, /api/accounts, /jmap/session and the first list are on the wire,
+    // instead of after them. A signed-out visitor still never downloads it.
+    if (import.meta.env.MODE !== 'test' && document.documentElement.getAttribute('data-mw-boot') === 'mail') void loadMailboxScreen().catch(() => undefined);
     boot();
     // V7 Assist (plan §14): read the gateway config once at boot. A gateway that is
     // off/unreachable resolves to DISABLED_CONFIG, so every Assist surface stays

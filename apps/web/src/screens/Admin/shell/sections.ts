@@ -251,3 +251,42 @@ export function findSection(id: string, sections: readonly SectionDef[] = SECTIO
 export function canOpenSection(section: SectionDef, can: Can): boolean {
   return (section.capability === undefined || can.can(section.capability)) && (section.anyCapabilities === undefined || section.anyCapabilities.some(cap => can.can(cap)));
 }
+
+/** The sections opened most (t99 measurements), prefetched when the console is idle. */
+export const COMMON_SECTIONS: readonly string[] = ['dashboard', 'settings', 'users', 'security', 'features', 'logs'];
+
+/** Start loading a section's code (hover, focus, idle). Idempotent; a failure is left to the real open. */
+export function preloadSection(id: string, sections: readonly SectionDef[] = SECTIONS): void {
+  const component = findSection(id, sections)?.component as { preload?: () => Promise<unknown> } | undefined;
+  try {
+    void component?.preload?.()?.catch(() => undefined);
+  } catch {
+    /* not a lazy component */
+  }
+}
+
+/**
+ * Load the given sections' code one at a time while the browser is idle, so a
+ * first open of Settings, Users, Security and the rest does not wait for its
+ * chunk. Skipped when the user asked to save data.
+ */
+export function prefetchSectionsWhenIdle(ids: readonly string[], sections: readonly SectionDef[] = SECTIONS): void {
+  const nav = (globalThis as { navigator?: { connection?: { saveData?: boolean } } }).navigator;
+  if (nav?.connection?.saveData === true || ids.length === 0) return;
+  const idle = (fn: () => void): void => {
+    const ric = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
+    if (typeof ric === 'function') ric(fn, { timeout: 4000 });
+    else setTimeout(fn, 1500);
+  };
+  const run = (index: number): void => {
+    const id = ids[index];
+    if (id === undefined) return;
+    idle(() => {
+      const component = findSection(id, sections)?.component as { preload?: () => Promise<unknown> } | undefined;
+      let done: Promise<unknown> = Promise.resolve();
+      try { done = component?.preload?.() ?? done; } catch { /* not lazy */ }
+      void done.catch(() => undefined).finally(() => run(index + 1));
+    });
+  };
+  run(0);
+}
