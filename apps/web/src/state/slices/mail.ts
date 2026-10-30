@@ -2,6 +2,7 @@ import {resolveSender} from '../../api/senderResolution.ts';
 import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.ts';
 import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
 import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
+import { swrCachesEnabled } from '../../api/swrCache.ts';
 import {createLinkedAccountsApi} from '../../api/linkedAccounts.ts';
 import {validateLinkedAccountContext} from '../../api/linkedAccountContext.ts';
 import { createMessageView, type MessageView } from './messageView.ts';
@@ -672,7 +673,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         ...b, unreadEmails: fresh.unreadEmails, totalEmails: fresh.totalEmails,
         ...(renamed ? { name: fresh.name } : {}),
         ...(moved ? { parentId: fresh.parentId } : {}),
-        ...(upstream ? { mailwomanUpstreamName: fresh.mailwomanUpstreamName! } : {}),
+        ...(upstream ? { mailwomanUpstreamName: fresh.mailwomanUpstreamName!, ...(typeof fresh.mailwomanPath === 'string' ? { mailwomanPath: fresh.mailwomanPath } : {}) } : {}),
         ...(rights ? { myRights: fresh.myRights! } : {}),
       };
     }));
@@ -1909,6 +1910,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   /** Load mail for a new session, unless the server holds it at the change screen. */
   async function loadMailFor(user: Me): Promise<void> {
     if (mustChangePassword(user)) return;
+    // t99: the sign-in account's JMAP session is read alongside the first-mailbox
+    // lookup rather than after it; it is kept (api/sessionCache.ts), so
+    // loadMailboxes below finds it or the request already in flight.
+    if (swrCachesEnabled() && activeLinkedMailbox() === null) void client.session().catch(() => undefined);
     const first = await firstMailbox();
     if (first.linkId !== null) {
       try {
@@ -2020,9 +2025,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const selected=linkId===null?null:(await api.authorize(linkId)).context;
       if(!current())throw new DOMException('Mailbox changed','AbortError');
       if(selected&&selected.linkId!==linkId)throw new Error(t('linked-accounts-changed'));
-      const user=await client.me({linkId});
-      if(!current())throw new DOMException('Mailbox changed','AbortError');
-      const discovery=await client.session({linkId});
+      // t99: both endpoints of the target are read at once (each is ~0.35 s for
+      // a linked mailbox); both are still verified below before anything shows.
+      const [user,discovery]=await Promise.all([client.me({linkId}),client.session({linkId})]);
       if(!current())throw new DOMException('Mailbox changed','AbortError');
       if(selected)validateLinkedAccountContext(selected,user,discovery);
       else if(user.accountId!==primaryIdentity.accountId||user.storageAuthority!==primaryIdentity.storageAuthority
