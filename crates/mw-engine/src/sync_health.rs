@@ -273,10 +273,7 @@ impl SyncHealth {
 /// Record the outcome of an immediate `EmailSubmission/set` send. That path
 /// does not retry: a refusal is final, or uncertain when the connection
 /// dropped after the data was sent.
-pub(crate) fn record_inline_send<T>(
-    health: &SyncHealth,
-    sent: &Result<T, crate::jmap::NotSent>,
-) {
+pub(crate) fn record_inline_send<T>(health: &SyncHealth, sent: &Result<T, crate::jmap::NotSent>) {
     match sent {
         Ok(_) => health.record_send(SendOutcome::Sent, None),
         Err(not_sent) => health.record_send(
@@ -318,7 +315,10 @@ mod tests {
         assert_eq!(snap.accounts[0].state(), "idle");
         assert!(snap.accounts[0].last_ok_age_secs.is_some());
         assert!(snap.accounts[0].last_error.is_none());
-        assert_eq!(snap.sync_errors_last_hour, 1, "the hour still holds the error");
+        assert_eq!(
+            snap.sync_errors_last_hour, 1,
+            "the hour still holds the error"
+        );
     }
 
     #[test]
