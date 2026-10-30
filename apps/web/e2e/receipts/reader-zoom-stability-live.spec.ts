@@ -241,7 +241,7 @@ for(const width of [1440,390]){
   page.off('request',onReq);page.off('framenavigated',onNav);page.off('frameattached',onNav);
   const wheelSamples=await page.evaluate(()=>(window as unknown as {t79WheelSamples:{time:number;delta:number;trusted:boolean}[]}).t79WheelSamples);
   info.annotations.push({type:'wheel',description:JSON.stringify({puts,reloads,wheelSamples})});
-  for(const direction of [-1,1]){const group=wheelSamples.filter(sample=>Math.sign(sample.delta)===direction);expect(group).toHaveLength(12);expect(group.every(sample=>sample.trusted),'real browser wheel input').toBe(true);for(let i=1;i<group.length;i++)expect(group[i]!.time-group[i-1]!.time,'wheel notches delivered inside the burst window').toBeLessThan(150);}
+  for(const direction of [-1,1]){const group=wheelSamples.filter(sample=>Math.sign(sample.delta)===direction);expect(group.length).toBeGreaterThan(0);expect(group.reduce((total,sample)=>total+sample.delta,0),'twelve real notches, including browser-coalesced events').toBe(direction*720);expect(group.every(sample=>sample.trusted),'real browser wheel input').toBe(true);for(let i=1;i<group.length;i++)expect(group[i]!.time-group[i-1]!.time,'wheel notches delivered inside the burst window').toBeLessThan(150);}
   expect(reloads,'frame loads during the Ctrl+wheel bursts').toBe(0);
   // 14 level changes in all (100->200, 200->50); one write per change before t79.
   expect(puts,'preference writes for 2 x 12 wheel notches (14 level changes)').toBeLessThanOrEqual(6);
