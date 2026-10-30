@@ -116,7 +116,7 @@ async function images(page: Page): Promise<ImageState[]> {
   // The reader may replace the nested frame while a message settles (a re-post
   // of the same body); read again from the live frame when that happens.
   for (let attempt = 0; ; attempt++) {
-    try { return await readImages(page); } catch (error) { if (attempt >= 5 || !/detached|Execution context was destroyed, most likely because of a navigation/i.test(String(error))) throw error; await page.waitForTimeout(200); }
+    try { return await readImages(page); } catch (error) { if (attempt >= 5 || !/detached|Frame was not found|Failed to find frame for selector|Execution context was destroyed, most likely because of a navigation/i.test(String(error))) throw error; await page.waitForTimeout(200); }
   }
 }
 async function readImages(page: Page): Promise<ImageState[]> {

@@ -315,16 +315,20 @@ test('renew access asks only for the password, and tells a wrong password from a
     await shot(page,project,`t70-renew-wrong-password-${size.name}.png`);
 
     if(size.name==='1440'){
-      // Disconnect the initialized mail server: a transport timeout must not be reported as a wrong password.
-      // stop/start is unsuitable here: Greenmail greets before its users reload and briefly rejects correct passwords.
-      execFileSync('docker',['network','disconnect','bridge',CONTAINER]);
+      // Pause the initialized mail server: a transport timeout must not be reported as a wrong password.
+      // Keep its IP and published-port mapping: disconnect/reconnect can leave Docker Desktop forwarding
+      // to the released IP, which another fixture may claim. Restarting also races Greenmail user loading.
+      const endpointIdentity=():string=>execFileSync('docker',['inspect','--format','{{.Id}} {{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}',CONTAINER],{encoding:'utf8'}).trim();
+      const originalEndpoint=endpointIdentity();
+      execFileSync('docker',['pause',CONTAINER]);
       try{
         await dialog.getByLabel('Password',{exact:true}).fill('child-pass');
         await dialog.getByRole('button',{name:'Renew access',exact:true}).click();
         await expect(dialog.getByRole('alert')).toContainText('could not be reached',{timeout:45000});
         await shot(page,project,`t70-renew-unreachable-${size.name}.png`);
       }finally{
-        execFileSync('docker',['network','connect','bridge',CONTAINER]);
+        execFileSync('docker',['unpause',CONTAINER]);
+        expect(endpointIdentity()).toBe(originalEndpoint);
         await greenmailReady(page);
       }
     }

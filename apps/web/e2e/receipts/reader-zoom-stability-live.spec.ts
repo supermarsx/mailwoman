@@ -232,10 +232,11 @@ for(const width of [1440,390]){
   await page.evaluate(()=>{const samples:{time:number;delta:number;trusted:boolean}[]=[];(window as unknown as {t79WheelSamples:typeof samples}).t79WheelSamples=samples;document.addEventListener('wheel',event=>{if(event.ctrlKey)samples.push({time:performance.now(),delta:event.deltaY,trusted:event.isTrusted});},{capture:true});});
   // Issue real pointer events together: sequential Firefox protocol waits can
   // space notches beyond the 150ms burst contract under parallel browser load.
-  await page.keyboard.down('Control');await Promise.all(Array.from({length:12},()=>page.mouse.wheel(0,-60)));await page.keyboard.up('Control');
+  const wheelBurst=async(delta:number)=>{await page.keyboard.down('Control');try{await Promise.all(Array.from({length:12},()=>page.mouse.wheel(0,delta)));await page.waitForFunction(expected=>{const samples=(window as unknown as {t79WheelSamples:{delta:number}[]}).t79WheelSamples;return samples.filter(sample=>Math.sign(sample.delta)===Math.sign(expected)).reduce((total,sample)=>total+sample.delta,0)===expected;},delta*12,{timeout:5000});}finally{await page.keyboard.up('Control');}};
+  await wheelBurst(-60);
   await expect.poll(()=>levelOf(page)).toBe(200);
   await page.waitForTimeout(1500);
-  await page.keyboard.down('Control');await Promise.all(Array.from({length:12},()=>page.mouse.wheel(0,60)));await page.keyboard.up('Control');
+  await wheelBurst(60);
   await expect.poll(()=>levelOf(page)).toBe(50);
   await page.waitForTimeout(1500);
   page.off('request',onReq);page.off('framenavigated',onNav);page.off('frameattached',onNav);

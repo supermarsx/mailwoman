@@ -4,6 +4,8 @@ test('folder tabs retain independent selection and scroll without replacing the 
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect(page.getByRole('toolbar',{name:'Workspace layout'})).toBeVisible();
  const me=await (await page.request.get('/api/me')).json() as {accountId:string};
+ // Scroll restoration is measured only after initial ingestion stops prepending rows.
+ await expect.poll(async()=>{const response=await page.request.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Mailbox/get',{accountId:me.accountId},'ready']]}});const body=await response.json() as {methodResponses:[string,{mailwomanInitialSync?:string}][]};return body.methodResponses.find(item=>item[0]==='Mailbox/get')?.[1].mailwomanInitialSync;},{timeout:120000}).toBe('ready');
  const folderName=`Folder tabs ${info.project.name} ${Date.now()}`;
  const mailboxSet=async(args:Record<string,unknown>)=>{const response=await page.request.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Mailbox/set',{accountId:me.accountId,...args},'folders']]}});expect(response.ok()).toBe(true);const body=await response.json() as {methodResponses:[string,{created?:Record<string,{id:string}>;destroyed?:string[]}][]};expect(body.methodResponses[0]?.[0]).toBe('Mailbox/set');return body.methodResponses[0]![1];};
  const created=await mailboxSet({create:{fixture:{name:folderName}}});const folderId=created.created?.fixture?.id;expect(folderId).toBeTruthy();
