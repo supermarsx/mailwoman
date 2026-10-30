@@ -12,10 +12,11 @@
 //   - Show files opens a menu listing the file with its host; Unsubscribe opens
 //     the review dialog and nothing is requested from the list host;
 //   - attachments collapse and expand in place (aria-expanded, hidden panel), the
-//     choice survives a reload (reader.attachmentsCollapsed) and is reset after.
+//     default survives reload while expansion stays local to the message.
 //
 // MW_T110_PHASE=before only takes the screenshots (against an older build).
 import { test, expect, type Page } from '../csrf.ts';
+import {withUserSetting} from '../helpers.ts';
 import { connect } from 'node:net';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -121,7 +122,7 @@ async function geometry(page: Page): Promise<{ bars: BarGeometry[]; overflow: nu
 
 test.describe.configure({ mode: 'serial' });
 
-test('t110 reader notice bars: one style, fixed order, no jump, files menu, list review, attachments collapse', async ({ page }, info) => {
+test('t110 reader notice bars: one style, fixed order, no jump, files menu, list review, attachments collapse', async ({ page,playwright,baseURL }, info) => {
   test.skip(info.project.name === 'phone', 'widths are looped inside the chromium/firefox projects');
   test.setTimeout(15 * 60_000);
   const shots = join(SHOTS, PHASE); mkdirSync(shots, { recursive: true });
@@ -134,6 +135,8 @@ test('t110 reader notice bars: one style, fixed order, no jump, files menu, list
 
   await page.waitForTimeout(3100); // sign-in cooldown
   await signIn(page);
+  const restoreAttachments=await withUserSetting(playwright.request,baseURL!,'reader.attachmentsCollapsed',true);
+  const restoreDensity=await withUserSetting(playwright.request,baseURL!,'reader.attachmentsDensity','compact');
   await userSetting(page, 'privacy.remoteContent', 'ask');
   await page.reload(); await expect(page.locator('.list__row').first()).toBeVisible({ timeout: 30000 });
 
@@ -228,7 +231,10 @@ test('t110 reader notice bars: one style, fixed order, no jump, files menu, list
 
       // Attachments collapse and expand in place.
       const toggle = scope('reader-attachments-bar').getByTestId('reader-attachments-toggle');
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+      await toggle.focus();await page.keyboard.press('Enter');
       await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+      await expect(page.locator('.mw-thumbs').filter({visible:true})).toHaveAttribute('data-density','compact');
       const frameTop = async (): Promise<number> => (await page.locator('iframe.reader__frame').filter({ visible: true }).first().boundingBox())!.y;
       const openTop = await frameTop(); const barTops = (await geometry(page)).bars.map((b) => Math.round(b.top));
       await toggle.focus(); await page.keyboard.press('Enter');
@@ -238,7 +244,7 @@ test('t110 reader notice bars: one style, fixed order, no jump, files menu, list
       const closedTop = await frameTop(); expect(closedTop).toBeLessThan(openTop);
       await page.screenshot({ path: join(shots, `${tag}-attachments-collapsed.png`) });
       if (s === subjects[0]) {
-        // The choice is the user's setting: it survives a reload.
+        // Opening one message does not change the persistent collapsed default.
         await page.waitForTimeout(500);
         await page.reload(); await expect(page.locator('.list__row').first()).toBeVisible({ timeout: 30000 });
         await open(page, s.subject);
@@ -248,7 +254,7 @@ test('t110 reader notice bars: one style, fixed order, no jump, files menu, list
       await expect(page.getByTestId('reader-attachments').filter({ visible: true })).toBeVisible();
     }
   } finally {
-    await userSetting(page, 'reader.attachmentsCollapsed', false).catch(() => undefined);
+    await restoreDensity();await restoreAttachments();
     writeFileSync(join(shots, `report-${info.project.name}.json`), JSON.stringify(report, null, 2));
   }
 });

@@ -23,7 +23,7 @@ async function readerBody(page:Page){
 
 test('hostile message HTML is nullified while safe text and original bytes remain available',async({page},info)=>{
  const subject=`Hostile body ${info.project.name} ${Date.now()}`;const benign=`Benign body ${info.project.name} ${Date.now()}`;
- const hostile='<p>Safe fallback text</p><script>window.hostileExecuted=true</script><img src="https://hostile.invalid/pixel" onerror="window.hostileExecuted=true"><a href="javascript:alert(1)">Unsafe destination</a>';
+ const hostile='<p><strong>Safe fallback text</strong></p><script>window.hostileExecuted=true</script><img src="https://hostile.invalid/pixel" onerror="window.hostileExecuted=true"><a href="javascript:alert(1)">Unsafe destination</a>';
  await injectViaSmtp({from:'safety@example.org',subject,text:'Safe fallback text',html:hostile,requestReceipt:true});await injectViaSmtp({from:'safety@example.org',subject:benign,text:'Benign message works',html:'<p>Benign message works: data-mw-body-blocked="true"</p>'});
  await signIn(page);await expect(messageRow(page,subject)).toBeVisible({timeout:60000});
  const policy=(await(await page.request.get('/api/account/mdn-policy')).json()).policy;
@@ -40,6 +40,14 @@ test('hostile message HTML is nullified while safe text and original bytes remai
  const raw=await rawMessage(page,subject);expect(raw).toContain(hostile);expect(raw).toContain('Disposition-Notification-To: safety@example.org');
  await page.waitForTimeout(1000);expect(forbidden).toEqual([]);
  await page.screenshot({path:info.outputPath('hostile-body-nullified.png'),fullPage:true});
+ await page.getByRole('button',{name:'Show sanitized HTML',exact:true}).click();
+ const safeBody=await readerBody(page);await expect(safeBody.locator('strong')).toHaveText('Safe fallback text');
+ await expect(safeBody.locator('script,img[src],a[href],object,embed,form')).toHaveCount(0);expect(forbidden).toEqual([]);
+ await expect(page.getByRole('button',{name:'Enable links',exact:true})).toHaveCount(0);
+ await page.screenshot({path:info.outputPath('hostile-body-sanitized-consent.png'),fullPage:true});
+ await page.getByRole('button',{name:'Show safe text',exact:true}).click();
+ await expect((await readerBody(page)).locator('strong')).toHaveCount(0);expect(forbidden).toEqual([]);
+
  await page.getByRole('tab',{name:'Mail',exact:true}).click();await messageRow(page,benign).click();await expect((await readerBody(page)).locator('body')).toContainText('Benign message works: data-mw-body-blocked="true"');await expect(page.locator('section.reader').filter({visible:true}).first().getByTestId('reader-body-blocked')).toHaveCount(0);
  }finally{expect((await page.request.put('/api/account/mdn-policy',{data:{policy}})).ok()).toBe(true);if(createdIdentity)expect((await page.request.delete(`/api/account/identities/${encodeURIComponent(createdIdentity)}`,{headers:identityHeaders})).ok()).toBe(true);}
 });

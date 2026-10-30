@@ -60,7 +60,7 @@ test('signed proxy and CID images load without frame cookies; hostile SVG remain
   const admin=await playwright.request.newContext({baseURL:baseURL??''});const fixture=await proxyFixture();
   // The adaptive colour mode (the default) drops sender background images, CID ones included; read in the
   // original mode so the CID background is there to check.
-  const mine={'privacy.remoteContent':'proxy','reader.colorMode':'original'};
+  const mine={'privacy.remoteContent':'proxy','reader.colorMode':'original','reader.attachmentsCollapsed':false,'reader.attachmentsDensity':'comfortable'};
   const id=`privacy-fixture-${info.project.name}-${Date.now()}`;let active:string|undefined;let configured=false;let signedIn=false;
   try{
   await page.waitForTimeout(3100);await adminLogin(admin);
