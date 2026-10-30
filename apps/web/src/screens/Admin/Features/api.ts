@@ -43,9 +43,59 @@ export interface NativeTarget {
 
 export interface FeatureDef {
   id: string;
+  /** t98: the editor group (`compose`, `pim`, ...). */
+  category?: string;
+  /** `toggle`, `limit` (numbers only) or `list` (allowed values). */
+  control?: string;
   capabilityKeys: string[];
   limitKeys: string[];
+  settingKeys?: string[];
+  /** `enforced`, `partial` (some limits not yet counted by the server) or `ui` (hidden only). */
   enforcement: string;
+}
+
+/** A registry key a profile may hold (`SettingDef::describe` on the server). */
+export interface ProfileKeyDef {
+  key: string;
+  kind: { type: string; values?: string[]; min?: number; max?: number; maxItems?: number; maxLength?: number };
+  default: unknown;
+  category: string;
+}
+
+export interface FeaturePreset {
+  id: string;
+  values: Record<string, ProfileValue>;
+}
+
+/** One key as it resolves for a previewed subject. */
+export interface EffectiveKey {
+  value: unknown;
+  source: string;
+  locked: boolean;
+  lockedBy?: string;
+  profile?: string;
+}
+
+export interface EffectivePreview {
+  subject: { account: string; address: string; domain: string };
+  profiles: string[];
+  groups: string[];
+  features: { id: string; category: string; enabled: boolean; enforcement: string; keys: Record<string, EffectiveKey> }[];
+}
+
+/** The exported profile document (`mailwoman.featureProfile`, version 1). */
+export interface ProfileDocument {
+  format: string;
+  version: number;
+  name: string;
+  values: Record<string, ProfileValue>;
+}
+
+export const PROFILE_FORMAT = 'mailwoman.featureProfile';
+export const PROFILE_FORMAT_VERSION = 1;
+
+export function profileDocument(name: string, values: Record<string, ProfileValue>): ProfileDocument {
+  return { format: PROFILE_FORMAT, version: PROFILE_FORMAT_VERSION, name, values };
 }
 
 export interface FeatureCatalogue {
@@ -57,6 +107,11 @@ export interface FeatureCatalogue {
   nativeTargets: NativeTarget[];
   domains: string[];
   catalogue: FeatureDef[];
+  /** t98 (an older server omits these). */
+  categories?: string[];
+  profileKeys?: ProfileKeyDef[];
+  defaults?: Record<string, unknown>;
+  presets?: FeaturePreset[];
 }
 
 export interface FeaturesApi {
@@ -65,6 +120,10 @@ export interface FeaturesApi {
   deleteProfile(id: string, etag: string): Promise<string | null>;
   assign(a: ProfileAssignment, etag: string): Promise<string | null>;
   unassign(a: ProfileAssignment, etag: string): Promise<string | null>;
+  /** Check an exported document; answers its normalised name and values (nothing is stored). */
+  importDocument?(doc: unknown): Promise<{ name: string; values: Record<string, ProfileValue> }>;
+  /** What every feature resolves to for one native user or one domain. */
+  effective?(subject: { account: string } | { domain: string }): Promise<EffectivePreview>;
 }
 
 const enc = encodeURIComponent;
@@ -85,6 +144,13 @@ export const featuresApi: FeaturesApi = {
   },
   async unassign(a, etag) {
     return (await adminRequest('/features/assignments', { method: 'DELETE', body: a, ifMatch: etag })).etag;
+  },
+  async importDocument(doc) {
+    return (await adminRequest<{ name: string; values: Record<string, ProfileValue> }>('/features/profiles/import', { method: 'POST', body: doc })).data;
+  },
+  async effective(subject) {
+    const q = 'account' in subject ? `account=${enc(subject.account)}` : `domain=${enc(subject.domain)}`;
+    return (await adminRequest<EffectivePreview>(`/features/effective?${q}`)).data;
   },
 };
 

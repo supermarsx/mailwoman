@@ -62,6 +62,7 @@ import { Attachments } from './Attachments.tsx';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { AsyncPending } from '../components/AsyncState.tsx';
 import { APP_MODULES, KEYS_MODULE } from '../shell/modules.ts';
+import { featureOn } from '../state/features.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
 import { useActions } from '../keymap/index.ts';
@@ -75,6 +76,8 @@ import { SearchBox } from '../components/search/SearchBox.tsx';
 // The nav-rail app modules: the four V3 PIM modules + the V4 key-management
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.
 const APP_NAV_MODULES = [...APP_MODULES, KEYS_MODULE];
+/** t98: the nav modules the mailbox's feature profile allows (the server refuses the rest). */
+const shownModules = (): typeof APP_NAV_MODULES => APP_NAV_MODULES.filter((m) => featureOn(m.id));
 
 /** Refetch the open PIM module after a pushed change (plan §1.8 realtime). */
 function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void {
@@ -362,8 +365,13 @@ export function MailboxScreen(): JSX.Element {
     void loadCatalog('errors').then(() => app.showToast('info', t('errors-mail-route-not-found')));
   },{retainedSurfaces:true,onExternalNavigation:()=>noteWorkspaceIntent()});
   const surface = (): ShellSurface => router.route().surface;
+  // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
+  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
+  createEffect(()=>{const d=surface();if(!surfaceAllowed(d))untrack(()=>router.navigate('mail'));});
+  createEffect(()=>{const off=panes().filter(pane=>pane.surface!==undefined&&!surfaceAllowed(pane.surface)).map(pane=>pane.id);if(off.length>0)untrack(()=>void closePanes(off));});
   createEffect(()=>{const destination=surface();untrack(()=>{
     if(destination==='mail'){if(activePane()?.surface)subTabs.activate('mail');return;}
+    if(!surfaceAllowed(destination))return;
     if(app.linkedMailboxId?.()&&destination!=='attachments'&&destination!=='outbox'){router.navigate('mail');return;}
     const accountId=app.accountId();if(!accountId)return;
     const module=APP_NAV_MODULES.find(item=>item.id===destination);
@@ -681,15 +689,15 @@ export function MailboxScreen(): JSX.Element {
               </FolderContextMenu>
             );}}
           </For>
-          <button
+          <Show when={featureOn('views.attachments')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'attachments' }} aria-label={t('mail-nav-attachments')} title={t('mail-nav-attachments')}
             onClick={() => router.navigate('attachments')}
           >
             <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
-          </button>
-          <EventsNavEntry active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/>
+          </button></Show>
+          <Show when={featureOn('views.events')}><EventsNavEntry active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/></Show>
           <button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
@@ -722,7 +730,7 @@ export function MailboxScreen(): JSX.Element {
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
             reachable from the nav rail — the explicit mount step V2 lacked. */}
         <Show when={!app.linkedMailboxId?.()}><nav class="sidebar__nav sidebar__nav--apps" aria-label={t('mail-nav-apps')}>
-          <For each={APP_NAV_MODULES}>
+          <For each={shownModules()}>
             {(m) => (
               <button
                 type="button"

@@ -24,6 +24,8 @@ import { AsyncPending } from '../../../components/AsyncState.tsx';
 import { featuresApi, profileIdFor, type FeatureCatalogue, type FeatureProfile, type FeaturesApi, type ProfileAssignment, type ProfileValue } from './api.ts';
 import { ProfileEditor } from './ProfileEditor.tsx';
 import { Assignments } from './Assignments.tsx';
+import { Preview } from './Preview.tsx';
+import type { Values } from './model.ts';
 import * as css from '../shell/extras.css.ts';
 
 const SECTION = 'features';
@@ -52,6 +54,8 @@ export function AdminFeatures(props: AdminFeaturesProps): JSX.Element {
   const [notice, setNotice] = createSignal<string>();
   const [query, setQuery] = createSignal('');
   const [deleting, setDeleting] = createSignal<FeatureProfile>();
+  /** t98: the starting values of the new-profile form (Clone). */
+  const [draft, setDraft] = createSignal<{ name: string; values: Values }>();
 
   async function load(): Promise<void> {
     setLoading(true);
@@ -120,23 +124,41 @@ export function AdminFeatures(props: AdminFeaturesProps): JSX.Element {
     return ok;
   }
 
-  const detail = (id: string): JSX.Element => {
-    const cat = catalogue();
-    if (!cat) return loading() ? <AsyncPending /> : <Feedback kind="error" message={error()} />;
-    if (id === NEW) return <ProfileEditor catalogue={cat} onSave={(name, values) => save(undefined, name, values)} />;
+  // t98 (t75 pattern): the detail stays mounted while the catalogue reloads after a
+  // write; only a first load shows the pending state.
+  const detail = (id: string): JSX.Element => (
+    <Show when={catalogue()} fallback={loading() ? <AsyncPending /> : <Feedback kind="error" message={error()} />}>
+      {(current) => detailOf(id, current)}
+    </Show>
+  );
+  const detailOf = (id: string, current: () => FeatureCatalogue): JSX.Element => {
+    if (id === NEW) {
+      return (
+        <Show when={draft() ?? true} keyed>
+          {(_draft) => <ProfileEditor catalogue={current()} {...(draft() ? { initial: draft()! } : {})} importDocument={api.importDocument?.bind(api)}
+            onSave={async (name, values) => { const ok = await save(undefined, name, values); if (ok) setDraft(undefined); return ok; }} />}
+        </Show>
+      );
+    }
     return (
-      <Show when={find(id)} keyed fallback={loading() ? <AsyncPending /> : <Feedback kind="error" message={t('admin-features-not-found', { id: isolate(id) })} />}>
-        {(p) => (
+      <Show when={find(id)?.id} keyed fallback={loading() ? <AsyncPending /> : <Feedback kind="error" message={t('admin-features-not-found', { id: isolate(id) })} />}>
+        {(_id) => {
+          const p = (): FeatureProfile => find(id)!;
+          return (
           <>
-            <ProfileEditor catalogue={cat} profile={p} onSave={(name, values) => save(p, name, values)} onDelete={() => setDeleting(p)} />
+            <ProfileEditor catalogue={current()} profile={p()} onSave={(name, values) => save(p(), name, values)} onDelete={() => setDeleting(p())}
+              importDocument={api.importDocument?.bind(api)}
+              onClone={(name, values) => { setDraft({ name, values }); navigate(sectionPath(SECTION, [NEW])); }} />
             <Assignments
-              catalogue={cat}
-              profile={p}
-              onAssign={(a) => write((tag) => api.assign(a, tag), t('admin-features-assigned', { name: isolate(p.name) }))}
-              onUnassign={(a) => write((tag) => api.unassign(a, tag), t('admin-features-unassigned', { name: isolate(p.name) }))}
+              catalogue={current()}
+              profile={p()}
+              onAssign={(a) => write((tag) => api.assign(a, tag), t('admin-features-assigned', { name: isolate(p().name) }))}
+              onUnassign={(a) => write((tag) => api.unassign(a, tag), t('admin-features-unassigned', { name: isolate(p().name) }))}
             />
+            <Show when={api.effective}>{(load) => <Preview catalogue={current()} load={(subject) => load()(subject)} />}</Show>
           </>
-        )}
+          );
+        }}
       </Show>
     );
   };
@@ -151,7 +173,7 @@ export function AdminFeatures(props: AdminFeaturesProps): JSX.Element {
         section={SECTION}
         route={route()}
         navigate={navigate}
-        actions={<button type="button" class="btn btn--primary" onClick={() => navigate(sectionPath(SECTION, [NEW]))}>{t('admin-features-new')}</button>}
+        actions={<button type="button" class="btn btn--primary" onClick={() => { setDraft(undefined); navigate(sectionPath(SECTION, [NEW])); }}>{t('admin-features-new')}</button>}
         table={{
           caption: t('admin-features-title'),
           columns,

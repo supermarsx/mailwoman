@@ -139,7 +139,10 @@ describe('Admin → Feature profiles', () => {
     const again = screen.getByRole('form', { name: 'Assign this profile' });
     fireEvent.change(within(again).getByRole('combobox', { name: 'Applies to' }), { target: { value: 'group' } });
     expect(within(again).getByRole('option', { name: 'Sales (example.test)' })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Remove example.test' }));
+    // The detail stays mounted across the reload (t98), so wait for the assign to settle.
+    const remove = screen.getByRole('button', { name: 'Remove example.test' });
+    await waitFor(() => expect(remove).not.toBeDisabled());
+    fireEvent.click(remove);
     await waitFor(() => expect(api.calls.some((c) => c.startsWith('unassign:domain:example.test:'))).toBe(true));
   });
 

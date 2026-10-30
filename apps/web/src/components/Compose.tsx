@@ -21,6 +21,7 @@ import {
   Suspense,
   onMount,
   onCleanup,
+  untrack,
   type JSX,
 } from 'solid-js';
 import { useApp } from '../state/context.ts';
@@ -92,6 +93,7 @@ import { DirectorySearch, GroupExpand, type GalEntry } from '../modules/director
 import { ComposerTools, Dictation } from '../modules/assist/index.ts';
 import { NextcloudAttach, ShareLinkComposer, type AttachedFile, type ShareLink } from '../modules/nextcloud/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
+import { featureOn } from '../state/features.ts';
 
 // Advertised in the session only by this server's own engine (mw-engine
 // `session_json`), which is what turns `mailwomanRequestReadReceipt` into a
@@ -197,6 +199,8 @@ export function Compose(props: {
     /><EditorCounts text={body()}/></>
   );
   const [richMode, setRichMode] = createSignal(true);
+  // t98: a profile without rich text composes plain text only (the server refuses an HTML body).
+  createEffect(() => { if (!featureOn('compose.rich_text') && richMode()) untrack(() => changeFormat('plain')); });
   const [sourceMode,setSourceMode]=createSignal(false);
   const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
   // W9 drafts drawer + W10 recall panel visibility, and the loaded draft list.
@@ -1246,7 +1250,7 @@ export function Compose(props: {
             }
           : {}),
         ...(inline.length > 0 ? { inline } : {}),
-        ...(receiptAvailable() && requestReceipt() ? { requestReadReceipt: true } : {}),
+        ...(receiptAvailable() && featureOn('compose.read_receipts') && requestReceipt() ? { requestReadReceipt: true } : {}),
         ...(requestDelivery() ? { requestDeliveryReceipt: true } : {}),
         ...(trackingAvailable() && trackOpens() ? { openTracking: true } : {}),
       });
@@ -1449,7 +1453,7 @@ export function Compose(props: {
 
         {/* A file over the attachment limit (t39 L7): upload it to the linked
             Nextcloud and insert a share link instead. */}
-        <For each={oversized()}>
+        <For each={featureOn('compose.share_links') ? oversized() : []}>
           {(file) => (
             <div class="compose__share-link" data-testid="compose-share-link">
               <ShareLinkComposer
@@ -1480,7 +1484,7 @@ export function Compose(props: {
                 <RibbonItem><button type="button" class="btn btn--ghost" data-testid="compose-show-cc-bcc" aria-pressed={ccBccOpen()} onClick={()=>setCcBccOpen(!ccBccOpen())}><Icon name="users"/><span class="compose-rib__text">{t('mail-compose-show-cc-bcc')}</span></button></RibbonItem>
                 <RibbonItem><button type="button" class="btn btn--ghost" aria-pressed={showFrom()} onClick={()=>setFromVisibleOverride(!showFrom())}><Icon name="mail"/><span class="compose-rib__text">{t('mail-compose-from')}</span></button></RibbonItem>
               </RibbonGroup>
-              <BodyModeGroup label={t('mail-compose-ribbon-message-type')} value={()=>!richMode()?'plain':sourceMode()?'html':'rich'} onChange={changeFormat}/>
+              <Show when={featureOn('compose.rich_text')}><BodyModeGroup label={t('mail-compose-ribbon-message-type')} value={()=>!richMode()?'plain':sourceMode()?'html':'rich'} onChange={changeFormat}/></Show>
             </>},
             {id:'insert',before:()=><>
               {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
@@ -1488,7 +1492,7 @@ export function Compose(props: {
                   shared attachment list. Always available (core compose); the input is
                   disabled until the session's upload contract has loaded. The file
                   input is visually hidden behind the styled label. */}
-              <RibbonGroup label={t('mail-compose-attachments')} priority={55} icon="attachment" testId="compose-attach">
+              <Show when={featureOn('compose.attachments')}><RibbonGroup label={t('mail-compose-attachments')} priority={55} icon="attachment" testId="compose-attach">
                 <RibbonItem size="large">
                   <label class={`btn btn--ghost compose-rib__large ${a11y.focusable}`}>
                     <Icon name="attachment"/><span class="compose-rib__text">{uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}</span>
@@ -1530,7 +1534,7 @@ export function Compose(props: {
                 <Show when={attachError()}>
                   {(message) => <RibbonItem><p class="login__error compose-rib__error" role="alert" data-tooltip={message()}>{message()}</p></RibbonItem>}
                 </Show>
-              </RibbonGroup>
+              </RibbonGroup></Show>
             </>,after:()=><>
               <Show when={signatures().length > 0}>
                 <RibbonGroup label={t('mail-compose-signature')} priority={40} icon="edit" testId="compose-group-signature">
@@ -1635,7 +1639,7 @@ export function Compose(props: {
             {id:'delivery',before:()=><>
               <RibbonGroup label={t('mail-compose-ribbon-delivery')} priority={10} icon="sent" testId="compose-send-options">
                 <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem>
-                <RibbonItem>
+                <Show when={featureOn('compose.scheduled_send')}><RibbonItem>
                   <label class="compose-rib__field">
                     <span class="compose-rib__text">{t('mail-compose-send-later')}</span>
                     <input
@@ -1649,12 +1653,12 @@ export function Compose(props: {
                       onInvalid={() => {showRibbonTab('delivery');setError(t('mail-compose-send-later-past'));}}
                     />
                   </label>
-                </RibbonItem>
+                </RibbonItem></Show>
                 <SendOptions
                   deliveryAvailable={deliveryAvailable()}
                   requestDelivery={requestDelivery()}
                   onRequestDelivery={setRequestDelivery}
-                  receiptAvailable={receiptAvailable()}
+                  receiptAvailable={receiptAvailable() && featureOn('compose.read_receipts')}
                   requestReceipt={requestReceipt()}
                   onRequestReceipt={setRequestReceipt}
                   trackingAvailable={trackingAvailable()}
