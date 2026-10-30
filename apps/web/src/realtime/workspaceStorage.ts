@@ -32,10 +32,35 @@ export function parseWorkspace(raw:string,accountId:string,storageAuthority:stri
   return {version:2,accountId,storageAuthority,tabs,activeId:typeof record.activeId==='string'&&seen.has(record.activeId)?record.activeId:'mail',layout,...(viewAssignments?{viewAssignments}:{})};
  }catch{return null;}
 }
+/** t109: each mailbox's tabs are also kept per browser tab (sessionStorage,
+ * keyed by account), so a reload in a linked mailbox, or a switch back to a
+ * mailbox, finds its own tabs. The single localStorage record is the last
+ * mailbox's, for a new browser tab. A record for another mailbox is left alone:
+ * it is that mailbox's, and it can never be read under a different account. */
+const sessionKey=(accountId:string):string=>`${WORKSPACE_STORAGE_KEY}:${accountId}`;
+function readFrom(store:Storage|undefined,key:string,accountId:string,storageAuthority:string):WorkspaceSnapshot|null {
+ const raw=store?.getItem(key);if(raw===null||raw===undefined)return null;
+ const value=parseWorkspace(raw,accountId,storageAuthority);
+ // Malformed (not merely another mailbox's): dropped.
+ if(!value&&parseWorkspace(raw,peekAccount(raw)??'',peekAuthority(raw)??'')===null)store?.removeItem(key);
+ return value;
+}
+function peekAccount(raw:string):string|undefined {try{const value=JSON.parse(raw) as {accountId?:unknown};return typeof value?.accountId==='string'?value.accountId:undefined;}catch{return undefined;}}
+function peekAuthority(raw:string):string|undefined {try{const value=JSON.parse(raw) as {storageAuthority?:unknown};return typeof value?.storageAuthority==='string'?value.storageAuthority:undefined;}catch{return undefined;}}
 export function readWorkspace(accountId:string,storageAuthority:string):WorkspaceSnapshot|null {
- try {const raw=localStorage.getItem(WORKSPACE_STORAGE_KEY);if(raw===null)return null;const value=parseWorkspace(raw,accountId,storageAuthority);if(!value)localStorage.removeItem(WORKSPACE_STORAGE_KEY);return value;}catch{return null;}
+ if(!identifier(accountId))return null;
+ try {const value=readFrom(globalThis.sessionStorage,sessionKey(accountId),accountId,storageAuthority);if(value)return value;}catch{/* Storage unavailable. */}
+ try {return readFrom(globalThis.localStorage,WORKSPACE_STORAGE_KEY,accountId,storageAuthority);}catch{return null;}
 }
 export function saveWorkspace(snapshot:WorkspaceSnapshot):void {
- try {const safe=parseWorkspace(JSON.stringify(snapshot),snapshot.accountId,snapshot.storageAuthority);if(safe)localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify(safe));}catch{/* Storage denial never prevents navigation. */}
+ let safe:WorkspaceSnapshot|null=null;
+ try {safe=parseWorkspace(JSON.stringify(snapshot),snapshot.accountId,snapshot.storageAuthority);}catch{return;}
+ if(!safe)return;
+ const raw=JSON.stringify(safe);
+ try {globalThis.sessionStorage?.setItem(sessionKey(safe.accountId),raw);}catch{/* Storage denial never prevents navigation. */}
+ try {localStorage.setItem(WORKSPACE_STORAGE_KEY,raw);}catch{/* Storage denial never prevents navigation. */}
 }
-export function clearWorkspace():void {try{localStorage.removeItem(WORKSPACE_STORAGE_KEY);}catch{/* Storage unavailable. */}}
+export function clearWorkspace():void {
+ try{localStorage.removeItem(WORKSPACE_STORAGE_KEY);}catch{/* Storage unavailable. */}
+ try{const store=globalThis.sessionStorage;if(!store)return;const keys:string[]=[];for(let index=0;index<store.length;index++){const key=store.key(index);if(key?.startsWith(`${WORKSPACE_STORAGE_KEY}:`))keys.push(key);}for(const key of keys)store.removeItem(key);}catch{/* Storage unavailable. */}
+}

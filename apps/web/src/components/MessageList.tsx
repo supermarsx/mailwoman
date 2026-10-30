@@ -370,7 +370,11 @@ function rowId(row: ThreadVisualRow): string {
  * shortcut); without it those fall back to `onOpenMessage`. Where each goes is
  * the host's decision (t74: Mailbox routes by the reading pane).
  */
-export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void } = {}): JSX.Element {
+export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
+  /** t109: a message to bring to the top once the list has loaded (a reload's scroll anchor); one that is not loaded is skipped. */
+  restoreAnchor?: () => string | null;
+  /** t109: the message in the top row as the user scrolls (null at the top). */
+  onAnchorChange?: (id: string | null) => void } = {}): JSX.Element {
   const app = useApp();
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const contextMenu=createMessageContextMenu(contextEmail);
@@ -478,6 +482,9 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
       if (scroller) scroller.scrollTop = 0;
     }
   }));
+  // After the reset above: a restored anchor lands once its rows are in.
+  createEffect(on(() => props.restoreAnchor?.() ?? null, (id) => { if (id !== null) { pendingAnchor = id; queueMicrotask(applyAnchor); } }));
+  createEffect(on([rows, app.listLoading], () => { if (pendingAnchor !== null) queueMicrotask(applyAnchor); }));
   // Keyed by ROW IDENTITY, not index. Two reasons: `<For>` is reference-keyed,
   // so a reused row object keeps its DOM node and its entry; and once paging
   // prepends rows every index shifts under an index-keyed map, resolving focus
@@ -564,8 +571,34 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
     if (scroller !== undefined) {
       setScrollTop(scroller.scrollTop);
       if (scroller.clientHeight > 0) setViewportH(scroller.clientHeight);
+      reportAnchor();
     }
     maybeLoadMore();
+  }
+  // t109: the scroll position is kept as the top row's message, not pixels, so
+  // it survives a density change and rows arriving above it.
+  let pendingAnchor: string | null = null;
+  let reportedAnchor: string | null | undefined;
+  function reportAnchor(): void {
+    if (!props.onAnchorChange || scroller === undefined || pendingAnchor !== null || app.listLoading()) return;
+    const top = scroller.scrollTop < rowHeight() / 2 ? undefined : rows()[Math.round(scroller.scrollTop / rowHeight())];
+    const id = top === undefined ? null : top.email.id;
+    if (id === reportedAnchor) return;
+    reportedAnchor = id;
+    props.onAnchorChange(id);
+  }
+  function applyAnchor(): void {
+    const id = pendingAnchor;
+    if (id === null || app.listLoading() || scroller === undefined) return;
+    const all = rows();
+    if (all.length === 0) return;
+    pendingAnchor = null;
+    const index = all.findIndex((row) => row.email.id === id || (row.kind === 'head' && idsOf(row).includes(id)));
+    if (index < 0) return; // Gone, or past the loaded pages: the list stays at the top.
+    reportedAnchor = id;
+    scroller.scrollTop = index * rowHeight();
+    setScrollTop(scroller.scrollTop);
+    setCursor(index);
   }
 
   /** Move the roving cursor, scroll the target into the window, then focus it. */

@@ -2,6 +2,7 @@ import {resolveSender} from '../../api/senderResolution.ts';
 import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.ts';
 import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
 import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
+import {forgetSession,rememberActiveMailbox,restoreMailbox,restoreView} from '../sessionRestore.ts';
 import { swrCachesEnabled } from '../../api/swrCache.ts';
 import {createLinkedAccountsApi} from '../../api/linkedAccounts.ts';
 import {validateLinkedAccountContext} from '../../api/linkedAccountContext.ts';
@@ -1318,10 +1319,18 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (!current()) return;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
-    const inbox = boxes.find((m) => m.role === 'inbox') ?? boxes[0];
-    if (inbox !== undefined) {
-      await selectMailbox(inbox.id);
+    // t109: the folder (and search) this mailbox had before a reload, when it
+    // still exists; otherwise the inbox, quietly.
+    const restored = restoreView(primaryIdentity?.storageAuthority, authority, activeLinkedMailbox()?.linkId ?? null);
+    const folder = (restored?.folder !== undefined ? boxes.find((m) => m.id === restored.folder) : undefined)
+      ?? boxes.find((m) => m.role === 'inbox') ?? boxes[0];
+    if (folder === undefined) return;
+    if (folder.id === restored?.folder && restored.search !== undefined) {
+      setSelectedMailboxId(folder.id);
+      await searchMessages(restored.search);
+      return;
     }
+    await selectMailbox(folder.id);
   }
 
   // ── list fetching + paging (t22-e4) ──────────────────────────────────────
@@ -1927,6 +1936,31 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // lookup rather than after it; it is kept (api/sessionCache.ts), so
     // loadMailboxes below finds it or the request already in flight.
     if (swrCachesEnabled() && activeLinkedMailbox() === null) void client.session().catch(() => undefined);
+    // t109: a reload (or a link) names the mailbox this tab had open. It opens
+    // through the same authorization as a switch; a link that is gone or off
+    // opens the sign-in account, with a notice.
+    const restoring = restoreMailbox(user.storageAuthority);
+    if (restoring !== undefined) {
+      if (restoring.linkId !== null) {
+        let opened = false;
+        try {
+          await switchLinkedMailbox(restoring.linkId);
+          opened = activeLinkedMailbox()?.linkId === restoring.linkId;
+        } catch {
+          // Falls back to the sign-in account below.
+        }
+        if (opened) return;
+        rememberActiveMailbox(user.storageAuthority, null);
+        void loadCatalog('linked-accounts').catch(() => undefined).then(() => showToast('info', t('linked-accounts-restore-fallback')));
+      }
+      try {
+        await loadMailboxes();
+      } catch (err) {
+        if (!(err instanceof PasswordChangeRequired)) throw err;
+        holdForPasswordChange();
+      }
+      return;
+    }
     const first = await firstMailbox();
     if (first.linkId !== null) {
       try {
@@ -1939,6 +1973,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     } else if (first.fallback) {
       void noteFirstMailboxFallback(true);
     }
+    rememberActiveMailbox(user.storageAuthority, null);
     try {
       await loadMailboxes();
     } catch (err) {
@@ -2023,6 +2058,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // the page it does not (see sw/purge.ts). Not awaited: it cannot fail and
       // the signed-out screen should not wait on Cache Storage.
       clearDrafts();
+      // t109: what this tab kept to restore after a reload goes with the session.
+      forgetSession();
       void purgeShellCaches();
     }
   }
@@ -2055,6 +2092,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         installLinkedMailbox(selected);setMe(user);setAccountId(user.accountId);
         activateAccountPreferences(user.accountId,user.storageAuthority);
       });
+      rememberActiveMailbox(primaryIdentity.storageAuthority,linkId);
       await loadMailboxes(discovery);
     }finally{api.dispose();setSwitchingMailbox(false);}
   }

@@ -48,6 +48,7 @@ linked-accounts-unread = { $count ->
    *[other] { $count } mensagens não lidas
 }
 linked-accounts-first-fallback = A sua caixa de correio principal já não está disponível, pelo que foi aberta a sua conta de início de sessão.
+linked-accounts-restore-fallback = A caixa de correio aberta antes de a página ser recarregada já não está ligada ou foi desativada, pelo que foi aberta a sua conta de início de sessão.
 linked-accounts-moved = { $name } foi movida para a posição { $position } de { $total }.
 linked-accounts-drag = Arraste para reordenar
 linked-accounts-reorder-help = Arraste uma caixa de correio pela pega para alterar a ordem. A ordem é a mesma em todos os dispositivos.

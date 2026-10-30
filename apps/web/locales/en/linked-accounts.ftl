@@ -46,6 +46,7 @@ linked-accounts-unread = { $count ->
    *[other] { $count } unread messages
 }
 linked-accounts-first-fallback = Your primary mailbox is no longer available, so your sign-in account opened instead.
+linked-accounts-restore-fallback = The mailbox open before the page reloaded is no longer linked or is turned off, so your sign-in account opened instead.
 linked-accounts-moved = { $name } moved to position { $position } of { $total }.
 linked-accounts-drag = Drag to reorder
 linked-accounts-reorder-help = Drag a mailbox by its handle to change the order. The order is the same on every device.
