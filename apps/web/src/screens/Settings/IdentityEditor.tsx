@@ -66,13 +66,13 @@ return <section class={css.section} aria-label={t(props.initial?'settings-ident-
                 setDraft(value === '' ? rest : { ...rest, signatureName: value });
               }}
             >
-              <option value="">{t('settings-ident-signature-none')}</option>
-              <For each={signatures() ?? []}>{(sig) => <option value={sig.name}>{sig.name}</option>}</For>
+              <option value="" selected={!draft().signatureName}>{t('settings-ident-signature-none')}</option>
+              <For each={signatures() ?? []}>{(sig) => <option value={sig.name} selected={draft().signatureName===sig.name}>{sig.name}</option>}</For>
             </select>
           </label>
           <label class={css.field}><span class={css.label}>{t('settings-ident-organization')}</span><input class={css.input} maxLength={255} value={draft().organization??''} onInput={e=>setDraft({...draft(),organization:e.currentTarget.value})}/></label>
           <label class={css.field}><span class={css.label}>{t('settings-ident-auto-bcc')}</span><input class={css.input} aria-label={t('settings-ident-auto-bcc')} maxLength={4096} value={draft().autoBcc??''} onInput={e=>setDraft({...draft(),autoBcc:e.currentTarget.value})}/><span class={css.meta}>{t('settings-ident-auto-bcc-help')}</span></label>
-          <label class={css.field}><span class={css.label}>{t('settings-ident-pgp-key')}</span><select class={css.select} aria-label={t('settings-ident-pgp-key')} disabled={!app} value={draft().pgpKeyId??''} onChange={e=>setDraft({...draft(),pgpKeyId:e.currentTarget.value})}><option value="">{t('settings-ident-pgp-none')}</option><Show when={draft().pgpKeyId&&!ownKeys().some(key=>key.id===draft().pgpKeyId)}><option value={draft().pgpKeyId}>{t('settings-ident-pgp-unavailable')}</option></Show><For each={ownKeys()}>{key=><option value={key.id}>{key.addresses.join(', ')} · {key.keyId}</option>}</For></select><span class={css.meta}>{t('settings-ident-pgp-help')}</span></label>
+          <label class={css.field}><span class={css.label}>{t('settings-ident-pgp-key')}</span><select class={css.select} aria-label={t('settings-ident-pgp-key')} disabled={!app} value={draft().pgpKeyId??''} onChange={e=>setDraft({...draft(),pgpKeyId:e.currentTarget.value})}><option value="" selected={!draft().pgpKeyId}>{t('settings-ident-pgp-none')}</option><Show when={draft().pgpKeyId&&!ownKeys().some(key=>key.id===draft().pgpKeyId)}><option value={draft().pgpKeyId} selected>{t('settings-ident-pgp-unavailable')}</option></Show><For each={ownKeys()}>{key=><option value={key.id} selected={draft().pgpKeyId===key.id}>{key.addresses.join(', ')} · {key.keyId}</option>}</For></select><span class={css.meta}>{t('settings-ident-pgp-help')}</span></label>
           <div class={css.actions}>
             <button type="button" class={css.button} disabled={busy()} onClick={() => void save()} data-testid="identity-save">
               {t('settings-save')}
