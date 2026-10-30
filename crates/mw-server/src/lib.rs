@@ -51,6 +51,7 @@ pub mod fonts;
 pub mod hardening;
 pub mod holidays;
 pub mod http_metrics;
+mod idempotency;
 mod inbound_allowlist;
 pub mod inbound_http;
 pub mod knobs;
@@ -1567,6 +1568,9 @@ fn router(
             error_pages::json(error_pages::ErrorKind::MethodNotAllowed)
         })
         .fallback(static_handler)
+        // t91: innermost, so it sees only requests every guard below admitted.
+        // A request without `Idempotency-Key` passes through untouched.
+        .layer(middleware::from_fn(idempotency::layer))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             maintenance_mode::guard,
@@ -2140,7 +2144,7 @@ fn add_cors_headers(h: &mut HeaderMap, origin: HeaderValue) {
     // on every request (t32-cfg §4.18); a preflight listing it must be allowed.
     h.insert(
         header::ACCESS_CONTROL_ALLOW_HEADERS,
-        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client, x-mailwoman-account, x-mailwoman-storage-authority, x-mailwoman-link, if-match"),
+        HeaderValue::from_static("authorization, content-type, x-csrf-token, x-mailwoman-client, x-mailwoman-account, x-mailwoman-storage-authority, x-mailwoman-link, if-match, idempotency-key"),
     );
     h.insert(
         header::ACCESS_CONTROL_EXPOSE_HEADERS,
