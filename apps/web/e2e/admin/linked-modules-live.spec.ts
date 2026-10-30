@@ -28,19 +28,19 @@ test('linked mailbox modules use child data and preserve parent data across real
   const parentNote=await create(false,'Note',note(`Parent ${tag}`));
   const childNote=await create(true,'Note',note(`Child ${tag}`));
   const contact=await create(true,'ContactCard',{name:{full:`Contact ${tag}`},emails:[{context:'work',value:'fixture@example.org',pref:1}]});
-  const taskLists=(await call(true,'TaskList/get',{ids:null}))['list'] as {id:string}[];expect(taskLists.length).toBeGreaterThan(0);
-  const task=await create(true,'Task',{listId:taskLists[0]!.id,title:`Task ${tag}`,description:'Mailbox scoped',progress:'needs-action'});
-  const calendars=(await call(true,'Calendar/get',{ids:null}))['list'] as {id:string}[];expect(calendars.length).toBeGreaterThan(0);
-  const event=await create(true,'CalendarEvent',{calendarId:calendars[0]!.id,title:`Event ${tag}`,description:'',start:`${new Date().toISOString().slice(0,10)}T12:00:00`,duration:'PT1H',timeZone:null,showWithoutTime:false,locations:[],recurrenceRules:[],excludedRecurrenceDates:[],participants:{},alerts:{},status:'confirmed',freeBusyStatus:'busy'});
+  const task=await create(true,'Task',{title:`Task ${tag}`,description:'Mailbox scoped',progress:'needs-action'});
+  const calendar=await create(true,'Calendar',{name:`Calendar ${tag}`,component:'VEVENT',isVisible:true});
+  const event=await create(true,'CalendarEvent',{calendarId:calendar,title:`Event ${tag}`,description:'',start:`${new Date().toISOString().slice(0,10)}T12:00:00`,duration:'PT1H',timeZone:null,showWithoutTime:false,locations:[],recurrenceRules:[],excludedRecurrenceDates:[],participants:{},alerts:{},status:'confirmed',freeBusyStatus:'busy'});
   await page.reload();await expect(page.getByRole('searchbox',{name:'Search mail'})).toBeVisible();
   await choose(link.id);
   for(const module of ['Calendar','Tasks','Notes','Contacts','Keys'])await navigate(module);
   await navigate('Notes');await expect(page.locator('[data-surface="notes"]').filter({visible:true})).toContainText(`Child ${tag}`);await expect(page.locator('[data-surface="notes"]').filter({visible:true})).not.toContainText(`Parent ${tag}`);
   await navigate('Tasks');await expect(page.locator('[data-surface="tasks"]').filter({visible:true})).toContainText(`Task ${tag}`);
   await navigate('Contacts');await expect(page.locator('[data-surface="contacts"]').filter({visible:true})).toContainText(`Contact ${tag}`);
+  const oldKeys=new Set(((await call(true,'CryptoKey/get',{ids:null}))['list'] as {id:string}[]).map(row=>row.id));
   await navigate('Keys');await page.getByRole('button',{name:'Generate key',exact:true}).click();
   const dialog=page.getByRole('dialog',{name:'Generate a key'});await dialog.getByLabel('Key type').selectOption('pgp');await dialog.getByLabel('Email',{exact:true}).fill('child@child.test');await dialog.getByLabel('Key passphrase',{exact:true}).fill('linked-fixture-key-passphrase');await dialog.getByRole('button',{name:'Generate',exact:true}).click();await expect(dialog).toBeHidden({timeout:60_000});
-  const keys=(await call(true,'CryptoKey/get',{ids:null}))['list'] as {id:string;isOwn:boolean;addresses:string[]}[];const key=keys.find(row=>row.isOwn&&row.addresses.includes('child@child.test'));expect(key).toBeTruthy();created.push({child:true,kind:'CryptoKey',id:key!.id});
+  const keys=(await call(true,'CryptoKey/get',{ids:null}))['list'] as {id:string;isOwn:boolean;addresses:string[]}[];const key=keys.find(row=>!oldKeys.has(row.id)&&row.isOwn&&row.addresses.includes('child@child.test'));expect(key).toBeTruthy();created.push({child:true,kind:'CryptoKey',id:key!.id});
   for(const [kind,id] of [['Note',childNote],['ContactCard',contact],['Task',task],['CalendarEvent',event],['CryptoKey',key!.id]]){
    const read=await call(false,`${kind}/get`,{ids:[id]});expect(read['list']).toEqual([]);expect(read['notFound']).toContain(id);
   }
