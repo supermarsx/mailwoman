@@ -104,24 +104,37 @@ describe('Dashboard — with data', () => {
     expect(volume).toHaveTextContent('The server cannot read free space on this platform.');
     expect(volume.textContent).not.toMatch(/\d/);
     const health = screen.getByTestId('dash-health');
-    expect(health).toHaveTextContent('Not available: this server runs in proxy mode and does not sync mail itself.');
-    expect(health).toHaveTextContent('Not available: This server has no search index.');
+    expect(within(screen.getByTestId('health-sync')).getByTestId('health-sync-status')).toHaveTextContent('Disabled');
+    expect(screen.getByTestId('health-sync-reason')).toHaveTextContent('Proxy mode: this server does not synchronize mailboxes.');
+    expect(screen.getByTestId('health-search-enable')).toHaveTextContent('To turn it on: Set MW_MODE=engine and restart.');
+    expect(health).not.toHaveTextContent('did not report');
+    expect(screen.getByText('Proxy mode: this server keeps no search index.')).toBeInTheDocument();
   });
 
   it('health rows use words, with an icon and a hidden status word, not colour alone', async () => {
     renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok()) });
     const health = await screen.findByTestId('dash-health');
-    expect(health).toHaveTextContent('Up to date (33 applied)');
-    expect(health).toHaveTextContent('17 accounts registered, 1 with a sync error');
-    expect(health).toHaveTextContent('Needs attention');
-    expect(health).toHaveTextContent('Available: untrusted documents are rendered in a separate process.');
+    expect(screen.getByTestId('health-migrations-stats')).toHaveTextContent('72 of 72 in this build');
+    expect(screen.getByTestId('health-sync-stats')).toHaveTextContent('17 registered: 1 syncing, 15 idle, 1 failing');
+    expect(screen.getByTestId('health-sync-status')).toHaveTextContent('Warning');
+    expect(screen.getByTestId('health-render-stats')).toHaveTextContent('14.2 ms');
+    expect(screen.getByTestId('health-database-stats')).toHaveTextContent('400 μs');
+    expect(health).not.toHaveTextContent('did not report');
   });
 
   it('migrations behind are reported as applied of expected', async () => {
     const d = engineDashboard();
-    d.health!.migration = { applied: 31, expected: 33 };
+    d.health!.components.migrations = {
+      status: 'warn',
+      reason: '2 migration(s) in this build are not applied yet.',
+      metrics: { applied: 31, expected: 33, latest: { version: 71, description: 'linked layout' }, pending: [{ version: 74, description: 'last factor block' }, { version: 75, description: 'linked avatars' }], failed: [], unknown: [] },
+      thresholds: {},
+    };
     renderInShell(() => <Dashboard />, { loadDashboard: dashboardReturning(ok(d)) });
-    expect(await screen.findByTestId('dash-health')).toHaveTextContent('31 of 33 applied');
+    const stats = await screen.findByTestId('health-migrations-stats');
+    expect(stats).toHaveTextContent('31 of 33 in this build');
+    expect(stats).toHaveTextContent('74 last factor block, 75 linked avatars');
+    expect(screen.getByTestId('health-migrations-status')).toHaveTextContent('Warning');
   });
 
   it('traffic charts use persistent history with selectable periods', async () => {

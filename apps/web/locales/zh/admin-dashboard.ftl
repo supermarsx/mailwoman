@@ -108,27 +108,12 @@ admin-dash-health = 运行状况
 admin-dash-h-ok = 正常
 admin-dash-h-attention = 需要关注
 admin-dash-h-db = 数据库
-admin-dash-h-db-ok = 响应用时 { $ms }
 admin-dash-h-migrations = 迁移
-admin-dash-h-migrations-ok = 已是最新（已应用 { $n } 个）
-admin-dash-h-migrations-behind = 已应用 { $applied } / { $expected } 个
 admin-dash-h-engine = 邮件同步
-admin-dash-h-engine-value = 已注册 { $accounts } 个账户，其中 { $errors } 个出现同步错误
 admin-dash-h-outbox = 发件箱
-admin-dash-h-outbox-value = { $pending } 封等待中（最早 { $oldest }），24 小时内 { $failed } 封失败
-admin-dash-h-outbox-none = 无
 admin-dash-h-index = 搜索索引
-admin-dash-h-index-value = { $n } 个文档
-admin-dash-h-index-rebuilding = 正在重建（目前已有 { $n } 个文档）
 admin-dash-h-sandbox = 渲染沙箱
-admin-dash-h-sandbox-ok = 可用：不受信任的文档在单独的进程中渲染。
-admin-dash-h-sandbox-missing = 缺失：不受信任的文档在服务器进程内渲染。
-admin-dash-h-sandbox-required = 缺失，而此服务器要求使用它：不受信任的文档将无法渲染。
 admin-dash-h-plugins = 插件运行时
-admin-dash-h-plugins-ok = 可用
-admin-dash-h-plugins-off = 已关闭
-admin-dash-na-proxy = 此服务器以代理模式运行，自身不同步邮件。
-admin-dash-na-unreported = 服务器未报告此项。
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = 存储
@@ -138,7 +123,6 @@ admin-dash-index-size = 搜索索引
 admin-dash-volume-free = 数据卷上的可用空间
 admin-dash-volume-of = 共 { $total }
 admin-dash-na-wal = 此数据库不使用预写日志文件，或服务器未报告此项。
-admin-dash-na-index = 此服务器没有搜索索引。
 admin-dash-na-volume = 服务器无法在此平台上读取可用空间。
 
 # -- Recent audit, server ----------------------------------------------------------------

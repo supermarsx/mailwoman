@@ -27,8 +27,9 @@ import { BarChart } from '../shell/BarChart.tsx';
 import { Feedback } from '../shell/Feedback.tsx';
 import { Icon } from '../shell/icons.tsx';
 import type { Capability } from '../shell/can.ts';
-import type { ChecklistItem, Dashboard as DashboardData, DashboardHealth } from '../../../api/admin/dashboard.ts';
-import { formatBytes, formatCount, formatDateTime, formatDuration, formatMs } from './format.ts';
+import type { ChecklistItem, Dashboard as DashboardData } from '../../../api/admin/dashboard.ts';
+import { HealthPanel } from './HealthPanel.tsx';
+import { formatBytes, formatCount, formatDateTime, formatDuration } from './format.ts';
 import * as shell from '../shell/shell.css.ts';
 import * as admin from '../admin.css.ts';
 import * as css from './dashboard.css.ts';
@@ -170,7 +171,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
   const d = (): DashboardData => props.data;
   const completedChecklist = (): boolean => !!d().checklist?.length && d().checklist!.every(item => item.done) && !props.layout.keepCompletedChecklistProminent;
   const proxy = (): boolean => d().server?.mode === 'proxy';
-  const reasonProxy = (): string => (proxy() ? t('admin-dash-na-proxy') : t('admin-dash-na-unreported'));
+  const indexReason = (): string => (proxy() || d().health?.components?.search?.status === 'disabled' ? t('admin-dash-na-index-proxy') : t('admin-dash-na-index-memory'));
 
   return (
     <div class={css.widgets}>
@@ -274,7 +275,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
       </Widget>
       </Show>
 
-      <Show when={d().health}>{health => <Widget id="health" layout={props.layout}><Health health={health()} reasonProxy={reasonProxy()} /></Widget>}</Show>
+      <Show when={d().health}>{health => <Widget id="health" layout={props.layout}><HealthPanel health={health()} sectionLink={props.sectionLink} open={props.open} /></Widget>}</Show>
 
       <Show when={d().storage}>{storage => (
       <Widget id="storage" layout={props.layout}>
@@ -294,7 +295,7 @@ function DashboardBody(props: BodyProps): JSX.Element {
             label={t('admin-dash-index-size')}
             value={storage().searchIndexBytes}
             format={formatBytes}
-            unavailableReason={t('admin-dash-na-index')}
+            unavailableReason={indexReason()}
           />
           <StatTile
             testId="tile-volume"
@@ -491,98 +492,6 @@ function Checklist(props: { items: ChecklistItem[]; open: (path: string) => void
         </p>
       </Show>
       </details>
-    </section>
-  );
-}
-
-function Health(props: { health: DashboardHealth; reasonProxy: string }): JSX.Element {
-  const h = (): DashboardHealth => props.health;
-  type Row = { label: string; ok: boolean | null; text: string };
-  const rows = (): Row[] => {
-    const m = h().migration;
-    const e = h().engine;
-    const o = h().outbox;
-    const s = h().searchIndex;
-    return [
-      { label: t('admin-dash-h-db'), ok: true, text: t('admin-dash-h-db-ok', { ms: formatMs(h().dbPingMs) }) },
-      {
-        label: t('admin-dash-h-migrations'),
-        ok: m.applied === m.expected,
-        text:
-          m.applied === m.expected
-            ? t('admin-dash-h-migrations-ok', { n: m.applied })
-            : t('admin-dash-h-migrations-behind', { applied: m.applied, expected: m.expected }),
-      },
-      {
-        label: t('admin-dash-h-engine'),
-        ok: e === null ? null : e.accountsWithSyncError === 0,
-        text:
-          e === null
-            ? `${t('admin-shell-not-available')}: ${props.reasonProxy}`
-            : t('admin-dash-h-engine-value', { accounts: e.registeredAccounts, errors: e.accountsWithSyncError }),
-      },
-      {
-        label: t('admin-dash-h-outbox'),
-        ok: o === null ? null : o.failed24h === 0,
-        text:
-          o === null
-            ? `${t('admin-shell-not-available')}: ${props.reasonProxy}`
-            : t('admin-dash-h-outbox-value', {
-                pending: o.pending,
-                failed: o.failed24h,
-                oldest: o.oldestAgeSecs === null ? t('admin-dash-h-outbox-none') : formatDuration(o.oldestAgeSecs),
-              }),
-      },
-      {
-        label: t('admin-dash-h-index'),
-        ok: s === null ? null : !s.rebuilding,
-        text:
-          s === null
-            ? `${t('admin-shell-not-available')}: ${t('admin-dash-na-index')}`
-            : s.rebuilding
-              ? t('admin-dash-h-index-rebuilding', { n: s.documents })
-              : t('admin-dash-h-index-value', { n: s.documents }),
-      },
-      {
-        label: t('admin-dash-h-sandbox'),
-        ok: h().renderSandbox === null ? null : h().renderSandbox === 'available',
-        text:
-          h().renderSandbox === null ? t('admin-dash-na-unreported') : h().renderSandbox === 'available'
-            ? t('admin-dash-h-sandbox-ok')
-            : h().renderSandbox === 'missing'
-              ? t('admin-dash-h-sandbox-missing')
-              : t('admin-dash-h-sandbox-required'),
-      },
-      {
-        label: t('admin-dash-h-plugins'),
-        ok: h().pluginRuntime === 'available' ? true : null,
-        text: h().pluginRuntime === null ? t('admin-dash-na-unreported') : h().pluginRuntime === 'available' ? t('admin-dash-h-plugins-ok') : t('admin-dash-h-plugins-off'),
-      },
-    ];
-  };
-  return (
-    <section class={css.panel} aria-labelledby="admin-dash-health">
-      <h3 id="admin-dash-health" class={css.panelTitle}>
-        {t('admin-dash-health')}
-      </h3>
-      <dl class={css.facts} data-testid="dash-health">
-        <For each={rows()}>
-          {(r) => (
-            <>
-              <dt>{r.label}</dt>
-              <dd class={css.healthValue}>
-                <Show when={r.ok !== null}>
-                  <span class={r.ok ? css.healthOk : css.healthBad}>
-                    <Icon name={r.ok ? 'check' : 'alert'} />
-                    <span class={shell.srOnly}>{r.ok ? t('admin-dash-h-ok') : t('admin-dash-h-attention')}</span>
-                  </span>
-                </Show>
-                <span>{r.text}</span>
-              </dd>
-            </>
-          )}
-        </For>
-      </dl>
     </section>
   );
 }

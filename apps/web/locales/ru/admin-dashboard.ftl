@@ -124,27 +124,12 @@ admin-dash-health = Состояние
 admin-dash-h-ok = ОК
 admin-dash-h-attention = Требует внимания
 admin-dash-h-db = База данных
-admin-dash-h-db-ok = Ответ за { $ms }
 admin-dash-h-migrations = Миграции
-admin-dash-h-migrations-ok = Актуальны (применено: { $n })
-admin-dash-h-migrations-behind = Применено { $applied } из { $expected }
 admin-dash-h-engine = Синхронизация почты
-admin-dash-h-engine-value = Зарегистрировано учётных записей: { $accounts }, с ошибкой синхронизации: { $errors }
 admin-dash-h-outbox = Исходящие
-admin-dash-h-outbox-value = Ожидают: { $pending } (самое старое: { $oldest }), с ошибкой за 24 часа: { $failed }
-admin-dash-h-outbox-none = нет
 admin-dash-h-index = Поисковый индекс
-admin-dash-h-index-value = Документов: { $n }
-admin-dash-h-index-rebuilding = Перестраивается (пока документов: { $n })
 admin-dash-h-sandbox = Песочница отрисовки
-admin-dash-h-sandbox-ok = Доступна: недоверенные документы отрисовываются в отдельном процессе.
-admin-dash-h-sandbox-missing = Отсутствует: недоверенные документы отрисовываются внутри процесса сервера.
-admin-dash-h-sandbox-required = Отсутствует, а этот сервер её требует: отрисовка недоверенных документов завершается ошибкой.
 admin-dash-h-plugins = Среда выполнения плагинов
-admin-dash-h-plugins-ok = Доступна
-admin-dash-h-plugins-off = Отключена
-admin-dash-na-proxy = этот сервер работает в режиме прокси и сам не синхронизирует почту.
-admin-dash-na-unreported = сервер не сообщил эти данные.
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = Хранилище
@@ -154,7 +139,6 @@ admin-dash-index-size = Поисковый индекс
 admin-dash-volume-free = Свободное место на томе данных
 admin-dash-volume-of = из { $total }
 admin-dash-na-wal = Эта база данных не использует файл журнала упреждающей записи, или сервер не сообщил эти данные.
-admin-dash-na-index = На этом сервере нет поискового индекса.
 admin-dash-na-volume = На этой платформе сервер не может определить свободное место.
 
 # -- Recent audit, server ----------------------------------------------------------------

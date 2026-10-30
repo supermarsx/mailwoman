@@ -108,27 +108,12 @@ admin-dash-health = Zustand
 admin-dash-h-ok = OK
 admin-dash-h-attention = Handlungsbedarf
 admin-dash-h-db = Datenbank
-admin-dash-h-db-ok = Antwort in { $ms }
 admin-dash-h-migrations = Migrationen
-admin-dash-h-migrations-ok = Aktuell ({ $n } angewendet)
-admin-dash-h-migrations-behind = { $applied } von { $expected } angewendet
 admin-dash-h-engine = E-Mail-Synchronisierung
-admin-dash-h-engine-value = { $accounts } Konten registriert, { $errors } mit Synchronisierungsfehler
 admin-dash-h-outbox = Postausgang
-admin-dash-h-outbox-value = { $pending } wartend (älteste { $oldest }), { $failed } fehlgeschlagen in 24 Stunden
-admin-dash-h-outbox-none = keine
 admin-dash-h-index = Suchindex
-admin-dash-h-index-value = { $n } Dokumente
-admin-dash-h-index-rebuilding = Wird neu aufgebaut (bisher { $n } Dokumente)
 admin-dash-h-sandbox = Render-Sandbox
-admin-dash-h-sandbox-ok = Verfügbar: Nicht vertrauenswürdige Dokumente werden in einem separaten Prozess dargestellt.
-admin-dash-h-sandbox-missing = Fehlt: Nicht vertrauenswürdige Dokumente werden im Serverprozess dargestellt.
-admin-dash-h-sandbox-required = Fehlt, und dieser Server verlangt sie: Die Darstellung nicht vertrauenswürdiger Dokumente schlägt fehl.
 admin-dash-h-plugins = Plugin-Laufzeit
-admin-dash-h-plugins-ok = Verfügbar
-admin-dash-h-plugins-off = Abgeschaltet
-admin-dash-na-proxy = Dieser Server läuft im Proxy-Modus und synchronisiert selbst keine E-Mails.
-admin-dash-na-unreported = Der Server hat es nicht gemeldet.
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = Speicher
@@ -138,7 +123,6 @@ admin-dash-index-size = Suchindex
 admin-dash-volume-free = Freier Speicher auf dem Datenvolume
 admin-dash-volume-of = von { $total }
 admin-dash-na-wal = Diese Datenbank verwendet keine Write-Ahead-Log-Datei, oder der Server hat sie nicht gemeldet.
-admin-dash-na-index = Dieser Server hat keinen Suchindex.
 admin-dash-na-volume = Der Server kann den freien Speicher auf dieser Plattform nicht lesen.
 
 # -- Recent audit, server ----------------------------------------------------------------

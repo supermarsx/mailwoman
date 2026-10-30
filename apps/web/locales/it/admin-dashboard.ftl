@@ -108,27 +108,12 @@ admin-dash-health = Stato
 admin-dash-h-ok = OK
 admin-dash-h-attention = Richiede attenzione
 admin-dash-h-db = Database
-admin-dash-h-db-ok = Ha risposto in { $ms }
 admin-dash-h-migrations = Migrazioni
-admin-dash-h-migrations-ok = Aggiornate ({ $n } applicate)
-admin-dash-h-migrations-behind = { $applied } di { $expected } applicate
 admin-dash-h-engine = Sincronizzazione posta
-admin-dash-h-engine-value = { $accounts } account registrati, { $errors } con un errore di sincronizzazione
 admin-dash-h-outbox = Posta in uscita
-admin-dash-h-outbox-value = { $pending } in attesa (il più vecchio { $oldest }), { $failed } non riusciti nelle ultime 24 ore
-admin-dash-h-outbox-none = nessuno
 admin-dash-h-index = Indice di ricerca
-admin-dash-h-index-value = { $n } documenti
-admin-dash-h-index-rebuilding = Ricostruzione in corso ({ $n } documenti finora)
 admin-dash-h-sandbox = Sandbox di rendering
-admin-dash-h-sandbox-ok = Disponibile: i documenti non attendibili vengono visualizzati in un processo separato.
-admin-dash-h-sandbox-missing = Assente: i documenti non attendibili vengono visualizzati all'interno del processo del server.
-admin-dash-h-sandbox-required = Assente, e questo server la richiede: la visualizzazione dei documenti non attendibili non riesce.
 admin-dash-h-plugins = Runtime dei plugin
-admin-dash-h-plugins-ok = Disponibile
-admin-dash-h-plugins-off = Disattivato
-admin-dash-na-proxy = questo server funziona in modalità proxy e non sincronizza direttamente la posta.
-admin-dash-na-unreported = il server non lo ha riportato.
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = Archiviazione
@@ -138,7 +123,6 @@ admin-dash-index-size = Indice di ricerca
 admin-dash-volume-free = Spazio libero sul volume dei dati
 admin-dash-volume-of = di { $total }
 admin-dash-na-wal = Questo database non usa un file write-ahead log, oppure il server non lo ha riportato.
-admin-dash-na-index = Questo server non ha un indice di ricerca.
 admin-dash-na-volume = Il server non può leggere lo spazio libero su questa piattaforma.
 
 # -- Recent audit, server ----------------------------------------------------------------

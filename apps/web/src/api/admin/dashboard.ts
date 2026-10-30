@@ -46,15 +46,9 @@ export interface DashboardStorage {
   dataVolume: { freeBytes: number; totalBytes: number } | null;
 }
 
-export interface DashboardHealth {
-  dbPingMs: number;
-  migration: { applied: number; expected: number };
-  engine: { registeredAccounts: number; accountsWithSyncError: number } | null;
-  outbox: { pending: number; oldestAgeSecs: number | null; failed24h: number } | null;
-  searchIndex: { documents: number; rebuilding: boolean } | null;
-  renderSandbox: 'available' | 'missing' | 'jail-required-missing' | null;
-  pluginRuntime: 'available' | 'disabled' | null;
-}
+/** The Health panel's data (t103): see `./health.ts`. */
+export type { DashboardHealth } from './health.ts';
+import type { DashboardHealth } from './health.ts';
 
 export interface TrafficPoint {
   /** Bucket start, Unix seconds. */

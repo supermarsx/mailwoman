@@ -246,7 +246,7 @@ admin-obs-count-activeSessions = Sessões de webmail ativas
 admin-obs-count-activeAdminSessions = Sessões de administração ativas
 admin-obs-db-latency = Tempo de consulta da base de dados
 admin-obs-outbox-pending = Mensagens pendentes na caixa de saída
-admin-obs-outbox-failed = Envios falhados, últimas 24 horas
+admin-obs-outbox-failed-hour = Envios falhados, última hora
 
 admin-users-configure = Configurar
 admin-users-configure-for = Configurar { $account }

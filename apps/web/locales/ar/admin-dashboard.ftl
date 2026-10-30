@@ -140,27 +140,12 @@ admin-dash-health = الحالة الصحية
 admin-dash-h-ok = سليم
 admin-dash-h-attention = يحتاج إلى انتباه
 admin-dash-h-db = قاعدة البيانات
-admin-dash-h-db-ok = استجابت خلال { $ms }
 admin-dash-h-migrations = الترحيلات
-admin-dash-h-migrations-ok = محدّثة ({ $n } مطبّقة)
-admin-dash-h-migrations-behind = { $applied } من { $expected } مطبّقة
 admin-dash-h-engine = مزامنة البريد
-admin-dash-h-engine-value = { $accounts } حسابات مسجّلة، { $errors } بها خطأ مزامنة
 admin-dash-h-outbox = صندوق الصادر
-admin-dash-h-outbox-value = { $pending } في الانتظار (الأقدم { $oldest })، { $failed } فشلت خلال 24 ساعة
-admin-dash-h-outbox-none = لا شيء
 admin-dash-h-index = فهرس البحث
-admin-dash-h-index-value = { $n } مستندات
-admin-dash-h-index-rebuilding = جارٍ إعادة البناء ({ $n } مستندات حتى الآن)
 admin-dash-h-sandbox = بيئة العرض المعزولة
-admin-dash-h-sandbox-ok = متاحة: تُعرض المستندات غير الموثوقة في عملية منفصلة.
-admin-dash-h-sandbox-missing = غير موجودة: تُعرض المستندات غير الموثوقة داخل عملية الخادم.
-admin-dash-h-sandbox-required = غير موجودة، وهذا الخادم يتطلبها: عرض المستندات غير الموثوقة يفشل.
 admin-dash-h-plugins = بيئة تشغيل الإضافات
-admin-dash-h-plugins-ok = متاحة
-admin-dash-h-plugins-off = معطّلة
-admin-dash-na-proxy = يعمل هذا الخادم في وضع الوكيل ولا يزامن البريد بنفسه.
-admin-dash-na-unreported = لم يُبلغ الخادم عنها.
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = التخزين
@@ -170,7 +155,6 @@ admin-dash-index-size = فهرس البحث
 admin-dash-volume-free = المساحة الحرة على وحدة تخزين البيانات
 admin-dash-volume-of = من { $total }
 admin-dash-na-wal = لا تستخدم قاعدة البيانات هذه ملف سجل كتابة مسبقة، أو لم يُبلغ الخادم عنه.
-admin-dash-na-index = لا يوجد فهرس بحث على هذا الخادم.
 admin-dash-na-volume = لا يستطيع الخادم قراءة المساحة الحرة على هذه المنصة.
 
 # -- Recent audit, server ----------------------------------------------------------------

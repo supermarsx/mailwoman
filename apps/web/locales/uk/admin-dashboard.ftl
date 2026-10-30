@@ -124,27 +124,12 @@ admin-dash-health = Стан
 admin-dash-h-ok = Гаразд
 admin-dash-h-attention = Потребує уваги
 admin-dash-h-db = База даних
-admin-dash-h-db-ok = Відповіла за { $ms }
 admin-dash-h-migrations = Міграції
-admin-dash-h-migrations-ok = Актуально (застосовано: { $n })
-admin-dash-h-migrations-behind = Застосовано { $applied } з { $expected }
 admin-dash-h-engine = Синхронізація пошти
-admin-dash-h-engine-value = Зареєстровано облікових записів: { $accounts }, з помилкою синхронізації: { $errors }
 admin-dash-h-outbox = Вихідні
-admin-dash-h-outbox-value = Очікують: { $pending } (найстаріше { $oldest }), не вдалося за 24 години: { $failed }
-admin-dash-h-outbox-none = немає
 admin-dash-h-index = Пошуковий індекс
-admin-dash-h-index-value = Документів: { $n }
-admin-dash-h-index-rebuilding = Перебудова (документів поки що: { $n })
 admin-dash-h-sandbox = Пісочниця рендерингу
-admin-dash-h-sandbox-ok = Доступна: недовірені документи рендеряться в окремому процесі.
-admin-dash-h-sandbox-missing = Відсутня: недовірені документи рендеряться всередині процесу сервера.
-admin-dash-h-sandbox-required = Відсутня, а цей сервер її вимагає: рендеринг недовірених документів не вдається.
 admin-dash-h-plugins = Середовище виконання плагінів
-admin-dash-h-plugins-ok = Доступне
-admin-dash-h-plugins-off = Вимкнено
-admin-dash-na-proxy = цей сервер працює в режимі проксі й сам не синхронізує пошту.
-admin-dash-na-unreported = сервер цього не повідомив.
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = Сховище
@@ -154,7 +139,6 @@ admin-dash-index-size = Пошуковий індекс
 admin-dash-volume-free = Вільне місце на томі даних
 admin-dash-volume-of = з { $total }
 admin-dash-na-wal = Ця база даних не використовує файл журналу попереднього запису, або сервер цього не повідомив.
-admin-dash-na-index = Цей сервер не має пошукового індексу.
 admin-dash-na-volume = Сервер не може визначити вільне місце на цій платформі.
 
 # -- Recent audit, server ----------------------------------------------------------------

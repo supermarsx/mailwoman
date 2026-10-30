@@ -100,27 +100,12 @@ admin-dash-health = 稼働状態
 admin-dash-h-ok = 正常
 admin-dash-h-attention = 要対応
 admin-dash-h-db = データベース
-admin-dash-h-db-ok = { $ms } で応答
 admin-dash-h-migrations = マイグレーション
-admin-dash-h-migrations-ok = 最新（{ $n } 件適用済み）
-admin-dash-h-migrations-behind = { $expected } 件中 { $applied } 件適用済み
 admin-dash-h-engine = メール同期
-admin-dash-h-engine-value = 登録アカウント { $accounts } 件、同期エラー { $errors } 件
 admin-dash-h-outbox = 送信トレイ
-admin-dash-h-outbox-value = 待機中 { $pending } 件（最古 { $oldest }）、24 時間の失敗 { $failed } 件
-admin-dash-h-outbox-none = なし
 admin-dash-h-index = 検索インデックス
-admin-dash-h-index-value = { $n } 件のドキュメント
-admin-dash-h-index-rebuilding = 再構築中（現在 { $n } 件のドキュメント）
 admin-dash-h-sandbox = レンダリングサンドボックス
-admin-dash-h-sandbox-ok = 利用可能: 信頼されていないドキュメントは別プロセスでレンダリングされます。
-admin-dash-h-sandbox-missing = なし: 信頼されていないドキュメントはサーバープロセス内でレンダリングされます。
-admin-dash-h-sandbox-required = なし（このサーバーでは必須）: 信頼されていないドキュメントのレンダリングは失敗します。
 admin-dash-h-plugins = プラグインランタイム
-admin-dash-h-plugins-ok = 利用可能
-admin-dash-h-plugins-off = オフ
-admin-dash-na-proxy = このサーバーはプロキシモードで動作しており、メールの同期を自身では行いません。
-admin-dash-na-unreported = サーバーから報告されていません。
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = ストレージ
@@ -130,7 +115,6 @@ admin-dash-index-size = 検索インデックス
 admin-dash-volume-free = データボリュームの空き容量
 admin-dash-volume-of = / { $total }
 admin-dash-na-wal = このデータベースは先行書き込みログファイルを使用していないか、サーバーから報告されていません。
-admin-dash-na-index = このサーバーには検索インデックスがありません。
 admin-dash-na-volume = このプラットフォームではサーバーが空き容量を読み取れません。
 
 # -- Recent audit, server ----------------------------------------------------------------

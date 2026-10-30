@@ -108,27 +108,12 @@ admin-dash-health = Integridade
 admin-dash-h-ok = OK
 admin-dash-h-attention = Requer atenção
 admin-dash-h-db = Banco de dados
-admin-dash-h-db-ok = Respondeu em { $ms }
 admin-dash-h-migrations = Migrações
-admin-dash-h-migrations-ok = Atualizado ({ $n } aplicadas)
-admin-dash-h-migrations-behind = { $applied } de { $expected } aplicadas
 admin-dash-h-engine = Sincronização de e-mail
-admin-dash-h-engine-value = { $accounts } contas registradas, { $errors } com erro de sincronização
 admin-dash-h-outbox = Caixa de saída
-admin-dash-h-outbox-value = { $pending } aguardando (mais antiga: { $oldest }), { $failed } com falha em 24 horas
-admin-dash-h-outbox-none = nenhuma
 admin-dash-h-index = Índice de pesquisa
-admin-dash-h-index-value = { $n } documentos
-admin-dash-h-index-rebuilding = Reconstruindo ({ $n } documentos até agora)
 admin-dash-h-sandbox = Sandbox de renderização
-admin-dash-h-sandbox-ok = Disponível: documentos não confiáveis são renderizados em um processo separado.
-admin-dash-h-sandbox-missing = Ausente: documentos não confiáveis são renderizados dentro do processo do servidor.
-admin-dash-h-sandbox-required = Ausente, e este servidor o exige: a renderização de documentos não confiáveis falha.
 admin-dash-h-plugins = Runtime de plugins
-admin-dash-h-plugins-ok = Disponível
-admin-dash-h-plugins-off = Desativado
-admin-dash-na-proxy = este servidor funciona no modo proxy e não sincroniza e-mails por conta própria.
-admin-dash-na-unreported = o servidor não informou isso.
 
 # -- Storage ---------------------------------------------------------------------------
 admin-dash-storage = Armazenamento
@@ -138,7 +123,6 @@ admin-dash-index-size = Índice de pesquisa
 admin-dash-volume-free = Espaço livre no volume de dados
 admin-dash-volume-of = de { $total }
 admin-dash-na-wal = Este banco de dados não usa um arquivo de log de gravação antecipada, ou o servidor não o informou.
-admin-dash-na-index = Este servidor não tem índice de pesquisa.
 admin-dash-na-volume = O servidor não consegue ler o espaço livre nesta plataforma.
 
 # -- Recent audit, server ----------------------------------------------------------------
