@@ -127,6 +127,9 @@ mod admin_probe;
 pub(crate) mod alerts;
 pub(crate) mod audit;
 mod deployment_security;
+/// The local country database, managed from the console (t96).
+#[doc(hidden)]
+pub mod geoip;
 mod request_budget;
 mod request_protection;
 mod security_center;
@@ -134,9 +137,6 @@ mod server_text;
 mod signin_challenge;
 mod signin_cooldown;
 mod signin_geography;
-/// The local country database, managed from the console (t96).
-#[doc(hidden)]
-pub mod geoip;
 mod signin_guard;
 pub(crate) mod step_up;
 pub mod twofa_routes;
@@ -154,7 +154,6 @@ pub mod prefs_routes;
 // 26.20 t32-e10b (f01): the settings model C — the registry (keys, types,
 // defaults, scopes, environment precedence, the limit ceiling) and its routes.
 mod admin_dashboard;
-mod health_probes;
 pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
@@ -162,6 +161,7 @@ mod diagnostics;
 mod feature_gate;
 mod feature_jmap;
 mod features;
+mod health_probes;
 mod hosting_connections;
 mod hosting_operations;
 mod hosting_transport;
