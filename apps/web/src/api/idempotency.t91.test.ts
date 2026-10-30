@@ -217,6 +217,23 @@ describe('linked-mailbox actions', () => {
       expect(send.mock.calls[1]?.[1]?.method).toBe('DELETE');
     } finally { api.dispose(); }
   });
+
+  it('a lost unlink answer whose retry is refused 412 counts as done once the link is no longer listed', async () => {
+    let listed: LinkedMailbox[] = [];
+    const send = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method === 'DELETE') return Response.json({ code: 'revisionMismatch' }, { status: 412 });
+      return Response.json({ primary: { accountId: 'acct', address: 'p@example.org', storageAuthority: 'msa1_parent_authority' }, accounts: listed, policy: { enabled: true, maxAccounts: 4, supportedAuthentication: [] } });
+    });
+    send.mockResolvedValueOnce(unavailable());
+    vi.stubGlobal('fetch', send);
+    const api = createLinkedAccountsApi();
+    try {
+      await expect(settle(api.unlink(row))).resolves.toBeUndefined();
+      // Still listed: the 412 is a real conflict and is reported.
+      listed = [row];
+      await expect(settle(api.unlink(row))).rejects.toMatchObject({ status: 412 });
+    } finally { api.dispose(); }
+  });
 });
 
 describe('settings records', () => {

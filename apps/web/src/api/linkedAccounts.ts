@@ -117,9 +117,20 @@ export function createLinkedAccountsApi() {
     setPrimary:(linkId:string|null)=>request<{primaryMailbox:string|null}>('/primary','PUT',{linkId}),
     /** Order, nicknames and avatars (t86); 409 when another device saved first (re-read, then retry). */
     setLayout:async(layout:MailboxLayout)=>{const saved=await request<{layout:MailboxLayout}>('/layout','PUT',layout);if(!validLayout(saved?.layout))throw new ApiError(502,'Linked mailbox response was invalid');return cleanLayout(saved.layout);},
-    /** Retried (t91). A 404 means the link is gone, which is what was asked: an earlier
-     *  attempt whose answer was lost removed it. */
-    unlink:async(account:LinkedMailbox)=>{try{await request<void>(`/${encodeURIComponent(account.id)}`,'DELETE',undefined,{'if-match':JSON.stringify(account.revision)},'idempotent');}catch(error){if(!(error instanceof ApiError&&error.status===404))throw error;}},
+    /** Retried (t91). When an earlier attempt removed the link and its answer was lost, the
+     *  retry is refused (412 revisionMismatch: the row is gone; or 404): the link no longer
+     *  being listed is what was asked, so that counts as done. */
+    unlink:async(account:LinkedMailbox)=>{
+      try{await request<void>(`/${encodeURIComponent(account.id)}`,'DELETE',undefined,{'if-match':JSON.stringify(account.revision)},'idempotent');}
+      catch(error){
+        if(error instanceof ApiError&&error.status===404)return;
+        if(error instanceof ApiError&&error.status===412){
+          const current=await request<LinkedMailboxList>('');
+          if(Array.isArray(current?.accounts)&&!current.accounts.some(item=>item.id===account.id))return;
+        }
+        throw error;
+      }
+    },
     dispose:()=>{stop();controller.abort();},
   };
 }
