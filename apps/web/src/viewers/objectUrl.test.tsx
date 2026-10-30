@@ -19,6 +19,8 @@
 // real `fetchObjectUrl`, and `<AttachmentsPane>` — the reader's attachment pane —
 // exported from `Reader.tsx` for exactly this. Only the app context is a double.
 
+import {createSignal} from 'solid-js';
+import {clearSettings,loadSettings} from '../api/settings.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, waitFor, fireEvent, screen } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
@@ -35,7 +37,9 @@ let revoked = 0;
 /** URLs minted and not yet handed back — the live set the tab would be pinning. */
 const live = new Set<string>();
 
-beforeEach(() => {
+beforeEach(async () => {
+  clearSettings();
+  await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:{'reader.attachmentsCollapsed':{value:false,source:'user',locked:false},'reader.attachmentsDensity':{value:'comfortable',source:'user',locked:false}}}))});
   created = 0;
   revoked = 0;
   live.clear();
@@ -145,6 +149,16 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
     expect(live.size).toBe(0);
   });
 
+  it('defaults to compact collapsed attachments, expands locally and resets for another message',async()=>{
+    clearSettings();
+    const [email,setEmail]=createSignal(emailWith(items(2,'image/png')));
+    const {container}=render(()=><AppContext.Provider value={appDouble()}><AttachmentsPane email={email()}/></AppContext.Provider>);
+    const toggle=screen.getByTestId('reader-attachments-toggle');expect(toggle).toHaveAttribute('aria-expanded','false');
+    expect(created).toBe(0);fireEvent.click(toggle);
+    await waitFor(()=>expect(container.querySelectorAll('[data-policy="ready"] .mw-thumb')).toHaveLength(2));
+    expect(container.querySelector('.mw-thumbs')).toHaveAttribute('data-density','compact');expect(created).toBe(0);
+    setEmail({...email(),id:'other-message'});await waitFor(()=>expect(toggle).toHaveAttribute('aria-expanded','false'));
+  });
   it('AttachmentsPane: opening 12 attachments in turn keeps at most one live', async () => {
     // Non-image parts, so the strip mints nothing and `live` counts only the
     // opened-attachment path.

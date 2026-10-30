@@ -48,3 +48,8 @@ reader-attachments-summary = { $count ->
 } · { $size }
 reader-attachments-show = Show attachments
 reader-attachments-hide = Hide attachments
+reader-attachmentsDensity = Attachment density
+reader-attachmentsDensity-help = Compact shows small file buttons; comfortable shows larger previews when expanded.
+reader-option-compact = Compact
+reader-attachmentsCollapsed = Collapse attachments by default
+reader-attachmentsCollapsed-help = Start each message with a compact attachment summary. You can expand that message without changing this default.

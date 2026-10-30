@@ -98,4 +98,12 @@ privacy-links-enable-help = Permitir que as ligações nesta mensagem abram num 
 privacy-links-loading = A preparar ligações…
 
 privacy-body-blocked = HTML da mensagem bloqueado por segurança
-privacy-body-blocked-detail = Este corpo contém conteúdo potencialmente inseguro ou não pôde ser verificado. Apenas é apresentado texto seguro. A mensagem original permanece inalterada.
+privacy-body-blocked-detail = Este corpo contém conteúdo potencialmente inseguro ou não pôde ser verificado. O conteúdo ativo permanece bloqueado. A mensagem original permanece inalterada.
+privacy-body-show-sanitized = Mostrar HTML sanitizado
+privacy-body-hide-sanitized = Mostrar texto seguro
+privacy-body-sanitized-shown = HTML sanitizado apresentado
+privacy-unsafe-html = HTML de mensagem potencialmente inseguro
+privacy-unsafe-html-ask = Perguntar antes de mostrar HTML sanitizado
+privacy-unsafe-html-strict = Mostrar sempre texto seguro
+privacy-unsafe-html-sanitized = Mostrar sempre HTML sanitizado
+privacy-unsafe-html-help = O HTML sanitizado remove conteúdo ativo. Recursos remotos, ligações e recibos automáticos permanecem bloqueados nestas mensagens. Os originais não são alterados.

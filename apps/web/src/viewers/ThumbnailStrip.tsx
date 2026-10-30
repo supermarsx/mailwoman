@@ -23,6 +23,7 @@ export interface StripItem {
 
 export interface ThumbnailStripProps {
   items: StripItem[];
+  density?: 'compact' | 'comfortable';
   selectedBlobId?: string;
   onSelect?: (item: StripItem) => void;
   /** Resolve an image preview object URL; only called for `image/*` items. */
@@ -91,7 +92,7 @@ function Thumb(props: {
 /** Horizontal strip of a message's attachments (plan §2.4). */
 export function ThumbnailStrip(props: ThumbnailStripProps): JSX.Element {
   return (
-    <div class="mw-thumbs" role="listbox" aria-label={t('common-viewer-attachments')}>
+    <div class="mw-thumbs" data-density={props.density ?? 'comfortable'} role="listbox" aria-label={t('common-viewer-attachments')}>
       <For each={props.items}>
         {(item) => (
           <Thumb

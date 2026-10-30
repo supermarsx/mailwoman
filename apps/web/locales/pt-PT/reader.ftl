@@ -51,3 +51,8 @@ reader-attachments-summary = { $count ->
 } · { $size }
 reader-attachments-show = Mostrar anexos
 reader-attachments-hide = Ocultar anexos
+reader-attachmentsDensity = Densidade dos anexos
+reader-attachmentsDensity-help = O modo compacto mostra pequenos botões de ficheiros; o confortável mostra pré-visualizações maiores quando expandido.
+reader-option-compact = Compacto
+reader-attachmentsCollapsed = Recolher anexos por predefinição
+reader-attachmentsCollapsed-help = Iniciar cada mensagem com um resumo compacto dos anexos. Pode expandir essa mensagem sem alterar a predefinição.

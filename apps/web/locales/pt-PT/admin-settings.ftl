@@ -881,3 +881,7 @@ admin-settings-key-security-protection-user-agent-patterns = Padrões de agentes
 admin-settings-help-security-protection-user-agent-patterns = Configura esta parte da observação opcional do agente. O texto enviado pelo cliente é um sinal fraco, não uma prova de identidade ou abuso.
 admin-settings-key-security-protection-user-agent-exceptions = Exceções de agentes do utilizador
 admin-settings-help-security-protection-user-agent-exceptions = Configura esta parte da observação opcional do agente. O texto enviado pelo cliente é um sinal fraco, não uma prova de identidade ou abuso.
+admin-settings-key-mail-reader-unsafe-html-mode = HTML de mensagem potencialmente inseguro
+admin-settings-help-mail-reader-unsafe-html-mode = Perguntar oferece um botão de HTML sanitizado por mensagem. Estrito mostra apenas texto seguro; sanitizado mostra automaticamente HTML limpo. Conteúdo ativo e recursos remotos automáticos continuam bloqueados. Bloqueie para impor esta política.
+admin-settings-key-reader-attachments-density = Densidade dos anexos
+admin-settings-help-reader-attachments-density = Botões de ficheiros compactos por predefinição ou pré-visualizações confortáveis. Controla a apresentação quando os anexos de uma mensagem são expandidos.

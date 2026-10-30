@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.method === 'PUT' ? JSON.parse(String(init.body)) as {value:unknown} : null;
     if (body) { writes.push({ url, value: body.value }); return new Response(JSON.stringify(free(body.value))); }
-    return new Response(JSON.stringify({ settings: { 'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
+    return new Response(JSON.stringify({ settings: { 'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
   }));
 });
 describe('Privacy settings', () => {
@@ -31,11 +31,14 @@ describe('Privacy settings', () => {
     expect(screen.getByLabelText('Remove tracking parameters from links')).toBeDisabled();
     expect(screen.getByLabelText('Remove outgoing mailer headers')).toBeDisabled();
     expect(screen.getByRole('option', { name: "Load directly from the sender's servers" })).toBeDisabled();
+    expect(screen.getByLabelText('Potentially unsafe message HTML')).toBeDisabled();
     expect(writes).toEqual([]);
   });
   it('writes through the settings policy API and preserves unrelated preferences', async () => {
     render(() => <Privacy />);
     const mode = await screen.findByLabelText('Remote content'); await waitFor(() => expect(mode).toBeEnabled());
+    fireEvent.change(screen.getByLabelText('Potentially unsafe message HTML'),{target:{value:'strict'}});
+    await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/mail.reader.unsafeHtmlMode',value:'strict'}));
     fireEvent.change(mode, { target: { value: 'proxy' } });
     await waitFor(() => expect(writes).toContainEqual({ url: '/api/settings/privacy.remoteContent', value: 'proxy' }));
     fireEvent.click(screen.getByLabelText('Block tracking images and beacons'));

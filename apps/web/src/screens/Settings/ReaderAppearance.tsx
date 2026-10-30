@@ -6,6 +6,7 @@ import * as css from './styles.css.ts';
 import { snapZoom, ZOOM_STEPS } from '../../components/readerZoom.ts';
 
 const fields: { key: string; fallback: string | number; choices?: string[]; steps?: readonly number[]; min?: number; max?: number; step?: number }[] = [
+  { key: 'attachmentsDensity', fallback: 'compact', choices: ['compact', 'comfortable'] },
   { key: 'actionStyle', fallback: 'icons', choices: ['icons', 'labels'] },
   { key: 'colorMode', fallback: 'auto', choices: ['auto', 'original', 'adaptive', 'invert'] },
   { key: 'fontSize', fallback: 14, min: 12, max: 24, step: 1 },
@@ -19,7 +20,9 @@ const fields: { key: string; fallback: string | number; choices?: string[]; step
 
 export function ReaderAppearanceSettings(): JSX.Element {
   onMount(() => { void loadCatalog('reader'); void loadCatalog('settings-policy'); });
+  const attachmentsCollapsed=useSetting('reader.attachmentsCollapsed',true);
   return <section class={css.section} aria-label={t('reader-settings-title')}><h3 class={css.heading}>{t('reader-settings-title')}</h3><p class={css.meta}>{t('reader-settings-help')}</p>
+    <div class={css.field}><label><input type="checkbox" checked={attachmentsCollapsed.value()} disabled={!attachmentsCollapsed.entry()||attachmentsCollapsed.locked()||attachmentsCollapsed.saving()} onChange={event=>void attachmentsCollapsed.set(event.currentTarget.checked)}/>{t('reader-attachmentsCollapsed')}</label><p class={css.meta}>{t('reader-attachmentsCollapsed-help')}</p><LockNote locked={attachmentsCollapsed.locked()}/><Show when={attachmentsCollapsed.error()}><p role="alert">{attachmentsCollapsed.error()}</p></Show><button type="button" class={css.ghost} disabled={!attachmentsCollapsed.entry()||attachmentsCollapsed.locked()||attachmentsCollapsed.saving()} onClick={()=>void attachmentsCollapsed.reset()}>{t('reader-inherit')}</button></div>
     <For each={fields}>{field => {
       const setting = useSetting<string | number>(`reader.${field.key}`, field.fallback, (v): v is string | number => field.choices ? typeof v === 'string' && field.choices.includes(v) : typeof v === 'number' && Number.isFinite(v));
       const disabled = () => !setting.entry() || setting.locked() || setting.saving();

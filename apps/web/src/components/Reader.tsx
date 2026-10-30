@@ -76,7 +76,6 @@ import { LinkedFilesBar } from './LinkedFilesBar.tsx';
 import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
-import { writeSetting } from '../api/settings.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
 import { resourceValue } from './resourceValue.ts';
@@ -203,7 +202,7 @@ function quoteDate(iso: string | null | undefined): string {
  *  the sandboxed message iframe. Since t110 they sit in a collapsible reader
  *  notice bar ("3 attachments · 4.2 MB"), last in the notice stack; the open or
  *  closed state is the user's `reader.attachmentsCollapsed` setting (default
- *  open, as before), and the thumbnails load only once the bar is open. Each viewer keeps its own sandbox (§2.4). In a
+ *  collapsed), and previews load only in comfortable density after expansion. Each viewer keeps its own sandbox (§2.4). In a
  *  locked-down max-security mode attachments open ONLY through this re-encode
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
 export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void }): JSX.Element {
@@ -279,15 +278,16 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   onMount(() => void loadCatalog('reader'));
   const collapseSetting = () => effectiveSettings()['reader.attachmentsCollapsed'];
   const [collapsedLocal, setCollapsedLocal] = createSignal<boolean | null>(null);
-  const collapsed = (): boolean => collapsedLocal() ?? collapseSetting()?.value === true;
+  const collapsed = (): boolean => collapsedLocal() ?? collapseSetting()?.value !== false;
+  const attachmentDensity = () => effectiveSettings()['reader.attachmentsDensity']?.value === 'comfortable' ? 'comfortable' as const : 'compact' as const;
   /** Mount the thumbnails on first open, then keep them (no refetch on toggle). */
   const [everOpen, setEverOpen] = createSignal(false);
+  createEffect(on(()=>JSON.stringify([app.accountId(),props.email.id,collapseSetting()?.value,collapseSetting()?.locked]),()=>{setCollapsedLocal(null);setEverOpen(false);setOpenItem(null);setAcknowledged(false);}));
   createEffect(() => { if (!collapsed()) setEverOpen(true); });
   function toggle(): void {
     const next = !collapsed();
     setCollapsedLocal(next);
-    const entry = collapseSetting();
-    if (entry && !entry.locked) void writeSetting('reader.attachmentsCollapsed', next).catch(() => undefined);
+    // This gesture opens only this message; persistent defaults live in Settings.
   }
   const totalSize = createMemo(() => items().reduce((sum, item) => sum + item.size, 0));
   const summaryText = (): string => t('reader-attachments-summary', { count: items().length, size: formatBytes(totalSize()) });
@@ -319,13 +319,14 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         <Show when={everOpen()}>
         {/* While the policy loads, the same strip with icons only (t110): the
             panel keeps its height, so the body below never moves. */}
-        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div data-testid="async-pending" data-policy="pending" role="status" aria-label={t('mail-attachment-policy-loading')} aria-busy="true" inert><ThumbnailStrip items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
+        <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div data-testid="async-pending" data-policy="pending" role="status" aria-label={t('mail-attachment-policy-loading')} aria-busy="true" inert><ThumbnailStrip density={attachmentDensity()} items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <div data-policy="ready">
         <ThumbnailStrip
+          density={attachmentDensity()}
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
-          resolveThumb={(item)=>blobUrlFor(item)}
+          {...(attachmentDensity()==='comfortable'?{resolveThumb:(item:StripItem)=>blobUrlFor(item)}:{})}
         />
         </div>
         </Show>
@@ -388,7 +389,7 @@ function DecryptPanel(props: {
   armor: string;
   emailId: string;
   senderAddress: string;
-  onDecrypted: (content: { html?: string; text?: string }, signature: SignatureVerdict, emailId: string, accountId: string | null) => void;
+  onDecrypted: (content: { html?: string; text?: string; sanitizedHtmlAlternative?:string }, signature: SignatureVerdict, emailId: string, accountId: string | null) => void;
 }): JSX.Element {
   const app = useApp();
   const [passphrase, setPassphrase] = createSignal('');
@@ -437,6 +438,7 @@ function DecryptPanel(props: {
     setBusy(true);
     try {
       const requestedEmail = props.emailId;
+      const requestedArmor = props.armor;
       const requestedAccount = app.accountId();
       // Only the open mailbox's own keys (t87 D11): a key of another mailbox is
       // never offered to the worker.
@@ -447,7 +449,7 @@ function DecryptPanel(props: {
       const bundle = own?.encryptedPrivateBackup ?? null;
       if (bundle === null) throw new Error(t('mail-decrypt-no-key'));
       const signerPublicKeys = await resolveSignerPublicKeys(props.senderAddress);
-      if (props.emailId !== requestedEmail || app.accountId() !== requestedAccount) return;
+      if (props.emailId !== requestedEmail || props.armor !== requestedArmor || app.accountId() !== requestedAccount) return;
       const result = await getCryptoWorker().decrypt({
         readerPolicy: { blockTrackers: false, cleanLinks: true },
         kind: 'pgp',
@@ -456,12 +458,12 @@ function DecryptPanel(props: {
         passphrase: passphrase(),
         ...(signerPublicKeys.length > 0 ? { signerPublicKeys } : {}),
       });
-      if (props.emailId !== requestedEmail || app.accountId() !== requestedAccount) return;
+      if (props.emailId !== requestedEmail || props.armor !== requestedArmor || app.accountId() !== requestedAccount) return;
       // The worker sanitized any HTML plaintext IN-WORKER (§1.3): `plaintextHtml` is
       // already safe to render as HTML; `plaintextText` renders escaped.
       const content =
         result.plaintextHtml !== undefined
-          ? { html: result.plaintextHtml }
+          ? { html: result.plaintextHtml, ...(result.sanitizedHtmlAlternative!==undefined?{sanitizedHtmlAlternative:result.sanitizedHtmlAlternative}:{}) }
           : { text: result.plaintextText ?? '' };
       props.onDecrypted(content, result.signature, requestedEmail, requestedAccount);
     } catch (err) {
@@ -635,14 +637,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // rendered as sanitized HTML in the sandbox; `decryptedText` = non-HTML plaintext,
   // rendered escaped. Reset whenever the open message changes.
   const [decryptedHtml, setDecryptedHtml] = createSignal<string | null>(null);
+  const [decryptedSafeHtml,setDecryptedSafeHtml]=createSignal<string|null>(null);
   const [decryptedText, setDecryptedText] = createSignal<string | null>(null);
-  createEffect(() => {
-    emailId();
-    app.accountId();
+  const decryptedSourceScope=createMemo(()=>JSON.stringify([emailId(),app.accountId(),extractPgpArmor(app.openEmail())]));
+  createEffect(on(decryptedSourceScope,() => {
     setClientSig(null);
-    setDecryptedHtml(null);
+    setDecryptedHtml(null);setDecryptedSafeHtml(null);
     setDecryptedText(null);
-  });
+  }));
 
   const verdict = createMemo<SecurityVerdict | null>(() => {
     const v = settled(serverVerdict);
@@ -719,11 +721,17 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
+  const unsafeHtmlMode=createMemo(()=>{const value=settings()['mail.reader.unsafeHtmlMode']?.value;return value==='strict'||value==='sanitized'?value:'ask';});
+  const htmlConsentScope=createMemo(()=>JSON.stringify([app.accountId(),emailId(),app.openEmail()?extractHtmlBody(app.openEmail()!):'',armor(),unsafeHtmlMode(),maxsec.effectiveMode(sender())]));
+  const [htmlConsent,setHtmlConsent]=createSignal<string|null>(null);
+  createEffect(on(htmlConsentScope,()=>setHtmlConsent(null)));
+  const allowSanitizedHtml=()=>unsafeHtmlMode()==='sanitized'||(unsafeHtmlMode()==='ask'&&htmlConsent()===htmlConsentScope());
+  const htmlRenderScope=()=>JSON.stringify([htmlConsentScope(),allowSanitizedHtml()]);
   const [readerBody, {mutate:mutateReaderBody}] = createResource(
     () => {
       const email = app.openEmail(); const account = app.accountId();
       if (!email || !account || privacy.loading || grants.loading) return null;
-      return { email, account, policy: policy(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), granted: activeGrant() !== null, fallback: app.sanitizedHtml() };
+      return { email, account, policy: policy(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, fallback: app.sanitizedHtml() };
     },
     async k => {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
@@ -732,9 +740,18 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       // Only the worker's canonical quarantine wrapper is a verdict; ordinary
       // message text may legitimately mention the marker as an example.
       const blocked = failed || html.startsWith('<pre data-mw-body-blocked="true">');
-      if (blocked) effective = BLOCKED_POLICY;
-      const cancelled = () => ({ blocked: false, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
-      const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode;
+      let restored=false;
+      if(blocked){
+        effective=BLOCKED_POLICY;
+        if(k.allowSanitizedHtml&&!failed){
+          try{
+            const safe=k.decrypted!==null?k.decryptedSafe:await getCryptoWorker().sanitizeReader({html:extractHtmlBody(k.email),blockTrackers:true,cleanLinks:true,allowSanitizedHtml:true});
+            if(safe!==null&&!safe.startsWith('<pre data-mw-body-blocked="true">')){html=safe;restored=true;}
+          }catch{failed=true;}
+        }
+      }
+      const cancelled = () => ({ blocked: false, restored:false, scope:k.scope, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
+      const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode && htmlRenderScope()===k.scope;
       if (!current()) return cancelled();
       const refs = blocked ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html); const cidParts: Record<string,string> = {};
       const walk = (part: unknown): void => {
@@ -756,10 +773,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
-      return { blocked, emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
+      return { blocked, restored, scope:k.scope, emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
-  const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() ? body : undefined; };
+  const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() && body.scope===htmlRenderScope() ? body : undefined; };
   const readerAppearance = (): ReaderAppearance => {
     const values = settings();
     const mode = values['reader.colorMode']?.value;
@@ -794,7 +811,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
    *  otherwise the sanitised HTML. `decrypted` marks the first case. */
   function displayedContent(email: Email): { source: QuoteSource; decrypted: boolean } {
     const decHtml = decryptedHtml();
-    if (decHtml !== null) return { source: { html: decHtml }, decrypted: true };
+    if (decHtml !== null) return { source: { html: currentBody()?.sanitized ?? decHtml }, decrypted: true };
     const decText = decryptedText();
     if (decText !== null) return { source: { text: decText }, decrypted: true };
     if (armor() !== null) return { source: {}, decrypted: false };
@@ -1131,7 +1148,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <InviteCard accountId={accountId()} emailId={email().id} />
             )}</Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
-            <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live>{t('privacy-body-blocked')}</ReaderNoticeBar></Show>
+            <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
             <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
             <Show
               when={showDecrypt()}
@@ -1159,7 +1176,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 senderAddress={sender()}
                 onDecrypted={(content, signature, decryptedId, decryptedAccount) => {
                   if (emailId() !== decryptedId || app.accountId() !== decryptedAccount) return;
-                  if (content.html !== undefined) setDecryptedHtml(content.html);
+                  if (content.html !== undefined) {setDecryptedSafeHtml(content.sanitizedHtmlAlternative??null);setDecryptedHtml(content.html);}
                   else setDecryptedText(content.text ?? '');
                   setClientSig(signature);
                 }}

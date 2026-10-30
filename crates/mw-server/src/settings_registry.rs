@@ -396,6 +396,22 @@ use Scopes::{
 /// Every registered key. Order is the admin screen's order within a category.
 pub static REGISTRY: &[SettingDef] = &[
     def!(
+        "mail.reader.unsafeHtmlMode",
+        Kind::Enum(&["ask", "strict", "sanitized"]),
+        "\"ask\"",
+        GDU,
+        "mail",
+        "Handling of message HTML detected as unsafe"
+    ),
+    def!(
+        "reader.attachmentsDensity",
+        Kind::Enum(&["compact", "comfortable"]),
+        "\"compact\"",
+        GDU,
+        "reader",
+        "Reader attachment list density"
+    ),
+    def!(
         "mail.composeWindow",
         Kind::Enum(&["tab", "window"]),
         "\"tab\"",
@@ -1811,7 +1827,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "reader.attachmentsCollapsed",
         Kind::Bool,
-        "false",
+        "true",
         GDU,
         "reader",
         "start the reader's attachments bar collapsed (t110)"

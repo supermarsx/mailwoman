@@ -10,6 +10,7 @@ import { AppContext } from '../state/context.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { initSync, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
 import type { RemotePolicy, SignedContent } from '../api/remote-content.ts';
+import {clearSettings,loadSettings} from '../api/settings.ts';
 import type { Email } from '../api/jmap-types.ts';
 // Unit tests inspect the prepared document; real browser tests exercise the
 // opaque outer bridge and its script-free nested frame with actual CSP headers.
@@ -20,6 +21,7 @@ let policy: RemotePolicy; let granted: boolean; let signFailed: boolean; let req
 let signOverride: ((body: typeof requests[number]) => Promise<Response>) | undefined;
 const json = (body:unknown,status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json'}});
 beforeEach(() => {
+  clearSettings();
   policy = { mode:'proxy',trackers:true,cleanLinks:true,allowDirect:false,inlineParts:true,locked:{mode:false,trackers:false,cleanLinks:false} }; granted=false; signFailed=false;requests=[];signOverride=undefined;
   vi.spyOn(getCryptoWorker(),'sanitizeReader').mockImplementation(async r => sanitizeEmailHtmlReader(r.html,r.blockTrackers,r.cleanLinks));
   vi.stubGlobal('fetch',vi.fn(async(input: RequestInfo | URL,init?:RequestInit) => {
@@ -77,6 +79,42 @@ describe('Reader signed privacy pipeline',()=>{
     expect(frame()?.srcdoc).not.toContain('cdn.example.test');
     expect(requests).toEqual([]);
     expect(app.openEmail()?.bodyValues?.['1']?.value).toBe(original);
+  });
+  it('offers safe HTML by default, keeps resources inert, and resets consent between messages',async()=>{
+    vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?'<p><strong>Safe formatted words</strong></p>':'<pre data-mw-body-blocked="true">Safe words only</pre>');
+    const original='<script>evil()</script><p><strong>Safe formatted words</strong></p><img src="https://cdn.example.test/image.png">';
+    const app=await open([message('m1',original),message('m2',original)]);
+    fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('<strong>Safe formatted words</strong>'));
+    expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
+    expect(frame()?.srcdoc).not.toContain('<script');expect(requests).toEqual([]);
+    expect(screen.queryByRole('button',{name:/Enable links/})).not.toBeInTheDocument();
+    expect(app.openEmail()?.bodyValues?.['1']?.value).toBe(original);
+    await app.openMessage('m2');await screen.findByRole('button',{name:'Show sanitized HTML'});
+    await waitFor(()=>expect(frame()?.srcdoc).not.toContain('<strong>'));
+    await app.openMessage('m1');await screen.findByRole('button',{name:'Show sanitized HTML'});
+    expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','blocked');
+  });
+  it('honors strict administrator policy and automatically displays only safe output in sanitized mode',async()=>{
+    vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?'<p><b>Clean markup</b></p>':'<pre data-mw-body-blocked="true">Clean text</pre>');
+    await open([message('m1','<script>bad()</script><b>Clean markup</b>')]);
+    const mode=async(value:string)=>loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value,locked:true,source:'global'}}})});
+    await mode('strict');await waitFor(()=>expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).not.toBeInTheDocument());
+    expect(frame()?.srcdoc).not.toContain('<b>Clean markup</b>');
+    await mode('sanitized');await waitFor(()=>expect(frame()?.srcdoc).toContain('<b>Clean markup</b>'));
+    expect(screen.queryByRole('button',{name:'Show safe text'})).not.toBeInTheDocument();expect(requests).toEqual([]);
+    await mode('strict');await waitFor(()=>expect(frame()?.srcdoc).not.toContain('<b>Clean markup</b>'));
+    expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).not.toBeInTheDocument();
+  });
+  it('discards a late safe-HTML result after leaving its message',async()=>{
+    let release:(value:string)=>void=()=>{};
+    const gate=new Promise<string>(resolve=>{release=resolve;});
+    vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?gate:'<pre data-mw-body-blocked="true">Safe text</pre>');
+    const app=await open([message('m1','<script>first()</script>'),message('m2','<script>second()</script>')]);
+    fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
+    await app.openMessage('m2');release('<p>OLD SAFE RESULT</p>');
+    await screen.findByRole('button',{name:'Show sanitized HTML'});
+    expect(frame()?.srcdoc).not.toContain('OLD SAFE RESULT');expect(requests).toEqual([]);
   });
   it('loads proxy images through signed URLs and maps CID references to the message part',async()=>{
     await open([message('m1','<p>Private body</p><img src="https://cdn.example.test/image.png"><img src="cid:logo@test">')]);
@@ -161,6 +199,8 @@ describe('Reader notice bars',()=>{
     const attachments=screen.getByTestId('reader-attachments-bar');
     expect(attachments).toHaveTextContent(/^2 attachments · 1 MB/);
     const toggle=screen.getByTestId('reader-attachments-toggle');
+    expect(toggle).toHaveAttribute('aria-expanded','false');
+    fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded','true');expect(screen.getByTestId('reader-attachments').parentElement).not.toHaveAttribute('hidden');
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-expanded','false');expect(toggle).toHaveAccessibleName('Show attachments');

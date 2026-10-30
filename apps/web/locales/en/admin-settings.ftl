@@ -881,3 +881,7 @@ admin-settings-key-security-protection-user-agent-patterns = User-agent patterns
 admin-settings-help-security-protection-user-agent-patterns = Configures this part of optional user-agent observation. Client-provided user-agent text is a weak signal, not proof of identity or abuse.
 admin-settings-key-security-protection-user-agent-exceptions = User-agent exceptions
 admin-settings-help-security-protection-user-agent-exceptions = Configures this part of optional user-agent observation. Client-provided user-agent text is a weak signal, not proof of identity or abuse.
+admin-settings-key-mail-reader-unsafe-html-mode = Potentially unsafe message HTML
+admin-settings-help-mail-reader-unsafe-html-mode = Ask offers a per-message sanitized HTML button by default. Strict shows only safe text; sanitized shows cleaned HTML automatically. Active content and automatic remote resources remain blocked. Lock to enforce this policy.
+admin-settings-key-reader-attachments-density = Attachment density
+admin-settings-help-reader-attachments-density = Compact file buttons by default, or comfortable previews. This controls presentation when a message's attachments are expanded.

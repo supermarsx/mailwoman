@@ -95,4 +95,12 @@ privacy-links-enable-help = Allow links in this message to open in a new tab. Yo
 privacy-links-loading = Preparing links…
 
 privacy-body-blocked = Message HTML blocked for safety
-privacy-body-blocked-detail = This body contains potentially unsafe content or could not be checked. Only safe text is shown. The original message is unchanged.
+privacy-body-blocked-detail = This body contains potentially unsafe content or could not be checked. Active content stays blocked. The original message is unchanged.
+privacy-body-show-sanitized = Show sanitized HTML
+privacy-body-hide-sanitized = Show safe text
+privacy-body-sanitized-shown = Sanitized HTML shown
+privacy-unsafe-html = Potentially unsafe message HTML
+privacy-unsafe-html-ask = Ask before showing sanitized HTML
+privacy-unsafe-html-strict = Always show safe text
+privacy-unsafe-html-sanitized = Always show sanitized HTML
+privacy-unsafe-html-help = Sanitized HTML removes active content. Remote resources, links and automatic receipts stay blocked for these messages. Originals remain unchanged.
