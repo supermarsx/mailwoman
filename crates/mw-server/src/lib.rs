@@ -99,6 +99,7 @@ mod packages_model;
 pub mod passwd;
 pub mod plugins;
 mod primary_identity;
+mod private_etag;
 // V7 MOUNT/WIRE (plan §3 e14): builds + injects the five V7 extensions, backs the
 // host-service seams, and the extra endpoints. Owned by e14.
 pub mod v7_mount;
@@ -1568,6 +1569,8 @@ fn router(
             error_pages::json(error_pages::ErrorKind::MethodNotAllowed)
         })
         .fallback(static_handler)
+        // t99: strong ETag + 304 on private JSON reads that set no caching posture.
+        .layer(axum::middleware::from_fn(private_etag::layer))
         // t91: innermost, so it sees only requests every guard below admitted.
         // A request without `Idempotency-Key` passes through untouched.
         .layer(middleware::from_fn(idempotency::layer))
