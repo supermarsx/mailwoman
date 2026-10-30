@@ -26,6 +26,11 @@ import { onAdminSessionEnded } from '../../../api/adminSession.ts';
 export const CRUMB_CATALOGS = [
   'admin-shell', 'admin', 'admin-settings', 'admin-identity', 'admin-admins', 'privacy', 'plugins',
   'admin-personal', 'admin-features', 'admin-branding', 'admin-analytics',
+  // t97: the Security centre's Requirements tab label lives with the centre.
+  'admin-security',
+  // t105: the Diagnostics sub-tab labels. Until that catalog exists, loadCatalog
+  // skips it and those words fall back to humanized text.
+  'admin-diagnostics',
 ] as const;
 const [catalogsReady, setCatalogsReady] = createSignal(false);
 let catalogsLoad: Promise<void> | undefined;
@@ -70,6 +75,9 @@ export const CRUMB_WORDS: readonly string[] = [
   'audit', 'statistics', 'telemetry',
   'directory', 'webhooks', 'keys', 'hosting', 'ssh', 'domains', 'mailboxes',
   'application', 'authentication', 'jobs', 'mode', 'destinations', 'proxies', 'totp', 'security',
+  'requirements',
+  // t105: the Diagnostics sub-tabs (#/diagnostics/<tab>).
+  'server', 'connectivity', 'posture', 'tools', 'history', 'report',
 ];
 const WORD_ALIASES: Readonly<Record<string, string>> = { '+new': 'new', '+register': 'register' };
 

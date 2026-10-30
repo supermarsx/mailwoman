@@ -15,7 +15,10 @@ function grants(caps:Capability[],scope:string[]|null=null){return createCan(()=
 beforeAll(async()=>{await loadCatalog('admin');await loadCatalog('admin-security');});
 it('keeps old security bookmarks and nested ban editor query parameters functional',()=>{
  expect(parseAdminPath('/admin#/observability/bans/new?field=ip')).toEqual({section:'security',rest:['bans','new'],query:{field:'ip'},field:'ip'});
- expect(parseAdminPath('/admin#/two-factor')).toEqual({section:'security',rest:[]});
+ // t97: the require-2FA policy moved to the Requirements tab; old anchors land there.
+ expect(parseAdminPath('/admin#/two-factor')).toEqual({section:'security',rest:['requirements']});
+ expect(parseAdminPath('/admin#/security/two-factor')).toEqual({section:'security',rest:['requirements']});
+ expect(parseAdminPath('/admin#/security/overview')).toEqual({section:'security',rest:['overview']});
  for(const [legacy,tab] of [['sessions','sessions'],['security-policy','policy'],['inbound-allowlist','inbound']])expect(parseAdminPath('/admin#/'+legacy)).toEqual({section:'security',rest:[tab]});
  expect(parseAdminPath('/admin#/observability/statistics').section).toBe('observability');
 });
@@ -23,7 +26,10 @@ it('shows the centre to each independent authorized role without granting other 
  const section=SECTIONS.find(row=>row.id==='security')!;
  for(const cap of ['security.read','bans.read','diagnostics.read','sessions.read'] as const)expect(canOpenSection(section,grants([cap]))).toBe(true);
  expect(canOpenSection(section,grants(['users.read']))).toBe(false);
- expect(SECURITY_TABS.filter(tab=>canOpenSecurityTab(grants(['diagnostics.read']),tab)).map(tab=>tab.id)).toEqual(['deployment']);
+ // The Overview opens for any tile's capability (the server sends only those tiles).
+ expect(SECURITY_TABS.filter(tab=>canOpenSecurityTab(grants(['diagnostics.read']),tab)).map(tab=>tab.id)).toEqual(['overview','deployment']);
+ expect(SECURITY_TABS.filter(tab=>canOpenSecurityTab(grants(['security.read']),tab)).map(tab=>tab.id)).toContain('requirements');
+ expect(SECURITY_TABS.filter(tab=>canOpenSecurityTab(grants(['bans.read']),tab)).map(tab=>tab.id)).not.toContain('requirements');
  expect(SECURITY_TABS.filter(tab=>canOpenSecurityTab(grants(['bans.read'],['example.com']),tab)).map(tab=>tab.id)).toEqual([]);
 });
 function mount(caps:Capability[],rest:string[]){

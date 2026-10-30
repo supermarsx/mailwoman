@@ -1,14 +1,14 @@
-import { createResource, For, Show, Switch, Match, lazy, onMount, useContext, type JSX } from 'solid-js';
-import { adminRequest } from './shell/adminApi.ts';
+import { For, Show, Switch, Match, lazy, onMount, useContext, type JSX } from 'solid-js';
 import { TwoFactorPolicy, type TwoFactorPolicyProps } from './TwoFactorPolicy.tsx';
 import { t, loadCatalog } from '../../i18n';
 import { ShellContext } from './shell/context.ts';
 import { SectionTabs } from './shell/SectionTabs.tsx';
 import { sectionPath } from './shell/router.ts';
 import { SECURITY_TABS, canOpenSecurityTab } from './shell/securityNavigation.ts';
-import { AsyncPending, AsyncError } from '../../components/AsyncState.tsx';
+import { SecurityDashboardView } from './SecurityDashboard.tsx';
+import { keySlug } from './Settings/keys.ts';
 import * as css from '../Settings/styles.css.ts';
-type Posture = { knownAccounts: number; accountsWithFactor: number; adminsWithoutFactor: number; staleApiKeys: number; upstreamAllowlistConfigured: boolean; environmentAdminLoginEnabled: boolean };
+/** The sign-in policies the Requirements tab links to, each to its scoped, lockable editor. */
 const policies = ['twofa.required', 'twofa.passkeysEnabled', 'twofa.passkeyAttachment', 'twofa.passkeyUserVerification', 'twofa.passkeyResidentKey', 'twofa.passkeyLegacy', 'twofa.lastFactorRemoval', 'twofa.rememberDays', 'session.maxConcurrent', 'session.idleSecs', 'session.absoluteSecs'];
 const BanList=lazy(()=>import('./BanList.tsx').then(m=>({default:m.BanList})));
 const BanEditor=lazy(()=>import('./BanEditor.tsx').then(m=>({default:m.BanEditor})));
@@ -22,7 +22,7 @@ const Sessions=lazy(()=>import('./Sessions.tsx').then(m=>({default:m.AdminSessio
 const ConsolePath=lazy(()=>import('./ConsolePath.tsx').then(m=>({default:m.ConsolePath})));
 export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
   const shell=useContext(ShellContext);
-  onMount(()=>void loadCatalog('admin-security'));
+  onMount(()=>{void loadCatalog('admin-security');void loadCatalog('admin-settings');});
   const tabs=()=>SECURITY_TABS.filter(tab=>!shell || canOpenSecurityTab(shell.can,tab));
   const selected=()=>shell?.router.route().rest[0]??tabs()[0]?.id??'';
   const allowed=()=>tabs().some(tab=>tab.id===selected());
@@ -31,7 +31,8 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
     <SectionTabs label={t('admin-security-center-title')} items={tabs().map(tab=>({id:tab.id,label:t(tab.label),path:sectionPath('security',[tab.id])}))} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/>
     <Show when={allowed()} fallback={<p role="alert">{t('admin-security-tab-denied')}</p>}>
       <Switch>
-        <Match when={selected()==='overview'}><SecurityOverview {...props}/></Match>
+        <Match when={selected()==='overview'}><SecurityDashboardView/></Match>
+        <Match when={selected()==='requirements'}><SecurityRequirements {...props}/></Match>
         <Match when={selected()==='bans'}><Show when={shell?.router.route().rest[1]==='new'} fallback={<BanList/>}><Show when={!shell || shell.can.can('bans.write')} fallback={<p role="alert">{t('admin-security-tab-denied')}</p>}><BanEditor/></Show></Show></Match>
         <Match when={selected()==='locks'}><AutomaticLocks/></Match>
         <Match when={selected()==='geography'}><SigninGeography/></Match>
@@ -45,24 +46,20 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
     </Show>
   </div>;
 }
-function SecurityOverview(props: TwoFactorPolicyProps): JSX.Element {
-  const [posture] = createResource(async () => (await adminRequest<Posture>('/security/posture')).data);
-  return <div class={css.stack}>
-    <section class={css.section}>
-      <p class={css.prose}>{t('admin-security-center-policy-help')}</p>
-      <ul><For each={policies}>{(key) => <li><a href={`#/settings/${key}`}>{key}</a></li>}</For></ul>
-      <h3 class={css.subheading}>{t('admin-security-center-posture')}</h3>
-      <Show when={posture.loading}><AsyncPending /></Show>
-      <Show when={posture.error}><AsyncError /></Show>
-      <Show when={!posture.loading && !posture.error ? posture() : undefined}>{(p) => <ul>
-        <li>{t('admin-security-center-coverage', { enrolled: p().accountsWithFactor, total: p().knownAccounts })}</li>
-        <li><a href="#/admins">{t('admin-security-center-admins', { count: p().adminsWithoutFactor })}</a></li>
-        <li><a href="#/users">{t('admin-security-center-keys', { count: p().staleApiKeys })}</a></li>
-        <li><a href="#/domains">{t(p().upstreamAllowlistConfigured ? 'admin-security-center-allowlist-on' : 'admin-security-center-allowlist-off')}</a></li>
-        <li><a href="#/admins">{t(p().environmentAdminLoginEnabled ? 'admin-security-center-env-on' : 'admin-security-center-env-off')}</a></li>
-      </ul>}</Show>
-      <a href="#/sessions">{t('admin-nav-sessions')}</a>
-    </section>
+/** Two-factor and sign-in requirements (t97): the require-2FA policy (global and
+ *  per domain) and the passkey and session policies, moved here from the Overview
+ *  unchanged. */
+function SecurityRequirements(props: TwoFactorPolicyProps): JSX.Element {
+  const label = (key: string): string => {
+    const text = t(`admin-settings-key-${keySlug(key)}`);
+    return text.startsWith('admin-settings-key-') ? key : text;
+  };
+  return <div class={css.stack} data-testid="security-requirements">
     <TwoFactorPolicy {...props} />
+    <section class={css.section} aria-labelledby="security-requirements-policies">
+      <h3 id="security-requirements-policies" class={css.subheading}>{t('admin-security-requirements-policies')}</h3>
+      <p class={css.prose}>{t('admin-security-center-policy-help')}</p>
+      <ul><For each={policies}>{(key) => <li><a href={`#/settings/${key}`}>{label(key)}</a> <code>{key}</code></li>}</For></ul>
+    </section>
   </div>;
 }
