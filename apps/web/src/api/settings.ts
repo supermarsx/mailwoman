@@ -24,7 +24,9 @@ import { createSignal } from 'solid-js';
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
 import { idempotentWrite } from './recovery.ts';
-import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
+import { preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './accountPreferenceLifecycle.ts';
+import { onLinkedMailboxChange } from './linkedMailboxSession.ts';
+import { createSwrCache, scopedKey, swrCachesEnabled } from './swrCache.ts';
 
 /** Where an effective value came from (`SettingSource::as_str` on the server). */
 export type SettingSource =
@@ -176,6 +178,29 @@ const [settingsStatus, setSettingsStatus] = createSignal<'idle' | 'loading' | 'r
 
 let inflight: Promise<void> | null = null;
 let activeFetcher: Fetcher = defaultFetcher;
+
+// t99: the last map each account loaded in this page. Switching to a linked
+// mailbox and back used to empty the map and wait for `/api/settings` again
+// (~0.6 s for a linked mailbox); now the account's last map shows at once and
+// the request refreshes it in place. Keyed by the account and its storage
+// authority, so one mailbox's settings never show for another; dropped at
+// sign-in and sign-out. Memory only.
+const snapshots = createSwrCache<SettingsMap>({ freshMs: 0, maxAgeMs: 30 * 60_000 });
+function snapshotKey(account: PreferenceAccount | null): string | null {
+  return account ? scopedKey('settings', account.id, account.storageAuthority) : null;
+}
+function keepSnapshot(map: SettingsMap): void {
+  const key = swrCachesEnabled() ? snapshotKey(preferenceAccount()) : null;
+  if (key !== null) snapshots.set(key, map);
+}
+onLinkedMailboxChange((change) => {
+  // Sign-in, sign-out (the sign-in context reinstalled): nothing carries over.
+  if (change.context === null && change.previous === null) snapshots.clear();
+});
+/** Forget every kept map (tests). */
+export function clearSettingsSnapshots(): void {
+  snapshots.clear();
+}
 let generation = 0;
 let loadSequence = 0;
 const mutations = new Map<string, Promise<SettingEntry>>();
@@ -203,7 +228,15 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
   const sequence = ++loadSequence;
   const loadedRevisions = new Map(revisions);
   const pendingKeys = new Set(mutations.keys());
-  if (settingsStatus() !== 'ready') setSettingsStatus('loading');
+  const kept = swrCachesEnabled() && settingsStatus() !== 'ready' ? (() => {
+    const key = snapshotKey(preferenceAccount());
+    return key === null ? undefined : snapshots.peek(key);
+  })() : undefined;
+  if (kept !== undefined) {
+    // Shown now; the request below replaces it in place.
+    setSettingsMap(kept);
+    setSettingsStatus('ready');
+  } else if (settingsStatus() !== 'ready') setSettingsStatus('loading');
   const run = fetchSettings(activeFetcher)
     .then((map) => {
       if (current !== generation || sequence !== loadSequence) return;
@@ -216,6 +249,7 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
         }
       }
       setSettingsMap(merged);
+      keepSnapshot(merged);
       setSettingsStatus('ready');
     })
     .catch((e: unknown) => {
@@ -232,7 +266,9 @@ export function loadSettings(opts: { refresh?: boolean; fetcher?: Fetcher } = {}
 
 /** Replace one key's entry in the shared map. */
 function store(key: string, entry: SettingEntry): void {
-  setSettingsMap({ ...settingsMap(), [key]: entry });
+  const next = { ...settingsMap(), [key]: entry };
+  setSettingsMap(next);
+  keepSnapshot(next);
 }
 
 /**

@@ -12,6 +12,7 @@ import { Login } from './screens/Login.tsx';
 import { ToastRegion } from './components/toast/index.ts';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
+import { scheduleIdlePrefetch } from './boot/idlePrefetch.ts';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
 import { t } from './i18n/index.ts';
 import { clearSettings, loadSettings } from './api/settings.ts';
@@ -247,6 +248,16 @@ export function App(): JSX.Element {
     });
     onCleanup(off);
   }
+
+  // t99: once a mail session is up and the first list had time to load, fetch
+  // the next likely chunks (reader/Settings catalogs, Calendar, Contacts) while
+  // the browser is idle, so the first open does not wait for them.
+  createEffect(() => {
+    // Not under the unit-test runner: its jsdom has no chunks to fetch.
+    if (!inMail() || import.meta.env.MODE === 'test') return;
+    const timer = setTimeout(() => { scheduleIdlePrefetch(); }, 2500);
+    onCleanup(() => clearTimeout(timer));
+  });
 
   // Keep the offline slice's cached header slice in sync with the visible list,
   // so the reduced offline search + offline reads have data to work from (§2.5).

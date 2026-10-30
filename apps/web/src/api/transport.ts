@@ -32,6 +32,7 @@ import { basePath } from './basePath.ts';
 import { setClientHeader, setNativeTransport, type ClientHeader } from './http.ts';
 import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 import { platformReady } from '../platform/index.ts';
+import { withSessionCache } from './sessionCache.ts';
 
 export { isNativeAuth, nativeServerBase } from './serverAddress.ts';
 
@@ -116,7 +117,8 @@ if (isNativeAuth()) {
  * provisioned for and attaches the keychain bearer token.
  */
 export function createConfiguredClient(): Client {
-  if (isNativeAuth()) return createClient(nativeServerBase, platformAuth());
+  // t99: every client shares one kept JMAP session per mailbox (`sessionCache.ts`).
+  if (isNativeAuth()) return withSessionCache(createClient(nativeServerBase, platformAuth()), `native:${nativeServerBase() ?? ''}`);
   const base = transportBase();
-  return base === '' ? createClient() : createClient(base);
+  return withSessionCache(base === '' ? createClient() : createClient(base), base);
 }
