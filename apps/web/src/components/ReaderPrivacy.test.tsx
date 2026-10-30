@@ -106,6 +106,16 @@ describe('Reader signed privacy pipeline',()=>{
     await mode('strict');await waitFor(()=>expect(frame()?.srcdoc).not.toContain('<b>Clean markup</b>'));
     expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).not.toBeInTheDocument();
   });
+  it('does not offer an HTML action while the reader requires plain text',async()=>{
+    vi.mocked(getCryptoWorker().sanitizeReader).mockResolvedValue('<pre data-mw-body-blocked="true">Safe text</pre>');
+    await open([message('m1','<script>blocked()</script>')]);
+    await screen.findByRole('button',{name:'Show sanitized HTML'});
+    fireEvent.click(screen.getByRole('button',{name:'View: Full'}));fireEvent.click(screen.getByRole('menuitemcheckbox',{name:'Plain text'}));
+    await waitFor(()=>expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).not.toBeInTheDocument());
+    expect(vi.mocked(getCryptoWorker().sanitizeReader).mock.calls.some(([request])=>request.allowSanitizedHtml)).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'View: Plain text'}));fireEvent.click(screen.getByRole('menuitemcheckbox',{name:'Full'}));
+    await screen.findByRole('button',{name:'Show sanitized HTML'});
+  });
   it('discards a late safe-HTML result after leaving its message',async()=>{
     let release:(value:string)=>void=()=>{};
     const gate=new Promise<string>(resolve=>{release=resolve;});

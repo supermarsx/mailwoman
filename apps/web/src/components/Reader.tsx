@@ -725,7 +725,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const htmlConsentScope=createMemo(()=>JSON.stringify([app.accountId(),emailId(),app.openEmail()?extractHtmlBody(app.openEmail()!):'',armor(),unsafeHtmlMode(),maxsec.effectiveMode(sender())]));
   const [htmlConsent,setHtmlConsent]=createSignal<string|null>(null);
   createEffect(on(htmlConsentScope,()=>setHtmlConsent(null)));
-  const allowSanitizedHtml=()=>unsafeHtmlMode()==='sanitized'||(unsafeHtmlMode()==='ask'&&htmlConsent()===htmlConsentScope());
+  const allowSanitizedHtml=()=>maxsec.effectiveMode(sender())!=='plain-text'&&(unsafeHtmlMode()==='sanitized'||(unsafeHtmlMode()==='ask'&&htmlConsent()===htmlConsentScope()));
   const htmlRenderScope=()=>JSON.stringify([htmlConsentScope(),allowSanitizedHtml()]);
   const [readerBody, {mutate:mutateReaderBody}] = createResource(
     () => {
@@ -1148,7 +1148,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <InviteCard accountId={accountId()} emailId={email().id} />
             )}</Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
-            <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
+            <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'&&maxsec.effectiveMode(sender())!=='plain-text'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
             <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
             <Show
               when={showDecrypt()}
