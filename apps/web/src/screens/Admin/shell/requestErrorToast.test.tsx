@@ -2,7 +2,8 @@
 // is retried by itself for an idempotent request with no toast at all.
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, screen, within } from '@solidjs/testing-library';
-import { Diagnostics, type DiagnosticsApi } from '../Diagnostics.tsx';
+import { createSignal, Show } from 'solid-js';
+import { showAdminError, clearAdminError } from './requestErrorToast.ts';
 import { renderInShell } from './testkit.tsx';
 import { AdminProblemError, adminRequest } from './adminApi.ts';
 import { describeAdminError } from './Feedback.tsx';
@@ -14,45 +15,54 @@ function limited(seconds: number): AdminProblemError {
   return new AdminProblemError(429, { code: 'rate_limited', detail: 'Too many requests.', retryAfterSecs: seconds }, null, String(seconds));
 }
 
-const empty = { kind: 'ok' as const, data: { runs: [], nextCursor: null }, etag: null };
-const result = { id: 'run-1', suite: 'server', startedAt: 1, status: 'pass', results: [{ id: 'db', summary: 'Database accepts a query', status: 'pass', durationMs: 5 }] };
+/**
+ * A stand-in screen, independent of any real screen's controls: one action
+ * button that runs `action` and reports failures the way the console screens
+ * do (showAdminError, inline fallback).
+ */
+function Probe(props: { action: () => Promise<void> }) {
+  const [inline, setInline] = createSignal<string>();
+  const [done, setDone] = createSignal(false);
+  const go = async (): Promise<void> => {
+    try { await props.action(); clearAdminError('probe'); setDone(true); } catch (e) { showAdminError(e, { key: 'probe', retry: go }, setInline); }
+  };
+  return (
+    <section aria-label="Probe">
+      <button type="button" onClick={() => void go()}>Do it</button>
+      <Show when={inline()}><p role="alert">{inline()}</p></Show>
+      <Show when={done()}><p>Done</p></Show>
+    </section>
+  );
+}
 
 describe('admin request errors (t104)', () => {
   it('a 429 is the corner toast with the wait and a Retry that waits it out, never an inline line', async () => {
-    let calls = 0;
-    const run = vi.fn(async () => {
-      calls += 1;
-      if (calls === 1) throw limited(1);
-      return { run: result, historySaved: true, auditSaved: true };
-    });
-    const api: DiagnosticsApi = { history: async () => empty, run };
-    renderInShell(() => <Diagnostics api={api} />);
-    const button = await screen.findByRole('button', { name: 'Run server checks' });
-    await vi.waitFor(() => expect(button).toBeEnabled());
-    fireEvent.click(button);
+    const action = vi.fn<() => Promise<void>>().mockRejectedValueOnce(limited(1)).mockResolvedValue(undefined);
+    renderInShell(() => <Probe action={action} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Do it' }));
     const toast = await screen.findByTestId('admin-request-error');
     expect(within(screen.getByTestId('toast-region')).getByTestId('admin-request-error')).toBe(toast);
     expect(toast).toHaveTextContent('Too many requests, try again in 1 s.');
-    const section = screen.getByRole('region', { name: 'Diagnostics' });
-    expect(within(section).queryByRole('alert')).not.toBeInTheDocument();
+    expect(within(screen.getByRole('region', { name: 'Probe' })).queryByRole('alert')).not.toBeInTheDocument();
     const started = Date.now();
     fireEvent.click(within(toast).getByRole('button', { name: 'Retry' }));
-    await vi.waitFor(() => expect(run).toHaveBeenCalledTimes(2), { timeout: 3000 });
+    await vi.waitFor(() => expect(action).toHaveBeenCalledTimes(2), { timeout: 3000 });
     expect(Date.now() - started).toBeGreaterThanOrEqual(900);
-    expect(await screen.findByText('Database accepts a query')).toBeInTheDocument();
+    expect(await screen.findByText('Done')).toBeInTheDocument();
     expect(screen.queryByTestId('admin-request-error')).not.toBeInTheDocument();
   });
 
-  it('a failed backends job start is a toast too, and Retry starts it again', async () => {
-    const job = { run: { ...result, id: 'bulk', status: 'pass' }, total: 1, completed: 1, limited: false, historySaved: true };
-    const start = vi.fn<() => Promise<typeof job>>().mockRejectedValueOnce(new AdminProblemError(503, { code: 'x' }, null)).mockResolvedValue(job);
-    renderInShell(() => <Diagnostics api={{ history: async () => empty, run: async () => ({ run: result, historySaved: true, auditSaved: true }), start, job: async () => job }} />);
-    const button = await screen.findByRole('button', { name: 'Check all saved backends' });
-    await vi.waitFor(() => expect(button).toBeEnabled());
-    fireEvent.click(button);
+  it('any failed request is a toast with Retry; a 422 naming a field stays inline', async () => {
+    const action = vi.fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new AdminProblemError(503, { code: 'x' }, null))
+      .mockRejectedValueOnce(new AdminProblemError(422, { code: 'invalidValue', field: '/port' }, null))
+      .mockResolvedValue(undefined);
+    renderInShell(() => <Probe action={action} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Do it' }));
     const toast = await screen.findByTestId('admin-request-error');
     fireEvent.click(within(toast).getByRole('button', { name: 'Retry' }));
-    await vi.waitFor(() => expect(start).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(action).toHaveBeenCalledTimes(2));
+    expect(await within(screen.getByRole('region', { name: 'Probe' })).findByRole('alert')).toBeInTheDocument();
   });
 
   it('describes any 429 that names its wait', () => {
