@@ -29,7 +29,7 @@ test.beforeEach(async({context})=>{
 test.beforeEach(async()=>{await new Promise(resolve=>setTimeout(resolve,3100));});
 test('detaches a live composer and preserves rich edits on reattach',async({page},info)=>{
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
- const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
+ const navigate=async(name:string)=>{await page.mouse.move(1,1);await expect(page.getByRole('tooltip')).toHaveCount(0);if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await expect(page.getByRole('navigation',{name:'Mailboxes'})).toHaveAttribute('aria-busy','false');await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
  await navigate('Compose');const subject=`Popup draft ${info.project.name}`;await page.getByLabel('Subject',{exact:true}).fill(subject);
  const editor=page.locator('.ProseMirror').last();await editor.fill('Original draft');
  const promise=page.waitForEvent('popup');await detachTab(page,subject);const popup=await promise;
@@ -45,7 +45,7 @@ test('detaches a live composer and preserves rich edits on reattach',async({page
 
 test('returns detached actions to a visible dirty-editor confirmation',async({page},info)=>{
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
- const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
+ const navigate=async(name:string)=>{await page.mouse.move(1,1);await expect(page.getByRole('tooltip')).toHaveCount(0);if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await expect(page.getByRole('navigation',{name:'Mailboxes'})).toHaveAttribute('aria-busy','false');await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
  await navigate('Contacts');await page.getByRole('button',{name:'New contact',exact:true}).click();await page.getByLabel('Full name',{exact:true}).fill('Unsaved detached contact');
  const pending=page.waitForEvent('popup');await detachTab(page,'Contacts');const popup=await pending;
  await expect(popup.getByLabel('Full name',{exact:true})).toHaveValue('Unsaved detached contact');await popup.getByRole('button',{name:'Cancel',exact:true}).click().catch(error=>{if(!popup.isClosed())throw error;});
@@ -55,7 +55,7 @@ test('returns detached actions to a visible dirty-editor confirmation',async({pa
 
 test('closes detached content when the verified account logs out',async({page},info)=>{
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
- const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
+ const navigate=async(name:string)=>{await page.mouse.move(1,1);await expect(page.getByRole('tooltip')).toHaveCount(0);if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await expect(page.getByRole('navigation',{name:'Mailboxes'})).toHaveAttribute('aria-busy','false');await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
  await navigate('Contacts');const pending=page.waitForEvent('popup');await detachTab(page,'Contacts');const popup=await pending;
  await expect(popup.getByRole('button',{name:'Reattach to main window',exact:true})).toBeVisible();
  if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();// Log out sits in the phone's drawer

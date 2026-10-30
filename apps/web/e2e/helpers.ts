@@ -122,11 +122,12 @@ export async function withUserSetting(
   baseURL: string,
   key: string,
   value: unknown,
+  credentials: {username:string;password:string} = {username:'testuser',password:'testpass'},
 ): Promise<() => Promise<void>> {
   const session = async <T>(work: (ctx: APIRequestContext, headers: Record<string, string>) => Promise<T>): Promise<T> => {
     const ctx = await request.newContext({ baseURL });
     try {
-      const login = await postSignIn(ctx, '/api/login', { username: 'testuser', password: 'testpass' });
+      const login = await postSignIn(ctx, '/api/login', credentials);
       expect(login.ok(), `sign in for ${key}: ${login.status()}`).toBe(true);
       const me = (await (await ctx.get('/api/me')).json()) as { storageAuthority: string };
       return await work(ctx, { 'x-mailwoman-storage-authority': me.storageAuthority });
@@ -162,9 +163,10 @@ export async function pinComposerRibbonOnPhone(
   request: APIRequest,
   baseURL: string | undefined,
   project: string,
+  credentials?: {username:string;password:string},
 ): Promise<() => Promise<void>> {
   if (project !== 'phone') return async () => {};
-  return withUserSetting(request, baseURL ?? '', 'ui.bar.composerRibbon', 'pinned');
+  return withUserSetting(request, baseURL ?? '', 'ui.bar.composerRibbon', 'pinned',credentials);
 }
 
 /**

@@ -140,10 +140,10 @@ for(const width of [1440,390]){
   // Ctrl + wheel over the body.
   const box=(await reader(page).locator('iframe.reader__frame').first().boundingBox())!;
   await page.mouse.move(box.x+box.width/2,box.y+Math.min(box.height/2,120));
-  await page.keyboard.down('Control');await page.mouse.wheel(0,-120);await page.keyboard.up('Control');
-  await expectLevel(page,110);
-  await page.keyboard.down('Control');await page.mouse.wheel(0,120);await page.mouse.wheel(0,120);await page.keyboard.up('Control');
-  await expectLevel(page,90);
+  // Each 60-pixel threshold is one level; coalesced deltas retain every notch.
+  // Wait for its actual effect while Control remains down, before releasing it.
+  await page.keyboard.down('Control');try{await page.mouse.wheel(0,-60);await expectLevel(page,110);}finally{await page.keyboard.up('Control');}
+  await page.keyboard.down('Control');try{await page.mouse.wheel(0,60);await page.mouse.wheel(0,60);await expectLevel(page,90);}finally{await page.keyboard.up('Control');}
 
   // The app UI did not scale.
   expect(await page.evaluate(()=>getComputedStyle(document.querySelector('.reader__subject')!).fontSize)).toBe(chrome);

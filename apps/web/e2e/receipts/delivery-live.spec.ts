@@ -6,10 +6,10 @@ type Accepted={commands:string[];sha256:string;replyDropped:boolean};
 async function accepted():Promise<Accepted[]>{try{return (await readFile(path.join(capture,'accepted.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line) as Accepted);}catch{return [];}}
 test('persists the delivery default, sends actual DSN options, and shows uncertain SMTP without resend',async({page},info)=>{
  await mkdir(capture,{recursive:true});await unlink(path.join(capture,'drop-final')).catch(()=>{});
- await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');
+ await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('parent@example.org');await page.getByLabel('Password',{exact:true}).fill('parent-pass');
  const login=page.waitForResponse(response=>response.url().endsWith('/api/login')&&response.request().method()==='POST');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  const identity=await (await login).json() as {accountId:string;storageAuthority:string};expect(identity.accountId).toBeTruthy();expect(identity.storageAuthority).toBeTruthy();
- const configured=await page.request.post('/api/account/identities',{headers:{'x-mailwoman-account':identity.accountId,'x-mailwoman-storage-authority':identity.storageAuthority},data:{name:'DSN fixture',email:'testuser'}});expect(configured.ok()).toBe(true);
+ const configured=await page.request.post('/api/account/identities',{headers:{'x-mailwoman-account':identity.accountId,'x-mailwoman-storage-authority':identity.storageAuthority},data:{name:'DSN fixture',email:'parent@example.org'}});expect(configured.ok()).toBe(true);
  if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();
  await page.getByRole('button',{name:'Settings',exact:true}).click();await page.getByRole('button',{name:'Read receipts',exact:true}).click();
  await page.getByRole('button',{name:'Edit delivery notification default'}).click();
@@ -18,7 +18,7 @@ test('persists the delivery default, sends actual DSN options, and shows uncerta
  await expect(page.getByRole('button',{name:'Edit delivery notification default'})).toBeVisible();
  await page.reload();
  const compose=async(subject:string)=>{
-  await page.getByRole('button',{name:'Compose',exact:true}).click();
+  await page.locator(info.project.name==='phone'?'header.shell__bar button.shell__bar-compose':'button.sidebar__compose').click();
   await page.getByLabel('To',{exact:true}).fill('recipient@example.org');await page.getByLabel('Subject',{exact:true}).fill(subject);
   await page.getByLabel('Body',{exact:true}).fill('Synthetic delivery notification acceptance fixture.');
   await expect(page.getByTestId('compose-request-delivery')).toBeChecked();await expect(page.getByTestId('compose-request-delivery')).toBeEnabled();

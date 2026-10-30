@@ -66,8 +66,8 @@ test('read, flag, move, delete and folder changes on device A show live on devic
    for(let attempt=0;response.status()===429&&attempt<40;attempt++){await new Promise(done=>setTimeout(done,50));response=await probe.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Mailbox/get',{accountId,ids:[inbox.id,archive.id]},'c']]}});}
    expect(response.ok(),await response.text()).toBe(true);const list=(await response.json()).methodResponses[0][1].list as {id:string;totalEmails:number;unreadEmails:number}[];return Object.fromEntries(list.map(box=>[box.id===inbox.id?'inbox':'archive',[box.unreadEmails,box.totalEmails]]));};
   const before=await counts();
-  const moved=page.waitForResponse(response=>response.url().endsWith('/jmap/api')&&(response.request().postData()??'').includes('Email/set')&&(response.request().postData()??'').includes(archive.id));
-  await menu(subjects.open,'Archive');await moved;
+  const moved=page.waitForResponse(response=>response.status()===200&&response.url().endsWith('/jmap/api')&&(response.request().postData()??'').includes('Email/set')&&(response.request().postData()??'').includes(archive.id));
+  await menu(subjects.open,'Archive');const moveResult=await(await moved).json();const setResult=moveResult.methodResponses.find((value:[string,unknown])=>value[0]==='Email/set')?.[1];expect(setResult?.notUpdated).toBeUndefined();expect(Object.keys(setResult?.updated??{})).toHaveLength(1);
   // The counts the server reports right after the move, before any upstream
   // resync: the message left the Inbox total and joined Archive's (t39-e1's
   // stale-count report; it stayed in the Inbox total until a resync).
