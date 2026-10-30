@@ -3,6 +3,7 @@ import { App } from './App.tsx';
 import { TooltipLayer } from './components/TooltipLayer.tsx';
 import { LocaleProvider } from './i18n/index.ts';
 import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
+import { installBundleRecovery } from './sw/bundleRecovery.ts';
 import { bootLocale } from './screens/Settings/language.ts';
 import './styles/app.css';
 // After app.css: one size and accent for every checkbox and radio (t32-h12).
@@ -15,6 +16,9 @@ import './styles/motion.css.ts';
 // write goes through it — and before any worker is constructed. The policy and the
 // reasoning for how narrow it is live in `security/trustedTypes.ts`.
 installTrustedTypesPolicy();
+// t102: a tab left open across a deploy reloads into the new build when one of
+// its old chunks cannot be loaded (guarded against loops and unsaved work).
+installBundleRecovery();
 
 const root = document.getElementById('root');
 if (root === null) {

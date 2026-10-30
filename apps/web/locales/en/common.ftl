@@ -163,6 +163,7 @@ common-error-network-help = Check your connection, then try again. The server ma
 common-error-page = This page could not load
 common-error-page-help = A page resource could not be downloaded. Try again. If the problem continues, reload the application to get the latest version.
 common-reload-app = Reload application
+common-new-version-reloading = A new version is available, reloading…
 
 common-attach-account-changed = The account changed while loading attachments. Reopen Attachments for the current account.
 common-attach-search-account = Search entire account

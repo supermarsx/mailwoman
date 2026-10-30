@@ -28,6 +28,7 @@ import { Dynamic } from 'solid-js/web';
 import { AsyncError, AsyncPending } from './AsyncState.tsx';
 import {confirmShellNavigation} from '../shell/navigationGuard.ts';
 import {t} from '../i18n';
+import {isChunkLoadError, recoverFromChunkError} from '../sw/bundleRecovery.ts';
 
 /**
  * Catch anything thrown while rendering `children` and offer a way back.
@@ -50,6 +51,8 @@ export function AsyncBoundary(props: {
   return (
     <SolidErrorBoundary
       fallback={(error: unknown, reset: () => void) => {
+        // t102: a lazy component (an admin section, a module) of an older build.
+        if (isModuleDownloadFailure(error)) void recoverFromChunkError(error);
         const retry = (): void => {
           props.onRetry?.();
           reset();
@@ -70,7 +73,7 @@ export function AsyncBoundary(props: {
 export type RouteModule = { default: Component };
 
 function isModuleDownloadFailure(error: unknown): boolean {
-  return error instanceof Error && /dynamically imported module|loading chunk|loading css chunk|importing a module script|unable to preload css/i.test(error.message);
+  return error instanceof Error && isChunkLoadError(error);
 }
 
 /**
@@ -117,6 +120,9 @@ export function LazyRoute(props: {
       } catch (error) {
         // Resolve to a VIEW rather than rejecting: a rejected lazy is the path
         // that produced the permanent spinner.
+        // t102: a chunk of an older build -> reload once into the server's
+        // newer build (guarded); the error view below stays until it does.
+        if (isModuleDownloadFailure(error)) void recoverFromChunkError(error);
         if (props.failSoft === true) return { default: () => null };
         return { default: () => <AsyncError error={error} message={t('common-error-page')} detail={t('common-error-page-help')} onRetry={retry} onReload={attempt()>0||isModuleDownloadFailure(error)?()=>void reload():undefined} /> };
       }

@@ -150,6 +150,7 @@ common-error-network-help = Verifique a ligação e tente novamente. O servidor 
 common-error-page = Não foi possível carregar esta página
 common-error-page-help = Não foi possível transferir um recurso da página. Tente novamente. Se o problema persistir, recarregue a aplicação para obter a versão mais recente.
 common-reload-app = Recarregar aplicação
+common-new-version-reloading = Está disponível uma nova versão; a recarregar…
 
 common-attach-account-changed = A conta mudou durante o carregamento dos anexos. Abra novamente «Anexos» para a conta atual.
 common-attach-search-account = Pesquisar em toda a conta
