@@ -35,8 +35,9 @@ test('several diagnostics in a row, then a forced 429 as the corner toast with a
   const statuses: number[] = [];
   page.on('response', (r) => { if (r.url().endsWith(`${ADMIN}/diag/run`) && r.request().method() === 'POST') statuses.push(r.status()); });
   await adminLogin(page);
-  await page.goto(`${ADMIN}#/diagnostics`);
-  const run = page.getByRole('button', { name: 'Run server checks', exact: true });
+  // t105: the server suite runs from a card on the Server sub-tab.
+  await page.goto(`${ADMIN}#/diagnostics/server`);
+  const run = page.getByRole('article', { name: 'Database connection' }).getByRole('button', { name: /^Run( again)?$/ });
   for (let n = 0; n < 4; n += 1) {
     await expect(run).toBeEnabled({ timeout: 60_000 });
     const answered = page.waitForResponse((r) => r.url().endsWith(`${ADMIN}/diag/run`) && r.request().method() === 'POST');
@@ -56,7 +57,7 @@ test('several diagnostics in a row, then a forced 429 as the corner toast with a
     // A fresh session starts with a full (now one-run) bucket.
     await page.context().clearCookies();
     await adminLogin(page);
-    await page.goto(`${ADMIN}#/diagnostics`);
+    await page.goto(`${ADMIN}#/diagnostics/server`);
     await expect(run).toBeEnabled({ timeout: 60_000 });
     await run.click();
     await expect(run).toBeEnabled({ timeout: 60_000 });
