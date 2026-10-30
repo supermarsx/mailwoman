@@ -356,6 +356,9 @@ impl MaskedSubmitter {
 
 #[async_trait]
 impl MailSubmitter for MaskedSubmitter {
+    fn probe_timeout(&self) -> std::time::Duration {
+        self.inner.probe_timeout()
+    }
     fn cached_dsn_support(&self) -> bool {
         self.inner.cached_dsn_support()
     }
@@ -855,6 +858,9 @@ mod tests {
         }
         #[async_trait]
         impl MailSubmitter for ExtensionInner {
+            fn probe_timeout(&self) -> std::time::Duration {
+                std::time::Duration::from_secs(32)
+            }
             fn cached_dsn_support(&self) -> bool {
                 true
             }
@@ -899,6 +905,7 @@ mod tests {
         };
         let allowed = MaskedSubmitter::new(store.clone(), "acct-a".into(), inner.clone());
         assert!(allowed.cached_dsn_support());
+        assert_eq!(allowed.probe_timeout(), std::time::Duration::from_secs(32));
         assert!(allowed.probe_dsn().await.unwrap());
         allowed
             .submit_with(outgoing(&alias.alias_addr), options.clone())

@@ -419,7 +419,7 @@ fn identity_address_list_valid(raw: &str, max: usize) -> bool {
             escaped = true;
             continue;
         }
-        if c == '"' && !angle {
+        if c == '"' {
             quoted = !quoted;
         } else if c == '<' && !quoted {
             if angle {
@@ -449,21 +449,52 @@ fn identity_address_list_valid(raw: &str, max: usize) -> bool {
     }
     !entries.is_empty()
         && entries.len() <= max
-        && entries.iter().all(|entry| {
-            let addr = if let Some((display, tail)) = entry.split_once('<') {
-                if display.contains('>')
-                    || !tail.ends_with('>')
-                    || tail[..tail.len() - 1].contains(['<', '>'])
-                {
-                    return false;
-                }
-                tail[..tail.len() - 1].trim()
-            } else {
-                entry.as_str()
-            };
-            mw_smtp::validate_mailbox(addr).is_ok()
-        })
+        && entries
+            .iter()
+            .all(|entry| mailbox_list_address(entry).is_some())
 }
+/// Extract a mailbox from one display-name entry without treating punctuation
+/// inside a quoted local part as an address-list delimiter.
+pub(crate) fn mailbox_list_address(entry: &str) -> Option<&str> {
+    let (mut quoted, mut escaped) = (false, false);
+    let (mut open, mut close) = (None, None);
+    for (at, c) in entry.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' && quoted {
+            escaped = true;
+            continue;
+        }
+        if c == '"' {
+            quoted = !quoted;
+            continue;
+        }
+        if !quoted && c == '<' {
+            if open.is_some() {
+                return None;
+            }
+            open = Some(at);
+        }
+        if !quoted && c == '>' {
+            if open.is_none() || close.is_some() {
+                return None;
+            }
+            close = Some(at);
+        }
+    }
+    if quoted || escaped {
+        return None;
+    }
+    let addr = match (open, close) {
+        (Some(a), Some(b)) if b > a && entry[b + 1..].trim().is_empty() => entry[a + 1..b].trim(),
+        (None, None) => entry.trim(),
+        _ => return None,
+    };
+    mw_smtp::validate_mailbox(addr).ok().map(|_| addr)
+}
+
 async fn identity_references_valid(
     store: &Store,
     owner: &str,
@@ -2143,5 +2174,29 @@ mod tests {
         // Guards the saturating conversion: a negative or zero stamp would make
         // every stored value look older than every client's cached copy.
         assert!(now_ms() > 1_700_000_000_000);
+    }
+}
+
+#[cfg(test)]
+mod smtputf8_address_tests {
+    use super::*;
+    #[test]
+    fn quoted_mailbox_punctuation_is_not_list_syntax() {
+        assert!(identity_address_list_valid(
+            "Name <\"jörg,<x>@local\"@bücher.example>, \"a,b\"@example.org",
+            20
+        ));
+        assert_eq!(
+            mailbox_list_address("Name <\"jörg,<x>@local\"@bücher.example>"),
+            Some("\"jörg,<x>@local\"@bücher.example")
+        );
+        assert!(!identity_address_list_valid(
+            "\"a\"@example.org>\r\nBcc: v@example.org",
+            20
+        ));
+        assert!(!identity_address_list_valid(
+            "Name <a@example.org> tail",
+            20
+        ));
     }
 }

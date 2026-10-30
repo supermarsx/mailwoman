@@ -5,43 +5,106 @@
 //! channel byte for byte. These checks reject; they never repair. An address
 //! that fails is not sent in a trimmed or escaped form.
 //!
-//! The accepted grammar is narrower than RFC 5321 on purpose: quoted local
-//! parts (`"a b"@example.org`) and backslash escapes are refused, because the
-//! characters they exist to carry are the ones that end a path or a command.
+//! RFC 5321/6531 paths are validated before interpolation. Domain validation
+//! uses IDNA only to check DNS labels; supplied mailbox bytes are preserved.
 
 use crate::SmtpError;
-
-/// RFC 5321 §4.5.3.1: 64-octet local part + `@` + 255-octet domain.
-const MAX_ADDR_BYTES: usize = 320;
-
-/// How much of a refused value is echoed (debug-escaped) in the error.
+const MAX_ADDR_BYTES: usize = 254; // 256-octet SMTP path, including < and >.
 const ECHO_CHARS: usize = 48;
 
-/// Check a forward-path mailbox (an `RCPT TO` recipient).
-///
-/// Refused: the empty string; more than 320 bytes; any control character
-/// (CR, LF, NUL, DEL, C1 …); any whitespace; `<` or `>`; `"` or `\` (so quoted
-/// local parts are not supported); `,` `;` `(` `)` (list separators and
-/// comments in a header address list); and anything that is not exactly one
-/// `@` with a non-empty local part before it and a non-empty domain after it.
-/// Non-ASCII is allowed — `SMTPUTF8` is negotiated per message.
 pub fn validate_mailbox(addr: &str) -> Result<(), SmtpError> {
-    check_chars(addr).map_err(|why| refuse(addr, why))?;
-    match addr.split_once('@') {
-        Some((local, domain)) if !local.is_empty() && !domain.is_empty() => Ok(()),
-        Some(_) => Err(refuse(addr, "empty local part or domain")),
-        None => Err(refuse(addr, "no @")),
-    }
+    mailbox(addr).map_err(|why| refuse(addr, why))
 }
 
-/// Check a reverse-path (the `MAIL FROM` sender).
-///
-/// The empty string is the null reverse-path `<>` (RFC 5321 §4.5.5) and is
-/// accepted. A value with no `@` is also accepted when it passes the character
-/// rules of [`validate_mailbox`]: an account's sender is the login name it was
-/// connected with, which on some servers is a bare user name, and those
-/// servers qualify it themselves. A value containing `@` must be a
-/// [`validate_mailbox`] mailbox.
+fn mailbox(addr: &str) -> Result<(), &'static str> {
+    if addr.len() > MAX_ADDR_BYTES {
+        return Err("longer than 254 bytes");
+    }
+    if addr.chars().any(char::is_control) {
+        return Err("contains a control character");
+    }
+    let (local, domain) = addr.rsplit_once('@').ok_or("no @")?;
+    validate_local(local)?;
+    if domain.is_empty() || domain.chars().any(char::is_whitespace) {
+        return Err("invalid domain");
+    }
+    if let Some(literal) = domain.strip_prefix('[').and_then(|d| d.strip_suffix(']')) {
+        let valid = if let Some(ip) = literal.strip_prefix("IPv6:") {
+            ip.parse::<std::net::Ipv6Addr>().is_ok()
+        } else {
+            literal.parse::<std::net::Ipv4Addr>().is_ok()
+        };
+        return if valid {
+            Ok(())
+        } else {
+            Err("invalid address literal")
+        };
+    }
+    // URL host parsing also accepts IPv4 shorthand and percent escaping. SMTP
+    // DNS names do not; check source label syntax before IDNA validation.
+    if domain
+        .chars()
+        .any(|c| c.is_ascii() && !(c.is_ascii_alphanumeric() || c == '-' || c == '.'))
+    {
+        return Err("invalid domain character");
+    }
+    let host = url::Host::parse(domain).map_err(|_| "invalid IDNA domain")?;
+    let ascii = host.to_string();
+    if ascii.len() > 253
+        || ascii.split('.').any(|label| {
+            label.is_empty()
+                || label.len() > 63
+                || label.starts_with('-')
+                || label.ends_with('-')
+                || !label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+    {
+        return Err("invalid DNS label");
+    }
+    // IDNA must not turn an invalid empty source label into a valid one.
+    if domain.split('.').any(str::is_empty) {
+        return Err("empty DNS label");
+    }
+    Ok(())
+}
+
+fn validate_local(local: &str) -> Result<(), &'static str> {
+    if local.is_empty() || local.len() > 64 {
+        return Err("local part must be 1..64 octets");
+    }
+    if let Some(inner) = local.strip_prefix('"').and_then(|s| s.strip_suffix('"')) {
+        let mut chars = inner.chars();
+        while let Some(c) = chars.next() {
+            if c == '\\' {
+                let escaped = chars.next().ok_or("incomplete quoted escape")?;
+                if !((' '..='~').contains(&escaped)) {
+                    return Err("invalid quoted escape");
+                }
+            } else if c == '"' || c.is_control() || (c.is_whitespace() && c != ' ') {
+                return Err("invalid quoted local part");
+            }
+        }
+        return Ok(());
+    }
+    if local.split('.').any(str::is_empty) {
+        return Err("empty local atom");
+    }
+    if local.chars().any(|c| {
+        if c.is_ascii() {
+            !(c.is_ascii_alphanumeric() || "!#$%&'*+-/=?^_`{|}~.".contains(c))
+        } else {
+            c.is_control() || c.is_whitespace()
+        }
+    }) {
+        return Err("invalid local atom");
+    }
+    Ok(())
+}
+
+/// Null senders and legacy bare login names remain supported. Fully qualified
+/// senders use the same syntax and limits as recipients.
 pub fn validate_reverse_path(addr: &str) -> Result<(), SmtpError> {
     if addr.is_empty() {
         return Ok(());
@@ -49,38 +112,7 @@ pub fn validate_reverse_path(addr: &str) -> Result<(), SmtpError> {
     if addr.contains('@') {
         return validate_mailbox(addr);
     }
-    check_chars(addr).map_err(|why| refuse(addr, why))
-}
-
-/// The character-level rules shared by both paths. `@` is counted here so that
-/// a second one is refused whichever path is being checked.
-fn check_chars(addr: &str) -> Result<(), &'static str> {
-    if addr.is_empty() {
-        return Err("empty");
-    }
-    if addr.len() > MAX_ADDR_BYTES {
-        return Err("longer than 320 bytes");
-    }
-    let mut ats = 0;
-    for c in addr.chars() {
-        if c.is_control() {
-            return Err("contains a control character");
-        }
-        if c.is_whitespace() {
-            return Err("contains whitespace");
-        }
-        match c {
-            '<' | '>' => return Err("contains an angle bracket"),
-            '"' | '\\' => return Err("quoted local parts are not supported"),
-            ',' | ';' | '(' | ')' => return Err("contains a list separator or comment"),
-            '@' => ats += 1,
-            _ => {}
-        }
-    }
-    if ats > 1 {
-        return Err("more than one @");
-    }
-    Ok(())
+    validate_local(addr).map_err(|why| refuse(addr, why))
 }
 
 /// Build the error for a refused value. The value is debug-escaped and
@@ -103,6 +135,42 @@ mod tests {
     }
 
     #[test]
+    fn international_octet_limits_and_dns_syntax_are_enforced() {
+        validate_mailbox(&format!("{}@example.org", "é".repeat(32))).unwrap();
+        for bad in [
+            format!("{}@example.org", "é".repeat(33)),
+            "a..b@example.org".into(),
+            ".a@example.org".into(),
+            "a.@example.org".into(),
+            "a@-example.org".into(),
+            "a@example-.org".into(),
+            "a@example.org.".into(),
+            "a@exa%mple.org".into(),
+            "a@[127.1]".into(),
+            "a@[IPv6:not-an-ip]".into(),
+            "a@exam_ple.org".into(),
+            "a@a..b".into(),
+            format!("a@{}.org", "a".repeat(64)),
+            format!(
+                "{}@{}.{}.{}",
+                "a".repeat(64),
+                "b".repeat(63),
+                "c".repeat(63),
+                "d".repeat(63)
+            ),
+        ] {
+            assert!(validate_mailbox(&bad).is_err(), "accepted {bad:?}");
+        }
+        for quoted in [
+            "\"\"@example.org",
+            "\"a<> b,c@d\"@example.org",
+            "\"é\\\"x\\\\\"@example.org",
+        ] {
+            validate_mailbox(quoted).unwrap();
+        }
+    }
+
+    #[test]
     fn ordinary_mailboxes_pass() {
         for ok in [
             "a@b",
@@ -111,6 +179,9 @@ mod tests {
             "møt@example.com",
             "user@[192.0.2.1]",
             "o'brien@example.test",
+            "\"a b@c\"@example.test",
+            "\"jörg\"@bücher.example",
+            "a@[IPv6:2001:db8::1]",
         ] {
             validate_mailbox(ok).unwrap_or_else(|e| panic!("{ok}: {e}"));
             validate_reverse_path(ok).unwrap_or_else(|e| panic!("{ok}: {e}"));
@@ -133,7 +204,6 @@ mod tests {
             "a@b>",
             "<a@b",
             "a@b> SIZE=1",
-            "\"a b\"@example.test",
             "a\\@b@example.test",
             "a@b,c@d",
             "a@b;c@d",

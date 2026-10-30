@@ -26,6 +26,11 @@ pub trait MailSubmitter: Send + Sync {
         false
     }
 
+    /// A bounded allowance for transport policy discovery plus SMTP negotiation.
+    fn probe_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(4)
+    }
+
     /// Probe configured transport capabilities without submitting a message.
     async fn probe_dsn(&self) -> Result<bool> {
         Ok(false)
@@ -60,6 +65,9 @@ pub(crate) fn header_text(s: &str) -> String {
 /// Adapt the real `mw-smtp` submitter onto the engine's [`MailSubmitter`] seam.
 #[async_trait]
 impl MailSubmitter for Submitter {
+    fn probe_timeout(&self) -> std::time::Duration {
+        Submitter::probe_timeout(self)
+    }
     fn cached_dsn_support(&self) -> bool {
         Submitter::cached_dsn_support(self)
     }
@@ -87,7 +95,8 @@ impl MailSubmitter for Submitter {
                 e @ mw_smtp::SmtpError::InvalidAddress(_) => EngineError::Protocol(e.to_string()),
                 // The server lacks an extension the message cannot do without.
                 // `Unsupported` is what `transmit_draft` does not retry.
-                e @ mw_smtp::SmtpError::SmtpUtf8Required(_) => {
+                e @ (mw_smtp::SmtpError::SmtpUtf8Required(_)
+                | mw_smtp::SmtpError::EightBitMimeRequired) => {
                     EngineError::Unsupported(e.to_string())
                 }
             })

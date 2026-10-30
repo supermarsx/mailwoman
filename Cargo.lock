@@ -5608,6 +5608,7 @@ dependencies = [
  "mw-export",
  "mw-imap",
  "mw-jmap",
+ "mw-mail-transport",
  "mw-mcp",
  "mw-mfa",
  "mw-mock-jmap",
@@ -5686,6 +5687,7 @@ version = "26.19.0"
 dependencies = [
  "base64 0.22.1",
  "hmac 0.13.0",
+ "mw-mail-transport",
  "mw-net",
  "rustls",
  "rustls-pki-types",
@@ -5694,6 +5696,7 @@ dependencies = [
  "tokio",
  "tokio-rustls",
  "tracing",
+ "url",
  "webpki-roots 1.0.11",
  "x509-cert 0.3.0",
 ]

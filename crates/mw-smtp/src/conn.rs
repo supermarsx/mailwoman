@@ -604,7 +604,21 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Connection<S> {
             cmd.push_str(&format!(" NOTIFY={joined}"));
         }
         if orcpt {
-            cmd.push_str(&format!(" ORCPT=rfc822;{}", xtext(addr)));
+            if addr.is_ascii() {
+                cmd.push_str(&format!(" ORCPT=rfc822;{}", xtext(addr)));
+            } else {
+                // RFC 6533 section 3: UTF-8 address type, with unitext for
+                // reserved ASCII characters; UTF-8 itself remains native.
+                let mut encoded = String::new();
+                for c in addr.chars() {
+                    if c.is_ascii_control() || matches!(c, ' ' | '\\' | '+' | '=') {
+                        encoded.push_str(&format!("\\x{{{:02X}}}", c as u32));
+                    } else {
+                        encoded.push(c);
+                    }
+                }
+                cmd.push_str(&format!(" ORCPT=utf-8;{encoded}"));
+            }
         }
         cmd.push_str("\r\n");
         let reply = self.command(&cmd).await?;
@@ -1322,10 +1336,10 @@ mod tests {
 
             // RCPT TO must carry NOTIFY + ORCPT (xtext of the UTF-8 address).
             let rcpt = f.line().await;
-            assert!(rcpt.starts_with("RCPT TO:<møt@example.com>"), "{rcpt}");
+            assert!(rcpt.starts_with("RCPT TO:<møt+=@example.com>"), "{rcpt}");
             assert!(rcpt.contains(" NOTIFY=SUCCESS,FAILURE"), "{rcpt}");
             assert!(
-                rcpt.contains(" ORCPT=rfc822;m+C3+B8t@example.com"),
+                rcpt.contains(" ORCPT=utf-8;møt\\x{2B}\\x{3D}@example.com"),
                 "{rcpt}"
             );
             f.send(b"250 2.1.5 OK\r\n").await;
@@ -1364,7 +1378,7 @@ mod tests {
             .submit_with(
                 Outgoing {
                     mail_from: "sender@example.com".into(),
-                    rcpt_to: vec!["møt@example.com".into()],
+                    rcpt_to: vec!["møt+=@example.com".into()],
                     raw: b"Subject: hi\r\n\r\nHello.\r\n.\r\nafter\r\n".to_vec(),
                 },
                 SubmitOptions {
@@ -1381,7 +1395,7 @@ mod tests {
             .await
             .expect("extended submission");
 
-        assert_eq!(result.accepted, vec!["møt@example.com".to_string()]);
+        assert_eq!(result.accepted, vec!["møt+=@example.com".to_string()]);
         assert!(result.rejected.is_empty());
         server.await.unwrap();
     }

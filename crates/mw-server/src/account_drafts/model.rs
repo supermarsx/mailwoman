@@ -157,16 +157,32 @@ impl EditorState {
 /// mailbox tokens enter the unsent MIME projection; names are intentionally not
 /// guessed from an incomplete token. No raw text becomes a header value.
 fn recipients(value: &str) -> Vec<Value> {
-    value
-        .split([',', ';', '\r', '\n'])
+    let mut tokens = Vec::new();
+    let (mut quoted, mut escaped, mut start) = (false, false, 0);
+    for (at, c) in value.char_indices() {
+        if escaped {
+            escaped = false;
+            continue;
+        }
+        if c == '\\' && quoted {
+            escaped = true;
+            continue;
+        }
+        if c == '"' {
+            quoted = !quoted;
+        }
+        if !quoted && matches!(c, ',' | ';' | '\r' | '\n') {
+            tokens.push(&value[start..at]);
+            start = at + c.len_utf8();
+        }
+    }
+    if !quoted && !escaped {
+        tokens.push(&value[start..]);
+    }
+    tokens
+        .into_iter()
         .filter_map(|token| {
-            let token = token.trim();
-            let address = if let Some((_, rest)) = token.rsplit_once('<') {
-                rest.strip_suffix('>')?.trim()
-            } else {
-                token
-            };
-            mw_smtp::validate_mailbox(address).ok()?;
+            let address = crate::prefs_routes::mailbox_list_address(token)?;
             Some(json!({"name":null,"email":address}))
         })
         .collect()
@@ -175,6 +191,19 @@ fn recipients(value: &str) -> Vec<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn quoted_utf8_draft_recipients_remain_complete_and_separate() {
+        let raw = "Name <\"jörg,a<>@x\"@bücher.example>, unfinished";
+        assert_eq!(
+            recipients(raw),
+            vec![json!({"name":null,"email":"\"jörg,a<>@x\"@bücher.example"})]
+        );
+        assert_eq!(
+            recipients("a@example.org\r\nBcc: victim@example.org"),
+            vec![json!({"name":null,"email":"a@example.org"})]
+        );
+        assert!(recipients("\"a\r\nBcc: victim\"@example.org").is_empty());
+    }
     #[test]
     fn partial_recipients_are_preserved_but_never_injected_into_mime() {
         let state:EditorState=serde_json::from_value(json!({"version":1,"bodyFormat":"plain","to":"unfinished, Person <valid@example.test>\r\nBcc: injected@example.test","bcc":"private@example.test","subject":"draft","bodyText":"unsent"})).unwrap();

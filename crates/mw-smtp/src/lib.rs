@@ -94,10 +94,30 @@ pub enum SmtpError {
     /// `SMTPUTF8` (RFC 6531), so the message was not sent to anyone. The text
     /// is that address, debug-escaped. The same message to the same server
     /// fails the same way again: this is not worth a retry.
-    #[error(
-        "the server does not offer SMTPUTF8, which the non-ASCII address {0} needs; the message was not sent"
-    )]
+    #[error("the server does not offer SMTPUTF8, required by {0}; the message was not sent")]
     SmtpUtf8Required(String),
+    /// Serialized MIME cannot be safely downgraded (it may already be signed).
+    #[error("the server does not offer 8BITMIME; the message was not sent")]
+    EightBitMimeRequired,
+}
+
+/// Locate the header/body boundary using the DATA writer's CR/LF rules.
+fn message_headers(raw: &[u8]) -> &[u8] {
+    let mut start = 0;
+    let mut at = 0;
+    while at < raw.len() {
+        if matches!(raw[at], b'\r' | b'\n') {
+            if at == start {
+                return &raw[..start];
+            }
+            if raw[at] == b'\r' && raw.get(at + 1) == Some(&b'\n') {
+                at += 1;
+            }
+            start = at + 1;
+        }
+        at += 1;
+    }
+    raw
 }
 
 impl From<std::io::Error> for SmtpError {
@@ -216,7 +236,7 @@ pub struct Dsn {
     pub envid: Option<String>,
     /// `NOTIFY=` applied to every `RCPT TO`.
     pub notify: Vec<DsnNotify>,
-    /// Emit `ORCPT=rfc822;<addr>` on each `RCPT TO`.
+    /// Emit the RFC 3461 / RFC 6533 typed `ORCPT` on each `RCPT TO`.
     pub orcpt: bool,
 }
 
@@ -267,6 +287,7 @@ pub struct Submitter {
     /// How the connection reaches the server (`None` = direct TCP).
     dialer: Option<mw_net::SharedDialer>,
     tls_options: mw_net::TlsOptions,
+    transport_policy: Option<std::sync::Arc<mw_mail_transport::TransportPolicy>>,
     dsn_support: std::sync::Arc<dsn_support::Support>,
 }
 
@@ -282,6 +303,7 @@ impl Submitter {
             config,
             dialer: None,
             tls_options: mw_net::TlsOptions::default(),
+            transport_policy: None,
             dsn_support: Default::default(),
         }
     }
@@ -298,6 +320,16 @@ impl Submitter {
     pub fn with_tls_options(mut self, options: mw_net::TlsOptions) -> Self {
         self.dsn_support = Default::default();
         self.tls_options = options;
+        self
+    }
+
+    /// Apply authenticated next-hop transport policy before opening a socket.
+    pub fn with_transport_policy(
+        mut self,
+        policy: Option<std::sync::Arc<mw_mail_transport::TransportPolicy>>,
+    ) -> Self {
+        self.dsn_support = Default::default();
+        self.transport_policy = policy;
         self
     }
 
@@ -339,6 +371,15 @@ impl Submitter {
         self.dsn_support.get() == Some(true)
     }
 
+    /// Outer capability-probe budget, including bounded admission and policy.
+    pub fn probe_timeout(&self) -> std::time::Duration {
+        std::time::Duration::from_secs(if self.transport_policy.is_some() {
+            32
+        } else {
+            4
+        })
+    }
+
     /// Observe EHLO over the configured TLS, egress and authentication path.
     /// Never issues MAIL/RCPT/DATA; concurrent callers share a bounded probe.
     pub async fn probe_dsn(&self) -> Result<bool, SmtpError> {
@@ -352,7 +393,12 @@ impl Submitter {
         if let Some(known) = self.dsn_support.get() {
             return Ok(known);
         }
-        let result = tokio::time::timeout(Duration::from_secs(2), async {
+        let budget = Duration::from_secs(if self.transport_policy.is_some() {
+            30
+        } else {
+            2
+        });
+        let result = tokio::time::timeout(budget, async {
             let (mut conn, binding) = self.connect().await?;
             let caps = conn.ehlo(&self.config.ehlo_name).await?;
             conn.authenticate(
@@ -372,17 +418,38 @@ impl Submitter {
                 "SMTP capability probe timed out".into(),
             ))
         });
-        self.dsn_support
-            .record(result.as_ref().copied().unwrap_or(false));
+        // An authenticated EHLO observation may be cached; a transport/policy
+        // timeout is not evidence that the server lacks DSN.
+        if let Ok(supported) = result.as_ref() {
+            self.dsn_support.record(*supported);
+        } else if matches!(result, Err(SmtpError::Auth(_))) {
+            // Preserve the short authentication-rejection backoff; repeatedly
+            // retrying bad credentials can lock out the upstream account.
+            self.dsn_support.record(false);
+        }
         result
     }
 
     async fn connect(&self) -> Result<Connected, SmtpError> {
         conn::check_ehlo_name(&self.config.ehlo_name)?;
+        let decision = match &self.transport_policy {
+            Some(policy) => policy
+                .prepare(&self.config.host, self.config.port)
+                .await
+                .map_err(|e| SmtpError::Transport(e.to_string()))?,
+            None => mw_mail_transport::TransportDecision::default(),
+        };
+        if decision.requires_tls() && self.config.security == Security::Plaintext {
+            return Err(SmtpError::Transport(
+                "SMTP transport policy requires TLS".into(),
+            ));
+        }
         let tcp = mw_net::dial(self.dialer.as_deref(), &self.config.host, self.config.port).await?;
         match self.config.security {
             Security::ImplicitTls => {
-                let up = tls::connect(tcp, &self.config.host, &self.tls_options).await?;
+                let up =
+                    tls::connect_with_policy(tcp, &self.config.host, &self.tls_options, &decision)
+                        .await?;
                 let mut conn = Connection::new(Box::new(up.stream) as mw_net::BoxStream);
                 conn.read_greeting().await?;
                 Ok((conn, up.channel_binding))
@@ -397,8 +464,13 @@ impl Submitter {
                     ));
                 }
                 conn.starttls().await?;
-                let up =
-                    tls::connect(conn.into_inner()?, &self.config.host, &self.tls_options).await?;
+                let up = tls::connect_with_policy(
+                    conn.into_inner()?,
+                    &self.config.host,
+                    &self.tls_options,
+                    &decision,
+                )
+                .await?;
                 Ok((
                     Connection::new(Box::new(up.stream) as mw_net::BoxStream),
                     up.channel_binding,
@@ -429,14 +501,26 @@ impl Submitter {
         // A non-ASCII envelope address needs SMTPUTF8 (RFC 6531). Without it
         // the message cannot be sent to this server, so stop here, before
         // AUTH and MAIL FROM, rather than part-way through the recipients.
-        let needs_utf8 = std::iter::once(&msg.mail_from)
+        let utf8_address = std::iter::once(&msg.mail_from)
             .chain(&msg.rcpt_to)
             .find(|a| !a.is_ascii());
-        if let Some(addr) = needs_utf8
-            && !caps.smtputf8
-        {
+        // Use the same liberal line ending interpretation as the DATA writer.
+        // A header-only scan must not mistake an 8-bit body for UTF-8 headers.
+        let utf8_headers = message_headers(&msg.raw).iter().any(|b| !b.is_ascii());
+        let needs_utf8 = utf8_address.is_some() || utf8_headers;
+        if needs_utf8 && !caps.smtputf8 {
             conn.quit().await;
-            return Err(SmtpError::SmtpUtf8Required(format!("{addr:?}")));
+            return Err(SmtpError::SmtpUtf8Required(utf8_address.map_or_else(
+                || "message headers".into(),
+                |addr| format!("{addr:?}"),
+            )));
+        }
+        // RFC 6531 requires 8BITMIME for SMTPUTF8. Never silently transmit
+        // unsupported 8-bit MIME, or re-encode a caller's signed message.
+        let needs_8bit = needs_utf8 || !msg.raw.is_ascii();
+        if needs_8bit && !caps.eightbitmime {
+            conn.quit().await;
+            return Err(SmtpError::EightBitMimeRequired);
         }
 
         conn.authenticate(&self.config.credentials, &caps, channel_binding)
@@ -454,18 +538,18 @@ impl Submitter {
             return Err(SmtpError::Protocol("server does not advertise DSN".into()));
         }
 
-        // SMTPUTF8 is sent when the envelope needs it; the server offers it,
+        // SMTPUTF8 is sent when the envelope or headers need it; the server offers it,
         // or this point is not reached. SIZE only when advertised, and it is
         // the size of what is transmitted, not of `raw`. BODY=8BITMIME only
         // when the raw MIME needs it and the server supports it.
-        let smtputf8 = needs_utf8.is_some();
+        let smtputf8 = needs_utf8;
         let (ret, envid) = match &opts.dsn {
             Some(d) => (d.ret, d.envid.clone()),
             None => (None, None),
         };
         let params = MailParams {
             size: caps.size.map(|_| conn::transmitted_len(&msg.raw)),
-            body_8bit: caps.eightbitmime && msg.raw.iter().any(|&b| b >= 0x80),
+            body_8bit: needs_8bit,
             smtputf8,
             require_tls: opts.require_tls,
             ret,

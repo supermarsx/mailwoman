@@ -228,7 +228,10 @@ impl Engine {
             return Ok(false);
         };
         let offered = tokio::time::timeout(
-            std::time::Duration::from_secs(4),
+            runtime
+                .submitter
+                .probe_timeout()
+                .min(std::time::Duration::from_secs(32)),
             runtime.submitter.probe_dsn(),
         )
         .await

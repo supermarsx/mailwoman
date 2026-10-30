@@ -128,6 +128,8 @@ pub(crate) struct ConnectionSecurity {
     pub server_name: Option<String>,
     #[serde(default)]
     pub ca_pem: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub smtp_policy: Option<mw_mail_transport::TransportPolicyConfig>,
 }
 
 impl ConnectionSecurity {
@@ -148,6 +150,16 @@ impl ConnectionSecurity {
     }
 
     pub fn validate(&self) -> Result<(), String> {
+        if let Some(policy) = &self.smtp_policy {
+            policy.validate().map_err(|e| e.to_string())?;
+            if policy.enabled()
+                && (self.mode != SecurityMode::Fixed
+                    || self.allowed.contains(&TlsMode::None)
+                    || self.server_name.is_some())
+            {
+                return Err("SMTP transport policies require a fixed TLS method without a server-name override".into());
+            }
+        }
         if self.allowed.is_empty() || self.allowed.len() > 3 {
             return Err("choose between one and three connection security methods".into());
         }
@@ -193,6 +205,29 @@ impl ConnectionSecurity {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn smtp_transport_policies_are_scoped_to_secure_dns_endpoints() {
+        let endpoint = |protocol: &str, host: &str, method: &str, extra: &str| {
+            let json = format!(
+                r#"{{"{protocol}":{{"host":"{host}","port":465,"tls":"implicit","allowPrivate":true,"security":{{"mode":"fixed","allowed":["{method}"],"allowPlaintext":true,"smtpPolicy":{{"dane":"required","mtaSts":"auto","policyDomain":"relay.example.org"}}{extra}}}}}}}"#
+            );
+            crate::domain_config::UpstreamConfig::parse(&json)
+        };
+        assert!(endpoint("smtp", "mail.example.org", "implicit", "").is_ok());
+        assert!(endpoint("imap", "mail.example.org", "implicit", "").is_err());
+        assert!(endpoint("smtp", "127.0.0.1", "implicit", "").is_err());
+        assert!(endpoint("smtp", "mail.example.org", "none", "").is_err());
+        assert!(
+            endpoint(
+                "smtp",
+                "mail.example.org",
+                "implicit",
+                r#", "serverName":"other.example.org""#
+            )
+            .is_err()
+        );
+        assert!(crate::domain_config::UpstreamConfig::parse(r#"{"smtp":{"host":"mail.example.org","port":465,"tls":"implicit","security":{"mode":"fixed","allowed":["implicit"],"smtpPolicy":{"mtaSts":"required"}}}}"#).is_err());
+    }
     use super::*;
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
     fn automatic(port: u16) -> Endpoint {
@@ -209,6 +244,7 @@ mod tests {
                 allow_plaintext: true,
                 server_name: None,
                 ca_pem: None,
+                smtp_policy: None,
             }),
         }
     }
@@ -317,6 +353,7 @@ mod tests {
             allow_plaintext: false,
             server_name: None,
             ca_pem: None,
+            smtp_policy: None,
         };
         assert!(policy.validate().is_ok());
         policy.allowed.push(TlsMode::None);

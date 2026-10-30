@@ -1208,6 +1208,14 @@ pub static CATALOGUE: &[Knob] = &[
         "Admin → Domains → Upstreams",
     ),
     boot(
+        "MW_SMTP_POLICY_DOH_URL",
+        Gr::Mail,
+        Url,
+        R::Trust,
+        "https://cloudflare-dns.com/dns-query",
+        "DNS wire resolver for enabled SMTP transport policies; DNSSEC validates locally through the dns_auth route",
+    ),
+    boot(
         "MW_ENGINE_TLS",
         Gr::Mail,
         Plain,

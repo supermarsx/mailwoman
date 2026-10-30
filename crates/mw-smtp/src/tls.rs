@@ -103,10 +103,26 @@ pub(crate) struct TlsUpgrade {
 /// binding for SCRAM-SHA-256-PLUS is computed: the RFC 9266 `tls-exporter` on
 /// TLS 1.3, or the RFC 5929 `tls-server-end-point` (leaf-certificate hash) on
 /// TLS 1.2. Under a [`MinTls::V13`] floor only the first can occur.
+#[cfg(test)]
 pub(crate) async fn connect(
     tcp: BoxStream,
     host: &str,
     options: &mw_net::TlsOptions,
+) -> Result<TlsUpgrade, SmtpError> {
+    connect_with_policy(
+        tcp,
+        host,
+        options,
+        &mw_mail_transport::TransportDecision::default(),
+    )
+    .await
+}
+
+pub(crate) async fn connect_with_policy(
+    tcp: BoxStream,
+    host: &str,
+    options: &mw_net::TlsOptions,
+    decision: &mw_mail_transport::TransportDecision,
 ) -> Result<TlsUpgrade, SmtpError> {
     let mut roots = RootCertStore::empty();
     roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
@@ -115,29 +131,64 @@ pub(crate) async fn connect(
             .add(rustls_pki_types::CertificateDer::from(cert.clone()))
             .map_err(|_| SmtpError::Transport("invalid custom trust anchor".into()))?;
     }
+    if decision.requires_tls()
+        && options
+            .server_name
+            .as_deref()
+            .is_some_and(|name| !name.eq_ignore_ascii_case(host))
+    {
+        return Err(SmtpError::Transport(
+            "SMTP policy forbids a TLS hostname override".into(),
+        ));
+    }
     let host = options.server_name.as_deref().unwrap_or(host);
-    connect_with_roots(tcp, host, roots).await
+    connect_with_roots_and_policy(tcp, host, roots, decision).await
 }
 
 /// [`connect`] with the trust anchors supplied. Private: the only caller outside
 /// this module's tests is [`connect`], which passes the webpki roots.
+#[cfg(test)]
 async fn connect_with_roots(
     tcp: BoxStream,
     host: &str,
     roots: RootCertStore,
+) -> Result<TlsUpgrade, SmtpError> {
+    connect_with_roots_and_policy(
+        tcp,
+        host,
+        roots,
+        &mw_mail_transport::TransportDecision::default(),
+    )
+    .await
+}
+
+async fn connect_with_roots_and_policy(
+    tcp: BoxStream,
+    host: &str,
+    roots: RootCertStore,
+    decision: &mw_mail_transport::TransportDecision,
 ) -> Result<TlsUpgrade, SmtpError> {
     let floor = min_tls();
     // Pin the ring provider explicitly rather than relying on a process-global
     // default being installed (the crate may be embedded in a host that never
     // installs one).
     let provider = Arc::new(tokio_rustls::rustls::crypto::ring::default_provider());
-    let builder = ClientConfig::builder_with_provider(provider);
+    let builder = ClientConfig::builder_with_provider(provider.clone());
     let builder = match floor {
         MinTls::V12 => builder.with_safe_default_protocol_versions(),
         MinTls::V13 => builder.with_protocol_versions(&[&tokio_rustls::rustls::version::TLS13]),
     }
     .map_err(|e| SmtpError::Transport(format!("tls config: {e}")))?;
-    let config = builder.with_root_certificates(roots).with_no_client_auth();
+    let config = if decision.has_dane() {
+        let verifier = mw_mail_transport::DaneVerifier::new(decision, roots, provider)
+            .map_err(|e| SmtpError::Transport(e.to_string()))?;
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_no_client_auth()
+    } else {
+        builder.with_root_certificates(roots).with_no_client_auth()
+    };
 
     let server_name = ServerName::try_from(host.to_string())
         .map_err(|e| SmtpError::Transport(format!("invalid server name {host:?}: {e}")))?;

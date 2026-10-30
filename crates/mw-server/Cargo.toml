@@ -59,6 +59,7 @@ zeroize = { workspace = true }
 mw-crypto = { workspace = true }
 mw-pop3 = { workspace = true }
 mw-smtp = { workspace = true }
+mw-mail-transport = { workspace = true }
 mw-autoconfig = { workspace = true }
 # V6 MOUNT/WIRE (plan §3 e11): the four Batch-B crates whose traits + routers e11
 # backs with the 0007 tables and mounts into `router()`.

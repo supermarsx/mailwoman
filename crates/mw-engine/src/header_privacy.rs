@@ -69,6 +69,9 @@ impl HeaderPrivacySubmitter {
 }
 #[async_trait]
 impl MailSubmitter for HeaderPrivacySubmitter {
+    fn probe_timeout(&self) -> std::time::Duration {
+        self.inner.probe_timeout()
+    }
     fn cached_dsn_support(&self) -> bool {
         self.inner.cached_dsn_support()
     }
@@ -103,6 +106,9 @@ mod tests {
     }
     #[async_trait]
     impl MailSubmitter for Capture {
+        fn probe_timeout(&self) -> std::time::Duration {
+            std::time::Duration::from_secs(32)
+        }
         fn cached_dsn_support(&self) -> bool {
             true
         }
@@ -215,6 +221,7 @@ mod tests {
         let capture = Arc::new(Capture::default());
         let wrapper = HeaderPrivacySubmitter::new(store, id, capture.clone());
         assert!(wrapper.cached_dsn_support());
+        assert_eq!(wrapper.probe_timeout(), std::time::Duration::from_secs(32));
         assert!(wrapper.probe_dsn().await.unwrap());
         let options = SubmitOptions {
             dsn: Some(mw_smtp::Dsn {

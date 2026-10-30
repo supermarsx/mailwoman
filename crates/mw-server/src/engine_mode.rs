@@ -1087,6 +1087,14 @@ async fn engine_login_inner(
             .flatten(),
     )
     .with_tls_options(smtp_tls_options)
+    .with_transport_policy(
+        crate::smtp_transport_policy::for_endpoint(
+            engine.store(),
+            configured.as_ref().and_then(|config| config.smtp.as_ref()),
+            username,
+        )
+        .await?,
+    )
     .with_dialer(
         configured
             .as_ref()
@@ -1320,6 +1328,14 @@ pub async fn ensure_account(engine: &Arc<Engine>, account_id: &str) -> Result<()
             .flatten(),
     )
     .with_tls_options(smtp_tls_options)
+    .with_transport_policy(
+        crate::smtp_transport_policy::for_endpoint(
+            engine.store(),
+            configured.as_ref().and_then(|config| config.smtp.as_ref()),
+            &account.username,
+        )
+        .await?,
+    )
     .with_dialer(
         configured
             .as_ref()

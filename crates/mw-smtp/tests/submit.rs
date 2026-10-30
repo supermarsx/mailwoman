@@ -696,17 +696,17 @@ async fn a_non_ascii_address_is_sent_with_the_smtputf8_parameter_when_offered() 
         (
             "sender",
             as_sender,
-            "MAIL FROM:<jörg@example.com> SMTPUTF8\r\n",
+            "MAIL FROM:<jörg@example.com> BODY=8BITMIME SMTPUTF8\r\n",
             "RCPT TO:<good@example.com>\r\n",
         ),
         (
             "recipient",
             as_recipient,
-            "MAIL FROM:<sender@example.com> SMTPUTF8\r\n",
+            "MAIL FROM:<sender@example.com> BODY=8BITMIME SMTPUTF8\r\n",
             "RCPT TO:<jörg@bücher.example>\r\n",
         ),
     ] {
-        let (out, wire) = submit_recorded(&["SMTPUTF8"], msg).await;
+        let (out, wire) = submit_recorded(&["SMTPUTF8", "8BITMIME"], msg).await;
         let shown = String::from_utf8_lossy(&wire).into_owned();
         out.unwrap_or_else(|e| panic!("{what}: {e}\n{shown}"));
         assert!(shown.contains(mail), "{what}:\n{shown}");
@@ -961,4 +961,230 @@ async fn lost_final_bdat_reply_is_delivery_unknown() {
         .unwrap_err();
     assert!(matches!(error, SmtpError::DeliveryUncertain(_)), "{error}");
     task.await.unwrap();
+}
+
+#[tokio::test]
+async fn utf8_headers_need_negotiation_even_with_ascii_envelope() {
+    for ending in ["\r\n", "\n", "\r"] {
+        let raw =
+            format!("From: jörg@example.com{ending}Subject: héllo{ending}{ending}ascii{ending}")
+                .into_bytes();
+        let msg = Outgoing { raw, ..benign() };
+        let (out, wire) = submit_recorded(&["8BITMIME"], msg.clone()).await;
+        assert!(matches!(out, Err(SmtpError::SmtpUtf8Required(_))));
+        assert!(!String::from_utf8_lossy(&wire).contains("MAIL FROM"));
+        let (out, wire) = submit_recorded(&["SMTPUTF8", "8BITMIME"], msg).await;
+        out.unwrap();
+        assert!(String::from_utf8_lossy(&wire).contains(" BODY=8BITMIME SMTPUTF8"));
+    }
+}
+
+#[tokio::test]
+async fn eight_bit_body_requires_8bitmime_not_smtputf8() {
+    let msg = message("héllo".as_bytes());
+    let (out, wire) = submit_recorded(&[], msg.clone()).await;
+    assert!(matches!(out, Err(SmtpError::EightBitMimeRequired)));
+    assert!(!String::from_utf8_lossy(&wire).contains("MAIL FROM"));
+    let (out, wire) = submit_recorded(&["8BITMIME"], msg).await;
+    out.unwrap();
+    let wire = String::from_utf8_lossy(&wire);
+    assert!(wire.contains(" BODY=8BITMIME"));
+    assert!(!wire.contains(" SMTPUTF8"));
+}
+
+#[tokio::test]
+async fn broken_smtputf8_server_without_8bitmime_is_refused() {
+    let msg = Outgoing {
+        mail_from: UTF8_ADDRESS.into(),
+        ..benign()
+    };
+    let (out, wire) = submit_recorded(&["SMTPUTF8"], msg).await;
+    assert!(matches!(out, Err(SmtpError::EightBitMimeRequired)));
+    assert!(!String::from_utf8_lossy(&wire).contains("MAIL FROM"));
+}
+
+#[tokio::test]
+async fn quoted_international_localparts_are_preserved_on_wire() {
+    let msg = Outgoing {
+        mail_from: "\"jörg smith\"@example.com".into(),
+        rcpt_to: vec!["\"recipient@local\"@bücher.example".into()],
+        ..benign()
+    };
+    let (out, wire) = submit_recorded(&["SMTPUTF8", "8BITMIME"], msg).await;
+    out.unwrap();
+    let wire = String::from_utf8_lossy(&wire);
+    assert!(wire.contains("MAIL FROM:<\"jörg smith\"@example.com> BODY=8BITMIME SMTPUTF8"));
+    assert!(wire.contains("RCPT TO:<\"recipient@local\"@bücher.example>"));
+}
+
+#[tokio::test]
+async fn unavailable_required_dane_refuses_before_the_smtp_dialer() {
+    use mw_mail_transport::{
+        BoxFuture, CachedSts, DaneMode, PolicyContext, PolicyError, StsCache, TransportPolicy,
+        TransportPolicyConfig,
+    };
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
+    struct NoCache;
+    impl StsCache for NoCache {
+        fn load<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Option<CachedSts>, PolicyError>> {
+            Box::pin(async { Ok(None) })
+        }
+        fn store<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a CachedSts,
+        ) -> BoxFuture<'a, Result<(), PolicyError>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    #[derive(Debug)]
+    struct MustNotDial(Arc<AtomicBool>);
+    impl mw_net::Dialer for MustNotDial {
+        fn dial<'a>(
+            &'a self,
+            _: &'a str,
+            _: u16,
+        ) -> mw_net::BoxFuture<'a, std::io::Result<mw_net::BoxStream>> {
+            self.0.store(true, Ordering::SeqCst);
+            Box::pin(async {
+                Err(std::io::Error::other(
+                    "SMTP dial occurred before required policy",
+                ))
+            })
+        }
+    }
+    let policy = TransportPolicy::new(
+        TransportPolicyConfig {
+            dane: DaneMode::Required,
+            ..Default::default()
+        },
+        PolicyContext {
+            doh_url: "https://127.0.0.1:9/dns-query".into(),
+            egress_domain: None,
+            cache_namespace: "smtp-before-dial-test".into(),
+        },
+        Arc::new(NoCache),
+    )
+    .unwrap();
+    let dialled = Arc::new(AtomicBool::new(false));
+    let submitter = Submitter::new(SubmitConfig {
+        host: "smtp.example.test".into(),
+        security: Security::StartTls,
+        ..Default::default()
+    })
+    .with_dialer(Some(Arc::new(MustNotDial(dialled.clone()))))
+    .with_transport_policy(Some(Arc::new(policy)));
+    assert!(matches!(
+        submitter.submit(benign()).await,
+        Err(SmtpError::Transport(_))
+    ));
+    assert!(
+        !dialled.load(Ordering::SeqCst),
+        "required policy failure must precede socket and AUTH"
+    );
+}
+
+#[tokio::test]
+async fn transient_probe_failure_is_not_cached_as_missing_dsn() {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    #[derive(Debug)]
+    struct OnceFailure(AtomicUsize);
+    impl mw_net::Dialer for OnceFailure {
+        fn dial<'a>(
+            &'a self,
+            host: &'a str,
+            port: u16,
+        ) -> mw_net::BoxFuture<'a, std::io::Result<mw_net::BoxStream>> {
+            Box::pin(async move {
+                if self.0.fetch_add(1, Ordering::SeqCst) == 0 {
+                    return Err(std::io::Error::other(
+                        "transient policy/transport unavailable",
+                    ));
+                }
+                mw_net::Dialer::dial(&mw_net::DirectDialer, host, port).await
+            })
+        }
+    }
+    let mock = common::start(vec![
+        "220 ready\r\n".into(),
+        "250-mock\r\n250 DSN\r\n".into(),
+        "221 bye\r\n".into(),
+    ])
+    .await;
+    let sub = submitter(mock.addr, Credentials::None)
+        .with_dialer(Some(std::sync::Arc::new(OnceFailure(AtomicUsize::new(0)))));
+    assert!(sub.probe_dsn().await.is_err());
+    assert!(sub.probe_dsn().await.unwrap());
+    assert_eq!(mock.connections(), 1);
+    mock.join().await;
+}
+
+#[tokio::test]
+async fn configured_policy_probe_has_time_for_a_cold_connection() {
+    use mw_mail_transport::{
+        BoxFuture, CachedSts, PolicyContext, PolicyError, StsCache, TransportPolicy,
+        TransportPolicyConfig,
+    };
+    use std::sync::Arc;
+    use std::time::Duration;
+    struct NoCache;
+    impl StsCache for NoCache {
+        fn load<'a>(&'a self, _: &'a str) -> BoxFuture<'a, Result<Option<CachedSts>, PolicyError>> {
+            Box::pin(async { Ok(None) })
+        }
+        fn store<'a>(
+            &'a self,
+            _: &'a str,
+            _: &'a CachedSts,
+        ) -> BoxFuture<'a, Result<(), PolicyError>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+    #[derive(Debug)]
+    struct Delayed;
+    impl mw_net::Dialer for Delayed {
+        fn dial<'a>(
+            &'a self,
+            host: &'a str,
+            port: u16,
+        ) -> mw_net::BoxFuture<'a, std::io::Result<mw_net::BoxStream>> {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(2200)).await;
+                mw_net::Dialer::dial(&mw_net::DirectDialer, host, port).await
+            })
+        }
+    }
+    let mock = common::start(vec![
+        "220 ready\r\n".into(),
+        "250-mock\r\n250 DSN\r\n".into(),
+        "221 bye\r\n".into(),
+    ])
+    .await;
+    let sub = submitter(mock.addr, Credentials::None).with_dialer(Some(Arc::new(Delayed)));
+    assert_eq!(sub.probe_timeout(), Duration::from_secs(4));
+    assert!(
+        sub.probe_dsn().await.is_err(),
+        "ordinary probe keeps its two-second inner bound"
+    );
+    let policy = TransportPolicy::new(
+        TransportPolicyConfig::default(),
+        PolicyContext {
+            doh_url: "https://127.0.0.1:9/dns-query".into(),
+            egress_domain: None,
+            cache_namespace: "probe-budget-test".into(),
+        },
+        Arc::new(NoCache),
+    )
+    .unwrap();
+    let sub = sub.with_transport_policy(Some(Arc::new(policy)));
+    assert_eq!(sub.probe_timeout(), Duration::from_secs(32));
+    assert!(
+        sub.probe_dsn().await.unwrap(),
+        "configured policy budget must survive a connection longer than two seconds"
+    );
+    assert_eq!(mock.connections(), 1);
+    mock.join().await;
 }

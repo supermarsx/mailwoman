@@ -255,7 +255,7 @@ async fn smtp_dsn_smtputf8_bdat_wire_live() {
         rcpt.contains(" NOTIFY=SUCCESS,FAILURE"),
         "DSN NOTIFY: {rcpt}"
     );
-    assert!(rcpt.contains(" ORCPT=rfc822;"), "DSN ORCPT: {rcpt}");
+    assert!(rcpt.contains(" ORCPT=utf-8;"), "DSN ORCPT: {rcpt}");
 
     let bdat = &cap[2];
     assert!(bdat.ends_with(" LAST"), "single-chunk BDAT: {bdat}");

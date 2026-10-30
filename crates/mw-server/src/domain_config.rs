@@ -45,6 +45,21 @@ impl Endpoint {
 
     pub fn validate_for(&self, protocol: &str) -> Result<(), String> {
         self.validate()?;
+        if let Some(policy) = self
+            .security
+            .as_ref()
+            .and_then(|security| security.smtp_policy.as_ref())
+        {
+            if protocol != "smtp" {
+                return Err(
+                    "DANE and MTA-STS policies are only available for SMTP endpoints".into(),
+                );
+            }
+            if policy.enabled() {
+                mw_mail_transport::normalize_domain(&self.host)
+                    .map_err(|_| "SMTP policy verification requires a DNS hostname")?;
+            }
+        }
         self.auth_policy(protocol)?;
         Ok(())
     }

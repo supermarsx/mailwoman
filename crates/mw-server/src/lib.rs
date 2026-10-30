@@ -203,6 +203,7 @@ pub mod domain_probe;
 pub(crate) mod domain_provider;
 mod domain_routes;
 mod domain_security;
+mod smtp_transport_policy;
 mod domain_selection;
 pub mod domain_transport;
 mod domain_upgrade;

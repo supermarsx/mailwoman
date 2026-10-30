@@ -26,4 +26,3 @@ hickory-net = { version = "=0.26.1", features = ["dnssec-ring"] }
 rcgen = "0.14"
 tokio-rustls.workspace = true
 webpki-roots.workspace = true
-
