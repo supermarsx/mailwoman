@@ -63,7 +63,7 @@ async function expectShade(page:Page,which:'lighter'|'darker',label:string):Prom
   const want=Math.min(1,Math.max(0,a+(which==='lighter'?0.2:-0.2)));
   last=`${label}: accent ${m.accent} L=${a.toFixed(3)} badge ${m.badge.bg} L=${b.toFixed(3)} want ${want.toFixed(3)} text ${m.badge.fg} attr ${m.attr}`;
   return m.attr===`accent-${which}`&&Math.abs(b-want)<0.012&&contrast(parseRgb(m.badge.bg),parseRgb(m.badge.fg))>=4.5;
- },{message:()=>last}).toBe(true);
+ }).toBe(true).catch((error:unknown)=>{throw new Error(`${label}: shade never settled; last ${last}`,{cause:error});});
  console.log('T85_SHADE',last);
  const m=await measure(page);return {accent:m.accent,badge:m.badge.bg};
 }

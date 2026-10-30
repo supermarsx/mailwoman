@@ -58,7 +58,7 @@ async function setTheme(page:Page,theme:'light'|'dark'){
 async function colours(avatar:Locator){return avatar.evaluate(el=>{const s=getComputedStyle(el);return {bg:s.backgroundColor,fg:s.color};});}
 
 /** Type a hex value into a ColorField and commit it. */
-async function setColour(page:Page,field:Locator,hex:string){
+async function setColour(field:Locator,hex:string){
   await field.locator('button').first().click();
   const pop=field.locator('[data-color-popover]');
   await expect(pop).toBeVisible();
@@ -128,8 +128,8 @@ for(const scheme of ['light','dark'] as const){
     await expect(office).toHaveAccessibleName('Office building');
     await office.click();
     await expect(editor.locator('[data-avatar-preview] .person-avatar')).toHaveAttribute('data-avatar-icon','office');
-    await setColour(page,editor.locator('[data-avatar-bg] [data-color-field]'),'#1d4ed8');
-    await setColour(page,editor.locator('[data-avatar-fg] [data-color-field]'),'#ffffff');
+    await setColour(editor.locator('[data-avatar-bg] [data-color-field]'),'#1d4ed8');
+    await setColour(editor.locator('[data-avatar-fg] [data-color-field]'),'#ffffff');
     await expect(editor.locator('[data-avatar-contrast]')).toHaveAttribute('data-avatar-contrast','ok');
     await shot(page,info,`${scheme}-avatar-editor-icon.png`);
     await editor.locator('[data-avatar-save]').click();
@@ -147,13 +147,13 @@ for(const scheme of ['light','dark'] as const){
     const mainEditor=page.locator('[data-avatar-editor="main"]');
     await expect(mainEditor).toBeVisible();
     await mainEditor.locator('[data-avatar-letter]').fill('Me');
-    await setColour(page,mainEditor.locator('[data-avatar-bg] [data-color-field]'),'#fde68a');
-    await setColour(page,mainEditor.locator('[data-avatar-fg] [data-color-field]'),'#f5f5f5');
+    await setColour(mainEditor.locator('[data-avatar-bg] [data-color-field]'),'#fde68a');
+    await setColour(mainEditor.locator('[data-avatar-fg] [data-color-field]'),'#f5f5f5');
     await expect(mainEditor.locator('[data-avatar-contrast="low"]')).toBeVisible();
     await shot(page,info,`${scheme}-avatar-editor-low-contrast.png`);
     await mainEditor.locator('[data-avatar-use-auto]').click();
     await expect(mainEditor.locator('[data-avatar-contrast]')).toHaveAttribute('data-avatar-contrast','ok');
-    await setColour(page,mainEditor.locator('[data-avatar-fg] [data-color-field]'),'#7c2d12');
+    await setColour(mainEditor.locator('[data-avatar-fg] [data-color-field]'),'#7c2d12');
     await expect(mainEditor.locator('[data-avatar-contrast]')).toHaveAttribute('data-avatar-contrast','ok');
     await mainEditor.locator('[data-avatar-save]').click();
     await expect(mainEditor).toBeHidden();
