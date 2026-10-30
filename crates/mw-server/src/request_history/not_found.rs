@@ -83,6 +83,107 @@ pub(crate) fn expected(method: &Method, path: &str) -> bool {
         || path == mw_admin::config::admin_route("/search")
 }
 
+/// Where a counted 404 most likely came from, read from its redacted path (t102):
+/// `"client"` when the path has a shape the app's own clients request (a file of
+/// the web build, the worker script, an API, JMAP, DAV or console route), and
+/// `"external"` otherwise (scanners, probes, old links from elsewhere). A path
+/// under an app prefix that also looks like a probe ([`probe_shaped`]: a PHP or
+/// dotfile segment, a known scanner target) is external. Read at query time, so
+/// it applies to history recorded before it existed.
+pub(crate) fn source(path: &str) -> &'static str {
+    if !probe_shaped(path) && first_party_shape(path) {
+        "client"
+    } else {
+        "external"
+    }
+}
+
+fn first_party_shape(path: &str) -> bool {
+    const FILES: [&str; 9] = [
+        "/sw.js",
+        "/index.html",
+        "/__mw_base.js",
+        "/__mw_error.css",
+        "/manifest.webmanifest",
+        "/pdf.worker.mjs",
+        "/workspace-popup.html",
+        "/oauth/authorize",
+        "/oidc/consent",
+    ];
+    if FILES.contains(&path) {
+        return true;
+    }
+    let segments: Vec<&str> = path.split('/').skip(1).collect();
+    // A worker registered under an earlier deploy prefix (`/mail/sw.js`).
+    if segments.last() == Some(&"sw.js") && segments.len() <= 5 {
+        return true;
+    }
+    let extension = |name: &str| {
+        name.rsplit_once('.')
+            .map(|(_, ext)| ext.to_ascii_lowercase())
+    };
+    match segments.as_slice() {
+        // A file of a build: Vite content-hashed (`Dashboard-CdQvJhSt.js`), or a
+        // long hashed name the redaction turned into a placeholder.
+        ["assets", name] => {
+            let (stem, _) = name.rsplit_once('.').unwrap_or((name, ""));
+            matches!(
+                extension(name).as_deref(),
+                Some(
+                    "js" | "mjs"
+                        | "css"
+                        | "wasm"
+                        | "woff2"
+                        | "woff"
+                        | "svg"
+                        | "png"
+                        | "webp"
+                        | "json"
+                )
+            ) && (crate::is_content_hashed(name)
+                || matches!(stem, "{token}" | "{id}" | "{hex}" | "{long}"))
+        }
+        ["assets", "analytics", _] => true,
+        ["fonts", name] => matches!(extension(name).as_deref(), Some("woff2" | "woff")),
+        ["themes", name] => extension(name).as_deref() == Some("css"),
+        ["icons", _] => true,
+        [".well-known", "jmap"] => true,
+        ["mcp", ..] => true,
+        ["api" | "jmap" | "dav" | "caldav" | "carddav", _, ..] => true,
+        _ => under_console(path),
+    }
+}
+
+/// Paths no first-party client requests and scanners do: a path containing an
+/// entry of the shipped admin-probe list (t100,
+/// [`crate::admin_probe::default_probe_path`]) outside the console's own path,
+/// a segment with a server-script, archive, config or dump extension, or a
+/// dotfile segment other than `.well-known`.
+pub(crate) fn probe_shaped(path: &str) -> bool {
+    const EXTENSIONS: [&str; 24] = [
+        "php", "php5", "phtml", "asp", "aspx", "jsp", "cgi", "pl", "env", "git", "sql", "bak",
+        "old", "orig", "swp", "zip", "tar", "gz", "rar", "7z", "ini", "conf", "yml", "yaml",
+    ];
+    (crate::admin_probe::default_probe_path(path) && !under_console(path))
+        || path.split('/').skip(1).any(|segment| {
+            let lower = segment.to_ascii_lowercase();
+            (lower.starts_with('.') && lower != ".well-known")
+                || lower
+                    .rsplit_once('.')
+                    .is_some_and(|(_, ext)| EXTENSIONS.contains(&ext))
+        })
+}
+
+/// Is `path` the console's page or under it? (`/admin` on an upgraded install,
+/// which the probe list also names.)
+fn under_console(path: &str) -> bool {
+    let console = mw_admin::config::admin_path();
+    path == console
+        || path
+            .strip_prefix(console.as_str())
+            .is_some_and(|rest| rest.starts_with('/'))
+}
+
 /// The redacted, bounded form of a not-found path (always starts with `/`).
 pub(crate) fn normalise(path: &str) -> String {
     let path = path.split(['?', '#']).next().unwrap_or("");
@@ -292,6 +393,47 @@ mod tests {
         ] {
             assert!(!expected(&method, path), "{method} {path}");
         }
+    }
+
+    #[test]
+    fn client_shapes_are_told_apart_from_scanner_traffic() {
+        // The user's table (t102), as the server stored it.
+        for path in [
+            "/sw.js",
+            "/assets/admin-branding-BhHELrUF.js",
+            "/assets/Dashboard-CdQvJhSt.js",
+            "/assets/AuditActor-DSXfoEVp.js",
+            "/assets/worker.entry-BbYdsACm.js",
+            "/assets/{token}.js",
+            "/api/accounts/{uuid}/renew",
+            "/mail/sw.js",
+            "/jmap/download/{id}/{token}",
+            "/fonts/inter-400.woff2",
+        ] {
+            assert_eq!(source(path), "client", "{path}");
+        }
+        for path in [
+            "/{token}",
+            "/wp-login.php",
+            "/.env",
+            "/.git/config",
+            "/api/.env",
+            "/api/v1/config.php",
+            "/assets/logo.png",
+            "/robots.txt",
+            "/phpmyadmin/index",
+            "/backup/{hex}.zip",
+            "/cgi-bin/luci",
+        ] {
+            assert_eq!(source(path), "external", "{path}");
+        }
+        assert!(probe_shaped("/wp-admin/setup"));
+        assert!(probe_shaped("/administrator/index"));
+        // The console's own path is never a probe, even where the list names it.
+        let console = mw_admin::config::admin_path();
+        assert_eq!(source(&format!("{console}/users/{{n}}")), "client");
+        assert!(!probe_shaped("/.well-known/jmap"));
+        assert!(!probe_shaped("/assets/index-a1b2c3d4.js"));
     }
 
     #[test]

@@ -10,11 +10,14 @@ export interface RequestHistory {
  scope:'server';timing:'response-ready';latencySampleUnit?:'integer-milliseconds'|'microseconds';
 }
 /** One redacted `method + path` pair; `count` is an upper and `minCount` a lower bound. */
-export interface NotFoundPath {method:string;path:string;count:number;minCount:number}
+/** `source` (t102): `client` = a shape the app's own clients request; `external` = scanners, probes, links from elsewhere. */
+export interface NotFoundPath {method:string;path:string;count:number;minCount:number;source?:'client'|'external'}
 /** `GET /admin/metrics/not-found`: top paths over the whole hours overlapping the window. */
 export interface NotFoundPaths {
  from:number;to:number;pathsFrom:number;pathsTo:number;bucketSeconds:number;limit:number;
  total:number|null;approximate:boolean;paths:NotFoundPath[];coverage:NotFoundCoverage;scope:'server';
+ /** t102: lower-bound totals of the listed paths by source. */
+ listedBySource?:{client:number;external:number};
 }
 export async function loadRequestHistory(range?:RequestHistoryRange,signal?:AbortSignal):Promise<RequestHistory>{
  const query=new URLSearchParams({maxPoints:'240'});

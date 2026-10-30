@@ -385,11 +385,20 @@ fn top_paths_body(rows: &[Bucket], from: i64, hours_from: i64, to: i64) -> serde
             None => {}
         }
     }
+    // t102: each listed pair says whether the app's own clients produce it.
+    let (mut client, mut external) = (0_u64, 0_u64);
     let paths: Vec<_> = summary
         .paths
         .iter()
         .map(|entry| {
-            json!({"method":entry.method,"path":entry.path,"count":entry.count,"minCount":entry.count - entry.error})
+            let source = not_found::source(&entry.path);
+            let floor = entry.count - entry.error;
+            if source == "client" {
+                client = client.saturating_add(floor);
+            } else {
+                external = external.saturating_add(floor);
+            }
+            json!({"method":entry.method,"path":entry.path,"count":entry.count,"minCount":floor,"source":source})
         })
         .collect();
     json!({
@@ -398,6 +407,7 @@ fn top_paths_body(rows: &[Bucket], from: i64, hours_from: i64, to: i64) -> serde
         "total": (!tracked.is_empty()).then_some(summary.count),
         "approximate": summary.paths.iter().any(|entry| entry.error > 0),
         "paths": paths, "coverage": not_found_coverage(&tracked, &untracked),
+        "listedBySource": {"client": client, "external": external},
         "scope": "server",
     })
 }
@@ -712,7 +722,7 @@ mod not_found_tests {
         assert_eq!(body["total"], 1);
         assert_eq!(
             body["paths"],
-            json!([{"method":"GET","path":"/x","count":1,"minCount":1}])
+            json!([{"method":"GET","path":"/x","count":1,"minCount":1,"source":"external"}])
         );
         assert_eq!(body["coverage"]["trackedSince"], 3600);
         assert_eq!(
