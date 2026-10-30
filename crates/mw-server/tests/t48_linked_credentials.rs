@@ -516,9 +516,10 @@ async fn linked_access_renews_from_the_sealed_credential_and_renews_inline_when_
 #[tokio::test]
 async fn greenmail_imap_link_survives_restart_and_expiry() {
     let Ok(imap) = std::env::var("MW_T48_GREENMAIL") else {
-        if std::env::var("MW_REQUIRE_LIVE").is_ok() {
-            panic!("MW_T48_GREENMAIL is required");
-        }
+        // The shared gate, not a bare `is_ok()`: MW_REQUIRE_LIVE is a list
+        // ("DATABASE_URL_PG,…") in the dual-backend job, and a list that does not
+        // name this variable must not turn this skip into a failure.
+        common::gate::skip("[t48 linked] MW_T48_GREENMAIL unset: no live Greenmail child driven");
         return;
     };
     unsafe {
