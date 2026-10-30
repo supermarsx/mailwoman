@@ -1930,6 +1930,29 @@ pub static REGISTRY: &[SettingDef] = &[
         "signin",
         "wait after a sign-in attempt that does not end in a session (per source network)"
     ),
+    // ── Diagnostics budget per admin session (t104) ─────────────────────────────
+    dedicated(
+        def!(
+            "rateLimit.diagnosticsBurst",
+            int(1, 100),
+            "10",
+            G,
+            "security",
+            "diagnostic runs and backend checks an admin session may start in a row (keyed by session); repeating a job the session has running returns it uncharged"
+        ),
+        crate::request_budget::ROUTE,
+    ),
+    dedicated(
+        def!(
+            "rateLimit.diagnosticsPerMinute",
+            int(1, 600),
+            "10",
+            G,
+            "security",
+            "diagnostic runs and jobs per minute an admin session regains"
+        ),
+        crate::request_budget::ROUTE,
+    ),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(
         def!(

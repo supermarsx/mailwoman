@@ -80,31 +80,24 @@ impl CheckResult {
     }
 }
 
-type RateWindows = HashMap<String, (Instant, u8)>;
-static LIMITS: OnceLock<Mutex<RateWindows>> = OnceLock::new();
-fn limit(session: &str) -> Result<(), AdminApiError> {
-    let mut windows = LIMITS
+/// Server-suite runs in flight, per admin session (t104). A second identical
+/// request while one runs (a double click, a second tab) waits for that run and
+/// gets its report, marked `deduplicated`, instead of spending the budget or
+/// probing twice.
+type Inflight = HashMap<String, tokio::sync::watch::Receiver<Option<serde_json::Value>>>;
+static RUNNING: OnceLock<Mutex<Inflight>> = OnceLock::new();
+fn running() -> std::sync::MutexGuard<'static, Inflight> {
+    RUNNING
         .get_or_init(Default::default)
         .lock()
-        .unwrap_or_else(|e| e.into_inner());
-    windows.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(60));
-    if windows.len() >= 4096 && !windows.contains_key(session) {
-        return Err(rate_limited());
-    }
-    let (_, count) = windows.entry(session.into()).or_insert((Instant::now(), 0));
-    if *count >= 2 {
-        return Err(rate_limited());
-    }
-    *count += 1;
-    Ok(())
+        .unwrap_or_else(|e| e.into_inner())
 }
-fn rate_limited() -> AdminApiError {
-    AdminApiError::new(
-        StatusCode::TOO_MANY_REQUESTS,
-        "rate_limited",
-        "Run this suite at most twice per minute.",
-    )
-    .with("retryAfterSecs", 60)
+/// Removes the session's in-flight entry however the leading run ends.
+struct Leader(String);
+impl Drop for Leader {
+    fn drop(&mut self) {
+        running().remove(&self.0);
+    }
 }
 
 #[derive(Deserialize)]
@@ -127,7 +120,31 @@ async fn run(
             "/suite",
         ));
     }
-    limit(&ctx.session_hash)?;
+    let follower = running().get(&ctx.session_hash).cloned();
+    if let Some(mut rx) = follower
+        && let Ok(value) = rx.wait_for(Option::is_some).await
+        && let Some(mut value) = (*value).clone()
+    {
+        value["deduplicated"] = json!(true);
+        return Ok(private(value));
+    }
+    crate::request_budget::diagnostics(&state, &ctx).await?;
+    let (tx, rx) = tokio::sync::watch::channel(None);
+    running().insert(ctx.session_hash.clone(), rx);
+    let _leader = Leader(ctx.session_hash.clone());
+    let value = server_suite(&state, ctx, &headers, &ext).await?;
+    let _ = tx.send(Some(value.clone()));
+    Ok(private(value))
+}
+fn private(value: serde_json::Value) -> Response {
+    ([(header::CACHE_CONTROL, "private, no-store")], Json(value)).into_response()
+}
+async fn server_suite(
+    state: &AppState,
+    ctx: AdminCtx,
+    headers: &HeaderMap,
+    ext: &Extensions,
+) -> Result<serde_json::Value, AdminApiError> {
     let id = uuid::Uuid::new_v4().to_string();
     let started = chrono::Utc::now().timestamp();
     // Audit before running even if a failing database later prevents history.
@@ -190,8 +207,8 @@ async fn run(
         .require_unscoped(Capability::DomainsUpstreamWrite)
         .is_ok();
     let (network, security) = tokio::join!(
-        posture::network(&state, upstream),
-        posture::security(&state, &headers, &ext)
+        posture::network(state, upstream),
+        posture::security(state, headers, ext)
     );
     results.extend(network);
     results.extend(security);
@@ -213,11 +230,9 @@ async fn run(
     };
     let history_saved = state.store.save_diagnostic_run(&run).await.is_ok();
     let retention_applied = prune_history(&state.store).await.is_ok();
-    Ok((
-        [(header::CACHE_CONTROL, "private, no-store")],
-        Json(json!({"run":run,"historySaved":history_saved,"auditSaved":audit_saved,"retentionApplied":retention_applied})),
+    Ok(
+        json!({"run":run,"historySaved":history_saved,"auditSaved":audit_saved,"retentionApplied":retention_applied}),
     )
-        .into_response())
 }
 
 #[derive(Deserialize)]

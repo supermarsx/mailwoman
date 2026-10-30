@@ -126,6 +126,7 @@ pub mod jobs;
 pub(crate) mod alerts;
 pub(crate) mod audit;
 mod deployment_security;
+mod request_budget;
 mod request_protection;
 mod security_center;
 mod server_text;

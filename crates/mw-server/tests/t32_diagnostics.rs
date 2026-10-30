@@ -3,7 +3,7 @@ use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config
 use serde_json::{Value, json};
 
 #[tokio::test]
-async fn server_suite_is_authenticated_redacted_persisted_and_rate_limited() {
+async fn server_suite_is_authenticated_redacted_persisted_and_paced_per_session() {
     let dir = std::env::temp_dir().join(format!("mw-diagnostics-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
     let secret = "diagnostic-admin-password";
@@ -153,7 +153,8 @@ async fn server_suite_is_authenticated_redacted_persisted_and_rate_limited() {
             .await
             .unwrap()
             .status(),
-        429
+        200,
+        "t104: an admin session has a burst of diagnostic runs (rateLimit.diagnosticsBurst, default 10); the refusal and its Retry-After are pinned by t104_request_budget.rs"
     );
     task.abort();
 }

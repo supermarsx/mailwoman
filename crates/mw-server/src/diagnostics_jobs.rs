@@ -57,6 +57,14 @@ pub(super) fn register(r: &mut impl AdminRegistrar) {
         report,
     );
 }
+/// The snapshot of a backends job `owner` has running, if any.
+fn running_for(owner: &str) -> Option<Value> {
+    let all = jobs().lock().unwrap_or_else(|e| e.into_inner());
+    all.values()
+        .filter(|j| j.owner == owner && j.created.elapsed() < Duration::from_secs(1800))
+        .map(|j| j.snapshot.lock().unwrap_or_else(|e| e.into_inner()).clone())
+        .find(|v| v["run"]["status"] == "running" && v["run"]["suite"] == "backends")
+}
 fn response(value: Value) -> Response {
     ([(header::CACHE_CONTROL, "private, no-store")], Json(value)).into_response()
 }
@@ -215,7 +223,15 @@ async fn start(
             "/suite",
         ));
     }
-    super::limit(&ctx.session_hash)?;
+    // t104: the same session's backends job is still running, so this is the
+    // same request again (a double click, a second tab, a retry after a slow
+    // answer): answer that job instead of refusing or starting a second one.
+    if let Some(snapshot) = running_for(&ctx.session_hash) {
+        let mut value = snapshot;
+        value["deduplicated"] = json!(true);
+        return Ok((StatusCode::OK, response(value)).into_response());
+    }
+    crate::request_budget::diagnostics(&state, &ctx).await?;
     let rows = state.store.list_domain_configs_limited(129).await?;
     let mut targets = Vec::new();
     let mut results = Vec::new();
@@ -253,6 +269,21 @@ if target.enabled{targets.push(target);}else{results.push(item(&target,"skipped"
         let running = |j: &&Arc<Job>| {
             j.snapshot.lock().unwrap_or_else(|e| e.into_inner())["run"]["status"] == "running"
         };
+        // Checked again under the lock: two identical requests racing past the
+        // check above still start one job.
+        if let Some(existing) = all
+            .values()
+            .filter(|j| j.owner == ctx.session_hash)
+            .find(running)
+        {
+            let mut value = existing
+                .snapshot
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone();
+            value["deduplicated"] = json!(true);
+            return Ok((StatusCode::OK, response(value)).into_response());
+        }
         if all.values().filter(running).count() >= 8
             || all
                 .values()

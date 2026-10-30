@@ -474,6 +474,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="security.signin.failurewindowsecs"></a>`security.signin.failureWindowSecs` | security | global | 900 | plain |  | yes | rolling failed-credential counting window |
 | <a id="security.signin.locksecs"></a>`security.signin.lockSecs` | security | global | 900 | plain |  | yes | fixed temporary source lock duration; rejected retries never extend it |
 | <a id="signin.retrycooldownsecs"></a>`signin.retryCooldownSecs` | signin | global | 3 | plain |  | yes | wait after a sign-in attempt that does not end in a session (per source network) |
+| <a id="ratelimit.diagnosticsburst"></a>`rateLimit.diagnosticsBurst` | security | global | 10 | plain |  | yes | diagnostic runs and backend checks an admin session may start in a row (keyed by session); repeating a job the session has running returns it uncharged |
+| <a id="ratelimit.diagnosticsperminute"></a>`rateLimit.diagnosticsPerMinute` | security | global | 10 | plain |  | yes | diagnostic runs and jobs per minute an admin session regains |
 | <a id="signin.newusers"></a>`signin.newUsers` | signin | global+domain | "open" | plain |  | yes | signin_policy::admit new-user rule |
 | <a id="signin.domainmode"></a>`signin.domainMode` | signin | global | "any" | plain |  | yes | domain gate mode (e12) |
 | <a id="signin.refusaldetail"></a>`signin.refusalDetail` | signin | global | "explain" | plain |  | yes | refusal answers: explain (403 codes) or uniform (401) |

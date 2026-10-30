@@ -1001,6 +1001,20 @@ access resumes from an allowed source. Public pages and logout remain available.
 and recovery sign-ins retain their existing country checks. Long-lived streams already open
 before a policy change are checked on reconnect, not terminated retroactively.
 
+## Diagnostics budget (`rateLimit.*`)
+
+Diagnostic runs (`POST {console}/diag/run`) and backend checks (`POST {console}/diag/jobs`) are charged to the signed-in admin session that starts them, in a bucket keyed by the session and not by its address, so admins behind one office address do not share it. Starting a backend check while the same session's check is still running returns the running check and is not charged. A refusal is `429` with `Retry-After` and `retryAfterSecs`. Sign-in, step-up, password changes and linked-mailbox renewals keep their own strict limiters and are not affected.
+
+These keys are written only through `PUT {console}/rate-limits` (security policy permission, step-up confirmation, audited as `rate-limits-changed`); the generic settings routes refuse them. Values are per replica and reset on restart.
+
+<a id="rateLimit.diagnosticsBurst"></a>
+
+`rateLimit.diagnosticsBurst` (default `10`): Diagnostic runs and backend checks an admin session may start in a row. Starting a check that is already running returns that check instead of counting again.
+
+<a id="rateLimit.diagnosticsPerMinute"></a>
+
+`rateLimit.diagnosticsPerMinute` (default `10`): Diagnostic runs and backend checks per minute an admin session regains.
+
 ## Aggregate and adaptive request protection
 
 State is bounded to 20,000 subjects and 10,000 decision events. Expired state is excluded from enforcement and views immediately. A lifecycle-bound maintenance task removes at most 128 expired subjects and 128 expired events per minute, with additional cleanup during administrative reads and new-subject admission; physical removal can therefore lag logical expiry during a backlog. Empty OFF deployments perform no counter or maintenance writes. Decision events expire logically after 30 days.

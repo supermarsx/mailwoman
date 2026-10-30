@@ -69,6 +69,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.quoteStyle',
   'mail.externalRecipientWarning',
   'mail.trustedRecipientDomains',
+  'rateLimit.diagnosticsBurst',
+  'rateLimit.diagnosticsPerMinute',
   'security.protection.rateMode',
   'security.protection.adaptiveMode',
   'security.protection.clientRequests',
