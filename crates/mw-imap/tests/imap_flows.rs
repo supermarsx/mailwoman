@@ -1156,3 +1156,145 @@ async fn dated_import_without_uidplus_or_with_bad_date_never_sends_append() {
             .any(|line| line.contains("APPEND"))
     );
 }
+
+// A safe probe precedes a write after an idle interval; the write itself is sent
+// only once, on the replacement authenticated connection.
+#[tokio::test]
+async fn idle_closed_command_connection_is_reopened_before_a_write() {
+    let (addr, log) = spawn_mock(vec![
+        dovecot_script(vec![]),
+        dovecot_script(vec![Ex::Cmd {
+            expect: "CREATE",
+            respond: "{tag} OK created\r\n".into(),
+        }]),
+    ])
+    .await;
+    let dialer = Arc::new(RedirectDialer {
+        to: addr,
+        asked: Mutex::new(Vec::new()),
+    });
+    let cfg = ImapConfig::new("imap.tunnel.invalid", password_creds())
+        .port(143)
+        .tls(TlsMode::Plaintext);
+    let backend = ImapBackend::connect_via(cfg, Some(dialer.clone()))
+        .await
+        .unwrap();
+    tokio::time::sleep(std::time::Duration::from_secs(31)).await;
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        backend.create_mailbox("Recovered"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(
+        *dialer.asked.lock().unwrap(),
+        vec![
+            ("imap.tunnel.invalid".to_string(), 143),
+            ("imap.tunnel.invalid".to_string(), 143),
+        ]
+    );
+    let lines = log.lock().unwrap();
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.contains("AUTHENTICATE PLAIN"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        lines.iter().filter(|line| line.contains("CREATE")).count(),
+        1
+    );
+}
+
+#[tokio::test]
+async fn lost_append_ack_is_not_replayed_and_next_operation_reconnects() {
+    let (addr, log) = spawn_mock(vec![
+        dovecot_script(vec![Ex::Literal {
+            expect: "APPEND",
+            respond: String::new(),
+        }]),
+        dovecot_script(vec![Ex::Cmd {
+            expect: "CREATE",
+            respond: "{tag} OK created\r\n".into(),
+        }]),
+    ])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    let mailbox = RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 1,
+    };
+    let result = backend
+        .append(&mailbox, b"Subject: once\r\n\r\nbody", &[])
+        .await;
+    assert!(
+        result.is_err(),
+        "an unacknowledged append remains ambiguous"
+    );
+    assert_eq!(
+        log.lock()
+            .unwrap()
+            .iter()
+            .filter(|line| line.contains("AUTHENTICATE PLAIN"))
+            .count(),
+        1
+    );
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        backend.create_mailbox("Recovered"),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let lines = log.lock().unwrap();
+    assert_eq!(
+        lines.iter().filter(|line| line.contains("APPEND")).count(),
+        1
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .filter(|line| line.contains("AUTHENTICATE PLAIN"))
+            .count(),
+        2
+    );
+}
+
+#[tokio::test]
+async fn reopened_mailbox_never_receives_stale_uid_writes() {
+    let (addr, log) = spawn_mock(vec![
+        dovecot_script(vec![Ex::Cmd {
+            expect: "CREATE",
+            respond: "* BYE connection closing\r\n".into(),
+        }]),
+        dovecot_script(vec![Ex::Cmd {
+            expect: "SELECT",
+            respond: "* OK [UIDVALIDITY 2] recreated\r\n{tag} OK selected\r\n".into(),
+        }]),
+    ])
+    .await;
+    let backend = connect_dovecot(addr, vec![]).await;
+    assert!(backend.create_mailbox("TriggerDisconnect").await.is_err());
+    let mailbox = RawMailboxRef {
+        name: "INBOX".into(),
+        uidvalidity: 1,
+    };
+    let refs = [MessageRef::Imap {
+        mailbox,
+        uidvalidity: 1,
+        uid: 5,
+    }];
+    let error = backend
+        .store_flags(&refs, &[Flag::Seen], &[])
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("UIDVALIDITY"), "{error}");
+    assert!(
+        !log.lock()
+            .unwrap()
+            .iter()
+            .any(|line| line.contains("UID STORE"))
+    );
+}

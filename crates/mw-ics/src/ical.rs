@@ -163,10 +163,13 @@ pub(crate) fn wrap_calendar(
 /// Build a date/date-time property, attaching `TZID`/`VALUE=DATE`/`Z` as the
 /// projection dictates.
 fn date_prop(name: &str, local: &str, tz: Option<&str>, is_date: bool) -> PProperty<'static> {
-    let compact = dt::to_compact(local);
     if is_date {
-        return prop_p(name, compact, vec![param("VALUE", "DATE")]);
+        // JSCalendar carries an all-day start as LocalDateTime too. RFC 5545
+        // VALUE=DATE must contain only the calendar date, never a T/time suffix.
+        let date = local.split('T').next().unwrap_or(local);
+        return prop_p(name, dt::to_compact(date), vec![param("VALUE", "DATE")]);
     }
+    let compact = dt::to_compact(local);
     match tz {
         Some("UTC") | Some("Etc/UTC") => prop(name, format!("{compact}Z")),
         Some(z) => prop_p(name, compact, vec![param("TZID", z)]),

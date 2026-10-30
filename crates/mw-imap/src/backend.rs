@@ -14,7 +14,8 @@ use mw_engine::backend::{
     RawMessage, Result, SyncCursor, WatchHandle,
 };
 use mw_net::{Dialer, SharedDialer};
-use tokio::sync::{Mutex, watch};
+use tokio::sync::{MappedMutexGuard, Mutex, MutexGuard, watch};
+use tokio::time::Instant;
 
 use crate::session::{Credentials, SelectMode, Session};
 use crate::transport::TlsMode;
@@ -62,10 +63,15 @@ pub struct ImapBackend {
     /// loop dials through the same one.
     dialer: Option<SharedDialer>,
     tls_options: mw_net::TlsOptions,
-    session: Mutex<Session>,
+    session: Mutex<CommandSession>,
     caps: BackendCaps,
     /// Names are UTF-8 on the wire (IMAP4rev2 or UTF8=ACCEPT enabled).
     utf8_names: bool,
+}
+
+struct CommandSession {
+    session: Session,
+    last_used: Instant,
 }
 
 impl ImapBackend {
@@ -93,10 +99,45 @@ impl ImapBackend {
             config,
             dialer,
             tls_options,
-            session: Mutex::new(session),
+            session: Mutex::new(CommandSession {
+                session,
+                last_used: Instant::now(),
+            }),
             caps,
             utf8_names,
         })
+    }
+
+    /// Reconnect only before sending the requested operation. In particular,
+    /// APPEND/MOVE are never replayed after losing their acknowledgement.
+    async fn ready_session(&self) -> Result<MappedMutexGuard<'_, Session>> {
+        let mut state = self.session.lock().await;
+        let mut reconnect = state.session.conn_mut().is_closed();
+        if !reconnect && state.last_used.elapsed() >= Duration::from_secs(30) {
+            let probe = tokio::time::timeout(
+                Duration::from_secs(10),
+                state.session.conn_mut().execute("NOOP"),
+            )
+            .await;
+            reconnect =
+                !matches!(probe, Ok(Ok(ref response)) if response.status == imap_proto::Status::Ok);
+        }
+        if reconnect {
+            // A timed-out probe may leave a partial reply. Discard it even when
+            // dialing the replacement fails, so the next call starts fresh too.
+            state.session.conn_mut().close();
+            // Keep the original proxy dialer and TLS/auth policy on every dial.
+            let fresh =
+                connect_session(&self.config, self.dialer.as_deref(), &self.tls_options).await?;
+            if fresh.utf8_names() != self.utf8_names {
+                return Err(EngineError::Protocol(
+                    "IMAP mailbox encoding changed on reconnect".into(),
+                ));
+            }
+            state.session = fresh;
+        }
+        state.last_used = Instant::now();
+        Ok(MutexGuard::map(state, |state| &mut state.session))
     }
 
     /// The capabilities negotiated at connect time.
@@ -127,7 +168,7 @@ impl AccountBackend for ImapBackend {
     }
 
     async fn list_mailboxes(&self) -> Result<Vec<RawMailbox>> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.list_mailboxes().await?)
     }
 
@@ -136,13 +177,13 @@ impl AccountBackend for ImapBackend {
         mbox: &RawMailboxRef,
         cursor: &SyncCursor,
     ) -> Result<MailboxDelta> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.sync_mailbox(mbox, cursor).await?)
     }
 
     async fn fetch_raw(&self, refs: &[MessageRef]) -> Result<Vec<RawMessage>> {
         let groups = group_imap_refs(refs)?;
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         let mut out = Vec::new();
         for (mailbox, uids) in groups {
             out.extend(session.fetch_raw(&mailbox, &uids).await?);
@@ -152,7 +193,7 @@ impl AccountBackend for ImapBackend {
 
     async fn store_flags(&self, refs: &[MessageRef], add: &[Flag], remove: &[Flag]) -> Result<()> {
         let groups = group_imap_refs(refs)?;
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         for (mailbox, uids) in groups {
             session.store_flags(&mailbox, &uids, add, remove).await?;
         }
@@ -161,7 +202,7 @@ impl AccountBackend for ImapBackend {
 
     async fn move_messages(&self, refs: &[MessageRef], to: &RawMailboxRef) -> Result<MoveOutcome> {
         let groups = group_imap_refs(refs)?;
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         let mut merged: Option<MoveOutcome> = None;
         for (mailbox, uids) in groups {
             let outcome = session.move_messages(&mailbox, &uids, &to.name).await?;
@@ -171,7 +212,7 @@ impl AccountBackend for ImapBackend {
     }
 
     async fn append(&self, mbox: &RawMailboxRef, raw: &[u8], flags: &[Flag]) -> Result<MessageRef> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.append(&mbox.name, raw, flags).await?)
     }
 
@@ -186,7 +227,7 @@ impl AccountBackend for ImapBackend {
         flags: &[Flag],
         received_at: &str,
     ) -> Result<MessageRef> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session
             .append_with_date(&mbox.name, raw, flags, received_at)
             .await?)
@@ -209,29 +250,29 @@ impl AccountBackend for ImapBackend {
     // ACL / METADATA capability (mapped from `ImapError::Unsupported`).
 
     async fn get_acl(&self, mbox: &RawMailboxRef) -> Result<Vec<AclEntry>> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.get_acl(&mbox.name).await?)
     }
 
     async fn set_acl(&self, mbox: &RawMailboxRef, identifier: &str, rights: &str) -> Result<()> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         session.set_acl(&mbox.name, identifier, rights).await?;
         Ok(())
     }
 
     async fn delete_acl(&self, mbox: &RawMailboxRef, identifier: &str) -> Result<()> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         session.delete_acl(&mbox.name, identifier).await?;
         Ok(())
     }
 
     async fn list_rights(&self, mbox: &RawMailboxRef, identifier: &str) -> Result<Vec<String>> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.list_rights(&mbox.name, identifier).await?)
     }
 
     async fn my_rights(&self, mbox: &RawMailboxRef) -> Result<String> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.my_rights(&mbox.name).await?)
     }
 
@@ -242,7 +283,7 @@ impl AccountBackend for ImapBackend {
     ) -> Result<Vec<MetadataEntry>> {
         // `None` = server-level: the empty mailbox name (RFC 5464).
         let name = mbox.map(|m| m.name.as_str()).unwrap_or("");
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.get_metadata(name, entries).await?)
     }
 
@@ -253,13 +294,13 @@ impl AccountBackend for ImapBackend {
         value: Option<&str>,
     ) -> Result<()> {
         let name = mbox.map(|m| m.name.as_str()).unwrap_or("");
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         session.set_metadata(name, entry, value).await?;
         Ok(())
     }
 
     async fn quota(&self) -> Result<Vec<QuotaUsage>> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.get_quota_root("INBOX").await?)
     }
 
@@ -294,38 +335,38 @@ impl AccountBackend for ImapBackend {
     }
 
     async fn hierarchy_delimiter(&self) -> Result<Option<char>> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.hierarchy_delimiter().await?)
     }
 
     async fn create_mailbox(&self, name: &str) -> Result<()> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.create_mailbox(name).await?)
     }
 
     async fn rename_mailbox(&self, from: &RawMailboxRef, to: &str) -> Result<()> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.rename_mailbox(&from.name, to).await?)
     }
 
     async fn delete_mailbox(&self, mbox: &RawMailboxRef) -> Result<()> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.delete_mailbox(&mbox.name).await?)
     }
 
     async fn subscribe(&self, mbox: &RawMailboxRef, subscribed: bool) -> Result<()> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.subscribe(&mbox.name, subscribed).await?)
     }
 
     async fn subscribed_mailboxes(&self) -> Result<Vec<String>> {
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         Ok(session.subscribed_mailboxes().await?)
     }
 
     async fn expunge_messages(&self, refs: &[MessageRef]) -> Result<()> {
         let groups = group_imap_refs(refs)?;
-        let mut session = self.session.lock().await;
+        let mut session = self.ready_session().await?;
         for (mailbox, uids) in groups {
             session.expunge(&mailbox, &uids).await?;
         }

@@ -27,6 +27,8 @@ import {
   exportPkcs12,
   certificateRequest,
   attachIssuedCert,
+  unlockKey,
+  lockKey,
   exportBackup,
   sign,
   verify,
@@ -279,3 +281,11 @@ describe('generation refuses what it cannot certify', () => {
     expect(pgp.algorithm).toBeUndefined();
   }, 60_000);
 });
+
+
+it('unlockKey validates the S/MIME bundle before returning a reference', () => {
+  expect(() => unlockKey({ kind: 'smime', encryptedPrivateBundle: alice.encryptedPrivateBundle, passphrase: 'wrong' })).toThrow();
+  const unlocked = unlockKey({ kind: 'smime', encryptedPrivateBundle: alice.encryptedPrivateBundle, passphrase: PASSPHRASE }) as { keyRef: string };
+  expect(unlocked.keyRef).toMatch(/^[a-f0-9]{32}$/);
+  lockKey({ keyRef: unlocked.keyRef });
+}, 60_000);

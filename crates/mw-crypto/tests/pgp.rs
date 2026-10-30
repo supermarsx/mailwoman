@@ -201,3 +201,21 @@ fn gnupg_interop_decrypt_verify() {
     assert!(String::from_utf8_lossy(&out.plaintext).contains("decrypt me with rPGP"));
     assert_eq!(out.signature.status, "verified");
 }
+
+#[test]
+fn unlock_verifies_secret_material_for_v4_and_v6() {
+    for profile in [pgp::KeyProfile::V6, pgp::KeyProfile::Compatible] {
+        let key = pgp::generate_key_with(
+            "Unlock <unlock@example.org>",
+            "correct",
+            &pgp::GenerateOptions {
+                profile,
+                expires_in_secs: None,
+            },
+        )
+        .unwrap();
+        pgp::manage::verify_passphrase(&key.encrypted_private_bundle, "correct").unwrap();
+        assert!(pgp::manage::verify_passphrase(&key.encrypted_private_bundle, "wrong").is_err());
+        assert!(pgp::manage::verify_passphrase(&key.public_key_armored, "correct").is_err());
+    }
+}

@@ -1295,7 +1295,6 @@ pub fn wkd_urls(options: JsValue) -> Result<JsValue, JsValue> {
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct UnlockIn {
-    #[allow(dead_code)]
     kind: String,
     encrypted_private_bundle: String,
     passphrase: String,
@@ -1311,6 +1310,15 @@ struct UnlockOut {
 #[wasm_bindgen(js_name = unlockKey)]
 pub fn unlock_key(options: JsValue) -> Result<JsValue, JsValue> {
     let i: UnlockIn = from_js(options)?;
+    match i.kind.as_str() {
+        "pgp" => pgp::manage::verify_passphrase(&i.encrypted_private_bundle, &i.passphrase)
+            .map_err(js_err)?,
+        "smime" => {
+            crate::smime_keys::unwrap(&i.encrypted_private_bundle, &i.passphrase)
+                .map_err(js_err)?;
+        }
+        other => return Err(js_err(format!("unknown kind: {other}"))),
+    }
     let mut raw = [0u8; 16];
     crate::rng::fill_random(&mut raw);
     let key_ref = hex::encode(raw);

@@ -95,6 +95,7 @@ pub struct Session {
     conn: Connection,
     caps: CapabilitySet,
     selected: Option<String>,
+    selected_uidvalidity: u32,
     qresync_enabled: bool,
     /// Mailbox names travel in UTF-8 rather than modified UTF-7: the server
     /// confirmed `ENABLE IMAP4rev2` or `ENABLE UTF8=ACCEPT` (RFC 9051 §6.3.1,
@@ -147,6 +148,7 @@ impl Session {
             conn,
             caps,
             selected: None,
+            selected_uidvalidity: 0,
             qresync_enabled: false,
             utf8_names: false,
             host: host.to_string(),
@@ -502,6 +504,7 @@ impl Session {
             }
         }
         self.selected = Some(name.to_string());
+        self.selected_uidvalidity = result.uidvalidity;
         Ok(result)
     }
 
@@ -520,6 +523,21 @@ impl Session {
             return Ok(());
         }
         self.select(name, SelectMode::Plain).await?;
+        Ok(())
+    }
+
+    /// Cached message UIDs belong to one mailbox generation. A reconnect may
+    /// select a recreated mailbox; never apply those UIDs to its new contents.
+    async fn ensure_selected_ref(&mut self, mailbox: &RawMailboxRef) -> ImapResult<()> {
+        self.ensure_selected(&mailbox.name).await?;
+        if mailbox.uidvalidity != 0
+            && self.selected_uidvalidity != 0
+            && mailbox.uidvalidity != self.selected_uidvalidity
+        {
+            return Err(ImapError::Protocol(
+                "mailbox UIDVALIDITY changed; resync before using message UIDs".into(),
+            ));
+        }
         Ok(())
     }
 
@@ -686,7 +704,7 @@ impl Session {
         if uids.is_empty() {
             return Ok(Vec::new());
         }
-        self.ensure_selected(&mailbox.name).await?;
+        self.ensure_selected_ref(mailbox).await?;
         let set = format_uid_set(uids);
         let cmd = format!("UID FETCH {set} (UID FLAGS INTERNALDATE RFC822.SIZE BODY.PEEK[])");
         let tagged = self.conn.execute(&cmd).await?.ok()?;
@@ -722,7 +740,7 @@ impl Session {
         if uids.is_empty() {
             return Ok(());
         }
-        self.ensure_selected(&mailbox.name).await?;
+        self.ensure_selected_ref(mailbox).await?;
         let set = format_uid_set(uids);
         if !add.is_empty() {
             let flags = add.iter().map(flag_to_imap).collect::<Vec<_>>().join(" ");
@@ -755,7 +773,7 @@ impl Session {
         if uids.is_empty() {
             return Ok(MoveOutcome::RederiveByMessageId);
         }
-        self.ensure_selected(&mailbox.name).await?;
+        self.ensure_selected_ref(mailbox).await?;
         let set = format_uid_set(uids);
         if self.caps.has("MOVE") {
             let tagged = self
@@ -962,7 +980,7 @@ impl Session {
         if uids.is_empty() {
             return Ok(());
         }
-        self.ensure_selected(&mailbox.name).await?;
+        self.ensure_selected_ref(mailbox).await?;
         let set = format_uid_set(uids);
         let uidplus = self.caps.has("UIDPLUS");
         if !uidplus {

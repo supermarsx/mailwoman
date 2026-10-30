@@ -230,6 +230,15 @@ impl Connection {
         self.stream.as_ref().is_some_and(ImapStream::is_encrypted)
     }
 
+    /// A failed transport or malformed response is never reused for commands.
+    pub(crate) fn is_closed(&self) -> bool {
+        self.stream.is_none()
+    }
+
+    pub(crate) fn close(&mut self) {
+        self.stream = None;
+    }
+
     fn next_tag(&mut self) -> String {
         self.tag_seq = self.tag_seq.wrapping_add(1);
         format!("A{:04}", self.tag_seq)
@@ -237,8 +246,15 @@ impl Connection {
 
     async fn write_all(&mut self, bytes: &[u8]) -> ImapResult<()> {
         let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
-        stream.write_all(bytes).await?;
-        stream.flush().await?;
+        let result = async {
+            stream.write_all(bytes).await?;
+            stream.flush().await
+        }
+        .await;
+        if let Err(error) = result {
+            self.stream = None;
+            return Err(error.into());
+        }
         Ok(())
     }
 
@@ -248,6 +264,18 @@ impl Connection {
             match try_parse(&self.buf) {
                 ParseStep::Done(consumed, resp) => {
                     self.buf.advance(consumed);
+                    if matches!(
+                        &resp,
+                        Response::Data {
+                            status: Status::Bye,
+                            ..
+                        } | Response::Done {
+                            status: Status::Bye,
+                            ..
+                        }
+                    ) {
+                        self.stream = None;
+                    }
                     return Ok(resp);
                 }
                 ParseStep::Bad(msg) => {
@@ -258,6 +286,7 @@ impl Connection {
                     if literalize_8bit_quoted(&mut self.buf) {
                         continue;
                     }
+                    self.stream = None;
                     return Err(ImapError::Protocol(msg));
                 }
                 ParseStep::Incomplete => {
@@ -267,9 +296,16 @@ impl Connection {
                 }
             }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
-            let n = stream.read_buf(&mut self.buf).await?;
-            if n == 0 {
-                return Err(ImapError::Eof);
+            match stream.read_buf(&mut self.buf).await {
+                Ok(0) => {
+                    self.stream = None;
+                    return Err(ImapError::Eof);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    self.stream = None;
+                    return Err(error.into());
+                }
             }
         }
     }
@@ -498,11 +534,18 @@ impl Connection {
                     "OK" => Ok((tag, lines)),
                     "NO" => Err(ImapError::No(info)),
                     "BAD" => Err(ImapError::Bad(info)),
-                    "BYE" => Err(ImapError::Bye(info)),
+                    "BYE" => {
+                        self.stream = None;
+                        Err(ImapError::Bye(info))
+                    }
                     _ => Err(ImapError::Protocol(format!(
                         "unexpected completion: {line}"
                     ))),
                 };
+            }
+            if line.starts_with("* BYE") {
+                self.stream = None;
+                return Err(ImapError::Bye(line));
             }
             lines.push(line);
         }
@@ -518,9 +561,16 @@ impl Connection {
                 return Ok(String::from_utf8_lossy(&line).into_owned());
             }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
-            let n = stream.read_buf(&mut self.buf).await?;
-            if n == 0 {
-                return Err(ImapError::Eof);
+            match stream.read_buf(&mut self.buf).await {
+                Ok(0) => {
+                    self.stream = None;
+                    return Err(ImapError::Eof);
+                }
+                Ok(_) => {}
+                Err(error) => {
+                    self.stream = None;
+                    return Err(error.into());
+                }
             }
         }
     }

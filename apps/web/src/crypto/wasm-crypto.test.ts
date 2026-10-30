@@ -18,7 +18,7 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
-import { initSync, __init, generateKey, encrypt, decrypt, exportPublic } from '../wasm/mw-crypto/mw_crypto.js';
+import { initSync, __init, generateKey, encrypt, decrypt, exportPublic, unlockKey, lockKey } from '../wasm/mw-crypto/mw_crypto.js';
 
 const PASSPHRASE = 'correct horse battery staple';
 const USER_ID = 'Test User <test@example.com>';
@@ -92,5 +92,18 @@ describe('committed mw-crypto wasm guest is loadable and functional', () => {
     const armored = exportPublic({ keyRef: key.publicKeyArmored }) as string;
     expect(armored).toContain('BEGIN PGP PUBLIC KEY BLOCK');
     expect(armored).not.toContain('PRIVATE KEY');
+  });
+});
+
+
+describe('unlockKey validates before caching a key', () => {
+  it('rejects the wrong passphrase and accepts the correct one', () => {
+    expect(() => unlockKey({ kind: 'pgp', encryptedPrivateBundle: key.encryptedPrivateBundle, passphrase: 'wrong' })).toThrow();
+    const unlocked = unlockKey({ kind: 'pgp', encryptedPrivateBundle: key.encryptedPrivateBundle, passphrase: PASSPHRASE }) as { keyRef: string };
+    expect(unlocked.keyRef).toMatch(/^[a-f0-9]{32}$/);
+    lockKey({ keyRef: unlocked.keyRef });
+  }, 60_000);
+  it('rejects an unknown key kind', () => {
+    expect(() => unlockKey({ kind: 'unknown', encryptedPrivateBundle: key.encryptedPrivateBundle, passphrase: PASSPHRASE })).toThrow(/unknown kind/);
   });
 });

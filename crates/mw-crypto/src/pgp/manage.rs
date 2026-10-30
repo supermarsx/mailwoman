@@ -102,6 +102,20 @@ fn check_passphrase(ssk: &SignedSecretKey, passphrase: &str) -> Result<()> {
         .map_err(|e| CryptoError::Decrypt(e.to_string()))
 }
 
+/// Validate all private key material before a worker caches an unlock reference.
+/// No signatures or other externally visible operations are needed.
+pub fn verify_passphrase(bundle: &str, passphrase: &str) -> Result<()> {
+    let ssk = parse_secret(bundle)?;
+    check_passphrase(&ssk, passphrase)?;
+    for sub in &ssk.secret_subkeys {
+        sub.key
+            .unlock(&pw(passphrase), |_, _| Ok(()))
+            .map_err(|e| CryptoError::Decrypt(e.to_string()))?
+            .map_err(|e| CryptoError::Decrypt(e.to_string()))?;
+    }
+    Ok(())
+}
+
 /// The basic hashed subpackets of a new self-signature, plus the unhashed Issuer
 /// Key ID a v4 signature carries.
 fn base_config(ssk: &SignedSecretKey, typ: SignatureType) -> Result<SignatureConfig> {

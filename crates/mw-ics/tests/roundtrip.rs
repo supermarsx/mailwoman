@@ -373,3 +373,24 @@ fn parse_rejects_garbage_without_panicking() {
     // vCard parser tolerance: a bare non-vcard string errors, never panics.
     let _ = parse_vcard(b"\xff\xfe garbage");
 }
+
+#[test]
+fn all_day_local_datetime_emits_dates_and_survives_updates() {
+    let mut event = json!({
+        "@type": "Event", "uid": "all-day-local-datetime", "title": "Holiday",
+        "start": "2026-10-30T00:00:00", "duration": "P2D",
+        "timeZone": "Europe/London", "showWithoutTime": true
+    });
+    for title in ["Holiday", "Updated holiday"] {
+        event["title"] = json!(title);
+        let text = emit_ical(&event).unwrap();
+        assert!(text.contains("DTSTART;VALUE=DATE:20261030\r\n"), "{text}");
+        assert!(text.contains("DTEND;VALUE=DATE:20261101\r\n"), "{text}");
+        let parsed = parse_ical(text.as_bytes()).unwrap();
+        assert_eq!(parsed[0].json["showWithoutTime"], true);
+        assert_eq!(parsed[0].json["start"], "2026-10-30");
+        assert_eq!(parsed[0].json["duration"], "P2D");
+        assert_eq!(parsed[0].json["title"], title);
+        event = parsed[0].json.clone();
+    }
+}
