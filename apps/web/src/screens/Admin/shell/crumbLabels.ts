@@ -225,6 +225,8 @@ function request(kind: EntityKind, id: string, parent?: string): void {
     if (!inFlight.delete(key)) return; // cleared meanwhile (sign-out)
     // A refresh that fails keeps the name already shown.
     if (value === false && typeof names().get(key) === 'string') return;
+    // An unchanged name changes nothing on screen.
+    if (names().get(key) === value) return;
     setNames((m) => new Map(m).set(key, value));
   })();
 }

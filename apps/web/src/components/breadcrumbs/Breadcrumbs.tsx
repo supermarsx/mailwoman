@@ -10,7 +10,7 @@
 // is offered as a tooltip (only when it is actually cut). Labels are `dir="auto"`
 // so a name in another script keeps its own direction inside an RTL trail.
 
-import { For, Show, type JSX } from 'solid-js';
+import { Index, Show, type JSX } from 'solid-js';
 import { Icon } from '../Icon.tsx';
 import * as css from './breadcrumbs.css.ts';
 
@@ -44,18 +44,22 @@ export function Breadcrumbs(props: BreadcrumbsProps): JSX.Element {
     <Show when={props.items.length > 0}>
       <nav class={[css.nav, props.class ?? ''].join(' ').trim()} aria-label={props.label} data-testid={props.testId}>
         <ol class={css.list}>
-          <For each={props.items}>
-            {(item, i) => {
-              const last = (): boolean => i() === props.items.length - 1;
+          <Index each={props.items}>
+            {(entry, i) => {
+              // Index, not For: a level whose name arrives (or is refreshed) updates in
+              // place, so the link, its focus and its tooltip are not rebuilt.
+              const item = (): BreadcrumbItem => entry();
+              const last = (): boolean => i === props.items.length - 1;
               let text: HTMLSpanElement | undefined;
               const hover = (event: Event): void => {
-                if (text && item.label) syncTooltip(event.currentTarget as HTMLElement, text, item.label);
+                const full = item().label;
+                if (text && full) syncTooltip(event.currentTarget as HTMLElement, text, full);
               };
               // `plain`: the level is not a link or button, so the text itself is the
               // item (and, on the last level, carries `aria-current`).
               const name = (plain = false): JSX.Element => (
                 <Show
-                  when={item.label !== null}
+                  when={item().label !== null}
                   fallback={
                     <span class={css.placeholder} data-crumb-loading="" aria-busy="true" aria-current={plain && last() ? 'page' : undefined}>
                       <span class={css.srOnly}>{props.loadingLabel}</span>
@@ -70,40 +74,41 @@ export function Breadcrumbs(props: BreadcrumbsProps): JSX.Element {
                     aria-current={plain && last() ? 'page' : undefined}
                     onPointerOver={plain ? hover : undefined}
                   >
-                    {item.label}
+                    {item().label}
                   </span>
                 </Show>
               );
               return (
                 <li class={css.item}>
-                  <Show when={i() > 0}>
+                  <Show when={i > 0}>
                     <span class={css.separator} aria-hidden="true"><Icon name="chevron" /></span>
                   </Show>
                   <Show
-                    when={!last() && item.href}
+                    when={!last() && item().href}
                     fallback={
                       <Show
-                        when={!last() && item.onNavigate}
+                        when={!last() && item().onNavigate}
                         fallback={
                           name(true)
                         }
                       >
                         {/* A level with a page but no address (user Settings). */}
-                        <button type="button" class={css.linkButton} aria-busy={item.label === null ? 'true' : undefined} onPointerOver={hover} onFocus={hover} onClick={() => item.onNavigate?.()}>
+                        <button type="button" class={css.linkButton} aria-busy={item().label === null ? 'true' : undefined} onPointerOver={hover} onFocus={hover} onClick={() => item().onNavigate?.()}>
                           {name()}
                         </button>
                       </Show>
                     }
                   >
                     <a
-                      href={item.href}
-                      aria-busy={item.label === null ? 'true' : undefined}
+                      href={item().href}
+                      aria-busy={item().label === null ? 'true' : undefined}
                       onPointerOver={hover}
                       onFocus={hover}
                       onClick={(e) => {
-                        if (!item.onNavigate || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
+                        const go = item().onNavigate;
+                        if (!go || e.ctrlKey || e.metaKey || e.shiftKey || e.button !== 0) return;
                         e.preventDefault();
-                        item.onNavigate();
+                        go();
                       }}
                     >
                       {name()}
@@ -112,7 +117,7 @@ export function Breadcrumbs(props: BreadcrumbsProps): JSX.Element {
                 </li>
               );
             }}
-          </For>
+          </Index>
         </ol>
       </nav>
     </Show>
