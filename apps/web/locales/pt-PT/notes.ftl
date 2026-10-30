@@ -61,6 +61,7 @@ notes-link-button = Ligar
 notes-changed-elsewhere = Esta nota foi alterada noutro dispositivo ou sessão. O texto que escreveu aqui é mantido e a sua próxima edição guarda-o.
 notes-deleted-elsewhere = A nota que tinha aberta foi eliminada noutro dispositivo ou sessão.
 notes-create-failed = Não foi possível criar a nota.
+notes-create-failed-reason = Não foi possível criar a nota. { $reason }
 
 notes-toast-pinned = Nota «{ $target }» afixada
 notes-toast-unpinned = Nota «{ $target }» desafixada

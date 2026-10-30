@@ -1,7 +1,8 @@
 import { preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
 import { createSignal, lazy, Match, onCleanup, Show, Suspense, Switch, type JSX } from 'solid-js';
 import type { Signature } from './types.ts';
-import type { SettingsService } from './service.ts';
+import { SettingsError, type SettingsService } from './service.ts';
+import { isTransientFailure, showFailure } from '../../components/recoverableAction.ts';
 import { t, isolate } from '../../i18n';
 import { toast } from '../../components/toast/index.ts';
 import { useEditorGuard } from './entityEditor.tsx';
@@ -97,15 +98,21 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
     setFieldError('');
     setBusy(true);
     const submitted = JSON.stringify(value);
-    try {
+    // t91: the upsert is idempotent and retried by the transport; a final
+    // transient failure gets one toast whose Retry saves the same signature.
+    const persist = async (): Promise<void> => {
       await props.service.upsertSignature(value);
       if (!current()) return;
       setBaseline(submitted);
       if (snapshot() !== submitted) return;
       toast.success(t('settings-saved'));
       await props.onSaved();
-    } catch {
-      toast.error(t('settings-sig-error-generic'));
+    };
+    try {
+      await persist();
+    } catch (cause) {
+      if (isTransientFailure(cause)) showFailure({ key: 'settings-signature-save', error: cause, message: (reason) => t('settings-sig-save-failed', { reason }), retry: persist });
+      else toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
     } finally {
       setBusy(false);
     }

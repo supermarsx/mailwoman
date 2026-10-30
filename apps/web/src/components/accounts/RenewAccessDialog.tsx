@@ -16,6 +16,8 @@ import { createFocusTrap } from '../a11y';
 import { SigninChallenge } from '../SigninChallenge.tsx';
 import { LinkedMailboxFactor } from '../../screens/Settings/LinkedMailboxFactor.tsx';
 import { linkedAccountError } from './linkedAccountError.ts';
+import { invalidateLinkedAccounts } from '../../api/linkedMailboxSession.ts';
+import { toast } from '../toast/index.ts';
 import * as shell from '../../screens/Admin/shell/shell.css.ts';
 import * as ux from '../../screens/Admin/shell/ux.css.ts';
 import * as css from '../../screens/Settings/styles.css.ts';
@@ -36,6 +38,14 @@ export function renewalReasonText(reason: string | null | undefined): string | u
   }
 }
 
+/**
+ * t102/t91: the link is no longer in the owner's list (unlinked or relinked in
+ * another tab or on another device). Never retried: there is nothing to renew.
+ */
+export function linkGone(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 404 && error.code === 'linkedAccountNotFound';
+}
+
 export function renewError(error: unknown): string {
   if (error instanceof ApiError && error.status === 401) return t('linked-accounts-renew-password-rejected');
   return linkedAccountError(error);
@@ -48,6 +58,8 @@ export function RenewAccessDialog(props: {
   api: Api;
   onRenewed: (account: LinkedMailbox) => void;
   onCancel: () => void;
+  /** The link is gone: the dialog has closed itself; reload the list. Default: `onCancel`. */
+  onGone?: () => void;
   mount?: Node | undefined;
 }): JSX.Element {
   const id = createUniqueId();
@@ -69,6 +81,12 @@ export function RenewAccessDialog(props: {
   const passwordOnly = (): boolean => !!knownAddress() && !otherName();
   const needsProof = (): boolean => config()?.antiBot?.mailbox === true;
   const cancel = (): void => { if (!busy()) props.onCancel(); };
+  /** Close, say why, and have every list of links reload (the row is stale). */
+  const gone = (): void => {
+    toast.info(t('linked-accounts-renew-gone'), { id: `linked:gone:${props.account.id}` });
+    invalidateLinkedAccounts();
+    (props.onGone ?? props.onCancel)();
+  };
   createFocusTrap(el, { onEscape: cancel, initialFocus: () => passwordInput });
 
   async function submit(event: Event): Promise<void> {
@@ -88,7 +106,7 @@ export function RenewAccessDialog(props: {
       if ('twofaRequired' in result) setChallenge(result);
       else props.onRenewed(result.account);
     } catch (cause) {
-      if (!disposed) setError(renewError(cause));
+      if (!disposed) { if (linkGone(cause)) gone(); else setError(renewError(cause)); }
     } finally {
       setPassword('');
       setProof(undefined);
@@ -99,7 +117,13 @@ export function RenewAccessDialog(props: {
   async function confirm(value: LinkMailboxProof): Promise<void> {
     const pending = challenge();
     if (!pending) return;
-    const result = await props.api.confirmRenew(props.account.id, pending.challengeId, value);
+    let result;
+    try {
+      result = await props.api.confirmRenew(props.account.id, pending.challengeId, value);
+    } catch (cause) {
+      if (linkGone(cause)) { if (!disposed) gone(); return; }
+      throw cause;
+    }
     if (!disposed) props.onRenewed(result.account);
   }
 

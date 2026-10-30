@@ -12,7 +12,8 @@
 // the raw-editor preview and the dry-run — the server remains authoritative.
 
 import { createSignal, type Accessor } from 'solid-js';
-import { CAP_CORE, type Id } from '../../api/jmap-types.ts';
+import { CAP_CORE, type Id, type JmapRequest } from '../../api/jmap-types.ts';
+import { keyedAttempt } from '../../api/recovery.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { CAP_SECURITY, type MailRule } from '../../api/crypto-types.ts';
 import { t } from '../../i18n';
@@ -148,10 +149,14 @@ export function createRulesSlice(ctx: SliceContext, selectedAccount?: () => stri
       draft.id === undefined || draft.id === ''
         ? { create: { new: ruleBody(draft) } }
         : { update: { [draft.id]: ruleBody(draft) } };
-    const res = await client.jmap({
+    const request: JmapRequest = {
       using: RULES_USING,
       methodCalls: [['MailRule/set', { accountId: acct, ...stateFor(acct), ...method }, 's']],
-    });
+    };
+    // t91: a create is keyed; a Save after a failed attempt reuses the key.
+    const res = 'create' in method
+      ? await keyedAttempt(`rules:${JSON.stringify(request)}`, (key) => client.jmap(request, { idempotencyKey: key }))
+      : await client.jmap(request);
     const set = responseFor<RuleSetResponse>(res, 's'); // throws on a method-level error
     const refused =
       draft.id === undefined || draft.id === '' ? set.notCreated?.['new'] : set.notUpdated?.[draft.id];

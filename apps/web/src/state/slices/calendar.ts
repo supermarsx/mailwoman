@@ -56,7 +56,7 @@ export function createCalendarSlice(ctx: SliceContext): CalendarSlice {
   }
 
   const backend: CalendarBackend = {
-    jmap: (body) => client.jmap(body),
+    jmap: (body, opts) => client.jmap(body, opts),
     resolveAccount,
     resolveIdentity,
   };

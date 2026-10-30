@@ -23,6 +23,11 @@ linked-accounts-changed = Your sign-in changed. Reopen linked mailboxes before c
 linked-accounts-factor-title = Verify this mailbox
 linked-accounts-factor-help = Complete the linked mailbox’s second factor. This does not change your primary sign-in.
 linked-accounts-error = The mailbox request could not be completed. Try again after checking your account and connection.
+# t91: failures in transit, with the reason (common-failure-*). Retry sends the same request.
+linked-accounts-failed-reason = The mailbox request did not complete. { $reason }
+linked-accounts-switch-failed-reason = The mailbox could not be opened. { $reason }
+linked-accounts-unlink-failed = The mailbox could not be unlinked. { $reason }
+linked-accounts-renew-gone = This mailbox is no longer linked.
 linked-accounts-enrollment-required = Set up the required second factor by signing in to that mailbox separately, then try linking it again.
 linked-accounts-password-change-required = Change this mailbox’s password through its own sign-in, then try linking it again.
 linked-accounts-challenge-expired = Verification expired. Start linking the mailbox again.

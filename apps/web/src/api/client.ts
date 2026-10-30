@@ -17,6 +17,7 @@ import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 import { basePath } from './basePath.ts';
 import { apiFetch,type ApiRequestInit } from './http.ts';
 import {linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
+import { keyedWrite, newIdempotencyKey, RecoveryError, type FailureReason, type RecoveryOptions } from './recovery.ts';
 
 /** What a refused answer says about itself, besides its status. */
 export interface ApiErrorDetails {
@@ -67,9 +68,12 @@ export async function errorDetails(res: Response): Promise<ApiErrorDetails> {
 
 /** Raised when the request never reached the server (offline / dropped). */
 export class NetworkError extends Error {
-  constructor(message: string) {
+  /** t91: why the recovery layer gave up, when it was the one that did. */
+  readonly reason: FailureReason | undefined;
+  constructor(message: string, reason?: FailureReason) {
     super(message);
     this.name = 'NetworkError';
+    this.reason = reason;
   }
 }
 
@@ -240,6 +244,51 @@ function pause(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** Options of one {@link Client.jmap} call. */
+export interface JmapCallOptions {
+  signal?: AbortSignal;
+  keepalive?: boolean;
+  /**
+   * t91: `Idempotency-Key` for this request, the same on every retry of the
+   * action (`recovery.ts`, server `idempotency.rs`). Left out, a request that
+   * creates records ({@link isKeyedCreate}) gets a fresh key and is retried on a
+   * transient failure; `false` sends it once, unkeyed, as before.
+   */
+  idempotencyKey?: string | false;
+  /** t91: told when recovery runs long ("Retrying…"). */
+  onSlow?: RecoveryOptions['onSlow'];
+}
+
+/**
+ * t91: the `/set` methods whose `create` the client sends with an
+ * `Idempotency-Key` and retries after a transient failure. Mail itself
+ * (`Email/set`, `EmailSubmission/set`) is not here: a draft has its own save
+ * loop, and a send is never repeated by the transport.
+ */
+export const KEYED_CREATE_METHODS: ReadonlySet<string> = new Set([
+  'Mailbox/set', 'ContactCard/set', 'ContactGroup/set', 'AddressBook/set', 'CalendarEvent/set', 'Calendar/set',
+  'Task/set', 'Note/set', 'MailRule/set', 'SieveScript/set',
+]);
+const READ_METHOD = /\/(get|query|changes|queryChanges)$/;
+
+/**
+ * True when `body` creates at least one record with a method of
+ * {@link KEYED_CREATE_METHODS} and calls nothing else but reads: such a
+ * request is safe to repeat under one key.
+ */
+export function isKeyedCreate(body: JmapRequest): boolean {
+  let creates = false;
+  for (const [name, args] of body.methodCalls) {
+    if (KEYED_CREATE_METHODS.has(name)) {
+      const create = (args as { create?: unknown }).create;
+      if (create !== null && typeof create === 'object' && Object.keys(create).length > 0) creates = true;
+    } else if (name !== 'Core/echo' && !READ_METHOD.test(name)) {
+      return false;
+    }
+  }
+  return creates;
+}
+
 export interface Client {
   login(input: LoginInput): Promise<Me>;
   logout(): Promise<void>;
@@ -260,7 +309,7 @@ export interface Client {
    * fetch over it, so a body that does not fit in what is left is sent as an
    * ordinary request.
    */
-  jmap(body: JmapRequest, opts?: { signal?: AbortSignal; keepalive?: boolean }): Promise<JmapResponse>;
+  jmap(body: JmapRequest, opts?: JmapCallOptions): Promise<JmapResponse>;
   sanitize(html: string): Promise<string>;
   onNetwork(listener: NetworkListener): () => void;
   /**
@@ -356,7 +405,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       // during ordinary scrolling. Rethrow the abort reason unchanged; the
       // caller's own generation guard is what decides it no longer matters.
       if (finalInit.signal?.aborted === true||cause instanceof LinkedContextUnsupportedError||(cause instanceof DOMException&&cause.name==='AbortError')) throw cause;
-      throw new NetworkError(cause instanceof Error ? cause.message : 'network request failed');
+      throw new NetworkError(cause instanceof Error ? cause.message : 'network request failed', cause instanceof RecoveryError ? cause.reason : undefined);
     }
     return res;
   }
@@ -443,12 +492,14 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       if (keepalive) keepaliveInFlight += size;
       return guarded(async () => {
         try {
+          const key = opts?.idempotencyKey === false ? undefined : opts?.idempotencyKey ?? (isKeyedCreate(body) ? newIdempotencyKey() : undefined);
           const send = (): Promise<Response> => req(`/jmap/api`, {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: text,
             ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
             ...(keepalive ? { keepalive: true } : {}),
+            ...(key !== undefined ? keyedWrite(key, opts?.onSlow ? { onSlow: opts.onSlow } : {}) : {}),
           });
           let res = await send();
           for (const wait of JMAP_BUSY_RETRY_MS) {

@@ -38,6 +38,11 @@ import { broadcastEnvelope } from '../worker/protocol.ts';
 import type { WorkerEnvelope } from '../contracts/worker.ts';
 
 export type ToastKind = 'info' | 'success' | 'warning' | 'error';
+/** t91: a stable id (a repeat replaces the toast) and an action button. */
+export interface ToastExtra {
+  id?: string;
+  action?: { label: string; run: () => void | Promise<void> };
+}
 export interface Toast {
   kind: ToastKind;
   message: string;
@@ -49,7 +54,7 @@ export interface StoreCoreApi {
   /** The newest toast on screen (components/toast), or null. */
   toast: Accessor<Toast | null>;
   /** Raise a toast through the shared toast store; `ttlMs` overrides the tone's time. */
-  showToast(kind: ToastKind, message: string, ttlMs?: number): void;
+  showToast(kind: ToastKind, message: string, ttlMs?: number, extra?: ToastExtra): void;
 }
 
 /**
@@ -98,8 +103,8 @@ function createStoreCore(client: Client): StoreCoreApi {
 
   // The toasts live in the shared toast store (components/toast), which the
   // admin console uses too; this keeps the slices' `showToast` seam.
-  function showToast(kind: ToastKind, message: string, ttlMs?: number): void {
-    toasts.show(kind, message, ttlMs === undefined ? {} : { duration: ttlMs });
+  function showToast(kind: ToastKind, message: string, ttlMs?: number, extra?: ToastExtra): void {
+    toasts.show(kind, message, { ...(ttlMs === undefined ? {} : { duration: ttlMs }), ...(extra?.id !== undefined ? { id: extra.id } : {}), ...(extra?.action !== undefined ? { action: extra.action } : {}) });
   }
   const toast = (): Toast | null => {
     const newest = shownToasts().at(-1);

@@ -13,6 +13,10 @@
 //     request the caller marks `idempotent` (sending it twice leaves the same
 //     state as sending it once: a PUT of a whole value, a grant of a scope).
 //     A request that is not idempotent is sent once; its failure is returned.
+//     t91: a create or a credential submission is made idempotent by an
+//     `idempotencyKey` (sent as `Idempotency-Key`, the same on every attempt):
+//     the server replays its first successful answer to a repeat. A refusal
+//     (401, 403, 4xx) is never retried, whatever the request.
 //   - offline: when the browser says it is offline the send waits for the
 //     `online` event (bounded by `offlineWaitMs`) and is then made. Nothing was
 //     sent while offline, so this holds for every request. A write that must
@@ -34,6 +38,13 @@
 export interface RecoveryOptions {
   /** Sending twice leaves the same state as sending once (or it carries an idempotency key). */
   idempotent: boolean;
+  /**
+   * t91: sent as `Idempotency-Key` on every attempt. The server keeps the first
+   * successful answer for this key and replays it to a repeat (`idempotency.rs`),
+   * so a create or a credential submission is safe to send again. A request
+   * with a key is retried like an idempotent one.
+   */
+  idempotencyKey?: string;
   /** Most sends in all, the first included. Default 4. */
   attempts?: number;
   /** First backoff delay in ms (doubled each time, with jitter). Default 400. */
@@ -59,6 +70,8 @@ export interface RecoveryOptions {
 /** Why a recovered request finally failed, in terms the UI can explain. */
 export type FailureReason = 'offline' | 'network' | 'server' | 'rate' | 'conflict' | 'account' | 'linked' | 'refused';
 
+const REASONS: ReadonlySet<FailureReason> = new Set<FailureReason>(['offline', 'network', 'server', 'rate', 'conflict', 'account', 'linked', 'refused']);
+
 /** A recovery that gave up on a thrown error (not a response). */
 export class RecoveryError extends Error {
   readonly reason: FailureReason;
@@ -71,6 +84,33 @@ export class RecoveryError extends Error {
 
 const TRANSIENT = new Set([502, 503, 504]);
 const AUTHORITY_HEADER = 'x-mailwoman-storage-authority';
+/** t91: the header the server deduplicates retries by (`crates/mw-server/src/idempotency.rs`). */
+export const IDEMPOTENCY_HEADER = 'Idempotency-Key';
+
+/** A fresh key for one user action (kept across its retries and its Retry button). */
+export function newIdempotencyKey(): string {
+  const random = globalThis.crypto;
+  if (typeof random?.randomUUID === 'function') return random.randomUUID();
+  const bytes = new Uint8Array(16);
+  if (typeof random?.getRandomValues === 'function') random.getRandomValues(bytes);
+  else for (let i = 0; i < bytes.length; i += 1) bytes[i] = Math.floor(Math.random() * 256);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * `{ recovery }` for a write that is not idempotent on its own (a create, a
+ * link or a renew with a password): it carries `key` as `Idempotency-Key` and
+ * is retried on a transient failure, never on a refusal such as a 401.
+ */
+export function keyedWrite(key: string, extra: Omit<RecoveryOptions, 'idempotent' | 'idempotencyKey'> = {}): { recovery: RecoveryOptions } {
+  return { recovery: { ...extra, idempotent: true, idempotencyKey: key } };
+}
+
+function withKey(init: RequestInit | undefined, key: string): RequestInit {
+  const headers = new Headers(init?.headers);
+  headers.set(IDEMPOTENCY_HEADER, key);
+  return { ...init, headers };
+}
 
 /** The jitter source; tests replace it. */
 export const recoveryRandom = { next: (): number => Math.random() };
@@ -152,9 +192,14 @@ export function errorReason(error: unknown): FailureReason {
     if (status >= 500) return 'server';
     return 'refused';
   }
-  if ((error as { name?: unknown } | null)?.name === 'LinkedContextUnsupportedError') return 'linked';
+  const name = (error as { name?: unknown } | null)?.name;
+  if (name === 'LinkedContextUnsupportedError') return 'linked';
+  // t91: the JMAP client wraps a failed send in its own NetworkError and keeps
+  // the recovery's reason on it.
+  const carried = (error as { reason?: unknown } | null)?.reason;
+  if (name === 'NetworkError' && typeof carried === 'string' && REASONS.has(carried as FailureReason)) return carried as FailureReason;
   if (isOffline()) return 'offline';
-  return error instanceof TypeError ? 'network' : 'refused';
+  return error instanceof TypeError || name === 'NetworkError' ? 'network' : 'refused';
 }
 
 /**
@@ -177,7 +222,9 @@ export async function recoverRequest(
   const offlineWait = options.offlineWaitMs ?? 600_000;
   const signal = init?.signal ?? null;
   const label = describe(input, init);
-  let current = init;
+  const key = options.idempotencyKey;
+  const idempotent = options.idempotent || key !== undefined;
+  let current = key === undefined ? init : withKey(init, key);
   let rebased = false;
   let authorised = false;
   // "Retrying…" is shown only once a retry or an offline wait is under way AND
@@ -206,7 +253,7 @@ export async function recoverRequest(
         const offline = isOffline();
         // Offline before anything reached the server: wait and send, for any request.
         if (offline && offlineRounds < 5) { offlineRounds += 1; n -= 1; continue; }
-        if (!options.idempotent || n >= attempts) throw new RecoveryError(error instanceof TimeoutSignal ? 'server' : 'network', error);
+        if (!idempotent || n >= attempts) throw new RecoveryError(error instanceof TimeoutSignal ? 'server' : 'network', error);
         const delay = backoffDelay(n, base, cap);
         console.debug(`[recovery] ${label}: attempt ${n} failed (${error instanceof TimeoutSignal ? 'timeout' : 'network'}), retrying in ${delay} ms`);
         mark('retrying');
@@ -233,12 +280,14 @@ export async function recoverRequest(
         const next = await options.rebase(response);
         if (next === null) return response;
         console.debug(`[recovery] ${label}: ${response.status}, re-applied on the current state`);
-        current = { ...next, ...(signal ? { signal } : {}) };
+        // The re-applied request is another body: under the same key the server
+        // would refuse it, so it gets a key of its own.
+        current = { ...(key === undefined ? next : withKey(next, `${key}.r`)), ...(signal ? { signal } : {}) };
         n -= 1;
         continue;
       }
       const transient = TRANSIENT.has(response.status) || response.status === 429;
-      if (!transient || !options.idempotent || n >= attempts) return response;
+      if (!transient || !idempotent || n >= attempts) return response;
       let delay = backoffDelay(n, base, cap);
       if (response.status === 429) {
         const after = retryAfterMs(response.headers.get('retry-after'));
@@ -298,3 +347,51 @@ export function idempotentWrite(init: RequestInit | undefined, methods: readonly
   if (typeof ReadableStream !== 'undefined' && init?.body instanceof ReadableStream) return {};
   return { recovery: { idempotent: true } };
 }
+
+// ── t91: one key per action, kept across a manual retry ─────────────────────
+// An editor's Save is its own Retry: after a failed create the user presses it
+// again with the same content. If the first attempt did land (its answer was
+// lost), a fresh key would create a second record. So a key whose request
+// failed in transit is remembered by the request it was sent with, and the
+// same request sent again within the server's window reuses it. A request that
+// was answered (success or refusal) forgets its key: a later identical create
+// is a new one.
+
+const KEPT_KEY_MS = 9 * 60 * 1000;
+const KEPT_KEY_LIMIT = 100;
+const keptKeys = new Map<string, { key: string; at: number }>();
+
+/** Whether `error` left it unknown if the request reached the server. */
+function inTransit(error: unknown): boolean {
+  if ((error as { name?: unknown } | null)?.name === 'AbortError') return true;
+  const reason = errorReason(error);
+  return reason === 'network' || reason === 'server' || reason === 'offline' || reason === 'rate';
+}
+
+/**
+ * Run `send` with an idempotency key for the request `identity` (its scope and
+ * exact body): the key of an earlier attempt of the same request that failed
+ * in transit, or a fresh one.
+ */
+export async function keyedAttempt<T>(identity: string, send: (key: string) => Promise<T>, now: () => number = Date.now): Promise<T> {
+  const at = now();
+  for (const [id, kept] of keptKeys) if (at - kept.at > KEPT_KEY_MS) keptKeys.delete(id);
+  const key = keptKeys.get(identity)?.key ?? newIdempotencyKey();
+  try {
+    const out = await send(key);
+    keptKeys.delete(identity);
+    return out;
+  } catch (error) {
+    if (inTransit(error)) {
+      keptKeys.delete(identity);
+      keptKeys.set(identity, { key, at });
+      while (keptKeys.size > KEPT_KEY_LIMIT) keptKeys.delete(keptKeys.keys().next().value as string);
+    } else {
+      keptKeys.delete(identity);
+    }
+    throw error;
+  }
+}
+
+/** Tests: forget every kept key. */
+export function clearKeptKeys(): void { keptKeys.clear(); }

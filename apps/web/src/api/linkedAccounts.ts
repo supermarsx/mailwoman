@@ -1,4 +1,5 @@
 import {apiFetch} from './http.ts';
+import {keyedAttempt,keyedWrite,newIdempotencyKey,type RecoveryOptions} from './recovery.ts';
 import {withBase} from './basePath.ts';
 import {errorDetails,ApiError,type LoginChallenge} from './client.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from './accountPreferenceLifecycle.ts';
@@ -49,6 +50,12 @@ function cleanLayout(layout:MailboxLayout):MailboxLayout {
   for(const [key,raw] of Object.entries(layout.avatars??{})){const spec=validAvatar(raw);if(spec)avatars[key]=spec;}
   return {...layout,avatars};
 }
+/** t91: a SHA-256 hex digest of `text`, or null where Web Crypto is missing. */
+async function requestDigest(text:string):Promise<string|null> {
+  const subtle=globalThis.crypto?.subtle;
+  if(!subtle)return null;
+  try{const hash=await subtle.digest('SHA-256',new TextEncoder().encode(text));return Array.from(new Uint8Array(hash),b=>b.toString(16).padStart(2,'0')).join('');}catch{return null;}
+}
 /** Management always uses the primary session, never a child-context header.
  * Disposal or any UI authority change aborts pending CSRF/step-up retries too. */
 export function createLinkedAccountsApi() {
@@ -58,13 +65,25 @@ export function createLinkedAccountsApi() {
   const stop=observePreferenceAccount(account=>{
     if(account!==owner)controller.abort();
   });
-  async function request<T>(path:string,method='GET',body?:unknown,headers?:Record<string,string>):Promise<T> {
+  /** t91: how each write recovers. `keyed`: a create or a credential submission, sent with an
+   *  Idempotency-Key (the server replays its first success) and retried on a transient failure
+   *  only, never on a refusal such as a 401 for a wrong password. */
+  async function request<T>(path:string,method='GET',body?:unknown,headers?:Record<string,string>,mode:'once'|'idempotent'|'keyed'=method==='PUT'?'idempotent':'once'):Promise<T> {
+    if(mode!=='keyed')return send<T>(path,method,body,headers,mode==='idempotent'?{recovery:{idempotent:true}}:{});
+    // The key is remembered by a digest of the request (never by the password itself), so pressing
+    // the button again after a failure in transit reuses it.
+    const identity=await requestDigest(`${method} ${path} ${JSON.stringify(body??null)}`);
+    if(identity===null)return send<T>(path,method,body,headers,keyedWrite(newIdempotencyKey()));
+    return keyedAttempt(`linked:${identity}`,key=>send<T>(path,method,body,headers,keyedWrite(key)));
+  }
+  async function send<T>(path:string,method:string,body:unknown,headers:Record<string,string>|undefined,recovery:{recovery?:RecoveryOptions}):Promise<T> {
     if(!owner?.storageAuthority||!authority||!preferenceAccountIsCurrent(owner)||controller.signal.aborted)throw new DOMException('Account changed','AbortError');
     const response=await apiFetch(withBase(`/api/accounts${path}`),{
       method,credentials:'same-origin',signal:controller.signal,
       // t82: the PUTs (which mailbox opens first, order and nicknames) set a whole
-      // value: retried on a transient failure. Link, renew, switch and unlink are not.
-      ...(method==='PUT'?{recovery:{idempotent:true}}:{}),
+      // value: retried on a transient failure. t91: switch and unlink too; link,
+      // renew and their confirmations with an idempotency key (see `request`).
+      ...recovery,
       headers:{'content-type':'application/json','x-mailwoman-storage-authority':authority,...headers},
       ...(body===undefined?{}:{body:JSON.stringify(body)}),
     });
@@ -87,17 +106,20 @@ export function createLinkedAccountsApi() {
       rememberLinkedList(value);
       return value;
     },
-    link:(input:LinkMailboxInput)=>request<LinkMailboxResult>('/link','POST',input),
-    confirm:(challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof),
+    link:(input:LinkMailboxInput)=>request<LinkMailboxResult>('/link','POST',input,undefined,'keyed'),
+    confirm:(challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof,undefined,'keyed'),
     /** t48: renew a link's access in place (no unlink); may answer with a second-factor challenge. */
-    renew:(id:string,input:RenewMailboxInput)=>request<LinkMailboxResult>(`/${encodeURIComponent(id)}/renew`,'POST',input),
-    confirmRenew:(id:string,challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/${encodeURIComponent(id)}/renew/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof),
-    authorize:(id:string)=>request<{context:LinkedAccountContext}>(`/${encodeURIComponent(id)}/switch`,'POST'),
+    renew:(id:string,input:RenewMailboxInput)=>request<LinkMailboxResult>(`/${encodeURIComponent(id)}/renew`,'POST',input,undefined,'keyed'),
+    confirmRenew:(id:string,challengeId:string,proof:LinkMailboxProof)=>request<{account:LinkedMailbox}>(`/${encodeURIComponent(id)}/renew/challenges/${encodeURIComponent(challengeId)}/confirm`,'POST',proof,undefined,'keyed'),
+    /** Mints a context for the link; sending it twice only mints another: retried (t91). */
+    authorize:(id:string)=>request<{context:LinkedAccountContext}>(`/${encodeURIComponent(id)}/switch`,'POST',undefined,undefined,'idempotent'),
     /** Which mailbox opens first. A preference only: opening it still switches through `authorize`. */
     setPrimary:(linkId:string|null)=>request<{primaryMailbox:string|null}>('/primary','PUT',{linkId}),
     /** Order, nicknames and avatars (t86); 409 when another device saved first (re-read, then retry). */
     setLayout:async(layout:MailboxLayout)=>{const saved=await request<{layout:MailboxLayout}>('/layout','PUT',layout);if(!validLayout(saved?.layout))throw new ApiError(502,'Linked mailbox response was invalid');return cleanLayout(saved.layout);},
-    unlink:(account:LinkedMailbox)=>request<void>(`/${encodeURIComponent(account.id)}`,'DELETE',undefined,{'if-match':JSON.stringify(account.revision)}),
+    /** Retried (t91). A 404 means the link is gone, which is what was asked: an earlier
+     *  attempt whose answer was lost removed it. */
+    unlink:async(account:LinkedMailbox)=>{try{await request<void>(`/${encodeURIComponent(account.id)}`,'DELETE',undefined,{'if-match':JSON.stringify(account.revision)},'idempotent');}catch(error){if(!(error instanceof ApiError&&error.status===404))throw error;}},
     dispose:()=>{stop();controller.abort();},
   };
 }

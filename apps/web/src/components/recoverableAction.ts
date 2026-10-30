@@ -43,3 +43,49 @@ export async function runRecoverable(action: RecoverableAction): Promise<boolean
     return false;
   }
 }
+
+/** t91: how a caller shows the failure toast (a slice passes its account-scoped `showToast`). */
+export type FailureShow = (message: string, extra: { id: string; action: { label: string; run: () => void } }) => void;
+
+const defaultShow: FailureShow = (message, extra) => { toast.error(message, extra); };
+
+/**
+ * t91: the one failure toast for an action the caller runs itself (a slice
+ * action that returns a value and rethrows). `retry` repeats the SAME request
+ * (the same body and the same idempotency key); a retry that fails again
+ * replaces the toast, one that succeeds removes it. An abort shows nothing.
+ */
+export function showFailure(options: {
+  key: string;
+  error: unknown;
+  message: (reason: string) => string;
+  retry: () => Promise<unknown>;
+  show?: FailureShow;
+}): void {
+  if ((options.error as { name?: unknown } | null)?.name === 'AbortError') return;
+  const id = `recover:${options.key}`;
+  const show = options.show ?? defaultShow;
+  show(options.message(failureText(errorReason(options.error))), {
+    id,
+    action: {
+      label: t('common-retry'),
+      run: () => {
+        options.retry().then(
+          () => { toast.dismiss(id); },
+          (error: unknown) => { showFailure({ ...options, error }); },
+        );
+      },
+    },
+  });
+}
+
+/** t91: remove an action's failure toast (it succeeded another way). */
+export function dismissFailure(key: string): void {
+  toast.dismiss(`recover:${key}`);
+}
+
+/** t91: the failure left it unknown whether the server got the request (worth a Retry). */
+export function isTransientFailure(error: unknown): boolean {
+  const reason = errorReason(error);
+  return reason === 'network' || reason === 'server' || reason === 'offline' || reason === 'rate';
+}

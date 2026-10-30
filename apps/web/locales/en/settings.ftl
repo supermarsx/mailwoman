@@ -117,6 +117,7 @@ settings-sig-body-label = Signature
 settings-sig-default-label = Use as default
 settings-sig-error-name = Give the signature a name.
 settings-sig-error-generic = The signature could not be saved.
+settings-sig-save-failed = The signature could not be saved. { $reason }
 
 # Identities
 settings-ident-title = Identities
@@ -129,6 +130,7 @@ settings-ident-signature-label = Default signature
 settings-ident-signature-none = None
 settings-ident-error-fields = Enter a name and a valid email address.
 settings-ident-error-generic = The identity could not be saved.
+settings-ident-save-failed = The identity could not be saved. { $reason }
 
 # Notification rules + quiet hours (W15)
 settings-notif-title = Notifications
@@ -153,6 +155,7 @@ settings-search-empty = You have no saved searches yet.
 settings-search-as-folder = Show { $name } as a folder
 settings-search-as-folder-label = Show as folder
 settings-search-error = The saved search could not be changed.
+settings-search-save-failed = The saved search could not be saved. { $reason }
 
 # Keyboard shortcuts (W14)
 settings-kbd-title = Keyboard shortcuts

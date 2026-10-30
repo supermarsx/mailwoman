@@ -15,6 +15,7 @@ import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.t
 import { CAP_CONTACTS, type AddressBook, type ContactCard, type ContactGroup } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
+import { keyedAttempt } from '../../api/recovery.ts';
 import {
   addressBooksGet,
   contactGroupSet,
@@ -279,7 +280,9 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     const book = addressBookId ?? selectedAddressBookId() ?? addressBooks()[0]?.id ?? 'default';
     const { id: _omit, addressBookId: _omitBook, ...create } = draftToCard('', book, draft);
     try {
-      const res = await client.jmap(contactSet(acct, { create: { new: create as ContactCreate } }));
+      // t91: keyed; the editor's Save after a failure reuses the key (no duplicate).
+      const request = contactSet(acct, { create: { new: create as ContactCreate } });
+      const res = await keyedAttempt(`contacts:${JSON.stringify(request)}`, key => client.jmap(request, { idempotencyKey: key }));
       if (version !== authority) return null;
       const result = responseFor<ContactSetResponse>(res, 'set');
       const created = result.created?.['new'];
@@ -395,7 +398,8 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     if (acct === null || version !== authority) return null;
     const book = addressBookId ?? selectedAddressBookId() ?? addressBooks()[0]?.id ?? 'default';
     try {
-      const res = await client.jmap(contactGroupSet(acct, { create: { new: { addressBookId: book, name, memberIds } } }));
+      const request = contactGroupSet(acct, { create: { new: { addressBookId: book, name, memberIds } } });
+      const res = await keyedAttempt(`contact-groups:${JSON.stringify(request)}`, key => client.jmap(request, { idempotencyKey: key }));
       if (version !== authority) return null;
       const result = responseFor<ContactGroupSetResponse>(res, 'set');
       const id = result.created?.['new']?.id;

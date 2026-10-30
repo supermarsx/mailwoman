@@ -16,6 +16,8 @@ import { CAP_NOTES, type Note, type NoteLink } from '../../api/pim-types.ts';
 import { t } from '../../i18n';
 import type { SliceContext } from './context.ts';
 import { LocalWrites, keepUnchanged, sameValue } from './localWrites.ts';
+import { newIdempotencyKey } from '../../api/recovery.ts';
+import { showFailure } from '../../components/recoverableAction.ts';
 
 // A save asks the transport to finish even if the page closes or reloads
 // right after it starts (t32-h11); see `jmap` in `api/client.ts`.
@@ -70,6 +72,11 @@ export function noteQuery(accountId: Id, limit = 500): JmapRequest {
       ],
     ],
   };
+}
+
+/** The server answered a create with `notCreated` (a refusal, not retried). */
+class NoteRefused extends Error {
+  constructor() { super('the server did not create the note'); this.name = 'NoteRefused'; }
 }
 
 /** A single `Note/set` (create / update / destroy) over the notes capability. */
@@ -278,25 +285,36 @@ export function createNotesSlice(ctx: SliceContext): NotesSlice {
     };
     const creationId = 'new';
     const { id: _omitId, createdAt: _omitCreated, ...create } = draft;
-    let created: Partial<Note> | undefined;
+    // t91: one request and one idempotency key per create; the transport
+    // retries a transient failure, and the final failure shows one toast whose
+    // Retry sends the same request again (never a second note).
+    const request = noteSet(acct, { create: { [creationId]: create } });
+    const key = newIdempotencyKey();
+    const send = async (): Promise<Note> => {
+      const res = await client.jmap(request, { ...SAVE, idempotencyKey: key });
+      const created = responseFor<NoteSetResponse>(res, 's').created?.[creationId] ?? undefined;
+      // A refused create adds nothing: the note would vanish on the next load.
+      if (created?.id === undefined) throw new NoteRefused();
+      const note: Note = { ...draft, ...created, id: created.id };
+      // The server holds it now; a load sent before this answer may not.
+      writes.begin(note.id, 'create')();
+      setNotes([note, ...notes()]);
+      ctx.broadcastChange?.();
+      return note;
+    };
     try {
-      const res = await client.jmap(noteSet(acct, { create: { [creationId]: create } }), SAVE);
-      created = responseFor<NoteSetResponse>(res, 's').created?.[creationId] ?? undefined;
+      return await send();
     } catch (err) {
-      ctx.showToast('error', t('notes-create-failed'));
+      if (err instanceof NoteRefused) ctx.showToast('error', t('notes-create-failed'));
+      else showFailure({
+        key: `notes:create:${key}`,
+        error: err,
+        message: (reason) => t('notes-create-failed-reason', { reason }),
+        retry: send,
+        show: (message, extra) => ctx.showToast('error', message, undefined, extra),
+      });
       throw err;
     }
-    // A refused create adds nothing: the note would vanish on the next load.
-    if (created?.id === undefined) {
-      ctx.showToast('error', t('notes-create-failed'));
-      throw new Error('the server did not create the note');
-    }
-    const note: Note = { ...draft, ...created, id: created.id };
-    // The server holds it now; a load sent before this answer may not.
-    writes.begin(note.id, 'create')();
-    setNotes([note, ...notes()]);
-    ctx.broadcastChange?.();
-    return note;
   }
 
   async function updateNote(id: Id, patch: NotePatch): Promise<void> {

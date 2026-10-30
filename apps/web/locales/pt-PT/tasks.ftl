@@ -39,3 +39,4 @@ tasks-delete-no = Manter tarefa
 tasks-changed-elsewhere = Esta tarefa foi alterada noutro dispositivo ou sessão. As suas edições foram mantidas; «Guardar» aplica apenas os campos que alterou.
 tasks-deleted-elsewhere = «{ $title }» foi eliminada noutro dispositivo ou sessão, pelo que o respetivo formulário de edição foi fechado.
 tasks-notice-dismiss = Dispensar
+tasks-create-failed = Não foi possível criar a tarefa. { $reason }

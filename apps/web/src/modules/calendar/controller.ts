@@ -57,12 +57,14 @@ import {
   startOfMonth,
   startOfWeek,
 } from './datetime.ts';
+import { keyedAttempt } from '../../api/recovery.ts';
 import { createCalendarFeeds, type CalendarFeeds } from './feeds.ts';
 import type { CalendarRow, CalendarView, ConflictPair, EventAttachment, EventInstance } from './types.ts';
 
 /** The transport the controller runs over (mock or the real engine). */
 export interface CalendarBackend {
-  jmap(body: JmapRequest): Promise<JmapResponse>;
+  /** t91: `opts.idempotencyKey` keys a create (see `api/client.ts`). */
+  jmap(body: JmapRequest, opts?: { idempotencyKey?: string }): Promise<JmapResponse>;
   /** Resolve the account id (from the session), cached by the caller. */
   resolveAccount(): Promise<Id | null>;
   /**
@@ -517,7 +519,9 @@ export function createCalendarController(backend: CalendarBackend): CalendarCont
       categories: draft.categories ?? [],
       attachments: draft.attachments ?? [],
     };
-    const res = await backend.jmap(eventSet(acct, { create: { new: create } }));
+    // t91: keyed; a Save after a failed attempt reuses the key (no second event).
+    const request = eventSet(acct, { create: { new: create } });
+    const res = await keyedAttempt(`calendar-event:${JSON.stringify(request)}`, (key) => backend.jmap(request, { idempotencyKey: key }));
     const set = pimResponse<EventSetResponse>(res, 'set');
     throwIfRefused(set.notCreated?.['new']);
     const id = set.created?.['new']?.id ?? null;

@@ -25,6 +25,9 @@ import {
 } from '../../modules/tasks/api.ts';
 import type { SliceContext } from './context.ts';
 import { LocalWrites, keepUnchanged } from './localWrites.ts';
+import { newIdempotencyKey } from '../../api/recovery.ts';
+import { showFailure } from '../../components/recoverableAction.ts';
+import { t } from '../../i18n';
 
 // A save asks the transport to finish even if the page closes or reloads
 // right after it starts (t32-h11); see `jmap` in `api/client.ts`.
@@ -262,7 +265,28 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
   async function doCreate(create: TaskCreate): Promise<Id | null> {
     const acct = await resolveAccount();
     if (acct === null) return null;
-    const res = await client.jmap(taskSet(acct, { create: { new: create } }), SAVE);
+    // t91: one request and one idempotency key per create. The transport
+    // retries a transient failure; the final failure shows one toast whose
+    // Retry sends the same request again (the server answers a repeat of a
+    // create that did land with its first answer: no second task).
+    const request = taskSet(acct, { create: { new: create } });
+    const key = newIdempotencyKey();
+    const send = async (): Promise<Id | null> => applyCreate(create, await client.jmap(request, { ...SAVE, idempotencyKey: key }));
+    try {
+      return await send();
+    } catch (error) {
+      showFailure({
+        key: `tasks:create:${key}`,
+        error,
+        message: (reason) => t('tasks-create-failed', { reason }),
+        retry: send,
+        show: (message, extra) => showToast('error', message, undefined, extra),
+      });
+      throw error;
+    }
+  }
+
+  function applyCreate(create: TaskCreate, res: JmapResponse): Id | null {
     const id = createResultId(res);
     ctx.broadcastChange?.();
     // Reflect the create locally so the UI updates without a full reload; the

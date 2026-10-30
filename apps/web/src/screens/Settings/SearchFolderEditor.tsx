@@ -3,6 +3,7 @@ import { t } from '../../i18n';
 import { toast } from '../../components/toast/index.ts';
 import type { SavedSearch } from './types.ts';
 import type { SettingsService } from './service.ts';
+import { isTransientFailure, showFailure } from '../../components/recoverableAction.ts';
 import { useEditorGuard } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 import * as folderCss from './searchFolder.css.ts';
@@ -32,10 +33,18 @@ export function SearchFolderEditor(props: { initial?: SavedSearch; service: Sett
     if (busy() || parseError) return;
     if (!name().trim()) { setError(t('settings-search-name-required')); return; }
     setBusy(true); setError('');
-    try {
-      await props.service.upsertSavedSearch({ id: initial.id, name: name().trim(), asFolder: asFolder(), queryJson: JSON.stringify(filter()) });
-      setBaseline(snapshot()); toast.success(t('settings-search-saved', { name: name().trim() })); await props.onSaved();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : t('settings-search-error')); }
+    const value = { id: initial.id, name: name().trim(), asFolder: asFolder(), queryJson: JSON.stringify(filter()) }, submitted = snapshot();
+    // t91: a create is keyed (service.ts); a transient failure gets one toast
+    // whose Retry saves the same search again. A refusal stays at the form.
+    const persist = async (): Promise<void> => {
+      await props.service.upsertSavedSearch(value);
+      setBaseline(submitted); toast.success(t('settings-search-saved', { name: value.name })); await props.onSaved();
+    };
+    try { await persist(); }
+    catch (cause) {
+      if (isTransientFailure(cause)) showFailure({ key: 'settings-search-save', error: cause, message: (reason) => t('settings-search-save-failed', { reason }), retry: persist });
+      else setError(cause instanceof Error ? cause.message : t('settings-search-error'));
+    }
     finally { setBusy(false); }
   }
   return <section class={css.section} aria-label={t('settings-search-editor')}>

@@ -3,6 +3,8 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {ApiError} from '../../api/client.ts';
 import type {LinkedMailbox} from '../../api/linkedAccounts.ts';
 import {RenewAccessDialog} from './RenewAccessDialog.tsx';
+import {linkedAccountsRevision} from '../../api/linkedMailboxSession.ts';
+import {toast,toasts} from '../toast/index.ts';
 
 vi.mock('../../i18n/index.ts',()=>({t:(key:string,args?:Record<string,string>)=>args?.name!==undefined?`${key}:${args.name}`:key,isolate:(value:string)=>value,loadCatalog:async()=>undefined}));
 vi.mock('../../api/publicConfig.ts',()=>({publicConfig:async()=>({antiBot:{mailbox:false}})}));
@@ -94,5 +96,41 @@ describe('Renew access dialog (t48)',()=>{
     render(()=><RenewAccessDialog account={expired} label="Child" api={{renew:vi.fn(),confirmRenew:vi.fn()}} onRenewed={()=>undefined} onCancel={onCancel}/>);
     fireEvent.keyDown(screen.getByRole('dialog'),{key:'Escape'});
     expect(onCancel).toHaveBeenCalled();
+  });
+  // t102/t91: the link was unlinked or relinked elsewhere; the server answers 404 linkedAccountNotFound.
+  it('a 404 linkedAccountNotFound closes the dialog, reloads the links and says the mailbox is no longer linked',async()=>{
+    toast.clear();
+    const goneError=new ApiError(404,'Linked mailbox request failed',{code:'linkedAccountNotFound'});
+    const api={renew:vi.fn(async()=>{throw goneError;}),confirmRenew:vi.fn()};
+    const onGone=vi.fn(),onCancel=vi.fn(),onRenewed=vi.fn();
+    const revision=linkedAccountsRevision();
+    render(()=><RenewAccessDialog account={expired} label="Child" api={api} onRenewed={onRenewed} onCancel={onCancel} onGone={onGone}/>);
+    fireEvent.input(screen.getByLabelText('linked-accounts-password'),{target:{value:'pw'}});
+    fireEvent.click(screen.getByRole('button',{name:'linked-accounts-renew-submit'}));
+    await flush();
+    expect(api.renew).toHaveBeenCalledTimes(1);
+    expect(onGone).toHaveBeenCalledTimes(1);
+    expect(onRenewed).not.toHaveBeenCalled();
+    expect(linkedAccountsRevision()).not.toBe(revision);
+    expect(toasts().map(item=>item.message)).toContain('linked-accounts-renew-gone');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+  it('the same 404 on the second-factor step closes the dialog too (onCancel when no onGone)',async()=>{
+    toast.clear();
+    const challenge={twofaRequired:true as const,challengeId:'c1',factors:['totp']};
+    const api={renew:vi.fn(async()=>challenge),confirmRenew:vi.fn(async()=>{throw new ApiError(404,'Linked mailbox request failed',{code:'linkedAccountNotFound'});})};
+    const onCancel=vi.fn();
+    render(()=><RenewAccessDialog account={expired} label="Child" api={api as never} onRenewed={()=>undefined} onCancel={onCancel}/>);
+    fireEvent.input(screen.getByLabelText('linked-accounts-password'),{target:{value:'pw'}});
+    fireEvent.click(screen.getByRole('button',{name:'linked-accounts-renew-submit'}));
+    await flush();
+    const code=screen.getByLabelText('settings-2fa-totp-code-label') as HTMLInputElement;
+    expect(code).toBeTruthy();
+    fireEvent.input(code!,{target:{value:'123456'}});
+    fireEvent.submit(code!.closest('form')!);
+    await flush();
+    expect(api.confirmRenew).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(toasts().map(item=>item.message)).toContain('linked-accounts-renew-gone');
   });
 });

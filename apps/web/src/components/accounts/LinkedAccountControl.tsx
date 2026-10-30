@@ -2,9 +2,10 @@ import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX
 import {useApp} from '../../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {createLinkedAccountsApi,type LinkedMailboxList} from '../../api/linkedAccounts.ts';
-import {loadCatalog} from '../../i18n/index.ts';
+import {loadCatalog,t} from '../../i18n/index.ts';
 import {confirmShellNavigation} from '../../shell/navigationGuard.ts';
 import {MailboxPicker,MailboxPlain,type MailboxChoice} from './MailboxPicker.tsx';
+import {dismissFailure,isTransientFailure,showFailure} from '../recoverableAction.ts';
 import {linkedAccountError} from './linkedAccountError.ts';
 import {RenewAccessDialog} from './RenewAccessDialog.tsx';
 import {resourceValue} from '../resourceValue.ts';
@@ -94,7 +95,9 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
   async function select(id:string|null):Promise<void>{
     if(!await confirmShellNavigation())return;
     setError('');
-    try{await app.switchLinkedMailbox(id);}catch(cause){setError(linkedAccountError(cause));}
+    // t91: the switch is retried by the transport; a final transient failure gets one toast with Retry.
+    try{await app.switchLinkedMailbox(id);dismissFailure('linked:switch');}
+    catch(cause){if(isTransientFailure(cause))showFailure({key:'linked:switch',error:cause,message:reason=>t('linked-accounts-switch-failed-reason',{reason}),retry:()=>app.switchLinkedMailbox(id)});else setError(linkedAccountError(cause));}
   }
   const renewAccount=()=>{const id=renewing();return id?listed()?.accounts.find(account=>account.id===id):undefined;};
   const renewLabel=(id:string):string=>{const account=listed()?.accounts.find(item=>item.id===id);return mailboxNickname(id)||account?.address||account?.displayName||'';};

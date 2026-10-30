@@ -8,6 +8,7 @@ import {moveTo} from '../../components/accounts/pointerReorder.ts';
 import {SigninChallenge} from '../../components/SigninChallenge.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import {linkedAccountError} from '../../components/accounts/linkedAccountError.ts';
+import {isTransientFailure,showFailure} from '../../components/recoverableAction.ts';
 import {useApp} from '../../state/context.ts';
 import {loadCatalog,t} from '../../i18n/index.ts';
 import {confirmShellNavigation} from '../../shell/navigationGuard.ts';
@@ -47,8 +48,11 @@ function OwnedLinkedAccounts():JSX.Element {
     if(busy())return;
     if(app.linkedMailboxId()===account.id&&!await confirmShellNavigation())return;
     setBusy(true);setError('');
-    try{await api.unlink(account);if(disposed)return;invalidateLinkedAccounts();if(app.linkedMailboxId()===account.id)await app.switchLinkedMailbox(null);else await refetch();}
-    catch(cause){if(!disposed)setError(linkedAccountError(cause));}
+    // t91: the unlink is retried by the transport (a 404 after a lost answer counts as done);
+    // a final transient failure gets one toast whose Retry unlinks again.
+    const persist=async():Promise<void>=>{await api.unlink(account);if(disposed)return;invalidateLinkedAccounts();if(app.linkedMailboxId()===account.id)await app.switchLinkedMailbox(null);else await refetch();};
+    try{await persist();}
+    catch(cause){if(disposed)return;if(isTransientFailure(cause))showFailure({key:`linked:unlink:${account.id}`,error:cause,message:reason=>t('linked-accounts-unlink-failed',{reason}),retry:persist});else setError(linkedAccountError(cause));}
     finally{if(!disposed)setBusy(false);}
   }
   async function setFirst(id:string|null):Promise<void>{
@@ -87,7 +91,7 @@ function OwnedLinkedAccounts():JSX.Element {
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
       <LinkedAccountList value={value()} busy={busy()||app.switchingMailbox()} error={error()} onAdd={()=>void navigation.navigate({section:'linked-accounts',editor:{kind:'new'}})} onUnlink={account=>void remove(account)} onSetFirst={id=>void setFirst(id)} onMove={move} onRename={rename} onRenew={setRenewing} onAvatar={setAvatar}/>
       <Show when={renewing()}>{account=><RenewAccessDialog account={account()} label={mailboxNickname(account().id)||account().address||account().displayName} api={api}
-        onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)}/>}</Show>
+        onRenewed={()=>{setRenewing(undefined);invalidateLinkedAccounts();void refetch();}} onCancel={()=>setRenewing(undefined)} onGone={()=>{setRenewing(undefined);void refetch();}}/>}</Show>
     </>}</Show>
   </>}><LinkMailboxEditor enabled={!!list()?.policy.enabled&&!config.loading&&!config.error} storeCredentials={list()?.policy.storeCredentials!==false} storeCredentialsReason={list()?.policy.storeCredentialsReason??null} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
       verificationRequired={config()?.antiBot?.mailbox===true} {...(proof()?{verificationProof:proof()!}:{})}

@@ -40,3 +40,5 @@ tasks-delete-no = Keep task
 tasks-changed-elsewhere = This task was changed on another device or session. Your edits are kept; Save applies only the fields you changed.
 tasks-deleted-elsewhere = “{ $title }” was deleted on another device or session, so its edit form was closed.
 tasks-notice-dismiss = Dismiss
+# t91: a create that failed in transit; Retry sends the same request again.
+tasks-create-failed = The task could not be created. { $reason }

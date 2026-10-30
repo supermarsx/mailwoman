@@ -114,6 +114,7 @@ settings-sig-body-label = Assinatura
 settings-sig-default-label = Utilizar como predefinida
 settings-sig-error-name = Atribua um nome à assinatura.
 settings-sig-error-generic = Não foi possível guardar a assinatura.
+settings-sig-save-failed = Não foi possível guardar a assinatura. { $reason }
 
 # Identities
 settings-ident-title = Identidades
@@ -126,6 +127,7 @@ settings-ident-signature-label = Assinatura predefinida
 settings-ident-signature-none = Nenhuma
 settings-ident-error-fields = Introduza um nome e um endereço de e-mail válido.
 settings-ident-error-generic = Não foi possível guardar a identidade.
+settings-ident-save-failed = Não foi possível guardar a identidade. { $reason }
 
 # Notification rules + quiet hours (W15)
 settings-notif-title = Notificações
@@ -150,6 +152,7 @@ settings-search-empty = Ainda não tem pesquisas guardadas.
 settings-search-as-folder = Mostrar { $name } como pasta
 settings-search-as-folder-label = Mostrar como pasta
 settings-search-error = Não foi possível alterar a pesquisa guardada.
+settings-search-save-failed = Não foi possível guardar a pesquisa guardada. { $reason }
 
 # Keyboard shortcuts (W14)
 settings-kbd-title = Atalhos de teclado

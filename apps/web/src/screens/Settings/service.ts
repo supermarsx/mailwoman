@@ -11,7 +11,8 @@ import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount
 //     the account-prefs contract the web drives (see the DONE report's backend note).
 
 import { withBase } from '../../api/basePath.ts';
-import { apiFetch } from '../../api/http.ts';
+import { apiFetch, type ApiRequestInit } from '../../api/http.ts';
+import { keyedAttempt, keyedWrite, type RecoveryOptions } from '../../api/recovery.ts';
 import { t } from '../../i18n';
 import type {
   Identity,
@@ -110,8 +111,8 @@ async function okOrThrow(res: Response): Promise<void> {
   await jsonOrThrow<unknown>(res);
 }
 
-function postJson(fetcher: Fetcher, url: string, body?: unknown): Promise<Response> {
-  const init: RequestInit = { method: 'POST' };
+function postJson(fetcher: Fetcher, url: string, body?: unknown, recovery?: RecoveryOptions): Promise<Response> {
+  const init: ApiRequestInit = { method: 'POST', ...(recovery ? { recovery } : {}) };
   if (body !== undefined) {
     init.headers = { 'content-type': 'application/json' };
     init.body = JSON.stringify(body);
@@ -238,8 +239,9 @@ export class SettingsService {
     return out.signatures;
   }
 
+  /** An upsert by name: sending it twice stores it once, so it is retried (t91). */
   async upsertSignature(sig: Signature): Promise<void> {
-    await okOrThrow(await postJson(this.personalRecordFetch.bind(this), withBase('/api/account/signatures'), sig));
+    await okOrThrow(await postJson(this.personalRecordFetch.bind(this), withBase('/api/account/signatures'), sig, { idempotent: true }));
   }
 
   async deleteSignature(name: string): Promise<void> {
@@ -255,8 +257,19 @@ export class SettingsService {
     return out.identities;
   }
 
+  /**
+   * t91: an update (with an id) is idempotent; a create (no id) is sent with an
+   * `Idempotency-Key`, reused when the same identity is saved again after a
+   * failure in transit, so a retry never adds a second identity.
+   */
   async upsertIdentity(identity: Identity): Promise<void> {
-    await okOrThrow(await postJson(this.personalRecordFetch.bind(this), withBase('/api/account/identities'), identity));
+    const url = withBase('/api/account/identities');
+    const fetch = this.personalRecordFetch.bind(this);
+    if (identity.id) {
+      await okOrThrow(await postJson(fetch, url, identity, { idempotent: true }));
+      return;
+    }
+    await keyedAttempt(`identity:${JSON.stringify(identity)}`, async (key) => okOrThrow(await postJson(fetch, url, identity, keyedWrite(key).recovery)));
   }
 
   async deleteIdentity(id: string): Promise<void> {
@@ -290,14 +303,18 @@ export class SettingsService {
     return out.savedSearches;
   }
 
+  /** t91: as {@link upsertIdentity}: an update is idempotent, a create is keyed. */
   async upsertSavedSearch(search: SavedSearch): Promise<void> {
-    await okOrThrow(
+    const send = async (recovery: RecoveryOptions): Promise<void> => okOrThrow(
       await this.personalRecordFetch(withBase('/api/account/saved-searches'), {
         method: 'PUT',
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify(search),
-      }),
+        recovery,
+      } as ApiRequestInit),
     );
+    if (search.id) { await send({ idempotent: true }); return; }
+    await keyedAttempt(`saved-search:${JSON.stringify(search)}`, (key) => send(keyedWrite(key).recovery));
   }
 
   async deleteSavedSearch(id: string): Promise<void> {
