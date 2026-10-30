@@ -123,6 +123,7 @@ async fn cancelled_dav_exchange_closes_connection_pump() {
             authorized_dav: Some(auth(DavMethod::Propfind)),
             web_push: None,
             response_limit: 1024,
+            download: None,
             accept: "application/xml",
             user_agent: "Mailwoman",
             body: None,

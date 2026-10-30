@@ -448,7 +448,10 @@ async fn the_allowlist_admits_its_class_on_the_direct_arm_and_nothing_else() {
             continue;
         }
         let r = plan::send_with(&plan, target.clone(), &Request::get(c)).await;
-        let expected = if matches!(c, TrafficClass::Push | TrafficClass::PackageTracking) {
+        let expected = if matches!(
+            c,
+            TrafficClass::Push | TrafficClass::PackageTracking | TrafficClass::GeoipDatabase
+        ) {
             Refusal::BadRequest("this traffic class requires HTTPS")
         } else {
             Refusal::Blocked

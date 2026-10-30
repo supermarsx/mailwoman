@@ -61,6 +61,8 @@ pub enum TrafficClass {
     UpdateCheck,
     /// ManageSieve byte streams to an operator-configured mail endpoint.
     Sieve,
+    /// Downloads of the local country database from its provider (t96).
+    GeoipDatabase,
 }
 
 /// The `User-Agent` sent by every class without a more specific one. It names the
@@ -69,7 +71,7 @@ pub const CLASS_UA: &str = "Mailwoman";
 
 impl TrafficClass {
     /// Every class, in declaration order.
-    pub const ALL: [TrafficClass; 17] = [
+    pub const ALL: [TrafficClass; 18] = [
         TrafficClass::Plugins,
         TrafficClass::PackageTracking,
         TrafficClass::Push,
@@ -87,6 +89,7 @@ impl TrafficClass {
         TrafficClass::Oauth,
         TrafficClass::UpdateCheck,
         TrafficClass::Sieve,
+        TrafficClass::GeoipDatabase,
     ];
 
     /// The classes a route carries when its row predates per-class selection:
@@ -115,6 +118,7 @@ impl TrafficClass {
             TrafficClass::Oauth => "oauth",
             TrafficClass::UpdateCheck => "update_check",
             TrafficClass::Sieve => "sieve",
+            TrafficClass::GeoipDatabase => "geoip",
         }
     }
 
@@ -202,6 +206,7 @@ mod tests {
                 "oauth",
                 "update_check",
                 "sieve",
+                "geoip",
             ]
         );
     }

@@ -9,8 +9,7 @@
 use std::borrow::Borrow;
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::Instant;
 
 use std::net::IpAddr;
@@ -25,6 +24,8 @@ use mail_auth::{
 };
 use mail_parser::{Host, MessageParser, MimeHeaders};
 use maxminddb::{Reader, geoip2};
+
+use crate::security::geoip::{self, CountryDatabase};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
@@ -526,7 +527,7 @@ struct GeoEnrichment {
     country: Option<String>,
 }
 
-/// Country from the operator's local GeoIP database; no network lookup.
+/// Country from the local country database; no network lookup.
 pub fn country_for_ip(ip: IpAddr) -> Option<String> {
     geoip_enrich(Some(ip)).country
 }
@@ -540,25 +541,19 @@ pub enum CountryLookup {
     Known(String),
 }
 
+/// The country of `ip` in the database lookups use now ([`geoip::active`]:
+/// `MW_GEOIP_DB` when set, otherwise the managed database).
 pub fn country_lookup(ip: Option<IpAddr>) -> CountryLookup {
-    country_lookup_with_path(ip, geoip_db_path().as_deref())
+    country_lookup_in(ip, geoip::active().as_deref())
 }
 
-fn country_lookup_with_path(ip: Option<IpAddr>, path: Option<&Path>) -> CountryLookup {
-    let Some(reader) = path.and_then(geoip_reader) else {
+fn country_lookup_in(ip: Option<IpAddr>, db: Option<&CountryDatabase>) -> CountryLookup {
+    let Some(db) = db else {
         return CountryLookup::DatabaseUnavailable;
     };
-    ip.and_then(|ip| geoip_lookup(&reader, ip.to_canonical()).country)
+    ip.and_then(|ip| db.country(ip))
         .map(CountryLookup::Known)
         .unwrap_or(CountryLookup::Unknown)
-}
-
-/// The admin-supplied GeoIP database path (`MW_GEOIP_DB`), when it points at an
-/// existing file. `None` (the default) leaves every hop's ASN/country unset.
-fn geoip_db_path() -> Option<std::path::PathBuf> {
-    std::env::var_os("MW_GEOIP_DB")
-        .map(std::path::PathBuf::from)
-        .filter(|p| p.exists())
 }
 
 /// A MaxMind-DB reader over an in-memory copy of the `.mmdb` file (pure-Rust, no
@@ -566,38 +561,22 @@ fn geoip_db_path() -> Option<std::path::PathBuf> {
 /// every Received hop and every concurrent verdict.
 type GeoReader = Reader<Vec<u8>>;
 
-/// Open (once) and cache the admin `.mmdb` reader keyed by path, so the file is
-/// memory-parsed a single time and reused rather than re-opened per Received hop.
-/// The open *outcome* is cached — including failure as `None` — so a bad/corrupt
-/// path is not re-opened on every lookup. (An admin fixing the file re-reads on the
-/// next process start; the path is a deploy-time configuration.)
-fn geoip_reader(path: &Path) -> Option<Arc<GeoReader>> {
-    static CACHE: OnceLock<Mutex<HashMap<PathBuf, Option<Arc<GeoReader>>>>> = OnceLock::new();
-    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
-    let mut guard = cache.lock().unwrap();
-    if let Some(entry) = guard.get(path) {
-        return entry.clone();
-    }
-    let opened = Reader::open_readfile(path).ok().map(Arc::new);
-    guard.insert(path.to_path_buf(), opened.clone());
-    opened
-}
-
-/// BYO GeoIP/ASN enrichment (SPEC §7.3). MaxMind GeoLite2 is NOT permissively
-/// redistributable (account + attribution required), so **no database is bundled**
-/// (t12 §5 flag 3 — the user's decision). ASN/country are resolved only from an
-/// admin-supplied database pointed to by `MW_GEOIP_DB`; unset/unreadable (the
-/// default) leaves the fields `None`. A single admin DB may be a Country, City, or
-/// ASN database — whichever fields it provides are resolved; a missing field is
-/// `None` and never errors the verdict.
+/// BYO GeoIP/ASN enrichment (SPEC §7.3). No database is bundled. ASN/country are
+/// resolved only from the local database ([`geoip::active`]): the operator's
+/// `MW_GEOIP_DB`, or the database an administrator downloaded or uploaded in the
+/// console. None (the default) leaves the fields `None`. A database may be a
+/// Country, City, or ASN database — whichever fields it provides are resolved; a
+/// missing field is `None` and never errors the verdict.
 fn geoip_enrich(ip: Option<IpAddr>) -> GeoEnrichment {
-    let (Some(ip), Some(db)) = (ip, geoip_db_path()) else {
+    let (Some(ip), Some(db)) = (ip, geoip::active()) else {
         return GeoEnrichment::default();
     };
-    let Some(reader) = geoip_reader(&db) else {
-        return GeoEnrichment::default();
-    };
-    geoip_lookup(&reader, ip)
+    let mut geo = geoip_lookup(db.reader(), ip.to_canonical());
+    if geo.country.is_none() {
+        // IPinfo Lite carries a flat `country_code`.
+        geo.country = db.country(ip);
+    }
+    geo
 }
 
 /// Resolve one IP against an opened reader. Tries the ASN schema (GeoLite2-ASN:
@@ -908,6 +887,7 @@ mod tests {
     use mail_auth::common::crypto::Ed25519Key;
     use mail_auth::dkim::DkimSigner;
     use mail_parser::decoders::base64::base64_decode;
+    use std::path::Path;
 
     // RFC 8463 ed25519 test key (same vector mail-auth ships).
     const ED_SEED: &str = "nWGxne/9WmC6hEr0kuwsxERJxWl7MmkZcDusAxyuf2A=";
@@ -1025,44 +1005,43 @@ mod tests {
     fn admission_country_lookup_distinguishes_missing_database_and_unknown_address() {
         let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../fixtures/geoip/GeoIP2-Country-Test.mmdb");
+        let db = CountryDatabase::open_lenient(std::fs::read(&fixture).unwrap()).unwrap();
         assert_eq!(
-            country_lookup_with_path(None, None),
+            country_lookup_in(None, None),
             CountryLookup::DatabaseUnavailable
         );
+        assert_eq!(country_lookup_in(None, Some(&db)), CountryLookup::Unknown);
         assert_eq!(
-            country_lookup_with_path(None, Some(&fixture)),
+            country_lookup_in("127.0.0.1".parse().ok(), Some(&db)),
             CountryLookup::Unknown
         );
         assert_eq!(
-            country_lookup_with_path("127.0.0.1".parse().ok(), Some(&fixture)),
-            CountryLookup::Unknown
-        );
-        assert_eq!(
-            country_lookup_with_path("81.2.69.160".parse().ok(), Some(&fixture)),
+            country_lookup_in("81.2.69.160".parse().ok(), Some(&db)),
             CountryLookup::Known("GB".into())
         );
         let invalid = Path::new(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
-        assert_eq!(
-            country_lookup_with_path("81.2.69.160".parse().ok(), Some(&invalid)),
-            CountryLookup::DatabaseUnavailable
-        );
+        assert!(CountryDatabase::open_lenient(std::fs::read(&invalid).unwrap()).is_err());
     }
 
     #[test]
-    fn geoip_reader_degrades_gracefully_on_a_non_mmdb_file() {
+    fn environment_database_degrades_gracefully_on_a_non_mmdb_file() {
         // A path that exists but is NOT a valid MaxMind DB must not open (and must
-        // not panic): the reader open fails and is cached as `None`, so the verdict
-        // path degrades to no enrichment rather than erroring. This exercises the
-        // open + per-path caching wiring without needing env or a real `.mmdb`
-        // (the live fixture-backed resolution is E10's leg). No `MW_GEOIP_DB` is
-        // touched, so the sibling no-DB test stays independent under parallelism.
+        // not panic): the open fails and is cached, so the verdict path degrades
+        // to no enrichment rather than erroring. No `MW_GEOIP_DB` is touched, so
+        // the sibling no-DB test stays independent under parallelism.
         let mut junk = std::env::temp_dir();
         junk.push(format!("mw-geoip-not-a-db-{}.mmdb", std::process::id()));
         std::fs::write(&junk, b"this is plainly not a MaxMind database").unwrap();
 
-        assert!(geoip_reader(&junk).is_none(), "junk file must not open");
-        // Second call resolves from the cache — still `None`, still no panic.
-        assert!(geoip_reader(&junk).is_none(), "cached failure stays None");
+        assert!(
+            geoip::environment_database(&junk).is_err(),
+            "junk file must not open"
+        );
+        // Second call resolves from the cache — still an error, still no panic.
+        assert!(
+            geoip::environment_database(&junk).is_err(),
+            "cached failure stays"
+        );
 
         let _ = std::fs::remove_file(&junk);
     }

@@ -34,6 +34,7 @@ fn get() -> Outgoing<'static> {
         user_agent: PROXY_UA,
         body: None,
         response_limit: crate::MAX_IMAGE_BYTES,
+        download: None,
     }
 }
 

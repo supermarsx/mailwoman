@@ -71,6 +71,7 @@ where
             user_agent: PROXY_UA,
             body: None,
             response_limit: MAX_IMAGE_BYTES,
+            download: None,
         },
     )
     .await
@@ -268,7 +269,7 @@ async fn exchange_inner(
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<u64>().ok())
-        && declared > out.response_limit.min(MAX_IMAGE_BYTES) as u64
+        && declared > out.body_cap() as u64
     {
         return Err(ProxyRefusal::Origin(Refusal::TooLarge));
     }
@@ -292,7 +293,7 @@ async fn exchange_inner(
         let Some(frame) = next else { break };
         let frame = frame.map_err(|_| ProxyRefusal::Origin(Refusal::Upstream))?;
         if let Some(chunk) = frame.data_ref() {
-            if buf.len() + chunk.len() > out.response_limit.min(MAX_IMAGE_BYTES) {
+            if buf.len() + chunk.len() > out.body_cap() {
                 return Err(ProxyRefusal::Origin(Refusal::TooLarge));
             }
             buf.extend_from_slice(chunk);
@@ -333,6 +334,7 @@ mod tests {
             accept: "application/json",
             user_agent: "Mailwoman",
             body: None,
+            download: None,
         };
         let response = exchange_with(client, &url("https://approved.test/token"), &out)
             .await
@@ -400,6 +402,7 @@ mod tests {
             accept: "application/json",
             user_agent: PROXY_UA,
             body: None,
+            download: None,
         };
         assert!(matches!(
             exchange_with(
@@ -453,6 +456,7 @@ mod tests {
                     user_agent: PROXY_UA,
                     body: None,
                     response_limit: 4,
+                    download: None,
                 },
             )
             .await;

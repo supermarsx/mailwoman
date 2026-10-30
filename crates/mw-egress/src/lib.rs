@@ -92,6 +92,10 @@ use reqwest::header;
 /// backstop against decompression/size bombs, enforced while streaming; a caller
 /// that decodes what it fetched caps decode separately.
 pub const MAX_IMAGE_BYTES: usize = 8 * 1024 * 1024;
+/// The hard ceiling for a bulk [`Download`] (t96): a whole data file such as a
+/// country database, which is larger than any image. Only a request that declares
+/// itself a download, for the [`TrafficClass::GeoipDatabase`] class, gets it.
+pub const MAX_DOWNLOAD_BYTES: usize = 256 * 1024 * 1024;
 /// Per-request upstream timeout (applies to each redirect hop independently).
 pub const FETCH_TIMEOUT: Duration = Duration::from_secs(10);
 /// Maximum redirect hops followed (each re-validated); more → refuse.
@@ -612,6 +616,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
             user_agent,
             body: None,
             response_limit: MAX_IMAGE_BYTES,
+            download: None,
         },
     )
     .await
@@ -640,6 +645,79 @@ pub struct Outgoing<'a> {
     pub user_agent: &'a str,
     /// The request body; `None` for `GET`.
     pub body: Option<OutBody<'a>>,
+    /// A bulk file download (t96): its own size ceiling, redirect hosts and origin
+    /// roots. `None` for every other request.
+    pub download: Option<Download<'a>>,
+}
+
+impl Outgoing<'_> {
+    /// The transport ceiling for this request's body, which `response_limit` can
+    /// only lower.
+    pub(crate) fn hard_cap(&self) -> usize {
+        if self.download.is_some() {
+            MAX_DOWNLOAD_BYTES
+        } else {
+            MAX_IMAGE_BYTES
+        }
+    }
+
+    /// The response cap in force: the caller's limit under the hard ceiling.
+    pub(crate) fn body_cap(&self) -> usize {
+        self.response_limit.min(self.hard_cap())
+    }
+
+    /// Whether a redirect from `start` (the URL the fetch began with) to `next`
+    /// may be followed. Every redirect still re-enters the address gate; for a
+    /// [`Download`] it must also stay on HTTPS and on the starting host or one
+    /// of its listed redirect hosts.
+    pub(crate) fn redirect_permitted(&self, start: &reqwest::Url, next: &reqwest::Url) -> bool {
+        self.download
+            .is_none_or(|download| download.redirect_permitted(start, next))
+    }
+}
+
+/// A bulk file download (t96): a `GET` of one data file from a fixed provider or
+/// an operator's mirror.
+///
+/// * the body ceiling is [`MAX_DOWNLOAD_BYTES`] instead of [`MAX_IMAGE_BYTES`];
+/// * a redirect is followed only to `https` on the starting host or an exact,
+///   listed host (a provider that serves files from a storage host names it), and
+///   every hop still passes the address gate;
+/// * `additional_roots` (DER) are trusted for origin TLS only, as for DAV: an
+///   operator mirror behind a private CA. Never for a proxy.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Download<'a> {
+    /// Hosts other than the starting one that a redirect may lead to.
+    pub redirect_hosts: &'a [&'a str],
+    /// Extra trusted root certificates (DER) for the origin.
+    pub additional_roots: &'a [Vec<u8>],
+}
+
+impl Download<'_> {
+    /// See [`Download`]. Credentials in a redirect target are refused.
+    pub fn redirect_permitted(&self, start: &reqwest::Url, next: &reqwest::Url) -> bool {
+        if next.scheme() != "https" || !next.username().is_empty() || next.password().is_some() {
+            return false;
+        }
+        let (Some(from), Some(to)) = (start.host_str(), next.host_str()) else {
+            return false;
+        };
+        (from.eq_ignore_ascii_case(to)
+            && start.port_or_known_default() == next.port_or_known_default())
+            || self.redirect_hosts.iter().any(|host| {
+                host.eq_ignore_ascii_case(to) && next.port_or_known_default() == Some(443)
+            })
+    }
+
+    pub(crate) fn validate(&self) -> Result<(), Refusal> {
+        if self.additional_roots.len() > 8
+            || self.additional_roots.iter().map(Vec::len).sum::<usize>() > 65536
+            || self.redirect_hosts.len() > 16
+        {
+            return Err(Refusal::BadRequest("invalid download options"));
+        }
+        Ok(())
+    }
 }
 
 /// Fixed Web Push headers. No cookies, Host override or arbitrary header names.
@@ -864,6 +942,15 @@ pub(crate) async fn send_hop_timed(
             );
         }
     }
+    if let Some(download) = out.download {
+        download.validate()?;
+        for cert in download.additional_roots {
+            builder = builder.add_root_certificate(
+                reqwest::Certificate::from_der(cert)
+                    .map_err(|_| Refusal::BadRequest("invalid download CA"))?,
+            );
+        }
+    }
     let mut hardened = harden_client(builder, &target.host, target.addr);
     if let Some(t) = timed {
         hardened = hardened
@@ -1005,7 +1092,7 @@ pub(crate) async fn send_hop_timed(
     }
     // Early size refusal from Content-Length when present.
     if let Some(len) = resp.content_length()
-        && len > out.response_limit.min(MAX_IMAGE_BYTES) as u64
+        && len > out.body_cap() as u64
     {
         return Err(Refusal::TooLarge);
     }
@@ -1014,7 +1101,7 @@ pub(crate) async fn send_hop_timed(
             .get(header::CONTENT_TYPE)
             .and_then(|v| v.to_str().ok()),
     );
-    let limit = out.response_limit.min(MAX_IMAGE_BYTES);
+    let limit = out.body_cap();
     let body = match timed {
         None => read_capped(resp, limit).await?,
         Some(t) => read_capped_idle(resp, limit, t).await?,
@@ -1268,6 +1355,51 @@ mod tests {
     use axum::http::StatusCode;
     use axum::response::Response;
     use std::net::SocketAddr;
+
+    #[test]
+    fn a_download_redirect_stays_on_https_and_listed_hosts() {
+        let u = |s: &str| reqwest::Url::parse(s).unwrap();
+        let start = u("https://download.example/db.mmdb.gz");
+        let none = Download::default();
+        assert!(none.redirect_permitted(&start, &u("https://download.example/other")));
+        assert!(none.redirect_permitted(&start, &u("https://DOWNLOAD.example/other")));
+        assert!(!none.redirect_permitted(&start, &u("http://download.example/other")));
+        assert!(!none.redirect_permitted(&start, &u("https://download.example:8443/x")));
+        assert!(!none.redirect_permitted(&start, &u("https://evil.example/db")));
+        assert!(!none.redirect_permitted(&start, &u("https://u:p@download.example/x")));
+        let hosts = ["files.example"];
+        let listed = Download {
+            redirect_hosts: &hosts,
+            additional_roots: &[],
+        };
+        assert!(listed.redirect_permitted(&start, &u("https://files.example/signed?x=1")));
+        assert!(!listed.redirect_permitted(&start, &u("https://files.example:444/signed")));
+        assert!(!listed.redirect_permitted(&start, &u("https://sub.files.example/signed")));
+        // Only a download narrows redirects; every other request keeps its rules.
+        let out = Outgoing {
+            response_metadata: None,
+            authorized_plugin: None,
+            authorized_api: None,
+            authorized_dav: None,
+            web_push: None,
+            response_limit: MAX_IMAGE_BYTES,
+            accept: "*/*",
+            user_agent: PROXY_UA,
+            body: None,
+            download: None,
+        };
+        assert!(out.redirect_permitted(&start, &u("https://evil.example/db")));
+        assert_eq!(out.body_cap(), MAX_IMAGE_BYTES);
+        let out = Outgoing {
+            download: Some(none),
+            response_limit: usize::MAX,
+            ..out
+        };
+        assert!(!out.redirect_permitted(&start, &u("https://evil.example/db")));
+        assert_eq!(out.body_cap(), MAX_DOWNLOAD_BYTES);
+        assert!(crate::plan::Request::download(TrafficClass::Plugins, none).is_err());
+        assert!(crate::plan::Request::download(TrafficClass::GeoipDatabase, none).is_ok());
+    }
 
     #[test]
     fn the_declared_media_type_is_the_lower_cased_essence() {

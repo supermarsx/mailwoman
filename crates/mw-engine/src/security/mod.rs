@@ -26,6 +26,8 @@
 pub mod convert;
 pub mod dispatch;
 pub mod dlp;
+pub mod geoip;
+pub mod geoip_fixture;
 pub mod keyring;
 pub mod sender_controls;
 pub mod store_key;

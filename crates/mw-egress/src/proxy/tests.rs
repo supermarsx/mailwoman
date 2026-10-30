@@ -50,6 +50,7 @@ async fn plugin_calls_use_selected_connect_route_and_never_follow_redirects() {
         accept: "*/*",
         user_agent: "Mailwoman",
         body: None,
+        download: None,
     };
     let url = reqwest::Url::parse(&format!("http://{origin}/redirect")).unwrap();
     // Test-only loopback permission; production gate is the current scoped plan.
@@ -91,6 +92,7 @@ async fn hop(
         user_agent: PROXY_UA,
         body: None,
         response_limit: crate::MAX_IMAGE_BYTES,
+        download: None,
     };
     let traversed = Arc::new(AtomicBool::new(false));
     let outcome = super::hop_over_tunnel(target, route, &out, &traversed).await;

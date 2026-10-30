@@ -266,6 +266,7 @@ pub struct Request<'a> {
     response_limit: usize,
     timeouts: Option<FetchTimeouts>,
     timeout_report: Option<&'a TimeoutReport>,
+    download: Option<crate::Download<'a>>,
 }
 
 impl<'a> Request<'a> {
@@ -286,7 +287,23 @@ impl<'a> Request<'a> {
             response_limit: crate::MAX_IMAGE_BYTES,
             timeouts: None,
             timeout_report: None,
+            download: None,
         }
+    }
+
+    /// A bulk file `GET` (t96): a whole data file for
+    /// [`TrafficClass::GeoipDatabase`], under [`crate::MAX_DOWNLOAD_BYTES`], HTTPS
+    /// only, redirects limited to the starting host and `download`'s listed hosts.
+    pub fn download(class: TrafficClass, download: crate::Download<'a>) -> Result<Self, Refusal> {
+        if class != TrafficClass::GeoipDatabase {
+            return Err(Refusal::BadRequest("invalid download traffic class"));
+        }
+        download.validate()?;
+        Ok(Self {
+            download: Some(download),
+            response_limit: crate::MAX_DOWNLOAD_BYTES,
+            ..Self::get(class)
+        })
     }
 
     /// A `POST` of `bytes` as `content_type` for `class`. A `POST` never follows a
@@ -395,6 +412,8 @@ impl<'a> Request<'a> {
     pub fn response_limit(mut self, bytes: usize) -> Request<'a> {
         self.response_limit = bytes.min(if self.authorized_api.is_some() {
             1024 * 1024
+        } else if self.download.is_some() {
+            crate::MAX_DOWNLOAD_BYTES
         } else {
             crate::MAX_IMAGE_BYTES
         });
@@ -440,6 +459,7 @@ impl<'a> Request<'a> {
                 .unwrap_or_else(|| self.class.default_user_agent()),
             body: self.body,
             response_limit: self.response_limit,
+            download: self.download,
         }
     }
 }
@@ -495,7 +515,7 @@ pub async fn send_with(plan: &EgressPlan, url: reqwest::Url, req: &Request<'_>) 
     }
     if matches!(
         req.class,
-        TrafficClass::Push | TrafficClass::PackageTracking
+        TrafficClass::Push | TrafficClass::PackageTracking | TrafficClass::GeoipDatabase
     ) && url.scheme() != "https"
     {
         let outcome = Err(Refusal::BadRequest("this traffic class requires HTTPS"));
@@ -604,6 +624,7 @@ async fn send_direct_hops(
     gate: &crate::AddressGate<'_>,
     timed: Option<Timed<'_>>,
 ) -> Result<(Vec<u8>, Option<String>), Refusal> {
+    let first = start.clone();
     let mut url = start;
     let redirects = timed.map_or(MAX_REDIRECTS, |t| t.limits.max_redirects);
     for _ in 0..=redirects {
@@ -621,7 +642,13 @@ async fn send_direct_hops(
             {
                 return Err(Refusal::Upstream);
             }
-            (Hop::Redirect(loc), _) => url = url.join(&loc).map_err(|_| Refusal::Upstream)?,
+            (Hop::Redirect(loc), _) => {
+                let next = url.join(&loc).map_err(|_| Refusal::Upstream)?;
+                if !out.redirect_permitted(&first, &next) {
+                    return Err(Refusal::BadRequest("redirect to an unlisted host refused"));
+                }
+                url = next;
+            }
         }
     }
     Err(Refusal::Upstream)

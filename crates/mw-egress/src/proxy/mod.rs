@@ -496,6 +496,9 @@ async fn hop_with(
             } else if let Some(plugin) = out.authorized_plugin {
                 plugin.validate().map_err(ProxyRefusal::Origin)?;
                 stream::wrap_tls_with_roots(conn, origin_host, plugin.additional_roots).await?
+            } else if let Some(download) = out.download.filter(|d| !d.additional_roots.is_empty()) {
+                download.validate().map_err(ProxyRefusal::Origin)?;
+                stream::wrap_tls_with_roots(conn, origin_host, download.additional_roots).await?
             } else {
                 stream::wrap_tls(conn, origin_host).await?
             }
@@ -619,6 +622,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
             user_agent: PROXY_UA,
             body: None,
             response_limit: crate::MAX_IMAGE_BYTES,
+            download: None,
         },
     )
     .await
@@ -724,6 +728,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
             user_agent: PROXY_UA,
             body: None,
             response_limit: crate::MAX_IMAGE_BYTES,
+            download: None,
         },
     )
     .await
@@ -822,6 +827,7 @@ async fn send_via_proxy_gated_with(
             };
         }
     }
+    let first = start.clone();
     let mut url = start;
     let mut traversed_proxy = false;
     let redirects = timed.map_or(MAX_REDIRECTS, |(t, _)| t.limits.max_redirects);
@@ -867,6 +873,15 @@ async fn send_via_proxy_gated_with(
                 };
             }
             Ok(Hop::Redirect(location)) => match url.join(&location) {
+                Ok(next) if !out.redirect_permitted(&first, &next) => {
+                    return ProxyFetch {
+                        traversed_proxy,
+                        content_type: None,
+                        outcome: Err(ProxyRefusal::Origin(Refusal::BadRequest(
+                            "redirect to an unlisted host refused",
+                        ))),
+                    };
+                }
                 Ok(next) => url = next,
                 Err(_) => {
                     return ProxyFetch {

@@ -75,7 +75,8 @@ regex = { workspace = true }
 # serde-deserialize reader — the perf features (`mmap`, `simdutf8`,
 # `unsafe-str-decode`) are all opt-in and deliberately left off, keeping the
 # dependency surface minimal with no unsafe UTF-8 path. Native-only (mw-engine is
-# native). NO database is bundled — the `.mmdb` is admin-supplied via `MW_GEOIP_DB`.
+# native). NO database is bundled — the `.mmdb` is admin-supplied via `MW_GEOIP_DB`,
+# or downloaded/uploaded by an administrator into the data directory (t96).
 maxminddb = { workspace = true }
 
 [dev-dependencies]
