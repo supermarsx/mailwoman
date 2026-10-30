@@ -1,3 +1,5 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: admin-geoip. Source: ../en/admin-geoip.ftl (t96).
 admin-geoip-title = Base de dados de países
 admin-geoip-intro = As políticas de países e as indicações de país usam um ficheiro de base de dados local. O servidor transfere-o da origem escolhida abaixo; os endereços nunca são enviados para um serviço de localização.
 admin-geoip-refresh = Atualizar

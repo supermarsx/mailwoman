@@ -52,7 +52,7 @@ export const exampleTag = style({ fontWeight: vars.weight.bold, color: vars.colo
 export const ruleControls = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[3], minInlineSize: 0 });
 globalStyle(`${ruleControls} textarea`, { inlineSize: 'min(100%, 28rem)' });
 export const number = style({ display: 'inline-flex', alignItems: 'center', gap: vars.space[2], flexWrap: 'wrap' });
-globalStyle(`${number} input`, { inlineSize: '9rem' });
+globalStyle(`${number} input:not([type="checkbox"]):not([type="radio"])`, { inlineSize: '9rem' });
 export const signals = style({ display: 'flex', flexWrap: 'wrap', gap: `${vars.space[1]} ${vars.space[4]}`, border: 0, margin: 0, padding: 0, minInlineSize: 0 });
 export const signal = style({ display: 'inline-flex', gap: vars.space[2], alignItems: 'center' });
 export const srLegend = style({ position: 'absolute', inlineSize: '1px', blockSize: '1px', overflow: 'hidden', clip: 'rect(0 0 0 0)', whiteSpace: 'nowrap' });

@@ -38,7 +38,7 @@ function renderSettings(signedIn = false) {
   if(signedIn)activateAccountPreferences('a1');else suspendAccountPreferences();
   const ctx = { client: {}, showToast: vi.fn() } as unknown as SliceContext;
   const slice = createThemeSlice(ctx);
-  const base = {...slice,accountId:()=>signedIn?'a1':null,mailboxes:()=>[],tags:()=>[],refreshFolders:vi.fn()};
+  const base = {...slice,accountId:()=>signedIn?'a1':null,mailboxes:()=>[],tags:()=>[],refreshFolders:vi.fn(),focusedSenders:()=>[],removeSenderFocus:vi.fn()};
   const app = (signedIn ? { ...base, me: () => ({ accountId: 'a1' }) } : base) as unknown as AppState;
   const utils = render(() => (
     <AppContext.Provider value={app}>

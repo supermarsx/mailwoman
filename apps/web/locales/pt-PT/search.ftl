@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Locale: pt-PT · Module: search. Source: ../en/search.ftl
 # Os nomes dos operadores no texto da pesquisa (from:, subject:, has:attachment, …)
 # não são traduzidos.

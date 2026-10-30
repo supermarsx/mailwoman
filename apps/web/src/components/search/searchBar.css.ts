@@ -104,7 +104,7 @@ export const popover = style({
   borderRadius: vars.radius.md,
   background: vars.color.surface,
   color: vars.color.text,
-  boxShadow: '0 8px 24px rgb(0 0 0 / 0.18)',
+  boxShadow: vars.elevation[3],
   overflowY: 'auto',
 });
 
