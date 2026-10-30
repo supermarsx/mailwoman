@@ -1,5 +1,42 @@
 import { test, expect } from '../csrf.ts';
 import { ADMIN } from './admin-path.ts';
+import {adminLogin} from './admin-login.ts';
+
+test('SMTP transport policy controls persist DANE and MTA-STS without applying them to IMAP @phone',async({page},info)=>{
+ await adminLogin(page);
+ const name=`smtp-policy-${info.project.name}-${Date.now()}.example.test`;
+ const endpoint=`${ADMIN}/domains/${name}`;
+ expect((await page.request.put(endpoint,{data:{enabled:false,upstream:{version:2,backends:[]}}})).ok()).toBe(true);
+ try{
+  await page.goto(`${ADMIN}#/domains/${name}/backends/new`);
+  await page.getByLabel(/^Backend ID/).fill('submission');
+  await page.getByLabel(/^Protocol and service/).selectOption('imap');
+  await page.getByLabel('Customize transport security',{exact:true}).check();
+  await expect(page.getByLabel(/^DANE verification/)).toHaveCount(0);
+  await expect(page.getByLabel(/^MTA-STS verification/)).toHaveCount(0);
+  await page.getByLabel(/^Protocol and service/).selectOption('smtp');
+  await page.getByLabel(/^Hostname or IP address/).fill('smtp.example.test');
+  await page.getByLabel('Customize transport security',{exact:true}).check();
+  await expect(page.getByLabel(/^DANE verification/)).toHaveValue('off');
+  await expect(page.getByLabel(/^MTA-STS verification/)).toHaveValue('off');
+  await page.getByLabel(/^DANE verification/).selectOption('required');
+  await page.getByLabel(/^MTA-STS verification/).selectOption('auto');
+  await page.getByLabel('SMTP policy domain',{exact:false}).fill('example.test');
+  await page.getByRole('button',{name:'Save backend',exact:true}).click();
+  await expect(page).toHaveURL(new RegExp(`#/domains/${name.replaceAll('.','\\.')}$`));
+  const saved=await (await page.request.get(endpoint)).json();
+  expect(saved.upstream.backends[0].endpoint.security.smtpPolicy).toEqual({dane:'required',mtaSts:'auto',policyDomain:'example.test'});
+  await page.goto(`${ADMIN}#/domains/${name}/backends/submission`);
+  await expect(page.getByLabel(/^DANE verification/)).toHaveValue('required');
+  await expect(page.getByLabel(/^MTA-STS verification/)).toHaveValue('auto');
+  await expect(page.getByLabel('SMTP policy domain',{exact:false})).toHaveValue('example.test');
+  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
+  await page.screenshot({path:info.outputPath('smtp-transport-policy-persisted.png'),fullPage:true});
+ }finally{
+  const current=await page.request.get(endpoint);
+  if(current.ok())expect((await page.request.delete(endpoint,{headers:{'if-match':current.headers()['etag']!}})).ok()).toBe(true);
+ }
+});
 
 test('dedicated backend page saves ordered security and previews the wire username @phone', async ({ page }) => {
   await page.goto(ADMIN);

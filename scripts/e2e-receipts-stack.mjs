@@ -42,6 +42,8 @@
 //   MW_STACK_ENV       env file        (default <repo>/apps/web/test-results/receipts-stack.env)
 //   MW_DSN_SMTP_CAPTURE capture dir    (default <repo>/apps/web/test-results/receipts-smtp; emptied at start)
 //   MW_STACK_IMAP_SERVER greenmail (default) or dovecot
+//   MW_STACK_CAPTURE_RELAY off disables local Greenmail delivery (wire-only special fixtures)
+//   MW_CAPTURE_SMTPUTF8 1 enables UTF-8 SMTP capture and capability-toggle marker for special tests
 //   PYTHON             interpreter for the capture fixture (default python3, python on Windows)
 // It stops the server and the capture fixture it started and removes its
 // Greenmail container on Ctrl-C, SIGTERM, or when any of them exits.
@@ -160,7 +162,7 @@ if (dovecot) {
 }
 
 start('capture SMTP', python, [join(repo, 'apps/web/e2e/fixtures/delivery-smtp.py'), String(capturePort), capture],
-  dovecot ? {} : { MW_CAPTURE_RELAY: `127.0.0.1:${smtp}` });
+  dovecot || process.env.MW_STACK_CAPTURE_RELAY === 'off' ? { MW_CAPTURE_RELAY: '' } : { MW_CAPTURE_RELAY: `127.0.0.1:${smtp}` });
 await waitFor(() => listening(capturePort), 'the capture SMTP fixture');
 
 const data = mkdtempSync(join(tmpdir(), 'mw-receipts-stack-'));

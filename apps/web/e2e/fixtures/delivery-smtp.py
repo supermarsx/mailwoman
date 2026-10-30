@@ -8,6 +8,10 @@ With MW_CAPTURE_RELAY=host:port set, each accepted message is also handed to tha
 SMTP server (a loopback Greenmail in the receipts stack), with the same envelope,
 so specs that read the recipient's mailbox see it arrive. The relay is the only
 outbound connection and it is off by default.
+
+MW_CAPTURE_SMTPUTF8=1 opts into UTF-8 envelopes and SMTPUTF8 advertisement.
+An output/no-smtputf8 marker suppresses that capability for negative tests;
+sessions.jsonl records command verbs/envelopes, never AUTH credentials.
 """
 import asyncio
 import base64
@@ -30,6 +34,23 @@ accepted_auth = {
     b'\x00child@child.test\x00child-pass',
 }
 relay = os.environ.get('MW_CAPTURE_RELAY', '')
+smtputf8 = os.environ.get('MW_CAPTURE_SMTPUTF8') == '1'
+
+
+def envelope_path(command, offset):
+    quoted = False
+    escaped = False
+    for index in range(offset, len(command)):
+        char = command[index]
+        if escaped:
+            escaped = False
+        elif char == '\\' and quoted:
+            escaped = True
+        elif char == '"':
+            quoted = not quoted
+        elif char == '>' and not quoted:
+            return command[offset:index]
+    raise ValueError('unterminated envelope path')
 
 
 def forward(sender, recipients, raw):
@@ -48,27 +69,32 @@ async def session(reader, writer):
         sender = None  # None means MAIL absent; empty string is valid MAIL FROM:<>.
         recipients = []
         envelope_commands = []
+        transcript = []
+        utf8_offered = False
         try:
             await reply('220 delivery-fixture ESMTP')
             for _ in range(1000):
                 line = await asyncio.wait_for(reader.readline(), 15)
                 if not line:
                     return
-                command = line.decode('ascii', 'strict').rstrip('\r\n')
+                command = line.decode('utf8' if smtputf8 else 'ascii', 'strict').rstrip('\r\n')
                 upper = command.upper()
+                transcript.append(command if upper.startswith(('MAIL FROM:', 'RCPT TO:')) else upper.split(' ', 1)[0])
                 if upper.startswith('EHLO '):
-                    await reply('250-delivery-fixture\r\n250-AUTH PLAIN\r\n250-DSN\r\n250 8BITMIME')
+                    utf8_offered = smtputf8 and not (output / 'no-smtputf8').exists()
+                    capability = '\r\n250-SMTPUTF8' if utf8_offered else ''
+                    await reply('250-delivery-fixture\r\n250-AUTH PLAIN\r\n250-DSN' + capability + '\r\n250 8BITMIME')
                 elif upper.startswith('AUTH PLAIN '):
                     authenticated = base64.b64decode(command[11:], validate=True) in accepted_auth
                     await reply('235 authenticated' if authenticated else '535 refused')
                 elif upper.startswith('MAIL FROM:<') and authenticated:
                     envelope_commands = [command]
-                    sender = command[11:].split('>', 1)[0]
+                    sender = envelope_path(command, 11)
                     recipients = []
                     await reply('250 sender accepted')
                 elif upper.startswith('RCPT TO:<') and sender is not None:
                     envelope_commands.append(command)
-                    recipients.append(command[9:].split('>', 1)[0])
+                    recipients.append(envelope_path(command, 9))
                     await reply('250 recipient accepted')
                 elif upper == 'DATA' and sender is not None and recipients:
                     await reply('354 finish with dot')
@@ -106,6 +132,9 @@ async def session(reader, writer):
         except (TimeoutError, ValueError, UnicodeError, ConnectionError):
             pass
         finally:
+            if smtputf8:
+                with (output / 'sessions.jsonl').open('a', encoding='utf8') as log:
+                    log.write(json.dumps({'smtpUtf8Offered': utf8_offered, 'commands': transcript}) + '\n')
             writer.close()
             await writer.wait_closed()
 
