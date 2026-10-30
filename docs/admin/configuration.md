@@ -145,6 +145,7 @@ nothing is stored; **boot** = read once at start, a change needs a restart.
 | <a id="mw-smtp-host"></a>`MW_SMTP_HOST` | ui | plain | the IMAP host | fallback | engine submission host when a domain has no SMTP upstream | Admin → Domains → Upstreams |
 | <a id="mw-smtp-port"></a>`MW_SMTP_PORT` | ui | plain | 587 | fallback | engine submission port | Admin → Domains → Upstreams |
 | <a id="mw-smtp-security"></a>`MW_SMTP_SECURITY` | ui | plain | starttls | fallback | engine submission security | Admin → Domains → Upstreams |
+| <a id="mw-smtp-policy-doh-url"></a>`MW_SMTP_POLICY_DOH_URL` | readOnly | url | https://cloudflare-dns.com/dns-query | boot | DNS wire resolver for enabled SMTP transport policies; DNSSEC validates locally through the dns_auth route | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-engine-tls"></a>`MW_ENGINE_TLS` | readOnly | plain |  | boot | forces the engine's TLS mode (test override; the dashboard warns while it is set) | a CLI, build or test input, or a protocol or safety constant |
 | <a id="mw-autoconfig-allow-private"></a>`MW_AUTOCONFIG_ALLOW_PRIVATE` | readOnly | plain | false | boot | allow private addresses in autoconfig lookups | a root of trust, or a protection a stolen admin session could switch off |
 | <a id="mw-allowed-froms"></a>`MW_ALLOWED_FROMS` | ui | plain |  | boot | server-advertised sender identities | Admin → Identities |
@@ -291,6 +292,33 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
+| <a id="mail.reader.unsafehtmlmode"></a>`mail.reader.unsafeHtmlMode` | mail | global+domain+user | "ask" | plain |  | yes | Handling of message HTML detected as unsafe |
+| <a id="reader.attachmentsdensity"></a>`reader.attachmentsDensity` | reader | global+domain+user | "compact" | plain |  | yes | Reader attachment list density |
+| <a id="mail.composewindow"></a>`mail.composeWindow` | mail | global+domain+user | "tab" | plain |  | yes | Preferred composer location |
+| <a id="mail.replycopytooriginal"></a>`mail.replyCopyToOriginal` | mail | global+domain+user | false | plain |  | yes | Offer original folder for reply copies |
+| <a id="mail.forwardmode"></a>`mail.forwardMode` | mail | global+domain+user | "inline" | plain |  | yes | Preferred forwarding format |
+| <a id="mail.cache.refreshonopen"></a>`mail.cache.refreshOnOpen` | mail | global+domain+user | true | plain |  | yes | Refresh cached mail in the background on opening |
+| <a id="mail.cache.enabled"></a>`mail.cache.enabled` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: enabled |
+| <a id="mail.cache.mailboxes"></a>`mail.cache.mailboxes` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: mailboxes |
+| <a id="mail.cache.messages"></a>`mail.cache.messages` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: messages |
+| <a id="mail.cache.freshseconds"></a>`mail.cache.freshSeconds` | mail | global+domain+user | 30 | plain |  | yes | Browser session mail cache: freshSeconds |
+| <a id="mail.cache.maxageseconds"></a>`mail.cache.maxAgeSeconds` | mail | global+domain+user | 300 | plain |  | yes | Browser session mail cache: maxAgeSeconds |
+| <a id="mail.cache.maxentries"></a>`mail.cache.maxEntries` | mail | global+domain+user | 32 | plain |  | yes | Browser session mail cache: maxEntries |
+| <a id="mail.cache.maxbytes"></a>`mail.cache.maxBytes` | mail | global+domain+user | 16777216 | plain |  | yes | Browser session mail cache: maxBytes |
+| <a id="mail.cache.prefetchenabled"></a>`mail.cache.prefetchEnabled` | mail | global+domain+user | false | plain |  | yes | Browser session mail cache: prefetchEnabled |
+| <a id="mail.cache.hoverenabled"></a>`mail.cache.hoverEnabled` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: hoverEnabled |
+| <a id="mail.cache.focusenabled"></a>`mail.cache.focusEnabled` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: focusEnabled |
+| <a id="mail.cache.dwellms"></a>`mail.cache.dwellMs` | mail | global+domain+user | 200 | plain |  | yes | Browser session mail cache: dwellMs |
+| <a id="mail.cache.idleenabled"></a>`mail.cache.idleEnabled` | mail | global+domain+user | false | plain |  | yes | Browser session mail cache: idleEnabled |
+| <a id="mail.cache.idledelayms"></a>`mail.cache.idleDelayMs` | mail | global+domain+user | 1500 | plain |  | yes | Browser session mail cache: idleDelayMs |
+| <a id="mail.cache.maxconcurrency"></a>`mail.cache.maxConcurrency` | mail | global+domain+user | 1 | plain |  | yes | Browser session mail cache: maxConcurrency |
+| <a id="mail.cache.maxqueued"></a>`mail.cache.maxQueued` | mail | global+domain+user | 8 | plain |  | yes | Browser session mail cache: maxQueued |
+| <a id="mail.cache.preloadmessages"></a>`mail.cache.preloadMessages` | mail | global+domain+user | false | plain |  | yes | Browser session mail cache: preloadMessages |
+| <a id="mail.cache.excludedfolders"></a>`mail.cache.excludedFolders` | mail | global+domain+user | ["role:trash","role:junk"] | plain |  | yes | Browser session mail cache: excludedFolders |
+| <a id="mail.templates.enabled"></a>`mail.templates.enabled` | mail | global+domain+user | true | plain |  | yes | Plain-text response templates: enabled |
+| <a id="mail.templates.allowpersonal"></a>`mail.templates.allowPersonal` | mail | global+domain+admin_user | true | plain |  | yes | Plain-text response templates: allowPersonal |
+| <a id="mail.templates.shared"></a>`mail.templates.shared` | mail | global+domain+admin_user | [] | plain |  | yes | Plain-text response templates: shared |
+| <a id="mail.templates.personal"></a>`mail.templates.personal` | mail | global+domain+user | [] | plain |  | yes | Plain-text response templates: personal |
 | <a id="accounts.linkingenabled"></a>`accounts.linkingEnabled` | accounts | global+domain+admin_user | false | plain |  | yes | Allow verified linked mailbox accounts; global false is a hard ceiling |
 | <a id="accounts.uselinked"></a>`accounts.useLinked` | accounts | global+domain+user | true | plain |  | yes | Use linked mailboxes when permitted by the administrator |
 | <a id="accounts.maxlinked"></a>`accounts.maxLinked` | accounts | global | 5 | plain |  | yes | Maximum verified linked mailboxes per primary identity |
@@ -442,7 +470,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="reader.loading"></a>`reader.loading` | reader | global+domain+user | "skeleton" | plain |  | yes | message loading appearance |
 | <a id="reader.loadingdelayms"></a>`reader.loadingDelayMs` | reader | global+domain+user | 120 | plain |  | yes | delay before showing message loading feedback |
 | <a id="reader.zoom"></a>`reader.zoom` | reader | global+domain+user | 100 | plain |  | yes | message body zoom in percent; the reader snaps it to its zoom steps |
-| <a id="reader.attachmentscollapsed"></a>`reader.attachmentsCollapsed` | reader | global+domain+user | false | plain |  | yes | start the reader's attachments bar collapsed (t110) |
+| <a id="reader.attachmentscollapsed"></a>`reader.attachmentsCollapsed` | reader | global+domain+user | true | plain |  | yes | start the reader's attachments bar collapsed (t110) |
 | <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
 | <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.workspacetabs"></a>`ui.bar.workspaceTabs` | interface | global+domain+user | "pinned" | plain |  | yes | workspace tab strip: always shown, or auto-hidden behind a slim handle |
