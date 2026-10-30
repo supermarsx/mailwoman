@@ -23,15 +23,15 @@ export function applyColor(name:'textColor'|'highlight',value:string):Command {
  };
 }
 export function tablesWithinLimits(doc:PMNode):boolean {
- let count=0,valid=true;
- doc.descendants(node=>{
+ let count=0,cells=0,valid=true;
+ doc.descendants((node,pos)=>{
   if(node.type.spec.tableRole!=='table')return true;
-  count++;if(count>TABLE_LIMITS.tables||node.childCount>TABLE_LIMITS.rows){valid=false;return false;}
-  node.descendants(child=>{if(child.type.spec.tableRole==='table')valid=false;if(child.type.spec.tableRole==='row'&&child.childCount>TABLE_LIMITS.columns)valid=false;
-   if(['cell','header_cell'].includes(child.type.spec.tableRole??'')&&(!Number.isInteger(child.attrs['colspan'])||child.attrs['colspan']<1||child.attrs['colspan']>TABLE_LIMITS.columns||!Number.isInteger(child.attrs['rowspan'])||child.attrs['rowspan']<1||child.attrs['rowspan']>TABLE_LIMITS.rows))valid=false;return true;});
-  if(valid){try{const map=TableMap.get(node);if(map.width>TABLE_LIMITS.columns||map.height>TABLE_LIMITS.rows||map.width*map.height>TABLE_LIMITS.cells)valid=false;}catch{valid=false;}}
-  return false;
- });return valid;
+  count++;let nesting=0;const resolved=doc.resolve(pos);for(let depth=0;depth<=resolved.depth;depth++)if(resolved.node(depth).type.spec.tableRole==='table')nesting++;
+  if(count>TABLE_LIMITS.tables||nesting>=3||node.childCount>TABLE_LIMITS.rows){valid=false;return false;}
+  node.forEach(row=>{if(row.childCount>TABLE_LIMITS.columns)valid=false;row.forEach(cell=>{cells++;if(!Number.isInteger(cell.attrs['colspan'])||cell.attrs['colspan']<1||cell.attrs['colspan']>TABLE_LIMITS.columns||!Number.isInteger(cell.attrs['rowspan'])||cell.attrs['rowspan']<1||cell.attrs['rowspan']>TABLE_LIMITS.rows)valid=false;});});
+  try{const map=TableMap.get(node);if(map.width>TABLE_LIMITS.columns||map.height>TABLE_LIMITS.rows||map.width*map.height>TABLE_LIMITS.cells)valid=false;}catch{valid=false;}
+  return true;
+ });return valid&&cells<=TABLE_LIMITS.cells;
 }
 export function tableLimitPlugin(onRefused:()=>void=()=>undefined):Plugin {return new Plugin({filterTransaction:transaction=>{if(!transaction.docChanged||tablesWithinLimits(transaction.doc))return true;onRefused();return false;}});}
 export function insertTable(rows:number,columns:number):Command {

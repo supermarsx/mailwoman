@@ -1,4 +1,4 @@
-import {styledBlock,colorMark,composeTableNodes,boundTableHtml} from './richFormatting.ts';
+import {styledBlock,emailContainer,colorMark,composeTableNodes,boundTableHtml} from './richFormatting.ts';
 import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 // Rich-text (ProseMirror) schema + serialization for the composer (W1).
 //
@@ -48,7 +48,7 @@ import { addListNodes } from 'prosemirror-schema-list';
 // basic nodes without the basic `image`, whose parse rule would let parsed HTML
 // carry a remote `<img src>` into the outgoing body.
 const basicNodes=basicSchema.spec.nodes.remove('image').update('paragraph',styledBlock(basicSchema.spec.nodes.get('paragraph')!)).update('heading',styledBlock(basicSchema.spec.nodes.get('heading')!,true));
-const nodes = addListNodes(basicNodes, 'paragraph block*', 'block').append(composeTableNodes);
+const nodes = addListNodes(basicNodes, 'paragraph block*', 'block').append(composeTableNodes).append({email_container:emailContainer});
 
 /** An image this draft uploaded, referenced by its Content-ID. Serialises as
  *  `<img src="cid:<id>">`; the editor shows a local preview instead (a node view
