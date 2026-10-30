@@ -331,6 +331,9 @@ pub const SIGNIN_POLICY_ROUTE: &str = "/signin-policy";
 
 const BYTES_MAX: i64 = 1 << 50;
 
+/// t98: the values `access.protocols` may hold (the native account kinds).
+pub const ACCESS_PROTOCOLS: &[&str] = &["imap", "pop3", "ews"];
+
 macro_rules! def {
     ($key:expr, $kind:expr, $default:expr, $scopes:expr, $cat:expr, $maps:expr) => {
         SettingDef {
@@ -664,6 +667,241 @@ pub static REGISTRY: &[SettingDef] = &[
         GDA,
         "features",
         "Custom CSS"
+    ),
+    def!(
+        "cap.compose.rich_text",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only"
+    ),
+    def!(
+        "cap.compose.attachments",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/set create with attachment parts (feature_gate.rs); composer attach button"
+    ),
+    def!(
+        "cap.compose.share_links",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "POST /api/nextcloud/share-link (feature_gate.rs)"
+    ),
+    def!(
+        "cap.compose.scheduled_send",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP EmailSubmission/set with sendAt (feature_gate.rs)"
+    ),
+    def!(
+        "cap.compose.read_receipts",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs)"
+    ),
+    def!(
+        "cap.signatures",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "writes under /api/account/signatures (feature_gate.rs)"
+    ),
+    def!(
+        "cap.identities",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "writes under /api/account/identities (feature_gate.rs)"
+    ),
+    def!(
+        "cap.keys",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt"
+    ),
+    def!(
+        "cap.links.trusted",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/settings/links.* (feature_gate.rs)"
+    ),
+    def!(
+        "cap.zoom",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/settings/reader.zoom (feature_gate.rs); reader zoom controls"
+    ),
+    def!(
+        "cap.mail.focused_inbox",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/settings/mail.focusedInbox (feature_gate.rs); Focused and Other tabs"
+    ),
+    def!(
+        "cap.views.events",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/query on mwViewEvents (feature_gate.rs); Events view"
+    ),
+    def!(
+        "cap.views.attachments",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Attachments view in the sidebar (web only: the same messages stay reachable by search)"
+    ),
+    def!(
+        "cap.search.operators",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/query text with field operators (feature_gate.rs); search filter chips"
+    ),
+    def!(
+        "cap.saved_searches",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "writes under /api/account/saved-searches (feature_gate.rs)"
+    ),
+    def!(
+        "cap.vacation",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP VacationResponse/* (feature_gate.rs, besides cap.rules)"
+    ),
+    def!(
+        "cap.labels",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/set adding a non-system keyword (feature_gate.rs)"
+    ),
+    def!(
+        "cap.snooze",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/set snoozedUntil (feature_gate.rs)"
+    ),
+    def!(
+        "cap.follow_up",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "JMAP Email/set followUpAt (feature_gate.rs)"
+    ),
+    def!(
+        "cap.masked",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "/api/masked (feature_gate.rs)"
+    ),
+    def!(
+        "cap.directory",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "/api/directory (feature_gate.rs)"
+    ),
+    def!(
+        "cap.mcp",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "/mcp with a key or token (scope_mw.rs)"
+    ),
+    def!(
+        "cap.appearance.custom",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/account/appearance (feature_gate.rs); theme, accent, custom and badge colours, density, font"
+    ),
+    def!(
+        "cap.appearance.custom_code",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/account/appearance/customization (feature_gate.rs), below appearance.customCssEnabled/customJsEnabled"
+    ),
+    def!(
+        "cap.avatars",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/accounts/layout with avatars (feature_gate.rs)"
+    ),
+    def!(
+        "cap.shortcuts",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "PUT /api/settings/shortcuts.* (feature_gate.rs); shortcut editor"
+    ),
+    def!(
+        "cap.analytics",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "POST /api/analytics/events (feature_gate.rs); consent prompt"
+    ),
+    def!(
+        "cap.apps.native",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "native bearer sessions (feature_gate.rs)"
+    ),
+    def!(
+        "access.protocols",
+        Kind::StringList {
+            max_len: 3,
+            max_item: 8
+        },
+        "[\"imap\",\"pop3\",\"ews\"]",
+        GDA,
+        "features",
+        "mail protocols a native account may use (imap, pop3, ews); /jmap and /api/v1 refuse the others (feature_gate.rs)"
     ),
     def!(
         "privacy.remoteContent",
@@ -2204,6 +2442,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "assistant adapter calls per day; 0 = no limit"
     )),
     per_address(def!(
+        "limit.linked_mailboxes",
+        int(0, 16),
+        "0",
+        GDA,
+        "limits",
+        "linked mailboxes per user, below accounts.maxLinked; 0 = no limit beyond it (feature_gate.rs)"
+    )),
+    per_address(def!(
         "quota.warnThresholds",
         Kind::IntList {
             min: 1,
@@ -2865,6 +3111,18 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         && value.as_str() == Some(crate::twofa_routes::passkey_policy::LEGACY_BLOCK_ALIAS)
     {
         return Ok(json!("block"));
+    }
+    // t98: the allowed-values list of mail protocols a native account may use.
+    if def.key == "access.protocols"
+        && let Some(items) = value.as_array()
+        && let Some(index) = items
+            .iter()
+            .position(|item| !item.as_str().is_some_and(|p| ACCESS_PROTOCOLS.contains(&p)))
+    {
+        return Err(Refusal::invalid(
+            &format!("{field}/{index}"),
+            format!("must be one of {}", ACCESS_PROTOCOLS.join(", ")),
+        ));
     }
     if matches!(def.key, "time.displayZone" | "time.comparisonZone")
         && !value.as_str().is_some_and(|zone| {

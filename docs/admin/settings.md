@@ -748,6 +748,96 @@ spam classification applies the recipient account's domain and profile policy.
 <a id="cap.user_css"></a>
 `cap.user_css` — Custom-CSS capability, disabled by default. Check feature coverage.
 
+<a id="cap.compose.rich_text"></a>
+`cap.compose.rich_text` — Whether users may write formatted (HTML) messages. Off sends plain text only. Default `true` (t98 feature profiles); enforced at JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only.
+
+<a id="cap.compose.attachments"></a>
+`cap.compose.attachments` — Whether users may attach files to messages they write. Inline images in the body are not counted. Default `true` (t98 feature profiles); enforced at JMAP Email/set create with attachment parts (feature_gate.rs); composer attach button.
+
+<a id="cap.compose.share_links"></a>
+`cap.compose.share_links` — Whether users may send a large file as a Nextcloud share link instead of an attachment. Default `true` (t98 feature profiles); enforced at POST /api/nextcloud/share-link (feature_gate.rs).
+
+<a id="cap.compose.scheduled_send"></a>
+`cap.compose.scheduled_send` — Whether users may schedule a message to be sent later. Default `true` (t98 feature profiles); enforced at JMAP EmailSubmission/set with sendAt (feature_gate.rs).
+
+<a id="cap.compose.read_receipts"></a>
+`cap.compose.read_receipts` — Whether users may ask recipients for a read receipt. Default `true` (t98 feature profiles); enforced at JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs).
+
+<a id="cap.signatures"></a>
+`cap.signatures` — Whether users may create and edit their own signatures. Default `true` (t98 feature profiles); enforced at writes under /api/account/signatures (feature_gate.rs).
+
+<a id="cap.identities"></a>
+`cap.identities` — Whether users may add and edit the identities they send as. Default `true` (t98 feature profiles); enforced at writes under /api/account/identities (feature_gate.rs).
+
+<a id="cap.keys"></a>
+`cap.keys` — Whether users have the Keys module and may sign and encrypt messages. Default `true` (t98 feature profiles); enforced at JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt.
+
+<a id="cap.links.trusted"></a>
+`cap.links.trusted` — Whether users may change their own list of trusted link domains. The administrator list still applies. Default `true` (t98 feature profiles); enforced at PUT /api/settings/links.* (feature_gate.rs).
+
+<a id="cap.zoom"></a>
+`cap.zoom` — Whether users may zoom the message reader. Default `true` (t98 feature profiles); enforced at PUT /api/settings/reader.zoom (feature_gate.rs); reader zoom controls.
+
+<a id="cap.mail.focused_inbox"></a>
+`cap.mail.focused_inbox` — Whether users may turn on the Focused and Other inbox tabs. Default `true` (t98 feature profiles); enforced at PUT /api/settings/mail.focusedInbox (feature_gate.rs); Focused and Other tabs.
+
+<a id="cap.views.events"></a>
+`cap.views.events` — Whether users have the Events view of calendar mail. Default `true` (t98 feature profiles); enforced at JMAP Email/query on mwViewEvents (feature_gate.rs); Events view.
+
+<a id="cap.views.attachments"></a>
+`cap.views.attachments` — Whether users have the Attachments view. The messages stay reachable through search. Default `true` (t98 feature profiles); enforced at Attachments view in the sidebar (web only: the same messages stay reachable by search).
+
+<a id="cap.search.operators"></a>
+`cap.search.operators` — Whether users may search with operators such as from:, subject: or has:attachment. Default `true` (t98 feature profiles); enforced at JMAP Email/query text with field operators (feature_gate.rs); search filter chips.
+
+<a id="cap.saved_searches"></a>
+`cap.saved_searches` — Whether users may save searches. Default `true` (t98 feature profiles); enforced at writes under /api/account/saved-searches (feature_gate.rs).
+
+<a id="cap.vacation"></a>
+`cap.vacation` — Whether users may set an automatic vacation reply. Default `true` (t98 feature profiles); enforced at JMAP VacationResponse/* (feature_gate.rs, besides cap.rules).
+
+<a id="cap.labels"></a>
+`cap.labels` — Whether users may put labels on messages. Default `true` (t98 feature profiles); enforced at JMAP Email/set adding a non-system keyword (feature_gate.rs).
+
+<a id="cap.snooze"></a>
+`cap.snooze` — Whether users may snooze messages. Ending a snooze stays possible. Default `true` (t98 feature profiles); enforced at JMAP Email/set snoozedUntil (feature_gate.rs).
+
+<a id="cap.follow_up"></a>
+`cap.follow_up` — Whether users may set follow-up reminders on messages. Clearing one stays possible. Default `true` (t98 feature profiles); enforced at JMAP Email/set followUpAt (feature_gate.rs).
+
+<a id="cap.masked"></a>
+`cap.masked` — Whether users may create and manage masked addresses. Default `true` (t98 feature profiles); enforced at /api/masked (feature_gate.rs).
+
+<a id="cap.directory"></a>
+`cap.directory` — Whether users may search the organisation directory. Default `true` (t98 feature profiles); enforced at /api/directory (feature_gate.rs).
+
+<a id="cap.mcp"></a>
+`cap.mcp` — Whether the user's keys and tokens may use the MCP endpoint. Default `true` (t98 feature profiles); enforced at /mcp with a key or token (scope_mw.rs).
+
+<a id="cap.appearance.custom"></a>
+`cap.appearance.custom` — Whether users may change their theme, accent, custom and badge colours, density and font. Off keeps the administrator appearance. Default `true` (t98 feature profiles); enforced at PUT /api/account/appearance (feature_gate.rs); theme, accent, custom and badge colours, density, font.
+
+<a id="cap.appearance.custom_code"></a>
+`cap.appearance.custom_code` — Whether users may save their own CSS and appearance scripts. The deployment switches in Appearance still apply above this. Default `true` (t98 feature profiles); enforced at PUT /api/account/appearance/customization (feature_gate.rs), below appearance.customCssEnabled/customJsEnabled.
+
+<a id="cap.avatars"></a>
+`cap.avatars` — Whether users may change mailbox avatars. Default `true` (t98 feature profiles); enforced at PUT /api/accounts/layout with avatars (feature_gate.rs).
+
+<a id="cap.shortcuts"></a>
+`cap.shortcuts` — Whether users may change keyboard shortcuts. The default shortcuts keep working. Default `true` (t98 feature profiles); enforced at PUT /api/settings/shortcuts.* (feature_gate.rs); shortcut editor.
+
+<a id="cap.analytics"></a>
+`cap.analytics` — Whether users are asked for analytics consent and may send usage events. Default `true` (t98 feature profiles); enforced at POST /api/analytics/events (feature_gate.rs); consent prompt.
+
+<a id="cap.apps.native"></a>
+`cap.apps.native` — Whether users may use the desktop and mobile apps. Default `true` (t98 feature profiles); enforced at native bearer sessions (feature_gate.rs).
+
+<a id="access.protocols"></a>
+`access.protocols` — Which mail server protocols these users may sign in with: imap, pop3, ews. Sign-ins through a JMAP server follow that server. Default `["imap","pop3","ews"]`; other values are refused. `/jmap/*` and `/api/v1/*` answer `403 {code:"feature_disabled", feature:"access.protocols"}` for an account whose kind is not listed.
+
+<a id="limit.linked_mailboxes"></a>
+`limit.linked_mailboxes` — How many mailboxes a user may link, below the server maximum. 0 means only the server maximum applies. Default `0`. `POST /api/accounts/link` answers `409 {code:"limit_exceeded", limit:"limit.linked_mailboxes"}` at the limit.
+
 <a id="limit.attachment_bytes"></a>
 `limit.attachment_bytes` — Attachment policy in bytes, default 50000000. Runtime enforcement remains pending.
 

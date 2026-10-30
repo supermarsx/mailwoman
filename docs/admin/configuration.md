@@ -324,6 +324,35 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.remote-images"></a>`cap.remote_images` | features | global+domain+admin_user | true | plain |  | yes | Remote images |
 | <a id="cap.user-background"></a>`cap.user_background` | features | global+domain+admin_user | false | plain |  | yes | Custom background |
 | <a id="cap.user-css"></a>`cap.user_css` | features | global+domain+admin_user | false | plain |  | yes | Custom CSS |
+| <a id="cap.compose.rich-text"></a>`cap.compose.rich_text` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with an HTML body (feature_gate.rs); composer plain-text only |
+| <a id="cap.compose.attachments"></a>`cap.compose.attachments` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with attachment parts (feature_gate.rs); composer attach button |
+| <a id="cap.compose.share-links"></a>`cap.compose.share_links` | features | global+domain+admin_user | true | plain |  | yes | POST /api/nextcloud/share-link (feature_gate.rs) |
+| <a id="cap.compose.scheduled-send"></a>`cap.compose.scheduled_send` | features | global+domain+admin_user | true | plain |  | yes | JMAP EmailSubmission/set with sendAt (feature_gate.rs) |
+| <a id="cap.compose.read-receipts"></a>`cap.compose.read_receipts` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs) |
+| <a id="cap.signatures"></a>`cap.signatures` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/signatures (feature_gate.rs) |
+| <a id="cap.identities"></a>`cap.identities` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/identities (feature_gate.rs) |
+| <a id="cap.keys"></a>`cap.keys` | features | global+domain+admin_user | true | plain |  | yes | JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt |
+| <a id="cap.links.trusted"></a>`cap.links.trusted` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/settings/links.* (feature_gate.rs) |
+| <a id="cap.zoom"></a>`cap.zoom` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/settings/reader.zoom (feature_gate.rs); reader zoom controls |
+| <a id="cap.mail.focused-inbox"></a>`cap.mail.focused_inbox` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/settings/mail.focusedInbox (feature_gate.rs); Focused and Other tabs |
+| <a id="cap.views.events"></a>`cap.views.events` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/query on mwViewEvents (feature_gate.rs); Events view |
+| <a id="cap.views.attachments"></a>`cap.views.attachments` | features | global+domain+admin_user | true | plain |  | yes | Attachments view in the sidebar (web only: the same messages stay reachable by search) |
+| <a id="cap.search.operators"></a>`cap.search.operators` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/query text with field operators (feature_gate.rs); search filter chips |
+| <a id="cap.saved-searches"></a>`cap.saved_searches` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/saved-searches (feature_gate.rs) |
+| <a id="cap.vacation"></a>`cap.vacation` | features | global+domain+admin_user | true | plain |  | yes | JMAP VacationResponse/* (feature_gate.rs, besides cap.rules) |
+| <a id="cap.labels"></a>`cap.labels` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set adding a non-system keyword (feature_gate.rs) |
+| <a id="cap.snooze"></a>`cap.snooze` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set snoozedUntil (feature_gate.rs) |
+| <a id="cap.follow-up"></a>`cap.follow_up` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set followUpAt (feature_gate.rs) |
+| <a id="cap.masked"></a>`cap.masked` | features | global+domain+admin_user | true | plain |  | yes | /api/masked (feature_gate.rs) |
+| <a id="cap.directory"></a>`cap.directory` | features | global+domain+admin_user | true | plain |  | yes | /api/directory (feature_gate.rs) |
+| <a id="cap.mcp"></a>`cap.mcp` | features | global+domain+admin_user | true | plain |  | yes | /mcp with a key or token (scope_mw.rs) |
+| <a id="cap.appearance.custom"></a>`cap.appearance.custom` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/account/appearance (feature_gate.rs); theme, accent, custom and badge colours, density, font |
+| <a id="cap.appearance.custom-code"></a>`cap.appearance.custom_code` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/account/appearance/customization (feature_gate.rs), below appearance.customCssEnabled/customJsEnabled |
+| <a id="cap.avatars"></a>`cap.avatars` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/accounts/layout with avatars (feature_gate.rs) |
+| <a id="cap.shortcuts"></a>`cap.shortcuts` | features | global+domain+admin_user | true | plain |  | yes | PUT /api/settings/shortcuts.* (feature_gate.rs); shortcut editor |
+| <a id="cap.analytics"></a>`cap.analytics` | features | global+domain+admin_user | true | plain |  | yes | POST /api/analytics/events (feature_gate.rs); consent prompt |
+| <a id="cap.apps.native"></a>`cap.apps.native` | features | global+domain+admin_user | true | plain |  | yes | native bearer sessions (feature_gate.rs) |
+| <a id="access.protocols"></a>`access.protocols` | features | global+domain+admin_user | ["imap","pop3","ews"] | plain |  | yes | mail protocols a native account may use (imap, pop3, ews); /jmap and /api/v1 refuse the others (feature_gate.rs) |
 | <a id="privacy.remotecontent"></a>`privacy.remoteContent` | privacy | global+domain+user | "ask" | plain |  | yes | Reader remote-content mode |
 | <a id="privacy.trackers"></a>`privacy.trackers` | privacy | global+domain+user | true | plain |  | yes | Block email trackers |
 | <a id="privacy.cleanlinks"></a>`privacy.cleanLinks` | privacy | global+domain+user | true | plain |  | yes | Remove tracking parameters from links |
@@ -505,6 +534,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="limit.storage-bytes"></a>`limit.storage_bytes` | limits | global+domain+admin_user | 0 | plain |  | yes | blob reservations; 0 = no limit |
 | <a id="limit.send-per-day"></a>`limit.send_per_day` | limits | global+domain+admin_user | 0 | plain |  | yes | EmailSubmission/set creates per day; 0 = no limit |
 | <a id="limit.ai-calls-per-day"></a>`limit.ai_calls_per_day` | limits | global+domain+admin_user | 0 | plain |  | yes | assistant adapter calls per day; 0 = no limit |
+| <a id="limit.linked-mailboxes"></a>`limit.linked_mailboxes` | limits | global+domain+admin_user | 0 | plain |  | yes | linked mailboxes per user, below accounts.maxLinked; 0 = no limit beyond it (feature_gate.rs) |
 | <a id="quota.warnthresholds"></a>`quota.warnThresholds` | limits | global+domain | [80,95] | plain |  | yes | usage warning thresholds (percent) |
 | <a id="quota.warnenabled"></a>`quota.warnEnabled` | limits | global+domain | true | plain |  | yes | usage warnings on |
 | <a id="usage.retentiondays"></a>`usage.retentionDays` | limits | global | 400 | plain |  | yes | usage counter pruning |
