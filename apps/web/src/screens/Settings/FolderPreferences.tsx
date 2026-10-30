@@ -4,6 +4,7 @@ import {QuotaDetails} from '../../components/QuotaMeter.tsx';
 import {FolderRoles} from './FolderRoles.tsx';
 import {FolderCountPreferences} from './FolderCountPreferences.tsx';
 import {FocusedInboxPreference} from './FocusedInboxPreference.tsx';
+import {FocusedSenders} from './FocusedSenders.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import {useLeaveConfirm} from '../../components/confirm.tsx';
 import type {Tag} from '../../state/slices/tags.ts';
@@ -68,7 +69,9 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  return <Show when={editing()} keyed fallback={<section class={css.section} aria-label={t('settings-folders-title')}>
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
-  <Show when={!props.onChange}><FocusedInboxPreference/><FolderCountPreferences/></Show>
+  <Show when={!props.onChange}><FocusedInboxPreference/></Show>
+  <Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show>
+  <Show when={!props.onChange}><FolderCountPreferences/></Show>
   <Show when={!props.onChange&&app?.accountId()}>{accountId=><QuotaDetails accountId={accountId()} refresh={props.folders()}/>}</Show>
   <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
   <div class={folderCss.wrap} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th>{t('settings-folders-name')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>

@@ -29,6 +29,7 @@ import * as a11y from './mailA11y.css.ts';
 import * as css from './readerToolbar.css.ts';
 import {t} from '../i18n/index.ts';
 import {zoomRowAction} from './ReaderZoom.tsx';
+import {focusActions} from './MessageContextMenu.tsx';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
@@ -127,7 +128,11 @@ export function ReaderToolbar(props:{
  createEffect(()=>{void ids();void settings()['reader.actionStyle']?.value;setFolded(new Set<string>());queueMicrotask(fit);});
 
  // ── More menu ──────────────────────────────────────────────────────────────
- const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>ids().filter(key=>folded().has(key)).flatMap(key=>all[key]?.menu()??[]),restoreFocus:()=>moreButton?.focus()});
+ // t94: entries that live only in More (never on the row): the sender's
+ // Focused inbox override while the Focused inbox is on.
+ const menuOnly=():ContextAction[]=>focusActions(app,props.email);
+ const idle=()=>folded().size===0&&menuOnly().length===0;
+ const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>{const rows=ids().filter(key=>folded().has(key)).flatMap(key=>all[key]?.menu()??[]);const extra=menuOnly().map((row,index)=>index===0&&rows.length>0?{...row,separatorBefore:true}:row);return [...rows,...extra];},restoreFocus:()=>moreButton?.focus()});
  // A pointerdown on this button while the menu is open closes it (ContextMenu's
  // outside-press handler); the click that follows must not open it again. This
  // capture listener is registered before the menu's, so it sees the press first.
@@ -138,7 +143,7 @@ export function ReaderToolbar(props:{
  return (
   <div ref={row} class={`reader__toolbar ${css.row}`} role="toolbar" aria-label={t('mail-reader-actions')}>
    <For each={ids()}>{key=>{const value=all[key]!;return <span ref={element=>{observer?.observe(element);onCleanup(()=>observer?.unobserve(element));}} class={css.item} classList={{[css.groupEnd]:value.groupEnd===true}} data-reader-item={key} hidden={folded().has(key)}>{value.inline()}</span>;}}</For>
-   <button ref={moreButton} type="button" class={`btn btn--ghost reader-action reader-action--compact ${a11y.focusable} ${css.more}`} classList={{[css.moreIdle]:folded().size===0}} aria-label={t('mail-more-actions')} title={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-hidden={folded().size===0?'true':undefined} tabindex={folded().size===0?-1:0} data-testid="reader-more" onClick={toggleMore}><Icon name="more"/></button>
+   <button ref={moreButton} type="button" class={`btn btn--ghost reader-action reader-action--compact ${a11y.focusable} ${css.more}`} classList={{[css.moreIdle]:idle()}} aria-label={t('mail-more-actions')} title={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-hidden={idle()?'true':undefined} tabindex={idle()?-1:0} data-testid="reader-more" onClick={toggleMore}><Icon name="more"/></button>
    {menu.menu()}
    {conversation.dialog()}
    {linkReview.dialog()}

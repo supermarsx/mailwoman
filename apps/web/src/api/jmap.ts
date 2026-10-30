@@ -35,6 +35,8 @@ export const HEADER_PROPERTIES = [
   'followUpAt',
   'hasAttachment',
   'size',
+  // t94: the server's Focused / Other decision, read from the index (no body).
+  'mailwomanFocus',
 ] as const;
 
 export const BODY_PROPERTIES = [

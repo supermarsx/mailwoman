@@ -117,6 +117,18 @@ export interface Email {
    *  only by the Events view's list (`listMailbox` on `EVENTS_VIEW_ID`); `null`
    *  when the message carries no calendar content. */
   mailwomanCalendar?: CalendarHint | null;
+  /** t94: the server's Focused / Other decision (list headers, known senders,
+   *  threads you took part in, keywords). Absent from a server that does not
+   *  know it (a proxied upstream); the client heuristic applies then. */
+  mailwomanFocus?: FocusDecision | null;
+}
+
+/** Why the server put a message in Focused or Other (t94). */
+export interface FocusDecision {
+  tab: 'focused' | 'other';
+  reason: 'listHeader' | 'contact' | 'correspondent' | 'thread' | 'keyword' | 'default';
+  /** For `listHeader`: which header (`list-unsubscribe`, `list-id`, `precedence`, `auto-submitted`). */
+  header?: string;
 }
 
 /** What the server read from a message's first calendar part (t78). */

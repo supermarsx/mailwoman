@@ -21,6 +21,9 @@ import {
 } from '../../api/jmap-types.ts';
 
 vi.mock('../../api/senderResolution.ts',()=>({resolveSender:vi.fn()}));
+// t94: the per-sender overrides live on the server; these tests stub that API.
+vi.mock('../../api/focusedSenders.ts',()=>({loadFocusedSenders:vi.fn(async()=>[]),saveFocusedSender:vi.fn(async()=>undefined),importFocusedSenders:vi.fn(async()=>[])}));
+import {saveFocusedSender} from '../../api/focusedSenders.ts';
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 const MAILBOXES: Mailbox[] = [
@@ -351,11 +354,49 @@ describe('mail slice — focused / unified inbox', () => {
     }
   });
 
-  it('sender training overrides the heuristic', async () => {
-    await withInbox([email('news', { from: [{ name: null, email: 'newsletter@shop.example' }] })], async (mail) => {
-      expect(mail.otherMessages().map((m) => m.id)).toEqual(['news']);
-      mail.trainSender('newsletter@shop.example', 'focused');
-      expect(mail.focusedMessages().map((m) => m.id)).toEqual(['news']);
+  it('the server decision (mailwomanFocus) wins over the keyword heuristic (t94)', async () => {
+    const seed = [
+      email('list', { from: [{ name: 'Ana', email: 'ana@example.net' }], mailwomanFocus: { tab: 'other', reason: 'listHeader', header: 'list-id' } }),
+      email('known', { from: [{ name: null, email: 'notifications@team.example' }], mailwomanFocus: { tab: 'focused', reason: 'contact' } }),
+      email('plain', { from: [{ name: null, email: 'newsletter@shop.example' }] }),
+    ];
+    await withInbox(seed, async (mail) => {
+      expect(mail.focusedMessages().map((m) => m.id)).toEqual(['known']);
+      expect(mail.otherMessages().map((m) => m.id)).toEqual(['list', 'plain']);
+    });
+  });
+
+  it('Always move to Focused moves every message from the sender at once and undo restores it (t94)', async () => {
+    vi.mocked(saveFocusedSender).mockClear();
+    const seed = [
+      email('n1', { from: [{ name: null, email: 'Newsletter@Shop.example' }] }),
+      email('n2', { from: [{ name: null, email: 'newsletter@shop.example' }], mailwomanFocus: { tab: 'other', reason: 'listHeader' } }),
+      email('p', { from: [{ name: null, email: 'a@example.org' }] }),
+    ];
+    await withInbox(seed, async (mail) => {
+      expect(mail.otherMessages().map((m) => m.id)).toEqual(['n1', 'n2']);
+      const moving = mail.alwaysMoveSender('newsletter@shop.example', 'focused');
+      // Moved before the server answers.
+      expect(mail.focusedMessages().map((m) => m.id)).toEqual(['n1', 'n2', 'p']);
+      await moving;
+      expect(vi.mocked(saveFocusedSender)).toHaveBeenCalledWith('newsletter@shop.example', 'focused');
+      expect(mail.senderFocus('NEWSLETTER@shop.example')).toBe('focused');
+      expect(mail.focusedSenders().map((r) => [r.email, r.tab])).toEqual([['newsletter@shop.example', 'focused']]);
+      expect(mail.pendingUndo()?.label).toBe('Messages from newsletter@shop.example now go to Focused.');
+      await mail.undoNow();
+      expect(vi.mocked(saveFocusedSender)).toHaveBeenLastCalledWith('newsletter@shop.example', null);
+      expect(mail.otherMessages().map((m) => m.id)).toEqual(['n1', 'n2']);
+      expect(mail.senderFocus('newsletter@shop.example')).toBeUndefined();
+    });
+  });
+
+  it('a refused save puts the messages back and says so (t94)', async () => {
+    vi.mocked(saveFocusedSender).mockRejectedValueOnce(new Error('503'));
+    await withInbox([email('p', { from: [{ name: null, email: 'a@example.org' }] })], async (mail) => {
+      await mail.alwaysMoveSender('a@example.org', 'other');
+      expect(mail.focusedMessages().map((m) => m.id)).toEqual(['p']);
+      expect(mail.senderFocus('a@example.org')).toBeUndefined();
+      expect(mail.pendingUndo()).toBeNull();
     });
   });
 });

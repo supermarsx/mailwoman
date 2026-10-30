@@ -6,6 +6,15 @@ import {relatedSearchValue} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
+/** "Always move to Focused / Other" for a message's sender (t94), while the
+ * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
+export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focusedInbox'|'senderFocus'|'alwaysMoveSender'>>,message:Email):ContextAction[] {
+ const from=(message.from?.[0]?.email??'').trim();
+ // An app without the Focused inbox (a detached pane's reduced state) offers nothing.
+ const {focusedInbox,senderFocus,alwaysMoveSender}=app;
+ if(!focusedInbox||!senderFocus||!alwaysMoveSender||!focusedInbox()||from==='')return [];
+ return (['focused','other'] as const).map(tab=>({id:`focus:${tab}`,label:t(tab==='focused'?'mail-focus-always-focused':'mail-focus-always-other'),icon:tab==='focused'?'star':'inbox',checked:senderFocus(from)===tab,run:()=>alwaysMoveSender(from,tab)}));
+}
 /** Always targets the indicated message, not an unrelated existing selection. */
 export function createMessageContextMenu(email:Accessor<Email|undefined>) {
  const app=useApp();
@@ -21,6 +30,8 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
   for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)rows.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
   // t88: scope a search to the message's folder (its chip shows in the filter bar).
   {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)rows.push({id:'search:in',label:t('search-refine-folder'),icon:'search',run:()=>app.searchMessageField('in',folder)});}
+  // t94: the sender's Focused inbox override; the current choice is checked.
+  for(const row of focusActions(app,message))rows.push(row);
   for(const [role,label,icon,run] of [
    ['archive','mail-archive','archive',()=>app.archiveMessage(id)],
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],

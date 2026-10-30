@@ -67,6 +67,8 @@ import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
 import type { SliceContext } from './context.ts';
+import { createFocusedSenders } from '../focusedSenders.ts';
+import type { FocusedSender } from '../../api/focusedSenders.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
 import { settings, writeSetting } from '../../api/settings.ts';
 
@@ -319,8 +321,16 @@ export interface MailSlice {
   executeSweep(fromEmail: string, strategy: SweepStrategy, olderThanDays?: number): Promise<void>;
   blockedSenders: Accessor<string[]>;
 
-  // ── V2 focused-inbox training ──
-  trainSender(email: string, dest: InboxTab): void;
+  // ── Focused inbox per-sender overrides (t94, stored on the server) ──
+  /** The user's "always move" choices, by sender (Settings lists them). */
+  focusedSenders: Accessor<FocusedSender[]>;
+  /** The tab the user chose for this sender, if any. */
+  senderFocus(email: string): InboxTab | undefined;
+  /** "Always move to Focused / Other": every message from the sender moves at
+   *  once; the toast offers to undo. */
+  alwaysMoveSender(email: string, dest: InboxTab): Promise<void>;
+  /** Drop one override; the automatic rules decide again. */
+  removeSenderFocus(email: string): Promise<void>;
 
   // ── V2 undo primitive (shared by all reversible actions) ──
   pendingUndo: Accessor<PendingUndo | null>;
@@ -351,7 +361,8 @@ function roleOf(mailboxes: Mailbox[], role: string): Id | null {
   return mailboxes.find((m) => m.role === role)?.id ?? null;
 }
 
-/** Bulk-sender heuristic for the focused/other split when there's no training. */
+/** Bulk-sender heuristic for the focused/other split when the server sent no
+ *  decision (`mailwomanFocus`, t94), e.g. a proxied upstream. */
 const BULK_RE = /(no-?reply|newsletter|notifications?|marketing|updates?|digest|mailer|automated|do-?not-?reply)/i;
 
 function heuristicTab(email: Email): InboxTab {
@@ -360,18 +371,7 @@ function heuristicTab(email: Email): InboxTab {
   return BULK_RE.test(hay) ? 'other' : 'focused';
 }
 
-const FOCUS_KEY = 'mw.focused.v1';
 const BLOCK_KEY = 'mw.blocked.v1';
-
-function loadMap(key: string): Record<string, InboxTab> {
-  try {
-    const raw = globalThis.localStorage?.getItem(key);
-    if (raw != null) return JSON.parse(raw) as Record<string, InboxTab>;
-  } catch {
-    /* ignore corrupt storage */
-  }
-  return {};
-}
 
 function loadList(key: string): string[] {
   try {
@@ -518,7 +518,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     writeSetting(FOCUSED_INBOX_SETTING, on).catch(() => undefined);
   }
   const [pendingUndo, setPendingUndo] = createSignal<PendingUndo | null>(null);
-  const [training, setTraining] = createSignal<Record<string, InboxTab>>(loadMap(FOCUS_KEY));
+  const focusedSenders = createFocusedSenders();
   const [blocked, setBlocked] = createSignal<string[]>(loadList(BLOCK_KEY));
 
   // ── undo primitive ──────────────────────────────────────────────────────
@@ -1223,19 +1223,32 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     });
   }
 
-  // ── focused-inbox training ────────────────────────────────────────────────
-  function trainSender(email: string, dest: InboxTab): void {
-    const next = { ...training(), [email.toLowerCase()]: dest };
-    setTraining(next);
-    try {
-      globalThis.localStorage?.setItem(FOCUS_KEY, JSON.stringify(next));
-    } catch {
-      /* ignore */
-    }
-  }
+  // ── focused inbox (t94) ───────────────────────────────────────────────────
+  // The user's own choice wins, then the server's rules (list headers, known
+  // senders, threads you took part in, keywords), then the keyword heuristic.
+  const senderOf = (email: Email): string => (email.from?.[0]?.email ?? '').trim().toLowerCase();
   function classify(email: Email): InboxTab {
-    const from = (email.from?.[0]?.email ?? '').toLowerCase();
-    return training()[from] ?? heuristicTab(email);
+    return focusedSenders.overrides()[senderOf(email)] ?? email.mailwomanFocus?.tab ?? heuristicTab(email);
+  }
+  function senderFocus(address: string): InboxTab | undefined {
+    return focusedSenders.overrides()[address.trim().toLowerCase()];
+  }
+  async function alwaysMoveSender(address: string, dest: InboxTab): Promise<void> {
+    const key = address.trim().toLowerCase();
+    if (key === '') return;
+    const previous = focusedSenders.overrides()[key] ?? null;
+    try {
+      await focusedSenders.set(key, dest);
+    } catch {
+      showToast('error', t('mail-focus-save-failed'));
+      return;
+    }
+    showUndo(t(dest === 'focused' ? 'mail-focus-moved-focused' : 'mail-focus-moved-other', { sender: key }), async () => {
+      await focusedSenders.set(key, previous);
+    });
+  }
+  async function removeSenderFocus(address: string): Promise<void> {
+    await focusedSenders.set(address, null);
   }
 
   // ── derived views ─────────────────────────────────────────────────────────
@@ -2122,7 +2135,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     executeSweep,
     blockedSenders: blocked,
 
-    trainSender,
+    focusedSenders: focusedSenders.rows,
+    senderFocus,
+    alwaysMoveSender,
+    removeSenderFocus,
 
     pendingUndo,
     undoNow,
