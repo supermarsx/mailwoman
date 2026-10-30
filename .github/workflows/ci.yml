@@ -1098,6 +1098,7 @@ jobs:
       - name: build the server and the web app from this checkout
         run: |
           cargo build -p mw-server --bin mailwoman
+          cargo build -p mw-render --bin mw-render
           pnpm -C apps/web build
       - name: start the receipts stack
         run: |
@@ -1195,6 +1196,7 @@ jobs:
       - name: build the server and the web app from this checkout
         run: |
           cargo build -p mw-server --bin mailwoman
+          cargo build -p mw-render --bin mw-render
           pnpm -C apps/web build
       - name: start the receipts stack
         run: |
