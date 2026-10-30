@@ -115,6 +115,8 @@ pub struct Engine {
     /// Held while a default calendar, task list or address book is looked up
     /// again and created ([`Engine::default_collections_lock`]).
     default_collections: tokio::sync::Mutex<()>,
+    /// Sync and send telemetry for the admin Health panel (t103).
+    pub(crate) sync_health: crate::sync_health::SyncHealth,
 }
 
 /// State of the one search-index rebuild that may run at a time
@@ -166,6 +168,7 @@ impl Engine {
             search_dir: None,
             index_rebuild: IndexRebuild::default(),
             default_collections: tokio::sync::Mutex::new(()),
+            sync_health: Default::default(),
             dispatcher_started: AtomicBool::new(false),
             accepted_submissions: Mutex::new(HashMap::new()),
             v6: std::sync::RwLock::new(crate::v6::V6Hooks::default()),
@@ -383,6 +386,7 @@ impl Engine {
         if let Some(runtime) = &previous {
             runtime.initial_sync.cancel();
         }
+        self.sync_health.forget(account_id);
         previous
     }
 
@@ -441,6 +445,36 @@ impl Engine {
     }
 
     pub(crate) async fn resync_runtime(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
+        let guard = self.sync_health.begin(account_id);
+        let result = self.resync_runtime_untimed(account_id, rt).await;
+        guard.finish(&result);
+        result
+    }
+
+    /// Sync and send telemetry for every registered account (t103): which
+    /// accounts are syncing, watching or failing, and how recent the last
+    /// completed sync is. Reads in-process counters only.
+    pub fn sync_health(&self) -> crate::sync_health::SyncHealthSnapshot {
+        let registered: Vec<(String, bool, bool, &'static str)> = {
+            let accounts = self.accounts.lock().expect("accounts lock");
+            let mut rows: Vec<_> = accounts
+                .iter()
+                .map(|(id, rt)| (id.clone(), rt.watch.is_some()))
+                .collect();
+            rows.sort();
+            rows
+        }
+        .into_iter()
+        .map(|(id, watching)| {
+            let plugin = self.is_plugin_backed(&id);
+            let initial = self.initial_sync_status(&id);
+            (id, watching, plugin, initial)
+        })
+        .collect();
+        self.sync_health.snapshot(&registered)
+    }
+
+    async fn resync_runtime_untimed(&self, account_id: &str, rt: &AccountRuntime) -> Result<()> {
         self.require_runtime_generation(account_id, rt)?;
         self.ensure_cached_date_upgrade(account_id).await?;
         let mailboxes = rt.backend.list_mailboxes().await?;
