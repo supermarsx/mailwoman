@@ -52,6 +52,9 @@ export interface StoredDraft {
   bodyText: string;
   savedAt: number;
   /** This message's send options (t29-e12); absent = off. */
+  attachPublicKey?: boolean;
+  includeFileHashes?: boolean;
+  sentMailboxId?: string;
   requestReceipt?: boolean;
   requestDeliveryReceipt?: boolean;
   openTracking?: boolean;
@@ -115,6 +118,9 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.bcc, isString) &&
     optional(r.inReplyTo, isStringList) &&
     optional(r.references, isStringList) &&
+    optional(r.attachPublicKey, isBool) &&
+    optional(r.includeFileHashes, isBool) &&
+    optional(r.sentMailboxId, isString) &&
     optional(r.requestReceipt, isBool) &&
     optional(r.requestDeliveryReceipt, isBool) &&
     optional(r.openTracking, isBool) &&

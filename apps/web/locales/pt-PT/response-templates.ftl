@@ -1,0 +1,30 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: response-templates. Source: ../en/response-templates.ftl
+response-templates-title = Modelos de resposta
+response-templates-search = Procurar um modelo
+response-templates-library = Biblioteca de modelos
+response-templates-add = Adicionar modelo
+response-templates-count = { $count } de { $max } modelos
+response-templates-untitled = Novo modelo
+response-templates-empty = Adicione um modelo para texto que utiliza frequentemente.
+response-templates-name = Nome do modelo
+response-templates-body = Texto da mensagem
+response-templates-remove = Remover modelo
+response-templates-shared = Partilhado
+response-templates-personal = Pessoal
+response-templates-empty-picker = Crie modelos pessoais nas Definições ou peça modelos partilhados ao administrador.
+response-templates-insert = Inserir texto
+response-templates-replace = Substituir texto da mensagem
+response-templates-replace-title = Substituir o texto da mensagem?
+response-templates-replace-help = Substitui o corpo da mensagem pelo modelo selecionado. Os destinatários e o assunto permanecem iguais.
+response-templates-inserted = Modelo inserido
+response-templates-enable = Utilizar modelos de resposta
+response-templates-personal-help = Os modelos pessoais estão disponíveis apenas para si. Os modelos partilhados são geridos pelo administrador.
+response-templates-personal-blocked = O administrador desativou os modelos pessoais. Os modelos partilhados continuam disponíveis quando os modelos estão ativos.
+response-templates-limits = Até 20 modelos, com nomes até 80 caracteres e texto simples até 8 000 caracteres por modelo. A biblioteca pode ocupar até 64 KiB.
+response-templates-save = Guardar modelos
+response-templates-discard-button = Descartar alterações
+response-templates-discard = Descartar alterações dos modelos por guardar?
+response-templates-saving = A guardar modelos…
+response-templates-saved = Modelos guardados
+response-templates-invalid = Verifique os nomes, o texto e o tamanho da biblioteca. Cada modelo precisa de um identificador único, um nome e texto.

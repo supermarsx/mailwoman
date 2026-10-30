@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
-import { onMount, type JSX } from 'solid-js';
+import { createEffect, type JSX } from 'solid-js';
 import { Compose } from './Compose.tsx';
 import { makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
@@ -15,14 +15,17 @@ import type { JmapRequest } from '../api/jmap-types.ts';
 // lookups and a worker to reach "encryption on, ciphertext ready"; what these
 // tests are about is what the composer does with that state.
 let cryptoState: ComposeCryptoState | null = null;
-vi.mock('./compose-crypto.tsx', () => ({
-  ComposeCrypto: (props: { onChange?: (s: ComposeCryptoState) => void }): JSX.Element => {
-    onMount(() => {
-      if (cryptoState !== null) props.onChange?.(cryptoState);
-    });
-    return null as unknown as JSX.Element;
-  },
-}));
+vi.mock('./compose-crypto.tsx', async importOriginal => {
+  const actual=await importOriginal<typeof import('./compose-crypto.tsx')>();
+  return {...actual,
+    ComposeCrypto:(props:import('./compose-crypto.tsx').ComposeCryptoProps):JSX.Element=>{
+      createEffect(()=>{
+        if(cryptoState!==null)props.onChange?.({...cryptoState,draftSource:cryptoState.encryptedDraft?actual.cryptoDraftSource(props.bodyText?.()??'',props.recipients(),props.subject?.()??'',cryptoState.protectSubject,null):null});
+      });
+      return null as unknown as JSX.Element;
+    },
+  };
+});
 
 const ENCRYPTING = {
   encrypt: true,
@@ -390,12 +393,13 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     });
   });
 
-  it('encryption switched on but no ciphertext yet still asks: the body would go out as plaintext', async () => {
+  it('encryption switched on without ciphertext refuses sending rather than falling back to plaintext', async () => {
     cryptoState = { ...ENCRYPTING, encryptedDraft: null };
     const { client } = await open(reply({ quotesDecrypted: true, cc: '' }));
     await screen.findByTestId('compose-richtext');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await screen.findByRole('alertdialog');
+    expect(await screen.findByRole('alert')).toHaveTextContent('Encryption is updating');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
     expect(sends(client)).toHaveLength(0);
   });
 });

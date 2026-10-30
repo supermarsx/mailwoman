@@ -515,3 +515,12 @@ it('preserves an explicit plain text composition as text/plain without an HTML b
   expect(draft).not.toHaveProperty('htmlBody');
   expect(draft['bodyValues']).toEqual({body:{value:'literal <tag> & text'}});
 });
+
+ it('keeps identity reply headers separate from the envelope and moves the accepted copy once',()=>{
+ const input={from:{name:'Me',email:'me@example.org'},to:'you@example.org',subject:'hello',htmlBody:'body',draftMailboxId:'drafts',sentMailboxId:'project',replyTo:[{name:null,email:'reply@example.org'}],organization:'Example'};
+ const spec=draftCreateSpec(input);expect(spec.replyTo).toEqual(input.replyTo);expect(spec['header:Organization:asText']).toBe('Example');
+ expect(draftCreateSpec({...input,organization:'bad\r\nBcc: other'})).not.toHaveProperty('header:Organization:asText');
+ const req=sendEnvelope('account',input);const submit=req.methodCalls.find(call=>call[0]==='EmailSubmission/set')![1];
+ expect(submit.onSuccessUpdateEmail).toEqual({'#send':{mailboxIds:{project:true},'keywords/$draft':null}});
+ expect(JSON.stringify(submit)).not.toContain('reply@example.org');
+ });

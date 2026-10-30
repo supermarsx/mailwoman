@@ -18,7 +18,7 @@ function key(account: string): CryptoKey {
     id: `k-${account}`,
     kind: 'pgp',
     isOwn: true,
-    addresses: [`${account}@example.org`],
+    addresses: ['me@example.org'], // ownership varies independently of the composing sender address
     fingerprint: `${account.toUpperCase()}FP`,
     keyId: `${account}id`,
     algorithm: 'ed25519',
@@ -143,6 +143,13 @@ describe('Compose signing session across a mailbox switch (t87 D11)', () => {
     expect(h.unlockOwnKey.mock.calls[1]![0].fingerprint).toBe('CHILDFP');
     expect(h.unlockOwnKey.mock.calls[1]![0].encryptedPrivateBackup).toBe('BUNDLE-child');
     expect(h.unlockOwnKey.mock.calls[1]![1]).toBe('child-pass');
+  });
+
+  it('refuses an owned key that belongs to a different sending address',async()=>{
+    const h=await harness();h.resetKeys([{...key('parent'),addresses:['different@example.org']}],'parent');
+    fill();fireEvent.click(await screen.findByTestId('sign-toggle'));await unlock('pw');
+    expect(await screen.findByRole('alert')).toHaveTextContent('No signing key');
+    expect(h.unlockOwnKey).not.toHaveBeenCalled();expect(sends(h.client)).toBe(0);
   });
 
   it('refuses to unlock a key whose owner is not the composing mailbox', async () => {

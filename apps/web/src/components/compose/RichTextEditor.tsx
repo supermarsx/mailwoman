@@ -93,6 +93,8 @@ export interface RichTextApi {
   appendHtml: (html: string) => void;
   /** Replace the whole document with parsed HTML. */
   setHtml: (html: string) => void;
+  /** Explicit user replacement that remains undoable. */
+  replaceHtml?: (html:string)=>void;
   focus: () => void;
   /** Re-read every image's preview (the composer made new ones). */
   refreshImages: () => void;
@@ -322,6 +324,11 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         view.updateState(next);
         emit(next);
         view.focus();
+      },
+      replaceHtml(html:string):void {
+        if(view===undefined)return;
+        const next=view.state.apply(view.state.tr.replaceWith(0,view.state.doc.content.size,docFromHtml(html,owned(),embedded()).content));
+        view.updateState(next);emit(next);view.focus();
       },
       setHtml(html: string): void {
         if (view === undefined) return;

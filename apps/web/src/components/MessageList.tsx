@@ -1,3 +1,4 @@
+import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
 import {AsyncError,AsyncPending} from './AsyncState.tsx';
 import {createInitialSync} from './initialSync.ts';
 import * as loadingCss from './asyncState.css.ts';
@@ -146,6 +147,7 @@ function MessageRow(props: {
 }): JSX.Element {
   const app = useApp();
   const email = () => props.email;
+  const prefetch=mailPrefetchEvents(trigger=>app.prefetchMessage?.(email().id,trigger)??(()=>undefined));
   const unread = () => email().keywords?.['$seen'] !== true;
   return (
     <li
@@ -174,7 +176,7 @@ function MessageRow(props: {
         onClick={(e) => props.onClick(e)}
         onDblClick={(e) => props.onDblClick(e)}
         draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
-        data-email-id={email().id} onContextMenu={e=>props.contextMenu.open(e,email())} onKeyDown={e=>props.contextMenu.keydown(e,email())}
+        data-email-id={email().id} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,email())} onKeyDown={e=>props.contextMenu.keydown(e,email())}
       >
         <Show when={unread()}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
@@ -257,6 +259,7 @@ function ThreadHeadRow(props: {
 }): JSX.Element {
   const app = useApp();
   const rep = () => props.row.email;
+  const prefetch=mailPrefetchEvents(trigger=>app.prefetchMessage?.(rep().id,trigger)??(()=>undefined));
   const active = () => app.openEmail()?.id === rep().id;
   return (
     <li
@@ -298,7 +301,7 @@ function ThreadHeadRow(props: {
         onClick={(e) => props.onClick(e)}
         onDblClick={(e) => props.onDblClick(e)}
         draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
-        data-email-id={rep().id} onContextMenu={e=>props.contextMenu.open(e,rep())} onKeyDown={e=>props.contextMenu.keydown(e,rep())}
+        data-email-id={rep().id} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,rep())} onKeyDown={e=>props.contextMenu.keydown(e,rep())}
       >
         <Show when={props.row.unread}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>

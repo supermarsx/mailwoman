@@ -242,6 +242,8 @@ export interface DraftInput {
   /** Explicit plain text mode; when present no HTML body is sent. */
   textBody?: string;
   importance?: 'high'|'normal'|'low';
+  replyTo?: EmailAddress[];
+  organization?: string;
   draftMailboxId: Id;
   sentMailboxId?: Id;
   /** V2: send via a specific sending identity (§2.1 `Identity`). */
@@ -296,6 +298,8 @@ export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
     from: [input.from],
     to: parseRecipients(input.to),
   };
+  if(input.replyTo?.length)spec['replyTo']=input.replyTo;
+  if(input.organization&&!Array.from(input.organization).some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127))spec['header:Organization:asText']=input.organization;
   const cc = parseRecipients(input.cc ?? '');
   if (cc.length > 0) spec['cc'] = cc;
   const bcc = parseRecipients(input.bcc ?? '');

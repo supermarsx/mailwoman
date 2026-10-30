@@ -835,6 +835,16 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const [preparing, setPreparing] = createSignal(false);
 
   async function composeFrom(email: Email, mode: ReplyMode): Promise<ComposeInitial> {
+    if (mode === 'forward' && effectiveSettings()['mail.forwardMode']?.value === 'attachment') {
+      if (!email.blobId) throw new Error('Original message is unavailable');
+      return {
+        mode, to: '', cc: '', subject: forwardSubject(email.subject),
+        bodyHtml: '', bodyText: '', inReplyTo: [], references: [],
+        attachments: [{name: 'message.eml', blobId: email.blobId, size: email.size ?? 0, contentType: 'message/rfc822'}],
+        quotesDecrypted: false,
+        source: {emailId: email.id, keyword: '$forwarded'},
+      };
+    }
     const { quoteForReply, quoteForForward, quoteForOutlook } = await import('./compose/quote.ts');
     const shown = displayedContent(email);
     const author = email.from?.[0];
@@ -906,6 +916,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       attachments: [],
       quotesDecrypted: shown.decrypted && quote.html !== '',
       source: { emailId: email.id, keyword: '$answered' },
+      ...(app.selectedMailboxId() ? {sourceMailboxId: app.selectedMailboxId()!} : {}),
+      sourceMailboxIds: Object.keys(email.mailboxIds),
     };
   }
 

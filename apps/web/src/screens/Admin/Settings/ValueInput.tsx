@@ -10,6 +10,8 @@ import type { SettingKind } from '../../../api/admin/settings.ts';
 import type { FieldWiring } from '../shell/FormField.tsx';
 import type { Draft } from './value.ts';
 import { isJsonKind } from './value.ts';
+import {TemplateLibraryEditor} from '../../../components/compose/TemplateLibraryEditor.tsx';
+import {templateRows} from '../../../components/compose/responseTemplateModel.ts';
 import * as ux from '../shell/ux.css.ts';
 
 export interface ValueInputProps {
@@ -94,6 +96,9 @@ export function ValueInput(props: ValueInputProps): JSX.Element {
           {props.nullable ? <option value="">{t('admin-settings-value-empty')}</option> : null}
           <For each={options()}>{(v) => <option value={v}>{label(v)}</option>}</For>
         </select>
+      </Match>
+      <Match when={props.kind.type==='messageTemplates'}>
+        <TemplateLibraryEditor value={(()=>{try{return templateRows(JSON.parse(text()));}catch{return [];}})()} onChange={rows=>props.onDraft(JSON.stringify(rows))} disabled={props.disabled===true} id={props.wiring.id} describedBy={props.wiring.describedBy}/>
       </Match>
       <Match when={isJsonKind(props.kind)}>
         <textarea

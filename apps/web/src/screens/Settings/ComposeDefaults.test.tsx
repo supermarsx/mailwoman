@@ -1,0 +1,8 @@
+import {afterEach,expect,it,vi} from 'vitest';
+import {cleanup,fireEvent,render,screen} from '@solidjs/testing-library';
+import {ComposeDefaults} from './ComposeDefaults.tsx';
+const fixture=vi.hoisted(()=>({locked:false,save:vi.fn(async(_key:string,_value:unknown)=>true)}));
+vi.mock('./useSetting.ts',()=>({useSetting:(key:string,fallback:unknown)=>({value:()=>fallback,entry:()=>({value:fallback}),locked:()=>fixture.locked,saving:()=>false,error:()=>'',set:(value:unknown)=>fixture.save(key,value)})}));
+afterEach(()=>{cleanup();fixture.locked=false;fixture.save.mockClear();});
+it('writes the shared receipt keys and declared compose defaults through user settings',()=>{render(()=><ComposeDefaults/>);fireEvent.click(screen.getByLabelText('Always request read receipts'));fireEvent.click(screen.getByLabelText('Always request delivery receipts'));fireEvent.click(screen.getByLabelText('Save a copy of replies in the original folder'));fireEvent.change(screen.getByLabelText('Open new messages in'),{target:{value:'window'}});fireEvent.change(screen.getByLabelText('Default forwarding format'),{target:{value:'attachment'}});expect(fixture.save.mock.calls).toEqual([['mail.requestReadReceipt',true],['mail.requestDeliveryReceipt',true],['mail.replyCopyToOriginal',true],['mail.composeWindow','window'],['mail.forwardMode','attachment']]);});
+it('honors administrator locks on all five defaults',()=>{fixture.locked=true;render(()=><ComposeDefaults/>);for(const control of [...screen.getAllByRole('checkbox'),...screen.getAllByRole('combobox')])expect(control).toBeDisabled();expect(fixture.save).not.toHaveBeenCalled();});

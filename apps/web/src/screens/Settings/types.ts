@@ -133,6 +133,9 @@ export interface Identity {
   readonly name: string;
   readonly email: string;
   readonly replyTo?: string;
+  readonly organization?: string;
+  readonly autoBcc?: string;
+  readonly pgpKeyId?: string;
   /** Name of the signature template this identity defaults to. */
   readonly signatureName?: string;
 }

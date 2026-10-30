@@ -862,3 +862,15 @@ mail-toast-move-queued = { $count ->
    *[other] Queued { $count } messages to move to { $folder }
     }
 mail-toast-move-partial = Moved { $count } of { $total } messages to { $folder }; { $failed } could not be moved
+
+mail-send-copy-folder-unavailable = The selected sent-copy folder is unavailable. Choose another folder before sending.
+mail-send-copy-failed = The message was accepted, but its sent copy could not be filed. Do not send it again.
+
+mail-compose-attach-public-key = Attach my public key or certificate
+mail-compose-include-hashes = Include SHA-256 hashes of attached files
+mail-compose-hashes-pending = Calculating attachment hashes. Send when ready.
+mail-compose-hashes-failed = Could not verify attachment bytes. Turn hashes off or retry by enabling them again.
+mail-compose-crypto-pending = Encryption is updating. Please wait before sending.
+mail-compose-public-key-unavailable = No current public key or certificate matches the sending address.
+mail-compose-sent-copy = Save sent message in
+mail-compose-sent-copy-default = Account default

@@ -16,8 +16,10 @@ import { toastTarget } from '../../components/toast/context.ts';
 // derivation. The V1 session+mail behaviour is preserved verbatim; the
 // V2 surface is additive.
 
-import { batch,createSignal, createMemo, type Accessor } from 'solid-js';
-import { ApiError, NetworkError, PasswordChangeRequired, type LoginInput, type Me } from '../../api/client.ts';
+import { batch,createSignal, createMemo, createEffect, getOwner, onCleanup, type Accessor } from 'solid-js';
+import {createMailReadCache, type PrefetchTrigger} from '../mailReadCache.ts';
+import {readMailCachePolicy} from '../mailCachePolicy.ts';
+import { ApiError, NetworkError, PasswordChangeRequired, type Client, type LoginInput, type Me } from '../../api/client.ts';
 import {
   cancelSubmission,
   emailGetFull,
@@ -100,6 +102,9 @@ type PageSource =
   | { readonly kind: 'mailbox'; readonly mailboxId: Id; readonly upcoming?: boolean }
   | { readonly kind: 'search'; readonly filter: FilterCondition };
 
+type CachedMailRead = {kind:'mailbox';response:JmapResponse}
+  | {kind:'message';email:Email|null;html:string|null};
+
 /** How long sign-in waits for the linked-mailbox list before opening the sign-in account. */
 const FIRST_MAILBOX_WAIT_MS = 1500;
 
@@ -125,6 +130,7 @@ export type InboxTab = 'focused' | 'other';
 
 /** The compose/send input (grown for identities + send-later + undo-send). */
 export interface SendInput {
+  sentMailboxId?: Id;
   accountDraft?:{id:string;revision:string};
   /** The recipient field as typed: `addr` or `Name <addr>` entries, `,`/`;`-separated. */
   to: string;
@@ -345,6 +351,10 @@ export interface MailSlice {
   login(input: LoginInput): Promise<void>;
   logout(): Promise<void>;
   selectMailbox(id: Id): Promise<void>;
+  prefetchMailbox(id: Id, trigger: PrefetchTrigger): () => void;
+  prefetchMessage(id: Id, trigger: PrefetchTrigger): () => void;
+  clearMailCache(): void;
+  mailCacheStats(): {entries:number;bytes:number;queued:number;inflight:number};
   createReaderView(): MessageView;
   setActiveReader(view: MessageView | null): void;
   openMessage(id: Id): Promise<void>;
@@ -410,22 +420,60 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const openEmail = (): Email | null => activeReader() ? activeReader()!.openEmail() : legacyOpenEmail();
   const sanitizedHtml = (): string | null => activeReader() ? activeReader()!.sanitizedHtml() : legacySanitizedHtml();
   const readLoading = (): boolean => activeReader()?.readLoading() ?? legacyReadLoading();
+  const cacheOwner=()=>{const owner=preferenceAccount();return owner?.id===accountId()?owner:null;};
+  const readCache=createMailReadCache<CachedMailRead>({policy:readMailCachePolicy,currentOwner:cacheOwner,
+    canPrefetch:()=>!switchingMailbox()&&!isOffline()&&!listLoading()&&!loadingMore()});
+  const stopCacheAuthority=observePreferenceAccount(()=>readCache.syncPolicy());
+  createEffect(()=>{readMailCachePolicy();readCache.syncPolicy();});
+  if(getOwner())onCleanup(()=>{stopCacheAuthority();readCache.dispose();});
+  const messageCacheKey=(id:Id)=>JSON.stringify(['message',id]);
+  function cachedMessage(id:Id):Extract<CachedMailRead,{kind:'message'}>|undefined {
+    const owner=cacheOwner();if(!owner)return;
+    const value=readCache.peek(owner,messageCacheKey(id),'message')?.value;
+    return value?.kind==='message'?value:undefined;
+  }
+  async function fetchFullMessage(account:string,id:Id,signal:AbortSignal):Promise<CachedMailRead> {
+    const response=await jmapCall(emailGetFull(account,id),{signal});
+    const email=responseFor<EmailGetResponse>(response,'g').list[0]??null;
+    return {kind:'message',email,html:email?await client.sanitize(extractHtmlBody(email)):null};
+  }
+  async function loadFullMessage(account:string,id:Id,signal:AbortSignal):Promise<Extract<CachedMailRead,{kind:'message'}>> {
+    const owner=cacheOwner();
+    const value=owner?await readCache.load(owner,messageCacheKey(id),'message',s=>fetchFullMessage(account,id,s),
+      {signal,force:readMailCachePolicy().refreshOnOpen}):await fetchFullMessage(account,id,signal);
+    if(value.kind!=='message')throw new Error(t('mail-toast-load-more-failed'));
+    return value;
+  }
+  function prefetchMailbox(id:Id,trigger:PrefetchTrigger):()=>void {
+    const owner=cacheOwner(),account=accountId(),box=mailboxes().find(value=>value.id===id);
+    if(!owner||!account||!box||id===EVENTS_VIEW_ID)return ()=>undefined;
+    const request=pageRequest(account,{kind:'mailbox',mailboxId:id},0,PAGE_SIZE,true);
+    return readCache.prefetch(owner,JSON.stringify(request),'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal})}),
+      {trigger,folderId:id,...(box.role?{folderRole:box.role}:{})});
+  }
+  function prefetchMessage(id:Id,trigger:PrefetchTrigger):()=>void {
+    const owner=cacheOwner(),account=accountId(),email=messages().find(value=>value.id===id);
+    if(!owner||!account||!email)return ()=>undefined;
+    const box=mailboxes().find(value=>value.id===selectedMailboxId());
+    return readCache.prefetch(owner,messageCacheKey(id),'message',signal=>fetchFullMessage(account,id,signal),
+      {trigger,...(box?{folderId:box.id,...(box.role?{folderRole:box.role}:{})}:{})});
+  }
   function setActiveReader(view: MessageView | null): void {
     activeReader()?.setActive(false);cancelMarkRead();setActiveReaderSignal(view);view?.setActive(true);
   }
   function createReaderView(): MessageView {
     const view = createMessageView({
       account: accountId,
-      async load(account, id) {
+      cached:(_account,id)=>cachedMessage(id),
+      async load(account, id, signal) {
         try {
           if (isOffline()) throw new NetworkError('offline');
-          const response=await client.jmap(emailGetFull(account,id));
-          const email=responseFor<EmailGetResponse>(response,'g').list[0] ?? null;
-          return {email,html:email ? await client.sanitize(extractHtmlBody(email)) : null};
+          return await loadFullMessage(account,id,signal);
         } catch (error) {
-          if (!(error instanceof NetworkError)) throw error;
+          if (!(error instanceof NetworkError)) {if(error instanceof ApiError&&[401,403,404].includes(error.status))readCache.clear();throw error;}
+          const cached=cachedMessage(id);if(cached)return cached;
           const email=messages().find(message=>message.id===id) ?? null;
-          return {email,html:email ? extractHtmlBody(email) : null};
+          return {email,html:email ? await client.sanitize(extractHtmlBody(email)) : null};
         }
       },
       readDelay(email) {
@@ -511,10 +559,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (isCurrent(req)) inFlight = undefined;
   }
 
-  // `client.jmap(body, { signal })` cancels for real: the transport threads the
+  // `jmapCall(body, { signal })` cancels for real: the transport threads the
   // signal into `fetch` and rethrows the abort reason rather than a
   // `NetworkError`, so a superseded query does not register as going offline.
-  const jmapCall = client.jmap.bind(client);
+  const jmapCall: Client['jmap'] = async (request,options) => {
+    const mutation=request.methodCalls.some(([method])=>method.endsWith('/set')||method.endsWith('/import'));
+    if(mutation)readCache.invalidate(undefined,{abort:false});
+    try{return await client.jmap(request,options);}finally{if(mutation)readCache.invalidate(undefined,{abort:false});}
+  };
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
   // `mail.focusedInbox` lives in the shared settings map, so a change made in
@@ -704,7 +756,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         countsDirty = false;
         const version = countVersion;
         try {
-          const response = await client.jmap(mailboxGet(acct));
+          const response = await jmapCall(mailboxGet(acct));
           if (!current()) return;
           if (version === countVersion && countWrites === 0) applyCounts(response, 'c0');
           else countsDirty = true;
@@ -855,7 +907,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const finishCounts = beginCountWrite();
     let res: JmapResponse;
     try {
-      res = await client.jmap(updateEmails(acct, patches));
+      res = await jmapCall(updateEmails(acct, patches));
     } catch {
       if(!current())return 0;
       putBack(touched);
@@ -961,7 +1013,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       await ctx.enqueueOffline('flag', { accountId: acct, emailId: id, keyword, value: on });
       return;
     }
-    await client.jmap(setEmailKeyword(acct, id, keyword, on));
+    await jmapCall(setEmailKeyword(acct, id, keyword, on));
     ctx.broadcastChange?.();
   }
   async function rawMeta(id: Id, patch: Partial<Email>): Promise<void> {
@@ -971,7 +1023,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Engine-local meta (pin/snooze/follow-up) has no offline-replay opcode in
     // the frozen mw-outbox contract, so offline it stays an optimistic local patch.
     if (isOffline()) return;
-    await client.jmap(setEmailMeta(acct, id, patch));
+    await jmapCall(setEmailMeta(acct, id, patch));
     ctx.broadcastChange?.();
   }
 
@@ -1069,7 +1121,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const finishCounts = beginCountWrite();
       let res: JmapResponse;
       try {
-        res = await client.jmap(updateEmails(acct, patches));
+        res = await jmapCall(updateEmails(acct, patches));
       } catch {
         followReaders(taken, true);
         if (!current()) return;
@@ -1125,7 +1177,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           for (const { email } of reverse) for (const view of readerViews) view.patch(email.id, { mailboxIds: email.mailboxIds });
           const finishCounts = beginCountWrite();
           let response: JmapResponse;
-          try { response = await client.jmap(updateEmails(acct, patches)); }
+          try { response = await jmapCall(updateEmails(acct, patches)); }
           catch { await finishCounts(); throw new Error(t('mail-toast-move-failed')); }
           if (!current()) return;
           const refused = refusedUpdates(response, Object.keys(patches));
@@ -1231,7 +1283,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       .filter((t): t is { email: Email; index: number } => t !== null);
     const remaining = messages().filter((m) => !victims.some((v) => v.id === m.id));
     setMessages(remaining);
-    for (const v of victims) await client.jmap(moveEmail(acct, v.id, { [trash]: true }));
+    for (const v of victims) await jmapCall(moveEmail(acct, v.id, { [trash]: true }));
     if (strategy === 'block') {
       const target = fromEmail.trim().toLowerCase();
       if (!blocked().includes(target)) {
@@ -1246,7 +1298,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
     showUndo(t('mail-toast-swept', { count: victims.length }), async () => {
       for (const t of taken) {
-        await client.jmap(moveEmail(acct, t.email.id, t.email.mailboxIds));
+        await jmapCall(moveEmail(acct, t.email.id, t.email.mailboxIds));
       }
       // Restore original ordering.
       const restored = [...messages()];
@@ -1320,10 +1372,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   // ── V1 session + mail behaviour (unchanged) ───────────────────────────────
   async function refreshFolders(): Promise<void> {
+    readCache.invalidate(undefined,{abort:false});
     const acct = accountId();
     const current = captureMailAuthority();
     if (acct === null || !current()) return;
-    const res = await client.jmap(mailboxGet(acct));
+    const res = await jmapCall(mailboxGet(acct));
     if (!current()) return;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
@@ -1350,7 +1403,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setMailboxes([]);
       return;
     }
-    const res = await client.jmap(mailboxGet(acct));
+    const res = await jmapCall(mailboxGet(acct));
     if (!current()) return;
     const boxes = sortMailboxes(responseFor<MailboxGetResponse>(res, 'c0').list);
     setMailboxes(boxes);
@@ -1425,9 +1478,17 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function loadFirstPage(acct: string, src: PageSource): Promise<void> {
     setPageSource(src);
     const req = beginListRequest();
-    setListLoading(true);
+    const request=pageRequest(acct,src,0,PAGE_SIZE,true),owner=cacheOwner();
+    const key=JSON.stringify(request);
+    const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
+    const cached=hit?.kind==='mailbox'?hit.response:undefined;
+    const apply=(res:JmapResponse)=>{const page=responseFor<EmailGetResponse>(res,'g').list;setMessages(page);setLoadedStart(0);setTotal(pageTotal(res));setExhausted(page.length<PAGE_SIZE);};
+    if(cached)apply(cached);
+    setListLoading(!cached);
     try {
-      const res = await jmapCall(pageRequest(acct, src, 0, PAGE_SIZE, true), { signal: req.signal });
+      let res:JmapResponse;
+      if(src.kind==='mailbox'&&owner){const result=await readCache.load(owner,key,'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal})}),{signal:req.signal,force:readMailCachePolicy().refreshOnOpen});if(result.kind!=='mailbox')throw new Error(t('mail-toast-load-more-failed'));res=result.response;}
+      else res=await jmapCall(request,{signal:req.signal});
       if (!isCurrent(req)) return;
       const page = responseFor<EmailGetResponse>(res, 'g').list;
       setMessages(page);
@@ -1438,6 +1499,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // A superseded request's failure is not the user's problem: the request
       // that replaced it owns the outcome, including the error surface.
       if (!isCurrent(req)) return;
+      if(cached&&err instanceof NetworkError)return;
+      if(err instanceof ApiError&&[401,403,404].includes(err.status))readCache.clear();
       // Retained rows belong to the previous folder and must not become active
       // under the newly selected folder after a failed request.
       setMessages([]);
@@ -1522,7 +1585,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     if (acct === null) return;
     try {
-      const res = await client.jmap(eventsViewCounts(acct));
+      const res = await jmapCall(eventsViewCounts(acct));
       if (accountId() !== acct) return;
       const all = responseFor<EmailQueryResponse>(res, 'all').total;
       const unread = responseFor<EmailQueryResponse>(res, 'unread').total;
@@ -1532,45 +1595,36 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
-  function readFromCache(id: Id): void {
+  async function readFromCache(id: Id, current:()=>boolean): Promise<void> {
     const cached = messages().find((m) => m.id === id) ?? null;
+    const html=cached !== null ? await client.sanitize(extractHtmlBody(cached)) : null;
+    if(!current())return;
     setOpenEmail(cached);
-    setSanitizedHtml(cached !== null ? extractHtmlBody(cached) : null);
+    setSanitizedHtml(html);
     if (cached !== null) scheduleMarkRead(cached);
   }
 
-  async function openMessage(id: Id): Promise<void> {
-    const acct = accountId();
-    if (acct === null) return;
-    // Whatever was pending for the previous message is void: it is no longer open.
-    cancelMarkRead();
-    // Offline: render the cached header's escaped preview (a reduced read).
-    if (isOffline()) {
-      readFromCache(id);
-      return;
-    }
-    setReadLoading(true);
-    setSanitizedHtml(null);
-    try {
-      const res = await client.jmap(emailGetFull(acct, id));
-      const email = responseFor<EmailGetResponse>(res, 'g').list[0] ?? null;
-      setOpenEmail(email);
-      if (email !== null) {
-        scheduleMarkRead(email);
-        const raw = extractHtmlBody(email);
-        const clean = await client.sanitize(raw);
-        setSanitizedHtml(clean);
-      }
-    } catch (err) {
-      // A mid-read network drop degrades to the cached header, not an error.
-      if (err instanceof NetworkError) readFromCache(id);
-      else throw err;
-    } finally {
-      setReadLoading(false);
-    }
+  let legacyReadGeneration=0;
+  let legacyReadController:AbortController|undefined;
+  async function openMessage(id:Id):Promise<void>{
+    const acct=accountId();if(acct===null)return;
+    cancelMarkRead();const generation=++legacyReadGeneration;legacyReadController?.abort();
+    const controller=new AbortController();legacyReadController=controller;const current=captureMailAuthority();
+    const cached=cachedMessage(id);setOpenEmail(cached?.email??null);setSanitizedHtml(cached?.html??null);setReadLoading(!cached);
+    try{
+      if(isOffline()){if(!cached)await readFromCache(id,()=>generation===legacyReadGeneration&&current()&&!controller.signal.aborted);return;}
+      const value=await loadFullMessage(acct,id,controller.signal);
+      if(generation!==legacyReadGeneration||!current())return;
+      setOpenEmail(value.email);setSanitizedHtml(value.html);if(value.email)scheduleMarkRead(value.email);
+    }catch(error){
+      if(generation!==legacyReadGeneration||!current()||controller.signal.aborted)return;
+      if(error instanceof NetworkError){if(cached){setOpenEmail(cached.email);setSanitizedHtml(cached.html);}else await readFromCache(id,()=>generation===legacyReadGeneration&&current()&&!controller.signal.aborted);}
+      else{readCache.clear();setOpenEmail(null);setSanitizedHtml(null);throw error;}
+    }finally{if(generation===legacyReadGeneration){legacyReadController=undefined;setReadLoading(false);}}
   }
 
   function closeMessage(): void {
+    legacyReadGeneration++;legacyReadController?.abort();legacyReadController=undefined;
     cancelMarkRead();
     setOpenEmail(null);
     setSanitizedHtml(null);
@@ -1581,6 +1635,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
    *  from another device, each reader follows its message's keywords and is
    *  told when it was moved or is gone, instead of showing a stale copy. */
   async function syncOpenMessages(): Promise<void> {
+    readCache.invalidate(undefined,{abort:false});
     const acct = accountId();
     if (acct === null || isOffline()) return;
     const views = [...readerViews].filter((view) => view.openEmail() !== null);
@@ -1590,7 +1645,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     let found: Email[];
     let missing: Id[];
     try {
-      const res = await client.jmap({
+      const res = await jmapCall({
         using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'],
         methodCalls: [['Email/get', { accountId: acct, ids, properties: ['id', 'keywords', 'mailboxIds'] }, 's']],
       });
@@ -1611,6 +1666,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function refreshCurrentMailbox(): Promise<void> {
+    readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
     void syncOpenMessages();
     await reconcileCounts();
@@ -1664,6 +1720,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // whole result, which is why `total` may honestly be the row count here and
     // nowhere else.
     if (isOffline() && ctx.searchOffline) {
+      const req=beginListRequest();
       const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})});
       setPageSource(null);
       setMessages(hits);
@@ -1671,6 +1728,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setTotal(hits.length);
       setExhausted(true);
       setSearchActive(true);
+      setListLoading(false);endListRequest(req);
       return;
     }
     // Intent before payload: the list is showing search results from the moment
@@ -1765,7 +1823,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const sourceBefore=new Map(sources.map(source=>[source.emailId,findEmail(source.emailId)?.keywords?.[source.keyword]===true]));
     const drafts = roleOf(mailboxes(), 'drafts') ?? selectedMailboxId();
     if (drafts === null) throw new Error(t('mail-send-no-draft-folder'));
-    const sent = roleOf(mailboxes(), 'sent');
+    const sent = input.sentMailboxId ?? roleOf(mailboxes(), 'sent');
+    if(input.sentMailboxId!==undefined&&!mailboxes().some(box=>box.id===input.sentMailboxId&&box.myRights?.mayAddItems!==false))throw new Error(t('mail-send-copy-folder-unavailable'));
 
     // Refuse what the server would refuse (`Email/set` rejects a draft whose
     // `to`, `cc` or `bcc` holds anything but mailboxes, and a submission with
@@ -1786,6 +1845,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const fromEmail = override?.email ?? identity?.email ?? user.username;
     const fromName = override === null ? identity?.name ?? null : null;
     const senderIdentityId = override === null ? identity?.id : override.identityId;
+    const replyTo = override === null ? identity?.replyTo : null;
+    const organization = override === null ? identity?.organization : null;
+    if (replyTo && invalidRecipients(replyTo).length > 0) throw new Error(t('mail-send-bad-recipient', { count: invalidRecipients(replyTo).length, addresses: isolate(replyTo) }));
 
     // A scheduled send carries no undo hold, so a `sendAt` that is unreadable
     // or already past would leave at once and could not be cancelled. It is
@@ -1801,6 +1863,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const draft: DraftInput = {
       ...(input.accountDraft?{accountDraft:input.accountDraft}:{}),
       from: { name: fromName, email: fromEmail },
+      ...(replyTo?.trim() ? { replyTo: parseRecipients(replyTo) } : {}),
+      ...(organization ? { organization } : {}),
       draftMailboxId: drafts,
       to: input.to,
       ...(cc.trim() !== '' ? { cc } : {}),
@@ -1846,7 +1910,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
 
     requireCurrent();
-    const res = await client.jmap(sendEnvelope(acct, outgoing));
+    const res = await jmapCall(sendEnvelope(acct, outgoing));
     if (!sendAuthorityCurrent()) return;
     ctx.broadcastChange?.();
     const setRes = responseFor<EmailSetResponse>(res, 'set');
@@ -1861,6 +1925,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       throw new Error(t('mail-send-submission-refused', { reason: isolate(refusalReason(sendRefused)) }));
     }
     const submissionId = subRes.created?.['send']?.id ?? null;
+    if(submissionId&&res.methodResponses.some(([method,value,tag])=>method==='Email/set'&&tag!=='draft'&&Object.keys((value as Partial<EmailSetResponse>).notUpdated??{}).length>0))showToast('error',t('mail-send-copy-failed'));
 
     // Bind the tracking token to the Email the send created. The Email keeps
     // its id when it is filed into Sent, which is where the count is read.
@@ -1882,7 +1947,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if(!input.sources&&input.source){await rawKeyword(input.source.emailId,input.source.keyword,on||sourceBefore.get(input.source.emailId)===true);return;}
       const patches:Record<Id,Record<string,unknown>>={};
       for(const source of sources)patches[source.emailId]={[`keywords/${source.keyword}`]:on||sourceBefore.get(source.emailId)===true?true:null};
-      await client.jmap(updateEmails(acct!,patches));ctx.broadcastChange?.();
+      await jmapCall(updateEmails(acct!,patches));ctx.broadcastChange?.();
     }
     if(sources.length) {
       try {
@@ -1902,7 +1967,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         t('mail-toast-sent'),
         async () => {
           requireCurrent();
-          await client.jmap(cancelSubmission(acct, submissionId));
+          await jmapCall(cancelSubmission(acct, submissionId));
           if (!sendAuthorityCurrent()) return;
           await markSources(false).catch(() => undefined);
           showToast('info', t('mail-toast-send-canceled'));
@@ -2228,6 +2293,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     login,
     logout,
     selectMailbox,
+    clearMailCache:()=>readCache.invalidate(undefined,{abort:false}),
+    mailCacheStats:()=>readCache.stats(),
+    prefetchMailbox,
+    prefetchMessage,
     createReaderView,
     setActiveReader,
     openMessage,

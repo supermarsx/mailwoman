@@ -171,3 +171,12 @@ describe('RichTextEditor dark background (t39 L12)', () => {
     }
   });
 });
+
+ it('keeps explicit template replacement undoable without interpreting literal escaped markup',()=>{
+  let api:RichTextApi|undefined;let html='';
+  render(()=><RichTextEditor initialHtml="<p>Original</p>" ariaLabel="Body" onReady={value=>{api=value;}} onChange={value=>{html=value;}}/>);
+  api!.replaceHtml!('<p>&lt;script&gt;literal&lt;/script&gt;</p>');
+  expect(html).toContain('&lt;script&gt;literal&lt;/script&gt;');
+  expect(api!.historyDepth!().undo).toBeGreaterThan(0);
+  api!.undo!();expect(html).toBe('<p>Original</p>');
+ });

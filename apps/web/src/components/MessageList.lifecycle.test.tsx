@@ -372,7 +372,7 @@ describe('MessageList paging trigger (t22-e5b)', () => {
     scrollTo(scroller, 45 * ROW);
     await waitFor(() => expect(pageRequests(queries)).toHaveLength(1));
     expect(app.messages()).toHaveLength(50); // deduplicated away, as designed
-    expect(app.hasMore()).toBe(false); // the query ended: asking again cannot help
+    await waitFor(()=>expect(app.hasMore()).toBe(false)); // wait for the response, not merely the request
 
     for (let i = 0; i < 10; i += 1) scrollTo(scroller, 46 * ROW + i * ROW);
     await new Promise((resolve) => setTimeout(resolve, 20));

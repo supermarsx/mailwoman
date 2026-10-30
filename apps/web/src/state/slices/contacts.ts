@@ -16,11 +16,13 @@ import { CAP_CONTACTS, type AddressBook, type ContactCard, type ContactGroup } f
 import type { Id } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { keyedAttempt } from '../../api/recovery.ts';
+import {suggestionDisplay,type ContactSuggestion} from '../../modules/contacts/autocomplete.ts';
 import {
   addressBooksGet,
   contactGroupSet,
   contactGroupsGet,
   contactMerge,
+  contactAutocomplete,
   contactSet,
   contactsQueryGet,
   type AddressBookGetResponse,
@@ -137,6 +139,7 @@ export interface ContactsSlice {
   // ── actions ──
   /** Load the account's address books, groups, and contacts (e10 → engine). */
   loadContacts(): Promise<void>;
+  autocompleteContacts(prefix:string):Promise<ContactSuggestion[]>;
   /** Create a contact; returns the new id (or null on failure). */
   createContact(draft: ContactDraft, addressBookId?: Id): Promise<Id | null>;
   /** Patch an existing contact. */
@@ -174,8 +177,10 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
 
   let currentAccount: string | null = null;
   let authority = 0;
+  let autocompleteUnavailable=false;
   onCleanup(observePreferenceAccount(() => {
     authority += 1;
+    autocompleteUnavailable=false;
     currentAccount = null;
     batch(() => {
       setContacts([]); setAddressBooks([]); setContactGroups([]);
@@ -266,6 +271,23 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
       // The latest call ends the loading state; a dropped one leaves it alone.
       if (!stale()) setContactsLoading(false);
     }
+  }
+
+  async function autocompleteContacts(prefix:string):Promise<ContactSuggestion[]>{
+    const version=authority;
+    if(!prefix.trim()||autocompleteUnavailable)return [];
+    const session=await client.session();
+    if(version!==authority)return [];
+    const acct=session.primaryAccounts[CAP_CONTACTS];
+    if(!acct)return [];
+    const result=await client.jmap(contactAutocomplete(acct,prefix,8));
+    if(version!==authority)return [];
+    if(result.methodResponses.some(([method,args,id])=>id==='ac'&&method==='error'&&['unknownMethod','notImplemented'].includes(String((args as {type?:string}).type)))){
+      autocompleteUnavailable=true;return [];
+    }
+    const response=responseFor<{accountId:string;list:{id:string;name:string;email:string;isFavorite:boolean}[]}>(result,'ac');
+    if(response.accountId!==acct||!Array.isArray(response.list))return [];
+    return response.list.filter(row=>typeof row.email==='string'&&row.email.length>0&&typeof row.name==='string').map(row=>({cardId:row.id,name:row.name,email:row.email,isFavorite:row.isFavorite,display:suggestionDisplay(row.name,row.email),score:0}));
   }
 
   function selectAddressBook(id: Id | null): void {
@@ -480,6 +502,7 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     setContactSearch,
     selectContact: setSelectedContactId,
     loadContacts,
+    autocompleteContacts,
     createContact,
     updateContact,
     deleteContact,

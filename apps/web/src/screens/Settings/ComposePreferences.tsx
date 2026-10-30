@@ -4,6 +4,8 @@ import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
 import { t } from '../../i18n';
 import * as css from './styles.css.ts';
+import {ResponseTemplatePreferences} from './ResponseTemplatePreferences.tsx';
+import {ComposeDefaults} from './ComposeDefaults.tsx';
 
 export function ComposePreferences(): JSX.Element {
   const quote = useSetting<'classic'|'outlook'>('mail.quoteStyle', 'classic', (v): v is 'classic'|'outlook' => v === 'classic' || v === 'outlook');
@@ -48,5 +50,7 @@ export function ComposePreferences(): JSX.Element {
       <div class={css.actions}><button type="button" class={css.button} disabled={domainsDisabled()} onClick={() => void saveDomains()}>{t('settings-trusted-domains-save')}</button>
       <button type="button" class={css.ghost} disabled={domainsDisabled()} onClick={() => void domains.reset()}>{t('reader-inherit')}</button></div>
     </div>
+    <ComposeDefaults/>
+    <ResponseTemplatePreferences/>
   </section>;
 }

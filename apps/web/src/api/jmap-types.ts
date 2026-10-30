@@ -373,6 +373,9 @@ export interface Identity {
   name: string;
   email: string;
   replyTo: string | null;
+  organization?: string | null;
+  autoBcc?: string | null;
+  pgpKeyId?: string | null;
   signatureHtml: string | null;
   signatureText: string | null;
   sentMailboxId: Id | null;

@@ -362,7 +362,7 @@ describe('paging — superseded responses cannot write', () => {
 
       // The newer response lands first…
       server.releaseAll('trash');
-      await flush();
+      await trashDone;
       expect(mail.messages().map((m) => m.id)).toEqual(['trash-1', 'trash-2']);
       expect(mail.listLoading()).toBe(false);
 

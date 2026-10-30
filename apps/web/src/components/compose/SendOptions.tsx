@@ -12,6 +12,8 @@ import './compose-extras.css';
 export function SendOptions(props: {
   /** The server can ask for a receipt (the engine builds the header). */
   receiptAvailable: boolean;
+  receiptLocked?:boolean;
+  deliveryLocked?:boolean;
   deliveryAvailable?: boolean;
   requestDelivery?: boolean;
   onRequestDelivery?: (on:boolean)=>void;
@@ -35,6 +37,7 @@ export function SendOptions(props: {
             <input
               type="checkbox"
               checked={props.requestReceipt}
+              disabled={props.receiptLocked}
               data-testid="compose-request-receipt"
               aria-describedby="compose-receipt-hint"
               onChange={(e) => props.onRequestReceipt(e.currentTarget.checked)}
@@ -50,7 +53,7 @@ export function SendOptions(props: {
         <RibbonItem><div class="compose-rib__row">
           <label class="compose-options__toggle" data-tooltip={deliveryHint()}>
             <input type="checkbox" checked={props.requestDelivery === true}
-              disabled={!props.deliveryAvailable} data-testid="compose-request-delivery" aria-describedby="compose-delivery-hint"
+              disabled={!props.deliveryAvailable||props.deliveryLocked} data-testid="compose-request-delivery" aria-describedby="compose-delivery-hint"
               onChange={event=>props.onRequestDelivery?.(event.currentTarget.checked)}/>
             <span class="compose-rib__text">{t('mail-compose-request-delivery')}</span>
           </label>

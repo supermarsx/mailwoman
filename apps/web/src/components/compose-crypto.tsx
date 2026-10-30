@@ -253,6 +253,8 @@ export interface ComposeCryptoState {
   /** The signing keyRef the encrypted draft was signed with, or `null` when it
    *  carries no signature (t87 D11: the host checks it is its current key). */
   draftSignedWith: string | null;
+  draftPlaintext?: string | null;
+  draftSource?: string | null;
   verdicts: DlpVerdict[];
   recipients: RecipientCapability[];
 }
@@ -281,6 +283,8 @@ export interface ComposeCryptoProps {
   onChange?: (state: ComposeCryptoState) => void;
 }
 
+export function cryptoDraftSource(body:string,recipients:readonly string[],subject:string,protect:boolean,signingKey:string|null):string {return JSON.stringify([body,normalizeRecipients([...recipients]),subject,protect,signingKey]);}
+
 export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
   onMount(() => void loadCatalog('crypto'));
   const worker = (): CryptoWorkerApi => props.cryptoWorker ?? getCryptoWorker();
@@ -293,6 +297,9 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
   // Only the newest encrypt call may set the draft: one started with a signing
   // key that has since been dropped must not land after the switch.
   let encryptRun = 0;
+  const [draftSource,setDraftSource]=createSignal<string|null>(null);
+  const source=()=>cryptoDraftSource(props.bodyText?.()??'',props.recipients(),props.subject?.()??'',protectSubject(),sign()?props.signingKeyRef?.()??null:null);
+  const [draftPlaintext,setDraftPlaintext]=createSignal<string|null>(null);
 
   const normalized = createMemo(() => normalizeRecipients(props.recipients()));
   const recipientKey = createMemo(() => normalized().join(','));
@@ -344,6 +351,10 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
    *  encrypt+sign produces one signed-and-encrypted message. */
   async function runEncrypt(): Promise<void> {
     const run = ++encryptRun;
+    setEncryptedDraft(null);setDraftPlaintext(null);
+    const plaintext=props.bodyText?.()??'';
+    const sourceKey=source();setDraftSource(null);
+    if(JSON.stringify(normalizeRecipients(recipientCaps().map(cap=>cap.address)))!==JSON.stringify(normalized()))return;
     const caps = recipientCaps().filter((r) => r.encryptable);
     const recipientPublicKeys = caps
       .map((r) => r.publicKey)
@@ -364,12 +375,16 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     const signField = signRef !== null ? { signWithKeyRef: signRef } : {};
     const result = await worker().encrypt({
       kind,
-      plaintext: props.bodyText?.() ?? '',
+      plaintext,
       recipientPublicKeys,
       ...subjectField,
       ...signField,
-    });
+    }).catch(()=>null);
+    if(result===null)return;
     if (run !== encryptRun || signRef !== (sign() ? props.signingKeyRef?.() ?? null : null)) return;
+    if(sourceKey!==source())return;
+    setDraftSource(sourceKey);
+    setDraftPlaintext(plaintext);
     setEncryptedDraft(result);
     setDraftSignedWith(signRef);
   }
@@ -418,6 +433,8 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
     ),
   );
 
+  createEffect(on(()=>JSON.stringify([draft(),recipientCaps()]),()=>{if(encrypt())void runEncrypt();},{defer:true}));
+
   // Report the merged state to the host Compose after any change (the host reads
   // this to encrypt-on-send, clear-sign a sign-only send, and honor the DLP
   // `canSend` gate).
@@ -430,6 +447,8 @@ export function ComposeCrypto(props: ComposeCryptoProps): JSX.Element {
       canSend: canSend(),
       encryptedDraft: encryptedDraft(),
       draftSignedWith: draftSignedWith(),
+      draftPlaintext:draftPlaintext(),
+      draftSource:draftSource(),
       verdicts: verdicts(),
       recipients: recipientCaps(),
     });

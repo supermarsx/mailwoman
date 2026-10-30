@@ -1,0 +1,10 @@
+import {style} from '@vanilla-extract/css';
+import {vars} from '../../theme/contract.css.ts';
+export const library=style({display:'grid',gap:'.5rem',minWidth:0});
+export const actions=style({display:'flex',gap:'.5rem',alignItems:'center',flexWrap:'wrap'});
+export const list=style({display:'flex',flexWrap:'wrap',gap:'.25rem',maxHeight:'12rem',overflow:'auto'});
+export const field=style({display:'grid',gap:'.25rem',minWidth:0});
+export const control=style({font:'inherit',boxSizing:'border-box',width:'100%',minWidth:0,padding:'.5rem',border:`1px solid ${vars.color.border}`,background:vars.color.surface,color:vars.color.text});
+export const body=style([control,{minHeight:'9rem',resize:'vertical'}]);
+export const preview=style({whiteSpace:'pre-wrap',overflowWrap:'anywhere',maxHeight:'12rem',overflow:'auto',padding:'.5rem',border:`1px solid ${vars.color.border}`,margin:0});
+export const panel=style({display:'grid',gap:'.5rem',padding:'.75rem',maxWidth:'36rem',minWidth:0});

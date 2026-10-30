@@ -588,3 +588,23 @@ describe('clearSignBody (sign-only clear-signed send)', () => {
     expect(out).toContain('PGP SIGNATURE');
   });
 });
+
+ it('invalidates prepared ciphertext when plaintext changes and ignores an older encryption completion',async()=>{
+    const [body,setBody]=createSignal('first');const worker=createStubCryptoWorker();
+    const original=worker.encrypt.bind(worker);const pending:Array<()=>Promise<void>>=[];
+    vi.spyOn(worker,'encrypt').mockImplementation(input=>new Promise(resolve=>{pending.push(async()=>resolve(await original(input)));}));
+    let state:ComposeCryptoState|null=null;
+    render(()=><ComposeCrypto recipients={()=>['a@example.org']} bodyText={body} lookupKeys={lookupFrom({'a@example.org':[pgpKey()]})} scanDlp={async()=>[]} cryptoWorker={worker} onChange={value=>{state=value;}}/>);
+    await waitFor(()=>expect(screen.getByTestId('encrypt-toggle')).not.toBeDisabled());
+    fireEvent.click(screen.getByTestId('encrypt-toggle'));
+    await waitFor(()=>expect(pending).toHaveLength(1));
+    setBody('first\n\nSHA-256 attachment checksums\nverified');
+    await waitFor(()=>expect(pending).toHaveLength(2));
+    await pending[0]!();
+    expect(state!.encryptedDraft).toBeNull();
+    await pending[1]!();
+    await waitFor(()=>expect(state!.draftPlaintext).toBe(body()));
+    expect(state!.encryptedDraft).not.toBeNull();
+    setBody('edited');
+    await waitFor(()=>expect(state!.encryptedDraft).toBeNull());
+ });

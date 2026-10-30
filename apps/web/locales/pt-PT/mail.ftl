@@ -851,3 +851,15 @@ mail-toast-move-queued = { $count ->
    *[other] { $count } mensagens na fila para mover para { $folder }
     }
 mail-toast-move-partial = { $count } de { $total } mensagens movidas para { $folder }; não foi possível mover { $failed }
+
+mail-send-copy-folder-unavailable = A pasta escolhida para a cópia enviada não está disponível. Escolha outra pasta antes de enviar.
+mail-send-copy-failed = A mensagem foi aceite, mas não foi possível arquivar a cópia enviada. Não a envie novamente.
+
+mail-compose-attach-public-key = Anexar a minha chave pública ou certificado
+mail-compose-include-hashes = Incluir hashes SHA-256 dos ficheiros anexados
+mail-compose-hashes-pending = A calcular os hashes dos anexos. Envie quando terminar.
+mail-compose-hashes-failed = Não foi possível verificar os anexos. Desative os hashes ou volte a ativá-los para tentar novamente.
+mail-compose-crypto-pending = A atualizar a encriptação. Aguarde antes de enviar.
+mail-compose-public-key-unavailable = Nenhuma chave pública ou certificado atual corresponde ao endereço de envio.
+mail-compose-sent-copy = Guardar a mensagem enviada em
+mail-compose-sent-copy-default = Predefinição da conta

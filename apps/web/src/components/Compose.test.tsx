@@ -1,3 +1,4 @@
+import {webcrypto} from 'node:crypto';
 import { saveDraft, listDrafts } from './compose/drafts-store.ts';
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
@@ -172,6 +173,54 @@ describe('Compose', () => {
     // and surfaces the undo-send toast rather than an error.
     await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('waits for original attachment bytes and includes their hashes in the message body',async()=>{
+    let finish!:(response:Response)=>void;
+    const base=mockUploadFetch();vi.stubGlobal('crypto',webcrypto);
+    vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>String(input)==='/d'?new Promise<Response>(resolve=>{finish=resolve;}):base(input)));
+    const client=makeClient();const app=createAppState(client);
+    render(()=><AppContext.Provider value={app}><Compose initial={{mode:'new',to:'you@example.org',cc:'',subject:'hashes',bodyHtml:'',bodyText:'Hello',inReplyTo:[],references:[],attachments:[{name:'file.txt',blobId:'original',size:3,contentType:'text/plain'}],quotesDecrypted:false}} onClose={()=>undefined}/></AppContext.Provider>);
+    await app.login({username:'me@example.org',password:'p'});
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    fireEvent.click(screen.getByLabelText('Include SHA-256 hashes of attached files'));
+    await waitFor(()=>expect(finish).toBeTypeOf('function'));
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));expect(sendCount(client)).toBe(0);
+    finish(new Response('abc'));
+    await waitFor(()=>expect(screen.queryByTestId('compose-hash-status')).toBeNull());
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));
+    await waitFor(()=>expect(sendCount(client)).toBe(1));
+    expect(JSON.stringify(sentBody(client))).toContain('ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad');
+    const draft=(sentRequest(client).methodCalls[0]![1].create as Record<string,Record<string,unknown>>).draft!;
+    expect(draft.attachments).toEqual([expect.objectContaining({blobId:'original',name:'file.txt'})]);
+  });
+
+  it('persists the actual reply pane destination across draft resume without main reader context',async()=>{
+    const client=makeClient();const app=createAppState(client);await app.login({username:'me@example.org',password:'p'});
+    const target=app.mailboxes().find(box=>box.role==='inbox')!;expect(target).toBeDefined();
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.replyCopyToOriginal':{value:true,source:'user',locked:false}}})});
+    const mounted=render(()=><AppContext.Provider value={app}><Compose initial={{mode:'reply',to:'you@example.org',cc:'',subject:'reply',bodyHtml:'',bodyText:'Hello',inReplyTo:[],references:[],attachments:[],quotesDecrypted:false,source:{emailId:'different-reader-pane',keyword:'$answered'},sourceMailboxId:target.id,sourceMailboxIds:[target.id]}} onClose={()=>undefined}/></AppContext.Provider>);
+    await waitFor(()=>expect(listDrafts('acct1','test-storage-authority-acct1').some(draft=>draft.sentMailboxId===target.id)).toBe(true),{timeout:3000});
+    const saved=listDrafts('acct1','test-storage-authority-acct1').find(draft=>draft.sentMailboxId===target.id)!;mounted.unmount();
+    render(()=><AppContext.Provider value={app}><Compose resumeDraftId={saved.id} onClose={()=>undefined}/></AppContext.Provider>);
+    await waitFor(()=>expect(screen.getByLabelText('To')).toHaveValue('you@example.org'));
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(sendCount(client)).toBe(1));
+    const submit=sentRequest(client).methodCalls.find(call=>call[0]==='EmailSubmission/set')![1];
+    expect(submit.onSuccessUpdateEmail).toEqual({'#send':{mailboxIds:{[target.id]:true},'keywords/$draft':null}});
+    clearSettings();
+  });
+
+  it('applies identity Bcc defaults while preserving a user edit',async()=>{
+    const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>,{identities:IDENTITIES.map((identity,index)=>({...identity,autoBcc:index===0?'audit@example.org':'archive@example.org'}))});
+    await app.login({username:'me@example.org',password:'p'});await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
+    expect(screen.getByLabelText('Bcc')).toHaveValue('audit@example.org');
+    fireEvent.change(screen.getByLabelText('From'),{target:{value:'id2'}});
+    expect(screen.getByLabelText('Bcc')).toHaveValue('archive@example.org');
+    fireEvent.input(screen.getByLabelText('Bcc'),{target:{value:'personal@example.org'}});
+    fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
+    expect(screen.getByLabelText('Bcc')).toHaveValue('personal@example.org');
   });
 
   it('switches the Send button to Schedule when a send-later time is set', () => {
@@ -853,6 +902,17 @@ describe('Compose', () => {
       fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
       fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     }
+
+    it('enforces a locked read-receipt default at send time even after a synthetic toggle',async()=>{
+      vi.stubGlobal('fetch',serverFetch({engine:true,openTracking:false}));
+      const {client,app}=await composeWithClient();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.requestReadReceipt':{value:true,source:'global',locked:true}}})});
+      const receipt=await screen.findByTestId('compose-request-receipt');
+      expect(receipt).toBeChecked();expect(receipt).toBeDisabled();
+      fireEvent.change(receipt,{target:{checked:false}});fillAndSend();
+      await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      expect(draftOf(client).mailwomanRequestReadReceipt).toBe(true);clearSettings();
+    });
 
     it("on this server's engine the receipt request is offered, off, and sent only when ticked", async () => {
       vi.stubGlobal('fetch', serverFetch({ engine: true, openTracking: false }));

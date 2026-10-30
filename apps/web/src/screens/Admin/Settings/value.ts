@@ -4,6 +4,7 @@
 
 import { formatLanguageName, formatNumber, t } from '../../../i18n';
 import type { SettingKind } from '../../../api/admin/settings.ts';
+import {validResponseTemplates} from '../../../components/compose/responseTemplateModel.ts';
 
 /** What an editor holds: text for most kinds, a boolean for `bool`. */
 export type Draft = string | boolean;
@@ -34,7 +35,7 @@ export function toDraft(kind: SettingKind, value: unknown): Draft {
 
 /** Whether a kind is edited as JSON text. */
 export function isJsonKind(kind: SettingKind): boolean {
-  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links'].includes(kind.type);
+  return ['folderRole', 'localeMap', 'intList', 'stringList', 'quietHours', 'links', 'messageTemplates'].includes(kind.type);
 }
 
 /** Check a draft against the declared type and bounds; the server checks again. */
@@ -92,7 +93,9 @@ export function parseDraft(kind: SettingKind, draft: Draft, nullable: boolean): 
     }
     default: {
       try {
-        return { ok: true, value: JSON.parse(text) as unknown };
+        const value:unknown=JSON.parse(text);
+        if(kind.type==='messageTemplates'&&!validResponseTemplates(value))return {ok:false,error:t('response-templates-invalid')};
+        return { ok: true, value };
       } catch {
         return { ok: false, error: t('admin-settings-json-invalid') };
       }

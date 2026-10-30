@@ -59,7 +59,7 @@ describe('composer ribbon (t38)', () => {
       'compose-group-recipients',
       'compose-group-message-type',
     ]);
-    expect(groupIds('insert')).toEqual(['compose-attach', 'rt-group-insert', 'rt-group-table-insert']);
+    expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'rt-group-insert', 'rt-group-table-insert']);
     expect(groupIds('table')).toEqual(['rt-group-table', 'rt-group-table-shading']);
     expect(groupIds('security')).toEqual(['compose-crypto']);
     expect(groupIds('delivery')).toEqual(['compose-send-options']);

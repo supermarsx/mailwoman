@@ -1,3 +1,5 @@
+import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
+import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compose/outgoingExtras.ts';
 import {checkRecipientNames} from './compose/recipientNames.ts';
 import {EditorCounts} from './compose/EditorCounts.tsx';
 import {InsertAccountItem} from './compose/InsertAccountItem.tsx';
@@ -69,9 +71,11 @@ const RichTextEditor = lazy(() => import('./compose/RichTextEditor.tsx'));
 const HtmlSourceEditor = lazy(() => import('./compose/HtmlSourceEditor.tsx'));
 import {
   createContactAutocomplete,
+  recipientToken,
+  replaceRecipientToken,
   type ContactSuggestion,
 } from '../modules/contacts/autocomplete.ts';
-import { ComposeCrypto, type ComposeCryptoState } from './compose-crypto.tsx';
+import { ComposeCrypto, cryptoDraftSource, type ComposeCryptoState } from './compose-crypto.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
 import {
   assertSigningKeyOwner,
@@ -112,11 +116,6 @@ const jmapClient = createConfiguredClient();
 // Subject / Body fields + the Send button keep their exact labels so the mock +
 // engine e2e specs still drive it. e10 adds contacts recipient autocomplete to
 // the To field — a surgical addition over e7's `createContactAutocomplete`.
-
-/** The recipient token currently being typed: the text after the last separator. */
-function tokenBoundary(value: string): number {
-  return Math.max(value.lastIndexOf(','), value.lastIndexOf(';'));
-}
 
 /** A `datetime-local` value (local wall clock, minute precision) for the first
  *  whole minute after `now` — the earliest time Send later accepts. */
@@ -161,6 +160,7 @@ export function Compose(props: {
   const [to, setTo] = createSignal(initial?.to ?? '');
   const [cc, setCc] = createSignal(initial?.cc ?? '');
   const [bcc, setBcc] = createSignal('');
+  let autoBccValue='';let bccEdited=false;
   // The Cc and Bcc fields stay folded away until asked for, or until one of
   // them holds something (a reply-all, a resumed draft).
   const [ccBccOpen, setCcBccOpen] = createSignal((initial?.cc ?? '') !== '');
@@ -250,6 +250,10 @@ export function Compose(props: {
   // The recipient field whose in-progress token the contact suggestions are
   // for, or `null` when no list is open.
   const [acField, setAcField] = createSignal<RecipientField | null>(null);
+  const [acIndex,setAcIndex]=createSignal(-1);
+  const [recipientComposing,setRecipientComposing]=createSignal(false);
+  const recipientInputs:Partial<Record<RecipientField,HTMLInputElement>>={};
+  const recipientCarets:Partial<Record<RecipientField,number>>={};
   // V7 GAL (plan §2.7): the in-progress recipient token also drives a directory
   // autocomplete as an ADDITIONAL source beside contacts. `pickedGroup` holds a
   // distribution group the sender may expand-before-send into its leaf recipients.
@@ -257,6 +261,19 @@ export function Compose(props: {
   const [pickedGroup, setPickedGroup] = createSignal<GalEntry | null>(null);
   // V7 Nextcloud attach (plan §18.4): materialised attachments + the picker toggle.
   const [attachments, setAttachments] = createSignal<AttachedFile[]>(initial?.attachments ?? []);
+  const [includeFileHashes,setIncludeFileHashes]=createSignal(false);
+  const [attachPublicKey,setAttachPublicKey]=createSignal(false);
+  const [sentCopyFolder,setSentCopyFolder]=createSignal('');
+  const replySource=initial?.mode==='reply'||initial?.mode==='reply-all'?app.openEmail():null;
+  const replyMailboxIds=initial?.sourceMailboxIds??(replySource&&replySource.id===initial?.source?.emailId?Object.keys(replySource.mailboxIds):[]);
+  const replySourceFolder=initial?.sourceMailboxId??app.selectedMailboxId();
+  const effectiveSentCopy=()=>{
+    if(sentCopyFolder())return sentCopyFolder();
+    if(settings()['mail.replyCopyToOriginal']?.value!==true||!replyMailboxIds.length)return '';
+    const candidates=app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false&&replyMailboxIds.includes(box.id));
+    return candidates.find(box=>box.id===replySourceFolder)?.id??candidates.find(box=>!['trash','junk','drafts','sent'].includes(box.role??''))?.id??'';
+  };
+  const [hashResult,setHashResult]=createSignal<{key:string;manifest:string;error:boolean}|null>(null);
   const [ncOpen, setNcOpen] = createSignal(false);
   // Files over the attachment limit, offered as a Nextcloud share link instead
   // (t39 L7) when the account has a linked Nextcloud.
@@ -278,13 +295,15 @@ export function Compose(props: {
   // Receipt preferences supply initial choices; drafts keep their own choices.
   // Read-receipt headers need the engine; DSN needs this account's capability.
   const [receiptAvailable, setReceiptAvailable] = createSignal(false);
-  const [requestReceipt, setRequestReceiptValue] = createSignal(settings()['mail.requestReadReceipt']?.value===true);
+  const [requestReceiptValue, setRequestReceiptValue] = createSignal(settings()['mail.requestReadReceipt']?.value===true);
+  const requestReceipt=()=>settings()['mail.requestReadReceipt']?.locked?settings()['mail.requestReadReceipt']?.value===true:requestReceiptValue();
   let receiptInitialized=settings()['mail.requestReadReceipt']!==undefined;
   const setRequestReceipt=(value:boolean):void=>{receiptInitialized=true;setRequestReceiptValue(value);};
   createEffect(()=>{const entry=settings()['mail.requestReadReceipt'];if(!receiptInitialized && entry){receiptInitialized=true;setRequestReceiptValue(entry.value===true);}});
   const [deliveryCapable,setDeliveryCapable]=createSignal(false);
   const deliveryAvailable=()=>deliveryCapable() && settings()['receipts.dsnAllowed']?.value===true;
-  const [requestDelivery,setRequestDeliveryValue]=createSignal(false);
+  const [requestDeliveryValue,setRequestDeliveryValue]=createSignal(false);
+  const requestDelivery=()=>settings()['mail.requestDeliveryReceipt']?.locked?settings()['mail.requestDeliveryReceipt']?.value===true:requestDeliveryValue();
   let deliveryEdited=false;let deliveryDisposed=false;
   const setRequestDelivery=(value:boolean):void=>{deliveryEdited=true;setRequestDeliveryValue(value);};
   createEffect(()=>{const entry=settings()['mail.requestDeliveryReceipt'];if(!deliveryEdited&&entry&&deliveryAvailable())setRequestDeliveryValue(entry.value===true);});
@@ -342,7 +361,10 @@ export function Compose(props: {
   // Recipient autocomplete over the loaded contacts (plan §2.2 / e7 seam). The
   // ranking is client-side over `app.contacts()`; we load contacts on open so a
   // fresh session can still complete. Load failures are non-fatal (empty list).
-  const contactAc = createContactAutocomplete(() => app.contacts());
+  const contactAc = createContactAutocomplete(() => app.contacts(),{
+    lookup:prefix=>app.autocompleteContacts?.(prefix)??Promise.resolve([]),
+    scope:()=>[app.accountId(),acField(),app.contacts()],
+  });
 
   // Dialog focus management (self-contained per t8-e1; no import from the
   // e3-owned a11y primitives). On open: pull the mail catalog, remember the
@@ -363,7 +385,7 @@ export function Compose(props: {
   }
 
   function onDialogKeyDown(e: KeyboardEvent): void {
-    if (props.embedded) return;
+    if (props.embedded || e.defaultPrevented || e.isComposing || recipientComposing()) return;
     if (e.key === 'Escape') {
       e.preventDefault();
       void closeWithDraftSave();
@@ -480,7 +502,7 @@ export function Compose(props: {
       if (generation !== signingGeneration || composing !== app.accountId()) return;
       // Only an own key of the composing mailbox (t87 D11).
       const own = app.ownKeys().find(
-        (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null && app.keyOwnerAccount(k) === composing,
+        (k) => k.kind === 'pgp' && k.encryptedPrivateBackup !== null && app.keyOwnerAccount(k) === composing && (!identity()?.pgpKeyId||k.id===identity()?.pgpKeyId) && liveIdentityKey(k,customFrom()?fromOverride():identity()?.email??app.me()?.username??''),
       );
       const bundle = own?.encryptedPrivateBackup ?? null;
       if (own === undefined || bundle === null || composing === null) throw new Error(t('mail-compose-sign-no-key'));
@@ -508,6 +530,10 @@ export function Compose(props: {
   }
 
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
+  createEffect(on(()=>[identity()?.id,identity()?.autoBcc,identity()?.pgpKeyId,customFrom(),fromOverride()] as const,()=>{
+    signingGeneration+=1;dropSigningSession();
+    if(!bccEdited&&bcc()===autoBccValue){autoBccValue=customFrom()?'':identity()?.autoBcc??'';setBcc(autoBccValue);if(autoBccValue)setCcBccOpen(true);}
+  }));
   const externalMode = () => settings()['mail.externalRecipientWarning']?.value ?? 'warn';
   const outside = createMemo(() => {
     const trusted=settings()['mail.trustedRecipientDomains']?.value;
@@ -526,6 +552,12 @@ export function Compose(props: {
 
   /** The rich editor reports HTML (for the send) + a plain-text projection (for
    *  crypto/DLP/dictation, which read `body()`). */
+  function insertResponseTemplate(text:string,replace:boolean):void {
+    if(busy()||!ownsDraft())return;
+    const api=editorApi();
+    if(richMode()&&api){if(replace)api.replaceHtml?.(plainToHtml(text));else api.appendHtml(plainToHtml(text));return;}
+    const next=replace?text:body()+(body()?'\n\n':'')+text;setBody(next);setBodyHtml(plainToHtml(next));
+  }
   function onEditorChange(html: string, text: string): void {
     setBodyHtml(html);
     setBody(text);
@@ -555,6 +587,21 @@ export function Compose(props: {
       })
       .filter((s) => s.text !== '' || (s.html ?? '') !== ''),
   );
+
+  const hashKey=createMemo(()=>JSON.stringify([includeFileHashes(),attachments(),app.accountId(),composerAuthority(),downloadUrl()]));
+  const hashesReady=()=>!includeFileHashes()||(hashResult()?.key===hashKey()&&!hashResult()?.error);
+  const checksumText=()=>includeFileHashes()&&hashesReady()?hashResult()?.manifest??'':'';
+  const outgoingPlaintext=()=>body()+(checksumText()?`\n\n${checksumText()}`:'');
+  createEffect(()=>{
+    const key=hashKey();if(!includeFileHashes()){setHashResult(null);return;}
+    const files=attachments().map(file=>({...file}));const template=downloadUrl();const account=app.accountId();
+    setHashResult(null);if(!files.length){setHashResult({key,manifest:'',error:false});return;}
+    if(!template||!account||!ownsDraft())return;
+    const controller=new AbortController();onCleanup(()=>controller.abort());
+    void attachmentHashManifest(files,template,account,controller.signal,maxUploadSize()).then(manifest=>{
+      if(!controller.signal.aborted&&ownsDraft()&&hashKey()===key)setHashResult({key,manifest,error:false});
+    },()=>{if(!controller.signal.aborted&&ownsDraft()&&hashKey()===key)setHashResult({key,manifest:'',error:true});});
+  });
 
   /** The signature the send appends by itself: the sending identity's, unless
    *  the picker already put it in the body, and never on an encrypted or signed
@@ -648,7 +695,7 @@ export function Compose(props: {
     setRichMode(d.bodyFormat !== 'plain');
     setTo(d.to);
     setCc(d.cc ?? '');
-    setBcc(d.bcc ?? '');
+    bccEdited=true;setBcc(d.bcc ?? '');
     setCcBccOpen((d.cc ?? '') !== '' || (d.bcc ?? '') !== '');
     setThreading({ inReplyTo: d.inReplyTo ?? [], references: d.references ?? [] });
     setSubject(d.subject);
@@ -658,6 +705,7 @@ export function Compose(props: {
     const images = (d.inline ?? []).map((i) => ({ ...i, previewUrl: null }));
     setInlineImages(images);
     setAttachments(d.attachments ?? []);
+    setIncludeFileHashes(d.includeFileHashes===true);setAttachPublicKey(d.attachPublicKey===true);setSentCopyFolder(d.sentMailboxId??'');
     setBody(d.bodyText);
     setBodyHtml(d.bodyHtml);
     const api = editorApi();
@@ -915,6 +963,7 @@ export function Compose(props: {
       ...(remoteStatus()==='uncertain'?{serverStatus:'uncertain' as const}:{}),
       identityId: identityId(),
       importance:importance(),
+      includeFileHashes:includeFileHashes(),attachPublicKey:attachPublicKey(),...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
       ...(customFrom() ? {fromOverride: fromOverride()} : {}),
       bodyFormat: richMode() ? 'html' : 'plain',
       insertedSignatures: [...insertedSignatures()],
@@ -970,44 +1019,89 @@ export function Compose(props: {
 
   /** Typing in To, Cc or Bcc: the token after the last separator drives the
    *  contact suggestions for that field. The directory lookup stays on To. */
-  function onRecipientInput(field: RecipientField, value: string): void {
+  function onRecipientInput(field: RecipientField, value: string, caret=value.length): void {
+    if(field==='bcc'&&value!==bcc())bccEdited=true;
     recipientFields[field][1](value);
-    const token = value.slice(tokenBoundary(value) + 1).trim();
+    recipientCarets[field]=caret;setAcIndex(-1);
+    if(recipientComposing())return;
+    const token = recipientToken(value,caret).query;
     contactAc.setQuery(token);
-    if (field === 'to') setGalToken(token);
+    setGalToken(field==='to'?token:'');
     setAcField(token.length > 0 ? field : null);
   }
 
   /** Replace the in-progress recipient token of `field` with a resolved
    *  address (`, `-joined). */
   function insertRecipient(field: RecipientField, address: string): void {
+    if(field==='bcc')bccEdited=true;
     const [value, setValue] = recipientFields[field];
-    const cut = tokenBoundary(value());
-    const head = cut >= 0 ? `${value().slice(0, cut + 1)} ` : '';
-    setValue(`${head}${address}, `);
+    const replacement=replaceRecipientToken(value(),recipientCarets[field]??value().length,address);
+    setValue(replacement.value);
     contactAc.reset();
     if (field === 'to') setGalToken('');
     setAcField(null);
+    setAcIndex(-1);
+    const input=recipientInputs[field];input?.focus();input?.setSelectionRange(replacement.caret,replacement.caret);
   }
+
+  const recipientListId=(field:RecipientField)=>`${composeId}-${field}-suggestions`;
+  const recipientListOpen=(field:RecipientField)=>!recipientComposing()&&acField()===field&&contactAc.suggestions().length>0;
+  function dismissRecipients():void {setAcField(null);setAcIndex(-1);contactAc.reset();setGalToken('');}
+  const recipientInputProps=(field:RecipientField):JSX.InputHTMLAttributes<HTMLInputElement>=>({
+    ref:input=>{recipientInputs[field]=input;if(field==='to')toInputEl=input;},
+    role:'combobox','aria-autocomplete':'list','aria-haspopup':'listbox',
+    'aria-label':t(field==='to'?'mail-compose-to':field==='cc'?'mail-compose-cc':'mail-compose-bcc'),
+    get 'aria-expanded'(){return recipientListOpen(field);},
+    get 'aria-controls'(){return recipientListOpen(field)?recipientListId(field):undefined;},
+    get 'aria-activedescendant'(){return recipientListOpen(field)&&acIndex()>=0&&acIndex()<contactAc.suggestions().length?`${recipientListId(field)}-${acIndex()}`:undefined;},
+    onInput:event=>onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length),
+    onClick:event=>onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length),
+    onCompositionStart:()=>{setRecipientComposing(true);dismissRecipients();},
+    onCompositionEnd:event=>{setRecipientComposing(false);onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length);},
+    onKeyUp:event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)&&!event.isComposing&&!recipientComposing())onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length);},
+    onBlur:event=>{
+      const next=event.relatedTarget as Node|null;
+      if(next?.nodeType&&event.currentTarget.ownerDocument.getElementById(recipientListId(field))?.contains(next))return;
+      // Keep the separate GAL picker mounted while focus moves into its buttons.
+      setAcField(null);setAcIndex(-1);contactAc.reset();
+    },
+    onKeyDown:event=>{
+      if(event.isComposing||recipientComposing()||event.keyCode===229){event.stopPropagation();return;}
+      if(event.key==='Escape'&&(acField()===field||galToken())){event.preventDefault();event.stopPropagation();dismissRecipients();return;}
+      if(event.key==='Enter'){
+        event.preventDefault();event.stopPropagation();
+        if(recipientListOpen(field)){const pick=contactAc.suggestions()[Math.max(0,acIndex())];if(pick)insertRecipient(field,pick.display);}return;
+      }
+      if(event.key==='ArrowDown'||event.key==='ArrowUp'){
+        const caret=event.currentTarget.selectionStart??event.currentTarget.value.length;
+        if(!recipientListOpen(field)||recipientCarets[field]!==caret)onRecipientInput(field,event.currentTarget.value,caret);
+        const count=contactAc.suggestions().length;if(!recipientListOpen(field)||!count)return;
+        event.preventDefault();event.stopPropagation();
+        const next=event.key==='ArrowDown'?(acIndex()+1)%count:(acIndex()<0?count-1:(acIndex()+count-1)%count);setAcIndex(next);
+        event.currentTarget.ownerDocument.getElementById(`${recipientListId(field)}-${next}`)?.scrollIntoView?.({block:'nearest'});
+      }
+    },
+  });
 
   /** The contact suggestions under `field`, while it is the one being typed in. */
   const suggestionList = (field: RecipientField): JSX.Element => (
-    <Show when={acField() === field && contactAc.suggestions().length > 0}>
-      <ul class="compose__ac" role="listbox" aria-label={t('mail-compose-contact-suggestions')}>
+    <Show when={recipientListOpen(field)}>
+      <ul id={recipientListId(field)} class="compose__ac" role="listbox" aria-label={t('mail-compose-contact-suggestions')}>
         <For each={contactAc.suggestions()}>
-          {(s: ContactSuggestion) => (
-            <li>
+          {(s: ContactSuggestion,index) => (
+            <li role="presentation">
               <button
                 type="button"
                 role="option"
-                aria-selected={false}
+                id={`${recipientListId(field)}-${index()}`}
+                tabindex={-1}
+                aria-selected={acIndex()===index()}
                 class="compose__ac-item"
                 data-testid="contact-suggestion"
-                // mousedown (not click) so the pick lands before the input's blur.
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  insertRecipient(field, s.display);
-                }}
+                onPointerDown={e=>e.preventDefault()}
+                onMouseDown={e=>e.preventDefault()}
+                onPointerMove={()=>setAcIndex(index())}
+                onClick={()=>insertRecipient(field,s.display)}
               >
                 <span class="compose__ac-name">{s.name.length > 0 ? s.name : s.email}</span>
                 <Show when={s.name.length > 0}>
@@ -1121,6 +1215,8 @@ export function Compose(props: {
       setError(t('mail-external-confirm-required'));return;
     }
     const cs = cryptoState();
+    if(!hashesReady()){setError(t('mail-compose-hashes-pending'));return;}
+    if(cs?.encrypt&&(!cs.encryptedDraft||cs.draftSource!==cryptoDraftSource(outgoingPlaintext(),parseRecipients([to(),cc(),bcc()].join(',')).map(r=>r.email),subject(),cs.protectSubject,cs.sign?signingSession()?.keyRef??null:null))){setError(t('mail-compose-crypto-pending'));return;}
     // DLP gate (plan §1.8 / §2.2): a `block` verdict stops the send before it
     // reaches the engine. The blocking rule is already surfaced inline by
     // <ComposeCrypto>; here we enforce the send gate.
@@ -1197,7 +1293,7 @@ export function Compose(props: {
         htmlBody = enc.armoredCiphertext;
         textBody = enc.armoredCiphertext;
       } else if (signOnly && session !== null) {
-        htmlBody = await clearSignBody(getCryptoWorker(), session, body());
+        htmlBody = await clearSignBody(getCryptoWorker(), session, outgoingPlaintext());
         textBody = htmlBody;
       } else {
         // The rich editor's serialized HTML, but only while the editor is
@@ -1206,7 +1302,8 @@ export function Compose(props: {
         // `bodyHtml` does not hold their text — the body is built from `body`.
         const rich = richMode() && editorApi() !== null;
         htmlBody = rich ? bodyHtml() : '';
-        if (!rich) textBody = body();
+        if (!rich) textBody = outgoingPlaintext();
+        else if(checksumText())htmlBody+=`<pre>${escapeHtml(checksumText())}</pre>`;
         const sig = autoSignature();
         if (sig !== null) {
           if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
@@ -1217,7 +1314,17 @@ export function Compose(props: {
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
           ? rawT('mail-compose-encrypted-subject')
           : subject();
-      const attached = attachments();
+      const attached = [...attachments()];
+      if(attachPublicKey()){
+        if(app.ownKeys().length===0)await app.loadKeys();
+        if(!ownsDraft())throw new Error(t('mail-compose-account-changed'));
+        const file=publicIdentityFile(identity()?.pgpKeyId?app.ownKeys().filter(key=>key.id===identity()?.pgpKeyId):app.ownKeys(),customFrom()?fromOverride():identity()?.email??app.me()?.username??'');
+        const endpoint=uploadUrl();const account=app.accountId();
+        if(!file||!endpoint||!account)throw new Error(t('mail-compose-public-key-unavailable'));
+        const uploaded=await uploadBlob(endpoint,account,file);
+        if(!ownsDraft())throw new Error(t('mail-compose-account-changed'));
+        attached.push({blobId:uploaded.blobId,name:file.name,size:uploaded.size,contentType:uploaded.type});
+      }
       // Only the images the body still shows go out (none for ciphertext or a
       // clear-signed body, which carry no `cid:` reference).
       const inline = inlineAttachments(inlineImages(), referencedCids(htmlBody));
@@ -1236,6 +1343,7 @@ export function Compose(props: {
         htmlBody,
         ...(textBody !== undefined ? {textBody} : {}),
         identity: identity(),
+        ...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
         ...(importance()!=='normal'?{importance:importance()}:{}),
         ...(customFrom() ? {fromOverride: fromOverride()} : {}),
         sendAt: sendAtIso,
@@ -1365,12 +1473,10 @@ export function Compose(props: {
           <span>{t('mail-compose-to')}</span>
           <input
             type="text"
-            ref={toInputEl}
+            {...recipientInputProps('to')}
             placeholder={t('mail-compose-to-placeholder')}
             autocomplete="off"
             value={to()}
-            onInput={(e) => onRecipientInput('to', e.currentTarget.value)}
-            onBlur={() => setAcField(null)}
           />
           {suggestionList('to')}
         </label>
@@ -1406,8 +1512,7 @@ export function Compose(props: {
               type="text"
               autocomplete="off"
               value={cc()}
-              onInput={(e) => onRecipientInput('cc', e.currentTarget.value)}
-              onBlur={() => setAcField(null)}
+              {...recipientInputProps('cc')}
             />
             {suggestionList('cc')}
           </label>
@@ -1417,8 +1522,7 @@ export function Compose(props: {
               type="text"
               autocomplete="off"
               value={bcc()}
-              onInput={(e) => onRecipientInput('bcc', e.currentTarget.value)}
-              onBlur={() => setAcField(null)}
+              {...recipientInputProps('bcc')}
             />
             {suggestionList('bcc')}
           </label>
@@ -1488,6 +1592,7 @@ export function Compose(props: {
               <Show when={featureOn('compose.rich_text')}><BodyModeGroup label={t('mail-compose-ribbon-message-type')} value={()=>!richMode()?'plain':sourceMode()?'html':'rich'} onChange={changeFormat}/></Show>
             </>},
             {id:'insert',before:()=><>
+              <RibbonGroup label={t('response-templates-title')} priority={65} icon="book" testId="compose-response-templates"><RibbonItem><ResponseTemplates disabled={busy()} onInsert={insertResponseTemplate}/></RibbonItem></RibbonGroup>
               {/* New-file attach (26.15 §1): pick a local file, upload its bytes to the
                   account's JMAP upload endpoint, and fold the returned blob into the
                   shared attachment list. Always available (core compose); the input is
@@ -1586,7 +1691,7 @@ export function Compose(props: {
                   <ComposeCrypto
                     recipients={() => parseRecipients([to(), cc(), bcc()].join(',')).map((r) => r.email)}
                     subject={() => subject()}
-                    bodyText={() => body()}
+                    bodyText={outgoingPlaintext}
                     lookupKeys={lookupKeys}
                     scanDlp={scanDlp}
                     signingKeyRef={() => signingSession()?.keyRef ?? null}
@@ -1655,7 +1760,12 @@ export function Compose(props: {
                     />
                   </label>
                 </RibbonItem></Show>
+                <RibbonItem><label><input type="checkbox" checked={attachPublicKey()} disabled={busy()} onChange={e=>setAttachPublicKey(e.currentTarget.checked)}/>{t('mail-compose-attach-public-key')}</label></RibbonItem>
+                <RibbonItem><label><input type="checkbox" checked={includeFileHashes()} disabled={busy()} onChange={e=>setIncludeFileHashes(e.currentTarget.checked)}/>{t('mail-compose-include-hashes')}</label><Show when={includeFileHashes()&&!hashesReady()}><span role="status" data-testid="compose-hash-status">{t(hashResult()?.error?'mail-compose-hashes-failed':'mail-compose-hashes-pending')}</span></Show></RibbonItem>
+                <RibbonItem><label class="compose-rib__field"><span>{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
                 <SendOptions
+                  deliveryLocked={settings()['mail.requestDeliveryReceipt']?.locked===true}
+                  receiptLocked={settings()['mail.requestReadReceipt']?.locked===true}
                   deliveryAvailable={deliveryAvailable()}
                   requestDelivery={requestDelivery()}
                   onRequestDelivery={setRequestDelivery}

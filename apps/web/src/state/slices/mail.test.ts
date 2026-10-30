@@ -539,7 +539,8 @@ describe('mail slice — what a send puts on the wire', () => {
       id: 'id1',
       name: 'Me',
       email: 'me@example.org',
-      replyTo: null,
+      replyTo: 'Replies <reply@example.org>',
+      organization: 'Example Company',
       signatureHtml: '<img src="https://t.example/p.gif"><p>Sig</p>',
       signatureText: 'Sig',
       sentMailboxId: null,
@@ -551,6 +552,8 @@ describe('mail slice — what a send puts on the wire', () => {
       expect(sends).toHaveLength(1);
       const draft = (sends[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>)['draft']!;
       expect(draft['bodyValues']).toEqual({ body: { value: '<p>x</p>' } });
+      expect(draft['replyTo']).toEqual([{ name: 'Replies', email: 'reply@example.org' }]);
+      expect(draft['header:Organization:asText']).toBe('Example Company');
     });
   });
 
@@ -1139,10 +1142,17 @@ describe('mail slice — reading a message', () => {
       await mail.openMessage('a');
       expect(mail.openEmail()?.id).toBe('a');
       expect(jmap).not.toHaveBeenCalled();
-      // The cached path skips the sanitizer seam too — it renders the local
-      // extraction directly, which is worth knowing.
-      expect(client.sanitize).not.toHaveBeenCalled();
+      // Offline bodies use the same sanitization boundary as online reads.
+      expect(client.sanitize).toHaveBeenCalledWith('<p>hello</p>');
       expect(mail.sanitizedHtml()).toContain('hello');
+    });
+  });
+
+  it('fails closed when offline body sanitization fails', async () => {
+    await withDeps([withBody], {online:()=>false}, async(mail,{client})=>{
+      vi.mocked(client.sanitize).mockRejectedValueOnce(new Error('sanitizer unavailable'));
+      await expect(mail.openMessage('a')).rejects.toThrow('sanitizer unavailable');
+      expect(mail.openEmail()).toBeNull();expect(mail.sanitizedHtml()).toBeNull();
     });
   });
 
@@ -1787,4 +1797,56 @@ describe('mail bootstrap authority', () => {
       } finally { dispose(); }
     });
   });
+});
+
+describe('session mail cache integration',()=>{
+ it('prefetches full messages without opening, marking read, receipt, or signing operations',async()=>{
+  await withInbox([email('a')],async(mail,{jmap})=>{
+   await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.cache.prefetchEnabled':{value:true,source:'user',locked:false},'mail.cache.preloadMessages':{value:true,source:'user',locked:false},'mail.cache.dwellMs':{value:0,source:'user',locked:false}}}))});
+   jmap.mockClear();const stop=mail.prefetchMessage('a','hover');
+   await vi.waitFor(()=>expect(mail.mailCacheStats().entries).toBe(1));
+   expect(mail.openEmail()).toBeNull();
+   expect(jmap.mock.calls.flatMap(([body])=>(body as JmapRequest).methodCalls.map(([method])=>method))).toEqual(['Email/get']);
+   stop();mail.clearMailCache();expect(mail.mailCacheStats().entries).toBe(0);
+  });
+ });
+ it('paints the requested cached folder without inert loading while refresh is delayed',async()=>{
+  await withInbox([email('inbox-old')],async(mail,{jmap,setSeed})=>{
+   setSeed([email('archive')]);await mail.selectMailbox('archive');
+   let finish!:(response:JmapResponse)=>void;
+   jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+   const loading=mail.selectMailbox('inbox');
+   expect(mail.messages().map(v=>v.id)).toEqual(['inbox-old']);expect(mail.listLoading()).toBe(false);
+   await Promise.resolve();
+   finish({methodResponses:[['Email/query',{accountId:'acct1',ids:['fresh'],total:1},'q'],['Email/get',{accountId:'acct1',list:[email('fresh')]},'g']],sessionState:'s'});
+   await loading;expect(mail.messages().map(v=>v.id)).toEqual(['fresh']);
+  });
+ });
+ it('invalidates optimistic mutations without aborting an unrelated foreground response',async()=>{
+  await withInbox([email('a')],async(mail,{jmap})=>{
+   let finish!:(response:JmapResponse)=>void;
+   jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+   const loading=mail.selectMailbox('archive');await Promise.resolve();
+   await mail.flagMessage('a',true);
+   finish({methodResponses:[['Email/query',{accountId:'acct1',ids:['b']},'q'],['Email/get',{accountId:'acct1',list:[email('b')]},'g']],sessionState:'s'});
+   await loading;expect(mail.messages().map(v=>v.id)).toEqual(['b']);expect(mail.mailCacheStats().entries).toBe(0);
+  });
+ });
+ it('offline search supersedes an older online response',async()=>{
+  let online=true;
+  await withDeps([email('a')],{online:()=>online,searchOffline:()=>[email('offline')]},async(mail,{jmap})=>{
+   let finish!:(response:JmapResponse)=>void;jmap.mockImplementationOnce(()=>new Promise<JmapResponse>(resolve=>{finish=resolve;}));
+   const previous=mail.searchMessages('older');await Promise.resolve();online=false;await mail.searchMessages('newer');
+   finish({methodResponses:[['Email/query',{accountId:'acct1',ids:['old']},'q'],['Email/get',{accountId:'acct1',list:[email('old')]},'g']],sessionState:'s'});
+   await previous;expect(mail.messages().map(v=>v.id)).toEqual(['offline']);expect(mail.listLoading()).toBe(false);
+  });
+ });
+ it('uses an explicit current-account sent-copy folder and rejects unknown destinations before submission',async()=>{
+  await withInbox([email('a')],async(mail,{jmap})=>{
+   await mail.sendMessage({to:'recipient@example.org',subject:'Hi',htmlBody:'Hello',sentMailboxId:'archive'});
+   const submission=jmap.mock.calls.find(([request])=>(request as JmapRequest).methodCalls.some(([method])=>method==='EmailSubmission/set'))?.[0] as JmapRequest;
+   expect(submission.methodCalls.find(([method])=>method==='EmailSubmission/set')?.[1]['onSuccessUpdateEmail']).toEqual({'#send':{mailboxIds:{archive:true},'keywords/$draft':null}});
+   jmap.mockClear();await expect(mail.sendMessage({to:'recipient@example.org',subject:'Hi',htmlBody:'Hello',sentMailboxId:'unknown'})).rejects.toThrow();expect(jmap).not.toHaveBeenCalled();
+  });
+ });
 });

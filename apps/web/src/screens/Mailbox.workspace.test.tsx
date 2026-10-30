@@ -35,6 +35,18 @@ function mount(attachment=false) {
   return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
+  it('attempts a separate composer window when configured and retains its tab if popups are blocked',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.composeWindow':{value:'window',source:'user',locked:false}}}),{headers:{'content-type':'application/json'}})});
+    const popup=vi.spyOn(window,'open').mockReturnValue(null);
+    try{
+      show();fireEvent.click(await screen.findByRole('button',{name:/^Compose$/}));
+      await waitFor(()=>expect(popup).toHaveBeenCalledTimes(1));
+      expect(popup.mock.calls[0]?.[0]).toContain('/workspace-popup.html');
+      expect(await screen.findByRole('tab',{name:/^Compose$/})).toBeInTheDocument();
+    }finally{popup.mockRestore();}
+  });
+
   it.each([false,true])('keeps one folder region and placeholders for visible rows while custom folders collapsed=%s',async collapsed=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     const custom=Array.from({length:15},(_,index)=>({id:`custom-${index}`,name:`Project ${index}`,parentId:null,role:null,sortOrder:10+index,totalEmails:0,unreadEmails:0}));

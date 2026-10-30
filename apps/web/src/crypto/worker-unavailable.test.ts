@@ -104,18 +104,17 @@ describe('decrypted plaintext never reaches the server sanitizer', () => {
     expect(catchBody).not.toContain('onDecrypted');
   });
 
-  it('both reader sanitizer calls receive SERVER-fetched body HTML, not plaintext', () => {
+  it('reader sanitizer calls use original server message bodies, including offline fallbacks', () => {
     const mail = src('src/state/slices/mail.ts');
     const calls = [...mail.matchAll(/client\s*\.\s*sanitize\(([^)]*)\)/g)];
-    expect(calls, 'tabbed and legacy reader sanitizer calls').toHaveLength(2);
-    expect(calls[0]?.[1]).toBe('extractHtmlBody(email');
-    const tabbed = mail.slice(Math.max(0, (calls[0]?.index ?? 0) - 400), calls[0]?.index);
-    expect(tabbed).toContain('await client.jmap(emailGetFull(account,id))');
-    expect(tabbed).toContain("responseFor<EmailGetResponse>(response,'g').list[0]");
-    // Its argument is the body extracted from the JMAP Email the server returned.
-    expect(calls[1]?.[1]).toBe('raw');
-    const ctx = mail.slice(Math.max(0, (calls[1]?.index ?? 0) - 400), calls[1]?.index);
-    expect(ctx).toContain('extractHtmlBody(email)');
-    expect(ctx).toContain('client.jmap(');
+    expect(calls).toHaveLength(3);
+    expect(calls.map(call=>call[1])).toEqual(['extractHtmlBody(email','extractHtmlBody(email','extractHtmlBody(cached']);
+    const fetched = mail.slice(mail.indexOf('async function fetchFullMessage'),mail.indexOf('async function loadFullMessage'));
+    expect(fetched).toContain('await jmapCall(emailGetFull(account,id)');
+    expect(fetched).toContain("responseFor<EmailGetResponse>(response,'g').list[0]");
+    const fallback = mail.slice(mail.indexOf('async function readFromCache'),mail.indexOf('let legacyReadGeneration'));
+    expect(fallback).toContain('messages().find');
+    expect(fallback).toContain('await client.sanitize(extractHtmlBody(cached))');
+    expect(mail).not.toMatch(/setMessages\([^;]*(decrypted|plaintext)/i);
   });
 });

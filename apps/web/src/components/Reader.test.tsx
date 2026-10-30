@@ -208,6 +208,8 @@ describe('Reader: Reply, Reply all, Forward', () => {
       attachments: [],
       quotesDecrypted: false,
       source: { emailId: 'm1', keyword: '$answered' },
+      sourceMailboxId: 'inbox',
+      sourceMailboxIds: ['inbox'],
     });
   });
 
@@ -270,6 +272,16 @@ describe('Reader: Reply, Reply all, Forward', () => {
     expect(app.toast()?.message).toBe(
       'The ID of the original message could not be read. This reply will not be threaded with it.',
     );
+  });
+
+  it('forwards the original message blob without quoting its body when attachment format is selected', async () => {
+    const {onCompose} = await openReader({...ORIGINAL, size: 1234});
+    try {
+    await loadSettings({refresh: true, fetcher: async () => new Response(JSON.stringify({settings: {'mail.forwardMode': {value: 'attachment', source: 'global', locked: true}}}), {headers: {'content-type': 'application/json'}})});
+    const initial = await click('Forward', onCompose);
+    expect(initial).toMatchObject({bodyHtml: '', bodyText: '', quotesDecrypted: false, inReplyTo: [], references: [], attachments: [{name: 'message.eml', blobId: 'm1', size: 1234, contentType: 'message/rfc822'}], source: {emailId: 'm1', keyword: '$forwarded'}});
+    expect(downloads).toEqual([]);
+    } finally { clearSettings(); }
   });
 
   it('Forward: no recipients, one Fwd:, the header block, the attachments by blob id, no thread ids', async () => {

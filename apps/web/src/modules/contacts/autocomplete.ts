@@ -8,7 +8,7 @@
 // server-side equivalent e10 can swap the source for over the full DB. Both
 // yield the same `ContactSuggestion` shape so the Compose call site is stable.
 
-import { createMemo, createSignal, type Accessor } from 'solid-js';
+import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from 'solid-js';
 import type { ContactCard } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
 
@@ -29,7 +29,32 @@ const CONTEXT_ORDER: Record<string, number> = { work: 3, home: 2, personal: 2 };
 /** Format the RFC 5322-ish display label a composer would insert. */
 export function suggestionDisplay(name: string, email: string): string {
   const trimmed = name.trim();
-  return trimmed.length > 0 ? `${trimmed} <${email}>` : email;
+  const phrase = /[",;<>\\]/.test(trimmed) ? `"${trimmed.replace(/["\\]/g, '\\$&')}"` : trimmed;
+  return trimmed.length > 0 ? `${phrase} <${email}>` : email;
+}
+
+/** The mailbox being edited; separators inside a quoted name/path are not tokens. */
+export function recipientToken(value: string, caret = value.length): {start:number;end:number;query:string} {
+  const position=Math.max(0,Math.min(caret,value.length));
+  let start=0,end=value.length,quoted=false,escaped=false,angle=false;
+  for(let i=0;i<value.length;i++){
+    const c=value[i];
+    if(escaped){escaped=false;continue;}
+    if(quoted&&c==='\\'){escaped=true;continue;}
+    if(c==='"'){quoted=!quoted;continue;}
+    if(quoted)continue;
+    if(c==='<')angle=true;else if(c==='>')angle=false;
+    if(!angle&&(c===','||c===';')){if(i<position)start=i+1;else{end=i;break;}}
+  }
+  return {start,end,query:value.slice(start,position).trim()};
+}
+
+export function replaceRecipientToken(value:string,caret:number,address:string):{value:string;caret:number}{
+  const token=recipientToken(value,caret);
+  const head=value.slice(0,token.start)+(token.start>0?' ':'');
+  const suffix=value.slice(token.end);
+  const replaced=head+address+(suffix||', ');
+  return {value:replaced,caret:suffix?head.length+address.length:replaced.length};
 }
 
 /**
@@ -120,11 +145,24 @@ export interface ContactAutocomplete {
  */
 export function createContactAutocomplete(
   source: () => readonly ContactCard[],
-  opts: { limit?: number } = {},
+  opts: { limit?: number; lookup?:(query:string)=>Promise<ContactSuggestion[]>; scope?:()=>unknown; debounceMs?:number } = {},
 ): ContactAutocomplete {
   const limit = opts.limit ?? 8;
   const [query, setQuery] = createSignal('');
-  const suggestions = createMemo(() => rankSuggestions(source(), query(), limit));
+  const [remote,setRemote]=createSignal<ContactSuggestion[]>([]);
+  let generation=0;
+  createEffect(()=>{
+    const q=query().trim();opts.scope?.();const ticket=++generation;setRemote([]);
+    if(!q||!opts.lookup)return;
+    const timer=setTimeout(()=>{void opts.lookup!(q).then(rows=>{if(ticket===generation)setRemote(rows);}).catch(()=>undefined);},opts.debounceMs??120);
+    onCleanup(()=>{clearTimeout(timer);generation++;});
+  });
+  const suggestions = createMemo(() => {
+    const seen=new Set<string>();
+    return [...rankSuggestions(source(),query(),limit),...remote()].filter(s=>{
+      const key=s.email.toLowerCase();if(!s.email||seen.has(key))return false;seen.add(key);return true;
+    }).slice(0,limit);
+  });
   return {
     query,
     setQuery,

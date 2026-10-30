@@ -1,3 +1,5 @@
+import {mailPrefetchEvents} from '../components/mailPrefetchEvents.ts';
+import {readMailCachePolicy} from '../state/mailCachePolicy.ts';
 import {displayText} from '../i18n/presentation.ts';
 import {LinkedAccountControl} from '../components/accounts/LinkedAccountControl.tsx';
 import {accountIndicatorLabel} from '../components/accounts/MailboxPicker.tsx';
@@ -104,7 +106,7 @@ export function MailboxScreen(): JSX.Element {
     subTabs.move('mail', 0);
   }
   seedMailTab();
-  interface Pane { opener?:string; refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
+  interface Pane { autoDetach?:boolean; opener?:string; refresh?:()=>void; detach?:DetachedPaneHandle; beforeClose?:(discard?:boolean)=>Promise<boolean>; dirty?:()=>boolean; id:string; kind:'messages'|'composer'|'settings'|'attachment'|'module'|'outbox'|'attachments'|'sharing'|'folder'; title:string; surface?:ShellSurface; reference?:string; draftId?:string; accountId?:string; view?:MessageView; initial?:ComposeInitial; navigation?:SettingsNavigation; attachment?:AttachmentTabItem }
   const [panes,setPanes]=createSignal<Pane[]>([]);
   const [workspaceReady,setWorkspaceReady]=createSignal(false);
   const [draftRevision,setDraftRevision]=createSignal(0);
@@ -202,7 +204,7 @@ export function MailboxScreen(): JSX.Element {
     router.navigate('mail');
     const title=initial?.subject || rawT('mail-compose');
     const id=subTabs.open({kind:'composer',title,...(restoredId?{id:restoredId}:{})});
-    setPanes(old=>[...old,{id,kind:'composer',title,...(resumeDraftId?{draftId:resumeDraftId}:{}),...(initial ? {initial} : {})}]);
+    setPanes(old=>[...old,{id,kind:'composer',title,autoDetach:!restoredId&&settings()['mail.composeWindow']?.value==='window',...(resumeDraftId?{draftId:resumeDraftId}:{}),...(initial ? {initial} : {})}]);
   }
   function openNewMessage():void {openComposer();}
   function openFolderTab(mailboxId:string,restoring=false):void {
@@ -523,6 +525,12 @@ export function MailboxScreen(): JSX.Element {
   const [navOpen, setNavOpen] = createSignal(false);
   let sidebarEl: HTMLElement | undefined;
   const navigationFolders=createMemo(()=>orderedFolders(app.mailboxes(),accountUiPreferences()).filter(box=>!folderIsHidden(box,app.mailboxes(),accountUiPreferences())));
+  createEffect(()=>{
+    const policy=readMailCachePolicy(),boxes=navigationFolders(),loading=app.listLoading();
+    if(!policy.prefetchEnabled||!policy.idleEnabled||loading)return;
+    const cancel=boxes.filter(box=>box.id!==app.selectedMailboxId()).map(box=>app.prefetchMailbox?.(box.id,'idle'));
+    onCleanup(()=>cancel.forEach(stop=>stop?.()));
+  });
   // Hiding the currently selected folder returns the main mail list to a visible
   // folder. Existing message/folder tabs remain legitimate direct destinations.
   createEffect(()=>{
@@ -765,10 +773,11 @@ export function MailboxScreen(): JSX.Element {
           <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} hidden={!navigationFolders().some(box=>!box.role===custom)||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
           <For each={navigationFolders().filter(box=>!box.role===custom).map(box=>box.id)}>
-            {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);return (
+            {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
               <FolderContextMenu box={box()} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
+                {...prefetch}
                 class={`sidebar__box ${a11y.focusable}`}
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
                 onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
@@ -895,7 +904,7 @@ export function MailboxScreen(): JSX.Element {
               onDragOver={event=>dragView(event,views.slot(pane.id))} onDrop={event=>dragView(event,views.slot(pane.id),true)} onDragLeave={()=>setDropView(null)}
               data-companion-list={companion()===pane.id}
               onFocusIn={()=>{if(companion()!==pane.id)subTabs.activate(pane.id);}} onPointerDown={()=>{if(companion()!==pane.id)subTabs.activate(pane.id);}}>
-              <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;setPaneWindowRevision(value=>value+1);}}>{()=> <>
+              <DetachedWorkspacePane title={()=>subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title} account={()=>mailboxNickname(app.linkedMailboxId())??app.me()?.username} register={handle=>{pane.detach=handle;if(pane.autoDetach){pane.autoDetach=false;queueMicrotask(()=>handle.detach());}setPaneWindowRevision(value=>value+1);}}>{()=> <>
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={openReply} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||rawT('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
