@@ -282,10 +282,6 @@ fn a_hostile_value_is_refused_before_anything_is_written() {
         ),
         ("final bare", Box::new(|i| i.final_recipient = "bob".into())),
         (
-            "final non-ascii",
-            Box::new(|i| i.final_recipient = "bøb@example.net".into()),
-        ),
-        (
             "final U+2028",
             Box::new(|i| i.final_recipient = "a@b\u{2028}c".into()),
         ),
@@ -316,10 +312,6 @@ fn a_hostile_value_is_refused_before_anything_is_written() {
         (
             "id empty",
             Box::new(|i| i.original_message_id = Some("<>".into())),
-        ),
-        (
-            "id non-ascii",
-            Box::new(|i| i.original_message_id = Some("é@b".into())),
         ),
         (
             "id long",
@@ -759,7 +751,6 @@ fn standard_options_refuse_reserved_duplicate_and_injected_fields() {
         "line\r\nBcc: attacker@example.org",
         "nul\0byte",
         "ESC\u{1b}",
-        "non-ASCII é",
     ] {
         let fields = vec![("X-Note".to_owned(), value.to_owned())];
         assert!(
@@ -930,5 +921,54 @@ fn standard_projection_accepts_structured_comments_and_legal_extension_names() {
     assert_eq!(
         parsed.extension_fields.get("X_Receipt").map(String::as_str),
         Some("token")
+    );
+}
+
+#[test]
+fn international_recipient_uses_global_mdn_and_roundtrips() {
+    let mut i = input();
+    i.final_recipient = "\"bøb smith\"@bücher.example".into();
+    i.original_recipient = Some("原@example.org".into());
+    i.original_message_id = Some("réponse@example.org".into());
+    let raw = build_mdn(&i).unwrap();
+    let text = String::from_utf8(raw.clone()).unwrap();
+    assert!(text.contains("message/global-disposition-notification"));
+    assert!(
+        text.contains("report-type=\"global-disposition-notification\"")
+            || text.contains("report-type=global-disposition-notification")
+    );
+    assert!(text.contains("Final-Recipient: utf-8; \"bøb smith\"@bücher.example"));
+    let report = parse_mdn(&raw).unwrap();
+    assert_eq!(
+        report.final_recipient.as_deref(),
+        Some(i.final_recipient.as_str())
+    );
+    assert_eq!(report.original_recipient, i.original_recipient);
+    assert!(mw_mime::parse_mdn_document(&raw).is_some());
+}
+
+#[test]
+fn international_unitext_recipient_is_decoded_without_header_injection() {
+    let raw =
+        report_with("Disposition: displayed\r\nFinal-Recipient: utf-8; j\\x{F6}rg@example.org");
+    assert_eq!(
+        parse_mdn(&raw).unwrap().final_recipient.as_deref(),
+        Some("jörg@example.org")
+    );
+    let raw = report_with("Disposition: displayed\r\nFinal-Recipient: utf-8; x\\x{0A}@example.org");
+    assert_eq!(
+        parse_mdn(&raw).unwrap().final_recipient.as_deref(),
+        Some(r"x\x{0A}@example.org")
+    );
+}
+
+#[test]
+fn native_quoted_unicode_recipient_with_unitext_looking_bytes_is_preserved() {
+    let mut i = input();
+    i.final_recipient = r#""é\\x{E9}"@example.org"#.into();
+    let raw = build_mdn(&i).unwrap();
+    assert_eq!(
+        parse_mdn(&raw).unwrap().final_recipient.as_deref(),
+        Some(i.final_recipient.as_str())
     );
 }

@@ -36,9 +36,10 @@ pub fn parse_mdn_document(raw: &[u8]) -> Option<MdnDocument> {
     let root = message.root_part();
     let content_type = root.content_type()?;
     if !is_type(content_type, "multipart", "report")
-        || !content_type
-            .attribute("report-type")
-            .is_some_and(|kind| kind.eq_ignore_ascii_case("disposition-notification"))
+        || !content_type.attribute("report-type").is_some_and(|kind| {
+            kind.eq_ignore_ascii_case("disposition-notification")
+                || kind.eq_ignore_ascii_case("global-disposition-notification")
+        })
     {
         return None;
     }

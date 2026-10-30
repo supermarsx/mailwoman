@@ -104,11 +104,11 @@ fn map_email(message: &Message<'_>, raw: &[u8]) -> Email {
 
     Email {
         subject: message.subject().map(str::to_string),
-        from: map_addresses(message.from()),
-        to: map_addresses(message.to()),
-        cc: map_addresses(message.cc()),
-        bcc: map_addresses(message.bcc()),
-        reply_to: map_addresses(message.reply_to()),
+        from: address_header(message, raw, "From", message.from()),
+        to: address_header(message, raw, "To", message.to()),
+        cc: address_header(message, raw, "Cc", message.cc()),
+        bcc: address_header(message, raw, "Bcc", message.bcc()),
+        reply_to: address_header(message, raw, "Reply-To", message.reply_to()),
         message_id: message_ids_header(message, raw, "Message-ID"),
         in_reply_to: message_ids_header(message, raw, "In-Reply-To"),
         references: message_ids_header(message, raw, "References"),
@@ -307,6 +307,9 @@ fn map_receipt(message: &Message<'_>) -> ReceiptHeaders {
 /// as does a second `<…>`, text after it, or an address that fails
 /// [`validate_mailbox`](crate::validate_mailbox).
 fn single_mailbox(value: &str) -> Option<String> {
+    if let Some(mut list) = crate::quoted_addresses::parse(value) {
+        return (list.len() == 1).then(|| list.remove(0).email);
+    }
     let mut bare = String::new();
     let mut angle: Option<String> = None;
     let mut chars = value.chars();
@@ -372,7 +375,7 @@ fn path_of(value: &str) -> Option<String> {
         .strip_prefix('<')
         .and_then(|v| v.strip_suffix('>'))
         .unwrap_or(value);
-    (!path.chars().any(|c| c.is_control() || c.is_whitespace())).then(|| path.to_string())
+    (path.is_empty() || crate::validate_mailbox(path).is_ok()).then(|| path.to_string())
 }
 
 /// Build [`EmailBodyPart`] metadata for `ids`, accumulating decoded text parts
@@ -471,6 +474,23 @@ fn has_attachment(message: &Message<'_>) -> bool {
 
 fn is_inline_resource(part: &MessagePart<'_>) -> bool {
     part.content_disposition().is_some_and(|d| d.is_inline()) || part.content_id().is_some()
+}
+
+fn address_header(
+    message: &Message<'_>,
+    raw: &[u8],
+    name: &str,
+    parsed: Option<&Address<'_>>,
+) -> Option<Vec<EmailAddress>> {
+    let recovered = message
+        .headers()
+        .iter()
+        .rfind(|h| h.name.as_str().eq_ignore_ascii_case(name))
+        .and_then(|h| raw.get(h.offset_start as usize..h.offset_end as usize))
+        .and_then(|bytes| std::str::from_utf8(bytes).ok())
+        .and_then(crate::quoted_addresses::parse)
+        .filter(|list| list.iter().any(|a| a.email.starts_with('"')));
+    recovered.or_else(|| map_addresses(parsed))
 }
 
 fn map_addresses(addr: Option<&Address<'_>>) -> Option<Vec<EmailAddress>> {

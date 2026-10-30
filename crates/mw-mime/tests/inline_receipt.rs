@@ -583,7 +583,11 @@ fn the_request_address_is_read_only_when_it_is_one_acceptable_mailbox() {
         ("<alice@example.org> <bob@example.net>", None),
         ("friends: alice@example.org;", None),
         ("<alice@example.org> trailing", None),
-        ("\"a b\"@example.org", None),
+        ("\"a b\"@example.org", Some("\"a b\"@example.org")),
+        (
+            "Name <\"原,a<>@b\"@example.org>",
+            Some("\"原,a<>@b\"@example.org"),
+        ),
         ("<alice@example.org", None),
         ("alice", None),
         ("<>", None),
@@ -679,4 +683,18 @@ fn cid_references_are_found_in_tags_only() {
     assert!(html_cid_references("cid:x <").is_empty());
     assert_eq!(html_cid_references("<cid:%zz%4"), ["%zz%4"]);
     assert_eq!(html_cid_references("<a b=\"cid:é\u{2028}x"), ["é\u{2028}x"]);
+}
+
+#[test]
+fn quoted_international_receipt_paths_preserve_the_exact_mailbox() {
+    let mailbox = "\"原,a<>@b c\"@example.org";
+    let got = receipt_of(&format!(
+        "Return-Path: <{mailbox}>\r\nDisposition-Notification-To: Name <{mailbox}>\r\n"
+    ));
+    assert_eq!(got.return_path.as_deref(), Some(mailbox));
+    assert_eq!(got.disposition_notification_to.as_deref(), Some(mailbox));
+    let duplicate = receipt_of(&format!(
+        "Disposition-Notification-To: <{mailbox}>\r\nDisposition-Notification-To: <other@example.org>\r\n"
+    ));
+    assert!(duplicate.disposition_notification_to.is_none());
 }

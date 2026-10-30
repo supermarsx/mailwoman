@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+url = { workspace = true }
 mw-jmap = { workspace = true }
 # `full_encoding` enables the extended charset tables (Shift_JIS, EUC, GBK, …)
 # via encoding_rs, already in the workspace license floor. Feature is additive,

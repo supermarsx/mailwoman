@@ -160,3 +160,21 @@ fn build_custom_header_is_emitted_verbatim() {
     let wire = String::from_utf8_lossy(&bytes);
     assert!(wire.contains("User-Agent: Mailwoman/26.2"));
 }
+
+#[test]
+fn quoted_international_addresses_are_written_without_rewriting_or_list_expansion() {
+    let mut req = sample_request();
+    req.from = Some(addr(Some("Sender"), "\"jörg smith\"@bücher.example"));
+    req.to = vec![addr(Some("Recipient"), "\"原,a<>@b\"@example.org")];
+    req.bcc = vec![addr(None, "private@example.org")];
+    let raw = build(&req).unwrap();
+    let text = String::from_utf8_lossy(&raw);
+    assert!(text.contains("<\"jörg smith\"@bücher.example>"));
+    assert!(text.contains("<\"原,a<>@b\"@example.org>"));
+    // Draft MIME deliberately retains Bcc; submission strips that header.
+    assert!(text.contains("Bcc: "));
+    let parsed = parse(&raw).unwrap();
+    let recipients = parsed.email.to.unwrap();
+    assert_eq!(recipients.len(), 1);
+    assert_eq!(recipients[0].email, req.to[0].email);
+}

@@ -117,7 +117,12 @@ fn typed(value: &str) -> Option<(String, String)> {
     {
         return None;
     }
-    Some((kind.to_ascii_lowercase(), value.to_owned()))
+    let address = if kind.eq_ignore_ascii_case("utf-8") {
+        crate::check::decode_utf8_address(value)
+    } else {
+        value.to_owned()
+    };
+    Some((kind.to_ascii_lowercase(), address))
 }
 
 fn parse_fields(text: &str) -> Option<DsnReport> {

@@ -6,9 +6,8 @@
 //! `Return-Path` comparison, list mail — RFC 8098 §2.1) is the caller's
 //! decision; [`crate::ReceiptHeaders`] carries what that decision needs.
 //!
-//! Not implemented: the UTF-8 forms of RFC 6533 (`utf-8;` address type,
-//! `message/global-disposition-notification` on build), and the optional
-//! `MDN-Gateway` and `Error` fields on build. Optional original-message and
+//! RFC 6533 UTF-8 recipients select the global notification format.
+//! Not implemented: optional `MDN-Gateway` and `Error` fields on build. Original-message and
 //! Reporting-UA fields are available through [`build_mdn_with_options`].
 
 use mail_builder::MessageBuilder;
@@ -155,11 +154,8 @@ pub struct MdnReport {
 /// Refused, whatever the caller did before:
 /// - `from.email`, `to`, `final_recipient` or `original_recipient` that is not
 ///   one mailbox by [`validate_mailbox`](crate::validate_mailbox)'s rules;
-/// - `final_recipient` or `original_recipient` holding a non-ASCII character
-///   (the `rfc822` address type is ASCII; RFC 6533 is not implemented);
 /// - an `original_message_id` that, with one pair of angle brackets removed,
-///   is empty, longer than 800 bytes, or holds anything but printable ASCII
-///   other than space, `<` and `>`;
+///   is empty, longer than 800 bytes, or contains controls, whitespace, `<` or `>`;
 /// - a control character in `message_id`;
 /// - [`MdnDisposition::Other`].
 ///
@@ -216,10 +212,10 @@ pub fn build_mdn_with_options(
         } else if id.len() > MAX_MESSAGE_ID_BYTES {
             Some("longer than 800 bytes")
         } else if !id
-            .bytes()
-            .all(|b| b.is_ascii_graphic() && b != b'<' && b != b'>')
+            .chars()
+            .all(|c| !c.is_control() && !c.is_whitespace() && c != '<' && c != '>')
         {
-            Some("not printable ASCII without spaces or angle brackets")
+            Some("contains control characters, spaces or angle brackets")
         } else {
             None
         };
@@ -308,17 +304,22 @@ pub fn build_mdn_with_options(
         b = b.header("Auto-Submitted", Raw::new("auto-replied"));
     }
 
+    let international = !fields.is_ascii();
+    let subtype = if international {
+        "global-disposition-notification"
+    } else {
+        "disposition-notification"
+    };
     let report = ContentType::new("multipart/report")
-        .attribute("report-type", "disposition-notification")
+        .attribute("report-type", subtype)
         .attribute("boundary", format!("mw_{}", random_token()));
     // A binary body with an explicit transfer encoding is written as it
-    // stands; the fields are ASCII lines ending in CRLF, which is what `7bit`
-    // declares.
+    // stands; international fields use RFC 6533 and 8bit, ASCII keeps 7bit.
     let notification = MimePart::new(
-        ContentType::new("message/disposition-notification"),
+        ContentType::new(format!("message/{subtype}")),
         BodyPart::Binary(fields.into_bytes().into()),
     )
-    .transfer_encoding("7bit");
+    .transfer_encoding(if international { "8bit" } else { "7bit" });
     let mut parts = vec![
         MimePart::new(
             "text/plain",
@@ -329,8 +330,15 @@ pub fn build_mdn_with_options(
     if let Some(original) = options.original_message {
         // message/rfc822 forbids base64/quoted-printable transfer encodings.
         parts.push(
-            MimePart::new("message/rfc822", BodyPart::Binary(original.into()))
-                .transfer_encoding("8bit"),
+            MimePart::new(
+                if original.is_ascii() {
+                    "message/rfc822"
+                } else {
+                    "message/global"
+                },
+                BodyPart::Binary(original.into()),
+            )
+            .transfer_encoding("8bit"),
         );
     }
     b.body(MimePart::new(report, parts))
@@ -397,27 +405,22 @@ fn validate_options(options: &MdnOptions<'_>) -> Result<(), MimeError> {
             ));
         }
         no_control("extension value", value)?;
-        // Notification fields use 7bit encoding; internationalized reports are
-        // not silently emitted under the RFC822 address/notification types.
-        if !value.is_ascii() || name.len() + value.len() + 2 > 998 {
-            return Err(refuse("extension value", "", "non-ASCII or too long"));
+        // Non-ASCII fields select RFC 6533 global notification below.
+        if name.len() + value.len() + 2 > 998 {
+            return Err(refuse("extension value", "", "too long"));
         }
-    }
-    if options.reporting_ua.is_some_and(|value| !value.is_ascii()) {
-        return Err(refuse("reporting agent", "", "not ASCII"));
     }
     Ok(())
 }
 
-/// One `<name>: rfc822; <addr>` line, or the refusal.
+/// One typed recipient field (RFC 8098 / RFC 6533), or the refusal.
 fn recipient_field(name: &str, addr: &str) -> Result<String, MimeError> {
-    let why = match mailbox_problem(addr) {
-        None if !addr.is_ascii() => Some("not ASCII (RFC 6533 is not implemented)"),
-        other => other,
-    };
-    match why {
+    match mailbox_problem(addr) {
         Some(why) => Err(refuse(&name.to_ascii_lowercase(), addr, why)),
-        None => Ok(format!("{name}: rfc822; {addr}\r\n")),
+        None => {
+            let kind = if addr.is_ascii() { "rfc822" } else { "utf-8" };
+            Ok(format!("{name}: {kind}; {addr}\r\n"))
+        }
     }
 }
 
@@ -443,9 +446,12 @@ pub fn parse_mdn(raw: &[u8]) -> Option<MdnReport> {
         || !root
             .subtype()
             .is_some_and(|s| s.eq_ignore_ascii_case("report"))
-        || root
-            .attribute("report-type")
-            .is_some_and(|t| !t.trim().eq_ignore_ascii_case("disposition-notification"))
+        || root.attribute("report-type").is_some_and(|t| {
+            !t.trim().eq_ignore_ascii_case("disposition-notification")
+                && !t
+                    .trim()
+                    .eq_ignore_ascii_case("global-disposition-notification")
+        })
     {
         return None;
     }
@@ -566,5 +572,14 @@ fn typed_address(value: &str) -> Option<String> {
         .and_then(|v| v.strip_suffix('>'))
         .unwrap_or(addr)
         .trim();
-    (!addr.is_empty()).then(|| addr.to_string())
+    (!addr.is_empty()).then(|| {
+        if value
+            .split_once(';')
+            .is_some_and(|(kind, _)| kind.trim().eq_ignore_ascii_case("utf-8"))
+        {
+            crate::check::decode_utf8_address(addr)
+        } else {
+            addr.to_string()
+        }
+    })
 }

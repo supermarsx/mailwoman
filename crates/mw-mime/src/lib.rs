@@ -31,6 +31,7 @@ mod header_privacy;
 mod mdn;
 mod mdn_standard;
 mod parse;
+mod quoted_addresses;
 
 pub use build::{
     Attachment, ComposeExtras, ComposeRequest, InlinePart, build, build_with, html_cid_references,

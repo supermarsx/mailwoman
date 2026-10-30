@@ -5409,6 +5409,7 @@ dependencies = [
  "mail-parser",
  "mw-jmap",
  "thiserror 2.0.18",
+ "url",
 ]
 
 [[package]]
