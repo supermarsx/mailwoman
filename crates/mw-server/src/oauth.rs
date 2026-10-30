@@ -15,6 +15,16 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use mw_oauth::{AuthorizeRequest, OAuthStore, Scope, ScopeSelector, TokenRequest, mint_api_key};
+use mw_store::linked_accounts::LinkedGrantKind;
+
+/// The at-rest hash of an opaque OAuth code or token (mw_oauth's own transform).
+fn token_hash(token: &str) -> String {
+    use sha2::Digest;
+    sha2::Sha256::digest(token.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
+}
 
 use crate::AppState;
 use crate::admin_ctx::AdminCtx;
@@ -254,6 +264,19 @@ async fn decision(
         .await
     {
         Ok(res) => {
+            // t87 D1: a grant made in a linked mailbox is revoked on unlink. The
+            // code is recorded; the token exchange carries the link onward.
+            if let Some(link) = crate::linked_accounts::selected_link(&headers) {
+                let hash = token_hash(&res.code);
+                if let Err(e) = state
+                    .store
+                    .record_linked_grant(&link, LinkedGrantKind::OAuthToken, &hash)
+                    .await
+                {
+                    let _ = state.v6.auth.store().revoke_token(&hash).await;
+                    return server_error(e);
+                }
+            }
             let mut url = format!("{}?code={}", res.redirect_uri, urlencode(&res.code));
             if let Some(s) = res.state {
                 url.push_str(&format!("&state={}", urlencode(&s)));
@@ -307,7 +330,39 @@ async fn token(State(state): State<AppState>, Json(body): Json<TokenReq>) -> Res
         },
         other => return bad_request(&format!("unsupported grant_type: {other}")),
     };
-    match state.v6.auth.token(&req).await {
+    // t87 D1: tokens minted from a grant made in a linked mailbox stay tied to
+    // that link, so unlinking revokes the whole chain.
+    let presented = match &req {
+        TokenRequest::AuthorizationCode { code, .. } => token_hash(code),
+        TokenRequest::RefreshToken { refresh_token, .. } => token_hash(refresh_token),
+    };
+    let link = match state
+        .store
+        .linked_grant_link(LinkedGrantKind::OAuthToken, &presented)
+        .await
+    {
+        Ok(link) => link,
+        Err(e) => return server_error(e),
+    };
+    let issued = state.v6.auth.token(&req).await;
+    if let (Some(link), Ok(t)) = (&link, &issued) {
+        let minted: Vec<String> = std::iter::once(token_hash(&t.access_token))
+            .chain(t.refresh_token.as_deref().map(token_hash))
+            .collect();
+        for hash in &minted {
+            if let Err(e) = state
+                .store
+                .record_linked_grant(link, LinkedGrantKind::OAuthToken, hash)
+                .await
+            {
+                for hash in &minted {
+                    let _ = state.v6.auth.store().revoke_token(hash).await;
+                }
+                return server_error(e);
+            }
+        }
+    }
+    match issued {
         Ok(t) => Json(json!({
             "access_token": t.access_token,
             "refresh_token": t.refresh_token,
@@ -396,6 +451,16 @@ async fn create_key(
             .into_response();
     }
     let minted = mint_api_key(&account_id, body.scope.clone());
+    // t87 D1: a key minted in a linked mailbox is revoked on unlink. Recorded
+    // before the key exists, so a failure never leaves an untracked key.
+    if let Some(link) = crate::linked_accounts::selected_link(&headers)
+        && let Err(e) = state
+            .store
+            .record_linked_grant(&link, LinkedGrantKind::ApiKey, &minted.record.prefix)
+            .await
+    {
+        return server_error(e);
+    }
     if let Err(e) = state
         .v6
         .auth

@@ -18,6 +18,19 @@ pub(crate) use scope::guard;
 use serde_json::json;
 
 pub(crate) const SELECTOR: &str = "x-mailwoman-link";
+
+/// The link a request selected, for a handler that has already resolved its
+/// session through `crate::authed` (which proves the link belongs to the
+/// signed-in session, and refuses the request otherwise). t87 uses it to tie
+/// the durable credentials a linked mailbox creates to the link, so unlinking
+/// revokes them (D1, D3).
+pub(crate) fn selected_link(headers: &HeaderMap) -> Option<String> {
+    headers
+        .get(SELECTOR)
+        .and_then(|v| v.to_str().ok())
+        .filter(|v| uuid::Uuid::parse_str(v).is_ok())
+        .map(str::to_owned)
+}
 #[derive(Clone)]
 pub(crate) struct PasswordProof;
 

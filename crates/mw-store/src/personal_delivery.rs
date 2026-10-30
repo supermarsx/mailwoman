@@ -118,15 +118,41 @@ impl Store {
         &self,
         row: &PushSubscriptionRow,
     ) -> Result<(), StoreError> {
-        let changed = q("INSERT INTO personal_push_subscription
+        self.upsert_personal_push_subscription_shared(row, &[])
+            .await
+    }
+
+    /// Store a subscription, keyed by owner and endpoint (t87 D3). One browser
+    /// has one endpoint, so the signed-in account and each linked mailbox open in
+    /// it keep their own row for it. An endpoint already held by any owner other
+    /// than `row`'s and those in `may_share_with` is refused with `NotFound`, so
+    /// a leaked endpoint cannot be bound to an unrelated account.
+    pub async fn upsert_personal_push_subscription_shared(
+        &self,
+        row: &PushSubscriptionRow,
+        may_share_with: &[String],
+    ) -> Result<(), StoreError> {
+        let mut tx = self.backend.begin().await?;
+        let owners =
+            q("SELECT DISTINCT owner_subject FROM personal_push_subscription WHERE endpoint=?1")
+                .bind(&row.endpoint)
+                .fetch_all_tx(&mut tx)
+                .await?;
+        if owners
+            .iter()
+            .map(|o| o.get_string("owner_subject"))
+            .any(|owner| owner != row.account_id && !may_share_with.contains(&owner))
+        {
+            return Err(StoreError::NotFound);
+        }
+        q("INSERT INTO personal_push_subscription
                  (id, owner_subject, transport, endpoint, p256dh, auth, app_id,
                   expires_at, created_at, last_wake_at)
              VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)
-             ON CONFLICT(endpoint) DO UPDATE SET
-                 owner_subject=excluded.owner_subject, transport=excluded.transport,
+             ON CONFLICT(owner_subject, endpoint) DO UPDATE SET
+                 transport=excluded.transport,
                  p256dh=excluded.p256dh, auth=excluded.auth, app_id=excluded.app_id,
-                 expires_at=excluded.expires_at
-             WHERE personal_push_subscription.owner_subject=excluded.owner_subject")
+                 expires_at=excluded.expires_at")
         .bind(&row.id)
         .bind(&row.account_id)
         .bind(&row.transport)
@@ -137,11 +163,9 @@ impl Store {
         .bind(row.expires_at.as_deref())
         .bind(&row.created_at)
         .bind(row.last_wake_at.as_deref())
-        .execute(&self.backend)
+        .execute_tx(&mut tx)
         .await?;
-        if changed == 0 {
-            return Err(StoreError::NotFound);
-        }
+        tx.commit().await?;
         Ok(())
     }
 

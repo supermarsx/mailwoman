@@ -330,7 +330,35 @@ pub(crate) async fn push_subscribe(
         created_at: now_rfc3339(),
         last_wake_at: None,
     };
-    if let Err(e) = state.store.upsert_personal_push_subscription(&row).await {
+    // t87 D3: one browser endpoint serves the signed-in account and each of its
+    // linked mailboxes, each with its own row; no other owner may share it.
+    let family = match family_subjects(&state, &session).await {
+        Ok(family) => family,
+        Err(_) => return StatusCode::SERVICE_UNAVAILABLE.into_response(),
+    };
+    let may_share: Vec<String> = family.into_iter().map(|(_, subject)| subject).collect();
+    let link = crate::linked_accounts::selected_link(&headers);
+    let endpoint_row = existing.iter().find(|old| old.endpoint == row.endpoint);
+    // The row id the store keeps: the existing row's for a re-subscribe.
+    let kept_id = endpoint_row.map_or(row.id.clone(), |old| old.id.clone());
+    if let Some(link) = &link
+        && let Err(e) = state
+            .store
+            .record_linked_grant(
+                link,
+                mw_store::linked_accounts::LinkedGrantKind::Push,
+                &kept_id,
+            )
+            .await
+    {
+        tracing::error!("failed to record linked push subscription: {e}");
+        return StatusCode::SERVICE_UNAVAILABLE.into_response();
+    }
+    if let Err(e) = state
+        .store
+        .upsert_personal_push_subscription_shared(&row, &may_share)
+        .await
+    {
         if matches!(e, mw_store::StoreError::NotFound) {
             return (
                 StatusCode::CONFLICT,
@@ -341,13 +369,8 @@ pub(crate) async fn push_subscribe(
         tracing::error!("failed to store push subscription: {e}");
         return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
     }
-    let id = existing
-        .iter()
-        .find(|old| old.endpoint == row.endpoint)
-        .map(|old| old.id.as_str())
-        .unwrap_or(&row.id);
     let vapid_public = state.store.vapid_public().await.ok().flatten();
-    Json(json!({ "id": id, "vapidPublicKey": vapid_public })).into_response()
+    Json(json!({ "id": kept_id, "vapidPublicKey": vapid_public })).into_response()
 }
 
 #[derive(Deserialize)]
@@ -388,18 +411,25 @@ pub(crate) async fn push_permission(
             .list_personal_push_subscriptions(&owner)
             .await?
             .iter()
-            .any(|row| {
-                let hash = Sha256::digest(row.endpoint.as_bytes())
-                    .iter()
-                    .map(|byte| format!("{byte:02x}"))
-                    .collect::<String>();
-                hash == query.endpoint_hash
-                    && row.expires_at.as_ref().is_none_or(|expiry| {
-                        chrono::DateTime::parse_from_rfc3339(expiry)
-                            .is_ok_and(|expiry| expiry > chrono::Utc::now())
-                    })
-            });
+            .any(|row| endpoint_matches(row, &query.endpoint_hash));
         if !registered {
+            // t87 D3: the service worker asks as the signed-in account; a wake
+            // may be for one of its linked mailboxes, judged by that mailbox's
+            // own policy, as the dispatcher judged it.
+            for (account, subject) in family_subjects(&state, &session).await? {
+                if subject == owner {
+                    continue;
+                }
+                let theirs = state
+                    .store
+                    .list_personal_push_subscriptions(&subject)
+                    .await?
+                    .iter()
+                    .any(|row| endpoint_matches(row, &query.endpoint_hash));
+                if theirs {
+                    return Ok((true, wake_allowed(&state.store, &account).await));
+                }
+            }
             return Ok::<(bool, bool), mw_store::StoreError>((false, false));
         }
         let subject = crate::settings_routes::UserSubject::resolved(&state.store, &session).await?;
@@ -503,6 +533,64 @@ pub(crate) async fn run_dispatcher(store: Store, mut rx: broadcast::Receiver<Sta
             Err(broadcast::error::RecvError::Closed) => break,
         }
     }
+}
+
+/// A live subscription whose endpoint hashes to `endpoint_hash`.
+fn endpoint_matches(row: &PushSubscriptionRow, endpoint_hash: &str) -> bool {
+    let hash = Sha256::digest(row.endpoint.as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect::<String>();
+    hash == endpoint_hash
+        && row.expires_at.as_ref().is_none_or(|expiry| {
+            chrono::DateTime::parse_from_rfc3339(expiry)
+                .is_ok_and(|expiry| expiry > chrono::Utc::now())
+        })
+}
+
+/// The signed-in person's mailboxes behind `session` (the sign-in account and
+/// its links, t87 D3), with each one's personal subject.
+async fn family_subjects(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<Vec<(String, String)>, mw_store::StoreError> {
+    let mut out = Vec::new();
+    for account in state.store.linked_family_accounts(&session.id).await? {
+        if let Some(subject) = state.store.native_personal_subject(&account).await? {
+            out.push((account, subject));
+        }
+    }
+    Ok(out)
+}
+
+/// Whether `account`'s policy lets a content-free wake surface now: the same
+/// test the dispatcher applies before it sends one.
+async fn wake_allowed(store: &Store, account: &str) -> bool {
+    if quiet_now(store).await {
+        return false;
+    }
+    let Ok(Some(subject)) = crate::notification_policy::account_subject(store, account).await
+    else {
+        return false;
+    };
+    let Ok(Some(owner)) = store.native_personal_subject(account).await else {
+        return false;
+    };
+    let Ok(config) =
+        crate::notification_policy::for_subject(store, &subject.as_subject(), &owner).await
+    else {
+        return false;
+    };
+    config.enabled
+        && config.rules.is_empty()
+        && !crate::notification_policy::quiet_at(&config.quiet_hours, chrono::Utc::now())
+        && crate::notification_policy::allowed(
+            store,
+            &subject.as_subject(),
+            "notifications.pushAllowed",
+        )
+        .await
+        .unwrap_or(false)
 }
 
 /// Fan an account change out to its subscriptions as opaque wakes, respecting a

@@ -27,6 +27,26 @@ fn projection(row: &Row) -> LinkedAccount {
     }
 }
 
+/// A durable credential a linked mailbox can create (t87 D1, D3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LinkedGrantKind {
+    /// An API or MCP key, by `api_keys.key_prefix`.
+    ApiKey,
+    /// An OAuth auth code or token, by `oauth_tokens.token_hash`.
+    OAuthToken,
+    /// A browser push subscription, by `personal_push_subscription.id`.
+    Push,
+}
+impl LinkedGrantKind {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ApiKey => "apiKey",
+            Self::OAuthToken => "oauthToken",
+            Self::Push => "push",
+        }
+    }
+}
+
 async fn serialize(tx: &mut Tx) -> Result<(), StoreError> {
     q("UPDATE identity_serialization SET id=id WHERE id=1")
         .execute_tx(tx)
@@ -754,6 +774,71 @@ impl Store {
     }
 
     /// Exact-revision unlink. Mailbox data and unrelated child sessions survive.
+    /// Remember that a durable credential was created through `link` (t87 D1,
+    /// D3), so unlinking revokes it. A credential is recorded once.
+    pub async fn record_linked_grant(
+        &self,
+        link: &str,
+        kind: LinkedGrantKind,
+        reference: &str,
+    ) -> Result<(), StoreError> {
+        q("INSERT INTO linked_grant(link_id,kind,ref,created_at) VALUES(?1,?2,?3,?4) ON CONFLICT(kind,ref) DO NOTHING")
+            .bind(link)
+            .bind(kind.as_str())
+            .bind(reference)
+            .bind(chrono::Utc::now().timestamp())
+            .execute(&self.backend)
+            .await?;
+        Ok(())
+    }
+
+    /// The link a recorded credential was created through, if any.
+    pub async fn linked_grant_link(
+        &self,
+        kind: LinkedGrantKind,
+        reference: &str,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(
+            q("SELECT link_id FROM linked_grant WHERE kind=?1 AND ref=?2")
+                .bind(kind.as_str())
+                .bind(reference)
+                .fetch_optional(&self.backend)
+                .await?
+                .map(|row| row.get_string("link_id")),
+        )
+    }
+
+    /// The accounts of the signed-in person behind `session` (t87 D3): the
+    /// sign-in account and every mailbox linked to it. `session` may be the
+    /// sign-in session or a linked context of it. Used to let one browser push
+    /// endpoint serve all of them and nobody else.
+    pub async fn linked_family_accounts(&self, session: &str) -> Result<Vec<String>, StoreError> {
+        let owner = q("SELECT owner_session_id FROM linked_context WHERE session_id=?1")
+            .bind(session)
+            .fetch_optional(&self.backend)
+            .await?
+            .map(|row| row.get_string("owner_session_id"))
+            .unwrap_or_else(|| session.to_owned());
+        let mut accounts: Vec<String> = q("SELECT account_id FROM sessions WHERE id=?1")
+            .bind(&owner)
+            .fetch_all(&self.backend)
+            .await?
+            .iter()
+            .map(|row| row.get_string("account_id"))
+            .collect();
+        for row in q("SELECT l.account_id FROM linked_account l JOIN session_principal sp ON sp.principal_id=l.owner_principal_id WHERE sp.session_id=?1 ORDER BY l.created_at")
+            .bind(&owner)
+            .fetch_all(&self.backend)
+            .await?
+        {
+            let account = row.get_string("account_id");
+            if !accounts.contains(&account) {
+                accounts.push(account);
+            }
+        }
+        Ok(accounts)
+    }
+
     pub async fn unlink_account(
         &self,
         parent: &str,
@@ -781,6 +866,27 @@ impl Store {
         q("DELETE FROM sessions WHERE id IN (SELECT session_id FROM linked_context WHERE link_id=?1)").bind(link).execute_tx(&mut tx).await?;
         q("DELETE FROM sessions WHERE id=?1 AND linked_internal=1")
             .bind(source)
+            .execute_tx(&mut tx)
+            .await?;
+        // t87 (D1, D3): what the mailbox created while it was open through this
+        // link goes with it, revoked in this transaction, never left behind.
+        let now = chrono::Utc::now().to_rfc3339();
+        q("UPDATE api_keys SET revoked_at=?2 WHERE revoked_at IS NULL AND key_prefix IN (SELECT ref FROM linked_grant WHERE link_id=?1 AND kind='apiKey')")
+            .bind(link)
+            .bind(&now)
+            .execute_tx(&mut tx)
+            .await?;
+        q("UPDATE oauth_tokens SET revoked_at=?2 WHERE revoked_at IS NULL AND token_hash IN (SELECT ref FROM linked_grant WHERE link_id=?1 AND kind='oauthToken')")
+            .bind(link)
+            .bind(&now)
+            .execute_tx(&mut tx)
+            .await?;
+        q("DELETE FROM personal_push_subscription WHERE id IN (SELECT ref FROM linked_grant WHERE link_id=?1 AND kind='push')")
+            .bind(link)
+            .execute_tx(&mut tx)
+            .await?;
+        q("DELETE FROM linked_grant WHERE link_id=?1")
+            .bind(link)
             .execute_tx(&mut tx)
             .await?;
         // t48: the stored credential goes with the link (explicitly, not only
