@@ -96,6 +96,27 @@ async function signIn(page:Page,user:string,pass:string){
   await expect(page.locator('#shell-nav .sidebar__account [data-account-indicator]').first()).toBeAttached();
   await expect(page.locator('#shell-nav .sidebar__nav .sidebar__box').first()).toBeVisible({timeout:30000});
 }
+/** Each shard establishes its own picker fixture; no preceding spec is required. */
+async function ensurePicker(page:Page):Promise<void>{
+  const meResponse=await page.request.get('/api/me');
+  expect(meResponse.ok(),'read authenticated picker owner').toBe(true);
+  const me=await meResponse.json() as {storageAuthority:string};
+  expect(me.storageAuthority).toBeTruthy();
+  const headers={'x-mailwoman-storage-authority':me.storageAuthority};
+  const listing=async()=>{
+    const response=await page.request.get('/api/accounts',{headers});
+    expect(response.ok(),'read picker links').toBe(true);
+    return (await response.json() as {accounts:{id:string;address?:string;status:string;revision:string}[]}).accounts;
+  };
+  if((await listing()).some(account=>account.status==='ready'))return;
+  expect((await page.request.post('/api/security/step-up',{data:{password:'parent-pass'}})).ok()).toBe(true);
+  const stale=(await listing()).find(account=>account.address==='child@child.test');
+  if(stale)expect((await page.request.delete(`/api/accounts/${stale.id}`,{headers:{...headers,'if-match':JSON.stringify(stale.revision)}})).ok()).toBe(true);
+  const linked=await page.request.post('/api/accounts/link',{headers,data:{username:'child@child.test',password:'child-pass',displayName:'Child'}});
+  expect(linked.status(),'create the independent sidebar picker fixture').toBe(201);
+  await expect.poll(async()=>(await listing()).some(account=>account.status==='ready')).toBe(true);
+  await page.reload();
+}
 async function folderMode(page:Page,mode:'expanded'|'compact'){
   const button=page.getByRole('button',{name:'Compact folder icons',exact:true}).first();
   const pressed=await button.getAttribute('aria-pressed')==='true';
@@ -132,9 +153,7 @@ for(const [user,pass,kind] of [['parent@example.org','parent-pass','picker'],['t
     const csp:string[]=[];page.on('console',m=>{if(/Content.Security.Policy|CSP/i.test(m.text()))csp.push(m.text());});
     await signIn(page,user,pass);
     if(kind==='picker'){
-      // The parent has the child linked by the account-switch spec; without it the head is the plain address.
-      const accounts=(await (await page.request.get('/api/accounts')).json() as {accounts:{status:string}[]}).accounts;
-      test.skip(!accounts.some(a=>a.status==='ready'),'parent has no linked mailbox (run account-switch-shell-live first)');
+      await ensurePicker(page);
       await expect(page.locator('#shell-nav button[data-account-indicator="picker"]')).toBeAttached();
     }
     const results:Record<string,unknown>={};

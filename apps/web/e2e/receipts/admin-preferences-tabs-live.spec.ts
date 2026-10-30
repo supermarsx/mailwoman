@@ -1,0 +1,25 @@
+import {test,expect} from '../csrf.ts';
+import {ADMIN} from '../admin/admin-path.ts';
+for(const width of [1440,390])test(`personal preferences tabs keep keyboard focus and deep links at ${width}px`,async({page},info)=>{
+ test.skip(info.project.name==='phone','desktop browser projects both exercise the narrow viewport');
+ await page.setViewportSize({width,height:900});await page.goto(`${ADMIN}#/preferences`);
+ await page.getByLabel('Admin username').fill(process.env['MW_ADMIN_USER']??'root');
+ await page.getByLabel('Password',{exact:true}).fill(process.env['MW_ADMIN_PASSWORD']??'hunter2');
+ await page.getByRole('button',{name:'Sign in',exact:true}).click();
+ await page.goto(`${ADMIN}#/preferences`);
+ const tabs=page.getByRole('tablist',{name:'My preferences',exact:true});
+ const appearance=tabs.getByRole('tab',{name:'Appearance',exact:true});
+ const layout=tabs.getByRole('tab',{name:'Reading and layout',exact:true});
+ const dashboard=tabs.getByRole('tab',{name:'Dashboard',exact:true});
+ const security=tabs.getByRole('tab',{name:'Personal security',exact:true});
+ await expect(appearance).toHaveAttribute('aria-selected','true');await appearance.focus();await appearance.press('ArrowRight');
+ await expect(layout).toBeFocused();await expect(layout).toHaveAttribute('aria-selected','true');await expect(page).toHaveURL(/#\/preferences\/layout$/);
+ await expect(page.getByLabel('Interface density')).toBeVisible();await expect(page.getByRole('tabpanel')).toHaveCount(1);
+ await page.screenshot({path:info.outputPath(`preferences-layout-${width}.png`),fullPage:true});
+ await layout.press('ArrowRight');await expect(dashboard).toBeFocused();await expect(page.getByRole('tabpanel',{name:'Dashboard',exact:true})).toBeVisible();
+ await dashboard.press('End');await expect(security).toBeFocused();await expect(page.getByRole('region',{name:'Administrator passkeys',exact:true})).toBeVisible();
+ await page.screenshot({path:info.outputPath(`preferences-security-${width}.png`),fullPage:true});
+ await security.press('Home');await expect(appearance).toBeFocused();await expect(appearance).toHaveAttribute('aria-selected','true');
+ await layout.click();await page.reload();await expect(layout).toHaveAttribute('aria-selected','true');await expect(page.getByLabel('Interface density')).toBeVisible();
+ expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1)).toBe(true);
+});

@@ -28,14 +28,14 @@ async function fonts(page:Page){
  });
 }
 async function open(page:Page):Promise<void>{
- await page.goto(`${ADMIN}#/preferences`);
+ await page.goto(`${ADMIN}#/preferences/layout`);
  await expect(page.getByTestId('admin-personal-preferences')).toBeVisible({timeout:60000});
- await expect(page.getByText('Preferences saved to your account.')).toBeVisible();
+ await expect(page.getByRole('combobox',{name:'Interface font',exact:true})).toBeEnabled();
 }
 async function saved(page:Page,act:()=>Promise<unknown>):Promise<void>{
  const put=page.waitForResponse(r=>r.url().endsWith('/me/preferences')&&r.request().method()==='PUT');
  await act();const res=await put;expect(res.status(),await res.text()).toBeLessThan(300);
- await expect(page.getByText('Preferences saved to your account.')).toBeVisible();
+ await expect(page.getByTestId('toast').filter({hasText:'Preferences saved to your account.'})).toBeVisible();
 }
 
 test('admin My preferences: font, density, theme and accent apply live and after reload',async({page},info)=>{
@@ -80,6 +80,7 @@ test('admin My preferences: font, density, theme and accent apply live and after
   // Theme: a light pack and back to dark, painted on the frame.
   const bg=()=>page.evaluate(()=>getComputedStyle(document.body).backgroundColor);
   const before=await bg();
+  await page.getByRole('tab',{name:'Appearance',exact:true}).click();
   await saved(page,()=>page.locator('[data-theme-option="paper"]').click());
   await expect(page.locator('html')).toHaveAttribute('data-theme','paper');
   expect(await bg()).not.toBe(before);
@@ -94,6 +95,7 @@ test('admin My preferences: font, density, theme and accent apply live and after
   await page.screenshot({path:shot(info,`${width}-after-reload-paper-accent`),fullPage:false});
   // Put back what the next leg and spec expect.
   await saved(page,()=>page.getByRole('button',{name:'Reset appearance',exact:true}).click());
+  await page.getByRole('tab',{name:'Reading and layout',exact:true}).click();
   await saved(page,()=>page.getByRole('combobox',{name:'Interface font',exact:true}).selectOption('default'));
  }
  expect(csp,'CSP console messages').toEqual([]);

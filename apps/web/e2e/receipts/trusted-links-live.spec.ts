@@ -143,7 +143,7 @@ for(const width of [1440,390]){
   test('an administrator default applies and a lock makes the control read-only',async({page,playwright},info)=>{
    const admin=await playwright.request.newContext({baseURL:String(info.project.use.baseURL)});
    const login=await admin.post('/admin/login',{data:ADMIN});
-   test.skip(login.status()!==200,`no admin sign-in on this stack (${login.status()})`);
+   expect(login.status(),'configured admin fixture must sign in').toBe(200);
    const put=async(key:string,data:Record<string,unknown>)=>{const etag=(await admin.get(`/admin/settings/${key}`)).headers()['etag'];return (await admin.put(`/admin/settings/${key}`,{data,headers:etag?{'if-match':etag}:{}})).status();};
    try{
     await signIn(page);await clearOwn(page);

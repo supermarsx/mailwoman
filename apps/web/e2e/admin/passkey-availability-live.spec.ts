@@ -14,7 +14,7 @@ test('passkey enrollment is available in personal settings and respects effectiv
  test.setTimeout(120_000);await new Promise(resolve=>setTimeout(resolve,3200));
  await page.goto(ADMIN);await page.getByLabel('Admin username').fill('root');await page.getByLabel('Password',{exact:true}).fill('hunter2');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  await expect.poll(async()=>(await page.request.get(`${ADMIN}/session`)).status()).toBe(200);
- await page.goto(`${ADMIN}#/preferences`);await expect(page.getByRole('button',{name:'Add administrator passkey'})).toBeEnabled();
+ await page.goto(`${ADMIN}#/preferences/security`);await expect(page.getByRole('button',{name:'Add administrator passkey'})).toBeEnabled();
  const path=`${ADMIN}/settings/twofa.passkeysEnabled`;const original=await page.request.get(path);expect(original.status()).toBe(200);const previous=(await original.json()).globalValue;
  const set=async(value:unknown):Promise<void>=>{const row=await page.request.get(path);const saved=await page.request.put(path,{headers:{'if-match':row.headers()['etag']!},data:{globalValue:value}});expect(saved.status(),await saved.text()).toBe(200);};
  const user=await browser.newPage({baseURL:baseURL!,viewport:page.viewportSize()!});

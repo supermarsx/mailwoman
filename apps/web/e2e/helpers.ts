@@ -59,6 +59,139 @@ export async function signInManually(
 }
 
 /**
+ * A narrow ribbon folds whole groups into "More <group> commands" buttons. Make
+ * `control` visible: as it is, or by opening each folded group in `scope` in turn
+ * (closing the previous one with Escape) until it shows. Fails when no group holds it.
+ */
+export async function revealRibbonControl(page: Page, scope: Locator, control: Locator): Promise<Locator> {
+  // A folded group keeps its controls laid out off screen for measuring, which
+  // Playwright still counts as visible: shown means a box inside the viewport.
+  const shown = async (): Promise<boolean> => {
+    if (!(await control.isVisible().catch(() => false))) return false;
+    const box = await control.boundingBox().catch(() => null);
+    const size = page.viewportSize();
+    return !!box && !!size && box.width > 1 && box.x >= 0 && box.y >= 0 && box.x + box.width <= size.width + 1 && box.y + box.height <= size.height + 1;
+  };
+  // A newly mounted/tab-switched ribbon folds over successive animation frames.
+  // Retry discovery as well as the visibility assertion, so an early empty set
+  // of More buttons cannot strand the test waiting for a folded-away control.
+  await expect(async () => {
+    if (await shown()) return;
+    const folded = scope.getByRole('button', { name: /^More .+ commands$/ }).filter({ visible: true });
+    const count = await folded.count();
+    for (let i = 0; i < count; i += 1) {
+      const more = folded.nth(i);
+      await more.click({ timeout: 1000 });
+      for (let tries = 0; tries < 5 && !(await shown()); tries += 1) await page.waitForTimeout(100);
+      if (await shown()) return;
+      await page.keyboard.press('Escape');
+    }
+    expect(await shown(), 'the control is on screen, inline or in a folded group').toBe(true);
+  }).toPass({ timeout: 10000 });
+  return control;
+}
+
+/** Isolate full-width editor/geometry tests from a previous saved split layout. */
+export async function useTabbedWorkspace(page: Page): Promise<() => Promise<void>> {
+  const endpoint = '/api/account/preferences';
+  const original = await (await page.request.get(endpoint)).json() as { preferences: Record<string, unknown> };
+  const authority = (await (await page.request.get('/api/me')).json() as { storageAuthority: string }).storageAuthority;
+  await page.getByRole('group', { name: 'View arrangement' }).getByRole('button', { name: 'Tabs', exact: true }).click();
+  await expect.poll(async () => (await (await page.request.get(endpoint)).json()).preferences.workspaceLayout).toBe('tabs');
+  return async () => {
+    const current = await page.request.get(endpoint);
+    const document = await current.json() as { version: number; preferences: Record<string, unknown> };
+    if (original.preferences['workspaceLayout'] === undefined) delete document.preferences['workspaceLayout'];
+    else document.preferences['workspaceLayout'] = original.preferences['workspaceLayout'];
+    expect((await page.request.put(endpoint, {
+      headers: { 'if-match': current.headers()['etag']!, 'x-mailwoman-storage-authority': authority }, data: document,
+    })).status()).toBe(200);
+  };
+}
+
+/**
+ * Set one of testuser's own settings for the length of a test, from a request
+ * context of its own (so it works before the spec signs in and after it signs
+ * out), and return the undo: the earlier user value back, or the user value
+ * removed when there was none. `request` is `playwright.request` from the test
+ * fixture, so writes carry the CSRF header (csrf.ts); every write also carries
+ * the session's storage authority, as the web client sends it.
+ */
+export async function withUserSetting(
+  request: APIRequest,
+  baseURL: string,
+  key: string,
+  value: unknown,
+): Promise<() => Promise<void>> {
+  const session = async <T>(work: (ctx: APIRequestContext, headers: Record<string, string>) => Promise<T>): Promise<T> => {
+    const ctx = await request.newContext({ baseURL });
+    try {
+      const login = await postSignIn(ctx, '/api/login', { username: 'testuser', password: 'testpass' });
+      expect(login.ok(), `sign in for ${key}: ${login.status()}`).toBe(true);
+      const me = (await (await ctx.get('/api/me')).json()) as { storageAuthority: string };
+      return await work(ctx, { 'x-mailwoman-storage-authority': me.storageAuthority });
+    } finally {
+      await ctx.dispose();
+    }
+  };
+  const before = await session(async (ctx, headers) => {
+    const settings = (await (await ctx.get('/api/settings')).json()) as { settings: Record<string, { source: string; value: unknown } | undefined> };
+    const put = await ctx.put(`/api/settings/${key}`, { headers, data: { value } });
+    expect(put.ok(), `PUT ${key}: ${put.status()}`).toBe(true);
+    return settings.settings[key];
+  });
+  return async () => {
+    await session(async (ctx, headers) => {
+      const undo = before?.source === 'user'
+        ? await ctx.put(`/api/settings/${key}`, { headers, data: { value: before.value } })
+        : await ctx.delete(`/api/settings/${key}`, { headers });
+      expect(undo.ok(), `restore ${key}: ${undo.status()}`).toBe(true);
+    });
+  };
+}
+
+/**
+ * Below 600 px the composer ribbon starts in auto-hide (9dab0fe7, D4), with its
+ * groups folded until a tab is pressed; an explicit "pinned" keeps it open
+ * (composer-tools-live checks both). Specs about what the ribbon's controls DO
+ * pin it on the phone project as a user would, through `ui.bar.composerRibbon`,
+ * and put the setting back afterwards. Call from `test.beforeEach`; it returns
+ * the undo for `test.afterEach` (a no-op on the desktop projects).
+ */
+export async function pinComposerRibbonOnPhone(
+  request: APIRequest,
+  baseURL: string | undefined,
+  project: string,
+): Promise<() => Promise<void>> {
+  if (project !== 'phone') return async () => {};
+  return withUserSetting(request, baseURL ?? '', 'ui.bar.composerRibbon', 'pinned');
+}
+
+/**
+ * POST a JMAP request the way the web client does (`src/api/client.ts`): the
+ * server admits a few JMAP requests at once (`maxConcurrentRequests`) and answers
+ * the rest 429 `urn:ietf:params:jmap:error:limit`. A spec that calls `/jmap/api`
+ * while the app it just signed in to is still loading is one more client, so it
+ * waits and resends on that answer (100, 250, 500, 1000, 2000 ms, then 2 s for up
+ * to 20 s in all). Any other answer, including any other 429, is returned as is.
+ */
+export async function postJmap(
+  ctx: APIRequestContext,
+  options: { data: unknown; headers?: Record<string, string> },
+): Promise<APIResponse> {
+  const waits = [100, 250, 500, 1000, 2000, ...Array<number>(8).fill(2000)];
+  let res = await ctx.post('/jmap/api', options);
+  for (const wait of waits) {
+    if (res.status() !== 429) break;
+    const body = (await res.json().catch(() => null)) as { type?: unknown; limit?: unknown } | null;
+    if (body?.type !== 'urn:ietf:params:jmap:error:limit' || body.limit !== 'maxConcurrentRequests') break;
+    await new Promise((resolve) => setTimeout(resolve, wait));
+    res = await ctx.post('/jmap/api', options);
+  }
+  return res;
+}
+
+/**
  * POST a sign-in over the API, waiting out the server's sign-in cooldown (429
  * `signinCooldown` + Retry-After, see `signInManually`) up to three times.
  */
@@ -300,6 +433,8 @@ export interface InjectAttachment {
   content?: string;
   /** Pre-encoded base64 payload (for real binary like a PNG). */
   base64?: string;
+  /** An inline Content-ID referenced by an HTML body. */
+  cid?: string;
 }
 
 export async function injectViaSmtp(opts: {
@@ -307,6 +442,9 @@ export async function injectViaSmtp(opts: {
   subject: string;
   text: string;
   to?: string;
+  /** Optional sanitized-reader fixture source; plain text remains the default. */
+  html?: string;
+  requestReceipt?: boolean;
   /** Shorthand for a single octet-stream attachment. */
   withAttachment?: { filename: string; content: string };
   /** One or more typed attachments (image/pdf/video/…) for the viewer specs. */
@@ -335,23 +473,25 @@ export async function injectViaSmtp(opts: {
         const folded = b64.replace(/(.{76})/g, '$1\r\n');
         return (
           `--${bound}\r\nContent-Type: ${p.contentType}; name="${p.filename}"\r\n` +
-          `Content-Disposition: attachment; filename="${p.filename}"\r\n` +
+          `Content-Disposition: ${p.cid?'inline':'attachment'}; filename="${p.filename}"\r\n` +
+          (p.cid?`Content-ID: <${p.cid}>\r\n`:'') +
           `Content-Transfer-Encoding: base64\r\n\r\n${folded}\r\n`
         );
       })
       .join('');
     body =
       `MIME-Version: 1.0\r\n` +
-      `Content-Type: multipart/mixed; boundary="${bound}"\r\n\r\n` +
-      `--${bound}\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${opts.text}\r\n` +
+      `Content-Type: multipart/${parts.every(part=>part.cid)?'related':'mixed'}; boundary="${bound}"\r\n\r\n` +
+      `--${bound}\r\nContent-Type: ${opts.html===undefined?'text/plain':'text/html'}; charset=utf-8\r\n\r\n${opts.html??opts.text}\r\n` +
       attachmentParts +
       `--${bound}--\r\n`;
   } else {
-    body = `MIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\n\r\n${opts.text}\r\n`;
+    body = `MIME-Version: 1.0\r\nContent-Type: ${opts.html===undefined?'text/plain':'text/html'}; charset=utf-8\r\n\r\n${opts.html??opts.text}\r\n`;
   }
 
   const message =
     `From: ${opts.from}\r\nTo: ${to}\r\nSubject: ${opts.subject}\r\n` +
+    (opts.requestReceipt ? `Message-ID: <receipt-${Date.now()}@example.test>\r\nDisposition-Notification-To: ${opts.from}\r\n` : '') +
     `Date: ${new Date().toUTCString()}\r\n${body}`;
 
   const steps = [

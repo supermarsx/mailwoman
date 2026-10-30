@@ -63,7 +63,7 @@ async function reach(page: Page, tab: string, group: string, control: Locator): 
   await expect(control).toBeVisible();
 }
 async function closeFolded(page: Page): Promise<void> {
-  if (await page.locator('[data-ribbon-popover]:popover-open').count()) await page.keyboard.press('Escape');
+  if (await page.locator('[data-ribbon-popover]:visible').count()) await page.keyboard.press('Escape');
 }
 async function setSource(page: Page, compose: Locator, html: string): Promise<void> {
   const toggle = compose.getByTestId('format-toggle');
@@ -181,7 +181,10 @@ test('the dark background is view only: the sent HTML is the same with it on or 
     await reach(page, 'Format text', 'View', button());
     if ((await button().getAttribute('aria-pressed')) !== String(dark)) await button().click();
     await expect(button()).toHaveAttribute('aria-pressed', String(dark));
-    await expect(surface(compose)).toHaveAttribute('data-surface', dark ? 'dark' : 'light');
+    // data-tone is what the surface shows; data-surface is the stored choice, which
+    // is 'theme' (follow the app, light here) until the first press on a new account.
+    await expect(surface(compose)).toHaveAttribute('data-tone', dark ? 'dark' : 'light');
+    await expect(surface(compose)).toHaveAttribute('data-surface', dark ? 'dark' : /^(light|theme)$/);
     await closeFolded(page);
     // Black text is the unreadable one on dark, white text on white; both are shown in a readable shade.
     await expect.poll(() => tone(compose)).toEqual({ dark, adjusted: [dark ? 'ink' : 'chalk'] });

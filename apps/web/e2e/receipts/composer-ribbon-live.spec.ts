@@ -1,6 +1,13 @@
 import {test,expect} from '../csrf.ts';
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {pinComposerRibbonOnPhone,revealRibbonControl} from '../helpers.ts';
+
+// 9dab0fe7 (D4): below 600 px the ribbon starts in auto-hide; these legs are about
+// what its controls do, so the phone project pins it for the test (helpers.ts).
+let unpinRibbon:()=>Promise<void>=async()=>{};
+test.beforeEach(async({playwright,baseURL},info)=>{unpinRibbon=await pinComposerRibbonOnPhone(playwright.request,baseURL,info.project.name);});
+test.afterEach(async()=>{await unpinRibbon();});
 // Optional current SPA overlay on the isolated mail fixture. API calls remain real;
 // server shell routing is covered separately by t32_workspace_popup.
 test.beforeEach(async({context})=>{
@@ -25,7 +32,7 @@ test('keeps compact ribbon controls above the retained editor and round-trips so
  await page.locator('#shell-nav').getByRole('button',{name:'Compose',exact:true}).click();
  const compose=page.locator('.workspace-compose').last();await compose.getByLabel('Subject',{exact:true}).fill(`Ribbon ${info.project.name}`);
  // On a phone the ribbon folds groups into dropdowns (t38-e5); open one when its control is folded away.
- const unfold=async(group:string,control:import('@playwright/test').Locator)=>{const more=compose.getByRole('button',{name:`More ${group} commands`,exact:true});if(!(await control.isVisible())&&await more.isVisible())await more.click();};
+ const unfold=async(_group:string,control:import('@playwright/test').Locator)=>{await revealRibbonControl(page,compose.locator('.compose-ribbon'),control);};
  const editor=compose.locator('.ProseMirror');await editor.fill('Generated rich HTML');await editor.press('Control+a');await unfold('Font',compose.getByRole('button',{name:'Bold',exact:true}));await compose.getByRole('button',{name:'Bold',exact:true}).click();await expect(editor.locator('strong')).toHaveText('Generated rich HTML');
  expect(await compose.locator('.compose-rt > .compose-rt__chrome').count()).toBe(0);
  await expect(compose.getByRole('button',{name:'Cancel',exact:true})).toHaveCount(0);await expect(compose.getByRole('button',{name:'Close',exact:true})).toHaveCount(0);

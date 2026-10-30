@@ -2,7 +2,7 @@ import {test,expect} from '../csrf.ts';
 test('keeps tab actions contextual and reorders with desktop pointer or phone keyboard',async({page},info)=>{
  page.setDefaultTimeout(15000);
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
- const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
+ const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.mouse.move(1,1);const target=page.locator('#shell-nav').getByRole('button',{name,exact:true});await target.scrollIntoViewIfNeeded();await target.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));await target.click();};
  for(const name of ['Calendar','Contacts','Notes'])await navigate(name);
  await expect(page.locator('.subtab__pin,.subtab__tearoff')).toHaveCount(0);
  await expect(page.getByRole('button',{name:'Close Contacts',exact:true})).toHaveCount(0);

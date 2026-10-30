@@ -77,7 +77,7 @@ const v4 = (cidr: string, country: string) => { const [a, l] = cidr.split('/') a
 const database = gzipSync(mmdb([v4('127.0.0.0/8', 'PT'), { bits: 1n, prefix: 128, country: 'PT' }, v4('81.2.69.0/24', 'GB'), v4('89.114.0.0/16', 'PT')]));
 
 // ── the mock provider: TLS origin for 8.8.8.8 and a CONNECT proxy to it ──────
-type Provider = { ca: string; proxyPort: number; hits: string[]; close: () => Promise<void> };
+type Provider = { ca: string; proxyPort: number; hits: string[]; pause: () => () => void; close: () => Promise<void> };
 async function startProvider(): Promise<Provider> {
   const dir = mkdtempSync(join(tmpdir(), 'mw-t96-ca-'));
   const ssl = (...args: string[]) => execFileSync('openssl', args, { cwd: dir, stdio: 'pipe' });
@@ -87,9 +87,18 @@ async function startProvider(): Promise<Provider> {
   writeFileSync(join(dir, 'ext.cnf'), 'subjectAltName=IP:8.8.8.8\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature\n');
   ssl('x509', '-req', '-in', 'leaf.csr', '-CA', 'ca.pem', '-CAkey', 'ca.key', '-CAcreateserial', '-out', 'leaf.pem', '-days', '2', '-extfile', 'ext.cnf');
   const hits: string[] = [];
+  let held: Promise<void> | undefined;
   const origin: HttpsServer = httpsServer({ key: readFileSync(join(dir, 'leaf.key')), cert: readFileSync(join(dir, 'leaf.pem')) }, (req, res) => {
     hits.push(req.url ?? '');
-    if (req.url === '/dbip-country-lite.mmdb.gz') { res.writeHead(200, { 'content-type': 'application/gzip', 'content-length': database.length }); res.end(database); return; }
+    if (req.url === '/dbip-country-lite.mmdb.gz') {
+      res.writeHead(200, { 'content-type': 'application/gzip', 'content-length': database.length });
+      const waiting = held; held = undefined;
+      if (waiting) {
+        const half = Math.floor(database.length / 2); res.write(database.subarray(0, half));
+        void waiting.then(() => res.end(database.subarray(half)));
+      } else res.end(database);
+      return;
+    }
     res.writeHead(404); res.end();
   });
   await new Promise<void>(done => origin.listen(0, '127.0.0.1', done));
@@ -106,6 +115,7 @@ async function startProvider(): Promise<Provider> {
   await new Promise<void>(done => proxy.listen(0, '127.0.0.1', done));
   const ca = readFileSync(join(dir, 'ca.pem'), 'utf8');
   return {
+    pause: () => { let release!: () => void; held = new Promise<void>(resolve => { release = resolve; }); return release; },
     ca, hits, proxyPort: (proxy.address() as { port: number }).port,
     close: async () => { for (const s of sockets) s.destroy(); await Promise.all([new Promise(d => proxy.close(() => d(null))), new Promise(d => origin.close(() => d(null)))]); rmSync(dir, { recursive: true, force: true }); },
   };
@@ -202,8 +212,26 @@ test('country database: missing → Download now → loaded, test lookup, sign-i
 
         // Download now, in place: the region node survives the action.
         const regionHandle = await region.elementHandle();
-        await page.getByRole('button', { name: 'Download now', exact: true }).click();
+        const release = provider.pause();
+        let progressId: string | null = null;
+        try {
+          await page.getByRole('button', { name: 'Download now', exact: true }).click();
+          const progress = page.getByTestId('geoip-download-toast');
+          await expect(progress).toHaveAttribute('data-busy', 'true');
+          await expect(progress).toContainText(/Downloading the country database.* of /, {timeout: 15000});
+          await expect(progress).toHaveCount(1);
+          expect(await noSideScroll(page), 'progress toast fits the viewport').toBe(true);
+          const snapshot = await (await api.get(`${ADMIN}/security/geoip`)).json();
+          expect(snapshot.downloadProgress.receivedBytes).toBe(Math.floor(database.length / 2));
+          expect(snapshot.downloadProgress.totalBytes).toBe(database.length);
+          expect(snapshot.downloadProgress.phase).toBe('downloading');
+          await expect(region).not.toContainText('Downloading the country database');
+          progressId = await progress.getAttribute('data-toast-id');
+          await page.screenshot({path: shot(info, `${width}-download-progress`), fullPage: true, animations: 'disabled'});
+        } finally { release(); }
         await expect(page.getByText('The new database is installed and in use.')).toBeVisible({ timeout: 60000 });
+        await expect(page.getByTestId('geoip-download-toast')).toHaveAttribute('data-toast-id', progressId!);
+        await expect(page.getByTestId('geoip-download-toast')).not.toHaveAttribute('data-busy', 'true');
         await expect(status).toContainText('Loaded');
         await expect(status).toContainText('DBIP-Country-Lite-Test');
         await expect(page.getByText(/An active country policy refuses sign-in/)).toHaveCount(0);

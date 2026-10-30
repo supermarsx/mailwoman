@@ -57,7 +57,9 @@ test('read, flag, move, delete and folder changes on device A show live on devic
   const reader=b.getByRole('heading',{name:subjects.open,exact:true});
   await expect(reader).toBeVisible();
   // Read by a third session, so A's and B's own refreshes do not compete with it.
-  const probe=await playwright.request.newContext({...(baseURL?{baseURL}:{})});
+  // This count-only session belongs to device A. Reuse its user agent so the
+  // probe does not introduce a third-device security notice into Inbox mid-move.
+  const probe=await playwright.request.newContext({...(baseURL?{baseURL}:{}),userAgent:await page.evaluate(()=>navigator.userAgent)});
   expect((await probe.post('/api/login',{data:{username:'testuser',password:'testpass'}})).ok()).toBe(true);
   // The server caps concurrent JMAP requests; like the web client, retry a 429 at once.
   const counts=async()=>{let response=await probe.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[['Mailbox/get',{accountId,ids:[inbox.id,archive.id]},'c']]}});

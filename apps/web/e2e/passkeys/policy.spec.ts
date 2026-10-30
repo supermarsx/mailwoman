@@ -1,5 +1,6 @@
 import { test, expect, type Page } from '../csrf.ts';
-import { signInManually } from '../helpers.ts';
+import { signInManually,postSignIn,ENGINE_ADMIN } from '../helpers.ts';
+import {ADMIN} from '../admin/admin-path.ts';
 
 // t39-e6: the administrator passkey policy against a real server, with
 // Chromium's virtual authenticators (CDP WebAuthn); no navigator.credentials
@@ -12,9 +13,26 @@ import { signInManually } from '../helpers.ts';
 //   PLAYWRIGHT_PASSKEY_BASE_URL=http://localhost:42239 (an IP is not a valid WebAuthn RP ID) \
 //     npx playwright test -c e2e/passkeys/playwright.passkeys.config.ts policy.spec.ts
 
-const USER = 'testuser@example.org';
+const receiptsStack=!!process.env['MW_RECEIPTS_IMAP_SERVER'];
+// The engine fixture accepts new usernames; isolate this enrolled key from other ceremonies.
+const USER = process.env['MW_E2E_USERNAME']??(receiptsStack?`passkey-policy-${Date.now()}`:'testuser@example.org');
 const PASS = 'testpass';
 const SHOTS = process.env['MW_T39_SHOTS'];
+
+let restorePolicy:()=>Promise<void>=async()=>{};
+test.beforeEach(async({playwright,baseURL})=>{
+ if(!receiptsStack)return; // The standalone t39 fixture already installs this policy.
+ const admin=await playwright.request.newContext({...(baseURL?{baseURL}:{})});
+ expect((await postSignIn(admin,`${ADMIN}/login`,ENGINE_ADMIN)).status()).toBe(200);
+ const previous:{key:string;value:unknown}[]=[];
+ restorePolicy=async()=>{try{for(const {key,value} of previous){const current=await admin.get(`${ADMIN}/settings/${key}`);expect((await admin.put(`${ADMIN}/settings/${key}`,{headers:{'if-match':current.headers()['etag']!},data:{globalValue:value}})).ok()).toBe(true);}}finally{await admin.dispose();}};
+ for(const [key,value] of [['twofa.passkeyAttachment','platform'],['twofa.passkeyUserVerification','required']]){
+  const current=await admin.get(`${ADMIN}/settings/${key}`);expect(current.ok()).toBe(true);
+  previous.push({key:key!,value:(await current.json()).stored?.globalValue??null});
+  expect((await admin.put(`${ADMIN}/settings/${key}`,{headers:{'if-match':current.headers()['etag']!},data:{globalValue:value}})).ok()).toBe(true);
+ }
+});
+test.afterEach(async()=>{await restorePolicy();});
 
 async function shot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: SHOTS ? `${SHOTS}/${name}.png` : test.info().outputPath(`${name}.png`), fullPage: true });

@@ -1,4 +1,4 @@
-import {test,expect} from '../csrf.ts';
+import {test,expect,withCsrf} from '../csrf.ts';
 import { ADMIN } from '../admin/admin-path.ts';
 import {mkdirSync} from 'node:fs';
 import type {Browser,Page,Response,TestInfo} from '@playwright/test';
@@ -28,6 +28,7 @@ const at=(path:string)=>(r:Response)=>new URL(r.url()).pathname===`${ADMIN}${pat
 
 async function signIn(browser:Browser,info:TestInfo):Promise<Page>{
   const context=await browser.newContext({baseURL:String(info.project.use.baseURL),viewport:SIZE,serviceWorkers:'block',locale:'en-US'});
+  withCsrf(context.request);
   const page=await context.newPage();
   await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill('root');
@@ -48,11 +49,11 @@ function checkShown(text:string,ms:number,what:string):void{
 
 test('dashboard database ping reads in its own unit',async({browser},info)=>{
   const page=await signIn(browser,info);
-  const dash=json<{health?:{dbPingMs:number}}>(page.waitForResponse(at('/dashboard')));
+  const dash=json<{health?:{components:{database:{metrics:{pingMs:number}}}}}>(page.waitForResponse(at('/dashboard')));
   await page.goto(`${ADMIN}#/dashboard`);
-  const ping=(await dash).health?.dbPingMs;
+  const ping=(await dash).health?.components.database.metrics.pingMs;
   expect(typeof ping).toBe('number');
-  const row=page.getByText(/^Answered in /).first();
+  const row=page.getByTestId('health-database-stats').locator('dd').first();
   await expect(row).toBeVisible({timeout:30000});
   const text=(await row.textContent())!;
   checkShown(text,ping!,'dashboard ping');
@@ -73,7 +74,8 @@ test('statistics: database tile and response-time charts',async({browser},info)=
   checkShown((await tile.textContent())!.replace('Database query time',''),ping,'database tile');
 
   const series=(await history).series;
-  const region=page.getByRole('region',{name:'Response time, median'});
+  // t106: median and 95th percentile share one Response time card; column 2 is the median.
+  const region=page.getByRole('region',{name:'Response time',exact:true});
   await expect(region).toBeVisible();
   const cells=await region.locator('table tbody tr td:nth-child(2)').allTextContents();
   expect(cells.length).toBe(series.length);
@@ -105,8 +107,8 @@ test('diagnostics: each check time matches the server and sub-ms reads in μs',a
   const answer=json<{run:{results:{summary:string;status:string;durationMs:number;durationUs?:number}[]}}>(page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/diag/run`&&r.request().method()==='POST'));
   if(redesigned){
     await page.goto(`${ADMIN}#/diagnostics/server`);
-    const card=page.locator('article,section,li').filter({hasText:'Database connection'}).filter({has:page.getByRole('button',{name:'Run again'})}).last();
-    await card.getByRole('button',{name:'Run again'}).click();
+    const card=page.getByRole('row',{name:'Database connection',exact:true});
+    await card.getByRole('button',{name:/^Run(?: again)?$/}).click();
   }else{
     await expect(legacy).toBeEnabled();
     await legacy.click();

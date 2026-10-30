@@ -35,7 +35,7 @@ const port = Number(process.env.MW_FIXTURE_PORT ?? 46180);
 const smtp = Number(process.env.MW_FIXTURE_SMTP ?? 46625);
 const imap = Number(process.env.MW_FIXTURE_IMAP ?? 46643);
 const container = `mw-linked-live-greenmail-${port}`;
-const admin = { username: 'root', password: 'linked-fixture-admin' };
+const admin = { username: 'root', password: process.env.MW_FIXTURE_ADMIN_PASSWORD ?? 'linked-fixture-admin' };
 // t76: the console path this fixture serves (a new database would get a generated one).
 const adminPath = process.env.MW_E2E_ADMIN_PATH ?? '/admin';
 const base = `http://127.0.0.1:${port}`;

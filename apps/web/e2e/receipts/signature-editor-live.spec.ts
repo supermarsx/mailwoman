@@ -14,6 +14,14 @@ import { test, expect } from '../csrf.ts';
 import net from 'node:net';
 import path from 'node:path';
 import { colorTrigger, pickColor } from '../colorPicker.ts';
+import {pinComposerRibbonOnPhone,revealRibbonControl,useTabbedWorkspace} from '../helpers.ts';
+
+// 9dab0fe7 (D4): below 600 px the ribbon starts in auto-hide; these legs are about
+// what its controls do, so the phone project pins it for the test (helpers.ts).
+let unpinRibbon:()=>Promise<void>=async()=>{};
+let restoreLayout:()=>Promise<void>=async()=>{};
+test.beforeEach(async({playwright,baseURL},info)=>{unpinRibbon=await pinComposerRibbonOnPhone(playwright.request,baseURL,info.project.name);});
+test.afterEach(async()=>{try{await restoreLayout();}finally{restoreLayout=async()=>{};await unpinRibbon();}});
 
 const imap = process.env['MW_T49_IMAP'] ?? '127.0.0.1:3143';
 const PNG = 'iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEUlEQVR4nGOQ96vEihiGlgQAYZI5gapHhb8AAAAASUVORK5CYII=';
@@ -89,11 +97,9 @@ function ribbonViolations(root: Element): string[] {
 
 /** A ribbon group's control, through its folded dropdown when the width folds it. */
 async function control(page: Page, scope: string, group: string, find: (page: Page) => ReturnType<Page['getByRole']>): Promise<ReturnType<Page['getByRole']>> {
-  const target = find(page);
-  if (await target.isVisible()) return target;
-  await page.locator(scope).getByRole('button', { name: `More ${group} commands` }).click();
-  await expect(target).toBeVisible();
-  return target;
+  const more=page.locator(scope).getByRole('button',{name:`More ${group} commands`,exact:true});
+  if(await more.isVisible() && await more.getAttribute('aria-expanded')!=='true')await more.click();
+  return revealRibbonControl(page,page.locator(scope),find(page));
 }
 
 async function signIn(page: Page): Promise<void> {
@@ -118,6 +124,9 @@ test('the signature editor is the composer editor, and a rich signature survives
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(String(e)));
   await signIn(page);
+  // Other workspace tests deliberately persist split panes. This test covers
+  // the full signature/composer ribbon, independently of that saved arrangement.
+  restoreLayout=await useTabbedWorkspace(page);
   await openSignatures(page, phone);
   await page.getByRole('button', { name: 'New signature', exact: true }).click();
   const name = `Rich ${info.project.name} ${Date.now()}`;
@@ -139,8 +148,9 @@ test('the signature editor is the composer editor, and a rich signature survives
   await pickColor(page.locator(scope), 'Font color', '#1f4e79', await control(page, scope, 'Font', (p) => colorTrigger(p.locator(scope), 'Font color')));
   // A link on the name.
   await editor.click();
-  await page.keyboard.press('End');
-  for (let i = 0; i < 'Mariana'.length; i++) await page.keyboard.press('Shift+ArrowLeft');
+  await page.keyboard.press('ControlOrMeta+End');
+  await page.keyboard.press('Control+Shift+ArrowLeft');
+  expect(await page.evaluate(()=>getSelection()?.toString())).toBe('Mariana');
   await ribbon.getByRole('tab', { name: 'Insert' }).click();
   await (await control(page, scope, 'Insert', (p) => p.locator(scope).getByTestId('rt-link'))).click();
   await page.getByRole('textbox', { name: 'Link' }).fill('https://example.org/mariana');

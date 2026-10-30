@@ -15,6 +15,7 @@ import { deflateSync } from 'node:zlib';
 import { connect, type Socket } from 'node:net';
 import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
+import { postJmap, useTabbedWorkspace } from '../helpers.ts';
 
 const SHOTS = process.env['MW_T67_SHOTS'] ?? 'test-results/t67';
 const adminPath = process.env['MW_E2E_ADMIN_PATH'] ?? '/admin';
@@ -168,12 +169,13 @@ test('1. the loading-images toast ends in a failure count with Retry, not "Loadi
 
 test('2. a toast stays clear of the bulk-selection bar in a 1440 px folder tab', async ({ page }, info) => {
   await signIn(page);
+  const restoreLayout = await useTabbedWorkspace(page);
   // A folder with a long name: starring its tab raises a toast as wide as the
   // column allows (28rem), whose start reaches under the right end of the bar.
   const session = await (await page.request.get('/jmap/session')).json() as { primaryAccounts: Record<string, string> };
   const accountId = session.primaryAccounts['urn:ietf:params:jmap:mail'];
   const call = async (name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> => {
-    const r = await page.request.post('/jmap/api', { data: { using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'], methodCalls: [[name, { accountId, ...args }, 'c']] } });
+    const r = await postJmap(page.request, { data: { using: ['urn:ietf:params:jmap:core', 'urn:ietf:params:jmap:mail'], methodCalls: [[name, { accountId, ...args }, 'c']] } });
     expect(r.ok(), await r.text()).toBe(true);
     return ((await r.json()) as { methodResponses: [string, Record<string, unknown>][] }).methodResponses[0]![1];
   };
@@ -215,6 +217,7 @@ test('2. a toast stays clear of the bulk-selection bar in a 1440 px folder tab',
   } finally {
     await moveBack().catch(() => undefined);
     await call('Mailbox/set', { destroy: [folderId], onDestroyRemoveEmails: false }).catch(() => undefined);
+    await restoreLayout();
   }
 });
 

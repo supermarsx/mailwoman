@@ -182,7 +182,7 @@ test('each bar starts pinned, and pin or auto-hide is stored on the server for e
 test('an administrator default applies, and a locked bar cannot be changed', async ({ page, playwright }) => {
   const admin = await playwright.request.newContext({ baseURL: String(test.info().project.use.baseURL) });
   const login = await admin.post('/admin/login', { data: ADMIN });
-  test.skip(login.status() !== 200, `no admin sign-in on this stack (${login.status()})`);
+  expect(login.status(), 'configured admin fixture must sign in').toBe(200);
   const put = async (key: string, data: Record<string, unknown>): Promise<number> => {
     const etag = (await admin.get(`/admin/settings/${key}`)).headers()['etag'];
     return (await admin.put(`/admin/settings/${key}`, { data, headers: etag ? { 'if-match': etag } : {} })).status();
@@ -228,7 +228,7 @@ test('an administrator default applies, and a locked bar cannot be changed', asy
 test('a domain default and lock apply to that domain only', async ({ page, browser, playwright }, info) => {
   const admin = await playwright.request.newContext({ baseURL: String(info.project.use.baseURL) });
   const login = await admin.post('/admin/login', { data: ADMIN });
-  test.skip(login.status() !== 200, `no admin sign-in on this stack (${login.status()})`);
+  expect(login.status(), 'configured admin fixture must sign in').toBe(200);
   const key = 'ui.bar.mailRibbon';
   const other = await browser.newContext({ baseURL: String(info.project.use.baseURL), viewport: page.viewportSize(), hasTouch: info.project.use.hasTouch === true, locale: 'en-US', serviceWorkers: 'block' });
   const child = await other.newPage();

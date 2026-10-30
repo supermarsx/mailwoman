@@ -12,9 +12,18 @@ test('creates and edits a contact on dedicated pages with explicit discard',asyn
  await page.getByRole('button',{name:'Cancel',exact:true}).click();
  await expect(page.getByRole('alertdialog')).toBeVisible();await page.getByRole('button',{name:'Keep editing',exact:true}).click();
  await expect(page.getByLabel('Full name',{exact:true})).toHaveValue(name);
+ // f1a656bb: Contacts is a retained workspace tab. Switching surfaces (here by the
+ // URL) keeps the unsaved editor alive in its tab; closing that tab is what asks.
  await page.evaluate(()=>{location.hash='#/mail';});
- await expect(page.getByRole('alertdialog')).toBeVisible();await page.getByRole('button',{name:'Keep editing',exact:true}).click();
+ await expect(page.getByRole('tab',{name:'Mail',exact:true})).toHaveAttribute('aria-selected','true');
+ await expect(page.getByRole('alertdialog')).toHaveCount(0);
+ await page.getByRole('tab',{name:'Contacts',exact:true}).click();
  await expect(page).toHaveURL(/#\/contacts$/);
+ await expect(page.getByLabel('Full name',{exact:true})).toHaveValue(name);
+ await page.getByRole('button',{name:'Close Contacts',exact:true}).click();
+ const closing=page.getByRole('alertdialog',{name:'Discard unsaved changes?'});await expect(closing).toBeVisible();
+ await closing.getByRole('button',{name:'Keep editing',exact:true}).click();await expect(closing).toHaveCount(0);
+ await expect(page.getByRole('tab',{name:'Contacts',exact:true})).toHaveAttribute('aria-selected','true');
  await expect(page.getByLabel('Full name',{exact:true})).toHaveValue(name);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  await page.screenshot({path:info.outputPath('contact-exclusive-editor.png'),fullPage:true});

@@ -229,14 +229,19 @@ for(const width of [1440,390]){
   page.on('request',onReq);page.on('framenavigated',onNav);page.on('frameattached',onNav);
   const fb=(await reader(page).locator('iframe.reader__frame').first().boundingBox())!;
   await page.mouse.move(fb.x+fb.width/2,fb.y+Math.min(fb.height/2,150));
-  await page.keyboard.down('Control');for(let i=0;i<12;i++)await page.mouse.wheel(0,-60);await page.keyboard.up('Control');
+  await page.evaluate(()=>{const samples:{time:number;delta:number;trusted:boolean}[]=[];(window as unknown as {t79WheelSamples:typeof samples}).t79WheelSamples=samples;document.addEventListener('wheel',event=>{if(event.ctrlKey)samples.push({time:performance.now(),delta:event.deltaY,trusted:event.isTrusted});},{capture:true});});
+  // Issue real pointer events together: sequential Firefox protocol waits can
+  // space notches beyond the 150ms burst contract under parallel browser load.
+  await page.keyboard.down('Control');await Promise.all(Array.from({length:12},()=>page.mouse.wheel(0,-60)));await page.keyboard.up('Control');
   await expect.poll(()=>levelOf(page)).toBe(200);
   await page.waitForTimeout(1500);
-  await page.keyboard.down('Control');for(let i=0;i<12;i++)await page.mouse.wheel(0,60);await page.keyboard.up('Control');
+  await page.keyboard.down('Control');await Promise.all(Array.from({length:12},()=>page.mouse.wheel(0,60)));await page.keyboard.up('Control');
   await expect.poll(()=>levelOf(page)).toBe(50);
   await page.waitForTimeout(1500);
   page.off('request',onReq);page.off('framenavigated',onNav);page.off('frameattached',onNav);
-  info.annotations.push({type:'wheel',description:JSON.stringify({puts,reloads})});
+  const wheelSamples=await page.evaluate(()=>(window as unknown as {t79WheelSamples:{time:number;delta:number;trusted:boolean}[]}).t79WheelSamples);
+  info.annotations.push({type:'wheel',description:JSON.stringify({puts,reloads,wheelSamples})});
+  for(const direction of [-1,1]){const group=wheelSamples.filter(sample=>Math.sign(sample.delta)===direction);expect(group).toHaveLength(12);expect(group.every(sample=>sample.trusted),'real browser wheel input').toBe(true);for(let i=1;i<group.length;i++)expect(group[i]!.time-group[i-1]!.time,'wheel notches delivered inside the burst window').toBeLessThan(150);}
   expect(reloads,'frame loads during the Ctrl+wheel bursts').toBe(0);
   // 14 level changes in all (100->200, 200->50); one write per change before t79.
   expect(puts,'preference writes for 2 x 12 wheel notches (14 level changes)').toBeLessThanOrEqual(6);

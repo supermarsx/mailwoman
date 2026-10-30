@@ -114,6 +114,9 @@ const tabs=(page:Page)=>page.getByTestId('inbox-tabs');
 const row=(page:Page,k:Key)=>page.locator('.list__row').filter({hasText:S[k].subject});
 async function openTab(page:Page,name:'Focused'|'Other'):Promise<void>{
  const tab=tabs(page).getByRole('tab',{name:new RegExp(`^${name}`)});
+ await expect(page.locator('section.list').filter({visible:true}).first()).toHaveAttribute('aria-busy','false');
+ await tab.scrollIntoViewIfNeeded();
+ await page.evaluate(()=>new Promise<void>(resolve=>requestAnimationFrame(()=>requestAnimationFrame(()=>resolve()))));
  await tab.click();await expect(tab).toHaveAttribute('aria-selected','true');
 }
 /** Which tab lists each fixture, read from the two tabs. */

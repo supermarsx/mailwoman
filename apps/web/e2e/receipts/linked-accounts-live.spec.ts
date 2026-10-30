@@ -140,8 +140,14 @@ test('native mailbox link switch, live updates, private settings and unlink keep
   await shot(page,info,'linked-picker-live-count.png');
   await expect(page.getByText('Live updates are unavailable',{exact:false})).toHaveCount(0);
 
-  // Switching shows the child's current list straight away.
+  // A real slow account switch reports its destination through one shared spinner.
+  await page.route('**/jmap/session',async route=>{await new Promise(done=>setTimeout(done,1200));await route.continue();},{times:1});
   await choose(page,link);
+  const loading=page.getByTestId('mail-loading-toast');
+  await expect(loading).toHaveCount(1);await expect(loading).toContainText('child@child.test');
+  await expect(loading.locator('[data-toast-spinner]')).toBeVisible();
+  await shot(page,info,'linked-switch-loading.png');
+  await expect(loading).toHaveCount(0,{timeout:20000});
   await expect(page.getByText(first).first()).toBeVisible({timeout:20000});
   // Live while the child is open: a second message appears without a reload.
   const second=`Linked live ${stamp} two`;
@@ -174,7 +180,10 @@ test('native mailbox link switch, live updates, private settings and unlink keep
   await page.keyboard.press('Escape');
 
   // Back on the parent: the child's count still moves live.
+  await page.route('**/jmap/session',async route=>{await new Promise(done=>setTimeout(done,1200));await route.continue();},{times:1});
   await choose(page,'');
+  await expect(loading).toHaveCount(1);await expect(loading).toContainText('parent@example.org');
+  await expect(loading).toHaveCount(0,{timeout:20000});
   const parentBefore=await serverUnread(page,link);
   await deliver('child@child.test',`Linked live ${stamp} three`);
   await expect(async()=>{expect(await badge(page,link)).toBe(parentBefore+1);}).toPass({timeout:30000});

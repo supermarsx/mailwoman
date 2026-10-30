@@ -315,15 +315,16 @@ test('renew access asks only for the password, and tells a wrong password from a
     await shot(page,project,`t70-renew-wrong-password-${size.name}.png`);
 
     if(size.name==='1440'){
-      // The mail server is down: the person is not told the password is wrong.
-      execFileSync('docker',['stop',CONTAINER]);
+      // Disconnect the initialized mail server: a transport timeout must not be reported as a wrong password.
+      // stop/start is unsuitable here: Greenmail greets before its users reload and briefly rejects correct passwords.
+      execFileSync('docker',['network','disconnect','bridge',CONTAINER]);
       try{
         await dialog.getByLabel('Password',{exact:true}).fill('child-pass');
         await dialog.getByRole('button',{name:'Renew access',exact:true}).click();
         await expect(dialog.getByRole('alert')).toContainText('could not be reached',{timeout:45000});
         await shot(page,project,`t70-renew-unreachable-${size.name}.png`);
       }finally{
-        execFileSync('docker',['start',CONTAINER]);
+        execFileSync('docker',['network','connect','bridge',CONTAINER]);
         await greenmailReady(page);
       }
     }

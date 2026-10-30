@@ -106,9 +106,15 @@ for(const scheme of ['light','dark'] as const){
       const button=nav.getByRole('button',{name:section,exact:true});
       if(await button.count()===0)continue;
       seen++;
-      await expect(button.locator('svg[data-icon]'),section).toHaveAttribute('data-icon',icon);
-      const box=await button.locator('svg[data-icon]').boundingBox();
-      expect(box?.width,section).toBeGreaterThan(10);
+      // Lazy section catalogs can replace the navigation between reading its
+      // label and scrolling it. Re-resolve that same section, not a stale node.
+      await expect(async()=>{
+        await expect(button.locator('svg[data-icon]'),section).toHaveAttribute('data-icon',icon);
+        await button.scrollIntoViewIfNeeded();
+        await expect(button.locator('svg[data-icon]')).toBeVisible();
+        const box=await button.locator('svg[data-icon]').boundingBox();
+        expect(box?.width,section).toBeGreaterThan(10);
+      }).toPass({timeout:10000});
     }
     // Sections the server does not offer are hidden; most are always there.
     expect(seen).toBeGreaterThanOrEqual(15);

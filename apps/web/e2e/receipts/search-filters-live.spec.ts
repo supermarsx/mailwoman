@@ -142,8 +142,10 @@ for (const width of [1440, 390]) {
     // 5. From the reader: "Search messages from this sender".
     await messageRow(page, third).click();
     const related = page.getByTestId('reader-search-related').filter({ visible: true }).first();
-    await expect(related).toBeVisible();
-    await related.click();
+    const readerActions=page.locator('section.reader').filter({visible:true}).first();
+    await expect.poll(async()=>await related.isVisible()||await readerActions.getByTestId('reader-more').isVisible()).toBe(true);
+    if(await related.isVisible()){await expect(related.locator('xpath=ancestor::*[@role="toolbar"]')).toHaveAttribute('aria-label','Message actions');await related.click();}
+    else{const reader=page.locator('section.reader').filter({visible:true}).first();await reader.getByTestId('reader-more').click();await page.getByRole('menuitem',{name:'Search related messages',exact:true}).click();}
     await shot('6-reader-menu');
     await page.getByRole('menuitem', { name: 'Search messages from this sender', exact: true }).click();
     await expect(searchBox(page)).toHaveValue(`from:"${bob}"`);

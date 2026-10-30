@@ -1121,11 +1121,31 @@ jobs:
           for pair in $ready; do case "$pair" in MW_*=*) export "${pair?}" ;; esac; done
           pnpm -C apps/web exec playwright test -c e2e/receipts/playwright.config.ts --workers=1 \
             --project=chromium --project=firefox linked-renew-live
+      - name: run account Drafts on Dovecot with UIDPLUS
+        if: success() || failure()
+        env:
+          MW_STACK_IMAP_SERVER: dovecot
+          MW_STACK_PORT: "42309"
+          MW_STACK_IMAP: "42343"
+          MW_STACK_CAPTURE: "42326"
+          MW_STACK_ENV: apps/web/test-results/dovecot-stack.env
+          MW_DSN_SMTP_CAPTURE: apps/web/test-results/dovecot-smtp
+        run: |
+          node scripts/e2e-receipts-stack.mjs > "$RUNNER_TEMP/dovecot-stack.log" 2>&1 &
+          env_file=apps/web/test-results/dovecot-stack.env
+          for _ in $(seq 1 150); do [ -f "$env_file" ] && break; sleep 2; done
+          if [ ! -f "$env_file" ]; then cat "$RUNNER_TEMP/dovecot-stack.log"; exit 1; fi
+          set -a
+          . "$env_file"
+          set +a
+          pnpm -C apps/web exec playwright test -c e2e/receipts/playwright.config.ts \
+            account-drafts-live receipts-live --workers=1 --output=test-results/dovecot
       - name: stack logs on failure
         if: failure()
         run: |
           cat "$RUNNER_TEMP/receipts-stack.log" || true
           cat "$RUNNER_TEMP/linked-renew.log" || true
+          cat "$RUNNER_TEMP/dovecot-stack.log" || true
       - name: upload Playwright results
         if: failure()
         uses: actions/upload-artifact@v4
@@ -1135,6 +1155,7 @@ jobs:
             apps/web/test-results/receipts
             apps/web/test-results/receipts-smtp
             apps/web/test-results/passkeys
+            apps/web/test-results/dovecot
           if-no-files-found: ignore
           retention-days: 7
 

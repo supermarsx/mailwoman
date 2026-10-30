@@ -1,5 +1,10 @@
 import {test,expect,type Page} from '../csrf.ts';
 
+// Account Drafts need an upstream with UIDPLUS or IMAP4rev2 (APPENDUID for the
+// saved copy). Greenmail has neither, so this runs on the receipts stack's
+// Dovecot leg (MW_STACK_IMAP_SERVER=dovecot) and skips on the Greenmail one.
+test.skip(process.env['MW_RECEIPTS_IMAP_SERVER']!=='dovecot','needs UIDPLUS: runs on the Dovecot leg of scripts/e2e-receipts-stack.mjs');
+
 test('account Drafts resumes on a fresh device and explicit discard removes the owned copy',async({page,browser},info)=>{
  const login=async(p:Page)=>{await p.goto('/');await p.getByLabel('Email or username',{exact:true}).fill('testuser');await p.getByLabel('Password',{exact:true}).fill('testpass');await p.getByRole('button',{name:'Sign in',exact:true}).click();await expect(p.getByRole('button',{name:'Compose',exact:true})).toBeVisible();};
  const compose=async(p:Page)=>{if(info.project.name==='phone')await p.getByRole('button',{name:'Open folders and apps'}).click();await p.locator('#shell-nav').getByRole('button',{name:'Compose',exact:true}).click();};
@@ -13,8 +18,8 @@ test('account Drafts resumes on a fresh device and explicit discard removes the 
  await expect(page.getByTestId('account-draft-status')).toHaveText('Saved to account Drafts',{timeout:45000});
  const saved=await page.evaluate(async(subject)=>{const list=await(await fetch('/api/account/drafts')).json();return list.items.find((row:{summary:{subject:string}})=>row.summary.subject===subject);},subject);
  expect(saved.emailId).toBeTruthy();expect(saved.revision).toBeTruthy();
- await page.getByRole('button',{name:'Close',exact:true}).click();
- const fresh=await browser.newContext({baseURL:process.env['MW_RECEIPTS_BASE_URL']??'http://localhost:42221',viewport:info.project.name==='phone'?{width:390,height:844}:{width:1280,height:900},serviceWorkers:'block'});
+ await page.getByRole('button',{name:`Close ${subject}`,exact:true}).click();await expect(page.getByRole('tab',{name:subject,exact:true})).toHaveCount(0);
+ const fresh=await browser.newContext({baseURL:process.env['MW_RECEIPTS_BASE_URL']??'http://localhost:42209',viewport:info.project.name==='phone'?{width:390,height:844}:{width:1280,height:900},serviceWorkers:'block'});
  try{
   const other=await fresh.newPage();await login(other);await compose(other);
   expect(await other.evaluate(()=>localStorage.getItem('mw.compose.drafts.v2'))).toBeNull();
@@ -26,7 +31,7 @@ test('account Drafts resumes on a fresh device and explicit discard removes the 
   await expect(other.getByText('draft-proof.txt',{exact:true}).first()).toBeVisible();
   await other.screenshot({path:info.outputPath('account-draft-cross-device.png'),fullPage:true});
   expect(await other.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
-  await other.getByRole('button',{name:'Close',exact:true}).click();
+  await other.getByRole('button',{name:`Close ${subject}`,exact:true}).click();await expect(other.getByRole('tab',{name:subject,exact:true})).toHaveCount(0);
   if(info.project.name==='phone')await other.getByRole('button',{name:'Open folders and apps'}).click();
   await other.locator('#shell-nav').getByRole('button',{name:'Drafts',exact:true}).click();
   await other.locator('.list__row').filter({hasText:subject}).click();

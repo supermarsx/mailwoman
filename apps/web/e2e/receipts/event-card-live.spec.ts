@@ -14,7 +14,7 @@
 import net from 'node:net';
 import type { Page } from '@playwright/test';
 import { test, expect } from '../csrf.ts';
-import { injectViaSmtp, messageRow } from '../helpers.ts';
+import { injectViaSmtp, messageRow, postJmap } from '../helpers.ts';
 
 const shots = process.env['MW_EVENT_SHOTS'];
 const ME = 'testuser@example.org';
@@ -109,7 +109,7 @@ async function openMessage(page: Page, subject: string): Promise<void> {
 async function events(page: Page, accountId: string): Promise<Array<{ uid: string; title: string; status: string }>> {
   // One retry: a read racing the client's own session refresh can be refused once.
   for (let attempt = 0; ; attempt++) {
-    const res = await page.request.post('/jmap/api', { data: { using: ['urn:ietf:params:jmap:core', CAL], methodCalls: [['CalendarEvent/get', { accountId, ids: null }, 'g']] } });
+    const res = await postJmap(page.request, { data: { using: ['urn:ietf:params:jmap:core', CAL], methodCalls: [['CalendarEvent/get', { accountId, ids: null }, 'g']] } });
     if (res.ok()) return (await res.json()).methodResponses[0][1].list;
     if (attempt > 0) throw new Error(`CalendarEvent/get: ${res.status()} ${await res.text()}`);
     await page.waitForTimeout(1000);

@@ -50,7 +50,7 @@ async function openConsole(page: Page): Promise<void> {
 async function openPreferences(page: Page): Promise<void> {
   await page.goto('/admin#/preferences');
   await expect(page.getByRole('heading', { level: 2, name: 'My preferences' })).toBeVisible();
-  await expect(page.getByText('Preferences saved to your account.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', {name:'Reset appearance',exact:true})).toBeEnabled();
 }
 async function saveAppearance(page: Page, appearance: unknown): Promise<void> {
   const current = await page.request.get('/admin/me/preferences');
@@ -90,6 +90,7 @@ test('personal choices survive reload and controls are on a dedicated page', asy
   await expect(page.locator('[data-testid="admin-appearance-button"]')).toHaveCount(0);
   await page.locator('[data-theme-option="paper"]').click();
   await page.locator('[data-accent-option="teal"]').click();
+  await page.getByRole('tab',{name:'Reading and layout',exact:true}).click();
   await page.getByLabel('Interface density').selectOption('compact');
   await expect(page.getByText('Preferences saved to your account.', { exact: true })).toBeVisible();
   await page.reload();
@@ -97,6 +98,7 @@ test('personal choices survive reload and controls are on a dedicated page', asy
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'teal');
   await expect(page.locator('html')).toHaveAttribute('data-density', 'compact');
   await expect(page.getByLabel('Interface density')).toHaveValue('compact');
+  await page.getByRole('tab',{name:'Appearance',exact:true}).click();
   await page.getByRole('button', { name: 'Reset appearance', exact: true }).click();
   await expect(page.getByText('Preferences saved to your account.', { exact: true })).toBeVisible();
 });

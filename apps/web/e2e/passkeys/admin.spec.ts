@@ -14,7 +14,7 @@ test('administrator passkeys use real browser UI, require factors and support on
   await expect.poll(async()=> (await page.request.get('/admin/session')).status()).toBe(200);
   const cooldown=await page.request.get('/admin/settings/signin.retryCooldownSecs');expect(cooldown.ok()).toBe(true);
   expect((await page.request.put('/admin/settings/signin.retryCooldownSecs',{headers:{'if-match':cooldown.headers()['etag']!},data:{globalValue:0}})).ok()).toBe(true);
-  await page.goto('/admin#/preferences');
+  await page.goto('/admin#/preferences/security');
   const section=page.getByRole('region',{name:'Administrator passkeys',exact:true});
   await section.getByLabel('Passkey name').fill('Real browser admin key');
   await section.getByRole('button',{name:'Add administrator passkey'}).click();
@@ -53,7 +53,7 @@ test('administrator passkeys use real browser UI, require factors and support on
   await page.getByRole('button',{name:'Sign in with a passkey',exact:true}).click();
   expect((await passwordlessBegin).status()).toBe(200);
   await expect(page.getByRole('button',{name:'Sign in with a passkey',exact:true})).toHaveCount(0);
-  await page.goto('/admin#/preferences');
+  await page.goto('/admin#/preferences/security');
   await section.getByRole('button',{name:'Replace recovery codes'}).click();
   await prompt.getByRole('button',{name:'Use a passkey'}).click();
   await expect(section.getByRole('button',{name:'I have saved the codes'})).toBeVisible();

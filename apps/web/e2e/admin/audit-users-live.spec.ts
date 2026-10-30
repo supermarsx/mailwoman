@@ -14,6 +14,9 @@ test('successful mailbox users and audit actors resolve to readable identity pag
   const users=await (await page.request.get(`${ADMIN}/users`)).json();
   const user=users.find((row:{username:string})=>row.username==='testuser');
   expect(user).toBeTruthy();expect(user.lastSigninAt).toBeGreaterThan(0);
+  // t107: the Users table shows the sign-in as a relative time (table or, on a phone, cards).
+  await page.goto(`${ADMIN}#/users?q=testuser&sort=lastSignin&dir=desc`);
+  await expect(page.locator(`[data-account="${user.accountId}"] time`).first()).toBeVisible();
   const audit=await (await page.request.get(`${ADMIN}/audit?limit=100`)).json();
   const event=audit.find((row:{actor:string;action:string})=>row.actor===user.accountId && row.action==='step-up-granted');
   expect(event.actorLabel).toBe('testuser');expect(event.actorLink).toEqual({section:'users',id:user.accountId});

@@ -9,7 +9,8 @@
 //   - Show images -> one in-place toast, then "Images shown · Undo"; the
 //     banner height and the body's top do not move while images load;
 //   - Undo -> blocked again; menu "Always show images from <sender>" -> shown;
-//   - /api/rc/stats: at most 2 reads for the open message, 0 once it is left.
+//   - /api/rc/stats: at most one poll per second while loading (t67),
+//     plus the settled read; no reads after settling or leaving the message.
 // Proxy mode: the banner text settles (never "0"), the body does not jump.
 // privacy.remoteImagesToast off (admin, locked): no toast.
 //
@@ -220,13 +221,14 @@ test('t55 remote-images banner, toast and stats reads', async ({ page, playwrigh
 
       // Show images: one toast, banner + body do not move, few stats reads.
       const email = await page.evaluate(() => location.href);
-      const before = stats.length;
+      const before = stats.length, loadStarted = Date.now();
       await startProbe(page);
       await bar.getByRole('button', { name: 'Show images' }).click();
       const toast = page.getByTestId('remote-images-toast');
       await expect(toast).toContainText('Loading images…', { timeout: 5000 });
       await page.screenshot({ path: join(shots, `${tag}-loading-toast.png`) });
       await expect(toast).toContainText(/Images loaded|couldn't load/, { timeout: 30000 });
+      const loadEnded = Date.now();
       await expect(bar.getByRole('status')).toHaveText(/^Images shown/);
       await page.waitForTimeout(2500);
       const probe = await stopProbe(page); report[`${tag}-show-probe`] = { heights: distinct(probe.heights), tops: distinct(probe.tops), texts: probe.texts, maxToasts: Math.max(...probe.toasts), statsReads: stats.length - before, email };
@@ -234,7 +236,12 @@ test('t55 remote-images banner, toast and stats reads', async ({ page, playwrigh
       expect(distinct(probe.tops), 'body top constant while images load').toHaveLength(1);
       expect(Math.max(...probe.toasts), 'one toast at a time').toBeLessThanOrEqual(1);
       expect(probe.texts.some((t) => /\b0 tracker/.test(t))).toBe(false);
-      expect(stats.length - before, 'stats reads for the shown message').toBeLessThanOrEqual(2);
+      // t67 polls while a frame is loading: a slower browser can legitimately
+      // need more than the old t55 two-read limit. Bound the polling rate and
+      // independently prove it stops after the final counters have settled.
+      expect(stats.length - before, 'bounded stats polling while loading').toBeLessThanOrEqual(Math.ceil((loadEnded-loadStarted)/1000)+1);
+      const settledReads=stats.length;await page.waitForTimeout(2200);
+      expect(stats.length,'no stats reads after the shown body settles').toBe(settledReads);
       await bar.screenshot({ path: join(shots, `${tag}-banner-shown.png`) });
       await page.screenshot({ path: join(shots, `${tag}-reader-shown.png`) });
       expect((await oneLine(page)).summaryLines).toBe(1);
@@ -262,7 +269,7 @@ test('t55 remote-images banner, toast and stats reads', async ({ page, playwrigh
     await userSetting(page, 'privacy.remoteContent', 'proxy');
     await page.reload(); await expect(page.locator('.list__row').first()).toBeVisible({ timeout: 30000 });
     await startProbe(page);
-    const proxyBefore = stats.length;
+    const proxyBefore = stats.length, proxyStarted = Date.now();
     await open(page, proxySubject);
     await page.waitForTimeout(12000);
     const proxyProbe = await stopProbe(page);
@@ -272,7 +279,9 @@ test('t55 remote-images banner, toast and stats reads', async ({ page, playwrigh
       expect(proxyProbe.texts.filter((t) => t !== '').length, 'banner text changes at most twice').toBeLessThanOrEqual(2);
       expect(proxyProbe.texts.some((t) => /\b0 tracker|recently decoded/.test(t))).toBe(false);
       expect(distinct(proxyProbe.tops).length, 'body top settles once').toBeLessThanOrEqual(2);
-      expect(stats.length - proxyBefore, 'stats reads in proxy mode').toBeLessThanOrEqual(2);
+      expect(stats.length - proxyBefore, 'bounded stats polling in proxy mode').toBeLessThanOrEqual(Math.ceil((Date.now()-proxyStarted)/1000)+1);
+      const settledReads=stats.length;await page.waitForTimeout(2200);
+      expect(stats.length,'no stats reads after the proxy body settles').toBe(settledReads);
       await expect(page.getByText(/recently decoded/)).toHaveCount(0);
     }
     await userSetting(page, 'privacy.remoteContent', 'ask');

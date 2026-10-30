@@ -17,6 +17,7 @@
 // Screenshots: MW_T56_SHOTS (default test-results/t56).
 import { test, expect, type Page, type APIRequestContext, type FrameLocator } from '../csrf.ts';
 import { createServer as createHttpServer } from 'node:http';
+import {createHash} from 'node:crypto';
 import { deflateSync } from 'node:zlib';
 import { connect, type Socket } from 'node:net';
 import { mkdirSync } from 'node:fs';
@@ -35,11 +36,14 @@ function png(size = 8): Buffer {
 }
 
 /** Counts tunnelled requests per path prefix so the negative cache can be checked. */
-async function proxyFixture(): Promise<{ port: number; hits: Map<string, number>; close: () => Promise<void> }> {
-  const sockets = new Set<Socket>(); const hits = new Map<string, number>();
+async function proxyFixture(): Promise<{ port: number; hits: Map<string, number>; events:{path:string;at:number}[]; close: () => Promise<void> }> {
+  const sockets = new Set<Socket>(); const hits = new Map<string, number>();const events:{path:string;at:number}[]=[];
   const origin = createHttpServer((request, response) => {
     const path = new URL(request.url ?? '/', 'http://1.2.3.4').pathname;
+    events.push({path,at:Date.now()});
     hits.set(path, (hits.get(path) ?? 0) + 1);
+    if (/^\/retry/.test(path)) {if(hits.get(path)===1){response.writeHead(500);response.end();}else{response.writeHead(200,{'content-type':'image/png'});response.end(png(48));}return;}
+    if (/^\/denied/.test(path)) {response.writeHead(403);response.end();return;}
     if (/^\/hang/.test(path)) return; // never answer: the server's clock must end it
     if (/^\/ok/.test(path)) { response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' }); response.end(png(48)); return; }
     response.writeHead(404); response.end();
@@ -52,7 +56,7 @@ async function proxyFixture(): Promise<{ port: number; hits: Map<string, number>
   });
   proxy.on('connection', (socket) => { sockets.add(socket); socket.on('close', () => sockets.delete(socket)); });
   await new Promise<void>((done) => proxy.listen(0, '127.0.0.1', done));
-  return { port: (proxy.address() as { port: number }).port, hits, close: async () => { for (const s of sockets) s.destroy(); await new Promise<void>((done) => proxy.close(() => done())); origin.close(); } };
+  return { port: (proxy.address() as { port: number }).port, hits, events, close: async () => { for (const s of sockets) s.destroy(); await new Promise<void>((done) => proxy.close(() => done())); origin.close(); } };
 }
 
 async function smtp(from: string, message: string): Promise<void> {
@@ -112,7 +116,7 @@ async function images(page: Page): Promise<ImageState[]> {
   // The reader may replace the nested frame while a message settles (a re-post
   // of the same body); read again from the live frame when that happens.
   for (let attempt = 0; ; attempt++) {
-    try { return await readImages(page); } catch (error) { if (attempt >= 5 || !/detached/i.test(String(error))) throw error; await page.waitForTimeout(200); }
+    try { return await readImages(page); } catch (error) { if (attempt >= 5 || !/detached|Execution context was destroyed, most likely because of a navigation/i.test(String(error))) throw error; await page.waitForTimeout(200); }
   }
 }
 async function readImages(page: Page): Promise<ImageState[]> {
@@ -167,7 +171,13 @@ test('t56 signed remote images render in the sandboxed frame; failures carry COR
     // Playwright does not report every nested opaque-frame response in Chromium,
     // so the headers are read by requesting each image's own signed link again
     // (no cookie: the token is the authorisation, as in the frame).
-    const srcs = await body(page).locator('img').evaluateAll((nodes) => nodes.map((i) => ({ alt: (i as HTMLImageElement).alt, src: (i as HTMLImageElement).src })));
+    // The reader completes its display fetch after the image counters settle.
+    // Re-resolve the live nested frame if that handoff overlaps this read.
+    let srcs: { alt: string; src: string }[] = [];
+    await expect(async () => {
+      srcs = await body(page).locator('img').evaluateAll((nodes) => nodes.map((i) => ({ alt: (i as HTMLImageElement).alt, src: (i as HTMLImageElement).src })));
+      expect(srcs.map(image => image.alt).sort()).toEqual(['Fast logo', 'Missing image']);
+    }).toPass({ timeout: 10_000 });
     const anon = await playwright.request.newContext();
     for (const { alt, src } of srcs) {
       const r = await anon.get(src); const h = r.headers();
@@ -350,4 +360,43 @@ test('t56 the admin console shows the fetch limits and saves a new total timeout
   } finally {
     await restore?.().catch(() => undefined);
   }
+});
+
+
+test('remote images automatically retry only transient failures and keep successful sources unchanged',async({page,playwright,baseURL},info)=>{
+ const admin=await playwright.request.newContext({baseURL:baseURL??''});const fixture=await proxyFixture();
+ const id=`image-retry-${info.project.name}-${Date.now()}`;let previous:string|undefined;
+ const retryUrl=`http://1.2.3.4/retry-${id}.png`,deniedUrl=`http://1.2.3.4/denied-${id}.png`,okUrl=`http://1.2.3.4/ok-${id}.png`;
+ const retrySnapshots:{src:string|null;hits:number;at:number}[]=[];
+ await page.route('**/api/rc/sign',async route=>{const data=route.request().postDataJSON() as {retry?:boolean};if(data.retry){const src=await body(page).getByAltText('Successful').getAttribute('src');retrySnapshots.push({src,hits:fixture.hits.get(new URL(okUrl).pathname)??0,at:Date.now()});}await route.continue();});
+ const retries:{urls:string[]}[]=[];const retryTimes:number[]=[];const imageRequests:{at:number;hash:string;status?:number;cache?:string}[]=[];const hash=(url:string)=>createHash('sha256').update(url).digest('hex');
+ page.on('request',request=>{if(new URL(request.url()).pathname.includes('/api/rc/i/'))imageRequests.push({at:Date.now(),hash:hash(request.url())});});
+ page.on('response',response=>{if(new URL(response.url()).pathname.includes('/api/rc/i/'))imageRequests.push({at:Date.now(),hash:hash(response.url()),status:response.status(),cache:response.headers()['cache-control']??''});});
+ page.on('request',request=>{if(new URL(request.url()).pathname==='/api/rc/sign'&&request.method()==='POST'){const data=request.postDataJSON() as {retry?:boolean;urls?:string[]};if(data.retry){retries.push({urls:data.urls??[]});retryTimes.push(Date.now());}}});
+ try{
+  await adminLogin(admin);previous=(await (await admin.get(`${adminPath}/egress/proxies`)).json()).proxies.find((proxy:{active:boolean})=>proxy.active)?.id;
+  const created=await admin.post(`${adminPath}/egress/proxies`,{data:{id,scheme:'http',host:'127.0.0.1',port:fixture.port,username:'',allowPlaintext:true,trafficClasses:['remote_content'],scope:'global'}});expect(created.ok()).toBe(true);
+  expect((await admin.post(`${adminPath}/egress/proxies/${id}/activate`)).ok()).toBe(true);
+  await seed(id,`${id}@example.test`,`<p>Selective retry</p><img alt="Successful" width="48" height="48" src="${okUrl}"><img alt="Transient" width="48" height="48" src="${retryUrl}"><img alt="Refused" width="48" height="48" src="${deniedUrl}">`);
+  const warmSubject=`Codec warmup ${Date.now()}`;await seed(warmSubject,'warmup@example.test',`<img alt="Codec warmup" width="48" height="48" src="http://1.2.3.4/ok-warmup-${id}.png">`);
+  await signIn(page);await userSetting(page,'privacy.remoteContent','proxy');await page.reload();await page.getByRole('tab',{name:'Mail',exact:true}).click();
+  const coldStart=Date.now();await open(page,warmSubject);await expect.poll(async()=>(await images(page)).find(image=>image.alt==='Codec warmup')?.natural,{timeout:60000}).toBeGreaterThan(0);info.annotations.push({type:'codec-warmup-ms',description:String(Date.now()-coldStart)});
+  await page.getByRole('tab',{name:'Mail',exact:true}).click();await open(page,id);
+  await expect.poll(async()=> (await images(page)).find(image=>image.alt==='Successful')?.natural).toBeGreaterThan(0);
+  await expect.poll(()=>retries,{timeout:20000}).toEqual([{urls:[retryUrl]}]);await expect.poll(()=>retrySnapshots.length).toBe(1);
+  const successfulSource=retrySnapshots[0]!.src;const baselineHits=retrySnapshots[0]!.hits;expect(successfulSource).toBeTruthy();expect(baselineHits).toBeGreaterThan(0);
+  await expect.poll(async()=> (await images(page)).find(image=>image.alt==='Transient')?.natural,{timeout:20000}).toBeGreaterThan(0);
+  expect(await body(page).getByAltText('Successful').getAttribute('src')).toBe(successfulSource);
+  expect(fixture.hits.get(new URL(okUrl).pathname)).toBe(baselineHits);expect(fixture.hits.get(new URL(retryUrl).pathname)).toBe(2);expect(fixture.hits.get(new URL(deniedUrl).pathname)).toBe(1);
+  const banner=page.getByTestId('remote-content-bar').filter({visible:true});await expect(banner.getByRole('button',{name:'Retry',exact:true})).toBeEnabled();
+  await page.waitForTimeout(6500);expect(retries).toHaveLength(1);expect(fixture.hits.get(new URL(deniedUrl).pathname)).toBe(1);
+  await banner.getByRole('button',{name:'Retry',exact:true}).click();await expect.poll(()=>retries).toEqual([{urls:[retryUrl]},{urls:[deniedUrl]}]);
+  await expect.poll(()=>fixture.hits.get(new URL(deniedUrl).pathname)).toBe(2);
+  expect(fixture.hits.get(new URL(okUrl).pathname)).toBe(baselineHits);
+  expect(await body(page).getByAltText('Successful').getAttribute('src')).toBe(successfulSource);
+  await page.screenshot({path:info.outputPath('selective-image-retry.png'),fullPage:true});
+ }finally{
+  await info.attach('image-retry-timing',{body:Buffer.from(JSON.stringify({upstream:fixture.events,retryTimes,imageRequests,retrySnapshots:retrySnapshots.map(value=>({...value,src:value.src?hash(value.src):null}))},null,2)),contentType:'application/json'});
+  await admin.post(`${adminPath}/egress/proxies/${id}/deactivate`).catch(()=>undefined);if(previous)await admin.post(`${adminPath}/egress/proxies/${previous}/activate`).catch(()=>undefined);await admin.delete(`${adminPath}/egress/proxies/${id}`).catch(()=>undefined);await userSetting(page,'privacy.remoteContent','ask').catch(()=>undefined);await fixture.close();await admin.dispose();
+ }
 });

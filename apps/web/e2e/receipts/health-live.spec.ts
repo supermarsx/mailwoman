@@ -11,7 +11,7 @@ import {ADMIN} from '../admin/admin-path.ts';
 // copy of every screenshot.
 
 const COMPONENTS=['database','migrations','sync','outbox','search','render','plugins'] as const;
-const ADMIN_PASSWORD=process.env['MW_FIXTURE_ADMIN_PASSWORD']??'linked-fixture-admin';
+const ADMIN_PASSWORD=process.env['MW_FIXTURE_ADMIN_PASSWORD']??process.env['MW_ADMIN_PASSWORD']??'linked-fixture-admin';
 
 type Component={status:string;reason:string;enable?:string;metrics:Record<string,unknown>};
 type Health={checkedAt:number;components:Record<string,Component>;history:unknown[]};
@@ -80,10 +80,21 @@ for(const scheme of ['light','dark'] as const){
       expect(h.components['search']!.metrics['documents']).toEqual(expect.any(Number));
       expect(h.components['outbox']!.metrics['queued']).toEqual(expect.any(Number));
       const render=h.components['render']!;
-      expect(render.metrics['workerConfigured'],render.reason).toBe(true);
-      expect(render.status,render.reason).toBe('ok');
-      expect(render.metrics['version']).toEqual(expect.any(String));
-      expect(Number(render.metrics['pingMs'])).toBeGreaterThan(0);
+      expect(render.metrics['workerConfigured']).toEqual(expect.any(Boolean));
+      if(render.metrics['workerConfigured']){
+        expect(render.status,render.reason).toBe('ok');
+        expect(render.metrics['version']).toEqual(expect.any(String));
+        expect(Number(render.metrics['pingMs'])).toBeGreaterThan(0);
+      }else{
+        // The receipts stack builds the server alone. A missing worker must be
+        // reported honestly with impact and the concrete way to enable it.
+        expect(render.status).toBe(render.metrics['jailRequired']?'fail':'warn');
+        expect(render.reason).toContain('No mw-render worker binary was found');
+        expect(render.reason).toContain('MW_RENDER_BIN');
+        expect(render.reason).toContain('attachment previews');
+        expect(render.metrics['pingMs']).toBeUndefined();
+        expect(render.metrics['version']).toBeUndefined();
+      }
       // No plugin is enabled on the fixture: disabled, with how to enable it.
       expect(h.components['plugins']!.status).toBe('disabled');
 
@@ -97,6 +108,7 @@ for(const scheme of ['light','dark'] as const){
         await expect(row.getByTestId(`health-${id}-status`)).toHaveText(/OK|Warning|Failing|Disabled/);
         const status=await row.getAttribute('data-status');
         if(status==='disabled')await expect(row.getByTestId(`health-${id}-enable`)).toContainText('To turn it on');
+        else if(id==='render'&&!render.metrics['workerConfigured']){await expect(row.getByTestId('health-render-stats')).toContainText('No worker binary');await expect(row).toContainText('MW_RENDER_BIN');}
         else await expect(row.getByTestId(`health-${id}-stats`)).toContainText(/\d/);
       }
       await expect(admin.getByTestId('health-database-stats')).toContainText(/μs|ms/);

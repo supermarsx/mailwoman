@@ -1,11 +1,11 @@
 import {test,expect} from '../csrf.ts';
-import {messageRow} from '../helpers.ts';
+import {messageRow,postJmap} from '../helpers.ts';
 test('reviews untrusted list destinations and opens an ordinary draft without sending',async({page},info)=>{
  const outbound:string[]=[];page.on('request',request=>{if(request.url().includes('list.invalid'))outbound.push(request.url());});
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');
  const login=page.waitForResponse(response=>response.url().endsWith('/api/login')&&response.request().method()==='POST');await page.getByRole('button',{name:'Sign in',exact:true}).click();
  const {accountId}=await (await login).json() as {accountId:string};expect(accountId).toBeTruthy();
- const call=async(name:string,args:Record<string,unknown>)=>{const response=await page.request.post('/jmap/api',{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[[name,{accountId,...args},'test']]}});expect(response.ok()).toBe(true);return (await response.json()).methodResponses[0][1];};
+ const call=async(name:string,args:Record<string,unknown>)=>{const response=await postJmap(page.request,{data:{using:['urn:ietf:params:jmap:core','urn:ietf:params:jmap:mail'],methodCalls:[[name,{accountId,...args},'test']]}});expect(response.ok()).toBe(true);return (await response.json()).methodResponses[0][1];};
  const boxes=await call('Mailbox/get',{});const inbox=(boxes.list as {id:string;role:string}[]).find(box=>box.role==='inbox')!;
  const subject=`List commands ${info.project.name} ${Date.now()}`;
  const raw=`From: list@example.org\r\nTo: owner@example.org\r\nSubject: ${subject}\r\nMessage-ID: <list-${Date.now()}@fixture.invalid>\r\nList-Unsubscribe: <https://list.invalid/leave?token=private>, <mailto:leave@example.org?subject=unsubscribe&body=Please%20remove%20me%20%3Cimg%20src%3Dx%3E>\r\nList-Post: NO\r\nContent-Type: text/plain\r\n\r\nA mailing list command fixture.\r\n`;
@@ -13,10 +13,10 @@ test('reviews untrusted list destinations and opens an ordinary draft without se
  const imported=await call('Email/import',{emails:{message:{blobId,mailboxIds:{[inbox.id]:true}}}});expect(imported.created.message.id).toBeTruthy();
  let sends=0;page.on('request',request=>{if((request.postData()??'').includes('EmailSubmission/set'))sends++;});
  await page.reload();await expect(page.getByRole('region',{name:'Messages',exact:true})).toHaveAttribute('aria-busy','false');await messageRow(page,subject).click();
- await page.getByText('Mailing list actions',{exact:true}).click();expect(outbound).toEqual([]);await page.getByRole('button',{name:'list.invalid',exact:true}).click();
- const external=page.getByRole('link',{name:'Open web page'});await expect(external).toHaveAttribute('href','https://list.invalid/leave?token=private');await expect(external).toHaveAttribute('rel','noopener noreferrer');expect(outbound).toEqual([]);
+ await page.getByRole('region',{name:'Mailing list actions',exact:true}).getByRole('button',{name:'Unsubscribe',exact:true}).click();expect(outbound).toEqual([]);await page.getByRole('button',{name:'list.invalid',exact:true}).click();
+ const external=page.getByRole('link',{name:'Open in a new tab'});await expect(external).toHaveAttribute('href','https://list.invalid/leave?token=private');await expect(external).toHaveAttribute('rel','noopener noreferrer');expect(outbound).toEqual([]);
  await page.screenshot({path:info.outputPath('list-destination-review.png'),fullPage:true});
- await page.getByRole('button',{name:'Cancel',exact:true}).click();const mailChoice=page.getByRole('button',{name:'leave@example.org',exact:true});await mailChoice.focus();await mailChoice.press('Enter');await page.getByRole('button',{name:'Review email draft'}).click();
+ const mailChoice=page.getByRole('button',{name:'leave@example.org',exact:true});await mailChoice.focus();await mailChoice.press('Enter');await page.getByRole('button',{name:'Review a new message'}).click();
  await expect(page.getByRole('heading',{name:'New message',exact:true})).toBeVisible();await expect(page.getByLabel('Subject',{exact:true})).toHaveValue('unsubscribe');
  await expect(page.locator('.ProseMirror')).toContainText('Please remove me <img src=x>');expect(await page.locator('.ProseMirror img').count()).toBe(0);expect(sends).toBe(0);expect(outbound).toEqual([]);
  expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);await page.screenshot({path:info.outputPath('list-command-draft.png'),fullPage:true});

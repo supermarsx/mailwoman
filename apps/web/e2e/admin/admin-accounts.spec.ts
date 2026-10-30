@@ -5,7 +5,7 @@ import { ADMIN } from './admin-path.ts';
 // accounts/roles and deletes them again through the same confirmation flow.
 test('admin navigation, role creation, scoped assignments and deletion @phone', async ({ page }) => {
   const suffix = `${Date.now()}-${test.info().project.name}`;
-  const username = `e2e-${suffix}`;
+  let username = `e2e-${suffix}`;
   const role = `Support ${suffix}`;
   await page.goto(ADMIN);
   await page.getByLabel('Admin username').fill(process.env['MW_ADMIN_USER'] ?? 'root');
@@ -30,11 +30,24 @@ test('admin navigation, role creation, scoped assignments and deletion @phone', 
   await expect(page.getByRole('heading', { name: 'Admin accounts', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Create admin', exact: true }).click();
   await expect(page).toHaveURL(/#\/admins\/new$/);
-  await page.getByRole('textbox', { name: 'Username', exact: true }).fill(username);
+  const usernameInput = page.getByRole('textbox', { name: 'Username', exact: true });
+  await expect(usernameInput).toHaveValue(/^admin-[0-9a-f]{12}$/);
+  await usernameInput.fill(username);
+  await page.getByRole('button', { name: 'Randomize suffix', exact: true }).click();
+  await expect(usernameInput).toHaveValue(new RegExp(`^e2e-${suffix}-[0-9a-f]{12}$`));
+  username = await usernameInput.inputValue();
+  const previous = username;
+  await page.getByRole('button', { name: 'Randomize suffix', exact: true }).click();
+  await expect(usernameInput).not.toHaveValue(previous);
+  await expect(usernameInput).toHaveValue(new RegExp(`^e2e-${suffix}-[0-9a-f]{12}$`));
+  username = await usernameInput.inputValue();
   await page.getByLabel('New password (at least 12 characters)').fill('e2e-password-long');
+  const createdRequest = page.waitForResponse(r => r.url().endsWith(`${ADMIN}/admins`) && r.request().method() === 'POST' && r.ok());
   await page.getByRole('button', { name: 'Create admin', exact: true }).click();
   await proveIfAsked(page, page.getByRole('checkbox', { name: role, exact: true }));
+  expect((await createdRequest).request().postDataJSON().username).toBe(username);
   await expect(page).toHaveURL(/#\/admins\/[^/]+\/edit$/);
+  await expect(page.getByRole('button', { name: 'Randomize suffix', exact: true })).toHaveCount(0);
   await page.getByRole('checkbox', { name: role, exact: true }).check();
   await page.getByRole('textbox', { name: `${role}: Domains, separated by commas (empty means all domains)`, exact: true }).fill('example.org');
   await page.getByRole('button', { name: 'Save role assignments' }).click();

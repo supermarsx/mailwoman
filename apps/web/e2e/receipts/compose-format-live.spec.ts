@@ -1,6 +1,13 @@
 import {test,expect} from '../csrf.ts';
 import {readFile,unlink} from 'node:fs/promises';
 import path from 'node:path';
+import {pinComposerRibbonOnPhone,revealRibbonControl} from '../helpers.ts';
+
+// 9dab0fe7 (D4): below 600 px the ribbon starts in auto-hide; these legs are about
+// what its controls do, so the phone project pins it for the test (helpers.ts).
+let unpinRibbon:()=>Promise<void>=async()=>{};
+test.beforeEach(async({playwright,baseURL},info)=>{unpinRibbon=await pinComposerRibbonOnPhone(playwright.request,baseURL,info.project.name);});
+test.afterEach(async()=>{await unpinRibbon();});
 const capture=process.env['MW_DSN_SMTP_CAPTURE']??'test-results/receipts-smtp';
 type Accepted={commands:string[];sha256:string;replyDropped:boolean};
 async function accepted():Promise<Accepted[]>{try{return (await readFile(path.join(capture,'accepted.jsonl'),'utf8')).trim().split('\n').filter(Boolean).map(line=>JSON.parse(line) as Accepted);}catch{return [];}}
@@ -12,7 +19,7 @@ test('plain compose preserves literal text and sends Cc and Bcc without exposing
  await page.getByRole('button',{name:'Compose',exact:true}).click();
  const toggle=page.getByTestId('format-toggle');
  // The message type is a select (e0c99a79); on a phone its ribbon group is folded into a dropdown (t38-e5).
- const more=page.getByRole('button',{name:'More Message type commands',exact:true});if(!(await toggle.isVisible())&&await more.isVisible())await more.click();
+ await revealRibbonControl(page,page.locator('.compose-ribbon').last(),toggle);
  await toggle.selectOption('plain');
  await page.getByTestId('compose-show-cc-bcc').click();
  await page.getByLabel('To',{exact:true}).fill('to@example.org');

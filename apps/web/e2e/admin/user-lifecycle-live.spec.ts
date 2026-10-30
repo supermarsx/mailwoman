@@ -4,7 +4,8 @@
 // refuses a new sign-in; Unblock lets the user back in; Delete local access
 // (typed confirmation) leaves a deleted record and refuses sign-in again. Runs
 // against the receipts stack (Greenmail without sign-in checks, so the new
-// mailbox signs in with any password). No route mocks.
+// mailbox signs in with any password). No route mocks. t107: the Users table
+// lists the new user (search, status, last sign-in) before and after its sign-in.
 import { test, expect, type Page } from '../csrf.ts';
 import { ADMIN } from './admin-path.ts';
 import { adminLogin } from './admin-login.ts';
@@ -45,6 +46,12 @@ test('provisioned user: session counted, block revokes it, unblock restores, del
   expect((await provisioned).status()).toBeLessThan(300);
   const find = async (): Promise<User | undefined> => ((await (await page.request.get(`${ADMIN}/users`)).json()) as User[]).find((u) => u.username === username || u.loginAddress === address);
   await expect.poll(async () => (await find()) !== undefined).toBe(true);
+  // t107: the new user is in the Users table, found by search, never signed in.
+  await page.goto(`${ADMIN}#/users?q=${username}`);
+  const listed = page.getByTestId('users-table').locator('tbody tr[data-row]');
+  await expect(listed).toHaveCount(1);
+  await expect(listed.locator('td[data-column="status"]')).toHaveText('Never signed in');
+  await expect(listed.locator('td[data-column="lastSignin"]')).toHaveText('Never');
 
   const device = await browser.newContext({ baseURL: String(info.project.use.baseURL), locale: 'en-US', serviceWorkers: 'block' });
   const user = await device.newPage();
@@ -58,6 +65,9 @@ test('provisioned user: session counted, block revokes it, unblock restores, del
     await page.goto(`${ADMIN}#/dashboard`);
     await expect(page.getByText('Active webmail sessions', { exact: true }).first()).toBeVisible();
 
+    // t107: after the sign-in, the table shows when it happened.
+    await page.goto(`${ADMIN}#/users?q=${username}&sort=lastSignin&dir=desc`);
+    await expect(listed.first().locator('td[data-column="lastSignin"] time')).toHaveText(/now|second|minute/u);
     const record = (await find())!;
     await page.goto(`${ADMIN}#/users/${encodeURIComponent(record.accountId)}`);
     const access = page.getByRole('heading', { name: 'Mailwoman access', exact: true }).locator('..');

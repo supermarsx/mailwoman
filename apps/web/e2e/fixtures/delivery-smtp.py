@@ -22,6 +22,13 @@ import time
 output = pathlib.Path(sys.argv[2]).resolve()
 output.mkdir(parents=True, exist_ok=True)
 slots = asyncio.Semaphore(8)
+# Match the named accounts in the shared receipts stack. A delayed signed
+# child submission must not invalidate its mailbox during the next test.
+accepted_auth = {
+    b'\x00testuser\x00testpass',
+    b'\x00parent@example.org\x00parent-pass',
+    b'\x00child@child.test\x00child-pass',
+}
 relay = os.environ.get('MW_CAPTURE_RELAY', '')
 
 
@@ -52,7 +59,7 @@ async def session(reader, writer):
                 if upper.startswith('EHLO '):
                     await reply('250-delivery-fixture\r\n250-AUTH PLAIN\r\n250-DSN\r\n250 8BITMIME')
                 elif upper.startswith('AUTH PLAIN '):
-                    authenticated = base64.b64decode(command[11:], validate=True) == b'\x00testuser\x00testpass'
+                    authenticated = base64.b64decode(command[11:], validate=True) in accepted_auth
                     await reply('235 authenticated' if authenticated else '535 refused')
                 elif upper.startswith('MAIL FROM:<') and authenticated:
                     envelope_commands = [command]

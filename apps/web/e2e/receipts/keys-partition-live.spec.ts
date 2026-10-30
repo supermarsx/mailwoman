@@ -1,5 +1,6 @@
 import {test,expect} from '../csrf.ts';
 import type {Browser,Page} from '@playwright/test';
+import {revealRibbonControl} from '../helpers.ts';
 
 // t87-e4 (D11): a linked mailbox signs with ITS OWN key, unlocked with its own
 // passphrase, and the parent's unlocked key is dropped on the switch.
@@ -8,8 +9,8 @@ import type {Browser,Page} from '@playwright/test';
 // child@child.test on Greenmail, mailbox linking on). The message the client
 // hands the server to send is taken from the wire, and its OpenPGP signature's
 // issuer is compared with the two accounts' key fingerprints. (The stack's
-// submission fixture authenticates testuser only, so the child's message does
-// not reach Greenmail; the bytes checked are the ones submitted.)
+// submission fixture accepts the configured parent and child credentials; the
+// bytes checked are the ones submitted.)
 const PARENT_PASS='parent-key-pass-t87';
 const CHILD_PASS='child-key-pass-t87';
 
@@ -110,6 +111,7 @@ async function shot(page:Page,info:{outputPath(name:string):string;project:{name
 
 /** Generate an own OpenPGP key in the Keys module through the real worker. */
 async function generateKey(page:Page,email:string,passphrase:string){
+  await drawer(page);
   await page.getByTestId('nav-keys').click();
   await expect(page.locator('[data-module="keys"]')).toBeVisible();
   await page.getByRole('button',{name:'Generate key',exact:true}).click();
@@ -144,6 +146,8 @@ async function openCompose(page:Page,to:string,subject:string){
   await dialog.getByLabel('Subject',{exact:true}).fill(subject);
   await dialog.getByLabel('Body',{exact:true}).fill(`Signed body ${subject}`);
   await dialog.getByRole('tab',{name:'Security',exact:true}).click();
+  const pin=dialog.getByRole('button',{name:'Keep the editor ribbon open',exact:true});
+  if(await pin.isVisible())await pin.click();
   return dialog;
 }
 
@@ -157,13 +161,14 @@ test('a linked mailbox signs with its own key and passphrase; the parent key is 
   await signIn(page,'parent@example.org','parent-pass');
   const primary=await (await page.request.get('/api/me')).json() as {storageAuthority:string};
   const ownerHeaders={'x-mailwoman-storage-authority':primary.storageAuthority};
-  // Start from a fresh link. A link from an earlier run is unusable once its
-  // child's submission was refused (the stack's SMTP fixture authenticates
-  // testuser only, and the server then asks for a fresh child sign-in).
+  // Start from a fresh link, independent of an earlier run's child session.
   const stale=(await (await page.request.get('/api/accounts',{headers:ownerHeaders})).json()).accounts as {id:string;revision:string}[];
   if(stale.length){
     expect((await page.request.post('/api/security/step-up',{data:{password:'parent-pass'}})).ok()).toBe(true);
     for(const account of stale)expect((await page.request.delete(`/api/accounts/${account.id}`,{headers:{...ownerHeaders,'if-match':JSON.stringify(account.revision)}})).ok()).toBe(true);
+    // Finish the newly mounted shell's lazy catalog imports before this setup
+    // reload; Firefox reports a cancelled import as a page error on unload.
+    await page.waitForLoadState('networkidle');
     await page.reload();
     await expect(page.locator('[data-account-indicator]').first()).toBeAttached();
   }
@@ -197,7 +202,7 @@ test('a linked mailbox signs with its own key and passphrase; the parent key is 
   await parentDraft.locator('[data-testid="sign-toggle"]').check();
   const parentPanel=parentDraft.locator('[data-testid="compose-sign-unlock"]');
   await expect(parentPanel).toBeVisible();
-  await parentPanel.locator('[data-testid="sign-passphrase"]').fill(PARENT_PASS);
+  await (await revealRibbonControl(page,parentDraft,parentPanel.locator('[data-testid="sign-passphrase"]'))).fill(PARENT_PASS);
   await parentPanel.locator('[data-testid="sign-passphrase"]').press('Enter');
   await expect(parentPanel).toBeHidden({timeout:20000});
   await shot(page,info,'keys-parent-unlocked.png');
@@ -224,7 +229,7 @@ test('a linked mailbox signs with its own key and passphrase; the parent key is 
   await expect(panel.locator('[data-testid="sign-passphrase"]')).toHaveValue('');
   await shot(page,info,'keys-child-passphrase-prompt.png');
   // The parent's passphrase does not open the child's key.
-  await panel.locator('[data-testid="sign-passphrase"]').fill(PARENT_PASS);
+  await (await revealRibbonControl(page,dialog,panel.locator('[data-testid="sign-passphrase"]'))).fill(PARENT_PASS);
   await panel.locator('[data-testid="sign-passphrase"]').press('Enter');
   await expect(panel.getByRole('alert')).toBeVisible({timeout:20000});
   await shot(page,info,'keys-child-parent-pass-refused.png');

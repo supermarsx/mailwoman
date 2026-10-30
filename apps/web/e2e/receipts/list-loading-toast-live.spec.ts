@@ -88,7 +88,7 @@ for (const width of [1440, 390] as const) {
     const toastEl = page.getByTestId('mail-loading-toast');
     await expect(toastEl).toBeVisible({ timeout: 3_000 });
     expect(Date.now() - started).toBeGreaterThanOrEqual(350);
-    await expect(toastEl).toHaveText('Loading messages…');
+    await expect(toastEl).toHaveText(/Loading.*Inbox.*…/);
     await expect(toastEl).toHaveAttribute('data-busy', 'true');
     await expect(toastEl).toHaveAttribute('role', 'status');
     expect(await toastEl.evaluate((el) => el.closest('[aria-live="polite"]') !== null && el.closest('[data-testid="toast-region"]') !== null)).toBe(true);

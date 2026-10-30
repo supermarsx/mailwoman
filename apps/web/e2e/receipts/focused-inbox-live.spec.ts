@@ -92,7 +92,7 @@ async function adminSetting(browser:Browser,info:TestInfo,width:number){
  await page.waitForTimeout(3100);
  const login=page.waitForResponse(r=>new URL(r.url()).pathname===`${ADMIN}/login`&&r.request().method()==='POST');
  await page.getByRole('button',{name:'Sign in',exact:true}).click();
- const result=await login;test.skip(result.status()!==200,`no admin sign-in on this stack (${result.status()})`);
+ const result=await login;expect(result.status(),'configured admin fixture must sign in').toBe(200);
  await page.goto(`${ADMIN}#/settings/${KEY}`);
  const detail=page.getByTestId('setting-detail');
  await expect(detail).toBeVisible({timeout:30000});

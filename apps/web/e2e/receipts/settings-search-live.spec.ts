@@ -57,6 +57,11 @@ test('the mini calendar moves by month and a chosen day moves the main calendar'
   await openNav(page);
   await page.locator('.sidebar, #shell-nav').getByRole('button', { name: 'Calendar', exact: true }).first().click();
   const mini = page.getByRole('region', { name: 'Date navigator', exact: true });
+  // b3e515d5: on a phone the calendar sidebar, which holds the date navigator, is
+  // folded behind its "Calendars" button.
+  const calendars = page.getByRole('button', { name: 'Calendars', exact: true });
+  await expect(page.getByRole('region', { name: 'Calendar', exact: true })).toBeVisible();
+  if (await calendars.isVisible() && (await calendars.getAttribute('aria-expanded')) === 'false') await calendars.click();
   await expect(mini).toBeVisible();
   const month = (d: Date): string => d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
   const now = new Date();

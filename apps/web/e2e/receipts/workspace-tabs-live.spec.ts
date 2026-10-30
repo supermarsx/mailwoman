@@ -3,7 +3,7 @@ test('retains main views, reorders tabs and resumes an owned draft after reload'
  await page.goto('/');await page.getByLabel('Email or username',{exact:true}).fill('testuser');await page.getByLabel('Password',{exact:true}).fill('testpass');await page.getByRole('button',{name:'Sign in',exact:true}).click();await expect(page.getByRole('button',{name:'Compose',exact:true})).toBeVisible();
  const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
  for(const name of ['Calendar','Tasks','Notes','Contacts','Keys','Attachments','Outbox']){await navigate(name);await expect(page.getByRole('tab',{name,exact:true})).toBeVisible();}
- expect(await page.locator('.workspace-pane').count()).toBe(7);
+ expect(await page.locator('.workspace-panes > .workspace-pane').count()).toBe(7);// t74: the reading pane is a .workspace-pane outside .workspace-panes
  await page.getByRole('tab',{name:'Attachments',exact:true}).click();
  const file=page.locator('.mw-attach table tbody tr td:first-child button').first();await expect(file).toBeVisible();const filename=(await file.innerText()).trim();await file.click();await expect(page.getByRole('tab',{name:filename,exact:true})).toBeVisible();
  await page.getByRole('tab',{name:'Contacts',exact:true}).click();await expect(page.locator('[data-surface="contacts"]')).toBeVisible();

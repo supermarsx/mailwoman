@@ -20,8 +20,9 @@ test('five persisted workspace modes retain panes and fit the viewport',async({p
     if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();
     const footer=page.locator('.sidebar__footer');
     await expect(footer.getByRole('button',{name:'Settings',exact:true})).toBeVisible();
-    const positions=await footer.evaluate(element=>{const settings=element.querySelector('.sidebar__settings')!.getBoundingClientRect();const logout=element.querySelector('.sidebar__logout')!.getBoundingClientRect();const sidebar=element.closest('.sidebar')!.getBoundingClientRect();return {settingsBottom:settings.bottom,logoutTop:logout.top,footerBottom:element.getBoundingClientRect().bottom,sidebarBottom:sidebar.bottom};});
-    expect(positions.settingsBottom).toBeLessThanOrEqual(positions.logoutTop+1);
+    const positions=await footer.evaluate(element=>{const settings=element.querySelector('.sidebar__settings')!.getBoundingClientRect();const logout=element.querySelector('.sidebar__logout')!.getBoundingClientRect();const sidebar=element.closest('.sidebar')!.getBoundingClientRect();return {settingsRight:settings.right,settingsTop:settings.top,logoutLeft:logout.left,logoutTop:logout.top,footerBottom:element.getBoundingClientRect().bottom,sidebarBottom:sidebar.bottom};});
+    // 73301716: the icon-only Settings button sits before Log out on one row (as folder-tabs-live checks).
+    expect(positions.settingsRight).toBeLessThanOrEqual(positions.logoutLeft+1);expect(Math.abs(positions.settingsTop-positions.logoutTop)).toBeLessThan(4);
     expect(positions.sidebarBottom-positions.footerBottom).toBeLessThan(32);
     if(info.project.name==='phone')await page.keyboard.press('Escape');
     for(const name of ['Contacts','Tasks','Notes','Settings']){

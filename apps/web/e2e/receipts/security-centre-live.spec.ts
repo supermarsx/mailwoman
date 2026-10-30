@@ -133,6 +133,11 @@ test('Adaptive protection: summary, preset diff, inline edit with step-up, reset
   const summary=page.getByTestId('protection-summary');
   await expect(summary).toContainText('Request budget:');
   await expect(summary).toContainText('Unusual requests:');
+  await expect(page.getByTestId('protect-rule-user-agent-mode').getByRole('combobox')).toHaveValue('enforce');
+  await expect(page.getByTestId('protect-rule-user-agent-max-action').getByRole('combobox')).toHaveValue('throttle');
+  await expect(page.getByTestId('protect-rule-user-agent-weak-requests').getByRole('spinbutton')).toHaveValue('600');
+  await expect(page.getByTestId('protect-rule-user-agent-crawler-requests').getByRole('spinbutton')).toHaveValue('300');
+  await expect(page.getByTestId('protect-rule-user-agent-categories').getByRole('checkbox')).toHaveCount(7);
   await page.getByRole('radio',{name:/Strict/}).check();
   await expect(page.getByTestId('preset-diff')).toBeVisible();
   await expect(page.getByTestId('preset-diff')).toContainText('Enforce');
@@ -173,6 +178,18 @@ test('Adaptive protection: summary, preset diff, inline edit with step-up, reset
  await sim.getByLabel('Use my unsaved changes and the selected preset').uncheck();
  await sim.getByRole('button',{name:'Check'}).click();
  await expect(result).toHaveAttribute('data-action','allow');
+ // A missing header is a weak claim, not an immediate denial. Only repeated
+ // excess crosses the independent conservative User-Agent budget.
+ await sim.getByLabel('Test User-Agent protection').check();
+ await sim.getByLabel('User-Agent header',{exact:true}).fill('');
+ await sim.getByLabel('Unusual requests already in the short window').fill('0');
+ await sim.getByLabel('What the request is').selectOption('normal');
+ await sim.getByRole('button',{name:'Check'}).click();
+ await expect(result).toHaveAttribute('data-action','allow');
+ await expect(result).toContainText('Unverified header classification: Missing header.');
+ await sim.getByLabel('Requests in the current budget window, this one included').fill('601');
+ await sim.getByRole('button',{name:'Check'}).click();
+ await expect(result).toHaveAttribute('data-action','throttle');
 });
 
 /** One GET from another loopback address (127.0.0.2), so a block never hits the browser. */

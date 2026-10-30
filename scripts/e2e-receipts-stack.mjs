@@ -16,6 +16,13 @@
 //     cooldown at 0;
 //   - the fixed 30-message seed from apps/web/e2e/restyle/seed.mjs.
 //
+// MW_STACK_IMAP_SERVER=dovecot (t93) swaps Greenmail for Dovecot 2.4.4 with the
+// scripts/dovecot-t32 account (testuser/testpass, plaintext IMAP, UIDPLUS and
+// IMAP4rev2). Specs that need UIDPLUS (account Drafts) run on that leg and skip
+// on Greenmail; the env file says which one is up (MW_RECEIPTS_IMAP_SERVER).
+// That leg has no SMTP server: the capture fixture records submissions without
+// relaying them, and there is no 30-message seed.
+//
 // Build, start, run:
 //   cargo build -p mw-server --bin mailwoman
 //   pnpm -C apps/web build
@@ -34,6 +41,7 @@
 //   MW_STACK_CAPTURE   capture SMTP    (default 42226)
 //   MW_STACK_ENV       env file        (default <repo>/apps/web/test-results/receipts-stack.env)
 //   MW_DSN_SMTP_CAPTURE capture dir    (default <repo>/apps/web/test-results/receipts-smtp; emptied at start)
+//   MW_STACK_IMAP_SERVER greenmail (default) or dovecot
 //   PYTHON             interpreter for the capture fixture (default python3, python on Windows)
 // It stops the server and the capture fixture it started and removes its
 // Greenmail container on Ctrl-C, SIGTERM, or when any of them exits.
@@ -57,7 +65,13 @@ const capturePort = Number(process.env.MW_STACK_CAPTURE ?? 42226);
 const envFile = resolve(process.env.MW_STACK_ENV ?? join(repo, 'apps/web/test-results/receipts-stack.env'));
 const capture = resolve(process.env.MW_DSN_SMTP_CAPTURE ?? join(repo, 'apps/web/test-results/receipts-smtp'));
 const python = process.env.PYTHON ?? (process.platform === 'win32' ? 'python' : 'python3');
-const container = `mw-receipts-greenmail-${port}`;
+const imapServer = process.env.MW_STACK_IMAP_SERVER ?? 'greenmail';
+if (imapServer !== 'greenmail' && imapServer !== 'dovecot') {
+  console.error(`MW_STACK_IMAP_SERVER must be greenmail or dovecot, not ${imapServer}`);
+  process.exit(2);
+}
+const dovecot = imapServer === 'dovecot';
+const container = `mw-receipts-${imapServer}-${port}`;
 const admin = { username: 'root', password: 'hunter2' };
 // t76: the console path the stack serves (a new database would otherwise get a
 // generated one) and hands to the specs as MW_E2E_ADMIN_PATH.
@@ -122,14 +136,31 @@ mkdirSync(capture, { recursive: true });
 mkdirSync(dirname(envFile), { recursive: true });
 
 try { docker('rm', '-f', container); } catch { /* not there */ }
-docker('run', '-d', '--name', container,
-  '-p', `127.0.0.1:${smtp}:3025`, '-p', `127.0.0.1:${imap}:3143`,
-  '-e', 'GREENMAIL_OPTS=-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=testuser:testpass@example.org -Dgreenmail.auth.disabled',
-  'greenmail/standalone:2.1.4');
-await waitFor(async () => (await listening(smtp)) && (await listening(imap)), 'greenmail');
+if (dovecot) {
+  const conf = join(repo, 'scripts/dovecot-t32');
+  docker('run', '-d', '--name', container, '-p', `127.0.0.1:${imap}:143`,
+    '-v', `${join(conf, 'zz-t32.conf')}:/etc/dovecot/conf.d/zz-t32.conf:ro`,
+    '-v', `${join(conf, 'mailwoman-users')}:/etc/dovecot/mailwoman-users:ro`,
+    'dovecot/dovecot:2.4.4');
+  // A listening port is not enough: wait for the greeting.
+  await waitFor(() => new Promise((ok) => {
+    const socket = net.connect(imap, '127.0.0.1');
+    socket.once('data', (chunk) => { socket.destroy(); ok(chunk.toString().startsWith('* OK')); });
+    socket.once('error', () => ok(false));
+    // Docker's port proxy accepts and then closes while Dovecot is starting.
+    socket.once('close', () => ok(false));
+    socket.setTimeout(2000, () => { socket.destroy(); ok(false); });
+  }), 'dovecot');
+} else {
+  docker('run', '-d', '--name', container,
+    '-p', `127.0.0.1:${smtp}:3025`, '-p', `127.0.0.1:${imap}:3143`,
+    '-e', 'GREENMAIL_OPTS=-Dgreenmail.setup.test.all -Dgreenmail.hostname=0.0.0.0 -Dgreenmail.users=testuser:testpass@example.org -Dgreenmail.auth.disabled',
+    'greenmail/standalone:2.1.4');
+  await waitFor(async () => (await listening(smtp)) && (await listening(imap)), 'greenmail');
+}
 
 start('capture SMTP', python, [join(repo, 'apps/web/e2e/fixtures/delivery-smtp.py'), String(capturePort), capture],
-  { MW_CAPTURE_RELAY: `127.0.0.1:${smtp}` });
+  dovecot ? {} : { MW_CAPTURE_RELAY: `127.0.0.1:${smtp}` });
 await waitFor(() => listening(capturePort), 'the capture SMTP fixture');
 
 const data = mkdtempSync(join(tmpdir(), 'mw-receipts-stack-'));
@@ -178,16 +209,18 @@ for (const [key, value] of [['accounts.linkingEnabled', true], ['signin.retryCoo
 }
 
 // 30 fixed messages in testuser's INBOX (list-keyboard-live needs at least 30).
-execFileSync(process.execPath, [join(repo, 'apps/web/e2e/restyle/seed.mjs')], {
-  stdio: 'inherit',
-  env: { ...process.env, MW_E2E_SMTP_HOST: '127.0.0.1', MW_E2E_SMTP_PORT: String(smtp), MW_E2E_IMAP_PORT: String(imap) },
-});
+if (!dovecot) {
+  execFileSync(process.execPath, [join(repo, 'apps/web/e2e/restyle/seed.mjs')], {
+    stdio: 'inherit',
+    env: { ...process.env, MW_E2E_SMTP_HOST: '127.0.0.1', MW_E2E_SMTP_PORT: String(smtp), MW_E2E_IMAP_PORT: String(imap) },
+  });
+}
 
 const env = {
   MW_RECEIPTS_BASE_URL: origin,
-  MW_RECEIPTS_SMTP: `127.0.0.1:${smtp}`,
-  MW_E2E_SMTP_HOST: '127.0.0.1',
-  MW_E2E_SMTP_PORT: String(smtp),
+  MW_RECEIPTS_IMAP_SERVER: imapServer,
+  // The Dovecot leg has no SMTP server to deliver into.
+  ...(dovecot ? {} : { MW_RECEIPTS_SMTP: `127.0.0.1:${smtp}`, MW_E2E_SMTP_HOST: '127.0.0.1', MW_E2E_SMTP_PORT: String(smtp) }),
   MW_E2E_IMAP_PORT: String(imap),
   MW_T49_IMAP: `127.0.0.1:${imap}`,
   // Forward slashes, so a POSIX shell can source the file on Windows too.

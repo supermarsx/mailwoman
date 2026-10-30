@@ -11,7 +11,7 @@ import type {Browser,Page,TestInfo} from '@playwright/test';
 // the reloads have settled is sampled: the console's <main>, the Settings page,
 // the setting's form and its Save button must stay the SAME DOM nodes, and no
 // frame may be empty (no page, no form, or the page skeleton). The saved value
-// are shown in place: the Save button says "Saving…" while the write is in
+// are shown in place: the Save button stays labelled Save while a progress toast covers work in
 // flight, and the result ("Saved. …") is the console's toast.
 // The settings list reload is held 400 ms (pass-through) so the in-between
 // state is long enough to see. Stack: node scripts/e2e-receipts-stack.mjs.
@@ -80,9 +80,9 @@ async function startSampler(page:Page):Promise<void>{
         save:save===refs.save&&refs.save!==null,
         skeleton:q('[data-testid="admin-page-skeleton"]')!==null,
         empty:pageNode===null||f===null||text.length<40||(pageNode as HTMLElement).getBoundingClientRect().height<100,
-        saving:/Saving…/.test(save?.textContent??''),
+        saving:save?.getAttribute('aria-busy')==='true',
         // A success result is a toast in the console's toast region (Feedback kind success).
-        saved:/Saved\./.test(q('[data-testid="toast-region"]')?.textContent??'')||/Saved\./.test(q('[data-testid="setting-detail"]')?.textContent??''),
+        saved:/Saved\./.test(q('[data-testid="toast-region"]')?.textContent??''),
         checked:box?box.checked:null,
         height:Math.round((pageNode as HTMLElement|null)?.getBoundingClientRect().height??0),
       });
@@ -122,7 +122,9 @@ for(const size of SIZES){
         await page.waitForTimeout(150);
         await page.screenshot({path:shot(info,`${size.name}-round${round}-during`)});
         expect((await reload).status()).toBe(200);
-        await expect(page.getByTestId('toast-region').getByText(/^Saved\./).or(form.getByText(/^Saved\./)).first()).toBeVisible();
+        await expect(page.getByTestId('toast-region').getByText(/^Saved\./).first()).toBeVisible();
+        await expect(form.getByText(/^Saved\./)).toHaveCount(0);
+        await expect(form.getByRole('button',{name:'Save',exact:true})).toBeVisible();
         await page.waitForTimeout(500);
         const frames=await stopSampler(page);
         await page.screenshot({path:shot(info,`${size.name}-round${round}-after`)});

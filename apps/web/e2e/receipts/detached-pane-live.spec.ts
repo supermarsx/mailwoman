@@ -3,6 +3,13 @@ import type {Page} from '@playwright/test';
 async function detachTab(page:Page,title:string){await page.getByRole('tab',{name:title,exact:true}).press('Shift+F10');await page.getByRole('menuitem',{name:`Open ${title} in a new window`,exact:true}).click();}
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {pinComposerRibbonOnPhone} from '../helpers.ts';
+
+// 9dab0fe7 (D4): below 600 px the ribbon starts in auto-hide; these legs are about
+// what its controls do, so the phone project pins it for the test (helpers.ts).
+let unpinRibbon:()=>Promise<void>=async()=>{};
+test.beforeEach(async({playwright,baseURL},info)=>{unpinRibbon=await pinComposerRibbonOnPhone(playwright.request,baseURL,info.project.name);});
+test.afterEach(async()=>{await unpinRibbon();});
 // Optional current SPA overlay on the isolated mail fixture. API calls remain real;
 // server shell routing is covered separately by t32_workspace_popup.
 test.beforeEach(async({context})=>{
@@ -51,6 +58,7 @@ test('closes detached content when the verified account logs out',async({page},i
  const navigate=async(name:string)=>{if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();await page.locator('#shell-nav').getByRole('button',{name,exact:true}).click();};
  await navigate('Contacts');const pending=page.waitForEvent('popup');await detachTab(page,'Contacts');const popup=await pending;
  await expect(popup.getByRole('button',{name:'Reattach to main window',exact:true})).toBeVisible();
+ if(info.project.name==='phone')await page.getByRole('button',{name:'Open folders and apps'}).click();// Log out sits in the phone's drawer
  await page.getByRole('button',{name:'Log out',exact:true}).click();await expect(page.getByLabel('Email or username',{exact:true})).toBeVisible();await expect.poll(()=>popup.isClosed()).toBe(true);
 });
 
