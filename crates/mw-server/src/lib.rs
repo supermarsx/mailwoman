@@ -2266,6 +2266,19 @@ fn unauthorized() -> Response {
         .into_response()
 }
 
+/// 502 for a sign-in the mail server's replies stopped (t92): not a refused
+/// password, so the answer is not the uniform 401.
+fn upstream_protocol() -> Response {
+    (
+        StatusCode::BAD_GATEWAY,
+        Json(json!({
+            "error": "the mail server sent a reply this server could not read",
+            "code": "upstreamProtocol",
+        })),
+    )
+        .into_response()
+}
+
 async fn login(
     State(state): State<AppState>,
     headers: HeaderMap,
@@ -2853,10 +2866,15 @@ async fn engine_login(
             // the body), so the linked-mailbox renew route can tell a refused
             // password from an unreachable server. The public login answer
             // is unchanged.
-            let mut response = if error.reason == login_failure::LoginFailureReason::Timeout {
-                StatusCode::GATEWAY_TIMEOUT.into_response()
-            } else {
-                unauthorized()
+            let mut response = match error.reason {
+                login_failure::LoginFailureReason::Timeout => {
+                    StatusCode::GATEWAY_TIMEOUT.into_response()
+                }
+                // t92: the mail server sent a reply Mailwoman could not parse
+                // (or refused a command after sign-in). That says nothing
+                // about the password, so it is not reported as one.
+                login_failure::LoginFailureReason::Protocol => upstream_protocol(),
+                _ => unauthorized(),
             };
             response.extensions_mut().insert(error.reason);
             return response;
