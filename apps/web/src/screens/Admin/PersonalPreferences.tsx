@@ -27,6 +27,7 @@ export function PersonalPreferences(): JSX.Element {
   const prefs = usePersonalPreferences();
   const shell = useShell();
   onMount(() => void loadCatalog('admin-personal'));
+  onMount(() => { void loadCatalog('appearance'); void loadCatalog('color-picker'); }); // t112: the accent picker labels
   const me = () => { const grants = shell.can.grants(); return grants.kind === 'listed' ? grants.me : null; };
   const blocked = () => prefs.loading() || !!prefs.error();
   return <Show when={shell.router.route().rest[0]==='totp'} fallback={<div class={ux.page} data-testid="admin-personal-preferences">

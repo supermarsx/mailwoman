@@ -1,7 +1,7 @@
 import {onCleanup,type Accessor} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
-import {t} from '../i18n';
+import {loadCatalog,t} from '../i18n';
 import {relatedSearchValue} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
@@ -17,6 +17,7 @@ export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focused
 }
 /** Always targets the indicated message, not an unrelated existing selection. */
 export function createMessageContextMenu(email:Accessor<Email|undefined>) {
+  void loadCatalog('search'); // t112: its ids show wherever it is mounted
  const app=useApp();
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];

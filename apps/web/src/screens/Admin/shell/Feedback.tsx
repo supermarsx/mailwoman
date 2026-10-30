@@ -18,7 +18,7 @@
 // to a localized message with a next step; otherwise the HTTP status decides.
 
 import { Show, createEffect, createUniqueId, on, type JSX } from 'solid-js';
-import { t } from '../../../i18n';
+import { loadCatalog, t } from '../../../i18n';
 import { toast, toastRegionMounted } from '../../../components/toast/index.ts';
 import { Icon } from './icons.tsx';
 import * as css from './shell.css.ts';
@@ -35,6 +35,7 @@ export interface FeedbackProps {
 }
 
 export function Feedback(props: FeedbackProps): JSX.Element {
+  void loadCatalog('admin-shell'); // t112: its ids show wherever it is mounted
   const asToast = (): boolean =>
     (props.as ?? (props.kind === 'success' ? 'toast' : 'inline')) === 'toast' && toastRegionMounted();
   // One toast per Feedback: a second result from the same place replaces the first.

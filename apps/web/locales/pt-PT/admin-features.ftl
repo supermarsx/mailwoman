@@ -3,7 +3,6 @@
 
 ## Admin › Perfis de funcionalidades (t39 N9)
 
-admin-nav-features = Perfis de funcionalidades
 admin-features-title = Perfis de funcionalidades
 admin-features-intro = Um perfil é um conjunto com nome de interruptores de funcionalidades. Atribua-o a um domínio, a um grupo ou a um utilizador; passa então a aplicar-se às contas nativas aí. As contas com sessão iniciada através de um servidor upstream em proxy seguem a política desse servidor.
 admin-features-new = Novo perfil

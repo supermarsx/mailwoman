@@ -83,6 +83,11 @@ export function AdminScreen(props: AdminScreenProps): JSX.Element {
   onMount(() => void loadCatalog('admin-dashboard'));
   onMount(() => void loadCatalog('plugins'));
   onMount(() => void loadCatalog('admin-personal'));
+  // t112: the console-wide catalogs. AdminShell loads them too, but the section
+  // table, templates and shared parts are imported from here, so they must not
+  // depend on which child happens to mount first.
+  onMount(() => void loadCatalog('admin-ux'));
+  onMount(() => void loadCatalog('admin-branding'));
 
   return (
       <AdminContext.Provider value={admin}>

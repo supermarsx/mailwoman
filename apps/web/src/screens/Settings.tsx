@@ -163,6 +163,7 @@ export function Settings(props: SettingsProps): JSX.Element {
     void loadCatalog('labels');
     void loadCatalog('appearance');
     void loadCatalog('settings-policy');
+    void loadCatalog('color-picker');
     void loadCatalog('nextcloud'); void loadCatalog('reader'); void loadCatalog('privacy'); void loadCatalog('security');
   });
   const themeHold = useSetting('appearance.theme', '');

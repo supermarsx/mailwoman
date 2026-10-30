@@ -4,7 +4,7 @@ import {LinkedAccountList} from './LinkedAccountList.tsx';
 import {installPointerEvent} from '../../components/accounts/pointerEventPolyfill.test-util.ts';
 installPointerEvent();
 import type {LinkedMailboxList} from '../../api/linkedAccounts.ts';
-vi.mock('../../i18n/index.ts',()=>({t:(key:string,args?:Record<string,string|number>)=>args?.address?`${key}:${args.address}`:args?.name!==undefined?`${key}:${args.name}${args.position!==undefined?`@${args.position}/${args.total}`:''}`:key,isolate:(value:string)=>value}));
+vi.mock('../../i18n/index.ts',()=>({t:(key:string,args?:Record<string,string|number>)=>args?.address?`${key}:${args.address}`:args?.name!==undefined?`${key}:${args.name}${args.position!==undefined?`@${args.position}/${args.total}`:''}`:key,isolate:(value:string)=>value,loadCatalog:async()=>undefined}));
 afterEach(cleanup);
 const value:LinkedMailboxList={primary:{accountId:'1',address:'primary@example.org',storageAuthority:'msa1_primary_verified'},accounts:[{id:'child',accountId:'1',address:'child@example.org',displayName:'Child',storageAuthority:'msa1_child_verified',status:'ready',revision:'v1',expiresAt:123}],policy:{enabled:true,maxAccounts:4,supportedAuthentication:['password']}};
 function mount(data=value){

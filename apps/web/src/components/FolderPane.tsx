@@ -77,7 +77,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
  const rowIds=createMemo(()=>view.messages().map(email=>email.id),undefined,{equals:(a,b)=>a.length===b.length&&a.every((id,i)=>id===b[i])});
  let viewport:HTMLDivElement|undefined;
  let previouslyActive=props.active;
- onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');renameContext();void view.load();});
+ onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');void loadCatalog('selection-bar');renameContext();void view.load();});
  createEffect(()=>{if(props.active&&viewport)viewport.scrollTop=view.scroll();});
  createEffect(()=>{const active=props.active;if(active&&!previouslyActive)untrack(()=>{if(!disabled())void view.load();});previouslyActive=active;});
  createEffect(()=>{if(props.active&&!busy()&&dirty){dirty=false;void view.load();}});

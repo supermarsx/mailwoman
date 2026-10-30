@@ -17,7 +17,7 @@
 
 import { Show, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
-import { isolate, t } from '../../../i18n';
+import { loadCatalog, isolate, t } from '../../../i18n';
 import { createFocusTrap } from '../../../components/a11y';
 import { Feedback, describeAdminError } from './Feedback.tsx';
 import * as css from './shell.css.ts';
@@ -48,6 +48,7 @@ export interface ConfirmDialogProps {
 }
 
 export function ConfirmDialog(props: ConfirmDialogProps): JSX.Element {
+  void loadCatalog('admin-shell'); // t112: its ids show wherever it is mounted
   return (
     <Show when={props.open}>
       <ConfirmDialogOpen {...props} />

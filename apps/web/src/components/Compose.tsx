@@ -386,6 +386,7 @@ export function Compose(props: {
 
   onMount(() => {
     void loadCatalog('mail');
+    void loadCatalog('nextcloud'); // t112: the inserted share link text
     previouslyFocused = document.activeElement as HTMLElement | null;
     if (props.active !== false) toInputEl?.focus();
     void app.loadIdentities().catch(cause=>{if(ownsDraft()&&!(cause instanceof DOMException&&cause.name==='AbortError'))setError(t('mail-compose-identities-failed'));});

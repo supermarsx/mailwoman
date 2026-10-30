@@ -1,6 +1,6 @@
 import { For, Show, type JSX } from 'solid-js';
 import { settings } from '../api/settings.ts';
-import { t } from '../i18n';
+import { loadCatalog, t } from '../i18n';
 import { formatDateTime } from '../i18n/format.ts';
 import { displayTimeZone, validTimeZone, wallTimeCandidates } from '../i18n/timezones.ts';
 import { Icon } from './Icon.tsx';
@@ -13,6 +13,7 @@ function comparisonZone():string {
 }
 function dateIn(value:string|Date,zone:string):string {return formatDateTime(value,{year:'numeric',month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:zone,timeZoneName:'short'});}
 export function MessageTimes(props:{sent?:string|null|undefined;received:string}):JSX.Element {
+  void loadCatalog('mail'); // t112: its ids show wherever it is mounted
   const when=()=>props.sent??props.received;
   return <Show when={settings()['time.showHelpers']?.value!==false}><details class="time-helper">
     <summary data-tooltip={dateIn(when(),messageTimeZone())}><Icon name="clock"/><time dateTime={when()}>{formatDateTime(when(),{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',timeZone:messageTimeZone()})}</time></summary>
@@ -23,6 +24,7 @@ export function MessageTimes(props:{sent?:string|null|undefined;received:string}
   </details></Show>;
 }
 export function EventTimeComparison(props:{wallTime:string;zone:string}):JSX.Element {
+  void loadCatalog('mail'); // t112: its ids show wherever it is mounted
   const candidates=()=>wallTimeCandidates(props.wallTime,props.zone);
   return <Show when={settings()['time.showHelpers']?.value!==false&&candidates().length>0}>
     <section class="time-helper" aria-label={t('mail-time-event-comparison')}>

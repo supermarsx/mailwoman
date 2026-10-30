@@ -1,7 +1,7 @@
 import { createSignal, createUniqueId, onCleanup, onMount, Show, type Accessor, type JSX } from 'solid-js';
 import { Portal } from 'solid-js/web';
 import { createFocusTrap } from '../../components/a11y';
-import { t } from '../../i18n';
+import { loadCatalog, t } from '../../i18n';
 import { useSettingsNavigation, type SettingsRoute } from './navigation.tsx';
 import * as css from './styles.css.ts';
 import * as layout from './editor.css.ts';
@@ -11,6 +11,7 @@ export function useEntityNavigation(section: string) {
 }
 type Flag=Accessor<boolean>;
 export function useEditorGuard(dirty:Flag, busy:Flag) {
+ void loadCatalog('settings'); // t112: the discard dialog's ids
  const nav=useSettingsNavigation();const [pending,setPending]=createSignal<((leave:boolean)=>void)>();
  const confirm=():Promise<boolean>=>{if(!dirty())return Promise.resolve(true);if(busy())return Promise.resolve(false);return new Promise(resolve=>setPending(()=>resolve));};
  if(nav)onCleanup(nav.beforeLeave(confirm,dirty));

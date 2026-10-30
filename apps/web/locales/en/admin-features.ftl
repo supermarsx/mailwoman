@@ -1,6 +1,5 @@
 ## Admin › Feature profiles (t39 N9)
 
-admin-nav-features = Feature profiles
 admin-features-title = Feature profiles
 admin-features-intro = A profile is a named set of feature switches. Assign it to a domain, a group or a user; it then applies to the native accounts there. Accounts signed in through a proxy upstream follow that server's own policy.
 admin-features-new = New profile

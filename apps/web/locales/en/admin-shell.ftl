@@ -228,6 +228,8 @@ admin-attachments-refresh = Refresh rules
 
 admin-nav-nextcloud = Nextcloud
 admin-nav-package-tracking = Package tracking
+# t112: the nav label lives with the nav; admin-features loads only on that screen.
+admin-nav-features = Feature profiles
 
 admin-diag-started = Started
 admin-diag-suite = Suite

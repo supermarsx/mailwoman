@@ -5,7 +5,7 @@
 
 import { createSignal, onCleanup, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { t } from '../i18n/index.ts';
+import { loadCatalog, t } from '../i18n/index.ts';
 import { downloadMessages, forwardMessages } from '../api/mailBulk.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from '../api/accountPreferenceLifecycle.ts';
 import { SelectionBar, type SelectionAction } from './SelectionBar.tsx';
@@ -18,6 +18,7 @@ export function MailSelectionBar(props: {
   onClear: () => void;
   returnFocus: () => void;
 }): JSX.Element {
+  void loadCatalog('selection-bar'); // t112: its ids show wherever it is mounted
   const app = useApp();
   const [busy, setBusy] = createSignal(false);
   const controller = new AbortController();

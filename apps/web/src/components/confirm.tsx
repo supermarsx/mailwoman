@@ -17,7 +17,7 @@
 
 import { createSignal, createUniqueId, onCleanup, Show, type JSX } from 'solid-js';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
-import { t } from '../i18n/index.ts';
+import { loadCatalog, t } from '../i18n/index.ts';
 import type { SettingsNavigation } from '../screens/Settings/navigation.tsx';
 
 export interface ConfirmRequest {
@@ -73,6 +73,7 @@ export function createConfirm(): { ask: (request: ConfirmRequest) => Promise<boo
  *  question asked ("Discard unsaved time zone changes?"). Returns the dialog to
  *  render inside the editor. */
 export function useLeaveConfirm(navigation: SettingsNavigation, dirty: () => boolean, title: () => string): () => JSX.Element {
+  void loadCatalog('settings'); // t112: its ids show wherever it is mounted
   const confirm = createConfirm();
   onCleanup(navigation.beforeLeave(
     () => !dirty() || confirm.ask({

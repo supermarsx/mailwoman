@@ -10,7 +10,7 @@ import {docFromHtml} from './richtext.ts';
 import {Icon,type IconName} from '../Icon.tsx';
 import {RibbonPopover} from './ribbonParts.tsx';
 import {ColorField,type ColorContrast} from '../color/ColorPicker.tsx';
-import {t} from '../../i18n/index.ts';
+import {loadCatalog,t} from '../../i18n/index.ts';
 
 // The editor's clipboard, colour, paragraph, find, and table commands (t38-e5:
 // one factory of controls, which RichTextEditor lays out in 3-row ribbon
@@ -22,6 +22,7 @@ const tableIcons:Record<string,IconName>={'row-before':'tableRowBefore','row-aft
 const tableActions:[string,Command][]=[['row-before',addRowBefore],['row-after',addRowAfter],['row-delete',deleteRow],['column-before',addColumnBefore],['column-after',addColumnAfter],['column-delete',deleteColumn],['merge',mergeCells],['split',splitCell],['header',toggleHeaderRow],['delete',deleteTable]];
 export type AdvancedEditorTools=ReturnType<typeof createAdvancedEditorTools>;
 export function createAdvancedEditorTools(props:AdvancedEditorToolsProps) {
+  void loadCatalog('color-picker'); // t112: its ids show wherever it is mounted
  const [needle,setNeedle]=createSignal(''),[replacement,setReplacement]=createSignal(''),[caseSensitive,setCaseSensitive]=createSignal(false);
  const [rows,setRows]=createSignal(2),[columns,setColumns]=createSignal(2);
  const [paint,setPaint]=createSignal<{marks:readonly Mark[];attributes:Record<string,unknown>}|null>(null);

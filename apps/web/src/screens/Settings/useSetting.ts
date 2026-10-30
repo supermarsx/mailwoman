@@ -10,7 +10,7 @@
 // English.
 
 import { createSignal, onMount } from 'solid-js';
-import { t } from '../../i18n';
+import { loadCatalog, t } from '../../i18n';
 import {
   loadSettings,
   resetSetting,
@@ -55,7 +55,7 @@ export function useSetting<T>(
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal('');
   let operation = 0;
-  onMount(() => void loadSettings());
+  onMount(() => { void loadCatalog('settings-policy'); void loadSettings(); });
 
   const entry = (): SettingEntry | undefined => settings()[key];
 

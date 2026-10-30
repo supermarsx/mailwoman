@@ -60,6 +60,7 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
   const [factors,setFactors]=createSignal<string[]>([]);
   const [recovery,setRecovery]=createSignal(false);
   onMount(()=>void loadCatalog('admin-passkeys'));
+  onMount(()=>void loadCatalog('auth')); // t112: the verification-required notice
 
   // Boot placeholder hand-over (t72): the static sign-in card skeleton
   // (index.html, styles/boot.css) stays over this form until its text, the

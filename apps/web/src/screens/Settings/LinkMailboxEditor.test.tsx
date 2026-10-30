@@ -2,7 +2,7 @@ import {cleanup,fireEvent,render,screen,waitFor} from '@solidjs/testing-library'
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import {LinkMailboxEditor} from './LinkMailboxEditor.tsx';
-vi.mock('../../i18n/index.ts',()=>({t:(key:string)=>key}));
+vi.mock('../../i18n/index.ts',()=>({t:(key:string)=>key,loadCatalog:async()=>undefined}));
 beforeEach(()=>activateAccountPreferences('1','msa1_parent_verified'));
 afterEach(()=>{cleanup();suspendAccountPreferences();});
 function mount(verify=vi.fn(async()=>undefined)){

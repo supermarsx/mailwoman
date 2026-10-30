@@ -1,7 +1,7 @@
 import { createResource, createSignal, Show, useContext, onCleanup, type JSX } from 'solid-js';
 import { adminSessionGeneration } from '../../api/adminSession.ts';
 import { adminRequest } from './shell/adminApi.ts';
-import { t, formatDateTime } from '../../i18n';
+import { loadCatalog, t, formatDateTime } from '../../i18n';
 import * as css from '../Settings/styles.css.ts';
 import { DataTable, type Column } from './shell/DataTable.tsx';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
@@ -12,6 +12,7 @@ import { revokeSessionBatch } from '../../api/sessionRevocation.ts';
 type Session = { handle: string; accountId: string; username: string; lastSeen: string; lastActivity?: string; clientType: string; userAgent: string; ip: string; createdAt?: string; deviceLabel?: string; clientVersion?: string };
 type Listing = { sessions: Session[]; truncated: boolean };
 export function AdminSessions(): JSX.Element {
+  void loadCatalog('security'); // t112: its ids show wherever it is mounted
   const authority=adminSessionGeneration();let alive=true;onCleanup(()=>{alive=false;});
   const authorityCurrent=():boolean=>alive&&authority===adminSessionGeneration();
   const shell = useContext(ShellContext);

@@ -7,7 +7,7 @@
 // pointer names (UX5); writes send If-Match from the row's tag (UX19).
 
 import { Show, createResource, createSignal, type JSX } from 'solid-js';
-import { isolate, t } from '../../../i18n';
+import { loadCatalog, isolate, t } from '../../../i18n';
 import {
   deleteDomainValue,
   deleteUserValue,
@@ -45,6 +45,7 @@ export interface ScopedValuesProps {
 }
 
 export function ScopedValues(props: ScopedValuesProps): JSX.Element {
+  void loadCatalog('admin-settings'); // t112: its ids show wherever it is mounted
   const isDomain = (): boolean => props.scope === 'domain';
   // The source is the key and scope only: a new tuple on every write of the
   // global value (the parent hands down a new setting object) fetched the rows

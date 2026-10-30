@@ -2,11 +2,12 @@ import {createSignal,onCleanup,Show,type JSX} from 'solid-js';
 import type {LinkedMailboxChallenge,LinkMailboxProof} from '../../api/linkedAccounts.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {assertPasskey,passkeySupported} from './webauthn.ts';
-import {t} from '../../i18n/index.ts';
+import {loadCatalog,t} from '../../i18n/index.ts';
 import * as css from './styles.css.ts';
 
 /** Child MFA never invokes the ordinary login endpoint or replaces its cookie. */
 export function LinkedMailboxFactor(props:{challenge:LinkedMailboxChallenge;onConfirm:(proof:LinkMailboxProof)=>Promise<void>;onCancel:()=>void;errorText:(error:unknown)=>string}):JSX.Element {
+  void loadCatalog('settings'); // t112: its ids show wherever it is mounted
   const owner=preferenceAccount();
   const has=(method:string)=>props.challenge.factors.includes(method);
   const [method,setMethod]=createSignal<'totp'|'recovery'>(has('totp')?'totp':'recovery');

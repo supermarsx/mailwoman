@@ -3,7 +3,7 @@ import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import {LinkedMailboxFactor} from './LinkedMailboxFactor.tsx';
 import {assertPasskey} from './webauthn.ts';
-vi.mock('../../i18n/index.ts',()=>({t:(key:string)=>key}));
+vi.mock('../../i18n/index.ts',()=>({t:(key:string)=>key,loadCatalog:async()=>undefined}));
 vi.mock('./webauthn.ts',()=>({assertPasskey:vi.fn(),passkeySupported:()=>true}));
 beforeEach(()=>activateAccountPreferences('1','msa1_primary_verified'));
 afterEach(()=>{cleanup();suspendAccountPreferences();vi.resetAllMocks();});

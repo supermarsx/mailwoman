@@ -5,7 +5,7 @@
 // (`FormField`) and checks the draft with `parseDraft` before any request.
 
 import { For, Match, Switch, type JSX } from 'solid-js';
-import { formatLanguageName, t } from '../../../i18n';
+import { loadCatalog, formatLanguageName, t } from '../../../i18n';
 import type { SettingKind } from '../../../api/admin/settings.ts';
 import type { FieldWiring } from '../shell/FormField.tsx';
 import type { Draft } from './value.ts';
@@ -25,6 +25,7 @@ export interface ValueInputProps {
 }
 
 export function ValueInput(props: ValueInputProps): JSX.Element {
+  void loadCatalog('admin-settings'); // t112: its ids show wherever it is mounted
   const text = (): string => (typeof props.draft === 'string' ? props.draft : '');
   const options = (): readonly string[] => props.kind.values ?? [];
   const label = (v: string): string =>
