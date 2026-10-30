@@ -5367,6 +5367,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "mw-mail-transport"
+version = "26.19.0"
+dependencies = [
+ "der 0.8.1",
+ "futures-util",
+ "hickory-net",
+ "mw-egress",
+ "rcgen",
+ "reqwest 0.12.28",
+ "rustls",
+ "rustls-pki-types",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-rustls",
+ "tracing",
+ "webpki-roots 1.0.11",
+ "x509-cert 0.3.0",
+]
+
+[[package]]
 name = "mw-mcp"
 version = "26.19.0"
 dependencies = [

@@ -12,6 +12,7 @@ members = [
     "crates/mw-imap",
     "crates/mw-pop3",
     "crates/mw-smtp",
+    "crates/mw-mail-transport",
     "crates/mw-engine",
     "crates/mw-autoconfig",
     "crates/mw-search",
@@ -359,6 +360,7 @@ mw-mime = { path = "crates/mw-mime" }
 mw-imap = { path = "crates/mw-imap" }
 mw-pop3 = { path = "crates/mw-pop3" }
 mw-smtp = { path = "crates/mw-smtp" }
+mw-mail-transport = { path = "crates/mw-mail-transport" }
 mw-engine = { path = "crates/mw-engine" }
 mw-autoconfig = { path = "crates/mw-autoconfig" }
 mw-search = { path = "crates/mw-search" }
