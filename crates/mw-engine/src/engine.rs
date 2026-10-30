@@ -520,12 +520,33 @@ impl Engine {
         rt: &AccountRuntime,
         mailboxes: Vec<RawMailbox>,
     ) -> Result<Vec<(RawMailbox, String)>> {
-        let cached_mailboxes = self.store.list_mailboxes(account_id).await?;
+        let mut cached_mailboxes = self.store.list_mailboxes(account_id).await?;
+        let listed: std::collections::HashSet<String> = mailboxes
+            .iter()
+            .map(|m| m.mailbox_ref.name.clone())
+            .collect();
         // Upsert every mailbox first so ingest-time rules (plan §0.6) can target
         // any folder even when it sorts after the inbox in the backend's list.
         let mut pairs = Vec::with_capacity(mailboxes.len());
         for mut rm in mailboxes {
             self.require_runtime_generation(account_id, rt)?;
+            // A folder cached under the spelling it had before the session
+            // switched to UTF-8 names (t92) is renamed, not duplicated: it
+            // keeps its id, messages and sync cursor.
+            if !cached_mailboxes
+                .iter()
+                .any(|cached| cached.name == rm.mailbox_ref.name)
+                && let Some(legacy) = rt.backend.legacy_mailbox_spelling(&rm.mailbox_ref.name)
+                && !listed.contains(&legacy)
+                && let Some(index) = cached_mailboxes
+                    .iter()
+                    .position(|cached| cached.name == legacy)
+            {
+                self.store
+                    .rename_mailbox_tree(account_id, &legacy, &rm.mailbox_ref.name, None)
+                    .await?;
+                cached_mailboxes[index].name = rm.mailbox_ref.name.clone();
+            }
             if let Some(cached) = cached_mailboxes
                 .iter()
                 .find(|cached| {

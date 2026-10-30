@@ -213,6 +213,16 @@ pub trait AccountBackend: Send + Sync {
         wire.to_string()
     }
 
+    /// The spelling a mailbox the server now names `wire` had before this
+    /// session switched to UTF-8 names (t92): IMAP gives the modified UTF-7
+    /// form once IMAP4rev2 or UTF8=ACCEPT is enabled, when it differs. The
+    /// engine renames a cached row found under it, so the folder keeps its id,
+    /// messages and cursor. `None` (the default): names never change spelling.
+    fn legacy_mailbox_spelling(&self, wire: &str) -> Option<String> {
+        let _ = wire;
+        None
+    }
+
     /// CREATE a mailbox with the full server name `name`.
     async fn create_mailbox(&self, name: &str) -> Result<()> {
         let _ = name;

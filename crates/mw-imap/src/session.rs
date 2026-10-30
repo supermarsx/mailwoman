@@ -96,6 +96,10 @@ pub struct Session {
     caps: CapabilitySet,
     selected: Option<String>,
     qresync_enabled: bool,
+    /// Mailbox names travel in UTF-8 rather than modified UTF-7: the server
+    /// confirmed `ENABLE IMAP4rev2` or `ENABLE UTF8=ACCEPT` (RFC 9051 §6.3.1,
+    /// RFC 6855 §3).
+    utf8_names: bool,
     host: String,
     port: u16,
     /// The hierarchy delimiter once `LIST "" ""` has answered (`Some(None)` is
@@ -144,6 +148,7 @@ impl Session {
             caps,
             selected: None,
             qresync_enabled: false,
+            utf8_names: false,
             host: host.to_string(),
             port,
             delimiter: None,
@@ -164,6 +169,11 @@ impl Session {
     /// The negotiated capability flags for the frozen seam.
     pub fn backend_caps(&self) -> BackendCaps {
         self.caps.to_backend_caps()
+    }
+
+    /// Whether mailbox names are UTF-8 on the wire (see `utf8_names`).
+    pub fn utf8_names(&self) -> bool {
+        self.utf8_names
     }
 
     /// Force a `CAPABILITY` round-trip, replacing the cached set.
@@ -309,25 +319,41 @@ impl Session {
         if self.caps.has("IMAP4rev2") {
             exts.push("IMAP4rev2");
         }
-        if exts.is_empty() {
-            return Ok(());
-        }
-        let tagged = self
-            .conn
-            .execute(&format!("ENABLE {}", exts.join(" ")))
-            .await?
-            .ok()?;
-        for resp in &tagged.untagged {
-            if let Response::Capabilities(c) = resp {
-                // ENABLED echoes the extensions now active.
-                if c.iter().any(|cap| matches!(cap, imap_proto::Capability::Atom(a) if a.eq_ignore_ascii_case("QRESYNC")))
-                {
-                    self.qresync_enabled = true;
+        if !exts.is_empty() {
+            let tagged = self
+                .conn
+                .execute(&format!("ENABLE {}", exts.join(" ")))
+                .await?
+                .ok()?;
+            for resp in &tagged.untagged {
+                if let Response::Capabilities(c) = resp {
+                    // ENABLED echoes the extensions now active.
+                    if enabled_has(c, "QRESYNC") {
+                        self.qresync_enabled = true;
+                    }
+                    if enabled_has(c, "IMAP4rev2") {
+                        self.utf8_names = true;
+                    }
                 }
             }
+            if self.caps.has("QRESYNC") {
+                self.qresync_enabled = true;
+            }
         }
-        if self.caps.has("QRESYNC") {
-            self.qresync_enabled = true;
+        // UTF8=ACCEPT (RFC 6855): names, and quoted strings generally, in
+        // UTF-8. Asked for on its own, best-effort, so a server that refuses it
+        // keeps the extensions above and the modified UTF-7 names.
+        if self.caps.has("UTF8=ACCEPT")
+            && let Ok(tagged) = self.conn.execute("ENABLE UTF8=ACCEPT").await
+            && let Ok(tagged) = tagged.ok()
+        {
+            for resp in &tagged.untagged {
+                if let Response::Capabilities(c) = resp
+                    && enabled_has(c, "UTF8=ACCEPT")
+                {
+                    self.utf8_names = true;
+                }
+            }
         }
         Ok(())
     }
@@ -1929,6 +1955,12 @@ fn parse_metadata(payload: &str) -> Vec<MetadataEntry> {
 }
 
 /// Quote a mailbox/argument as an IMAP quoted-string.
+/// Whether an `ENABLED` echo names `ext` (case-insensitive).
+fn enabled_has(caps: &[imap_proto::Capability<'_>], ext: &str) -> bool {
+    caps.iter()
+        .any(|cap| matches!(cap, imap_proto::Capability::Atom(a) if a.eq_ignore_ascii_case(ext)))
+}
+
 pub(crate) fn quote(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');

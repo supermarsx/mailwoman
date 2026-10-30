@@ -70,6 +70,91 @@ fn try_parse(buf: &[u8]) -> ParseStep {
     }
 }
 
+/// Respell every quoted string carrying 8-bit bytes in the first response of
+/// `buf` as a literal (`{n}` CRLF, then the unescaped bytes). Returns whether
+/// anything changed.
+///
+/// RFC 9051 §4.3 and RFC 6855 §3 let a server that has UTF-8 enabled send raw
+/// UTF-8 inside a quoted string (Dovecot: `* LIST () "/" "Корзина"`), but
+/// `imap-proto` 0.16 accepts only 7-bit text in a quoted string, while a literal
+/// may hold any bytes. Both forms mean the same string, so the parsed response
+/// is unchanged. Only the first response is touched (up to its first CRLF
+/// outside a literal): later bytes may still be read line by line. Existing
+/// literals are skipped by their length, so message bodies are never
+/// rewritten. A quote that is not closed before CR/LF is free text, not a
+/// quoted string, and is left as it is.
+pub(crate) fn literalize_8bit_quoted(buf: &mut BytesMut) -> bool {
+    let mut changed = false;
+    let mut pos = 0usize;
+    while pos < buf.len() {
+        match buf[pos] {
+            b'\r' if buf.get(pos + 1) == Some(&b'\n') => break,
+            b'{' => match literal_header(&buf[pos..]) {
+                Some((header_len, n)) => pos = pos.saturating_add(header_len).saturating_add(n),
+                None => pos += 1,
+            },
+            b'"' => {
+                let mut i = pos + 1;
+                let mut content = Vec::new();
+                let mut eight_bit = false;
+                let mut closed = None;
+                while i < buf.len() {
+                    match buf[i] {
+                        b'"' => {
+                            closed = Some(i);
+                            break;
+                        }
+                        b'\r' | b'\n' => break,
+                        b'\\' if i + 1 < buf.len() && matches!(buf[i + 1], b'"' | b'\\') => {
+                            content.push(buf[i + 1]);
+                            i += 2;
+                        }
+                        b => {
+                            eight_bit |= b >= 0x80;
+                            content.push(b);
+                            i += 1;
+                        }
+                    }
+                }
+                let Some(close) = closed else {
+                    // Unclosed: free text up to CRLF, or not all here yet.
+                    pos = i;
+                    continue;
+                };
+                if !eight_bit {
+                    pos = close + 1;
+                    continue;
+                }
+                let tail = buf.split_off(close + 1);
+                buf.truncate(pos);
+                let header = format!("{{{}}}\r\n", content.len());
+                buf.extend_from_slice(header.as_bytes());
+                buf.extend_from_slice(&content);
+                buf.extend_from_slice(&tail);
+                pos += header.len() + content.len();
+                changed = true;
+            }
+            _ => pos += 1,
+        }
+    }
+    changed
+}
+
+/// `{n}` or `{n+}` then CRLF at the start of `bytes`: (header length, n).
+fn literal_header(bytes: &[u8]) -> Option<(usize, usize)> {
+    let close = bytes.iter().take(24).position(|&b| b == b'}')?;
+    let inner = &bytes[1..close];
+    let digits = inner.strip_suffix(b"+").unwrap_or(inner);
+    if digits.is_empty() || !digits.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    if bytes.get(close + 1..close + 3) != Some(b"\r\n") {
+        return None;
+    }
+    let n = std::str::from_utf8(digits).ok()?.parse().ok()?;
+    Some((close + 3, n))
+}
+
 /// A single IMAP connection with its command tag counter and read buffer.
 pub struct Connection {
     stream: Option<ImapStream>,
@@ -165,8 +250,21 @@ impl Connection {
                     self.buf.advance(consumed);
                     return Ok(resp);
                 }
-                ParseStep::Bad(msg) => return Err(ImapError::Protocol(msg)),
-                ParseStep::Incomplete => {}
+                ParseStep::Bad(msg) => {
+                    // A UTF-8 session (IMAP4rev2 / UTF8=ACCEPT) may quote raw
+                    // 8-bit text, which `imap-proto` only takes as a literal.
+                    // Respell those strings and parse again; anything else is
+                    // a protocol error.
+                    if literalize_8bit_quoted(&mut self.buf) {
+                        continue;
+                    }
+                    return Err(ImapError::Protocol(msg));
+                }
+                ParseStep::Incomplete => {
+                    if literalize_8bit_quoted(&mut self.buf) {
+                        continue;
+                    }
+                }
             }
             let stream = self.stream.as_mut().ok_or(ImapError::Eof)?;
             let n = stream.read_buf(&mut self.buf).await?;
@@ -508,5 +606,108 @@ impl Connection {
         // Any buffered pre-TLS bytes would be a protocol violation; discard.
         self.buf.clear();
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod utf8_quoted_tests {
+    use super::*;
+    use imap_proto::{MailboxDatum, StatusAttribute};
+
+    fn parse_one(raw: &[u8]) -> (OwnedResponse, BytesMut) {
+        let mut buf = BytesMut::from(raw);
+        loop {
+            match try_parse(&buf) {
+                ParseStep::Done(n, resp) => {
+                    buf.advance(n);
+                    return (resp, buf);
+                }
+                ParseStep::Bad(msg) => assert!(literalize_8bit_quoted(&mut buf), "{msg}"),
+                ParseStep::Incomplete => assert!(literalize_8bit_quoted(&mut buf), "incomplete"),
+            }
+        }
+    }
+
+    fn list_name(resp: &OwnedResponse) -> String {
+        match resp {
+            Response::MailboxData(MailboxDatum::List { name, .. }) => name.to_string(),
+            other => panic!("not a LIST: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn raw_utf8_quoted_list_name_parses() {
+        // Dovecot 2.4 with IMAP4rev2 enabled (t39-e7): this was a protocol
+        // error, and the sign-in failed.
+        let raw = "* LIST (\\UnMarked) \"/\" \"Корзина\"\r\n";
+        assert!(matches!(try_parse(raw.as_bytes()), ParseStep::Bad(_)));
+        let (resp, rest) = parse_one(raw.as_bytes());
+        assert_eq!(list_name(&resp), "Корзина");
+        assert!(rest.is_empty());
+    }
+
+    #[test]
+    fn utf8_quoted_with_escapes_keeps_the_text() {
+        let (resp, _) = parse_one("* LIST () \"/\" \"Entwürfe \\\"neu\\\" \\\\ x\"\r\n".as_bytes());
+        assert_eq!(list_name(&resp), "Entwürfe \"neu\" \\ x");
+    }
+
+    #[test]
+    fn literal_ascii_and_modified_utf7_forms_are_unchanged() {
+        let mut ascii = BytesMut::from(&b"* LIST () \"/\" \"Entw&APw-rfe\"\r\n"[..]);
+        assert!(!literalize_8bit_quoted(&mut ascii));
+        let (resp, _) = parse_one(b"* LIST () \"/\" \"Entw&APw-rfe\"\r\n");
+        assert_eq!(list_name(&resp), "Entw&APw-rfe");
+        let (resp, _) = parse_one("* LIST () \"/\" {9}\r\nEntwürfe\r\n".as_bytes());
+        assert_eq!(list_name(&resp), "Entwürfe");
+        // A literal's bytes (a body with quotes and 8-bit text) are never respelt.
+        let mut body = BytesMut::from("* 1 FETCH (BODY[] {12}\r\n\"é\" quoted)\r\n".as_bytes());
+        assert!(!literalize_8bit_quoted(&mut body));
+    }
+
+    #[test]
+    fn status_with_a_raw_utf8_name_parses() {
+        let (resp, _) = parse_one("* STATUS \"Корзина\" (MESSAGES 3 UNSEEN 1)\r\n".as_bytes());
+        match resp {
+            Response::MailboxData(MailboxDatum::Status { mailbox, status }) => {
+                assert_eq!(mailbox, "Корзина");
+                assert!(status.contains(&StatusAttribute::Messages(3)));
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn only_the_first_response_is_respelt() {
+        let raw = "* LIST () \"/\" \"Корзина\"\r\n* LIST () \"/\" \"Entwürfe\"\r\n";
+        let mut buf = BytesMut::from(raw.as_bytes());
+        assert!(literalize_8bit_quoted(&mut buf));
+        let text = String::from_utf8(buf.to_vec()).unwrap();
+        assert!(
+            text.starts_with("* LIST () \"/\" {14}\r\nКорзина\r\n"),
+            "{text}"
+        );
+        assert!(
+            text.ends_with("\r\n* LIST () \"/\" \"Entwürfe\"\r\n"),
+            "{text}"
+        );
+    }
+
+    #[test]
+    fn a_split_response_parses_once_complete() {
+        let raw = "* LIST () \"/\" \"Корзина\"\r\n".as_bytes();
+        let mut buf = BytesMut::from(&raw[..18]);
+        // Unclosed quote so far: nothing respelt, and not complete.
+        assert!(!literalize_8bit_quoted(&mut buf));
+        assert!(!matches!(try_parse(&buf), ParseStep::Done(..)));
+        buf.extend_from_slice(&raw[18..]);
+        let (resp, _) = parse_one(&buf);
+        assert_eq!(list_name(&resp), "Корзина");
+    }
+
+    #[test]
+    fn a_stray_quote_in_free_text_is_left_alone() {
+        let mut buf = BytesMut::from("* OK [ALERT] it is \"fine\r\n".as_bytes());
+        assert!(!literalize_8bit_quoted(&mut buf));
     }
 }

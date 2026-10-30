@@ -8,6 +8,7 @@
 //! the call. The live counterpart is `mw-server/tests/t28_folders_live.rs`.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
@@ -74,6 +75,9 @@ struct FolderBackend {
     manages: bool,
     /// `false` behaves like an IMAP server that cannot expunge one message.
     can_expunge: bool,
+    /// t92: names are UTF-8 on the wire (as after `ENABLE UTF8=ACCEPT`), so
+    /// the stand-in encoding is off and the old spelling is the legacy one.
+    utf8: AtomicBool,
 }
 
 impl FolderBackend {
@@ -88,6 +92,7 @@ impl FolderBackend {
             server: Mutex::new(server),
             manages,
             can_expunge,
+            utf8: AtomicBool::new(false),
         }
     }
 
@@ -127,6 +132,45 @@ impl FolderBackend {
             Err(EngineError::Unsupported(verb.into()))
         }
     }
+}
+
+/// The t65 stand-in for modified UTF-7: each non-ASCII char is `&<hex>-`.
+fn legacy_spelling(name: &str) -> String {
+    name.chars()
+        .map(|c| {
+            if c.is_ascii() {
+                c.to_string()
+            } else {
+                format!("&{:x}-", c as u32)
+            }
+        })
+        .collect()
+}
+
+fn legacy_decode(wire: &str) -> String {
+    let mut out = String::new();
+    let mut rest = wire;
+    while let Some(at) = rest.find('&') {
+        out.push_str(&rest[..at]);
+        let tail = &rest[at + 1..];
+        match tail.split_once('-').and_then(|(hex, after)| {
+            u32::from_str_radix(hex, 16)
+                .ok()
+                .and_then(char::from_u32)
+                .map(|c| (c, after))
+        }) {
+            Some((c, after)) => {
+                out.push(c);
+                rest = after;
+            }
+            None => {
+                out.push('&');
+                rest = tail;
+            }
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn message(i: usize) -> Vec<u8> {
@@ -293,41 +337,25 @@ impl AccountBackend for FolderBackend {
     // t65: a stand-in for modified UTF-7, so the cases can tell the typed
     // name from the server spelling: each non-ASCII char is `&<hex>-`.
     fn encode_mailbox_name(&self, name: &str) -> String {
-        name.chars()
-            .map(|c| {
-                if c.is_ascii() {
-                    c.to_string()
-                } else {
-                    format!("&{:x}-", c as u32)
-                }
-            })
-            .collect()
+        if self.utf8.load(Ordering::SeqCst) {
+            return name.to_string();
+        }
+        legacy_spelling(name)
+    }
+
+    fn legacy_mailbox_spelling(&self, wire: &str) -> Option<String> {
+        if !self.utf8.load(Ordering::SeqCst) {
+            return None;
+        }
+        let legacy = legacy_spelling(wire);
+        (legacy != wire).then_some(legacy)
     }
 
     fn decode_mailbox_name(&self, wire: &str) -> String {
-        let mut out = String::new();
-        let mut rest = wire;
-        while let Some(at) = rest.find('&') {
-            out.push_str(&rest[..at]);
-            let tail = &rest[at + 1..];
-            match tail.split_once('-').and_then(|(hex, after)| {
-                u32::from_str_radix(hex, 16)
-                    .ok()
-                    .and_then(char::from_u32)
-                    .map(|c| (c, after))
-            }) {
-                Some((c, after)) => {
-                    out.push(c);
-                    rest = after;
-                }
-                None => {
-                    out.push('&');
-                    rest = tail;
-                }
-            }
+        if self.utf8.load(Ordering::SeqCst) {
+            return wire.to_string();
         }
-        out.push_str(rest);
-        out
+        legacy_decode(wire)
     }
 
     async fn rename_mailbox(&self, from: &RawMailboxRef, to: &str) -> Result<()> {
@@ -1034,4 +1062,88 @@ async fn t65_rename_only_reaches_the_accounts_own_folders() {
     assert!(owner.backend.names().contains(&"Mine".to_string()));
     assert!(!owner.backend.names().contains(&"Taken".to_string()));
     assert!(!other.backend.names().contains(&"Taken".to_string()));
+}
+
+// ---------------------------------------------------------------------------
+// t92 — the session switches to UTF-8 names (ENABLE UTF8=ACCEPT)
+// ---------------------------------------------------------------------------
+
+/// A folder cached under its old (modified UTF-7) spelling keeps its id, its
+/// messages and its parent once the server lists it in UTF-8: the engine
+/// renames the row instead of adding a second folder.
+#[tokio::test]
+async fn t92_a_folder_cached_in_the_old_spelling_keeps_its_id_under_utf8_names() {
+    let h = setup().await;
+    let set = mailbox_set(
+        &h,
+        json!({ "create": { "p": { "name": "Entwürfe" }, "c": { "name": "Ältere", "parentId": "#p" } } }),
+    )
+    .await;
+    let parent = set["created"]["p"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{set}"))
+        .to_string();
+    let child = set["created"]["c"]["id"]
+        .as_str()
+        .unwrap_or_else(|| panic!("{set}"))
+        .to_string();
+    h.backend
+        .server
+        .lock()
+        .unwrap()
+        .deliver("Entw&fc-rfe", message(7));
+    h.engine.resync(&h.account_id).await.unwrap();
+    let before = email_ids(&h, &parent).await;
+    assert_eq!(before.len(), 1);
+    // The full path reaches the client decoded; the server spelling stays.
+    let all = mailboxes(&h).await;
+    assert_eq!(
+        all[&child]["mailwomanUpstreamName"],
+        "Entw&fc-rfe.&c4-ltere"
+    );
+    assert_eq!(all[&child]["mailwomanPath"], "Entwürfe.Ältere");
+    assert_eq!(all[&child]["name"], "Ältere");
+
+    // The server now speaks UTF-8: same folders, new spelling.
+    {
+        let mut st = h.backend.server.lock().unwrap();
+        for (old, new) in [
+            ("Entw&fc-rfe", "Entwürfe"),
+            ("Entw&fc-rfe.&c4-ltere", "Entwürfe.Ältere"),
+        ] {
+            let f = st.folders.remove(old).unwrap_or_else(|| panic!("no {old}"));
+            st.folders.insert(new.to_string(), f);
+        }
+    }
+    h.backend.utf8.store(true, Ordering::SeqCst);
+    h.engine.resync(&h.account_id).await.unwrap();
+
+    let all = mailboxes(&h).await;
+    assert_eq!(all.len(), 4, "no duplicate rows: {all:?}");
+    assert_eq!(all[&parent]["name"], "Entwürfe");
+    assert_eq!(all[&parent]["mailwomanUpstreamName"], "Entwürfe");
+    assert_eq!(all[&child]["name"], "Ältere");
+    assert_eq!(all[&child]["mailwomanPath"], "Entwürfe.Ältere");
+    assert_eq!(all[&child]["parentId"], json!(parent));
+    assert_eq!(
+        email_ids(&h, &parent).await,
+        before,
+        "messages stay with the folder"
+    );
+
+    // A rename now reaches the server in UTF-8.
+    let set = mailbox_set(
+        &h,
+        json!({ "update": { &parent: { "name": "Brouillons à voir" } } }),
+    )
+    .await;
+    assert!(
+        set["updated"].as_object().unwrap().contains_key(&parent),
+        "{set}"
+    );
+    assert!(
+        h.backend.names().contains(&"Brouillons à voir".to_string()),
+        "{:?}",
+        h.backend.names()
+    );
 }

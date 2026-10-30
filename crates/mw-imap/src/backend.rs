@@ -64,6 +64,8 @@ pub struct ImapBackend {
     tls_options: mw_net::TlsOptions,
     session: Mutex<Session>,
     caps: BackendCaps,
+    /// Names are UTF-8 on the wire (IMAP4rev2 or UTF8=ACCEPT enabled).
+    utf8_names: bool,
 }
 
 impl ImapBackend {
@@ -86,12 +88,14 @@ impl ImapBackend {
     ) -> Result<Self> {
         let session = connect_session(&config, dialer.as_deref(), &tls_options).await?;
         let caps = session.backend_caps();
+        let utf8_names = session.utf8_names();
         Ok(ImapBackend {
             config,
             dialer,
             tls_options,
             session: Mutex::new(session),
             caps,
+            utf8_names,
         })
     }
 
@@ -265,12 +269,12 @@ impl AccountBackend for ImapBackend {
         true
     }
 
-    // Names are UTF-8 on the wire once IMAP4rev2 is enabled (connect enables
-    // it whenever the server offers it), else modified UTF-7. UTF8=ACCEPT is
-    // not enabled: it would change the spelling of every folder already
-    // cached under its modified UTF-7 name.
+    // Names are UTF-8 on the wire once IMAP4rev2 or UTF8=ACCEPT is enabled
+    // (connect enables both whenever the server offers them), else modified
+    // UTF-7. A folder cached under its modified UTF-7 spelling before then is
+    // matched through `legacy_mailbox_spelling`, so it keeps its id.
     fn encode_mailbox_name(&self, name: &str) -> String {
-        if self.caps.imap4rev2 {
+        if self.utf8_names {
             name.to_string()
         } else {
             crate::utf7::encode(name)
@@ -278,7 +282,15 @@ impl AccountBackend for ImapBackend {
     }
 
     fn decode_mailbox_name(&self, wire: &str) -> String {
-        crate::utf7::decode_lossless(wire, self.caps.imap4rev2)
+        crate::utf7::decode_lossless(wire, self.utf8_names)
+    }
+
+    fn legacy_mailbox_spelling(&self, wire: &str) -> Option<String> {
+        if !self.utf8_names {
+            return None;
+        }
+        let legacy = crate::utf7::encode(wire);
+        (legacy != wire).then_some(legacy)
     }
 
     async fn hierarchy_delimiter(&self) -> Result<Option<char>> {
