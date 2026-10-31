@@ -188,3 +188,11 @@ The 15-bank selection is cross-referenced with the [Banco de Portugal institutio
 ## Portuguese public institutions
 
 The generic civic icon (original artwork, not an official seal) additionally covers IEFP (`iefp.pt`), IMT (`imt-ip.pt`), ANACOM (`anacom.pt`), ASF (`asf.com.pt`), CMVM (`cmvm.pt`), Banco de Portugal (`bportugal.pt`), INE (`ine.pt`), IRN (`irn.justica.gov.pt`), AIMA (`aima.gov.pt`) and DGES (`dges.gov.pt`). These official institution domains supplement the existing AT, Segurança Social, Justiça and SNS24 mappings; the most specific domain wins.
+
+| Synology | https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/synology.svg |
+| QNAP | https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/qnap.svg |
+| TrueNAS | https://raw.githubusercontent.com/simple-icons/simple-icons/develop/icons/truenas.svg |
+| UZO | https://conteudos.uzo.pt/Style%20Library/uzo/resources/images/favicons/favicon-180x180.png |
+| Mailwoman | Repository branding/icon/mark.svg |
+
+WTF currently uses a bundled text monogram; the official site icon was unavailable.

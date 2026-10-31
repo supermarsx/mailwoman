@@ -1,3 +1,8 @@
+import synologyAsset from './assets/synology.svg?url';
+import qnapAsset from './assets/qnap.svg?url';
+import truenasAsset from './assets/truenas.svg?url';
+import uzoAsset from './assets/uzo-site.png?url';
+import mailwomanAsset from './assets/mailwoman.svg?url';
 import carregosaBankAsset from './assets/carregosa.ico?url';
 import millenniumbcpBankAsset from './assets/millenniumbcp.ico?url';
 import abancaBankAsset from './assets/abanca.png?url';
@@ -152,4 +157,10 @@ export const EXPANDED_SENDER_ICONS:readonly SenderIcon[]=[
  {"id":"epal","name":"EPAL","category":"utility","domains":["epal.pt"],"paths":[],"monogram":"EPAL"},
  {"id":"aguasdeportugal","name":"Águas de Portugal","category":"utility","domains":["adp.pt"],"paths":[],"asset":aguasdeportugalSiteAsset},
  {"id":"openrouter","name":"OpenRouter","category":"ai","domains":["openrouter.ai"],"paths":[],"asset":openrouterAsset},
+ {id:'synology',name:'Synology',category:'storage',domains:['synology.com'],paths:[],asset:synologyAsset},
+ {id:'qnap',name:'QNAP',category:'storage',domains:['qnap.com'],paths:[],asset:qnapAsset},
+ {id:'truenas',name:'TrueNAS',category:'storage',domains:['truenas.com','ixsystems.com'],paths:[],asset:truenasAsset},
+ {id:'uzo',name:'UZO',category:'telecom',domains:['uzo.pt'],paths:[],asset:uzoAsset},
+ {id:'wtf',name:'WTF',category:'telecom',domains:['wtf.pt'],paths:[],monogram:'WTF'},
+ {id:'mailwoman',name:'Mailwoman',category:'mail',domains:[],paths:[],asset:mailwomanAsset},
 ];
