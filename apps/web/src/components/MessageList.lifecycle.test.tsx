@@ -115,6 +115,17 @@ async function mountList(n: number, subject = (i: number): string => `Message ${
 describe('MessageList lifecycle (t22-e5a)', () => {
   beforeEach(() => localStorage.clear());
 
+  it('lets a selected focused row leave the viewport without restoring its scroll position',async()=>{
+    const {app,container,scroller}=await mountList(200);
+    const row=container.querySelector<HTMLButtonElement>('.list__row')!;
+    row.focus();fireEvent.click(row,{ctrlKey:true});
+    expect(app.selectedIds().size).toBe(1);
+    scrollTo(scroller,100*ROW);
+    expect(scroller.scrollTop).toBe(100*ROW);
+    expect(document.activeElement).not.toBe(row);
+    expect(container.querySelector('.list__row')?.getAttribute('data-index')).not.toBe('0');
+  });
+
   it('reuses the overlapping rows across a one-row scroll tick', async () => {
     const { container, scroller } = await mountList(200);
 

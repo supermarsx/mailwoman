@@ -130,16 +130,18 @@ describe('retained mailbox workspace',()=>{
     setAccountUiPreferences({folderHidden:[]});
     expect(screen.getByRole('button',{name:'Projects'})).toBeVisible();
   });
-  it('shows the message-list toggle only for the active specific message tab',async()=>{
+  it('hides message-list and reading-pane controls in full message tabs',async()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
     const toggle=()=>screen.queryByRole('button',{name:'Show or hide message list'});
     expect(toggle()).not.toBeInTheDocument();
     fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
-    await waitFor(()=>expect(toggle()).toBeInTheDocument());
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
+    expect(toggle()).not.toBeInTheDocument();
+    expect(screen.queryByRole('combobox',{name:'Reading pane'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
     expect(toggle()).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Subject a'}));
-    expect(toggle()).toBeInTheDocument();
+    expect(toggle()).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Compose'}));
     expect(toggle()).not.toBeInTheDocument();
   });
@@ -305,7 +307,8 @@ describe('retained mailbox workspace',()=>{
     fireEvent.click(screen.getByText('Subject b',{selector:'.list__subject'}),{detail:1});
     await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
     expect(gets('b')).toBe(loads);expect(paneSubject()).toBeUndefined();
-    // A click from beside the tab goes back to the reading pane on the Mail tab.
+    // Return to Mail to open another message in the reading pane.
+    fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
     fireEvent.click(screen.getByText('Subject a',{selector:'.list__subject'}),{detail:1});
     await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('mail'));
     await waitFor(()=>expect(paneSubject()).toBe('Subject a'));
@@ -313,15 +316,33 @@ describe('retained mailbox workspace',()=>{
   });
   it('reading pane off: a click opens the message tab and a second click on it reuses that tab',async()=>{
     try{
-      const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});setReadingPane('off');
+      const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});setAccountUiPreferences({readerCollapsed:true});setReadingPane('off');
       fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}),{detail:1});
       await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));
       expect(screen.getByTestId('reading-pane')).not.toBeVisible();
+      expect(screen.getByRole('tabpanel',{name:'Subject a'})).toBeVisible();
+      expect(await screen.findByRole('heading',{name:'Subject a'})).toBeVisible();
+      expect(document.querySelector('.mail-pane')).not.toBeVisible();
       fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
       fireEvent.click(screen.getByText('Subject a',{selector:'.list__subject'}),{detail:1});
       await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:a'));
       expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='messages'&&tab.id!=='mail')).toHaveLength(1);
     }finally{setReadingPane('right');}
+  });
+  it('shows bulk actions in the enabled reading pane and advances after a successful delete',async()=>{
+    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
+    setReadingPane('right');
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    await waitFor(()=>expect(app.openEmail()?.id).toBe('a'));
+    app.setSelection(['a','b']);
+    const summary=await screen.findByTestId('bulk-selection-summary');
+    expect(within(summary).getByRole('button',{name:'Delete'})).toBeInTheDocument();
+    expect(within(summary).getByRole('button',{name:'Mark unread'})).toBeInTheDocument();
+    expect(within(summary).getByRole('button',{name:'Mark read'})).toBeInTheDocument();
+    fireEvent.click(within(summary).getByRole('button',{name:'Cancel'}));
+    expect(app.selectedIds().size).toBe(0);
+    await app.trashMessage('a');
+    await waitFor(()=>expect(app.openEmail()?.id).toBe('b'));
   });
   it('keeps each composer mounted and opens sectioned Settings without a modal',async()=>{
     const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});

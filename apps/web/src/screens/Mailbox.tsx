@@ -1,3 +1,4 @@
+import {onMessagesTrashed} from '../state/trashEvents.ts';
 import {FolderCreationControl} from '../components/FolderMaintenance.tsx';
 import {mailPrefetchEvents} from '../components/mailPrefetchEvents.ts';
 import {readMailCachePolicy} from '../state/mailCachePolicy.ts';
@@ -31,6 +32,8 @@ import {peekMessageDrag,takeMessageDrag} from '../components/messageDrag.ts';
 import {folderDropTarget} from '../components/messageDrag.css.ts';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
 import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPreferences.ts';
+import {ReadingPaneControl} from '../components/ReadingPaneControl.tsx';
+import {BulkSelectionSummary} from '../components/BulkSelectionSummary.tsx';
 import { readingPane } from '../components/readingPane.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
 import { orderedFolders, folderIcon, folderIsHidden } from './Settings/folderPreferenceModel.ts';
@@ -193,9 +196,10 @@ export function MailboxScreen(): JSX.Element {
   let previewId:string|null=null;let previewLoading:Promise<void>|undefined;
   // t109: the pane's message, as a signal, so a reload can put it back.
   const [previewMessage,setPreviewMessage]=createSignal<string|null>(null);
-  const previewVisible=()=>subTabs.activeId()==='mail'&&!narrow()&&readingPane()!=='off'&&!accountUiPreferences().readerCollapsed;
-  const listVisible=()=>!activePane() ? (!previewVisible() || preview()===null || !accountUiPreferences().messageListCollapsed) : (activePane()?.kind==='messages' && (accountUiPreferences().readerCollapsed || (!narrow() && readingPane()!=='off' && !accountUiPreferences().messageListCollapsed)));
-  const readersVisible=()=>!!activePane() && !(activePane()?.kind==='messages' && accountUiPreferences().readerCollapsed);
+  const [selectionReset,setSelectionReset]=createSignal(0);
+  const previewVisible=()=>subTabs.activeId()==='mail'&&!narrow()&&readingPane()!=='off';
+  const listVisible=()=>subTabs.activeId()==='mail' && (!previewVisible() || preview()===null || !accountUiPreferences().messageListCollapsed);
+  const readersVisible=()=>!!activePane();
   const splitVisible=()=>listVisible() && (readersVisible() || previewVisible());
   let restoreIntent=0;
   function noteWorkspaceIntent():void {restoreIntent+=1;}
@@ -275,6 +279,16 @@ export function MailboxScreen(): JSX.Element {
     const loading=view.openMessage(messageId);previewLoading=loading;
     announceOpen(view,loading);
   }
+  createEffect(on(()=>settings()['mail.messageListOrder']?.value??'newest',()=>{if(app.accountId())void app.refreshCurrentMailbox();},{defer:true}));
+  onCleanup(onMessagesTrashed(event=>{
+    if(event.accountId!==app.accountId()||event.mailboxId!==app.selectedMailboxId()||event.mailboxId!==previewSourceMailboxId||event.sort!==(settings()['mail.messageListOrder']?.value??'newest')||!previewVisible()||previewId===null||!event.ids.includes(previewId))return;
+    const mode=settings()['mail.afterDelete']?.value??'next';
+    const index=event.order.indexOf(previewId),removed=new Set(event.ids);
+    const available=new Set(app.listMessages().map(message=>message.id));
+    const remaining=event.order.filter(id=>!removed.has(id)&&available.has(id));
+    const next=mode==='close'?undefined:mode==='previous'?[...event.order.slice(0,index)].reverse().find(id=>!removed.has(id)&&available.has(id))??remaining[0]:event.order.slice(index+1).find(id=>!removed.has(id)&&available.has(id))??remaining.at(-1);
+    if(next)openPreview(next);else closePreview();
+  }));
   function closePreview():void {const view=preview();previewId=null;setPreviewMessage(null);previewLoading=undefined;setPreview(null);view?.dispose();}
   /** t109: the pane's message after a reload. Not a user intent (the tab restore goes on); a message that is gone closes the pane quietly. */
   function restorePreview(messageId:string):void {
@@ -497,7 +511,7 @@ export function MailboxScreen(): JSX.Element {
       if(view.anchor&&view.folder===folder){setListAnchor(view.anchor);setRestoreAnchor(view.anchor);}
       const message=view.message;
       if(!message||panes().some(pane=>pane.id===`message:${owner.id}:${message}`))return;
-      if(!narrow()&&readingPane()!=='off'&&!accountUiPreferences().readerCollapsed)restorePreview(message);
+      if(!narrow()&&readingPane()!=='off')restorePreview(message);
       // A link to a message where there is no reading pane opens it in a tab.
       else if(url?.message===message&&url.mailbox===linkId)openMessageTab(message,true);
     });
@@ -880,14 +894,13 @@ export function MailboxScreen(): JSX.Element {
       <Show when={!narrow() && folderMode()==='hidden' && surface()!=='mail'}><button type="button" class={`btn workspace-show-folders ${a11y.iconButton}`} aria-label={t('mail-show-folders')} title={t('mail-show-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:'expanded'})}><Icon name="folder"/></button></Show>
       <div class="mail-workspace">
         <SubTabStrip onClose={id=>void closePane(id)} onCloseMany={ids=>void closePanes(ids)} canClose={id=>id!=='mail'} canDetach={id=>id!=='mail'} isDetached={id=>{paneWindowRevision();return panes().find(pane=>pane.id===id)?.detach?.isDetached()??false;}} onReattach={id=>{panes().find(pane=>pane.id===id)?.detach?.reattach();subTabs.activate(id);}} onDetach={id=>{const pane=panes().find(value=>value.id===id);subTabs.activate(id);pane?.detach?.detach();}} />
-        <CollapsibleBar id="mailTopBar" revealPolicy="overlay" class="mail-topbar">
+        <CollapsibleBar id="mailTopBar" revealPolicy="push" class="mail-topbar">
         <div class="workspace-bar" role="toolbar" aria-label={t('mail-workspace-layout')}>
           {/* With the sidebar hidden, its account indicator moves here: exactly one is ever shown. */}
           <Show when={accountIconInTopBar()}><LinkedAccountControl variant="icon"/></Show>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} title={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/></button>
-          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="menu"/></button>
-          <Show when={activePane()?.kind==='messages'}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().messageListCollapsed} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} onClick={()=>setAccountUiPreferences({messageListCollapsed:!accountUiPreferences().messageListCollapsed,readerCollapsed:false})}><Icon name="mail"/></button></Show>
-          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={!accountUiPreferences().readerCollapsed} aria-label={t('mail-toggle-reader')} title={t('mail-toggle-reader')} onClick={()=>setAccountUiPreferences({readerCollapsed:!accountUiPreferences().readerCollapsed,messageListCollapsed:false})}><Icon name="eye"/></button>
+          <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="mailboxes"/></button>
+          <Show when={subTabs.activeId()==='mail'}><ReadingPaneControl/></Show>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
@@ -897,7 +910,7 @@ export function MailboxScreen(): JSX.Element {
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
+            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList hideReadingPane selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
@@ -925,7 +938,7 @@ export function MailboxScreen(): JSX.Element {
             </Show>
           </div>
           <section class="workspace-pane workspace-reading-pane" aria-label={t('mail-reading-pane')} data-testid="reading-pane" hidden={!previewVisible()} inert={!previewVisible()}>
-            <Show when={preview()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>{view=><Reader view={view()} active={previewVisible()} onClose={closePreview} onCompose={initial=>openReply(initial,previewSourceMailboxId)} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>}</Show>
+            <Show when={app.selectedIds().size>0} fallback={<Show when={preview()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>{view=><Reader view={view()} active={previewVisible()} onClose={closePreview} onCompose={initial=>openReply(initial,previewSourceMailboxId)} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>}</Show>}><BulkSelectionSummary onCancel={()=>setSelectionReset(value=>value+1)}/></Show>
           </section>
         </div>
         <ConfirmDialog open={dirtyClose()!==null} testId="workspace-tabs-close-dirty"

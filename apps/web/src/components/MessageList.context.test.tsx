@@ -10,6 +10,18 @@ import {loadPrefs,savePrefs} from '../screens/Settings/prefs.ts';
 const interactionPolicy=vi.hoisted(()=>({modifiers:true,drag:true}));
 vi.mock('./mailInteractions.ts',()=>({modifierSelectionEnabled:()=>interactionPolicy.modifiers,dragToFolderEnabled:()=>interactionPolicy.drag}));
 afterEach(()=>{cleanup();localStorage.clear();interactionPolicy.modifiers=true;interactionPolicy.drag=true;});
+it('opens snooze and labels in separate second-level menus',async()=>{
+ const app=createAppState(makeClient({emails:[mkEmail('nested',{subject:'Nested actions'})]}));
+ app.tags=()=>[{id:'work',name:'Work',color:'#112233',icon:'tag'}];
+ render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);
+ await app.login({username:'me@example.org',password:'p'});await waitFor(()=>expect(app.messages()).toHaveLength(1));
+ const snooze=vi.spyOn(app,'snoozeMessage').mockResolvedValue(),tag=vi.spyOn(app,'applyTag').mockResolvedValue();
+ const row=screen.getByText('Nested actions').closest('button')!;
+ fireEvent.contextMenu(row);const parent=screen.getByRole('menuitem',{name:'Snooze'});expect(parent).toHaveAttribute('aria-haspopup','menu');
+ expect(document.querySelector('[data-action-id^="snooze:"]')).toBeNull();fireEvent.click(parent);
+ fireEvent.click(document.querySelector<HTMLButtonElement>('[data-action-id^="snooze:"]')!);expect(snooze).toHaveBeenCalledWith('nested',expect.any(String));
+ fireEvent.contextMenu(row);fireEvent.click(screen.getByRole('menuitem',{name:'Label'}));fireEvent.click(screen.getByRole('menuitemcheckbox',{name:'Work'}));expect(tag).toHaveBeenCalledWith('nested','work');
+});
 it('right-click targets its message without changing selection, and account suspension dismisses',async()=>{
  const app=createAppState(makeClient({emails:[mkEmail('a',{subject:'Context A'}),mkEmail('b',{subject:'Context B'})]}));
  render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});await waitFor(()=>expect(app.messages()).toHaveLength(2));

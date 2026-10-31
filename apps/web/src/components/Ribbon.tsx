@@ -59,7 +59,7 @@ export function Ribbon(props: RibbonProps): JSX.Element {
   return (
     <CollapsibleBar
       id="mailRibbon"
-      revealPolicy="overlay"
+      revealPolicy="push"
       {...(props.bar ? { bar: props.bar } : {})}
       class={css.ribbon}
       panelClass={css.panel}

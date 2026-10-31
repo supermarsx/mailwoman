@@ -29,7 +29,8 @@ import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
 import * as bulk from './bulkBar.css.ts';
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
-import { readingPane, setReadingPane, READING_PANE_OPTIONS, type ReadingPane } from './readingPane.ts';
+import {ReadingPaneControl} from './ReadingPaneControl.tsx';
+import {settings,writeSetting} from '../api/settings.ts';
 import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
@@ -207,7 +208,7 @@ function MessageRow(props: {
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
-        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span>
+        <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
         <TagChips email={email()} />
       </button>
       <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
@@ -319,7 +320,7 @@ function ThreadHeadRow(props: {
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(rep().subject ?? t('mail-no-subject'))}</span>
-        <span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span>
+        <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span></Show>
       </button>
       <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>
@@ -327,26 +328,11 @@ function ThreadHeadRow(props: {
 }
 
 /** The always-visible view toolbar: the reading-pane position control (W3). */
-function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void}): JSX.Element {
-  const label = (opt: ReadingPane): string => t(`mail-reading-pane-${opt}`);
+function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean}): JSX.Element {
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
       <button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button>
-      <EmptyTrash/><div class="list-reading-pane-controls"><span class={thread.toolbarLabel}>{t('mail-reading-pane')}</span>
-      <For each={READING_PANE_OPTIONS}>
-        {(opt) => (
-          <button
-            type="button"
-            class={`${thread.segBtn} ${a11y.focusable}`}
-            aria-pressed={readingPane() === opt}
-            data-testid={`reading-pane-${opt}`}
-            onClick={() => setReadingPane(opt)}
-          >
-            {label(opt)}
-          </button>
-        )}
-      </For>
-      </div>
+      <EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
     </div>
   );
 }
@@ -374,7 +360,7 @@ function rowId(row: ThreadVisualRow): string {
  * shortcut); without it those fall back to `onOpenMessage`. Where each goes is
  * the host's decision (t74: Mailbox routes by the reading pane).
  */
-export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
+export function MessageList(props: { hideReadingPane?:boolean; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
   /** t109: a message to bring to the top once the list has loaded (a reload's scroll anchor); one that is not loaded is skipped. */
   restoreAnchor?: () => string | null;
   /** t109: the message in the top row as the user scrolls (null at the top). */
@@ -384,6 +370,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
   const contextMenu=createMessageContextMenu(contextEmail);
   const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
   const [selecting,setSelecting]=createSignal(false);
+  createEffect(on(()=>props.selectionReset?.()??0,()=>setSelecting(false),{defer:true}));
   createEffect(()=>{app.accountId();app.selectedMailboxId();setSelecting(false);});
   const [scrollTop, setScrollTop] = createSignal(0);
   // jsdom reports 0 for clientHeight; fall back to a sane viewport so tests
@@ -398,7 +385,8 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
   // toggled (a visual-row index), or `null` before any.
   const [anchor, setAnchor] = createSignal<number | null>(null);
 
-  const rowHeight = (): number => ROW_HEIGHTS[app.density()];
+  const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
+  const rowHeight = (): number => tableMode() ? ({compact:36,cozy:44,relaxed:52}[app.density()]) : ROW_HEIGHTS[app.density()];
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
   const rows = createMemo<ThreadVisualRow[]>(() => groupThreads(app.listMessages(), expanded()));
   // How many slots the list spans: the loaded rows plus the query's unfetched
@@ -573,6 +561,8 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
 
   function onScroll(): void {
     if (scroller !== undefined) {
+      const focused=focusedRowEl();
+      if(focused){const index=rows().findIndex(row=>rowId(row)===focused[0]);const top=index*rowHeight();if(top+rowHeight()<scroller.scrollTop||top>scroller.scrollTop+(scroller.clientHeight||viewportH())){focusedRowId=null;focused[1].blur();}}
       setScrollTop(scroller.scrollTop);
       if (scroller.clientHeight > 0) setViewportH(scroller.clientHeight);
       reportAnchor();
@@ -635,7 +625,7 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
       const row = rows()[next];
       const el = row === undefined ? undefined : rowEls.get(rowId(row));
       if (el === undefined || el.closest('[hidden], [inert]') !== null) return;
-      el.focus({ focusVisible: true } as FocusOptions);
+      el.focus({ preventScroll:true, focusVisible: true } as FocusOptions);
     });
   }
 
@@ -753,8 +743,9 @@ export function MessageList(props: { onOpenMessage?: (id: string) => void; onOpe
   onCleanup(() => loadToast.cancel());
 
   return (
-    <section class="list" aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
-      <ListToolbar selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
+    <section class="list" data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
+      <ListToolbar hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
+      <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={String(settings()['mail.messageListOrder']?.value??'newest')} disabled={settings()['mail.messageListOrder']?.locked===true} onChange={event=>void writeSetting('mail.messageListOrder',event.currentTarget.value).catch(()=>app.showToast('error',t('mail-list-order-error')))}><For each={['newest','oldest','sender','subject']}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
         <Show when={rows().length > 0} fallback={

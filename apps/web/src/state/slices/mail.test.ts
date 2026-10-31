@@ -1,3 +1,4 @@
+import {onMessagesTrashed} from '../trashEvents.ts';
 import {resolveSender} from '../../api/senderResolution.ts';
 import { suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1329,6 +1330,21 @@ describe('mail slice — offline mutation queue', () => {
     });
   });
 
+  it('announces only confirmed local trash with the original list order',async()=>{
+    const receive=vi.fn();const stop=onMessagesTrashed(receive);
+    try{await withDeps([email('a'),email('b')],{online:()=>true},async mail=>{
+      await mail.trashMessage('a');
+      expect(receive).toHaveBeenCalledWith({accountId:'acct1',mailboxId:'inbox',sort:'newest',ids:['a'],order:['a','b']});
+    });}finally{stop();}
+  });
+  it('uses the effective sort order in the server query',async()=>{
+    await withDeps([email('a')],{online:()=>true},async(mail,{jmap})=>{
+      await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.messageListOrder':{value:'sender',source:'global',locked:false}}}),{headers:{'content-type':'application/json'}})});
+      jmap.mockClear();await mail.refreshCurrentMailbox();
+      const query=jmap.mock.calls.flatMap(([request])=>(request as JmapRequest).methodCalls).find(call=>call[0]==='Email/query');
+      expect(query?.[1]['sort']).toEqual([{property:'from',isAscending:true},{property:'receivedAt',isAscending:false}]);
+    });
+  });
   it('online, undo moves the message back on the server and tells peer tabs', async () => {
     const broadcastChange = vi.fn();
     await withDeps([email('a'), email('b')], { online: () => true, broadcastChange }, async (mail, { jmap }) => {

@@ -114,3 +114,18 @@ globalStyle('.sidebar__footer .sidebar__settings',{marginInlineStart:0,padding:'
 globalStyle('.workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(240px,2fr) minmax(0,3fr)',gridTemplateRows:'minmax(0,1fr)'});
 globalStyle('.workspace-body[data-reading-pane="bottom"] > .workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(160px,2fr) minmax(0,3fr)'});
 globalStyle('.workspace-panes[data-layout="tabs"] > .workspace-pane[data-companion-list="true"]',{order:-1});
+
+globalStyle('.workspace-layout-modes select',{font:'inherit',color:vars.color.text,background:vars.color.surface,border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.sm,padding:'3px 6px',minWidth:0,maxWidth:'180px'});
+globalStyle('.workspace-control-label',{fontSize:'0.72rem',color:vars.color.textDim,marginInlineEnd:'4px',whiteSpace:'nowrap'});
+globalStyle('.bulk-selection-summary',{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:vars.space[4],padding:vars.space[4],minHeight:'100%'});
+globalStyle('.bulk-selection-actions',{border:0,padding:0,margin:0,display:'flex',flexWrap:'wrap',justifyContent:'center',gap:vars.space[3]});
+globalStyle('.list__scroll',{overflowAnchor:'none'});
+globalStyle('.list-column-headers',{display:'grid',gridTemplateColumns:'minmax(100px,1fr) minmax(120px,2fr) 110px',padding:'6px 12px',gap:'12px',fontSize:'0.75rem',borderBlockEnd:`1px solid ${vars.color.border}`,color:vars.color.textDim});
+globalStyle('.list[data-list-style="table"] .list__row',{display:'grid',gridTemplateColumns:'minmax(100px,1fr) minmax(120px,2fr) 110px',gridTemplateAreas:'none',gridTemplateRows:'minmax(0,1fr) auto',alignItems:'center',columnGap:'12px',padding:'4px 12px',overflow:'hidden'});
+globalStyle('.list[data-list-style="table"] .list__line1',{display:'flex',gridArea:'auto',gridColumn:'1',gridRow:'1',minWidth:0});
+globalStyle('.list[data-list-style="table"] .list__sender',{gridColumn:'1',gridRow:'1',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',minWidth:0});
+globalStyle('.list[data-list-style="table"] .list__subject',{gridColumn:'2',gridRow:'1',overflow:'hidden',whiteSpace:'nowrap',textOverflow:'ellipsis',minWidth:0,paddingInlineEnd:'8px'});
+globalStyle('.list[data-list-style="table"] .list__date',{gridArea:'auto',position:'absolute',insetInlineEnd:'12px',insetBlockStart:'50%',transform:'translateY(-50%)',width:'110px',textAlign:'end',fontSize:'0.7rem'});
+globalStyle('.list[data-list-style="table"] .list__preview',{gridColumn:'2',gridRow:'1',marginInlineStart:'45%',overflow:'hidden',whiteSpace:'nowrap',background:vars.color.bg});
+globalStyle('.list[data-list-style="table"] .list__subject:has(+ .list__preview)',{maxWidth:'45%'});
+globalStyle('.list[data-list-style="table"] .tag-chips',{gridArea:'auto',gridColumn:'2',gridRow:'2',minWidth:0,maxHeight:'14px',overflow:'hidden',whiteSpace:'nowrap',fontSize:'10px',lineHeight:'14px'});

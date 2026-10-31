@@ -1,3 +1,4 @@
+import {messagesTrashed} from '../trashEvents.ts';
 import {resolveSender} from '../../api/senderResolution.ts';
 import {newIdempotencyKey} from '../../api/recovery.ts';
 import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.ts';
@@ -1076,6 +1077,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     targetMailboxId: Id,
     label: (count: number) => string,
     progress = false,
+    onMoved?: (ids:readonly Id[])=>void,
   ): Promise<void> {
     const acct = accountId();
     const current = captureMailAuthority();
@@ -1147,6 +1149,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
     if (!current()) return;
     const moved = taken;
+    onMoved?.(moved.map(item=>item.email.id));
     const completed=progressId&&refusedCount>0?t('mail-toast-move-partial',{count:moved.length,total,failed:refusedCount,folder}):progressId&&offline?t('mail-toast-move-queued',{count:moved.length,folder}):label(moved.length);
     finished=true;
     showUndo(completed, async () => {
@@ -1214,9 +1217,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       showToast('error', t('mail-toast-no-trash-folder'));
       return;
     }
+    const account=accountId(),mailboxId=selectedMailboxId(),sort=settings()['mail.messageListOrder']?.value??'newest',order=listMessages().map(message=>message.id);
     await relocateWithUndo(asIds(ids), target, (count) =>
       count === 1 ? t('mail-toast-trashed') : t('mail-toast-trashed-count', { count }),
       true,
+      moved=>{if(account)messagesTrashed({accountId:account,mailboxId,sort,ids:moved,order});},
     );
   }
   async function markSpam(ids: Id | readonly Id[]): Promise<void> {
@@ -1439,9 +1444,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const page = { position, calculateTotal };
     // t78: "upcoming only" is evaluated at each request, so a page fetched later
     // drops an event that has ended since the first one.
-    return src.kind === 'mailbox'
+    const request = src.kind === 'mailbox'
       ? listMailbox(acct, src.mailboxId, limit, page, src.upcoming === true ? { calendarEndAfter: new Date().toISOString() } : {})
       : searchEmails(acct, src.filter, limit, page);
+    const order=settings()['mail.messageListOrder']?.value;
+    const sort=order==='oldest'?[{property:'receivedAt',isAscending:true}]:order==='sender'?[{property:'from',isAscending:true},{property:'receivedAt',isAscending:false}]:order==='subject'?[{property:'subject',isAscending:true},{property:'receivedAt',isAscending:false}]:[{property:'receivedAt',isAscending:false}];
+    for(const call of request.methodCalls)if(call[0]==='Email/query')call[1]['sort']=sort;
+    return request;
   }
 
   /** The query total a list response reported, or `null` when it reported none. */

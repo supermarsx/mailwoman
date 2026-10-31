@@ -129,6 +129,17 @@ describe('MessageList (virtualized)', () => {
     expect(result.container.querySelectorAll('.list__row').length).toBe(8);
   });
 
+  it('uses the table mode and hides body previews when effective settings request it',async()=>{
+    const {app,result}=renderWithApp(()=><MessageList/>,{emails:[mkEmail('a',{preview:'Private preview'})]});
+    await app.login({username:'me@example.org',password:'p'});
+    try{
+      await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.messageListStyle':{value:'table',source:'global',locked:false},'mail.messageListPreview':{value:false,source:'user',locked:false}}}),{headers:{'content-type':'application/json'}})});
+      expect(result.container.querySelector('.list')).toHaveAttribute('data-list-style','table');
+      expect(result.container.querySelector('.list__preview')).toBeNull();
+      expect(screen.getByRole('combobox',{name:'Message order'})).toBeInTheDocument();
+    }finally{clearSettings();}
+  });
+
   // ── W3 reading-pane position control ──────────────────────────────────────
   it('drives the reading-pane position from the list toolbar', async () => {
     const { app } = renderWithApp(() => <MessageList />, { emails: [mkEmail('a')] });
@@ -136,15 +147,15 @@ describe('MessageList (virtualized)', () => {
     await waitFor(() => expect(app.messages().length).toBe(1));
 
     const root = document.documentElement;
-    fireEvent.click(screen.getByTestId('reading-pane-bottom'));
+    fireEvent.change(screen.getByRole('combobox',{name:'Reading pane'}),{target:{value:'bottom'}});
     expect(root.getAttribute('data-reading-pane')).toBe('bottom');
-    expect(screen.getByTestId('reading-pane-bottom').getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('combobox',{name:'Reading pane'})).toHaveValue('bottom');
 
-    fireEvent.click(screen.getByTestId('reading-pane-off'));
+    fireEvent.change(screen.getByRole('combobox',{name:'Reading pane'}),{target:{value:'off'}});
     expect(root.getAttribute('data-reading-pane')).toBe('off');
 
     // Reset to the default so the module singleton doesn't leak into other specs.
-    fireEvent.click(screen.getByTestId('reading-pane-right'));
+    fireEvent.change(screen.getByRole('combobox',{name:'Reading pane'}),{target:{value:'right'}});
     expect(root.getAttribute('data-reading-pane')).toBe('right');
   });
 });

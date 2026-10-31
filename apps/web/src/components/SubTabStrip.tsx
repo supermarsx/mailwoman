@@ -80,7 +80,7 @@ export function SubTabStrip(props: { onClose?: (id:string)=>void; onCloseMany?: 
   const activeTitle = (): string => subTabs.tabs().find((tab) => tab.id === subTabs.activeId())?.title ?? '';
   return (
     <Show when={subTabs.tabs().length > 0}>
-      <CollapsibleBar id="workspaceTabs" revealPolicy="overlay" {...(props.bar ? { bar: props.bar } : {})} class={barCss.root} panelClass={barCss.panel} handleLabel={activeTitle()}>
+      <CollapsibleBar id="workspaceTabs" revealPolicy="push" {...(props.bar ? { bar: props.bar } : {})} class={barCss.root} panelClass={barCss.panel} handleLabel={activeTitle()}>
       <div class={`subtab-strip ${barCss.strip}`} ref={horizontalWheel} onKeyDown={onKeyDown}>
         <div
           class={`subtab-tablist ${a11y.srOnly}`}

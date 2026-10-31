@@ -49,7 +49,7 @@ describe('SubTabStrip as the workspaceTabs bar (t38)', () => {
     const bar = fakeBar('pinned');
     renderStrip(controller, bar);
     expect(barRoot()).toHaveAttribute('data-mode', 'pinned');
-    expect(barRoot()).toHaveAttribute('data-reveal', 'overlay');
+    expect(barRoot()).toHaveAttribute('data-reveal', 'push');
     expect(document.querySelector('[data-bar-handle]')).toBeNull();
     fireEvent.click(document.querySelector('[data-bar-pin="workspaceTabs"]')!);
     expect(bar.calls).toEqual(['auto']);

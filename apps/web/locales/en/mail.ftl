@@ -896,3 +896,19 @@ folder-cleanup-permanent = Permanently delete { $count } matching messages. This
 folder-cleanup-trash = Move { $count } matching messages to Trash.
 folder-cleanup-before = Received before { $date }
 folder-cleanup-done = Cleaned up { $count } messages.
+
+mail-from = Sender
+mail-subject = Subject
+mail-date = Date
+mail-cancel = Cancel
+mail-bulk-selected = { $count } conversations selected
+mail-bulk-select-folder = Select all in { $folder }
+
+mail-list-order = Message order
+mail-list-order-newest = Newest first
+mail-list-order-oldest = Oldest first
+mail-list-order-sender = Sender
+mail-list-order-subject = Subject
+mail-list-order-error = The message order could not be saved.
+
+mail-bulk-selection-load-failed = The full folder could not be selected. Check your connection and try again.
