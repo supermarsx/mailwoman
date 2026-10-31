@@ -24,7 +24,7 @@ import { emittedThemeTokens } from './uiFontToken.ts';
 function legacyVars(c: ThemeTokens['color']): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of Object.keys(LEGACY_COLOR_PROPERTIES) as (keyof ThemeTokens['color'])[]) {
-    out[LEGACY_COLOR_PROPERTIES[key]] = c[key];
+    out[LEGACY_COLOR_PROPERTIES[key]] = key === 'text' ? `color-mix(in srgb, var(--mw-ui-text-color, ${c.text}) var(--mw-ui-text-mix, 100%), ${c.bg})` : c[key];
   }
   return out;
 }
@@ -143,13 +143,13 @@ globalStyle(':root[data-badge], :root[data-theme][data-badge]', {
 // ── Density (plan §2.3 `data-density`) ───────────────────────────────────────
 // Overrides row height + base font size; cozy is the default.
 globalStyle(':root[data-density="compact"]', {
-  vars: { [vars.density.rowH]: '40px', [vars.fontSize.base]: '13px' },
+  vars: { [vars.density.rowH]: '40px', [vars.fontSize.base]: 'var(--mw-ui-font-size, 13px)' },
 });
 globalStyle(':root[data-density="cozy"]', {
-  vars: { [vars.density.rowH]: '56px', [vars.fontSize.base]: '14px' },
+  vars: { [vars.density.rowH]: '56px', [vars.fontSize.base]: 'var(--mw-ui-font-size, 14px)' },
 });
 globalStyle(':root[data-density="relaxed"]', {
-  vars: { [vars.density.rowH]: '68px', [vars.fontSize.base]: '15px' },
+  vars: { [vars.density.rowH]: '68px', [vars.fontSize.base]: 'var(--mw-ui-font-size, 15px)' },
 });
 
 // ── Token application over existing chrome (opportunistic, additive) ──────────
@@ -271,8 +271,12 @@ const FORCED: Record<keyof ThemeTokens['color'], string> = {
   link: 'LinkText',
   focus: 'Highlight',
 };
-const forcedVars: Record<string, string> = { ...legacyVars(FORCED), [vars.a11y.focusRingColor]: 'Highlight' };
+const forcedVars: Record<string, string> = { ...legacyVars(FORCED), [LEGACY_COLOR_PROPERTIES.text]: 'CanvasText', [vars.a11y.focusRingColor]: 'Highlight' };
 for (const key of Object.keys(FORCED) as (keyof ThemeTokens['color'])[]) forcedVars[vars.color[key]] = FORCED[key];
 globalStyle(':root, :root[data-theme], :root[data-theme][data-accent]', {
   '@media': { '(forced-colors: active)': { vars: forcedVars } },
 });
+
+// Interface text scale also scales controls expressed in rem.
+globalStyle('html', { fontSize: 'calc(16px * var(--mw-ui-scale, 1))' });
+globalStyle('body', { fontWeight: vars.weight.regular });

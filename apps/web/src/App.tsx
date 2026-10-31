@@ -1,3 +1,4 @@
+import {useInterfacePreferences} from './theme/interfacePreferences.ts';
 import { onMount, onCleanup, createEffect, createSignal, Show, Switch, Match, type JSX } from 'solid-js';
 import {resetClientPolicy} from './api/policy.ts';
 import { AppContext } from './state/context.ts';
@@ -131,6 +132,7 @@ export function App(): JSX.Element {
     );
   }
 
+  useInterfacePreferences();
   const client = createConfiguredClient();
   const app = createAppState(client);
   startAnalytics();

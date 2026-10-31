@@ -33,13 +33,12 @@ body,
   margin: 0;
 }
 
-/* Font family and line height come from themes.css.ts (the Jost token and the
- * pinned 1.2). The size stays fixed at 14px as before: the density font sizes
- * on the token would make "relaxed" text bigger. */
+/* Font family and line height come from themes.css.ts. The interface size
+ * follows the effective user/admin preference, with the existing 14px fallback. */
 body {
   background: var(--bg);
   color: var(--text);
-  font-size: 14px;
+  font-size: var(--mw-ui-font-size, 14px);
 }
 
 .boot {

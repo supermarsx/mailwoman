@@ -1,3 +1,4 @@
+import {InterfacePreferences} from './Settings/InterfacePreferences.tsx';
 import {CachePreferences} from './Settings/CachePreferences.tsx';
 import {TextModePreference} from './Settings/TextModePreference.tsx';
 import {LinkedAccounts} from './Settings/LinkedAccounts.tsx';
@@ -295,6 +296,7 @@ export function Settings(props: SettingsProps): JSX.Element {
           <LockNote id="settings-font-lock" locked={fontHold.locked()} />
         </div>
 
+        <InterfacePreferences/>
         <TextModePreference enabled={leetspeakHold.value()} disabled={leetspeakHold.locked()} busy={leetspeakHold.saving()} describedBy={leetspeakHold.locked()?'settings-leetspeak-lock':undefined} onChange={next=>void leetspeakHold.set(next)}/>
         <LockNote id="settings-leetspeak-lock" locked={leetspeakHold.locked()}/>
         <Show when={leetspeakHold.error()}>{message=><p role="alert" class={customizationCss.prose}>{message()}</p>}</Show>

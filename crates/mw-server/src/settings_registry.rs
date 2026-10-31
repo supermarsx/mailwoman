@@ -1937,6 +1937,78 @@ pub static REGISTRY: &[SettingDef] = &[
         "self-hosted interface font; account choice or administrator default/lock"
     ),
     def!(
+        "appearance.fontSize",
+        int(12, 24),
+        "14",
+        GDU,
+        "appearance",
+        "interface font size in pixels"
+    ),
+    def!(
+        "appearance.fontWeight",
+        Kind::Enum(&["300", "400", "500", "600"]),
+        "\"400\"",
+        GDU,
+        "appearance",
+        "interface base font weight; emphasized text keeps its hierarchy"
+    ),
+    def!(
+        "appearance.fontColor",
+        text(Text::Plain, 7),
+        "\"\"",
+        GDU,
+        "appearance",
+        "interface text color as #RRGGBB; empty follows theme"
+    ),
+    def!(
+        "appearance.lowContrast",
+        Kind::Bool,
+        "false",
+        GDU,
+        "appearance",
+        "soften interface text contrast"
+    ),
+    def!(
+        "mail.messageListStyle",
+        Kind::Enum(&["cards", "table"]),
+        "\"cards\"",
+        GDU,
+        "mail",
+        "message list cards or Gmail-style rows with column headings"
+    ),
+    def!(
+        "mail.messageListOrder",
+        Kind::Enum(&["newest", "oldest", "sender", "subject"]),
+        "\"newest\"",
+        GDU,
+        "mail",
+        "message list ordering"
+    ),
+    def!(
+        "mail.messageListPreview",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "show body snippets in message list"
+    ),
+    def!(
+        "mail.afterDelete",
+        Kind::Enum(&["next", "previous", "close"]),
+        "\"next\"",
+        GDU,
+        "mail",
+        "message shown after deleting the open message"
+    ),
+    def!(
+        "reader.attachmentsAtEnd",
+        Kind::Bool,
+        "false",
+        GDU,
+        "reader",
+        "show attachments after the message body"
+    ),
+    def!(
         "appearance.leetspeak",
         Kind::Bool,
         "false",
@@ -3613,6 +3685,19 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
         };
     }
     let bad = |detail: String| Err(Refusal::invalid(field, detail));
+    if def.key == "appearance.fontColor" {
+        let Some(color) = value.as_str() else {
+            return bad("expected an empty value or #RRGGBB color".into());
+        };
+        if !color.is_empty()
+            && !(color.len() == 7
+                && color.starts_with('#')
+                && color[1..].bytes().all(|b| b.is_ascii_hexdigit()))
+        {
+            return bad("expected an empty value or #RRGGBB color".into());
+        }
+    }
+
     // t77: a config written before `requireRecoveryCodes` became `block` (an
     // import, a backup, a script) keeps working and is stored as `block`.
     if def.key == "twofa.lastFactorRemoval"

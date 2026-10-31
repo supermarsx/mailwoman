@@ -14,5 +14,8 @@ export const UI_FONT_PROPERTY = '--mw-ui-font';
 
 /** The token values a pack binds: its own, with the UI face behind the override. */
 export function emittedThemeTokens(tokens: ThemeTokens): ThemeTokens {
-  return { ...tokens, font: { ...tokens.font, ui: `var(${UI_FONT_PROPERTY}, ${tokens.font.ui})` } };
+  return { ...tokens,
+    color: {...tokens.color, text: `color-mix(in srgb, var(--mw-ui-text-color, ${tokens.color.text}) var(--mw-ui-text-mix, 100%), ${tokens.color.bg})`},
+    weight: {...tokens.weight, regular: 'var(--mw-ui-font-weight, '+tokens.weight.regular+')', medium: `var(--mw-ui-medium-weight, ${tokens.weight.medium})`, bold: `var(--mw-ui-bold-weight, ${tokens.weight.bold})`, heavy: `var(--mw-ui-heavy-weight, ${tokens.weight.heavy})`},
+    font: { ...tokens.font, ui: `var(${UI_FONT_PROPERTY}, ${tokens.font.ui})` } };
 }

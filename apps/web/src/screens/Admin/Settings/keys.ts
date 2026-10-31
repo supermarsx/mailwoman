@@ -257,6 +257,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'appearance.badgeColor',
   'appearance.density',
   'appearance.font',
+  'appearance.fontSize', 'appearance.fontWeight', 'appearance.fontColor', 'appearance.lowContrast',
+  'mail.messageListOrder', 'mail.messageListStyle', 'mail.messageListPreview', 'mail.afterDelete', 'reader.attachmentsAtEnd',
   'appearance.leetspeak',
   'packages.allowed',
   'appearance.brandName',

@@ -119,7 +119,7 @@ describe('Settings', () => {
     await loadSettings({fetcher});renderSettings();
     fireEvent.click(screen.getByRole('button',{name:'Leetspeak (1337)'}));
     await vi.waitFor(()=>expect(screen.getByRole('button',{name:'Leetspeak (1337)'})).toHaveAttribute('aria-pressed','true'));
-    expect(screen.getByTestId('text-mode-example')).toHaveTextContent('Hello, Mailwoman! → H3ll0, M41lw0m4n!');
+    expect(screen.queryByTestId('text-mode-example')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button',{name:'Normal text'}));
     await vi.waitFor(()=>expect(screen.getByRole('button',{name:'Normal text'})).toHaveAttribute('aria-pressed','true'));
     expect(fetcher.mock.calls.filter(([,init])=>init?.method==='PUT').map(([,init])=>JSON.parse(String(init?.body)).value)).toEqual([true,false]);

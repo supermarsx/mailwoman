@@ -30,7 +30,8 @@ describe('interface font token', () => {
       expect(emitted.font.ui, name).toBe(`var(--mw-ui-font, ${tokens.font.ui})`);
       expect(emitted.font.reading).toBe(tokens.font.reading);
       expect(emitted.font.mono).toBe(tokens.font.mono);
-      expect(emitted.color).toBe(tokens.color);
+      expect(emitted.color.text).toContain('var(--mw-ui-text-color,');
+      expect(emitted.color.bg).toBe(tokens.color.bg);
     }
   });
 
@@ -47,7 +48,7 @@ describe('interface font token', () => {
       .map((file) => relative(SRC, file).split(sep).join('/'));
     expect(restating).toEqual(expect.arrayContaining(['screens/Admin/admin.css.ts', 'screens/Admin/shell/shell.css.ts']));
     // No rule reads the raw override instead of the token (one source of truth).
-    for (const file of cssTsFiles(SRC)) expect(source(relative(SRC, file)), relative(SRC, file)).not.toMatch(/var\(--mw-ui-font/);
+    for (const file of cssTsFiles(SRC)) expect(source(relative(SRC, file)), relative(SRC, file)).not.toMatch(/var\(--mw-ui-font,/);
   });
 
   it('the console preference writes the stack the token reads, live, for every option', () => {
