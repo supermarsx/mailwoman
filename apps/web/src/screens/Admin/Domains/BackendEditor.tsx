@@ -1,3 +1,4 @@
+import {toast} from '../../../components/toast/toast.ts';
 import { ewsBackendProblem, ewsSelectionProblem } from './ewsBackendModel.ts';
 import { EwsFields } from './EwsFields.tsx';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
@@ -15,7 +16,7 @@ export function BackendEditor(props: { domain: DomainDetail; backend?: DomainBac
   const initial: DomainBackend = props.backend ?? { id: '', role: 'mail', protocol: props.domain.mode === 'proxy' ? 'jmap' : 'imap', enabled: true, preferred: false, priority: 100, ...(props.domain.mode === 'proxy' ? { sessionUrl: '' } : { endpoint: endpoint('imap') }), username: { format: 'fullEmail' } };
   const [value, setValue] = createSignal(structuredClone(initial));
   const [busy, setBusy] = createSignal(false);
-  const [error, setError] = createSignal<string | null>(null);
+  const setError=(message:string|null):void=>{if(message)toast.error(message);};
   const [identity, setIdentity] = createSignal(`user@${props.domain.name}`);
   const [preview, setPreview] = createSignal<string | null>(null);
   const [saved, setSaved] = createSignal(false);
@@ -50,7 +51,6 @@ export function BackendEditor(props: { domain: DomainDetail; backend?: DomainBac
   }
   return <section class={ux.page} aria-label={t('backend-editor-title')}>
     <header class={ux.pageHead}><div><h2 class={ux.pageTitle}>{t(props.backend ? 'backend-editor-edit' : 'backend-editor-add')}</h2><p class={ux.pageDescription}>{props.domain.name} · {t('backend-editor-intro')}</p></div><div class={css.actions}><button class={css.button} type="button" onClick={props.onBack}>{t('backend-editor-back')}</button></div></header>
-    <Show when={error()}><p role="alert">{error()}</p></Show>
     <form class={css.stack} onSubmit={event => void save(event)}>
       <fieldset class={css.section} disabled={busy()}><legend class={css.heading}>{t('backend-editor-identity')}</legend>
         <label class={css.field}>{t('backend-editor-id')}<input class={css.input} required pattern="[A-Za-z0-9_-]{1,64}" maxlength="64" disabled={!!props.backend} value={value().id} onInput={event => change({ id: event.currentTarget.value })} title={t('backend-editor-id-help')} /><small>{t('backend-editor-id-help')}</small></label>

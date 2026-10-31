@@ -2,7 +2,7 @@
 // each row is a button that opens a compact anchored popover (same frame as the
 // colour picker's): a live preview, Letter/Icon, the icon grid or the letter
 // field, the two colours and the contrast note, then Reset / Cancel / Save.
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 const coarse = '(pointer: coarse)';
@@ -36,7 +36,9 @@ export const popover = style({
   margin: 0,
   boxSizing: 'border-box',
   inlineSize: 'min(20.5rem, calc(100vw - 16px))',
+  maxBlockSize: 'calc(100dvh - 16px)',
   overflowY: 'auto',
+  flexShrink: 0,
   overscrollBehavior: 'contain',
   display: 'flex',
   flexDirection: 'column',
@@ -98,3 +100,6 @@ export const note = style({ margin: 0, fontSize: '0.8rem', color: vars.color.tex
 export const warn = style({ margin: 0, fontSize: '0.8rem', color: vars.color.danger, display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[2] });
 export const footer = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'flex-end', gap: vars.space[2] });
 export const spacer = style({ flex: '1 1 auto' });
+
+// Preserve the children's natural height so the whole form scrolls on short viewports.
+globalStyle(`${popover} > *`,{flexShrink:0});

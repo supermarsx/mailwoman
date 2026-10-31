@@ -1,3 +1,4 @@
+import {toast} from '../../components/toast/toast.ts';
 import {createSignal,onCleanup,Show,type JSX} from 'solid-js';
 import type {LinkMailboxInput} from '../../api/linkedAccounts.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
@@ -40,7 +41,7 @@ export function LinkMailboxEditor(props:{
       await props.onVerify({username:address,password:password(),...(name().trim()?{displayName:name().trim()}:{}),...(props.verificationProof?{altcha:props.verificationProof}:{})});
       if(!disposed&&preferenceAccountIsCurrent(owner)){setSaved(true);setBusy(false);await props.onVerified?.();}
     } catch(cause) {
-      if(!disposed&&preferenceAccountIsCurrent(owner))setError(props.errorText(cause));
+      if(!disposed&&preferenceAccountIsCurrent(owner))toast.error(props.errorText(cause));
     } finally {
       setPassword('');
       if(!disposed)setBusy(false);

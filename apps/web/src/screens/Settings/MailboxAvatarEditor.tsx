@@ -112,11 +112,16 @@ export function MailboxAvatarEditor(props: MailboxAvatarEditorProps): JSX.Elemen
     d.addEventListener('scroll', follow, true);
     w.addEventListener('resize', follow);
     w.visualViewport?.addEventListener('resize', follow);
+    w.visualViewport?.addEventListener('scroll', follow);
+    const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(follow);
+    if(pop)observer?.observe(pop);
     detach = () => {
       d.removeEventListener('pointerdown', outside, true);
       d.removeEventListener('scroll', follow, true);
       w.removeEventListener('resize', follow);
       w.visualViewport?.removeEventListener('resize', follow);
+      w.visualViewport?.removeEventListener('scroll', follow);
+      observer?.disconnect();
     };
   }
   function hide(restoreFocus = true): void {

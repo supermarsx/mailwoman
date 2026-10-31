@@ -1,3 +1,4 @@
+import {toast} from '../toast/toast.ts';
 import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
@@ -74,7 +75,7 @@ function OwnedControl(props:{variant?:AccountControlVariant}):JSX.Element {
     const authority=primaryMailboxAuthority()??preferenceAccount()?.storageAuthority;
     return lastList.authority===authority?lastList.value:undefined;
   };
-  const [error,setError]=createSignal('');
+  const error=()=>'';const setError=(message:string):void=>{if(message)toast.error(message);};
   // t48: the expired link being renewed from the picker (its dialog is open).
   const [renewing,setRenewing]=createSignal<string>();
   const activeInboxUnread=():number|null=>{

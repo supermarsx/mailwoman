@@ -1,4 +1,5 @@
-import {createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
+import {toast} from '../../components/toast/toast.ts';
+import {createEffect,createResource,createSignal,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {createLinkedAccountsApi,type LinkedMailbox,type LinkedMailboxChallenge,type LinkMailboxInput,type LinkMailboxProof} from '../../api/linkedAccounts.ts';
 import {publicConfig} from '../../api/publicConfig.ts';
 import {invalidateLinkedAccounts} from '../../api/linkedMailboxSession.ts';
@@ -30,11 +31,13 @@ function OwnedLinkedAccounts():JSX.Element {
   onMount(()=>{void loadCatalog('linked-accounts');void loadCatalog('settings');});
   const [list,{refetch,mutate}]=createResource(()=>api.list());
   const [config]=createResource(()=>publicConfig());
+  createEffect(()=>{if(list.error)toast.error(linkedAccountError(list.error));});
+  createEffect(()=>{if(config.error)toast.error(t('linked-accounts-error'));});
   const [challenge,setChallenge]=createSignal<LinkedMailboxChallenge>();
   const [proof,setProof]=createSignal<string>();
   const [reset,setReset]=createSignal(0);
   const [busy,setBusy]=createSignal(false);
-  const [error,setError]=createSignal('');
+  const error=()=>'';const setError=(message:string):void=>{if(message)toast.error(message);};
   const [renewing,setRenewing]=createSignal<LinkedMailbox>();
   const editing=()=>navigation.route().section==='linked-accounts'&&navigation.route().editor?.kind==='new';
   const back=async():Promise<void>=>{setChallenge(undefined);await navigation.navigate({section:'linked-accounts'});};
@@ -85,7 +88,7 @@ function OwnedLinkedAccounts():JSX.Element {
   }
   return <Show when={challenge()} keyed fallback={<Show when={editing()} fallback={<>
     <Show when={list.loading&&!list()}><AsyncPending variant="list"/></Show>
-    <Show when={list.error}><p role="alert" class={css.error}>{linkedAccountError(list.error)}</p><button class={css.button} onClick={()=>void refetch()}>{t('linked-accounts-retry')}</button></Show>
+    <Show when={list.error}><button class={css.button} onClick={()=>void refetch()}>{t('linked-accounts-retry')}</button></Show>
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>
       <Show when={value().policy.reason==='linkedBackendUnsupported'}><p class={css.meta}>{t('linked-accounts-backend-unsupported')}</p></Show>
@@ -96,7 +99,6 @@ function OwnedLinkedAccounts():JSX.Element {
   </>}><LinkMailboxEditor enabled={!!list()?.policy.enabled&&!config.loading&&!config.error} storeCredentials={list()?.policy.storeCredentials!==false} storeCredentialsReason={list()?.policy.storeCredentialsReason??null} onVerify={link} onVerified={complete} onCancel={back} errorText={linkedAccountError}
       verificationRequired={config()?.antiBot?.mailbox===true} {...(proof()?{verificationProof:proof()!}:{})}
       verification={<Show when={config()?.antiBot?.mailbox}><SigninChallenge surface="mailbox" reset={reset()} onProof={setProof}/></Show>}/>
-    <Show when={config.error}><p role="alert" class={css.error}>{t('linked-accounts-error')}</p></Show>
   </Show>}>{pending=><LinkedMailboxFactor challenge={pending} onConfirm={confirm} onCancel={()=>void back()} errorText={linkedAccountError}/>}</Show>;
 }
 function LinkedPreference(props:{onChanged:()=>void}):JSX.Element {

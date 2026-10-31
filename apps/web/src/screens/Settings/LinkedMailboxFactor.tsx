@@ -1,3 +1,4 @@
+import {toast} from '../../components/toast/toast.ts';
 import {createSignal,onCleanup,Show,type JSX} from 'solid-js';
 import type {LinkedMailboxChallenge,LinkMailboxProof} from '../../api/linkedAccounts.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
@@ -13,7 +14,7 @@ export function LinkedMailboxFactor(props:{challenge:LinkedMailboxChallenge;onCo
   const [method,setMethod]=createSignal<'totp'|'recovery'>(has('totp')?'totp':'recovery');
   const [code,setCode]=createSignal('');
   const [busy,setBusy]=createSignal(false);
-  const [error,setError]=createSignal('');
+  const setError=(message:string):void=>{if(message)toast.error(message);};
   let disposed=false;
   onCleanup(()=>{disposed=true;setCode('');});
   const current=()=>!disposed&&owner!==null&&preferenceAccountIsCurrent(owner);
@@ -49,7 +50,6 @@ export function LinkedMailboxFactor(props:{challenge:LinkedMailboxChallenge;onCo
         <button type="submit" class={css.button} disabled={busy()||!code().trim()}>{t('settings-2fa-challenge-verify')}</button>
       </form>
     </Show>
-    <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
     <button type="button" class={css.ghost} disabled={busy()} onClick={props.onCancel}>{t('linked-accounts-cancel')}</button>
   </section>;
 }

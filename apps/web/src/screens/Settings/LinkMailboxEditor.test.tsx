@@ -1,3 +1,4 @@
+import {toasts,resetToasts} from '../../components/toast/index.ts';
 import {cleanup,fireEvent,render,screen,waitFor} from '@solidjs/testing-library';
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
@@ -21,7 +22,7 @@ describe('dedicated link editor',()=>{
   it('clears passwords after refusal and shows only mapped error text',async()=>{
     mount(vi.fn(async()=>{throw new Error('upstream password diagnostic');}));
     fireEvent.click(screen.getByRole('button',{name:'linked-accounts-submit'}));
-    expect(await screen.findByRole('alert')).toHaveTextContent('Safe error');
+    await waitFor(()=>expect(toasts().some(item=>item.message==='Safe error')).toBe(true));expect(screen.queryByRole('alert')).toBeNull();resetToasts();
     expect(screen.getByLabelText('linked-accounts-password')).toHaveValue('');
     expect(screen.queryByText('upstream password diagnostic')).not.toBeInTheDocument();
   });
