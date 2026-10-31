@@ -15,7 +15,7 @@ it('shows compact header-reported scores without suspending the surrounding read
   expect(await screen.findByText((_,node)=>node?.tagName==='STRONG'&&node.textContent==='6.2 / 5')).toBeInTheDocument();
   expect(screen.queryByRole('dialog')).toBeNull();
 });
-it('keeps the breakdown out of the reader until the chip opens it in the shared popover',async()=>{
+it('keeps the breakdown out of the reader until the chip opens it in the shared security dialog',async()=>{
   vi.mocked(fetchMailHeaders).mockResolvedValue([
     'X-Spam-Status: Yes, score=6.2 required=5.0 tests=BAYES_99,DKIM_VALID autolearn=no',
     'X-Spam-Report: *  6.3 BAYES_99 BODY: Bayes spam probability is 99 to 100%\r\n * -0.1 DKIM_VALID Message has at least one valid DKIM or DK signature',
@@ -32,7 +32,8 @@ it('keeps the breakdown out of the reader until the chip opens it in the shared 
   const dialog=await screen.findByRole('dialog');
   expect(chip).toHaveAttribute('aria-expanded','true');
   expect(dialog).toHaveAccessibleName(/SpamAssassin/);
-  await waitFor(()=>expect(dialog).toHaveFocus());
+  expect(dialog).toHaveAttribute('aria-modal','true');
+  await waitFor(()=>expect(within(dialog).getByRole('button',{name:'Close'})).toHaveFocus());
   const rows=within(dialog).getAllByRole('row').map(row=>row.textContent);
   expect(rows[1]).toContain('BAYES_99');expect(rows[1]).toContain('+6.3');
   expect(rows[2]).toContain('DKIM_VALID');expect(rows[2]).toContain('−0.1');

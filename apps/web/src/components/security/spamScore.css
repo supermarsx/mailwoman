@@ -9,8 +9,8 @@
 .spam-score__chip--spam { border-inline-start-color:var(--danger); }
 .spam-score__chip-body { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; }
 .spam-score__chip-body svg { inline-size:.8rem; block-size:.8rem; flex:none; }
-/* The breakdown, inside the shared ribbon popover. */
-.spam-score__sheet { inline-size:min(36rem, calc(100vw - 2rem)); font-size:.8rem; overflow-wrap:anywhere; }
+/* The breakdown, inside the shared security dialog. */
+.spam-score__sheet { inline-size:100%; min-inline-size:0; font-size:.8rem; overflow-wrap:anywhere; }
 .spam-score__title { margin:0 0 .5rem; font-size:.95rem; }
 .spam-score__summary { display:flex; flex-wrap:wrap; gap:.25rem 1rem; margin:0 0 .5rem; }
 .spam-score__summary div { display:flex; gap:.35rem; align-items:baseline; }

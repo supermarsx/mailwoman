@@ -51,6 +51,15 @@ async function open(emails:Email[]) {
 }
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
 describe('Reader signed privacy pipeline',()=>{
+  it('displays sanitized HTML by default without leaving quarantined links preparing forever', async () => {
+    vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?'<p>Safe body <a href="https://files.test/report.pdf">Report</a></p>':'<pre data-mw-body-blocked="true">Safe body</pre>');
+    await open([message('m1','<script>unsafe()</script><p>Safe body</p>')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('Safe body'));
+    expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
+    expect(screen.queryByRole('button',{name:'Preparing links…'})).not.toBeInTheDocument();
+    expect(screen.queryByTestId('linked-files-bar')).not.toBeInTheDocument();
+    expect(requests).toEqual([]);
+  });
   it('does not mistake literal quarantine-marker text for a blocked body', async () => {
     await open([message('m1', '<p>Example: data-mw-body-blocked="true"</p><img src="https://cdn.example.test/image.png">')]);
     await waitFor(() => expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
@@ -80,7 +89,8 @@ describe('Reader signed privacy pipeline',()=>{
     expect(requests).toEqual([]);
     expect(app.openEmail()?.bodyValues?.['1']?.value).toBe(original);
   });
-  it('offers safe HTML by default, keeps resources inert, and resets consent between messages',async()=>{
+  it('offers safe HTML in ask mode, keeps resources inert, and resets consent between messages',async()=>{
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'}}})});
     vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?'<p><strong>Safe formatted words</strong></p>':'<pre data-mw-body-blocked="true">Safe words only</pre>');
     const original='<script>evil()</script><p><strong>Safe formatted words</strong></p><img src="https://cdn.example.test/image.png">';
     const app=await open([message('m1',original),message('m2',original)]);
@@ -107,6 +117,7 @@ describe('Reader signed privacy pipeline',()=>{
     expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).not.toBeInTheDocument();
   });
   it('does not offer an HTML action while the reader requires plain text',async()=>{
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'}}})});
     vi.mocked(getCryptoWorker().sanitizeReader).mockResolvedValue('<pre data-mw-body-blocked="true">Safe text</pre>');
     await open([message('m1','<script>blocked()</script>')]);
     await screen.findByRole('button',{name:'Show sanitized HTML'});
@@ -117,6 +128,7 @@ describe('Reader signed privacy pipeline',()=>{
     await screen.findByRole('button',{name:'Show sanitized HTML'});
   });
   it('discards a late safe-HTML result after leaving its message',async()=>{
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'}}})});
     let release:(value:string)=>void=()=>{};
     const gate=new Promise<string>(resolve=>{release=resolve;});
     vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?gate:'<pre data-mw-body-blocked="true">Safe text</pre>');
@@ -193,6 +205,16 @@ it('folds the server decoded count into the banner, read once, never as a separa
 // t110: every notice above the body is the same bar, in one stack and a fixed
 // order (list, images, files, attachments); attachments collapse in place.
 describe('Reader notice bars',()=>{
+  it('places attachments after the message only when the user or admin enables it', async () => {
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'reader.attachmentsAtEnd':{value:true,locked:true,source:'global'}}})});
+    const email={...message('m1','<p>Message before attachments</p>'),hasAttachment:true,attachments:[{partId:'2',blobId:'a1',name:'notes.txt',type:'text/plain',size:2048}]} as Email;
+    await open([email]);
+    const attachments=await screen.findByTestId('reader-attachments-bar');
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('Message before attachments'));
+    expect(screen.getByTestId('reader-notice-stack')).not.toContainElement(attachments);
+    expect(frame()!.compareDocumentPosition(attachments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId('reader-attachments-bar')).toHaveLength(1);
+  });
   it('stacks the remote-images, linked-files and attachments bars on one frame, in order',async()=>{
     policy.mode='ask';
     const html='<p>Report</p><img src="https://cdn.example.test/image.png"><a href="https://files.example.test/q3/report%20final.pdf">report</a>';

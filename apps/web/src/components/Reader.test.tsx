@@ -199,7 +199,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       subject: 'Re: Plans',
       bodyHtml:
         `<p></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p>` +
-        '<blockquote><p>See you <strong>there</strong>.</p><p>Second paragraph</p></blockquote>',
+        '<blockquote><div><p>See you <strong>there</strong>.</p><p>Second paragraph</p></div></blockquote>',
       bodyText:
         `\n\nOn ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:\n` +
         '> See you there.\n>\n> Second paragraph',
@@ -309,7 +309,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       to: '',
       cc: '',
       subject: 'Fwd: Plans',
-      bodyHtml: `<p></p><p>${header}</p><p>See you <strong>there</strong>.</p><p>Second paragraph</p>`,
+      bodyHtml: `<p></p><p>${header}</p><div><p>See you <strong>there</strong>.</p><p>Second paragraph</p></div>`,
       bodyText:
         '\n\n---------- Forwarded message ----------\n' +
         'From: Alice Example <alice@example.org>\n' +

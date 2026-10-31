@@ -6,7 +6,7 @@ fn safe_html_modes_and_attachment_defaults_are_user_policy_backed() {
         .iter()
         .find(|d| d.key == "mail.reader.unsafeHtmlMode")
         .unwrap();
-    assert_eq!(mode.default, "\"ask\"");
+    assert_eq!(mode.default, "\"sanitized\"");
     for value in ["ask", "strict", "sanitized"] {
         assert!(validate(mode, &json!(value), "/value").is_ok());
     }

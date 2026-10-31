@@ -14,7 +14,7 @@
 // "no transcode" rule (native <img>/<audio>/<video>) while staying script-free.
 
 import { apiFetch } from '../api/http.ts';
-import { adaptReaderColors, readerAppearanceCss, type ReaderAppearance } from './readerAppearance.ts';
+import { adaptReaderColors, readerAppearanceCss, readerStyleDeclarations, type ReaderAppearance } from './readerAppearance.ts';
 
 /** The frozen sandbox token set: no scripts, no same-origin, opaque frame. */
 export const SANDBOX_TOKENS = '';
@@ -151,7 +151,7 @@ export const BROKEN_IMAGE_STYLE =
  *  passes the stable `--mw-*` block via `opts.themeVars`. */
 const BODY_STYLE =
   'html,body{margin:0;background:transparent}' +
-  'body{padding:12px;font:14px/1.6 ui-sans-serif,system-ui,sans-serif;word-break:break-word;' +
+  'body{padding:0;font:14px/1.6 ui-sans-serif,system-ui,sans-serif;word-break:break-word;' +
   'color:var(--mw-color-text,#1c1e21)}' +
   // `max-width:100%;height:auto` is deliberately kept: it is the pairing that
   // makes an intrinsic `width`/`height` USABLE. The UA maps the two attributes
@@ -161,7 +161,6 @@ const BODY_STYLE =
   // `withImageLoadingHints` below (`loading`/`decoding`) and from the sender's
   // own `width`/`height`, which the sanitizer's img allow-list keeps.
   'img,video{max-width:100%;height:auto}' +
-  BROKEN_IMAGE_STYLE +
   'pre{white-space:pre-wrap;word-break:break-word;margin:0;' +
   'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}';
 
@@ -205,6 +204,22 @@ export function withImageLoadingHints(html: string): string {
   return doc.body.innerHTML;
 }
 
+/** Remove inert image placeholders too, rather than asking the no-media CSP to
+ * reject their data URLs (and our own broken-image background) on every render. */
+function withoutBodyMedia(html: string): string {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  for (const media of doc.body.querySelectorAll('img,picture,video,audio,source,track')) media.remove();
+  for (const element of doc.body.querySelectorAll('[background],[style]')) {
+    element.removeAttribute('background');
+    const style = element.getAttribute('style');
+    if (style === null) continue;
+    const kept = readerStyleDeclarations(style).filter(part => !/url\s*\(|image-set\s*\(/i.test(part));
+    if (kept.length) element.setAttribute('style', kept.join(';'));
+    else element.removeAttribute('style');
+  }
+  return doc.body.innerHTML;
+}
+
 /** Build the message-body `srcdoc` for a mode. In `plain-text` the content is
  *  rendered as escaped text (no HTML); otherwise the (already-sanitized) HTML is
  *  inlined. Either way a per-document CSP `<meta>` pins the frame. */
@@ -217,11 +232,13 @@ export function bodyFrameDoc(
   const inner =
     mode === 'plain-text'
       ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
-      : withImageLoadingHints(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '');
+      : mode === 'sanitized-no-media'
+        ? withoutBodyMedia(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '')
+        : withImageLoadingHints(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '');
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
-    `<style>${BODY_STYLE}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
+    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE : ''}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
   );
 }
 

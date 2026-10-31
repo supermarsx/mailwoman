@@ -9,7 +9,7 @@ import * as css from './styles.css.ts';
 export function Privacy(): JSX.Element {
   onMount(() => { void loadCatalog('privacy'); void loadCatalog('settings-policy'); });
   const mode = useSetting<RemoteMode>('privacy.remoteContent', 'ask', (v): v is RemoteMode => typeof v === 'string' && ['block','ask','proxy','direct'].includes(v));
-  const unsafeHtml=useSetting<string>('mail.reader.unsafeHtmlMode','ask',(v):v is string=>typeof v==='string'&&['ask','strict','sanitized'].includes(v));
+  const unsafeHtml=useSetting<string>('mail.reader.unsafeHtmlMode','sanitized',(v):v is string=>typeof v==='string'&&['ask','strict','sanitized'].includes(v));
   const trackers = useSetting('privacy.trackers', true);
   const links = useSetting('privacy.cleanLinks', true);
   const stripMailerHeaders = useSetting('privacy.stripMailerHeaders', true);

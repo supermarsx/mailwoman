@@ -5,6 +5,12 @@ import { themeCssVars } from '../theme/themeCssVars.ts';
 
 const appearance: ReaderAppearance = { colorMode: 'adaptive', fontSize: 18, lineHeight: 1.8, contentWidth: 'comfortable' };
 describe('isolated reader appearance', () => {
+  it('uses the available width without adding body padding or centering the message', () => {
+    const doc = bodyFrameDoc('full-sanitized', { html: '<p>Original alignment</p>' }, { appearance: { ...appearance, contentWidth: 'full' } });
+    expect(doc).toContain('body{padding:0;');
+    expect(doc).toContain('max-width:none;margin-inline:0');
+    expect(doc).not.toContain('margin-inline:auto');
+  });
   it('removes sender paint overrides while retaining layout and image destinations', () => {
     const doc = new DOMParser().parseFromString(bodyFrameDoc('full-sanitized', { html: '<table bgcolor="white"><tr><td style="color:black!important;background:#fff;width:200px">Readable</td></tr></table><img src="data:image/png;base64,AA==" width="32">' }, { themeVars: themeCssVars('dark'), appearance }), 'text/html');
     expect(doc.querySelector('td')?.style.color).toBe('');

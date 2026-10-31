@@ -701,7 +701,7 @@ async fn reader_bridge_has_one_independent_policy_while_shell_stays_restricted()
         compatible.headers()["cross-origin-resource-policy"],
         "cross-origin"
     );
-    assert_eq!(compatible.headers()["x-frame-options"], "SAMEORIGIN");
+    assert!(compatible.headers().get("x-frame-options").is_none());
     let compatible_csp = compatible.headers()["content-security-policy"]
         .to_str()
         .unwrap();
@@ -730,7 +730,7 @@ async fn reader_bridge_has_one_independent_policy_while_shell_stays_restricted()
     assert!(csp.contains("frame-ancestors 'self'"));
     assert!(!csp.contains("connect-src"));
     let csp = csp.to_owned();
-    assert_eq!(response.headers()["x-frame-options"], "SAMEORIGIN");
+    assert!(response.headers().get("x-frame-options").is_none());
     assert_eq!(
         response.headers()["cross-origin-embedder-policy"],
         "credentialless"

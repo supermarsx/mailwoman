@@ -129,12 +129,12 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
   );
 }
 
-function SecurityPopup(props:{onClose:()=>void;children:JSX.Element}):JSX.Element {
+export function SecurityPopup(props:{onClose:()=>void;children:JSX.Element;title?:string;labelledBy?:string;id?:string}):JSX.Element {
   let element:HTMLDivElement|undefined;
   onMount(()=>{if(element)onCleanup(wireDialogFocus(element,props.onClose));});
   return <Portal><div class={css.backdrop} onClick={event=>{if(event.target===event.currentTarget)props.onClose();}}>
-    <div ref={element} class={css.dialog} role="dialog" aria-modal="true" aria-label={t('security-panel-region')} tabIndex={-1}>
-      <header class={css.dialogHeader}><h3>{t('security-panel-region')}</h3><button type="button" aria-label={t('mail-compose-close')} onClick={props.onClose}><Icon name="close"/></button></header>
+    <div ref={element} id={props.id} class={css.dialog} role="dialog" aria-modal="true" aria-labelledby={props.labelledBy} aria-label={props.labelledBy ? undefined : props.title ?? t('security-panel-region')} tabIndex={-1}>
+      <header class={css.dialogHeader}><h3 id={props.labelledBy}>{props.title ?? t('security-panel-region')}</h3><button type="button" aria-label={t('mail-compose-close')} onClick={props.onClose}><Icon name="close"/></button></header>
       {props.children}
     </div>
   </div></Portal>;

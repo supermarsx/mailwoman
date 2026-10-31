@@ -11,7 +11,7 @@ const fields: { key: string; fallback: string | number; choices?: string[]; step
   { key: 'colorMode', fallback: 'auto', choices: ['auto', 'original', 'adaptive', 'invert'] },
   { key: 'fontSize', fallback: 14, min: 12, max: 24, step: 1 },
   { key: 'lineHeight', fallback: 1.6, min: 1.2, max: 2.2, step: 0.1 },
-  { key: 'contentWidth', fallback: 'wide', choices: ['comfortable', 'wide', 'full'] },
+  { key: 'contentWidth', fallback: 'full', choices: ['comfortable', 'wide', 'full'] },
   { key: 'loading', fallback: 'skeleton', choices: ['skeleton', 'indicator', 'none'] },
   { key: 'loadingDelayMs', fallback: 120, min: 0, max: 1000, step: 20 },
   // t59: the reader's zoom buttons write the same key; this sets it directly.

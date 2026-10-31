@@ -398,7 +398,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "mail.reader.unsafeHtmlMode",
         Kind::Enum(&["ask", "strict", "sanitized"]),
-        "\"ask\"",
+        "\"sanitized\"",
         GDU,
         "mail",
         "Handling of message HTML detected as unsafe"
@@ -1795,7 +1795,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "reader.contentWidth",
         Kind::Enum(&["comfortable", "wide", "full"]),
-        "\"wide\"",
+        "\"full\"",
         GDU,
         "reader",
         "message content width"

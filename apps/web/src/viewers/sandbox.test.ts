@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { SANDBOX_TOKENS, bodyCsp, escapeHtml, mediaFrameDoc, textFrameDoc } from './sandbox.ts';
+import { SANDBOX_TOKENS, bodyCsp, bodyFrameDoc, escapeHtml, mediaFrameDoc, textFrameDoc } from './sandbox.ts';
 
 describe('SANDBOX_TOKENS', () => {
   it('grants neither allow-scripts nor allow-same-origin (opaque, script-free)', () => {
@@ -7,6 +7,19 @@ describe('SANDBOX_TOKENS', () => {
     expect(SANDBOX_TOKENS).not.toContain('allow-scripts');
     expect(SANDBOX_TOKENS).not.toContain('allow-same-origin');
   });
+});
+
+it('removes image placeholders and their data-image CSS in no-media and text modes', () => {
+  const content = '<p>Keep this layout</p><table background="data:image/gif;base64,R0lGODlh"><tr><td style="background-image:url(data:image/gif;base64,R0lGODlh);width:200px;color:red">No background image</td></tr></table><img src="data:image/gif;base64,R0lGODlh"><img src="https://blocked.test/a.png"><picture><source srcset="https://blocked.test/b.png"></picture>';
+  const doc = bodyFrameDoc('sanitized-no-media', { html: content });
+  expect(doc).toContain('<p>Keep this layout</p>');
+  expect(doc).not.toContain('<img');
+  expect(doc).not.toContain('<source');
+  expect(doc).not.toContain('data:image');
+  expect(doc).not.toContain('blocked.test');
+  expect(doc).toContain('width:200px;color:red');
+  expect(bodyFrameDoc('plain-text', { text: 'Plain message' })).not.toContain('data:image');
+  expect(doc).toContain("default-src 'none'");
 });
 
 describe('mediaFrameDoc', () => {

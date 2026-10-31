@@ -1879,10 +1879,13 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
             h.append("content-security-policy", v);
         }
     }
-    h.insert(
-        "x-frame-options",
-        HeaderValue::from_static(if isolated_frame { "SAMEORIGIN" } else { "DENY" }),
-    );
+    // Isolated frames already use frame-ancestors 'self'. Sending XFO as well
+    // only produces a warning in modern browsers, which enforce the CSP rule.
+    if isolated_frame {
+        h.remove("x-frame-options");
+    } else {
+        h.insert("x-frame-options", HeaderValue::from_static("DENY"));
+    }
     h.insert(
         "x-content-type-options",
         HeaderValue::from_static("nosniff"),

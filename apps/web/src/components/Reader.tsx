@@ -721,13 +721,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
-  const unsafeHtmlMode=createMemo(()=>{const value=settings()['mail.reader.unsafeHtmlMode']?.value;return value==='strict'||value==='sanitized'?value:'ask';});
+  const unsafeHtmlMode=createMemo(()=>{const value=settings()['mail.reader.unsafeHtmlMode']?.value;return value==='strict'||value==='ask'?value:'sanitized';});
   const htmlConsentScope=createMemo(()=>JSON.stringify([app.accountId(),emailId(),app.openEmail()?extractHtmlBody(app.openEmail()!):'',armor(),unsafeHtmlMode(),maxsec.effectiveMode(sender())]));
   const [htmlConsent,setHtmlConsent]=createSignal<string|null>(null);
   createEffect(on(htmlConsentScope,()=>setHtmlConsent(null)));
   const allowSanitizedHtml=()=>maxsec.effectiveMode(sender())!=='plain-text'&&(unsafeHtmlMode()==='sanitized'||(unsafeHtmlMode()==='ask'&&htmlConsent()===htmlConsentScope()));
   const htmlRenderScope=()=>JSON.stringify([htmlConsentScope(),allowSanitizedHtml()]);
-  const [readerBody, {mutate:mutateReaderBody}] = createResource(
+  const [readerBody, {mutate:mutateReaderBody,refetch:retryReaderBody}] = createResource(
     () => {
       const email = app.openEmail(); const account = app.accountId();
       if (!email || !account || privacy.loading || grants.loading) return null;
@@ -782,7 +782,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const mode = values['reader.colorMode']?.value;
     const colorMode = mode === 'original' || mode === 'adaptive' || mode === 'invert' ? mode : app.appearance() === 'dark' ? 'adaptive' : 'original';
     const width = values['reader.contentWidth']?.value;
-    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'full' ? width : 'wide' };
+    return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'wide' ? width : 'full' };
   };
   const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '' });
   const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
@@ -1140,8 +1140,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     {...(props.onOpenSettings ? { onOpenPrivacySettings: () => props.onOpenSettings?.('privacy') } : {})}
                   />
                 </Show>
-                <Show when={(reviewedBody()?.links.length??0)>0}><LinkedFilesBar linksReady={linksReady()} linksEnabled={linksEnabled()} onToggleLinks={toggleLinks} emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
-                <AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} />
+                <Show when={!currentBody()?.blocked && (reviewedBody()?.links.length??0)>0}><LinkedFilesBar linksReady={linksReady()} linksEnabled={linksEnabled()} onToggleLinks={toggleLinks} emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
+                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
               </div>
             </Show>
             <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
@@ -1149,7 +1149,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             )}</Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
             <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'&&maxsec.effectiveMode(sender())!=='plain-text'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
-            <Show when={currentBody()?.failed}><p role="alert">{t('privacy-content-failed')}</p></Show>
+            <Show when={currentBody()?.failed}><AsyncError message={t('privacy-content-failed')} onRetry={()=>void retryReaderBody()}/></Show>
             <Show
               when={showDecrypt()}
               fallback={
@@ -1182,6 +1182,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               />
             </Show>
+            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && noticesReady()}><AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
           </>
         )}
       </Show>

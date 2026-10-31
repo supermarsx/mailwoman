@@ -1,9 +1,9 @@
-import { createResource, createUniqueId, For, Show, onCleanup, onMount, type JSX } from 'solid-js';
+import { createResource, createSignal, createUniqueId, For, Show, onCleanup, onMount, type JSX } from 'solid-js';
 import { fetchMailHeaders } from '../../api/mailHeaders.ts';
 import { parseSpamScores, spamBand, type SpamScore as Score } from './spamScore.ts';
 import { loadCatalog, t } from '../../i18n';
 import { Icon } from '../Icon.tsx';
-import { RibbonPopover } from '../compose/ribbonParts.tsx';
+import { SecurityPopup } from '../SecurityPanel.tsx';
 import './spamScore.css';
 
 /** A rule's points with their sign, so a negative (ham) contribution never reads as a positive one. */
@@ -14,8 +14,8 @@ export function signedPoints(value: number): string {
 
 /**
  * The reader's header-reported spam scores: one compact chip per scanner (score
- * and a ham/neutral/spam band). The rule breakdown opens in the same popover as
- * the composer's security chip, never inline.
+ * and a ham/neutral/spam band). The rule breakdown opens in the same dialog as
+ * the reader's security verification, never inline.
  */
 /** `onHeaders` gets null when a fetch starts, the raw header block when it
  *  arrives and '' when it fails or times out (t110: the reader's notice bars wait
@@ -40,31 +40,31 @@ export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url
 
 export function SpamScoreChip(props: { score: Score }): JSX.Element {
   const titleId = `mw-spam-score-${createUniqueId()}`;
+  const dialogId = `${titleId}-dialog`;
+  const [open, setOpen] = createSignal(false);
+  let trigger: HTMLButtonElement | undefined;
+  const close = (): void => { setOpen(false); trigger?.focus(); };
   const band = () => spamBand(props.score);
   const bandText = () => t(`spam-score-band-${band()}`);
   const label = () => props.score.threshold !== null
     ? t('spam-score-chip-label', { source: props.score.source, score: String(props.score.score), threshold: String(props.score.threshold), band: bandText() })
     : t('spam-score-chip-label-no-threshold', { source: props.score.source, score: String(props.score.score), band: bandText() });
-  return <RibbonPopover
-    label={label()}
-    ariaLabel={label()}
-    labelledBy={titleId}
-    focusDialog
-    testId="spam-score-item"
-    buttonClass={`spam-score__chip spam-score__chip--${band()}`}
-    content={<span class="spam-score__chip-body" data-band={band()}>
+  return <div data-testid="spam-score-item"><button ref={trigger} type="button"
+    aria-label={label()} aria-haspopup="dialog" aria-expanded={open()} aria-controls={dialogId}
+    class={`spam-score__chip spam-score__chip--${band()}`} onClick={()=>setOpen(value=>!value)}>
+    <span class="spam-score__chip-body" data-band={band()}>
       <Icon name="shield"/><span class="spam-score__source">{props.score.source}</span> <strong><span class="spam-score__value">{String(props.score.score)}</span><Show when={props.score.threshold !== null}><span class="spam-score__of">{` / ${props.score.threshold}`}</span></Show></strong>
-    </span>}
-  >
-    <SpamScoreBreakdown score={props.score} titleId={titleId}/>
-  </RibbonPopover>;
+    </span>
+  </button><Show when={open()}><SecurityPopup id={dialogId} title={t('spam-score-title', { source: props.score.source })} labelledBy={titleId} onClose={close}>
+    <SpamScoreBreakdown score={props.score}/>
+  </SecurityPopup></Show></div>;
 }
 
 /** The rule table: one layout for SpamAssassin rules and Rspamd symbols, largest contribution first. */
-export function SpamScoreBreakdown(props: { score: Score; titleId: string }): JSX.Element {
+export function SpamScoreBreakdown(props: { score: Score; titleId?: string }): JSX.Element {
   const band = () => spamBand(props.score);
   return <div class="spam-score__sheet" data-testid="spam-score-breakdown">
-    <h3 id={props.titleId} class="spam-score__title">{t('spam-score-title', { source: props.score.source })}</h3>
+    <Show when={props.titleId}><h3 id={props.titleId} class="spam-score__title">{t('spam-score-title', { source: props.score.source })}</h3></Show>
     <dl class="spam-score__summary">
       <div><dt>{t('spam-score-total')}</dt><dd><strong>{String(props.score.score)}</strong></dd></div>
       <div><dt>{t('spam-score-threshold')}</dt><dd>{props.score.threshold !== null ? String(props.score.threshold) : t('spam-score-threshold-missing')}</dd></div>

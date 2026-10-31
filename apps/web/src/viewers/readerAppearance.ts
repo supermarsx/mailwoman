@@ -11,7 +11,7 @@ export function readerAppearanceCss(value: ReaderAppearance): string {
   const font = Number.isFinite(value.fontSize) ? Math.max(12, Math.min(24, value.fontSize)) : 14;
   const line = Number.isFinite(value.lineHeight) ? Math.max(1.2, Math.min(2.2, value.lineHeight)) : 1.6;
   const width = value.contentWidth === 'comfortable' ? '76ch' : value.contentWidth === 'wide' ? '110ch' : 'none';
-  let css = `html{padding:0}body{box-sizing:border-box;font-size:${font}px;line-height:${line};max-width:${width};margin-inline:auto}pre{font-size:inherit;line-height:inherit}`;
+  let css = `html{padding:0}body{box-sizing:border-box;font-size:${font}px;line-height:${line};max-width:${width};margin-inline:0}pre{font-size:inherit;line-height:inherit}`;
   // The reader zoom (t59) is not part of this document: the app scales the
   // frame from outside (ReaderZoomBox, t79), so a zoom change never reloads it.
   if (value.colorMode === 'adaptive') {
@@ -28,7 +28,7 @@ export function readerAppearanceCss(value: ReaderAppearance): string {
 const PAINT_PROPERTIES = new Set(['color', 'background', 'background-color', 'background-image', 'text-shadow']);
 
 /** Split an inline style into declarations at top-level `;` (not inside quotes or `url(...)`). */
-function declarations(style: string): string[] {
+export function readerStyleDeclarations(style: string): string[] {
   const parts: string[] = [];
   let depth = 0, quote = '', start = 0;
   for (let i = 0; i < style.length; i++) {
@@ -55,7 +55,7 @@ export function adaptReaderColors(html: string): string {
   for (const element of doc.body.querySelectorAll<HTMLElement>('*')) {
     const style = element.getAttribute('style');
     if (style !== null) {
-      const kept = declarations(style).filter(part => !PAINT_PROPERTIES.has(part.slice(0, part.indexOf(':')).trim().toLowerCase()));
+      const kept = readerStyleDeclarations(style).filter(part => !PAINT_PROPERTIES.has(part.slice(0, part.indexOf(':')).trim().toLowerCase()));
       if (kept.length) element.setAttribute('style', kept.map(part => part.trim()).join(';'));
       else element.removeAttribute('style');
     }
