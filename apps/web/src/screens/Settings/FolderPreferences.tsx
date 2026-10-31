@@ -1,3 +1,4 @@
+import {FolderCreationControl} from '../../components/FolderMaintenance.tsx';
 import {createEffect, createMemo, createSignal, For, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
 import {QuotaDetails} from '../../components/QuotaMeter.tsx';
@@ -41,11 +42,9 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
  return <section class={css.section} aria-label={t('settings-folders-edit',{name:props.folder.name})}>
   <h3 class={css.heading}>{t('settings-folders-edit',{name:props.folder.name})}</h3>
   <p class={css.meta}>{t('settings-folders-icon-help')}</p>
-  <label class={css.field}><span>{t('settings-folders-icon',{name:props.folder.name})}</span>
-   <select class={css.select} disabled={pending()} value={draft()} onChange={event=>setDraft(event.currentTarget.value as FolderIcon|'')}>
-    <option value="">{t('settings-folders-automatic')}</option><For each={FOLDER_ICONS}>{id=><option value={id}>{t(`settings-folder-icon-${id}`)}</option>}</For>
-   </select>
-  </label>
+  <div class={css.field}><span>{t('settings-folders-icon',{name:props.folder.name})}</span>
+   <div role="radiogroup" aria-label={t('settings-folders-icon',{name:props.folder.name})} class={folderCss.iconGrid}><For each={['',...FOLDER_ICONS] as const}>{id=><button type="button" role="radio" aria-checked={draft()===id} disabled={pending()} class={css.ghost} title={id?t(`settings-folder-icon-${id}`):t('settings-folders-automatic')} aria-label={id?t(`settings-folder-icon-${id}`):t('settings-folders-automatic')} tabIndex={draft()===id?0:-1} onKeyDown={event=>{const buttons=Array.from(event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role=radio]'));const at=buttons.indexOf(event.currentTarget);const next=event.key==='ArrowRight'||event.key==='ArrowDown'?(at+1)%buttons.length:event.key==='ArrowLeft'||event.key==='ArrowUp'?(at+buttons.length-1)%buttons.length:event.key==='Home'?0:event.key==='End'?buttons.length-1:null;if(next!==null){event.preventDefault();buttons[next]?.click();buttons[next]?.focus({preventScroll:true});}}} onClick={()=>setDraft(id)}><Icon name={id||folderIcon(props.folder,{})}/></button>}</For></div>
+  </div>
   <p><Icon name={draft()||folderIcon(props.folder,{})}/> {props.folder.name}</p>
   <Show when={choices().length}><fieldset class={css.section}><legend>{t('settings-folder-labels')}</legend><p class={css.meta}>{t('settings-folder-labels-help')}</p><For each={choices()}>{id=><label class={css.check}><input class={css.checkbox} type="checkbox" checked={labels().includes(id)} disabled={pending()||(!labels().includes(id)&&labels().length>=32)} onChange={event=>setLabels(value=>event.currentTarget.checked?[...value,id]:value.filter(label=>label!==id))}/>{props.tags().find(tag=>tag.id===id)?.name??id}</label>}</For></fieldset></Show>
   <Show when={pending()}><p role="status">{t(`settings-folders-sync-${accountUiPreferenceStatus()}`)}</p><Show when={accountUiPreferenceStatus()==='error'}><button class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('settings-folders-retry')}</button></Show></Show>
@@ -68,7 +67,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  function pin(id:string):void {const ids=(prefs().folderPinned??[]).filter(value=>value!==id);update({folderPinned:pinned(id)?ids:[...ids,id]});}
  return <Show when={editing()} keyed fallback={<section class={css.section} aria-label={t('settings-folders-title')}>
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
-  <p class={css.prose}>{t('settings-folders-hidden-help')}</p>
+  <p class={css.prose}>{t('settings-folders-hidden-help')}</p><Show when={!props.onChange&&app}><FolderCreationControl/></Show>
   <label class={css.field}><input type="checkbox" checked={prefs().userFoldersCollapsed===true} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>{t('settings-folders-collapse-user')}</label>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
   <Show when={!props.onChange}><FocusedInboxPreference/></Show>

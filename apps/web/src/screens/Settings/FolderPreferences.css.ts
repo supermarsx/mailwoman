@@ -9,3 +9,6 @@ export const actions = style({display:'flex',alignItems:'center',flexWrap:'wrap'
 globalStyle(`${actions} > button`,{flex:'0 0 auto',minInlineSize:'44px',minBlockSize:'44px',paddingInline:vars.space[2]});
 
 globalStyle(`${wrap}:focus-visible`,{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'-2px'});
+
+export const iconGrid=style({display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(44px,1fr))',gap:'4px',maxInlineSize:'28rem'});
+globalStyle(`${iconGrid} button[aria-checked="true"]`,{outline:`2px solid ${vars.color.accent}`,outlineOffset:'-2px'});

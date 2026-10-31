@@ -1,3 +1,4 @@
+import {FolderCreationControl} from '../components/FolderMaintenance.tsx';
 import {mailPrefetchEvents} from '../components/mailPrefetchEvents.ts';
 import {readMailCachePolicy} from '../state/mailCachePolicy.ts';
 import {displayText} from '../i18n/presentation.ts';
@@ -767,7 +768,7 @@ export function MailboxScreen(): JSX.Element {
           <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
         </button>
         <div class="sidebar__scroll">
-        <nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
+        <FolderCreationControl><nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
           <For each={[false,true]}>{custom=><>
@@ -835,7 +836,7 @@ export function MailboxScreen(): JSX.Element {
               <Icon name="users"/><span class="sidebar__box-name">{t('mail-nav-sharing')}</span>
             </button>
           </Show>
-        </nav>
+        </nav></FolderCreationControl>
 
         {/* PIM modules (plan §2.5): Calendar / Tasks / Notes / Contacts, each
             reachable from the nav rail — the explicit mount step V2 lacked. */}

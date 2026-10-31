@@ -1038,3 +1038,7 @@ table.settings-package-table { min-inline-size:38rem; }
 .settings-label-color { padding-inline-start:.5rem; }
 
 .sidebar__box > svg { flex: 0 0 auto; }
+
+/* Keep the user-folder disclosure smaller than a mailbox row. */
+.sidebar__box[data-folder-disclosure] { min-height: 24px; padding-block: 2px; font-size: .75rem; gap: 4px; }
+.sidebar__box[data-folder-disclosure] > svg { width: 12px; height: 12px; }

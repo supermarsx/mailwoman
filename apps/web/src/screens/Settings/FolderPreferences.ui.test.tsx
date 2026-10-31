@@ -22,8 +22,8 @@ it('offers fifty native icons plus automatic and saves only the changed folder p
  render(()=><FolderPreferences folders={()=>[{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]} preferences={prefs} onChange={update}/>);
  expect(screen.queryByRole('combobox')).toBeNull();
  fireEvent.click(await screen.findByRole('button',{name:'Edit Projects appearance'}));
- const select=await screen.findByRole('combobox',{name:'Icon for Projects'});expect(select.querySelectorAll('option')).toHaveLength(51);
- fireEvent.change(select,{target:{value:'star'}});expect(update).not.toHaveBeenCalled();
+ const select=await screen.findByRole('radiogroup',{name:'Icon for Projects'});expect(select.querySelectorAll('[role=radio]')).toHaveLength(51);expect(select.querySelectorAll('svg')).toHaveLength(51);
+ fireEvent.click(screen.getByRole('radio',{name:'Star'}));expect(update).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Save folder appearance'}));expect(update).toHaveBeenLastCalledWith({folderIcons:{a:'star'}});
  await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());
  fireEvent.click(screen.getByRole('button',{name:'Pin Projects'}));expect(update).toHaveBeenLastCalledWith({folderPinned:['a']});
