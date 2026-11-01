@@ -1582,6 +1582,7 @@ fn router(
         .fallback(static_handler)
         // t99: strong ETag + 304 on private JSON reads that set no caching posture.
         .layer(axum::middleware::from_fn(private_etag::layer))
+        .layer(middleware::from_fn_with_state(state.clone(), security_center::device_recognition::layer))
         // t91: innermost, so it sees only requests every guard below admitted.
         // A request without `Idempotency-Key` passes through untouched.
         .layer(middleware::from_fn(idempotency::layer))

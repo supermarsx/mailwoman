@@ -12,6 +12,9 @@ pub struct SessionDevice {
     pub client_type: String,
     pub device_label: String,
     pub client_version: String,
+    /// Informational browser recognition only; never a session/factor credential.
+    #[serde(skip)]
+    pub recognition_hash: Option<String>,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -297,6 +300,7 @@ impl Store {
                         .unwrap_or_else(|| "browser".into()),
                     device_label: r.get_opt_string("device_label").unwrap_or_default(),
                     client_version: r.get_opt_string("client_version").unwrap_or_default(),
+                    recognition_hash: None,
                 },
             })
             .collect())
@@ -335,6 +339,46 @@ impl Store {
             })
             .collect())
     }
+    /// Atomically recognize a browser within the verified principal namespace.
+    /// The persisted key contains only a scoped digest; neither cookie nor session
+    /// credentials are stored. Concurrent first sign-ins classify exactly one new.
+    pub async fn register_browser_device(
+        &self,
+        session: &str,
+        fingerprint: &str,
+        now: i64,
+    ) -> Result<bool, StoreError> {
+        if fingerprint.len() != 64 || !fingerprint.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return Err(StoreError::Corrupt(
+                "invalid browser recognition digest".into(),
+            ));
+        }
+        let subject = self
+            .session_policy_subject(session)
+            .await?
+            .ok_or(StoreError::NotFound)?;
+        let mut digest = Sha256::new();
+        digest.update(b"mailwoman-browser-recognition-v1\0");
+        for part in [subject.personal_subject.as_bytes(), fingerprint.as_bytes()] {
+            digest.update((part.len() as u64).to_be_bytes());
+            digest.update(part);
+        }
+        let encoded = digest
+            .finalize()
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect::<String>();
+        let key = format!("recognized-browser:v1:{encoded}");
+        Ok(
+            q("INSERT INTO settings(key,value) VALUES(?1,?2) ON CONFLICT(key) DO NOTHING")
+                .bind(&key)
+                .bind(now.to_string())
+                .execute(&self.backend)
+                .await?
+                == 1,
+        )
+    }
+
     pub async fn put_remembered_device(
         &self,
         device: &RememberedDevice,
@@ -825,5 +869,108 @@ mod tests {
         );
         assert!(!store.revoke_remembered_device("bob", "d").await.unwrap());
         assert!(store.revoke_remembered_device("alice", "d").await.unwrap());
+    }
+}
+
+#[cfg(test)]
+mod browser_recognition_tests {
+    use super::*;
+    use crate::identity_principal::VerifiedPrimary;
+    async fn session(store: &Store, account: &str, realm: &str, subject: &str) -> String {
+        let url = format!("https://{realm}.example.test/session");
+        let id = store
+            .create_session(
+                account,
+                "same@example.test",
+                &url,
+                &format!("https://{realm}.example.test/api"),
+                &crate::Credentials {
+                    username: "same".into(),
+                    password: "synthetic".into(),
+                },
+            )
+            .await
+            .unwrap();
+        store
+            .set_session_authentication(&id, "header-auth")
+            .await
+            .unwrap();
+        store
+            .bind_verified_primary(
+                &id,
+                VerifiedPrimary {
+                    account_id: account,
+                    kind: "header",
+                    authority: "trusted-header",
+                    subject,
+                },
+                100,
+            )
+            .await
+            .unwrap()
+            .unwrap();
+        id
+    }
+    #[tokio::test]
+    async fn browser_recognition_is_atomic_and_scoped_to_verified_principals() {
+        let store = Store::open_in_memory(crate::ServerKey::generate())
+            .await
+            .unwrap();
+        let first = session(&store, "shared-upstream-id", "realm-a", "alice").await;
+        let second = session(&store, "shared-upstream-id", "realm-a", "alice").await;
+        let digest = "a".repeat(64);
+        let (one, two) = tokio::join!(
+            store.register_browser_device(&first, &digest, 100),
+            store.register_browser_device(&second, &digest, 100)
+        );
+        assert_ne!(
+            one.unwrap(),
+            two.unwrap(),
+            "concurrent first logins must classify exactly one new browser"
+        );
+        assert!(
+            !store
+                .register_browser_device(&first, &digest, 101)
+                .await
+                .unwrap()
+        );
+        let other_realm = session(&store, "shared-upstream-id", "realm-b", "alice").await;
+        let other_user = session(&store, "shared-upstream-id", "realm-a", "bob").await;
+        assert!(
+            store
+                .register_browser_device(&other_realm, &digest, 101)
+                .await
+                .unwrap()
+        );
+        assert!(
+            store
+                .register_browser_device(&other_user, &digest, 101)
+                .await
+                .unwrap()
+        );
+        let records = q("SELECT key,value FROM settings WHERE key LIKE 'recognized-browser:v1:%'")
+            .fetch_all(&store.backend)
+            .await
+            .unwrap();
+        assert_eq!(records.len(), 3);
+        for row in records {
+            let key = row.get_string("key");
+            assert!(!key.contains(&digest) && !key.contains("shared-upstream-id"));
+        }
+        let device = SessionDevice {
+            recognition_hash: Some(digest),
+            ..SessionDevice::default()
+        };
+        assert!(
+            !serde_json::to_string(&device)
+                .unwrap()
+                .contains("recognition")
+        );
+        assert!(
+            store
+                .register_browser_device(&first, "raw-cookie", 100)
+                .await
+                .is_err()
+        );
     }
 }

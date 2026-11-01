@@ -210,7 +210,7 @@ pub(crate) fn notice(language: &str, kind: AlertKind) -> Notice {
             "pt-BR",
             "Aviso de segurança do Mailwoman",
             [
-                "Sua conta foi acessada de um novo dispositivo.",
+                "Sua conta foi acessada de um novo navegador ou dispositivo.",
                 "Os fatores de autenticação da sua conta foram alterados.",
                 "Foi concedido acesso delegado à sua caixa de correio.",
                 "Foi adicionada uma regra de encaminhamento à sua caixa de correio.",
@@ -223,7 +223,7 @@ pub(crate) fn notice(language: &str, kind: AlertKind) -> Notice {
             "pt-PT",
             "Aviso de segurança do Mailwoman",
             [
-                "A sua conta foi acedida a partir de um novo dispositivo.",
+                "A sua conta foi acedida a partir de um novo navegador ou dispositivo.",
                 "Os fatores de autenticação da sua conta foram alterados.",
                 "Foi concedido acesso delegado à sua caixa de correio.",
                 "Foi adicionada uma regra de reencaminhamento à sua caixa de correio.",
@@ -236,7 +236,7 @@ pub(crate) fn notice(language: &str, kind: AlertKind) -> Notice {
             "en",
             "Mailwoman account security notice",
             [
-                "Your account was signed in to from a new device.",
+                "Your account was signed in to from a new browser or device.",
                 "Your account's authentication factors changed.",
                 "A delegate was granted access to your mailbox.",
                 "A forwarding rule was added to your mailbox.",

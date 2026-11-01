@@ -11,6 +11,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
+pub(crate) mod device_recognition;
+
 pub(crate) const REMEMBER_COOKIE: &str = "mw_remembered_device";
 #[derive(Debug, Clone)]
 pub(crate) struct Policy {
@@ -168,6 +170,9 @@ pub(crate) fn device(
         client_type: bounded(client_type.unwrap_or("browser"), 32),
         device_label: String::new(),
         client_version: read("x-mailwoman-client", 128),
+        recognition_hash: ext
+            .get::<device_recognition::BrowserFingerprint>()
+            .map(|value| value.0.clone()),
     }
 }
 pub(crate) async fn record_login(
@@ -263,10 +268,16 @@ pub(crate) async fn record_login(
         .signin_history(account, i64::MAX, Some("success"), 500)
         .await
         .map_err(|e| error("history", e))?;
-    let new_device = !device.user_agent.is_empty()
-        && !previous
-            .iter()
-            .any(|event| event.user_agent == device.user_agent);
+    let new_device = match device.recognition_hash.as_deref() {
+        Some(fingerprint) => state
+            .store
+            .register_browser_device(id, fingerprint, chrono::Utc::now().timestamp())
+            .await
+            .map_err(|e| error("browser recognition", e))?,
+        // Background linked-account renewal has no browser evidence. Never infer
+        // a device from its agent string or network address.
+        None => false,
+    };
     let new_country = country.as_ref().is_some_and(|country| {
         !previous
             .iter()

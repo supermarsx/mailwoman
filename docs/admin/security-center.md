@@ -142,6 +142,14 @@ skip a login factor after the password verifies; it does not satisfy fresh
 verification. Tokens are hashed with the current password/factors and expire
 according to policy. Factor or password changes invalidate their use.
 
+New-browser or device alerts use a separate, first-party HttpOnly recognition
+cookie with SameSite=Lax and Secure on HTTPS. The server stores only a digest
+scoped to the verified account identity and provider realm; this marker grants
+no sign-in or second-factor trust. A returning browser keeps its recognition
+through logout, browser updates and network changes, so changes to User-Agent
+or IP alone do not produce a new-device alert. Clearing cookies or using a new
+private browsing profile resets this marker and is treated as a new browser.
+
 ## Administrator sessions
 
 The Sessions page requires `sessions.read`; revocation requires

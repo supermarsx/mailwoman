@@ -218,6 +218,7 @@ fn scope_matches(scope: &SsoScope, domain: Option<&str>) -> bool {
 struct PendingEntry {
     state: PendingState,
     expires_at: Instant,
+    browser_fingerprint: Option<String>,
 }
 
 /// In-flight [`PendingState`], keyed by the provider-minted opaque `state` token and
@@ -239,19 +240,26 @@ impl PendingFlows {
     }
 
     /// Persist `state` under the provider's opaque `token`. Sweeps expired entries.
-    fn insert(&self, token: String, state: PendingState) {
+    fn insert(&self, token: String, state: PendingState, browser_fingerprint: Option<String>) {
         let expires_at = Instant::now() + self.ttl;
         let mut map = self.inner.lock().expect("PendingFlows poisoned");
         map.retain(|_, e| e.expires_at > Instant::now());
-        map.insert(token, PendingEntry { state, expires_at });
+        map.insert(
+            token,
+            PendingEntry {
+                state,
+                expires_at,
+                browser_fingerprint,
+            },
+        );
     }
 
     /// Redeem a token exactly once (removes it). `None` ⇒ unknown / reused / expired
     /// (the caller treats all three as [`SsoError::Replay`](mw_sso::SsoError::Replay)).
-    fn take(&self, token: &str) -> Option<PendingState> {
+    fn take(&self, token: &str) -> Option<(PendingState, Option<String>)> {
         let mut map = self.inner.lock().expect("PendingFlows poisoned");
         let entry = map.remove(token)?;
-        (entry.expires_at > Instant::now()).then_some(entry.state)
+        (entry.expires_at > Instant::now()).then_some((entry.state, entry.browser_fingerprint))
     }
 
     /// Live entry count (tests/metrics).
@@ -358,7 +366,12 @@ async fn begin(
     }
     match entry.provider.begin(q.relay_state).await {
         Ok(br) => {
-            pending.insert(br.state_token, br.pending);
+            pending.insert(
+                br.state_token,
+                br.pending,
+                ext.get::<crate::security_center::device_recognition::BrowserFingerprint>()
+                    .map(|value| value.0.clone()),
+            );
             Redirect::to(&br.url).into_response()
         }
         Err(e) => {
@@ -448,7 +461,7 @@ async fn complete_flow(
     let Some(token) = params.get(state_key) else {
         return audit_and_401(state, id, entry.meta.kind, "", "replay").await;
     };
-    let Some(ps) = pending.take(token) else {
+    let Some((ps, browser_fingerprint)) = pending.take(token) else {
         return audit_and_401(state, id, entry.meta.kind, "", "replay").await;
     };
     let relay = ps.relay_state().map(str::to_string);
@@ -557,7 +570,8 @@ async fn complete_flow(
         }
     };
     state.sessions.begin(&session_id);
-    let device = crate::security_center::device(headers, ext, None);
+    let mut device = crate::security_center::device(headers, ext, None);
+    device.recognition_hash = browser_fingerprint.or(device.recognition_hash);
     if state
         .store
         .set_session_authentication(&session_id, "sso")
@@ -903,9 +917,9 @@ mod tests {
             nonce: "n".into(),
             relay_state: Some("/inbox".into()),
         };
-        flows.insert("tok".into(), ps.clone());
+        flows.insert("tok".into(), ps.clone(), Some("browser-digest".into()));
         assert_eq!(flows.len(), 1);
-        assert_eq!(flows.take("tok"), Some(ps));
+        assert_eq!(flows.take("tok"), Some((ps, Some("browser-digest".into()))));
         // One-shot: a second redemption fails (replay defence).
         assert_eq!(flows.take("tok"), None);
         assert_eq!(flows.len(), 0);
@@ -918,6 +932,7 @@ mod tests {
                 request_id: "_r".into(),
                 relay_state: None,
             },
+            None,
         );
         assert_eq!(expired.take("t2"), None);
     }
