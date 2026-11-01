@@ -145,6 +145,19 @@ describe('outboxStateOf', () => {
 });
 
 describe('outbox slice', () => {
+  it('shows loading during cold discovery and clears it when discovery fails',async()=>{
+    const {client}=makeClient([]);let reject!:(reason:Error)=>void;
+    vi.mocked(client.session).mockImplementation(()=>new Promise((_resolve,failed)=>{reject=failed;}));
+    await createRoot(async dispose=>{try{
+      const outbox=createOutboxSlice({client,showToast:vi.fn()});
+      const pending=outbox.refreshOutbox();
+      const failure=new Error('Session unavailable');
+      const refused=expect(pending).rejects.toBe(failure);
+      expect(outbox.outboxLoading()).toBe(true);
+      reject(failure);await refused;
+      expect(outbox.outboxLoading()).toBe(false);
+    }finally{dispose();}});
+  });
   it('loads the submission queue', async () => {
     await withOutbox([sub('a'), sub('b', { undoStatus: 'final' })], async (o) => {
       await o.refreshOutbox();

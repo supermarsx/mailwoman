@@ -155,10 +155,10 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
   }
 
   async function refreshOutbox(): Promise<void> {
-    const acct = await resolveAccount();
-    if (acct === null) return;
     setLoading(true);
     try {
+      const acct = await resolveAccount();
+      if (acct === null) return;
       const res = await client.jmap(outboxQuery(acct));
       const subs: OutboxSubmission[] = responseFor<EmailSubmissionGetResponse>(res, 'g').list;
       setOutbox(subs);

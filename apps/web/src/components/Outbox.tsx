@@ -1,5 +1,6 @@
 import {AsyncPending} from './AsyncState.tsx';
-import { For, Show, onMount, type JSX } from 'solid-js';
+import { For, Show, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
+import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import { useApp } from '../state/context.ts';
 import { formatDateTime, isolate, t } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
@@ -64,17 +65,31 @@ function errorText(sub: OutboxSubmission): string {
 
 export function Outbox(): JSX.Element {
   const app = useApp();
-  onMount(() => void app.refreshOutbox());
+  const [failed,setFailed]=createSignal(false);
+  let disposed=false;
+  onCleanup(()=>{disposed=true;});
+  function refresh(owner:PreferenceAccount|null=preferenceAccount()):void {
+    if(owner===null)return;
+    setFailed(false);
+    void app.refreshOutbox().catch(error=>{
+      if(disposed||!preferenceAccountIsCurrent(owner)||error instanceof DOMException&&error.name==='AbortError')return;
+      setFailed(true);
+      app.showToast('error',t('mail-outbox-load-failed'));
+    });
+  }
+  // Sign-in mounts the mailbox before activating its account authority. Wait
+  // for that boundary, and reload whenever a retained tab changes mailbox.
+  onMount(()=>onCleanup(observePreferenceAccount(owner=>{setFailed(false);if(owner)refresh(owner);})));
 
   return (
     <section class={`outbox ${css.root}`} data-mw-surface aria-label={t('mail-outbox-label')}>
       <header class={`outbox__header ${css.header}`}>
         <h2 class={css.title}>{t('mail-outbox-label')}</h2>
-        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} disabled={app.outboxLoading()} onClick={() => void app.refreshOutbox()}>
+        <button type="button" class={`btn btn--ghost ${a11y.focusable}`} disabled={app.outboxLoading()} onClick={() => refresh()}>
           {t('mail-outbox-refresh')}
         </button>
       </header>
-      <Show when={app.outbox().length > 0} fallback={<Show when={app.outboxLoading()} fallback={<p class={`outbox__empty ${css.empty}`}>{t('mail-outbox-empty')}</p>}><AsyncPending variant="list"/></Show>}>
+      <Show when={app.outbox().length > 0} fallback={<Show when={app.outboxLoading()} fallback={<p class={`outbox__empty ${css.empty}`}>{t(failed()?'mail-outbox-unavailable':'mail-outbox-empty')}</p>}><AsyncPending variant="list"/></Show>}>
         <ul class={`outbox__items ${css.items}`}>
           <For each={app.outbox()}>
             {(sub) => {
