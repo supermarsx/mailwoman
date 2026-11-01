@@ -8,23 +8,23 @@ import { toast } from '../../components/toast/index.ts';
 import { useEditorGuard } from './entityEditor.tsx';
 import { escapeHtml } from '../../viewers/sandbox.ts';
 import { BodyModeGroup, EditorRibbon, createEditorRibbon, type BodyMode, type EditorTab } from '../../components/compose/EditorRibbon.tsx';
-import type { EditorGroup, RichTextApi } from '../../components/compose/RichTextEditor.tsx';
+import type { RichTextApi } from '../../components/compose/RichTextEditor.tsx';
 import * as css from './styles.css.ts';
 import * as layout from './editor.css.ts';
 import * as sig from './signatureEditor.css.ts';
 
 // The signature editor (t49) is the composer's editor: the same `RichTextEditor`
 // and HTML source editor, under the same `EditorRibbon`, with the groups that
-// apply to a signature (no recipients, attachments, security or delivery, and
-// no find and replace). Images are embedded in the HTML (a signature has no
-// uploads); the composer turns them into inline images of each message.
+// apply to a signature (no recipients, attachments, security or delivery).
+// Formatting, clipboard, find/replace, view and insertion stay shared. Images
+// are embedded in the HTML (a signature has no uploads); the composer turns
+// them into inline images of each message.
 const RichEditor = lazy(() => import('../../components/compose/RichTextEditor.tsx'));
 const SourceEditor = lazy(() => import('../../components/compose/HtmlSourceEditor.tsx'));
 const plainToHtml = (text: string): string => `<p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`;
 const NO_OWNED: ReadonlySet<string> = new Set();
 /** The server's limit on a signature's HTML (`prefs_routes.rs`), in UTF-8 bytes. */
 export const SIGNATURE_HTML_MAX = 32 * 1024;
-const OMIT: readonly EditorGroup[] = ['editing'];
 const utf8 = (value: string): number => new TextEncoder().encode(value).length;
 
 export function SignatureEditor(props: { initial?: Signature; service: SettingsService; onSaved: () => void | Promise<void>; onCancel: () => void | Promise<void> }): JSX.Element {
@@ -35,7 +35,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
   });
   const current = (): boolean => !disposed && (owner === null || preferenceAccountIsCurrent(owner));
   const [draft, setDraft] = createSignal<Signature>(structuredClone(props.initial ?? { name: '', body: '', isDefault: false }));
-  const [mode, setMode] = createSignal<BodyMode>(props.initial?.html ? 'rich' : 'plain');
+  const [mode, setMode] = createSignal<BodyMode>(props.initial === undefined || props.initial.html ? 'rich' : 'plain');
   const plain = (): string => draft().text ?? draft().body;
   /** What a save sends: the HTML only while the format is not plain. Dirty = this differs from the last save. */
   const payload = (): Signature => ({ ...draft(), name: draft().name.trim(), body: plain(), text: plain(), html: mode() === 'plain' ? null : (draft().html ?? '') });
@@ -160,7 +160,6 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
                     <RichEditor
                       externalHistory
                       ribbonSlots={ribbon.slots}
-                      omitGroups={OMIT}
                       initialHtml={draft().html ?? ''}
                       ariaLabel={t('settings-sig-rich-body')}
                       embedded={embedded}

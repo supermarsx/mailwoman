@@ -137,7 +137,7 @@ export interface RichTextEditorProps {
   /** The host's `EditorRibbon` slots, one per tab (t38, t49): the editor's groups join each
    *  tab's panel. Without them the editor shows an `EditorRibbon` of its own. */
   ribbonSlots?: () => EditorSlots;
-  /** Groups this host leaves out (the signature editor has no find and replace). */
+  /** Optional groups a host leaves out; message and signature editors use the full set. */
   omitGroups?: readonly EditorGroup[];
   /** External plain-text source (dictation / Assist) reconciled into the doc. */
   externalText?: () => string;

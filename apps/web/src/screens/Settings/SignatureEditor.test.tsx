@@ -78,11 +78,39 @@ describe('the composer editor in the signature editor (t49)',()=>{
   await screen.findByRole('textbox',{name:'Rich signature'});
   const tabs=screen.getAllByRole('tab').map(tab=>tab.textContent);
   expect(tabs).toEqual(['Format text','Insert','Table']);
-  for(const id of ['rt-group-clipboard','rt-group-font','rt-group-paragraph','rt-group-insert','rt-group-table-insert','rt-group-table','signature-group-format'])expect(document.querySelector(`[data-testid="${id}"]`),id).not.toBeNull();
-  for(const id of ['rt-group-editing','compose-group-recipients','compose-attach','compose-crypto','compose-send-options','compose-group-signature'])expect(document.querySelector(`[data-testid="${id}"]`),id).toBeNull();
+  for(const id of ['rt-group-clipboard','rt-group-font','rt-group-paragraph','rt-group-editing','rt-group-view','rt-group-insert','rt-group-table-insert','rt-group-table','signature-group-format'])expect(document.querySelector(`[data-testid="${id}"]`),id).not.toBeNull();
+  for(const id of ['compose-group-recipients','compose-attach','compose-crypto','compose-send-options','compose-group-signature'])expect(document.querySelector(`[data-testid="${id}"]`),id).toBeNull();
   expect(screen.queryByRole('button',{name:'Send'})).toBeNull();
   expect(screen.getByRole('button',{name:'Undo'})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Copy formatting'})).toBeInTheDocument();
+ });
+ it('starts a new signature in the full rich composer without extra setup',async()=>{
+  const {cancel}=setup();
+  await screen.findByRole('textbox',{name:'Rich signature'});
+  expect(screen.getByRole('combobox',{name:'Signature format'})).toHaveValue('rich');
+  expect(screen.getByRole('button',{name:'Find and replace'})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Select all'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
+  expect(screen.getByLabelText('Insert an image')).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Insert table'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  await waitFor(()=>expect(cancel).toHaveBeenCalledOnce());
+ });
+ it('uses composer find/replace and formatting commands when saving a signature',async()=>{
+  const {save}=setup({name:'Work',body:'Regards Team',html:'<p>Regards Team</p>',text:'Regards Team',isDefault:false});
+  await screen.findByRole('textbox',{name:'Rich signature'});
+  fireEvent.click(screen.getByRole('button',{name:'Find and replace'}));
+  fireEvent.input(screen.getByRole('textbox',{name:'Find text'}),{target:{value:'Team'}});
+  fireEvent.input(screen.getByRole('textbox',{name:'Replace with'}),{target:{value:'Support'}});
+  fireEvent.click(screen.getByRole('button',{name:'Replace all matches'}));
+  fireEvent.keyDown(screen.getByRole('textbox',{name:'Replace with'}),{key:'Escape'});
+  fireEvent.click(screen.getByRole('button',{name:'Select all'}));
+  fireEvent.click(screen.getByTestId('rt-bold'));
+  fireEvent.click(screen.getByRole('button',{name:'Undo'}));
+  fireEvent.click(screen.getByRole('button',{name:'Redo'}));
+  fireEvent.click(screen.getByTestId('signature-save'));
+  await waitFor(()=>expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0]?.[0]).toMatchObject({html:'<p><strong>Regards Support</strong></p>',text:'Regards Support',body:'Regards Support'});
  });
  it('opens an existing rich signature without unsaved changes',async()=>{
   const {cancel}=setup({name:'Work',body:'Regards',html:'<p>Regards <strong>Team</strong></p>',text:'Regards Team',isDefault:false});
@@ -115,7 +143,11 @@ describe('the composer editor in the signature editor (t49)',()=>{
   fireEvent.click(screen.getByTestId('rt-rule'));
   fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());
   const html=save.mock.calls[0]?.[0].html??'';
-  expect(html).toContain('<table');expect(html).toContain('border: 1px solid');expect(html).toContain('<hr>');
+  const document=new DOMParser().parseFromString(html,'text/html');
+  expect(document.querySelector('table')).not.toBeNull();
+  expect(document.querySelector('td')?.style.borderTopWidth).toBe('1px');
+  expect(document.querySelector('td')?.style.borderTopStyle).toBe('solid');
+  expect(document.querySelector('hr')).not.toBeNull();
  });
  it('embeds an image in the signature HTML and keeps it on reload',async()=>{
   const {save}=setup({name:'Logo',body:'Regards',html:'<p>Regards</p>',text:'Regards',isDefault:false});
