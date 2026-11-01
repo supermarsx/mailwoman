@@ -86,6 +86,8 @@ describe('SearchBox (t88)', () => {
   it('opens guided filters before searching and applies a friendly field through the existing editor', async () => {
     const {app,input}=await setup();
     const toggle=await screen.findByRole('button',{name:'Filters'});
+    expect(toggle.textContent).toBe('');
+    expect(toggle.querySelector('[data-icon=filter]')).not.toBeNull();
     expect(toggle).toHaveAttribute('aria-expanded','false');
     fireEvent.click(toggle);
     const guided=await screen.findByRole('region',{name:'Guided search'});

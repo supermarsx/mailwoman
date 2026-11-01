@@ -128,11 +128,11 @@ export function SearchBox(): JSX.Element {
           <Icon name="search" />
         </button>
         <button
-          ref={filtersButton} type="button" class={`btn btn--ghost ${css.filtersToggle}`}
-          aria-expanded={filtersOpen()} aria-controls={filtersId}
+          ref={filtersButton} type="button" class={`btn btn--ghost ${a11y.iconButton} ${css.filtersToggle}`}
+          aria-label={t('search-guided-button')} aria-expanded={filtersOpen()} aria-controls={filtersId}
           title={t('search-guided-help')} data-testid="search-guided-toggle"
           onClick={() => setFiltersOpen(value => !value)}
-        ><Icon name="filter" />{t('search-guided-button')}</button>
+        ><Icon name="filter" /></button>
         <SemanticSearchToggle config={app.assist.config()} enabled={semantic()} onChange={setSemantic} />
       </form>
       <div class={css.reveal} data-open={app.searchActive() || filtersOpen()}>
