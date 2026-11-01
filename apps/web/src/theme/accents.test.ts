@@ -4,6 +4,7 @@
 // over to the nearest named accent.
 
 import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { createRoot } from 'solid-js';
 import { THEME_LIST, accentShade, type ThemeEntry } from './registry.ts';
 import { THEMES } from './tokens.ts';
 import { failingPairs, type ContrastResult } from './contrast.ts';
@@ -48,8 +49,8 @@ function describeFailures(results: ContrastResult[]): string[] {
 describe('the theme × accent matrix', () => {
   it('has a cell for every theme and every accent', () => {
     expect(Object.keys(ACCENT_SHADES).sort()).toEqual(THEME_LIST.map((e) => e.id).sort());
-    expect(THEME_LIST).toHaveLength(18);
-    expect(ACCENT_IDS).toHaveLength(10);
+    expect(THEME_LIST).toHaveLength(21);
+    expect(ACCENT_IDS).toHaveLength(16);
     for (const entry of THEME_LIST) {
       expect(Object.keys(ACCENT_SHADES[entry.id]), entry.id).toEqual([...ACCENT_IDS]);
       for (const id of ACCENT_IDS) {
@@ -60,7 +61,7 @@ describe('the theme × accent matrix', () => {
     }
   });
 
-  // 18 themes × 10 accents, each on every enforced pair of `CONTRAST_PAIRS`:
+  // 21 themes × 16 accents, each on every enforced pair of `CONTRAST_PAIRS`:
   // the accent at 3:1 on the four surfaces, its ink at 4.5:1 on the accent and
   // on the success and danger fills it also labels, the focus outline at 3:1
   // where it follows the accent, and every other pair of the pack unchanged.
@@ -158,6 +159,16 @@ describe('a colour accent stored before t32 V', () => {
     expect(parseAppearancePrefs({ accent: hex }).accentId).toBe(id);
   });
 
+  it.each(['gold','brown','beige','taupe','silver','stone'] as const)('persists the new %s accent as an id across theme changes',id=>{
+    const selected=parseAppearancePrefs({accentId:id});expect(selected.accentId).toBe(id);
+    expect(parseAppearancePrefs(JSON.parse(serializeAppearancePrefs(selected))).accentId).toBe(id);
+    createRoot(dispose=>{
+      try {
+        const s=createThemeSlice({client:{},showToast:vi.fn()} as unknown as SliceContext);
+        s.setAccentId(id);s.setTheme('cyberpunk');expect(s.accentId()).toBe(id);expect(document.documentElement.getAttribute('data-accent')).toBe(id);
+      } finally { dispose(); }
+    });
+  });
   it('keeps a valid accentId, and drops what it cannot read', () => {
     expect(parseAppearancePrefs({ accentId: 'teal' }).accentId).toBe('teal');
     expect(parseAppearancePrefs({ accentId: 'teal', accent: '#be123c' }).accentId).toBe('teal');

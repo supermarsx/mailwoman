@@ -293,7 +293,7 @@ describe('the accent picker', () => {
   });
   afterEach(() => {stopAppearanceSync();suspendAccountPreferences();});
 
-  it('offers the theme default and the ten named accents, default chosen', async () => {
+  it('offers the theme default and the named accents, default chosen', async () => {
     renderSettings();
     await vi.waitFor(() => expect(accentGroup()).toBeInTheDocument());
     const buttons = within(accentGroup()).getAllByRole('button');

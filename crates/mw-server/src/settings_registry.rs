@@ -1904,7 +1904,13 @@ pub static REGISTRY: &[SettingDef] = &[
             "indigo",
             "violet",
             "magenta",
-            "graphite"
+            "graphite",
+            "gold",
+            "brown",
+            "beige",
+            "taupe",
+            "silver",
+            "stone"
         ]),
         "\"default\"",
         GDU,

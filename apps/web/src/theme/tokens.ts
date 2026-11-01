@@ -588,6 +588,39 @@ const primary: PackPalette = {
   signalText: '#000000',
 };
 
+// Electric yellow and cyan machinery on charcoal.
+const cyberpunk: PackPalette = {
+  bg: '#0b1015', bgAlt: '#151c20', bgSink: '#060a0d', surface: '#182329',
+  border: '#3d555e', borderStrong: '#8da9ac',
+  text: '#f6f3cf', textDim: '#b5c4bb',
+  accent: accent('#f2e900'), accentText: '#080c10',
+  danger: brand('danger', '#ff7584'), success: '#72efbb', warning: '#ffd166',
+  link: '#52eaff', selection: '#33451a', focus: '#00f0ff',
+  signal: '#f2e900', signalText: '#080c10',
+};
+
+// Violet night, pink neon and cyan highlights, without external artwork.
+const retrowave: PackPalette = {
+  bg: '#160d25', bgAlt: '#221335', bgSink: '#0d0818', surface: '#2a173c',
+  border: '#65406f', borderStrong: '#b89bcb',
+  text: '#fff0fb', textDim: '#ceb6dc',
+  accent: accent('#ff77d9'), accentText: '#170c23',
+  danger: brand('danger', '#ff899d'), success: '#75efc3', warning: '#ffd47c',
+  link: '#65e7ff', selection: '#54205c', focus: '#65e7ff',
+  signal: '#65e7ff', signalText: '#170c23',
+};
+
+// Worn olive, warm paper text and soap-pink actions.
+const fightClub: PackPalette = {
+  bg: '#151914', bgAlt: '#22261b', bgSink: '#0d100c', surface: '#2b3022',
+  border: '#555b41', borderStrong: '#a2aa83',
+  text: '#ede8cf', textDim: '#bfc0a6',
+  accent: accent('#f294b1'), accentText: '#151611',
+  danger: brand('danger', '#ff9683'), success: '#b1cd86', warning: '#e4c979',
+  link: '#cbd99a', selection: '#404b2e', focus: '#f294b1',
+  signal: '#f294b1', signalText: '#151611',
+};
+
 // Shared a11y token values. Structural constants (touch target, motion
 // durations) are identical across themes; the focus ring is derived per theme
 // from its `focus` colour. `focusRingColor` + `focusRingWidth` drive the global
@@ -659,6 +692,9 @@ export const THEMES: Record<ThemeName, ThemeTokens> = {
   blueprint: themeOf(blueprint, 'dark', NO_TEXTURE),
   terminal: themeOf(terminal, 'dark', NO_TEXTURE),
   primary: themeOf(primary, 'light', NO_TEXTURE),
+  cyberpunk: themeOf(cyberpunk, 'dark', NO_TEXTURE),
+  retrowave: themeOf(retrowave, 'dark', NO_TEXTURE),
+  'fight-club': themeOf(fightClub, 'dark', NO_TEXTURE),
 };
 
 // ── Theme metadata (presentation layer) ──────────────────────────────────────
@@ -675,7 +711,10 @@ export type ThemeFamily =
   | 'plum'
   | 'grove'
   | 'amoled'
-  | 'contrast';
+  | 'contrast'
+  | 'cyberpunk'
+  | 'retrowave'
+  | 'fight-club';
 
 /** Whether a pack paints a light or a dark page. */
 export type Appearance = 'light' | 'dark';
@@ -802,6 +841,27 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-grove-dark',
     descriptionId: 'appearance-theme-grove-dark-desc',
     family: 'grove',
+    appearance: 'dark',
+  },
+  {
+    id: 'cyberpunk',
+    labelId: 'appearance-theme-cyberpunk',
+    descriptionId: 'appearance-theme-cyberpunk-desc',
+    family: 'cyberpunk',
+    appearance: 'dark',
+  },
+  {
+    id: 'retrowave',
+    labelId: 'appearance-theme-retrowave',
+    descriptionId: 'appearance-theme-retrowave-desc',
+    family: 'retrowave',
+    appearance: 'dark',
+  },
+  {
+    id: 'fight-club',
+    labelId: 'appearance-theme-fight-club',
+    descriptionId: 'appearance-theme-fight-club-desc',
+    family: 'fight-club',
     appearance: 'dark',
   },
   {

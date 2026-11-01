@@ -1,6 +1,6 @@
 // Accent shade generator (t32-ext §V).
 //
-// Shades each of the ten named accents for every built-in theme and writes the
+// Shades each named accent for every built-in theme and writes the
 // table to `apps/web/src/theme/accents.ts`, which `themes.css.ts` turns into
 // `:root[data-theme="…"][data-accent="…"]` rules. The math is in
 // `apps/web/src/theme/accentMath.ts` (OKLCH, hue fixed, the lightness nearest

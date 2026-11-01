@@ -46,7 +46,7 @@ export interface ThemeEntry extends ThemeMeta {
   readonly swatches: readonly string[];
   /**
    * The pack's opposite-appearance sibling, used by the `system` and
-   * `schedule` modes. Packs with only one variant (AMOLED) point at the
+   * `schedule` modes. Packs with only one variant point at the
    * closest neutral counterpart.
    */
   readonly counterpart: ThemeName;
@@ -145,6 +145,9 @@ const FAMILY_LABEL_IDS: Record<ThemeFamily, string> = {
   ocean: 'appearance-family-ocean',
   plum: 'appearance-family-plum',
   grove: 'appearance-family-grove',
+  cyberpunk: 'appearance-family-cyberpunk',
+  retrowave: 'appearance-family-retrowave',
+  'fight-club': 'appearance-family-fight-club',
   amoled: 'appearance-family-amoled',
   contrast: 'appearance-family-contrast',
 };
@@ -176,7 +179,7 @@ export const DEFAULT_DARK_THEME: ThemeName = 'dark';
 
 // ── Accents (t32 V) ──────────────────────────────────────────────────────────
 
-/** The ten named accents in picker order. */
+/** Named accents in picker order. */
 export const ACCENT_LIST: readonly AccentDef[] = ACCENTS;
 
 /** Fluent id of the choice that keeps each pack's own accent. */

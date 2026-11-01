@@ -161,7 +161,10 @@ export type ThemeName =
   | 'paper'
   | 'blueprint'
   | 'terminal'
-  | 'primary';
+  | 'primary'
+  | 'cyberpunk'
+  | 'retrowave'
+  | 'fight-club';
 
 /** The frozen `data-density` values (plan §2.3). */
 export type Density = 'compact' | 'cozy' | 'relaxed';

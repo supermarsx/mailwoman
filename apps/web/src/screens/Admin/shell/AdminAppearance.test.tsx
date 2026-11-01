@@ -181,7 +181,7 @@ describe('AdminAppearance control', () => {
     expect(within(mode).getByRole('radio', { name: 'Dark' })).toBeChecked();
     const themes = dlg.querySelectorAll('[data-theme-option]');
     expect([...themes].map((t) => t.getAttribute('data-theme-option')).sort()).toEqual(THEME_LIST.map((t) => t.id).sort());
-    expect(themes).toHaveLength(18);
+    expect(themes).toHaveLength(21);
     const accents = dlg.querySelectorAll('[data-accent-option]');
     expect([...accents].map((a) => a.getAttribute('data-accent-option'))).toEqual([...ACCENT_IDS]);
     expect(within(dlg).getByRole('button', { name: 'Theme default' })).toHaveAttribute('aria-pressed', 'true');

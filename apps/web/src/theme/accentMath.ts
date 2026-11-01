@@ -1,4 +1,4 @@
-// The ten named accents and the math that shades them for each theme
+// Named accents and the math that shades them for each theme
 // (t32-ext §V).
 //
 // An accent is a hue, a chroma and the lightness at which it looks most like
@@ -20,7 +20,7 @@
 
 import { contrastRatio, parseColor } from './contrast.ts';
 
-/** The ten accent ids, in picker order. */
+/** Named accent ids, in picker order. */
 export const ACCENT_IDS = [
   'red',
   'orange',
@@ -32,6 +32,12 @@ export const ACCENT_IDS = [
   'violet',
   'magenta',
   'graphite',
+  'gold',
+  'brown',
+  'beige',
+  'taupe',
+  'silver',
+  'stone',
 ] as const;
 
 export type AccentId = (typeof ACCENT_IDS)[number];
@@ -59,6 +65,12 @@ export const ACCENTS: readonly AccentDef[] = [
   { id: 'violet', labelId: 'appearance-accent-violet', hue: 300, chroma: 0.2, lightness: 0.56 },
   { id: 'magenta', labelId: 'appearance-accent-magenta', hue: 335, chroma: 0.22, lightness: 0.6 },
   { id: 'graphite', labelId: 'appearance-accent-graphite', hue: 260, chroma: 0.012, lightness: 0.5 },
+  { id: 'gold', labelId: 'appearance-accent-gold', hue: 82, chroma: 0.13, lightness: 0.72 },
+  { id: 'brown', labelId: 'appearance-accent-brown', hue: 55, chroma: 0.095, lightness: 0.49 },
+  { id: 'beige', labelId: 'appearance-accent-beige', hue: 85, chroma: 0.04, lightness: 0.81 },
+  { id: 'taupe', labelId: 'appearance-accent-taupe', hue: 55, chroma: 0.035, lightness: 0.60 },
+  { id: 'silver', labelId: 'appearance-accent-silver', hue: 260, chroma: 0.006, lightness: 0.78 },
+  { id: 'stone', labelId: 'appearance-accent-stone', hue: 90, chroma: 0.018, lightness: 0.58 },
 ];
 
 /** Runtime guard for an untrusted accent id. */
@@ -240,6 +252,9 @@ export function computeAccentTable<T extends string>(
 
 // Below this OKLCH chroma a colour reads as grey, whatever its hue.
 const GREY_CHROMA = 0.04;
+// Legacy hex preferences predate the warm/neutral choices. Keep their original
+// hue mapping stable (brown and gold must not relabel an existing orange/yellow).
+const LEGACY_HUE_ACCENTS:readonly AccentId[]=['red','orange','yellow','green','teal','blue','indigo','violet','magenta'];
 
 /**
  * The named accent nearest to a CSS colour: Graphite for a grey, otherwise
@@ -254,7 +269,7 @@ export function nearestAccentId(css: string): AccentId | null {
   let best: AccentId = 'blue';
   let bestDistance = Infinity;
   for (const def of ACCENTS) {
-    if (def.id === 'graphite') continue;
+    if (!LEGACY_HUE_ACCENTS.includes(def.id)) continue;
     const d = Math.abs(((lch.h - def.hue + 540) % 360) - 180);
     if (d < bestDistance) {
       best = def.id;

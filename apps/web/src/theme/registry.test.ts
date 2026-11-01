@@ -70,6 +70,20 @@ describe('theme registry', () => {
     }
   });
 
+  it('ships dark Cyberpunk, Retrowave and Fight Club packs with light mode fallbacks', () => {
+    for (const id of ['cyberpunk', 'retrowave', 'fight-club'] as const) {
+      const entry = themeEntry(id);
+      expect(entry.family).toBe(id);
+      expect(entry.appearance).toBe('dark');
+      expect(variantFor(id, 'dark')).toBe(id);
+      expect(variantFor(id, 'light')).toBe('light');
+      expect(THEME_GROUPS.find(group => group.family === id)?.themes.map(pack => pack.id)).toEqual([id]);
+    }
+    expect(themeEntry('cyberpunk').palette.accent).toBe('#f2e900');
+    expect(themeEntry('retrowave').palette.accent).toBe('#ff77d9');
+    expect(themeEntry('fight-club').palette.accent).toBe('#f294b1');
+  });
+
   it('resolves the accent past its --mw-accent override wrapper', () => {
     for (const entry of THEME_LIST) {
       expect(entry.tokens.color.accent).toContain('var(--mw-accent');
@@ -86,10 +100,10 @@ describe('theme registry', () => {
   });
 
   it('keeps same-family counterparts inside the family', () => {
-    for (const entry of THEME_LIST.filter((e) => e.family !== 'amoled')) {
+    for (const entry of THEME_LIST.filter((e) => THEME_LIST.some(other => other.family === e.family && other.appearance !== e.appearance))) {
       expect(THEME_REGISTRY[entry.counterpart].family).toBe(entry.family);
     }
-    // AMOLED is dark-only, so its light counterpart leaves the family.
+    // Dark-only packs use a neutral light counterpart; AMOLED is one example.
     expect(THEME_REGISTRY.amoled.counterpart).toBe('light');
   });
 
