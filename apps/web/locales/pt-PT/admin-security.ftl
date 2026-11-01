@@ -455,3 +455,7 @@ admin-protection-kind-ua-custom = Automatização personalizada
 admin-protect-sim-ua-enable = Testar proteção de User-Agent
 admin-protect-sim-ua = Cabeçalho User-Agent
 admin-protect-sim-ua-help = Deixe o cabeçalho vazio para testar um cabeçalho ausente. Cliente significa anónimo; Conta ou Administrador significa sessão iniciada. Os nomes dos cabeçalhos são declarações não verificadas.
+
+admin-secdash-audit-actor = Autor
+admin-secdash-audit-target = Conta ou definição afetada
+admin-secdash-audit-unknown = Autor desconhecido

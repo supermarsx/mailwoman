@@ -452,3 +452,7 @@ admin-protection-kind-ua-custom = Custom automation
 admin-protect-sim-ua-enable = Test User-Agent protection
 admin-protect-sim-ua = User-Agent header
 admin-protect-sim-ua-help = Leave the header empty to test a missing header. Client means anonymous; Account or Admin means signed in. Header names are unverified claims.
+
+admin-secdash-audit-actor = Actor
+admin-secdash-audit-target = Affected account or setting
+admin-secdash-audit-unknown = Unknown actor

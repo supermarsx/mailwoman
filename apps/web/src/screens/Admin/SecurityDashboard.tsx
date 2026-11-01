@@ -18,6 +18,7 @@ import { AsyncError } from '../../components/AsyncState.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ShellContext } from './shell/context.ts';
 import { sectionPath } from './shell/router.ts';
+import {AuditActor} from './shell/AuditActor.tsx';
 import { StatTile } from './shell/StatTile.tsx';
 import { Sparkline } from './shell/Sparkline.tsx';
 import * as shellCss from './shell/shell.css.ts';
@@ -218,7 +219,10 @@ export function SecurityDashboardView(props: { load?: () => Promise<SecurityDash
               <Show when={a().recent.length > 0} fallback={<p class={css.note}>{t('admin-secdash-no-audit')}</p>}>
                 <ul class={css.rows}>
                   <For each={a().recent}>{(row) => (
-                    <li><strong>{auditLabel(row.action)}</strong><span class={css.dim}>{formatDateTime(row.at)}</span><span>{row.target?.replace(/^setting:/, '') ?? row.actor}</span></li>
+                    <li><strong>{auditLabel(row.action)}</strong><span class={css.dim}>{formatDateTime(row.at)}</span>
+                      <div class={css.eventIdentity}><span class={css.dim}>{t('admin-secdash-audit-actor')}</span><AuditActor actor={row.actor || t('admin-secdash-audit-unknown')} wrap {...(row.actorLabel ? {actorLabel:row.actorLabel} : {})} {...(row.actorLink ? {actorLink:row.actorLink} : {})}/></div>
+                      <Show when={row.target}>{target=><div class={css.eventIdentity}><span class={css.dim}>{t('admin-secdash-audit-target')}</span><AuditActor actor={target().replace(/^setting:/, '')} wrap {...(row.targetLabel ? {actorLabel:row.targetLabel} : {})} {...(row.targetLink ? {actorLink:row.targetLink} : {})}/></div>}</Show>
+                    </li>
                   )}</For>
                 </ul>
               </Show>

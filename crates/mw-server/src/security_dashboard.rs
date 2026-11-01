@@ -136,7 +136,7 @@ async fn dashboard(
         body["admins"] = admins(&state, tiles, now).await?;
     }
     if tiles.audit {
-        body["audit"] = audit(&state).await?;
+        body["audit"] = audit(&state, &ctx).await?;
     }
     if tiles.posture {
         body["posture"] = posture(&state, tiles, &headers, &ext).await?;
@@ -355,14 +355,33 @@ async fn admins(state: &AppState, tiles: Tiles, now: i64) -> Result<Value, Admin
 
 /// The latest security audit rows (policy changes, refused step-ups, refused
 /// passkeys, console-path changes, security settings).
-async fn audit(state: &AppState) -> Result<Value, AdminApiError> {
-    let rows: Vec<Value> = state
-        .store
-        .security_recent_audit(8)
-        .await?
-        .into_iter()
-        .map(|r| json!({"id": r.id, "at": r.ts, "actor": r.actor, "action": r.action, "target": r.target}))
-        .collect();
+async fn audit(state: &AppState, ctx: &AdminCtx) -> Result<Value, AdminApiError> {
+    let mut projection =
+        crate::audit_projection::Projection::new(&state.store, ctx, Capability::AuditRead);
+    let mut rows = Vec::new();
+    for row in state.store.security_recent_audit(8).await? {
+        let mut value = json!({"id":row.id,"at":row.ts,"actor":row.actor,"actorKind":row.actor_kind,"action":row.action,"target":row.target});
+        projection
+            .label_actor(&row.actor_kind, &row.actor, &mut value)
+            .await?;
+        // A security action can affect a different account from the actor.
+        // Resolve only explicit account targets through the same permission gate.
+        if let Some(account) = row
+            .target
+            .as_deref()
+            .and_then(|target| target.strip_prefix("account:"))
+        {
+            let mut target = json!({});
+            projection.label_actor("user", account, &mut target).await?;
+            if let Some(label) = target.get("actorLabel") {
+                value["targetLabel"] = label.clone();
+            }
+            if let Some(link) = target.get("actorLink") {
+                value["targetLink"] = link.clone();
+            }
+        }
+        rows.push(value);
+    }
     Ok(json!({ "recent": rows }))
 }
 

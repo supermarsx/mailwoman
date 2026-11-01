@@ -3,6 +3,7 @@ import { vars } from '../../../theme/contract.css.ts';
 
 export const actor = style({ display: 'block', minInlineSize: 0, overflowWrap: 'anywhere' });
 export const identifier = style({ display: 'block', maxInlineSize: '100%', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: vars.font.mono });
+export const wrappedIdentifier = style({ display: 'block', minInlineSize: 0, maxInlineSize: '100%', overflowWrap: 'anywhere', whiteSpace: 'normal', fontFamily: vars.font.mono });
 export const auditTable = style({ tableLayout: 'fixed', inlineSize: '100%' });
 globalStyle(`${auditTable} td`, { overflowWrap: 'anywhere', verticalAlign: 'top' });
 globalStyle(`${auditTable} th:first-child`, { inlineSize: '22%' });

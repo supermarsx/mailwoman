@@ -435,6 +435,7 @@ pub struct SecurityAuditItem {
     pub id: String,
     pub ts: String,
     pub actor: String,
+    pub actor_kind: String,
     pub action: String,
     pub target: Option<String>,
 }
@@ -554,7 +555,7 @@ impl Store {
         &self,
         limit: i64,
     ) -> Result<Vec<SecurityAuditItem>, StoreError> {
-        let rows = q("SELECT id, ts, actor, action, target FROM audit_log WHERE category='security' OR action IN ('twofa-policy-set','passkey-policy-refused','step-up-refused','step-up-locked','admin-console-path-changed','admin-console-path-applied','admin-console-path-generated','protection-policy-changed') OR (action='setting-changed' AND (target LIKE 'setting:twofa.%' OR target LIKE 'setting:session.%' OR target LIKE 'setting:security.%')) ORDER BY ts DESC, id DESC LIMIT ?1")
+        let rows = q("SELECT id, ts, actor, actor_kind, action, target FROM audit_log WHERE category='security' OR action IN ('twofa-policy-set','passkey-policy-refused','step-up-refused','step-up-locked','admin-console-path-changed','admin-console-path-applied','admin-console-path-generated','protection-policy-changed') OR (action='setting-changed' AND (target LIKE 'setting:twofa.%' OR target LIKE 'setting:session.%' OR target LIKE 'setting:security.%')) ORDER BY ts DESC, id DESC LIMIT ?1")
             .bind(limit.clamp(1, 50))
             .fetch_all(&self.backend)
             .await?;
@@ -564,6 +565,7 @@ impl Store {
                 id: r.get_string("id"),
                 ts: r.get_string("ts"),
                 actor: r.get_string("actor"),
+                actor_kind: r.get_string("actor_kind"),
                 action: r.get_string("action"),
                 target: r.get_opt_string("target"),
             })

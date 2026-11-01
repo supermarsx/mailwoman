@@ -584,3 +584,107 @@ async fn signed_in_requests_get_more_room_than_an_anonymous_address() {
         429
     );
 }
+
+#[tokio::test]
+async fn recent_security_events_resolve_actor_and_affected_account_without_unpermitted_links() {
+    let (base, store) = fixture("t97-audit-identities").await;
+    let root = client(3);
+    admin_login(&root, &base, "root", "hunter2").await;
+    store
+        .register_successful_signin(mw_store::user_directory::SuccessfulSignin {
+            account_id: "opaque-alice",
+            address: "alice@example.test",
+            domain: "example.test",
+            local_part: "alice",
+            mode: "engine",
+            now: 1,
+        })
+        .await
+        .unwrap();
+    for (id, actor, kind, target) in [
+        (
+            "known-user-event",
+            "opaque-alice",
+            "user",
+            "setting:security.policy",
+        ),
+        (
+            "admin-target-user-event",
+            "root",
+            "admin",
+            "account:opaque-alice",
+        ),
+        (
+            "unknown-user-event",
+            "unknown-hash",
+            "user",
+            "account:unknown-hash",
+        ),
+    ] {
+        store
+            .append_categorized_audit(
+                &mw_store::AuditRow {
+                    id: id.into(),
+                    ts: chrono::Utc::now().to_rfc3339(),
+                    actor: actor.into(),
+                    actor_kind: kind.into(),
+                    action: "step-up-refused".into(),
+                    target: Some(target.into()),
+                    detail_json: "{}".into(),
+                    ip: None,
+                },
+                "security",
+                None,
+            )
+            .await
+            .unwrap();
+    }
+    let url = format!("{base}/admin/security/dashboard");
+    let (status, body) = get(&root, &url).await;
+    assert_eq!(status, 200);
+    let rows = body["audit"]["recent"].as_array().unwrap();
+    let user = rows
+        .iter()
+        .find(|row| row["id"] == "known-user-event")
+        .unwrap();
+    assert_eq!(user["actorKind"], "user");
+    assert_eq!(user["actorLabel"], "alice@example.test");
+    assert_eq!(
+        user["actorLink"],
+        json!({"section":"users","id":"opaque-alice"})
+    );
+    let admin = rows
+        .iter()
+        .find(|row| row["id"] == "admin-target-user-event")
+        .unwrap();
+    assert_eq!(admin["actorLabel"], "root");
+    assert_eq!(admin["targetLabel"], "alice@example.test");
+    assert_eq!(
+        admin["targetLink"],
+        json!({"section":"users","id":"opaque-alice"})
+    );
+    let unknown = rows
+        .iter()
+        .find(|row| row["id"] == "unknown-user-event")
+        .unwrap();
+    assert_eq!(unknown["actor"], "unknown-hash");
+    for key in ["actorLabel", "actorLink", "targetLabel", "targetLink"] {
+        assert!(unknown.get(key).is_none());
+    }
+    let reader = restricted(&root, &base, "audit-only", &["audit.read"], None, 4).await;
+    let (status, body) = get(&reader, &url).await;
+    assert_eq!(status, 200);
+    let rows = body["audit"]["recent"].as_array().unwrap();
+    let user = rows
+        .iter()
+        .find(|row| row["id"] == "known-user-event")
+        .unwrap();
+    assert_eq!(user["actorLabel"], "alice@example.test");
+    assert!(user.get("actorLink").is_none());
+    let admin = rows
+        .iter()
+        .find(|row| row["id"] == "admin-target-user-event")
+        .unwrap();
+    assert_eq!(admin["targetLabel"], "alice@example.test");
+    assert!(admin.get("targetLink").is_none());
+}

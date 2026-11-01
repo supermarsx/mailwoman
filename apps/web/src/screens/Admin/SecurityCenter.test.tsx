@@ -82,3 +82,24 @@ it('leaves the Admin probe tile out without bans.read', async () => {
   expect(await screen.findByTestId('secdash-posture')).toBeInTheDocument();
   expect(screen.queryByTestId('secdash-admin-probe')).toBeNull();
 });
+
+it('shows the authoritative actor alongside a different affected account or setting',async()=>{
+ returning({generatedAt:full.generatedAt,audit:{recent:[{id:'identified',at:'2026-10-29T10:00:00Z',actor:'opaque-user',actorKind:'user',actorLabel:'Alice (alice@example.test)',actorLink:{section:'users',id:'opaque-user'},action:'twofa-policy-set',target:'account:opaque-target',targetLabel:'Bob (bob@example.test)',targetLink:{section:'users',id:'opaque-target'}}]}});
+ render(()=><AdminSecurityCenter/>);
+ const panel=await screen.findByTestId('secdash-audit-panel');
+ expect(within(panel).getByRole('link',{name:'Alice (alice@example.test)'})).toHaveAttribute('href',expect.stringContaining('users/opaque-user'));
+ expect(within(panel).getByRole('link',{name:'Bob (bob@example.test)'})).toHaveAttribute('href',expect.stringContaining('users/opaque-target'));
+ expect(within(panel).getByText('Actor')).toBeInTheDocument();
+ expect(within(panel).getByText('Affected account or setting')).toBeInTheDocument();
+ expect(within(panel).queryByText('account:opaque-target')).not.toBeInTheDocument();
+});
+
+it('keeps complete unresolved identifiers and setting targets without fabricating account links',async()=>{
+ const hash='deadbeef'.repeat(32);
+ returning({generatedAt:full.generatedAt,audit:{recent:[{id:'unknown',at:'2026-10-29T10:00:00Z',actor:hash,action:'setting-changed',target:'setting:security.policy.'+hash}]}});
+ render(()=><AdminSecurityCenter/>);
+ const panel=await screen.findByTestId('secdash-audit-panel');
+ expect(within(panel).getByText(hash)).toHaveAttribute('title',hash);
+ expect(within(panel).getByText('security.policy.'+hash)).toBeInTheDocument();
+ expect(within(panel).queryAllByRole('link')).toHaveLength(1); // Only the audit-log navigation link.
+});

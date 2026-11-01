@@ -48,7 +48,15 @@ export interface AdminsTile {
   recentSignins: { username: string; at: number; source: string }[];
   sourcesMasked: boolean;
 }
-export interface AuditTile { recent: { id: string; at: string; actor: string; action: string; target: string | null }[] }
+export interface SecurityAuditEvent {
+  id: string; at: string; actor: string; action: string; target: string | null;
+  actorKind?: string;
+  actorLabel?: string;
+  actorLink?: {section:'admins'|'users';id:string};
+  targetLabel?: string;
+  targetLink?: {section:'users';id:string};
+}
+export interface AuditTile { recent: SecurityAuditEvent[] }
 export type CheckStatus = 'pass' | 'warning' | 'info' | null;
 export interface PostureTile {
   checks: number;

@@ -43,6 +43,10 @@ globalStyle(`${ranked} > li > strong`, { marginInlineStart: 'auto' });
 export const rows = style(listBase);
 globalStyle(`${rows} > li`, { display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', columnGap: vars.space[3], rowGap: vars.space[1], minInlineSize: 0 });
 
+globalStyle(`${rows} > li > *`, { minInlineSize: 0, maxInlineSize: '100%', overflowWrap: 'anywhere' });
+export const eventIdentity = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2], flexBasis: '100%', minInlineSize: 0 });
+globalStyle(`${eventIdentity} > *`, { minInlineSize: 0, maxInlineSize: '100%', overflowWrap: 'anywhere' });
+
 export const checks = style(listBase);
 export const check = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], minInlineSize: 0 });
 const mark = { display: 'inline-flex', flex: 'none' } as const;
