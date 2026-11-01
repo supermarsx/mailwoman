@@ -8,7 +8,7 @@ import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
-import { initSync, sanitizeEmailHtmlReader } from '../wasm/mw-sanitize/mw_sanitize.js';
+import { initSync, sanitizeEmailHtmlReader, sanitizeEmailHtmlReaderSafe } from '../wasm/mw-sanitize/mw_sanitize.js';
 import type { RemotePolicy, SignedContent } from '../api/remote-content.ts';
 import {clearSettings,loadSettings} from '../api/settings.ts';
 import type { Email } from '../api/jmap-types.ts';
@@ -23,11 +23,13 @@ const json = (body:unknown,status=200) => new Response(JSON.stringify(body), {st
 beforeEach(() => {
   clearSettings();
   policy = { mode:'proxy',trackers:true,cleanLinks:true,allowDirect:false,inlineParts:true,locked:{mode:false,trackers:false,cleanLinks:false} }; granted=false; signFailed=false;requests=[];signOverride=undefined;
-  vi.spyOn(getCryptoWorker(),'sanitizeReader').mockImplementation(async r => sanitizeEmailHtmlReader(r.html,r.blockTrackers,r.cleanLinks));
+  vi.spyOn(getCryptoWorker(),'sanitizeReader').mockImplementation(async r => (r.allowSanitizedHtml?sanitizeEmailHtmlReaderSafe:sanitizeEmailHtmlReader)(r.html,r.blockTrackers,r.cleanLinks));
   vi.stubGlobal('fetch',vi.fn(async(input: RequestInfo | URL,init?:RequestInit) => {
     const url=String(input);
     if(url.includes('/api/rc/stats?')) return json({decodedTrackersReplaced:2,limited:false,windowSecs:3600});
     if(url.endsWith('/api/rc/policy')) return json(policy);
+    if(url.endsWith('/api/remote-images/grant')){granted=true;return json({});}
+    if(url.endsWith('/api/remote-images/revoke')){granted=false;return json({});}
     if(url.endsWith('/api/remote-images/grants')) return json({list:granted?[{scopeKind:'single',scopeValue:'m1',grantedAt:'2026-10-25T00:00:00Z'}]:[]});
     if(url.endsWith('/api/rc/sign')) {
       const body=JSON.parse(String(init?.body)) as typeof requests[number]; requests.push(body);
@@ -57,8 +59,58 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('Safe body'));
     expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
     expect(screen.queryByRole('button',{name:'Preparing links…'})).not.toBeInTheDocument();
-    expect(screen.queryByTestId('linked-files-bar')).not.toBeInTheDocument();
+    expect(await screen.findByRole('button',{name:'Enable links'})).toBeEnabled();
     expect(requests).toEqual([]);
+  });
+  it('restores safe HTML with image grants and explicit link consent using the real sanitizer',async()=>{
+    policy.mode='ask';
+    const link='https://files.test/report.pdf',image='https://cdn.example.test/image.png';
+    const raw=`<script>unsafe()</script><p onclick="bad()">Readable body</p><img src="${image}"><a href="${link}">Report</a>`;
+    await open([message('m1',raw)]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('Readable body'));
+    expect(frame()?.srcdoc).not.toMatch(/<script|onclick|unsafe\(\)|bad\(\)/);
+    expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
+    const enable=await screen.findByRole('button',{name:'Enable links'});
+    const show=await screen.findByRole('button',{name:'Show images'});
+    expect(requests).toEqual([]);
+    const body=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');
+    expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/);
+    expect(body().querySelector('a')?.getAttribute('href')).not.toBe(link);
+    fireEvent.click(enable);
+    await waitFor(()=>expect(body().querySelector('a')?.getAttribute('href')).toBe(link));
+    fireEvent.click(show);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    expect(requests).toContainEqual({emailId:'m1',urls:[image],parts:[]});
+    fireEvent.click(await screen.findByRole('button',{name:/Undo/}));
+    await waitFor(()=>expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/));
+    expect(await screen.findByRole('button',{name:'Show images'})).toBeEnabled();
+    expect(frame()?.getAttribute('sandbox')).toBe('');
+  });
+  it('keeps restored image-only messages visible under the configured proxy policy',async()=>{
+    await open([message('m1','<script>unsafe()</script><img src="https://cdn.example.test/image.png" onerror="bad()">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    expect(new DOMParser().parseFromString(frame()!.srcdoc,'text/html').querySelector('img')).not.toBeNull();
+    expect(frame()?.srcdoc).not.toMatch(/<script|onerror/);
+    expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
+    expect(await screen.findByTestId('remote-content-bar')).toBeInTheDocument();
+  });
+  it('revokes restored-body links when safe HTML is hidden or the message changes',async()=>{
+    policy.mode='ask';
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'}}})});
+    const raw='<script>unsafe()</script><p>Message</p><a href="https://safe.test/page">Page</a>';
+    const app=await open([message('m1',raw),message('m2',raw)]);
+    expect(screen.queryByTestId('linked-files-bar')).toBeNull();
+    fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));
+    await screen.findByRole('button',{name:'Disable links'});
+    fireEvent.click(screen.getByRole('button',{name:'Show safe text'}));
+    await waitFor(()=>expect(screen.queryByTestId('linked-files-bar')).toBeNull());
+    fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
+    expect(await screen.findByRole('button',{name:'Enable links'})).toBeEnabled();
+    fireEvent.click(screen.getByRole('button',{name:'Enable links'}));
+    await app.openMessage('m2');
+    await screen.findByRole('button',{name:'Show sanitized HTML'});
+    expect(screen.queryByTestId('linked-files-bar')).toBeNull();expect(requests).toEqual([]);
   });
   it('does not mistake literal quarantine-marker text for a blocked body', async () => {
     await open([message('m1', '<p>Example: data-mw-body-blocked="true"</p><img src="https://cdn.example.test/image.png">')]);
@@ -76,6 +128,19 @@ describe('Reader signed privacy pipeline',()=>{
     expect(frame()?.srcdoc).not.toContain('cdn.example.test');
     expect(requests).toEqual([]);
     expect(screen.queryByRole('button', { name: /Enable links/ })).not.toBeInTheDocument();
+  });
+  it('keeps resources unavailable when safe restoration fails or strict policy requires text',async()=>{
+    const raw='<script>unsafe()</script><img src="https://cdn.test/image.png"><a href="https://safe.test/page">Page</a>';
+    vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>{
+      if(request.allowSanitizedHtml)throw new Error('Safe restoration failed');
+      return '<pre data-mw-body-blocked="true">Safe text</pre>';
+    });
+    await open([message('m1',raw)]);
+    await screen.findByText('Some images could not be authorized. The message remains readable with those images blocked.');
+    expect(screen.queryByTestId('linked-files-bar')).toBeNull();expect(screen.queryByTestId('remote-content-bar')).toBeNull();expect(requests).toEqual([]);
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'strict',locked:true,source:'global'}}})});
+    await waitFor(()=>expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','blocked'));
+    expect(screen.queryByTestId('linked-files-bar')).toBeNull();expect(screen.queryByTestId('remote-content-bar')).toBeNull();expect(requests).toEqual([]);
   });
   it('nullifies a quarantined body before signing any remote content', async () => {
     vi.mocked(getCryptoWorker().sanitizeReader).mockResolvedValue('<pre data-mw-body-blocked="true">Safe words only</pre>');
