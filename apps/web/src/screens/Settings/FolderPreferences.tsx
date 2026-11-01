@@ -1,4 +1,3 @@
-import {FolderCreationControl} from '../../components/FolderMaintenance.tsx';
 import {createEffect, createMemo, createSignal, For, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
 import {QuotaDetails} from '../../components/QuotaMeter.tsx';
@@ -67,7 +66,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  function pin(id:string):void {const ids=(prefs().folderPinned??[]).filter(value=>value!==id);update({folderPinned:pinned(id)?ids:[...ids,id]});}
  return <Show when={editing()} keyed fallback={<section class={css.section} aria-label={t('settings-folders-title')}>
   <h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p>
-  <p class={css.prose}>{t('settings-folders-hidden-help')}</p><Show when={!props.onChange&&app}><FolderCreationControl/></Show>
+  <p class={css.prose}>{t('settings-folders-hidden-help')}</p>
   <label class={css.field}><input type="checkbox" checked={prefs().userFoldersCollapsed===true} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>{t('settings-folders-collapse-user')}</label>
   <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
   <Show when={!props.onChange}><FocusedInboxPreference/></Show>

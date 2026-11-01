@@ -1,4 +1,4 @@
-import {createSignal,For,onCleanup,Show,type JSX} from 'solid-js';
+import {createEffect,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
@@ -9,7 +9,6 @@ import {expectedOutcome} from '../api/emptyFolder.ts';
 import {useRenameContext} from './RenameFolder.tsx';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
 import {createContextMenu} from './ContextMenu.tsx';
-import {Icon} from './Icon.tsx';
 import {loadCatalog,t} from '../i18n';
 import * as css from '../screens/Settings/styles.css.ts';
 export function CreateFolderDialog(props:{parentId?:string;onClose:()=>void}):JSX.Element {
@@ -45,10 +44,11 @@ export function CleanupFolderDialog(props:{box:Mailbox;onClose:()=>void}):JSX.El
   <Show when={!preview()} fallback={<p>{t('folder-cleanup-before',{date:preview()?.before??''})}</p>}><label class={css.field}>{t('folder-cleanup-age')}<input class={css.input} type="number" min="1" max="10000" value={amount()} onInput={event=>setAmount(event.currentTarget.valueAsNumber)}/><select class={css.select} value={unit()} onChange={event=>setUnit(event.currentTarget.value as AgeUnit)}><For each={['days','weeks','months','years'] as const}>{value=><option value={value}>{t(`folder-age-${value}`)}</option>}</For></select></label></Show>
  </ConfirmDialog>;
 }
-/** Background context menu and explicit creation button for the sidebar and settings. */
+/** Folder creation stays in the sidebar background context menu. */
 export function FolderCreationControl(props:{children?:JSX.Element}):JSX.Element {
  const app=useApp(),ability=useRenameContext();const [open,setOpen]=createSignal(false);void loadCatalog('mail');
+ onMount(()=>{createEffect(()=>{ability();});});
  const context=createContextMenu({label:()=>t('mail-nav-mailboxes'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}`,actions:()=>ability()?.manages?[{id:'create-folder',label:t('folder-create'),icon:'folder',run:()=>{setOpen(true);}}]:[]});
  onCleanup(observePreferenceAccount(()=>{context.close(false);setOpen(false);}));
- return <div onContextMenu={event=>context.open(event)} onKeyDown={context.keydown}>{props.children}<button type="button" class="btn btn--ghost" aria-label={t('folder-create')} title={t('folder-create')} disabled={!ability()?.manages} onClick={()=>setOpen(true)}><Icon name="folder"/><span class="sidebar__box-name">{t('folder-create')}</span></button>{context.menu()}<Show when={open()}><CreateFolderDialog onClose={()=>setOpen(false)}/></Show></div>;
+ return <div onContextMenu={event=>context.open(event)} onKeyDown={context.keydown}>{props.children}{context.menu()}<Show when={open()}><CreateFolderDialog onClose={()=>setOpen(false)}/></Show></div>;
 }

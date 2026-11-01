@@ -1,16 +1,16 @@
 import {afterEach, expect, it, vi} from 'vitest';
 import {createRoot} from 'solid-js';
 import {cleanup, fireEvent, render, screen, waitFor} from '@solidjs/testing-library';
-import {CreateFolderDialog, CleanupFolderDialog} from './FolderMaintenance.tsx';
+import {CreateFolderDialog, CleanupFolderDialog, FolderCreationControl} from './FolderMaintenance.tsx';
 import {makeClient, MAILBOXES, mkEmail} from './appHarness.tsx';
 import {AppContext} from '../state/context.ts';
 import {createAppState} from '../state/store.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import type {Client} from '../api/client.ts';
 import type {JmapRequest, JmapResponse} from '../api/jmap-types.ts';
-const state=vi.hoisted(()=>({client:null as Client|null}));
+const state=vi.hoisted(()=>({client:null as Client|null,abilityReads:vi.fn()}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>state.client!}));
-vi.mock('./RenameFolder.tsx',()=>({useRenameContext:()=>()=>({manages:true,delimiter:'/',maxLength:255})}));
+vi.mock('./RenameFolder.tsx',()=>({useRenameContext:()=>()=>{state.abilityReads();return {manages:true,delimiter:'/',maxLength:255};}}));
 const disposers:(()=>void)[]=[];
 afterEach(()=>{cleanup();disposers.splice(0).forEach(dispose=>dispose());suspendAccountPreferences();localStorage.clear();});
 async function setup(){
@@ -55,4 +55,14 @@ it('closes folder dialogs when account authority changes',async()=>{
  suspendAccountPreferences();
  expect(createClose).toHaveBeenCalledOnce();expect(cleanupClose).toHaveBeenCalledOnce();
  expect(jmap.mock.calls.some(([request])=>request.methodCalls[0]?.[0]==='Mailbox/set'||request.methodCalls[0]?.[2]==='clean')).toBe(false);
+});
+
+it('keeps folder creation in the background menu without a standalone button',async()=>{
+ const {app}=await setup();const reads=state.abilityReads.mock.calls.length;
+ render(()=><AppContext.Provider value={app}><FolderCreationControl><div data-testid="folder-background">Folders</div></FolderCreationControl></AppContext.Provider>);
+ expect(state.abilityReads.mock.calls.length).toBeGreaterThan(reads);
+ expect(screen.queryByRole('button',{name:'Create folder'})).toBeNull();
+ fireEvent.contextMenu(screen.getByTestId('folder-background'));
+ fireEvent.click(screen.getByRole('menuitem',{name:'Create folder'}));
+ expect(await screen.findByRole('alertdialog',{name:'Create folder'})).toBeInTheDocument();
 });
