@@ -1,3 +1,4 @@
+import {AdminSubtabPanel} from './shell/AdminSubtabPanel.tsx';
 import { Show, type JSX } from 'solid-js';
 import { t } from '../../i18n';
 import { AuthLogs } from './AuthLogs.tsx';
@@ -15,6 +16,6 @@ export function Logs(): JSX.Element {
                 { id: 'authentication', label: t('admin-auth-title'), path: sectionPath('logs') },
                 { id: 'application', label: t('admin-app-logs-title'), path: sectionPath('logs', ['application']) },
             ]} navigate={path => { void shell.router.navigate(path); }} />
-        <Show when={application()} fallback={<AuthLogs />}><ApplicationLogs /></Show>
+        <AdminSubtabPanel><Show when={application()} fallback={<AuthLogs />}><ApplicationLogs /></Show></AdminSubtabPanel>
     </div>;
 }

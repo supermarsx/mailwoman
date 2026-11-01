@@ -1,3 +1,4 @@
+import {AdminSubtabPanel} from './shell/AdminSubtabPanel.tsx';
 import { Show, createSignal, createEffect, on, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../i18n';
 import { hostingApi } from '../../api/admin/hosting.ts';
@@ -18,5 +19,5 @@ export function IntegrationsRouter():JSX.Element {
  createEffect(on(()=>[shell.can.can('tunnels.read'),shell.router.route().rest[0]] as const,([allowed,route])=>{if(allowed&&route==='hosting'){setError(undefined);void sshTunnelApi.list().then(setTunnels).catch(cause=>setError(describeAdminError(cause)));}}));
  const selected=()=>shell.router.route().rest[0]??'overview';
  const tabs=()=>[['overview','admin-integrations-title'],['directory','admin-integrations-ldap'],['webhooks','admin-integrations-tab-webhooks'],['keys','admin-integrations-keys'],['hosting','admin-hosting-title'],...(shell.can.can('tunnels.read')?[['ssh','admin-ssh-title']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('integrations',id==='overview'?[]:[id!])}));
- return <><SectionTabs label={t('admin-integrations-title')} selected={selected()} items={tabs()} navigate={path=>void shell.router.navigate(path)}/><Show when={selected()==='ssh'} fallback={<Show when={selected()==='hosting'} fallback={<Integrations category={selected()}/>}><Feedback kind="error" message={error()}/><HostingConnections tunnels={tunnels()} manage={connection=><HostingManage connection={connection} api={hostingApi}/>}/></Show>}><SshTunnels/></Show></>;
+ return <><SectionTabs label={t('admin-integrations-title')} selected={selected()} items={tabs()} navigate={path=>void shell.router.navigate(path)}/><AdminSubtabPanel><Show when={selected()==='ssh'} fallback={<Show when={selected()==='hosting'} fallback={<Integrations category={selected()}/>}><Feedback kind="error" message={error()}/><HostingConnections tunnels={tunnels()} manage={connection=><HostingManage connection={connection} api={hostingApi}/>}/></Show>}><SshTunnels/></Show></AdminSubtabPanel></>;
 }

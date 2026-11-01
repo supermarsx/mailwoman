@@ -1,3 +1,4 @@
+import {AdminSubtabPanel} from './shell/AdminSubtabPanel.tsx';
 import {onMount,Show,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../../i18n';
 import {useShell} from './shell/context.ts';
@@ -13,6 +14,6 @@ export function Maintenance():JSX.Element {
     ...(shell.can.can('maintenance.read')?[{id:'mode',label:t('maintenance-mode-title'),path:sectionPath('maintenance')}]:[]),
     ...(shell.can.can('maintenance.run')?[{id:'jobs',label:t('maintenance-mode-jobs'),path:sectionPath('maintenance',['jobs'])}]:[]),
   ]} navigate={path=>{void shell.router.navigate(path);}}/>
-    <Show when={jobs()} fallback={<Show when={shell.can.can('maintenance.read')}><MaintenanceMode readOnly={!shell.can.can('maintenance.write')}/></Show>}><RethreadMaintenance/></Show>
+    <AdminSubtabPanel><Show when={jobs()} fallback={<Show when={shell.can.can('maintenance.read')}><MaintenanceMode readOnly={!shell.can.can('maintenance.write')}/></Show>}><RethreadMaintenance/></Show></AdminSubtabPanel>
   </div>;
 }

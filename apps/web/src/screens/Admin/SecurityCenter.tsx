@@ -1,3 +1,4 @@
+import {AdminSubtabPanel} from './shell/AdminSubtabPanel.tsx';
 import { For, Show, Switch, Match, lazy, onMount, useContext, type JSX } from 'solid-js';
 import { TwoFactorPolicy, type TwoFactorPolicyProps } from './TwoFactorPolicy.tsx';
 import { t, loadCatalog } from '../../i18n';
@@ -31,7 +32,7 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
   return <div class={css.stack}>
     <h2 class={css.heading}>{t('admin-security-center-title')}</h2>
     <SectionTabs label={t('admin-security-center-title')} items={tabs().map(tab=>({id:tab.id,label:t(tab.label),path:sectionPath('security',[tab.id])}))} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/>
-    <Show when={allowed()} fallback={<p role="alert">{t('admin-security-tab-denied')}</p>}>
+    <AdminSubtabPanel><Show when={allowed()} fallback={<p role="alert">{t('admin-security-tab-denied')}</p>}>
       <Switch>
         <Match when={selected()==='overview'}><SecurityDashboardView/></Match>
         <Match when={selected()==='requirements'}><SecurityRequirements {...props}/></Match>
@@ -47,7 +48,7 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
         <Match when={selected()==='client-access'}><ClientAccess readOnly={!!shell && !shell.can.can('settings.write')}/></Match>
         <Match when={selected()==='sessions'}><Sessions/></Match>
       </Switch>
-    </Show>
+    </Show></AdminSubtabPanel>
   </div>;
 }
 /** Two-factor and sign-in requirements (t97): the require-2FA policy (global and

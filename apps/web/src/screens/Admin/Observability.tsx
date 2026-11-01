@@ -1,3 +1,4 @@
+import {AdminSubtabPanel} from './shell/AdminSubtabPanel.tsx';
 import { formatDateTime } from '../../i18n/format.ts';
 import { AuditActor } from './shell/AuditActor.tsx';
 import * as auditCss from './shell/audit.css.ts';
@@ -27,7 +28,7 @@ export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
   const selected=()=>shell?.router.route().rest[0]??(!shell || shell.can.can('audit.read')?'audit':'statistics');
   const tabs=()=>[...(!shell || shell.can.can('audit.read')?[['audit','admin-obs-audit']]:[]),...(shell?.can.can('observability.read')?[['statistics','admin-obs-statistics'],['telemetry','admin-obs-telemetry-open']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='audit'?[]:[id!])}));
-  return <><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><Show when={selected()==='statistics' && shell?.can.can('observability.read')} fallback={<Show when={selected()==='telemetry' && shell?.can.can('observability.read')} fallback={<Show when={selected()==='audit' && (!shell || shell.can.can('audit.read'))}><ObservabilityAudit/></Show>}><Telemetry/></Show>}><ObservabilityStats/></Show></>;
+  return <><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><AdminSubtabPanel><Show when={selected()==='statistics' && shell?.can.can('observability.read')} fallback={<Show when={selected()==='telemetry' && shell?.can.can('observability.read')} fallback={<Show when={selected()==='audit' && (!shell || shell.can.can('audit.read'))}><ObservabilityAudit/></Show>}><Telemetry/></Show>}><ObservabilityStats/></Show></AdminSubtabPanel></>;
 }
 function ObservabilityAudit(): JSX.Element {
   const shell = useContext(ShellContext);

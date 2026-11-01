@@ -1,3 +1,4 @@
+import {AdminSubtabPanel} from '../shell/AdminSubtabPanel.tsx';
 // t105: the Diagnostics screen. Sub-tabs grouped by purpose, each deep-linkable
 // at #/diagnostics/<tab>:
 //   Overview        latest results by group, what needs attention, Run all
@@ -53,7 +54,7 @@ function DiagnosticsTabs(props: { api: DiagnosticsApi }): JSX.Element {
     <SectionTabs label={t('admin-diagx-tabs')} items={items} selected={tab()} navigate={(path) => void shell.router.navigate(path)} />
     <Feedback kind="info" message={store.notice()} />
     <Show when={store.unavailable()}><p class={css.intro}>{t('admin-diag-unavailable')}</p></Show>
-    <div data-diag-tab={tab()}>
+    <AdminSubtabPanel><div data-diag-tab={tab()}>
       <Show when={tab() === 'overview'}><Overview store={store} /></Show>
       <Show when={tab() === 'server'}><Tab intro={t('admin-diagx-tab-server-intro')}><ServerGroup store={store} group="server" /></Tab></Show>
       <Show when={tab() === 'connectivity'}><Tab intro={t('admin-diagx-tab-connectivity-intro')}><ServerGroup store={store} group="connectivity" /><ConnectivityTools api={props.api} canDiscover={store.canRunBackends} /></Tab></Show>
@@ -65,7 +66,7 @@ function DiagnosticsTabs(props: { api: DiagnosticsApi }): JSX.Element {
       <Show when={tab() === 'tools'}><Tab intro={t('admin-diagx-tab-tools-intro')}><ToolsTab store={store} /></Tab></Show>
       <Show when={tab() === 'history'}><Tab intro={t('admin-diagx-tab-history-intro')}><HistoryTab store={store} /></Tab></Show>
       <Show when={tab() === 'report'}><Tab intro={t('admin-diag-redaction')}><ReportTab store={store} api={props.api} /></Tab></Show>
-    </div>
+    </div></AdminSubtabPanel>
   </section>;
 }
 
