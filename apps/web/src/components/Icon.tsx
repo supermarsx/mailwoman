@@ -10,6 +10,7 @@
 import type { JSX } from 'solid-js';
 
 export type IconName =
+  | 'paneRight' | 'paneBottom' | 'layoutTabs' | 'layoutColumns' | 'layoutRows' | 'layoutMasonryColumns' | 'layoutMasonryRows'
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
   | 'undo' | 'redo'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
@@ -206,6 +207,13 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   tableHeader: () => <><path d="M1 2 H15 V14 H1 Z M1 7 H15 M6 7 V14 M11 7 V14" {...S}/><path d="M3 4 H13 V5 H3 Z" fill="currentColor"/></>,
   cut: () => <><circle cx="4" cy="12" r="2" {...S}/><circle cx="12" cy="12" r="2" {...S}/><path d="M5 10 L13 1 M11 10 L3 1" {...S}/></>,
   paste: () => <><path d="M5 3 H2 V15 H14 V3 H11 M5 7 H11 M5 10 H11" {...S}/><path d="M5 1 H11 V4 H5 Z" {...S}/></>,
+  paneRight: () => <><path d="M1 2 H15 V14 H1 Z M9 2 V14" {...S}/><path d="M11 5 H13 M11 8 H13 M11 11 H13" {...S}/></>,
+  paneBottom: () => <><path d="M1 2 H15 V14 H1 Z M1 8 H15" {...S}/><path d="M4 11 H12" {...S}/></>,
+  layoutTabs: () => <path d="M1 5 H15 V14 H1 Z M1 5 V2 H7 V5 M9 2 H14" {...S}/>,
+  layoutColumns: () => <path d="M1 2 H15 V14 H1 Z M8 2 V14" {...S}/>,
+  layoutRows: () => <path d="M1 2 H15 V14 H1 Z M1 8 H15" {...S}/>,
+  layoutMasonryColumns: () => <path d="M1 2 H6 V14 H1 Z M10 2 H15 V7 H10 Z M10 11 H15 V14 H10 Z" {...S}/>,
+  layoutMasonryRows: () => <path d="M1 2 H15 V6 H1 Z M1 10 H6 V14 H1 Z M10 10 H15 V14 H10 Z" {...S}/>,
   table: () => <path d="M1 2 H15 V14 H1 Z M1 6 H15 M6 2 V14 M11 6 V14 M1 10 H15" {...S}/>,
   paragraph: () => <path d="M13 2 H6 A3 3 0 0 0 6 8 H8 M8 2 V15 M12 2 V15" {...S}/>,
   paint: () => <path d="M3 1 H13 V5 H3 Z M13 3 H15 V8 H8 V11 M6 11 H10 V15 H6 Z" {...S}/>,
