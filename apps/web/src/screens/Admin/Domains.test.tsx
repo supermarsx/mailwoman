@@ -22,7 +22,7 @@ function service(overrides: Partial<DomainsApi> = {}): DomainsApi {
 }
 function renderDomains(api: DomainsApi) { const [route, setRoute] = createSignal({ section: 'domains', rest: [] as string[] }); return renderInShell(() => <Domains service={api} />, { route, navigate: path => setRoute({ section: 'domains', rest: (path.split('#/')[1] ?? path).split('/').filter(Boolean).slice(1).map(decodeURIComponent) }) }); }
 async function page(name: string) { fireEvent.click(screen.getByRole('link', { name })); await waitFor(() => expect(screen.getByRole('link', { name })).toHaveAttribute('aria-current', 'page')); }
-async function open(api: DomainsApi) { const result = renderDomains(api); fireEvent.click(await screen.findByRole('button', { name: domain.name })); await screen.findByRole('link', { name: 'Connections and discovery' }); await page('Connections and discovery'); await screen.findByRole('textbox', { name: 'IMAP Host' }); await waitFor(() => expect(screen.getByRole('button', { name: 'Reload server version' })).toBeEnabled()); return result; }
+async function open(api: DomainsApi) { const result = renderDomains(api); fireEvent.click(await screen.findByRole('link', { name: domain.name })); await screen.findByRole('link', { name: 'Connections and discovery' }); await page('Connections and discovery'); await screen.findByRole('textbox', { name: 'IMAP Host' }); await waitFor(() => expect(screen.getByRole('button', { name: 'Reload server version' })).toBeEnabled()); return result; }
 
 describe('Admin Domains editor', () => {
   it('edits an alias on its own page using the atomic rename API', async () => {
@@ -61,14 +61,18 @@ describe('Admin Domains editor', () => {
     const table = await screen.findByRole('table', { name: 'Domains' });
     expect(within(table).getByRole('columnheader', { name: 'Domain aliases' })).toBeVisible();
     expect(within(table).getByText('brand.example.net')).toBeVisible();
-    const row = within(table).getByRole('button', { name: domain.name }).closest('tr')!;
+    const domainLink = within(table).getByRole('link', { name: domain.name });
+    expect(domainLink.getAttribute('href')).toMatch(/#\/domains\/example\.com$/);
+    expect(domainLink).not.toHaveClass('btn');
+    expect(within(table).queryByRole('button', { name: domain.name })).toBeNull();
+    const row = domainLink.closest('tr')!;
     expect(within(row).getByRole('link', { name: 'Edit' })).toBeVisible();
     const search = screen.getByRole('searchbox', { name: 'Find a domain' });
     fireEvent.input(search, { target: { value: 'BRAND.EXAMPLE' } });
-    await waitFor(() => expect(within(table).getByRole('button', { name: domain.name })).toBeVisible());
+    await waitFor(() => expect(within(table).getByRole('link', { name: domain.name })).toBeVisible());
     fireEvent.input(search, { target: { value: 'missing.test' } });
     await screen.findByText('No domains match this search.');
-    expect(screen.queryByRole('button', { name: domain.name })).toBeNull();
+    expect(screen.queryByRole('link', { name: domain.name })).toBeNull();
   });
   it('previews a structured upstream change and applies it with the read ETag', async () => {
     const api = service(); await open(api);
@@ -101,7 +105,7 @@ describe('Admin Domains editor', () => {
   });
   it('renders proxy mode with JMAP fields and no engine protocol switch', async () => {
     const api = service({ detail: vi.fn(async () => ({ ...domain, mode: 'proxy' as const, upstream: { jmap: { sessionUrl: 'https://mail.example.com/jmap' } } })) });
-    renderDomains(api); fireEvent.click(await screen.findByRole('button', { name: domain.name }));
+    renderDomains(api); fireEvent.click(await screen.findByRole('link', { name: domain.name }));
     await screen.findByRole('link', { name: 'Connections and discovery' }); await page('Connections and discovery');
     expect(await screen.findByRole('textbox', { name: 'JMAP session URL' })).toHaveValue('https://mail.example.com/jmap');
     expect(screen.queryByRole('combobox', { name: 'Incoming mail protocol' })).toBeNull();
@@ -230,7 +234,7 @@ describe('Admin Domains editor', () => {
   it('offers migrated proxy origins as unsaved proposals and tolerates null protocol entries', async () => {
     const api = service({ status: vi.fn(async () => ({ mode: 'proxy' as const, blockedAccounts: { total: 0, byDomain: [] }, upstreamChoices: ['https://legacy.example.com'] })), detail: vi.fn(async () => ({ ...domain, mode: 'proxy' as const, upstream: { imap: null, jmap: { sessionUrl: 'https://current.example.com/jmap' } } })) });
     vi.mocked(api.save).mockImplementation(async (_name, changes) => ({ dryRun: true, before: { ...domain, upstream: { imap: null, jmap: { sessionUrl: 'https://current.example.com/jmap' } } }, after: { ...domain, ...changes } }));
-    renderDomains(api); fireEvent.click(await screen.findByRole('button', { name: domain.name }));
+    renderDomains(api); fireEvent.click(await screen.findByRole('link', { name: domain.name }));
     await screen.findByRole('link', { name: 'Connections and discovery' }); await page('Connections and discovery');
     await screen.findByRole('combobox', { name: 'Previously configured JMAP origins' });
     await waitFor(() => expect(screen.getByRole('button', { name: 'Reload server version' })).toBeEnabled());
@@ -243,7 +247,7 @@ describe('Admin Domains editor', () => {
 
   it('keeps list actions on the list and confirms deletion against a fresh revision', async () => {
     const api = service(); renderDomains(api);
-    await screen.findByRole('button', { name: domain.name });
+    await screen.findByRole('link', { name: domain.name });
     expect(screen.queryByRole('textbox')).toBeNull();
     expect(screen.getByRole('link', { name: 'Edit' })).toHaveAttribute('href', expect.stringContaining('/connections'));
     expect(screen.getByRole('link', { name: 'Clone' })).toHaveAttribute('href', expect.stringContaining('/clone'));
@@ -260,7 +264,7 @@ describe('Admin Domains editor', () => {
     const api = service(); renderDomains(api);
     fireEvent.click(await screen.findByRole('link', { name: 'Clone' }));
     const form = await screen.findByRole('form', { name: 'Clone' });
-    expect(screen.queryByRole('button', { name: domain.name })).toBeNull();
+    expect(screen.queryByRole('link', { name: domain.name })).toBeNull();
     expect(api.save).not.toHaveBeenCalled();
     fireEvent.input(within(form).getByRole('textbox'), { target: { value: 'copy.example.com' } });
     fireEvent.submit(form);
@@ -268,7 +272,7 @@ describe('Admin Domains editor', () => {
   });
   it('opens policy separately from connection editors and keeps overview read-only', async () => {
     const api = service(); renderDomains(api);
-    fireEvent.click(await screen.findByRole('button', { name: domain.name }));
+    fireEvent.click(await screen.findByRole('link', { name: domain.name }));
     await screen.findByRole('link', { name: 'Sign-in policy' });
     expect(screen.queryByRole('textbox')).toBeNull();
     await page('Sign-in policy');
@@ -282,7 +286,7 @@ describe('Admin Domains editor', () => {
 it('explains why an EWS-only domain has no unauthenticated probe results',async()=>{
  const ewsDomain:DomainDetail={...domain,upstream:{version:2,backends:[{id:'exchange',role:'mail',protocol:'ews',ews:{endpointUrl:'https://exchange.example.test/EWS/Exchange.asmx',authentication:'basic'}}]}};
  const api=service({list:vi.fn(async()=>[ewsDomain]),detail:vi.fn(async()=>ewsDomain)});
- renderDomains(api);fireEvent.click(await screen.findByRole('button',{name:domain.name}));
+ renderDomains(api);fireEvent.click(await screen.findByRole('link',{name:domain.name}));
  await screen.findByRole('link',{name:'Diagnostics'});
  await page('Diagnostics');
  expect(await screen.findByRole('note')).toHaveTextContent('Unauthenticated diagnostics cannot test EWS');

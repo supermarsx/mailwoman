@@ -7,6 +7,25 @@ export const listRow = style({
   minInlineSize: 0,
 });
 
+/** Domain names navigate to their overview without a button-shaped surface. */
+export const domainLink = style({
+  display: 'inline-flex', alignItems: 'center', gap: vars.space[2],
+  maxInlineSize: '100%', minInlineSize: 0, minBlockSize: vars.a11y.touchTarget,
+  color: vars.color.text, fontWeight: vars.weight.medium, textDecoration: 'none',
+  overflowWrap: 'anywhere', borderRadius: vars.radius.sm,
+  selectors: {
+    '&:hover': { color: vars.color.link, textDecoration: 'underline', textUnderlineOffset: '0.2em' },
+    '&:focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
+  },
+  '@media': { '(forced-colors: active)': { selectors: { '&:focus-visible': { outline: `${vars.a11y.focusRingWidth} solid Highlight` } } } },
+});
+globalStyle(`${domainLink} > svg`, { flexShrink: 0, color: vars.color.textDim });
+globalStyle(`tr:has(${domainLink}) > td`, { verticalAlign: 'middle' });
+export const domainStatus = style({ display: 'flex', flexDirection: 'column', gap: vars.space[1], lineHeight: 1.5 });
+export const domainMeta = style({ color: vars.color.textDim, fontSize: '0.8rem' });
+export const domainConnections = style({ color: vars.color.textDim, overflowWrap: 'anywhere', lineHeight: 1.5 });
+export const domainActions = style({ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: vars.space[1] });
+
 /** Aliases are short mappings: one compact row, with actions kept together. */
 export const aliasList = style({margin:0,padding:0,listStyle:'none',display:'flex',flexWrap:'wrap',columnGap:vars.space[3],rowGap:vars.space[1],overflowWrap:'anywhere'});
 export const aliasTable = style({width:'100%',tableLayout:'fixed',borderCollapse:'collapse'});
