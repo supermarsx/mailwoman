@@ -20,6 +20,9 @@ crate-type = ["cdylib", "rlib"]
 [dependencies]
 ammonia = { workspace = true }
 html5ever = "0.39"
+# Full-document roots carry inherited fonts/spacing lost by fragment parsing.
+# Keep this DOM sink on the same HTML5 parser version as the reader inspector.
+markup5ever_rcdom = "0.39"
 
 # CSS rewrite (SPEC §7.2 item 3): parse `<style>` blocks + inline `style=` with a
 # real CSS parser (never regex), then property-allowlist, namespace selectors under

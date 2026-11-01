@@ -24,6 +24,20 @@ beforeAll(() => {
 });
 
 describe('mw-sanitize wasm reader mode (t32 e31a)', () => {
+  it('retains benign newsletter table, font and document-root layout in the committed guest', () => {
+    const source = '<html lang="en"><head><style>html body td{padding-inline:20px}</style></head><body dir="rtl" style="font-family:Georgia;font-size:18px;padding:24px"><table width="600" cellpadding="12" cellspacing="0"><tr><td valign="middle"><font face="Arial" size="4">Readable newsletter</font></td></tr></table></body></html>';
+    const output = sanitizeEmailHtmlReaderSafe(source, false, true);
+    const doc = new DOMParser().parseFromString(output, 'text/html');
+    expect(doc.querySelector('.mw-email-body')?.getAttribute('style')).toContain('font-family:Georgia');
+    expect(doc.querySelector('.mw-email-body')?.getAttribute('style')).toContain('padding:24px');
+    expect(doc.querySelector('.mw-email-body')?.getAttribute('dir')).toBe('rtl');
+    expect(doc.querySelector('table')?.getAttribute('width')).toBe('600');
+    expect(doc.querySelector('table')?.getAttribute('cellpadding')).toBe('12');
+    expect(doc.querySelector('td')?.getAttribute('valign')).toBe('middle');
+    expect(doc.querySelector('font')?.getAttribute('face')).toBe('Arial');
+    expect(doc.querySelector('style')?.textContent).toContain('.mw-email-body td{padding-inline:20px}');
+    expect(output).not.toContain('data-mw-body-blocked');
+  });
   it('returns only a safe alternative for decrypted quarantined HTML and leaves plain text alone', () => {
     const source = '<p onclick="evil()">Read <strong>this</strong></p><script>bad()</script>';
     const result = sanitizeDecryptResult({ plaintextHtml: source, signature: unsigned }, sanitizeEmailHtmlReaderStrip, sanitizeEmailHtmlReaderSafeStrip);

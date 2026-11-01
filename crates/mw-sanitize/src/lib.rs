@@ -41,6 +41,7 @@
 //! parameters from links.
 
 pub mod appearance;
+mod document_layout;
 mod reader;
 pub use reader::{sanitize_email_html_reader, sanitize_email_html_reader_safe};
 
@@ -301,7 +302,37 @@ fn sanitize_core(
     generic.insert("style");
     generic.insert("class");
     generic.insert("id");
+    generic.insert("dir");
     builder.generic_attributes(generic);
+
+    // HTML mail still commonly uses presentational table/font attributes.
+    // These affect layout only; URL-bearing attributes remain on the separate
+    // remote-content path below, and events are never admitted.
+    builder.add_tags(&["font"]);
+    builder.add_tag_attributes("font", &["color", "face", "size"]);
+    builder.add_tag_attributes(
+        "table",
+        &[
+            "width",
+            "height",
+            "border",
+            "cellpadding",
+            "cellspacing",
+            "bgcolor",
+            "frame",
+            "rules",
+        ],
+    );
+    for tag in ["td", "th"] {
+        builder.add_tag_attributes(tag, &["width", "height", "valign", "bgcolor", "nowrap"]);
+    }
+    for tag in ["thead", "tbody", "tfoot", "tr"] {
+        builder.add_tag_attributes(tag, &["valign", "bgcolor"]);
+    }
+    for tag in ["col", "colgroup"] {
+        builder.add_tag_attributes(tag, &["width", "valign"]);
+    }
+    builder.add_tag_attributes("img", &["border", "hspace", "vspace"]);
 
     // Placeholder mode also keeps `srcset` and the legacy `background` attribute,
     // rewritten below; neither is a URL attribute to ammonia, so the filter checks
@@ -385,6 +416,10 @@ fn sanitize_core(
     builder.link_rel(Some("noopener noreferrer nofollow"));
 
     let body = builder.clean(input).to_string();
+    let root_attributes = {
+        let mut rec = recorded.lock().expect("sanitize record lock");
+        document_layout::container_attributes(input, &mut rec)
+    };
 
     // Extract every `<style>` block from the original input, allowlist + scope
     // its CSS under the container, and prepend the result inside the wrapper.
@@ -445,7 +480,7 @@ fn sanitize_core(
         markers.push_str("\"></span>");
     }
 
-    let html = if scoped_css.is_empty() && markers.is_empty() {
+    let html = if scoped_css.is_empty() && markers.is_empty() && root_attributes.is_none() {
         body
     } else {
         let style = if scoped_css.is_empty() {
@@ -453,7 +488,8 @@ fn sanitize_core(
         } else {
             format!("<style>{scoped_css}</style>")
         };
-        format!("<div class=\"{CONTAINER_CLASS}\">{style}{body}{markers}</div>")
+        let attributes = root_attributes.unwrap_or_else(|| format!("class=\"{CONTAINER_CLASS}\""));
+        format!("<div {attributes}>{style}{body}{markers}</div>")
     };
     let references = RemoteReferences {
         images: std::mem::take(&mut rec.refs),
@@ -722,6 +758,9 @@ fn is_allowed_property(name: &str) -> bool {
             | "font-style"
             | "font-weight"
             | "font-variant"
+            | "font-variant-numeric"
+            | "font-variant-caps"
+            | "font-kerning"
             | "font-stretch"
             | "line-height"
             | "letter-spacing"
@@ -732,6 +771,9 @@ fn is_allowed_property(name: &str) -> bool {
             | "text-decoration-color"
             | "text-decoration-line"
             | "text-decoration-style"
+            | "text-decoration-thickness"
+            | "text-underline-offset"
+            | "text-size-adjust"
             | "text-transform"
             | "text-indent"
             | "text-shadow"
@@ -757,11 +799,23 @@ fn is_allowed_property(name: &str) -> bool {
             | "margin-right"
             | "margin-bottom"
             | "margin-left"
+            | "margin-block"
+            | "margin-block-start"
+            | "margin-block-end"
+            | "margin-inline"
+            | "margin-inline-start"
+            | "margin-inline-end"
             | "padding"
             | "padding-top"
             | "padding-right"
             | "padding-bottom"
             | "padding-left"
+            | "padding-block"
+            | "padding-block-start"
+            | "padding-block-end"
+            | "padding-inline"
+            | "padding-inline-start"
+            | "padding-inline-end"
             | "border"
             | "border-width"
             | "border-style"
@@ -803,6 +857,12 @@ fn is_allowed_property(name: &str) -> bool {
             | "height"
             | "min-height"
             | "max-height"
+            | "inline-size"
+            | "min-inline-size"
+            | "max-inline-size"
+            | "block-size"
+            | "min-block-size"
+            | "max-block-size"
             | "display"
             | "visibility"
             | "overflow"
@@ -1246,6 +1306,23 @@ fn namespace_one(selector: &str, container: &str) -> String {
                 .next()
                 .is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '\\'));
             if boundary {
+                // Full-document sheets commonly address `html body ...`. Both
+                // roots are represented by our one scoped container, so do not
+                // leave a nonexistent descendant <body> in that selector.
+                if kw != "body" {
+                    let mut input = ParserInput::new(after);
+                    let mut parser = Parser::new(&mut input);
+                    let mut token = parser.next().ok().cloned();
+                    if matches!(token, Some(Token::Delim('>'))) {
+                        token = parser.next().ok().cloned();
+                    }
+                    if matches!(token, Some(Token::Ident(ref name)) if name.eq_ignore_ascii_case("body"))
+                    {
+                        let start = parser.position();
+                        while parser.next().is_ok() {}
+                        return format!(".{container}{}", parser.slice_from(start));
+                    }
+                }
                 return format!(".{container}{after}");
             }
         }
