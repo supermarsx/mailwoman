@@ -2,6 +2,7 @@ import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 const appear = keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
+const spin = keyframes({to:{transform:'rotate(360deg)'}});
 
 export const errorCard = style({
   boxSizing:'border-box', display:'grid', gap:vars.space[4], minInlineSize:0,
@@ -28,22 +29,28 @@ export const pending = style({
   display: 'flex',
   alignItems: 'center',
   marginBlock: vars.space[3],
+  minInlineSize:0,maxInlineSize:'100%',boxSizing:'border-box',
 });
 
 export const indicator = style({
   display: 'inline-flex',
   alignItems: 'center',
   gap: vars.space[2],
+  minInlineSize:0,maxInlineSize:'100%',overflowWrap:'anywhere',lineHeight:1.5,
   animation: `${appear} 160ms ease-out 120ms both`,
   '::before': {
     content: '""',
-    inlineSize: '0.5rem',
-    blockSize: '0.5rem',
+    inlineSize: '1rem',
+    blockSize: '1rem',
+    boxSizing:'border-box',
+    border:`2px solid color-mix(in srgb, ${vars.color.accent} 25%, transparent)`,
+    borderBlockStartColor:vars.color.accent,
+    borderRadius:'50%',
+    animation:`${spin} 900ms linear infinite`,
     flexShrink: 0,
-    background: vars.color.accent,
   },
-  selectors: { ':root[data-reduced-motion] &': { animation: 'none' } },
-  '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } },
+  selectors: { ':root[data-reduced-motion] &': { animation: 'none' }, ':root[data-reduced-motion] &::before':{animation:'none'} },
+  '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none',selectors:{'&::before':{animation:'none'}} } },
 });
 
 // Quiet content-shaped placeholders. One live status announces loading; these
@@ -54,7 +61,7 @@ export const skeletonRow = style({display:'flex',alignItems:'center',gap:vars.sp
 export const skeletonLine = style({display:'block',blockSize:'.75rem',flex:'1 1 0',minInlineSize:0,background:vars.color.border,borderRadius:vars.radius.sm});
 export const skeletonShort = style([skeletonLine,{flex:'0 1 18%'}]);
 export const skeletonAvatar = style({display:'block',inlineSize:'2rem',blockSize:'2rem',flex:'0 0 auto',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
-export const skeletonCards = style({display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,9rem),1fr))',gap:vars.space[3]});
+export const skeletonCards = style({display:'grid',minInlineSize:0,gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,9rem),1fr))',gap:vars.space[3],'@media':{'(max-width: 480px)':{gridTemplateColumns:'minmax(0,1fr)'}}});
 export const skeletonCard = style({display:'block',blockSize:'5rem',background:vars.color.bgAlt,border:`${vars.border.hair} solid ${vars.color.border}`,borderRadius:vars.radius.sm});
 export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0 auto',padding:vars.space[6],justifyContent:'center',fontFamily:vars.font.ui,color:vars.color.text});
 
@@ -67,6 +74,11 @@ export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0
 // period, and both are aligned to the document timeline (shell/bootSplash.ts).
 const pulse = keyframes({ '0%, 100%': { backgroundColor: vars.color.border }, '50%': { backgroundColor: `color-mix(in srgb, ${vars.color.border} 45%, ${vars.color.bg})` } });
 const STILL = { selectors: { ':root[data-reduced-motion] &': { animation: 'none' } }, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } } } as const;
+export const skeletonPulse=style({animation:`${pulse} 1.6s ease-in-out infinite`,...STILL});
+// Every content-shaped variant shares the mailbox/boot pulse.
+globalStyle(`${skeletonBody} span`,{animation:`${pulse} 1.6s ease-in-out infinite`});
+globalStyle(`:root[data-reduced-motion] ${skeletonBody} span`,{animation:'none'});
+globalStyle(`${skeletonBody} span`,{'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'}}});
 export const messagesPanel = style({margin:0,maxInlineSize:'none',flex:'1 1 auto',minBlockSize:0,overflow:'hidden',gap:0});
 export const messageSkeletons = style({display:'block',minInlineSize:0,overflow:'hidden',animation:`${appear} 120ms ease-out 120ms both`,...STILL});
 export const messageSkeleton = style({

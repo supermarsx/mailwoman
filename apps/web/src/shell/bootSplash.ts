@@ -112,7 +112,7 @@ export function rememberBootGeometry(): void {
   const paneBox = pane.getBoundingClientRect();
   const geometry = {
     v: 1,
-    wide: window.innerWidth >= 768,
+    wide: window.innerWidth >= 761,
     bar: height(document.querySelector('.shell .shell__bar')),
     // Everything before the workspace on the inline axis: the sidebar and its rule.
     side: px(rtl ? window.innerWidth - ws.right : ws.left),

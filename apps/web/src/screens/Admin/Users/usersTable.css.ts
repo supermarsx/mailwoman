@@ -1,3 +1,4 @@
+import {skeletonPulse} from '../../../components/asyncState.css.ts';
 // The admin Users table (t107). Admin rules (adminStyle.rules.test.ts): tokens
 // only, logical properties, every interactive class has its own :focus-visible,
 // state is never shown by colour alone (each chip carries its word).
@@ -235,7 +236,7 @@ export const badge = style({
 globalStyle(`${badge} svg`, { inlineSize: '0.8rem', blockSize: '0.8rem' });
 
 // Skeleton rows: the table keeps its frame while the first page loads (t75).
-export const skeletonCell = style({ display: 'block', blockSize: '0.75rem', background: vars.color.border, borderRadius: vars.radius.sm });
+export const skeletonCell = style([skeletonPulse,{ display: 'block', blockSize: '0.75rem', background: vars.color.border, borderRadius: vars.radius.sm }]);
 export const skeletonShort = style({ inlineSize: '40%' });
 export const skeletonMid = style({ inlineSize: '65%' });
 export const skeletonLong = style({ inlineSize: '90%' });

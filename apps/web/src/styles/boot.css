@@ -26,7 +26,7 @@
   --mwb-lead: 129px;
   --mwb-row: calc(2 * var(--mail-row-padding, 7px) + 2 * var(--mail-row-line, 18px) + var(--mail-preview-line, 16px) + 2 * var(--mail-row-gap, 2px) + 2px);
 }
-@media (max-width: 767.98px) {
+@media (max-width: 760px) {
   :root[data-mw-boot] {
     --mwb-bar: 51px;
     --mwb-side: 0px;
@@ -265,12 +265,14 @@
 .mwb-row:nth-child(4n + 5) > .mwb-line--dim { max-inline-size: 88%; }
 
 /* Wide layouts have no phone bar; phones have no sidebar column. */
-@media (min-width: 768px) {
+@media (min-width: 761px) {
   .mwb-bar { display: none; }
 }
-@media (max-width: 767.98px) {
+@media (max-width: 760px) {
   .mwb-side,
   .mwb-split { display: none; }
+  .mwb-main { inset-inline: 0; }
+  .mwb-list { inline-size: 100%; border-inline-end: 0; }
 }
 
 /* ── Admin console (t72) ──────────────────────────────────────────────────
@@ -304,10 +306,14 @@
 }
 .mwb-admin--inline {
   display: grid;
-  min-block-size: 100vh;
+  box-sizing: border-box;
+  min-inline-size: 0;
+  min-block-size: 100dvh;
   background: var(--bg);
 }
 .mwb-admin-card {
+  box-sizing: border-box;
+  min-inline-size: 0;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -451,7 +457,7 @@
   background: var(--surface);
 }
 .mwb-console-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr)); gap: 8px; }
-.mwb-console-cards > span { display: block; block-size: 5rem; background: var(--bg-alt); border: var(--border-hair) solid var(--border); }
+.mwb-console-cards > span { display: block; min-inline-size: 0; animation: mwb-pulse 1.6s ease-in-out infinite; block-size: 5rem; background: var(--bg-alt); border: var(--border-hair) solid var(--border); }
 .mwb-console-panel > .mwb-line { flex: none; block-size: 0.75rem; margin-block: 10px; }
 .mwb-console-panel > .mwb-line:nth-child(3) { max-inline-size: 80%; }
 .mwb-console-panel > .mwb-line:nth-child(4) { max-inline-size: 60%; }
@@ -474,6 +480,10 @@
   .mwb-console-head { block-size: 36.8px; }
 }
 
+@media (max-width: 480px) {
+  .mwb-console-cards { grid-template-columns: minmax(0, 1fr); }
+}
+
 /* Reduced motion: no fade and no pulse. The shapes still wait 150 ms. */
 @media (prefers-reduced-motion: reduce) {
   #mw-boot { transition: none; }
@@ -482,7 +492,7 @@
   :root[data-mw-boot='plain'] .mwb-progress::after { animation: none; }
   :root[data-mw-boot='admin'] #mw-boot .mwb-admin,
   :root[data-mw-boot='admin-console'] #mw-boot .mwb-console { animation: mwb-in 1ms step-end 150ms both; }
-  .mwb-admin-card .btn, .mwb-console-item::before, .mwb-console-top > .mwb-block--title { animation: none; }
+  .mwb-admin-card .btn, .mwb-console-cards > span, .mwb-console-item::before, .mwb-console-top > .mwb-block--title { animation: none; }
 }
 :root[data-reduced-motion] #mw-boot { transition: none; }
 :root[data-reduced-motion][data-mw-boot='mail'] .mwb-shape { animation: mwb-in 1ms step-end 150ms both; }
@@ -492,6 +502,7 @@
 :root[data-reduced-motion] .mwb-date,
 :root[data-reduced-motion][data-mw-boot='plain'] .mwb-progress::after,
 :root[data-reduced-motion] .mwb-admin-card .btn,
+:root[data-reduced-motion] .mwb-console-cards > span,
 :root[data-reduced-motion] .mwb-console-item::before,
 :root[data-reduced-motion] .mwb-console-top > .mwb-block--title { animation: none; }
 :root[data-reduced-motion][data-mw-boot='admin'] #mw-boot .mwb-admin,

@@ -103,7 +103,7 @@ describe('boot.js', () => {
   it('on the admin console page draws the sign-in card and replays none of the webmail (t72)', () => {
     snapshot({ ...defaultAppearance(), theme: 'light', chosen: true }, 'light');
     localStorage.setItem('mw.boot.session', '1');
-    localStorage.setItem('mw.boot.geometry', JSON.stringify({ v: 1, wide: window.innerWidth >= 768, side: 300 }));
+    localStorage.setItem('mw.boot.geometry', JSON.stringify({ v: 1, wide: window.innerWidth >= 761, side: 300 }));
     consolePage();
     run();
     expect(root.hasAttribute('data-theme')).toBe(false);
@@ -145,7 +145,7 @@ describe('boot.js', () => {
   });
 
   it('applies stored geometry only for the same layout class, and clamps it', () => {
-    const wide = window.innerWidth >= 768;
+    const wide = window.innerWidth >= 761;
     localStorage.setItem('mw.boot.geometry', JSON.stringify({ v: 1, wide, side: 300, tabs: 43, top: 70, list: -1, lead: 99999, row: 64 }));
     run();
     expect(root.style.getPropertyValue('--mwb-side')).toBe('300px');
@@ -156,6 +156,15 @@ describe('boot.js', () => {
     localStorage.setItem('mw.boot.geometry', JSON.stringify({ v: 1, wide: !wide, side: 300 }));
     run();
     expect(root.style.getPropertyValue('--mwb-side')).toBe('');
+  });
+
+  it('replays mailbox geometry at the same 760/761 breakpoint as the live shell',()=>{
+    for(const [width,wide] of [[760,false],[761,true]] as const){
+      vi.stubGlobal('innerWidth',width);root.removeAttribute('style');
+      localStorage.setItem('mw.boot.geometry',JSON.stringify({v:1,wide,side:wide?226:0,top:70,row:72}));
+      run();
+      expect(root.style.getPropertyValue('--mwb-row'),String(width)).toBe('72px');
+    }
   });
 
   it('survives corrupt storage', () => {

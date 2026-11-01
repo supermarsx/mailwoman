@@ -101,7 +101,7 @@
   // The previous visit's shell geometry, if it was measured for the same layout
   // (phone or wide). Values are clamped: they come from storage.
   var geo = read('mw.boot.geometry');
-  if (geo !== null && typeof geo === 'object' && geo.v === 1 && geo.wide === (window.innerWidth >= 768)) {
+  if (geo !== null && typeof geo === 'object' && geo.v === 1 && geo.wide === (window.innerWidth >= 761)) {
     var names = ['bar', 'side', 'tabs', 'top', 'list', 'lead', 'row'];
     for (var i = 0; i < names.length; i++) {
       var n = Number(geo[names[i]]);
