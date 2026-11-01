@@ -10,6 +10,16 @@ vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=>null,mailboxes:()
 vi.mock('./emptyTrashJob.ts',()=>({startTrashJob:doubles.trashJob}));
 import {FolderPane} from './FolderPane.tsx';
 afterEach(()=>{cleanup();suspendAccountPreferences();vi.clearAllMocks();});
+it('uses top-bar selection mode to toggle rows without opening messages',async()=>{
+ activateAccountPreferences('same','msa1_verified_parent');
+ doubles.jmap.mockResolvedValue({sessionState:'s',methodResponses:[['Email/query',{accountId:'same',ids:['one'],position:0,total:1},'q'],['Email/get',{accountId:'same',list:[{id:'one',subject:'First',from:[],keywords:{}}]},'g']]});
+ const [selecting,setSelecting]=createSignal(true),open=vi.fn();
+ render(()=><FolderPane mailboxId="folder" active selecting={selecting()} onSelectionModeChange={setSelecting} onOpen={open}/>);
+ fireEvent.click((await screen.findByText('First')).closest('button')!);
+ expect(open).not.toHaveBeenCalled();expect(screen.getByRole('checkbox')).toBeChecked();
+ setSelecting(false);expect(screen.getByRole('checkbox')).not.toBeChecked();
+ fireEvent.click(screen.getByText('First').closest('button')!);expect(open).toHaveBeenCalledWith('one');
+});
 it('routes active shortcuts to its own folder and leaves inactive panes alone',async()=>{
  activateAccountPreferences('same','msa1_verified_parent');
  doubles.jmap.mockResolvedValue({sessionState:'s',methodResponses:[['Email/query',{accountId:'same',ids:['one','two'],position:0,total:2},'q'],['Email/get',{accountId:'same',list:[{id:'one',subject:'First',from:[],keywords:{}},{id:'two',subject:'Second',from:[],keywords:{$seen:true}}]},'g']]});

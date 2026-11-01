@@ -19,7 +19,7 @@ import {loadCatalog,t} from '../i18n/index.ts';
 import type {Email} from '../api/jmap-types.ts';
 import * as css from './folderPane.css.ts';
 
-export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
+export function FolderPane(props:{mailboxId:string;active:boolean;selecting?:boolean;onSelectionModeChange?:(enabled:boolean)=>void;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
  const app=useApp();
  const owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController();
  const box=()=>app.mailboxes().find(value=>value.id===props.mailboxId);
@@ -76,6 +76,8 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
  const rowById=createMemo(()=>new Map(view.messages().map(email=>[email.id,email])));
  const rowIds=createMemo(()=>view.messages().map(email=>email.id),undefined,{equals:(a,b)=>a.length===b.length&&a.every((id,i)=>id===b[i])});
  let viewport:HTMLDivElement|undefined;
+ let previouslySelecting=props.selecting===true;
+ createEffect(()=>{const selecting=props.selecting===true;if(previouslySelecting&&!selecting)view.retainSelection([]);previouslySelecting=selecting;});
  let previouslyActive=props.active;
  onMount(()=>{props.registerRefresh?.(()=>{if(!disabled())void view.load();});void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');void loadCatalog('selection-bar');renameContext();void view.load();});
  createEffect(()=>{if(props.active&&viewport)viewport.scrollTop=view.scroll();});
@@ -111,14 +113,14 @@ export function FolderPane(props:{mailboxId:string;active:boolean;/** Shown besi
    <ul class={css.list} aria-label={box()?.name??t('folder-tabs-unavailable')} aria-busy={view.loading()||(view.messages().length===0&&sync.pending())}>
     <For each={rowIds()}>{id=>{let last=rowById().get(id)!;const email=():Email=>{const found=rowById().get(id);if(found)last=found;return last;};return <li class={css.row} data-selected={view.selection().has(id)} data-unread={!email().keywords?.['$seen']}>
      <input type="checkbox" disabled={busy()} checked={view.selection().has(id)} aria-label={t('folder-tabs-select',{subject:email().subject??''})} onChange={()=>view.select(id,false,true)}/>
-     <button type="button" disabled={busy()} class={css.message} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle);if(!extend&&!toggle&&view.current())props.onOpen(id);}}>
+     <button type="button" disabled={busy()} class={css.message} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle||props.selecting===true);if(!props.selecting&&!extend&&!toggle&&view.current())props.onOpen(id);}}>
       <strong>{email().subject||t('mail-no-subject')}</strong><span>{senderLabel(email().from)}</span><span class="meta">{email().preview}</span>
      </button>
     </li>;}}</For>
    </ul>
    <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>
   </div>
-  <SelectionBar count={view.selection().size} total={view.messages().length} selectAll={view.selectAll} clear={()=>view.retainSelection([])} actions={barActions()} busy={busy()} returnFocus={focusList} scope={`${props.mailboxId}:${view.position()}`}/>
+  <SelectionBar count={view.selection().size} total={view.messages().length} selectAll={view.selectAll} clear={()=>{view.retainSelection([]);props.onSelectionModeChange?.(false);}} actions={barActions()} busy={busy()} returnFocus={focusList} scope={`${props.mailboxId}:${view.position()}`}/>
   </div>
   <footer class={css.toolbar}><button type="button" class="btn" disabled={disabled()||view.position()===0} onClick={()=>void view.load(Math.max(0,view.position()-100))}>{t('folder-tabs-previous')}</button><span role="status">{t('folder-tabs-position',{start:view.messages().length?view.position()+1:0,end:view.position()+view.messages().length,total:view.total()??'?',selected:view.selection().size})}</span><button type="button" class="btn" disabled={disabled()||(view.total()===null?view.messages().length<100:view.position()+view.messages().length>=view.total()!)} onClick={()=>void view.load(view.position()+100)}>{t('folder-tabs-next')}</button></footer>
  </div>;

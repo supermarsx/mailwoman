@@ -130,6 +130,20 @@ describe('retained mailbox workspace',()=>{
     setAccountUiPreferences({folderHidden:[]});
     expect(screen.getByRole('button',{name:'Projects'})).toBeVisible();
   });
+  it('selects messages from the top bar without opening a message',async()=>{
+    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
+    const toolbar=screen.getByRole('toolbar',{name:'Workspace layout'});
+    const select=within(toolbar).getByRole('button',{name:'Select messages'});
+    expect(select).toHaveAttribute('aria-pressed','false');
+    expect(screen.getAllByRole('button',{name:'Select messages'})).toHaveLength(1);
+    fireEvent.click(select);fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    expect(app.selectedIds().has('a')).toBe(true);
+    expect(screen.getByRole('tab',{name:'Mail'})).toHaveAttribute('aria-selected','true');
+    fireEvent.click(select);expect(app.selectedIds().size).toBe(0);
+    fireEvent.dblClick(screen.getByText('Subject a',{selector:'.list__subject'}));
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
+    expect(within(toolbar).queryByRole('button',{name:'Select messages'})).not.toBeInTheDocument();
+  });
   it('hides message-list and reading-pane controls in full message tabs',async()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
     const toggle=()=>screen.queryByRole('button',{name:'Show or hide message list'});

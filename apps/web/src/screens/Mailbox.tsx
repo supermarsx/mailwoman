@@ -197,6 +197,11 @@ export function MailboxScreen(): JSX.Element {
   // t109: the pane's message, as a signal, so a reload can put it back.
   const [previewMessage,setPreviewMessage]=createSignal<string|null>(null);
   const [selectionReset,setSelectionReset]=createSignal(0);
+  const [listSelecting,setListSelecting]=createSignal(false);
+  const [folderSelecting,setFolderSelecting]=createSignal<Record<string,boolean>>({});
+  const selectionActive=()=>{const pane=activePane();return pane?.kind==='folder'?folderSelecting()[pane.id]===true:listSelecting();};
+  function toggleListSelection():void {const pane=activePane();if(pane?.kind==='folder'){setFolderSelecting(modes=>({...modes,[pane.id]:!modes[pane.id]}));return;}const enabled=!listSelecting();setListSelecting(enabled);if(!enabled)app.clearSelection();}
+  createEffect(on(app.accountId,()=>{setListSelecting(false);setFolderSelecting({});}));
   const previewVisible=()=>subTabs.activeId()==='mail'&&!narrow()&&readingPane()!=='off';
   const listVisible=()=>subTabs.activeId()==='mail' && (!previewVisible() || preview()===null || !accountUiPreferences().messageListCollapsed);
   const readersVisible=()=>!!activePane();
@@ -900,6 +905,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={accountIconInTopBar()}><LinkedAccountControl variant="icon"/></Show>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} title={t(folderMode()==='hidden'?'mail-show-folders':'mail-hide-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='hidden'?'expanded':'hidden'})}><Icon name="folder"/></button>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="mailboxes"/></button>
+          <Show when={(subTabs.activeId()==='mail'&&listVisible())||activePane()?.kind==='folder'}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-select-messages')} title={t('mail-select-messages')} aria-pressed={selectionActive()} onClick={toggleListSelection}><Icon name="bulkSelect"/></button></Show>
           <Show when={subTabs.activeId()==='mail'}><ReadingPaneControl/></Show>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
@@ -910,7 +916,7 @@ export function MailboxScreen(): JSX.Element {
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList hideReadingPane selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
+            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList hideReadingPane hideSelectionToggle selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
@@ -924,7 +930,7 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='messages' && pane.view}>{view=><><Show when={view().error()}><p role="alert">{t('mail-workspace-load-error')}</p></Show><Reader view={view()} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} onCompose={initial=>openReply(initial,pane.sourceMailboxId)} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/></>}</Show>
               <Show when={pane.kind==='attachment' && pane.attachment}>{item=><AttachmentTab item={item()}/>}</Show>
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||rawT('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
-              <Show when={pane.kind==='folder'&&pane.reference}><FolderPane mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} companion={companion()===pane.id} onOpen={id=>void openDraftOrMessage(id,pane.id)}/></Show>
+              <Show when={pane.kind==='folder'&&pane.reference}><FolderPane onSelectionModeChange={enabled=>setFolderSelecting(modes=>({...modes,[pane.id]:enabled}))} selecting={folderSelecting()[pane.id]===true} mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} companion={companion()===pane.id} onOpen={id=>void openDraftOrMessage(id,pane.id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>

@@ -328,10 +328,10 @@ function ThreadHeadRow(props: {
 }
 
 /** The always-visible view toolbar: the reading-pane position control (W3). */
-function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean}): JSX.Element {
+function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean}): JSX.Element {
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
-      <button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button>
+      <Show when={!props.hideSelectionToggle}><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button></Show>
       <EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
     </div>
   );
@@ -360,7 +360,7 @@ function rowId(row: ThreadVisualRow): string {
  * shortcut); without it those fall back to `onOpenMessage`. Where each goes is
  * the host's decision (t74: Mailbox routes by the reading pane).
  */
-export function MessageList(props: { hideReadingPane?:boolean; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
+export function MessageList(props: { hideReadingPane?:boolean; hideSelectionToggle?:boolean; selectionMode?:()=>boolean; onSelectionModeChange?:(enabled:boolean)=>void; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
   /** t109: a message to bring to the top once the list has loaded (a reload's scroll anchor); one that is not loaded is skipped. */
   restoreAnchor?: () => string | null;
   /** t109: the message in the top row as the user scrolls (null at the top). */
@@ -369,7 +369,9 @@ export function MessageList(props: { hideReadingPane?:boolean; selectionReset?:(
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const contextMenu=createMessageContextMenu(contextEmail);
   const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
-  const [selecting,setSelecting]=createSignal(false);
+  const [localSelecting,setLocalSelecting]=createSignal(false);
+  const selecting=()=>props.selectionMode?.()??localSelecting();
+  const setSelecting=(value:boolean|((previous:boolean)=>boolean)):boolean=>{const next=typeof value==='function'?value(selecting()):value;setLocalSelecting(next);props.onSelectionModeChange?.(next);return next;};
   createEffect(on(()=>props.selectionReset?.()??0,()=>setSelecting(false),{defer:true}));
   createEffect(()=>{app.accountId();app.selectedMailboxId();setSelecting(false);});
   const [scrollTop, setScrollTop] = createSignal(0);
@@ -744,7 +746,7 @@ export function MessageList(props: { hideReadingPane?:boolean; selectionReset?:(
 
   return (
     <section class="list" data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
-      <ListToolbar hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
+      <ListToolbar hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={String(settings()['mail.messageListOrder']?.value??'newest')} disabled={settings()['mail.messageListOrder']?.locked===true} onChange={event=>void writeSetting('mail.messageListOrder',event.currentTarget.value).catch(()=>app.showToast('error',t('mail-list-order-error')))}><For each={['newest','oldest','sender','subject']}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
