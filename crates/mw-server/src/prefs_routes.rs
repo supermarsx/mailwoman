@@ -567,29 +567,15 @@ async fn identities_upsert(
         Ok(false) => return bad_request("the selected signature or signing key is unavailable"),
         Err(e) => return server_error("identity references", e),
     }
-    match identity_address_allowed(&state, &session, &body.email).await {
-        Ok(true) => {},
-        Ok(false) => return (StatusCode::FORBIDDEN, Json(json!({"error":"This address is not authorized for sending. Choose your account address or an administrator-approved alias.", "code":"forbiddenFrom"}))).into_response(),
-        Err(()) => return (StatusCode::BAD_GATEWAY, Json(json!({"error":"Sending identity authority could not be verified. Try again.", "code":"identityAuthorityUnavailable"}))).into_response(),
-    }
+    // An identity is an editable personal profile, not a sending permission.
+    // The feature gate still enforces cap.identities; sender/resolve and the
+    // native submission path independently verify current sending authority.
     match do_upsert_identity(&state.store, &account, &body).await {
         Ok(Some(id)) => Json(json!({ "ok": true, "id": id })).into_response(),
         Ok(None) => not_found("no such identity"),
         Err(StoreError::NotFound) => not_found("no such identity"),
         Err(e) => server_error("upsert identity", e),
     }
-}
-
-/// Editable profile rows are not permission grants. Proxy identities come from
-/// the current authenticated provider; native identities use runtime authority.
-async fn identity_address_allowed(
-    state: &AppState,
-    session: &mw_store::Session,
-    address: &str,
-) -> Result<bool, ()> {
-    Ok(resolve_sender_identity(state, session, address)
-        .await?
-        .is_some())
 }
 
 /// Outer None is denied; inner None is native authority without a saved profile.

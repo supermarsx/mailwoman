@@ -118,7 +118,7 @@ settings-sig-save-failed = Não foi possível guardar a assinatura. { $reason }
 
 # Identities
 settings-ident-title = Identidades
-settings-ident-intro = O nome e o endereço com que envia. Cada identidade pode utilizar a sua própria assinatura.
+settings-ident-intro = Crie identidades com nomes, endereços e assinaturas próprios. Os endereços de envio têm de ser permitidos pelo fornecedor de correio ou pelo administrador.
 settings-ident-new = Nova identidade
 settings-ident-name-label = Nome a apresentar
 settings-ident-email-label = Endereço de e-mail

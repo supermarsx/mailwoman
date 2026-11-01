@@ -137,9 +137,24 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
     let c = client();
     let authority = login(&c, &base, &mock).await;
 
+    // References must name an owned template; create the profile's signature first.
+    let signature = c
+        .post(format!("{base}/api/account/signatures"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"name":"work-template","body":"Work signature","isDefault":false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        signature.status(),
+        200,
+        "{}",
+        signature.text().await.unwrap()
+    );
+
     // POST an identity carrying signatureName (the 26.16-dropped, 26.17-persisted field).
-    // Its address is the upstream's own identity: since 16bc4191 a saved identity must
-    // name an address the upstream's Identity/get lists.
+    // This fixture uses the upstream address so it remains eligible for later
+    // sender resolution; creating the profile itself no longer requires that.
     let create = c
         .post(format!("{base}/api/account/identities"))
         .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
@@ -212,4 +227,77 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
         plain.get("signatureName").is_none() || plain["signatureName"].is_null(),
         "an identity with no signatureName does not fabricate one: {plain}"
     );
+}
+
+#[tokio::test]
+async fn new_identity_profiles_are_allowed_by_default_without_granting_sender_authority() {
+    let mock = spawn_mock().await;
+    let (addr, db_path) = spawn_server().await;
+    seed_mock_account(&db_path).await;
+    let base = format!("http://{addr}");
+    let c = client();
+    let authority = login(&c, &base, &mock).await;
+    let email = "new-profile@example.test";
+    let created = c
+        .post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"name":"New profile","email":email}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(created.status(), 200, "{}", created.text().await.unwrap());
+    let identities: Value = c
+        .get(format!("{base}/api/account/identities"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        identities["identities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["email"] == email)
+    );
+    let sender = c
+        .post(format!("{base}/api/account/sender/resolve"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"email":email}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sender.status(), 403);
+    assert_eq!(
+        sender.json::<Value>().await.unwrap()["code"],
+        "forbiddenFrom"
+    );
+}
+
+#[tokio::test]
+async fn explicit_administrator_identity_deny_still_refuses_creation() {
+    let mock = spawn_mock().await;
+    let (addr, db_path) = spawn_server().await;
+    seed_mock_account(&db_path).await;
+    let base = format!("http://{addr}");
+    let c = client();
+    let authority = login(&c, &base, &mock).await;
+    let pool = sqlx::SqlitePool::connect_with(SqliteConnectOptions::new().filename(&db_path))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO setting_policy(key,global_value,allow_user_override,global_locked,updated_by,updated_at) VALUES('cap.identities','false',0,1,'test-admin',1)")
+        .execute(&pool).await.unwrap();
+    pool.close().await;
+    let response = c
+        .post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"name":"Blocked","email":mw_mock_jmap::USER}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 403);
+    let body: Value = response.json().await.unwrap();
+    assert_eq!(body["code"], "feature_disabled");
+    assert_eq!(body["key"], "cap.identities");
 }

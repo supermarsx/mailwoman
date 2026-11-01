@@ -23,3 +23,6 @@ settings-policy-language-saved = Language saved.
 
 # The request id the server sent with an error, for a support request.
 settings-policy-reference = Reference: { $id }
+
+settings-policy-error-feature-disabled = Your administrator has disabled this feature for your account.
+settings-policy-error-sender-forbidden = This sending address is not authorized for this account. Choose an address allowed by your mail provider or administrator.

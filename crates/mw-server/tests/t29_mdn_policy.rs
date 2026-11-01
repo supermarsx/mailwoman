@@ -998,7 +998,7 @@ async fn dsn_default_is_account_preference_with_admin_lock_and_readonly_permissi
 }
 
 #[tokio::test]
-async fn sending_identity_creation_requires_current_address_authority() {
+async fn saving_identity_profiles_preserves_sender_authority_and_personal_ownership() {
     let _guard = serial().await;
     let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
     let server = spawn(ServerMode::Engine, imap.url()).await;
@@ -1006,16 +1006,28 @@ async fn sending_identity_creation_requires_current_address_authority() {
     let account = engine_login(&client, &server.base, &imap).await;
     let authority = storage_authority(&client, &server.base).await;
     let url = format!("{}/api/account/identities", server.base);
-    let denied = client
+    let saved_profile = client
         .post(&url)
         .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({"name":"Unverified","email":"unverified@example.net","source":"server"}))
         .send()
         .await
         .unwrap();
-    assert_eq!(denied.status(), 403);
     assert_eq!(
-        denied.json::<Value>().await.unwrap()["code"],
+        saved_profile.status(),
+        200,
+        "valid profiles can be saved by default"
+    );
+    let sender = client
+        .post(format!("{}/api/account/sender/resolve", server.base))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"email":"unverified@example.net"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(sender.status(), 403);
+    assert_eq!(
+        sender.json::<Value>().await.unwrap()["code"],
         "forbiddenFrom"
     );
     let saved = client
@@ -1030,14 +1042,14 @@ async fn sending_identity_creation_requires_current_address_authority() {
         .as_str()
         .unwrap()
         .to_string();
-    let denied = client
+    let updated_profile = client
         .post(&url)
         .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
         .json(&json!({"id":id,"name":"Changed","email":"unverified@example.net"}))
         .send()
         .await
         .unwrap();
-    assert_eq!(denied.status(), 403);
+    assert_eq!(updated_profile.status(), 200);
     // Since 0a11b581 identities are personal records, kept under the account's
     // verified personal subject rather than in the per-account 0003 table.
     let store = server.store().await;
@@ -1053,8 +1065,12 @@ async fn sending_identity_creation_requires_current_address_authority() {
         .expect("the saved identity is stored under its owner");
     assert_eq!(row.account_id, owner);
     assert_eq!(
-        row.email, ENGINE_USER,
-        "the refused change left the address alone"
+        row.source, "configured",
+        "profile writes cannot claim provider authority"
+    );
+    assert_eq!(
+        row.email, "unverified@example.net",
+        "editing a personal profile does not require or grant sender authority"
     );
 }
 

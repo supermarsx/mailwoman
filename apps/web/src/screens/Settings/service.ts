@@ -73,6 +73,8 @@ export function settingsErrorText(status: number, code: string | null, requestId
   let id = 'settings-policy-error-generic';
   const policyId = code !== null ? PASSKEY_POLICY_CODES[code] : undefined;
   if (policyId !== undefined) id = policyId;
+  else if (code === 'feature_disabled') id = 'settings-policy-error-feature-disabled';
+  else if (code === 'forbiddenFrom') id = 'settings-policy-error-sender-forbidden';
   else if (code === 'setting_locked') id = 'settings-policy-error-locked';
   else if (status === 401) id = 'settings-policy-error-signed-out';
   else if (status === 400 || status === 422) id = 'settings-policy-error-invalid';

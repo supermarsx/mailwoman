@@ -501,6 +501,25 @@ impl Engine {
             );
         };
 
+        // Saved identity profiles are presentation, never sender grants.
+        match crate::identity::sender_address_allowed(
+            self.store(),
+            account_id,
+            &rt.identity,
+            &own_address,
+        )
+        .await
+        {
+            Ok(true) => {}
+            Ok(false) => {
+                return refusal(
+                    "mdnNoRecipientAddress",
+                    "the receipt sender is not authorized for this account",
+                );
+            }
+            Err(error) => return server_fail(error),
+        }
+
         let mut defaults = None;
         let report = if let Some(options) = standard {
             match options.build(&request, &msg, &parsed, &raw) {
@@ -645,7 +664,7 @@ impl Engine {
     }
 
     /// The address of this account the original was sent to: the first of the
-    /// connected identity and the stored sending identities that appears in the
+    /// connected identity and the currently authorized stored identities that appears in the
     /// original's `To` or `Cc` (compared without regard to ASCII case), is a
     /// mailbox, and is ASCII (`mw-mime` writes `Final-Recipient` as `rfc822`).
     /// The value returned is the account's own spelling, not the message's.
@@ -661,7 +680,21 @@ impl Engine {
             .list_native_personal_identities(account_id)
             .await
         {
-            Ok(rows) => own.extend(rows.into_iter().map(|r| r.email)),
+            Ok(rows) => {
+                for row in rows {
+                    if crate::identity::sender_address_allowed(
+                        self.store(),
+                        account_id,
+                        identity,
+                        &row.email,
+                    )
+                    .await
+                    .unwrap_or(false)
+                    {
+                        own.push(row.email);
+                    }
+                }
+            }
             Err(e) => tracing::warn!("reading identities for a receipt failed: {e}"),
         }
         let addressed: Vec<&str> = [&original.to, &original.cc]
@@ -688,6 +721,19 @@ impl Engine {
         original: &mw_jmap::Email,
         delivery: Delivery,
     ) -> Result<()> {
+        // Recheck at dispatch too: authority can change while the receipt is prepared.
+        if !crate::identity::sender_address_allowed(
+            self.store(),
+            &msg.account_id,
+            &rt.identity,
+            own_address,
+        )
+        .await?
+        {
+            return Err(EngineError::Unsupported(
+                "receipt sender is no longer authorized".into(),
+            ));
+        }
         let automatic = delivery.automatic;
         let report = if let Some(report) = delivery.report {
             report

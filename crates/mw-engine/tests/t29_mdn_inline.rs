@@ -2126,3 +2126,37 @@ async fn rfc9007_dlp_enforces_exact_report_body_before_smtp() {
     assert!(allowed["notSent"].is_null(), "{allowed}");
     assert_eq!(h.submitter.handed().len(), 1);
 }
+
+#[tokio::test]
+async fn saved_profile_does_not_authorize_native_or_standard_receipt_sender() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let mut profile = h
+        .store
+        .get_native_personal_identity(&h.account_id, &identity)
+        .await
+        .unwrap()
+        .unwrap();
+    profile.email = "alias@example.org".into();
+    h.store
+        .upsert_native_personal_identity(&profile)
+        .await
+        .unwrap();
+    let id = find(&h, "to an alias").await;
+    let native = mdn_send(&h, &id, None).await;
+    assert_eq!(native["type"], "mdnNoRecipientAddress", "{native}");
+    let (standard, implicit) = h
+        .engine
+        .mdn_standard_dispatch(&h.account_id, "MDN/send", &standard_args(&identity, &id))
+        .await;
+    assert_eq!(
+        standard["notSent"]["receipt"]["type"], "forbiddenFrom",
+        "{standard}"
+    );
+    assert!(implicit.is_none());
+    assert!(
+        h.submitter.handed().is_empty(),
+        "a saved profile must never grant MDN sender authority"
+    );
+    assert_eq!(email(&h, &id).await["mailwomanMdn"]["sent"], false);
+}

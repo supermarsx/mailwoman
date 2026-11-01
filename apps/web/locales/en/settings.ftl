@@ -121,7 +121,7 @@ settings-sig-save-failed = The signature could not be saved. { $reason }
 
 # Identities
 settings-ident-title = Identities
-settings-ident-intro = The name and address you send as. Each identity can use its own signature.
+settings-ident-intro = Create identities with their own names, addresses and signatures. Sending addresses must be allowed by your mail provider or administrator.
 settings-ident-new = New identity
 settings-ident-name-label = Display name
 settings-ident-email-label = Email address

@@ -23,3 +23,6 @@ settings-policy-language-saved = Idioma guardado.
 
 # The request id the server sent with an error, for a support request.
 settings-policy-reference = Referência: { $id }
+
+settings-policy-error-feature-disabled = O administrador desativou esta funcionalidade para a sua conta.
+settings-policy-error-sender-forbidden = Este endereço de envio não está autorizado para esta conta. Escolha um endereço permitido pelo fornecedor de correio ou pelo administrador.
