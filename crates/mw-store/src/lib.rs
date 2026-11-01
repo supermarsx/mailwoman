@@ -14,6 +14,7 @@ pub mod branding;
 pub mod config_backup_secret;
 mod hosting_connections;
 pub mod identity_principal;
+pub mod feature_subjects;
 pub mod linked_accounts;
 pub mod oidc_provider;
 pub mod personal_delivery;
@@ -345,6 +346,11 @@ impl Store {
         // dead tuples it left behind. Best-effort — a VACUUM failure must never brick
         // store-open (residue stays until `mailwoman maintenance vacuum`).
         store.reclaim_after_note_backfill(sealed).await;
+        // Populate durable verified feature targets once at startup. A bounded
+        // legacy backfill must never make sign-in or the store unavailable.
+        if let Err(error) = store.backfill_feature_subjects().await {
+            eprintln!("[mw-store] feature profile targets incomplete until fresh verified sign-in: {error}");
+        }
         Ok(store)
     }
 
@@ -371,6 +377,11 @@ impl Store {
         // `open_postgres`). Covers a direct 26.16→26.18 upgrade where the backfill runs
         // fresh; deployed 26.17 DBs already backfilled (0 rows here) → operator CLI.
         store.reclaim_after_note_backfill(sealed).await;
+        // Populate durable verified feature targets once at startup. A bounded
+        // legacy backfill must never make sign-in or the store unavailable.
+        if let Err(error) = store.backfill_feature_subjects().await {
+            eprintln!("[mw-store] feature profile targets incomplete until fresh verified sign-in: {error}");
+        }
         Ok(store)
     }
 

@@ -281,6 +281,18 @@ export function UsersTable(props: { actions?: Partial<UsersTableActions> } = {})
       const gone = row.state === 'deleted';
       const blocked = row.status === 'disabled';
       return [
+        ...(can('settings.user_values') && (page()?.facets.profiles.length ?? 0) > 0 ? [{
+          id: 'profile', label: t('admin-userlist-bulk-profile'), icon: 'policy' as const, disabled: gone,
+          run: () => {}, children: [
+            ...(page()?.facets.profiles ?? []).map((profile): ContextAction => ({
+              id: `profile:${profile.id}`, label: profile.name, icon: 'policy',
+              current: row.profile?.via === 'user' && row.profile.id === profile.id,
+              run: () => { setPending({ action: { profile: profile.id }, rows: [row] }); },
+            })),
+            { id: 'profile:clear', label: t('admin-userlist-bulk-profile-clear'), icon: 'close' as const, separatorBefore: true,
+              run: () => { setPending({ action: { profile: null }, rows: [row] }); } },
+          ],
+        }] : []),
         { id: 'block', label: t(blocked ? 'admin-userlist-unblock' : 'admin-userlist-block'), icon: blocked ? 'unlock' : 'lock', disabled: gone || row.flags.disabled || !can('users.flags'), run: () => { setPending({ action: blocked ? 'unblock' : 'block', rows: [row] }); } },
         { id: 'signout', label: t('admin-userlist-sign-out'), icon: 'signOut', disabled: gone || !can('users.revoke_sessions'), run: () => { setPending({ action: 'signout', rows: [row] }); } },
         { id: 'delete', label: t('admin-userlist-delete'), icon: 'delete', separatorBefore: true, disabled: gone || !can('users.delete'), run: () => { setPending({ action: 'delete', rows: [row] }); } },

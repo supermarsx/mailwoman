@@ -1,5 +1,6 @@
 import {UserAccessActions} from './UserAccessActions.tsx';
 import { UsersTable } from './Users/UsersTable.tsx';
+import { UserFeatureProfile } from './Users/UserFeatureProfile.tsx';
 import { loadCatalog } from '../../i18n/catalog.ts';
 import * as auditCss from './shell/audit.css.ts';
 import { ShellContext } from './shell/context.ts';
@@ -29,6 +30,7 @@ export function Users(props: { accountId?: string; provision?: boolean } = {}): 
   return <Show when={props.provision || identity()==='+new'} fallback={<Show when={identity()} keyed fallback={<UserList/>}>{id=><UserIdentity id={id}/>}</Show>}><UserList provision/></Show>;
 }
 function UserIdentity(props: { id: string }): JSX.Element {
+  const shell = useContext(ShellContext);
   const [identity] = createResource(() => props.id, async id => (await adminRequest<{accountId:string;label:string;address:string;loginAddress?:string;directoryAddress?:string;legacyBinding?:boolean}>(`/users/${encodeURIComponent(id)}/identity`)).data);
   return <section class={css.section} aria-label={t('admin-users-title')}>
     <a href={hrefFor(sectionPath('users'))}>{t('admin-users-back')}</a>
@@ -36,6 +38,7 @@ function UserIdentity(props: { id: string }): JSX.Element {
     <Show when={identity.loading}><AsyncPending variant="status" /></Show>
     <Show when={identity.error}><p role="alert">{t('admin-users-load-error')}</p></Show>
     <Show when={!identity.error && identity.state === 'ready' ? identity.latest : undefined}>{value => <div class={css.card}><h3 dir="auto">{value().legacyBinding?value().loginAddress??value().label:value().label}</h3><p dir="auto">{value().loginAddress??value().address}</p><Show when={value().legacyBinding&&value().directoryAddress}><p class={css.note}>{t('admin-users-legacy-alias',{address:value().directoryAddress!})}</p></Show><p class={css.note}>{t('admin-users-id')}: <code class={auditCss.actor}>{value().accountId}</code></p></div>}</Show>
+    <Show when={shell?.can.can('settings.user_values')}><UserFeatureProfile accountId={props.id} /></Show>
     <UserList accountId={props.id}/>
   </section>;
 }

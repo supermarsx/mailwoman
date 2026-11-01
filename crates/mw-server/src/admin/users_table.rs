@@ -293,14 +293,20 @@ fn selected_profile(
         }
     };
     if !account.is_empty() {
-        add("user", account, 0);
-        for group in facts.memberships.get(account).into_iter().flatten() {
-            if facts
-                .group_domains
-                .get(group)
-                .is_some_and(|d| d.is_empty() || d == domain)
-            {
-                add("group", group, 1);
+        if let Some(subjects) = facts.profile_subjects.get(account) {
+            for subject in subjects {
+                add("user", subject, 0);
+            }
+        } else {
+            add("user", account, 0);
+            for group in facts.memberships.get(account).into_iter().flatten() {
+                if facts
+                    .group_domains
+                    .get(group)
+                    .is_some_and(|d| d.is_empty() || d == domain)
+                {
+                    add("group", group, 1);
+                }
             }
         }
     }

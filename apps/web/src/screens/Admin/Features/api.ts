@@ -39,6 +39,8 @@ export interface NativeTarget {
   accountId: string;
   address: string;
   domain: string;
+  /** Directory row for a verified proxy/SSO policy subject. */
+  directoryAccountId?: string;
 }
 
 export interface FeatureDef {
@@ -105,6 +107,8 @@ export interface FeatureCatalogue {
   assignments: ProfileAssignment[];
   memberships: Record<string, string[]>;
   nativeTargets: NativeTarget[];
+  /** All known mailbox identities; older servers expose nativeTargets only. */
+  userTargets?: NativeTarget[];
   domains: string[];
   catalogue: FeatureDef[];
   /** t98 (an older server omits these). */

@@ -9,7 +9,10 @@ mailbox access, sender aliases, credentials, or a new authentication method.
 
 `GET /admin/features` retains `catalogue`, `integrationPolicyKeys`, `profiles`,
 `groups`, and `assignments`. It also returns `revision`, `memberships`,
-`nativeTargets`, and `domains`, with a strong `ETag` and `Cache-Control: no-store`.
+`nativeTargets`, `userTargets`, and `domains`, with a strong `ETag` and `Cache-Control: no-store`.
+`userTargets` includes native accounts and verified proxy/SSO policy subjects.
+Proxy targets expose an opaque `accountId` for assignment and a `directoryAccountId`
+for the corresponding Users row; use the returned assignment ID without constructing one.
 All paths use the deployment's configured admin prefix and base path.
 
 Every mutation requires that exact catalogue `If-Match`, including creation:
@@ -33,9 +36,9 @@ rewritten through these editing routes.
 Existing unscoped `settings.read`, `settings.write`, and
 `settings.user_values` permissions remain required by their respective routes.
 Domain-scoped administrators cannot administer this global catalogue. User
-assignments and manual group members must identify existing native accounts from
-`nativeTargets`; arbitrary addresses and proxy raw IDs are not accepted as new
-targets. Domain-specific group members must belong to the group's canonical
+assignments must identify targets from `userTargets`; manual group members still
+use existing native accounts from `nativeTargets`. Arbitrary addresses and proxy
+raw IDs are not accepted as verified policy targets. Domain-specific group members must belong to the group's canonical
 domain. Orphaned legacy assignments can be removed without authenticating or
 attributing their old targets.
 
@@ -44,7 +47,14 @@ attributing their old targets.
 Session policy resolution uses verified principal provenance. Native sessions keep
 their existing native assignments. Proxy sessions receive global/domain policy,
 including domain profiles, but cannot inherit native user/profile/group rows by
-matching a raw upstream account ID or address. Their personal overrides use the
+matching a raw upstream account ID or address. Individual proxy profiles use
+the verified service-bound `po1_` subject, the same identity used by the effective
+preview and request guards. Migration 0082 stores these verified targets with
+their identity binding so assignment remains possible after logout; retired
+bindings and inactive principals are excluded. Existing live sessions are
+backfilled through the same verified-session adapter. If one directory row has
+multiple service identities, assign to the intended target in Feature profiles.
+Their personal overrides use the
 separate `personal_setting_value` table, keyed by a verified service-bound owner.
 Migration 0070 does not attribute or remove legacy ambiguous rows. The table is
 included in SQLite-to-PostgreSQL copying.

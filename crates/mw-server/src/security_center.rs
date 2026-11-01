@@ -225,6 +225,11 @@ pub(crate) async fn record_login(
         )
             .into_response());
     }
+    state
+        .store
+        .remember_feature_subject(id)
+        .await
+        .map_err(|e| error("feature profile identity", e))?;
     let policy = policy(state, account, address).await?;
     state
         .store

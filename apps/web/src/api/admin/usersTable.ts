@@ -5,6 +5,8 @@
 
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
 import type { UserFeatureFlags } from '../../state/slices/admin.ts';
+import type { FeatureCatalogue } from '../../screens/Admin/Features/api.ts';
+import { t } from '../../i18n';
 
 export type UserState = 'active' | 'blocked' | 'disabled' | 'pending' | 'deleted';
 export type TwoFactor = 'passkey' | 'totp' | 'none';
@@ -192,18 +194,37 @@ export async function signOutUser(accountId: string): Promise<void> {
   await adminRequest(`/users/${encodeURIComponent(accountId)}/revoke-sessions`, { method: 'POST' });
 }
 
-/** Give one user a feature profile (`null` removes the user's own assignment). */
-export async function assignProfile(accountId: string, profileId: string | null, current: string | null): Promise<void> {
-  const revision = async (): Promise<string> => {
-    const read = await adminRequest('/features');
-    if (!read.etag) throw new Error('Missing revision');
-    return read.etag;
+/** Resolve the verified policy identity; multiple realms require an explicit choice. */
+export function profileTargetCount(data: FeatureCatalogue, accountId: string): number {
+  return (data.userTargets?.filter(target => target.directoryAccountId === accountId).length ?? 0)
+    + (data.nativeTargets.some(target => target.accountId === accountId) ? 1 : 0);
+}
+export function profileTargetId(data: FeatureCatalogue, accountId: string): string | null {
+  const subjects = data.userTargets?.filter(target => target.directoryAccountId === accountId) ?? [];
+  if (profileTargetCount(data, accountId) > 1) return null;
+  return subjects[0]?.accountId ?? (data.nativeTargets.some(target => target.accountId === accountId) ? accountId : null);
+}
+
+/** Give one user a feature profile (`null` removes direct assignments). */
+export async function assignProfile(accountId: string, profileId: string | null, _current: string | null): Promise<void> {
+  const snapshot = await adminRequest<FeatureCatalogue>('/features');
+  const target = profileTargetId(snapshot.data, accountId);
+  if (target === null) throw new Error(t(profileTargetCount(snapshot.data, accountId) > 1 ? 'admin-users-profile-ambiguous' : 'admin-users-profile-unavailable'));
+  const existing = snapshot.data.assignments.filter(a => a.scopeKind === 'user' && a.scopeId === target);
+  let revision = snapshot.etag;
+  if (!revision) throw new Error('Missing revision');
+  const write = async (method: 'PUT' | 'DELETE', body: unknown): Promise<void> => {
+    const response = await adminRequest('/features/assignments', { method, ifMatch: revision!, body });
+    if (!response.etag) throw new Error('Missing revision');
+    revision = response.etag;
   };
-  if (current !== null && current !== profileId) {
-    await adminRequest('/features/assignments', { method: 'DELETE', ifMatch: await revision(), body: { scopeKind: 'user', scopeId: accountId, profileId: current, priority: 100 } });
+  // Validate the replacement before removing existing choices, so a refused
+  // assignment cannot silently discard the user's current policy.
+  if (profileId !== null) {
+    await write('PUT', { scopeKind: 'user', scopeId: target, profileId, priority: 100 });
   }
-  if (profileId !== null && profileId !== current) {
-    await adminRequest('/features/assignments', { method: 'PUT', ifMatch: await revision(), body: { scopeKind: 'user', scopeId: accountId, profileId, priority: 100 } });
+  for (const previous of existing.filter(a => a.profileId !== profileId)) {
+    await write('DELETE', previous);
   }
 }
 

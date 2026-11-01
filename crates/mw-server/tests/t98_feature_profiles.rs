@@ -199,6 +199,79 @@ fn not_refused(status: u16, body: &Value, what: &str) {
     );
 }
 
+#[tokio::test]
+async fn proxy_user_assignment_uses_verified_subject_and_applies_on_the_next_request() {
+    let f = fixture().await;
+    let b = &f.base;
+    let (status, catalogue) = send(f.admin.get(format!("{b}/admin/features"))).await;
+    assert_eq!(status, 200, "{catalogue}");
+    let target = catalogue["userTargets"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|target| target["directoryAccountId"].as_str() == Some(f.account.as_str()))
+        .expect("registered proxy has a verified policy target");
+    let subject = target["accountId"].as_str().unwrap();
+    assert!(subject.starts_with("po1_"));
+    assert_ne!(subject, f.account);
+    assert_ne!(subject, f.authority);
+    let (status, body) = send(f.admin.put(format!("{b}/admin/features/profiles/proxy-restricted"))
+        .header("If-Match", revision(&f.admin, b).await)
+        .json(&json!({"name":"Proxy restricted","values":{"cap.pim.contacts":{"value":false,"locked":true}}}))).await;
+    assert_eq!(status, 200, "{body}");
+    let assignment =
+        json!({"scopeKind":"user","scopeId":subject,"profileId":"proxy-restricted","priority":100});
+    let (status, body) = send(
+        f.admin
+            .put(format!("{b}/admin/features/assignments"))
+            .header("If-Match", revision(&f.admin, b).await)
+            .json(&assignment),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let (_, features) = send(f.user.get(format!("{b}/api/features"))).await;
+    assert_eq!(
+        features["features"]["contacts"]["enabled"], false,
+        "{features}"
+    );
+    let (status, preview) = send(
+        f.admin
+            .get(format!("{b}/admin/features/effective?account={subject}")),
+    )
+    .await;
+    assert_eq!(status, 200, "{preview}");
+    assert_eq!(preview["profiles"], json!(["proxy-restricted"]));
+    let contacts = preview["features"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|feature| feature["id"] == "contacts")
+        .unwrap();
+    assert_eq!(contacts["enabled"], false);
+    let (_, users) = send(f.admin.get(format!("{b}/admin/users/table"))).await;
+    let user = users["rows"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|user| user["accountId"] == f.account)
+        .unwrap();
+    assert_eq!(user["profile"]["id"], "proxy-restricted", "{users}");
+    assert_eq!(user["profile"]["via"], "user");
+    let (status, body) = send(
+        f.admin
+            .delete(format!("{b}/admin/features/assignments"))
+            .header("If-Match", revision(&f.admin, b).await)
+            .json(&assignment),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let (_, features) = send(f.user.get(format!("{b}/api/features"))).await;
+    assert_eq!(
+        features["features"]["contacts"]["enabled"], true,
+        "{features}"
+    );
+}
+
 /// One representative route per gated family: off → `403 feature_disabled`
 /// with the feature id, before anything reaches the mail server; on → allowed.
 #[tokio::test]

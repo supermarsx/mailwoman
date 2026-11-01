@@ -719,6 +719,7 @@ async fn admin_features(
         .map_err(|_| AdminApiError::internal("invalid feature catalogue"))?;
     if !ctx.has_unscoped(Capability::SettingsUserValues) {
         value["nativeTargets"] = json!([]);
+        value["userTargets"] = json!([]);
     }
     value["catalogue"] = json!(catalogue);
     value["integrationPolicyKeys"] = json!(plugin_keys);
@@ -1017,7 +1018,7 @@ struct EffectiveQuery {
     domain: Option<String>,
 }
 
-/// `GET /features/effective?account=<native id>` or `?domain=<name>` — what each
+/// `GET /features/effective?account=<known id>` or `?domain=<name>` — what each
 /// feature resolves to for that user or for a user of that domain, with where
 /// each value came from (`source`, `lockedBy`, and the `profile` that supplied
 /// a profile value). Uses the same resolver as every route guard.
@@ -1027,28 +1028,26 @@ async fn admin_effective(
     axum::extract::Query(q): axum::extract::Query<EffectiveQuery>,
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::SettingsRead)?;
-    let (account_id, address, domain) = match (&q.account, &q.domain) {
+    let (account_id, address, domain, personal_owner) = match (&q.account, &q.domain) {
         (Some(account), None) if !account.is_empty() => {
-            let row = match state.store.get_account(account).await {
-                Ok(row) => row,
-                Err(mw_store::StoreError::NotFound) => {
-                    return Err(AdminApiError::not_found("unknown account"));
-                }
-                Err(e) => return Err(e.into()),
-            };
-            let domain = row
-                .username
-                .rsplit_once('@')
-                .map(|(_, d)| d.to_ascii_lowercase())
-                .unwrap_or_default();
-            (account.clone(), row.username.to_ascii_lowercase(), domain)
+            let snapshot = state.store.feature_governance_snapshot().await?;
+            let row = snapshot
+                .user_targets
+                .into_iter()
+                .find(|target| target.account_id == *account)
+                .ok_or_else(|| AdminApiError::not_found("unknown account"))?;
+            let owner = row
+                .directory_account_id
+                .is_some()
+                .then(|| row.account_id.clone());
+            (account.clone(), row.address, row.domain, owner)
         }
         (None, Some(domain)) if !domain.is_empty() => {
             let domain =
                 mw_store::settings_policy::normalize_policy_domain(domain).map_err(|_| {
                     AdminApiError::invalid("invalidDomain", "invalid domain", "/domain")
                 })?;
-            (String::new(), String::new(), domain)
+            (String::new(), String::new(), domain, None)
         }
         _ => {
             return Err(AdminApiError::invalid(
@@ -1059,7 +1058,7 @@ async fn admin_effective(
         }
     };
     let subject = mw_store::settings_policy::SettingSubject {
-        personal_owner: None,
+        personal_owner: personal_owner.as_deref(),
         domain: &domain,
         account_id: &account_id,
         address: &address,

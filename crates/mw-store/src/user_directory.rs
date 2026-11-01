@@ -280,6 +280,9 @@ impl Store {
                 .entry(key)
                 .or_insert_with(|| (row.get_string("profile_id"), row.get_i64("priority")));
         }
+        for row in q("SELECT t.account_id,t.subject FROM feature_user_subject t JOIN identity_binding b ON b.id=t.binding_id JOIN identity_principal p ON p.id=b.principal_id WHERE b.retired_at IS NULL AND p.state='active' ORDER BY t.account_id,t.subject").fetch_all(&self.backend).await? {
+            facts.profile_subjects.entry(row.get_string("account_id")).or_default().push(row.get_string("subject"));
+        }
         for row in
             q("SELECT m.group_id,m.account_id,g.domain FROM user_group_member m JOIN user_group g ON g.id=m.group_id ORDER BY m.group_id,m.account_id")
                 .fetch_all(&self.backend)
@@ -349,6 +352,8 @@ pub struct UserTableFacts {
     pub admin_roles: std::collections::HashMap<String, String>,
     /// `(scope_kind, scope_id)` → the highest-priority `(profile id, priority)`.
     pub profile_assignments: std::collections::HashMap<(String, String), (String, i64)>,
+    /// Directory id → verified proxy/SSO policy subjects; raw native scopes stay separate.
+    pub profile_subjects: std::collections::HashMap<String, Vec<String>>,
     /// Group id → its applicable canonical domain (empty means any domain).
     pub group_domains: std::collections::HashMap<String, String>,
     /// Account id → the groups it belongs to.

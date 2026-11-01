@@ -1,9 +1,9 @@
 // Where a feature profile applies (t39 N9): domains, groups and users.
 //
-// The server applies the assigned profiles of a native account in priority
+// The server applies the assigned profiles of a mailbox identity in priority
 // order (higher first); at equal priority a user assignment comes before a
-// group, and a group before a domain. A user can only be picked from the native
-// accounts the server knows.
+// group, and a group before a domain. Targets are verified identities the server
+// knows, including native, proxy and SSO accounts.
 
 import { For, Show, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
@@ -35,7 +35,7 @@ export function Assignments(props: AssignmentsProps): JSX.Element {
     const c = props.catalogue;
     if (k === 'domain') return c.domains.map((d) => ({ id: d, label: d }));
     if (k === 'group') return c.groups.map((g) => ({ id: g.id, label: g.domain ? `${g.name} (${g.domain})` : g.name }));
-    return c.nativeTargets.map((u) => ({ id: u.accountId, label: u.address }));
+    return (c.userTargets ?? c.nativeTargets).map((u) => ({ id: u.accountId, label: u.address }));
   };
   const labelOf = (a: ProfileAssignment): string => targets(a.scopeKind).find((x) => x.id === a.scopeId)?.label ?? a.scopeId;
   const kindLabel = (k: ScopeKind): string =>

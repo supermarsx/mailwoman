@@ -161,7 +161,10 @@ admin-userlist-confirm-profile = { $count ->
    *[other] Alterar o perfil de funcionalidades de { $count } utilizadores?
 }
 admin-userlist-confirm-profile-one = Alterar o perfil de funcionalidades de { $account }?
-admin-userlist-confirm-profile-body = O perfil é atribuído diretamente a cada utilizador e aplica-se a partir do pedido seguinte. As contas que não são caixas de correio nativas não podem receber um perfil e são indicadas como falhadas.
+admin-userlist-confirm-profile-body = O perfil é atribuído diretamente a cada utilizador e aplica-se a partir do pedido seguinte. São suportadas identidades de correio nativas, proxy e SSO.
+admin-users-profile-help = Selecione Predefinido para remover a atribuição direta deste utilizador e usar os perfis herdados dos seus grupos ou domínio.
+admin-users-profile-ambiguous = Este utilizador tem várias identidades de início de sessão. Escolha a identidade pretendida em Perfis de funcionalidades.
+admin-users-profile-unavailable = Não está disponível uma identidade de correio verificada. Este utilizador tem de iniciar sessão antes de lhe ser atribuído um perfil.
 admin-userlist-confirm-profile-action = Alterar perfil
 admin-userlist-bulk-done-block = { $count ->
     [one] Bloqueado o início de sessão de { $count } utilizador.

@@ -1,7 +1,7 @@
 ## Admin › Feature profiles (t39 N9)
 
 admin-features-title = Feature profiles
-admin-features-intro = A profile is a named set of feature switches. Assign it to a domain, a group or a user; it then applies to the native accounts there. Accounts signed in through a proxy upstream follow that server's own policy.
+admin-features-intro = A profile is a named set of feature switches. Assign it to a domain, a group or a user. Individual assignments support native mailboxes and verified proxy or SSO identities; they control access to Mailwoman features.
 admin-features-new = New profile
 admin-features-search = Search profiles
 admin-features-empty = No feature profiles yet.
@@ -64,7 +64,7 @@ admin-features-assign = Assign
 admin-features-unassign = Remove
 admin-features-no-domain = No domains are configured.
 admin-features-no-group = No user groups exist.
-admin-features-no-user = No native accounts have signed in yet.
+admin-features-no-user = No mailbox accounts have signed in yet.
 
 ## t98: grouped editor, presets, import and export, effective preview
 admin-features-tools = Profile tools

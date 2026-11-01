@@ -4,7 +4,7 @@
 ## Admin › Perfis de funcionalidades (t39 N9)
 
 admin-features-title = Perfis de funcionalidades
-admin-features-intro = Um perfil é um conjunto com nome de interruptores de funcionalidades. Atribua-o a um domínio, a um grupo ou a um utilizador; passa então a aplicar-se às contas nativas aí. As contas com sessão iniciada através de um servidor upstream em proxy seguem a política desse servidor.
+admin-features-intro = Um perfil é um conjunto com nome de interruptores de funcionalidades. Atribua-o a um domínio, a um grupo ou a um utilizador. As atribuições individuais suportam caixas nativas e identidades proxy ou SSO verificadas e controlam o acesso às funcionalidades do Mailwoman.
 admin-features-new = Novo perfil
 admin-features-search = Pesquisar perfis
 admin-features-empty = Ainda não existem perfis de funcionalidades.
@@ -67,7 +67,7 @@ admin-features-assign = Atribuir
 admin-features-unassign = Remover
 admin-features-no-domain = Não há domínios configurados.
 admin-features-no-group = Não existem grupos de utilizadores.
-admin-features-no-user = Ainda nenhuma conta nativa iniciou sessão.
+admin-features-no-user = Ainda nenhuma conta de correio iniciou sessão.
 
 ## t98: grouped editor, presets, import and export, effective preview
 admin-features-tools = Ferramentas do perfil

@@ -634,11 +634,7 @@ impl Store {
         let subject = &canonical.as_subject();
         let (profiles, groups) = self
             .setting_profile_and_group_ids(
-                if subject.personal_owner.is_some() {
-                    ""
-                } else {
-                    subject.account_id
-                },
+                subject.personal_owner.unwrap_or(subject.account_id),
                 subject.domain,
             )
             .await?;

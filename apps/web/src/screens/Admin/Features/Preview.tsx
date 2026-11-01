@@ -1,4 +1,4 @@
-// Effective-value preview (t98): what every feature resolves to for one native
+// Effective-value preview (t98): what every feature resolves to for one verified
 // user or for a user of one domain, through every assigned profile, group,
 // domain value and lock — the same resolver the server's route guard uses.
 // Renders in place under the editor; changing the subject never leaves the page.
@@ -32,7 +32,8 @@ function sourceText(k: EffectiveKey, catalogue: FeatureCatalogue): string {
 }
 
 export function Preview(props: PreviewProps): JSX.Element {
-  const [kind, setKind] = createSignal<'user' | 'domain'>(props.catalogue.nativeTargets.length > 0 ? 'user' : 'domain');
+  const users = () => props.catalogue.userTargets ?? props.catalogue.nativeTargets;
+  const [kind, setKind] = createSignal<'user' | 'domain'>(users().length > 0 ? 'user' : 'domain');
   const [target, setTarget] = createSignal('');
   const [result, setResult] = createSignal<EffectivePreview>();
   const [error, setError] = createSignal<string>();
@@ -41,7 +42,7 @@ export function Preview(props: PreviewProps): JSX.Element {
 
   const targets = createMemo(() =>
     kind() === 'user'
-      ? props.catalogue.nativeTargets.map((u) => ({ id: u.accountId, label: u.address }))
+      ? users().map((u) => ({ id: u.accountId, label: u.address }))
       : props.catalogue.domains.map((d) => ({ id: d, label: d })),
   );
   const chosen = (): string => target() || targets()[0]?.id || '';

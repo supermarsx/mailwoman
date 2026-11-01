@@ -16,6 +16,8 @@ pub struct NativeFeatureTarget {
     pub account_id: String,
     pub address: String,
     pub domain: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory_account_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -27,6 +29,8 @@ pub struct FeatureSnapshot {
     pub assignments: Vec<ProfileAssignment>,
     pub memberships: BTreeMap<String, Vec<String>>,
     pub native_targets: Vec<NativeFeatureTarget>,
+    /// Known mailbox identities, including proxy and SSO users without a native account.
+    pub user_targets: Vec<NativeFeatureTarget>,
     pub domains: Vec<String>,
     #[serde(skip)]
     aliases: BTreeMap<String, String>,
@@ -143,7 +147,24 @@ async fn snapshot(tx: &mut Tx) -> Result<FeatureSnapshot, StoreError> {
             account_id: row.get_string("id"),
             address,
             domain,
+            directory_account_id: None,
         });
+    }
+    let mut user_targets = BTreeMap::new();
+    // Proxy and SSO targets come only from a durable, verified principal binding.
+    // Raw upstream IDs and directory addresses cannot establish this authority.
+    for row in q("SELECT t.subject,t.account_id,t.address FROM feature_user_subject t JOIN identity_binding b ON b.id=t.binding_id JOIN identity_principal p ON p.id=b.principal_id LEFT JOIN mail_user u ON u.address=t.address WHERE b.retired_at IS NULL AND p.state='active' AND COALESCE(u.status,'active') NOT IN ('deleting','deleted') ORDER BY t.subject").fetch_all_tx(tx).await? {
+        let subject = row.get_string("subject");
+        let address = row.get_string("address");
+        let domain = canonical_domain(address.rsplit_once('@').map(|(_, d)| d).unwrap_or(""), &aliases)?;
+        user_targets.insert(subject.clone(), NativeFeatureTarget {
+            account_id: subject, address, domain, directory_account_id: Some(row.get_string("account_id")),
+        });
+    }
+    for target in &native_targets {
+        user_targets
+            .entry(target.account_id.clone())
+            .or_insert_with(|| target.clone());
     }
     let mut result = FeatureSnapshot {
         revision: String::new(),
@@ -152,6 +173,7 @@ async fn snapshot(tx: &mut Tx) -> Result<FeatureSnapshot, StoreError> {
         assignments,
         memberships,
         native_targets,
+        user_targets: user_targets.into_values().collect(),
         domains,
         aliases,
     };
@@ -348,7 +370,15 @@ fn validate_assignment(
         return Err(FeatureWriteError::Invalid("unknownProfile"));
     }
     match a.scope_kind.as_str() {
-        "user" => validate_member(s, &a.scope_id, "")?,
+        "user" => {
+            if !s
+                .user_targets
+                .iter()
+                .any(|target| target.account_id == a.scope_id)
+            {
+                return Err(FeatureWriteError::Invalid("unknownAccount"));
+            }
+        }
         "group" => {
             if !s.groups.iter().any(|g| g.id == a.scope_id) {
                 return Err(FeatureWriteError::Invalid("unknownGroup"));
@@ -369,6 +399,87 @@ fn validate_assignment(
 mod tests {
     use super::*;
     use crate::ServerKey;
+
+    #[tokio::test]
+    async fn raw_directory_records_do_not_grant_proxy_profile_authority() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut current = store.feature_governance_snapshot().await.unwrap();
+        current = store
+            .mutate_feature_governance(&current.revision, profile("work"), "admin")
+            .await
+            .unwrap();
+        for mode in ["proxy", "sso"] {
+            let address = format!("{mode}@example.test");
+            assert!(
+                store
+                    .register_successful_signin(crate::user_directory::SuccessfulSignin {
+                        account_id: mode,
+                        address: &address,
+                        domain: "example.test",
+                        local_part: mode,
+                        mode,
+                        now: 1,
+                    })
+                    .await
+                    .unwrap()
+            );
+        }
+        let registered = store.feature_governance_snapshot().await.unwrap();
+        assert_eq!(registered.revision, current.revision, "raw directory metadata does not create a verified policy target");
+        assert!(registered.native_targets.is_empty());
+        assert!(
+            registered.user_targets.is_empty(),
+            "directory rows alone are not verified policy subjects"
+        );
+        current = registered;
+        for account in ["proxy", "sso"] {
+            let invalid = store
+                .mutate_feature_governance(
+                    &current.revision,
+                    FeatureMutation::PutAssignment(ProfileAssignment {
+                        scope_kind: "user".into(),
+                        scope_id: account.into(),
+                        profile_id: "work".into(),
+                        priority: 100,
+                    }),
+                    "admin",
+                )
+                .await;
+            assert!(matches!(
+                invalid,
+                Err(FeatureWriteError::Invalid("unknownAccount"))
+            ));
+            // Group membership continues to use its separate native-account contract.
+            assert!(matches!(
+                validate_member(&current, account, ""),
+                Err(FeatureWriteError::Invalid("unknownNativeAccount"))
+            ));
+        }
+        let unknown = store
+            .mutate_feature_governance(
+                &current.revision,
+                FeatureMutation::PutAssignment(ProfileAssignment {
+                    scope_kind: "user".into(),
+                    scope_id: "unverified-upstream-id".into(),
+                    profile_id: "work".into(),
+                    priority: 100,
+                }),
+                "admin",
+            )
+            .await;
+        assert!(matches!(
+            unknown,
+            Err(FeatureWriteError::Invalid("unknownAccount"))
+        ));
+        assert!(
+            store
+                .feature_governance_snapshot()
+                .await
+                .unwrap()
+                .assignments
+                .is_empty()
+        );
+    }
 
     fn profile(id: &str) -> FeatureMutation {
         FeatureMutation::PutProfile(FeatureProfile {
@@ -416,7 +527,7 @@ mod tests {
             .await;
         assert!(matches!(
             invalid,
-            Err(FeatureWriteError::Invalid("unknownNativeAccount"))
+            Err(FeatureWriteError::Invalid("unknownAccount"))
         ));
         let current = store
             .mutate_feature_governance(

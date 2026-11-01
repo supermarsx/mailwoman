@@ -63,8 +63,9 @@ function mockApi(): FeaturesApi & { calls: string[]; state: FeatureCatalogue; st
   return api;
 }
 
-function setup(rest: string[] = []) {
+function setup(rest: string[] = [], data?: FeatureCatalogue) {
   const api = mockApi();
+  if (data) api.state = data;
   const [route, setRoute] = createSignal<AdminRoute>({ section: 'features', rest });
   const navigate = vi.fn((path: string) => {
     const [, ...parts] = path.split('/');
@@ -75,6 +76,18 @@ function setup(rest: string[] = []) {
 }
 
 describe('Admin → Feature profiles', () => {
+  it('offers verified proxy identities even when there are no native accounts', async () => {
+    const data = catalogue();
+    data.nativeTargets = [];
+    data.userTargets = [{ accountId: 'po1_verified', directoryAccountId: 'raw-proxy', address: 'proxy@example.test', domain: 'example.test' }];
+    const { api } = setup(['work'], data);
+    const form = await screen.findByRole('form', { name: 'Assign this profile' });
+    fireEvent.change(within(form).getByRole('combobox', { name: 'Applies to' }), { target: { value: 'user' } });
+    expect(within(form).getByRole('option', { name: 'proxy@example.test' })).toHaveValue('po1_verified');
+    fireEvent.click(within(form).getByRole('button', { name: 'Assign' }));
+    await waitFor(() => expect(api.calls.some(call => call.includes('"scopeId":"po1_verified"'))).toBe(true));
+    expect(await screen.findByText('proxy@example.test', { selector: 'th' })).toBeInTheDocument();
+  });
   it('lists profiles with their switch and assignment counts', async () => {
     const { container } = setup();
     const row = await waitFor(() => {

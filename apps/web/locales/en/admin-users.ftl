@@ -158,7 +158,10 @@ admin-userlist-confirm-profile = { $count ->
    *[other] Change the feature profile of { $count } users?
 }
 admin-userlist-confirm-profile-one = Change the feature profile of { $account }?
-admin-userlist-confirm-profile-body = The profile is assigned to each user directly and applies from their next request. Accounts that are not native mailboxes cannot take a profile and are reported as failed.
+admin-userlist-confirm-profile-body = The profile is assigned to each user directly and applies from their next request. Native, proxy, and SSO mailbox identities are supported.
+admin-users-profile-help = Select Default to remove this user's direct assignment and use the profiles inherited from their groups or domain.
+admin-users-profile-ambiguous = This user has multiple sign-in identities. Choose the intended identity in Feature profiles.
+admin-users-profile-unavailable = No verified mailbox identity is available. This user must sign in before a profile can be assigned.
 admin-userlist-confirm-profile-action = Change profile
 admin-userlist-bulk-done-block = { $count ->
     [one] Blocked login for { $count } user.

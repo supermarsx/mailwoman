@@ -245,6 +245,20 @@ describe('Users table', () => {
     await waitFor(() => expect(a.assignProfile).toHaveBeenCalledWith('alice@example.org', 'p2', 'p1'));
   });
 
+  it('assigns a profile directly from one user row without bulk selection', async () => {
+    const a = actions();
+    render(() => <UsersTable actions={a} />);
+    await screen.findByText('Alice Liddell');
+    fireEvent.click(screen.getByRole('button', { name: 'More actions for alice@example.org' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Assign feature profile' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Guests' }));
+    const confirm = await screen.findByRole('alertdialog');
+    expect(confirm).toHaveTextContent('Change the feature profile of alice@example.org?');
+    fireEvent.click(within(confirm).getByRole('button', { name: 'Change profile' }));
+    await waitFor(() => expect(a.assignProfile).toHaveBeenCalledWith('alice@example.org', 'p2', 'p1'));
+    expect(a.assignProfile).toHaveBeenCalledTimes(1);
+  });
+
   it('hides a column and switches density, remembered per admin', async () => {
     const first = render(() => <UsersTable actions={actions()} />);
     await screen.findByText('Alice Liddell');

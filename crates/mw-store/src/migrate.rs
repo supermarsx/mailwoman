@@ -205,6 +205,19 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "feature_user_subject",
+        select: "SELECT subject,account_id,address,binding_id FROM feature_user_subject",
+        insert: "INSERT INTO feature_user_subject(subject,account_id,address,binding_id) VALUES(?1,?2,?3,?4)",
+        map: |r| {
+            vec![
+                t(r, "subject"),
+                t(r, "account_id"),
+                t(r, "address"),
+                t(r, "binding_id"),
+            ]
+        },
+    },
+    TableSpec {
         name: "settings",
         select: "SELECT key, value FROM settings",
         insert: "INSERT INTO settings (key, value) VALUES (?1, ?2)",
