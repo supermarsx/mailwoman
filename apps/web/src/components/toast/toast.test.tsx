@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen } from '@solidjs/testing-library';
 import axe from 'axe-core';
+import {createEffect, createSignal} from 'solid-js';
 import {
   TOAST_DURATIONS,
   TOAST_LIMIT,
@@ -38,6 +39,32 @@ afterEach(() => {
 });
 
 describe('toast store', () => {
+  it('raises notifications from error effects without subscribing to toast mutations', () => {
+    const [failure, setFailure] = createSignal('');
+    const notified = vi.fn();
+    render(() => {
+      createEffect(() => {
+        const message = failure();
+        if (message) {notified(message); toast.error(message);}
+      });
+      return null;
+    });
+    setFailure('Account request failed');
+    expect(notified).toHaveBeenCalledTimes(1);
+    const errorId = toasts()[0]!.id;
+    toast.info('Another notification');
+    expect(notified).toHaveBeenCalledTimes(1);
+    toast.dismiss(errorId);
+    expect(messages()).toEqual(['Another notification']);
+    expect(notified).toHaveBeenCalledTimes(1);
+    setFailure('A different request failed');
+    expect(notified).toHaveBeenCalledTimes(2);
+    expect(messages()).toEqual(['Another notification', 'A different request failed']);
+    vi.advanceTimersByTime(TOAST_DURATIONS.error);
+    expect(messages()).toEqual([]);
+    expect(notified).toHaveBeenCalledTimes(2);
+  });
+
   it('closes each tone after its own time', () => {
     toast.success('saved');
     toast.info('note');

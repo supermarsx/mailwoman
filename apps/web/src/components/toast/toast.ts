@@ -24,7 +24,7 @@
 // Module state, so a slice can raise a toast without a component in scope;
 // timers are plain `setTimeout`s, which fake timers drive in tests.
 
-import { createSignal, type Accessor } from 'solid-js';
+import { createSignal, untrack, type Accessor } from 'solid-js';
 
 export type ToastTone = 'success' | 'info' | 'warning' | 'error';
 
@@ -128,7 +128,9 @@ function isPausable(id: string): boolean {
 }
 
 function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string {
-  const list = items();
+  // Raising a notification must not subscribe its caller to the toast list.
+  // Resource-error effects would otherwise rerun after their own notification.
+  const list = untrack(items);
   const id =
     opts.id ?? list.find((i) => i.id.startsWith('auto:') && i.tone === tone && i.message === message)?.id ?? `auto:${++seq}`;
   const item: ToastItem = {
