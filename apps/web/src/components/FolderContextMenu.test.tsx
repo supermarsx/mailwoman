@@ -1,7 +1,7 @@
 import {afterEach,expect,it,vi} from 'vitest';
 import {cleanup,fireEvent,render,screen,waitFor} from '@solidjs/testing-library';
 import {FolderContextMenu} from './FolderContextMenu.tsx';
-import {makeClient,MAILBOXES} from './appHarness.tsx';
+import {makeClient,MAILBOXES,mkEmail} from './appHarness.tsx';
 import {createAppState} from '../state/store.ts';
 import {AppContext} from '../state/context.ts';
 import {accountUiPreferences} from '../api/accountPreferences.ts';
@@ -25,4 +25,17 @@ it('offers pin and real folder actions without navigating on open',async()=>{
 it('does not open sharing after a pending selection crosses account authority',async()=>{
  const app=createAppState(makeClient()),share=vi.fn();render(()=><AppContext.Provider value={app}><FolderContextMenu box={MAILBOXES[0]!} onOpen={()=>{}} onSettings={()=>{}} onShare={share} canShare={()=>true} onProbe={()=>{}}><button>Inbox target</button></FolderContextMenu></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});
  let finish!:()=>void;vi.spyOn(app,'selectMailbox').mockImplementation(async()=>await new Promise<void>(resolve=>{finish=resolve;}));fireEvent.contextMenu(screen.getByText('Inbox target'));fireEvent.click(screen.getByRole('menuitem',{name:'Share folder'}));suspendAccountPreferences();finish();await Promise.resolve();expect(share).not.toHaveBeenCalled();
+});
+
+it('highlights the context folder until dismissal without changing the selected folder',async()=>{
+ const app=createAppState(makeClient({emails:[mkEmail('retained-message')]}));
+ render(()=><AppContext.Provider value={app}><FolderContextMenu box={MAILBOXES[1]!} onOpen={()=>{}} onSettings={()=>{}} onShare={()=>{}} canShare={()=>false} onProbe={()=>{}}><button class="sidebar__box">Other folder target</button></FolderContextMenu></AppContext.Provider>);
+ await app.login({username:'me@example.org',password:'p'});
+ const target=screen.getByRole('button',{name:'Other folder target'}),wrapper=target.parentElement!;
+ const selected=app.selectedMailboxId();app.setSelection(['retained-message']);
+ fireEvent.contextMenu(target);
+ expect(wrapper).toHaveAttribute('data-context-open','true');
+ expect(app.selectedMailboxId()).toBe(selected);expect([...app.selectedIds()]).toEqual(['retained-message']);
+ fireEvent.keyDown(screen.getByRole('menu'),{key:'Escape'});
+ expect(wrapper).not.toHaveAttribute('data-context-open');expect(app.selectedMailboxId()).toBe(selected);
 });

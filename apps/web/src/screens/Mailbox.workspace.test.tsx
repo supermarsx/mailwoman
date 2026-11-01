@@ -151,7 +151,7 @@ describe('retained mailbox workspace',()=>{
     fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
     await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
     expect(toggle()).not.toBeInTheDocument();
-    expect(screen.queryByRole('combobox',{name:'Reading pane'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Reading pane'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
     expect(toggle()).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Subject a'}));

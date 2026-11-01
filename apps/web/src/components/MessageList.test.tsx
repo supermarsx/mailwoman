@@ -147,15 +147,15 @@ describe('MessageList (virtualized)', () => {
     await waitFor(() => expect(app.messages().length).toBe(1));
 
     const root = document.documentElement;
-    fireEvent.change(screen.getByRole('combobox',{name:'Reading pane'}),{target:{value:'bottom'}});
+    fireEvent.click(screen.getByRole('button',{name:'Reading pane'}));fireEvent.click(screen.getByRole('menuitemradio',{name:'Bottom'}));
     expect(root.getAttribute('data-reading-pane')).toBe('bottom');
-    expect(screen.getByRole('combobox',{name:'Reading pane'})).toHaveValue('bottom');
+    expect(screen.getByRole('button',{name:'Reading pane'})).toHaveAttribute('title','Reading pane: Bottom');
 
-    fireEvent.change(screen.getByRole('combobox',{name:'Reading pane'}),{target:{value:'off'}});
+    fireEvent.click(screen.getByRole('button',{name:'Reading pane'}));fireEvent.click(screen.getByRole('menuitemradio',{name:'Off'}));
     expect(root.getAttribute('data-reading-pane')).toBe('off');
 
     // Reset to the default so the module singleton doesn't leak into other specs.
-    fireEvent.change(screen.getByRole('combobox',{name:'Reading pane'}),{target:{value:'right'}});
+    fireEvent.click(screen.getByRole('button',{name:'Reading pane'}));fireEvent.click(screen.getByRole('menuitemradio',{name:'Right'}));
     expect(root.getAttribute('data-reading-pane')).toBe('right');
   });
 });

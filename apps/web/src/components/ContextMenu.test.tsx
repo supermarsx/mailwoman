@@ -19,7 +19,7 @@ describe('context menu',()=>{
  });
  it('exposes an on/off action as a menuitemcheckbox with its state, plain actions as menuitems',()=>{
   const [on,setOn]=createSignal(false);render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope:()=> 'a',actions:()=>[{id:'a',label:'Open',icon:'mail',run:()=>{}},{id:'tag',label:'Label: Work',icon:on()?'check':'tag',checked:on(),run:()=>{}}]});return <><button onContextMenu={menu.open}>Target</button>{menu.menu()}</>;});
-  fireEvent.contextMenu(screen.getByText('Target'));expect(screen.getByRole('menuitem',{name:'Open'})).not.toHaveAttribute('aria-checked');const work=screen.getByRole('menuitemcheckbox',{name:'Label: Work'});expect(work).toHaveAttribute('aria-checked','false');setOn(true);expect(work).toHaveAttribute('aria-checked','true');fireEvent.keyDown(screen.getByRole('menuitem',{name:'Open'}),{key:'ArrowDown'});expect(work).toHaveFocus();
+  fireEvent.contextMenu(screen.getByText('Target'));expect(screen.getByRole('menuitem',{name:'Open'})).not.toHaveAttribute('aria-checked');const work=screen.getByRole('menuitemcheckbox',{name:'Label: Work'});expect(work).toHaveAttribute('aria-checked','false');setOn(true);expect(work).toHaveAttribute('aria-checked','true');expect(work.querySelector('[data-icon="check"]')).not.toBeNull();fireEvent.keyDown(screen.getByRole('menuitem',{name:'Open'}),{key:'ArrowDown'});expect(work).toHaveFocus();
  });
  it('clamps menus at narrow viewport edges',()=>{expect(clampMenu(410,790,240,300,420,800)).toEqual({left:172,top:492});expect(clampMenu(-20,-5,900,1000,320,600)).toEqual({left:8,top:8});});
 });
@@ -36,4 +36,17 @@ it('opens a second level by click or arrow, returns focus with Left/Escape, and 
 it('invalidates an open child when its parent becomes disabled',()=>{
  const [disabled,setDisabled]=createSignal(false);const run=vi.fn();render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope:()=> 'a',actions:()=>[{id:'search',label:'Search',icon:'search',disabled:disabled(),run:()=>{},children:[{id:'domain',label:'Domain',icon:'domains',run}]}]});return <><button onContextMenu={menu.open}>Target</button>{menu.menu()}</>;});
  fireEvent.contextMenu(screen.getByText('Target'));fireEvent.click(screen.getByRole('menuitem',{name:'Search'}));setDisabled(true);expect(screen.queryByRole('menuitem',{name:'Domain'})).toBeNull();expect(run).not.toHaveBeenCalled();
+});
+
+it('retains the current option marker while keyboard focus moves to another action',()=>{
+ render(()=>{const menu=createContextMenu({label:()=> 'Choices',scope:()=> 'a',focusCurrent:true,actions:()=>[
+  {id:'current',label:'Selected view',icon:'check',current:true,radio:true,checked:true,run:()=>{}},
+  {id:'other',label:'Another view',icon:'eye',radio:true,checked:false,run:()=>{}}
+ ]});return <><button onClick={event=>menu.openBelow(event.currentTarget)}>View choices</button>{menu.menu()}</>;});
+ fireEvent.click(screen.getByRole('button',{name:'View choices'}));
+ const selected=screen.getByRole('menuitemradio',{name:'Selected view'});
+ expect(selected).toHaveFocus();expect(selected).toHaveAttribute('data-current','true');
+ fireEvent.keyDown(selected,{key:'ArrowDown'});
+ expect(screen.getByRole('menuitemradio',{name:'Another view'})).toHaveFocus();
+ expect(selected).toHaveAttribute('data-current','true');expect(selected).toHaveAttribute('aria-checked','true');
 });
