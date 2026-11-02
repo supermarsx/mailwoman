@@ -74,6 +74,8 @@ mod ui_preferences;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 struct SignatureDto {
+    #[serde(default)]
+    format: Option<String>,
     name: String,
     body: String,
     #[serde(default)]
@@ -170,6 +172,13 @@ async fn signatures_upsert(
         Ok(a) => a,
         Err(r) => return r,
     };
+    if body
+        .format
+        .as_deref()
+        .is_some_and(|format| !matches!(format, "plain" | "rich" | "html"))
+    {
+        return bad_request("signature format must be plain, rich, or html");
+    }
     if body.name.trim().is_empty()
         || body.name.len() > 200
         || body.name.chars().any(char::is_control)
@@ -1198,6 +1207,7 @@ async fn do_delete_identity(store: &Store, account: &str, id: &str) -> Result<bo
 
 fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
     SignatureDto {
+        format: Some(row.effective_format().to_string()),
         html: row.html.clone(),
         text: row.text.clone(),
         text_edited: row.text_edited,
@@ -1214,6 +1224,7 @@ fn signature_to_dto(row: &SignatureRow) -> SignatureDto {
 
 fn signature_from_dto(account: &str, dto: &SignatureDto) -> SignatureRow {
     SignatureRow {
+        format: dto.format.clone(),
         html: dto
             .html
             .as_deref()
@@ -1544,6 +1555,7 @@ mod tests {
             &s,
             "a1",
             &SignatureDto {
+                format: None,
                 html: Some(html),
                 text: Some("Regards".into()),
                 text_edited: true,
@@ -1578,6 +1590,7 @@ mod tests {
             &s,
             "a1",
             &SignatureDto {
+                format: None,
                 html: None,
                 text: None,
                 text_edited: false,
@@ -1593,6 +1606,7 @@ mod tests {
             &s,
             "a1",
             &SignatureDto {
+                format: None,
                 html: None,
                 text: None,
                 text_edited: false,
@@ -1625,6 +1639,7 @@ mod tests {
             &s,
             "a1",
             &SignatureDto {
+                format: None,
                 html: None,
                 text: None,
                 text_edited: false,
@@ -1928,6 +1943,7 @@ mod tests {
     async fn signature_formats_sanitize_html_preserve_plain_and_scope() {
         let store = store().await;
         let dto = SignatureDto {
+            format: None,
             name: "work".into(),
             body: "Legacy plain".into(),
             is_default: false,

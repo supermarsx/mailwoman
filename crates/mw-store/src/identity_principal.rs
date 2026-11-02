@@ -396,6 +396,7 @@ mod tests {
         );
         // Even a legacy raw upstream ID equal to the new typed subject cannot be adopted.
         let signature = crate::SignatureRow {
+            format: None,
             account_id: owner_a.clone(),
             name: "work".into(),
             body: "legacy secret".into(),

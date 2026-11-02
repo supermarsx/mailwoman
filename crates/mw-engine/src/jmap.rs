@@ -3089,6 +3089,7 @@ impl Engine {
             Ok(v) => v,
             Err(e) => return server_fail(&e),
         };
+        let mut signature_formats = std::collections::HashMap::<String, String>::new();
         if rows.iter().any(|row| row.signature_name.is_some()) {
             let owner = match self.store().native_personal_subject(account_id).await {
                 Ok(Some(owner)) => owner,
@@ -3106,6 +3107,10 @@ impl Engine {
                     // The owning account's explicit formats only. A removed
                     // template must not resurrect an old provider signature.
                     let template = templates.iter().find(|template| &template.name == name);
+                    if let Some(template) = template {
+                        signature_formats
+                            .insert(row.id.clone(), template.effective_format().to_string());
+                    }
                     row.signature_text = template.map(|template| {
                         template
                             .text
@@ -3127,7 +3132,13 @@ impl Engine {
         let list: Vec<Value> = rows
             .iter()
             .filter(|r| wanted.as_ref().is_none_or(|ids| ids.contains(&r.id)))
-            .map(identity_json)
+            .map(|row| {
+                let mut value = identity_json(row);
+                if let Some(format) = signature_formats.get(&row.id) {
+                    value["signatureFormat"] = json!(format);
+                }
+                value
+            })
             .collect();
         json!({
             "accountId": account_id,
@@ -5760,6 +5771,7 @@ fn identity_json(row: &IdentityRow) -> Value {
         "organization": row.organization,
         "autoBcc": row.auto_bcc,
         "pgpKeyId": row.pgp_key_id,
+        "signatureFormat": if row.signature_html.as_deref().is_some_and(|html| !html.trim().is_empty()) {"html"} else {"plain"},
         "signatureHtml": row.signature_html,
         "signatureText": row.signature_text,
         "sentMailboxId": row.sent_mailbox_id,

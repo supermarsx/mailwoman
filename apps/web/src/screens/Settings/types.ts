@@ -118,6 +118,8 @@ export interface Signature {
   readonly name: string;
   readonly body: string;
   readonly html?: string | null;
+  /** Authoring format; legacy HTML uses the native HTML editor to preserve layout. */
+  readonly format?: 'plain' | 'rich' | 'html';
   readonly text?: string | null;
   readonly textEdited?: boolean;
   readonly isDefault: boolean;

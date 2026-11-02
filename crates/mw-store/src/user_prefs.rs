@@ -20,12 +20,30 @@ pub struct SignatureRow {
     pub account_id: String,
     pub name: String,
     pub body: String,
+    pub format: Option<String>,
     pub html: Option<String>,
     pub text: Option<String>,
     pub text_edited: bool,
     pub is_default: bool,
     pub rule_json: String,
     pub updated_at: String,
+}
+
+impl SignatureRow {
+    /// Legacy HTML keeps its authored format, avoiding a lossy rich-editor conversion.
+    pub fn effective_format(&self) -> &str {
+        match self.format.as_deref() {
+            Some(format @ ("plain" | "rich" | "html")) => format,
+            _ if self
+                .html
+                .as_deref()
+                .is_some_and(|html| !html.trim().is_empty()) =>
+            {
+                "html"
+            }
+            _ => "plain",
+        }
+    }
 }
 
 /// The per-account notification configuration (0017): a rule set + quiet-hours
@@ -46,11 +64,11 @@ impl Store {
     pub async fn upsert_signature(&self, sig: &SignatureRow) -> Result<(), StoreError> {
         let now = Utc::now().to_rfc3339();
         q(
-            "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+            "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, format)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
              ON CONFLICT(account_id, name) DO UPDATE SET
                  body = excluded.body, is_default = excluded.is_default,
-                 rule_json = excluded.rule_json, updated_at = excluded.updated_at, html = excluded.html, text = excluded.text, text_edited = excluded.text_edited",
+                 rule_json = excluded.rule_json, updated_at = excluded.updated_at, html = excluded.html, text = excluded.text, text_edited = excluded.text_edited, format = excluded.format",
         )
         .bind(&sig.account_id)
         .bind(&sig.name)
@@ -61,6 +79,7 @@ impl Store {
         .bind(sig.html.as_deref())
         .bind(sig.text.as_deref())
         .bind(i64::from(sig.text_edited))
+        .bind(sig.format.as_deref())
         .execute(&self.backend)
         .await?;
         Ok(())
@@ -69,7 +88,7 @@ impl Store {
     /// A user's signature templates (name-ordered).
     pub async fn list_signatures(&self, account_id: &str) -> Result<Vec<SignatureRow>, StoreError> {
         let rows = q(
-            "SELECT account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited
+            "SELECT account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, format
                       FROM signatures WHERE account_id = ?1 ORDER BY name",
         )
         .bind(account_id)
@@ -129,6 +148,7 @@ impl Store {
 
 fn signature_from_row(r: &crate::backend::Row) -> SignatureRow {
     SignatureRow {
+        format: r.get_opt_string("format"),
         account_id: r.get_string("account_id"),
         name: r.get_string("name"),
         body: r.get_string("body"),
@@ -163,6 +183,7 @@ mod tests {
     async fn assert_signature_formats(store: &Store) {
         let owner = format!("signature-{}", crate::seal::random_token());
         let row = SignatureRow {
+            format: None,
             account_id: owner.clone(),
             name: "work".into(),
             body: "legacy".into(),
@@ -214,6 +235,7 @@ mod tests {
         assert!(s.list_signatures("a1").await.unwrap().is_empty());
 
         s.upsert_signature(&SignatureRow {
+            format: None,
             html: None,
             text: None,
             text_edited: false,
@@ -227,6 +249,7 @@ mod tests {
         .await
         .unwrap();
         s.upsert_signature(&SignatureRow {
+            format: None,
             html: None,
             text: None,
             text_edited: false,
@@ -248,6 +271,7 @@ mod tests {
 
         // Upsert updates in place.
         s.upsert_signature(&SignatureRow {
+            format: None,
             html: None,
             text: None,
             text_edited: false,

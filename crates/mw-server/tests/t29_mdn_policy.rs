@@ -1227,3 +1227,80 @@ async fn signature_formats_http_sanitizes_and_fences_account_switch() {
         assert_eq!(row["text"], "Independent <plain> & text");
     }
 }
+
+#[tokio::test]
+async fn signature_editing_formats_round_trip_and_reject_unknown_modes() {
+    let _guard = serial().await;
+    let imap = MockImap::start(ENGINE_USER, ENGINE_PASS).await;
+    let server = spawn(ServerMode::Engine, imap.url()).await;
+    let client = browser();
+    let _account = engine_login(&client, &server.base, &imap).await;
+    let authority = storage_authority(&client, &server.base).await;
+    let url = format!("{}/api/account/signatures", server.base);
+    for format in ["plain", "rich", "html"] {
+        let html = if format == "plain" {
+            Value::Null
+        } else {
+            json!(
+                "<table style=\"color: #123456\"><tbody><tr><td onclick=evil()>Source<script>evil()</script><img src=\"https://tracker.invalid/pixel\"></td></tr></tbody></table>"
+            )
+        };
+        let response=client.post(&url).header(common::auth::STORAGE_AUTHORITY_HEADER,&authority).json(&json!({"name":format,"format":format,"body":"Plain","html":html,"text":"Independent plain","textEdited":true,"isDefault":false})).send().await.unwrap();
+        assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+    }
+    for (name, html) in [
+        ("legacy-html", json!("<div>Legacy source</div>")),
+        ("legacy-plain", Value::Null),
+    ] {
+        let response = client
+            .post(&url)
+            .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+            .json(&json!({"name":name,"body":"Legacy","html":html,"isDefault":false}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+    }
+    let response = client
+        .post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"name":"invalid","format":"markdown","body":"bad","isDefault":false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 400);
+    let response: Value = client.get(&url).send().await.unwrap().json().await.unwrap();
+    let rows = response["signatures"].as_array().unwrap();
+    assert_eq!(rows.len(), 5, "invalid mode is not persisted");
+    for format in ["plain", "rich", "html"] {
+        let row = rows.iter().find(|row| row["name"] == format).unwrap();
+        assert_eq!(row["format"], format);
+        assert_eq!(row["text"], "Independent plain");
+        if format != "plain" {
+            let html = row["html"].as_str().unwrap();
+            assert!(
+                html.contains("<table") && html.contains("#123456"),
+                "{html}"
+            );
+            assert!(
+                !html.contains("script")
+                    && !html.contains("onclick")
+                    && !html.contains("src=\"https://tracker.invalid")
+                    && !html.contains("src=https://tracker.invalid"),
+                "{html}"
+            );
+        }
+    }
+    assert_eq!(
+        rows.iter()
+            .find(|row| row["name"] == "legacy-html")
+            .unwrap()["format"],
+        "html"
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|row| row["name"] == "legacy-plain")
+            .unwrap()["format"],
+        "plain"
+    );
+}

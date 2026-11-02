@@ -115,6 +115,7 @@ async fn personal_documents_are_realm_bound_and_legacy_values_remain_inert() {
         sessions.push(id);
     }
     let legacy_signature = mw_store::SignatureRow {
+        format: None,
         account_id: "1".into(),
         name: "legacy".into(),
         body: "private legacy signature".into(),

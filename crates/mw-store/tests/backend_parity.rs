@@ -660,6 +660,7 @@ async fn run_ops(s: &Store) -> Vec<String> {
     ));
 
     s.upsert_signature(&SignatureRow {
+        format: None,
         html: Some("<p>Rich signature</p>".into()),
         text: Some("Independent plain signature".into()),
         text_edited: true,

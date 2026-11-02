@@ -1166,6 +1166,7 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
         .unwrap()
         .unwrap();
     let mut template = mw_store::SignatureRow {
+        format: None,
         html: None,
         text: None,
         text_edited: false,
@@ -1188,6 +1189,10 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
         "Literal <team> & me"
     );
     assert!(result(&response, "get")["list"][0]["signatureHtml"].is_null());
+    assert_eq!(
+        result(&response, "get")["list"][0]["signatureFormat"],
+        "plain"
+    );
     template.body = "Updated template".into();
     h.engine
         .store()
@@ -1208,6 +1213,10 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
         .unwrap();
     let response = jmap(&h, get()).await;
     let published = &result(&response, "get")["list"][0];
+    assert_eq!(
+        published["signatureFormat"], "html",
+        "legacy HTML is source-preserving"
+    );
     assert_eq!(published["signatureText"], "Independent plain signature");
     let html = published["signatureHtml"].as_str().unwrap();
     assert!(html.contains("<strong>signature</strong>"));
@@ -1215,6 +1224,16 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
         !html.contains("onclick")
             && !html.contains("<script")
             && !html.contains("src=\"https://tracker")
+    );
+    template.format = Some("rich".into());
+    h.engine
+        .store()
+        .upsert_personal_signature(&template)
+        .await
+        .unwrap();
+    assert_eq!(
+        result(&jmap(&h, get()).await, "get")["list"][0]["signatureFormat"],
+        "rich"
     );
     h.engine
         .store()

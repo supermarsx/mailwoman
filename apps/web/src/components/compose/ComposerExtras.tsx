@@ -21,6 +21,7 @@ export interface ComposeSignature {
   name: string;
   text: string;
   html: string | null;
+  format?: 'plain'|'rich'|'html';
 }
 
 export function SignaturePicker(props: {

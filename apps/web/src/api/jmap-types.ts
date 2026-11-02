@@ -378,6 +378,7 @@ export interface Identity {
   pgpKeyId?: string | null;
   signatureHtml: string | null;
   signatureText: string | null;
+  signatureFormat?: 'plain'|'rich'|'html';
   sentMailboxId: Id | null;
 }
 export interface IdentityGetResponse {

@@ -594,8 +594,8 @@ const TABLES: &[TableSpec] = &[
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.
         // 0033 (26.20): the HTML/text pair, the edited flag and the images.
-        select: "SELECT owner_subject, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json FROM personal_signature",
-        insert: "INSERT INTO personal_signature (owner_subject, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        select: "SELECT owner_subject, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json, format FROM personal_signature",
+        insert: "INSERT INTO personal_signature (owner_subject, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json, format) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         map: |r| {
             vec![
                 t(r, "owner_subject"),
@@ -608,6 +608,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "text"),
                 i(r, "text_edited"),
                 t(r, "images_json"),
+                ot(r, "format"),
             ]
         },
     },
@@ -616,8 +617,8 @@ const TABLES: &[TableSpec] = &[
         // User-authored content. The `identities.signature_*` columns beside it were
         // always copied, so leaving these behind lost half of one feature.
         // 0033 (26.20): the HTML/text pair, the edited flag and the images.
-        select: "SELECT account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json FROM signatures",
-        insert: "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        select: "SELECT account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json, format FROM signatures",
+        insert: "INSERT INTO signatures (account_id, name, body, is_default, rule_json, updated_at, html, text, text_edited, images_json, format) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
         map: |r| {
             vec![
                 t(r, "account_id"),
@@ -630,6 +631,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "text"),
                 i(r, "text_edited"),
                 t(r, "images_json"),
+                ot(r, "format"),
             ]
         },
     },

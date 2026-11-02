@@ -17,8 +17,8 @@ impl Store {
             q("UPDATE personal_signature SET is_default=0 WHERE owner_subject=?1 AND is_default<>0 AND name<>?2")
                 .bind(&row.account_id).bind(&row.name).execute_tx(&mut tx).await?;
         }
-        q("INSERT INTO personal_signature(owner_subject,name,body,is_default,rule_json,updated_at,html,text,text_edited) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9) ON CONFLICT(owner_subject,name) DO UPDATE SET body=excluded.body,is_default=excluded.is_default,rule_json=excluded.rule_json,updated_at=excluded.updated_at,html=excluded.html,text=excluded.text,text_edited=excluded.text_edited")
-            .bind(&row.account_id).bind(&row.name).bind(&row.body).bind(i64::from(row.is_default)).bind(&row.rule_json).bind(chrono::Utc::now().to_rfc3339()).bind(row.html.as_deref()).bind(row.text.as_deref()).bind(i64::from(row.text_edited)).execute_tx(&mut tx).await?;
+        q("INSERT INTO personal_signature(owner_subject,name,body,is_default,rule_json,updated_at,html,text,text_edited,format) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10) ON CONFLICT(owner_subject,name) DO UPDATE SET body=excluded.body,is_default=excluded.is_default,rule_json=excluded.rule_json,updated_at=excluded.updated_at,html=excluded.html,text=excluded.text,text_edited=excluded.text_edited,format=excluded.format")
+            .bind(&row.account_id).bind(&row.name).bind(&row.body).bind(i64::from(row.is_default)).bind(&row.rule_json).bind(chrono::Utc::now().to_rfc3339()).bind(row.html.as_deref()).bind(row.text.as_deref()).bind(i64::from(row.text_edited)).bind(row.format.as_deref()).execute_tx(&mut tx).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -26,7 +26,8 @@ impl Store {
         &self,
         owner: &str,
     ) -> Result<Vec<SignatureRow>, StoreError> {
-        Ok(q("SELECT owner_subject,name,body,is_default,rule_json,updated_at,html,text,text_edited FROM personal_signature WHERE owner_subject=?1 ORDER BY name").bind(owner).fetch_all(&self.backend).await?.iter().map(|row| SignatureRow {
+        Ok(q("SELECT owner_subject,name,body,is_default,rule_json,updated_at,html,text,text_edited,format FROM personal_signature WHERE owner_subject=?1 ORDER BY name").bind(owner).fetch_all(&self.backend).await?.iter().map(|row| SignatureRow {
+            format: row.get_opt_string("format"),
             account_id:row.get_string("owner_subject"),name:row.get_string("name"),body:row.get_string("body"),is_default:row.get_i64("is_default")!=0,rule_json:row.get_string("rule_json"),updated_at:row.get_string("updated_at"),html:row.get_opt_string("html"),text:row.get_opt_string("text"),text_edited:row.get_i64("text_edited")!=0,
         }).collect())
     }
@@ -91,6 +92,7 @@ mod signature_default_tests {
     use super::*;
     fn signature(owner: &str, name: &str, is_default: bool) -> SignatureRow {
         SignatureRow {
+            format: None,
             account_id: owner.into(),
             name: name.into(),
             body: format!("body {name}"),

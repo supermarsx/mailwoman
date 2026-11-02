@@ -103,6 +103,7 @@ async fn populated_copy(destination: Store, key: ServerKey) {
         .unwrap();
     source
         .upsert_personal_signature(&mw_store::SignatureRow {
+            format: Some("html".into()),
             account_id: owner.clone(),
             name: "copy".into(),
             body: "plain".into(),
@@ -125,10 +126,37 @@ async fn populated_copy(destination: Store, key: ServerKey) {
         })
         .await
         .unwrap();
+    source
+        .upsert_signature(&mw_store::SignatureRow {
+            account_id: "legacy-owner".into(),
+            name: "legacy-rich".into(),
+            body: "Legacy".into(),
+            format: Some("rich".into()),
+            html: Some("<b>Rich</b>".into()),
+            text: None,
+            text_edited: false,
+            is_default: false,
+            rule_json: String::new(),
+            updated_at: String::new(),
+        })
+        .await
+        .unwrap();
     let report = destination
         .migrate_from_sqlite(path.to_str().unwrap())
         .await
         .unwrap();
+    assert_eq!(
+        destination.list_personal_signatures(&owner).await.unwrap()[0]
+            .format
+            .as_deref(),
+        Some("html")
+    );
+    assert_eq!(
+        destination.list_signatures("legacy-owner").await.unwrap()[0]
+            .format
+            .as_deref(),
+        Some("rich")
+    );
     for (table, count) in [
         ("identity_principal", 3),
         ("identity_binding", 3),
