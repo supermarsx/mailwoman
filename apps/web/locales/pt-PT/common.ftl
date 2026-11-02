@@ -164,6 +164,12 @@ common-attach-cancel-search = Cancelar pesquisa
 multiselect-selected = Selecionados: { $label }
 multiselect-remove = Remover { $label }
 multiselect-no-match = Nenhuma opção corresponde
+common-notification-permission-title = Permitir notificações?
+common-notification-permission-help = Receba avisos de novas mensagens neste dispositivo. Pode alterar esta opção nas Definições.
+common-notification-permission-allow = Permitir notificações
+common-notification-permission-later = Agora não
+common-notification-permission-error = Não foi possível ativar as notificações. Verifique a permissão e as definições e tente novamente.
+common-notifications-enabled = Notificações ativadas neste dispositivo.
 multiselect-count = { $count ->
     [one] 1 selecionado
    *[other] { $count } selecionados

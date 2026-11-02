@@ -129,13 +129,20 @@ fn the_registry_keys_are_user_overridable_and_store_only_canonical_entries() {
 }
 
 #[test]
-fn exact_sender_entries_are_validated() {
+fn exact_sender_entries_and_notification_prompt_defaults_are_validated() {
     let sender = settings_registry::lookup("links.trustedSenders").unwrap();
-    for def in [sender] {
+    let prompt = settings_registry::lookup("notifications.askPermission").unwrap();
+    for def in [sender, prompt] {
         assert_eq!(def.scopes, Scopes::GlobalDomainUser);
         assert!(def.user_override);
     }
     assert_eq!(sender.default, "[]");
+    assert_eq!(prompt.default, "true");
+    assert_eq!(
+        settings_registry::validate(prompt, &json!(false), "value").unwrap(),
+        json!(false)
+    );
+    assert!(settings_registry::validate(prompt, &json!("false"), "value").is_err());
     let vectors: Value = serde_json::from_str(include_str!(
         "../../../apps/web/src/viewers/trustedLinkSenders.vectors.json"
     ))
@@ -382,14 +389,17 @@ async fn an_admin_default_and_lock_govern_the_users_trusted_link_domains() {
 }
 
 #[tokio::test]
-async fn sender_trust_revocation_feature_gate_respects_admin_locks() {
+async fn sender_trust_revocation_feature_gate_and_notification_prompt_respect_admin_locks() {
     let base = &server().await;
     let a = admin(base).await;
     let u = user(base).await;
     let senders = "links.trustedSenders";
+    let prompt = "notifications.askPermission";
     assert_eq!(entry(&u, base, senders).await["value"], json!([]));
+    assert_eq!(entry(&u, base, prompt).await["value"], true);
     for (key, value) in [
         (senders, json!(["Alice+news@example.test"])),
+        (prompt, json!(false)),
     ] {
         let (status, body) = send(
             u.put(format!("{base}/api/settings/{key}"))
@@ -419,6 +429,7 @@ async fn sender_trust_revocation_feature_gate_respects_admin_locks() {
     assert_eq!(body["field"], "/value/1");
     for (key, value) in [
         (senders, json!(["boss@corp.example"])),
+        (prompt, json!(false)),
     ] {
         let (status, body) = send(
             a.put(format!("{base}/admin/settings/{key}"))
@@ -431,7 +442,7 @@ async fn sender_trust_revocation_feature_gate_respects_admin_locks() {
         assert_eq!(effective["locked"], true);
         let (status, body) = send(
             u.put(format!("{base}/api/settings/{key}"))
-                .json(&json!({"value":json!([])})),
+                .json(&json!({"value":if key==prompt {json!(true)} else {json!([])}})),
         )
         .await;
         assert_eq!(status, 403, "{body}");

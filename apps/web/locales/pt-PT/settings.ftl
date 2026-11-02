@@ -319,6 +319,8 @@ settings-kbd-action-openInTab = Abrir a mensagem no seu próprio separador
 
 settings-notif-device-title = Permissão neste dispositivo
 settings-notif-device-help = As suas preferências de notificação acompanham a sua conta. A permissão do navegador pertence a este dispositivo; o Mailwoman só a pede quando opta por permiti-la.
+settings-notif-ask-permission = Propor a permissão de notificações em novos dispositivos
+settings-notif-ask-permission-help = Mostrar um pedido quando este dispositivo ainda não permitiu nem bloqueou notificações. Ativo por predefinição; esta preferência é guardada imediatamente.
 settings-notif-permission-default = A permissão do navegador ainda não foi pedida.
 settings-notif-permission-granted = As notificações do navegador estão permitidas neste dispositivo.
 settings-notif-permission-denied = As notificações estão bloqueadas. Altere a permissão deste site nas definições do navegador para as permitir.

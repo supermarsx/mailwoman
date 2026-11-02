@@ -2121,6 +2121,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "explicit browser persistent-storage permission request"
     ),
     def!(
+        "notifications.askPermission",
+        Kind::Bool,
+        "true",
+        GDU,
+        "notifications",
+        "offer the browser notification permission request to the user"
+    ),
+    def!(
         "notifications.enabled",
         Kind::Bool,
         "false",

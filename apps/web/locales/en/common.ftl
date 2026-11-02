@@ -177,6 +177,12 @@ common-attach-cancel-search = Cancel search
 multiselect-selected = Selected: { $label }
 multiselect-remove = Remove { $label }
 multiselect-no-match = No matching options
+common-notification-permission-title = Allow notifications?
+common-notification-permission-help = Get notified about new messages on this device. You can change this in Settings.
+common-notification-permission-allow = Allow notifications
+common-notification-permission-later = Not now
+common-notification-permission-error = Notifications could not be enabled. Check permission and notification settings, then try again.
+common-notifications-enabled = Notifications enabled on this device.
 multiselect-count = { $count ->
     [one] 1 selected
    *[other] { $count } selected

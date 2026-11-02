@@ -39,6 +39,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   // An administrator can hold notifications on or off (`notifications.enabled`,
   // t32 settings model C); the server refuses a held change, so offer none.
   const enabledHold = useSetting('notifications.enabled', false);
+  const askPermission = useSetting('notifications.askPermission', true);
 
   const [loaded] = createResource<NotificationConfig>(() => service.notifications());
   // Working copy; hydrated from the resource once it settles (exactly once).
@@ -50,7 +51,7 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
   const [permission, setPermission] = createSignal<NotificationPermission | 'unsupported'>(typeof Notification === 'undefined' ? 'unsupported' : Notification.permission);
   async function requestNotifications(): Promise<void> {
     if (!hydrated() || !view().enabled || typeof Notification === 'undefined') return;
-    try { setPermission(await Notification.requestPermission()); }
+    try { const result=await Notification.requestPermission();if(owner!==preferenceAccount())return;setPermission(result);if(result==='granted')window.dispatchEvent(new Event('mw:notifications-changed')); }
     catch { setError(t('settings-notif-permission-error')); }
   }
 
@@ -133,6 +134,10 @@ function OwnedNotifications(props: NotificationsProps): JSX.Element {
       <fieldset class={css.group} disabled={locked()}>
         <h3 class={css.subheading}>{t('settings-notif-device-title')}</h3>
         <p class={css.prose}>{t('settings-notif-device-help')}</p>
+        <label class={css.check}><input class={css.checkbox} type="checkbox" checked={askPermission.value()} disabled={!askPermission.entry()||askPermission.locked()||askPermission.saving()} aria-describedby="settings-notif-ask-help settings-notif-ask-lock" onChange={event=>void askPermission.set(event.currentTarget.checked)}/><span>{t('settings-notif-ask-permission')}</span></label>
+        <p id="settings-notif-ask-help" class={css.meta}>{t('settings-notif-ask-permission-help')}</p>
+        <LockNote id="settings-notif-ask-lock" locked={askPermission.locked()}/>
+        <Show when={askPermission.error()}><p role="alert">{askPermission.error()}</p></Show>
         <p role="status">{t(`settings-notif-permission-${permission()}`)}</p>
         <Show when={permission() === 'default'}>
           <div class={css.actions}>

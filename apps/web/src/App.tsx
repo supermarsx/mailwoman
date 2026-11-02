@@ -22,6 +22,7 @@ import { startAnalytics } from './api/startAnalytics.ts';
 import { observePreferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './api/accountPreferenceLifecycle.ts';
 import { SettingsService } from './screens/Settings/service.ts';
 import { shouldNotify } from './api/notificationPolicy.ts';
+import {NotificationPermissionPrompt} from './components/NotificationPermissionPrompt.tsx';
 import { releaseBootSplash, rememberBootGeometry, rememberBootSession } from './shell/bootSplash.ts';
 
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
@@ -207,15 +208,24 @@ export function App(): JSX.Element {
   });
 
   const [notificationAccount, setNotificationAccount] = createSignal<PreferenceAccount | null>(null);
-  onMount(() => { onCleanup(observePreferenceAccount(setNotificationAccount)); });
+  const [notificationRevision,setNotificationRevision]=createSignal(0);
+  let knownUnread: Set<string> | null = null;
+  let knownNotificationAccount: PreferenceAccount | null = null;
+  onMount(() => {
+    onCleanup(observePreferenceAccount(setNotificationAccount));
+    // Permission is a browser property, not a signal. Seed the current list
+    // after enabling it so the next arriving message can actually notify.
+    const changed=():void=>{knownUnread=null;setNotificationRevision(value=>value+1);};
+    window.addEventListener('mw:notifications-changed',changed);
+    onCleanup(()=>window.removeEventListener('mw:notifications-changed',changed));
+  });
 
   // V5 native new-mail notification + unread badge (plan §3 e6), fed by the live
   // message list (which the realtime StateChange refetch updates). Gated so the
   // browser path is byte-identical; notifications only fire while the tab is
   // hidden, and the first run just seeds the baseline (no notification storm).
-  let knownUnread: Set<string> | null = null;
-  let knownNotificationAccount: PreferenceAccount | null = null;
   createEffect(() => {
+    notificationRevision();
     const messages = app.messages();
     const account = notificationAccount();
     if (account !== knownNotificationAccount) {
@@ -310,6 +320,7 @@ export function App(): JSX.Element {
                   when no plugin is approved — so its failure must stay contained
                   and must not take the mailbox down with it. */}
               <LazyRoute load={loadUiPluginTier} failSoft />
+              <NotificationPermissionPrompt />
             </>
           </Match>
         </Switch>
