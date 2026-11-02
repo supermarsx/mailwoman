@@ -174,7 +174,10 @@ describe('Reader: Reply, Reply all, Forward', () => {
     const buttons = within(screen.getByRole('toolbar', { name: 'Message actions' })).getAllByRole('button');
     expect(buttons.slice(0, 3).map((b) => b.textContent)).toEqual(['Reply', 'Reply all', 'Forward']);
     expect(buttons.slice(0, 3).every((b) => b.tabIndex === 0 && !(b as HTMLButtonElement).disabled)).toBe(true);
-    expect(screen.getByText(/^Cc: /)).toHaveTextContent('carol@example.org, alias@corp.example');
+    const cc = screen.getByText('Cc', { selector: '.reader__address-label' }).closest<HTMLElement>('.reader__address-line')!;
+    const addresses = within(cc).getAllByRole('button');
+    expect(addresses.map(button => button.getAttribute('title'))).toEqual(['carol@example.org', 'alias@corp.example']);
+    expect(addresses.every(button => button.getAttribute('aria-haspopup') === 'dialog' && button.tabIndex === 0)).toBe(true);
   });
 
   it('offers quick reply only after opt-in and preserves the standard reply metadata', async () => {

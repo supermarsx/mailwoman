@@ -805,6 +805,48 @@ async fn reader_bridge_has_one_independent_policy_while_shell_stays_restricted()
     assert!(compatible_csp.contains("img-src 'self' data: blob:;"));
     assert!(!compatible_csp.contains("https:"));
     assert!(compatible_csp.contains("frame-ancestors 'self'"));
+    for origin in [
+        "http://tauri.localhost",
+        "https://tauri.localhost",
+        "tauri://localhost",
+    ] {
+        let native = f
+            .anon
+            .get(format!("{}/api/rc/frame", f.base))
+            .query(&[("parentOrigin", origin), ("coep", "require-corp")])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(native.status(), 200, "{origin}");
+        let policy = native.headers()["content-security-policy"]
+            .to_str()
+            .unwrap();
+        assert!(policy.contains(&format!("frame-ancestors {origin};")));
+        assert!(policy.contains("img-src 'self' data: blob:;"));
+        assert!(!policy.contains("'unsafe-inline' 'unsafe-eval'"));
+        let html = native.text().await.unwrap();
+        assert!(html.contains(&format!(
+            "const expectedOrigin = {}",
+            serde_json::to_string(origin).unwrap()
+        )));
+    }
+    for origin in [
+        "null",
+        "*",
+        "https://unknown.example",
+        "https://tauri.localhost/",
+        "https://tauri.localhost?x=1",
+        "https://tauri.localhost;script-src *",
+    ] {
+        let refused = f
+            .anon
+            .get(format!("{}/api/rc/frame", f.base))
+            .query(&[("parentOrigin", origin)])
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(refused.status(), 403, "{origin}");
+    }
     let response = f
         .anon
         .get(format!("{}/api/rc/frame", f.base))

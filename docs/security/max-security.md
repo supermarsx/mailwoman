@@ -12,9 +12,20 @@ message is stripped before it is rendered:
 3. **full-sanitized** — the normal V2 reading experience: sanitized HTML in the
    sandboxed iframe.
 
-All three render inside the existing V2 viewer sandbox (`sandbox=""`, no
-`allow-scripts`, no `allow-same-origin`). The switch changes the CSP the iframe is
-given and the sanitize mode; it never grants the message more capability.
+All three render inside an opaque-origin message sandbox. The trusted outer
+reader and its inner message frame use `allow-scripts` without
+`allow-same-origin`; their CSP permits only the exact hashes of the fixed reader
+bridge and address-context handler. Sender scripts and event attributes are
+removed, and arbitrary scripts remain blocked. The opening mode changes media
+policy and sanitization without granting sender code execution.
+
+The fixed inner handler recognizes a real right-click on a mail address and
+reports only the address and pointer coordinates through a per-document
+MessageChannel. The outer bridge and app validate source, token, document
+revision and coordinates before opening the app's contact menu. Link consent
+still controls navigation independently; an inert email link can open contact
+details without enabling message links. The application shell's script policy
+is unchanged.
 
 ## Attachments
 
@@ -28,7 +39,8 @@ preview), never the original bytes.
 > requirement, not a description. Nothing here is bypassing a check — the check
 > does not exist. Do not rely on the reduced modes to keep original attachment
 > bytes away from the client until this is closed; the rendering restrictions
-> above (`sandbox=""`, no scripts, tightened CSP, sanitize mode) do hold.
+> above (opaque origins, fixed hash-authorized handlers, tightened CSP and
+> sanitize mode) do hold.
 
 ## Policy precedence
 

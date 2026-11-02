@@ -94,3 +94,19 @@ it('passes explicit consent to the authenticated bridge and permits only popup n
  view.unmount();render(()=><DirectReaderFrame html="<p>Other message</p>" title="No consent"/>);
  expect(screen.getByTitle('No consent')).toHaveAttribute('sandbox','allow-scripts');
 });
+
+it('accepts address context only for the current authenticated body and validates coordinates/mailbox before translating zoom',()=>{
+ const opened=vi.fn();const [key,setKey]=createSignal('one');
+ render(()=><DirectReaderFrame html="<p>Address</p>" documentKey={key()} title="Address" onAddressContext={opened}/>);
+ const frame=screen.getByTitle('Address') as HTMLIFrameElement;
+ vi.spyOn(frame,'getBoundingClientRect').mockReturnValue({left:10,top:20,width:400,height:300} as DOMRect);
+ Object.defineProperties(frame,{clientWidth:{value:200},clientHeight:{value:150}});
+ const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
+ const send=(data:unknown,origin='null',source:MessageEventSource|null=frame.contentWindow):void=>{fireEvent(window,new MessageEvent('message',{source,origin,data}));};
+ send({type:'mw-reader-ready',token});
+ const data={type:'mw-reader-address-context',token,revision:1,address:'Case@EXAMPLE.ORG',x:20,y:30};
+ send(data,'https://mail.example');send(data,'null',window);send({...data,token:'bad'});send({...data,address:'x@example.org,y@example.org'});send({...data,x:201});expect(opened).not.toHaveBeenCalled();
+ send(data);expect(opened).toHaveBeenCalledWith({address:'Case@example.org',x:50,y:80,ownerDocument:document,trigger:frame});
+ setKey('two');send(data);expect(opened).toHaveBeenCalledTimes(1);
+ frame.setAttribute('inert','');send({...data,revision:2});expect(opened).toHaveBeenCalledTimes(1);
+});

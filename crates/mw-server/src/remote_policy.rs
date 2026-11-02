@@ -223,14 +223,76 @@ pub(crate) struct ReaderFrameResponse {
 #[derive(Default, Deserialize)]
 pub(crate) struct ReaderFrameQuery {
     coep: Option<String>,
+    #[serde(rename = "parentOrigin")]
+    parent_origin: Option<String>,
 }
 
-pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
+fn reader_parent_origin(config: &crate::push_relay::NativeAuthConfig, value: &str) -> bool {
+    if value.is_empty()
+        || value == "null"
+        || value.chars().any(|c| {
+            c.is_whitespace()
+                || c.is_control()
+                || matches!(c, '*' | '\'' | '"' | ';' | '<' | '>' | '\\')
+        })
+        || !config.allows(value)
+    {
+        return false;
+    }
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    if url.host_str().is_none()
+        || !url.username().is_empty()
+        || url.password().is_some()
+        || url.query().is_some()
+        || url.fragment().is_some()
+        || !matches!(url.path(), "" | "/")
+    {
+        return false;
+    }
+    // Accept canonical origins only, including configured non-special shell
+    // schemes whose URL.origin() is opaque. No CSP source grammar is accepted.
+    url.as_str().trim_end_matches('/') == value && !value.ends_with('/')
+}
+
+pub(crate) async fn frame(
+    State(state): State<AppState>,
+    Query(query): Query<ReaderFrameQuery>,
+) -> Response {
     use base64::Engine as _;
     use sha2::Digest;
-    let script = include_str!("remote-frame.js")
+    let parent_origin = match query.parent_origin.as_deref() {
+        Some(origin) if reader_parent_origin(&state.native_auth, origin) => Some(origin),
+        Some(_) => {
+            return (
+                axum::http::StatusCode::FORBIDDEN,
+                "reader parent origin refused",
+            )
+                .into_response();
+        }
+        None => None,
+    };
+    let handler = include_str!("reader-address-handler.js")
         .replace("\r\n", "\n")
         .replace('\r', "\n");
+    let handler_hash =
+        base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(handler.as_bytes()));
+    let script = include_str!("remote-frame.js")
+        .replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .replace(
+            "__MW_PARENT_ORIGIN__",
+            &serde_json::to_string(&parent_origin).expect("origin JSON"),
+        )
+        .replace(
+            "__MW_ADDRESS_HANDLER_SOURCE__",
+            &serde_json::to_string(&handler).expect("handler JSON"),
+        )
+        .replace(
+            "__MW_ADDRESS_HANDLER_HASH__",
+            &serde_json::to_string(&handler_hash).expect("hash JSON"),
+        );
     let hash =
         base64::engine::general_purpose::STANDARD.encode(sha2::Sha256::digest(script.as_bytes()));
     let compatible = query.coep.as_deref() == Some("require-corp");
@@ -242,8 +304,9 @@ pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
     } else {
         "'self' https: data: blob:"
     };
+    let ancestor = parent_origin.unwrap_or("'self'");
     let csp = format!(
-        "default-src 'none'; script-src 'sha256-{hash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src {images}; frame-ancestors 'self'; base-uri 'none'; form-action 'none'"
+        "default-src 'none'; script-src 'sha256-{hash}' 'sha256-{handler_hash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src {images}; frame-ancestors {ancestor}; base-uri 'none'; form-action 'none'"
     );
     let html = format!(
         "<!doctype html><html><head><meta charset=utf-8><meta name=referrer content=no-referrer><style>html,body{{margin:0;width:100%;height:100%;overflow:hidden}}</style></head><body><script>{script}</script></body></html>"
@@ -281,6 +344,39 @@ pub(crate) async fn frame(Query(query): Query<ReaderFrameQuery>) -> Response {
 mod tests {
     use super::*;
     use std::time::Duration;
+
+    #[test]
+    fn reader_parent_origin_is_canonical_and_exactly_native_allowlisted() {
+        let config = crate::push_relay::NativeAuthConfig {
+            extra_origins: vec![
+                "app://mailwoman".into(),
+                "https://native.example:8443".into(),
+                "https://bad.example/path".into(),
+            ],
+        };
+        for value in [
+            "tauri://localhost",
+            "http://tauri.localhost",
+            "https://tauri.localhost",
+            "app://mailwoman",
+            "https://native.example:8443",
+        ] {
+            assert!(reader_parent_origin(&config, value), "{value}");
+        }
+        for value in [
+            "null",
+            "*",
+            "https://unknown.example",
+            "http://tauri.localhost/",
+            "http://tauri.localhost?x",
+            "http://tauri.localhost#x",
+            "https://bad.example/path",
+            "http://tauri.localhost\n",
+            "https://native.example:8443.evil",
+        ] {
+            assert!(!reader_parent_origin(&config, value), "{value}");
+        }
+    }
 
     #[test]
     fn fetch_limits_default_then_honour_values_and_clamp_bypassed_rows() {

@@ -1,4 +1,5 @@
 import {listMailDraft} from '../api/mailingList.ts';
+import {contactAddressFromMailto} from '../modules/contacts/contactAddress.ts';
 export interface MessageLink {href:string;label:string;host:string;kind:'web'|'mail';warnings:('http'|'address'|'international'|'mismatch'|'direction')[]}
 export interface ReviewedMessage {html:string;links:MessageLink[];truncated:boolean}
 const control=(value:string):boolean=>[...value].some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127);
@@ -25,7 +26,10 @@ export function inspectMessageLink(raw:string,label:string):MessageLink|null{
 export function reviewMessageLinks(html:string,help:string,enabled=false):ReviewedMessage{
  const doc=new DOMParser().parseFromString(html,'text/html');const links:MessageLink[]=[];const seen=new Set<string>();let truncated=false;
  for(const anchor of doc.querySelectorAll('a,area')){
+  anchor.removeAttribute('data-mw-contact-address');
   const raw=anchor.getAttribute('href');
+  const contact=raw?contactAddressFromMailto(raw):null;
+  if(contact)anchor.setAttribute('data-mw-contact-address',contact);
   if(raw&&!raw.startsWith('#')){
    const link=inspectMessageLink(raw,anchor.textContent?.trim()??'');
    if(link&&!seen.has(link.href)){seen.add(link.href);if(links.length<100)links.push(link);else truncated=true;}

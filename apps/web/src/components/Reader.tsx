@@ -80,9 +80,10 @@ import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame } from './DirectReaderFrame.tsx';
+import { createAddressContactCard, contactComposeInitial, ContactAddresses } from './AddressContactCard.tsx';
+import type { ReaderAddressContext } from '../viewers/readerAddressContext.ts';
 import { resourceValue } from './resourceValue.ts';
 import { useReaderZoom } from './readerZoom.ts';
-import { ReaderZoomBox } from './ReaderZoomBox.tsx';
 import { remotePolicy, remoteServerBase, signContent, replaceFailedImages, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings,settingsLoadStatus,writeSetting } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
@@ -596,13 +597,28 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const app = useApp();
   const [linkAuthority,setLinkAuthority]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(account=>setLinkAuthority(account)));
-  onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); });
+  onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); void loadCatalog('contacts'); });
 
   // A memo, so readers of the id (the decrypt reset, the verdict fetch, the entry
   // motion) run when ANOTHER message opens, not on every update of the open one:
   // a keyword write (the automatic mark-read a second after opening) replaces the
   // openEmail object, and the decrypted body was reset with it.
   const emailId = createMemo((): string | null => app.openEmail()?.id ?? null);
+  const addressCard = createAddressContactCard({ scope: () => JSON.stringify([app.accountId(), emailId()]), active: () => props.active !== false && emailId() !== null, ...(props.onCompose ? { onCompose: props.onCompose } : {}) });
+  const [addressTarget, setAddressTarget] = createSignal<ReaderAddressContext>();
+  const addressMenu = createContextMenu({ label: () => t('contacts-address-card'), ownerDocument: () => addressTarget()?.ownerDocument,
+    scope: () => JSON.stringify([app.accountId(), emailId(), props.active !== false]), actions: () => {
+      const target = addressTarget();
+      if (!target || props.active === false || emailId() === null) return [];
+      return [{ id: 'contact-card', label: t('contacts-address-card'), icon: 'person', run: () => addressCard.open(target.address, '', { x: target.x, y: target.y, document: target.ownerDocument, trigger: target.trigger }) },
+        { id: 'contact-compose', label: t('contacts-address-compose'), icon: 'compose', disabled: !props.onCompose, run: () => { const draft = contactComposeInitial(target.address); if (draft) props.onCompose?.(draft); } }] satisfies ContextAction[];
+    } });
+  createEffect(on(() => [app.accountId(), emailId(), props.active], () => setAddressTarget(undefined)));
+  function addressContext(value: ReaderAddressContext): void {
+    if (props.active === false || emailId() === null) return;
+    setAddressTarget(value);
+    addressMenu.openAt({ x: value.x, y: value.y, trigger: value.trigger });
+  }
   const entering = createEntryMotion(emailId);
 
   // Opening a message never takes focus from a list that is still on screen
@@ -828,7 +844,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const linkFrameState=createMemo(()=>({enabled:linksEnabled()}));
   const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:reviewMessageLinks(html,t('mail-links-inert'),linksEnabled());});
   const bodySrcdoc=createMemo(()=>{const html=reviewedBody()?.html;return html===undefined?null:leetspeakEnabled()?leetspeakHtml(html):html;});
-  const receiptDocument=createMemo(()=>({key:receiptDocumentKey(),html:bodySrcdoc()}));
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
   /** What the reader is showing of the open message, which is all a quote may
@@ -1106,15 +1121,19 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             <header class="reader__header">
               <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText(email().subject ?? rawT('mail-no-subject'))}</h2>
               <div class="reader__meta">
-                <details class="reader__addresses" open={!narrow()}>
-                  <summary title={t('mail-reader-from', { addr: isolate(addressList(email().from)) })}><span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span></summary>
+                <div class="reader__address-group">
+                  <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-from')}</span><ContactAddresses addresses={email().from} onOpen={addressCard.open}/></div>
+                <details class="reader__addresses reader__address-disclosure" open={!narrow()}>
+                  <summary title={t('contacts-address-recipients')} aria-label={t('contacts-address-recipients')}><Icon name="chevron"/></summary>
                   <div class="reader__address-details">
-                    <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
+                    <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-to')}</span><ContactAddresses addresses={email().to} onOpen={addressCard.open}/></div>
                     <Show when={(email().cc ?? []).length > 0}>
-                      <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
+                      <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-cc')}</span><ContactAddresses addresses={email().cc} onOpen={addressCard.open}/></div>
                     </Show>
+                    <Show when={(email().bcc ?? []).length > 0}><div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-bcc')}</span><ContactAddresses addresses={email().bcc} onOpen={addressCard.open}/></div></Show>
                   </div>
                 </details>
+                </div>
               </div>
               <div class="reader__metadata-line">
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
@@ -1191,12 +1210,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     Security-critical (SPEC §7.2): the message body renders in a
                     sandboxed iframe whose sandbox attribute intentionally omits
                     allow-scripts AND allow-same-origin, so even if the sanitizer
-                    missed something, scripts cannot run and the frame has an
-                    opaque origin with no access to the parent.
+                    missed something, only the fixed hash-authorized address
+                    handler runs; the opaque frame cannot access its parent.
                   */}
-                  <Show when={!isNativeAuth() && fullMode()} fallback={<ReaderZoomBox><Show when={receiptDocument()} keyed>{doc=><iframe onLoad={() => {if(doc.html!==null)receiptDidDisplay(doc.html,doc.key);}} class="reader__frame" title={t('mail-message-body')} sandbox={linksEnabled()?'allow-popups allow-popups-to-escape-sandbox':''} referrerPolicy="no-referrer" srcdoc={doc.html ?? ''} />}</Show></ReaderZoomBox>}>
-                    <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay}/>}</Show>
-                  </Show>
+                  <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext}/>}</Show>
                 </Show>
               }
             >
@@ -1216,6 +1233,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           </>
         )}
       </Show>
+      {addressCard.card()}
+      {addressMenu.menu()}
     </section>
   );
 }

@@ -17,12 +17,14 @@ import type { Id } from '../../api/jmap-types.ts';
 import { responseFor } from '../../api/jmap.ts';
 import { keyedAttempt } from '../../api/recovery.ts';
 import {suggestionDisplay,type ContactSuggestion} from '../../modules/contacts/autocomplete.ts';
+import { normalizeContactAddress } from '../../modules/contacts/contactAddress.ts';
 import {
   addressBooksGet,
   contactGroupSet,
   contactGroupsGet,
   contactMerge,
   contactAutocomplete,
+  contactAddressLookup,
   contactSet,
   contactsQueryGet,
   type AddressBookGetResponse,
@@ -140,6 +142,8 @@ export interface ContactsSlice {
   /** Load the account's address books, groups, and contacts (e10 → engine). */
   loadContacts(): Promise<void>;
   autocompleteContacts(prefix:string):Promise<ContactSuggestion[]>;
+  /** Read an exact address from all books without disturbing list selection. */
+  lookupContactAddress(email: string): Promise<{contact: ContactCard|null; addressBooks: AddressBook[]}|null>;
   /** Create a contact; returns the new id (or null on failure). */
   createContact(draft: ContactDraft, addressBookId?: Id): Promise<Id | null>;
   /** Patch an existing contact. */
@@ -294,13 +298,29 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     setSelectedAddressBookId(id);
   }
 
+  async function lookupContactAddress(email: string): Promise<{contact: ContactCard|null; addressBooks: AddressBook[]}|null> {
+    const address = normalizeContactAddress(email);
+    if (!address) return null;
+    const version = authority;
+    const session = await client.session();
+    const acct = session.primaryAccounts[CAP_CONTACTS];
+    if (!acct || version !== authority) return null;
+    const result = await client.jmap(contactAddressLookup(acct, address));
+    if (version !== authority) return null;
+    const books = responseFor<AddressBookGetResponse>(result, 'books');
+    const cards = responseFor<ContactGetResponse>(result, 'g');
+    if (books.accountId !== acct || cards.accountId !== acct || !Array.isArray(books.list) || !Array.isArray(cards.list)) throw new Error('Contact lookup failed');
+    currentAccount = acct;
+    return { addressBooks: books.list, contact: cards.list.find(card => card.emails.some(email => normalizeContactAddress(email.value) === address)) ?? null };
+  }
+
   // ── card CRUD ──
   async function createContact(draft: ContactDraft, addressBookId?: Id): Promise<Id | null> {
     const version = authority;
     const acct = await resolveAccount();
     if (acct === null || version !== authority) return null;
     const book = addressBookId ?? selectedAddressBookId() ?? addressBooks()[0]?.id ?? 'default';
-    const { id: _omit, addressBookId: _omitBook, ...create } = draftToCard('', book, draft);
+    const { id: _omit, ...create } = draftToCard('', book, draft);
     try {
       // t91: keyed; the editor's Save after a failure reuses the key (no duplicate).
       const request = contactSet(acct, { create: { new: create as ContactCreate } });
@@ -503,6 +523,7 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     selectContact: setSelectedContactId,
     loadContacts,
     autocompleteContacts,
+    lookupContactAddress,
     createContact,
     updateContact,
     deleteContact,

@@ -1,10 +1,12 @@
 import { batch, createEffect, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { withBase } from '../api/basePath.ts';
+import {isNativeAuth,nativeServerBase} from '../api/serverAddress.ts';
+import {readerAddressContext,type ReaderAddressContext} from '../viewers/readerAddressContext.ts';
 import { t } from '../i18n/index.ts';
 import { ReaderZoomBox } from './ReaderZoomBox.tsx';
-/** Only the fixed bridge runs scripts; the inner mail sandbox never does.
+/** Only fixed hash-authorized handlers run; both frames retain opaque origins.
  * The Reader remounts this wrapper when message-link consent changes. */
-export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; onDisplayed?: (html:string,key:string|undefined)=>void }): JSX.Element {
+export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
   const newToken = ():string => Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
   const [token,setToken] = createSignal(newToken());
@@ -14,6 +16,14 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
   const [bridges, setBridges] = createSignal(0);
   const [failed, setFailed] = createSignal(false);
   const fragment = ():URLSearchParams => new URLSearchParams({ token:token(), origin: location.origin });
+  const source = ():string => {
+    const native = isNativeAuth(), base = native ? nativeServerBase() : null;
+    if(native&&!base)return 'about:blank';
+    const query = new URLSearchParams();
+    if(compatible()||native)query.set('coep','require-corp');
+    if(native)query.set('parentOrigin',location.origin);
+    return `${base ? base+'/api/rc/frame' : withBase('/api/rc/frame')}${query.size?'?'+query:''}#${fragment()}`;
+  };
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let fallback: ReturnType<typeof setTimeout> | undefined;
   let loadedFallback: ReturnType<typeof setTimeout> | undefined;
@@ -43,6 +53,10 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
   onMount(() => {
     receive = (event: MessageEvent): void => {
       if (failed() || event.source !== frame?.contentWindow || event.origin !== 'null' || event.data?.token !== token()) return;
+      if(event.data?.type==='mw-reader-address-context'){
+        if(ready()&&frame&&event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey){const context=readerAddressContext(event.data,frame);if(context)props.onAddressContext?.(context);}
+        return;
+      }
       if(event.data?.type==='mw-reader-displayed'){
         if(event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey)props.onDisplayed?.(sentHtml,sentKey);
         return;
@@ -60,5 +74,5 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
     onCleanup(() => { clearTimeout(timeout);clearTimeout(fallback);clearTimeout(loadedFallback); for (const host of hosts) if (receive) host.removeEventListener('message', receive); hosts.clear(); });
   });
   createEffect(() => { const html = props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true; void bridges(); if (ready()) {sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, linksEnabled, revision:++revision }, '*');} });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" title={props.title} sandbox={props.linksEnabled?'allow-scripts allow-popups allow-popups-to-escape-sandbox':'allow-scripts'} referrerPolicy="no-referrer" onLoad={loaded} src={`${withBase('/api/rc/frame')}${compatible()?'?coep=require-corp':''}#${fragment()}`} /></ReaderZoomBox></>;
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" title={props.title} sandbox={props.linksEnabled?'allow-scripts allow-popups allow-popups-to-escape-sandbox':'allow-scripts'} referrerPolicy="no-referrer" onLoad={loaded} src={source()} /></ReaderZoomBox></>;
 }

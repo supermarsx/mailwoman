@@ -110,6 +110,15 @@ export function contactsQueryGet(accountId: Id, addressBookId?: Id, limit = 1000
   ]);
 }
 
+/** Find an address across every book without changing the contacts module's filter. */
+export function contactAddressLookup(accountId: Id, email: string): JmapRequest {
+  return request(CONTACTS_USING, [
+    ['AddressBook/get', { accountId, ids: null }, 'books'],
+    ['ContactCard/query', { accountId, filter: { text: email }, limit: 1000 }, 'q'],
+    ['ContactCard/get', { accountId, '#ids': { resultOf: 'q', name: 'ContactCard/query', path: '/ids' } }, 'g'],
+  ]);
+}
+
 /** A `ContactCard/set` create payload (a partial card; server assigns id/uid/etag). */
 export type ContactCreate = Partial<ContactCard>;
 

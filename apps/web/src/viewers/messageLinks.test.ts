@@ -22,3 +22,9 @@ it('enables only validated destinations with isolated navigation after explicit 
  expect(links[0]?.hasAttribute('ping')).toBe(false);expect(links[0]?.hasAttribute('download')).toBe(false);expect(links[5]?.getAttribute('href')).toBe('#foot');expect(links[5]?.hasAttribute('target')).toBe(false);
  expect(new DOMParser().parseFromString(reviewMessageLinks(source,'Review',false).html,'text/html').querySelectorAll('a[href]')).toHaveLength(1);
 });
+
+it('keeps only canonical inert mailto contact metadata while body navigation remains disabled',()=>{
+ const doc=new DOMParser().parseFromString(reviewMessageLinks('<a href="mailto:Case@EXAMPLE.ORG?bcc=hidden@example.org">Write</a><a href="https://example.org" data-mw-contact-address="spoof@example.org">Web</a><a data-mw-contact-address="spoof@example.org">Plain</a>','Review').html,'text/html');
+ const anchors=doc.querySelectorAll('a');expect(anchors[0]?.getAttribute('data-mw-contact-address')).toBe('Case@example.org');expect(doc.querySelector('a[href]')).toBeNull();
+ expect(anchors[1]?.hasAttribute('data-mw-contact-address')).toBe(false);expect(anchors[2]?.hasAttribute('data-mw-contact-address')).toBe(false);
+});

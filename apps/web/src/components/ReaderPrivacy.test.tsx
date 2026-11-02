@@ -14,7 +14,7 @@ import {clearSettings,loadSettings} from '../api/settings.ts';
 import type { Email } from '../api/jmap-types.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 // Unit tests inspect the prepared document; real browser tests exercise the
-// opaque outer bridge and its script-free nested frame with actual CSP headers.
+// opaque frames and their fixed hash-authorized address handler with actual CSP headers.
 vi.mock('./DirectReaderFrame.tsx', () => ({ DirectReaderFrame: (props: {html:string;title:string;documentKey?:string;onDisplayed?:(html:string,key:string|undefined)=>void}) => { setTimeout(() => props.onDisplayed?.(props.html, props.documentKey), 0); return <iframe class="reader__frame" title={props.title} sandbox="" srcdoc={props.html} />; } }));
 beforeAll(() => initSync({ module: readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) }));
 const message = (id: string, html: string): Email => mkEmail(id, { from: [{ name: 'Sender', email:'sender@example.test' }], htmlBody: [{ partId:'1',blobId:null,size:html.length,type:'text/html' }], bodyValues: { '1':{value:html} } });

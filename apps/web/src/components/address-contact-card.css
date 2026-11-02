@@ -1,0 +1,31 @@
+.contact-addresses { min-inline-size: 0; overflow-wrap: anywhere; }
+.contact-address { border: 0; padding: .08rem .16rem; margin: 0; background: transparent; color: var(--link); font: inherit; text-align: start; cursor: pointer; overflow-wrap: anywhere; border-radius: var(--radius-sm); }
+.contact-address:hover { background: var(--bg-alt); text-decoration: underline; }
+.contact-address:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.contact-address__email { color: var(--text-dim); }
+.reader__address-line { display: flex; align-items: baseline; gap: .3rem; min-inline-size: 0; }
+.reader__address-label { flex: none; font-weight: 500; }
+.reader__address-group { position: relative; padding-inline-end: 2rem; }
+.reader__address-disclosure > summary { position: absolute; inset-inline-end: 0; inset-block-start: 0; display: flex; align-items: center; justify-content: center; inline-size: 1.75rem; min-block-size: 1.75rem; list-style: none; border-radius: var(--radius-sm); }
+.reader__address-disclosure > summary::-webkit-details-marker { display: none; }
+.reader__address-disclosure[open] > summary svg { transform: rotate(90deg); }
+.reader__address-disclosure > summary:focus-visible { outline: 2px solid var(--accent); }
+.address-card-backdrop { position: fixed; inset: 0; z-index: 1800; }
+.address-card { position: fixed; box-sizing: border-box; inline-size: min(22rem, calc(100vw - 16px)); max-block-size: calc(100dvh - 16px); overflow: auto; overscroll-behavior: contain; padding: 1rem; border: 2px solid var(--border-strong, var(--border)); border-radius: var(--radius-md); background: var(--bg); color: var(--text); box-shadow: var(--elevation-3); font: inherit; }
+.address-card__header { display: flex; align-items: center; gap: .65rem; margin-block-end: .8rem; }
+.address-card__header > div { flex: 1; min-inline-size: 0; }
+.address-card__header h2 { font-size: 1.05em; margin: 0 0 .2rem; overflow-wrap: anywhere; }
+.address-card__header > button { flex: none; padding: .35rem; }
+.address-card__address { display: block; font-size: .85em; color: var(--text-dim); overflow-wrap: anywhere; user-select: text; }
+.address-card__information { overflow-wrap: anywhere; user-select: text; }
+.address-card__information dl { display: grid; grid-template-columns: minmax(0, auto) minmax(0, 1fr); gap: .3rem .7rem; font-size: .9em; }
+.address-card__information dt { color: var(--text-dim); }
+.address-card__information dd { margin: 0; }
+.address-card__line { display: block; }
+.address-card__notes { white-space: pre-wrap; font-size: .9em; }
+.address-card__save { display: flex; flex-direction: column; gap: .45rem; margin-block: .75rem; }
+.address-card__save > p { margin: 0 0 .35rem; color: var(--text-dim); }
+.address-card__save > input, .address-card__save > select { box-sizing: border-box; max-inline-size: 100%; min-inline-size: 0; padding: .5rem; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text); font: inherit; }
+.address-card__save > button { align-self: start; }
+.address-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-block-start: .8rem; }
+@media (pointer: coarse) { .contact-address { min-block-size: 2.75rem; } .reader__address-group { padding-inline-end: 2.75rem; } .reader__address-disclosure > summary, .address-card__header > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; } }
