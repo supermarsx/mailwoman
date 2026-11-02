@@ -53,14 +53,14 @@ export interface DashboardHealth {
 
 export type HealthResult = { kind: 'ok'; data: DashboardHealth } | { kind: 'error'; status: number | null };
 
-export type HealthLoader = (fresh: boolean) => Promise<HealthResult>;
+export type HealthLoader = (fresh: boolean, options?: { signal?: AbortSignal }) => Promise<HealthResult>;
 
 /** The production loader: `GET <base>/admin/dashboard/health[?fresh=1]`. */
 export function createHealthLoader(base = basePath()): HealthLoader {
-  return async (fresh) => {
+  return async (fresh, options) => {
     let res: Response;
     try {
-      res = await apiFetch(adminUrl(fresh ? '/dashboard/health?fresh=1' : '/dashboard/health', base), { credentials: 'same-origin' });
+      res = await apiFetch(adminUrl(fresh ? '/dashboard/health?fresh=1' : '/dashboard/health', base), { credentials: 'same-origin',...(options?.signal?{signal:options.signal}:{}) });
     } catch {
       return { kind: 'error', status: null };
     }

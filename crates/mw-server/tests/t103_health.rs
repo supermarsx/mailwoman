@@ -8,11 +8,16 @@
 //! * only an admin with unscoped Dashboard read sees it;
 //! * the endpoint answers within its budget and serves a cached result.
 use std::net::SocketAddr;
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 use std::time::{Duration, Instant};
 
 use mw_server::{AppConfig, HardeningConfig, SecurityConfig, ServerMode, V6Config, build_app_full};
 use reqwest::Client;
 use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 mod common;
 use common::test_db;
@@ -118,6 +123,194 @@ async fn health(c: &Client, base: &str, fresh: bool) -> Value {
         started.elapsed()
     );
     v
+}
+
+async fn saved_submission(db: &std::path::Path, config: Value) {
+    let pool = sqlx::SqlitePool::connect(&format!("sqlite://{}", db.display()))
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO domains (name, upstream_json) VALUES ('submission.test', ?1)")
+        .bind(config.to_string())
+        .execute(&pool)
+        .await
+        .unwrap();
+    pool.close().await;
+}
+
+async fn settled_outbox(c: &Client, base: &str) -> Value {
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        let value = health(c, base, false).await;
+        let outbox = &value["components"]["outbox"];
+        let submission = &outbox["metrics"]["submission"];
+        if submission["pending"] == false && submission["refreshing"] == false {
+            return outbox.clone();
+        }
+        assert!(
+            Instant::now() < deadline,
+            "connection check never settled: {value}"
+        );
+        tokio::time::sleep(Duration::from_millis(75)).await;
+    }
+}
+
+/// A real SMTP greeting and EHLO exchange; the only accepted client command is
+/// EHLO so a health check cannot accidentally authenticate or submit mail.
+async fn submission_server(
+    delay: Duration,
+    reject: Arc<AtomicBool>,
+    hold: Option<Arc<tokio::sync::Notify>>,
+) -> (u16, Arc<AtomicUsize>, tokio::task::JoinHandle<()>) {
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let opened = Arc::new(AtomicUsize::new(0));
+    let counter = opened.clone();
+    let task = tokio::spawn(async move {
+        loop {
+            let (stream, _) = listener.accept().await.unwrap();
+            counter.fetch_add(1, Ordering::SeqCst);
+            let reject = reject.clone();
+            let hold = hold.clone();
+            tokio::spawn(async move {
+                let mut stream = BufReader::new(stream);
+                if reject.load(Ordering::SeqCst) {
+                    stream
+                        .get_mut()
+                        .write_all(b"421 unavailable\r\n")
+                        .await
+                        .unwrap();
+                    return;
+                }
+                if let Some(hold) = hold {
+                    hold.notified().await;
+                }
+                tokio::time::sleep(delay).await;
+                stream
+                    .get_mut()
+                    .write_all(b"220 fixture\r\n")
+                    .await
+                    .unwrap();
+                let mut line = String::new();
+                stream.read_line(&mut line).await.unwrap();
+                assert_eq!(line, "EHLO mailwoman.invalid\r\n", "no credentials or mail");
+                stream
+                    .get_mut()
+                    .write_all(b"250 fixture\r\n")
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+    (port, opened, task)
+}
+
+fn smtp_config(port: u16) -> Value {
+    json!({"smtp":{"host":"127.0.0.1","port":port,"tls":"none","allowPrivate":true}})
+}
+
+#[tokio::test]
+async fn cold_submission_handshake_gets_its_full_budget_without_failing_the_snapshot() {
+    let (base, db) = server(ServerMode::Engine).await;
+    let (port, opened, task) = submission_server(
+        Duration::from_millis(1700),
+        Arc::new(AtomicBool::new(false)),
+        None,
+    )
+    .await;
+    saved_submission(&db, smtp_config(port)).await;
+    let c = root(&base).await;
+    let first = health(&c, &base, false).await;
+    let first = &first["components"]["outbox"];
+    assert_eq!(
+        first["status"], "warn",
+        "an unfinished check is not a failure: {first}"
+    );
+    assert_eq!(first["metrics"]["submission"]["pending"], true);
+    assert_eq!(first["metrics"]["submission"]["refreshing"], true);
+    assert_eq!(first["metrics"]["submission"]["unreachable"], 0);
+    let final_outbox = settled_outbox(&c, &base).await;
+    assert_eq!(final_outbox["status"], "ok", "{final_outbox}");
+    assert_eq!(final_outbox["metrics"]["submission"]["reachable"], 1);
+    assert!(
+        final_outbox["metrics"]["submission"]["slowestHandshakeMs"]
+            .as_f64()
+            .unwrap()
+            >= 1600.0
+    );
+    assert_eq!(
+        opened.load(Ordering::SeqCst),
+        1,
+        "polling never restarts the check"
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn fresh_health_retries_cached_submission_failure_and_preserves_it_until_completion() {
+    let (base, db) = server(ServerMode::Engine).await;
+    let reject = Arc::new(AtomicBool::new(true));
+    let ready = Arc::new(tokio::sync::Notify::new());
+    let (port, opened, task) =
+        submission_server(Duration::ZERO, reject.clone(), Some(ready.clone())).await;
+    saved_submission(&db, smtp_config(port)).await;
+    let c = root(&base).await;
+    let failed = settled_outbox(&c, &base).await;
+    assert_eq!(
+        failed["status"], "fail",
+        "a real rejected greeting remains a failure"
+    );
+    assert_eq!(failed["metrics"]["submission"]["unreachable"], 1);
+    assert!(failed["metrics"]["submission"]["slowestHandshakeMs"].is_number());
+    reject.store(false, Ordering::SeqCst);
+    let cached = health(&c, &base, false).await;
+    assert_eq!(cached["components"]["outbox"]["status"], "fail");
+    assert_eq!(opened.load(Ordering::SeqCst), 1);
+    let recheck = health(&c, &base, true).await;
+    let recheck = &recheck["components"]["outbox"];
+    assert_eq!(
+        recheck["status"], "fail",
+        "keep the confirmed failure while checking again"
+    );
+    assert_eq!(recheck["metrics"]["submission"]["pending"], false);
+    assert_eq!(recheck["metrics"]["submission"]["refreshing"], true);
+    // Another explicit request joins the running check instead of starting a
+    // second connection. Non-fresh polling must also see completion within the
+    // outer five-second cache's lifetime.
+    let joined = health(&c, &base, true).await;
+    assert_eq!(
+        joined["components"]["outbox"]["metrics"]["submission"]["refreshing"],
+        true
+    );
+    ready.notify_one();
+    let recovered = settled_outbox(&c, &base).await;
+    assert_eq!(recovered["status"], "ok", "{recovered}");
+    assert_eq!(recovered["metrics"]["submission"]["reachable"], 1);
+    assert_eq!(
+        opened.load(Ordering::SeqCst),
+        2,
+        "fresh bypasses the sixty-second failure cache exactly once"
+    );
+    task.abort();
+}
+
+#[tokio::test]
+async fn ews_owned_submission_is_reported_as_unmeasured_without_a_smtp_probe() {
+    let (base, db) = server(ServerMode::Engine).await;
+    saved_submission(&db, json!({"version":2,"backends":[
+        {"id":"ews","role":"mail","protocol":"ews","ews":{"endpointUrl":"https://provider.example/EWS/Exchange.asmx"}},
+        {"id":"unused-smtp","role":"submission","protocol":"smtp","enabled":false,"endpoint":{"host":"127.0.0.1","port":1,"tls":"none","allowPrivate":true}}
+    ]})).await;
+    let c = root(&base).await;
+    let outbox = settled_outbox(&c, &base).await;
+    let submission = &outbox["metrics"]["submission"];
+    assert_ne!(outbox["status"], "fail", "{outbox}");
+    assert_eq!(submission["configured"], 1);
+    assert_eq!(submission["checked"], 1);
+    assert_eq!(submission["notCheckable"], 1);
+    assert_eq!(submission["unreachable"], 0);
+    assert_eq!(submission["reachable"], 0);
+    assert!(submission["slowestHandshakeMs"].is_null());
+    assert_eq!(submission["credentialsSent"], false);
 }
 
 /// Every component has a status from the four, a reason, and either measured

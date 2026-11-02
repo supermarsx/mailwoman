@@ -6,7 +6,7 @@
 // `GET /admin/dashboard/health?fresh=1`; the rest of the page stays put.
 // Durations read in the unit that fits (μs below 1 ms, t90's formatter).
 
-import { For, Show, createEffect, createSignal, type JSX } from 'solid-js';
+import { For, Show, createEffect, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { Icon, type IconName } from '../shell/icons.tsx';
 import { type SparkPoint } from '../shell/Sparkline.tsx';
@@ -66,6 +66,8 @@ const LINKS: Record<HealthComponentId, { section: string; label: () => string }[
 };
 
 type Stat = { label: string; value: string | string[] };
+export const SUBMISSION_POLL_MS=1_000;
+export const SUBMISSION_FOLLOWUP_MS=60_000;
 
 const none = (): string => t('admin-dash-h-m-none');
 const n = (v: number | null): string => (v === null ? '—' : formatCount(v));
@@ -156,6 +158,9 @@ export function statsFor(id: HealthComponentId, c: HealthComponent): Stat[] {
       const sends = obj(m, 'sendsLastHour');
       const last = obj(m, 'lastSend');
       const sub = obj(m, 'submission');
+      const pending=sub['pending']===true,refreshing=sub['refreshing']===true;
+      const unmeasured=num(sub,'notCheckable')??0;
+      const checked=num(sub,'checked'),checkable=checked===null?null:Math.max(0,checked-unmeasured);
       const outcome = str(last, 'outcome');
       const rows: Stat[] = [
         { label: t('admin-dash-h-m-queued'), value: t('admin-dash-h-m-queued-value', { queued: n(num(m, 'queued')), deferred: n(num(m, 'deferred')), sending: n(num(m, 'sending')) }) },
@@ -175,16 +180,16 @@ export function statsFor(id: HealthComponentId, c: HealthComponent): Stat[] {
       ];
       rows.push({
         label: t('admin-dash-h-m-submission'),
-        value: num(sub, 'configured') === null
+        value: pending||num(sub, 'configured') === null
           ? t('admin-dash-h-m-submission-pending')
           : num(sub, 'configured') === 0
             ? t('admin-dash-h-m-submission-none')
-            : t('admin-dash-h-m-submission-value', {
+            : [checkable===0&&unmeasured>0?null:t('admin-dash-h-m-submission-value', {
                 reachable: n(num(sub, 'reachable')),
-                checked: n(num(sub, 'checked')),
+                checked: n(checkable),
                 slowest: ms(num(sub, 'slowestHandshakeMs')),
                 age: age(num(sub, 'ageSecs')),
-              }),
+              }),unmeasured>0?t('admin-dash-h-m-submission-unmeasured',{count:unmeasured}):null,refreshing?t('admin-dash-h-m-submission-pending'):null].filter(Boolean).join(' · '),
       });
       return rows;
     }
@@ -302,20 +307,48 @@ export function HealthPanel(props: HealthPanelProps): JSX.Element {
   const [health, setHealth] = createSignal<DashboardHealth>(props.health);
   const [busy, setBusy] = createSignal(false);
   const [failed, setFailed] = createSignal<number | null | undefined>(undefined);
+  const [visible,setVisible]=createSignal(typeof document==='undefined'||document.visibilityState!=='hidden');
+  let disposed=false,revision=0,inputRevision=0;
+  let controller:AbortController|undefined,pollTimer:ReturnType<typeof setTimeout>|undefined;
+  let followupStarted:number|null=null;
   // A whole-page reload hands in a new result; take it.
-  createEffect(() => setHealth(props.health));
+  createEffect(() => {const next=props.health;inputRevision++;revision++;controller?.abort();controller=undefined;setBusy(false);setHealth(next);setFailed(undefined);followupStarted=null;});
 
-  const refresh = async (): Promise<void> => {
+  const refresh = async (fresh=true): Promise<void> => {
+    if(disposed||busy())return;
+    clearTimeout(pollTimer);pollTimer=undefined;
+    if(fresh){followupStarted=Date.now();setFailed(undefined);}
+    const current=++revision,inputs=inputRevision;
+    controller=new AbortController();const signal=controller.signal;
     setBusy(true);
-    const r = await load(true);
-    setBusy(false);
-    if (r.kind === 'ok') {
-      setHealth(r.data);
-      setFailed(undefined);
-    } else {
-      setFailed(r.status);
-    }
+    try{
+      const r = await load(fresh,{signal});
+      if(disposed||signal.aborted||current!==revision||inputs!==inputRevision)return;
+      if (r.kind === 'ok') {setHealth(r.data);setFailed(undefined);}
+      else setFailed(r.status);
+    }catch{if(!disposed&&!signal.aborted&&current===revision&&inputs===inputRevision)setFailed(null);}
+    finally{if(!disposed&&current===revision){controller=undefined;setBusy(false);}}
   };
+  const submissionPending=():boolean=>{const outbox=health().components.outbox;if(!outbox||outbox.status==='disabled')return false;const sub=obj(outbox.metrics,'submission');return sub['pending']===true||sub['refreshing']===true;};
+  createEffect(()=>{
+    clearTimeout(pollTimer);pollTimer=undefined;
+    if(!submissionPending()){followupStarted=null;return;}
+    if(!visible()||failed()!==undefined||busy())return;
+    followupStarted??=Date.now();
+    if(Date.now()-followupStarted>=SUBMISSION_FOLLOWUP_MS)return;
+    pollTimer=setTimeout(()=>{pollTimer=undefined;void refresh(false);},SUBMISSION_POLL_MS);
+  });
+  onMount(()=>{
+    const visibility=():void=>{
+      const active=document.visibilityState!=='hidden';
+      if(!active){clearTimeout(pollTimer);pollTimer=undefined;revision++;controller?.abort();controller=undefined;setBusy(false);}
+      else followupStarted=null;
+      setVisible(active);
+    };
+    document.addEventListener('visibilitychange',visibility);
+    onCleanup(()=>document.removeEventListener('visibilitychange',visibility));
+  });
+  onCleanup(()=>{disposed=true;revision++;clearTimeout(pollTimer);controller?.abort();});
 
   const inPlace = (e: MouseEvent, path: string): void => {
     if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return;
@@ -395,7 +428,7 @@ export function HealthPanel(props: HealthPanelProps): JSX.Element {
                 </Show>
                 <Show when={thresholdsFor(id, c()) || typeof c().probeUs === 'number'}>
                   <p class={css.note}>
-                    {[thresholdsFor(id, c()), typeof c().probeUs === 'number' ? t('admin-dash-h-probe-time', { time: formatMs(c().probeUs! / 1000) }) : null]
+                    {[thresholdsFor(id, c()), typeof c().probeUs === 'number' ? t(id==='outbox'?'admin-dash-h-outbox-probe-time':'admin-dash-h-probe-time', { time: formatMs(c().probeUs! / 1000) }) : null]
                       .filter(Boolean)
                       .join(' · ')}
                   </p>

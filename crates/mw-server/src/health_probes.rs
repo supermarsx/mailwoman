@@ -34,6 +34,8 @@ pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_millis(1500);
 pub(crate) const CACHE_TTL: Duration = Duration::from_secs(5);
 /// How long a submission reachability result is reused.
 const REACH_TTL: Duration = Duration::from_secs(60);
+/// Connection checks run outside the short dashboard snapshot budget.
+const REACH_TIMEOUT: Duration = Duration::from_secs(5);
 /// Submission endpoints checked at most.
 const REACH_TARGETS: usize = 4;
 /// History samples kept (one per [`HISTORY_STEP`] at most).
@@ -574,7 +576,14 @@ fn submission_backends(row: &mw_store::DomainConfigRow) -> Vec<crate::domain_sel
     if value.get("version").is_some() {
         return serde_json::from_value::<BackendConfig>(value)
             .ok()
-            .and_then(|c| c.selected(ServiceRole::Submission).cloned())
+            .and_then(|c| {
+                c.selected(ServiceRole::Submission)
+                    .or_else(|| {
+                        c.selected(ServiceRole::Mail)
+                            .filter(|backend| backend.protocol == Protocol::Ews)
+                    })
+                    .cloned()
+            })
             .into_iter()
             .collect();
     }
@@ -600,18 +609,21 @@ fn submission_backends(row: &mw_store::DomainConfigRow) -> Vec<crate::domain_sel
 /// Handshake (banner + TLS, no credentials) with up to [`REACH_TARGETS`]
 /// distinct submission endpoints.
 async fn check_reach(state: AppState) -> Value {
-    let rows = state
-        .store
-        .list_domain_configs_limited(129)
-        .await
-        .unwrap_or_default();
+    let Ok(rows) = state.store.list_domain_configs_limited(129).await else {
+        return json!({"configured":0,"checked":0,"error":"The submission configuration could not be read."});
+    };
     let mut seen = std::collections::HashSet::new();
     let mut targets = Vec::new();
     let mut configured = 0usize;
     for row in &rows {
         for backend in submission_backends(row) {
-            let key = serde_json::to_string(&backend.endpoint).unwrap_or_default()
-                + backend.session_url.as_deref().unwrap_or("");
+            let key = serde_json::to_string(&(
+                backend.protocol,
+                &backend.endpoint,
+                &backend.session_url,
+                &backend.ews,
+            ))
+            .unwrap_or_default();
             if seen.insert(key) {
                 configured += 1;
                 if targets.len() < REACH_TARGETS {
@@ -631,7 +643,7 @@ async fn check_reach(state: AppState) -> Value {
         async move {
             let start = Instant::now();
             let detail = tokio::time::timeout(
-                Duration::from_millis(1200),
+                REACH_TIMEOUT,
                 crate::domain_probe::diagnostic_backend(domain, backend, &plan),
             )
             .await
@@ -645,15 +657,17 @@ async fn check_reach(state: AppState) -> Value {
     for (elapsed, detail) in &results {
         if detail["selectedReason"] == "authenticated-provider-probe-required" {
             not_checkable += 1;
-        } else if detail["reachable"] == true {
-            reachable += 1;
-            slowest = slowest.max(elapsed.as_secs_f64() * 1000.0);
         } else {
-            unreachable += 1;
+            slowest = slowest.max(elapsed.as_secs_f64() * 1000.0);
+            if detail["reachable"] == true {
+                reachable += 1;
+            } else {
+                unreachable += 1;
+            }
         }
     }
     json!({"configured":configured,"checked":results.len(),"reachable":reachable,"unreachable":unreachable,
-        "notCheckable":not_checkable,"slowestHandshakeMs":(reachable>0).then_some(slowest),"credentialsSent":false})
+        "notCheckable":not_checkable,"slowestHandshakeMs":(reachable+unreachable>0).then_some(slowest),"credentialsSent":false})
 }
 
 fn reach_cache() -> &'static Mutex<HashMap<usize, Reach>> {
@@ -666,9 +680,20 @@ fn reach_refreshing() -> &'static Mutex<std::collections::HashSet<usize>> {
     SET.get_or_init(Default::default)
 }
 
-/// The last reachability result, refreshed in the background when older than
-/// [`REACH_TTL`]. Waits for the first one only, within the probe budget.
-async fn reachability(state: &AppState) -> Option<(Value, f64)> {
+struct ReachRefreshGuard(usize);
+
+impl Drop for ReachRefreshGuard {
+    fn drop(&mut self) {
+        reach_refreshing()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .remove(&self.0);
+    }
+}
+
+/// A snapshot never waits for a cold DNS/TLS handshake to finish. A completed
+/// result remains visible while a single background refresh checks it again.
+async fn reachability(state: &AppState, fresh: bool) -> Value {
     let key = server_key(state);
     let cached = reach_cache()
         .lock()
@@ -676,14 +701,16 @@ async fn reachability(state: &AppState) -> Option<(Value, f64)> {
         .get(&key)
         .map(|r| (r.value.clone(), r.checked.elapsed()));
     let stale = cached.as_ref().is_none_or(|(_, age)| *age > REACH_TTL);
-    if stale
+    if (fresh || stale)
         && reach_refreshing()
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(key)
     {
+        let guard = ReachRefreshGuard(key);
         let state = state.clone();
         let task = tokio::spawn(async move {
+            let _refresh = guard;
             let value = check_reach(state).await;
             reach_cache()
                 .lock()
@@ -695,23 +722,37 @@ async fn reachability(state: &AppState) -> Option<(Value, f64)> {
                         value,
                     },
                 );
-            reach_refreshing()
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .remove(&key);
         });
         if cached.is_none() {
-            let _ = tokio::time::timeout(Duration::from_millis(1300), task).await;
+            // No-target checks are cheap; avoid a needless pending flash for
+            // deployments with no submission transport. Dropping this handle
+            // after the short wait leaves the connection check running.
+            let _ = tokio::time::timeout(Duration::from_millis(100), task).await;
         }
     }
-    reach_cache()
+    let cached = reach_cache()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .get(&key)
-        .map(|r| (r.value.clone(), r.checked.elapsed().as_secs_f64()))
+        .map(|r| (r.value.clone(), r.checked.elapsed().as_secs_f64()));
+    let refreshing = reach_refreshing()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .contains(&key);
+    let pending = cached.is_none();
+    let mut value = cached
+        .as_ref()
+        .map(|(value, _)| value.clone())
+        .unwrap_or_else(
+            || json!({"configured":0,"checked":0,"reachable":0,"unreachable":0,"notCheckable":0}),
+        );
+    value["ageSecs"] = cached.map(|(_, age)| json!(age)).unwrap_or(Value::Null);
+    value["pending"] = json!(pending);
+    value["refreshing"] = json!(refreshing);
+    value
 }
 
-async fn probe_outbox(state: &AppState) -> Value {
+async fn probe_outbox(state: &AppState, fresh: bool) -> Value {
     let Some(engine) = &state.engine else {
         return disabled(
             "Proxy mode: messages are handed to the mail server at once, so there is no outbox here.",
@@ -730,34 +771,23 @@ async fn probe_outbox(state: &AppState) -> Value {
         }
     };
     let snap = engine.sync_health();
-    let reach = reachability(state).await;
+    let reach = reachability(state, fresh).await;
     let mut metrics = serde_json::to_value(&counts).unwrap_or_default();
     metrics["sendsLastHour"] = serde_json::to_value(&snap.sends_last_hour).unwrap_or_default();
     metrics["lastSend"] = serde_json::to_value(&snap.last_send).unwrap_or_default();
-    metrics["submission"] = reach
-        .as_ref()
-        .map(|(v, age)| {
-            let mut v = v.clone();
-            v["ageSecs"] = json!(age);
-            v
-        })
-        .unwrap_or(Value::Null);
+    metrics["submission"] = reach.clone();
     let thresholds = json!({"oldestDueWarnSecs":OUTBOX_OLDEST_WARN_SECS,"oldestDueFailSecs":OUTBOX_OLDEST_FAIL_SECS});
     let oldest = counts.oldest_due_age_secs.unwrap_or(0);
-    let unreachable = reach.as_ref().map(|(v, _)| {
-        (
-            v["unreachable"].as_u64().unwrap_or(0),
-            v["reachable"].as_u64().unwrap_or(0),
-        )
-    });
+    let (bad, good) = (
+        reach["unreachable"].as_u64().unwrap_or(0),
+        reach["reachable"].as_u64().unwrap_or(0),
+    );
     let (status, reason) = if oldest > OUTBOX_OLDEST_FAIL_SECS {
         (
             "fail",
             "A message has been waiting to send for over an hour.".to_string(),
         )
-    } else if let Some((bad, 0)) = unreachable
-        && bad > 0
-    {
+    } else if bad > 0 && good == 0 {
         (
             "fail",
             "No submission server answered a connection check.".to_string(),
@@ -779,13 +809,18 @@ async fn probe_outbox(state: &AppState) -> Value {
                 snap.sends_last_hour.failed + snap.sends_last_hour.uncertain
             ),
         )
-    } else if let Some((bad, _)) = unreachable
-        && bad > 0
-    {
+    } else if bad > 0 {
         (
             "warn",
             format!("{bad} submission server(s) did not answer a connection check."),
         )
+    } else if reach["pending"] == true {
+        (
+            "warn",
+            "The submission connection check is still running.".to_string(),
+        )
+    } else if let Some(error) = reach["error"].as_str() {
+        ("warn", error.to_string())
     } else {
         ("ok", "Nothing is stuck.".to_string())
     };
@@ -1020,12 +1055,12 @@ fn sample(components: &Value, t: i64) -> Value {
         "outboxDeferred":m("outbox","deferred"),"searchPending":m("search","pending")})
 }
 
-async fn compute(state: &AppState, reg: Option<&PluginRegistry>) -> Value {
+async fn compute(state: &AppState, reg: Option<&PluginRegistry>, fresh: bool) -> Value {
     let (database, migrations, sync, outbox, search, render, plugins) = tokio::join!(
         timed("database", probe_database(state)),
         timed("migrations", probe_migrations(state)),
         timed("mail sync", probe_sync(state)),
-        timed("outbox", probe_outbox(state)),
+        timed("outbox", probe_outbox(state, fresh)),
         timed("search index", probe_search(state)),
         timed("render worker", probe_render(state)),
         timed("plugin runtime", probe_plugins(state, reg)),
@@ -1041,7 +1076,11 @@ pub(crate) async fn health(state: &AppState, reg: Option<&PluginRegistry>, fresh
         slots.get(&key).and_then(|s| {
             s.cached
                 .as_ref()
-                .filter(|(at, _)| at.elapsed() < CACHE_TTL)
+                .filter(|(at, value)| {
+                    at.elapsed() < CACHE_TTL
+                        && value["outbox"]["metrics"]["submission"]["pending"] != true
+                        && value["outbox"]["metrics"]["submission"]["refreshing"] != true
+                })
                 .map(|(at, v)| {
                     (
                         at.elapsed(),
@@ -1069,7 +1108,7 @@ pub(crate) async fn health(state: &AppState, reg: Option<&PluginRegistry>, fresh
             match again {
                 Some(hit) => hit,
                 None => {
-                    let components = compute(state, reg).await;
+                    let components = compute(state, reg, fresh).await;
                     export_metrics(&components);
                     let mut all = slots().lock().unwrap_or_else(|e| e.into_inner());
                     if all.len() > 64 && !all.contains_key(&key) {
