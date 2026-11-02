@@ -31,6 +31,12 @@ export function sanitizeEmailHtmlReaderSafeStrip(html: string): string;
  */
 export function sanitizeEmailHtmlReaderStrip(html: string): string;
 
+/**
+ * Signature source editing shares the server policy, including validated
+ * embedded raster images. CID ownership remains the composing caller's check.
+ */
+export function sanitizeSignatureHtml(html: string): string;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -40,6 +46,7 @@ export interface InitOutput {
     readonly sanitizeEmailHtmlReaderSafe: (a: number, b: number, c: number, d: number, e: number) => void;
     readonly sanitizeEmailHtmlReaderSafeStrip: (a: number, b: number, c: number) => void;
     readonly sanitizeEmailHtmlReaderStrip: (a: number, b: number, c: number) => void;
+    readonly sanitizeSignatureHtml: (a: number, b: number, c: number) => void;
     readonly __wbindgen_add_to_stack_pointer: (a: number) => number;
     readonly __wbindgen_export: (a: number, b: number) => number;
     readonly __wbindgen_export2: (a: number, b: number, c: number, d: number) => number;

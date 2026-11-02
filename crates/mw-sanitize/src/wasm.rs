@@ -21,6 +21,13 @@ pub fn sanitize_email_html_wasm(html: &str) -> String {
     crate::sanitize_email_html(html)
 }
 
+/// Signature source editing shares the server policy, including validated
+/// embedded raster images. CID ownership remains the composing caller's check.
+#[wasm_bindgen(js_name = sanitizeSignatureHtml)]
+pub fn sanitize_signature_html_wasm(html: &str) -> String {
+    crate::sanitize_signature_html(html)
+}
+
 /// `sanitizeEmailHtmlReader(html, blockTrackers, cleanLinks)` → sanitized HTML in
 /// the reader's remote-content mode (t32 e31a): remote images become `mw-rc:<n>`
 /// placeholders with their URLs in hidden markers, trackers are stripped when

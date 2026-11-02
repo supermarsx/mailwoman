@@ -1297,6 +1297,22 @@ fn namespace_selectors(raw: &str, container: &str) -> String {
 }
 
 fn namespace_one(selector: &str, container: &str) -> String {
+    // Editing an already sanitized fragment must not scope its stylesheet a
+    // second time. Only an exact container root or a descendant/child path is
+    // reusable; a sibling of the container must still be scoped underneath it.
+    let prefix = format!(".{container}");
+    if let Some(after) = selector.strip_prefix(&prefix) {
+        let mut input = ParserInput::new(after);
+        let mut parser = Parser::new(&mut input);
+        let first = parser.next().ok();
+        if after.is_empty()
+            || after.starts_with('>')
+            || (after.starts_with(char::is_whitespace)
+                && !matches!(first, Some(Token::Delim('+' | '~'))))
+        {
+            return selector.to_string();
+        }
+    }
     let lower = selector.to_ascii_lowercase();
     for kw in ["html", "body", ":root"] {
         if lower.starts_with(kw) {
@@ -1598,6 +1614,27 @@ mod tests {
         );
         // the class the selector targets survives on the element
         assert!(out.contains("<p>hi</p>"), "{out}");
+    }
+
+    #[test]
+    fn existing_stylesheet_scope_is_stable_without_admitting_container_siblings() {
+        let scoped = sanitize_stylesheet("body{color:red}td{padding:12px}", CONTAINER_CLASS);
+        assert_eq!(sanitize_stylesheet(&scoped, CONTAINER_CLASS), scoped);
+        for suffix in [" + p", " ~ p", " /**/+p", " /**/~p"] {
+            let selector = format!(".{CONTAINER_CLASS}{suffix}");
+            let sheet = sanitize_stylesheet(&format!("{selector}{{color:red}}"), CONTAINER_CLASS);
+            assert!(
+                sheet.starts_with(&format!(".{CONTAINER_CLASS} .{CONTAINER_CLASS}")),
+                "{sheet}"
+            );
+        }
+        assert_eq!(
+            sanitize_stylesheet(
+                &format!(".{CONTAINER_CLASS}>p{{color:red}}"),
+                CONTAINER_CLASS
+            ),
+            format!(".{CONTAINER_CLASS}>p{{color:red}}")
+        );
     }
 
     #[test]
