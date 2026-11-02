@@ -21,8 +21,8 @@ describe('dedicated account entity editors',()=>{
  });
  it('saves the dedicated page then returns to the list without a discard prompt',async()=>{
   const navigation=createSettingsNavigation({section:'signatures',editor:{kind:'new'}});const service=signatureService();render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
-  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'New signature'}});fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Hello'}});fireEvent.click(screen.getByTestId('signature-save'));
-  await waitFor(()=>expect(navigation.route()).toEqual({section:'signatures'}));expect(service.upsertSignature).toHaveBeenCalledWith({name:'New signature',body:'Hello',html:null,text:'Hello',textEdited:true,isDefault:false});expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'New signature'}});fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Hello'}});fireEvent.click(screen.getByTestId('signature-save'));
+  await waitFor(()=>expect(navigation.route()).toEqual({section:'signatures'}));expect(service.upsertSignature).toHaveBeenCalledWith({name:'New signature',format:'plain',body:'Hello',html:null,text:'Hello',textEdited:true,isDefault:false});expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
  });
  it('keeps failed saves on the editor with the draft still guarded',async()=>{
   const navigation=createSettingsNavigation({section:'signatures',editor:{kind:'new'}});const service=signatureService();vi.mocked(service.upsertSignature).mockRejectedValue(new Error('private backend detail'));render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
@@ -36,5 +36,5 @@ describe('dedicated account entity editors',()=>{
 
 it('prevents editing while a save is pending so later keystrokes cannot be marked saved',async()=>{
  let finish:()=>void=()=>{};const save=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve;}));const service={...signatureService(),upsertSignature:save} as unknown as SettingsService;const navigation=createSettingsNavigation({section:'signatures',editor:{kind:'new'}});render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
- fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Pending'}});fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());expect(screen.getByLabelText('Signature')).toBeDisabled();expect(await navigation.canLeave()).toBe(false);finish();await waitFor(()=>expect(navigation.route().editor).toBeUndefined());
+ fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Pending'}});fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());expect(screen.getByLabelText('Signature')).toBeDisabled();expect(await navigation.canLeave()).toBe(false);finish();await waitFor(()=>expect(navigation.route().editor).toBeUndefined());
 });

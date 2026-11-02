@@ -12,7 +12,7 @@
 // composer's security evaluation) keeps running.
 //
 // `BodyModeGroup` is the one select that switches the body between plain text,
-// the rich editor and HTML source. Both hosts use it.
+// the rich editor and native HTML. Both hosts use it.
 
 import { createSignal, For, Show, type JSX } from 'solid-js';
 import {
@@ -28,6 +28,9 @@ import { ComposerHistory } from './ComposerHistory.tsx';
 import { RibbonSlot, type RibbonSlotTarget } from './ribbonParts.tsx';
 import type { RichTextApi } from './RichTextEditor.tsx';
 import { t } from '../../i18n/index.ts';
+// The HTML editor can mount this ribbon without loading the rich editor chunk.
+import './richtext.css';
+import './compose-extras.css';
 
 export type EditorTab = 'format' | 'insert' | 'table';
 export const EDITOR_TABS: readonly EditorTab[] = ['format', 'insert', 'table'];
@@ -181,7 +184,7 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
 
 export type BodyMode = 'plain' | 'rich' | 'html';
 
-/** The body's mode: plain text, the rich editor, or its HTML source. One narrow
+/** The body's mode: plain text, the rich editor, or native HTML. One narrow
  *  select, kept above Paragraph in folding order, since it is needed at any width. */
 export function BodyModeGroup(props: {
   value: () => BodyMode;
@@ -201,7 +204,7 @@ export function BodyModeGroup(props: {
         >
           <option value="plain">{t('mail-compose-format-plain')}</option>
           <option value="rich">{t('mail-compose-format-rich')}</option>
-          <option value="html">{t('mail-compose-html-source')}</option>
+          <option value="html">{t('mail-compose-format-html')}</option>
         </select>
       </RibbonItem>
     </RibbonGroup>

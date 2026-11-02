@@ -147,6 +147,7 @@ describe('Signatures — CRUD', () => {
 
     fireEvent.click(await screen.findByText('New signature'));
     fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Work' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Signature format' }), { target: { value: 'plain' } });
     fireEvent.input(screen.getByLabelText('Signature'), { target: { value: '— Alex' } });
     fireEvent.click(screen.getByTestId('signature-save'));
 

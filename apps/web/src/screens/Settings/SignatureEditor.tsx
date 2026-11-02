@@ -35,10 +35,10 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
   });
   const current = (): boolean => !disposed && (owner === null || preferenceAccountIsCurrent(owner));
   const [draft, setDraft] = createSignal<Signature>(structuredClone(props.initial ?? { name: '', body: '', isDefault: false }));
-  const [mode, setMode] = createSignal<BodyMode>(props.initial === undefined || props.initial.html ? 'rich' : 'plain');
+  const [mode, setMode] = createSignal<BodyMode>(props.initial?.format ?? (props.initial === undefined ? 'rich' : props.initial.html ? 'html' : 'plain'));
   const plain = (): string => draft().text ?? draft().body;
   /** What a save sends: the HTML only while the format is not plain. Dirty = this differs from the last save. */
-  const payload = (): Signature => ({ ...draft(), name: draft().name.trim(), body: plain(), text: plain(), html: mode() === 'plain' ? null : (draft().html ?? '') });
+  const payload = (): Signature => ({ ...draft(), format: mode(), name: draft().name.trim(), body: plain(), text: plain(), html: mode() === 'plain' ? null : (draft().html ?? '') });
   const snapshot = (): string => JSON.stringify(payload());
   const [baseline, setBaseline] = createSignal(snapshot());
   const [busy, setBusy] = createSignal(false);
@@ -52,14 +52,22 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
   // been changed it moves the baseline with it (opening is never "unsaved").
   let settling = true;
 
-  function changeMode(next: BodyMode): void {
-    if (next === mode()) return;
-    const clean = snapshot() === baseline();
+  async function changeMode(next: BodyMode): Promise<void> {
+    if (busy() || next === mode()) return;
+    const editor = editorApi();
+    settling = false;
+    if (editor?.whenReady) {
+      setBusy(true);
+      try { await editor.whenReady(); }
+      catch { if (current()) toast.error(t('settings-sig-error-generic')); return; }
+      finally { setBusy(false); }
+      if (!current() || editorApi() !== editor) return;
+    }
     if (next !== 'rich' && ribbon.tab() === 'table') ribbon.setTab('format');
     if (mode() === 'plain') setDraft((value) => ({ ...value, html: value.html ?? plainToHtml(plain()) }));
     setEditorApi(null);
-    // Rich and HTML source are two views of the same HTML; plain text is a change of format.
-    settling = clean && next !== 'plain' && mode() !== 'plain';
+    // The chosen authoring format is saved; changing it is an explicit edit.
+    settling = false;
     setMode(next);
   }
   function settle(): void {
@@ -73,7 +81,8 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
   }
   function ready(api: RichTextApi): void {
     setEditorApi(api);
-    settling = false;
+    if (api.whenReady) void api.whenReady().then(() => { settling = false; }, () => { settling = false; });
+    else settling = false;
   }
   function changePlain(value: string): void {
     settling = false;
@@ -90,29 +99,41 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
       setFieldError(t('settings-sig-error-name'));
       return;
     }
-    const value = payload();
-    if (value.html !== null && value.html !== undefined && utf8(value.html) > SIGNATURE_HTML_MAX) {
-      setFieldError(t('settings-sig-too-large'));
-      return;
-    }
     setFieldError('');
     setBusy(true);
-    const submitted = JSON.stringify(value);
-    // t91: the upsert is idempotent and retried by the transport; a final
-    // transient failure gets one toast whose Retry saves the same signature.
-    const persist = async (): Promise<void> => {
-      await props.service.upsertSignature(value);
-      if (!current()) return;
-      setBaseline(submitted);
-      if (snapshot() !== submitted) return;
-      toast.success(t('settings-saved'));
-      await props.onSaved();
-    };
     try {
-      await persist();
+      // HTML source normalization is asynchronous; saving must use the latest
+      // typed source, never the previous editor publication.
+      const editor = editorApi();
+      if (editor?.whenReady) await editor.whenReady();
+      if (!current()) {
+        setFieldError(t('settings-sig-account-changed'));
+        return;
+      }
+      const value = payload();
+      if (value.html !== null && value.html !== undefined && utf8(value.html) > SIGNATURE_HTML_MAX) {
+        setFieldError(t('settings-sig-too-large'));
+        return;
+      }
+      const submitted = JSON.stringify(value);
+      // Retry the exact captured signature, keeping ownership and dirty guards.
+      const persist = async (): Promise<void> => {
+        await props.service.upsertSignature(value);
+        if (!current()) return;
+        setBaseline(submitted);
+        if (snapshot() !== submitted) return;
+        toast.success(t('settings-saved'));
+        await props.onSaved();
+      };
+      try {
+        await persist();
+      } catch (cause) {
+        if (!current()) return;
+        if (isTransientFailure(cause)) showFailure({ key: 'settings-signature-save', error: cause, message: (reason) => t('settings-sig-save-failed', { reason }), retry: persist });
+        else toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
+      }
     } catch (cause) {
-      if (isTransientFailure(cause)) showFailure({ key: 'settings-signature-save', error: cause, message: (reason) => t('settings-sig-save-failed', { reason }), retry: persist });
-      else toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
+      if (current()) toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
     } finally {
       setBusy(false);
     }
@@ -138,7 +159,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
         <fieldset disabled={busy()} class={layout.fields}>
           <label class={css.field}>
             <span class={css.label}>{t('settings-sig-name-label')}</span>
-            <input class={css.input} aria-label={t('settings-sig-name-label')} readOnly={props.initial !== undefined} value={draft().name} onInput={(e) => setDraft({ ...draft(), name: e.currentTarget.value })} />
+            <input class={css.input} aria-label={t('settings-sig-name-label')} readOnly={props.initial !== undefined} value={draft().name} onInput={(e) => { settling = false; setDraft({ ...draft(), name: e.currentTarget.value }); }} />
           </label>
           <div inert={busy()}>
             <EditorRibbon
@@ -147,12 +168,12 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
               history={editorApi}
               showHistory={() => mode() === 'rich'}
               tabs={[
-                { id: 'format', after: () => <BodyModeGroup label={t('settings-sig-format')} value={mode} onChange={changeMode} testId="signature-group-format" selectTestId="signature-format" /> },
+                { id: 'format', after: () => <BodyModeGroup label={t('settings-sig-format')} value={() => { busy(); return mode(); }} onChange={next => void changeMode(next)} testId="signature-group-format" selectTestId="signature-format" /> },
                 { id: 'insert' },
                 { id: 'table' },
               ]}
             />
-            <div class={sig.body} data-testid="signature-body">
+            <div class={sig.body} data-testid="signature-body" onInput={() => { settling = false; }}>
               <Switch>
                 <Match when={mode() === 'plain'}>{plainField(t('settings-sig-body-label'), 'signature-plain')}</Match>
                 <Match when={mode() === 'rich'}>
@@ -186,7 +207,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
             <p class={css.prose}>{t('settings-sig-plain-help')}</p>
           </Show>
           <label class={css.check}>
-            <input class={css.checkbox} type="checkbox" aria-label={t('settings-sig-default-label')} checked={draft().isDefault} onChange={(e) => setDraft({ ...draft(), isDefault: e.currentTarget.checked })} />
+            <input class={css.checkbox} type="checkbox" aria-label={t('settings-sig-default-label')} checked={draft().isDefault} onChange={(e) => { settling = false; setDraft({ ...draft(), isDefault: e.currentTarget.checked }); }} />
             {t('settings-sig-default-label')}
           </label>
           <div class={css.actions}>

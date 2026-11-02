@@ -89,6 +89,8 @@ const BLOCK_BUTTONS = BUTTONS.filter((b) => b.activeMark === undefined);
 /** Imperative handle the composer uses for signature insert (W12) and draft
  *  resume (W9) without remounting the editor / losing rich formatting. */
 export interface RichTextApi {
+  /** Settle pending HTML-source sanitization before saving or submitting. */
+  whenReady?:()=>Promise<void>;
   /** Append parsed HTML as new blocks at the end of the document. */
   appendHtml: (html: string) => void;
   /** Replace the whole document with parsed HTML. */

@@ -13,6 +13,7 @@ import { externalRecipients } from './compose/recipientTrust.ts';
 import { Icon } from './Icon.tsx';
 import {
   createEffect,
+  batch,
   on,
   createMemo,
   createSignal,
@@ -60,6 +61,7 @@ import {
 } from './compose/inlineImages.ts';
 import { clientPolicy, loadClientPolicy } from '../api/policy.ts';
 import { buildDownloadUrl, fetchObjectUrl } from '../viewers/attachments.ts';
+import {blobUrlToDataUrl} from '../viewers/sandbox.ts';
 
 // The rich-text editor pulls in ProseMirror (MIT, self-hosted). Loaded lazily so
 // those libraries land in their own chunk and never inflate the login→inbox
@@ -567,8 +569,17 @@ export function Compose(props: {
    *  textarea. Rich → plain just reveals the already-synced text; plain → rich
    *  re-seeds the editor from that text so the content round-trips. */
   function changeFormat(mode:BodyMode):void {
+    const api=editorApi();
+    if(sourceMode()&&mode!=='html'&&api?.whenReady&&featureOn('compose.rich_text')){
+      void api.whenReady().then(()=>{if(ownsDraft()&&editorApi()===api)applyFormat(mode);},()=>setError(t('mail-compose-html-failed')));
+      return;
+    }
+    applyFormat(mode);
+  }
+  function applyFormat(mode:BodyMode):void {
     if(!richMode() && mode!=='plain')setBodyHtml(plainToHtml(body()));
     if(mode!=='rich'&&ribbonTab()==='table')setRibbonTab('format');
+    if(sourceMode()!==(mode==='html'))setEditorApi(null);
     setSourceMode(mode==='html');
     setRichMode(mode!=='plain');
   }
@@ -583,7 +594,7 @@ export function Compose(props: {
         const text = (id.signatureText ?? '').trim();
         const htmlText = (id.signatureHtml ?? '').replace(/<[^>]*>/g, '').trim();
         const plain = text !== '' ? text : htmlText;
-        return { id: id.id, name: id.name, text: plain, html: id.signatureHtml };
+        return { id: id.id, name: id.name, text: plain, html: id.signatureHtml,format:id.signatureFormat??(id.signatureHtml?'html' as const:'plain' as const) };
       })
       .filter((s) => s.text !== '' || (s.html ?? '') !== ''),
   );
@@ -626,21 +637,14 @@ export function Compose(props: {
     return !(cs !== null && (cs.encrypt || cs.sign));
   });
 
-  /** A signature as HTML for the outgoing body. `signatureHtml` is whatever the
-   *  server holds for the identity, so it is parsed into the composer's schema
-   *  and re-serialised — the same reduction typed and pasted content gets — and
-   *  only that result is sent. If the schema's chunk cannot be loaded, the
-   *  signature goes out as escaped text instead of as unfiltered markup. */
+  /** Stored HTML signatures keep their native email layout when appended. The
+   * HTML sanitizer remains the boundary, independently of the visual schema. */
   async function signatureBlock(sig: ComposeSignature): Promise<string> {
     if (sig.html !== null && sig.html !== '') {
-      try {
-        const rt = await import('./compose/richtext.ts');
+        const {normalizeHtmlSource} = await import('./compose/htmlSource.ts');
         // Embedded images become inline images of this draft (t49), sent as `cid:` parts.
         const html = await embedSignatureImages(sig.html, uploadInline);
-        return rt.htmlFromDoc(rt.docFromHtml(html, ownedCids()));
-      } catch {
-        // Fall through to the text form.
-      }
+        return (await normalizeHtmlSource(html,ownedCids())).html;
     }
     return plainToHtml(sig.text);
   }
@@ -657,23 +661,37 @@ export function Compose(props: {
   /** Insert a chosen signature (W12). In rich mode it appends as HTML through the
    *  editor handle (keeping existing formatting); otherwise it appends its text
    *  to the plain body. */
+  let pendingSignature:Promise<void>|undefined;
   function insertSignature(sig: ComposeSignature): void {
-    setInsertedSignatures((prev) => new Set(prev).add(sig.id));
-    const api = editorApi();
-    if (richMode() && api !== null) {
-      if (sig.html === null || sig.html === '') {
-        api.appendHtml(plainToHtml(sig.text));
-        return;
-      }
-      // Embedded images are uploaded as this draft's inline images first (t49),
-      // so the body refers to them by `cid:` and the send carries them.
-      const html = sig.html;
-      void embedSignatureImages(html, uploadInline).then((owned) => {
-        if (editorApi() === api) api.appendHtml(owned);
-      });
-    } else {
-      setBody((cur) => (cur.trim() !== '' ? `${cur}\n\n-- \n${sig.text}` : sig.text));
+    // Text-only choices remain immediate. HTML work is awaited by Send so a
+    // quick submission cannot omit the insertion or append it a second time.
+    if(!sig.html){
+      if(richMode()&&editorApi())editorApi()!.appendHtml(plainToHtml(sig.text));
+      else setBody(cur=>cur.trim()?`${cur}\n\n-- \n${sig.text}`:sig.text);
+      setInsertedSignatures(prev=>new Set(prev).add(sig.id));return;
     }
+    pendingSignature=(pendingSignature??Promise.resolve()).catch(()=>undefined).then(async()=>{
+      if(!ownsDraft())return;
+      if(!richMode()){
+        const plain=await signaturePlain(sig);if(!ownsDraft())return;
+        setBody(cur=>cur.trim()?`${cur}\n\n-- \n${plain}`:plain);
+      }else{
+        const html=await signatureBlock(sig);if(!ownsDraft())return;
+        if(sig.format==='html'||sourceMode()||editorApi()===null){
+          if(sourceMode()&&editorApi()){
+            editorApi()!.appendHtml(html);await editorApi()!.whenReady?.();
+          }else{
+            const {normalizeHtmlSource}=await import('./compose/htmlSource.ts');
+            const combined=await normalizeHtmlSource(`${bodyHtml()}<br>${html}`,ownedCids());
+            if(!ownsDraft())return;
+            batch(()=>{setBodyHtml(combined.html);setBody(combined.text);changeFormat('html');});
+          }
+        }else editorApi()!.appendHtml(html);
+      }
+      if(!ownsDraft())return;
+      setInsertedSignatures(prev=>new Set(prev).add(sig.id));
+    });
+    void pendingSignature.catch(()=>{if(ownsDraft())setError(t('mail-compose-html-failed'));});
   }
 
   /** Resume a locally auto-saved draft (W9) into this composer. */
@@ -1222,6 +1240,9 @@ export function Compose(props: {
     if(busy()||uploading()||discardCurrentOpen()||discardCurrentBusy())return;
     setBusy(true);
     try {
+    if(pendingSignature)await pendingSignature;
+    if(sourceMode()&&editorApi()===null){setError(t('mail-compose-html-processing'));return;}
+    const readyEditor=editorApi();if(readyEditor?.whenReady)await readyEditor.whenReady();
     remoteWriter?.suspend(true);
     if(remoteWriter?.isBusy())await remoteWriter.settled();
     if(!ownsDraft())return;
@@ -1836,7 +1857,7 @@ export function Compose(props: {
                 cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
-                <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
                   initialHtml={bodyHtml()}

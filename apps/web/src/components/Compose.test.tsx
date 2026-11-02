@@ -1,4 +1,7 @@
 import {webcrypto} from 'node:crypto';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
 import { saveDraft, listDrafts } from './compose/drafts-store.ts';
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
@@ -122,6 +125,7 @@ describe('Compose', () => {
    * fails in a second.
    */
   beforeAll(async () => {
+    initSync({module:readFileSync(resolve(process.cwd(),'src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))});
     await import('./compose/RichTextEditor.tsx');
   }, 60_000);
 
@@ -512,15 +516,25 @@ describe('Compose', () => {
     renderWithApp(()=><Compose embedded onClose={()=>undefined}/>);
     await screen.findByTestId('compose-richtext');
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
-    fireEvent.input(await screen.findByLabelText('HTML source'),{target:{value:'<h2>Heading</h2><p><strong>Bold</strong> text</p>'}});
+    const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+    const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
+    if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
+    frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);
+    fireEvent.click(await screen.findByRole('tab',{name:'HTML source'}));
+    fireEvent.input(await screen.findByRole('textbox',{name:'HTML source'}),{target:{value:'<h2>Heading</h2><p><strong>Bold</strong> text</p>'}});
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});
     const editor=await screen.findByTestId('compose-richtext');
     expect(editor.querySelector('h2')).toHaveTextContent('Heading');
     expect(editor.querySelector('strong')).toHaveTextContent('Bold');
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
-    expect(await screen.findByLabelText('HTML source')).toHaveValue('<h2>Heading</h2><p><strong>Bold</strong> text</p>');
+    const again=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+    const againView=again.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
+    if(againView&&!againView.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(againView.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
+    again.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(again);
+    fireEvent.click(await screen.findByRole('tab',{name:'HTML source'}));
+    expect(await screen.findByRole('textbox',{name:'HTML source'})).toHaveValue('<h2>Heading</h2><p><strong>Bold</strong> text</p>');
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
-    expect(screen.getByLabelText('Body')).toHaveValue('Heading\n\nBold text');
+    expect(await screen.findByLabelText('Body')).toHaveValue('Heading\nBold text');
     expect(screen.queryByRole('button',{name:/^Close$/})).toBeNull();
     expect(screen.queryByRole('button',{name:'Cancel'})).toBeNull();
   });
@@ -763,7 +777,7 @@ describe('Compose', () => {
 
   // ── The identity signature ───────────────────────────────────────────────────
 
-  it('appends the identity signature once, reduced to the composer schema', async () => {
+  it('appends the identity HTML signature safely without requiring the visual schema', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
     fireEvent.click(screen.getByRole('button', {name:'From'}));
@@ -773,8 +787,27 @@ describe('Compose', () => {
     await screen.findByTestId('compose-richtext');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
-    // No <img>, no javascript: link, no style attribute, no <script>.
-    expect(sentBody(client)).toEqual({ body: { value: '<p>hi</p><br><p>Regards, me</p>' } });
+    const body=(sentBody(client) as {body:{value:string}}).body.value;
+    expect(body).toContain('<p>hi</p>');expect(body.match(/Regards/g)).toHaveLength(1);
+    expect(body).not.toMatch(/<script|javascript:|position:fixed|https:\/\/t.example/);
+  });
+
+  for(const how of ['auto','picker'] as const)it(`preserves native HTML signature layout through ${how} insertion and sending`,async()=>{
+    const signature:Identity={...IDENTITIES[0]!,id:'native',signatureFormat:'html',signatureText:'Native brand',signatureHtml:'<style>.brand td{padding:18px;font-family:Georgia}</style><table class="brand" width="480" cellpadding="12"><tr><td><font face="Georgia" size="4">Native brand</font></td></tr></table>'};
+    const {client,app,onClose}=await composeWithClient({identities:[signature]});await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button',{name:'From'}));fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
+    fillPlain('Existing message');fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});await screen.findByTestId('compose-richtext');
+    if(how==='picker'){
+      fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.change(within(await screen.findByTestId('compose-signature')).getByRole('combobox'),{target:{value:'native'}});
+      const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+      const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
+      if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
+      frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);
+      await waitFor(()=>expect(frame.contentDocument?.querySelector('table')?.getAttribute('width')).toBe('480'));
+    }
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    const value=(sentBody(client) as {body:{value:string}}).body.value;
+    expect(value).toContain('Existing message');expect(value.match(/Native brand/g)).toHaveLength(1);expect(value).toContain('width="480"');expect(value).toContain('cellpadding="12"');expect(value).toContain('class="brand"');expect(value).toContain('face="Georgia"');expect(value).toMatch(/padding:\s*18px/);
   });
 
   it('appends a text-only signature literally to plain text', async () => {
@@ -1054,7 +1087,11 @@ describe('Compose', () => {
           fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
           const picker = await screen.findByTestId('compose-signature');
           fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id4' } });
-          await waitFor(() => expect(screen.getByTestId('compose-richtext').querySelector('img.compose-rt__img')).not.toBeNull());
+          const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+          const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
+          if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
+          frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);
+          await waitFor(()=>expect(frame.contentDocument?.querySelector('img')).not.toBeNull());
         } else {
           fireEvent.click(screen.getByRole('button', { name: 'From' }));
           fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id4' } });

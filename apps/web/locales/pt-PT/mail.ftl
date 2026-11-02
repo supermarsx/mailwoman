@@ -714,7 +714,11 @@ mail-insert-account-loading = A carregar item da conta…
 mail-insert-account-error = Não foi possível anexar o item. Verifique o seu acesso e a política de exportação e tente novamente. Calendários grandes podem exigir a exportação de eventos individuais.
 
 mail-compose-html-source = Código HTML
+mail-compose-format-html = HTML
+mail-compose-html-visual = Editor visual
 mail-compose-html-help = Edite o HTML diretamente. Só é guardada e enviada formatação de e-mail suportada; scripts, imagens externas e marcação insegura são removidos.
+mail-compose-html-processing = A preparar HTML seguro…
+mail-compose-html-failed = Não foi possível preparar o HTML. Edite-o ou tente novamente antes de guardar ou enviar.
 
 mail-compose-check-names = Verificar nomes
 mail-compose-check-names-help = Resolve nomes exatos a partir dos contactos carregados e verifica a formatação dos endereços. Não verifica a entrega na caixa de correio.

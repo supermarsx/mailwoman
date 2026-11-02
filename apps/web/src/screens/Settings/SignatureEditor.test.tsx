@@ -4,15 +4,29 @@ import {SignatureEditor} from './SignatureEditor.tsx';
 import {SettingsService} from './service.ts';
 import type {Signature} from './types.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {initSync} from '../../wasm/mw-sanitize/mw_sanitize.js';
 // The editor and the source editor are lazy chunks (~290 kB of ProseMirror). Their
 // cold transform under a full parallel run took longer than the 1 s `findBy*`
 // budget, so the first await of the file timed out (the flake other lanes saw).
 // Loading them here moves that cost into a hook with its own budget; every find
 // below keeps the 1 s fast-fail (same mechanism and fix as Compose.test, see
 // vite.config.ts FLAKE POLICY).
-beforeAll(async()=>{await Promise.all([import('../../components/compose/RichTextEditor.tsx'),import('../../components/compose/HtmlSourceEditor.tsx')]);},60_000);
+beforeAll(async()=>{initSync({module:readFileSync(resolve(process.cwd(),'src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))});await Promise.all([import('../../components/compose/RichTextEditor.tsx'),import('../../components/compose/HtmlSourceEditor.tsx')]);},60_000);
 beforeEach(()=>suspendAccountPreferences());
-function setup(initial?:Signature){const save=vi.fn(async(_value:Signature):Promise<void>=>undefined);const done=vi.fn();const cancel=vi.fn();render(()=><SignatureEditor {...(initial?{initial}:{})} service={{upsertSignature:save} as unknown as SettingsService} onSaved={done} onCancel={cancel}/>);return {save,done,cancel};}
+function setup(initial?:Signature){const save=vi.fn(async(_value:Signature):Promise<void>=>undefined);const done=vi.fn();const cancel=vi.fn();const view=render(()=><SignatureEditor {...(initial?{initial}:{})} service={{upsertSignature:save} as unknown as SettingsService} onSaved={done} onCancel={cancel}/>);return {...view,save,done,cancel};}
+async function sourceField(){
+ const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+ // jsdom does not navigate srcdoc; exercise the frame's real load handler.
+ const frameView=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
+ const sheet=frameView?.CSSStyleSheet.prototype;
+ if(sheet&&!sheet.replaceSync)Object.defineProperty(sheet,'replaceSync',{value:()=>{},configurable:true});
+ frame.contentDocument?.documentElement.setAttribute('data-mw-native-document','true');
+ if(!frame.contentDocument?.getElementById('mw-native-editor'))fireEvent.load(frame);
+ fireEvent.click(await screen.findByRole('tab',{name:'HTML source'}));
+ return screen.findByRole('textbox',{name:'HTML source'});
+}
 const PNG='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 function png(name='logo.png',bytes=Uint8Array.from(atob(PNG),c=>c.charCodeAt(0))):File{return new File([bytes],name,{type:'image/png'});}
 describe('dedicated signature formats',()=>{
@@ -20,20 +34,20 @@ describe('dedicated signature formats',()=>{
   const {save,done}=setup();
   fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Work'}});
   fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
-  fireEvent.input(await screen.findByRole('textbox',{name:'HTML source'}),{target:{value:'<p>Regards <strong>Team</strong></p>'}});
+  fireEvent.input(await sourceField(),{target:{value:'<p>Regards <strong>Team</strong></p>'}});
   fireEvent.input(screen.getByLabelText('Plain-text alternative'),{target:{value:'Regards <plain> & Team'}});
   fireEvent.click(screen.getByTestId('signature-save'));
   await waitFor(()=>expect(done).toHaveBeenCalledTimes(1));
-  expect(save.mock.calls[0]?.[0]).toMatchObject({name:'Work',body:'Regards <plain> & Team',html:'<p>Regards <strong>Team</strong></p>',text:'Regards <plain> & Team',textEdited:true});
+  expect(save.mock.calls[0]?.[0]).toMatchObject({name:'Work',format:'html',body:'Regards <plain> & Team',html:'<p>Regards <strong>Team</strong></p>',text:'Regards <plain> & Team',textEdited:true});
  });
  it('renders rich source through the editor schema without active elements or remote images',async()=>{
-  setup({name:'Work',body:'Fallback',html:'<p onclick="evil()">Hello <strong>team</strong><script>evil()</script><img src="https://tracker.example/x"></p>',text:'Plain',isDefault:false});
+  setup({name:'Work',body:'Fallback',format:'rich',html:'<p onclick="evil()">Hello <strong>team</strong><script>evil()</script><img src="https://tracker.example/x"></p>',text:'Plain',isDefault:false});
   const editor=await screen.findByRole('textbox',{name:'Rich signature'});
   expect(editor.querySelector('strong')).toHaveTextContent('team');
   expect(editor.querySelector('script,img,[onclick]')).toBeNull();
  });
  it('plain format explicitly removes HTML while retaining authored text',async()=>{
-  const {save}=setup({name:'Work',body:'Legacy',html:'<p>Rich</p>',text:'Authored plain',textEdited:true,isDefault:false});
+  const {save}=setup({name:'Work',body:'Legacy',format:'rich',html:'<p>Rich</p>',text:'Authored plain',textEdited:true,isDefault:false});
   fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
   expect(screen.getByLabelText('Signature')).toHaveValue('Authored plain');
   fireEvent.click(screen.getByTestId('signature-save'));
@@ -52,7 +66,7 @@ describe('dedicated signature formats',()=>{
   await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));expect(done).not.toHaveBeenCalled();expect(screen.getByTestId('signature-editor')).toBeInTheDocument();
  });
  it('makes the rich editor inert during a pending save and keeps later edits unsaved',async()=>{
-  const {save,done}=setup({name:'Work',body:'Plain',html:'<p>Rich</p>',text:'Plain',isDefault:false});
+  const {save,done}=setup({name:'Work',body:'Plain',format:'rich',html:'<p>Rich</p>',text:'Plain',isDefault:false});
   let release!:()=>void;save.mockImplementationOnce(()=>new Promise<void>(resolve=>{release=resolve;}));
   const editor=await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.click(screen.getByTestId('signature-save'));
@@ -74,7 +88,7 @@ describe('dedicated signature formats',()=>{
 
 describe('the composer editor in the signature editor (t49)',()=>{
  it('offers the composer ribbon with the signature groups only',async()=>{
-  setup({name:'Work',body:'Regards',html:'<p>Regards</p>',text:'Regards',isDefault:false});
+  setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   const tabs=screen.getAllByRole('tab').map(tab=>tab.textContent);
   expect(tabs).toEqual(['Format text','Insert','Table']);
@@ -97,7 +111,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   await waitFor(()=>expect(cancel).toHaveBeenCalledOnce());
  });
  it('uses composer find/replace and formatting commands when saving a signature',async()=>{
-  const {save}=setup({name:'Work',body:'Regards Team',html:'<p>Regards Team</p>',text:'Regards Team',isDefault:false});
+  const {save}=setup({name:'Work',body:'Regards Team',format:'rich',html:'<p>Regards Team</p>',text:'Regards Team',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.click(screen.getByRole('button',{name:'Find and replace'}));
   fireEvent.input(screen.getByRole('textbox',{name:'Find text'}),{target:{value:'Team'}});
@@ -113,12 +127,56 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(save.mock.calls[0]?.[0]).toMatchObject({html:'<p><strong>Regards Support</strong></p>',text:'Regards Support',body:'Regards Support'});
  });
  it('opens an existing rich signature without unsaved changes',async()=>{
-  const {cancel}=setup({name:'Work',body:'Regards',html:'<p>Regards <strong>Team</strong></p>',text:'Regards Team',isDefault:false});
+  const {cancel}=setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards <strong>Team</strong></p>',text:'Regards Team',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
-  await screen.findByRole('textbox',{name:'HTML source'});
   fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
   await waitFor(()=>expect(cancel).toHaveBeenCalledTimes(1));
+ });
+ it('guards a change of the saved signature format',async()=>{
+  const {cancel}=setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
+  await screen.findByRole('textbox',{name:'Rich signature'});
+  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
+  await screen.findByRole('tab',{name:'HTML source'});
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
+  expect(cancel).not.toHaveBeenCalled();
+ });
+ it('opens authored HTML visually and retains the source and format when saved and reopened',async()=>{
+  const html='<style>.brand td{padding:14px}</style><table width="540" class="brand"><tbody><tr><td style="font-family:Georgia;font-size:17px">Native signature</td></tr></tbody></table>';
+  const first=setup({name:'HTML template',body:'Native signature',text:'Native signature',format:'html',html,isDefault:false});
+  expect(await screen.findByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+  expect(screen.queryByRole('textbox',{name:'Rich signature'})).toBeNull();
+  expect(screen.queryByRole('textbox',{name:'HTML source'})).toBeNull();
+  const source=await sourceField();
+  expect(source).toHaveValue(html);
+  fireEvent.input(source,{target:{value:html.replace('Native signature','Updated signature')}});
+  fireEvent.click(screen.getByTestId('signature-save'));
+  await waitFor(()=>expect(first.save).toHaveBeenCalledOnce());
+  const saved=first.save.mock.calls[0]![0];
+  expect(saved).toMatchObject({format:'html',html:html.replace('Native signature','Updated signature')});
+  first.unmount();
+  setup(saved);
+  expect(await screen.findByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+  expect(await sourceField()).toHaveValue(saved.html);
+ });
+ it('opens legacy HTML in the native visual/source editor without reducing it through rich text',async()=>{
+  const html='<table width="510"><tbody><tr><td style="padding:15px">Legacy HTML</td></tr></tbody></table>';
+  const {cancel}=setup({name:'Legacy HTML',body:'Legacy HTML',html,isDefault:false});
+  expect(screen.getByRole('combobox',{name:'Signature format'})).toHaveValue('html');
+  expect(await screen.findByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+  expect(await sourceField()).toHaveValue(html);
+  fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+  await waitFor(()=>expect(cancel).toHaveBeenCalledOnce());
+ });
+ it('settles the latest HTML edit before changing signature format',async()=>{
+  const {save}=setup({name:'Change format',format:'html',html:'<p>Old</p>',body:'Old',text:'Old',isDefault:false});
+  const source=await sourceField();
+  fireEvent.input(source,{target:{value:'<p>Latest typed signature</p>'}});
+  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
+  expect(await screen.findByRole('textbox',{name:'Signature'})).toHaveValue('Latest typed signature');
+  fireEvent.click(screen.getByTestId('signature-save'));
+  await waitFor(()=>expect(save).toHaveBeenCalledOnce());
+  expect(save.mock.calls[0]![0]).toMatchObject({format:'plain',html:null,body:'Latest typed signature'});
  });
  it('asks before discarding an edit, through the shared dialog',async()=>{
   const {cancel}=setup({name:'Work',body:'Regards',isDefault:false});
@@ -127,7 +185,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(await screen.findByRole('alertdialog')).toBeInTheDocument();expect(cancel).not.toHaveBeenCalled();
  });
  it('keeps the rich HTML across a plain round trip',async()=>{
-  const {save}=setup({name:'Work',body:'Regards',html:'<p>Regards <em>Team</em></p>',text:'Regards Team',isDefault:false});
+  const {save}=setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards <em>Team</em></p>',text:'Regards Team',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
   fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'rich'}});
@@ -137,7 +195,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(save.mock.calls[0]?.[0].html).toBe('<p>Regards <em>Team</em></p>');
  });
  it('inserts a table and a horizontal line and saves them',async()=>{
-  const {save}=setup({name:'Table signature',body:'Regards',html:'<p>Regards</p>',text:'Regards',isDefault:false});
+  const {save}=setup({name:'Table signature',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.click(screen.getByRole('button',{name:'Insert table'}));
   fireEvent.click(screen.getByTestId('rt-rule'));
@@ -150,7 +208,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(document.querySelector('hr')).not.toBeNull();
  });
  it('embeds an image in the signature HTML and keeps it on reload',async()=>{
-  const {save}=setup({name:'Logo',body:'Regards',html:'<p>Regards</p>',text:'Regards',isDefault:false});
+  const {save}=setup({name:'Logo',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
   fireEvent.change(screen.getByLabelText('Insert an image'),{target:{files:[png()]}});
@@ -160,7 +218,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(html).toContain(`<img src="data:image/png;base64,${PNG}" alt="logo.png">`);
  });
  it('refuses an image that does not fit the 32 KiB signature limit, or is not raster',async()=>{
-  setup({name:'Logo',body:'Regards',html:'<p>Regards</p>',text:'Regards',isDefault:false});
+  setup({name:'Logo',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
   fireEvent.change(screen.getByLabelText('Insert an image'),{target:{files:[png('big.png',new Uint8Array(30*1024))]}});
@@ -172,7 +230,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
  it('refuses to save HTML over 32 KiB',async()=>{
   const {save}=setup({name:'Big',body:'x',isDefault:false});
   fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
-  fireEvent.input(await screen.findByRole('textbox',{name:'HTML source'}),{target:{value:`<p>${'x'.repeat(33*1024)}</p>`}});
+  fireEvent.input(await sourceField(),{target:{value:`<p>${'x'.repeat(33*1024)}</p>`}});
   fireEvent.click(screen.getByTestId('signature-save'));
   expect(await screen.findByRole('alert')).toHaveTextContent('over 32 KiB');expect(save).not.toHaveBeenCalled();
  });

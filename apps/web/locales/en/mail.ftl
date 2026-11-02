@@ -723,7 +723,11 @@ mail-insert-account-loading = Loading account item…
 mail-insert-account-error = The item could not be attached. Check your access and export policy, then try again. Large calendars may need individual event exports.
 
 mail-compose-html-source = HTML source
+mail-compose-format-html = HTML
+mail-compose-html-visual = Visual editor
 mail-compose-html-help = Edit HTML directly. Only supported email formatting is saved and sent; scripts, external images, and unsafe markup are removed.
+mail-compose-html-processing = Preparing safe HTML…
+mail-compose-html-failed = The HTML could not be prepared. Edit it or try again before saving or sending.
 
 mail-compose-check-names = Check names
 mail-compose-check-names-help = Resolve exact names from your loaded contacts and check address formatting. This does not verify mailbox delivery.

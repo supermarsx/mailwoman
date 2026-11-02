@@ -49,6 +49,7 @@ it('retains list data while preserving the actual dirty editor discard guard',as
  const nav=createSettingsNavigation({section:'signatures'});
  render(()=><SettingsNavigationContext.Provider value={nav}><button onClick={()=>void nav.navigate({section:'identities'})}>Other section</button><AccountSettings service={service} hideSecurity section={()=>nav.route().section}/></SettingsNavigationContext.Provider>);
  await screen.findByTestId('signature-list');fireEvent.click(screen.getByRole('button',{name:'New signature'}));
+ fireEvent.change(await screen.findByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
  fireEvent.input(await screen.findByLabelText('Signature'),{target:{value:'Unsaved private text'}});
  fireEvent.click(screen.getByRole('button',{name:'Other section'}));await screen.findByRole('alertdialog');fireEvent.click(screen.getByRole('button',{name:'Keep editing'}));
  expect(screen.getByLabelText('Signature')).toHaveValue('Unsaved private text');expect(nav.route().section).toBe('signatures');
