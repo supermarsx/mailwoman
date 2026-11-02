@@ -343,6 +343,57 @@ describe('retained mailbox workspace',()=>{
       expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='messages'&&tab.id!=='mail')).toHaveLength(1);
     }finally{setReadingPane('right');}
   });
+  it('recovers a saved hidden list from the Mail preview and preserves an intentional hide with a visible recovery control',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    setReadingPane('right');setAccountUiPreferences({messageListCollapsed:true});
+    const {container}=show();
+    const list=container.querySelector('.mail-pane')!;
+    fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    await waitFor(()=>expect(screen.getByTestId('reading-pane').querySelector('.reader__subject')?.textContent).toBe('Subject a'));
+    expect(list).not.toBeVisible();
+    const toggle=screen.getByRole('button',{name:'Show or hide message list'});
+    expect(toggle).toHaveAttribute('aria-pressed','false');
+    fireEvent.click(toggle);
+    expect(list).toBeVisible();expect(accountUiPreferences().messageListCollapsed).toBe(false);
+    fireEvent.click(toggle);
+    expect(list).not.toBeVisible();expect(toggle).toBeVisible();
+    expect(accountUiPreferences().messageListCollapsed).toBe(true);
+    fireEvent.click(screen.getByRole('button',{name:'Reading pane'}));
+    fireEvent.click(screen.getByRole('menuitemradio',{name:'Right'}));
+    expect(list).toBeVisible();expect(accountUiPreferences().messageListCollapsed).toBe(false);
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByRole('button',{name:'Reading pane'}));
+    fireEvent.click(screen.getByRole('menuitemradio',{name:'Bottom'}));
+    expect(list).toBeVisible();expect(accountUiPreferences().messageListCollapsed).toBe(false);
+    fireEvent.dblClick(screen.getByText('Subject a',{selector:'.list__subject'}));
+    await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
+    expect(screen.queryByRole('button',{name:'Show or hide message list'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Reading pane'})).not.toBeInTheDocument();
+    setReadingPane('right');
+  });
+  it.each(['right','bottom'] as const)('fits saved %s pane sizes to the measured workspace and restores them when there is room',async mode=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    setReadingPane(mode);setAccountUiPreferences({messageListWidth:600,messageListHeight:500,messageListCollapsed:false});
+    const {container}=show();
+    const body=container.querySelector<HTMLElement>('.workspace-body')!;
+    let width=390;let height=300;
+    Object.defineProperties(body,{clientWidth:{get:()=>width},clientHeight:{get:()=>height}});
+    fireEvent(window,new Event('resize'));
+    const separator=screen.getByRole('separator',{name:'Resize message list'});
+    const size=Number(separator.getAttribute('aria-valuenow'));
+    expect(size).toBeGreaterThan(0);expect(size).toBeLessThan((mode==='bottom'?height:width)-6);
+    expect(body.style.getPropertyValue('--list-size')).toBe(`${size}px`);
+    expect(separator).toHaveAttribute('aria-orientation',mode==='bottom'?'horizontal':'vertical');
+    expect(accountUiPreferences().messageListWidth).toBe(600);
+    expect(accountUiPreferences().messageListHeight).toBe(500);
+    width=1000;height=800;fireEvent(window,new Event('resize'));
+    expect(separator).toHaveAttribute('aria-valuenow',mode==='bottom'?'500':'600');
+    expect(body.style.getPropertyValue('--list-size')).toBe(mode==='bottom'?'500px':'600px');
+    fireEvent.keyDown(separator,{key:'End'});
+    expect(Number(separator.getAttribute('aria-valuenow'))).toBe((mode==='bottom'?height:width)-6-280);
+    expect(mode==='bottom'?accountUiPreferences().messageListHeight:accountUiPreferences().messageListWidth).toBe((mode==='bottom'?height:width)-6-280);
+    setReadingPane('right');
+  });
   it('shows bulk actions in the enabled reading pane and advances after a successful delete',async()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
     setReadingPane('right');

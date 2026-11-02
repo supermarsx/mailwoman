@@ -19,7 +19,8 @@ globalStyle('.workspace-bar .btn svg',{'@media':{[fineDesktop]:{width:'16px',hei
 globalStyle('.mail-topbar [data-bar-pin]',{'@media':{[fineDesktop]:{margin:'1px'}}});
 globalStyle('.mail-topbar [data-bar-panel]',{alignItems:'center'});
 globalStyle('.workspace-body',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',alignItems:'stretch',minHeight:0,minWidth:0,flex:'1 1 0',overflow:'hidden'});
-globalStyle('.workspace-body--split',{gridTemplateColumns:'var(--list-size,340px) 6px minmax(0,1fr)'});
+globalStyle('.workspace-body--split',{gridTemplateColumns:'minmax(0,var(--list-size,340px)) 6px minmax(0,1fr)'});
+globalStyle('.workspace-body > :is(.mail-pane,.workspace-panes,.workspace-reading-pane)',{minWidth:0,minHeight:0,maxWidth:'100%',maxHeight:'100%'});
 globalStyle(':root[data-reading-pane] .mail-workspace .mail-pane',{gridColumn:'auto',gridRow:'auto',minHeight:0});
 globalStyle('.workspace-panes',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',minWidth:0,minHeight:0,overflow:'auto'});
 globalStyle('.workspace-panes[data-layout="side-by-side"]',{gridTemplateColumns:'repeat(auto-fit,minmax(min(100%,320px),1fr))',gridAutoRows:'minmax(320px,1fr)'});
@@ -34,7 +35,7 @@ globalStyle('.workspace-compose > .compose',{width:'100%',maxWidth:'none',height
 globalStyle('.workspace-shell > [role="separator"]',{gridColumn:'2',gridRow:'1'});
 globalStyle('.workspace-shell > .sidebar[hidden]',{display:'none'});
 globalStyle('.workspace-shell > .module-pane, .workspace-shell > .outbox, .workspace-shell > .attachments-pane',{gridColumn:'3 / -1'});
-globalStyle('.workspace-body--split[data-reading-pane="bottom"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'var(--list-size,320px) 6px minmax(0,1fr)'});
+globalStyle('.workspace-body--split[data-reading-pane="bottom"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(0,var(--list-size,320px)) 6px minmax(0,1fr)'});
 globalStyle('.workspace-panes[data-pair="true"][data-layout="side-by-side"]',{gridTemplateColumns:'var(--tile-first,50%) 6px minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',gridAutoRows:'auto'});
 globalStyle('.workspace-panes[data-pair="true"][data-layout="stack"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'var(--tile-first,50%) 6px minmax(0,1fr)',gridAutoRows:'auto'});
 globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box-name, .workspace-shell[data-folder-mode="compact"] .sidebar__brand',{'@media':{[desktop]:{display:'none'}}});
@@ -115,8 +116,8 @@ globalStyle('.sidebar__footer .sidebar__settings',{marginInlineStart:0,padding:'
 // Tabs layout, a message opened from a folder tab (t51): the folder list stays
 // beside the message, the way the Mail list sits beside its reader, so the row
 // that opened it keeps focus. The reading-pane setting picks right or bottom.
-globalStyle('.workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(240px,2fr) minmax(0,3fr)',gridTemplateRows:'minmax(0,1fr)'});
-globalStyle('.workspace-body[data-reading-pane="bottom"] > .workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(160px,2fr) minmax(0,3fr)'});
+globalStyle('.workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(min(240px,40%),2fr) minmax(0,3fr)',gridTemplateRows:'minmax(0,1fr)'});
+globalStyle('.workspace-body[data-reading-pane="bottom"] > .workspace-panes[data-layout="tabs"][data-companion="true"]',{gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(min(160px,40%),2fr) minmax(0,3fr)'});
 globalStyle('.workspace-panes[data-layout="tabs"] > .workspace-pane[data-companion-list="true"]',{order:-1});
 
 globalStyle('.workspace-layout-modes select',{font:'inherit',color:vars.color.text,background:vars.color.surface,border:`1px solid ${vars.color.border}`,borderRadius:vars.radius.sm,padding:'3px 6px',minWidth:0,maxWidth:'180px'});

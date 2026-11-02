@@ -35,6 +35,7 @@ import { accountUiPreferences, setAccountUiPreferences } from '../api/accountPre
 import {ReadingPaneControl} from '../components/ReadingPaneControl.tsx';
 import {BulkSelectionSummary} from '../components/BulkSelectionSummary.tsx';
 import { readingPane } from '../components/readingPane.ts';
+import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
 import { orderedFolders, folderIcon, folderIsHidden } from './Settings/folderPreferenceModel.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
@@ -143,8 +144,11 @@ export function MailboxScreen(): JSX.Element {
   let shellElement:HTMLDivElement|undefined;let bodyElement:HTMLDivElement|undefined;let tilesElement:HTMLDivElement|undefined;
   const folderMax=()=>Math.max(160,Math.min(600,viewport().width-560));
   const folderWidth=()=>folderMode()==='hidden' ? 0 : folderMode()==='compact' ? 64 : Math.max(160,Math.min(folderMax(),folderDrag() ?? accountUiPreferences().folderSidebarWidth ?? 220));
-  const listMax=()=>Math.max(readingPane()==='bottom'?160:240,Math.min(1200,(readingPane()==='bottom'?bodySize().height:bodySize().width)-280));
-  const listSize=()=>Math.max(readingPane()==='bottom'?160:240,Math.min(listMax(),listDrag() ?? (readingPane()==='bottom' ? accountUiPreferences().messageListHeight ?? 320 : accountUiPreferences().messageListWidth ?? 340)));
+  const listBounds=createMemo(()=>{
+    const bottom=readingPane()==='bottom';
+    return readingPaneSplit(bottom?bodySize().height:bodySize().width,listDrag() ?? (bottom?accountUiPreferences().messageListHeight??320:accountUiPreferences().messageListWidth??340),bottom);
+  });
+  const listSize=()=>listBounds().size;
   const tileExtent=()=>Math.max(1,isStackedLayout(workspaceLayout()) ? tileSize().height : tileSize().width);
   const tileFirst=()=>tileDrag() ?? tileExtent()*(accountUiPreferences().workspaceSplitRatio ?? 0.5);
   onMount(()=>{const update=():void=>{setViewport({width:window.innerWidth,height:window.innerHeight});if(bodyElement?.clientWidth)setBodySize({width:bodyElement.clientWidth,height:bodyElement.clientHeight});if(tilesElement?.clientWidth)setTileSize({width:tilesElement.clientWidth,height:tilesElement.clientHeight});};update();window.addEventListener('resize',update);const observer=typeof ResizeObserver==='undefined'?null:new ResizeObserver(update);if(bodyElement)observer?.observe(bodyElement);if(tilesElement)observer?.observe(tilesElement);onCleanup(()=>{window.removeEventListener('resize',update);observer?.disconnect();});});
@@ -907,6 +911,7 @@ export function MailboxScreen(): JSX.Element {
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-pressed={folderMode()==='compact'} aria-label={t('mail-compact-folders')} title={t('mail-compact-folders')} onClick={()=>setAccountUiPreferences({folderSidebarMode:folderMode()==='compact'?'expanded':'compact'})}><Icon name="mailboxes"/></button>
           <Show when={(subTabs.activeId()==='mail'&&listVisible())||activePane()?.kind==='folder'}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-select-messages')} title={t('mail-select-messages')} aria-pressed={selectionActive()} onClick={toggleListSelection}><Icon name="bulkSelect"/></button></Show>
           <Show when={subTabs.activeId()==='mail'}><ReadingPaneControl/></Show>
+          <Show when={previewVisible()&&preview()!==null}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} aria-pressed={listVisible()} onClick={()=>setAccountUiPreferences({messageListCollapsed:listVisible()})}><Icon name="layoutColumns"/></button></Show>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
@@ -918,7 +923,7 @@ export function MailboxScreen(): JSX.Element {
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
             <SearchBox /><InboxTabs /><EventsViewBar /><MessageList hideReadingPane hideSelectionToggle selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
           </div>
-          <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={readingPane()==='bottom'?160:240} max={listMax()} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
+          <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={listBounds().min} max={listBounds().max} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>
             <For each={orderedPanes()}>{pane=><PaneNavigationContext.Provider value={pane.id}><section class="workspace-pane" role="tabpanel" aria-label={displayText(subTabs.tabs().find(tab=>tab.id===pane.id)?.title??pane.title)}
               hidden={!paneVisible(pane.id)}
