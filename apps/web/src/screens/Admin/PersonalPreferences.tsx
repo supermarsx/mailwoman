@@ -19,6 +19,7 @@ import { isThemeName } from '../../theme/registry.ts';
 import { horizontalWheel } from '../../components/horizontalWheel.ts';
 import * as tabsCss from './shell/sectionTabs.css.ts';
 import {toast} from '../../components/toast/toast.ts';
+import {fieldAnchorAttrs} from './shell/fieldAnchors.ts';
 
 /** Live accent while the picker is dragged; the store re-applies the saved one on commit. */
 function previewAccent(value: string | null): void {
@@ -57,6 +58,7 @@ export function PersonalPreferences(): JSX.Element {
     <div role="tabpanel" id={`${panelId}-appearance-panel`} aria-labelledby={`${panelId}-appearance-tab`} hidden={active()!=='appearance'}>
     <AppearanceCustomization owner={() => ({kind: 'admin', username: shell.username()})} />
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-appearance')}</legend><AdminAppearanceFields controller={prefs.appearance} />
+      <div {...fieldAnchorAttrs('personal.leetspeak')}><TextModePreference enabled={prefs.data()['leetspeak']===true} disabled={blocked()} busy={prefs.saving()} onChange={leetspeak=>prefs.patch({leetspeak})}/></div>
       <div class={css.field}><span aria-hidden="true">{t('appearance-custom-accent')}</span><ColorField label={t('appearance-custom-accent')} testId="admin-custom-accent" disabled={blocked()} value={prefs.appearance.prefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} recentOwner={`admin:${shell.username()}`} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => previewAccent(value)} onChange={value => prefs.appearance.setCustomAccent(value ?? '')} /></div>
       <div class={css.actions}><button class={css.button} disabled={!prefs.appearance.prefs().customAccent} onClick={() => prefs.appearance.setCustomAccent('')}>{t('appearance-custom-accent-reset')}</button><button class={css.button} onClick={() => prefs.appearance.reset()}>{t('admin-personal-reset')}</button></div>
     </fieldset>
@@ -65,7 +67,6 @@ export function PersonalPreferences(): JSX.Element {
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-layout')}</legend>
       <label class={css.field}>{t('admin-personal-density')}<select class={css.select} value={prefs.appearance.prefs().density ?? 'cozy'} onChange={e => prefs.appearance.setDensity(e.currentTarget.value as 'compact' | 'cozy' | 'relaxed')}><For each={['compact', 'cozy', 'relaxed'] as const}>{value => <option value={value}>{t(`admin-personal-density-${value}`)}</option>}</For></select></label>
       <label class={css.field}>{t('admin-personal-font')}<select class={css.select} value={prefs.appearance.prefs().font ?? 'default'} onChange={e => prefs.appearance.setFont(e.currentTarget.value as UiFont)}><For each={['default', 'system', 'serif', 'mono', 'inter', 'roboto', 'open-sans', 'jost'] as const}>{value => <option value={value}>{t(`admin-personal-font-${value}`)}</option>}</For></select></label>
-      <TextModePreference enabled={prefs.data()['leetspeak']===true} disabled={blocked()} busy={prefs.saving()} onChange={leetspeak=>prefs.patch({leetspeak})}/>
       <Show when={prefs.i18n}>{ctx => <label class={css.field}>{t('admin-personal-language')}<select class={css.select} value={ctx().locale()} onChange={e => { const locale = e.currentTarget.value; if (isKnownLocale(locale)) { prefs.patch({ locale }); ctx().setLocale(locale); } }}><For each={LOCALES}>{locale => <option value={locale} lang={locale}>{formatLanguageName(locale)}</option>}</For></select></label>}</Show>
     </fieldset>
     </div>
