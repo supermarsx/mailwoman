@@ -21,6 +21,9 @@ pub struct EditorState {
     #[serde(default)]
     pub subject: String,
     pub body_format: String,
+    /// Editor choice only; both modes project the same HTML MIME body.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub editor_mode: Option<String>,
     #[serde(default)]
     pub body_html: String,
     #[serde(default)]
@@ -81,6 +84,10 @@ impl EditorState {
         }
         if self.version != 1
             || !matches!(self.body_format.as_str(), "plain" | "html")
+            || self
+                .editor_mode
+                .as_deref()
+                .is_some_and(|value| !matches!(value, "rich" | "html"))
             || !header(&self.subject, 4096)
             || !header(&self.identity_id, 512)
             || self

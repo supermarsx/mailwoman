@@ -922,6 +922,19 @@ describe('Compose', () => {
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
   });
 
+  it.each(['html','rich'] as const)('resumes an explicit %s draft in its saved editor without losing native layout',async editorMode=>{
+    saveDraft({id:'editor-mode',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',bodyFormat:'html',editorMode,to:'you@example.org',subject:'Saved editor',bodyText:'Saved native signature',bodyHtml:'<table width="480" cellpadding="12"><tr><td><font face="Georgia">Saved native signature</font></td></tr></table>',savedAt:1});
+    const {client,onClose}=await composeWithClient();fireEvent.click(screen.getByTestId('open-drafts'));fireEvent.click(await screen.findByTestId('draft-resume-editor-mode'));
+    if(editorMode==='html'){
+      const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
+      if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
+      frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);
+      expect(screen.getByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+      fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+      const value=(sentBody(client) as {body:{value:string}}).body.value;expect(value).toContain('width="480"');expect(value).toContain('cellpadding="12"');expect(value).toContain('face="Georgia"');
+    }else{expect(await screen.findByTestId('compose-richtext')).toBeVisible();expect(screen.queryByTitle('Visual editor')).not.toBeInTheDocument();}
+  });
+
   // ── t29-e12: read receipt, open tracking, inline images ──────────────────────
 
   describe('send options and inline images (t29-e12)', () => {

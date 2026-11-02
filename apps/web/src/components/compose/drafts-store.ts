@@ -40,6 +40,8 @@ export interface StoredDraft {
   fromOverride?: string;
   importance?: 'high'|'normal'|'low';
   bodyFormat?: 'plain' | 'html';
+  /** HTML's editor choice; absent legacy HTML opens in the native visual editor. */
+  editorMode?: 'rich'|'html';
   insertedSignatures?: string[];
   to: string;
   /** Absent on a draft stored before Cc/Bcc and replies existed. */
@@ -108,6 +110,7 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.serverRevision, isString) &&
     optional(r.identityId, isString) &&
     optional(r.bodyFormat, value => value === 'plain' || value === 'html') &&
+    optional(r.editorMode, value => value === 'rich' || value === 'html') &&
     optional(r.insertedSignatures, isStringList) &&
     typeof r.to === 'string' &&
     typeof r.subject === 'string' &&

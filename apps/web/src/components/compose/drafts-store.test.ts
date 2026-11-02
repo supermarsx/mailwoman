@@ -22,7 +22,7 @@ describe('drafts-store (W9)', () => {
   });
 
   it('keeps format, identity, signature and attachment state within its account', () => {
-    const state = draft('complete', {identityId:'primary', bodyFormat:'plain', insertedSignatures:['primary'],
+    const state = draft('complete', {identityId:'primary', bodyFormat:'html',editorMode:'html', insertedSignatures:['primary'],
       attachments:[{name:'report.pdf',blobId:'owned-upload',size:42,contentType:'application/pdf'}]});
     saveDraft(state);
     expect(listDrafts('account-a','test-storage-authority-a')).toEqual([state]);

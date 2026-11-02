@@ -108,6 +108,7 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
     assert!(saved["revision"].is_string());
     assert!(saved["emailId"].is_string());
     assert_eq!(saved["state"]["to"], "incomplete, valid@example.test");
+    assert!(saved["state"].get("editorMode").is_none());
     assert!(
         saved["state"]["attachments"][0]["blobId"]
             .as_str()
@@ -142,6 +143,7 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
     let loaded: Value = loaded.json().await.unwrap();
     assert_eq!(loaded["state"]["bcc"], "private@example.test");
     assert_eq!(loaded["revision"], saved["revision"]);
+    assert!(loaded["state"].get("editorMode").is_none());
     let mut conflict = input.clone();
     conflict["operationId"] = json!("other-device");
     conflict["state"]["bodyText"] = json!("stale replacement");
@@ -218,4 +220,62 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
     assert_eq!(client.get(&endpoint).send().await.unwrap().status(), 404);
     let anonymous = reqwest::Client::new().get(&endpoint).send().await.unwrap();
     assert_eq!(anonymous.status(), 401);
+
+    // The HTML editing surface survives remote resume without changing the MIME
+    // body or granting any sender authority. Legacy drafts above omit the field.
+    let html = "<table><tbody><tr><td>Preserved HTML layout</td></tr></tbody></table>";
+    for mode in ["rich", "html"] {
+        let endpoint = format!("{base}/api/account/drafts/editor-{mode}");
+        let input = json!({"operationId":format!("editor-{mode}"),"expectedRevision":null,"state":{"version":1,"bodyFormat":"html","editorMode":mode,"bodyHtml":html,"bodyText":"Preserved HTML layout"}});
+        let response = client
+            .put(&endpoint)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&input)
+            .send()
+            .await
+            .unwrap();
+        let status = response.status();
+        let saved: Value = response.json().await.unwrap();
+        assert_eq!(status, 200, "{saved}");
+        assert_eq!(saved["state"]["editorMode"], mode);
+        let loaded: Value = client
+            .get(&endpoint)
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(loaded["state"]["editorMode"], mode);
+        assert_eq!(loaded["state"]["bodyHtml"], html);
+        {
+            let raw = mail.messages.lock().await;
+            assert_eq!(raw.len(), 1);
+            assert!(!String::from_utf8_lossy(&raw[0]).contains("editorMode"));
+        }
+        let response = client
+            .delete(&endpoint)
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&json!({"expectedRevision":saved["revision"]}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        assert!(mail.messages.lock().await.is_empty());
+    }
+    for invalid in ["plain", "source", "HTML", ""] {
+        let response = client
+            .put(format!("{base}/api/account/drafts/invalid-editor"))
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&json!({"operationId":"invalid-editor","expectedRevision":null,"state":{"version":1,"bodyFormat":"html","editorMode":invalid,"bodyHtml":html}}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 400, "{invalid}");
+        assert_eq!(
+            response.json::<Value>().await.unwrap()["error"],
+            "invalidDraftState"
+        );
+        assert!(mail.messages.lock().await.is_empty());
+    }
 }

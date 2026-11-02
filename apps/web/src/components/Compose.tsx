@@ -709,8 +709,6 @@ export function Compose(props: {
     setImportance(d.importance ?? 'normal');
     setCustomFrom(Boolean(d.fromOverride));
     setInsertedSignatures(new Set(d.insertedSignatures ?? []));
-    setSourceMode(false);
-    setRichMode(d.bodyFormat !== 'plain');
     setTo(d.to);
     setCc(d.cc ?? '');
     bccEdited=true;setBcc(d.bcc ?? '');
@@ -724,10 +722,11 @@ export function Compose(props: {
     setInlineImages(images);
     setAttachments(d.attachments ?? []);
     setIncludeFileHashes(d.includeFileHashes===true);setAttachPublicKey(d.attachPublicKey===true);setSentCopyFolder(d.sentMailboxId??'');
-    setBody(d.bodyText);
-    setBodyHtml(d.bodyHtml);
+    const nextRich=d.bodyFormat!=='plain',nextNative=nextRich&&d.editorMode!=='rich';
+    const changingEditor=nextRich!==richMode()||nextNative!==sourceMode();
+    batch(()=>{if(changingEditor)setEditorApi(null);setSourceMode(nextNative);setRichMode(nextRich);setBody(d.bodyText);setBodyHtml(d.bodyHtml);});
     const api = editorApi();
-    if (richMode() && api !== null) api.setHtml(d.bodyHtml);
+    if (!changingEditor&&nextRich&&api!==null)api.setHtml(d.bodyHtml);
     setDraftsOpen(false);
     void loadPreviews(images);
   }
@@ -984,6 +983,7 @@ export function Compose(props: {
       includeFileHashes:includeFileHashes(),attachPublicKey:attachPublicKey(),...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
       ...(customFrom() ? {fromOverride: fromOverride()} : {}),
       bodyFormat: richMode() ? 'html' : 'plain',
+      ...(richMode()?{editorMode:sourceMode()?'html' as const:'rich' as const}:{}),
       insertedSignatures: [...insertedSignatures()],
       attachments: attachments().map(file => ({...file})),
       to: to(),
