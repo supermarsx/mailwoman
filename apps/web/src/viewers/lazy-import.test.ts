@@ -28,8 +28,9 @@ describe('viewers are lazy-loaded (code-split off the entry chunk)', () => {
     expect(dispatcher).not.toMatch(/^import[^\n]*['"]\.\/ImageViewer\.tsx['"]/m);
   });
 
-  it('pdfjs is imported ONLY by the (lazily-loaded) PdfViewer', () => {
-    expect(read('./PdfViewer.tsx')).toMatch(/from 'pdfjs-dist'/);
+  it('the PDF runtime loads only inside its lazily reached self-hosted viewer', () => {
+    expect(read('./PdfViewer.tsx')).toContain('pdfjs/web/mailwoman.html');
+    expect(read('./PdfViewer.tsx')).not.toMatch(/from 'pdfjs-dist'/);
     for (const other of ['ImageViewer.tsx', 'VideoViewer.tsx', 'AudioViewer.tsx', 'TextViewer.tsx']) {
       expect(read(`./${other}`)).not.toMatch(/pdfjs-dist/);
     }

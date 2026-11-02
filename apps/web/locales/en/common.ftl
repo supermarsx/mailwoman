@@ -147,6 +147,10 @@ common-viewer-pdf-failed = Could not render this PDF.
 common-viewer-no-preview = No inline preview for this file type.
 common-viewer-unknown-type = unknown type
 common-viewer-download = Download
+common-pdf-preview = PDF preview
+common-pdf-link-title = Open link from this PDF?
+common-pdf-link-help = This opens the destination in a new tab outside Mailwoman.
+common-pdf-link-open = Open link
 common-viewer-attachments = Attachments
 common-open-event = Open event
 

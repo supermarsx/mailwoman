@@ -1,8 +1,8 @@
 // `<AttachmentViewer>` — dispatches by MIME to a per-type viewer (plan §2.4).
 //
 // EVERY concrete viewer is loaded via `lazy(() => import(...))`, so each is a
-// separate chunk. Critically the PDF viewer (which statically imports the ~1 MB
-// pdfjs) is only ever pulled in on demand — pdfjs never lands in the
+// separate chunk. Critically the full PDF viewer's self-hosted frame assets
+// are only ever pulled in on demand — pdfjs never lands in the
 // login→inbox entry chunk (plan §1.7, §23 bundle gate; asserted in the specs).
 
 import { lazy, Match, Suspense, Switch, type JSX } from 'solid-js';

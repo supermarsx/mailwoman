@@ -21,10 +21,13 @@ describe('PDF.js worker is self-hosted (plan §1.7 / §7.13)', () => {
     expect(isSelfHosted('pdf.worker.mjs')).toBe(true);
   });
 
-  it('PdfViewer registers the self-hosted worker on pdfjs at module load', () => {
+  it('the isolated bootstrap pins PDF.js to the self-hosted worker', () => {
     // cwd is apps/web under vitest; read the source directly.
-    const src = readFileSync('src/viewers/PdfViewer.tsx', 'utf8');
-    expect(src).toMatch(/GlobalWorkerOptions\.workerSrc\s*=\s*PDF_WORKER_SRC/);
+    const src = readFileSync('public/pdfjs/bootstrap.mjs', 'utf8');
+    expect(src).toContain("new URL('../pdf.worker.mjs', import.meta.url)");
+    expect(src).toContain('workerSrc: worker');
+    expect(src).toContain('enableScripting: false');
+    expect(src).toContain('isEvalSupported: false');
     // and never a hardcoded CDN
     expect(src).not.toMatch(/https?:\/\/[^'"]*pdf\.worker/);
   });

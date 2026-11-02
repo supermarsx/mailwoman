@@ -9,6 +9,16 @@ Dockerfile      text eol=lf
 *.service       text eol=lf
 .dockerignore   text eol=lf
 .gitattributes  text eol=lf
+# PDF.js provenance checks hash upstream bytes exactly, including line endings.
+apps/web/public/pdfjs/** -text
+apps/web/public/pdf.worker.mjs -text
+apps/web/public/pdfjs/bootstrap.mjs text eol=lf
+apps/web/public/pdfjs/mailwoman.css text eol=lf
+apps/web/public/pdfjs/manifest.json text eol=lf
+# Preserve checksum-verified third-party source and license whitespace verbatim.
+apps/web/public/pdfjs/build/** -whitespace
+apps/web/public/pdfjs/web/** -whitespace
+apps/web/public/pdfjs/LICENSE -whitespace
 # Mail-server configs + seed fixtures bind-mounted into Linux containers
 # (Dovecot conf/passwd, RFC822 seeds). CRLF here breaks config parsing.
 *.conf                            text eol=lf

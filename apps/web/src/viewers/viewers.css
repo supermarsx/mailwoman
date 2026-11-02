@@ -30,6 +30,10 @@
 .mw-viewer__error {
   color: var(--danger);
 }
+.mw-viewer__pdf-full { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
+.mw-viewer__pdf-frame { display: block; width: 100%; height: 100%; flex: 1; min-height: 0; border: 0; }
+.mw-viewer__pdf-full > [role="status"], .mw-viewer__pdf-full > [role="alert"] { position: absolute; z-index: 2; inset: 0 0 auto; margin: 0; background: var(--bg); }
+.mw-viewer__pdf-link { overflow-wrap: anywhere; user-select: text; }
 
 .mw-viewer__pdf {
   overflow: auto;

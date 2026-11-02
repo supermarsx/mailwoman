@@ -1,170 +1,104 @@
-// t22 L6 — the PDF viewer allocates a BOUNDED number of canvases.
-//
-// The document under test has 500 pages and the viewport fits four, so a
-// document that "fits entirely in the window" cannot make this assertion pass by
-// accident — that is the failure shape this file is written against. The other
-// one is a count taken only at load: the window is scrolled to the middle and to
-// the end, and the count is re-asserted each time, so a viewer that renders on
-// demand and never releases is caught (it would climb, not hold).
-//
-// On master the same fixture allocates one canvas per page: `PdfViewer` looped
-// `for (let n = 1; n <= pdf.numPages; n++)` and appended each canvas to the host.
-// The master-failing value for this fixture is 500.
-//
-// pdfjs itself cannot be imported under jsdom (it needs `DOMMatrix` — see
-// `pdf-worker.test.ts`), so the module is mocked. What is NOT mocked is the
-// component: the slot building, the window reconciliation and the canvas
-// lifecycle are the shipping code.
+// The official viewer now owns page virtualization; browser QA exercises its
+// 500-page render buffer. Here we exercise the real owning component's byte,
+// origin, document lifecycle and cancellation boundaries (PDF.js needs canvas).
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { render, waitFor, cleanup } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
+import PdfViewer from './PdfViewer.tsx';
+import { PDF_CHANNEL } from './pdfBridge.ts';
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, waitFor } from '@solidjs/testing-library';
-import type { EmailBodyPart } from '../api/jmap-types.ts';
-
-const fixture = vi.hoisted(() => ({
-  numPages: 500,
-  pageWidth: 800,
-  pageHeight: 1000,
-  /** Pages whose data pdfjs was asked for — proves the viewer does not load all. */
-  loaded: new Set<number>(),
-  cancelled: [] as number[],
-  destroyed: 0,
-}));
-
-vi.mock('pdfjs-dist', () => {
-  const makePage = (n: number): unknown => ({
-    getViewport: () => ({ width: fixture.pageWidth, height: fixture.pageHeight }),
-    render: () => ({
-      promise: Promise.resolve(),
-      cancel: () => fixture.cancelled.push(n),
-    }),
-  });
-  return {
-    GlobalWorkerOptions: { workerSrc: '' },
-    getDocument: () => ({
-      promise: Promise.resolve({
-        numPages: fixture.numPages,
-        getPage: (n: number) => {
-          fixture.loaded.add(n);
-          return Promise.resolve(makePage(n));
-        },
-        cleanup: () => true,
-      }),
-      // The loading task is what owns the worker; destroying it is the real
-      // teardown, so that is what the component holds and what is counted here.
-      destroy: () => {
-        fixture.destroyed += 1;
-        return Promise.resolve();
-      },
-    }),
-  };
-});
-
-const { PdfViewer, pdfCanvasBound } = await import('./PdfViewer.tsx');
-
-const part: EmailBodyPart = { partId: '1', blobId: 'b', size: 1, type: 'application/pdf' };
-
-/** jsdom has no layout: give the scroller a real viewport height and a
- *  settable scroll offset so the window arithmetic has something to work with. */
-function drive(container: HTMLElement, viewportHeight: number): (top: number) => void {
-  const scroller = container.querySelector('.mw-viewer__pdf');
-  if (scroller === null) throw new Error('no scroller');
-  Object.defineProperty(scroller, 'clientHeight', { value: viewportHeight, configurable: true });
-  let top = 0;
-  Object.defineProperty(scroller, 'scrollTop', {
-    get: () => top,
-    set: (v: number) => {
-      top = v;
-    },
-    configurable: true,
-  });
-  return (to: number) => {
-    (scroller as HTMLElement & { scrollTop: number }).scrollTop = to;
-    scroller.dispatchEvent(new Event('scroll'));
-  };
+vi.mock('../screens/Admin/shell/ConfirmDialog.tsx', () => ({ ConfirmDialog: () => null }));
+const part = { partId: '1', blobId: 'b', size: 1, type: 'application/pdf' };
+function message(frame: HTMLIFrameElement, data: Record<string, unknown>, source: Window|null = frame.contentWindow, origin = location.origin): void {
+  window.dispatchEvent(new MessageEvent('message', { source, origin, data: { channel: PDF_CHANNEL, instance: 'frame-one', ...data } }));
 }
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-beforeEach(() => {
-  // jsdom throws "not implemented" from getContext; the component already treats
-  // a null context as "canvas allocated, nothing painted", which is the state the
-  // count assertions measure. Stubbing it keeps the run's output honest-looking.
-  vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
-  fixture.numPages = 500;
-  fixture.loaded.clear();
-  fixture.cancelled = [];
-  fixture.destroyed = 0;
-});
-
-afterEach(() => {
-  vi.restoreAllMocks();
-  vi.unstubAllGlobals();
-});
-
-describe('PdfViewer page virtualization (t22 L6)', () => {
-  it('renders 500 slots but a canvas count bounded by the viewport', async () => {
-    const { container, unmount } = render(() => (
-      <PdfViewer part={part} blobUrl="blob:pdf" mime="application/pdf" name="big.pdf" />
-    ));
-
-    await waitFor(() => expect(container.querySelectorAll('.mw-viewer__pdf-slot').length).toBe(500));
-
-    // 4 pages fit in 4 000 px of viewport at 1 012 px per row.
-    const scrollTo = drive(container, 4000);
-    scrollTo(0);
-
-    const bound = pdfCanvasBound(4000, fixture.pageHeight, 500);
-    expect(bound).toBeLessThan(20);
-    expect(bound).toBeLessThan(fixture.numPages);
-
-    await waitFor(() => expect(container.querySelectorAll('canvas').length).toBeGreaterThan(0));
-    expect(container.querySelectorAll('canvas').length).toBeLessThanOrEqual(bound);
-
-    // Far into the document — the count must HOLD, not climb.
-    scrollTo(250 * 1012);
-    await waitFor(() =>
-      expect(container.querySelector('.mw-viewer__pdf-slot[data-page="251"] canvas')).not.toBeNull(),
-    );
-    expect(container.querySelectorAll('canvas').length).toBeLessThanOrEqual(bound);
-    // and the pages left behind gave their canvases back
-    expect(container.querySelector('.mw-viewer__pdf-slot[data-page="1"] canvas')).toBeNull();
-
-    // The end of the document.
-    scrollTo(499 * 1012);
-    await waitFor(() =>
-      expect(container.querySelector('.mw-viewer__pdf-slot[data-page="500"] canvas')).not.toBeNull(),
-    );
-    expect(container.querySelectorAll('canvas').length).toBeLessThanOrEqual(bound);
-
-    // Page DATA is fetched on demand too: nothing like 500 pages was parsed.
-    expect(fixture.loaded.size).toBeLessThan(50);
-
-    unmount();
-    expect(container.querySelectorAll('canvas').length).toBe(0);
-    expect(fixture.destroyed).toBe(1);
+describe('full PDF viewer authorized byte bridge', () => {
+  it('transfers bytes once to its own ready frame, checks nonce, and closes on unmount', async () => {
+    const fetch = vi.fn(async (_url: string, _options: RequestInit) => new Response(new Uint8Array([37, 80, 68, 70])));
+    vi.stubGlobal('fetch', fetch);
+    const view = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/authorized`} mime="application/pdf" name="test.pdf"/>);
+    const frame = view.container.querySelector('iframe')!;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    expect(frame.getAttribute('src')).toBe('/pdfjs/web/mailwoman.html');
+    expect(frame.sandbox?.value ?? frame.getAttribute('sandbox')).not.toContain('allow-popups');
+    message(frame, { type: 'ready' }, window);
+    message(frame, { type: 'ready' }, frame.contentWindow, 'https://evil.test');
+    expect(post).not.toHaveBeenCalled();
+    message(frame, { type: 'ready' });
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const payload = post.mock.calls[0]![0] as { bytes: ArrayBuffer; nonce: string };
+    expect(new Uint8Array(payload.bytes)).toEqual(new Uint8Array([37, 80, 68, 70]));
+    expect(post.mock.calls[0]![1]).toBe(location.origin);
+    message(frame, { type: 'ready' });
+    expect(post).toHaveBeenCalledTimes(1);
+    message(frame, { type: 'loaded', nonce: 'wrong' });
+    expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('loading');
+    message(frame, { type: 'loaded', nonce: payload.nonce });
+    expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('ready');
+    const signal = fetch.mock.calls[0]![1] as RequestInit;
+    view.unmount();
+    expect((signal.signal as AbortSignal).aborted).toBe(true);
+    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'destroy', nonce: payload.nonce }), location.origin, []);
   });
-
-  it('a document that fits entirely in the window still renders every page', async () => {
-    // The control for the assertion above: with 3 pages the bound IS the page
-    // count, so a "bounded" result here proves nothing — which is exactly why
-    // the real assertion uses 500.
-    fixture.numPages = 3;
-    const { container } = render(() => (
-      <PdfViewer part={part} blobUrl="blob:pdf" mime="application/pdf" name="small.pdf" />
-    ));
-    await waitFor(() => expect(container.querySelectorAll('.mw-viewer__pdf-slot').length).toBe(3));
-    const scrollTo = drive(container, 4000);
-    scrollTo(0);
-    await waitFor(() => expect(container.querySelectorAll('canvas').length).toBe(3));
-    expect(pdfCanvasBound(4000, fixture.pageHeight, 3)).toBe(3);
+  it('aborts the old attachment and rejects its frame after a document switch', async () => {
+    const requests: AbortSignal[] = [];
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => { requests.push(options.signal as AbortSignal); return new Promise(() => {}); }));
+    const [url, setUrl] = createSignal(`blob:${location.origin}/first`);
+    const view = render(() => <PdfViewer part={part} blobUrl={url()} mime="application/pdf" name="test.pdf"/>);
+    const previous = view.container.querySelector('iframe')!;
+    setUrl(`blob:${location.origin}/second`);
+    expect(requests[0]?.aborted).toBe(true);
+    expect(view.container.querySelector('iframe')).not.toBe(previous);
+    expect(requests).toHaveLength(2);
   });
-
-  it('slots reserve each page height before anything renders (no layout shift)', async () => {
-    const { container } = render(() => (
-      <PdfViewer part={part} blobUrl="blob:pdf" mime="application/pdf" name="big.pdf" />
-    ));
-    await waitFor(() => expect(container.querySelectorAll('.mw-viewer__pdf-slot').length).toBe(500));
-    const slot = container.querySelector<HTMLElement>('.mw-viewer__pdf-slot[data-page="400"]');
-    expect(slot?.style.height).toBe(`${fixture.pageHeight}px`);
-    expect(slot?.style.width).toBe(`${fixture.pageWidth}px`);
-    expect(slot?.querySelector('canvas')).toBeNull();
+  it('recovers a reloaded iframe with fresh authorized bytes and a new nonce', async () => {
+    const fetch = vi.fn(async () => new Response(new Uint8Array([37, 80, 68, 70])));
+    vi.stubGlobal('fetch', fetch);
+    const view = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/reload`} mime="application/pdf" name="test.pdf"/>);
+    const frame = view.container.querySelector('iframe')!;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    message(frame, { type: 'ready' });
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const first = post.mock.calls[0]![0] as { nonce: string; instance: string };
+    expect(first.instance).toBe('frame-one');
+    message(frame, { type: 'loaded', nonce: first.nonce });
+    message(frame, { type: 'ready', instance: 'frame-two' });
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
+    const second = post.mock.calls[1]![0] as { nonce: string; instance: string };
+    expect(second.instance).toBe('frame-two');
+    expect(second.nonce).not.toBe(first.nonce);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    message(frame, { type: 'loaded', nonce: first.nonce });
+    expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('loading');
+    message(frame, { type: 'loaded', nonce: second.nonce, instance: 'frame-two' });
+    expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('ready');
+  });
+  it('shows fetch failures without handing an attachment URL to PDF.js', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403 })));
+    const view = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/refused`} mime="application/pdf" name="test.pdf"/>);
+    await waitFor(() => expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('error'));
+    expect(view.container.querySelector('iframe')!.src).not.toContain('blob:refused');
+  });
+  it('refuses arbitrary network URLs without fetching them', async () => {
+    const fetch = vi.fn();
+    vi.stubGlobal('fetch', fetch);
+    const view = render(() => <PdfViewer part={part} blobUrl="https://outside.test/file.pdf" mime="application/pdf" name="test.pdf"/>);
+    await waitFor(() => expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('error'));
+    expect(fetch).not.toHaveBeenCalled();
+  });
+  it('ends a stuck bootstrap load and rejects late messages after its deadline', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+      const view = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/stuck`} mime="application/pdf" name="test.pdf"/>);
+      const frame = view.container.querySelector('iframe')!;
+      const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('error');
+      message(frame, { type: 'ready' });
+      expect(post).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 });

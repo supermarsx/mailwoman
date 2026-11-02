@@ -209,6 +209,7 @@ pub mod domain_transport;
 mod domain_upgrade;
 mod integration_directory;
 mod remote_policy;
+mod pdf_viewer;
 mod upstream_resolve;
 mod username_format;
 // t32-h10: the answer for a request nothing else handled (a page for a browser
@@ -1846,7 +1847,8 @@ async fn security_headers(State(state): State<AppState>, req: Request, next: Nex
         .extensions_mut()
         .remove::<appearance_customization::AppearanceSandboxResponse>()
         .is_some();
-    let isolated_frame = reader_frame || appearance_frame;
+    let pdf_frame = resp.extensions_mut().remove::<pdf_viewer::PdfViewerResponse>().is_some();
+    let isolated_frame = reader_frame || appearance_frame || pdf_frame;
     // Only our fixed, script-free entry form may submit to this origin. Neither
     // a request header nor upstream HTML can set this response marker.
     let client_gate_page = resp
@@ -5143,6 +5145,9 @@ async fn static_handler(
     }
     if path == error_pages::STYLESHEET_PATH {
         return error_pages::stylesheet_response(&headers);
+    }
+    if path == pdf_viewer::PATH {
+        return pdf_viewer::response(&method, &headers);
     }
     // The detached workspace is a server-owned document, not an optional build
     // asset. A stale MW_WEB_DIR must never turn its mount target into a 404 page.

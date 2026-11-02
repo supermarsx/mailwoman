@@ -2,7 +2,7 @@
 // (viewers/** + screens/Attachments.tsx). `<AttachmentViewer>` dispatches by
 // `mime` to a per-type viewer, each rendered inside a sandboxed container
 // (image/text/audio/video in `<iframe sandbox>` + per-message CSP; PDF via
-// pdfjs canvas in a sandboxed frame, worker self-hosted). All lazy-loaded so
+// PDF.js's full self-hosted viewer in a separately secured frame). All lazy-loaded so
 // pdfjs stays off the login→inbox critical path (§23 bundle gate).
 
 import type { EmailBodyPart } from '../api/jmap-types.ts';

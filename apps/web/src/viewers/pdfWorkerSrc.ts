@@ -1,8 +1,8 @@
 // Self-hosted PDF.js worker path (plan §1.7 / §7.13). Kept in a pdfjs-free module
 // so the "origin-served, never a CDN" contract is unit-testable without importing
 // pdfjs itself (whose main build needs a real browser — DOMMatrix et al. — and
-// won't load under jsdom). `PdfViewer` imports this and registers it on pdfjs's
-// `GlobalWorkerOptions` at module load.
+// won't load under jsdom). The isolated full-viewer bootstrap uses this same
+// root-served worker path; the vendor checker verifies its exact version/hash.
 
 import { shellBase } from '../api/basePath.ts';
 

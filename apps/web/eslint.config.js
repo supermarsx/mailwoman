@@ -62,6 +62,10 @@ export default tseslint.config(
       'test-results/**',
       // Vendored third-party build artifact (self-hosted pdf.js worker, e8).
       'public/pdf.worker.mjs',
+      // Unmodified, checksum-verified official PDF.js viewer/codec artifacts.
+      // The hand-authored bridge remains linted.
+      'public/pdfjs/build/**',
+      'public/pdfjs/web/**',
       // Generated wasm-pack bundle (mw-crypto → src/wasm, built by
       // scripts/build-wasm.*; committed but not hand-authored, plan §3 e8).
       'src/wasm/**',

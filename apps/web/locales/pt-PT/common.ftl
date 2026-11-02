@@ -134,6 +134,10 @@ common-viewer-pdf-failed = Não foi possível apresentar este PDF.
 common-viewer-no-preview = Não há pré-visualização para este tipo de ficheiro.
 common-viewer-unknown-type = tipo desconhecido
 common-viewer-download = Transferir
+common-pdf-preview = Pré-visualização de PDF
+common-pdf-link-title = Abrir ligação deste PDF?
+common-pdf-link-help = O destino será aberto num novo separador fora do Mailwoman.
+common-pdf-link-open = Abrir ligação
 common-viewer-attachments = Anexos
 common-open-event = Abrir evento
 
