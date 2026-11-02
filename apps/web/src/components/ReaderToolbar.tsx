@@ -108,6 +108,7 @@ export function ReaderToolbar(props:{
    menu:()=>viewModeActions(props.security,true)},
  };
  const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom','search',...(sender()!==''?['sweep']:[]),'security'],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const menuOnly=():ContextAction[]=>focusActions(app,props.email);
 
  // ── Fitting ────────────────────────────────────────────────────────────────
  const [folded,setFolded]=createSignal<ReadonlySet<string>>(new Set(),{equals:(a,b)=>a.size===b.size&&[...a].every(value=>b.has(value))});
@@ -117,24 +118,23 @@ export function ReaderToolbar(props:{
  let moreWidth=0;
  function fit():void {
   if(!row?.isConnected)return;
-  for(const element of Array.from(row.querySelectorAll<HTMLElement>('[data-reader-item]')))if(!element.hidden)widths.set(element.dataset['readerItem']!,element.getBoundingClientRect().width);
+  for(const element of Array.from(row.querySelectorAll<HTMLElement>('[data-reader-item]')))if(!element.hidden){const style=getComputedStyle(element);widths.set(element.dataset['readerItem']!,element.getBoundingClientRect().width+(Number.parseFloat(style.marginLeft)||0)+(Number.parseFloat(style.marginRight)||0));}
   const measuredMore=moreButton.getBoundingClientRect().width;if(measuredMore>0)moreWidth=measuredMore;
   const style=getComputedStyle(row);const gap=Number.parseFloat(style.columnGap)||0;
   const available=row.clientWidth-(Number.parseFloat(style.paddingLeft)||0)-(Number.parseFloat(style.paddingRight)||0);
   if(available<=0)return;
-  setFolded(foldActions(ids().map(key=>({id:key,priority:PRIORITY[key]??99,width:widths.get(key)??0})),available,gap,moreWidth));
+  setFolded(foldActions(ids().map(key=>({id:key,priority:PRIORITY[key]??99,width:widths.get(key)??0})),available,gap,moreWidth,menuOnly().length>0));
  }
  const observer=typeof ResizeObserver==='function'?new ResizeObserver(()=>fit()):undefined;
  onMount(()=>{observer?.observe(row);observer?.observe(moreButton);fit();});
  onCleanup(()=>observer?.disconnect());
  // A new set of actions (a conversation found, links parsed) or a label-style
  // change: show everything for one measure, then fold again.
- createEffect(()=>{void ids();void settings()['reader.actionStyle']?.value;setFolded(new Set<string>());queueMicrotask(fit);});
+ createEffect(()=>{void ids();void settings()['reader.actionStyle']?.value;void menuOnly().length;setFolded(new Set<string>());queueMicrotask(fit);});
 
  // ── More menu ──────────────────────────────────────────────────────────────
  // t94: entries that live only in More (never on the row): the sender's
  // Focused inbox override while the Focused inbox is on.
- const menuOnly=():ContextAction[]=>focusActions(app,props.email);
  const idle=()=>folded().size===0&&menuOnly().length===0;
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>{const rows=ids().filter(key=>folded().has(key)).flatMap(key=>all[key]?.menu()??[]);const extra=menuOnly().map((row,index)=>index===0&&rows.length>0?{...row,separatorBefore:true}:row);return [...rows,...extra];},restoreFocus:()=>moreButton?.focus()});
  // A pointerdown on this button while the menu is open closes it (ContextMenu's

@@ -14,15 +14,15 @@ export interface FitItem {
   id: string;
   /** Lower is more important. Ties keep their row order. */
   priority: number;
-  /** Measured border-box width in CSS pixels. */
+  /** Measured outer width, including item margins, in CSS pixels. */
   width: number;
 }
 
 /** The ids to fold into "More". `available` is the row's content width, `gap`
  *  the space between two items, `more` the width of the More button. */
-export function foldActions(items: readonly FitItem[], available: number, gap: number, more: number): Set<string> {
+export function foldActions(items: readonly FitItem[], available: number, gap: number, more: number, reserveMore = false): Set<string> {
   const total = items.reduce((sum, item) => sum + item.width, 0) + gap * Math.max(0, items.length - 1);
-  if (total <= available + 0.5) return new Set();
+  if (total + (reserveMore ? more + (items.length ? gap : 0) : 0) <= available + 0.5) return new Set();
   const ranked = items.map((item, index) => ({ item, index })).sort((a, b) => a.item.priority - b.item.priority || a.index - b.index);
   const folded = new Set<string>();
   let used = more;

@@ -2,6 +2,10 @@ import { globalStyle } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 const desktop='(min-width: 761px)';
 const fineDesktop='(min-width: 761px) and (pointer: fine)';
+// Navigation chrome behaves like controls; mail and editor content stays selectable.
+const chrome=':is(.sidebar, .mail-topbar, .workspace-bar, .subtab-strip, .compose-ribbon__heading, .compose-rt__tabs)';
+globalStyle(chrome,{userSelect:'none',WebkitUserSelect:'none'});
+globalStyle(`${chrome} :is(input,textarea,[contenteditable]:not([contenteditable="false"]))`,{userSelect:'text',WebkitUserSelect:'text'});
 globalStyle('.shell.workspace-shell',{gridTemplateColumns:'var(--folder-width,220px) var(--folder-handle,6px) minmax(0,1fr)' ,gridTemplateRows:'minmax(0,1fr)'});
 globalStyle(':root[data-reading-pane] .shell.workspace-shell',{'@media':{[desktop]:{gridTemplateColumns:'var(--folder-width,220px) var(--folder-handle,6px) minmax(0,1fr)' ,gridTemplateRows:'minmax(0,1fr)'}}});
 globalStyle(':root[data-reading-pane] .workspace-shell > .sidebar',{'@media':{[desktop]:{gridColumn:'1',gridRow:'1'}}});
@@ -10,7 +14,7 @@ globalStyle('.mail-workspace[hidden], .mail-workspace [hidden]',{display:'none'}
 globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:'2px',padding:'2px 4px',flexShrink:0,borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`,overflowX:'auto','@media':{[fineDesktop]:{paddingBlock:'1px'}}});
 // Compact mail top bar (t38): 24px buttons with 2px padding on a fine pointer,
 // so the bar is 27px tall (26px + its rule). Touch keeps the 44px targets.
-globalStyle('.workspace-bar .btn',{flex:'none','@media':{[fineDesktop]:{blockSize:'24px',minHeight:'24px',minWidth:'24px',padding:'2px 4px',borderRadius:vars.radius.sm}}});
+globalStyle('.workspace-bar .btn',{flex:'none',blockSize:'36px',minHeight:'36px',minWidth:'36px',padding:'4px 6px','@media':{'(pointer: coarse)':{blockSize:'44px',minHeight:'44px',minWidth:'44px'},[fineDesktop]:{blockSize:'24px',minHeight:'24px',minWidth:'24px',padding:'2px 4px',borderRadius:vars.radius.sm}}});
 globalStyle('.workspace-bar .btn svg',{'@media':{[fineDesktop]:{width:'16px',height:'16px'}}});
 globalStyle('.mail-topbar [data-bar-pin]',{'@media':{[fineDesktop]:{margin:'1px'}}});
 globalStyle('.mail-topbar [data-bar-panel]',{alignItems:'center'});

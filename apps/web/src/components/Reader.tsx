@@ -1083,11 +1083,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             <header class="reader__header">
               <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText(email().subject ?? rawT('mail-no-subject'))}</h2>
               <div class="reader__meta">
-                <span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span>
-                <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
-                <Show when={(email().cc ?? []).length > 0}>
-                  <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
-                </Show>
+                <details class="reader__addresses" open={!narrow()}>
+                  <summary title={t('mail-reader-from', { addr: isolate(addressList(email().from)) })}><span>{t('mail-reader-from', { addr: isolate(addressList(email().from)) })}</span></summary>
+                  <div class="reader__address-details">
+                    <span>{t('mail-reader-to', { addr: isolate(addressList(email().to)) })}</span>
+                    <Show when={(email().cc ?? []).length > 0}>
+                      <span>{t('mail-reader-cc', { addr: isolate(addressList(email().cc ?? null)) })}</span>
+                    </Show>
+                  </div>
+                </details>
               </div>
               <div class="reader__metadata-line">
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>

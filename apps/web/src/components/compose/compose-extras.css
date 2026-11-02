@@ -199,10 +199,9 @@
 }
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] :is(.btn,.compose-rt__btn):not([data-ribbon-item] [data-ribbon-popover] *) { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; max-inline-size:14rem; white-space:nowrap; }
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] .compose-rt__btn[aria-pressed]:not([data-ribbon-item] [data-ribbon-popover] *) { min-inline-size:var(--mw-ribbon-row); justify-content:center; }
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select:not([data-ribbon-item] [data-ribbon-popover] *) { inline-size:auto; max-inline-size:9rem; padding-inline:.25rem; color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
-/* Message format is an action dropdown; match the adjacent app buttons rather
-   than the ribbon's text fields while retaining its native selection control. */
-:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select.compose-rib__format:not([data-ribbon-item] [data-ribbon-popover] *) { background:transparent; border:var(--border-rule) solid var(--border-strong); }
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select:not([data-ribbon-item] [data-ribbon-popover] *) { inline-size:auto; max-inline-size:9rem; padding-inline:.25rem; }
+/* Action dropdowns inherit the app button's hover and active states. */
+:is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] select:not(.btn):not([data-ribbon-item] [data-ribbon-popover] *) { color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
 :is(.compose-ribbon,.compose-rt__chrome) [data-ribbon-item] input:not([type=checkbox],[type=radio]):not([data-ribbon-item] [data-ribbon-popover] *) { color:var(--text); background:var(--bg); border:var(--border-hair) solid var(--border); }
 .compose-rib__font { inline-size:9rem !important; }
 .compose-rib__size { inline-size:4.75rem !important; }

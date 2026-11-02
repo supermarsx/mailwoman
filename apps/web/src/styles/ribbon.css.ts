@@ -22,6 +22,8 @@ export const ribbon = style({
 });
 
 export const tabs = style({
+  userSelect:'none',
+  WebkitUserSelect:'none',
   display: 'flex',
   alignItems: 'center',
   gap: vars.space[2],

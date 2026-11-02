@@ -8,7 +8,7 @@
 // so it reads the same in RTL; reduced motion (the media query or
 // `:root[data-reduced-motion]`) shows and hides at once.
 
-import { keyframes, style } from '@vanilla-extract/css';
+import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 export const REVEAL_MS = 160;
@@ -26,7 +26,8 @@ export const root = style({
   minInlineSize: 0,
 });
 
-export const header = style({ display: 'block', minInlineSize: 0 });
+export const header = style({ display: 'block', minInlineSize: 0, userSelect:'none', WebkitUserSelect:'none' });
+globalStyle(`${header} :is(input,textarea,[contenteditable]:not([contenteditable="false"]))`,{userSelect:'text',WebkitUserSelect:'text'});
 
 // The slim handle: a 6px visual rule inside a 12px (fine pointer) or 24px
 // (coarse pointer) hit area. With a label (the active tab's title) it reads as

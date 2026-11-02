@@ -9,6 +9,10 @@ describe('reader action row fitting',()=>{
   // 200px: More (40) + gap + 3x(40+4) = 172; a fourth would need 216.
   expect([...foldActions(items([40,40,40,40,40,40]),200,4,40)]).toEqual(['a3','a4','a5']);
  });
+ it('reserves a visible More menu containing actions that never appear inline',()=>{
+  expect([...foldActions(items([40,40,40]),128,4,40,true)]).toEqual(['a2']);
+  expect(foldActions(items([40,40]),128,4,40,true).size).toBe(0);
+ });
  it('stops at the first action that does not fit instead of skipping to a smaller one',()=>{
   const row=[{id:'reply',priority:0,width:40},{id:'wide',priority:1,width:150},{id:'tiny',priority:2,width:10}];
   expect([...foldActions(row,120,4,40)].sort()).toEqual(['tiny','wide']);

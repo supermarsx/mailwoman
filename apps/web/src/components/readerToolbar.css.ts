@@ -16,11 +16,17 @@ export const row = style({
   inlineSize: '100%',
   overflow: 'hidden',
   position: 'relative',
+  userSelect: 'none',
   // Room for the focus ring of the first and last buttons inside the clip.
   padding: '3px',
   margin: '-3px',
   boxSizing: 'content-box',
 });
+
+// One shared row size also governs dropdowns and zoom controls. Fine pointers
+// keep compact chrome at narrow widths; touch keeps an unclipped 44px target.
+globalStyle(`${row} .btn`, {blockSize:'32px',minBlockSize:'32px',paddingBlock:'3px',fontSize:'0.8125rem','@media':{'(pointer: coarse)':{blockSize:'44px',minBlockSize:'44px'}}});
+globalStyle(`${row} .reader-action--compact`, {minInlineSize:'32px',paddingInline:'5px','@media':{'(pointer: coarse)':{minInlineSize:'44px'}}});
 
 export const item = style({
   display: 'inline-flex',

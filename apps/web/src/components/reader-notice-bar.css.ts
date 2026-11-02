@@ -44,14 +44,16 @@ export const root = style({
 
 /** The single row; its block size is fixed so state changes never resize it. */
 export const row = style({
+  userSelect:'none',
+  WebkitUserSelect:'none',
   display: 'flex',
   flexWrap: 'nowrap',
   alignItems: 'center',
   gap: vars.space[2],
-  blockSize: '2rem',
+  minBlockSize: `max(2rem, ${vars.a11y.touchTarget})`,
   paddingInline: `calc(${vars.space[2]} - 2px) ${vars.space[1]}`,
   minInlineSize: 0,
-  overflow: 'hidden',
+  '@media': { '(pointer: coarse)': {minBlockSize:'44px'} },
 });
 
 export const mark = style({
@@ -110,6 +112,7 @@ export const btn = style({
     '&:disabled': { opacity: 0.5, cursor: 'default' },
   },
   '@container': { [NARROW]: { paddingInline: 0, inlineSize: '1.75rem' } },
+  '@media': { '(pointer: coarse)': {minInlineSize:'44px',minBlockSize:'44px'} },
 });
 
 export const btnPrimary = style({ borderColor: vars.color.accent });
