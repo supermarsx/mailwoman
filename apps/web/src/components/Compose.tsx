@@ -1622,9 +1622,9 @@ export function Compose(props: {
             tabs stay mounted, so the security evaluation is always live. */}
         <EditorRibbon
           state={ribbon}
-          visible={()=>richMode()&&!sourceMode()?['format','insert','table','security','delivery']:['format','insert','security','delivery']}
+          visible={()=>richMode()?['format','insert','table','security','delivery']:['format','insert','security','delivery']}
           history={editorApi}
-          showHistory={()=>richMode()&&!sourceMode()}
+          showHistory={()=>richMode()}
           tabs={[
             {id:'format',after:()=><>
               <RibbonGroup label={t('mail-compose-ribbon-recipients')} priority={70} icon="users" testId="compose-group-recipients">
@@ -1857,7 +1857,7 @@ export function Compose(props: {
                 cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
-                <Show when={!sourceMode()} fallback={<HtmlSourceEditor initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
                   initialHtml={bodyHtml()}

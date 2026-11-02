@@ -146,7 +146,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
       setImageError(t(reason === 'type' ? 'settings-sig-image-type' : 'settings-sig-image-size', { name: isolate(name) }));
     },
   };
-  const visible = (): readonly EditorTab[] => (mode() === 'rich' ? ['format', 'insert', 'table'] : ['format']);
+  const visible = (): readonly EditorTab[] => (mode() !== 'plain' ? ['format', 'insert', 'table'] : ['format']);
   const loading = (): JSX.Element => <p role="status" class={sig.pending}>{t('settings-sig-editor-loading')}</p>;
   const plainField = (label: string, testId: string): JSX.Element => (
     <textarea class={css.textarea} aria-label={label} data-testid={testId} value={plain()} onInput={(e) => changePlain(e.currentTarget.value)} />
@@ -166,7 +166,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
               state={ribbon}
               visible={visible}
               history={editorApi}
-              showHistory={() => mode() === 'rich'}
+              showHistory={() => mode() !== 'plain'}
               tabs={[
                 { id: 'format', after: () => <BodyModeGroup label={t('settings-sig-format')} value={() => { busy(); return mode(); }} onChange={next => void changeMode(next)} testId="signature-group-format" selectTestId="signature-format" /> },
                 { id: 'insert' },
@@ -191,7 +191,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
                 </Match>
                 <Match when={mode() === 'html'}>
                   <Suspense fallback={loading()}>
-                    <SourceEditor initialHtml={draft().html ?? ''} owned={() => NO_OWNED} embedded onChange={changeHtml} onReady={ready} />
+                    <SourceEditor externalHistory ribbonSlots={ribbon.slots} initialHtml={draft().html ?? ''} owned={() => NO_OWNED} embedded onChange={changeHtml} onReady={ready} />
                   </Suspense>
                 </Match>
               </Switch>
