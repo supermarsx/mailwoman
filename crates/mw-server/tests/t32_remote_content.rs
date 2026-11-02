@@ -76,6 +76,95 @@ async fn concurrent_signed_and_legacy_misses_each_fetch_once() {
     }
 }
 
+#[tokio::test]
+async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_valid_images() {
+    let (proxy, seen) = standin_status_proxy_with_delay(
+        vec![(200, "image/png".into(), png(64, 64))],
+        std::time::Duration::from_millis(200),
+    )
+    .await;
+    let f = fixture(proxy, "mw-rc-distinct-burst").await;
+    for key in [
+        "privacy.maxConcurrentPerMessage",
+        "privacy.maxConcurrentPerAccount",
+    ] {
+        let url = format!("{}/admin/settings/{key}", f.base);
+        let current = f.admin.get(&url).send().await.unwrap();
+        let tag = current.headers()["etag"].to_str().unwrap().to_owned();
+        let response = f
+            .admin
+            .put(url)
+            .header("if-match", tag)
+            .json(&json!({"globalValue":32}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status(),
+            200,
+            "{key}: {}",
+            response.text().await.unwrap()
+        );
+    }
+    f.grant().await;
+    let urls: Vec<_> = (0..24)
+        .map(|index| format!("http://1.2.3.4/burst-{index}.png"))
+        .collect();
+    let refs: Vec<_> = urls.iter().map(String::as_str).collect();
+    let (status, signed) = f.sign(&refs, &[]).await;
+    assert_eq!(status, 200);
+    let barrier = Arc::new(tokio::sync::Barrier::new(urls.len()));
+    let mut jobs = Vec::new();
+    for image in signed["images"].as_array().unwrap() {
+        let url = format!("{}{}", f.base, image["src"].as_str().unwrap());
+        let (client, barrier) = (f.anon.clone(), barrier.clone());
+        jobs.push(tokio::spawn(async move {
+            barrier.wait().await;
+            let response = client.get(url).send().await.unwrap();
+            let status = response.status().as_u16();
+            let bytes = response.bytes().await.unwrap();
+            (status, bytes.starts_with(b"\x89PNG"))
+        }));
+    }
+    let mut results = Vec::new();
+    for job in jobs {
+        results.push(job.await.unwrap());
+    }
+    let failed: Vec<_> = results
+        .iter()
+        .filter(|(status, png)| *status != 200 || !png)
+        .collect();
+    assert!(
+        failed.is_empty(),
+        "valid distinct image burst failed: {failed:?}; completed={}",
+        results.len()
+    );
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, urls.len());
+    let distinct: std::collections::HashSet<_> = seen
+        .requests
+        .iter()
+        .map(|request| request.lines().next().unwrap())
+        .collect();
+    assert_eq!(
+        distinct.len(),
+        urls.len(),
+        "every URL was independently fetched through the configured proxy"
+    );
+    drop(seen);
+    let stats: Value = f
+        .user
+        .get(format!("{}/api/rc/stats?emailId={}", f.base, f.email_id))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(stats["imagesLoaded"], 24);
+    assert_eq!(stats["imagesFailed"], 0);
+}
+
 /// A 4×4 opaque PNG (larger than a tracking pixel).
 fn png(w: u32, h: u32) -> Vec<u8> {
     // Built here (not a fixture) so the size is visible in the test.
@@ -175,6 +264,13 @@ async fn standin_proxy(replies: Vec<(String, Vec<u8>)>) -> (SocketAddr, Arc<Mute
 async fn standin_status_proxy(
     replies: Vec<(u16, String, Vec<u8>)>,
 ) -> (SocketAddr, Arc<Mutex<Seen>>) {
+    standin_status_proxy_with_delay(replies, std::time::Duration::ZERO).await
+}
+
+async fn standin_status_proxy_with_delay(
+    replies: Vec<(u16, String, Vec<u8>)>,
+    delay: std::time::Duration,
+) -> (SocketAddr, Arc<Mutex<Seen>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let seen = Arc::new(Mutex::new(Seen::default()));
@@ -196,6 +292,7 @@ async fn standin_status_proxy(
                     .await;
                 let req = read_head(&mut c).await;
                 sink.lock().unwrap().requests.push(req);
+                tokio::time::sleep(delay).await;
                 let (status, ctype, body) = &replies[n.min(replies.len() - 1)];
                 let head = format!(
                     "HTTP/1.1 {status} Fixture\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n\r\n",

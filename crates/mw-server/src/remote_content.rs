@@ -54,8 +54,9 @@ use mw_egress::TrafficClass;
 use mw_egress::plan::{self, Request};
 
 use super::{
-    CacheKey, DIRECT_ROUTE, audit_egress_transition, cache, etag_for, fetch_semaphore,
-    if_none_match, internal, load_plan, not_modified, rate_limiter, refusal_response,
+    CacheKey, DIRECT_ROUTE, acquire_bounded_permit, acquire_fetch_permit, audit_egress_transition,
+    cache, etag_for, fetch_semaphore, if_none_match, internal, load_plan, not_modified,
+    rate_limiter, refusal_response,
 };
 use crate::AppState;
 
@@ -83,6 +84,73 @@ mod membership;
 #[path = "remote_tracker_stats.rs"]
 mod tracker_stats;
 pub(crate) use fetch_limits::FetchLimits;
+
+/// Bound fetched buffers and the complete fetch/decode pipeline separately from
+/// network slots, so decoder work cannot starve authorization metadata requests.
+pub(super) struct ImageAdmission {
+    _message: Option<fetch_limits::FetchSlot>,
+    _pipeline: tokio::sync::SemaphorePermit<'static>,
+    _flight: Option<tokio::sync::OwnedMutexGuard<()>>,
+}
+impl ImageAdmission {
+    pub(super) fn with_flight(mut self, flight: tokio::sync::OwnedMutexGuard<()>) -> Self {
+        self._flight = Some(flight);
+        self
+    }
+}
+fn image_pipeline() -> &'static tokio::sync::Semaphore {
+    static PIPELINE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    PIPELINE.get_or_init(|| tokio::sync::Semaphore::new(16))
+}
+fn decoders() -> &'static tokio::sync::Semaphore {
+    static DECODERS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
+    DECODERS.get_or_init(|| {
+        tokio::sync::Semaphore::new(
+            std::thread::available_parallelism()
+                .map_or(1, std::num::NonZeroUsize::get)
+                .min(2),
+        )
+    })
+}
+
+#[derive(Debug)]
+enum DecodeFailure {
+    Busy,
+    Invalid,
+}
+
+async fn decode_image(
+    deadline: std::time::Instant,
+    admission: ImageAdmission,
+    work: impl FnOnce() -> Result<Vec<u8>, mw_render::media_jail::ImageDecodeFailure> + Send + 'static,
+) -> Result<(Vec<u8>, ImageAdmission), DecodeFailure> {
+    if std::time::Instant::now() >= deadline {
+        return Err(DecodeFailure::Busy);
+    }
+    let permit = tokio::time::timeout_at(
+        tokio::time::Instant::from_std(deadline),
+        decoders().acquire(),
+    )
+    .await
+    .map_err(|_| DecodeFailure::Busy)?
+    .map_err(|_| DecodeFailure::Busy)?;
+    if std::time::Instant::now() >= deadline {
+        return Err(DecodeFailure::Busy);
+    }
+    let job = tokio::task::spawn_blocking(move || {
+        // A canceled HTTP waiter must not free capacity while its CPU work is
+        // still running. Return admission only after the blocking work ends.
+        let _permit = permit;
+        (work(), admission)
+    });
+    match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), job).await {
+        Ok(Ok((Ok(png), admission))) => Ok((png, admission)),
+        Ok(Ok((Err(mw_render::media_jail::ImageDecodeFailure::InvalidImage), _))) => {
+            Err(DecodeFailure::Invalid)
+        }
+        _ => Err(DecodeFailure::Busy),
+    }
+}
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -193,9 +261,15 @@ pub(crate) async fn message_metadata(
     properties: &[&str],
 ) -> Result<Option<serde_json::Value>, ()> {
     let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":session.account_id,"ids":[email],"properties":properties,"bodyProperties":["blobId","cid","subParts","type","name","size"]},"privacy"]]});
-    let _metadata_permit = fetch_semaphore().try_acquire().map_err(|_| ())?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let _metadata_permit = acquire_fetch_permit(deadline).await.ok_or(())?;
     let response = if let Some(engine) = &state.engine {
-        engine.handle_jmap(&session.account_id, &request).await
+        tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            engine.handle_jmap(&session.account_id, &request),
+        )
+        .await
+        .map_err(|_| ())?
     } else {
         let client = crate::upstream_client(
             &state.security,
@@ -205,8 +279,8 @@ pub(crate) async fn message_metadata(
         )
         .await
         .map_err(|_| ())?;
-        let (status, bytes) = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+        let (status, bytes) = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
             client.request_raw_limited(
                 &session.api_url,
                 axum::body::Bytes::from(request.to_string()),
@@ -246,11 +320,15 @@ async fn part_membership(
     email: &str,
 ) -> Result<Vec<String>, ()> {
     if let Some(engine) = &state.engine {
-        let _permit = fetch_semaphore().try_acquire().map_err(|_| ())?;
-        return engine
-            .inline_part_ids_limited(&session.account_id, email, MAX_PART_RAW_BYTES)
-            .await
-            .map_err(|_| ());
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let _permit = acquire_fetch_permit(deadline).await.ok_or(())?;
+        return tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            engine.inline_part_ids_limited(&session.account_id, email, MAX_PART_RAW_BYTES),
+        )
+        .await
+        .map_err(|_| ())?
+        .map_err(|_| ());
     }
     let properties = if state.engine.is_some() {
         vec!["id", "mailwomanInlineParts"]
@@ -772,13 +850,21 @@ pub(super) async fn reencode_and_answer(
     raw: Vec<u8>,
     key: Option<CacheKey>,
     policy: &crate::remote_policy::PrivacyPolicy,
+    deadline: std::time::Instant,
+    admission: ImageAdmission,
 ) -> Response {
-    let png = match tokio::task::spawn_blocking(move || mw_render::media_jail::reencode_image(&raw))
-        .await
+    let started = std::time::Instant::now();
+    let (png, _admission) = match decode_image(deadline, admission, move || {
+        mw_render::media_jail::reencode_image_classified(&raw)
+    })
+    .await
     {
-        Ok(Ok(png)) => png,
-        Ok(Err(_)) => return unsupported("not a decodable image"),
-        Err(_) => return (StatusCode::INTERNAL_SERVER_ERROR, "re-encode failed").into_response(),
+        Ok(value) => value,
+        Err(DecodeFailure::Invalid) => return unsupported("not a decodable image"),
+        Err(DecodeFailure::Busy) => {
+            tracing::debug!(target: "mw_server::remote_content", phase = "decode", elapsed_ms = started.elapsed().as_millis() as u64, "remote image decoder unavailable within its budget");
+            return busy_response();
+        }
     };
     let tracker = policy.trackers && png_size(&png).is_some_and(|(w, h)| w <= 2 && h <= 2);
     let png = if tracker {
@@ -879,7 +965,7 @@ async fn fetch_image(
         return response;
     }
     let deadline = std::time::Instant::now() + policy.fetch.timeouts.total;
-    let Some(_flight) = image_flight::acquire(&claims.a, &key.route, &claims.u, deadline).await
+    let Some(flight) = image_flight::acquire(&claims.a, &key.route, &claims.u, deadline).await
     else {
         fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, false, claims.x);
         fetch_limits::record_retryable_failure(
@@ -929,7 +1015,7 @@ async fn fetch_image(
     let request = Request::get(TrafficClass::RemoteContent)
         .response_limit(policy.max_bytes)
         .accept("image/png, image/jpeg, image/gif, image/webp");
-    let (raw, content_type) = match guarded_fetch(
+    let (raw, content_type, admission) = match guarded_fetch(
         &state,
         &plan,
         &route_id,
@@ -965,7 +1051,14 @@ async fn fetch_image(
         outcome(false);
         return unsupported(why);
     }
-    let response = reencode_and_answer(raw, Some(key), &policy).await;
+    let response = reencode_and_answer(
+        raw,
+        Some(key),
+        &policy,
+        deadline,
+        admission.with_flight(flight),
+    )
+    .await;
     if response
         .headers()
         .get("x-mw-remote-content")
@@ -974,14 +1067,34 @@ async fn fetch_image(
         tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
         outcome(true);
     } else {
-        outcome(response.status().is_success());
+        record_image_response(&claims, &response);
     }
     response
 }
 
+fn record_image_response(claims: &Claims, response: &Response) {
+    fetch_limits::record_outcome(
+        &claims.a,
+        &claims.s,
+        &claims.e,
+        &claims.u,
+        response.status().is_success(),
+        claims.x,
+    );
+    if response
+        .headers()
+        .get("x-mw-remote-retryable")
+        .is_some_and(|value| value == "1")
+    {
+        fetch_limits::record_retryable_failure(
+            &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
+        );
+    }
+}
+
 /// One remote-image fetch under the t56 limits, shared by `/api/rc/i` and the
 /// legacy `/api/image-proxy`: a per-message and per-account slot (waited for,
-/// inside the deadline), the replica's global ceiling (shed), the per-phase
+/// inside the deadline), the replica's bounded global queue, the per-phase
 /// timeouts and redirect cap, the egress audit, and the negative cache for a
 /// network failure. Returns the body and its declared type, or the response to
 /// send.
@@ -999,10 +1112,10 @@ pub(super) async fn guarded_fetch(
     (account, message, raw_url): (&str, &str, &str),
     policy: &crate::remote_policy::PrivacyPolicy,
     deadline: std::time::Instant,
-) -> Result<(Vec<u8>, Option<String>), Response> {
+) -> Result<(Vec<u8>, Option<String>, ImageAdmission), Response> {
     let limits = policy.fetch;
     let started = std::time::Instant::now();
-    let Some(_slot) = fetch_limits::acquire(account, message, &limits, deadline).await else {
+    let Some(slot) = fetch_limits::acquire(account, message, &limits, deadline).await else {
         tracing::debug!(
             target: "mw_server::remote_content",
             phase = "slot",
@@ -1011,8 +1124,15 @@ pub(super) async fn guarded_fetch(
         );
         return Err(busy_response());
     };
-    // Shed rather than queue at the replica ceiling, as before t56.
-    let Ok(_permit) = fetch_semaphore().try_acquire() else {
+    let Some(pipeline) = acquire_bounded_permit(image_pipeline(), deadline).await else {
+        return Err(busy_response());
+    };
+    let admission = ImageAdmission {
+        _message: Some(slot),
+        _pipeline: pipeline,
+        _flight: None,
+    };
+    let Some(_permit) = acquire_fetch_permit(deadline).await else {
         return Err(busy_response());
     };
     let remaining = deadline.saturating_duration_since(std::time::Instant::now());
@@ -1031,7 +1151,7 @@ pub(super) async fn guarded_fetch(
     let fetched = plan::send_with(plan, url, &request).await;
     audit_egress_transition(state, route_id, fetched.traversed_proxy).await;
     match fetched.outcome {
-        Ok(bytes) => Ok((bytes, fetched.content_type)),
+        Ok(bytes) => Ok((bytes, fetched.content_type, admission)),
         Err(refusal) => {
             if matches!(refusal, mw_egress::Refusal::Timeout) {
                 // Never the URL, the host or the account.
@@ -1236,12 +1356,21 @@ pub(crate) async fn part(
             return r;
         }
     }
-    let _permit = match fetch_semaphore().try_acquire() {
-        Ok(p) => p,
-        Err(_) => return (StatusCode::SERVICE_UNAVAILABLE, "remote content busy").into_response(),
+    let deadline = std::time::Instant::now() + policy.fetch.timeouts.total;
+    let Some(pipeline) = acquire_bounded_permit(image_pipeline(), deadline).await else {
+        return busy_response();
     };
-    let (bytes, content_type, filename) = match tokio::time::timeout(
-        std::time::Duration::from_secs(15),
+    let admission = ImageAdmission {
+        _message: None,
+        _pipeline: pipeline,
+        _flight: None,
+    };
+    let Some(permit) = acquire_fetch_permit(deadline).await else {
+        return busy_response();
+    };
+    let (bytes, content_type, filename) = match tokio::time::timeout_at(
+        tokio::time::Instant::from_std(deadline)
+            .min(tokio::time::Instant::now() + std::time::Duration::from_secs(15)),
         read_part(
             &state,
             &session,
@@ -1260,6 +1389,7 @@ pub(crate) async fn part(
         Ok(Err(r)) => return r,
         Err(_) => return (StatusCode::GATEWAY_TIMEOUT, "part download timed out").into_response(),
     };
+    drop(permit);
     if let Some(name) = filename {
         let actual = crate::attachment_policy::Metadata {
             name,
@@ -1295,7 +1425,7 @@ pub(crate) async fn part(
     if bytes.len() > policy.max_bytes {
         return refusal_response(mw_egress::Refusal::TooLarge);
     }
-    reencode_and_answer(bytes, None, &policy).await
+    reencode_and_answer(bytes, None, &policy, deadline, admission).await
 }
 
 /// `GET /api/rc/f/{token}` — a remote file linked from the message, downloaded
@@ -1539,6 +1669,160 @@ mod tests {
     use super::*;
 
     const KEY: [u8; 32] = [7; 32];
+
+    async fn decode_admission() -> ImageAdmission {
+        ImageAdmission {
+            _message: None,
+            _pipeline: acquire_bounded_permit(
+                image_pipeline(),
+                std::time::Instant::now() + std::time::Duration::from_secs(2),
+            )
+            .await
+            .unwrap(),
+            _flight: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn image_decode_admission_bounds_distinct_work() {
+        use std::sync::{
+            Arc,
+            atomic::{AtomicUsize, Ordering},
+        };
+        let active = Arc::new(AtomicUsize::new(0));
+        let peak = Arc::new(AtomicUsize::new(0));
+        let capacity = decoders().available_permits();
+        let mut jobs = Vec::new();
+        for _ in 0..8 {
+            let admission = decode_admission().await;
+            let (active, peak) = (active.clone(), peak.clone());
+            jobs.push(tokio::spawn(async move {
+                decode_image(
+                    std::time::Instant::now() + std::time::Duration::from_secs(2),
+                    admission,
+                    move || {
+                        let count = active.fetch_add(1, Ordering::SeqCst) + 1;
+                        peak.fetch_max(count, Ordering::SeqCst);
+                        std::thread::sleep(std::time::Duration::from_millis(15));
+                        active.fetch_sub(1, Ordering::SeqCst);
+                        Ok(vec![1])
+                    },
+                )
+                .await
+                .is_ok()
+            }));
+        }
+        for job in jobs {
+            assert!(job.await.unwrap());
+        }
+        assert!(peak.load(Ordering::SeqCst) <= capacity);
+        assert!(capacity <= 2);
+        assert_eq!(decoders().available_permits(), capacity);
+    }
+
+    #[tokio::test]
+    async fn image_decode_cancellation_retains_pipeline_and_message_capacity_until_worker_exits() {
+        let capacity = decoders().available_permits();
+        let pipeline_capacity = image_pipeline().available_permits();
+        let limits = FetchLimits {
+            per_message: 1,
+            per_account: 1,
+            ..FetchLimits::default()
+        };
+        let message = fetch_limits::acquire(
+            "decode-cancel",
+            "message",
+            &limits,
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+        )
+        .await
+        .unwrap();
+        let mut admission = decode_admission().await;
+        admission._message = Some(message);
+        let (started, ready) = tokio::sync::oneshot::channel();
+        let (release, wait) = std::sync::mpsc::channel();
+        let job = tokio::spawn(decode_image(
+            std::time::Instant::now() + std::time::Duration::from_secs(2),
+            admission,
+            move || {
+                let _ = started.send(());
+                let _ = wait.recv_timeout(std::time::Duration::from_secs(3));
+                Ok(vec![1])
+            },
+        ));
+        ready.await.unwrap();
+        job.abort();
+        let _ = job.await;
+        assert_eq!(decoders().available_permits(), capacity - 1);
+        assert_eq!(image_pipeline().available_permits(), pipeline_capacity - 1);
+        assert!(
+            fetch_limits::acquire(
+                "decode-cancel",
+                "message",
+                &limits,
+                std::time::Instant::now() + std::time::Duration::from_millis(20)
+            )
+            .await
+            .is_none()
+        );
+        release.send(()).unwrap();
+        tokio::time::timeout(std::time::Duration::from_secs(1), async {
+            while decoders().available_permits() != capacity
+                || image_pipeline().available_permits() != pipeline_capacity
+            {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            fetch_limits::acquire(
+                "decode-cancel",
+                "message",
+                &limits,
+                std::time::Instant::now() + std::time::Duration::from_secs(1)
+            )
+            .await
+            .is_some()
+        );
+    }
+
+    #[tokio::test]
+    async fn image_decode_wait_uses_original_deadline_and_busy_results_remain_retryable() {
+        let held = decoders()
+            .acquire_many(decoders().available_permits() as u32)
+            .await
+            .unwrap();
+        let result = decode_image(
+            std::time::Instant::now() + std::time::Duration::from_millis(20),
+            decode_admission().await,
+            || panic!("timed-out work must never enter the decoder"),
+        )
+        .await;
+        assert!(matches!(result, Err(DecodeFailure::Busy)));
+        drop(held);
+        let mut token = claims(chrono::Utc::now().timestamp() + 60);
+        token.a = "decode-busy".into();
+        token.e = "message".into();
+        let response = busy_response();
+        record_image_response(&token, &response);
+        let (loaded, failed, refs, retryable) =
+            fetch_limits::outcome_details(&token.a, &token.s, &token.e);
+        assert_eq!((loaded, failed), (0, 1));
+        assert_eq!(refs, retryable);
+        assert_eq!(retryable.len(), 1);
+        assert!(
+            fetch_limits::remembered(&token.a, &token.u).is_none(),
+            "admission saturation must not enter the negative cache"
+        );
+        record_image_response(&token, &unsupported("invalid image"));
+        assert!(
+            fetch_limits::outcome_details(&token.a, &token.s, &token.e)
+                .3
+                .is_empty(),
+            "permanent format refusal must not auto-retry"
+        );
+    }
 
     fn claims(x: i64) -> Claims {
         Claims {

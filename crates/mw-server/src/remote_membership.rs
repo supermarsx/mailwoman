@@ -1,5 +1,5 @@
 //! Bounded server-derived references for deliberate message resource downloads.
-use super::{AppState, fetch_semaphore, forbidden, internal};
+use super::{AppState, forbidden, internal};
 use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -117,20 +117,33 @@ pub(super) async fn owned(
     email: &str,
     clean_links: bool,
 ) -> Result<References, Response> {
-    let _permit = fetch_semaphore()
-        .try_acquire()
-        .map_err(|_| (StatusCode::SERVICE_UNAVAILABLE, "remote content busy").into_response())?;
+    // A busy image burst must not turn a valid ownership lookup into a refusal.
+    // Admission and the upstream lookup share one bounded deadline.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let _permit = crate::image_proxy::acquire_fetch_permit(deadline)
+        .await
+        .ok_or_else(|| (StatusCode::SERVICE_UNAVAILABLE, "remote content busy").into_response())?;
+    let lookup_timeout = || {
+        (
+            StatusCode::GATEWAY_TIMEOUT,
+            "message reference lookup timed out",
+        )
+            .into_response()
+    };
     let bodies = if let Some(engine) = &state.engine {
-        engine
-            .message_html_limited(
+        tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            engine.message_html_limited(
                 &session.account_id,
                 email,
                 super::MAX_PART_RAW_BYTES,
                 MAX_HTML_BYTES,
-            )
-            .await
-            .map_err(|_| forbidden("message body unavailable or too large"))?
-            .ok_or_else(|| forbidden("no owned stored message body"))?
+            ),
+        )
+        .await
+        .map_err(|_| lookup_timeout())?
+        .map_err(|_| forbidden("message body unavailable or too large"))?
+        .ok_or_else(|| forbidden("no owned stored message body"))?
     } else {
         let request = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":session.account_id,"ids":[email],"properties":["id","htmlBody","bodyValues"],"bodyProperties":["partId","type"],"fetchHTMLBodyValues":true,"maxBodyValueBytes":MAX_HTML_BYTES},"download-refs"]]});
         let client = crate::upstream_client(
@@ -141,8 +154,8 @@ pub(super) async fn owned(
         )
         .await
         .map_err(|_| internal("message reference upstream"))?;
-        let (status, bytes) = tokio::time::timeout(
-            std::time::Duration::from_secs(10),
+        let (status, bytes) = tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
             client.request_raw_limited(
                 &session.api_url,
                 axum::body::Bytes::from(request.to_string()),
@@ -150,13 +163,7 @@ pub(super) async fn owned(
             ),
         )
         .await
-        .map_err(|_| {
-            (
-                StatusCode::GATEWAY_TIMEOUT,
-                "message reference lookup timed out",
-            )
-                .into_response()
-        })?
+        .map_err(|_| lookup_timeout())?
         .map_err(|_| internal("message reference lookup"))?;
         if !status.is_success() {
             return Err(forbidden("message body unavailable"));

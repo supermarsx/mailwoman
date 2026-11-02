@@ -136,9 +136,35 @@ impl Drop for Ticker {
 /// Run one jail entry (`mw_parse_cfb` / `mw_reencode_image`) over `input`, in a
 /// fresh disposable store, and return the entry's payload (status byte stripped).
 /// An error frame from the guest, or any trap, becomes an `Err`.
-fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
+#[derive(Debug)]
+enum JailFailure {
+    Host(String),
+    Guest(String),
+    Rejected(String),
+}
+impl std::fmt::Display for JailFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Host(value) | Self::Guest(value) | Self::Rejected(value) => f.write_str(value),
+        }
+    }
+}
+impl From<String> for JailFailure {
+    fn from(value: String) -> Self {
+        Self::Host(value)
+    }
+}
+impl From<&str> for JailFailure {
+    fn from(value: &str) -> Self {
+        Self::Host(value.into())
+    }
+}
+
+fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, JailFailure> {
     if input.len() > crate::MAX_INPUT_BYTES {
-        return Err("media-jail: input exceeds limit".into());
+        return Err(JailFailure::Rejected(
+            "media-jail: input exceeds limit".into(),
+        ));
     }
     let engine = engine();
     let compiled = module();
@@ -153,17 +179,17 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
     let linker: Linker<Limiter> = Linker::new(engine);
     let instance = linker
         .instantiate(&mut store, compiled)
-        .map_err(|e| format!("media-jail instantiate: {e}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail instantiate: {e}")))?;
 
     let memory = instance
         .get_memory(&mut store, "memory")
         .ok_or("media-jail: no memory export")?;
     let alloc = instance
         .get_typed_func::<u32, u32>(&mut store, "mw_alloc")
-        .map_err(|e| format!("media-jail: mw_alloc: {e}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail: mw_alloc: {e}")))?;
     let func = instance
         .get_typed_func::<(u32, u32), u64>(&mut store, entry)
-        .map_err(|e| format!("media-jail: {entry}: {e}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail: {entry}: {e}")))?;
 
     let in_len = u32::try_from(input.len()).map_err(|_| "media-jail: input too large")?;
 
@@ -173,13 +199,13 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
     store.epoch_deadline_trap();
     let ptr = alloc
         .call(&mut store, in_len)
-        .map_err(|e| format!("media-jail: alloc trapped: {e}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail: alloc trapped: {e}")))?;
     memory
         .write(&mut store, ptr as usize, input)
-        .map_err(|e| format!("media-jail: write input: {e}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail: write input: {e}")))?;
     let packed = func
         .call(&mut store, (ptr, in_len))
-        .map_err(|e| format!("media-jail: {entry} trapped: {e:#}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail: {entry} trapped: {e:#}")))?;
 
     let out_ptr = (packed >> 32) as usize;
     let out_len = (packed & 0xffff_ffff) as usize;
@@ -187,16 +213,20 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, String> {
         return Err("media-jail: empty output".into());
     }
     if out_len > MAX_OUTPUT_BYTES {
-        return Err("media-jail: output exceeds limit".into());
+        return Err(JailFailure::Rejected(
+            "media-jail: output exceeds limit".into(),
+        ));
     }
     let mut buf = vec![0u8; out_len];
     memory
         .read(&mut store, out_ptr, &mut buf)
-        .map_err(|e| format!("media-jail: read output: {e}"))?;
+        .map_err(|e| JailFailure::Host(format!("media-jail: read output: {e}")))?;
 
     match buf.first() {
         Some(1) => Ok(buf[1..].to_vec()),
-        Some(0) => Err(String::from_utf8_lossy(&buf[1..]).into_owned()),
+        Some(0) => Err(JailFailure::Guest(
+            String::from_utf8_lossy(&buf[1..]).into_owned(),
+        )),
         _ => Err("media-jail: malformed output frame".into()),
     }
 }
@@ -212,7 +242,7 @@ pub struct CfbParsed {
 /// OLE2/CFB parse and MS-OXMSG stream reads run in the sandbox; malformed input
 /// returns `Err`, never a native panic or memory-safety issue in this process.
 pub fn parse_cfb(bytes: &[u8]) -> Result<CfbParsed, String> {
-    let payload = call("mw_parse_cfb", bytes)?;
+    let payload = call("mw_parse_cfb", bytes).map_err(|error| error.to_string())?;
     let mut off = 0;
     let subject = read_field(&payload, &mut off)?;
     let body = read_field(&payload, &mut off)?;
@@ -227,7 +257,21 @@ pub fn parse_cfb(bytes: &[u8]) -> Result<CfbParsed, String> {
 /// Decode an untrusted image and re-encode it to a normalised, metadata-stripped
 /// PNG **inside the wasm jail**. Consumed by the anonymizing image proxy (t16-e6).
 pub fn reencode_image(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    call("mw_reencode_image", bytes)
+    call("mw_reencode_image", bytes).map_err(|error| error.to_string())
+}
+
+/// Guest codec rejection is permanent; host/epoch/resource failure may recover
+/// after bounded admission. Never infer this distinction from codec error text.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageDecodeFailure {
+    InvalidImage,
+    JailUnavailable,
+}
+pub fn reencode_image_classified(bytes: &[u8]) -> Result<Vec<u8>, ImageDecodeFailure> {
+    call("mw_reencode_image", bytes).map_err(|error| match error {
+        JailFailure::Guest(_) | JailFailure::Rejected(_) => ImageDecodeFailure::InvalidImage,
+        JailFailure::Host(_) => ImageDecodeFailure::JailUnavailable,
+    })
 }
 
 /// Guest JSON remains untrusted; attachment::preview validates and sanitizes it.
@@ -242,6 +286,7 @@ pub(crate) fn preview_payload(
         },
         bytes,
     )
+    .map_err(|error| error.to_string())
 }
 
 /// Read one `[u32 len LE][bytes]` field from the framed CFB payload.
@@ -265,6 +310,13 @@ fn read_field<'a>(buf: &'a [u8], off: &mut usize) -> Result<&'a [u8], String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn malformed_image_is_a_permanent_codec_rejection() {
+        assert_eq!(
+            super::reencode_image_classified(b"not an image"),
+            Err(super::ImageDecodeFailure::InvalidImage)
+        );
+    }
     #[test]
     fn installed_app_icons_fit_the_image_jail() {
         for (name, bytes) in [

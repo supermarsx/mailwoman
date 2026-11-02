@@ -857,6 +857,41 @@ fn fetch_semaphore() -> &'static tokio::sync::Semaphore {
     SEM.get_or_init(|| tokio::sync::Semaphore::new(MAX_CONCURRENT))
 }
 
+/// Preserve the replica's 16-request network ceiling while allowing a bounded
+/// burst to wait within its original budget instead of failing immediately.
+pub(crate) async fn acquire_fetch_permit(
+    deadline: Instant,
+) -> Option<tokio::sync::SemaphorePermit<'static>> {
+    acquire_bounded_permit(fetch_semaphore(), deadline).await
+}
+
+fn admission_waiters() -> &'static tokio::sync::Semaphore {
+    static WAITERS: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
+    WAITERS.get_or_init(|| tokio::sync::Semaphore::new(64))
+}
+
+pub(super) async fn acquire_bounded_permit(
+    semaphore: &'static tokio::sync::Semaphore,
+    deadline: Instant,
+) -> Option<tokio::sync::SemaphorePermit<'static>> {
+    if Instant::now() >= deadline {
+        return None;
+    }
+    if let Ok(permit) = semaphore.try_acquire() {
+        return Some(permit);
+    }
+    // One shared finite waiting budget across image-pipeline and network slots.
+    let _waiting = admission_waiters().try_acquire().ok()?;
+    let permit = tokio::time::timeout_at(
+        tokio::time::Instant::from_std(deadline),
+        semaphore.acquire(),
+    )
+    .await
+    .ok()?
+    .ok()?;
+    (Instant::now() < deadline).then_some(permit)
+}
+
 // ── per-account rate limit (R6, t18) ────────────────────────────────────────────
 
 /// Sustained refill rate: tokens added per second per account (≈60 fetches/min).
@@ -1099,7 +1134,7 @@ async fn proxy_image(
         return response;
     }
     let deadline = Instant::now() + policy.fetch.timeouts.total;
-    let Some(_flight) =
+    let Some(flight) =
         remote_content::image_flight::acquire(&session.account_id, &key.route, &q.url, deadline)
             .await
     else {
@@ -1148,7 +1183,7 @@ async fn proxy_image(
     let request = Request::get(TrafficClass::RemoteContent)
         .response_limit(policy.max_bytes)
         .accept("image/*");
-    let (raw, content_type) = match remote_content::guarded_fetch(
+    let (raw, content_type, admission) = match remote_content::guarded_fetch(
         &state,
         &plan,
         route_id,
@@ -1172,7 +1207,14 @@ async fn proxy_image(
     if let Some(why) = remote_content::type_refusal(content_type.as_deref(), &raw) {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, why).into_response();
     }
-    remote_content::reencode_and_answer(raw, Some(key), &policy).await
+    remote_content::reencode_and_answer(
+        raw,
+        Some(key),
+        &policy,
+        deadline,
+        admission.with_flight(flight),
+    )
+    .await
 }
 
 /// Refuse without DNS or network I/O; preserve pure URL validation and throttling.
@@ -1344,6 +1386,49 @@ fn internal(ctx: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn image_admission_queue_is_finite_and_cancellation_reclaims_waiters() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let held = gate.acquire().await.unwrap();
+        let capacity = admission_waiters().available_permits();
+        let mut jobs = Vec::new();
+        for _ in 0..capacity {
+            jobs.push(tokio::spawn(acquire_bounded_permit(
+                gate,
+                Instant::now() + Duration::from_secs(2),
+            )));
+        }
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while admission_waiters().available_permits() != 0 {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        let start = Instant::now();
+        assert!(
+            acquire_bounded_permit(gate, Instant::now() + Duration::from_secs(2))
+                .await
+                .is_none()
+        );
+        assert!(
+            start.elapsed() < Duration::from_millis(100),
+            "overflow must shed rather than enqueue unbounded work"
+        );
+        for job in jobs {
+            job.abort();
+            let _ = job.await;
+        }
+        assert_eq!(admission_waiters().available_permits(), capacity);
+        drop(held);
+        assert!(
+            acquire_bounded_permit(gate, Instant::now() + Duration::from_secs(1))
+                .await
+                .is_some()
+        );
+    }
     use std::net::SocketAddr;
     use std::time::Duration;
 
