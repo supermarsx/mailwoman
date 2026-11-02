@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {cleanup,fireEvent,render,screen} from '@solidjs/testing-library';
+import {cleanup,fireEvent,render,screen,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {clampMenu,createContextMenu} from './ContextMenu.tsx';
 afterEach(cleanup);
@@ -12,6 +12,28 @@ describe('context menu',()=>{
  it('closes when authority changes and rechecks action availability',()=>{
   const [scope,setScope]=createSignal('a'),[disabled,setDisabled]=createSignal(false);const run=vi.fn();render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope,actions:()=>[{id:'a',label:'Delete',icon:'delete',disabled:disabled(),run}]});return <><button onContextMenu={menu.open}>Target</button>{menu.menu()}</>;});
   fireEvent.contextMenu(screen.getByText('Target'));setDisabled(true);fireEvent.click(screen.getByRole('menuitem'));expect(run).not.toHaveBeenCalled();setScope('b');expect(screen.queryByRole('menu')).toBeNull();
+ });
+ it('dismisses when focus enters a message frame without restoring folder focus',async()=>{
+  const run=vi.fn();render(()=>{const menu=createContextMenu({label:()=> 'Folder actions',scope:()=> 'a',actions:()=>[{id:'open',label:'Open folder',icon:'mail',run}]});return <><button onContextMenu={menu.open}>Inbox</button><iframe title="Message" sandbox="allow-scripts"/>{menu.menu()}</>;});
+  fireEvent.contextMenu(screen.getByRole('button',{name:'Inbox'}));
+  const action=screen.getByRole('menuitem',{name:'Open folder'});expect(action).toHaveFocus();
+  fireEvent.blur(window);await new Promise(resolve=>setTimeout(resolve,0));
+  expect(screen.getByRole('menuitem',{name:'Open folder'})).toHaveFocus();
+  const frame=screen.getByTitle('Message');frame.focus();fireEvent.blur(window);
+  await waitFor(()=>expect(screen.queryByRole('menu')).toBeNull());
+  expect(frame).toHaveFocus();expect(run).not.toHaveBeenCalled();
+ });
+ it('takes focus for an all-disabled menu so returning to a frame can dismiss it',async()=>{
+  render(()=>{const menu=createContextMenu({label:()=> 'Folder actions',scope:()=> 'a',actions:()=>[{id:'open',label:'Open folder',icon:'mail',disabled:true,run:()=>{}}]});return <><button onContextMenu={menu.open}>Inbox</button><iframe title="Message"/>{menu.menu()}</>;});
+  const frame=screen.getByTitle('Message');frame.focus();
+  fireEvent.contextMenu(screen.getByRole('button',{name:'Inbox'}));expect(screen.getByRole('menu')).toHaveFocus();
+  frame.focus();fireEvent.blur(window);await waitFor(()=>expect(screen.queryByRole('menu')).toBeNull());expect(frame).toHaveFocus();
+ });
+ it('detects frame focus even when the browser emits no parent blur event',async()=>{
+  render(()=>{const menu=createContextMenu({label:()=> 'Folder actions',scope:()=> 'a',actions:()=>[{id:'open',label:'Open folder',icon:'mail',run:()=>{}}]});return <><button onContextMenu={menu.open}>Inbox</button><iframe title="Message"/>{menu.menu()}</>;});
+  fireEvent.contextMenu(screen.getByRole('button',{name:'Inbox'}));
+  const active=vi.spyOn(document,'activeElement','get').mockReturnValue(screen.getByTitle('Message'));
+  try{await waitFor(()=>expect(screen.queryByRole('menu')).toBeNull());}finally{active.mockRestore();}
  });
  it('preserves native editable and selected-text menus',()=>{
   render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope:()=> 'a',actions:()=>[{id:'a',label:'Open',icon:'mail',run:()=>{}}]});return <><div onContextMenu={menu.open}><input aria-label="Text"/><span>Selectable</span></div>{menu.menu()}</>;});

@@ -39,8 +39,16 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
   onMount(()=>{
    const outside=(e:PointerEvent):void=>{if(e.target instanceof Node&&!container.contains(e.target)&&!(props.point.anchored&&props.point.trigger.contains(e.target)))close(false);};
    const dismiss=(e:Event):void=>{if(e.target instanceof Node&&container.contains(e.target))return;close(false);};
-   document.addEventListener('mailwoman-context-open',dismiss);document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',dismiss);window.addEventListener('scroll',dismiss,true);
-   onCleanup(()=>{document.removeEventListener('mailwoman-context-open',dismiss);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',dismiss);window.removeEventListener('scroll',dismiss,true);});
+   let frameFocusTimer:ReturnType<typeof setTimeout>|undefined;
+   // Pointer events inside a message iframe never reach this document. Wait for
+   // focus to settle after blur, then dismiss without taking focus off the frame.
+   const dismissFrame=():void=>{const active=document.activeElement;if(active instanceof HTMLIFrameElement&&!container.contains(active))close(false);};
+   const frameFocus=():void=>{clearTimeout(frameFocusTimer);frameFocusTimer=setTimeout(dismissFrame,0);};
+   // Firefox can change iframe focus without emitting parent focus/blur events.
+   // Check only while this menu is mounted; no access to the frame is needed.
+   const frameFocusPoll=setInterval(dismissFrame,100);
+   document.addEventListener('mailwoman-context-open',dismiss);document.addEventListener('pointerdown',outside,true);window.addEventListener('resize',dismiss);window.addEventListener('scroll',dismiss,true);window.addEventListener('blur',frameFocus);
+   onCleanup(()=>{clearInterval(frameFocusPoll);clearTimeout(frameFocusTimer);document.removeEventListener('mailwoman-context-open',dismiss);document.removeEventListener('pointerdown',outside,true);window.removeEventListener('resize',dismiss);window.removeEventListener('scroll',dismiss,true);window.removeEventListener('blur',frameFocus);});
   });
   function Panel(panel:{actions:Accessor<ContextAction[]>;label:string;anchor?:HTMLButtonElement;back?:()=>void;valid:()=>boolean}):JSX.Element {
    let element!:HTMLDivElement;
@@ -56,7 +64,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
     let x=anchor?(rtl?anchor.left-rect.width:anchor.right):props.point.x;
     if(anchor&&(x+rect.width>window.innerWidth-8||x<8))x=rtl?anchor.right:anchor.left-rect.width;
     setCoords(clampMenu(x,anchor?anchor.top:props.point.above?props.point.y-rect.height:props.point.y,rect.width,rect.height,window.innerWidth,window.innerHeight));
-    const rows=buttons();(options.focusCurrent?rows.find(row=>row.getAttribute('aria-checked')==='true')??rows[0]:rows[0])?.focus({preventScroll:true});
+    const rows=buttons();((options.focusCurrent?rows.find(row=>row.getAttribute('aria-checked')==='true')??rows[0]:rows[0])??element).focus({preventScroll:true});
    });
    function activate(id:string,button:HTMLButtonElement):void {
     const current=panel.actions().find(item=>item.id===id);
@@ -75,7 +83,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
     e.preventDefault();e.stopPropagation();setChild(undefined);const rows=buttons(),at=rows.indexOf(document.activeElement as HTMLButtonElement);const next=e.key==='Home'?0:e.key==='End'?rows.length-1:(at+(e.key==='ArrowDown'?1:-1)+rows.length)%rows.length;
     const target=rows[next];if(target){target.focus({preventScroll:true});const item=target.getBoundingClientRect(),rect=element.getBoundingClientRect();if(item.bottom>rect.bottom)element.scrollTop+=item.bottom-rect.bottom;else if(item.top<rect.top)element.scrollTop-=rect.top-item.top;}
    }
-   return <><div ref={element} role="menu" aria-label={panel.label} class={css.menu} style={{left:`${coords().left}px`,top:`${coords().top}px`}} onKeyDown={navigate} onContextMenu={e=>{e.preventDefault();e.stopPropagation();}} onClick={e=>e.stopPropagation()}>
+   return <><div ref={element} role="menu" tabIndex={-1} aria-label={panel.label} class={css.menu} style={{left:`${coords().left}px`,top:`${coords().top}px`}} onKeyDown={navigate} onContextMenu={e=>{e.preventDefault();e.stopPropagation();}} onClick={e=>e.stopPropagation()}>
     <For each={panel.actions().map(action=>action.id)}>{id=>{const action=()=>panel.actions().find(item=>item.id===id)!;return <><Show when={action().separatorBefore}><div role="separator" class={css.separator}/></Show><button type="button" data-action-id={id} data-current={action().current?'true':undefined} role={action().radio?'menuitemradio':action().checked===undefined?'menuitem':'menuitemcheckbox'} aria-checked={action().checked} aria-haspopup={action().children?.length?'menu':undefined} aria-expanded={action().children?.length?child()?.id===id:undefined} class={css.item} aria-disabled={action().disabled===true} onClick={e=>activate(id,e.currentTarget)} onPointerEnter={()=>{if(child()?.id!==id)setChild(undefined);}}><Icon name={action().icon}/>{action().label}<Show when={action().current||action().checked||action().children?.length}><span class={css.current} aria-hidden="true"><Icon name={action().children?.length?'chevron':'check'}/></span></Show></button></>;}}</For>
    </div><Show when={child()}>{entry=><Panel actions={()=>panel.actions().find(action=>action.id===entry().id)?.children??[]} label={childAction()?.label??''} anchor={entry().anchor} back={dismissChild} valid={()=>panel.valid()&&!panel.actions().find(action=>action.id===entry().id)?.disabled}/>}</Show></>;
   }
