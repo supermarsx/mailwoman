@@ -54,6 +54,29 @@ pub fn is_canonical(entry: &str) -> bool {
     normalize(entry).as_deref() == Some(entry)
 }
 
+/// An exact mailbox, not a domain/alias pattern. Keep the local part's spelling
+/// and case; only the domain is case-normalized. The shared SMTP validator also
+/// preserves quoted and internationalized local parts without broadening trust.
+pub fn normalize_sender(value: &str) -> Option<String> {
+    if value.chars().any(|c| c.is_control() || matches!(c, '\u{061c}' | '\u{200b}'..='\u{200f}' | '\u{2028}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}')) || value.contains('*') || value.contains('?') {
+        return None;
+    }
+    let value = value.trim();
+    mw_smtp::validate_mailbox(value).ok()?;
+    let (local, domain) = value.rsplit_once('@')?;
+    let domain = domain
+        .strip_prefix("[IPv6:")
+        .map(|rest| format!("[IPv6:{}", rest.to_lowercase()))
+        .unwrap_or_else(|| domain.to_lowercase());
+    let normalized = format!("{local}@{domain}");
+    mw_smtp::validate_mailbox(&normalized).ok()?;
+    Some(normalized)
+}
+
+pub fn is_canonical_sender(value: &str) -> bool {
+    normalize_sender(value).as_deref() == Some(value)
+}
+
 /// Whether `host` (a URL hostname) is trusted by `domains`.
 pub fn is_trusted<S: AsRef<str>>(host: &str, domains: &[S], subdomains: bool) -> bool {
     let Some(host) = normalize(host) else {

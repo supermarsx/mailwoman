@@ -92,6 +92,18 @@ privacy-linked-file-item = Transferir { $name } de { $host }
 privacy-linked-other-item = Transferir { $link }
 
 privacy-links-enable = Ativar ligações
+privacy-links-options = Opções das ligações
+privacy-links-enable-once = Ativar uma vez
+privacy-links-trust-sender = Permitir sempre ligações deste remetente
+privacy-links-revoke-sender = Deixar de permitir sempre ligações deste remetente
+privacy-links-trust-failed = Não foi possível guardar as preferências das ligações.
+privacy-trusted-link-senders-title = Remetentes de confiança para ligações
+privacy-trusted-link-senders-help = Permita automaticamente ligações nas mensagens destes endereços exatos. Os destinos das ligações continuam a ser validados.
+privacy-trusted-link-senders-list = Endereços dos remetentes
+privacy-trusted-link-senders-list-help = Um endereço de e-mail completo por linha. A parte antes de @ é comparada exatamente, incluindo maiúsculas e minúsculas. Remova um endereço para revogar a confiança.
+privacy-trusted-link-senders-save = Guardar remetentes de confiança
+privacy-trusted-link-senders-remove = Remover { $sender }
+privacy-trusted-link-senders-invalid = Introduza endereços de e-mail individuais válidos: { $entries }
 privacy-links-disable = Desativar ligações
 privacy-links-enable-help = Permitir que as ligações nesta mensagem abram num novo separador. Pode voltar a desativá-las.
 

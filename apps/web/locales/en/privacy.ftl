@@ -89,6 +89,18 @@ privacy-linked-file-item = Download { $name } from { $host }
 privacy-linked-other-item = Download { $link }
 
 privacy-links-enable = Enable links
+privacy-links-options = Link options
+privacy-links-enable-once = Enable once
+privacy-links-trust-sender = Always allow links from this sender
+privacy-links-revoke-sender = Stop always allowing links from this sender
+privacy-links-trust-failed = Link preferences could not be saved.
+privacy-trusted-link-senders-title = Trusted link senders
+privacy-trusted-link-senders-help = Allow message links automatically for these exact sender addresses. Link destinations are still validated.
+privacy-trusted-link-senders-list = Sender addresses
+privacy-trusted-link-senders-list-help = One complete email address per line. The part before @ is matched exactly, including case. Remove an address to revoke trust.
+privacy-trusted-link-senders-save = Save trusted senders
+privacy-trusted-link-senders-remove = Remove { $sender }
+privacy-trusted-link-senders-invalid = Enter valid individual email addresses: { $entries }
 privacy-links-disable = Disable links
 privacy-links-enable-help = Allow links in this message to open in a new tab. You can disable them again.
 

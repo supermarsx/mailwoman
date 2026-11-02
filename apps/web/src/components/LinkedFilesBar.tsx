@@ -38,7 +38,7 @@ function shortLink(url: string): string {
   try { const u = new URL(url); return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`; } catch { return url; }
 }
 
-export function LinkedFilesBar(props: { emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; urls: readonly string[]; links: readonly string[] }): JSX.Element {
+export function LinkedFilesBar(props: { emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; senderTrusted?:boolean; senderTrustEditable?:boolean; senderTrustPending?:boolean; onTrustSender?:()=>void|Promise<void>; onRevokeSender?:()=>void|Promise<void>; urls: readonly string[]; links: readonly string[] }): JSX.Element {
   const [pending, setPending] = createSignal(false);
   createEffect(on(() => props.scope, () => setPending(false)));
   const files = createMemo(() => props.urls.map(linkedFile));
@@ -80,6 +80,12 @@ export function LinkedFilesBar(props: { emailId: string; scope: string; linksRea
     return items;
   });
   const menu = createContextMenu({ label: () => t('privacy-linked-files'), scope: () => props.scope, actions, onError: () => toast.error(t('privacy-file-failed')) });
+  const consentActions=():ContextAction[]=>{
+    const items:ContextAction[]=[{id:'message-links',label:t(props.linksEnabled?'privacy-links-disable':'privacy-links-enable-once'),icon:'link',disabled:props.senderTrustPending===true||(!props.linksEnabled&&props.linksReady===false),run:()=>props.onToggleLinks?.()}];
+    if(props.onTrustSender||props.onRevokeSender)items.push({id:'sender-links',label:t(props.senderTrusted?'privacy-links-revoke-sender':'privacy-links-trust-sender'),icon:props.senderTrusted?'shield':'check',separatorBefore:true,disabled:props.senderTrustEditable!==true||props.senderTrustPending===true||props.linksReady===false,run:()=>props.senderTrusted?props.onRevokeSender?.():props.onTrustSender?.()});
+    return items;
+  };
+  const consentMenu=createContextMenu({label:()=>t('privacy-links-options'),scope:()=>props.scope,actions:consentActions,onError:()=>toast.error(t('privacy-links-trust-failed'))});
 
   return (
     <ReaderNoticeBar
@@ -88,8 +94,8 @@ export function LinkedFilesBar(props: { emailId: string; scope: string; linksRea
       state={files().length > 0 ? 'files' : 'links'}
       icon={files().length > 0 ? 'file' : 'link'}
       tooltip={tooltip()}
-      actions={<><Show when={props.onToggleLinks}><NoticeButton icon="link" disabled={props.linksReady===false&&!props.linksEnabled} busy={props.linksReady===false&&!props.linksEnabled} label={t(props.linksReady===false&&!props.linksEnabled?'privacy-links-loading':props.linksEnabled?'privacy-links-disable':'privacy-links-enable')} tooltip={t('privacy-links-enable-help')} testid="message-links-toggle" detachedLocal onClick={()=>props.onToggleLinks?.()}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>}
-      after={menu.menu()}
+      actions={<><Show when={props.onToggleLinks}><NoticeButton icon="link" disabled={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} busy={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} label={t(props.linksReady===false&&!props.linksEnabled?'privacy-links-loading':props.linksEnabled?'privacy-links-disable':'privacy-links-enable')} tooltip={t('privacy-links-enable-help')} testid="message-links-toggle" haspopup="menu" expanded={consentMenu.isOpen()} detachedLocal onClick={event=>consentMenu.openBelow(event.currentTarget as HTMLElement)} onKeyDown={consentMenu.keydown}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>}
+      after={<>{menu.menu()}{consentMenu.menu()}</>}
     >
       <span class={noticeCss.headline}>{headline()}</span>
       {detail() !== null ? <span class={noticeCss.detail}>{' · '}{detail()}</span> : null}

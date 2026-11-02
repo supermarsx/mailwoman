@@ -245,10 +245,17 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
             "privacy.trusted_links",
             "reading",
             &["cap.links.trusted"],
-            &["/api/settings/links.trustedDomains"],
+            &[
+                "/api/settings/links.trustedDomains",
+                "/api/settings/links.trustedSenders",
+            ],
             &[],
         ),
-        &["links.trustedDomains", "links.trustedSubdomains"],
+        &[
+            "links.trustedDomains",
+            "links.trustedSubdomains",
+            "links.trustedSenders",
+        ],
     ),
     toggle(
         "reading.zoom",

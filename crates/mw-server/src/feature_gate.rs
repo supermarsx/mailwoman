@@ -121,7 +121,9 @@ static REST: &[RestGate] = &[
 fn setting_feature(key: &str) -> Option<&'static str> {
     match key {
         "reader.zoom" => Some("reading.zoom"),
-        "links.trustedDomains" | "links.trustedSubdomains" => Some("privacy.trusted_links"),
+        "links.trustedDomains" | "links.trustedSubdomains" | "links.trustedSenders" => {
+            Some("privacy.trusted_links")
+        }
         "mail.focusedInbox" => Some("views.focused"),
         k if k.starts_with("shortcuts.") => Some("shortcuts"),
         k if k.starts_with("appearance.") => Some("appearance.custom"),

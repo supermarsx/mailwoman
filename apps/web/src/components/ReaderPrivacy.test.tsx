@@ -12,6 +12,7 @@ import { initSync, sanitizeEmailHtmlReader, sanitizeEmailHtmlReaderSafe } from '
 import type { RemotePolicy, SignedContent } from '../api/remote-content.ts';
 import {clearSettings,loadSettings} from '../api/settings.ts';
 import type { Email } from '../api/jmap-types.ts';
+import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 // Unit tests inspect the prepared document; real browser tests exercise the
 // opaque outer bridge and its script-free nested frame with actual CSP headers.
 vi.mock('./DirectReaderFrame.tsx', () => ({ DirectReaderFrame: (props: {html:string;title:string;documentKey?:string;onDisplayed?:(html:string,key:string|undefined)=>void}) => { setTimeout(() => props.onDisplayed?.(props.html, props.documentKey), 0); return <iframe class="reader__frame" title={props.title} sandbox="" srcdoc={props.html} />; } }));
@@ -52,7 +53,55 @@ async function open(emails:Email[]) {
   await app.login({username:'me@example.org',password:'p'});await app.openMessage(emails[0]!.id);await screen.findByRole('toolbar',{name:'Message actions'});return app;
 }
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
+async function enableMessageLinks():Promise<void>{fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Enable once'}));}
 describe('Reader signed privacy pipeline',()=>{
+  it('persists exact sender link trust separately from image grants and honors a current-message disable',async()=>{
+    const writes:unknown[]=[];
+    await loadSettings({refresh:true,fetcher:async(_url,init)=>{
+      if(init?.method==='PUT'){const value=(JSON.parse(String(init.body)) as {value:unknown}).value;writes.push(value);return json({value,locked:false,source:'user'});}
+      return json({settings:{'links.trustedSenders':{value:[],locked:false,source:'user'}}});
+    }});
+    const other=message('m3','<a href="https://safe.test/page">Other sender</a>');other.from=[{name:'Other',email:'other@example.test'}];
+    const app=await open([message('m1','<a href="https://safe.test/page">Page</a>'),message('m2','<a href="https://safe.test/page">Page</a>'),other]);
+    fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender'}));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Disable links'})).toBeEnabled());expect(writes).toEqual([['sender@example.test']]);expect(requests).toEqual([]);expect(granted).toBe(false);
+    fireEvent.click(screen.getByRole('button',{name:'Disable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Disable links'}));
+    await screen.findByRole('button',{name:'Enable links'});
+    expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false);
+    await app.openMessage('m2');await screen.findByRole('button',{name:'Disable links'});
+    expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.getAttribute('href')).toBe('https://safe.test/page');
+    await app.openMessage('m3');await screen.findByRole('button',{name:'Enable links'});
+    expect(writes).toHaveLength(1);expect(requests).toEqual([]);
+  });
+
+  it('revokes sender trust and keeps administrator-locked trust controls read-only',async()=>{
+    const writes:unknown[]=[];
+    await loadSettings({refresh:true,fetcher:async(_url,init)=>{
+      if(init?.method==='PUT'){const value=(JSON.parse(String(init.body)) as {value:unknown}).value;writes.push(value);return json({value,locked:false,source:'user'});}
+      return json({settings:{'links.trustedSenders':{value:['sender@example.test'],locked:false,source:'user'}}});
+    }});
+    await open([message('m1','<a href="https://safe.test/page">Page</a>')]);
+    fireEvent.click(await screen.findByRole('button',{name:'Disable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Stop always allowing links from this sender'}));
+    await screen.findByRole('button',{name:'Enable links'});expect(writes).toEqual([[]]);
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'links.trustedSenders':{value:[],locked:true,source:'global'}}})});
+    fireEvent.click(screen.getByRole('button',{name:'Enable links'}));const action=screen.getByRole('menuitem',{name:'Always allow links from this sender'});expect(action).toHaveAttribute('aria-disabled','true');fireEvent.click(action);expect(writes).toHaveLength(1);
+  });
+
+  it('does not enable old message links after a sender trust write finishes in another authentication generation',async()=>{
+    let release!:(response:Response)=>void;let writing=false;
+    await loadSettings({refresh:true,fetcher:async(_url,init)=>{
+      if(init?.method==='PUT'){writing=true;return new Promise<Response>(resolve=>{release=resolve;});}
+      return json({settings:{'links.trustedSenders':{value:[],locked:false,source:'user'}}});
+    }});
+    await open([message('m1','<a href="https://safe.test/page">Page</a>')]);
+    fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender'}));
+    await waitFor(()=>expect(writing).toBe(true));suspendAccountPreferences();activateAccountPreferences('acct1');
+    release(json({value:['sender@example.test'],locked:false,source:'user'}));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Enable links'})).toBeEnabled());
+    expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false);
+  });
+
   it('displays sanitized HTML by default without leaving quarantined links preparing forever', async () => {
     vi.mocked(getCryptoWorker().sanitizeReader).mockImplementation(async request=>request.allowSanitizedHtml?'<p>Safe body <a href="https://files.test/report.pdf">Report</a></p>':'<pre data-mw-body-blocked="true">Safe body</pre>');
     await open([message('m1','<script>unsafe()</script><p>Safe body</p>')]);
@@ -77,12 +126,15 @@ describe('Reader signed privacy pipeline',()=>{
     expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/);
     expect(body().querySelector('a')?.getAttribute('href')).not.toBe(link);
     fireEvent.click(enable);
+    fireEvent.click(screen.getByRole('menuitem',{name:'Enable once'}));
     await waitFor(()=>expect(body().querySelector('a')?.getAttribute('href')).toBe(link));
     fireEvent.click(show);
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
     expect(requests).toContainEqual({emailId:'m1',urls:[image],parts:[]});
     fireEvent.click(await screen.findByRole('button',{name:/Undo/}));
     await waitFor(()=>expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/));
+    expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
     expect(await screen.findByRole('button',{name:'Show images'})).toBeEnabled();
     expect(frame()?.getAttribute('sandbox')).toBe('');
   });
@@ -101,13 +153,13 @@ describe('Reader signed privacy pipeline',()=>{
     const app=await open([message('m1',raw),message('m2',raw)]);
     expect(screen.queryByTestId('linked-files-bar')).toBeNull();
     fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
-    fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));
+    await enableMessageLinks();
     await screen.findByRole('button',{name:'Disable links'});
     fireEvent.click(screen.getByRole('button',{name:'Show safe text'}));
     await waitFor(()=>expect(screen.queryByTestId('linked-files-bar')).toBeNull());
     fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
     expect(await screen.findByRole('button',{name:'Enable links'})).toBeEnabled();
-    fireEvent.click(screen.getByRole('button',{name:'Enable links'}));
+    await enableMessageLinks();
     await app.openMessage('m2');
     await screen.findByRole('button',{name:'Show sanitized HTML'});
     expect(screen.queryByTestId('linked-files-bar')).toBeNull();expect(requests).toEqual([]);

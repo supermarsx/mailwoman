@@ -1167,6 +1167,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "exact trusted link domains that open from Review links without the destination step"
     ),
     def!(
+        "links.trustedSenders",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 254
+        },
+        "[]",
+        GDU,
+        "privacy",
+        "exact sender mailboxes whose reviewed message links may open without per-message consent"
+    ),
+    def!(
         "links.trustedSubdomains",
         Kind::Bool,
         "false",
@@ -3947,6 +3958,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                     || !text.bytes().all(|b| {
                         if def.key == "security.signin.geoCountries" {
                             b.is_ascii_uppercase()
+                        } else if def.key == "links.trustedSenders" {
+                            !b.is_ascii_control()
                         } else if matches!(
                             def.key,
                             "mail.cache.excludedFolders"
@@ -3979,6 +3992,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "admin-unauthenticated"
                         ))
                     || (def.key == "links.trustedDomains" && !link_trust::is_canonical(text))
+                    || (def.key == "links.trustedSenders" && !link_trust::is_canonical_sender(text))
                     || (def.key == "security.protection.userAgentCategories"
                         && !crate::request_protection::user_agent::CATEGORIES.contains(&text))
                     || (def.key == "security.protection.signals"

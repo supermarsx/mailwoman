@@ -128,6 +128,43 @@ fn the_registry_keys_are_user_overridable_and_store_only_canonical_entries() {
     assert!(settings_registry::validate(list, &json!(too_many), "value").is_err());
 }
 
+#[test]
+fn exact_sender_entries_are_validated() {
+    let sender = settings_registry::lookup("links.trustedSenders").unwrap();
+    for def in [sender] {
+        assert_eq!(def.scopes, Scopes::GlobalDomainUser);
+        assert!(def.user_override);
+    }
+    assert_eq!(sender.default, "[]");
+    let vectors: Value = serde_json::from_str(include_str!(
+        "../../../apps/web/src/viewers/trustedLinkSenders.vectors.json"
+    ))
+    .unwrap();
+    for vector in vectors.as_array().unwrap() {
+        let input = vector["input"].as_str().unwrap();
+        let normalized = link_trust::normalize_sender(input);
+        assert_eq!(
+            normalized.as_deref(),
+            vector["normalized"].as_str(),
+            "{input:?}"
+        );
+        if let Some(normalized) = normalized {
+            assert!(settings_registry::validate(sender, &json!([normalized]), "value").is_ok());
+        }
+    }
+    for invalid in [
+        json!(["Alice@EXAMPLE.TEST"]),
+        json!(["a@example.test", "a@example.test"]),
+        json!(vec!["a@example.test"; 101]),
+        json!([format!("{}@example.test", "a".repeat(65))]),
+    ] {
+        assert!(
+            settings_registry::validate(sender, &invalid, "value").is_err(),
+            "{invalid}"
+        );
+    }
+}
+
 // ── over the real router ───────────────────────────────────────────────────────
 
 fn config(db: &str, upstream: String) -> AppConfig {
@@ -342,4 +379,84 @@ async fn an_admin_default_and_lock_govern_the_users_trusted_link_domains() {
     let e = entry(&u, base, sub).await;
     assert_eq!(e["value"], json!(false));
     assert_eq!(e["locked"], json!(true));
+}
+
+#[tokio::test]
+async fn sender_trust_revocation_feature_gate_respects_admin_locks() {
+    let base = &server().await;
+    let a = admin(base).await;
+    let u = user(base).await;
+    let senders = "links.trustedSenders";
+    assert_eq!(entry(&u, base, senders).await["value"], json!([]));
+    for (key, value) in [
+        (senders, json!(["Alice+news@example.test"])),
+    ] {
+        let (status, body) = send(
+            u.put(format!("{base}/api/settings/{key}"))
+                .json(&json!({"value":value})),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        assert_eq!(entry(&u, base, key).await["value"], value);
+    }
+    let (status, body) = send(
+        u.put(format!("{base}/api/settings/{senders}"))
+            .json(&json!({"value":[]})),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(
+        entry(&u, base, senders).await["value"],
+        json!([]),
+        "revocation persists"
+    );
+    let (status, body) = send(
+        u.put(format!("{base}/api/settings/{senders}"))
+            .json(&json!({"value":["valid@example.test", "*.example.test"]})),
+    )
+    .await;
+    assert_eq!(status, 422, "{body}");
+    assert_eq!(body["field"], "/value/1");
+    for (key, value) in [
+        (senders, json!(["boss@corp.example"])),
+    ] {
+        let (status, body) = send(
+            a.put(format!("{base}/admin/settings/{key}"))
+                .json(&json!({"globalValue":value,"locked":true})),
+        )
+        .await;
+        assert_eq!(status, 200, "{body}");
+        let effective = entry(&u, base, key).await;
+        assert_eq!(effective["value"], value);
+        assert_eq!(effective["locked"], true);
+        let (status, body) = send(
+            u.put(format!("{base}/api/settings/{key}"))
+                .json(&json!({"value":json!([])})),
+        )
+        .await;
+        assert_eq!(status, 403, "{body}");
+        assert_eq!(body["code"], "setting_locked");
+    }
+    let (status, body) = send(
+        a.put(format!("{base}/admin/settings/{senders}"))
+            .json(&json!({"globalValue":[],"locked":false})),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = send(
+        a.put(format!("{base}/admin/settings/cap.links.trusted"))
+            .json(&json!({"globalValue":false})),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let (status, body) = send(
+        u.put(format!("{base}/api/settings/{senders}"))
+            .json(&json!({"value":["other@example.test"]})),
+    )
+    .await;
+    assert_eq!(status, 403, "{body}");
+    assert_eq!(body["code"], "feature_disabled");
+    assert_eq!(body["feature"], "privacy.trusted_links");
+    let (status, body) = send(u.delete(format!("{base}/api/settings/{senders}"))).await;
+    assert_eq!(status, 200, "{body}");
 }

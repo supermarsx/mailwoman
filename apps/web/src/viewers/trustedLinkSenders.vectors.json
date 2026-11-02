@@ -1,0 +1,20 @@
+[
+ {"input":"Alice+news@EXAMPLE.TEST","normalized":"Alice+news@example.test"},
+ {"input":" alice@example.test ","normalized":"alice@example.test"},
+ {"input":"\"comma,local\"@EXAMPLE.TEST","normalized":"\"comma,local\"@example.test"},
+ {"input":"\"inside@local\"@EXAMPLE.TEST","normalized":"\"inside@local\"@example.test"},
+ {"input":"原@BÜCHER.EXAMPLE","normalized":"原@bücher.example"},
+ {"input":"sender@[IPv6:2001:DB8::1]","normalized":"sender@[IPv6:2001:db8::1]"},
+ {"input":"example.test","normalized":null},
+ {"input":"@example.test","normalized":null},
+ {"input":"*@example.test","normalized":null},
+ {"input":"a?@example.test","normalized":null},
+ {"input":"sender@*.example.test","normalized":null},
+ {"input":"Alice <alice@example.test>","normalized":null},
+ {"input":"a@example.test,b@example.test","normalized":null},
+ {"input":"a@example.test\r\nBcc: victim@example.test","normalized":null},
+ {"input":"\talice@example.test","normalized":null},
+ {"input":"ali\u202ece@example.test","normalized":null},
+ {"input":"a..b@example.test","normalized":null},
+ {"input":"sender@example.test/evil","normalized":null}
+]
