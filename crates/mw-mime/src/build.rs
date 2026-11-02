@@ -153,7 +153,7 @@ pub fn build(req: &ComposeRequest) -> Result<Vec<u8>, MimeError> {
 /// plain-text body puts that inside `multipart/alternative`; ordinary
 /// attachments put the result inside `multipart/mixed`. Inline parts without
 /// an HTML body are refused. Whether the HTML refers to each `cid` is not
-/// checked here; see [`html_cid_references`].
+/// checked here; see [`crate::html_cid_references`].
 ///
 /// With empty extras and acceptable values the output has the same structure
 /// as [`build`]'s.
@@ -207,79 +207,6 @@ pub fn build_with(req: &ComposeRequest, extras: &ComposeExtras) -> Result<Vec<u8
     }
 
     finish(req, b)
-}
-
-/// The `cid:` references inside the tags of `html`, in order, without
-/// duplicates and with percent-escapes decoded (RFC 2392).
-///
-/// This is a lexical scan, not an HTML parser: it reports a `cid:` URL found
-/// between a `<` and its closing `>` (an attribute value such as `src` or an
-/// inline `style`), and nothing from text content or from the body of a
-/// `<style>` element. The values are returned as written and are not checked.
-#[must_use]
-pub fn html_cid_references(html: &str) -> Vec<String> {
-    let bytes = html.as_bytes();
-    let mut out: Vec<String> = Vec::new();
-    let mut in_tag = false;
-    let mut quote: Option<u8> = None;
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i];
-        if !in_tag {
-            in_tag = c == b'<';
-            i += 1;
-            continue;
-        }
-        match quote {
-            Some(q) if c == q => quote = None,
-            None if c == b'"' || c == b'\'' => quote = Some(c),
-            None if c == b'>' => in_tag = false,
-            _ => {}
-        }
-        // `in_tag` was set on an earlier byte, so `i >= 1` here.
-        let starts_reference = bytes[i..].len() >= 4
-            && bytes[i..i + 4].eq_ignore_ascii_case(b"cid:")
-            && !bytes[i - 1].is_ascii_alphanumeric();
-        if !starts_reference {
-            i += 1;
-            continue;
-        }
-        let start = i + 4;
-        let end = bytes[start..]
-            .iter()
-            .position(|b| b.is_ascii_whitespace() || b"\"'<>(),;".contains(b))
-            .map_or(bytes.len(), |n| start + n);
-        let cid = percent_decode(&bytes[start..end]);
-        if !cid.is_empty() && !out.contains(&cid) {
-            out.push(cid);
-        }
-        i = end.max(i + 1);
-    }
-    out
-}
-
-/// Decode `%XX` escapes; anything that is not a complete escape is kept as it
-/// stands, and bytes that do not form UTF-8 are replaced.
-fn percent_decode(raw: &[u8]) -> String {
-    let hex = |b: u8| char::from(b).to_digit(16).map(|d| d as u8);
-    let mut out = Vec::with_capacity(raw.len());
-    let mut i = 0;
-    while i < raw.len() {
-        let escape = (raw[i] == b'%')
-            .then(|| Some(hex(*raw.get(i + 1)?)? << 4 | hex(*raw.get(i + 2)?)?))
-            .flatten();
-        match escape {
-            Some(byte) => {
-                out.push(byte);
-                i += 3;
-            }
-            None => {
-                out.push(raw[i]);
-                i += 1;
-            }
-        }
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 /// The message: the address headers of `req`, then everything `b` holds.

@@ -39,6 +39,16 @@ describe('inline images (t29-e12)', () => {
     ]);
     expect(inlineAttachments([img('a')], [])).toEqual([]);
   });
+
+  it('finds native HTML image resources without treating quoted examples as references', () => {
+    const html = `<style>/* url(cid:comment) */ .logo{background:URL('cid:css')} .label:before{content:"url(cid:example)"}</style>
+      <table background='cid:background'><tr><td style="background-image:url(&quot;cid:inline&quot;)">
+      <img SRC=cid:css><a href="CID:link">Link</a></td></tr></table>
+      <p data-example="cid:unused">src="cid:text"</p><!-- <img src="cid:comment"> -->`;
+    expect(referencedCids(html)).toEqual(['css', 'background', 'inline', 'link']);
+    expect(inlineAttachments([img('css'), img('background'), img('inline')], referencedCids(html)).map((part) => part.cid))
+      .toEqual(['css', 'background', 'inline']);
+  });
 });
 
 describe('embedded signature images (t49)', () => {

@@ -16,3 +16,8 @@ mail-parser = { workspace = true, features = ["full_encoding"] }
 mail-builder = { workspace = true }
 encoding_rs = { workspace = true }
 thiserror = { workspace = true }
+# Already locked by mw-sanitize; inspect actual HTML/CSS references rather than
+# treating comments, quoted CSS text, or entity escapes as inline image URLs.
+html5ever = "0.39"
+markup5ever_rcdom = "0.39"
+cssparser = "0.37"

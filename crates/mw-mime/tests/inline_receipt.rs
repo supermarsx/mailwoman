@@ -663,14 +663,14 @@ fn return_path_and_list_headers_are_reported() {
 }
 
 #[test]
-fn cid_references_are_found_in_tags_only() {
+fn cid_references_are_found_in_actual_resource_attributes() {
     assert_eq!(
         html_cid_references(
             "<p>about cid:in-text</p>\
              <img src=\"cid:a@example.org\">\
              <IMG SRC='CID:b'>\
              <img src=cid:c>\
-             <td background=\"cid:d\" style=\"background:url(cid:e)\">\
+             <table><tr><td background=\"cid:d\" style=\"background:url(cid:e)\"></td></tr></table>\
              <img src=\"cid:a@example.org\">\
              <img src=\"cid:f%40example.org\">\
              <img alt=\"1 > 0\" src=\"cid:g\">\
@@ -681,8 +681,76 @@ fn cid_references_are_found_in_tags_only() {
     );
     assert!(html_cid_references("").is_empty());
     assert!(html_cid_references("cid:x <").is_empty());
-    assert_eq!(html_cid_references("<cid:%zz%4"), ["%zz%4"]);
-    assert_eq!(html_cid_references("<a b=\"cid:é\u{2028}x"), ["é\u{2028}x"]);
+    assert_eq!(html_cid_references("<img src='cid:%zz%4'>"), ["%zz%4"]);
+    assert_eq!(
+        html_cid_references("<img src=\"cid:é\u{2028}x\">"),
+        ["é\u{2028}x"]
+    );
+}
+
+#[test]
+fn cid_references_include_native_css_with_entities_and_escapes() {
+    assert_eq!(
+        html_cid_references(
+            r#"<style>
+            .background { background: url('CID:sheet%40inline'); }
+            @media screen { .nested { background-image: url(cid:nested); } }
+        </style>
+        <div style="background-image: url(&quot;cid:inline%40image&quot;)"></div>
+        <p style='background:u\72l("c\69 d:escaped")'></p>
+        <img src="cid:inline%40image">
+        <img srcset="cid:first 1x, cid:second 2x">"#
+        ),
+        [
+            "sheet@inline",
+            "nested",
+            "inline@image",
+            "escaped",
+            "first",
+            "second"
+        ]
+    );
+}
+
+#[test]
+fn cid_references_ignore_html_and_css_comments_and_literal_text() {
+    assert_eq!(
+        html_cid_references(
+            r#"<!-- <img src="cid:comment"> -->
+        <p>cid:literal &lt;img src="cid:escaped-tag"&gt;</p>
+        <img alt="cid:alternative" data-example="cid:data">
+        <textarea><img src="cid:textarea"></textarea>
+        <script>const template = '<img src="cid:script">';</script>
+        <template><img src="cid:template"></template>
+        <style>
+            /* .fake { background: url(cid:css-comment); } */
+            .literal::after { content: 'url(cid:string)'; }
+            [data-example="cid:selector"] { color: red; }
+            .real { background-image: url(cid:actual); }
+        </style>"#
+        ),
+        ["actual"]
+    );
+}
+
+#[test]
+fn cid_reference_parsing_bounds_css_nesting_and_html_traversal() {
+    let nested_css = format!(
+        "<div style='background:{}url(cid:deep){}'></div>",
+        "f(".repeat(100),
+        ")".repeat(100)
+    );
+    assert!(
+        html_cid_references(&nested_css)
+            .iter()
+            .any(|cid| cid.contains('\0'))
+    );
+    let nested_html = format!(
+        "{}<img src='cid:deep-html'>{}",
+        "<div>".repeat(2000),
+        "</div>".repeat(2000)
+    );
+    assert_eq!(html_cid_references(&nested_html), ["deep-html"]);
 }
 
 #[test]

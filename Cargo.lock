@@ -5439,9 +5439,12 @@ dependencies = [
 name = "mw-mime"
 version = "26.19.0"
 dependencies = [
+ "cssparser 0.37.0",
  "encoding_rs",
+ "html5ever 0.39.0",
  "mail-builder",
  "mail-parser",
+ "markup5ever_rcdom",
  "mw-jmap",
  "thiserror 2.0.18",
  "url",

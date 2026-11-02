@@ -772,6 +772,77 @@ async fn an_inline_image_becomes_a_related_part_the_draft_reports() {
     assert_eq!(served.content_type, "image/png");
 }
 
+/// Native HTML may use an image solely in a stylesheet or quoted inline CSS.
+/// Both must survive create/submission with the same owned MIME image parts.
+#[tokio::test]
+async fn native_html_css_cids_create_and_submit_owned_related_images() {
+    let h = setup().await;
+    let identity = standard_identity(&h).await;
+    let blob = h
+        .engine
+        .store_upload(&h.account_id, "image/png", PNG)
+        .await
+        .unwrap();
+    let html = r#"<style>
+        /* .fake { background: url(cid:comment); } */
+        .chart { background-image: url("CID:sheet%40inline.invalid"); }
+        .chart::after { content: 'cid:literal-string'; }
+    </style>
+    <!-- <img src="cid:comment-image"> -->
+    <div class="chart" style="background-image:url(&quot;cid:quoted%40inline.invalid&quot;)">cid:literal-text</div>"#;
+    let body = json!({"bodyValues":{"h":{"value":html}},"htmlBody":[{"partId":"h","type":"text/html"}],"textBody":[],"attachments":[
+        {"blobId":blob,"cid":"sheet@inline.invalid","disposition":"inline","type":"image/png","name":"sheet.png"},
+        {"blobId":blob,"cid":"quoted@inline.invalid","disposition":"inline","type":"image/png","name":"quoted.png"}
+    ]});
+    let id = created_id(&create(&h, body.clone()).await);
+    let got = email(&h, &id).await;
+    let parts = got["mailwomanInlineParts"].as_array().unwrap();
+    assert_eq!(parts.len(), 2, "{got}");
+    for cid in ["sheet@inline.invalid", "quoted@inline.invalid"] {
+        let part = parts.iter().find(|part| part["cid"] == cid).unwrap();
+        let served = h
+            .engine
+            .fetch_blob(&h.account_id, part["blobId"].as_str().unwrap())
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(served.bytes, PNG);
+    }
+    let stored = h.backend.appended.lock().unwrap()["Drafts"].len();
+    let mut unknown = body;
+    unknown["bodyValues"]["h"]["value"] = json!(format!(
+        "{html}<style>.unknown {{ background:url(cid:missing); }}</style>"
+    ));
+    assert_invalid(&create(&h, unknown).await, "htmlBody");
+    assert_eq!(h.backend.appended.lock().unwrap()["Drafts"].len(), stored);
+    assert!(h.submitter.handed().is_empty());
+
+    let response = jmap(&h, json!([["EmailSubmission/set",{"create":{"send":{"emailId":id,"identityId":identity,"mailwomanHoldSeconds":0}}},"send"]])).await;
+    let submitted = result(&response, "send");
+    assert_eq!(
+        submitted["created"]["send"]["undoStatus"], "final",
+        "{response}"
+    );
+    let sent = h.submitter.only();
+    assert_eq!(sent.mail_from, ME);
+    assert_eq!(sent.rcpt_to, ["visible@example.org"]);
+    let raw = String::from_utf8_lossy(&sent.raw);
+    assert!(raw.contains("multipart/related"), "{raw}");
+    assert!(raw.contains("Content-ID: <sheet@inline.invalid>"), "{raw}");
+    assert!(raw.contains("Content-ID: <quoted@inline.invalid>"), "{raw}");
+    let parsed = mw_mime::parse(&sent.raw).unwrap();
+    let sent_html = parsed
+        .email
+        .body_values
+        .values()
+        .find(|body| body.value.contains("background-image"))
+        .unwrap();
+    assert_eq!(
+        mw_mime::html_cid_references(&sent_html.value),
+        ["sheet@inline.invalid", "quoted@inline.invalid"]
+    );
+}
+
 /// The properties are read from the raw message only when the request names
 /// one of them.
 #[tokio::test]

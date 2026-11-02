@@ -26,6 +26,7 @@
 
 mod build;
 mod check;
+mod cid_references;
 mod dsn;
 mod header_privacy;
 mod mdn;
@@ -33,10 +34,9 @@ mod mdn_standard;
 mod parse;
 mod quoted_addresses;
 
-pub use build::{
-    Attachment, ComposeExtras, ComposeRequest, InlinePart, build, build_with, html_cid_references,
-};
+pub use build::{Attachment, ComposeExtras, ComposeRequest, InlinePart, build, build_with};
 pub use check::{generate_content_id, validate_content_id, validate_mailbox};
+pub use cid_references::html_cid_references;
 pub use dsn::{DsnRecipient, DsnReport, parse_dsn};
 pub use header_privacy::{HeaderPrivacyError, strip_mailer_headers};
 pub use mdn::{

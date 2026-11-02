@@ -10,6 +10,7 @@
 
 import type { Id } from '../../api/jmap-types.ts';
 import type { StoredInlineImage } from './drafts-store.ts';
+import { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttributes.ts';
 
 /** An image of this draft: what is sent, plus the editor's local preview. */
 export interface InlineImage extends StoredInlineImage {
@@ -54,14 +55,66 @@ export function imageFiles(data: DataTransfer | null): File[] {
   return Array.from(data.files).filter((f) => f.type.startsWith('image/'));
 }
 
-/** The Content-IDs a serialised body refers to (`src="cid:<id>"`), in order of
- *  first use. Here rather than in `richtext.ts` so the send path does not pull
- *  the editor's chunk. */
+/** Resource URLs in already-sanitized CSS. Ignore comments and strings such as
+ * `content: "url(cid:example)"`, which do not load an image. */
+function cssUrls(css: string): string[] {
+  const urls: string[] = [];
+  let i = 0;
+  const quotedEnd = (start: number): number => {
+    const quote = css[start];
+    let end = start + 1;
+    while (end < css.length) {
+      if (css[end] === '\\') end += 2;
+      else if (css[end++] === quote) break;
+    }
+    return end;
+  };
+  while (i < css.length) {
+    if (css.startsWith('/*', i)) {
+      const end = css.indexOf('*/', i + 2);
+      i = end < 0 ? css.length : end + 2;
+    } else if (css[i] === '"' || css[i] === "'") i = quotedEnd(i);
+    else if (css.slice(i, i + 4).toLowerCase() === 'url(' && !/[\w-]/.test(css[i - 1] ?? '')) {
+      i += 4;
+      while (/\s/.test(css[i] ?? '') && i < css.length) i++;
+      let value: string;
+      if (css[i] === '"' || css[i] === "'") {
+        const end = quotedEnd(i);
+        value = css.slice(i + 1, end - 1);
+        i = end;
+      } else {
+        const end = css.indexOf(')', i);
+        if (end < 0) break;
+        value = css.slice(i, end).trim();
+        i = end;
+      }
+      while (/\s/.test(css[i] ?? '') && i < css.length) i++;
+      if (css[i] === ')') urls.push(value);
+      if (i < css.length) i++;
+    } else i++;
+  }
+  return urls;
+}
+
+/** Content-IDs used by the sanitized outgoing body, including native HTML's
+ * CSS and legacy table backgrounds. Parsing in an inert template avoids image
+ * requests; renaming style attributes also avoids Chromium CSP reports. This
+ * module stays independent of ProseMirror so sending does not load an editor. */
 export function referencedCids(html: string): string[] {
   const out: string[] = [];
-  for (const m of html.matchAll(/src="cid:([^"]+)"/gi)) {
-    const cid = m[1]!;
-    if (!out.includes(cid)) out.push(cid);
+  const add = (url: string): void => {
+    if (!/^cid:/i.test(url)) return;
+    const cid = url.slice(4);
+    if (cid !== '' && !out.includes(cid)) out.push(cid);
+  };
+  const template = document.createElement('template');
+  template.innerHTML = renameStyleAttributes(html);
+  for (const element of template.content.querySelectorAll('*')) {
+    for (const attribute of element.attributes) {
+      if (['src', 'href', 'background'].includes(attribute.name)) add(attribute.value);
+      else if (attribute.name === PARSED_STYLE_ATTRIBUTE) cssUrls(attribute.value).forEach(add);
+    }
+    if (element.tagName === 'STYLE') cssUrls(element.textContent ?? '').forEach(add);
   }
   return out;
 }

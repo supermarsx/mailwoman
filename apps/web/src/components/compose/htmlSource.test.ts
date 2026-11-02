@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vitest';
 import { initSync, sanitizeSignatureHtml } from '../../wasm/mw-sanitize/mw_sanitize.js';
 import { normalizeHtmlSource } from './htmlSource.ts';
+import { inlineAttachments, referencedCids } from './inlineImages.ts';
 
 beforeAll(() => {
   initSync({ module: readFileSync(resolve(process.cwd(), 'src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) });
@@ -65,4 +66,11 @@ describe('native HTML source with the shipped Rust WASM policy', () => {
     await expect(normalizeHtmlSource('x'.repeat(8 * 1024 * 1024 + 1))).rejects.toThrow('too large');
   });
 
+  it('sends owned CSS-only images while excluding unowned native references', async () => {
+    const safe = await normalizeHtmlSource('<style>.logo{background:url(cid:css)} .foreign{background:url(cid:foreign)}</style><table background="cid:background"><tr><td class="logo" style="background:url(cid:inline)">Signature</td></tr></table><img src="cid:foreign">', new Set(['css', 'background', 'inline']));
+    const images = ['css', 'background', 'inline', 'unused'].map((cid) => ({ cid, blobId: `blob-${cid}`, type: 'image/png', name: `${cid}.png`, size: 10 }));
+    expect(safe.html).not.toContain('cid:foreign');
+    expect(safe.html).not.toContain('<img src=');
+    expect(inlineAttachments(images, referencedCids(`<p>Existing rich body</p>${safe.html}`)).map((part) => part.cid)).toEqual(['css', 'inline']);
+  });
 });
