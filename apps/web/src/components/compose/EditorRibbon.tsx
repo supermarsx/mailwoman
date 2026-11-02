@@ -197,6 +197,7 @@ export function BodyModeGroup(props: {
     <RibbonGroup label={props.label} priority={85} icon="mail" testId={props.testId ?? 'compose-group-message-type'}>
       <RibbonItem>
         <select
+          class="btn compose-rib__format"
           data-testid={props.selectTestId ?? 'format-toggle'}
           aria-label={props.label}
           value={props.value()}
