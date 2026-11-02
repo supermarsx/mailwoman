@@ -23,6 +23,7 @@ function renderEmbedded(linked = false, section = 'appearance') {
 }
 
 const groupNames = (nav: HTMLElement): string[] => within(nav).getAllByRole('group').map(group => group.getAttribute('aria-labelledby') ?? '').map(id => document.getElementById(id)?.textContent ?? '');
+const desktopEntries=(nav:HTMLElement):HTMLButtonElement[]=>Array.from(nav.querySelectorAll<HTMLButtonElement>('button[data-settings-entry]'));
 
 describe('Settings navigation categories (t66)', () => {
   beforeEach(() => { clearSettings(); localStorage.clear(); });
@@ -43,7 +44,7 @@ describe('Settings navigation categories (t66)', () => {
     expect(within(account).getAllByRole('button').map(button => button.textContent)).toEqual(['Linked mailboxes', 'Identities', 'Signatures', 'Security centre', 'Privacy']);
     // Headings are labels, not entries.
     expect(within(nav).queryByRole('button', { name: 'Account' })).toBeNull();
-    expect(within(nav).getAllByRole('button')).toHaveLength(21);
+    expect(desktopEntries(nav)).toHaveLength(21);
   });
 
   it('hides a category whose sections are all unavailable', () => {
@@ -55,20 +56,20 @@ describe('Settings navigation categories (t66)', () => {
 
   it('search keeps the category heading as context and drops empty categories', () => {
     const { nav } = renderEmbedded();
-    fireEvent.input(screen.getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'nextcloud' } });
+    fireEvent.input(within(nav).getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'nextcloud' } });
     expect(groupNames(nav)).toEqual(['Integrations']);
     expect(within(within(nav).getByRole('group', { name: 'Integrations' })).getByRole('button', { name: 'Nextcloud accounts' })).toBeInTheDocument();
     // A category name is a search term too.
-    fireEvent.input(screen.getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'integrations' } });
-    expect(within(nav).getAllByRole('button').map(button => button.textContent)).toEqual(['Nextcloud accounts', 'Package tracking', 'API access']);
-    fireEvent.input(screen.getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'zzzz' } });
+    fireEvent.input(within(nav).getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'integrations' } });
+    expect(desktopEntries(nav).map(button => button.textContent)).toEqual(['Nextcloud accounts', 'Package tracking', 'API access']);
+    fireEvent.input(within(nav).getByRole('searchbox', { name: 'Search settings' }), { target: { value: 'zzzz' } });
     expect(within(nav).queryAllByRole('group')).toHaveLength(0);
     expect(within(nav).getByRole('status')).toHaveTextContent('No matching settings sections.');
   });
 
   it('arrow keys move between entries across categories and skip headings', () => {
     const { nav } = renderEmbedded();
-    const buttons = within(nav).getAllByRole('button');
+    const buttons = desktopEntries(nav);
     const privacy = within(nav).getByRole('button', { name: 'Privacy' });
     privacy.focus();
     fireEvent.keyDown(privacy, { key: 'ArrowDown' });
@@ -95,5 +96,25 @@ describe('Settings navigation categories (t66)', () => {
   it('visibleCategories filters by support and query', () => {
     const groups = visibleCategories(section => section !== 'metadata', 'receipt', id => id);
     expect(groups.map(group => group.category.id)).toEqual(['mail']);
+  });
+
+  it('keeps the embedded Settings label and search in navigation without a separate heading or close cross',()=>{
+    const {nav}=renderEmbedded();
+    expect(screen.queryByRole('heading',{name:'Settings'})).toBeNull();
+    expect(screen.queryByRole('button',{name:'Close settings'})).toBeNull();
+    const label=within(nav).getByText('Settings',{exact:true}),search=within(nav).getByRole('searchbox',{name:'Search settings'});
+    expect(label).toBeVisible();expect(label.compareDocumentPosition(search)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.input(search,{target:{value:'server metadata'}});
+    expect(desktopEntries(nav).map(button=>button.textContent)).toEqual(['Server information']);
+    fireEvent.click(within(nav).getByRole('button',{name:'Settings sections'}));
+    expect(screen.getByRole('menuitemradio',{name:'Server information'})).toBeVisible();
+  });
+
+  it('retains the close control for modal Settings',()=>{
+    const ctx={client:{},showToast:vi.fn()} as unknown as SliceContext;
+    const app={...createThemeSlice(ctx),accountId:()=>null} as unknown as AppState,onClose=vi.fn();
+    render(()=><AppContext.Provider value={app}><Settings onClose={onClose}/></AppContext.Provider>);
+    expect(screen.getByRole('dialog',{name:'Settings'})).toBeVisible();
+    fireEvent.click(screen.getByRole('button',{name:'Close settings'}));expect(onClose).toHaveBeenCalledOnce();
   });
 });

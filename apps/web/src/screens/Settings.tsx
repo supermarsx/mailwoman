@@ -219,16 +219,15 @@ export function Settings(props: SettingsProps): JSX.Element {
       }}
     >
       <section ref={panel} class={`${css.panel} ${props.embedded ? workspace.panel : ""}`} tabindex="-1">
-        <header class={css.header}>
-          <h2>{t(props.embedded ? 'settings-title' : 'settings-appearance')}</h2>
-          <Show when={props.embedded}><input class={workspace.search} type="search" aria-label={t('settings-search-sections')} placeholder={t('settings-search-sections')} value={sectionQuery()} onInput={event=>setSectionQuery(event.currentTarget.value)}/></Show>
+        <Show when={!props.embedded}><header class={css.header}>
+          <h2>{t('settings-appearance')}</h2>
           <button type="button" class="btn btn--ghost" aria-label={t('settings-close')} onClick={() => props.onClose()}>
             <Icon name="close" />
           </button>
-        </header>
+        </header></Show>
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
-          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})}/></Show>
+          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} onQueryChange={setSectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})}/></Show>
           <div class={workspace.content} ref={settingsContent}>
           <Show when={props.embedded}><Breadcrumbs class={workspace.crumb} testId="settings-breadcrumb" label={t('settings-breadcrumb')} loadingLabel={t('settings-crumb-loading')} items={settingsCrumbs(navigation.route()).map(c=>c.route?{label:c.label,onNavigate:()=>void navigation.navigate(c.route!)}:{label:c.label})}/></Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
