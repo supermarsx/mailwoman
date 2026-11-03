@@ -12,7 +12,7 @@ export function Privacy(): JSX.Element {
   const mode = useSetting<RemoteMode>('privacy.remoteContent', 'ask', (v): v is RemoteMode => typeof v === 'string' && ['block','ask','proxy','direct'].includes(v));
   const unsafeHtml=useSetting<string>('mail.reader.unsafeHtmlMode','sanitized',(v):v is string=>typeof v==='string'&&['ask','strict','sanitized'].includes(v));
   const originalHtml=useSetting('mail.reader.allowOriginalHtml',false),originalCap=useSetting('cap.reading.original_html',true);
-  const originalAvailable=()=>featuresLoaded()&&featureOn('reading.original_html')&&originalCap.value();
+  const originalAvailable=()=>featuresLoaded()&&featureOn('reading.original_html')&&originalCap.value()&&!(unsafeHtml.value()==='strict'&&unsafeHtml.locked());
   const trackers = useSetting('privacy.trackers', true);
   const trackerOverride=useSetting('privacy.trackerOverrideAllowed',true);
   const trackerChoiceAllowed=()=>!(trackers.locked()&&trackers.value());

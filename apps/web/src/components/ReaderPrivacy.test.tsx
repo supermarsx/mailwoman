@@ -99,6 +99,15 @@ describe('Reader signed privacy pipeline',()=>{
     resetClientPolicy();await loadClientPolicy(async()=>json({maxSecurityFloor:'plain-text'}));
     await waitFor(()=>expect(screen.queryByRole('button',{name:'Show Original HTML'})).toBeNull());resetClientPolicy();
   });
+  it('immediately revokes original HTML under a hot strict lock and requires selection again after unlock',async()=>{
+    await open([message('m1','<div data-original-layout="kept">Authored layout</div><script>unsafe()</script>')]);await allowOriginal();
+    const strict=async(locked:boolean)=>loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.allowOriginalHtml':{value:true,locked:false,source:'user'},'mail.reader.unsafeHtmlMode':{value:'strict',locked,source:'global'}}})});
+    await strict(false);await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout="kept"'));
+    await strict(true);await waitFor(()=>expect(screen.queryByTestId('reader-original-html')).toBeNull());await waitFor(()=>expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','blocked'));
+    expect(frame()?.srcdoc).not.toContain('data-original-layout');expect(frame()?.srcdoc).toContain('Authored layout');expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).toBeNull();
+    await strict(false);await waitFor(()=>expect(screen.getByRole('button',{name:'Show Original HTML'})).toBeEnabled());expect(frame()?.srcdoc).not.toContain('data-original-layout');expect(screen.getByTestId('reader-original-html')).toHaveAttribute('data-state','sanitized');
+    await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout="kept"'));
+  });
   it('keeps tracker consent separate from image display and honors policy revocation in original view',async()=>{
     policy.mode='ask';policy.trackerOverrideAllowed=true;
     await open([message('m1','<div data-original-layout="kept"><img src="https://images.test/logo.png"><img src="https://track.example.test/random.png"></div>')]);await allowOriginal();await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));requests=[];

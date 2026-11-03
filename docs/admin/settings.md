@@ -408,6 +408,8 @@ Global, hot, 1,000–180,000 ms; default 60,000 ms. Queue admission has a separa
 
 Off by default. Enables an explicit per-message original-formatting override; it never changes the default sanitized reader. Administrators can supply or lock this preference and can deny the `reading.original_html` feature with `cap.reading.original_html`. The isolated reader still forbids scripts, forms and embedded frames, and remote content remains subject to privacy controls. This is a client presentation control: users who own a message can already download its source.
 
+A locked `mail.reader.unsafeHtmlMode=strict` policy takes precedence and hides the original HTML option.
+
 <a id="maskedEmail.domain"></a>
 ### Masked address domain (`maskedEmail.domain`)
 

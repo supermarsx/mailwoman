@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { Privacy } from './Privacy.tsx';
-import { clearSettings } from '../../api/settings.ts';
+import { clearSettings,loadSettings } from '../../api/settings.ts';
 import { remotePolicy } from '../../api/remote-content.ts';
 import {clearFeatures,loadFeatures} from '../../state/features.ts';
 vi.mock('../../api/remote-content.ts', () => ({ remotePolicy: vi.fn() }));
@@ -29,6 +29,14 @@ describe('Privacy settings', () => {
   it('keeps tracker choice and original HTML unavailable under administrator locks',async()=>{
     held=true;await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:true}}}))});render(()=><Privacy/>);
     await waitFor(()=>expect(screen.getByLabelText('Allow Original HTML per message')).toBeDisabled());expect(screen.getByLabelText('Allow a per-message tracker choice')).toBeDisabled();await waitFor(()=>expect(screen.getByLabelText('Allow a per-message tracker choice')).not.toBeChecked());expect(writes).toEqual([]);
+  });
+  it('disables original HTML while strict handling is locked and retains its preference after unlock',async()=>{
+    await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:true}}}))});render(()=><Privacy/>);
+    const toggle=await screen.findByLabelText('Allow Original HTML per message');await waitFor(()=>expect(toggle).toBeEnabled());
+    const strict=async(locked:boolean)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.reader.allowOriginalHtml':free(true),'mail.reader.unsafeHtmlMode':free('strict',locked)}}))});
+    await strict(false);expect(toggle).toBeEnabled();expect(toggle).toBeChecked();
+    await strict(true);expect(toggle).toBeDisabled();expect(toggle).not.toBeChecked();expect(toggle.closest('div')!.querySelector('button')).toBeDisabled();
+    await strict(false);expect(toggle).toBeEnabled();expect(toggle).toBeChecked();expect(writes).toEqual([]);
   });
   it('hides native outgoing-header controls for upstream proxy accounts', async () => {
     vi.mocked(remotePolicy).mockResolvedValue({mode:'ask', trackers:true, cleanLinks:true, allowDirect:false, inlineParts:false, locked:{mode:false,trackers:false,cleanLinks:false}});
