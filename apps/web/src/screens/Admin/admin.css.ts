@@ -16,6 +16,13 @@ import { registerFieldLayout, registerFieldGrid } from '../../styles/formLayout.
 import { subsectionSurface } from './subsectionLayout.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
+/** Compact table actions keep desktop rows short and retain touch targets. */
+export const compactIconAction = style({
+  inlineSize: '28px', blockSize: '28px', minInlineSize: '28px',
+  minBlockSize: '28px', padding: vars.space[1], flexShrink: 0,
+  '@media': { '(pointer: coarse)': { inlineSize: '44px', blockSize: '44px' } },
+});
+
 /** Small-label treatment (P5): tracked capitals, off for scripts it breaks. */
 const smallLabel = {
   textTransform: 'uppercase',

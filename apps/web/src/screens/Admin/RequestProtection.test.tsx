@@ -66,7 +66,11 @@ describe('Adaptive request protection',()=>{
  it('requires confirmation and sends the exact revision; stale state stays visible',async()=>{
   const clear=vi.fn(async()=>{throw{status:412,code:'stale'};});
   renderInShell(()=><RequestProtection api={api({clear})}/>);
-  fireEvent.click(await screen.findByRole('button',{name:/Clear protection state for Mailbox account/}));
+  const action=await screen.findByRole('button',{name:/Clear protection state for Mailbox account/});
+  expect(action.textContent).toBe('');
+  expect(action.querySelector('svg')).not.toBeNull();
+  expect(action).toHaveAttribute('title','Clear state');
+  fireEvent.click(action);
   expect(clear).not.toHaveBeenCalled();
   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:/^Clear state$/}));
   await waitFor(()=>expect(clear).toHaveBeenCalledWith(row));
