@@ -1065,7 +1065,13 @@ async fn proxy_image(
         Ok(s) => s,
         Err(r) => return r,
     };
-    let policy = match crate::remote_policy::effective(&state, &session).await {
+    let policy = match crate::remote_policy::effective_for_message(
+        &state,
+        &session,
+        q.email_id.as_deref().unwrap_or(""),
+    )
+    .await
+    {
         Ok(p) => p,
         Err(r) => return r,
     };
@@ -1285,9 +1291,12 @@ fn if_none_match(headers: &HeaderMap, etag: &str) -> bool {
 
 // ── grant endpoints (S8, over the 0016 4-scope model) ──────────────────────────
 
-/// One of the four grant scopes; anything else is refused.
+/// The four image grants and one exact-message tracker exception.
 fn valid_scope_kind(kind: &str) -> bool {
-    matches!(kind, "single" | "all" | "per-sender" | "per-domain")
+    matches!(
+        kind,
+        "single" | "all" | "per-sender" | "per-domain" | "trackers-single"
+    )
 }
 
 #[derive(Debug, Deserialize)]
@@ -1348,6 +1357,23 @@ async fn grant(
     } else {
         body.scope_value.trim()
     };
+    if body.scope_kind == "trackers-single" {
+        if value.is_empty() || value.len() > 512 {
+            return (StatusCode::BAD_REQUEST, "emailId is required").into_response();
+        }
+        let policy = match crate::remote_policy::effective(&state, &session).await {
+            Ok(policy) => policy,
+            Err(response) => return response,
+        };
+        if !policy.tracker_override_allowed || policy.mode == "block" {
+            return (StatusCode::FORBIDDEN, "tracker consent is disabled").into_response();
+        }
+        match remote_content::message_context(&state, &session, value).await {
+            Ok(Some(_)) => {}
+            Ok(None) => return (StatusCode::FORBIDDEN, "no such message").into_response(),
+            Err(()) => return internal("tracker grant ownership check"),
+        }
+    }
     match state
         .store
         .grant_remote_image(&session.account_id, &body.scope_kind, value)
@@ -2125,11 +2151,25 @@ mod tests {
     }
 
     #[test]
-    fn only_the_four_scopes_are_valid() {
-        for k in ["single", "all", "per-sender", "per-domain"] {
+    fn only_image_grants_and_the_single_message_tracker_scope_are_valid() {
+        for k in [
+            "single",
+            "all",
+            "per-sender",
+            "per-domain",
+            "trackers-single",
+        ] {
             assert!(valid_scope_kind(k));
         }
-        for k in ["", "global", "sender", "domain", "ALL"] {
+        for k in [
+            "",
+            "global",
+            "sender",
+            "domain",
+            "ALL",
+            "trackers-all",
+            "trackers-domain",
+        ] {
             assert!(!valid_scope_kind(k));
         }
     }

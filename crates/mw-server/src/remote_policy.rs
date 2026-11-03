@@ -14,6 +14,7 @@ use serde_json::Value;
 pub(crate) struct PrivacyPolicy {
     pub mode: String,
     pub trackers: bool,
+    pub tracker_override_allowed: bool,
     pub clean_links: bool,
     pub allow_direct: bool,
     pub inline_parts: bool,
@@ -134,6 +135,7 @@ pub(crate) async fn effective(
         "privacy.remoteContent",
         "privacy.remoteImageDownloads",
         "privacy.trackers",
+        "privacy.trackerOverrideAllowed",
         "privacy.cleanLinks",
         "privacy.allowDirect",
         "cap.remote_content.direct",
@@ -190,6 +192,8 @@ pub(crate) async fn effective(
     Ok(PrivacyPolicy {
         mode,
         trackers: boolean("privacy.trackers"),
+        tracker_override_allowed: boolean("privacy.trackerOverrideAllowed")
+            && !(boolean("privacy.trackers") && locked("privacy.trackers")),
         clean_links: boolean("privacy.cleanLinks"),
         allow_direct,
         inline_parts: state.engine.is_some(),
@@ -204,6 +208,32 @@ pub(crate) async fn effective(
         rate_per_min: number("privacy.ratePerMin", 120),
         fetch,
     })
+}
+/// A tracker exception is independent from image display grants and applies to
+/// exactly one message. Re-read permission and grant on every capability use,
+/// before cache access, so revocation or a new administrator lock takes effect.
+pub(crate) async fn effective_for_message(
+    state: &AppState,
+    session: &mw_store::Session,
+    email_id: &str,
+) -> Result<PrivacyPolicy, Response> {
+    let mut policy = effective(state, session).await?;
+    if policy.tracker_override_allowed
+        && policy.mode != "block"
+        && state
+            .store
+            .is_remote_image_granted(&session.account_id, "trackers-single", email_id)
+            .await
+            .map_err(|_| unavailable())?
+    {
+        policy.trackers = false;
+        // Explicit tracker consent always retains the server proxy: later
+        // revocation must not leave direct-origin URLs in the message frame.
+        if policy.mode == "direct" {
+            policy.mode = "proxy".into();
+        }
+    }
+    Ok(policy)
 }
 pub(crate) async fn get(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let session = match crate::authed(&state, &headers).await {

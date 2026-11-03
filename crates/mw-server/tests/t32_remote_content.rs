@@ -2346,3 +2346,193 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
         .unwrap();
     assert_eq!(after["imagesFailed"], json!(1), "{after}");
 }
+
+#[tokio::test]
+async fn tracker_consent_is_explicit_per_message_revocable_and_rechecks_decoded_cache() {
+    let (proxy, _) = standin_proxy(vec![("image/png".into(), png(2, 2))]).await;
+    let f = fixture(proxy, "mw-rc-tracker-consent").await;
+    f.grant().await;
+    // The re-encode cache intentionally shares public URLs across accounts on
+    // the same route. Keep fixture URLs distinct while retaining the beacon
+    // suffix: other fixtures serve different bytes behind the test route `rc`.
+    let known = "http://1.2.3.4/tracker-consent/open.png";
+    let tiny = "http://1.2.3.4/tracker-consent/ordinary-small.png";
+    let (_, blocked) = f.sign(&[known, tiny], &[]).await;
+    assert_eq!(blocked["refused"][0]["reason"], "tracker");
+    let tiny_src = image_src(&blocked);
+    let response = f.load(&tiny_src).await;
+    assert_eq!(response.headers()["x-mw-remote-content"], "tracker");
+    assert_eq!(png_size(&response.bytes().await.unwrap()), (1, 1));
+    store_at(&f.db)
+        .await
+        .grant_remote_image("another-account", "trackers-single", &f.email_id)
+        .await
+        .unwrap();
+    let (_, isolated) = f.sign(&[known], &[]).await;
+    assert!(
+        isolated["images"].as_array().unwrap().is_empty(),
+        "another account's consent must not apply"
+    );
+    let mutation = json!({"scopeKind":"trackers-single","scopeValue":f.email_id});
+    assert_eq!(
+        f.user
+            .post(format!("{}/api/remote-images/grant", f.base))
+            .json(&json!({"scopeKind":"trackers-single","scopeValue":"missing-message"}))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        f.user
+            .post(format!("{}/api/remote-images/grant", f.base))
+            .json(&mutation)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let grants: Value = f
+        .user
+        .get(format!("{}/api/remote-images/grants", f.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert!(
+        grants["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|grant| grant["scopeKind"] == "trackers-single"
+                && grant["scopeValue"] == f.email_id)
+    );
+    let (_, allowed) = f.sign(&[known, tiny], &[]).await;
+    assert_eq!(allowed["images"].as_array().unwrap().len(), 2, "{allowed}");
+    for image in allowed["images"].as_array().unwrap() {
+        let response = f.load(image["src"].as_str().unwrap()).await;
+        assert_eq!(response.status(), 200);
+        assert_eq!(
+            png_size(&response.bytes().await.unwrap()),
+            (2, 2),
+            "consent must use a separate decoded-image cache variant"
+        );
+    }
+    let legacy = f
+        .user
+        .get(format!("{}/api/image-proxy", f.base))
+        .query(&[("url", known), ("emailId", f.email_id.as_str())])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(legacy.status(), 200);
+    assert_eq!(png_size(&legacy.bytes().await.unwrap()), (2, 2));
+    assert_eq!(
+        f.user
+            .post(format!("{}/api/remote-images/revoke", f.base))
+            .json(&mutation)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_eq!(
+        f.load(allowed["images"][0]["src"].as_str().unwrap())
+            .await
+            .status(),
+        403,
+        "old signed tracker URLs must stop working after consent is revoked"
+    );
+    let response = f.load(allowed["images"][1]["src"].as_str().unwrap()).await;
+    assert_eq!(response.headers()["x-mw-remote-content"], "tracker");
+    assert_eq!(png_size(&response.bytes().await.unwrap()), (1, 1));
+}
+
+#[tokio::test]
+async fn tracker_consent_cannot_bypass_permission_denial_or_locked_tracker_blocking() {
+    let (proxy, _) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
+    let f = fixture(proxy, "mw-rc-tracker-locks").await;
+    f.grant().await;
+    let mutation = json!({"scopeKind":"trackers-single","scopeValue":f.email_id});
+    let known = "http://1.2.3.4/tracker-locks/open.png";
+    assert_eq!(
+        f.user
+            .post(format!("{}/api/remote-images/grant", f.base))
+            .json(&mutation)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let (_, signed) = f.sign(&[known], &[]).await;
+    let src = image_src(&signed);
+    assert_eq!(f.load(&src).await.status(), 200);
+    for (key, value) in [
+        ("privacy.trackerOverrideAllowed", json!(false)),
+        ("privacy.trackers", json!(true)),
+    ] {
+        if key == "privacy.trackers" {
+            locked_policy(&f, "privacy.trackerOverrideAllowed", json!(true)).await;
+            store_at(&f.db)
+                .await
+                .grant_remote_image(&f.account, "trackers-single", &f.email_id)
+                .await
+                .unwrap();
+        }
+        locked_policy(&f, key, value).await;
+        let policy: Value = f
+            .user
+            .get(format!("{}/api/rc/policy", f.base))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(policy["trackerOverrideAllowed"], false);
+        assert_eq!(
+            f.load(&src).await.status(),
+            403,
+            "old cached capability after {key}"
+        );
+        let (_, refused) = f.sign(&[known], &[]).await;
+        assert_eq!(refused["refused"][0]["reason"], "tracker");
+        assert_eq!(
+            f.user
+                .get(format!("{}/api/image-proxy", f.base))
+                .query(&[("url", known), ("emailId", f.email_id.as_str())])
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            f.user
+                .post(format!("{}/api/remote-images/grant", f.base))
+                .json(&mutation)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            403
+        );
+        assert_eq!(
+            f.user
+                .post(format!("{}/api/remote-images/revoke", f.base))
+                .json(&mutation)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200,
+            "revocation remains available under every policy"
+        );
+    }
+}

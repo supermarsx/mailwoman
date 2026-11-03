@@ -41,6 +41,10 @@ import {
 } from '../api/remote-images.ts';
 
 export interface RemoteContentBarProps {
+  compact?:boolean;
+  imageProgress?:{loaded:number;failed:number;pending:number;total:number}|undefined;
+  trackerOverrideAllowed?:boolean;
+  trackersAllowed?:boolean;
   mode?: RemoteMode;
   /** The open message id (the `single`-scope grant value). */
   emailId: string;
@@ -80,6 +84,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   // Trackers removed: the ones the sanitizer classified in the HTML plus the
   // ones the server recognised after decoding. Unknown or zero: not shown.
   const trackers = createMemo(() => {
+    if(props.trackersAllowed)return null;
     const decoded = props.decodedTrackers;
     const count = props.report.trackerCount + (decoded?.count ?? 0);
     return count > 0 ? { count, limited: decoded?.limited === true } : null;
@@ -90,6 +95,8 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   };
 
   const headline = createMemo(() => {
+    const progress=props.imageProgress;
+    if(progress&&progress.total>0)return t(progress.pending>0?(progress.failed>0?'mail-privacy-images-loading-failed':'mail-privacy-images-loading'):progress.failed>0?'mail-privacy-images-failed':'mail-privacy-images-loaded',{loaded:progress.loaded,total:progress.total,pending:progress.pending,failed:progress.failed});
     if (mode() === 'block') return t('remote-banner-blocked-policy');
     if (mode() === 'proxy') return t('remote-banner-proxied');
     if (mode() === 'direct') return t('remote-banner-direct');
@@ -153,6 +160,11 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
 
   const menuActions = createMemo<ContextAction[]>(() => {
     const items: ContextAction[] = [];
+    if(props.compact){
+      if(mode()==='ask')items.push({id:'images',label:t(granted()?'remote-banner-undo':'remote-banner-show'),icon:granted()?'restore':'eye',disabled:pending(),run:()=>granted()?undo():grant('single')});
+      if(props.imageFailures&&props.imageFailures.count>0&&props.onRetryImages&&(mode()==='proxy'||(mode()==='ask'&&granted())))items.push({id:'retry',label:t('remote-images-toast-retry'),icon:'restore',disabled:pending()||props.imageFailures.retrying,run:()=>props.onRetryImages?.()});
+    }
+    if(props.trackerOverrideAllowed&&mode()!=='block')items.push({id:'trackers',label:t(props.trackersAllowed?'mail-privacy-trackers-block':'mail-privacy-trackers-allow'),icon:props.trackersAllowed?'shield':'eye',disabled:pending(),run:()=>change('trackers',()=>props.trackersAllowed?props.onRevoke?.({kind:'trackers-single',value:props.emailId},options):props.onGrant?.({kind:'trackers-single',value:props.emailId},options))});
     if (mode() === 'ask' && !granted()) {
       for (const kind of MENU_KINDS) {
         if (kind === 'per-sender' && props.sender === '') continue;
@@ -169,7 +181,9 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
     if (open) items.push({ id: 'settings', label: t('remote-banner-settings'), icon: 'privacy', separatorBefore: items.length > 0, run: () => open() });
     return items;
   });
+  let menuOwner:Document|undefined;
   const menu = createContextMenu({
+    ownerDocument:()=>menuOwner,
     label: () => t('remote-banner-more'),
     scope: () => props.emailId,
     actions: menuActions,
@@ -183,6 +197,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   return (
     <ReaderNoticeBar
       label={t('remote-bar-label')}
+      embedded={props.compact===true}
       testid="remote-content-bar"
       state={state()}
       tone={state() === 'blocked' || state() === 'block' ? 'warning' : 'neutral'}
@@ -190,17 +205,17 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
       live
       tooltip={`${fullText()}\n${help()}`}
       actions={<>
-        <Show when={mode() === 'ask' && !granted()}>
+        <Show when={!props.compact && mode() === 'ask' && !granted()}>
           <NoticeButton icon="eye" primary label={slowLabel() ?? t('remote-banner-show')} ariaLabel={t('remote-banner-show')} tooltip={t('remote-banner-show-help')} disabled={pending()} busy={slow() !== null} detachedLocal onClick={() => void grant('single')} />
         </Show>
-        <Show when={mode() === 'ask' && granted()}>
+        <Show when={!props.compact && mode() === 'ask' && granted()}>
           <NoticeButton icon="restore" label={slowLabel() ?? t('remote-banner-undo')} ariaLabel={`${t('remote-banner-undo')}: ${undoHelp()}`} tooltip={undoHelp()} disabled={pending()} detachedLocal onClick={() => void undo()} />
         </Show>
-        <Show when={props.imageFailures && props.imageFailures.count>0 && props.onRetryImages && (mode()==='proxy'||(mode()==='ask'&&granted()))}>
+        <Show when={!props.compact && props.imageFailures && props.imageFailures.count>0 && props.onRetryImages && (mode()==='proxy'||(mode()==='ask'&&granted()))}>
           <NoticeButton icon="restore" label={props.imageFailures?.retrying?t('common-retrying'):t('remote-images-toast-retry')} tooltip={t('remote-images-toast-failed',{count:props.imageFailures?.count??0})} disabled={pending()||props.imageFailures?.retrying===true} detachedLocal onClick={()=>props.onRetryImages?.()} />
         </Show>
         <Show when={menuActions().length > 0}>
-          <NoticeButton icon="chevron" menu iconOnly label={t('remote-banner-more')} haspopup="menu" expanded={menu.isOpen()} onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} />
+          <NoticeButton icon="chevron" menu iconOnly label={t('remote-banner-more')} haspopup="menu" expanded={menu.isOpen()} detachedLocal onClick={(event) => {const target=event.currentTarget as HTMLElement;menuOwner=target.ownerDocument;menu.openBelow(target);}} onKeyDown={menu.keydown} />
         </Show>
       </>}
       after={menu.menu()}

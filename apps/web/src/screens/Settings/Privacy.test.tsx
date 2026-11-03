@@ -3,19 +3,33 @@ import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { Privacy } from './Privacy.tsx';
 import { clearSettings } from '../../api/settings.ts';
 import { remotePolicy } from '../../api/remote-content.ts';
+import {clearFeatures,loadFeatures} from '../../state/features.ts';
 vi.mock('../../api/remote-content.ts', () => ({ remotePolicy: vi.fn() }));
 const free = (value: unknown, locked = false) => ({ value, source: 'global', locked, userValue: value });
 let writes: unknown[]; let held = false;
 beforeEach(() => {
   clearSettings(); writes = []; held = false;
+  clearFeatures();
   vi.mocked(remotePolicy).mockResolvedValue({ mode: 'ask', trackers: true, cleanLinks: true, allowDirect: false, inlineParts: true, locked: { mode: false, trackers: false, cleanLinks: false } });
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.method === 'PUT' ? JSON.parse(String(init.body)) as {value:unknown} : null;
     if (body) { writes.push({ url, value: body.value }); return new Response(JSON.stringify(free(body.value))); }
-    return new Response(JSON.stringify({ settings: { 'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
+    if(init?.method==='DELETE'){writes.push({url,reset:true});return new Response(JSON.stringify(free(false)));}
+    return new Response(JSON.stringify({ settings: { 'mail.reader.allowOriginalHtml':free(false,held),'privacy.trackerOverrideAllowed':free(true,held),'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
   }));
 });
 describe('Privacy settings', () => {
+  it('offers original HTML as a disabled-by-default preference with inheritance, locks and feature gates',async()=>{
+    await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:true}}}))});
+    render(()=><Privacy/>);const toggle=await screen.findByLabelText('Allow Original HTML per message');await waitFor(()=>expect(toggle).toBeEnabled());expect(toggle).not.toBeChecked();
+    fireEvent.click(toggle);await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/mail.reader.allowOriginalHtml',value:true}));
+    const row=toggle.closest('div')!;await waitFor(()=>expect(row.querySelector('button')).toBeEnabled());fireEvent.click(row.querySelector('button')!);await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/mail.reader.allowOriginalHtml',reset:true}));
+    await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:false}}}))});expect(toggle).toBeDisabled();expect(toggle).not.toBeChecked();
+  });
+  it('keeps tracker choice and original HTML unavailable under administrator locks',async()=>{
+    held=true;await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:true}}}))});render(()=><Privacy/>);
+    await waitFor(()=>expect(screen.getByLabelText('Allow Original HTML per message')).toBeDisabled());expect(screen.getByLabelText('Allow a per-message tracker choice')).toBeDisabled();await waitFor(()=>expect(screen.getByLabelText('Allow a per-message tracker choice')).not.toBeChecked());expect(writes).toEqual([]);
+  });
   it('hides native outgoing-header controls for upstream proxy accounts', async () => {
     vi.mocked(remotePolicy).mockResolvedValue({mode:'ask', trackers:true, cleanLinks:true, allowDirect:false, inlineParts:false, locked:{mode:false,trackers:false,cleanLinks:false}});
     render(() => <Privacy />);

@@ -45,6 +45,10 @@ describe('scopeFor', () => {
   it('single uses the message id', () => {
     expect(scopeFor('single', ctx)).toEqual({ kind: 'single', value: 'M1' });
   });
+  it('tracker consent has an exact message scope and never grants image display',()=>{
+    expect(scopeFor('trackers-single',ctx)).toEqual({kind:'trackers-single',value:'M1'});
+    expect(coveringGrant([{scopeKind:'trackers-single',scopeValue:'M1',grantedAt:'now'}],ctx)).toBeNull();
+  });
   it('per-sender lower-cases the address', () => {
     expect(scopeFor('per-sender', ctx)).toEqual({ kind: 'per-sender', value: 'bob@spam.example' });
   });

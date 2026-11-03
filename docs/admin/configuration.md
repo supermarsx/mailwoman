@@ -362,6 +362,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.compose.scheduled-send"></a>`cap.compose.scheduled_send` | features | global+domain+admin_user | true | plain |  | yes | JMAP EmailSubmission/set with sendAt (feature_gate.rs) |
 | <a id="cap.compose.read-receipts"></a>`cap.compose.read_receipts` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs) |
 | <a id="cap.compose.open-tracking"></a>`cap.compose.open_tracking` | features | global+domain+admin_user | true | plain |  | yes | Allow outgoing tracking pixels; enforced on mint, bind and image recording using the sender's current policy |
+| <a id="cap.reading.original-html"></a>`cap.reading.original_html` | features | global+domain+admin_user | true | plain |  | yes | Allow the isolated original HTML reader option; does not authorize scripts or unrestricted remote resources |
+| <a id="mail.reader.alloworiginalhtml"></a>`mail.reader.allowOriginalHtml` | privacy | global+domain+user | false | plain |  | yes | Offer an explicit per-message original HTML formatting override; off by default and never selected automatically |
 | <a id="cap.signatures"></a>`cap.signatures` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/signatures (feature_gate.rs) |
 | <a id="cap.identities"></a>`cap.identities` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/identities (feature_gate.rs) |
 | <a id="cap.keys"></a>`cap.keys` | features | global+domain+admin_user | true | plain |  | yes | JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt |
@@ -388,6 +390,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="access.protocols"></a>`access.protocols` | features | global+domain+admin_user | ["imap","pop3","ews"] | plain |  | yes | mail protocols a native account may use (imap, pop3, ews); /jmap and /api/v1 refuse the others (feature_gate.rs) |
 | <a id="privacy.remotecontent"></a>`privacy.remoteContent` | privacy | global+domain+user | "ask" | plain |  | yes | Reader remote-content mode |
 | <a id="privacy.trackers"></a>`privacy.trackers` | privacy | global+domain+user | true | plain |  | yes | Block email trackers |
+| <a id="privacy.trackeroverrideallowed"></a>`privacy.trackerOverrideAllowed` | privacy | global+domain+user | true | plain |  | yes | Offer explicit per-message tracker consent; a locked privacy.trackers=true still forbids this override |
 | <a id="privacy.cleanlinks"></a>`privacy.cleanLinks` | privacy | global+domain+user | true | plain |  | yes | Remove tracking parameters from links |
 | <a id="links.trusteddomains"></a>`links.trustedDomains` | privacy | global+domain+user | [] | plain |  | yes | exact trusted link domains that open from Review links without the destination step |
 | <a id="links.trustedsenders"></a>`links.trustedSenders` | privacy | global+domain+user | [] | plain |  | yes | exact sender mailboxes whose reviewed message links may open without per-message consent |

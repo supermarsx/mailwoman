@@ -393,10 +393,20 @@ Off by default. Users can opt in under Compose settings, inherit the administrat
 
 The sender sees load counts and first/last timestamps, not recipient IPs or user agents. Image blocking and automatic preloading make this an estimate, not proof of reading. `MW_PUBLIC_URL` is still required. Revoking a capability or locking tracking off stops new events while existing permitted history remains readable until retention expires. Tokens created before verified sender-policy metadata was stored retain their history but stop collecting events, because their sender scope cannot safely be inferred.
 
+<a id="privacy.trackerOverrideAllowed"></a>
+### Per-message tracker consent (`privacy.trackerOverrideAllowed`)
+
+Available by default; this shows an action in the message privacy bar, not automatic consent. Users can hide the option, and administrators can set or lock it globally, by domain, by user, or through a profile. A locked `privacy.trackers=true` always forbids the exception. Explicit consent applies only to that account's selected message and is independently revocable; it does not enable images for other messages. The proxy rechecks the grant and current policy before using cached or newly fetched images. The original HTML reader follows the same rules.
+
 <a id="privacy.fetchQueueTimeoutMs"></a>
 ### Remote-image queue budget (`privacy.fetchQueueTimeoutMs`)
 
 Global, hot, 1,000–180,000 ms; default 60,000 ms. Queue admission has a separate allowance from `privacy.fetchTotalTimeoutMs`, so waiting for other images does not consume the entire network budget. Overall work remains bounded by their sum. The replica admits at most 1,024 waiters while retaining its active fetch, per-account/per-message and decode ceilings. Queue exhaustion remains a retryable, uncached 503; no limit bypass or direct-network fallback is used.
+
+<a id="mail.reader.allowOriginalHtml"></a>
+### Original HTML reader option (`mail.reader.allowOriginalHtml`)
+
+Off by default. Enables an explicit per-message original-formatting override; it never changes the default sanitized reader. Administrators can supply or lock this preference and can deny the `reading.original_html` feature with `cap.reading.original_html`. The isolated reader still forbids scripts, forms and embedded frames, and remote content remains subject to privacy controls. This is a client presentation control: users who own a message can already download its source.
 
 <a id="maskedEmail.domain"></a>
 ### Masked address domain (`maskedEmail.domain`)

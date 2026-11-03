@@ -35,7 +35,7 @@ import { apiFetch, type ApiRequestInit } from './http.ts';
 import { failureOf } from './recovery.ts';
 
 /** The 4 grant scopes (0016 `scope_kind`). */
-export type GrantScopeKind = 'single' | 'all' | 'per-sender' | 'per-domain';
+export type GrantScopeKind = 'single' | 'all' | 'per-sender' | 'per-domain' | 'trackers-single';
 
 /** A grant scope: `kind` + the value it applies to (message id / sender / domain;
  *  `''` for the account-wide `all`). */
@@ -246,6 +246,7 @@ export function senderDomain(address: string): string {
 export function scopeFor(kind: GrantScopeKind, ctx: { emailId: string; sender: string }): GrantScope {
   switch (kind) {
     case 'single':
+    case 'trackers-single':
       return { kind, value: ctx.emailId };
     case 'per-sender':
       return { kind, value: ctx.sender.toLowerCase() };

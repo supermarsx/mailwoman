@@ -945,6 +945,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "Allow outgoing tracking pixels; enforced on mint, bind and image recording using the sender's current policy"
     ),
     def!(
+        "cap.reading.original_html",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Allow the isolated original HTML reader option; does not authorize scripts or unrestricted remote resources"
+    ),
+    def!(
+        "mail.reader.allowOriginalHtml",
+        Kind::Bool,
+        "false",
+        GDU,
+        "privacy",
+        "Offer an explicit per-message original HTML formatting override; off by default and never selected automatically"
+    ),
+    def!(
         "cap.signatures",
         Kind::Bool,
         "true",
@@ -1154,6 +1170,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "privacy",
         "Block email trackers"
+    ),
+    def!(
+        "privacy.trackerOverrideAllowed",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "Offer explicit per-message tracker consent; a locked privacy.trackers=true still forbids this override"
     ),
     def!(
         "privacy.cleanLinks",

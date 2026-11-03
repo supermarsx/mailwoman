@@ -13,25 +13,28 @@ import type { RemotePolicy, SignedContent } from '../api/remote-content.ts';
 import {clearSettings,loadSettings} from '../api/settings.ts';
 import type { Email } from '../api/jmap-types.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import {clearFeatures,loadFeatures} from '../state/features.ts';
+import {resetClientPolicy,loadClientPolicy} from '../api/policy.ts';
 // Unit tests inspect the prepared document; real browser tests exercise the
 // opaque frames and their fixed hash-authorized address handler with actual CSP headers.
 vi.mock('./DirectReaderFrame.tsx', () => ({ DirectReaderFrame: (props: {html:string;title:string;documentKey?:string;onDisplayed?:(html:string,key:string|undefined)=>void}) => { setTimeout(() => props.onDisplayed?.(props.html, props.documentKey), 0); return <iframe class="reader__frame" title={props.title} sandbox="" srcdoc={props.html} />; } }));
 beforeAll(() => initSync({ module: readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) }));
 const message = (id: string, html: string): Email => mkEmail(id, { from: [{ name: 'Sender', email:'sender@example.test' }], htmlBody: [{ partId:'1',blobId:null,size:html.length,type:'text/html' }], bodyValues: { '1':{value:html} } });
-let policy: RemotePolicy; let granted: boolean; let signFailed: boolean; let requests: { emailId:string; urls?:string[]; parts?:string[]; files?:string[] }[];
+let policy: RemotePolicy; let granted: boolean; let trackerGranted:boolean; let signFailed: boolean; let requests: { emailId:string; urls?:string[]; parts?:string[]; files?:string[] }[];
 let signOverride: ((body: typeof requests[number]) => Promise<Response>) | undefined;
 const json = (body:unknown,status=200) => new Response(JSON.stringify(body), {status,headers:{'content-type':'application/json'}});
 beforeEach(() => {
+  clearFeatures();
   clearSettings();
-  policy = { mode:'proxy',trackers:true,cleanLinks:true,allowDirect:false,inlineParts:true,locked:{mode:false,trackers:false,cleanLinks:false} }; granted=false; signFailed=false;requests=[];signOverride=undefined;
+  policy = { mode:'proxy',trackers:true,cleanLinks:true,allowDirect:false,inlineParts:true,locked:{mode:false,trackers:false,cleanLinks:false} }; granted=false;trackerGranted=false; signFailed=false;requests=[];signOverride=undefined;
   vi.spyOn(getCryptoWorker(),'sanitizeReader').mockImplementation(async r => (r.allowSanitizedHtml?sanitizeEmailHtmlReaderSafe:sanitizeEmailHtmlReader)(r.html,r.blockTrackers,r.cleanLinks));
   vi.stubGlobal('fetch',vi.fn(async(input: RequestInfo | URL,init?:RequestInit) => {
     const url=String(input);
     if(url.includes('/api/rc/stats?')) return json({decodedTrackersReplaced:2,limited:false,windowSecs:3600});
     if(url.endsWith('/api/rc/policy')) return json(policy);
-    if(url.endsWith('/api/remote-images/grant')){granted=true;return json({});}
-    if(url.endsWith('/api/remote-images/revoke')){granted=false;return json({});}
-    if(url.endsWith('/api/remote-images/grants')) return json({list:granted?[{scopeKind:'single',scopeValue:'m1',grantedAt:'2026-10-25T00:00:00Z'}]:[]});
+    if(url.endsWith('/api/remote-images/grant')){if(JSON.parse(String(init?.body)).scopeKind==='trackers-single')trackerGranted=true;else granted=true;return json({});}
+    if(url.endsWith('/api/remote-images/revoke')){if(JSON.parse(String(init?.body)).scopeKind==='trackers-single')trackerGranted=false;else granted=false;return json({});}
+    if(url.endsWith('/api/remote-images/grants')) return json({list:[...(granted?[{scopeKind:'single',scopeValue:'m1',grantedAt:'2026-10-25T00:00:00Z'}]:[]),...(trackerGranted?[{scopeKind:'trackers-single',scopeValue:'m1',grantedAt:'2026-10-25T00:00:00Z'}]:[])]});
     if(url.endsWith('/api/rc/sign')) {
       const body=JSON.parse(String(init?.body)) as typeof requests[number]; requests.push(body);
       if(signOverride)return signOverride(body);
@@ -53,8 +56,61 @@ async function open(emails:Email[]) {
   await app.login({username:'me@example.org',password:'p'});await app.openMessage(emails[0]!.id);await screen.findByRole('toolbar',{name:'Message actions'});return app;
 }
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
-async function enableMessageLinks():Promise<void>{fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Enable once'}));}
+async function chooseLinkAction(name:string):Promise<void>{fireEvent.click(await screen.findByRole('button',{name:'Link options'}));await screen.findByRole('menuitem',{name});await waitFor(()=>expect(screen.getByRole('menuitem',{name})).not.toHaveAttribute('aria-disabled','true'));fireEvent.click(screen.getByRole('menuitem',{name}));}
+async function enableMessageLinks():Promise<void>{await chooseLinkAction('Enable once');}
+async function chooseImageAction(name:string):Promise<void>{await waitFor(()=>{const button=screen.getByRole('button',{name:'More image options'});expect(button).toBeEnabled();if(!screen.queryByRole('menuitem',{name}))fireEvent.click(button);expect(screen.getByRole('menuitem',{name})).not.toHaveAttribute('aria-disabled','true');});fireEvent.click(screen.getByRole('menuitem',{name}));}
+async function showOriginal():Promise<void>{const button=await screen.findByRole('button',{name:'Show Original HTML'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);}
+async function allowOriginal(enabled=true,cap?:boolean):Promise<void>{await loadFeatures({refresh:true,fetcher:async()=>json({features:{'reading.original_html':{enabled,limits:{},settings:{}}}})});await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.allowOriginalHtml':{value:true,locked:false,source:'user'},...(cap===undefined?{}:{'cap.reading.original_html':{value:cap,locked:true,source:'global'}})}})});}
 describe('Reader signed privacy pipeline',()=>{
+  it('keeps original HTML opt-in and per-message, preserves layout only after selection, and resets on message/capability/authority changes',async()=>{
+    const raw='<html lang="pt"><head><style>.layout{display:grid;grid-template-columns:13px 1fr}</style></head><body style="margin:37px;font-family:Georgia"><div class="layout" data-original-layout="kept">Authored layout</div><script>evil()</script><iframe src="https://evil.test"></iframe></body></html>';
+    const app=await open([message('m1',raw),message('m2',raw)]);
+    expect(screen.queryByRole('button',{name:'Show Original HTML'})).toBeNull();
+    await allowOriginal();const show=await screen.findByRole('button',{name:'Show Original HTML'});
+    expect(frame()?.srcdoc).not.toContain('data-original-layout');
+    fireEvent.click(show);await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout="kept"'));
+    expect(frame()?.srcdoc).toContain('grid-template-columns:13px 1fr');expect(frame()?.srcdoc).toContain('margin:37px');expect(frame()?.srcdoc).not.toMatch(/<script|<iframe|evil\(/);
+    expect(screen.getByTestId('reader-original-html')).toHaveAttribute('data-state','original');
+    fireEvent.click(screen.getByRole('button',{name:'Back to sanitized view'}));await waitFor(()=>expect(frame()?.srcdoc??'').not.toContain('data-original-layout'));
+    await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));
+    await app.openMessage('m2');await screen.findByRole('button',{name:'Show Original HTML'});await waitFor(()=>expect(frame()?.srcdoc??'').not.toContain('data-original-layout'));
+    await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));
+    await allowOriginal(true,false);await waitFor(()=>expect(screen.queryByRole('button',{name:'Back to sanitized view'})).toBeNull());await waitFor(()=>expect(frame()?.srcdoc??'').not.toContain('data-original-layout'));
+    await allowOriginal();await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));
+    suspendAccountPreferences();activateAccountPreferences('acct1');await waitFor(()=>expect(frame()?.srcdoc??'').not.toContain('data-original-layout'));
+  });
+  it('keeps original resources and links behind independent consent and never signs tiny or conventional tracking images',async()=>{
+    policy.mode='ask';
+    const raw='<div data-original-layout="kept"><img src="https://images.test/logo.png"><img src="https://images.test/random.png" style="width:1px;height:1px"><img src="https://track.example.test/random.png"><a href="https://site.test/page?id=7&amp;utm_source=mail">Go</a></div>';
+    await open([message('m1',raw)]);await allowOriginal();requests=[];
+    await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));
+    const body=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');expect(body().querySelector('img')?.src).toMatch(/^data:/);expect(body().querySelector('a')?.hasAttribute('href')).toBe(false);expect(requests).toEqual([]);
+    fireEvent.click(screen.getByRole('button',{name:'More image options'}));fireEvent.click(screen.getByRole('menuitem',{name:'Show images'}));
+    await waitFor(()=>expect(body().querySelector('img')?.src).toContain('/api/rc/i/m1.signature'));
+    expect(requests).toContainEqual({emailId:'m1',urls:['https://images.test/logo.png'],parts:[]});
+    await enableMessageLinks();await waitFor(()=>expect(body().querySelector('a')?.getAttribute('href')).toBe('https://site.test/page?id=7'));
+    fireEvent.click(screen.getByRole('button',{name:'More image options'}));fireEvent.click(screen.getByRole('menuitem',{name:/Undo/}));
+    await waitFor(()=>expect(body().querySelector('img')?.src).toMatch(/^data:/));expect(body().querySelector('a')?.getAttribute('href')).toBe('https://site.test/page?id=7');expect(body().querySelectorAll('img[src^="https://images.test"],img[src^="https://track."]')).toHaveLength(0);
+  });
+  it('hides original HTML when its feature is disabled or a plain-text security floor applies',async()=>{
+    await open([message('m1','<div data-original-layout="kept">Visible</div>')]);await allowOriginal(false);
+    expect(screen.queryByRole('button',{name:'Show Original HTML'})).toBeNull();
+    await allowOriginal();expect(await screen.findByRole('button',{name:'Show Original HTML'})).toBeEnabled();
+    resetClientPolicy();await loadClientPolicy(async()=>json({maxSecurityFloor:'plain-text'}));
+    await waitFor(()=>expect(screen.queryByRole('button',{name:'Show Original HTML'})).toBeNull());resetClientPolicy();
+  });
+  it('keeps tracker consent separate from image display and honors policy revocation in original view',async()=>{
+    policy.mode='ask';policy.trackerOverrideAllowed=true;
+    await open([message('m1','<div data-original-layout="kept"><img src="https://images.test/logo.png"><img src="https://track.example.test/random.png"></div>')]);await allowOriginal();await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));requests=[];
+    await chooseImageAction('Allow trackers for this message');
+    await waitFor(()=>expect(trackerGranted).toBe(true));await waitFor(()=>expect(screen.getByRole('button',{name:'Back to sanitized view'})).toBeEnabled());expect(granted).toBe(false);expect(requests).toEqual([]);
+    await chooseImageAction('Show images');
+    await waitFor(()=>expect(requests.at(-1)?.urls).toEqual(['https://images.test/logo.png','https://track.example.test/random.png']));
+    await chooseImageAction('Block trackers again');
+    await waitFor(()=>expect(trackerGranted).toBe(false));const parsed=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');await waitFor(()=>expect(parsed().querySelectorAll('img')[1]?.src).toMatch(/^data:/));expect(parsed().querySelector('img')?.src).toContain('/api/rc/i/');
+    policy={...policy,trackerOverrideAllowed:false};await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.allowOriginalHtml':{value:true,locked:false,source:'user'},'privacy.trackerOverrideAllowed':{value:false,locked:true,source:'global'}}})});await waitFor(()=>expect(screen.getByRole('button',{name:'Show Original HTML'})).toBeEnabled());
+    fireEvent.click(screen.getByRole('button',{name:'More image options'}));expect(screen.queryByRole('menuitem',{name:'Allow trackers for this message'})).toBeNull();
+  });
   it.each(['empty', 'omitted'] as const)('opens a null-preview message with %s body fields as an ordinary blank message',async fields=>{
     const empty=mkEmail('empty',{subject:'Empty message',preview:null,htmlBody:[],textBody:[],bodyValues:{}});
     if(fields==='omitted'){delete empty.htmlBody;delete empty.textBody;delete empty.bodyValues;}
@@ -82,15 +138,14 @@ describe('Reader signed privacy pipeline',()=>{
     }});
     const other=message('m3','<a href="https://safe.test/page">Other sender</a>');other.from=[{name:'Other',email:'other@example.test'}];
     const app=await open([message('m1','<a href="https://safe.test/page">Page</a>'),message('m2','<a href="https://safe.test/page">Page</a>'),other]);
-    fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Link options'}));
     fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender'}));
-    await waitFor(()=>expect(screen.getByRole('button',{name:'Disable links'})).toBeEnabled());expect(writes).toEqual([['sender@example.test']]);expect(requests).toEqual([]);expect(granted).toBe(false);
-    fireEvent.click(screen.getByRole('button',{name:'Disable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Disable links'}));
-    await screen.findByRole('button',{name:'Enable links'});
-    expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false);
-    await app.openMessage('m2');await screen.findByRole('button',{name:'Disable links'});
+    await waitFor(()=>expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(true));expect(writes).toEqual([['sender@example.test']]);expect(requests).toEqual([]);expect(granted).toBe(false);
+    await chooseLinkAction('Disable links');
+    await waitFor(()=>expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false));
+    await app.openMessage('m2');await screen.findByRole('button',{name:'Link options'});
     expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.getAttribute('href')).toBe('https://safe.test/page');
-    await app.openMessage('m3');await screen.findByRole('button',{name:'Enable links'});
+    await app.openMessage('m3');await screen.findByRole('button',{name:'Link options'});
     expect(writes).toHaveLength(1);expect(requests).toEqual([]);
   });
 
@@ -101,10 +156,10 @@ describe('Reader signed privacy pipeline',()=>{
       return json({settings:{'links.trustedSenders':{value:['sender@example.test'],locked:false,source:'user'}}});
     }});
     await open([message('m1','<a href="https://safe.test/page">Page</a>')]);
-    fireEvent.click(await screen.findByRole('button',{name:'Disable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Stop always allowing links from this sender'}));
-    await screen.findByRole('button',{name:'Enable links'});expect(writes).toEqual([[]]);
+    fireEvent.click(await screen.findByRole('button',{name:'Link options'}));fireEvent.click(screen.getByRole('menuitem',{name:'Stop always allowing links from this sender'}));
+    await waitFor(()=>expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false));expect(writes).toEqual([[]]);
     await loadSettings({refresh:true,fetcher:async()=>json({settings:{'links.trustedSenders':{value:[],locked:true,source:'global'}}})});
-    fireEvent.click(screen.getByRole('button',{name:'Enable links'}));const action=screen.getByRole('menuitem',{name:'Always allow links from this sender'});expect(action).toHaveAttribute('aria-disabled','true');fireEvent.click(action);expect(writes).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button',{name:'Link options'}));const action=screen.getByRole('menuitem',{name:'Always allow links from this sender'});expect(action).toHaveAttribute('aria-disabled','true');fireEvent.click(action);expect(writes).toHaveLength(1);
   });
 
   it('does not enable old message links after a sender trust write finishes in another authentication generation',async()=>{
@@ -114,10 +169,10 @@ describe('Reader signed privacy pipeline',()=>{
       return json({settings:{'links.trustedSenders':{value:[],locked:false,source:'user'}}});
     }});
     await open([message('m1','<a href="https://safe.test/page">Page</a>')]);
-    fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender'}));
+    fireEvent.click(await screen.findByRole('button',{name:'Link options'}));fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender'}));
     await waitFor(()=>expect(writing).toBe(true));suspendAccountPreferences();activateAccountPreferences('acct1');
     release(json({value:['sender@example.test'],locked:false,source:'user'}));
-    await waitFor(()=>expect(screen.getByRole('button',{name:'Enable links'})).toBeEnabled());
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Link options'})).toBeEnabled());
     expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false);
   });
 
@@ -127,7 +182,7 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('Safe body'));
     expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
     expect(screen.queryByRole('button',{name:'Preparing links…'})).not.toBeInTheDocument();
-    expect(await screen.findByRole('button',{name:'Enable links'})).toBeEnabled();
+    expect(await screen.findByRole('button',{name:'Link options'})).toBeEnabled();
     expect(requests).toEqual([]);
   });
   it('restores safe HTML with image grants and explicit link consent using the real sanitizer',async()=>{
@@ -138,8 +193,9 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('Readable body'));
     expect(frame()?.srcdoc).not.toMatch(/<script|onclick|unsafe\(\)|bad\(\)/);
     expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
-    const enable=await screen.findByRole('button',{name:'Enable links'});
-    const show=await screen.findByRole('button',{name:'Show images'});
+    const enable=await screen.findByRole('button',{name:'Link options'});
+    fireEvent.click(await screen.findByRole('button',{name:'More image options'}));
+    const show=await screen.findByRole('menuitem',{name:'Show images'});
     expect(requests).toEqual([]);
     const body=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');
     expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/);
@@ -151,10 +207,10 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
     expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
     expect(requests).toContainEqual({emailId:'m1',urls:[image],parts:[]});
-    fireEvent.click(await screen.findByRole('button',{name:/Undo/}));
+    fireEvent.click(await screen.findByRole('button',{name:'More image options'}));fireEvent.click(screen.getByRole('menuitem',{name:/Undo/}));
     await waitFor(()=>expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/));
     expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
-    expect(await screen.findByRole('button',{name:'Show images'})).toBeEnabled();
+    fireEvent.click(await screen.findByRole('button',{name:'More image options'}));expect(await screen.findByRole('menuitem',{name:'Show images'})).not.toHaveAttribute('aria-disabled','true');fireEvent.keyDown(document,{key:'Escape'});
     expect(frame()?.getAttribute('sandbox')).toBe('');
   });
   it('keeps restored image-only messages visible under the configured proxy policy',async()=>{
@@ -173,11 +229,11 @@ describe('Reader signed privacy pipeline',()=>{
     expect(screen.queryByTestId('linked-files-bar')).toBeNull();
     fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
     await enableMessageLinks();
-    await screen.findByRole('button',{name:'Disable links'});
+    await screen.findByRole('button',{name:'Link options'});
     fireEvent.click(screen.getByRole('button',{name:'Show safe text'}));
     await waitFor(()=>expect(screen.queryByTestId('linked-files-bar')).toBeNull());
     fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));
-    expect(await screen.findByRole('button',{name:'Enable links'})).toBeEnabled();
+    expect(await screen.findByRole('button',{name:'Link options'})).toBeEnabled();
     await enableMessageLinks();
     await app.openMessage('m2');
     await screen.findByRole('button',{name:'Show sanitized HTML'});
@@ -198,7 +254,7 @@ describe('Reader signed privacy pipeline',()=>{
     expect(frame()?.srcdoc).not.toContain('Unchecked cached body');
     expect(frame()?.srcdoc).not.toContain('cdn.example.test');
     expect(requests).toEqual([]);
-    expect(screen.queryByRole('button', { name: /Enable links/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /Link options/ })).not.toBeInTheDocument();
   });
   it('keeps resources unavailable when safe restoration fails or strict policy requires text',async()=>{
     const raw='<script>unsafe()</script><img src="https://cdn.test/image.png"><a href="https://safe.test/page">Page</a>';
@@ -234,7 +290,7 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('<strong>Safe formatted words</strong>'));
     expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
     expect(frame()?.srcdoc).not.toContain('<script');expect(requests).toEqual([]);
-    expect(screen.queryByRole('button',{name:/Enable links/})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:/Link options/})).not.toBeInTheDocument();
     expect(app.openEmail()?.bodyValues?.['1']?.value).toBe(original);
     await app.openMessage('m2');await screen.findByRole('button',{name:'Show sanitized HTML'});
     await waitFor(()=>expect(frame()?.srcdoc).not.toContain('<strong>'));
@@ -322,10 +378,11 @@ describe('Reader signed privacy pipeline',()=>{
 it('downloads an arbitrary message link only after explicit selection and action', async () => {
   await open([message('m1','<a href="https://files.test/download?id=7">a file</a>')]);
   // t110: the linked-files bar; its menu lists the link, nothing is fetched before a choice.
-  const show = await screen.findByRole('button',{name:'Download a link'});
+  const show = await screen.findByRole('button',{name:'Link options'});
   expect(screen.getByTestId('linked-files-bar')).toHaveTextContent('Links in this message');
   expect(requests).toEqual([]);
   fireEvent.click(show);
+  fireEvent.click(screen.getByRole('menuitem',{name:'Show files'}));
   expect(requests).toEqual([]);
   fireEvent.click(await screen.findByRole('menuitem',{name:/Download .*files\.test\/download/}));
   await waitFor(()=>expect(requests).toContainEqual({emailId:'m1',files:['https://files.test/download?id=7']}));
@@ -357,11 +414,11 @@ describe('Reader notice bars',()=>{
     const email={...message('m1',html),hasAttachment:true,attachments:[{partId:'2',blobId:'a1',name:'notes.txt',type:'text/plain',size:2048},{partId:'3',blobId:'a2',name:'plan.pdf',type:'application/pdf',size:1024*1024}]} as Email;
     await open([email]);
     const stack=await screen.findByTestId('reader-notice-stack');
-    await waitFor(()=>expect([...stack.querySelectorAll('[data-notice-bar]')].map(bar=>bar.getAttribute('data-testid'))).toEqual(['remote-content-bar','linked-files-bar','reader-attachments-bar']));
+    await waitFor(()=>expect([...stack.querySelectorAll('[data-notice-bar]')].map(bar=>bar.getAttribute('data-testid'))).toEqual(['message-privacy-bar','reader-attachments-bar']));
     const bars=[...stack.querySelectorAll<HTMLElement>('[data-notice-bar]')];
     expect(new Set(bars.map(bar=>bar.className)).size).toBe(1);
     expect(screen.getByTestId('linked-files-bar')).toHaveTextContent(/One file linked in this message · \u2068files\.example\.test\u2069/);
-    fireEvent.click(screen.getByRole('button',{name:'Show files'}));
+    fireEvent.click(screen.getByRole('button',{name:'Link options'}));fireEvent.click(screen.getByRole('menuitem',{name:'Show files'}));
     expect(screen.getByRole('menuitem',{name:/Download \u2068report final\.pdf\u2069 from \u2068files\.example\.test\u2069/})).toBeInTheDocument();
     expect(requests.some(r=>r.files)).toBe(false);
     const attachments=screen.getByTestId('reader-attachments-bar');

@@ -122,6 +122,7 @@ static REST: &[RestGate] = &[
 fn setting_feature(key: &str) -> Option<&'static str> {
     match key {
         "mail.openTracking" => Some("compose.open_tracking"),
+        "mail.reader.allowOriginalHtml" => Some("reading.original_html"),
         "reader.zoom" => Some("reading.zoom"),
         "links.trustedDomains" | "links.trustedSubdomains" | "links.trustedSenders" => {
             Some("privacy.trusted_links")

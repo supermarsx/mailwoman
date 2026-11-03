@@ -236,12 +236,15 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
         "partial",
     ),
     // ── Reading and privacy ──
-    toggle(
-        "privacy.remote_images",
-        "reading",
-        &["cap.remote_images"],
-        &["/api/image-proxy", "/api/remote-images/grant"],
-        &[],
+    settings(
+        toggle(
+            "privacy.remote_images",
+            "reading",
+            &["cap.remote_images"],
+            &["/api/image-proxy", "/api/remote-images/grant"],
+            &[],
+        ),
+        &["privacy.trackerOverrideAllowed"],
     ),
     toggle(
         "privacy.direct_content",
@@ -266,6 +269,19 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
             "links.trustedSubdomains",
             "links.trustedSenders",
         ],
+    ),
+    level(
+        settings(
+            toggle(
+                "reading.original_html",
+                "reading",
+                &["cap.reading.original_html"],
+                &["/api/settings/mail.reader.allowOriginalHtml"],
+                &[],
+            ),
+            &["mail.reader.allowOriginalHtml"],
+        ),
+        "ui",
     ),
     toggle(
         "reading.zoom",

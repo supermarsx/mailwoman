@@ -37,9 +37,12 @@ export interface ReaderNoticeBarProps {
   actions?: JSX.Element;
   /** Rendered inside the frame after the row: a menu portal, an expanded region. */
   after?: JSX.Element;
+  /** A segment of the single combined message privacy row. */
+  embedded?: boolean;
 }
 
 export function ReaderNoticeBar(props: ReaderNoticeBarProps): JSX.Element {
+  if(props.embedded)return <div class={css.segment} role="group" aria-label={props.label} data-testid={props.testid} data-state={props.state} data-tone={props.tone??'neutral'}><span class={css.mark} aria-hidden="true"><Icon name={props.icon}/></span><span class={css.summary} role={props.live?'status':undefined} aria-live={props.live?'polite':undefined} data-tooltip={props.tooltip} tabIndex={0}>{props.children}</span><Show when={props.actions}><span class={css.actions}>{props.actions}</span></Show>{props.after}</div>;
   return (
     <section
       class={css.root}

@@ -38,7 +38,8 @@ function shortLink(url: string): string {
   try { const u = new URL(url); return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`; } catch { return url; }
 }
 
-export function LinkedFilesBar(props: { emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; senderTrusted?:boolean; senderTrustEditable?:boolean; senderTrustPending?:boolean; onTrustSender?:()=>void|Promise<void>; onRevokeSender?:()=>void|Promise<void>; urls: readonly string[]; links: readonly string[] }): JSX.Element {
+export interface LinkedFilesBarProps {compact?:boolean;emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; senderTrusted?:boolean; senderTrustEditable?:boolean; senderTrustPending?:boolean; onTrustSender?:()=>void|Promise<void>; onRevokeSender?:()=>void|Promise<void>; urls: readonly string[]; links: readonly string[] }
+export function LinkedFilesBar(props: LinkedFilesBarProps): JSX.Element {
   const [pending, setPending] = createSignal(false);
   createEffect(on(() => props.scope, () => setPending(false)));
   const files = createMemo(() => props.urls.map(linkedFile));
@@ -86,16 +87,20 @@ export function LinkedFilesBar(props: { emailId: string; scope: string; linksRea
     return items;
   };
   const consentMenu=createContextMenu({label:()=>t('privacy-links-options'),scope:()=>props.scope,actions:consentActions,onError:()=>toast.error(t('privacy-links-trust-failed'))});
+  let menuOwner:Document|undefined;
+  const compactMenu=createContextMenu({ownerDocument:()=>menuOwner,label:()=>t('privacy-links-options'),scope:()=>props.scope,actions:()=>[...(props.onToggleLinks?consentActions():[]),...(actions().length?[{id:'downloads',label:t('privacy-linked-files-show'),icon:'download' as const,children:actions(),run:()=>undefined}]:[])],onError:()=>toast.error(t('privacy-file-failed'))});
+  const regularActions=()=> <><Show when={props.onToggleLinks}><NoticeButton icon="link" disabled={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} busy={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} label={t(props.linksReady===false&&!props.linksEnabled?'privacy-links-loading':props.linksEnabled?'privacy-links-disable':'privacy-links-enable')} tooltip={t('privacy-links-enable-help')} testid="message-links-toggle" haspopup="menu" expanded={consentMenu.isOpen()} detachedLocal onClick={event=>consentMenu.openBelow(event.currentTarget as HTMLElement)} onKeyDown={consentMenu.keydown}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>;
 
   return (
     <ReaderNoticeBar
       label={t('privacy-linked-files')}
+      embedded={props.compact===true}
       testid="linked-files-bar"
       state={files().length > 0 ? 'files' : 'links'}
       icon={files().length > 0 ? 'file' : 'link'}
       tooltip={tooltip()}
-      actions={<><Show when={props.onToggleLinks}><NoticeButton icon="link" disabled={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} busy={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} label={t(props.linksReady===false&&!props.linksEnabled?'privacy-links-loading':props.linksEnabled?'privacy-links-disable':'privacy-links-enable')} tooltip={t('privacy-links-enable-help')} testid="message-links-toggle" haspopup="menu" expanded={consentMenu.isOpen()} detachedLocal onClick={event=>consentMenu.openBelow(event.currentTarget as HTMLElement)} onKeyDown={consentMenu.keydown}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>}
-      after={<>{menu.menu()}{consentMenu.menu()}</>}
+      actions={<Show when={props.compact} fallback={regularActions()}><NoticeButton icon="chevron" iconOnly menu label={t('privacy-links-options')} haspopup="menu" expanded={compactMenu.isOpen()} testid="message-links-toggle" detachedLocal onClick={event=>{const target=event.currentTarget as HTMLElement;menuOwner=target.ownerDocument;compactMenu.openBelow(target);}} onKeyDown={compactMenu.keydown}/></Show>}
+      after={<>{menu.menu()}{consentMenu.menu()}{compactMenu.menu()}</>}
     >
       <span class={noticeCss.headline}>{headline()}</span>
       {detail() !== null ? <span class={noticeCss.detail}>{' · '}{detail()}</span> : null}

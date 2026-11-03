@@ -200,6 +200,10 @@ admin-retention-pruned = { $count ->
 ## Admin › Logs › Authentication (t39 L5)
 
 admin-auth-attempted = Attempted as { $name }
+admin-features-feature-compose-open-tracking = Message open tracking
+admin-features-feature-compose-open-tracking-help = Allow recording opens of eligible formatted messages using the server's tracking image. Requires a configured public URL.
+admin-features-feature-reading-original-html = Original HTML view
+admin-features-feature-reading-original-html-help = Allow users to opt in to original HTML for individual messages, within the isolated reader frame. Sanitized HTML remains the default.
 
 admin-features-inherit = Inherit
 admin-features-override = Set a value
@@ -207,5 +211,3 @@ admin-features-setting-mode = Value mode for { $setting }
 admin-features-inherit-help = Inherit removes this profile's value and lock. The next applicable profile, domain or server value decides; the effective preview shows the result and its source.
 admin-features-domain-alias = { $alias } (alias of { $domain })
 admin-features-domain-aliases = { $domain } (aliases: { $aliases })
-admin-features-feature-compose-open-tracking = Message open tracking
-admin-features-feature-compose-open-tracking-help = Allow recording opens of eligible formatted messages using the server's tracking image. Requires a configured public URL.

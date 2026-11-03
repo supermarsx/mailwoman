@@ -230,7 +230,7 @@ async fn image_allowed(
 
 /// Proxy deployments do not own an engine cache. Verify their message identity
 /// and sender with the authenticated, origin-pinned JMAP upstream.
-async fn message_context(
+pub(super) async fn message_context(
     state: &AppState,
     session: &mw_store::Session,
     email: &str,
@@ -541,10 +541,11 @@ pub(crate) async fn sign(
         )
             .into_response();
     }
-    let policy = match crate::remote_policy::effective(&state, &session).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
+    let policy =
+        match crate::remote_policy::effective_for_message(&state, &session, &body.email_id).await {
+            Ok(p) => p,
+            Err(r) => return r,
+        };
     if body.email_id.is_empty() || body.email_id.len() > 512 {
         return (
             StatusCode::BAD_REQUEST,
@@ -855,7 +856,7 @@ pub(crate) async fn display_proof(
     let (kind, token) = display_target(&state.base_path, method, path)?;
     let (claims, session) = authenticate(state, token, kind).await.ok()?;
     let policy = Arc::new(
-        crate::remote_policy::effective(state, &session)
+        crate::remote_policy::effective_for_message(state, &session, &claims.e)
             .await
             .ok()?,
     );
@@ -1056,10 +1057,11 @@ pub(crate) async fn image(
             Ok(value) => value,
             Err(response) => return response,
         };
-        let policy = match crate::remote_policy::effective(&state, &session).await {
-            Ok(value) => Arc::new(value),
-            Err(response) => return response,
-        };
+        let policy =
+            match crate::remote_policy::effective_for_message(&state, &session, &claims.e).await {
+                Ok(value) => Arc::new(value),
+                Err(response) => return response,
+            };
         if let Err(response) = authorize_image(&state, &session, &claims, &policy).await {
             return response;
         }
@@ -1390,10 +1392,11 @@ pub(crate) async fn image_download(
         )
             .into_response();
     }
-    let policy = match crate::remote_policy::effective(&state, &session).await {
-        Ok(value) => value,
-        Err(response) => return response,
-    };
+    let policy =
+        match crate::remote_policy::effective_for_message(&state, &session, &claims.e).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
     if !policy.remote_image_downloads {
         return forbidden("remote image downloads are disabled");
     }

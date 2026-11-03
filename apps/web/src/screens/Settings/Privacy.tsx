@@ -5,12 +5,17 @@ import { LockNote } from './LockNote.tsx';
 import { remotePolicy, type RemoteMode } from '../../api/remote-content.ts';
 import { isNativeAuth } from '../../api/serverAddress.ts';
 import { TrustedLinkDomains } from './TrustedLinkDomains.tsx';
+import {featureOn,featuresLoaded} from '../../state/features.ts';
 import * as css from './styles.css.ts';
 export function Privacy(): JSX.Element {
   onMount(() => { void loadCatalog('privacy'); void loadCatalog('settings-policy'); });
   const mode = useSetting<RemoteMode>('privacy.remoteContent', 'ask', (v): v is RemoteMode => typeof v === 'string' && ['block','ask','proxy','direct'].includes(v));
   const unsafeHtml=useSetting<string>('mail.reader.unsafeHtmlMode','sanitized',(v):v is string=>typeof v==='string'&&['ask','strict','sanitized'].includes(v));
+  const originalHtml=useSetting('mail.reader.allowOriginalHtml',false),originalCap=useSetting('cap.reading.original_html',true);
+  const originalAvailable=()=>featuresLoaded()&&featureOn('reading.original_html')&&originalCap.value();
   const trackers = useSetting('privacy.trackers', true);
+  const trackerOverride=useSetting('privacy.trackerOverrideAllowed',true);
+  const trackerChoiceAllowed=()=>!(trackers.locked()&&trackers.value());
   const links = useSetting('privacy.cleanLinks', true);
   const stripMailerHeaders = useSetting('privacy.stripMailerHeaders', true);
   const imageDownloads=useSetting('privacy.remoteImageDownloads',false);
@@ -24,5 +29,7 @@ export function Privacy(): JSX.Element {
     <Show when={policy.state === 'ready' && policy.latest?.inlineParts === true}><p class={css.meta}>{t('privacy-strip-mailer-help')}</p></Show>
     <div class={css.field}><label for="privacy-unsafe-html">{t('privacy-unsafe-html')}</label><select id="privacy-unsafe-html" class={css.select} value={unsafeHtml.value()} disabled={!unsafeHtml.entry()||unsafeHtml.locked()||unsafeHtml.saving()} onChange={event=>void unsafeHtml.set(event.currentTarget.value)} aria-describedby="privacy-unsafe-html-help"><For each={['ask','strict','sanitized']}>{value=><option value={value}>{t(`privacy-unsafe-html-${value}`)}</option>}</For></select><p id="privacy-unsafe-html-help" class={css.meta}>{t('privacy-unsafe-html-help')}</p><LockNote locked={unsafeHtml.locked()}/><Show when={unsafeHtml.error()}><p role="alert">{unsafeHtml.error()}</p></Show><button type="button" class="btn" disabled={!unsafeHtml.entry()||unsafeHtml.locked()||unsafeHtml.saving()} onClick={()=>void unsafeHtml.reset()}>{t('privacy-inherit')}</button></div>
     <TrustedLinkDomains />
+    <div class={css.field}><label><input type="checkbox" checked={trackerChoiceAllowed()&&trackerOverride.value()} disabled={!trackerOverride.entry()||trackerOverride.locked()||trackerOverride.saving()||!trackerChoiceAllowed()} aria-describedby="privacy-tracker-choice-help" onChange={event=>{if(trackerChoiceAllowed())void trackerOverride.set(event.currentTarget.checked);}}/> {t('privacy-tracker-choice')}</label><p id="privacy-tracker-choice-help" class={css.meta}>{t('privacy-tracker-choice-help')}</p><LockNote locked={trackerOverride.locked()||!trackerChoiceAllowed()}/><Show when={trackerOverride.error()}><p role="alert">{trackerOverride.error()}</p></Show><button type="button" class="btn" disabled={!trackerOverride.entry()||trackerOverride.locked()||trackerOverride.saving()||!trackerChoiceAllowed()} onClick={()=>{if(trackerChoiceAllowed())void trackerOverride.reset();}}>{t('privacy-inherit')}</button></div>
+    <div class={css.field}><label><input type="checkbox" checked={originalAvailable()&&originalHtml.value()} disabled={!originalHtml.entry()||originalHtml.locked()||originalHtml.saving()||!originalAvailable()} aria-describedby="privacy-original-html-help" onChange={event=>{if(originalAvailable())void originalHtml.set(event.currentTarget.checked);}}/> {t('privacy-original-html-allow')}</label><p id="privacy-original-html-help" class={css.meta}>{t('privacy-original-html-help')}</p><LockNote locked={originalHtml.locked()||!originalAvailable()}/><Show when={originalHtml.error()}><p role="alert">{originalHtml.error()}</p></Show><button type="button" class="btn" disabled={!originalHtml.entry()||originalHtml.locked()||originalHtml.saving()||!originalAvailable()} onClick={()=>{if(originalAvailable())void originalHtml.reset();}}>{t('privacy-inherit')}</button></div>
   </section>;
 }

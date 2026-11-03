@@ -63,6 +63,9 @@ export const mark = style({
   selectors: { [`${root}[data-tone="warning"] &`]: { color: vars.color.warning } },
 });
 
+export const combined=style([row,{gap:vars.space[2]}]);
+export const segment=style({display:'flex',alignItems:'center',gap:vars.space[1],flex:'1 1 0',minInlineSize:0,selectors:{'& + &':{borderInlineStart:`${vars.border.hair} solid ${vars.color.border}`,paddingInlineStart:vars.space[2]}}});
+
 /** Headline + detail; the part that gives way. */
 export const summary = style({
   flex: '1 1 auto',

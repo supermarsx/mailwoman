@@ -203,6 +203,10 @@ admin-retention-pruned = { $count ->
 ## Admin › Registos › Autenticação (t39 L5)
 
 admin-auth-attempted = Tentativa como { $name }
+admin-features-feature-compose-open-tracking = Rastreio de aberturas das mensagens
+admin-features-feature-compose-open-tracking-help = Permitir o registo de aberturas de mensagens formatadas elegíveis através da imagem de rastreio do servidor. Requer um URL público configurado.
+admin-features-feature-reading-original-html = Vista de HTML original
+admin-features-feature-reading-original-html-help = Permitir que os utilizadores escolham o HTML original em mensagens individuais, dentro da moldura isolada de leitura. O HTML sanitizado continua a ser a predefinição.
 
 admin-features-inherit = Herdar
 admin-features-override = Definir um valor
@@ -210,5 +214,3 @@ admin-features-setting-mode = Modo do valor de { $setting }
 admin-features-inherit-help = Herdar remove o valor e o bloqueio deste perfil. Decide o perfil aplicável seguinte, o domínio ou o servidor; a pré-visualização efetiva mostra o resultado e a sua origem.
 admin-features-domain-alias = { $alias } (alias de { $domain })
 admin-features-domain-aliases = { $domain } (aliases: { $aliases })
-admin-features-feature-compose-open-tracking = Rastreio de aberturas das mensagens
-admin-features-feature-compose-open-tracking-help = Permitir o registo de aberturas de mensagens formatadas elegíveis através da imagem de rastreio do servidor. Requer um URL público configurado.

@@ -73,13 +73,14 @@ import {
   type MutationOptions,
 } from '../api/remote-images.ts';
 import { extractHtmlBody } from '../state/slices/mail.ts';
-import { RemoteContentBar } from './RemoteContentBar.tsx';
-import { LinkedFilesBar } from './LinkedFilesBar.tsx';
+import {MessagePrivacyBar} from './MessagePrivacyBar.tsx';
 import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
-import { DirectReaderFrame } from './DirectReaderFrame.tsx';
+import { DirectReaderFrame,type ReaderImageProgress } from './DirectReaderFrame.tsx';
+import {featureOn,featuresLoaded} from '../state/features.ts';
+import type {OriginalHtml} from '../viewers/originalHtml.ts';
 import { createAddressContactCard, contactComposeInitial, ContactAddresses } from './AddressContactCard.tsx';
 import type { ReaderAddressContext } from '../viewers/readerAddressContext.ts';
 import { resourceValue } from './resourceValue.ts';
@@ -737,21 +738,28 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // again: any other preference write (the zoom level, t79) replaces the settings
   // map too, and a fresh key object would re-sign and reload the body.
   const [privacy] = createResource(
-    () => app.accountId() && emailId() ? JSON.stringify([app.accountId(), emailId(), ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads'].map(key => settings()[key]?.value ?? null)]) : null,
+    () => app.accountId() && emailId() ? JSON.stringify([app.accountId(), emailId(), ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads','privacy.trackerOverrideAllowed'].map(key => settings()[key]?.value ?? null)]) : null,
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
+  const trackersAllowed=()=>policy().trackerOverrideAllowed===true&&!(policy().locked.trackers&&policy().trackers)&&!!settled(grants)?.some(grant=>grant.scopeKind==='trackers-single'&&grant.scopeValue===emailId());
+  const renderPolicy=():RemotePolicy=>trackersAllowed()?{...policy(),trackers:false,mode:policy().mode==='direct'?'proxy':policy().mode,allowDirect:false}:policy();
   const unsafeHtmlMode=createMemo(()=>{const value=settings()['mail.reader.unsafeHtmlMode']?.value;return value==='strict'||value==='ask'?value:'sanitized';});
   const htmlConsentScope=createMemo(()=>JSON.stringify([app.accountId(),emailId(),app.openEmail()?extractHtmlBody(app.openEmail()!):'',armor(),unsafeHtmlMode(),maxsec.effectiveMode(sender())]));
   const [htmlConsent,setHtmlConsent]=createSignal<string|null>(null);
   createEffect(on(htmlConsentScope,()=>setHtmlConsent(null)));
   const allowSanitizedHtml=()=>maxsec.effectiveMode(sender())!=='plain-text'&&(unsafeHtmlMode()==='sanitized'||(unsafeHtmlMode()==='ask'&&htmlConsent()===htmlConsentScope()));
-  const htmlRenderScope=()=>JSON.stringify([htmlConsentScope(),allowSanitizedHtml()]);
+  const originalAllowed=()=>{const owner=linkAuthority(),email=app.openEmail();return settingsLoadStatus()==='ready'&&featuresLoaded()&&featureOn('reading.original_html')&&settings()['mail.reader.allowOriginalHtml']?.value===true&&settings()['cap.reading.original_html']?.value!==false&&!!owner&&owner.id===app.accountId()&&preferenceAccountIsCurrent(owner)&&maxsec.effectiveMode(sender())!=='plain-text'&&decryptedText()===null&&(decryptedHtml()!==null||armor()===null&&(email?.htmlBody?.length??0)>0);};
+  const originalScope=createMemo(()=>JSON.stringify([linkAuthority()?.generation,htmlConsentScope(),originalAllowed(),settings()['mail.reader.allowOriginalHtml']??null,settings()['cap.reading.original_html']??null,resourceValue(privacy)??null]));
+  const [originalConsent,setOriginalConsent]=createSignal<string|null>(null);
+  createEffect(on(originalScope,()=>setOriginalConsent(null)));
+  const originalSelected=()=>originalAllowed()&&originalConsent()===originalScope();
+  const htmlRenderScope=()=>JSON.stringify([htmlConsentScope(),allowSanitizedHtml(),originalSelected(),trackersAllowed()]);
   const [readerBody, {mutate:mutateReaderBody,refetch:retryReaderBody}] = createResource(
     () => {
       const email = app.openEmail(); const account = app.accountId();
       if (!email || !account || privacy.loading || grants.loading) return null;
-      return { email, account, policy: policy(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, fallback: app.sanitizedHtml() };
+      return { email, account, policy: renderPolicy(), original:originalSelected(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, fallback: app.sanitizedHtml() };
     },
     async k => {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
@@ -770,10 +778,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           }catch{failed=true;}
         }
       }
-      const cancelled = () => ({ blocked: false, restored:false, scope:k.scope, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
+      const sanitized=html;
+      let original:OriginalHtml|undefined;
+      let originalHelpers:typeof import('../viewers/originalHtml.ts')|undefined;
+      if(k.original){try{originalHelpers=await import('../viewers/originalHtml.ts');original=originalHelpers.prepareOriginalHtml(k.decrypted??extractHtmlBody(k.email),k.policy);html=original.html;effective={...k.policy,mode:k.policy.mode==='direct'?'proxy':k.policy.mode,allowDirect:false};}catch{failed=true;effective=BLOCKED_POLICY;}}
+      const cancelled = () => ({ blocked: false, restored:false, original:false,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:undefined as ReturnType<typeof import('../viewers/originalHtml.ts')['originalHtmlReport']>|undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
       const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode && htmlRenderScope()===k.scope;
       if (!current()) return cancelled();
-      const refs = blocked&&!restored ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html); const cidParts: Record<string,string> = {};
+      const refs = original?.refs??(blocked&&!restored ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html)); const cidParts: Record<string,string> = {};
       const walk = (part: unknown): void => {
         if (!part || typeof part !== 'object') return;
         const p = part as { cid?: string; blobId?: string; subParts?: unknown[] };
@@ -793,13 +805,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
-      return { blocked, restored, scope:k.scope, emailId: k.email.id, account: k.account, html: rewriteReaderContent(html, signed, effective, cidParts), sanitized: html, refs, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
+      return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts), sanitized, refs, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
   const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() && body.scope===htmlRenderScope() ? body : undefined; };
   // A quarantine verdict remains visible in the notice after safe HTML is restored.
   // Only unresolved quarantine suppresses the normal image and link controls.
-  const bodyAllowsContent=():boolean=>{const body=currentBody();return !!body&&(!body.blocked||body.restored);};
+  const bodyAllowsContent=():boolean=>{const body=currentBody();return !!body&&(body.original||!body.blocked||body.restored);};
   const readerAppearance = (): ReaderAppearance => {
     const values = settings();
     const mode = values['reader.colorMode']?.value;
@@ -815,6 +827,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const text = decryptedText(); if (text !== null) return bodyFrameDoc('plain-text', { text }, frameOptions());
     if (mode === 'plain-text') return bodyFrameDoc('plain-text', { text: decryptedHtml() ?? plainTextOf(email) }, frameOptions());
     const body = currentBody(); if (!body || body.emailId !== email.id || body.account !== app.accountId()) return null;
+    if(body.original)return body.html;
     if ((body.blocked&&!body.restored) || mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: body.html }, frameOptions());
     return bodyFrameDoc('full-sanitized', { html: body.html }, { ...frameOptions(), direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
@@ -842,8 +855,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     finally{if(trustPending()===scope)setTrustPending(null);}
   }
   const linkFrameState=createMemo(()=>({enabled:linksEnabled()}));
-  const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:reviewMessageLinks(html,t('mail-links-inert'),linksEnabled());});
-  const bodySrcdoc=createMemo(()=>{const html=reviewedBody()?.html;return html===undefined?null:leetspeakEnabled()?leetspeakHtml(html):html;});
+  const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:(currentBody()?.originalReview??reviewMessageLinks)(html,t('mail-links-inert'),linksEnabled());});
+  const bodySrcdoc=createMemo(()=>{const html=reviewedBody()?.html;return html===undefined?null:!currentBody()?.original&&leetspeakEnabled()?leetspeakHtml(html):html;});
+  const [imageProgress,setImageProgress]=createSignal<{scope:string;key:string;html:string|null;progress:ReaderImageProgress}|null>(null);
+  const currentImageProgress=()=>{const value=imageProgress();return value&&value.scope===htmlRenderScope()&&value.key===receiptDocumentKey()&&value.html===bodySrcdoc()?value.progress:undefined;};
 
   // ── Reply / Reply all / Forward ────────────────────────────────────────────
   /** What the reader is showing of the open message, which is all a quote may
@@ -1033,7 +1048,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // string, no round-trip). Only meaningful in the full-sanitized mode — in the
   // no-media / plain-text modes images are stripped regardless of any grant, so
   // the bar is hidden there rather than offering an action that can't take effect.
-  const blockedReport = createMemo(() => { const report = analyzeBlockedContent(currentBody()?.sanitized ?? app.sanitizedHtml()); return { ...report, trackerCount: policy().trackers ? report.trackerCount : 0 }; });
+  const blockedReport = createMemo(() => { const report = currentBody()?.originalReport??analyzeBlockedContent(currentBody()?.sanitized ?? app.sanitizedHtml()); return { ...report, trackerCount: renderPolicy().trackers ? report.trackerCount : 0 }; });
   const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
 
   // Only once the policy is known (t93): before it, bannerMode() is the blocked
@@ -1074,25 +1089,28 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const bodyLoadIds = new WeakMap<object, string>(); let bodyLoadSeq = 0;
   const bodyLoadId = (body: object): string => { let id = bodyLoadIds.get(body); if (id === undefined) { id = String(++bodyLoadSeq); bodyLoadIds.set(body, id); } return id; };
   async function retryFailedImages(references?:readonly string[]):Promise<void> {
-    const body=currentBody(),account=app.accountId();if(!body||(body.blocked&&!body.restored)||!account||props.active===false||!fullMode())return;
-    const allowed=()=>props.active!==false&&fullMode()&&(policy().mode==='proxy'||(policy().mode==='ask'&&activeGrant()!==null));
+    const body=currentBody(),account=app.accountId();if(!body||(body.blocked&&!body.restored&&!body.original)||!account||props.active===false||!fullMode())return;
+    const allowed=()=>props.active!==false&&fullMode()&&(body.policy.mode==='proxy'||(body.policy.mode==='ask'&&activeGrant()!==null));
     if(!allowed())return;
     if(references===undefined){await reloadOpenMessage();return;}
     const ids=new Set(references);const failed=body.imageSources.filter(image=>image.ref&&ids.has(image.ref));
     if(!failed.length)return;
     const signed=await signContent(body.emailId,{urls:failed.map(image=>image.url)},account,{retry:true});
     if(currentBody()!==body||app.accountId()!==account||emailId()!==body.emailId||!allowed())return;
-    const {html,imageSources}=replaceFailedImages(body.html,body.imageSources,references,signed.images);
+    const replace=body.original?(await import('../viewers/originalHtml.ts')).replaceOriginalImages:replaceFailedImages;
+    if(currentBody()!==body||app.accountId()!==account||emailId()!==body.emailId||!allowed())return;
+    const {html,imageSources}=replace(body.html,body.imageSources,references,signed.images,remoteServerBase());
     mutateReaderBody({...body,html,imageSources});
   }
   const remoteLoad = createRemoteImageLoad({
     source: () => {
       const body = currentBody(); const account = app.accountId();
-      if (props.active === false || !body || (body.blocked&&!body.restored) || account === null || !fullMode()) return null;
+      if (props.active === false || !body || (body.blocked&&!body.restored&&!body.original) || account === null || !fullMode()) return null;
       const p = body.policy;
       return { scope: `${account}:${body.emailId}`, emailId: body.emailId, load: bodyLoadId(body), total: body.images, stats: (p.mode === 'proxy' || (p.mode === 'ask' && activeGrant() !== null)) };
     },
     displayed: bodyDisplays,
+    progress: currentImageProgress,
     toastEnabled: () => effectiveSettings()['privacy.remoteImagesToast']?.value !== false,
     retry: retryFailedImages,
   });
@@ -1174,22 +1192,17 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             <Show when={noticesReady()}>
               <div class={noticeCss.stack} data-testid="reader-notice-stack">
                 <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
-                <Show when={showRemoteBar()}>
-                  <RemoteContentBar
-                    emailId={email().id}
-                    sender={sender()}
-                    report={blockedReport()}
-                    activeGrant={activeGrant()}
-                    mode={bannerMode()}
-                    decodedTrackers={remoteLoad.trackers()}
-                    imageFailures={remoteLoad.failures()}
-                    onRetryImages={remoteLoad.retry}
-                    onGrant={onRemoteGrant}
-                    onRevoke={onRemoteRevoke}
-                    {...(props.onOpenSettings ? { onOpenPrivacySettings: () => props.onOpenSettings?.('privacy') } : {})}
-                  />
-                </Show>
-                <Show when={bodyAllowsContent() && (reviewedBody()?.links.length??0)>0}><LinkedFilesBar linksReady={linksReady()} linksEnabled={linksEnabled()} onToggleLinks={toggleLinks} senderTrusted={senderLinksTrusted()} senderTrustEditable={senderTrustEditable()} senderTrustPending={senderTrustPending()} onTrustSender={()=>setSenderLinkTrust(true)} onRevokeSender={()=>setSenderLinkTrust(false)} emailId={email().id} scope={linkConsentScope()} urls={currentBody()?.refs.files ?? []} links={currentBody()?.refs.links ?? []} /></Show>
+                <MessagePrivacyBar images={showRemoteBar()?{
+                  emailId:email().id,sender:sender(),report:blockedReport(),activeGrant:activeGrant(),mode:bannerMode(),
+                  decodedTrackers:remoteLoad.trackers(),imageFailures:remoteLoad.failures(),imageProgress:currentImageProgress(),
+                  trackerOverrideAllowed:policy().trackerOverrideAllowed===true&&!(policy().locked.trackers&&policy().trackers),trackersAllowed:trackersAllowed(),
+                  onRetryImages:remoteLoad.retry,onGrant:onRemoteGrant,onRevoke:onRemoteRevoke,
+                  ...(props.onOpenSettings?{onOpenPrivacySettings:()=>props.onOpenSettings?.('privacy')}:{})
+                }:undefined} links={bodyAllowsContent()&&(reviewedBody()?.links.length??0)>0?{
+                  linksReady:linksReady(),linksEnabled:linksEnabled(),onToggleLinks:toggleLinks,senderTrusted:senderLinksTrusted(),
+                  senderTrustEditable:senderTrustEditable(),senderTrustPending:senderTrustPending(),onTrustSender:()=>setSenderLinkTrust(true),
+                  onRevokeSender:()=>setSenderLinkTrust(false),emailId:email().id,scope:linkConsentScope(),urls:currentBody()?.refs.files??[],links:currentBody()?.refs.links??[]
+                }:undefined}/>
                 <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
               </div>
             </Show>
@@ -1197,7 +1210,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <InviteCard accountId={accountId()} emailId={email().id} />
             )}</Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
-            <Show when={currentBody()?.blocked}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'&&maxsec.effectiveMode(sender())!=='plain-text'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
+            <Show when={originalAllowed()}><ReaderNoticeBar label={t('privacy-original-html')} testid="reader-original-html" state={currentBody()?.original?'original':'sanitized'} tone={currentBody()?.original?'warning':'neutral'} icon="eye" tooltip={t('privacy-original-html-help')} actions={<NoticeButton icon="eye" label={t(originalSelected()?'privacy-original-html-hide':'privacy-original-html-show')} disabled={readerBody.loading||props.active===false} onClick={()=>{if(originalAllowed()&&props.active!==false)setOriginalConsent(originalSelected()?null:originalScope());}}/>}>{t(currentBody()?.original?'privacy-original-html-active':'privacy-original-html-offer')}</ReaderNoticeBar></Show>
+            <Show when={currentBody()?.blocked&&!currentBody()?.original}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'&&maxsec.effectiveMode(sender())!=='plain-text'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
             <Show when={currentBody()?.failed}><AsyncError message={t('privacy-content-failed')} onRetry={()=>void retryReaderBody()}/></Show>
             <Show
               when={showDecrypt()}
@@ -1213,7 +1227,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, only the fixed hash-authorized address
                     handler runs; the opaque frame cannot access its parent.
                   */}
-                  <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} loadingFallback={messageLoading()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext}/>}</Show>
+                  <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} loadingFallback={messageLoading()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>}</Show>
                 </Show>
               }
             >
