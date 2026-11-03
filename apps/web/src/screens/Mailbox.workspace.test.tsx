@@ -256,13 +256,29 @@ describe('retained mailbox workspace',()=>{
     await waitFor(()=>expect(realtime.subTabs.tabs().some(tab=>tab.title==='Tasks')).toBe(false));
     expect(container.querySelector('[data-surface="contacts"]')).toBe(contacts);
   });
-  it('opens the selected message export editor in Settings and retains its reader',async()=>{
+  it.each([false,true])('opens the selected message export editor in Settings and retains its reader when linked=%s',async linked=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
-    fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
-    fireEvent.click(await screen.findByTestId('reader-export'));
-    expect(await screen.findByRole('heading',{name:'Export message'})).toBeInTheDocument();
-    expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
-    expect(screen.getByRole('tab',{name:'Settings'})).toHaveAttribute('aria-selected','true');
+    if(linked)vi.spyOn(app,'linkedMailboxId').mockReturnValue('verified-child');
+    try{
+      fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+      fireEvent.click(await screen.findByTestId('reader-export'));
+      expect(await screen.findByRole('heading',{name:'Export message'})).toBeVisible();
+      expect(screen.getByRole('combobox',{name:'File format'})).toHaveValue('eml');
+      expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
+      expect(screen.getByRole('tab',{name:'Settings'})).toHaveAttribute('aria-selected','true');
+    }finally{vi.restoreAllMocks();}
+  });
+  it('shows the export policy refusal instead of opening an empty settings page',async()=>{
+    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
+    const report=vi.spyOn(app,'showToast');
+    try{
+      await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{export:{enabled:false,limits:{},settings:{}}}}))});
+      fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+      fireEvent.click(await screen.findByTestId('reader-export'));
+      expect(report).toHaveBeenCalledWith('error','Your administrator has disabled message export for this account.');
+      expect(screen.queryByRole('tab',{name:'Settings'})).toBeNull();
+      expect(screen.queryByRole('heading',{name:'Export message'})).toBeNull();
+    }finally{clearFeatures();vi.restoreAllMocks();}
   });
   it('opens attachments in their own reusable tab without replacing the message reader',async()=>{
     const policy={previewAllowed:true,downloadAllowed:true,maxBytes:1024,allowedExtensions:[],blockedExtensions:[],warnExtensions:[],allowedMimeTypes:[],blockedMimeTypes:[],warnMimeTypes:[]};

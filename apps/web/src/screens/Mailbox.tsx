@@ -254,10 +254,16 @@ export function MailboxScreen(): JSX.Element {
     subTabs.open({id,kind:'settings',title:rawT('mail-nav-settings')});
   }
   async function openExport(messageId:string):Promise<void> {
-    const account=app.accountId();
+    const owner=preferenceAccount(),account=app.accountId();
+    if(!owner||owner.id!==account||!preferenceAccountIsCurrent(owner))return;
+    if(!featureOn('export')){app.showToast('error',t('mail-export-forbidden'));return;}
     openSettings();
     const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
-    if(account===app.accountId()) await pane?.navigation?.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});
+    if(!pane?.navigation){app.showToast('error',t('mail-export-open-failed'));return;}
+    if(preferenceAccountIsCurrent(owner)&&account===app.accountId()){
+      try{await pane.navigation.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});}
+      catch{if(preferenceAccountIsCurrent(owner))app.showToast('error',t('mail-export-open-failed'));}
+    }
   }
   /** A message opened from the Mail list: the reading pane or a tab (t74, messageOpen.ts). Drafts open in compose either way. */
   function openFromList(messageId:string,gesture:OpenGesture):Promise<void>{

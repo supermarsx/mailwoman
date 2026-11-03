@@ -903,3 +903,6 @@ mail-list-order-sender = Remetente
 mail-list-order-subject = Assunto
 mail-list-order-error = Não foi possível guardar a ordem das mensagens.
 mail-bulk-selection-load-failed = Não foi possível selecionar toda a pasta. Verifique a ligação e tente novamente.
+
+mail-export-forbidden = O administrador desativou a exportação de mensagens para esta conta.
+mail-export-open-failed = Não foi possível abrir as opções de exportação. Feche um separador e tente novamente.

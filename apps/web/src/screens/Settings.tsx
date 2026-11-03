@@ -152,7 +152,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   let settingsContent:HTMLDivElement|undefined;
   useSettingsScroll(navigation.route,()=>settingsContent);
   const [sectionQuery,setSectionQuery]=createSignal('');
-  const linkedSections=new Set(['linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts']);
+  const linkedSections=new Set(['linked-accounts','appearance','reader','compose','shortcuts','time','labels','signatures','identities','notifications','searches','folders','receipts','mail-transfer']);
   const supportedSection=(section:string):boolean=>!app.linkedMailboxId?.()||linkedSections.has(section);
   const visible=(section:string):boolean=>supportedSection(section)&&(!props.embedded || navigation.route().section===section);
 

@@ -919,3 +919,6 @@ mail-list-order-subject = Subject
 mail-list-order-error = The message order could not be saved.
 
 mail-bulk-selection-load-failed = The full folder could not be selected. Check your connection and try again.
+
+mail-export-forbidden = Your administrator has disabled message export for this account.
+mail-export-open-failed = Export options could not be opened. Close a workspace tab and try again.
