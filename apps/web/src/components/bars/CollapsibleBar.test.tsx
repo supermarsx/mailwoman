@@ -40,6 +40,7 @@ const root = (): HTMLElement => document.querySelector('[data-bar]') as HTMLElem
 const panel = (): HTMLElement => document.querySelector('[data-bar-panel]') as HTMLElement;
 const handle = (): HTMLElement => document.querySelector('[data-bar-handle]') as HTMLElement;
 const pin = (): HTMLElement => document.querySelector('[data-bar-pin]') as HTMLElement;
+const auto = (): HTMLElement => document.querySelector('[data-bar-auto]') as HTMLElement;
 const isOpen = (): boolean => root().dataset['expanded'] === 'true';
 
 function mount(bar: BarModeHandle, extra: Partial<Parameters<typeof CollapsibleBar>[0]> = {}, outside?: () => JSX.Element) {
@@ -67,7 +68,7 @@ afterEach(() => {
 });
 
 describe('CollapsibleBar: pinned', () => {
-  it('stays in the flow with no handle; the pin is pressed and switches to auto-hide', async () => {
+  it('shows both mode buttons while pinned and switches to auto-hide', async () => {
     const bar = fakeBar('pinned');
     mount(bar);
     expect(root()).toHaveAttribute('data-mode', 'pinned');
@@ -75,8 +76,10 @@ describe('CollapsibleBar: pinned', () => {
     expect(handle()).toBeNull();
     expect(panel()).not.toHaveAttribute('inert');
     expect(pin()).toHaveAttribute('aria-pressed', 'true');
-    expect(pin()).toHaveAccessibleName('Auto-hide the editor ribbon');
-    fireEvent.click(pin());
+    expect(pin()).toHaveAccessibleName('Keep the editor ribbon open');
+    expect(auto()).toHaveAttribute('aria-pressed', 'false');
+    expect(auto()).toHaveAccessibleName('Auto-hide the editor ribbon');
+    fireEvent.click(auto());
     await Promise.resolve();
     expect(bar.calls).toEqual(['auto']);
     expect(root()).toHaveAttribute('data-mode', 'auto');
@@ -97,6 +100,7 @@ describe('CollapsibleBar: pinned', () => {
     const bar = fakeBar('pinned', true);
     mount(bar);
     expect(pin()).toBeDisabled();
+    expect(auto()).toBeDisabled();
     expect(pin()).toHaveAttribute('data-tooltip', 'Set by your administrator');
     fireEvent.click(pin());
     expect(bar.calls).toEqual([]);
@@ -104,7 +108,23 @@ describe('CollapsibleBar: pinned', () => {
 });
 
 describe('CollapsibleBar: auto-hide', () => {
-  it('shows only the handle, wired to the panel, and pins from inside the revealed bar', async () => {
+  it('keeps both mode controls outside the collapsed panel and can pin without revealing first', async () => {
+    const bar = fakeBar('auto');
+    mount(bar, { revealPolicy: 'push' });
+    expect(panel()).toHaveAttribute('inert');
+    expect(pin().closest('[inert]')).toBeNull();
+    expect(auto().closest('[inert]')).toBeNull();
+    expect(auto()).toHaveAttribute('aria-pressed', 'true');
+    pin().focus();
+    expect(isOpen()).toBe(false);
+    fireEvent.click(pin());
+    await Promise.resolve();
+    expect(bar.calls).toEqual(['pinned']);
+    expect(isOpen()).toBe(true);
+    expect(auto()).toHaveAttribute('aria-pressed', 'false');
+  });
+
+  it('shows the handle wired to the panel and pins the revealed bar', async () => {
     const bar = fakeBar('auto');
     mount(bar);
     expect(isOpen()).toBe(false);
@@ -124,6 +144,42 @@ describe('CollapsibleBar: auto-hide', () => {
     expect(bar.calls).toEqual(['pinned']);
     expect(handle()).toBeNull();
     expect(isOpen()).toBe(true);
+  });
+
+  it('keeps both controls beside a ribbon header when collapsed', () => {
+    mount(fakeBar('auto'), { header: <button type="button">Ribbon tab</button> });
+    expect(root()).toHaveAttribute('data-header', 'true');
+    expect(panel()).toHaveAttribute('inert');
+    expect(pin().closest('[data-bar-panel]')).toBeNull();
+    expect(auto().closest('[data-bar-panel]')).toBeNull();
+    auto().focus();
+    expect(isOpen()).toBe(false);
+    screen.getByRole('button', { name: 'Ribbon tab' }).focus();
+    expect(isOpen()).toBe(true);
+    auto().focus();
+    vi.advanceTimersByTime(0);
+    expect(isOpen()).toBe(false);
+  });
+
+  it('disables both controls while saving and ignores repeated choices', async () => {
+    const bar = fakeBar('pinned');
+    const [saving, setSaving] = createSignal(false);
+    mount({ ...bar, saving });
+    fireEvent.click(pin());
+    expect(bar.calls).toEqual([]);
+    setSaving(true);
+    expect(pin()).toBeDisabled();
+    expect(auto()).toBeDisabled();
+    fireEvent.click(auto());
+    expect(bar.calls).toEqual([]);
+    setSaving(false);
+    fireEvent.click(auto());
+    await Promise.resolve();
+    expect(bar.calls).toEqual(['auto']);
+    // Focus on a mode control must not hold an auto-hide panel open forever.
+    auto().focus();
+    vi.advanceTimersByTime(LEAVE_CLOSE_MS);
+    expect(isOpen()).toBe(false);
   });
 
   it('opens on hover after the intent delay and closes 400 ms after the pointer leaves', () => {
@@ -226,6 +282,43 @@ describe('CollapsibleBar: auto-hide', () => {
     fireEvent.click(handle());
     expect(isOpen()).toBe(true);
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
+    expect(isOpen()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
+    expect(isOpen()).toBe(false);
+  });
+
+  it('keeps a push bar stable through an outside press and focus change until click', () => {
+    mount(fakeBar('auto'), { revealPolicy: 'push' });
+    handle().focus();
+    screen.getByRole('button', { name: 'Bold' }).focus();
+    const outside = screen.getByRole('button', { name: 'Outside' });
+    fireEvent.pointerDown(outside);
+    outside.focus();
+    vi.advanceTimersByTime(LEAVE_CLOSE_MS * 2);
+    expect(isOpen()).toBe(true);
+    fireEvent.pointerUp(outside);
+    vi.advanceTimersByTime(0);
+    expect(isOpen()).toBe(true);
+    fireEvent.click(outside);
+    expect(isOpen()).toBe(false);
+  });
+
+  it('restores auto-hide after an outside gesture is cancelled without a click', () => {
+    mount(fakeBar('auto'));
+    fireEvent.click(handle());
+    const outside = screen.getByRole('button', { name: 'Outside' });
+    fireEvent.pointerDown(outside);
+    fireEvent.pointerCancel(outside);
+    vi.advanceTimersByTime(LEAVE_CLOSE_MS);
+    expect(isOpen()).toBe(false);
+  });
+
+  it('recovers when an outside press loses its pointerup as the window blurs', () => {
+    mount(fakeBar('auto'));
+    fireEvent.click(handle());
+    fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
+    fireEvent.blur(window);
+    vi.advanceTimersByTime(LEAVE_CLOSE_MS);
     expect(isOpen()).toBe(false);
   });
 
@@ -250,6 +343,7 @@ describe('CollapsibleBar: auto-hide', () => {
     fireEvent.pointerLeave(root());
     vi.advanceTimersByTime(LEAVE_CLOSE_MS * 2);
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
     fireEvent.keyDown(root(), { key: 'Escape' });
     expect(isOpen()).toBe(true);
     release();
@@ -287,6 +381,8 @@ describe('CollapsibleBar: touch', () => {
     fireEvent.click(handle());
     expect(isOpen()).toBe(true);
     fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }), { pointerType: 'touch' });
+    expect(isOpen()).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
     expect(isOpen()).toBe(false);
   });
 
@@ -326,6 +422,7 @@ describe('CollapsibleBar: typing guard', () => {
     vi.advanceTimersByTime(HOVER_OPEN_MS);
     expect(isOpen()).toBe(true);
     fireEvent.pointerDown(body);
+    fireEvent.click(body);
     expect(isOpen()).toBe(false);
     fireEvent.keyDown(body, { key: 'b' });
     fireEvent.pointerDown(handle());

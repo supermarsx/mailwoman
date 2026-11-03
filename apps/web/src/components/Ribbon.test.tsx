@@ -45,7 +45,7 @@ describe('Ribbon', () => {
     expect(screen.queryByRole('button', { name: /^(Collapse|Expand)/ })).toBeNull();
     const pin = document.querySelector('[data-bar-pin="mailRibbon"]') as HTMLButtonElement;
     expect(pin).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(pin);
+    fireEvent.click(document.querySelector('[data-bar-auto="mailRibbon"]')!);
     expect(bar.calls).toEqual(['auto']);
   });
 

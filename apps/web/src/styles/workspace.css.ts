@@ -16,7 +16,6 @@ globalStyle('.workspace-bar',{display:'flex',alignItems:'center',gap:'2px',paddi
 // so the bar is 27px tall (26px + its rule). Touch keeps the 44px targets.
 globalStyle('.workspace-bar .btn',{flex:'none',blockSize:'36px',minHeight:'36px',minWidth:'36px',padding:'4px 6px','@media':{'(pointer: coarse)':{blockSize:'44px',minHeight:'44px',minWidth:'44px'},[fineDesktop]:{blockSize:'24px',minHeight:'24px',minWidth:'24px',padding:'2px 4px',borderRadius:vars.radius.sm}}});
 globalStyle('.workspace-bar .btn svg',{'@media':{[fineDesktop]:{width:'16px',height:'16px'}}});
-globalStyle('.mail-topbar [data-bar-pin]',{'@media':{[fineDesktop]:{margin:'1px'}}});
 globalStyle('.mail-topbar [data-bar-panel]',{alignItems:'center'});
 globalStyle('.workspace-body',{display:'grid',gridTemplateColumns:'minmax(0,1fr)',gridTemplateRows:'minmax(0,1fr)',alignItems:'stretch',minHeight:0,minWidth:0,flex:'1 1 0',overflow:'hidden'});
 globalStyle('.workspace-body--split',{gridTemplateColumns:'minmax(0,var(--list-size,340px)) 6px minmax(0,1fr)'});

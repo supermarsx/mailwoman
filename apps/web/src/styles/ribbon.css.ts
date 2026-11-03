@@ -22,6 +22,7 @@ export const ribbon = style({
 });
 
 export const tabs = style({
+  minInlineSize: 0,
   userSelect:'none',
   WebkitUserSelect:'none',
   display: 'flex',
@@ -32,9 +33,11 @@ export const tabs = style({
 });
 
 // The tab buttons in a row (was an inline style the shell CSP drops).
-export const tablist = style({ display: 'flex', gap: 0 });
+export const tablist = style({ display: 'flex', gap: 0, minInlineSize: 0, overflowX: 'auto', scrollbarWidth: 'thin' });
 
 export const tab = style({
+  flex: 'none',
+  whiteSpace: 'nowrap',
   appearance: 'none',
   border: 'none',
   background: 'transparent',

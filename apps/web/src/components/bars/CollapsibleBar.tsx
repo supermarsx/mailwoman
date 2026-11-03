@@ -3,12 +3,12 @@
 //
 // Pinned: the panel sits in the flow and is always shown. Auto: only the
 // `header` (a ribbon's tab names) or, without one, a slim handle stays on
-// screen, and the panel opens on
+// screen alongside both mode buttons, and the panel opens on
 //   - pointer hover over the bar, after a 150 ms intent delay (not bound on
 //     touch-only devices, and not while the user is typing in a field outside
 //     the bar);
 //   - a click or tap on the handle, or a tab calling `open()` from the context;
-//   - keyboard focus entering the bar.
+//   - keyboard focus entering the header, handle or commands.
 // It closes when the pointer has been outside for 400 ms and focus is not
 // inside, when focus leaves, on Esc (focus goes back to what opened it), and
 // on a tap or click outside. It never closes while something inside holds it
@@ -174,6 +174,8 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
   let holds = 0;
   let pointerInside = false;
   let pointerPressed = false;
+  let outsidePress = false;
+  let outsidePressTimer: ReturnType<typeof setTimeout> | undefined;
   let pressTimer: ReturnType<typeof setTimeout> | undefined;
   let restoringFocus = false;
   let openedByHover = false;
@@ -186,7 +188,8 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     clearTimeout(closeTimer);
     openTimer = closeTimer = undefined;
   };
-  const focusInside = (): boolean => rootEl?.contains(document.activeElement) === true;
+  const focusInside = (): boolean => rootEl?.contains(document.activeElement) === true
+    && !(document.activeElement instanceof Element && document.activeElement.closest('[data-bar-modes]'));
 
   // Push mode: once the panel has slid in, scroll the caret (outside the bar) back into view.
   function keepCaretVisible(): void {
@@ -230,7 +233,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     clearTimeout(closeTimer);
     closeTimer = setTimeout(() => {
       closeTimer = undefined;
-      if (!pointerInside && !focusInside() && holds === 0) close();
+      if (!outsidePress && !pointerInside && !focusInside() && holds === 0) close();
     }, LEAVE_CLOSE_MS);
   }
 
@@ -288,11 +291,31 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     }
   }
 
-  // A tap or click outside closes an open auto bar.
+  // Close once a click has its target. Closing a push bar on pointerdown shifts
+  // adjacent controls before pointerup and can swallow their click entirely.
   const onDocumentPointerDown = (event: Event): void => {
+    clearTimeout(outsidePressTimer);
+    outsidePress = event.target instanceof Node && !rootEl?.contains(event.target);
+  };
+  const onDocumentPointerEnd = (): void => {
+    if (!outsidePress) return;
+    // A drag or cancelled gesture might never dispatch click. Allow it to settle
+    // before restoring normal auto-hide, without moving a pending click target.
+    clearTimeout(outsidePressTimer);
+    outsidePressTimer = setTimeout(() => {
+      outsidePress = false;
+      if (revealed() && !pointerInside && !focusInside() && holds === 0) close();
+    }, LEAVE_CLOSE_MS);
+  };
+  const onDocumentClick = (event: Event): void => {
+    outsidePress = false;
+    clearTimeout(outsidePressTimer);
     const target = event.target;
     if (!revealed() || holds > 0 || !(target instanceof Node) || rootEl?.contains(target)) return;
     close();
+  };
+  const onVisibilityChange = (): void => {
+    if (document.visibilityState === 'hidden') onDocumentPointerEnd();
   };
 
   onMount(() => {
@@ -300,12 +323,22 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     const queries = [media('(hover: none)'), media('(pointer: coarse)')];
     const onQuery = (): void => bindHover(!hoverUnavailable());
     for (const q of queries) q?.addEventListener?.('change', onQuery);
+    document.addEventListener('click', onDocumentClick, true);
     document.addEventListener('pointerdown', onDocumentPointerDown, true);
+    document.addEventListener('pointerup', onDocumentPointerEnd, true);
+    document.addEventListener('pointercancel', onDocumentPointerEnd, true);
+    window.addEventListener('blur', onDocumentPointerEnd);
+    document.addEventListener('visibilitychange', onVisibilityChange);
     if (keyListeners++ === 0) document.addEventListener('keydown', recordKey, true);
     onCleanup(() => {
       bindHover(false);
       for (const q of queries) q?.removeEventListener?.('change', onQuery);
+      document.removeEventListener('click', onDocumentClick, true);
       document.removeEventListener('pointerdown', onDocumentPointerDown, true);
+      document.removeEventListener('pointerup', onDocumentPointerEnd, true);
+      document.removeEventListener('pointercancel', onDocumentPointerEnd, true);
+      window.removeEventListener('blur', onDocumentPointerEnd);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
       if (--keyListeners === 0) document.removeEventListener('keydown', recordKey, true);
     });
   });
@@ -313,6 +346,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     clearTimers();
     clearTimeout(caretTimer);
     clearTimeout(pressTimer);
+    clearTimeout(outsidePressTimer);
   });
 
   // Pinning closes the transient reveal; the panel is in the flow from then on.
@@ -338,15 +372,17 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
   const onFocusIn = (event: FocusEvent): void => {
     // A click decides for itself (the handle toggles, a tab opens); a keyboard
     // focus opens the bar.
-    if (restoringFocus || pointerPressed || pinned() || revealed()) return;
+    if (restoringFocus || pointerPressed || pinned() || revealed()
+      || (event.target instanceof Element && event.target.closest('[data-bar-modes]'))) return;
     open(event.target instanceof HTMLElement && event.target !== rootEl ? event.target : null);
   };
   const onFocusOut = (event: FocusEvent): void => {
     const next = event.relatedTarget;
-    if (next instanceof Node && rootEl?.contains(next)) return;
+    if (next instanceof Node && rootEl?.contains(next)
+      && !(next instanceof Element && next.closest('[data-bar-modes]'))) return;
     // Wait a tick: a click on a non-focusable part of the bar blurs to <body> first.
     setTimeout(() => {
-      if (revealed() && !focusInside() && !pointerInside && holds === 0) close();
+      if (revealed() && !outsidePress && !focusInside() && !pointerInside && holds === 0) close();
     }, 0);
   };
   const onKeyDown = (event: KeyboardEvent): void => {
@@ -363,13 +399,14 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     else close();
   };
 
-  async function togglePin(): Promise<void> {
-    if (bar.locked()) return;
-    if (pinned()) {
+  async function selectMode(mode: BarMode): Promise<void> {
+    if (bar.locked() || bar.saving() || mode === bar.mode()) return;
+    if (mode === 'auto') {
       // Stay open under the user's pointer; the usual leave and blur rules close it.
       trigger = handleEl ?? null;
       setRevealed(true);
       await bar.setMode('auto');
+      if (!pointerInside && !focusInside()) scheduleClose();
     } else {
       await bar.setMode('pinned');
     }
@@ -399,6 +436,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
         data-expanded={expanded() ? 'true' : 'false'}
         data-reveal={props.revealPolicy}
         data-motion={motion()}
+        data-header={header.toArray().length > 0 ? 'true' : 'false'}
         onPointerDown={onPointerDownInside}
         onMouseDown={onPointerDownInside}
         onClick={onClickInside}
@@ -440,18 +478,34 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
           aria-label={props.label}
         >
           <div class={css.content}>{props.children}</div>
+        </div>
+        {/* Commands precede mode controls in keyboard order, even when the controls sit beside the header. */}
+        <div class={css.modes} data-bar-modes={props.id} role="group" aria-label={props.label ?? t('settings-bars-heading')}>
           <button
             type="button"
-            class={css.pin}
+            class={css.modeButton}
             data-bar-pin={props.id}
             data-detached-local=""
             aria-pressed={pinned() ? 'true' : 'false'}
-            aria-label={pinned() ? strings().unpin : strings().pin}
-            data-tooltip={bar.locked() ? t('bars-locked') : pinned() ? strings().unpin : strings().pin}
-            disabled={bar.locked()}
-            onClick={() => void togglePin()}
+            aria-label={strings().pin}
+            data-tooltip={bar.locked() ? t('bars-locked') : strings().pin}
+            disabled={bar.locked() || bar.saving()}
+            onClick={() => void selectMode('pinned')}
           >
             <Icon name="pin" />
+          </button>
+          <button
+            type="button"
+            class={css.modeButton}
+            data-bar-auto={props.id}
+            data-detached-local=""
+            aria-pressed={!pinned() ? 'true' : 'false'}
+            aria-label={strings().unpin}
+            data-tooltip={bar.locked() ? t('bars-locked') : strings().unpin}
+            disabled={bar.locked() || bar.saving()}
+            onClick={() => void selectMode('auto')}
+          >
+            <Icon name="eye" />
           </button>
         </div>
       </div>

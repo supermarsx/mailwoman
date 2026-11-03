@@ -51,7 +51,7 @@ describe('SubTabStrip as the workspaceTabs bar (t38)', () => {
     expect(barRoot()).toHaveAttribute('data-mode', 'pinned');
     expect(barRoot()).toHaveAttribute('data-reveal', 'push');
     expect(document.querySelector('[data-bar-handle]')).toBeNull();
-    fireEvent.click(document.querySelector('[data-bar-pin="workspaceTabs"]')!);
+    fireEvent.click(document.querySelector('[data-bar-auto="workspaceTabs"]')!);
     expect(bar.calls).toEqual(['auto']);
   });
   it('auto: a slim handle names the active tab; focus opens the strip and Esc closes it', () => {

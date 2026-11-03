@@ -20,13 +20,19 @@ const slideIn = keyframes({
 
 export const root = style({
   position: 'relative',
-  display: 'flex',
-  flexDirection: 'column',
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr) auto',
   flex: 'none',
   minInlineSize: 0,
+  userSelect: 'none',
+  WebkitUserSelect: 'none',
+  // Consumer chrome classes can also declare display:flex; the bar owns its layout.
+  selectors: { '&[data-bar]': { display: 'grid' } },
 });
 
-export const header = style({ display: 'block', minInlineSize: 0, userSelect:'none', WebkitUserSelect:'none' });
+globalStyle(`${root} :is(input,textarea,[contenteditable]:not([contenteditable="false"]))`, { userSelect: 'text', WebkitUserSelect: 'text' });
+
+export const header = style({ display: 'block', gridRow: 1, gridColumn: 1, minInlineSize: 0, userSelect:'none', WebkitUserSelect:'none' });
 globalStyle(`${header} :is(input,textarea,[contenteditable]:not([contenteditable="false"]))`,{userSelect:'text',WebkitUserSelect:'text'});
 
 // The slim handle: a 6px visual rule inside a 12px (fine pointer) or 24px
@@ -39,6 +45,9 @@ export const handle = style({
   alignItems: 'center',
   justifyContent: 'center',
   inlineSize: '100%',
+  gridRow: 1,
+  gridColumn: 1,
+  alignSelf: 'center',
   blockSize: '12px',
   margin: 0,
   padding: `0 ${vars.space[2]}`,
@@ -79,10 +88,13 @@ export const handleText = style({
 });
 
 export const panel = style({
+  gridColumn: '1 / -1',
+  gridRow: 2,
   display: 'flex',
   alignItems: 'flex-start',
   minInlineSize: 0,
   selectors: {
+    [`${root}[data-header="false"][data-mode="pinned"] > &`]: { gridColumn: 1, gridRow: 1 },
     // Auto-hide, overlay: lifted out of the flow, over the content below,
     // under toasts (1100) and menus (1500).
     [`${root}[data-mode="auto"][data-reveal="overlay"] > &`]: {
@@ -123,8 +135,18 @@ export const panel = style({
 
 export const content = style({ flex: '1 1 auto', minInlineSize: 0 });
 
-// The pin toggle at the inline-end edge of the revealed bar (Office's pushpin).
-export const pin = style({
+// Both modes stay reachable beside the header/handle, outside the hidden panel.
+export const modes = style({
+  gridColumn: 2,
+  gridRow: 1,
+  alignSelf: 'center',
+  display: 'flex',
+  alignItems: 'center',
+  gap: '2px',
+  padding: '2px',
+});
+
+export const modeButton = style({
   appearance: 'none',
   flex: 'none',
   display: 'inline-flex',
@@ -132,18 +154,22 @@ export const pin = style({
   justifyContent: 'center',
   inlineSize: '24px',
   blockSize: '24px',
-  margin: '2px',
+  margin: 0,
   padding: 0,
   border: `${vars.border.rule} solid transparent`,
   borderRadius: vars.radius.sm,
   background: 'transparent',
   color: vars.color.textDim,
   cursor: 'pointer',
+  transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
   selectors: {
-    '&[aria-pressed="true"]': { color: vars.color.text },
-    '&:hover:not(:disabled)': { borderColor: vars.color.borderStrong },
+    '&[aria-pressed="true"]': { color: vars.color.accent, background: `color-mix(in srgb, ${vars.color.accent} 14%, transparent)`, borderColor: `color-mix(in srgb, ${vars.color.accent} 40%, transparent)` },
+    '&:hover:not(:disabled)': { color: vars.color.accent, background: `color-mix(in srgb, ${vars.color.accent} 22%, transparent)`, borderColor: vars.color.accent },
     '&:disabled': { cursor: 'not-allowed', opacity: 0.6 },
   },
   ':focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
-  '@media': { '(pointer: coarse)': { inlineSize: '44px', blockSize: '44px' } },
+  '@media': {
+    '(pointer: coarse)': { inlineSize: '28px', blockSize: '28px' },
+    '(prefers-reduced-motion: reduce)': { transition: 'none' },
+  },
 });

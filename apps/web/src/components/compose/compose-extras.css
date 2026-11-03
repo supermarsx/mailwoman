@@ -185,7 +185,7 @@
 .compose-ribbon__heading { display:flex; align-items:center; min-inline-size:0; }
 .compose-ribbon__heading .compose-rt__history { flex:none; border:0; }
 .compose-ribbon__heading .compose-rt__tabs { flex:1; min-inline-size:0; overflow-x:auto; overflow-y:hidden; scrollbar-width:none; border:0; }
-.compose-ribbon__heading [role=tab] { white-space:nowrap; }
+.compose-ribbon__heading [role=tab] { flex:none; white-space:nowrap; }
 .compose-ribbon__content { min-inline-size:0; }
 .compose-ribbon__panel[hidden] { display:none; }
 

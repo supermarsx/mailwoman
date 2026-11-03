@@ -48,6 +48,13 @@ it('starts every bar pinned and saves the choice to its registry key', () => {
   expect(fixture.save).toHaveBeenCalledWith('ui.bar.mailTopBar', 'auto');
 });
 
+it('keeps both icon choices visible and uses radio keyboard navigation to save a mode',()=>{
+ render(()=><BarPreferences/>);const row=group('Mail toolbar');const pinned=within(row).getByRole('radio',{name:'Always shown'}),hover=within(row).getByRole('radio',{name:'Auto-hide'});
+ expect(pinned.tagName).toBe('BUTTON');expect(hover.tagName).toBe('BUTTON');expect(pinned).toBeVisible();expect(hover).toBeVisible();expect(pinned).toHaveClass('btn');expect(pinned.querySelector('[data-icon="pin"]')).not.toBeNull();expect(hover.querySelector('[data-icon="eye"]')).not.toBeNull();expect(pinned).toHaveAttribute('tabindex','0');expect(hover).toHaveAttribute('tabindex','-1');
+ pinned.focus();fireEvent.keyDown(pinned,{key:'ArrowRight'});expect(hover).toHaveFocus();expect(fixture.save).toHaveBeenCalledExactlyOnceWith('ui.bar.mailTopBar','auto');
+ fireEvent.keyDown(hover,{key:'Home'});expect(pinned).toHaveFocus();expect(fixture.save).toHaveBeenCalledOnce();
+});
+
 it('shows the stored value and ignores a malformed one', () => {
   fixture.values = {'ui.bar.workspaceTabs': 'auto', 'ui.bar.mailRibbon': 'sideways'};
   render(() => <BarPreferences />);
