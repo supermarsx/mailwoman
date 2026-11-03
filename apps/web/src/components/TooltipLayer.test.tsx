@@ -54,7 +54,7 @@ it('dismisses immediately on tooltip hover and does not reopen until its anchor 
 it('dismisses click-through keyboard help when the pointer crosses its visible bounds',()=>{
   class TestPointerEvent extends MouseEvent {readonly pointerType='mouse';}
   vi.stubGlobal('PointerEvent',TestPointerEvent);
-  onTestFinished(()=>vi.unstubAllGlobals());
+  onTestFinished(()=>{vi.unstubAllGlobals();});
   render(()=><><button aria-label="Archive"/><TooltipLayer/></>);
   const button=screen.getByRole('button',{name:'Archive'});
   fireEvent.focusIn(button);
