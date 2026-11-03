@@ -366,6 +366,34 @@ describe('RibbonGroup: the folded dropdown', () => {
     expect(more()).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('flips a folded menu into the visible keyboard viewport and follows viewport changes', () => {
+    const viewport = new EventTarget() as EventTarget & { offsetTop: number; offsetLeft: number; width: number; height: number };
+    Object.assign(viewport, { offsetTop: 20, offsetLeft: 0, width: 320, height: 200 });
+    vi.stubGlobal('visualViewport', viewport);
+    mountInBar();
+    vi.spyOn(more(), 'getBoundingClientRect').mockReturnValue({ top: 180, bottom: 210, left: 12, right: 72 } as DOMRect);
+    const menu = popover();
+    Object.defineProperty(menu, 'offsetHeight', { configurable: true, get: () => Math.min(100, Number.parseFloat(menu.style.maxHeight) || Infinity) });
+    Object.defineProperty(menu, 'clientHeight', { configurable: true, get: () => Math.max(0, menu.offsetHeight - 4) });
+    Object.defineProperty(menu, 'scrollHeight', { configurable: true, value: 96 });
+    Object.defineProperty(popover(), 'offsetWidth', { configurable: true, value: 150 });
+    fireEvent.click(more());
+    vi.runAllTicks();
+    expect(popover().style.top).toBe('78px');
+    expect(popover().style.maxHeight).toBe('184px');
+    viewport.offsetTop = 100;
+    viewport.height = 80;
+    viewport.dispatchEvent(new Event('resize'));
+    expect(popover().style.top).toBe('108px');
+    expect(popover().style.maxHeight).toBe('64px');
+    expect(more()).toHaveAttribute('aria-expanded', 'true');
+    viewport.offsetTop = 20;
+    viewport.height = 200;
+    viewport.dispatchEvent(new Event('resize'));
+    expect(popover().style.top).toBe('78px');
+    expect(popover().style.maxHeight).toBe('184px');
+  });
+
   it('closes its popover when the ribbon grows and the group opens again', () => {
     mountInBar();
     fireEvent.click(document.querySelector('[data-bar-handle]')!);

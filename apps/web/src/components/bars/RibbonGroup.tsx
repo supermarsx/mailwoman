@@ -53,7 +53,7 @@ export function RibbonGroup(props: RibbonGroupProps): JSX.Element {
   const folded = (): boolean => registration?.folded() ?? false;
 
   const [popoverOpen, setPopoverOpen] = createSignal(false);
-  const [position, setPosition] = createSignal<{ top: number; left?: number; right?: number }>({ top: 0 });
+  const [position, setPosition] = createSignal<{ top: number; left?: number; right?: number; maxHeight?: number }>({ top: 0 });
   let release: (() => void) | null = null;
 
   // One controls element, moved between the group and the popover.
@@ -66,10 +66,22 @@ export function RibbonGroup(props: RibbonGroupProps): JSX.Element {
   function place(): void {
     const rect = buttonEl?.getBoundingClientRect();
     if (!rect) return;
-    const rtl = getComputedStyle(buttonEl!).direction === 'rtl';
-    const top = rect.bottom + 2;
-    if (rtl) setPosition({ top, right: Math.max(8, window.innerWidth - rect.right) });
-    else setPosition({ top, left: Math.max(8, Math.min(rect.left, window.innerWidth - 8 - (popoverEl?.offsetWidth ?? 0))) });
+    const view = buttonEl!.ownerDocument.defaultView;
+    if (!view) return;
+    const viewport = view.visualViewport;
+    const start = (viewport?.offsetLeft ?? 0) + 8;
+    const end = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? view.innerWidth) - 8;
+    const upper = (viewport?.offsetTop ?? 0) + 8;
+    const lower = (viewport?.offsetTop ?? 0) + (viewport?.height ?? view.innerHeight) - 8;
+    const maxHeight = Math.max(0, lower - upper);
+    const naturalHeight = popoverEl ? popoverEl.scrollHeight + popoverEl.offsetHeight - popoverEl.clientHeight : 0;
+    const height = Math.min(naturalHeight, maxHeight);
+    const top = Math.max(upper, Math.min(rect.bottom + 2 + height <= lower ? rect.bottom + 2 : rect.top - 2 - height, lower - height));
+    const width = popoverEl?.offsetWidth ?? 0;
+    const rtl = view.getComputedStyle(buttonEl!).direction === 'rtl';
+    const left = Math.max(start, Math.min(rtl ? rect.right - width : rect.left, end - width));
+    if (rtl) setPosition({ top, right: view.innerWidth - left - width, maxHeight });
+    else setPosition({ top, left, maxHeight });
   }
 
   function openPopover(): void {
@@ -98,6 +110,20 @@ export function RibbonGroup(props: RibbonGroupProps): JSX.Element {
     closePopover();
   };
   onMount(() => document.addEventListener('pointerdown', onDocumentPointerDown, true));
+  onMount(() => {
+    const view = groupEl?.ownerDocument.defaultView;
+    const reposition = (): void => { if (popoverOpen()) place(); };
+    view?.addEventListener('resize', reposition);
+    view?.addEventListener('scroll', reposition, true);
+    view?.visualViewport?.addEventListener('resize', reposition);
+    view?.visualViewport?.addEventListener('scroll', reposition);
+    onCleanup(() => {
+      view?.removeEventListener('resize', reposition);
+      view?.removeEventListener('scroll', reposition, true);
+      view?.visualViewport?.removeEventListener('resize', reposition);
+      view?.visualViewport?.removeEventListener('scroll', reposition);
+    });
+  });
   onCleanup(() => {
     document.removeEventListener('pointerdown', onDocumentPointerDown, true);
     release?.();
@@ -158,6 +184,7 @@ export function RibbonGroup(props: RibbonGroupProps): JSX.Element {
               top: `${position().top}px`,
               left: position().left === undefined ? undefined : `${position().left}px`,
               right: position().right === undefined ? undefined : `${position().right}px`,
+              'max-height': position().maxHeight === undefined ? undefined : `${position().maxHeight}px`,
             }}
           >
             {controls}

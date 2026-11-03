@@ -172,6 +172,6 @@ export const popover = style({
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
   boxShadow: vars.elevation[3],
   overflowX: 'auto',
-  overflowY: 'hidden',
+  overflowY: 'auto',
   selectors: { '&[hidden]': { display: 'none' } },
 });
