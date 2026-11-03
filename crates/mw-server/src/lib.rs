@@ -1367,6 +1367,7 @@ async fn build_app_inner(
         directory: directory.clone(),
     };
     jobs::start(state.clone());
+    image_proxy::remote_content::start_capacity_monitor(state.clone());
     geoip::start(state.clone(), geoip_dir);
     let v7 = V7Extensions {
         directory,

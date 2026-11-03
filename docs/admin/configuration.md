@@ -398,9 +398,10 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.maxbytes"></a>`privacy.maxBytes` | privacy | global | 8388608 | plain |  | yes | Largest fetched remote image in bytes |
 | <a id="privacy.cachebytes"></a>`privacy.cacheBytes` | privacy | global | 33554432 | plain |  | yes | Remote image cache size in bytes |
 | <a id="privacy.ratepermin"></a>`privacy.ratePerMin` | privacy | global | 600 | plain |  | yes | Remote fetches per account per minute |
-| <a id="privacy.maxconcurrentglobal"></a>`privacy.maxConcurrentGlobal` | privacy | global | 32 | plain |  | yes | Maximum active remote-image network fetches per replica |
-| <a id="privacy.maxconcurrentpipeline"></a>`privacy.maxConcurrentPipeline` | privacy | global | 64 | plain |  | yes | Maximum in-flight remote images including fetched buffers and decode work per replica |
-| <a id="privacy.maxconcurrentdecodes"></a>`privacy.maxConcurrentDecodes` | privacy | global | 4 | plain |  | yes | Maximum simultaneous sandboxed image decoders per replica |
+| <a id="privacy.imageconcurrencymode"></a>`privacy.imageConcurrencyMode` | privacy | global | "auto" | plain |  | yes | Image concurrency preset; automatic sizing uses instance CPU, container memory and authorized message image counts within explicit numeric ceilings |
+| <a id="privacy.maxconcurrentglobal"></a>`privacy.maxConcurrentGlobal` | privacy | global | 128 | plain |  | yes | Maximum active remote-image network fetches per replica |
+| <a id="privacy.maxconcurrentpipeline"></a>`privacy.maxConcurrentPipeline` | privacy | global | 128 | plain |  | yes | Maximum in-flight remote images including fetched buffers and decode work per replica |
+| <a id="privacy.maxconcurrentdecodes"></a>`privacy.maxConcurrentDecodes` | privacy | global | 10 | plain |  | yes | Maximum simultaneous sandboxed image decoders per replica |
 | <a id="privacy.maxqueuedrequests"></a>`privacy.maxQueuedRequests` | privacy | global | 2048 | plain |  | yes | Maximum waiters and distinct remote-image flights per replica |
 | <a id="privacy.rateburst"></a>`privacy.rateBurst` | privacy | global | 512 | plain |  | yes | Remote-image burst allowance per account, separate from sustained refill |
 | <a id="privacy.cachettlsecs"></a>`privacy.cacheTtlSecs` | privacy | global | 3600 | plain |  | yes | Maximum age of cached re-encoded remote images in seconds; zero disables reuse |
@@ -414,8 +415,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.imagedecodetimeoutms"></a>`privacy.imageDecodeTimeoutMs` | privacy | global | 10000 | plain |  | yes | Maximum sandboxed image decode time in milliseconds, separate from network and queue budgets |
 | <a id="privacy.fetchqueuetimeoutms"></a>`privacy.fetchQueueTimeoutMs` | privacy | global | 60000 | plain |  | yes | Maximum queue wait budget for remote images in milliseconds; actual fetches retain their own total timeout |
 | <a id="privacy.maxredirects"></a>`privacy.maxRedirects` | privacy | global | 3 | plain |  | yes | Redirects followed per remote image |
-| <a id="privacy.maxconcurrentpermessage"></a>`privacy.maxConcurrentPerMessage` | privacy | global | 16 | plain |  | yes | Remote image fetches at a time per message |
-| <a id="privacy.maxconcurrentperaccount"></a>`privacy.maxConcurrentPerAccount` | privacy | global | 64 | plain |  | yes | Remote image fetches at a time per account |
+| <a id="privacy.maxconcurrentpermessage"></a>`privacy.maxConcurrentPerMessage` | privacy | global | 30 | plain |  | yes | Remote image fetches at a time per message |
+| <a id="privacy.maxconcurrentperaccount"></a>`privacy.maxConcurrentPerAccount` | privacy | global | 128 | plain |  | yes | Remote image fetches at a time per account |
 | <a id="privacy.allowdirect"></a>`privacy.allowDirect` | privacy | global | false | plain |  | yes | Permit direct remote-content mode with the direct-content capability |
 | <a id="cap.remote-content.direct"></a>`cap.remote_content.direct` | privacy | global+domain+admin_user | false | plain |  | yes | Permit this account to load remote images directly |
 | <a id="session.maxconcurrent"></a>`session.maxConcurrent` | signin | global+domain+admin_user | 10 | plain |  | yes | Maximum concurrent mailbox sessions |

@@ -675,20 +675,27 @@ against the same address rules as the first request (private, loopback,
 link-local and metadata ranges, and IPv6 forms that embed them such as NAT64,
 6to4, Teredo and ISATAP).
 <a id="privacy.maxConcurrentPerMessage"></a>
-`privacy.maxConcurrentPerMessage`: 1–128, default 16. Further images of the message wait for a slot within the queue budget.
+`privacy.maxConcurrentPerMessage`: 1–128, default 30. Further images of the message wait for a slot within the queue budget.
 <a id="privacy.maxConcurrentPerAccount"></a>
-`privacy.maxConcurrentPerAccount`: 1–256, default 64, across all open messages and tabs of one account. Server-wide network and pipeline ceilings apply on top.
+`privacy.maxConcurrentPerAccount`: 1–256, default 128, across all open messages and tabs of one account. Server-wide network and pipeline ceilings apply on top.
 
 The network, queue, concurrency, rate and cache controls are global, hot settings. Timeouts are logged at debug level with the
 phase that fired and the elapsed time, never the image address.
+<a id="privacy.imageConcurrencyMode"></a>
+`privacy.imageConcurrencyMode` is a global, hot enum: `auto` (default), `conservative`, `balanced`, `throughput`, or `manual`. Admin › Privacy offers Automatic, Low resource, Balanced, High throughput and Manual in one themed selector. Applying a profile writes this enum once with an ETag; it never rewrites the numeric settings. A stale or refused write leaves the selected choice available for review and retry.
+
+Adaptive sizing is on by default. Automatic and the three named presets use available CPU/container-memory information, the numeric ceilings below and preset safety caps. They also account for each message's approved image count. The runtime summary reports real instance resource observations, effective limits, numeric ceilings and active network/pipeline/decode/queue counts; unknown memory observations are shown as unavailable. Its effective per-message value is an instance upper bound: an individual message uses at most that bound or its approved image count, whichever is smaller. Manual uses the numeric ceilings directly. The defaults allow ceilings of 30 per message, 128 per account and globally, 128 processing pipelines, and 10 decoders; adaptive modes can select lower effective values for the current instance.
+
+Active or queued work is re-evaluated every five seconds without requiring an open admin page. Linux sizing honors CPU affinity, fractional cgroup quotas and ancestor memory limits/headroom; Windows uses available CPU capacity and physical memory. Decoder admission reserves the sandbox's full 512 MiB bound as well as fetched-image buffers. Retry subsets retain the message's larger approved count. Hot reductions drain existing permits, and hot increases can wake the already queued batch.
+
 Additional parallelism and cache controls are available in Admin › Privacy › Remote image fetching, with links to the policy editors:
 
 | Setting | Default | Range | Meaning |
 | --- | ---: | --- | --- |
 | <a id="privacy.imageDecodeTimeoutMs"></a>`privacy.imageDecodeTimeoutMs` | 10000 ms | 1000–60000 ms | Wall-clock budget for one sandboxed decode after fetching; independent from network timeouts. |
-| <a id="privacy.maxConcurrentGlobal"></a>`privacy.maxConcurrentGlobal` | 32 | 1–256 | Active remote image network requests in this process. |
-| <a id="privacy.maxConcurrentPipeline"></a>`privacy.maxConcurrentPipeline` | 64 | 1–256 | Admitted image pipelines, retained through decode and cache publication. |
-| <a id="privacy.maxConcurrentDecodes"></a>`privacy.maxConcurrentDecodes` | 4 | 1–16 | CPU image decodes running simultaneously. |
+| <a id="privacy.maxConcurrentGlobal"></a>`privacy.maxConcurrentGlobal` | 128 | 1–256 | Active remote image network requests in this process. |
+| <a id="privacy.maxConcurrentPipeline"></a>`privacy.maxConcurrentPipeline` | 128 | 1–256 | Admitted image pipelines, retained through decode and cache publication. |
+| <a id="privacy.maxConcurrentDecodes"></a>`privacy.maxConcurrentDecodes` | 10 | 1–16 | CPU image decodes running simultaneously. |
 | <a id="privacy.maxQueuedRequests"></a>`privacy.maxQueuedRequests` | 2048 | 16–16384 | Requests waiting for network or pipeline capacity; overflow remains retryable. |
 | <a id="privacy.rateBurst"></a>`privacy.rateBurst` | 512 | 1–12000 | Maximum per-account fetch tokens, replenished at `privacy.ratePerMin`. |
 | <a id="privacy.cacheTtlSecs"></a>`privacy.cacheTtlSecs` | 3600 s | 0–86400 s | Successful decoded-image reuse; zero disables reuse. |

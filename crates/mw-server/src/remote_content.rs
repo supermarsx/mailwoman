@@ -107,17 +107,122 @@ impl ImageAdmission {
 fn image_pipeline() -> &'static Arc<super::capacity::Capacity> {
     static PIPELINE: std::sync::OnceLock<Arc<super::capacity::Capacity>> =
         std::sync::OnceLock::new();
-    PIPELINE.get_or_init(|| super::capacity::Capacity::new(64))
+    PIPELINE.get_or_init(|| super::capacity::Capacity::new(128))
 }
 fn decoders() -> &'static Arc<super::capacity::Capacity> {
     static DECODERS: std::sync::OnceLock<Arc<super::capacity::Capacity>> =
         std::sync::OnceLock::new();
-    DECODERS.get_or_init(|| super::capacity::Capacity::new(4))
+    DECODERS.get_or_init(|| super::capacity::Capacity::new(10))
 }
-pub(super) fn configure_capacity(limits: &FetchLimits) {
-    fetch_semaphore().configure(limits.global);
-    image_pipeline().configure(limits.pipeline);
-    decoders().configure(limits.decodes);
+#[derive(Default)]
+struct CapacityController {
+    owner: Option<std::time::Instant>,
+    configured: Option<(std::time::Instant, FetchLimits)>,
+    effective: Option<super::adaptive::Limits>,
+    revision: u64,
+}
+fn capacity_controller() -> &'static tokio::sync::Mutex<CapacityController> {
+    static CONTROLLER: std::sync::OnceLock<tokio::sync::Mutex<CapacityController>> =
+        std::sync::OnceLock::new();
+    CONTROLLER.get_or_init(|| tokio::sync::Mutex::new(CapacityController::default()))
+}
+
+/// Re-evaluate queued batches even when their browser has already submitted all
+/// requests. Idle instances perform no background settings reads.
+pub(crate) fn start_capacity_monitor(state: AppState) {
+    tokio::spawn(async move {
+        let mut timer = tokio::time::interval(std::time::Duration::from_secs(5));
+        timer.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+        timer.tick().await;
+        loop {
+            timer.tick().await;
+            if fetch_semaphore().active() == 0
+                && image_pipeline().active() == 0
+                && decoders().active() == 0
+                && fetch_limits::waiting() == 0
+                && image_flight::waiting() == 0
+            {
+                continue;
+            }
+            let _ = refresh_capacity(&state, None, true).await;
+        }
+    });
+}
+/// Resize only from a current authoritative global snapshot. An older request
+/// resumed after a flight wait cannot reinstall its captured pre-change limits.
+pub(super) async fn configure_capacity(
+    state: &AppState,
+    hint: Option<&FetchLimits>,
+) -> Result<FetchLimits, Response> {
+    refresh_capacity(state, hint, false)
+        .await
+        .map(|limits| limits.expect("foreground capacity"))
+}
+async fn refresh_capacity(
+    state: &AppState,
+    hint: Option<&FetchLimits>,
+    background: bool,
+) -> Result<Option<FetchLimits>, Response> {
+    let mut controller = capacity_controller().lock().await;
+    if background && controller.owner != Some(state.started) {
+        return Ok(None);
+    }
+    let owner_changed = controller.owner != Some(state.started);
+    controller.owner = Some(state.started);
+    let candidate = hint.map(|value| {
+        let mut value = *value;
+        value.runtime = None;
+        value
+    });
+    let refresh = controller
+        .configured
+        .as_ref()
+        .is_none_or(|(at, configured)| {
+            owner_changed
+                || at.elapsed() >= std::time::Duration::from_secs(5)
+                || candidate.as_ref() != Some(configured)
+        });
+    let mut changed = owner_changed;
+    if refresh {
+        let current = crate::remote_policy::instance_limits(state)
+            .await
+            .map_err(|_| internal("image capacity settings"))?;
+        changed |= controller
+            .configured
+            .as_ref()
+            .is_none_or(|(_, previous)| *previous != current);
+        controller.configured = Some((std::time::Instant::now(), current));
+    }
+    let mut limits = controller
+        .configured
+        .as_ref()
+        .expect("initialized capacity")
+        .1;
+    let resources = super::resources::snapshot();
+    let effective = super::adaptive::calculate(
+        limits.concurrency_mode,
+        limits.ceilings(),
+        resources,
+        limits.image_bytes,
+        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+    );
+    if changed || controller.effective != Some(effective) || controller.revision == 0 {
+        controller.revision = controller.revision.saturating_add(1);
+        controller.effective = Some(effective);
+        apply_capacity(&limits, effective);
+    }
+    limits.runtime = Some(super::adaptive::Runtime {
+        resources,
+        effective,
+        revision: controller.revision,
+    });
+    fetch_limits::advance(limits.runtime.expect("runtime capacity"));
+    Ok(Some(limits))
+}
+fn apply_capacity(limits: &FetchLimits, effective: super::adaptive::Limits) {
+    fetch_semaphore().configure(effective.global);
+    image_pipeline().configure(effective.pipeline);
+    decoders().configure(effective.decoders);
     super::admission_waiters().configure(limits.queued);
 }
 
@@ -727,6 +832,17 @@ pub(crate) async fn sign(
             "src": format!("{}/api/rc/p/{token}", state.base_path),
         }));
     }
+    let image_count = images
+        .iter()
+        .filter_map(|image| image["url"].as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len()
+        + parts
+            .iter()
+            .filter_map(|part| part["blobId"].as_str())
+            .collect::<std::collections::HashSet<_>>()
+            .len();
+    fetch_limits::register_images(&session.account_id, &body.email_id, image_count);
     Json(json!({ "images": images, "parts": parts, "files": files, "imageDownloads": image_downloads, "refused": refused }))
         .into_response()
 }
@@ -1132,7 +1248,10 @@ async fn fetch_image(
     if let Some(response) = cached_response() {
         return response;
     }
-    configure_capacity(&policy.fetch);
+    let current = match configure_capacity(&state, Some(&policy.fetch)).await {
+        Ok(current) => current,
+        Err(response) => return response,
+    };
     let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
     let Some(flight) = image_flight::acquire(
@@ -1140,7 +1259,7 @@ async fn fetch_image(
         &key.route,
         &claims.u,
         queue_deadline,
-        policy.fetch.queued,
+        current.queued,
     )
     .await
     else {
@@ -1293,10 +1412,10 @@ pub(super) async fn guarded_fetch(
     deadline: std::time::Instant,
 ) -> Result<(Vec<u8>, Option<String>, ImageAdmission), Response> {
     let limits = policy.fetch;
-    configure_capacity(&limits);
+    let current = configure_capacity(state, Some(&limits)).await?;
     let queue_deadline = limits.queue_deadline(deadline);
     let started = std::time::Instant::now();
-    let Some(slot) = fetch_limits::acquire(account, message, &limits, queue_deadline).await else {
+    let Some(slot) = fetch_limits::acquire(account, message, &current, queue_deadline).await else {
         tracing::debug!(
             target: "mw_server::remote_content",
             phase = "slot",
@@ -1526,14 +1645,21 @@ pub(crate) async fn part(
         preview: Some(true),
         acknowledge_warning: None,
     };
-    configure_capacity(&policy.fetch);
+    let current = match configure_capacity(&state, Some(&policy.fetch)).await {
+        Ok(current) => current,
+        Err(response) => return response,
+    };
     let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
+    let Some(slot) = fetch_limits::acquire(&claims.a, &claims.e, &current, queue_deadline).await
+    else {
+        return busy_response();
+    };
     let Some(pipeline) = acquire_bounded_permit(image_pipeline(), queue_deadline).await else {
         return busy_response();
     };
     let admission = ImageAdmission {
-        _message: None,
+        _message: Some(slot),
         _pipeline: pipeline,
         _flight: None,
     };
@@ -1701,10 +1827,29 @@ pub(crate) async fn file(
 }
 
 pub(crate) async fn stats(
-    State(_state): State<AppState>,
+    State(state): State<AppState>,
     ctx: crate::admin_ctx::AdminCtx,
 ) -> Result<Json<serde_json::Value>, crate::admin_ctx::AdminApiError> {
     ctx.require_unscoped(crate::capabilities::Capability::EgressRead)?;
+    let limits = configure_capacity(&state, None).await.map_err(|_| {
+        crate::admin_ctx::AdminApiError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "imageCapacityUnavailable",
+            "Image capacity settings could not be read.",
+        )
+    })?;
+    let runtime = limits.runtime.expect("configured runtime capacity");
+    let resources = runtime.resources;
+    let effective = runtime.effective;
+    let capacity_json = |capacity: super::adaptive::Limits| json!({"perMessage":capacity.per_message,"perAccount":capacity.per_account,"global":capacity.global,"pipeline":capacity.pipeline,"decoders":capacity.decoders});
+    let image_concurrency = json!({
+        "mode":limits.concurrency_mode.as_str(),"adaptive":limits.concurrency_mode!=super::adaptive::Mode::Manual,
+        "cpuCores":f64::from(resources.cpu_millis)/1000.0,
+        "memoryLimitBytes":resources.memory_limit_bytes,"memoryAvailableBytes":resources.memory_available_bytes,
+        "ceilings":capacity_json(limits.ceilings()),"effective":capacity_json(effective),
+        "active":{"network":fetch_semaphore().active(),"pipeline":image_pipeline().active(),"decoders":decoders().active(),
+        "queued":fetch_limits::waiting()+fetch_semaphore().waiting()+image_pipeline().waiting()+decoders().waiting()+image_flight::waiting()}
+    });
     let cache = cache().lock().expect("image cache lock");
     let traffic: Vec<_> = mw_egress::plan::counts()
         .into_iter()
@@ -1717,7 +1862,7 @@ pub(crate) async fn stats(
         .collect();
     Ok(Json(
         json!({"cacheEntries":cache.map.len(),"cacheBytes":cache.bytes,
-        "trackersReplaced":TRACKERS_REPLACED.load(Ordering::Relaxed),"traffic":traffic}),
+        "trackersReplaced":TRACKERS_REPLACED.load(Ordering::Relaxed),"traffic":traffic,"imageConcurrency":image_concurrency}),
     ))
 }
 

@@ -1,12 +1,17 @@
 //! Bounded, account- and route-separated image miss coordination. No URL or
 //! account identifier is retained. Authorization happens before admission.
 use sha2::{Digest, Sha256};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex, OnceLock, Weak},
     time::Instant,
 };
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
+static WAITING: AtomicUsize = AtomicUsize::new(0);
+pub(crate) fn waiting() -> usize {
+    WAITING.load(Ordering::Relaxed)
+}
 
 #[cfg(test)]
 const CAPACITY: usize = 2048;
@@ -63,6 +68,17 @@ pub(crate) async fn acquire(
     let slot = FLIGHTS
         .get_or_init(Flights::default)
         .slot_with_capacity(account, route, url, capacity)?;
+    if let Ok(guard) = slot.clone().try_lock_owned() {
+        return (Instant::now() < deadline).then_some(guard);
+    }
+    struct Waiting;
+    impl Drop for Waiting {
+        fn drop(&mut self) {
+            WAITING.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+    WAITING.fetch_add(1, Ordering::Relaxed);
+    let _waiting = Waiting;
     let guard =
         tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), slot.lock_owned())
             .await

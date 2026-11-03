@@ -28,10 +28,10 @@
 //! forgets the entries for the URLs it signs.
 
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-use super::super::capacity::{Capacity, Permit};
+use super::super::capacity::Permit;
 use mw_egress::{FetchTimeouts, Refusal};
 use sha2::{Digest, Sha256};
 
@@ -39,8 +39,6 @@ use sha2::{Digest, Sha256};
 pub(crate) const NEGATIVE_TTL: Duration = Duration::from_secs(10);
 /// Most negative entries kept; the oldest go first.
 const NEGATIVE_CAPACITY: usize = 2048;
-/// Prune idle slot entries once a map holds this many.
-const SLOT_PRUNE_AT: usize = 1024;
 /// Most messages with load outcomes kept, and URLs per message.
 const OUTCOME_MESSAGES: usize = 1024;
 const OUTCOME_URLS: usize = 256;
@@ -48,6 +46,9 @@ const OUTCOME_URLS: usize = 256;
 /// The effective limits for one fetch, from `privacy.*` (see `remote_policy`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FetchLimits {
+    pub concurrency_mode: super::super::adaptive::Mode,
+    pub image_bytes: usize,
+    pub runtime: Option<super::super::adaptive::Runtime>,
     pub timeouts: FetchTimeouts,
     pub queue_timeout: Duration,
     pub decode_timeout: Duration,
@@ -62,20 +63,32 @@ pub(crate) struct FetchLimits {
 impl Default for FetchLimits {
     fn default() -> Self {
         Self {
+            concurrency_mode: super::super::adaptive::Mode::Auto,
+            image_bytes: 8 * 1024 * 1024,
+            runtime: None,
             timeouts: FetchTimeouts::REMOTE_IMAGE,
             queue_timeout: Duration::from_secs(60),
             decode_timeout: Duration::from_secs(10),
-            global: 32,
-            pipeline: 64,
-            decodes: 4,
+            global: 128,
+            pipeline: 128,
+            decodes: 10,
             queued: 2048,
-            per_message: 16,
-            per_account: 64,
+            per_message: 30,
+            per_account: 128,
         }
     }
 }
 
 impl FetchLimits {
+    pub(crate) fn ceilings(self) -> super::super::adaptive::Limits {
+        super::super::adaptive::Limits {
+            per_message: self.per_message,
+            per_account: self.per_account,
+            global: self.global,
+            pipeline: self.pipeline,
+            decoders: self.decodes,
+        }
+    }
     /// One absolute bound for admission, fetching and image processing. Queue
     /// time adds headroom; it never widens an individual network phase.
     pub(crate) fn overall_budget(self) -> Duration {
@@ -117,30 +130,7 @@ fn digest(parts: &[&str]) -> [u8; 32] {
 
 // ── concurrency ───────────────────────────────────────────────────────────────
 
-#[derive(Default)]
-struct Slots(HashMap<[u8; 32], (usize, Arc<Capacity>)>);
-
-impl Slots {
-    /// The stable semaphore for `key`, resized in place. Reductions drain held
-    /// permits instead of admitting a second pool alongside existing fetches.
-    fn get(&mut self, key: [u8; 32], size: usize) -> Arc<Capacity> {
-        if self.0.len() >= SLOT_PRUNE_AT {
-            self.0.retain(|_, (size, sem)| {
-                Arc::strong_count(sem) > 1 || sem.available_permits() != *size
-            });
-        }
-        let size = size.max(1);
-        let entry = self
-            .0
-            .entry(key)
-            .or_insert_with(|| (size, Capacity::new(size)));
-        if entry.0 != size {
-            entry.1.configure(size);
-            entry.0 = size;
-        }
-        entry.1.clone()
-    }
-}
+use super::super::slots::Slots;
 
 fn slots() -> &'static Mutex<Slots> {
     static SLOTS: OnceLock<Mutex<Slots>> = OnceLock::new();
@@ -161,11 +151,30 @@ pub(crate) async fn acquire(
     limits: &FetchLimits,
     deadline: Instant,
 ) -> Option<FetchSlot> {
+    let revision = limits.runtime.map_or(0, |runtime| runtime.revision);
+    let message_limit = super::super::adaptive::message_limit(
+        if limits.runtime.is_some() {
+            usize::MAX
+        } else {
+            limits.per_message
+        },
+        super::super::demand::count(&digest(&["image-count", account, message])),
+    );
+    let account_limit = if limits.runtime.is_some() {
+        usize::MAX
+    } else {
+        limits.per_account
+    };
     let (message_sem, account_sem) = {
         let mut slots = slots().lock().expect("fetch slot lock");
         (
-            slots.get(digest(&["m", account, message]), limits.per_message),
-            slots.get(digest(&["a", account]), limits.per_account),
+            slots.get(
+                digest(&["m", account, message]),
+                message_limit,
+                false,
+                revision,
+            ),
+            slots.get(digest(&["a", account]), account_limit, true, revision),
         )
     };
     let deadline = tokio::time::Instant::from_std(deadline);
@@ -181,6 +190,18 @@ pub(crate) async fn acquire(
         _message: message,
         _account: account,
     })
+}
+
+pub(crate) fn register_images(account: &str, message: &str, count: usize) {
+    super::super::demand::record(digest(&["image-count", account, message]), count);
+}
+
+pub(crate) fn advance(runtime: super::super::adaptive::Runtime) {
+    slots().lock().expect("fetch slot lock").advance(runtime);
+}
+
+pub(crate) fn waiting() -> usize {
+    slots().lock().expect("fetch slot lock").waiting()
 }
 
 // ── negative cache ────────────────────────────────────────────────────────────

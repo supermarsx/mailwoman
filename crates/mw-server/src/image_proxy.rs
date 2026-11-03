@@ -150,7 +150,7 @@ pub(crate) const SHELL_CSP_TIGHTENED: &str = "default-src 'none'; \
 // `MAX_REDIRECTS`). The two below are the image proxy's own.
 
 /// Global concurrent-fetch ceiling — bounds proxy load + upstream fan-out.
-const MAX_CONCURRENT: usize = 32;
+const MAX_CONCURRENT: usize = 128;
 
 // ── re-encoded-image cache bounds (t22-e7 P2) ─────────────────────────────────
 //
@@ -866,8 +866,16 @@ fn cache() -> &'static Mutex<ProxyCache> {
     })
 }
 
+#[path = "remote_image_adaptive.rs"]
+pub(super) mod adaptive;
 #[path = "remote_image_capacity.rs"]
 pub(super) mod capacity;
+#[path = "remote_image_demand.rs"]
+pub(super) mod demand;
+#[path = "remote_image_resources.rs"]
+pub(super) mod resources;
+#[path = "remote_image_slots.rs"]
+pub(super) mod slots;
 
 /// Stable capacity is resized in place: a hot reduction drains existing work.
 fn fetch_semaphore() -> &'static Arc<capacity::Capacity> {
@@ -1158,7 +1166,10 @@ async fn proxy_image(
     if let Some(response) = cached_response() {
         return response;
     }
-    remote_content::configure_capacity(&policy.fetch);
+    let current = match remote_content::configure_capacity(&state, Some(&policy.fetch)).await {
+        Ok(current) => current,
+        Err(response) => return response,
+    };
     let deadline = Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
     let Some(flight) = remote_content::image_flight::acquire(
@@ -1166,7 +1177,7 @@ async fn proxy_image(
         &key.route,
         &q.url,
         queue_deadline,
-        policy.fetch.queued,
+        current.queued,
     )
     .await
     else {

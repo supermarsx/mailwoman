@@ -1242,9 +1242,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "Remote fetches per account per minute"
     ),
     def!(
+        "privacy.imageConcurrencyMode",
+        Kind::Enum(&["auto", "conservative", "balanced", "throughput", "manual"]),
+        "\"auto\"",
+        G,
+        "privacy",
+        "Image concurrency preset; automatic sizing uses instance CPU, container memory and authorized message image counts within explicit numeric ceilings"
+    ),
+    def!(
         "privacy.maxConcurrentGlobal",
         int(1, 256),
-        "32",
+        "128",
         G,
         "privacy",
         "Maximum active remote-image network fetches per replica"
@@ -1252,7 +1260,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.maxConcurrentPipeline",
         int(1, 256),
-        "64",
+        "128",
         G,
         "privacy",
         "Maximum in-flight remote images including fetched buffers and decode work per replica"
@@ -1260,7 +1268,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.maxConcurrentDecodes",
         int(1, 16),
-        "4",
+        "10",
         G,
         "privacy",
         "Maximum simultaneous sandboxed image decoders per replica"
@@ -1372,7 +1380,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.maxConcurrentPerMessage",
         int(1, 128),
-        "16",
+        "30",
         G,
         "privacy",
         "Remote image fetches at a time per message"
@@ -1380,7 +1388,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.maxConcurrentPerAccount",
         int(1, 256),
-        "64",
+        "128",
         G,
         "privacy",
         "Remote image fetches at a time per account"
@@ -5006,12 +5014,12 @@ mod tests {
             ("privacy.fetchQueueTimeoutMs", 1000, 180000, 60000),
             ("privacy.imageDecodeTimeoutMs", 1000, 60000, 10000),
             ("privacy.maxRedirects", 0, 10, 3),
-            ("privacy.maxConcurrentGlobal", 1, 256, 32),
-            ("privacy.maxConcurrentPipeline", 1, 256, 64),
-            ("privacy.maxConcurrentDecodes", 1, 16, 4),
+            ("privacy.maxConcurrentGlobal", 1, 256, 128),
+            ("privacy.maxConcurrentPipeline", 1, 256, 128),
+            ("privacy.maxConcurrentDecodes", 1, 16, 10),
             ("privacy.maxQueuedRequests", 16, 16384, 2048),
-            ("privacy.maxConcurrentPerMessage", 1, 128, 16),
-            ("privacy.maxConcurrentPerAccount", 1, 256, 64),
+            ("privacy.maxConcurrentPerMessage", 1, 128, 30),
+            ("privacy.maxConcurrentPerAccount", 1, 256, 128),
         ];
         assert_eq!(
             expected.map(|(k, ..)| k),

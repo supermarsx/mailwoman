@@ -76,6 +76,9 @@ pub(crate) fn fetch_limits(
     };
     let t = defaults.timeouts;
     crate::image_proxy::remote_content::FetchLimits {
+        concurrency_mode: defaults.concurrency_mode,
+        image_bytes: defaults.image_bytes,
+        runtime: None,
         queue_timeout: ms(
             "privacy.fetchQueueTimeoutMs",
             defaults.queue_timeout,
@@ -114,6 +117,7 @@ pub(crate) fn fetch_limits(
     }
 }
 const POLICY_KEYS: &[&str] = &[
+    "privacy.imageConcurrencyMode",
     "privacy.remoteContent",
     "privacy.remoteImageDownloads",
     "privacy.trackers",
@@ -197,7 +201,14 @@ pub(crate) async fn effective(
             .map(|n| n as usize)
             .unwrap_or(fallback)
     };
-    let fetch = fetch_limits(|key| values.get(key).and_then(|e| e.value.as_u64()));
+    let mut fetch = fetch_limits(|key| values.get(key).and_then(|e| e.value.as_u64()));
+    fetch.concurrency_mode = crate::image_proxy::adaptive::Mode::parse(
+        values
+            .get("privacy.imageConcurrencyMode")
+            .and_then(|e| e.value.as_str())
+            .unwrap_or("auto"),
+    );
+    fetch.image_bytes = number("privacy.maxBytes", 8 * 1024 * 1024);
     let allow_direct = boolean("privacy.allowDirect") && boolean("cap.remote_content.direct");
     let mut mode = values
         .get("privacy.remoteContent")
@@ -239,6 +250,38 @@ pub(crate) async fn effective(
         fetch,
     })
 }
+/// Global sizing for administrative diagnostics. No account/domain preference
+/// can raise these replica-wide resource ceilings.
+pub(crate) async fn instance_limits(
+    state: &AppState,
+) -> Result<crate::image_proxy::remote_content::FetchLimits, mw_store::StoreError> {
+    let subject = mw_store::settings_policy::SettingSubject::default();
+    let values = settings_registry::effective_all(&state.store, &subject, |d| {
+        FETCH_KEYS.contains(&d.key)
+            || matches!(d.key, "privacy.imageConcurrencyMode" | "privacy.maxBytes")
+    })
+    .await?;
+    let mut fetch = fetch_limits(|key| {
+        values
+            .iter()
+            .find(|value| value.key == key)
+            .and_then(|value| value.value.as_u64())
+    });
+    fetch.concurrency_mode = crate::image_proxy::adaptive::Mode::parse(
+        values
+            .iter()
+            .find(|value| value.key == "privacy.imageConcurrencyMode")
+            .and_then(|value| value.value.as_str())
+            .unwrap_or("auto"),
+    );
+    fetch.image_bytes = values
+        .iter()
+        .find(|value| value.key == "privacy.maxBytes")
+        .and_then(|value| value.value.as_u64())
+        .unwrap_or(8 * 1024 * 1024) as usize;
+    Ok(fetch)
+}
+
 /// A tracker exception is independent from image display grants and applies to
 /// exactly one message. Re-read permission and grant on every capability use,
 /// before cache access, so revocation or a new administrator lock takes effect.

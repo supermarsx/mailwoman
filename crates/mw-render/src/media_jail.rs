@@ -30,7 +30,7 @@ static MEDIA_WASM: &[u8] = include_bytes!("../../mw-media-wasm/media.wasm");
 /// Linear-memory ceiling for one jail invocation. Generous enough for a decoded
 /// bitmap of a legitimate image, a hard backstop against decompression bombs (the
 /// guest also caps decode dimensions/alloc).
-const MEMORY_MAX: usize = 512 * 1024 * 1024;
+pub const IMAGE_MEMORY_MAX_BYTES: usize = 512 * 1024 * 1024;
 /// Wall-clock CPU budget per invocation, enforced via epoch interruption.
 const DEADLINE_MS: u64 = 5_000;
 /// Epoch ticker cadence (coarse but < the smallest useful deadline).
@@ -48,7 +48,7 @@ impl ResourceLimiter for Limiter {
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        Ok(desired <= MEMORY_MAX)
+        Ok(desired <= IMAGE_MEMORY_MAX_BYTES)
     }
 
     fn table_growing(

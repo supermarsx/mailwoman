@@ -36,6 +36,125 @@ const KEY_HEX: &str = "2f2e3d4c5b6a79889796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
 #[tokio::test]
+async fn automatic_capacity_presets_are_live_and_preserve_numeric_ceilings() {
+    let (proxy, _) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
+    let f = fixture(proxy, "mw-image-auto-presets").await;
+    let read = || async {
+        f.admin
+            .get(format!("{}/admin/egress/privacy-stats", f.base))
+            .send()
+            .await
+            .unwrap()
+            .json::<Value>()
+            .await
+            .unwrap()
+    };
+    let value = read().await;
+    let capacity = &value["imageConcurrency"];
+    assert_eq!(capacity["mode"], "auto");
+    assert_eq!(capacity["adaptive"], true);
+    assert_eq!(capacity["ceilings"]["perMessage"], 30);
+    assert_eq!(capacity["ceilings"]["global"], 128);
+    assert_eq!(capacity["ceilings"]["decoders"], 10);
+    assert!(capacity["cpuCores"].as_f64().unwrap() > 0.0);
+    for key in ["perMessage", "perAccount", "global", "pipeline", "decoders"] {
+        let effective = capacity["effective"][key].as_u64().unwrap();
+        assert!(effective > 0 && effective <= capacity["ceilings"][key].as_u64().unwrap());
+    }
+    locked_policy(&f, "privacy.imageConcurrencyMode", json!("conservative")).await;
+    let value = read().await;
+    let capacity = &value["imageConcurrency"];
+    assert_eq!(capacity["mode"], "conservative");
+    assert!(capacity["effective"]["perMessage"].as_u64().unwrap() <= 8);
+    assert!(capacity["effective"]["global"].as_u64().unwrap() <= 32);
+    assert!(capacity["effective"]["decoders"].as_u64().unwrap() <= 2);
+    locked_policy(&f, "privacy.imageConcurrencyMode", json!("manual")).await;
+    let value = read().await;
+    let capacity = &value["imageConcurrency"];
+    assert_eq!(capacity["adaptive"], false);
+    assert_eq!(capacity["effective"], capacity["ceilings"]);
+    locked_policy(&f, "privacy.imageConcurrencyMode", json!("auto")).await;
+    let value = read().await;
+    assert_eq!(value["imageConcurrency"]["mode"], "auto");
+    assert_eq!(value["imageConcurrency"]["ceilings"]["global"], 128);
+}
+
+#[tokio::test]
+async fn an_old_request_waiting_for_a_flight_cannot_restore_pre_shrink_limits() {
+    let (proxy, seen) = standin_status_proxy_with_delay(
+        vec![(200, "image/png".into(), png(64, 64))],
+        std::time::Duration::from_millis(500),
+    )
+    .await;
+    let f = fixture(proxy, "mw-image-stale-capacity").await;
+    f.grant().await;
+    locked_policy(&f, "privacy.imageConcurrencyMode", json!("manual")).await;
+    locked_policy(&f, "privacy.cacheTtlSecs", json!(0)).await;
+    locked_policy(&f, "privacy.maxConcurrentGlobal", json!(16)).await;
+    let urls: Vec<_> = (0..25)
+        .map(|i| format!("http://1.2.3.4/stale-capacity/{i}.png"))
+        .collect();
+    let refs: Vec<_> = urls.iter().map(String::as_str).collect();
+    let (_, signed) = f.sign(&refs, &[]).await;
+    let first = format!("{}{}", f.base, signed["images"][0]["src"].as_str().unwrap());
+    let start = |url: String| {
+        let client = f.anon.clone();
+        tokio::spawn(async move {
+            let response = client.get(url).send().await.unwrap();
+            assert_eq!(response.status(), 200);
+            assert!(response.bytes().await.unwrap().starts_with(b"\x89PNG"));
+        })
+    };
+    let mut jobs = vec![start(first.clone())];
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while seen.lock().unwrap().connections == 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    jobs.push(start(first));
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        loop {
+            let stats: Value = f
+                .admin
+                .get(format!("{}/admin/egress/privacy-stats", f.base))
+                .send()
+                .await
+                .unwrap()
+                .json()
+                .await
+                .unwrap();
+            if stats["imageConcurrency"]["active"]["queued"]
+                .as_u64()
+                .unwrap()
+                > 0
+            {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .unwrap();
+    locked_policy(&f, "privacy.maxConcurrentGlobal", json!(4)).await;
+    for image in signed["images"].as_array().unwrap().iter().skip(1) {
+        jobs.push(start(format!(
+            "{}{}",
+            f.base,
+            image["src"].as_str().unwrap()
+        )));
+    }
+    for job in jobs {
+        job.await.unwrap();
+    }
+    assert!(
+        seen.lock().unwrap().peak <= 4,
+        "an older flight waiter must not reinstall sixteen network slots"
+    );
+}
+
+#[tokio::test]
 async fn image_cache_lifetimes_and_reader_budgets_follow_hot_configuration() {
     let (proxy, seen) = standin_status_proxy(vec![
         (200, "image/png".into(), png(64, 64)),
@@ -223,6 +342,7 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
             response.text().await.unwrap()
         );
     }
+    locked_policy(&f, "privacy.imageConcurrencyMode", json!("manual")).await;
     locked_policy(&f, "privacy.maxConcurrentGlobal", json!(24)).await;
     locked_policy(&f, "privacy.maxConcurrentPipeline", json!(48)).await;
     f.grant().await;

@@ -1,11 +1,13 @@
 //! A stable, hot-resizable semaphore. Shrinking drains existing permits rather
 //! than replacing the semaphore and accidentally admitting a second full pool.
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{AcquireError, OwnedSemaphorePermit, Semaphore, TryAcquireError};
 
 pub(crate) struct Capacity {
     semaphore: Arc<Semaphore>,
     sizing: Mutex<Sizing>,
+    waiting: AtomicUsize,
 }
 struct Sizing {
     limit: usize,
@@ -22,6 +24,7 @@ impl Capacity {
         Arc::new(Self {
             semaphore: Arc::new(Semaphore::new(limit)),
             sizing: Mutex::new(Sizing { limit, retiring: 0 }),
+            waiting: AtomicUsize::new(0),
         })
     }
 
@@ -45,6 +48,17 @@ impl Capacity {
         self.semaphore.available_permits()
     }
 
+    pub(crate) fn active(&self) -> usize {
+        let sizing = self.sizing.lock().expect("image capacity lock");
+        sizing
+            .limit
+            .saturating_add(sizing.retiring)
+            .saturating_sub(self.semaphore.available_permits())
+    }
+    pub(crate) fn waiting(&self) -> usize {
+        self.waiting.load(Ordering::Relaxed)
+    }
+
     pub(crate) fn try_acquire(self: &Arc<Self>) -> Result<Permit, TryAcquireError> {
         loop {
             let permit = self.semaphore.clone().try_acquire_owned()?;
@@ -55,6 +69,14 @@ impl Capacity {
     }
 
     pub(crate) async fn acquire(self: &Arc<Self>) -> Result<Permit, AcquireError> {
+        struct Waiting<'a>(&'a AtomicUsize);
+        impl Drop for Waiting<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+        self.waiting.fetch_add(1, Ordering::Relaxed);
+        let _waiting = Waiting(&self.waiting);
         loop {
             let permit = self.semaphore.clone().acquire_owned().await?;
             if let Some(permit) = self.promote(permit) {

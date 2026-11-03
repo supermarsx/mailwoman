@@ -234,6 +234,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'links.trustedSenders',
   'links.trustedSubdomains',
   'privacy.maxBytes',
+  'privacy.imageConcurrencyMode',
   'privacy.cacheBytes',
   'privacy.ratePerMin',
   'privacy.rateBurst',
