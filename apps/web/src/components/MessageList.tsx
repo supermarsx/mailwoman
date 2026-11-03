@@ -539,7 +539,14 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
   }, { defer: true }));
   function onListFocusIn(e: FocusEvent): void {
     const entry = focusedRowEl();
-    if (entry !== undefined && entry[1] === e.target) focusedRowId = entry[0];
+    if (entry !== undefined && entry[1] === e.target) {
+      focusedRowId = entry[0];
+      // Context-menu restoration and keyboard focus need not pass through a
+      // row click. A removed focused row must hand focus to its real neighbour,
+      // rather than scroll back to an unrelated old roving cursor.
+      const index=Number(entry[1].dataset['index']);
+      if(Number.isInteger(index)&&index>=0&&index<rows().length)setCursor(index);
+    }
   }
   function onListFocusOut(e: FocusEvent): void {
     const next = e.relatedTarget;

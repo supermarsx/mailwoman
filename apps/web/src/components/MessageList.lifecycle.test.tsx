@@ -532,3 +532,30 @@ it('retains list DOM during a folder request and prevents stale-row actions', as
   expect(container.querySelector('.list__scroll')).toBe(viewport);
   expect(viewport).toHaveProperty('inert', false);
 });
+
+it('moves a focused row deep in the list immediately and hands focus to its neighbour without jumping to a stale cursor',async()=>{
+  const base=makeClient({emails:Array.from({length:100},(_,index)=>mkEmail(`m${index}`))});
+  let finish:(()=>void)|undefined;
+  const app=createAppState({...base,jmap:async request=>{
+    const update=request.methodCalls.find(([name])=>name==='Email/set');
+    if(!update)return base.jmap(request);
+    return new Promise<JmapResponse>(resolve=>{finish=()=>resolve({sessionState:'s',methodResponses:[['Email/set',{accountId:'acct1',updated:Object.fromEntries(Object.keys(update[1]['update'] as object).map(id=>[id,null]))},update[2]]]});});
+  }});
+  const result=render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);
+  await app.login(CREDS);
+  await waitFor(()=>expect(app.messages()).toHaveLength(100));
+  const scroller=result.container.querySelector<HTMLElement>('.list__scroll')!;
+  Object.defineProperty(scroller,'clientHeight',{value:600,configurable:true});
+  scroller.scrollTop=46*ROW;fireEvent.scroll(scroller);
+  const row=result.container.querySelector<HTMLButtonElement>('[data-email-id="m46"]')!;
+  // Context-menu restoration and keyboard focus can arrive without the row's
+  // ordinary click handler having moved the roving cursor.
+  row.focus();
+  const moving=app.archiveMessage('m46');
+  expect(app.messages().some(email=>email.id==='m46')).toBe(false);
+  expect(finish).toBeDefined();
+  await waitFor(()=>expect(document.activeElement?.getAttribute('data-email-id')).toBe('m47'));
+  expect(scroller.scrollTop).toBe(46*ROW);
+  finish?.();await moving;
+  result.unmount();
+});
