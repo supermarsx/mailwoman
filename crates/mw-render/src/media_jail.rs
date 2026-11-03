@@ -117,11 +117,6 @@ impl Ticker {
             handle: Some(handle),
         }
     }
-
-    /// Epoch ticks corresponding to `DEADLINE_MS` of wall-clock time.
-    fn deadline_ticks() -> u64 {
-        (DEADLINE_MS / EPOCH_TICK.as_millis() as u64).max(1)
-    }
 }
 
 impl Drop for Ticker {
@@ -161,6 +156,14 @@ impl From<&str> for JailFailure {
 }
 
 fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, JailFailure> {
+    call_with_budget(entry, input, Duration::from_millis(DEADLINE_MS))
+}
+
+fn call_with_budget(entry: &str, input: &[u8], budget: Duration) -> Result<Vec<u8>, JailFailure> {
+    let budget = budget.clamp(Duration::from_millis(1), Duration::from_secs(60));
+    let ticks = (budget.as_millis() as u64)
+        .div_ceil(EPOCH_TICK.as_millis() as u64)
+        .max(1);
     if input.len() > crate::MAX_INPUT_BYTES {
         return Err(JailFailure::Rejected(
             "media-jail: input exceeds limit".into(),
@@ -172,7 +175,7 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, JailFailure> {
     TICKER.get_or_init(|| Ticker::spawn(engine.clone()));
     let mut store = Store::new(engine, Limiter);
     store.limiter(|s| s);
-    store.set_epoch_deadline(Ticker::deadline_ticks());
+    store.set_epoch_deadline(ticks);
     store.epoch_deadline_trap();
 
     // Empty linker: the guest imports nothing, so nothing is granted.
@@ -195,7 +198,7 @@ fn call(entry: &str, input: &[u8]) -> Result<Vec<u8>, JailFailure> {
 
     // Compilation/instantiation may be cold. Start this request's execution
     // budget immediately before entering guest code, on the single shared clock.
-    store.set_epoch_deadline(Ticker::deadline_ticks());
+    store.set_epoch_deadline(ticks);
     store.epoch_deadline_trap();
     let ptr = alloc
         .call(&mut store, in_len)
@@ -268,7 +271,15 @@ pub enum ImageDecodeFailure {
     JailUnavailable,
 }
 pub fn reencode_image_classified(bytes: &[u8]) -> Result<Vec<u8>, ImageDecodeFailure> {
-    call("mw_reencode_image", bytes).map_err(|error| match error {
+    reencode_image_with_budget(bytes, Duration::from_millis(DEADLINE_MS))
+}
+
+/// A bounded administrator-selected budget for the authenticated image proxy.
+pub fn reencode_image_with_budget(
+    bytes: &[u8],
+    budget: Duration,
+) -> Result<Vec<u8>, ImageDecodeFailure> {
+    call_with_budget("mw_reencode_image", bytes, budget).map_err(|error| match error {
         JailFailure::Guest(_) | JailFailure::Rejected(_) => ImageDecodeFailure::InvalidImage,
         JailFailure::Host(_) => ImageDecodeFailure::JailUnavailable,
     })

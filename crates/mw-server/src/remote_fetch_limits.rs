@@ -31,12 +31,12 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use super::super::capacity::{Capacity, Permit};
 use mw_egress::{FetchTimeouts, Refusal};
 use sha2::{Digest, Sha256};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 /// How long a failed fetch is answered from memory.
-pub(crate) const NEGATIVE_TTL: Duration = Duration::from_secs(60);
+pub(crate) const NEGATIVE_TTL: Duration = Duration::from_secs(10);
 /// Most negative entries kept; the oldest go first.
 const NEGATIVE_CAPACITY: usize = 2048;
 /// Prune idle slot entries once a map holds this many.
@@ -50,6 +50,11 @@ const OUTCOME_URLS: usize = 256;
 pub(crate) struct FetchLimits {
     pub timeouts: FetchTimeouts,
     pub queue_timeout: Duration,
+    pub decode_timeout: Duration,
+    pub global: usize,
+    pub pipeline: usize,
+    pub decodes: usize,
+    pub queued: usize,
     pub per_message: usize,
     pub per_account: usize,
 }
@@ -59,8 +64,13 @@ impl Default for FetchLimits {
         Self {
             timeouts: FetchTimeouts::REMOTE_IMAGE,
             queue_timeout: Duration::from_secs(60),
-            per_message: 6,
-            per_account: 12,
+            decode_timeout: Duration::from_secs(10),
+            global: 32,
+            pipeline: 64,
+            decodes: 4,
+            queued: 2048,
+            per_message: 16,
+            per_account: 64,
         }
     }
 }
@@ -69,19 +79,23 @@ impl FetchLimits {
     /// One absolute bound for admission, fetching and image processing. Queue
     /// time adds headroom; it never widens an individual network phase.
     pub(crate) fn overall_budget(self) -> Duration {
-        self.queue_timeout.saturating_add(self.timeouts.total)
+        self.queue_timeout
+            .saturating_add(self.timeouts.total)
+            .saturating_add(self.decode_timeout)
     }
 
     /// Admission ends before the reserved network budget begins. Derive this
     /// from the original overall deadline, never from the time a phase starts.
     pub(crate) fn queue_deadline(self, overall_deadline: Instant) -> Instant {
         overall_deadline
-            .checked_sub(self.timeouts.total)
+            .checked_sub(self.timeouts.total.saturating_add(self.decode_timeout))
             .unwrap_or_else(Instant::now)
     }
 
     pub(crate) fn network_timeouts(self, deadline: Instant) -> Option<FetchTimeouts> {
-        let remaining = deadline.saturating_duration_since(Instant::now());
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .saturating_sub(self.decode_timeout);
         if remaining.is_zero() {
             return None;
         }
@@ -104,12 +118,12 @@ fn digest(parts: &[&str]) -> [u8; 32] {
 // ── concurrency ───────────────────────────────────────────────────────────────
 
 #[derive(Default)]
-struct Slots(HashMap<[u8; 32], (usize, Arc<Semaphore>)>);
+struct Slots(HashMap<[u8; 32], (usize, Arc<Capacity>)>);
 
 impl Slots {
-    /// The semaphore for `key` sized `size`. A changed size starts a fresh
-    /// semaphore; fetches holding the old one finish under it.
-    fn get(&mut self, key: [u8; 32], size: usize) -> Arc<Semaphore> {
+    /// The stable semaphore for `key`, resized in place. Reductions drain held
+    /// permits instead of admitting a second pool alongside existing fetches.
+    fn get(&mut self, key: [u8; 32], size: usize) -> Arc<Capacity> {
         if self.0.len() >= SLOT_PRUNE_AT {
             self.0.retain(|_, (size, sem)| {
                 Arc::strong_count(sem) > 1 || sem.available_permits() != *size
@@ -119,9 +133,10 @@ impl Slots {
         let entry = self
             .0
             .entry(key)
-            .or_insert_with(|| (size, Arc::new(Semaphore::new(size))));
+            .or_insert_with(|| (size, Capacity::new(size)));
         if entry.0 != size {
-            *entry = (size, Arc::new(Semaphore::new(size)));
+            entry.1.configure(size);
+            entry.0 = size;
         }
         entry.1.clone()
     }
@@ -134,8 +149,8 @@ fn slots() -> &'static Mutex<Slots> {
 
 /// A held message slot and account slot; both are released on drop.
 pub(crate) struct FetchSlot {
-    _message: OwnedSemaphorePermit,
-    _account: OwnedSemaphorePermit,
+    _message: Permit,
+    _account: Permit,
 }
 
 /// Wait, until `deadline`, for a slot for `message` of `account`. `None` when the
@@ -154,11 +169,11 @@ pub(crate) async fn acquire(
         )
     };
     let deadline = tokio::time::Instant::from_std(deadline);
-    let message = tokio::time::timeout_at(deadline, message_sem.acquire_owned())
+    let message = tokio::time::timeout_at(deadline, message_sem.acquire())
         .await
         .ok()?
         .ok()?;
-    let account = tokio::time::timeout_at(deadline, account_sem.acquire_owned())
+    let account = tokio::time::timeout_at(deadline, account_sem.acquire())
         .await
         .ok()?
         .ok()?;
@@ -203,12 +218,20 @@ impl Failure {
 }
 
 #[derive(Default)]
-struct Negative(HashMap<[u8; 32], (Instant, Failure)>);
+struct Negative(HashMap<[u8; 32], (Instant, Instant, Failure)>);
 
 impl Negative {
+    #[cfg(test)]
     fn get(&mut self, key: &[u8; 32], now: Instant) -> Option<Failure> {
+        self.get_for(key, now, NEGATIVE_TTL)
+    }
+    fn get_for(&mut self, key: &[u8; 32], now: Instant, ttl: Duration) -> Option<Failure> {
         match self.0.get(key) {
-            Some((until, failure)) if *until > now => Some(*failure),
+            Some((created, until, failure))
+                if *until > now && now.saturating_duration_since(*created) < ttl =>
+            {
+                Some(*failure)
+            }
             Some(_) => {
                 self.0.remove(key);
                 None
@@ -217,20 +240,28 @@ impl Negative {
         }
     }
 
+    #[cfg(test)]
     fn put(&mut self, key: [u8; 32], failure: Failure, now: Instant) {
+        self.put_for(key, failure, now, NEGATIVE_TTL);
+    }
+    fn put_for(&mut self, key: [u8; 32], failure: Failure, now: Instant, ttl: Duration) {
+        if ttl.is_zero() {
+            self.0.remove(&key);
+            return;
+        }
         if self.0.len() >= NEGATIVE_CAPACITY {
-            self.0.retain(|_, (until, _)| *until > now);
+            self.0.retain(|_, (_, until, _)| *until > now);
         }
         if self.0.len() >= NEGATIVE_CAPACITY
             && let Some(oldest) = self
                 .0
                 .iter()
-                .min_by_key(|(_, (until, _))| *until)
+                .min_by_key(|(_, (_, until, _))| *until)
                 .map(|(k, _)| *k)
         {
             self.0.remove(&oldest);
         }
-        self.0.insert(key, (now + NEGATIVE_TTL, failure));
+        self.0.insert(key, (now, now + ttl, failure));
     }
 }
 
@@ -244,20 +275,30 @@ fn negative_key(account: &str, url: &str) -> [u8; 32] {
 }
 
 /// A failure remembered for `url` of `account`, if one is live.
+#[cfg(test)]
 pub(crate) fn remembered(account: &str, url: &str) -> Option<Failure> {
-    negative()
-        .lock()
-        .expect("negative cache lock")
-        .get(&negative_key(account, url), Instant::now())
+    remembered_for(account, url, NEGATIVE_TTL)
+}
+pub(crate) fn remembered_for(account: &str, url: &str, ttl: Duration) -> Option<Failure> {
+    negative().lock().expect("negative cache lock").get_for(
+        &negative_key(account, url),
+        Instant::now(),
+        ttl,
+    )
 }
 
 /// Remember `refusal` for `url` of `account` when it is a network failure.
+#[cfg(test)]
 pub(crate) fn remember(account: &str, url: &str, refusal: &Refusal) {
+    remember_for(account, url, refusal, NEGATIVE_TTL);
+}
+pub(crate) fn remember_for(account: &str, url: &str, refusal: &Refusal, ttl: Duration) {
     if let Some(failure) = Failure::of(refusal) {
-        negative().lock().expect("negative cache lock").put(
+        negative().lock().expect("negative cache lock").put_for(
             negative_key(account, url),
             failure,
             Instant::now(),
+            ttl,
         );
     }
 }
@@ -511,18 +552,18 @@ mod tests {
         );
         assert_eq!(
             deadline.duration_since(limits.queue_deadline(deadline)),
-            limits.timeouts.total
+            limits.timeouts.total + limits.decode_timeout
         );
         assert_eq!(
             limits.overall_budget(),
-            Duration::from_secs(60) + limits.timeouts.total
+            Duration::from_secs(60) + limits.timeouts.total + limits.decode_timeout
         );
         let fresh = limits
             .network_timeouts(Instant::now() + limits.overall_budget())
             .unwrap();
         assert_eq!(fresh, limits.timeouts);
         let short = limits
-            .network_timeouts(Instant::now() + Duration::from_millis(100))
+            .network_timeouts(Instant::now() + limits.decode_timeout + Duration::from_millis(100))
             .unwrap();
         assert!(short.total <= Duration::from_millis(100));
         assert_eq!(short.connect, limits.timeouts.connect);
@@ -617,7 +658,7 @@ mod tests {
         let k = negative_key("a", "https://img.example/x.png");
         n.put(k, Failure::Timeout, now);
         assert_eq!(
-            n.get(&k, now + Duration::from_secs(59)),
+            n.get(&k, now + Duration::from_secs(9)),
             Some(Failure::Timeout)
         );
         assert_eq!(

@@ -95,7 +95,7 @@ pub(crate) use fetch_limits::FetchLimits;
 /// network slots, so decoder work cannot starve authorization metadata requests.
 pub(super) struct ImageAdmission {
     _message: Option<fetch_limits::FetchSlot>,
-    _pipeline: tokio::sync::SemaphorePermit<'static>,
+    _pipeline: super::capacity::Permit,
     _flight: Option<tokio::sync::OwnedMutexGuard<()>>,
 }
 impl ImageAdmission {
@@ -104,19 +104,21 @@ impl ImageAdmission {
         self
     }
 }
-fn image_pipeline() -> &'static tokio::sync::Semaphore {
-    static PIPELINE: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-    PIPELINE.get_or_init(|| tokio::sync::Semaphore::new(16))
+fn image_pipeline() -> &'static Arc<super::capacity::Capacity> {
+    static PIPELINE: std::sync::OnceLock<Arc<super::capacity::Capacity>> =
+        std::sync::OnceLock::new();
+    PIPELINE.get_or_init(|| super::capacity::Capacity::new(64))
 }
-fn decoders() -> &'static tokio::sync::Semaphore {
-    static DECODERS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-    DECODERS.get_or_init(|| {
-        tokio::sync::Semaphore::new(
-            std::thread::available_parallelism()
-                .map_or(1, std::num::NonZeroUsize::get)
-                .min(2),
-        )
-    })
+fn decoders() -> &'static Arc<super::capacity::Capacity> {
+    static DECODERS: std::sync::OnceLock<Arc<super::capacity::Capacity>> =
+        std::sync::OnceLock::new();
+    DECODERS.get_or_init(|| super::capacity::Capacity::new(4))
+}
+pub(super) fn configure_capacity(limits: &FetchLimits) {
+    fetch_semaphore().configure(limits.global);
+    image_pipeline().configure(limits.pipeline);
+    decoders().configure(limits.decodes);
+    super::admission_waiters().configure(limits.queued);
 }
 
 #[derive(Debug)]
@@ -1007,8 +1009,10 @@ pub(super) async fn reencode_and_answer(
     admission: ImageAdmission,
 ) -> Response {
     let started = std::time::Instant::now();
+    let decode_budget = policy.fetch.decode_timeout;
     let (png, _admission) = match decode_image(deadline, admission, move || {
-        mw_render::media_jail::reencode_image_classified(&raw)
+        let remaining = deadline.saturating_duration_since(std::time::Instant::now());
+        mw_render::media_jail::reencode_image_with_budget(&raw, decode_budget.min(remaining))
     })
     .await
     {
@@ -1028,11 +1032,12 @@ pub(super) async fn reencode_and_answer(
     };
     let etag = etag_for(&png);
     if let Some(key) = key {
-        cache().lock().expect("image cache lock").put_with_budget(
+        cache().lock().expect("image cache lock").put_with_policy(
             key,
             etag.clone(),
             png.clone(),
             policy.cache_bytes,
+            policy.cache_ttl,
         );
     }
     signed_image(png, etag, tracker)
@@ -1101,7 +1106,10 @@ async fn fetch_image(
         .expect("image cache lock")
         .trim(policy.cache_bytes);
     let cached_response = || {
-        let (etag, png) = cache().lock().expect("image cache lock").get(&key)?;
+        let (etag, png) = cache()
+            .lock()
+            .expect("image cache lock")
+            .get_with_ttl(&key, policy.cache_ttl)?;
         let tracker = policy.trackers && png == TRANSPARENT_PIXEL;
         if tracker {
             tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
@@ -1124,10 +1132,17 @@ async fn fetch_image(
     if let Some(response) = cached_response() {
         return response;
     }
+    configure_capacity(&policy.fetch);
     let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
-    let Some(flight) =
-        image_flight::acquire(&claims.a, &key.route, &claims.u, queue_deadline).await
+    let Some(flight) = image_flight::acquire(
+        &claims.a,
+        &key.route,
+        &claims.u,
+        queue_deadline,
+        policy.fetch.queued,
+    )
+    .await
     else {
         fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, false, claims.x);
         fetch_limits::record_retryable_failure(
@@ -1143,21 +1158,23 @@ async fn fetch_image(
     };
     // A failure remembered for this URL answers before the rate limit: it costs
     // no network, and charging for it would let a dead host drain the budget.
-    if let Some(failure) = fetch_limits::remembered(&claims.a, &claims.u) {
+    if let Some(failure) =
+        fetch_limits::remembered_for(&claims.a, &claims.u, policy.negative_cache_ttl)
+    {
         outcome(false);
         if fetch_limits::retryable_refusal(&failure.refusal()) {
             fetch_limits::record_retryable_failure(
                 &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
             );
         }
-        return failed_response(failure.refusal());
+        return failed_response(failure.refusal(), policy.negative_cache_ttl);
     }
     if !rate_limiter()
         .lock()
         .expect("image rate-limit lock")
         .check_with_limit(
             &claims.a,
-            policy.rate_per_min as f64,
+            policy.rate_burst as f64,
             policy.rate_per_min as f64 / 60.0,
         )
     {
@@ -1276,6 +1293,7 @@ pub(super) async fn guarded_fetch(
     deadline: std::time::Instant,
 ) -> Result<(Vec<u8>, Option<String>, ImageAdmission), Response> {
     let limits = policy.fetch;
+    configure_capacity(&limits);
     let queue_deadline = limits.queue_deadline(deadline);
     let started = std::time::Instant::now();
     let Some(slot) = fetch_limits::acquire(account, message, &limits, queue_deadline).await else {
@@ -1324,8 +1342,8 @@ pub(super) async fn guarded_fetch(
                     "remote image fetch timed out"
                 );
             }
-            fetch_limits::remember(account, raw_url, &refusal);
-            Err(failed_response(refusal))
+            fetch_limits::remember_for(account, raw_url, &refusal, policy.negative_cache_ttl);
+            Err(failed_response(refusal, policy.negative_cache_ttl))
         }
     }
 }
@@ -1334,8 +1352,8 @@ pub(super) async fn guarded_fetch(
 /// and text, `X-MW-Remote-Content: failed`, and a short private cache lifetime
 /// matching the server's negative cache so the browser does not refetch it in a
 /// loop either. A new signed link (Retry images) is a new URL.
-pub(super) fn failed_response(refusal: mw_egress::Refusal) -> Response {
-    let cacheable = fetch_limits::Failure::of(&refusal).is_some();
+pub(super) fn failed_response(refusal: mw_egress::Refusal, ttl: std::time::Duration) -> Response {
+    let cacheable = !ttl.is_zero() && fetch_limits::Failure::of(&refusal).is_some();
     let retryable = fetch_limits::retryable_refusal(&refusal);
     let mut response = refusal_response(refusal);
     let h = response.headers_mut();
@@ -1345,11 +1363,12 @@ pub(super) fn failed_response(refusal: mw_egress::Refusal) -> Response {
     }
     h.insert(
         header::CACHE_CONTROL,
-        HeaderValue::from_static(if cacheable {
-            "private, max-age=60"
+        if cacheable {
+            HeaderValue::from_str(&format!("private, max-age={}", ttl.as_secs()))
+                .expect("bounded cache TTL")
         } else {
-            "no-store"
-        }),
+            HeaderValue::from_static("no-store")
+        },
     );
     response
 }
@@ -1449,7 +1468,7 @@ fn charge_fetch(
         .expect("image rate-limit lock")
         .check_with_limit(
             account,
-            policy.rate_per_min as f64,
+            policy.rate_burst as f64,
             policy.rate_per_min as f64 / 60.0,
         )
     {
@@ -1507,6 +1526,7 @@ pub(crate) async fn part(
         preview: Some(true),
         acknowledge_warning: None,
     };
+    configure_capacity(&policy.fetch);
     let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
     let Some(pipeline) = acquire_bounded_permit(image_pipeline(), queue_deadline).await else {
@@ -1603,7 +1623,7 @@ pub(crate) async fn file(
         .expect("image rate-limit lock")
         .check_with_limit(
             &claims.a,
-            policy.rate_per_min as f64,
+            policy.rate_burst as f64,
             policy.rate_per_min as f64 / 60.0,
         )
     {
@@ -1969,10 +1989,10 @@ mod tests {
 
     #[tokio::test]
     async fn image_decode_wait_uses_original_deadline_and_busy_results_remain_retryable() {
-        let held = decoders()
-            .acquire_many(decoders().available_permits() as u32)
-            .await
-            .unwrap();
+        let mut held = Vec::new();
+        for _ in 0..decoders().available_permits() {
+            held.push(decoders().acquire().await.unwrap());
+        }
         let result = decode_image(
             std::time::Instant::now() + std::time::Duration::from_millis(20),
             decode_admission().await,

@@ -125,3 +125,6 @@ privacy-original-html-active = Original HTML shown — scripts disabled, resourc
 privacy-original-html-offer = Preserve the message's original layout for this message only.
 privacy-tracker-choice = Allow a per-message tracker choice
 privacy-tracker-choice-help = Offer an explicit action to load blocked trackers for one message. Trackers stay blocked until you choose it, and an administrator can require protection.
+privacy-image-retry-attempts = Automatic image retry attempts
+privacy-image-retry-help = Retry only temporary image failures after the current images finish loading. Zero disables automatic retries; you can still retry manually. Administrator locks take precedence.
+privacy-image-retry-delay = Image retry delay (seconds)

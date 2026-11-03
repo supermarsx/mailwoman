@@ -26,6 +26,15 @@ pub(crate) struct PrivacyPolicy {
     pub cache_bytes: usize,
     #[serde(skip)]
     pub rate_per_min: usize,
+    #[serde(skip)]
+    pub rate_burst: usize,
+    #[serde(skip)]
+    pub cache_ttl: std::time::Duration,
+    #[serde(skip)]
+    pub negative_cache_ttl: std::time::Duration,
+    pub image_load_budget_ms: u64,
+    pub image_retry_attempts: usize,
+    pub image_retry_delay_ms: usize,
     /// Timeouts, redirect cap and per-message/per-account concurrency (t56).
     #[serde(skip)]
     pub fetch: crate::image_proxy::remote_content::FetchLimits,
@@ -33,13 +42,18 @@ pub(crate) struct PrivacyPolicy {
 
 /// The t56 fetch keys, read in one pass (`effective_all`) rather than one query
 /// set per key: they are read on every remote image request.
-pub(crate) const FETCH_KEYS: [&str; 8] = [
+pub(crate) const FETCH_KEYS: [&str; 13] = [
     "privacy.fetchConnectTimeoutMs",
     "privacy.fetchHeadersTimeoutMs",
     "privacy.fetchIdleTimeoutMs",
     "privacy.fetchTotalTimeoutMs",
     "privacy.fetchQueueTimeoutMs",
+    "privacy.imageDecodeTimeoutMs",
     "privacy.maxRedirects",
+    "privacy.maxConcurrentGlobal",
+    "privacy.maxConcurrentPipeline",
+    "privacy.maxConcurrentDecodes",
+    "privacy.maxQueuedRequests",
     "privacy.maxConcurrentPerMessage",
     "privacy.maxConcurrentPerAccount",
 ];
@@ -68,6 +82,12 @@ pub(crate) fn fetch_limits(
             1_000,
             180_000,
         ),
+        decode_timeout: ms(
+            "privacy.imageDecodeTimeoutMs",
+            defaults.decode_timeout,
+            1_000,
+            60_000,
+        ),
         timeouts: mw_egress::FetchTimeouts {
             connect: ms("privacy.fetchConnectTimeoutMs", t.connect, 500, 30_000),
             headers: ms("privacy.fetchHeadersTimeoutMs", t.headers, 500, 60_000),
@@ -75,20 +95,42 @@ pub(crate) fn fetch_limits(
             total: ms("privacy.fetchTotalTimeoutMs", t.total, 1_000, 120_000),
             max_redirects: count("privacy.maxRedirects", t.max_redirects, 0, 10),
         },
+        global: count("privacy.maxConcurrentGlobal", defaults.global, 1, 256),
+        pipeline: count("privacy.maxConcurrentPipeline", defaults.pipeline, 1, 256),
+        decodes: count("privacy.maxConcurrentDecodes", defaults.decodes, 1, 16),
+        queued: count("privacy.maxQueuedRequests", defaults.queued, 16, 16384),
         per_message: count(
             "privacy.maxConcurrentPerMessage",
             defaults.per_message,
             1,
-            32,
+            128,
         ),
         per_account: count(
             "privacy.maxConcurrentPerAccount",
             defaults.per_account,
             1,
-            64,
+            256,
         ),
     }
 }
+const POLICY_KEYS: &[&str] = &[
+    "privacy.remoteContent",
+    "privacy.remoteImageDownloads",
+    "privacy.trackers",
+    "privacy.trackerOverrideAllowed",
+    "privacy.cleanLinks",
+    "privacy.allowDirect",
+    "cap.remote_content.direct",
+    "privacy.maxBytes",
+    "privacy.cacheBytes",
+    "privacy.ratePerMin",
+    "privacy.rateBurst",
+    "privacy.cacheTtlSecs",
+    "privacy.negativeCacheTtlSecs",
+    "privacy.imageRetryAttempts",
+    "privacy.imageRetryDelayMs",
+];
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Locks {
@@ -130,32 +172,17 @@ pub(crate) async fn effective(
         .await
         .map_err(|_| unavailable())?;
     let subject = identity.as_subject();
-    let mut values = std::collections::BTreeMap::new();
-    for key in [
-        "privacy.remoteContent",
-        "privacy.remoteImageDownloads",
-        "privacy.trackers",
-        "privacy.trackerOverrideAllowed",
-        "privacy.cleanLinks",
-        "privacy.allowDirect",
-        "cap.remote_content.direct",
-        "privacy.maxBytes",
-        "privacy.cacheBytes",
-        "privacy.ratePerMin",
-    ] {
-        let value = settings_registry::effective_for(&state.store, key, &subject)
-            .await
-            .map_err(|_| {
-                (
-                    axum::http::StatusCode::INTERNAL_SERVER_ERROR,
-                    "privacy policy unavailable",
-                )
-                    .into_response()
-            })?;
-        if let Some(value) = value {
-            values.insert(key, value);
-        }
-    }
+    // Resolve one current policy snapshot for the entire image request. Repeated
+    // per-key reads used to reload the same subject/profile rows ten times.
+    let resolved = settings_registry::effective_all(&state.store, &subject, |d| {
+        FETCH_KEYS.contains(&d.key) || POLICY_KEYS.contains(&d.key)
+    })
+    .await
+    .map_err(|_| unavailable())?;
+    let values: std::collections::BTreeMap<_, _> = resolved
+        .into_iter()
+        .map(|value| (value.key.clone(), value))
+        .collect();
     let boolean = |key| {
         values
             .get(key)
@@ -170,16 +197,7 @@ pub(crate) async fn effective(
             .map(|n| n as usize)
             .unwrap_or(fallback)
     };
-    let fetch_values =
-        settings_registry::effective_all(&state.store, &subject, |d| FETCH_KEYS.contains(&d.key))
-            .await
-            .map_err(|_| unavailable())?;
-    let fetch = fetch_limits(|key| {
-        fetch_values
-            .iter()
-            .find(|e| e.key == key)
-            .and_then(|e| e.value.as_u64())
-    });
+    let fetch = fetch_limits(|key| values.get(key).and_then(|e| e.value.as_u64()));
     let allow_direct = boolean("privacy.allowDirect") && boolean("cap.remote_content.direct");
     let mut mode = values
         .get("privacy.remoteContent")
@@ -205,7 +223,19 @@ pub(crate) async fn effective(
         },
         max_bytes: number("privacy.maxBytes", 8 * 1024 * 1024),
         cache_bytes: number("privacy.cacheBytes", crate::image_proxy::MAX_CACHE_BYTES),
-        rate_per_min: number("privacy.ratePerMin", 120),
+        rate_per_min: number("privacy.ratePerMin", 600),
+        rate_burst: number("privacy.rateBurst", 512),
+        cache_ttl: std::time::Duration::from_secs(number(
+            "privacy.cacheTtlSecs",
+            crate::image_proxy::CACHE_TTL.as_secs() as usize,
+        ) as u64),
+        negative_cache_ttl: std::time::Duration::from_secs(number(
+            "privacy.negativeCacheTtlSecs",
+            crate::image_proxy::remote_content::fetch_limits::NEGATIVE_TTL.as_secs() as usize,
+        ) as u64),
+        image_load_budget_ms: fetch.overall_budget().as_millis() as u64,
+        image_retry_attempts: number("privacy.imageRetryAttempts", 3),
+        image_retry_delay_ms: number("privacy.imageRetryDelayMs", 5000),
         fetch,
     })
 }
@@ -441,7 +471,7 @@ mod tests {
         assert_eq!(set.timeouts.idle, Duration::from_millis(3500));
         assert_eq!(set.timeouts.total, Duration::from_millis(4500));
         assert_eq!(set.queue_timeout, Duration::from_millis(6500));
-        assert_eq!(set.overall_budget(), Duration::from_secs(11));
+        assert_eq!(set.overall_budget(), Duration::from_secs(21));
         assert_eq!(set.timeouts.max_redirects, 0);
         assert_eq!((set.per_message, set.per_account), (2, 3));
 
@@ -455,6 +485,6 @@ mod tests {
             Duration::from_secs(180)
         );
         assert_eq!(wild.timeouts.max_redirects, 10);
-        assert_eq!((wild.per_message, wild.per_account), (32, 64));
+        assert_eq!((wild.per_message, wild.per_account), (128, 256));
     }
 }

@@ -8,12 +8,23 @@ use std::{
 };
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 
-const CAPACITY: usize = 1024;
+#[cfg(test)]
+const CAPACITY: usize = 2048;
 #[derive(Default)]
 struct Flights(Mutex<HashMap<[u8; 32], Weak<AsyncMutex<()>>>>);
 
 impl Flights {
+    #[cfg(test)]
     fn slot(&self, account: &str, route: &str, url: &str) -> Option<Arc<AsyncMutex<()>>> {
+        self.slot_with_capacity(account, route, url, CAPACITY)
+    }
+    fn slot_with_capacity(
+        &self,
+        account: &str,
+        route: &str,
+        url: &str,
+        capacity: usize,
+    ) -> Option<Arc<AsyncMutex<()>>> {
         let mut hash = Sha256::new();
         for part in [account, route, url] {
             hash.update((part.len() as u64).to_be_bytes());
@@ -24,9 +35,9 @@ impl Flights {
         if let Some(slot) = entries.get(&key).and_then(Weak::upgrade) {
             return Some(slot);
         }
-        if entries.len() >= CAPACITY {
+        if entries.len() >= capacity {
             entries.retain(|_, slot| slot.strong_count() > 0);
-            if entries.len() >= CAPACITY {
+            if entries.len() >= capacity {
                 return None;
             }
         }
@@ -43,6 +54,7 @@ pub(crate) async fn acquire(
     route: &str,
     url: &str,
     deadline: Instant,
+    capacity: usize,
 ) -> Option<OwnedMutexGuard<()>> {
     if Instant::now() >= deadline {
         return None;
@@ -50,7 +62,7 @@ pub(crate) async fn acquire(
     static FLIGHTS: OnceLock<Flights> = OnceLock::new();
     let slot = FLIGHTS
         .get_or_init(Flights::default)
-        .slot(account, route, url)?;
+        .slot_with_capacity(account, route, url, capacity)?;
     let guard =
         tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), slot.lock_owned())
             .await

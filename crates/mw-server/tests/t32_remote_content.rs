@@ -36,6 +36,95 @@ const KEY_HEX: &str = "2f2e3d4c5b6a79889796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 
 #[tokio::test]
+async fn image_cache_lifetimes_and_reader_budgets_follow_hot_configuration() {
+    let (proxy, seen) = standin_status_proxy(vec![
+        (200, "image/png".into(), png(64, 64)),
+        (200, "image/png".into(), png(64, 64)),
+        (
+            503,
+            "text/plain".into(),
+            b"temporarily unavailable".to_vec(),
+        ),
+    ])
+    .await;
+    let f = fixture(proxy, "mw-rc-cache-controls").await;
+    f.grant().await;
+    let policy: Value = f
+        .user
+        .get(format!("{}/api/rc/policy", f.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(policy["imageLoadBudgetMs"], 90000);
+    assert_eq!(policy["imageRetryAttempts"], 3);
+    assert_eq!(policy["imageRetryDelayMs"], 5000);
+    let (_, signed) = f
+        .sign(&["http://1.2.3.4/cache-controls/success.png"], &[])
+        .await;
+    let src = image_src(&signed);
+    assert_eq!(f.load(&src).await.status(), 200);
+    assert_eq!(f.load(&src).await.status(), 200);
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        1,
+        "positive cache avoids a duplicate upstream fetch"
+    );
+    locked_policy(&f, "privacy.cacheTtlSecs", json!(0)).await;
+    assert_eq!(f.load(&src).await.status(), 200);
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        2,
+        "zero TTL must stop reuse immediately"
+    );
+    let (_, signed) = f
+        .sign(&["http://1.2.3.4/cache-controls/failure.png"], &[])
+        .await;
+    let failed = image_src(&signed);
+    assert_eq!(f.load(&failed).await.status(), 502);
+    assert_eq!(f.load(&failed).await.status(), 502);
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        3,
+        "negative cache avoids a repeated failing fetch"
+    );
+    locked_policy(&f, "privacy.negativeCacheTtlSecs", json!(0)).await;
+    let response = f.load(&failed).await;
+    assert_eq!(response.status(), 502);
+    assert_eq!(response.headers()["cache-control"], "no-store");
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        4,
+        "zero TTL removes a remembered failure"
+    );
+    assert_eq!(f.load(&failed).await.status(), 502);
+    assert_eq!(seen.lock().unwrap().connections, 5);
+    for (key, value) in [
+        ("privacy.fetchQueueTimeoutMs", 5000),
+        ("privacy.fetchTotalTimeoutMs", 2000),
+        ("privacy.imageDecodeTimeoutMs", 1500),
+        ("privacy.imageRetryAttempts", 0),
+        ("privacy.imageRetryDelayMs", 500),
+    ] {
+        locked_policy(&f, key, json!(value)).await;
+    }
+    let policy: Value = f
+        .user
+        .get(format!("{}/api/rc/policy", f.base))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(policy["imageLoadBudgetMs"], 8500);
+    assert_eq!(policy["imageRetryAttempts"], 0);
+    assert_eq!(policy["imageRetryDelayMs"], 500);
+}
+
+#[tokio::test]
 async fn concurrent_signed_and_legacy_misses_each_fetch_once() {
     let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
     let f = fixture(proxy, "mw-rc-single-flight").await;
@@ -134,6 +223,8 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
             response.text().await.unwrap()
         );
     }
+    locked_policy(&f, "privacy.maxConcurrentGlobal", json!(24)).await;
+    locked_policy(&f, "privacy.maxConcurrentPipeline", json!(48)).await;
     f.grant().await;
     let urls: Vec<_> = (0..96)
         .map(|index| format!("http://1.2.3.4/burst-{index}.png"))
@@ -167,9 +258,19 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
         "valid distinct image burst failed: {failed:?}; completed={}",
         results.len()
     );
-    let seen = seen.lock().unwrap();
-    assert_eq!(seen.connections, urls.len());
-    let distinct: std::collections::HashSet<_> = seen
+    let observed = seen.lock().unwrap();
+    assert_eq!(observed.connections, urls.len());
+    assert!(
+        observed.peak > 16,
+        "configured parallel fetches must exceed the old fixed sixteen-request ceiling: {}",
+        observed.peak
+    );
+    assert!(
+        observed.peak <= 24,
+        "configured replica ceiling must hold: {}",
+        observed.peak
+    );
+    let distinct: std::collections::HashSet<_> = observed
         .requests
         .iter()
         .map(|request| request.lines().next().unwrap())
@@ -179,7 +280,7 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
         urls.len(),
         "every URL was independently fetched through the configured proxy"
     );
-    drop(seen);
+    drop(observed);
     let stats: Value = f
         .user
         .get(format!("{}/api/rc/stats?emailId={}", f.base, f.email_id))
@@ -191,6 +292,38 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
         .unwrap();
     assert_eq!(stats["imagesLoaded"], 96);
     assert_eq!(stats["imagesFailed"], 0);
+
+    // Hot reductions reuse the same limiter, on the legacy path too.
+    locked_policy(&f, "privacy.maxConcurrentGlobal", json!(4)).await;
+    tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        while seen.lock().unwrap().active != 0 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
+    seen.lock().unwrap().peak = 0;
+    let mut jobs = Vec::new();
+    for index in 0..12 {
+        let (client, base, email) = (f.user.clone(), f.base.clone(), f.email_id.clone());
+        jobs.push(tokio::spawn(async move {
+            let response = client
+                .get(format!("{base}/api/image-proxy"))
+                .query(&[
+                    ("url", format!("http://1.2.3.4/hot-capacity/{index}.png")),
+                    ("emailId", email),
+                ])
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200);
+            assert!(response.bytes().await.unwrap().starts_with(b"\x89PNG"));
+        }));
+    }
+    for job in jobs {
+        job.await.unwrap();
+    }
+    assert!(seen.lock().unwrap().peak <= 4);
 }
 
 /// A 4×4 opaque PNG (larger than a tracking pixel).
@@ -262,6 +395,8 @@ fn png_size(png: &[u8]) -> (u32, u32) {
 struct Seen {
     connections: usize,
     requests: Vec<String>,
+    active: usize,
+    peak: usize,
 }
 
 /// Read an HTTP head through `\r\n\r\n`.
@@ -332,7 +467,12 @@ async fn standin_status_proxy_with_agent_gate(
                         "user-agent: Mozilla/5.0 (compatible; Mailwoman-Image-Proxy)",
                     )
                 });
-                sink.lock().unwrap().requests.push(req);
+                {
+                    let mut seen = sink.lock().unwrap();
+                    seen.requests.push(req);
+                    seen.active += 1;
+                    seen.peak = seen.peak.max(seen.active);
+                }
                 tokio::time::sleep(delay).await;
                 let denied = (
                     410,
@@ -352,6 +492,7 @@ async fn standin_status_proxy_with_agent_gate(
                 let _ = c.write_all(head.as_bytes()).await;
                 let _ = c.write_all(body).await;
                 let _ = c.flush().await;
+                sink.lock().unwrap().active -= 1;
             });
         }
     });
@@ -1702,6 +1843,7 @@ async fn part_redemption_rechecks_membership_and_charges_rate_budget() {
     let mut f = fixture(proxy, "mw-t32-rc-part-limit").await;
     f.email_id = "e1".into();
     locked_policy(&f, "privacy.ratePerMin", json!(10)).await;
+    locked_policy(&f, "privacy.rateBurst", json!(10)).await;
     let (status, signed) = f.sign(&[], &["Mblob1"]).await;
     assert_eq!(status, 200, "{signed}");
     let src = signed["parts"][0]["src"].as_str().unwrap();
@@ -2261,7 +2403,7 @@ async fn a_failed_fetch_is_remembered_briefly_counted_and_retried_on_request() {
     let first = f.load(&src).await;
     assert_eq!(first.status(), 502);
     assert_eq!(first.headers()["x-mw-remote-content"], "failed");
-    assert_eq!(first.headers()["cache-control"], "private, max-age=60");
+    assert_eq!(first.headers()["cache-control"], "private, max-age=10");
     assert_eq!(
         first.headers()["cross-origin-resource-policy"],
         "cross-origin"

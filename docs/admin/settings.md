@@ -401,7 +401,7 @@ Available by default; this shows an action in the message privacy bar, not autom
 <a id="privacy.fetchQueueTimeoutMs"></a>
 ### Remote-image queue budget (`privacy.fetchQueueTimeoutMs`)
 
-Global, hot, 1,000–180,000 ms; default 60,000 ms. Queue admission has a separate allowance from `privacy.fetchTotalTimeoutMs`, so waiting for other images does not consume the entire network budget. Overall work remains bounded by their sum. The replica admits at most 1,024 waiters while retaining its active fetch, per-account/per-message and decode ceilings. Queue exhaustion remains a retryable, uncached 503; no limit bypass or direct-network fallback is used.
+Global, hot, 1,000–180,000 ms; default 60,000 ms. Queue admission has a separate allowance from `privacy.fetchTotalTimeoutMs`, so waiting for other images does not consume the entire network budget. Overall work remains bounded by the queue, network and `privacy.imageDecodeTimeoutMs` budgets together (90 seconds by default). The default waiting ceiling is 2,048 requests (`privacy.maxQueuedRequests`), with independent active network, pipeline, account/message and decoder ceilings. Queue exhaustion remains a retryable, uncached 503; no limit bypass or direct-network fallback is used.
 
 <a id="mail.reader.allowOriginalHtml"></a>
 ### Original HTML reader option (`mail.reader.allowOriginalHtml`)
@@ -647,13 +647,12 @@ lock them to keep users from changing the list or the switch.
 <a id="privacy.cacheBytes"></a>
 `privacy.cacheBytes`: 0–1073741824 bytes, default 33554432.
 <a id="privacy.ratePerMin"></a>
-`privacy.ratePerMin`: 10–6000 fetches per account per minute, default 120.
+`privacy.ratePerMin`: 10–60000 replenished fetch tokens per account per minute, default 600. The separate burst allowance permits a large message to start without waiting for one minute of refill.
 
 Remote image fetch limits. Every image the server fetches for the reader is
 bounded in time, in redirects and in how many run at once. An image that exceeds
 a bound shows a small placeholder with its alt text in its own box; the failure is
-remembered for 60 seconds so it is not retried in a loop, and **Retry images**
-fetches it again.
+remembered for `privacy.negativeCacheTtlSecs` (10 seconds by default) so they are not retried in a loop. Queue-capacity failures are retryable and are not negatively cached. **Retry images** clears the affected failures and fetches those references again.
 
 <a id="privacy.fetchConnectTimeoutMs"></a>
 `privacy.fetchConnectTimeoutMs`: 500–30000 ms, default 5000. Opening the TCP
@@ -669,25 +668,40 @@ origin.
 between two parts of the body, so a stalled download stops without waiting for
 the total.
 <a id="privacy.fetchTotalTimeoutMs"></a>
-`privacy.fetchTotalTimeoutMs`: 1000–120000 ms, default 20000. One image in all:
-DNS, every redirect, the body, and any wait for a free slot. This is when the
-reader shows the placeholder. 20 seconds still lets an 8 MiB image arrive at
-about 3.5 Mbit/s.
+`privacy.fetchTotalTimeoutMs`: 1000–120000 ms, default 20000. The network budget covers DNS, every redirect and the response body. Queue waiting has its own `privacy.fetchQueueTimeoutMs` allowance (default 60000 ms). The overall original deadline is the queue, network and `privacy.imageDecodeTimeoutMs` budgets combined; it bounds queueing, network work, pipeline processing and decoding; a phase never receives a fresh queue allowance. Network work remains capped by its own configured total and phase timeouts.
 <a id="privacy.maxRedirects"></a>
 `privacy.maxRedirects`: 0–10, default 3. Each redirect is resolved and checked
 against the same address rules as the first request (private, loopback,
 link-local and metadata ranges, and IPv6 forms that embed them such as NAT64,
 6to4, Teredo and ISATAP).
 <a id="privacy.maxConcurrentPerMessage"></a>
-`privacy.maxConcurrentPerMessage`: 1–32, default 6, like a browser's per-host
-limit. Further images of the message wait for a slot.
+`privacy.maxConcurrentPerMessage`: 1–128, default 16. Further images of the message wait for a slot within the queue budget.
 <a id="privacy.maxConcurrentPerAccount"></a>
-`privacy.maxConcurrentPerAccount`: 1–64, default 12, across all open messages
-and tabs of one account. The server-wide ceiling of 16 concurrent fetches still
-applies on top.
+`privacy.maxConcurrentPerAccount`: 1–256, default 64, across all open messages and tabs of one account. Server-wide network and pipeline ceilings apply on top.
 
-These seven are global settings. Timeouts are logged at debug level with the
+The network, queue, concurrency, rate and cache controls are global, hot settings. Timeouts are logged at debug level with the
 phase that fired and the elapsed time, never the image address.
+Additional parallelism and cache controls are available in Admin › Privacy › Remote image fetching, with links to the policy editors:
+
+| Setting | Default | Range | Meaning |
+| --- | ---: | --- | --- |
+| <a id="privacy.imageDecodeTimeoutMs"></a>`privacy.imageDecodeTimeoutMs` | 10000 ms | 1000–60000 ms | Wall-clock budget for one sandboxed decode after fetching; independent from network timeouts. |
+| <a id="privacy.maxConcurrentGlobal"></a>`privacy.maxConcurrentGlobal` | 32 | 1–256 | Active remote image network requests in this process. |
+| <a id="privacy.maxConcurrentPipeline"></a>`privacy.maxConcurrentPipeline` | 64 | 1–256 | Admitted image pipelines, retained through decode and cache publication. |
+| <a id="privacy.maxConcurrentDecodes"></a>`privacy.maxConcurrentDecodes` | 4 | 1–16 | CPU image decodes running simultaneously. |
+| <a id="privacy.maxQueuedRequests"></a>`privacy.maxQueuedRequests` | 2048 | 16–16384 | Requests waiting for network or pipeline capacity; overflow remains retryable. |
+| <a id="privacy.rateBurst"></a>`privacy.rateBurst` | 512 | 1–12000 | Maximum per-account fetch tokens, replenished at `privacy.ratePerMin`. |
+| <a id="privacy.cacheTtlSecs"></a>`privacy.cacheTtlSecs` | 3600 s | 0–86400 s | Successful decoded-image reuse; zero disables reuse. |
+| <a id="privacy.negativeCacheTtlSecs"></a>`privacy.negativeCacheTtlSecs` | 10 s | 0–300 s | Eligible upstream-failure reuse; zero disables it. |
+
+These limits are independent: increasing the account limit does not override the global network, pipeline or decoder ceiling. Higher decoder concurrency consumes more CPU and memory. Cached successes do not consume new network tokens. Every cache lookup still requires current authorization; setting TTL to zero does not weaken grants, tracker blocking, SSRF checks or egress routing.
+
+<a id="privacy.imageRetryAttempts"></a>
+<a id="privacy.imageRetryDelayMs"></a>
+Automatic retry preferences support global/domain/user defaults and administrator locks. `privacy.imageRetryAttempts` is 0–8 (default 3); zero leaves manual retry available. `privacy.imageRetryDelayMs` is 500–60000 ms (default 5000). Users configure these under Settings › Privacy; the delay is shown in seconds. Retries start after the current frame settles and target only server-identified temporary failures. Permanent policy, type and size refusals are not retried automatically.
+
+The reader follows the effective server queue-plus-fetch-plus-decode budget, with a five-second notification grace. It never cancels browser image fetches because a notification expires. Live authenticated frame progress remains available afterwards, and a late completion refreshes retry references once without restarting continuous polling. Switching accounts or messages discards stale results.
+
 <a id="privacy.allowDirect"></a>
 `privacy.allowDirect` defaults to false; direct loading also requires the account capability.
 

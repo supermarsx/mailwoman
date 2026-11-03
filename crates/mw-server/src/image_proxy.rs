@@ -150,7 +150,7 @@ pub(crate) const SHELL_CSP_TIGHTENED: &str = "default-src 'none'; \
 // `MAX_REDIRECTS`). The two below are the image proxy's own.
 
 /// Global concurrent-fetch ceiling — bounds proxy load + upstream fan-out.
-const MAX_CONCURRENT: usize = 16;
+const MAX_CONCURRENT: usize = 32;
 
 // ── re-encoded-image cache bounds (t22-e7 P2) ─────────────────────────────────
 //
@@ -175,7 +175,7 @@ const MAX_ENTRY_BYTES: usize = 4 * 1024 * 1024;
 /// How long a cached re-encode stays servable. Bounds both staleness (the upstream
 /// bytes behind a URL can change) and retention of an image no one is reading any
 /// more; the `Cache-Control` we hand the browser is separate and unaffected.
-const CACHE_TTL: Duration = Duration::from_secs(3600);
+pub(crate) const CACHE_TTL: Duration = Duration::from_secs(3600);
 
 /// The cache-key route token for a **direct** fetch — no egress route configured.
 ///
@@ -752,9 +752,13 @@ struct ProxyCache {
 impl ProxyCache {
     /// A FRESH entry's `(etag, png)`, or `None`. An entry past its TTL is dropped
     /// here rather than returned, so a stale hit never shortcuts the re-fetch.
+    #[cfg(test)]
     fn get(&mut self, key: &CacheKey) -> Option<(String, Vec<u8>)> {
+        self.get_with_ttl(key, CACHE_TTL)
+    }
+    fn get_with_ttl(&mut self, key: &CacheKey, ttl: Duration) -> Option<(String, Vec<u8>)> {
         match self.map.get(key) {
-            Some(e) if e.inserted.elapsed() < CACHE_TTL => {}
+            Some(e) if e.inserted.elapsed() < ttl => {}
             Some(_) => {
                 self.remove(key);
                 return None;
@@ -776,11 +780,11 @@ impl ProxyCache {
 
     /// Drop every entry past [`CACHE_TTL`]. Called on insert so an idle-then-busy
     /// proxy does not carry an hour-old resident set into its next burst.
-    fn evict_expired(&mut self) {
+    fn evict_expired(&mut self, ttl: Duration) {
         let stale: Vec<CacheKey> = self
             .map
             .iter()
-            .filter(|(_, e)| e.inserted.elapsed() >= CACHE_TTL)
+            .filter(|(_, e)| e.inserted.elapsed() >= ttl)
             .map(|(k, _)| k.clone())
             .collect();
         for k in stale {
@@ -803,11 +807,22 @@ impl ProxyCache {
         }
     }
 
+    #[cfg(test)]
     fn put_with_budget(&mut self, key: CacheKey, etag: String, png: Vec<u8>, budget: usize) {
+        self.put_with_policy(key, etag, png, budget, CACHE_TTL);
+    }
+    fn put_with_policy(
+        &mut self,
+        key: CacheKey,
+        etag: String,
+        png: Vec<u8>,
+        budget: usize,
+        ttl: Duration,
+    ) {
         self.trim(budget);
         // Too large to retain — serve it, forget it. Also what guarantees the
         // eviction loop below terminates with the entry admitted.
-        if png.len() > MAX_ENTRY_BYTES || png.len() > budget || budget == 0 {
+        if png.len() > MAX_ENTRY_BYTES || png.len() > budget || budget == 0 || ttl.is_zero() {
             self.remove(&key);
             return;
         }
@@ -816,7 +831,7 @@ impl ProxyCache {
         // changed, must be able to take its slot back — under the old early-return an
         // entry could never be refreshed, only evicted by unrelated traffic.
         self.remove(&key);
-        self.evict_expired();
+        self.evict_expired(ttl);
         while !self.order.is_empty()
             && (self.map.len() >= CACHE_CAPACITY || self.bytes + png.len() > budget)
         {
@@ -851,32 +866,30 @@ fn cache() -> &'static Mutex<ProxyCache> {
     })
 }
 
-/// The global concurrent-fetch limiter.
-fn fetch_semaphore() -> &'static tokio::sync::Semaphore {
-    static SEM: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
-    SEM.get_or_init(|| tokio::sync::Semaphore::new(MAX_CONCURRENT))
+#[path = "remote_image_capacity.rs"]
+pub(super) mod capacity;
+
+/// Stable capacity is resized in place: a hot reduction drains existing work.
+fn fetch_semaphore() -> &'static Arc<capacity::Capacity> {
+    static SEM: OnceLock<Arc<capacity::Capacity>> = OnceLock::new();
+    SEM.get_or_init(|| capacity::Capacity::new(MAX_CONCURRENT))
 }
 
-/// Preserve the replica's 16-request network ceiling while allowing a bounded
+/// Respect the replica's configured network ceiling while allowing a bounded
 /// burst to wait within its original budget instead of failing immediately.
-pub(crate) async fn acquire_fetch_permit(
-    deadline: Instant,
-) -> Option<tokio::sync::SemaphorePermit<'static>> {
+pub(crate) async fn acquire_fetch_permit(deadline: Instant) -> Option<capacity::Permit> {
     acquire_bounded_permit(fetch_semaphore(), deadline).await
 }
 
-fn admission_waiters() -> &'static tokio::sync::Semaphore {
-    static WAITERS: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
-    // Several signed displays may each contain up to 256 distinct images. Keep
-    // waiters bounded without shedding ordinary HTTP/2 bursts above 64 while
-    // the unchanged network/pipeline ceilings are doing their job.
-    WAITERS.get_or_init(|| tokio::sync::Semaphore::new(1024))
+fn admission_waiters() -> &'static Arc<capacity::Capacity> {
+    static WAITERS: OnceLock<Arc<capacity::Capacity>> = OnceLock::new();
+    WAITERS.get_or_init(|| capacity::Capacity::new(2048))
 }
 
 pub(super) async fn acquire_bounded_permit(
-    semaphore: &'static tokio::sync::Semaphore,
+    semaphore: &Arc<capacity::Capacity>,
     deadline: Instant,
-) -> Option<tokio::sync::SemaphorePermit<'static>> {
+) -> Option<capacity::Permit> {
     if Instant::now() >= deadline {
         return None;
     }
@@ -1133,7 +1146,10 @@ async fn proxy_image(
         .expect("image cache lock")
         .trim(policy.cache_bytes);
     let cached_response = || {
-        let (etag, png) = cache().lock().expect("image cache lock").get(&key)?;
+        let (etag, png) = cache()
+            .lock()
+            .expect("image cache lock")
+            .get_with_ttl(&key, policy.cache_ttl)?;
         if if_none_match(&headers, &etag) {
             return Some(not_modified(&etag));
         }
@@ -1142,6 +1158,7 @@ async fn proxy_image(
     if let Some(response) = cached_response() {
         return response;
     }
+    remote_content::configure_capacity(&policy.fetch);
     let deadline = Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
     let Some(flight) = remote_content::image_flight::acquire(
@@ -1149,6 +1166,7 @@ async fn proxy_image(
         &key.route,
         &q.url,
         queue_deadline,
+        policy.fetch.queued,
     )
     .await
     else {
@@ -1160,8 +1178,12 @@ async fn proxy_image(
 
     // A failure remembered for this URL (t56) answers at once, before the rate
     // limit, like a cache hit.
-    if let Some(failure) = remote_content::fetch_limits::remembered(&session.account_id, &q.url) {
-        return remote_content::failed_response(failure.refusal());
+    if let Some(failure) = remote_content::fetch_limits::remembered_for(
+        &session.account_id,
+        &q.url,
+        policy.negative_cache_ttl,
+    ) {
+        return remote_content::failed_response(failure.refusal(), policy.negative_cache_ttl);
     }
 
     // Per-account fan-out rate limit (R6): a cache MISS will fetch upstream, so
@@ -1172,7 +1194,7 @@ async fn proxy_image(
         .expect("image rate-limit lock")
         .check_with_limit(
             &session.account_id,
-            policy.rate_per_min as f64,
+            policy.rate_burst as f64,
             policy.rate_per_min as f64 / 60.0,
         )
     {
@@ -1443,8 +1465,8 @@ mod tests {
             },
             ..remote_content::FetchLimits::default()
         };
-        let gate: &'static tokio::sync::Semaphore =
-            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let gate: &'static Arc<capacity::Capacity> =
+            Box::leak(Box::new(capacity::Capacity::new(1)));
         let held = gate.acquire().await.unwrap();
         let started = Instant::now();
         let deadline = started + limits.overall_budget();
@@ -1490,8 +1512,8 @@ mod tests {
             },
             ..remote_content::FetchLimits::default()
         };
-        let gate: &'static tokio::sync::Semaphore =
-            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let gate: &'static Arc<capacity::Capacity> =
+            Box::leak(Box::new(capacity::Capacity::new(1)));
         let held = gate.acquire().await.unwrap();
         let before = admission_waiters().available_permits();
         let overall = Instant::now() + limits.overall_budget();
@@ -1510,8 +1532,8 @@ mod tests {
 
     #[tokio::test]
     async fn image_admission_http2_burst_waits_without_early_busy_responses() {
-        let gate: &'static tokio::sync::Semaphore =
-            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let gate: &'static Arc<capacity::Capacity> =
+            Box::leak(Box::new(capacity::Capacity::new(1)));
         let held = gate.acquire().await.unwrap();
         let before = admission_waiters().available_permits();
         let mut jobs = Vec::new();
@@ -1542,8 +1564,8 @@ mod tests {
 
     #[tokio::test]
     async fn image_admission_queue_is_finite_and_cancellation_reclaims_waiters() {
-        let gate: &'static tokio::sync::Semaphore =
-            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let gate: &'static Arc<capacity::Capacity> =
+            Box::leak(Box::new(capacity::Capacity::new(1)));
         let held = gate.acquire().await.unwrap();
         let capacity = admission_waiters().available_permits();
         let mut jobs = Vec::new();

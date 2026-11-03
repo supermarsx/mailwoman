@@ -15,10 +15,17 @@ beforeEach(() => {
     const body = init?.method === 'PUT' ? JSON.parse(String(init.body)) as {value:unknown} : null;
     if (body) { writes.push({ url, value: body.value }); return new Response(JSON.stringify(free(body.value))); }
     if(init?.method==='DELETE'){writes.push({url,reset:true});return new Response(JSON.stringify(free(false)));}
-    return new Response(JSON.stringify({ settings: { 'mail.reader.allowOriginalHtml':free(false,held),'privacy.trackerOverrideAllowed':free(true,held),'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
+    return new Response(JSON.stringify({ settings: {'privacy.imageRetryAttempts':free(3,held),'privacy.imageRetryDelayMs':free(5000,held), 'mail.reader.allowOriginalHtml':free(false,held),'privacy.trackerOverrideAllowed':free(true,held),'mail.reader.unsafeHtmlMode':free('ask',held),'privacy.remoteContent': free('ask', held), 'privacy.trackers': free(true, held), 'privacy.cleanLinks': free(true, held), 'privacy.stripMailerHeaders': free(true, held) } }));
   }));
 });
 describe('Privacy settings', () => {
+  it('saves bounded image retry preferences in seconds and allows inherited defaults',async()=>{
+    render(()=><Privacy/>);const attempts=await screen.findByLabelText('Automatic image retry attempts');const delay=screen.getByLabelText('Image retry delay (seconds)');await waitFor(()=>expect(attempts).toBeEnabled());expect(attempts).toHaveValue(3);expect(delay).toHaveValue(5);
+    fireEvent.change(attempts,{target:{value:'0'}});await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.imageRetryAttempts',value:0}));
+    fireEvent.change(delay,{target:{value:'0.5'}});await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.imageRetryDelayMs',value:500}));
+    fireEvent.change(attempts,{target:{value:'9'}});fireEvent.change(delay,{target:{value:'0.1'}});expect(writes).toHaveLength(2);
+    const row=attempts.closest('div')!;await waitFor(()=>expect(row.querySelector('button')).toBeEnabled());fireEvent.click(row.querySelector('button')!);await waitFor(()=>expect(writes).toContainEqual({url:'/api/settings/privacy.imageRetryAttempts',reset:true}));
+  });
   it('offers original HTML as a disabled-by-default preference with inheritance, locks and feature gates',async()=>{
     await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:true}}}))});
     render(()=><Privacy/>);const toggle=await screen.findByLabelText('Allow Original HTML per message');await waitFor(()=>expect(toggle).toBeEnabled());expect(toggle).not.toBeChecked();
@@ -54,6 +61,7 @@ describe('Privacy settings', () => {
     expect(screen.getByLabelText('Remove outgoing mailer headers')).toBeDisabled();
     expect(screen.getByRole('option', { name: "Load directly from the sender's servers" })).toBeDisabled();
     expect(screen.getByLabelText('Potentially unsafe message HTML')).toBeDisabled();
+    expect(screen.getByLabelText('Automatic image retry attempts')).toBeDisabled();expect(screen.getByLabelText('Image retry delay (seconds)')).toBeDisabled();
     expect(writes).toEqual([]);
   });
   it('writes through the settings policy API and preserves unrelated preferences', async () => {

@@ -27,7 +27,7 @@ describe('Admin Privacy', () => {
   });
   it('shows the remote image fetch limits in their own subsection, in seconds, with editors (t56)', async () => {
     const limit = (key: string, value: number): AdminSetting => ({ ...setting, key, kind: { type: 'int' } as AdminSetting['kind'], default: value, scopes: 'global', userOverride: false, userVisible: false, globalValue: null, globalLocked: false, effective: { value, source: 'default' } });
-    const rows = [limit('privacy.fetchTotalTimeoutMs', 20000), limit('privacy.fetchConnectTimeoutMs', 5000), limit('privacy.maxRedirects', 3), setting];
+    const rows = [limit('privacy.fetchTotalTimeoutMs', 20000), limit('privacy.fetchConnectTimeoutMs', 5000), limit('privacy.maxRedirects', 3),limit('privacy.fetchQueueTimeoutMs',60000),limit('privacy.imageDecodeTimeoutMs',10000),limit('privacy.maxConcurrentGlobal',32),limit('privacy.rateBurst',512),limit('privacy.cacheTtlSecs',3600),limit('privacy.imageRetryAttempts',3),limit('privacy.imageRetryDelayMs',5000), setting];
     const api = { settings: vi.fn(async () => ({ kind: 'ok' as const, data: rows, etag: null })), stats: vi.fn(async () => stats) };
     const { navigate } = renderInShell(() => <AdminPrivacy service={api} />);
     const total = await screen.findByText('Remote image total timeout');
@@ -37,7 +37,8 @@ describe('Admin Privacy', () => {
     expect(section).toHaveTextContent('Remote image redirects');
     // Registry order, not the order the API returned.
     const order = [...section.querySelectorAll('strong')].map(n => n.textContent);
-    expect(order).toEqual(['Remote image connect timeout', 'Remote image total timeout', 'Remote image redirects']);
+    expect(order).toEqual(['Remote image connect timeout', 'Remote image total timeout','Remote image queue timeout','Image decode timeout', 'Remote image redirects','Global parallel image fetches','Image request burst allowance','Successful image cache lifetime','Automatic image retries','Automatic image retry delay']);
+    expect(section).toHaveTextContent('60 sec');expect(section).toHaveTextContent('3,600 sec');
     // The policy subsection keeps its own rows only.
     expect(screen.getByText('Remote content').closest('section')).not.toHaveTextContent('Remote image total timeout');
     const edit = [...section.querySelectorAll('a')].find(a => a.getAttribute('href')?.endsWith('privacy.fetchTotalTimeoutMs')) as HTMLAnchorElement;
@@ -48,6 +49,8 @@ describe('Admin Privacy', () => {
     expect(fetchLimitValue('privacy.fetchTotalTimeoutMs', 20000, 'en')).toBe('20 sec');
     expect(fetchLimitValue('privacy.fetchConnectTimeoutMs', 1500, 'en')).toBe('1.5 sec');
     expect(fetchLimitValue('privacy.maxConcurrentPerMessage', 6, 'en')).toBe('6');
-    expect(FETCH_LIMIT_KEYS).toHaveLength(7);
+    expect(fetchLimitValue('privacy.imageRetryDelayMs',500,'en')).toBe('0.5 sec');
+    expect(fetchLimitValue('privacy.cacheTtlSecs',10,'en')).toBe('10 sec');
+    expect(FETCH_LIMIT_KEYS).toHaveLength(21);
   });
 });

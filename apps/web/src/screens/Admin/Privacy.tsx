@@ -14,7 +14,7 @@ export interface PrivacyStats { cacheEntries: number; cacheBytes: number; tracke
 export const privacyAdminApi = { settings: listAdminSettings, async stats(): Promise<PrivacyStats> { return (await adminRequest<PrivacyStats>('/egress/privacy-stats')).data; } };
 /** t56: the remote-image fetch limits, shown in their own subsection under the
  *  console's registry labels (admin-settings.ftl). Milliseconds read as seconds. */
-export const FETCH_LIMIT_KEYS: readonly string[] = ['privacy.fetchConnectTimeoutMs','privacy.fetchHeadersTimeoutMs','privacy.fetchIdleTimeoutMs','privacy.fetchTotalTimeoutMs','privacy.maxRedirects','privacy.maxConcurrentPerMessage','privacy.maxConcurrentPerAccount'];
+export const FETCH_LIMIT_KEYS: readonly string[] = ['privacy.fetchConnectTimeoutMs','privacy.fetchHeadersTimeoutMs','privacy.fetchIdleTimeoutMs','privacy.fetchTotalTimeoutMs','privacy.fetchQueueTimeoutMs','privacy.imageDecodeTimeoutMs','privacy.maxRedirects','privacy.maxConcurrentPerMessage','privacy.maxConcurrentPerAccount','privacy.maxConcurrentGlobal','privacy.maxConcurrentPipeline','privacy.maxConcurrentDecodes','privacy.maxQueuedRequests','privacy.ratePerMin','privacy.rateBurst','privacy.maxBytes','privacy.cacheBytes','privacy.cacheTtlSecs','privacy.negativeCacheTtlSecs','privacy.imageRetryAttempts','privacy.imageRetryDelayMs'];
 const fetchLabel = (key: string): string => `admin-settings-key-${key.replace('.', '-').replace(/([a-z0-9])([A-Z])/g, '$1-$2').toLowerCase()}`;
 type TrafficRow = PrivacyStats['traffic'][number];
 const trafficMs = (row: TrafficRow): number => typeof row.totalUs === 'number' ? row.totalUs / 1000 : row.totalMs;
@@ -27,8 +27,8 @@ const trafficTime = (rows: readonly TrafficRow[]): ((row: TrafficRow) => string)
 /** `5000` ms -> "5 s" in the document's language; counts stay plain numbers. */
 export function fetchLimitValue(key: string, value: unknown, lang = document.documentElement.lang || undefined): string {
   if (typeof value !== 'number') return String(value);
-  if (!key.endsWith('Ms')) return new Intl.NumberFormat(lang).format(value);
-  return new Intl.NumberFormat(lang, { style: 'unit', unit: 'second', unitDisplay: 'short', maximumFractionDigits: 1 }).format(value / 1000);
+  if (!key.endsWith('Ms')&&!key.endsWith('Secs')) return new Intl.NumberFormat(lang).format(value);
+  return new Intl.NumberFormat(lang, { style: 'unit', unit: 'second', unitDisplay: 'short', maximumFractionDigits: 1 }).format(key.endsWith('Ms')?value / 1000:value);
 }
 export function AdminPrivacy(props: { service?: typeof privacyAdminApi }): JSX.Element {
   const api = props.service ?? privacyAdminApi; const shell = useShell();

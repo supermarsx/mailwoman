@@ -1235,11 +1235,83 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "privacy.ratePerMin",
-        int(10, 6000),
-        "120",
+        int(10, 60000),
+        "600",
         G,
         "privacy",
         "Remote fetches per account per minute"
+    ),
+    def!(
+        "privacy.maxConcurrentGlobal",
+        int(1, 256),
+        "32",
+        G,
+        "privacy",
+        "Maximum active remote-image network fetches per replica"
+    ),
+    def!(
+        "privacy.maxConcurrentPipeline",
+        int(1, 256),
+        "64",
+        G,
+        "privacy",
+        "Maximum in-flight remote images including fetched buffers and decode work per replica"
+    ),
+    def!(
+        "privacy.maxConcurrentDecodes",
+        int(1, 16),
+        "4",
+        G,
+        "privacy",
+        "Maximum simultaneous sandboxed image decoders per replica"
+    ),
+    def!(
+        "privacy.maxQueuedRequests",
+        int(16, 16384),
+        "2048",
+        G,
+        "privacy",
+        "Maximum waiters and distinct remote-image flights per replica"
+    ),
+    def!(
+        "privacy.rateBurst",
+        int(1, 12000),
+        "512",
+        G,
+        "privacy",
+        "Remote-image burst allowance per account, separate from sustained refill"
+    ),
+    def!(
+        "privacy.cacheTtlSecs",
+        int(0, 86400),
+        "3600",
+        G,
+        "privacy",
+        "Maximum age of cached re-encoded remote images in seconds; zero disables reuse"
+    ),
+    def!(
+        "privacy.negativeCacheTtlSecs",
+        int(0, 300),
+        "10",
+        G,
+        "privacy",
+        "Maximum age of remembered remote-image failures in seconds; zero disables negative caching"
+    ),
+    def!(
+        "privacy.imageRetryAttempts",
+        int(0, 8),
+        "3",
+        GDU,
+        "privacy",
+        "Automatic retry rounds for transient image failures; zero disables automatic retries"
+    ),
+    def!(
+        "privacy.imageRetryDelayMs",
+        int(500, 60000),
+        "5000",
+        GDU,
+        "privacy",
+        "Delay between automatic transient image retry rounds in milliseconds"
     ),
     def!(
         "privacy.fetchConnectTimeoutMs",
@@ -1274,6 +1346,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Remote image fetch work budget in milliseconds, separate from bounded queue waiting"
     ),
     def!(
+        "privacy.imageDecodeTimeoutMs",
+        int(1000, 60000),
+        "10000",
+        G,
+        "privacy",
+        "Maximum sandboxed image decode time in milliseconds, separate from network and queue budgets"
+    ),
+    def!(
         "privacy.fetchQueueTimeoutMs",
         int(1000, 180000),
         "60000",
@@ -1291,16 +1371,16 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "privacy.maxConcurrentPerMessage",
-        int(1, 32),
-        "6",
+        int(1, 128),
+        "16",
         G,
         "privacy",
         "Remote image fetches at a time per message"
     ),
     def!(
         "privacy.maxConcurrentPerAccount",
-        int(1, 64),
-        "12",
+        int(1, 256),
+        "64",
         G,
         "privacy",
         "Remote image fetches at a time per account"
@@ -4918,15 +4998,20 @@ mod tests {
     /// the defaults are exactly what the fetch uses when nothing is set.
     #[test]
     fn remote_image_fetch_limits_are_bounded_global_integers() {
-        let expected: [(&str, i64, i64, i64); 8] = [
+        let expected: [(&str, i64, i64, i64); 13] = [
             ("privacy.fetchConnectTimeoutMs", 500, 30000, 5000),
             ("privacy.fetchHeadersTimeoutMs", 500, 60000, 10000),
             ("privacy.fetchIdleTimeoutMs", 500, 60000, 10000),
             ("privacy.fetchTotalTimeoutMs", 1000, 120000, 20000),
             ("privacy.fetchQueueTimeoutMs", 1000, 180000, 60000),
+            ("privacy.imageDecodeTimeoutMs", 1000, 60000, 10000),
             ("privacy.maxRedirects", 0, 10, 3),
-            ("privacy.maxConcurrentPerMessage", 1, 32, 6),
-            ("privacy.maxConcurrentPerAccount", 1, 64, 12),
+            ("privacy.maxConcurrentGlobal", 1, 256, 32),
+            ("privacy.maxConcurrentPipeline", 1, 256, 64),
+            ("privacy.maxConcurrentDecodes", 1, 16, 4),
+            ("privacy.maxQueuedRequests", 16, 16384, 2048),
+            ("privacy.maxConcurrentPerMessage", 1, 128, 16),
+            ("privacy.maxConcurrentPerAccount", 1, 256, 64),
         ];
         assert_eq!(
             expected.map(|(k, ..)| k),

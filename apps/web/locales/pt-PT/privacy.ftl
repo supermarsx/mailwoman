@@ -128,3 +128,6 @@ privacy-original-html-active = HTML original apresentado — scripts desativados
 privacy-original-html-offer = Preservar o esquema original apenas para esta mensagem.
 privacy-tracker-choice = Permitir uma escolha de rastreadores por mensagem
 privacy-tracker-choice-help = Disponibiliza uma ação explícita para carregar rastreadores bloqueados numa mensagem. Continuam bloqueados até a escolher, e o administrador pode exigir a proteção.
+privacy-image-retry-attempts = Tentativas automáticas de repetição de imagens
+privacy-image-retry-help = Repetir apenas falhas temporárias das imagens depois de as imagens atuais terminarem de carregar. Zero desativa as repetições automáticas; pode continuar a repetir manualmente. Os bloqueios do administrador têm prioridade.
+privacy-image-retry-delay = Intervalo entre repetições de imagens (segundos)
