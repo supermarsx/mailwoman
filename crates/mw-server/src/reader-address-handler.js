@@ -7,15 +7,39 @@
   let revision = 0;
   let imageObserver = null;
   let imagesClosed = false;
+  const emptyImage = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  const imageStates = new Map();
+  const imageCounts = { loaded: 0, failed: 0, pending: 0, total: 0 };
+  let progressScheduled = false;
+  function reportImageProgress() {
+    if (imagesClosed || progressScheduled || !port) return;
+    progressScheduled = true;
+    queueMicrotask(() => {
+      progressScheduled = false;
+      if (!imagesClosed && port) port.postMessage({ type: 'image-progress', nonce, revision, ...imageCounts });
+    });
+  }
+  function countImage(image, state) {
+    const source = image.getAttribute('src') || image.getAttribute('srcset') || '';
+    const current = state && document.body.contains(image) && source && source !== emptyImage && !/^mw-(?:rc|original):/i.test(source)
+      ? state === 'loading' ? 'pending' : state === 'error' ? 'failed' : 'loaded' : null;
+    const previous = imageStates.get(image);
+    if (previous === current || !previous && !current) return;
+    if (previous) { imageCounts[previous]--; imageCounts.total--; imageStates.delete(image); }
+    if (current) { imageCounts[current]++; imageCounts.total++; imageStates.set(image, current); }
+    reportImageProgress();
+  }
   function imageState(image, pending = false) {
     if (imagesClosed || image?.tagName !== 'IMG') return;
     if (!image.getAttribute('src') && !image.getAttribute('srcset')) {
       image.removeAttribute('data-mw-image-state');
       image.removeAttribute('data-mw-image-unsized');
+      countImage(image, null);
       return;
     }
     const state = pending || !image.complete ? 'loading' : image.naturalWidth > 0 ? 'loaded' : 'error';
     image.setAttribute('data-mw-image-state', state);
+    countImage(image, state);
     if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && !image.getBoundingClientRect().width && !image.getBoundingClientRect().height) image.setAttribute('data-mw-image-unsized', '');
     else if (state !== 'loading') image.removeAttribute('data-mw-image-unsized');
   }
@@ -25,9 +49,15 @@
     if (node.tagName === 'IMG') imageState(node);
     node.querySelectorAll('img').forEach(image => imageState(image));
   }
+  function imageRemoved(node) {
+    if (node?.nodeType !== 1) return;
+    if (node.tagName === 'IMG') countImage(node, null);
+    node.querySelectorAll('img').forEach(image => countImage(image, null));
+  }
   function observeImages() {
     if (imagesClosed || imageObserver) return;
     document.querySelectorAll('img').forEach(image => imageState(image));
+    reportImageProgress();
     imageObserver = new MutationObserver(records => {
       if (imagesClosed) return;
       for (const record of records) {
@@ -37,7 +67,7 @@
           // A cached resource can already be complete before the mutation
           // observer runs; settle it without waiting for another load event.
           queueMicrotask(() => imageState(image));
-        } else record.addedNodes.forEach(imageAdded);
+        } else { record.removedNodes.forEach(imageRemoved); record.addedNodes.forEach(imageAdded); }
       }
     });
     imageObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'srcset'] });
@@ -122,6 +152,6 @@
     event.preventDefault();
     port.postMessage({ type: 'address-context', nonce, revision, address, x: event.clientX, y: event.clientY });
   }, true);
-  addEventListener('pagehide', () => { imagesClosed = true; imageObserver?.disconnect(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
+  addEventListener('pagehide', () => { imagesClosed = true; imageObserver?.disconnect(); imageStates.clear(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
   parent.postMessage({ type: 'mw-reader-address-ready' }, '*');
 })();

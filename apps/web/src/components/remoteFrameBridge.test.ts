@@ -39,6 +39,16 @@ function bridge(options: { opener?: object | null; openerThrows?: boolean } = {}
 }
 const body = (html = '<p>hi</p>') => ({ type: 'mw-reader-frame', token: TOKEN, html, revision: 1 });
 
+it('forwards image progress only from the authenticated current child with consistent bounded counts',()=>{
+ const frame=bridge();frame.send(frame.parent,body());
+ const child=frame.frames.at(-1)!.contentWindow as {postMessage:ReturnType<typeof vi.fn>};frame.send(child,{type:'mw-reader-address-ready'},'null');
+ const init=child.postMessage.mock.calls[0]![0] as {nonce:string;revision:number};const port=frame.channels[0]!.port1;
+ const value={...init,type:'image-progress',loaded:2,failed:1,pending:3,total:6};const before=frame.posted.length;
+ for(const data of [{...value,nonce:'wrong'},{...value,revision:2},{...value,total:7},{...value,loaded:-1},{...value,pending:NaN},{...value,failed:0.5},{...value,total:1_000_001}])port.onmessage!({data});
+ expect(frame.posted).toHaveLength(before);port.onmessage!({data:value});expect(frame.posted.at(-1)).toEqual({data:{type:'mw-reader-image-progress',token:TOKEN,revision:1,loaded:2,failed:1,pending:3,total:6},origin:ORIGIN});
+ frame.send(frame.parent,{...body(),revision:2});const count=frame.posted.length;port.onmessage!({data:value});expect(frame.posted).toHaveLength(count);
+});
+
 it('announces itself to its parent and takes a body from the parent', () => {
   const frame = bridge();
   expect(frame.posted).toEqual([{ data: { type: 'mw-reader-ready', token: TOKEN }, origin: ORIGIN }]);

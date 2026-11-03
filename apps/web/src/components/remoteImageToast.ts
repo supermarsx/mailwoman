@@ -15,9 +15,9 @@
 // arms a 300 ms timer; a body displayed sooner never toasts. Otherwise one info
 // toast "Loading images…" is shown, then replaced in place (same toast id) by
 // "Images loaded" (2 s) or "k images couldn't load" with Retry. The failure
-// count comes from the optional `imagesFailed` counter on /api/rc/stats (t56);
-// without it no failure is claimed. Distinct server outcomes supply progress;
-// the frame remains an opaque sandbox.
+// count comes from the authenticated current frame when supplied; otherwise
+// older callers use the optional `imagesFailed` counter on /api/rc/stats.
+// Server outcomes still supply tracker diagnostics and retryable references.
 //
 // t67: the toast used to wait for the frame's load event to read the counters.
 // That event can come very late or not at all for the body on screen (the
@@ -34,6 +34,7 @@ import { createEffect, createSignal, on, onCleanup, untrack, type Accessor } fro
 import { decodedTrackerStats, requestImageRetry, type RemoteContentStats } from '../api/remote-content.ts';
 import { t } from '../i18n/index.ts';
 import { toast as toastStore, type ToastOptions, type ToastTone } from './toast/toast.ts';
+import type {ReaderImageProgress} from './DirectReaderFrame.tsx';
 
 /** A load displayed sooner than this shows no toast. */
 export const TOAST_DELAY_MS = 300;
@@ -153,6 +154,8 @@ export function createRemoteImageLoad(opts: {
   source: Accessor<RemoteImageLoadSource | null>;
   /** Bumps each time the frame reports the current document displayed. */
   displayed: Accessor<number>;
+  /** Authenticated counts for this exact visible document, null until known. */
+  progress?: Accessor<ReaderImageProgress | null | undefined>;
   /** `privacy.remoteImagesToast` is on. */
   toastEnabled: Accessor<boolean>;
   retry: (references?: readonly string[]) => void | Promise<void>;
@@ -169,6 +172,7 @@ export function createRemoteImageLoad(opts: {
   const [trackers, setTrackers] = createSignal<SettledTrackers | null>(null, { equals: (a, b) => a?.count === b?.count && a?.limited === b?.limited });
   const [failures,setFailures]=createSignal<{count:number;retrying:boolean}|null>(null);
   let lastStats: RemoteContentStats | null=null;let attempts=0;let disposed=false;
+  let cappedLoad:string|null=null;
   let retryTimer:ReturnType<typeof setTimeout>|undefined;
   let statsTimer: ReturnType<typeof setTimeout> | undefined;
   let capTimer: ReturnType<typeof setTimeout> | undefined;
@@ -192,31 +196,46 @@ export function createRemoteImageLoad(opts: {
   const covers = (stats: RemoteContentStats | null, total: number): boolean =>
     stats?.imagesLoaded !== undefined && stats.imagesFailed !== undefined && stats.imagesLoaded + stats.imagesFailed >= total;
 
+  function frameProgress():ReaderImageProgress|null {
+    const value=opts.progress?.();if(!value)return null;
+    const {loaded,failed,pending,total}=value;
+    return [loaded,failed,pending,total].every(count=>Number.isSafeInteger(count)&&count>=0&&count<=1_000_000)&&loaded+failed+pending===total ? value : null;
+  }
+  const failureCount=():number=>opts.progress ? frameProgress()?.failed??0 : lastStats?.imagesFailed??0;
+
   function retry(automatic:boolean):void {
     const src=untrack(opts.source);if(disposed||!src||failures()?.retrying)return;
-    const references=automatic?lastStats?.retryableImageRefs:lastStats?.failedImageRefs;
+    const refs=automatic?lastStats?.retryableImageRefs:lastStats?.failedImageRefs;
+    const references=!automatic&&failureCount()>0&&!refs?.length?undefined:refs;
     if(automatic&&(!references?.length||attempts>=MAX_AUTO_RETRIES))return;
     clearTimeout(retryTimer);retryTimer=undefined;
     if(automatic)attempts++;else attempts=0;
-    setFailures({count:lastStats?.imagesFailed??0,retrying:true});
+    setFailures({count:failureCount(),retrying:true});
     // Legacy servers lack reference-level results; retain their explicit Retry.
     if(references===undefined)requestImageRetry(src.emailId);
-    Promise.resolve(opts.retry(references)).then(()=>{if(current(src))setFailures({count:lastStats?.imagesFailed??0,retrying:false});}).catch(()=>{
-      if(current(src)){setFailures({count:lastStats?.imagesFailed??0,retrying:false});toast.finish(src.load,lastStats?.imagesFailed);}
+    Promise.resolve(opts.retry(references)).then(()=>{if(current(src))setFailures({count:failureCount(),retrying:false});}).catch(()=>{
+      if(current(src)){setFailures({count:failureCount(),retrying:false});finish(src,lastStats);}
     });
   }
   function update(src:RemoteImageLoadSource,stats:RemoteContentStats|null):void {
     if(!current(src))return;
     if(stats){lastStats=stats;offer({count:stats.count,limited:stats.limited});
-      if(stats.imagesLoaded!==undefined)toast.progress(src.load,stats.imagesLoaded,src.total);
-      if(stats.imagesFailed!==undefined)setFailures(stats.imagesFailed>0?{count:stats.imagesFailed,retrying:false}:null);
+      if(!opts.progress&&stats.imagesLoaded!==undefined)toast.progress(src.load,stats.imagesLoaded,src.total);
+      if(!opts.progress&&stats.imagesFailed!==undefined)setFailures(stats.imagesFailed>0?{count:stats.imagesFailed,retrying:false}:null);
     }
+    const progress=frameProgress();
+    if(progress){toast.progress(src.load,progress.loaded,progress.total);setFailures(progress.failed>0?{count:progress.failed,retrying:failures()?.retrying??false}:null);}
   }
-  function finish(src:RemoteImageLoadSource,stats:RemoteContentStats|null,settled=true):void {
-    update(src,stats);toast.finish(src.load,stats?.imagesFailed,settled);
-    if(settled&&stats?.retryableImageRefs?.length&&attempts<MAX_AUTO_RETRIES){
-      clearTimeout(retryTimer);retryTimer=setTimeout(()=>{retryTimer=undefined;if(current(src))retry(true);},AUTO_RETRY_DELAY_MS);
+  function finish(src:RemoteImageLoadSource,stats:RemoteContentStats|null,settled=true):boolean {
+    update(src,stats);
+    const progress=frameProgress();
+    if(opts.progress&&(!progress||progress.pending>0))return false;
+    const failed=opts.progress?progress!.failed:stats?.imagesFailed;
+    toast.finish(src.load,failed,settled&&(!opts.progress||progress!.total>0));
+    if(settled&&(!opts.progress||failed!>0)&&stats?.retryableImageRefs?.length&&attempts<MAX_AUTO_RETRIES&&retryTimer===undefined&&cappedLoad!==src.load){
+      retryTimer=setTimeout(()=>{retryTimer=undefined;if(current(src))retry(true);},AUTO_RETRY_DELAY_MS);
     }
+    return true;
   }
   async function readAfterDisplay(src: RemoteImageLoadSource): Promise<void> {
     if (!current(src) || read.has(src.load)) return;
@@ -224,6 +243,7 @@ export function createRemoteImageLoad(opts: {
     clearTimeout(pollTimer); pollTimer = undefined;
     const stats = await get(src);
     if (!current(src)) return;
+    if(opts.progress){if(!finish(src,stats)){read.delete(src.load);if(cappedLoad!==src.load)poll(src);}return;}
     if(stats?.imagesLoaded!==undefined&&stats.imagesFailed!==undefined&&!covers(stats,src.total)){read.delete(src.load);update(src,stats);poll(src);return;}
     finish(src,stats);
   }
@@ -231,11 +251,15 @@ export function createRemoteImageLoad(opts: {
     clearTimeout(pollTimer);
     pollTimer = setTimeout(() => {
       pollTimer = undefined;
-      if (!current(src) || read.has(src.load) || toast.running() !== src.load) return;
+      if (!current(src) || read.has(src.load) || toast.running() !== src.load || cappedLoad===src.load) return;
       if (!toast.showing(src.load)) { poll(src); return; }
       void get(src).then((stats) => {
         if (!current(src) || read.has(src.load) || toast.running() !== src.load) return;
         update(src,stats);
+        if(opts.progress){
+          if(finish(src,stats)){read.add(src.load);clearTimeout(statsTimer);statsTimer=undefined;return;}
+          poll(src);return;
+        }
         if (covers(stats, src.total)) {
           // A completed poll already has this load's final counters. A late
           // frame display must not fetch them a second time.
@@ -253,13 +277,15 @@ export function createRemoteImageLoad(opts: {
   createEffect(on(opts.source, (src, prev) => {
     if (src?.scope !== prev?.scope || src === null) {
       // Message switch, closed, or no longer on screen: drop everything.
-      toast.cancel(); stopTimers(); read.clear(); setTrackers(null);setFailures(null);lastStats=null;attempts=0;
+      toast.cancel(); stopTimers(); read.clear(); setTrackers(null);setFailures(null);lastStats=null;attempts=0;cappedLoad=null;
     }
     if (src === null) return;
     // The same body (another signal the source reads changed): a load in
     // progress keeps its timers, so its answer is not lost.
     if (src.load === prev?.load && src.scope === prev.scope && (toast.running() === src.load || (src.stats === prev.stats && src.total === prev.total))) return;
     stopTimers();
+    lastStats=null;cappedLoad=null;
+    if(opts.progress)setFailures(null);
     if (src.total > 0 && opts.toastEnabled()) {
       toast.start(src.load, src.total, attempts);
       if (src.stats) poll(src);
@@ -267,6 +293,12 @@ export function createRemoteImageLoad(opts: {
         capTimer = undefined;
         if (!current(src) || toast.running() !== src.load) return;
         clearTimeout(pollTimer); pollTimer = undefined;
+        cappedLoad=src.load;
+        if(opts.progress){
+          const progress=frameProgress();
+          if(!progress||progress.pending>0){toast.finish(src.load,undefined,false);return;}
+          finish(src,lastStats);return;
+        }
         if (!src.stats) { toast.finish(src.load, undefined, false); return; }
         void get(src).then((stats) => { if (current(src)) finish(src, stats, covers(stats, src.total)); });
       }, LOAD_CAP_MS);
@@ -276,7 +308,8 @@ export function createRemoteImageLoad(opts: {
   createEffect(on(opts.displayed, (n) => {
     const src = opts.source();
     if (src === null || n === 0) return;
-    toast.displayed(src.load);
+    if(!opts.progress||frameProgress()?.pending===0)toast.displayed(src.load);
+    if(opts.progress&&!src.stats){finish(src,null);return;}
     if (!src.stats) { toast.finish(src.load, undefined); return; }
     // Read the counters once the images have had time to settle; a second
     // display of the same load only pushes the read back (debounce). That read
@@ -285,6 +318,13 @@ export function createRemoteImageLoad(opts: {
     clearTimeout(statsTimer);
     statsTimer = setTimeout(() => void readAfterDisplay(src), STATS_SETTLE_MS);
   }, { defer: true }));
+
+  if(opts.progress)createEffect(on([opts.source,opts.progress],([src])=>{
+    if(!src||!current(src)||cappedLoad===src.load)return;
+    const progress=frameProgress();if(!progress)return;
+    update(src,null);
+    if(progress.pending===0){toast.displayed(src.load);finish(src,lastStats);clearTimeout(pollTimer);pollTimer=undefined;}
+  }));
 
   createEffect(on(opts.toastEnabled, (on) => { if (!on) { toast.cancel(); clearTimeout(pollTimer); pollTimer = undefined; } }, { defer: true }));
 

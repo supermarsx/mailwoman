@@ -20,6 +20,28 @@ function resource(image:HTMLImageElement,complete:boolean,width:number){
  Object.defineProperty(image,'naturalWidth',{configurable:true,value:width});
 }
 const mutations=async()=>{await Promise.resolve();await Promise.resolve();};
+const progress=(f:ReturnType<typeof frame>)=>f.port.postMessage.mock.calls.map(call=>call[0] as Record<string,unknown>).filter(value=>value.type==='image-progress').at(-1);
+
+it('reports consistent live admitted-image totals across cache, failures, retries and source removal',async()=>{
+ const empty='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+ const f=frame(`<img src="/slow"><img src="/cached"><img src="/failed"><img src="${empty}"><img src="mw-rc:0"><img>`);
+ const [slow,cached,failed,blocked]=Array.from(f.doc.images);resource(slow!,false,0);resource(cached!,true,32);resource(failed!,true,0);resource(blocked!,true,1);f.start();await mutations();
+ expect(progress(f)).toEqual({type:'image-progress',nonce:'a'.repeat(48),revision:1,loaded:1,failed:1,pending:1,total:3});
+ resource(slow!,true,64);slow!.dispatchEvent(new Event('load'));await mutations();expect(progress(f)).toMatchObject({loaded:2,failed:1,pending:0,total:3});
+ resource(failed!,false,0);failed!.src='/retry';await mutations();expect(progress(f)).toMatchObject({loaded:2,failed:0,pending:1,total:3});
+ resource(failed!,true,48);failed!.dispatchEvent(new Event('load'));failed!.dispatchEvent(new Event('load'));await mutations();expect(progress(f)).toMatchObject({loaded:3,failed:0,pending:0,total:3});
+ slow!.remove();cached!.removeAttribute('src');await mutations();expect(progress(f)).toMatchObject({loaded:1,failed:0,pending:0,total:1});
+ failed!.remove();await mutations();expect(progress(f)).toMatchObject({loaded:0,failed:0,pending:0,total:0});
+ f.close();
+});
+
+it('batches burst image updates and ignores queued reports from a replaced document',async()=>{
+ const f=frame('<img src="/one"><img src="/two">');const [one,two]=Array.from(f.doc.images);resource(one!,false,0);resource(two!,false,0);f.start();await mutations();f.port.postMessage.mockClear();
+ resource(one!,true,20);resource(two!,true,20);one!.dispatchEvent(new Event('load'));two!.dispatchEvent(new Event('load'));await mutations();
+ expect(f.port.postMessage.mock.calls.filter(call=>call[0].type==='image-progress')).toHaveLength(1);
+ expect(progress(f)).toMatchObject({loaded:2,failed:0,pending:0,total:2});
+ f.port.postMessage.mockClear();resource(one!,false,0);one!.src='/retry';await Promise.resolve();f.close();await mutations();expect(progress(f)).toBeUndefined();
+});
 
 it('keeps sender sizing and styles while slow, then settles load/error without waiting to display text',()=>{
  const f=frame('<p>Readable now</p><img src="/slow" width="640" height="320" style="width:50%;aspect-ratio:2;background:red"><img src="/failure" alt="Banner">');

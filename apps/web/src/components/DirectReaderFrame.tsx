@@ -6,9 +6,15 @@ import { t } from '../i18n/index.ts';
 import { ReaderZoomBox } from './ReaderZoomBox.tsx';
 import {MessageLoading} from './MessageLoading.tsx';
 import './readerPane.css.ts';
+export interface ReaderImageProgress {loaded:number;failed:number;pending:number;total:number}
+function imageProgress(value:Record<string,unknown>):ReaderImageProgress|null {
+  const {loaded,failed,pending,total}=value;
+  if(![loaded,failed,pending,total].every(count=>typeof count==='number'&&Number.isSafeInteger(count)&&count>=0&&count<=1_000_000))return null;
+  return (loaded as number)+(failed as number)+(pending as number)===total ? {loaded:loaded as number,failed:failed as number,pending:pending as number,total:total as number} : null;
+}
 /** Only fixed hash-authorized handlers run; both frames retain opaque origins.
  * The Reader remounts this wrapper when message-link consent changes. */
-export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void }): JSX.Element {
+export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void; onImageProgress?:(value:ReaderImageProgress)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
   const newToken = ():string => Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
   const [token,setToken] = createSignal(newToken());
@@ -71,6 +77,10 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
       if (failed() || event.source !== frame?.contentWindow || event.origin !== 'null' || event.data?.token !== token()) return;
       if(event.data?.type==='mw-reader-address-context'){
         if(ready()&&frame&&event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey){const context=readerAddressContext(event.data,frame);if(context)props.onAddressContext?.(context);}
+        return;
+      }
+      if(event.data?.type==='mw-reader-image-progress'){
+        if(ready()&&event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey){const progress=imageProgress(event.data);if(progress)props.onImageProgress?.(progress);}
         return;
       }
       if(event.data?.type==='mw-reader-displayed'){

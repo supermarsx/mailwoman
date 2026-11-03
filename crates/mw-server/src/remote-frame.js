@@ -63,6 +63,12 @@
       channel.port1.onmessage = received => {
         const value = received.data;
         if (content !== current || documentRevision !== revision || value?.nonce !== nonce || value.revision !== revision) return;
+        if (value.type === 'image-progress') {
+          const { loaded, failed, pending, total } = value;
+          if ([loaded, failed, pending, total].every(count => Number.isSafeInteger(count) && count >= 0 && count <= 1000000) && loaded + failed + pending === total)
+            parent.postMessage({ type: 'mw-reader-image-progress', token, revision, loaded, failed, pending, total }, origin);
+          return;
+        }
         if (value.type === 'displayed') { displayed(revision); return; }
         if (value.type !== 'address-context' || typeof value.address !== 'string' || value.address.length > 254 || !Number.isFinite(value.x) || !Number.isFinite(value.y) || value.x < 0 || value.y < 0 || value.x > current.clientWidth || value.y > current.clientHeight) return;
         const bounds = current.getBoundingClientRect();

@@ -3,6 +3,20 @@ import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {DirectReaderFrame} from './DirectReaderFrame.tsx';
 afterEach(()=>vi.useRealTimers());
+it('reports internally consistent image progress only from the current authenticated document',()=>{
+ const progress=vi.fn();const [key,setKey]=createSignal('one');const [html,setHtml]=createSignal('<p>Images</p>');
+ const mounted=render(()=><DirectReaderFrame html={html()} documentKey={key()} title="Progress" onImageProgress={progress}/>);
+ const frame=screen.getByTitle('Progress') as HTMLIFrameElement;const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
+ const send=(data:unknown,origin='null',source:MessageEventSource|null=frame.contentWindow):void=>{fireEvent(window,new MessageEvent('message',{source,origin,data}));};
+ const value={type:'mw-reader-image-progress',token,revision:1,loaded:2,failed:1,pending:3,total:6};
+ send(value);expect(progress).not.toHaveBeenCalled();send({type:'mw-reader-ready',token});
+ send(value,'https://mail.example');send(value,'null',window);send({...value,token:'bad'});send({...value,revision:0});
+ for(const invalid of [{...value,total:7},{...value,loaded:-1},{...value,pending:NaN},{...value,failed:0.5},{...value,total:Infinity},{...value,total:'6'},{...value,loaded:1_000_001,total:1_000_005}])send(invalid);
+ expect(progress).not.toHaveBeenCalled();send(value);expect(progress).toHaveBeenCalledWith({loaded:2,failed:1,pending:3,total:6});
+ setKey('two');send(value);expect(progress).toHaveBeenCalledTimes(1);send({...value,revision:2,loaded:3,pending:2});expect(progress).toHaveBeenCalledTimes(2);
+ setHtml('<p>Different images</p>');send({...value,revision:2});expect(progress).toHaveBeenCalledTimes(2);send({...value,revision:3,loaded:0,failed:0,pending:0,total:0});expect(progress).toHaveBeenLastCalledWith({loaded:0,failed:0,pending:0,total:0});
+ mounted.unmount();send({...value,revision:3});expect(progress).toHaveBeenCalledTimes(3);
+});
 it('retries a blocked bridge once with a fresh token and ignores obsolete acknowledgements',()=>{
  vi.useFakeTimers();const displayed=vi.fn();
  const mounted=render(()=><DirectReaderFrame html="<p>Private message</p>" title="Content" onDisplayed={displayed}/>);

@@ -17,6 +17,7 @@ import {
   type ToastSink,
 } from './remoteImageToast.ts';
 import type { RemoteContentStats } from '../api/remote-content.ts';
+import type {ReaderImageProgress} from './DirectReaderFrame.tsx';
 
 interface Shown { tone: string; message: string; id: string | undefined; duration: number | undefined; action: string | undefined }
 function sink(): ToastSink & { shown: Shown[]; dismissed: string[]; run: () => void } {
@@ -80,17 +81,60 @@ describe('createImageLoadToast', () => {
 
 describe('createRemoteImageLoad', () => {
   const stats = (over: Partial<RemoteContentStats> = {}): RemoteContentStats => ({ count: 2, limited: false, windowSecs: 3600, ...over });
-  function setup(fetch = vi.fn(async () => stats())) {
+  function setup(fetch = vi.fn(async () => stats()),withProgress=false) {
     const s = sink();
     const [source, setSource] = createSignal<RemoteImageLoadSource | null>(null);
     const [displayed, setDisplayed] = createSignal(0);
     const [enabled, setEnabled] = createSignal(true);
+    const [progress,setProgress]=createSignal<ReaderImageProgress|null>(null);
     const retry = vi.fn();
     let dispose = (): void => undefined;
-    const hook = createRoot((d) => { dispose = d; return createRemoteImageLoad({ source, displayed, toastEnabled: enabled, retry, fetchStats: fetch, sink: s }); });
-    return { s, fetch, setSource, setDisplayed, setEnabled, retry, hook, dispose: () => dispose() };
+    const hook = createRoot((d) => { dispose = d; return createRemoteImageLoad({ source, displayed, toastEnabled: enabled, retry, fetchStats: fetch, sink: s,...(withProgress?{progress}:{}) }); });
+    return { s, fetch, setSource, setDisplayed, setEnabled,setProgress, retry, hook, dispose: () => dispose() };
   }
   const body = (load: string, over: Partial<RemoteImageLoadSource> = {}): RemoteImageLoadSource => ({ scope: 'acc:M1', emailId: 'M1', load, total: 12, stats: true, ...over });
+
+  it('uses current frame progress instead of stale server failures and waits until real images settle',async()=>{
+    const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:21,retryableImageRefs:['a'.repeat(64)]})),true);
+    h.setSource(body('L1',{total:21}));h.setProgress({loaded:0,failed:0,pending:21,total:21});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(POLL_MS*4);
+    expect(h.s.shown.at(-1)?.message).toBe('Loading images… 0/21');expect(h.s.shown.every(item=>item.tone==='info')).toBe(true);expect(h.hook.failures()).toBeNull();
+    h.setProgress({loaded:8,failed:0,pending:13,total:21});await vi.advanceTimersByTimeAsync(POLL_MS);
+    expect(h.s.shown.at(-1)?.message).toBe('Loading images… 8/21');expect(h.retry).not.toHaveBeenCalled();
+    h.setProgress({loaded:21,failed:0,pending:0,total:21});expect(h.s.shown.at(-1)?.message).toBe('Images loaded');
+    const calls=h.fetch.mock.calls.length;await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.retry).not.toHaveBeenCalled();expect(h.fetch).toHaveBeenCalledTimes(calls);h.dispose();
+  });
+
+  it('never claims success from missing or invalid frame progress and caps polling while images remain pending',async()=>{
+    const h=setup(vi.fn(async()=>stats({imagesLoaded:12,imagesFailed:0})),true);h.setSource(body('L1'));h.setDisplayed(1);
+    h.setProgress({loaded:12,failed:0,pending:-1,total:12});await vi.advanceTimersByTimeAsync(LOAD_CAP_MS+POLL_MS);
+    expect(h.s.shown.some(item=>item.tone==='success'||item.tone==='warning')).toBe(false);expect(h.s.dismissed).toContain('remote-images');
+    const calls=h.fetch.mock.calls.length;await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.fetch).toHaveBeenCalledTimes(calls);h.dispose();
+  });
+
+  it('closes a capped pending load without converting stale failures into a completion or continuing polls',async()=>{
+    const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:2,retryableImageRefs:['a'.repeat(64)]})),true);h.setSource(body('L1',{total:2}));h.setProgress({loaded:0,failed:1,pending:1,total:2});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS+POLL_MS);expect(h.s.shown.every(item=>item.tone==='info')).toBe(true);expect(h.s.dismissed).toContain('remote-images');
+    const calls=h.fetch.mock.calls.length;await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.fetch).toHaveBeenCalledTimes(calls);expect(h.retry).not.toHaveBeenCalled();h.dispose();
+  });
+
+  it('offers honest settled frame errors and explicit Retry even when server statistics are unavailable',async()=>{
+    const h=setup(vi.fn(async()=>{throw new Error('stats unavailable');}),true);h.setSource(body('L1',{total:2}));h.setProgress({loaded:1,failed:0,pending:1,total:2});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(STATS_SETTLE_MS);expect(h.s.shown.every(item=>item.tone==='info')).toBe(true);
+    h.setProgress({loaded:1,failed:1,pending:0,total:2});expect(h.s.shown.at(-1)).toMatchObject({tone:'warning',message:"1 image couldn't load",action:'Retry'});
+    h.s.run();expect(h.retry).toHaveBeenCalledExactlyOnceWith(undefined);h.dispose();
+  });
+
+  it('does not retry stale server failures until actual frame failures settle and keeps the retry load pending',async()=>{
+    const reference='e'.repeat(64);const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:2,failedImageRefs:[reference],retryableImageRefs:[reference]})),true);
+    h.setSource(body('L1',{total:2}));h.setProgress({loaded:0,failed:1,pending:1,total:2});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS*2);expect(h.retry).not.toHaveBeenCalled();expect(h.s.shown.every(item=>item.tone==='info')).toBe(true);
+    h.setProgress({loaded:1,failed:1,pending:0,total:2});await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS);expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);
+    h.setProgress(null);h.setSource(body('L2',{total:2}));expect(h.hook.failures()).toBeNull();h.setProgress({loaded:1,failed:0,pending:1,total:2});h.setDisplayed(2);await vi.advanceTimersByTimeAsync(STATS_SETTLE_MS);
+    expect(h.s.shown.at(-1)?.message).toContain('Retry 1/2');expect(h.s.shown.at(-1)?.message).toContain('1/2');
+    h.setSource(null);const calls=h.fetch.mock.calls.length;h.setProgress({loaded:0,failed:2,pending:0,total:2});await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);
+    expect(h.retry).toHaveBeenCalledTimes(1);expect(h.fetch).toHaveBeenCalledTimes(calls);h.dispose();
+  });
 
   it('opening one message with images reads the stats once, after display', async () => {
     const h = setup();
