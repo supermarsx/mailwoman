@@ -3,7 +3,7 @@
 // that reads "0", and no re-render storm while counts settle.
 import { describe, it, expect, vi } from 'vitest';
 import { createSignal } from 'solid-js';
-import { render, fireEvent, screen } from '@solidjs/testing-library';
+import { render, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { RemoteContentBar } from './RemoteContentBar.tsx';
 import type { BlockedContentReport, RemoteImageGrant } from '../api/remote-images.ts';
 
@@ -37,6 +37,10 @@ describe('RemoteContentBar — blocked (ask)', () => {
     render(() => <RemoteContentBar {...CTX} report={report()} onGrant={onGrant} />);
     fireEvent.click(screen.getByRole('button', { name: 'Show images' }));
     expect(onGrant).toHaveBeenCalledWith({ kind: 'single', value: 'M1' }, expect.anything());
+  });
+  it('exposes compact Show images directly and prevents duplicate grants while saving',async()=>{
+    let finish!:()=>void;const onGrant=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve;}));render(()=><RemoteContentBar {...CTX} compact report={report()} onGrant={onGrant}/>);
+    const show=screen.getByRole('button',{name:'Show images'});expect(show.querySelector('span')).toHaveTextContent('Show images');expect(show).not.toHaveAttribute('aria-haspopup');fireEvent.click(show);expect(onGrant).toHaveBeenCalledExactlyOnceWith({kind:'single',value:'M1'},expect.anything());expect(show).toBeDisabled();fireEvent.click(show);expect(onGrant).toHaveBeenCalledOnce();openMenu();expect(screen.queryByRole('menuitem',{name:'Show images'})).toBeNull();finish();await waitFor(()=>expect(show).toBeEnabled());
   });
 
   const MENU: [RegExp, { kind: string; value: string }][] = [
@@ -124,7 +128,7 @@ describe('RemoteContentBar — other policy modes', () => {
   });
 
   it('block mode never offers a grant and never shows a zero count', () => {
-    render(() => <RemoteContentBar {...CTX} mode="block" report={report()} decodedTrackers={{ count: 0, limited: false }} />);
+    render(() => <RemoteContentBar {...CTX} compact mode="block" report={report()} decodedTrackers={{ count: 0, limited: false }} />);
     expect(screen.getByRole('status')).toHaveTextContent(/^Remote images blocked by your privacy settings$/);
     expect(screen.queryByRole('button', { name: 'Show images' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'More image options' })).toBeNull();

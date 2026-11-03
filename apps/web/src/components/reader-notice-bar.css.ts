@@ -2,9 +2,8 @@
 // since t55, is the model). One family for every notice above the message body:
 // mailing list, remote images, linked files and attachments. Each is one row of
 // a fixed block size on the frozen token contract: the text ellipsises and the
-// actions turn into icon buttons in a narrow container, so a bar never wraps and
-// the body below never moves when a bar's text changes. Zero-runtime
-// vanilla-extract.
+// secondary actions turn into icon buttons in a narrow container. Primary
+// consent stays labeled and combined privacy segments wrap when narrow.
 
 import { style, globalStyle } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
@@ -63,8 +62,8 @@ export const mark = style({
   selectors: { [`${root}[data-tone="warning"] &`]: { color: vars.color.warning } },
 });
 
-export const combined=style([row,{gap:vars.space[2]}]);
-export const segment=style({display:'flex',alignItems:'center',gap:vars.space[1],flex:'1 1 0',minInlineSize:0,selectors:{'& + &':{borderInlineStart:`${vars.border.hair} solid ${vars.color.border}`,paddingInlineStart:vars.space[2]}}});
+export const combined=style([row,{gap:vars.space[2],'@container':{[NARROW]:{flexWrap:'wrap',paddingBlock:vars.space[1]}}}]);
+export const segment=style({display:'flex',alignItems:'center',gap:vars.space[1],flex:'1 1 0',minInlineSize:0,selectors:{'& + &':{borderInlineStart:`${vars.border.hair} solid ${vars.color.border}`,paddingInlineStart:vars.space[2]}},'@container':{[NARROW]:{flexBasis:'100%',selectors:{'& + &':{borderInlineStart:0,paddingInlineStart:0,borderBlockStart:`${vars.border.hair} solid ${vars.color.border}`,paddingBlockStart:vars.space[1]}}}}});
 
 /** Headline + detail; the part that gives way. */
 export const summary = style({
@@ -118,7 +117,7 @@ export const btn = style({
   '@media': { '(pointer: coarse)': {minInlineSize:'44px',minBlockSize:'44px'} },
 });
 
-export const btnPrimary = style({ borderColor: vars.color.accent });
+export const btnPrimary = style({ borderColor: vars.color.accent,'@container':{[NARROW]:{paddingInline:vars.space[2],inlineSize:'auto'}} });
 
 export const iconBtn = style({ paddingInline: 0, inlineSize: '1.5rem' });
 
@@ -136,6 +135,8 @@ export const label = style({
     },
   },
 });
+// Primary consent remains an icon+text action even beside compact menu buttons.
+globalStyle(`${btnPrimary} ${label}`,{'@container':{[NARROW]:{position:'static',width:'auto',height:'auto',overflow:'visible',clip:'auto'}}});
 
 /** The menu chevron points down. */
 export const chevron = style({ display: 'inline-flex', transform: 'rotate(90deg)' });

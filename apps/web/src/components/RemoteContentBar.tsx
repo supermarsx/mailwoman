@@ -18,7 +18,7 @@
 // The tracker count is shown only when it is above zero. The explanation and
 // the blocked host list live in the summary's tooltip, not in the row.
 // At narrow container widths the text ellipsises (full text in its tooltip)
-// and the actions collapse to icon buttons with tooltips and aria-labels.
+// and secondary actions collapse to icons; Show images keeps its visible label.
 //
 // Copy is factual (no hype). Untrusted host names are bidi-isolated (SPEC §24).
 
@@ -161,7 +161,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
   const menuActions = createMemo<ContextAction[]>(() => {
     const items: ContextAction[] = [];
     if(props.compact){
-      if(mode()==='ask')items.push({id:'images',label:t(granted()?'remote-banner-undo':'remote-banner-show'),icon:granted()?'restore':'eye',disabled:pending(),run:()=>granted()?undo():grant('single')});
+      if(mode()==='ask'&&granted())items.push({id:'images',label:t('remote-banner-undo'),icon:'restore',disabled:pending(),run:()=>undo()});
       if(props.imageFailures&&props.imageFailures.count>0&&props.onRetryImages&&(mode()==='proxy'||(mode()==='ask'&&granted())))items.push({id:'retry',label:t('remote-images-toast-retry'),icon:'restore',disabled:pending()||props.imageFailures.retrying,run:()=>props.onRetryImages?.()});
     }
     if(props.trackerOverrideAllowed&&mode()!=='block')items.push({id:'trackers',label:t(props.trackersAllowed?'mail-privacy-trackers-block':'mail-privacy-trackers-allow'),icon:props.trackersAllowed?'shield':'eye',disabled:pending(),run:()=>change('trackers',()=>props.trackersAllowed?props.onRevoke?.({kind:'trackers-single',value:props.emailId},options):props.onGrant?.({kind:'trackers-single',value:props.emailId},options))});
@@ -205,7 +205,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
       live
       tooltip={`${fullText()}\n${help()}`}
       actions={<>
-        <Show when={!props.compact && mode() === 'ask' && !granted()}>
+        <Show when={mode() === 'ask' && !granted()}>
           <NoticeButton icon="eye" primary label={slowLabel() ?? t('remote-banner-show')} ariaLabel={t('remote-banner-show')} tooltip={t('remote-banner-show-help')} disabled={pending()} busy={slow() !== null} detachedLocal onClick={() => void grant('single')} />
         </Show>
         <Show when={!props.compact && mode() === 'ask' && granted()}>

@@ -10,8 +10,8 @@
 //
 // One row, always: [icon] [summary, ellipsised; its tooltip holds the full text
 // and the explanation] [actions]. In a narrow container (the 390 px phone) the
-// action labels become visually hidden, so every action is an icon button with a
-// tooltip and an accessible name, and the row never wraps.
+// secondary action labels become visually hidden. Primary consent keeps its
+// icon and label; the combined privacy segments can wrap on narrow screens.
 
 import { Show, type JSX } from 'solid-js';
 import { Icon, type IconName } from './Icon.tsx';
@@ -77,6 +77,7 @@ export interface NoticeButtonProps {
   label: string;
   ariaLabel?: string;
   tooltip?: string;
+  /** Primary actions retain their visible label in narrow containers. */
   primary?: boolean;
   /** An icon-only button: the chevron of a menu, or any action with no label. */
   iconOnly?: boolean;

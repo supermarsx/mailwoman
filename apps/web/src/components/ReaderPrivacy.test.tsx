@@ -57,8 +57,8 @@ async function open(emails:Email[]) {
 }
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
 async function chooseLinkAction(name:string):Promise<void>{fireEvent.click(await screen.findByRole('button',{name:'Link options'}));await screen.findByRole('menuitem',{name});await waitFor(()=>expect(screen.getByRole('menuitem',{name})).not.toHaveAttribute('aria-disabled','true'));fireEvent.click(screen.getByRole('menuitem',{name}));}
-async function enableMessageLinks():Promise<void>{await chooseLinkAction('Enable once');}
-async function chooseImageAction(name:string):Promise<void>{await waitFor(()=>{const button=screen.getByRole('button',{name:'More image options'});expect(button).toBeEnabled();if(!screen.queryByRole('menuitem',{name}))fireEvent.click(button);expect(screen.getByRole('menuitem',{name})).not.toHaveAttribute('aria-disabled','true');});fireEvent.click(screen.getByRole('menuitem',{name}));}
+async function enableMessageLinks():Promise<void>{await waitFor(()=>expect(screen.getByRole('button',{name:'Enable once'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'Enable once'}));}
+async function chooseImageAction(name:string):Promise<void>{if(name==='Show images'){await waitFor(()=>expect(screen.getByRole('button',{name})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name}));return;}await waitFor(()=>{const button=screen.getByRole('button',{name:'More image options'});expect(button).toBeEnabled();if(!screen.queryByRole('menuitem',{name}))fireEvent.click(button);expect(screen.getByRole('menuitem',{name})).not.toHaveAttribute('aria-disabled','true');});fireEvent.click(screen.getByRole('menuitem',{name}));}
 async function showOriginal():Promise<void>{const button=await screen.findByRole('button',{name:'Show Original HTML'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);}
 async function allowOriginal(enabled=true,cap?:boolean):Promise<void>{await loadFeatures({refresh:true,fetcher:async()=>json({features:{'reading.original_html':{enabled,limits:{},settings:{}}}})});await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.allowOriginalHtml':{value:true,locked:false,source:'user'},...(cap===undefined?{}:{'cap.reading.original_html':{value:cap,locked:true,source:'global'}})}})});}
 describe('Reader signed privacy pipeline',()=>{
@@ -85,7 +85,7 @@ describe('Reader signed privacy pipeline',()=>{
     await open([message('m1',raw)]);await allowOriginal();requests=[];
     await showOriginal();await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout'));
     const body=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');expect(body().querySelector('img')?.src).toMatch(/^data:/);expect(body().querySelector('a')?.hasAttribute('href')).toBe(false);expect(requests).toEqual([]);
-    fireEvent.click(screen.getByRole('button',{name:'More image options'}));fireEvent.click(screen.getByRole('menuitem',{name:'Show images'}));
+    await chooseImageAction('Show images');
     await waitFor(()=>expect(body().querySelector('img')?.src).toContain('/api/rc/i/m1.signature'));
     expect(requests).toContainEqual({emailId:'m1',urls:['https://images.test/logo.png'],parts:[]});
     await enableMessageLinks();await waitFor(()=>expect(body().querySelector('a')?.getAttribute('href')).toBe('https://site.test/page?id=7'));
@@ -202,15 +202,13 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('Readable body'));
     expect(frame()?.srcdoc).not.toMatch(/<script|onclick|unsafe\(\)|bad\(\)/);
     expect(screen.getByTestId('reader-body-blocked')).toHaveAttribute('data-state','sanitized');
-    const enable=await screen.findByRole('button',{name:'Link options'});
-    fireEvent.click(await screen.findByRole('button',{name:'More image options'}));
-    const show=await screen.findByRole('menuitem',{name:'Show images'});
+    const enable=await screen.findByRole('button',{name:'Enable once'});
+    const show=await screen.findByRole('button',{name:'Show images'});
     expect(requests).toEqual([]);
     const body=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');
     expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/);
     expect(body().querySelector('a')?.getAttribute('href')).not.toBe(link);
     fireEvent.click(enable);
-    fireEvent.click(screen.getByRole('menuitem',{name:'Enable once'}));
     await waitFor(()=>expect(body().querySelector('a')?.getAttribute('href')).toBe(link));
     fireEvent.click(show);
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
@@ -219,7 +217,7 @@ describe('Reader signed privacy pipeline',()=>{
     fireEvent.click(await screen.findByRole('button',{name:'More image options'}));fireEvent.click(screen.getByRole('menuitem',{name:/Undo/}));
     await waitFor(()=>expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/));
     expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
-    fireEvent.click(await screen.findByRole('button',{name:'More image options'}));expect(await screen.findByRole('menuitem',{name:'Show images'})).not.toHaveAttribute('aria-disabled','true');fireEvent.keyDown(document,{key:'Escape'});
+    expect(await screen.findByRole('button',{name:'Show images'})).toBeEnabled();
     expect(frame()?.getAttribute('sandbox')).toBe('');
   });
   it('keeps restored image-only messages visible under the configured proxy policy',async()=>{

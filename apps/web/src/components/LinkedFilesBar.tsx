@@ -81,15 +81,22 @@ export function LinkedFilesBar(props: LinkedFilesBarProps): JSX.Element {
     return items;
   });
   const menu = createContextMenu({ label: () => t('privacy-linked-files'), scope: () => props.scope, actions, onError: () => toast.error(t('privacy-file-failed')) });
+  const consentPending=()=>props.senderTrustPending===true||(!props.linksEnabled&&props.linksReady===false);
+  function toggleLinks():void {
+    if(consentPending()||!props.onToggleLinks)return;
+    try{props.onToggleLinks();}catch{toast.error(t('privacy-links-trust-failed'));}
+  }
   const consentActions=():ContextAction[]=>{
-    const items:ContextAction[]=[{id:'message-links',label:t(props.linksEnabled?'privacy-links-disable':'privacy-links-enable-once'),icon:'link',disabled:props.senderTrustPending===true||(!props.linksEnabled&&props.linksReady===false),run:()=>props.onToggleLinks?.()}];
-    if(props.onTrustSender||props.onRevokeSender)items.push({id:'sender-links',label:t(props.senderTrusted?'privacy-links-revoke-sender':'privacy-links-trust-sender'),icon:props.senderTrusted?'shield':'check',separatorBefore:true,disabled:props.senderTrustEditable!==true||props.senderTrustPending===true||props.linksReady===false,run:()=>props.senderTrusted?props.onRevokeSender?.():props.onTrustSender?.()});
+    const items:ContextAction[]=[];
+    if(props.compact&&props.linksEnabled&&props.onToggleLinks)items.push({id:'message-links',label:t('privacy-links-disable'),icon:'link',disabled:consentPending(),run:toggleLinks});
+    if(props.onTrustSender||props.onRevokeSender)items.push({id:'sender-links',label:t(props.senderTrusted?'privacy-links-revoke-sender':'privacy-links-trust-sender'),icon:props.senderTrusted?'shield':'check',separatorBefore:items.length>0,disabled:props.senderTrustEditable!==true||props.senderTrustPending===true||props.linksReady===false,run:()=>props.senderTrusted?props.onRevokeSender?.():props.onTrustSender?.()});
     return items;
   };
   const consentMenu=createContextMenu({label:()=>t('privacy-links-options'),scope:()=>props.scope,actions:consentActions,onError:()=>toast.error(t('privacy-links-trust-failed'))});
   let menuOwner:Document|undefined;
   const compactMenu=createContextMenu({ownerDocument:()=>menuOwner,label:()=>t('privacy-links-options'),scope:()=>props.scope,actions:()=>[...(props.onToggleLinks?consentActions():[]),...(actions().length?[{id:'downloads',label:t('privacy-linked-files-show'),icon:'download' as const,children:actions(),run:()=>undefined}]:[])],onError:()=>toast.error(t('privacy-file-failed'))});
-  const regularActions=()=> <><Show when={props.onToggleLinks}><NoticeButton icon="link" disabled={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} busy={props.senderTrustPending===true||(props.linksReady===false&&!props.linksEnabled)} label={t(props.linksReady===false&&!props.linksEnabled?'privacy-links-loading':props.linksEnabled?'privacy-links-disable':'privacy-links-enable')} tooltip={t('privacy-links-enable-help')} testid="message-links-toggle" haspopup="menu" expanded={consentMenu.isOpen()} detachedLocal onClick={event=>consentMenu.openBelow(event.currentTarget as HTMLElement)} onKeyDown={consentMenu.keydown}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>;
+  const primaryAction=()=> <Show when={props.onToggleLinks&&!props.linksEnabled}><NoticeButton icon="link" primary disabled={consentPending()} busy={consentPending()} label={t(props.linksReady===false?'privacy-links-loading':'privacy-links-enable-once')} tooltip={t('privacy-links-enable-help')} testid="message-links-enable" detachedLocal onClick={toggleLinks}/></Show>;
+  const regularActions=()=> <>{primaryAction()}<Show when={props.onToggleLinks&&props.linksEnabled}><NoticeButton icon="link" disabled={consentPending()} busy={consentPending()} label={t('privacy-links-disable')} tooltip={t('privacy-links-enable-help')} testid="message-links-disable" detachedLocal onClick={toggleLinks}/></Show><Show when={consentActions().length>0}><NoticeButton icon="chevron" iconOnly menu label={t('privacy-links-options')} testid="message-links-toggle" haspopup="menu" expanded={consentMenu.isOpen()} detachedLocal onClick={event=>consentMenu.openBelow(event.currentTarget as HTMLElement)} onKeyDown={consentMenu.keydown}/></Show><NoticeButton icon="download" label={t(files().length > 0 ? 'privacy-linked-files-show' : 'privacy-linked-links-show')} haspopup="menu" expanded={menu.isOpen()} busy={pending()} disabled={actions().length === 0} testid="linked-files-show" onClick={(e) => menu.open(e)} onKeyDown={menu.keydown} /></>;
 
   return (
     <ReaderNoticeBar
@@ -99,7 +106,7 @@ export function LinkedFilesBar(props: LinkedFilesBarProps): JSX.Element {
       state={files().length > 0 ? 'files' : 'links'}
       icon={files().length > 0 ? 'file' : 'link'}
       tooltip={tooltip()}
-      actions={<Show when={props.compact} fallback={regularActions()}><NoticeButton icon="chevron" iconOnly menu label={t('privacy-links-options')} haspopup="menu" expanded={compactMenu.isOpen()} testid="message-links-toggle" detachedLocal onClick={event=>{const target=event.currentTarget as HTMLElement;menuOwner=target.ownerDocument;compactMenu.openBelow(target);}} onKeyDown={compactMenu.keydown}/></Show>}
+      actions={<Show when={props.compact} fallback={regularActions()}>{primaryAction()}<Show when={consentActions().length>0||actions().length>0}><NoticeButton icon="chevron" iconOnly menu label={t('privacy-links-options')} haspopup="menu" expanded={compactMenu.isOpen()} testid="message-links-toggle" detachedLocal onClick={event=>{const target=event.currentTarget as HTMLElement;menuOwner=target.ownerDocument;compactMenu.openBelow(target);}} onKeyDown={compactMenu.keydown}/></Show></Show>}
       after={<>{menu.menu()}{consentMenu.menu()}{compactMenu.menu()}</>}
     >
       <span class={noticeCss.headline}>{headline()}</span>
