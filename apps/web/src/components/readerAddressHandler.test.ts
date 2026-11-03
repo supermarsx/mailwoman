@@ -7,12 +7,13 @@ function handler(){
  const parent={postMessage:vi.fn()};const port={start:vi.fn(),postMessage:vi.fn(),close:vi.fn()};
  const listeners=new Map<string,(event:Record<string,unknown>)=>void>();
  let context:((event:Record<string,unknown>)=>void)|undefined;
- const doc={addEventListener:(type:string,fn:typeof context)=>{if(type==='contextmenu')context=fn;},caretPositionFromPoint:()=>null as {offsetNode:Text;offset:number}|null,createRange:()=>({setStart:vi.fn(),setEnd:vi.fn(),getClientRects:()=>[{left:0,right:999,top:0,bottom:999}]})};
+ const documentListeners=new Map<string,()=>void>();
+ const doc={readyState:'loading',removeEventListener:(type:string)=>documentListeners.delete(type),addEventListener:(type:string,fn:typeof context)=>{if(type==='contextmenu')context=fn;else if(fn)documentListeners.set(type,fn as ()=>void);},caretPositionFromPoint:()=>null as {offsetNode:Text;offset:number}|null,createRange:()=>({setStart:vi.fn(),setEnd:vi.fn(),getClientRects:()=>[{left:0,right:999,top:0,bottom:999}]})};
  new Function('document','parent','addEventListener','removeEventListener',source)(doc,parent,(type:string,fn:(event:Record<string,unknown>)=>void)=>listeners.set(type,fn),(type:string)=>listeners.delete(type));
  const init={source:parent,origin:'null',data:{type:'mw-reader-address-init',nonce:'a'.repeat(48),revision:1},ports:[port]};
  const anchor=document.createElement('a');
  const event={isTrusted:true,defaultPrevented:false,target:anchor,clientX:12,clientY:20,preventDefault:vi.fn()};
- return {parent,port,listeners,init,anchor,event,doc,context:()=>context!(event)};
+ return {parent,port,listeners,init,anchor,event,doc,documentListeners,context:()=>context!(event)};
 }
 it('requires the opaque parent authenticated one-shot channel and a trusted real context gesture',()=>{
  const h=handler();h.anchor.href='mailto:Case@EXAMPLE.ORG';
@@ -44,4 +45,14 @@ it('preserves native web URL context instead of treating URL userinfo as an emai
  const text=document.createTextNode('Visit https://person@example.org today');
  h.doc.caretPositionFromPoint=()=>({offsetNode:text,offset:22});h.context();
  expect(h.port.postMessage).not.toHaveBeenCalled();expect(h.event.preventDefault).not.toHaveBeenCalled();
+});
+
+it('announces readable content after DOM parsing without waiting for image load, and removes pending listeners on replacement',()=>{
+ const h=handler();h.listeners.get('message')!(h.init);
+ expect(h.port.postMessage).not.toHaveBeenCalled();
+ h.documentListeners.get('DOMContentLoaded')!();
+ expect(h.port.postMessage).toHaveBeenCalledWith({type:'displayed',nonce:'a'.repeat(48),revision:1});
+ h.listeners.get('pagehide')!({});expect(h.documentListeners.has('DOMContentLoaded')).toBe(false);
+ const loaded=handler();loaded.doc.readyState='complete';loaded.listeners.get('message')!(loaded.init);
+ expect(loaded.port.postMessage).toHaveBeenCalledWith({type:'displayed',nonce:'a'.repeat(48),revision:1});
 });

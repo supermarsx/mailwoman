@@ -111,3 +111,17 @@ it('binds address events to the exact opaque child, fresh document channel, nonc
  bridgeFrame.send(bridgeFrame.parent,{...body(),revision:2});expect(port.close).toHaveBeenCalledOnce();
  const count=bridgeFrame.posted.length;port.onmessage!({data:value});expect(bridgeFrame.posted).toHaveLength(count);
 });
+
+it('accepts parsed-body readiness only through the current authenticated channel and acknowledges each document once',()=>{
+ const frame=bridge();frame.send(frame.parent,body());
+ const child=frame.frames.at(-1)!.contentWindow as {postMessage:ReturnType<typeof vi.fn>};
+ frame.send(child,{type:'mw-reader-address-ready'},'null');
+ const init=child.postMessage.mock.calls[0]![0] as {nonce:string;revision:number};const port=frame.channels[0]!.port1;
+ const parsed={...init,type:'displayed'};
+ port.onmessage!({data:{...parsed,nonce:'wrong'}});port.onmessage!({data:{...parsed,revision:2}});
+ expect(frame.posted.filter(value=>value.data.type==='mw-reader-displayed')).toHaveLength(0);
+ port.onmessage!({data:parsed});port.onmessage!({data:parsed});
+ expect(frame.posted.filter(value=>value.data.type==='mw-reader-displayed')).toEqual([{data:{type:'mw-reader-displayed',token:TOKEN,revision:1},origin:ORIGIN}]);
+ frame.send(frame.parent,{...body(),revision:2});port.onmessage!({data:parsed});
+ expect(frame.posted.filter(value=>value.data.type==='mw-reader-displayed')).toHaveLength(1);
+});

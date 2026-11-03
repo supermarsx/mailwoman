@@ -1213,7 +1213,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, only the fixed hash-authorized address
                     handler runs; the opaque frame cannot access its parent.
                   */}
-                  <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext}/>}</Show>
+                  <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} loadingFallback={messageLoading()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext}/>}</Show>
                 </Show>
               }
             >

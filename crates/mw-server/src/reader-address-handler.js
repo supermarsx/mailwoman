@@ -62,7 +62,12 @@
     if (port || event.source !== parent || event.origin !== 'null' || data?.type !== 'mw-reader-address-init' || !/^[a-f0-9]{48}$/.test(data.nonce) || !Number.isSafeInteger(data.revision) || data.revision <= 0 || event.ports.length !== 1) return;
     nonce = data.nonce; revision = data.revision; port = event.ports[0]; port.start();
     removeEventListener('message', initialize);
+    // HTML is readable before remote images finish. The app's visible window
+    // waits two paint frames before uncovering this opaque document.
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', parsed, { once: true });
+    else parsed();
   }
+  function parsed() { if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
   addEventListener('message', initialize);
   document.addEventListener('contextmenu', event => {
     if (!event.isTrusted || event.defaultPrevented || !port) return;
@@ -78,6 +83,6 @@
     event.preventDefault();
     port.postMessage({ type: 'address-context', nonce, revision, address, x: event.clientX, y: event.clientY });
   }, true);
-  addEventListener('pagehide', () => { port?.close(); port = null; removeEventListener('message', initialize); }, { once: true });
+  addEventListener('pagehide', () => { port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
   parent.postMessage({ type: 'mw-reader-address-ready' }, '*');
 })();

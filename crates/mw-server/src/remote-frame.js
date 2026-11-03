@@ -18,6 +18,13 @@
   document.body.append(content);
   let addressPort = null;
   let documentRevision = 0;
+  let displayedRevision = 0;
+  function displayed(revision) {
+    if (revision === documentRevision && revision > displayedRevision) {
+      displayedRevision = revision;
+      parent.postMessage({ type: 'mw-reader-displayed', token, revision }, origin);
+    }
+  }
   function closePort() { if (addressPort) addressPort.close(); addressPort = null; }
   addEventListener('pagehide', closePort, { once: true });
   // Preserve the already sanitized layout; remove executable nodes/attributes
@@ -55,7 +62,9 @@
       addressPort = channel.port1;
       channel.port1.onmessage = received => {
         const value = received.data;
-        if (content !== current || documentRevision !== revision || value?.type !== 'address-context' || value.nonce !== nonce || value.revision !== revision || typeof value.address !== 'string' || value.address.length > 254 || !Number.isFinite(value.x) || !Number.isFinite(value.y) || value.x < 0 || value.y < 0 || value.x > current.clientWidth || value.y > current.clientHeight) return;
+        if (content !== current || documentRevision !== revision || value?.nonce !== nonce || value.revision !== revision) return;
+        if (value.type === 'displayed') { displayed(revision); return; }
+        if (value.type !== 'address-context' || typeof value.address !== 'string' || value.address.length > 254 || !Number.isFinite(value.x) || !Number.isFinite(value.y) || value.x < 0 || value.y < 0 || value.x > current.clientWidth || value.y > current.clientHeight) return;
         const bounds = current.getBoundingClientRect();
         parent.postMessage({ type: 'mw-reader-address-context', token, revision, address: value.address, x: bounds.left + value.x, y: bounds.top + value.y }, origin);
       };
@@ -81,7 +90,7 @@
     closePort(); documentRevision = revision;
     next.addEventListener('load', () => {
       if (content === next && Number.isSafeInteger(revision) && revision > 0)
-        parent.postMessage({ type: 'mw-reader-displayed', token, revision }, origin);
+        displayed(revision);
     }, { once: true });
     // Some engines do not inherit the outer document's image CSP into srcdoc.
     // Install the compatibility restriction before any message markup can load

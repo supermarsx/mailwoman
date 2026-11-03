@@ -18,6 +18,12 @@ import { vars } from '../theme/contract.css.ts';
 
 const DESKTOP = 'screen and (min-width: 761px)';
 
+// Keep the already configured skeleton over the opaque frame until its current
+// document has parsed. Never show the empty bridge's default canvas in between.
+globalStyle('.reader__frame--pending', {visibility:'hidden',pointerEvents:'none'});
+globalStyle('.reader__frame-loading', {position:'absolute',inset:0,zIndex:1,overflow:'auto',background:vars.color.surface});
+globalStyle('.reader__frame-loading > [role="status"]', {animation:'none'});
+
 globalStyle(':root .reader--open .reader__header', {'@media':{'(max-width: 760px)':{paddingBlock:'4px',paddingInline:'8px',maxBlockSize:'min(42dvh, 17rem)'}}});
 globalStyle(':root .reader--open .reader__subject', {'@media':{'(max-width: 760px)':{fontSize:'1rem',lineHeight:'1.25',marginBlockEnd:'4px'}}});
 globalStyle(':root .reader--open .reader__close', {'@media':{'(max-width: 760px) and (pointer: fine)':{minHeight:'32px',marginBlockEnd:'4px',paddingBlock:'3px'}}});

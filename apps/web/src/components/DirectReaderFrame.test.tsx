@@ -1,5 +1,5 @@
 import {it,expect,vi,afterEach} from 'vitest';
-import {render,screen,fireEvent} from '@solidjs/testing-library';
+import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {DirectReaderFrame} from './DirectReaderFrame.tsx';
 afterEach(()=>vi.useRealTimers());
@@ -12,7 +12,7 @@ it('retries a blocked bridge once with a fresh token and ignores obsolete acknow
  expect(new URL(frame.src).searchParams.get('coep')).toBe('require-corp');expect(token()).not.toBe(old);
  const send=(value:unknown)=>fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data:value}));
  send({type:'mw-reader-ready',token:old});send({type:'mw-reader-displayed',token:old,revision:1});expect(displayed).not.toHaveBeenCalled();
- send({type:'mw-reader-ready',token:token()});send({type:'mw-reader-displayed',token:token(),revision:1});expect(displayed).toHaveBeenCalledWith('<p>Private message</p>',undefined);
+ send({type:'mw-reader-ready',token:token()});send({type:'mw-reader-displayed',token:token(),revision:1});vi.advanceTimersByTime(40);expect(displayed).toHaveBeenCalledWith('<p>Private message</p>',undefined);
  const current=frame.src;vi.advanceTimersByTime(20000);expect(frame.src).toBe(current);expect(screen.queryByRole('alert')).toBeNull();
  mounted.unmount();expect(vi.getTimerCount()).toBe(0);
 });
@@ -23,7 +23,7 @@ it('keeps one absolute deadline and never retries indefinitely',()=>{
  vi.advanceTimersByTime(8500);expect(screen.getByRole('alert')).toBeInTheDocument();
  fireEvent.load(frame);vi.advanceTimersByTime(20000);expect(frame.src).toBe(current);
 });
-it('accepts only the current correlated display acknowledgement from its opaque wrapper',()=>{
+it('accepts only the current correlated display acknowledgement from its opaque wrapper',async()=>{
  const displayed=vi.fn();const [key,setKey]=createSignal('first');
  render(()=><DirectReaderFrame html="<p>Same text</p>" title="Content" documentKey={key()} onDisplayed={displayed}/>);
  const frame=screen.getByTitle('Content') as HTMLIFrameElement;const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
@@ -31,7 +31,7 @@ it('accepts only the current correlated display acknowledgement from its opaque 
  message({type:'mw-reader-ready',token});message({type:'mw-reader-displayed',token,revision:1},window);expect(displayed).not.toHaveBeenCalled();
  message({type:'mw-reader-displayed',token:'wrong',revision:1});expect(displayed).not.toHaveBeenCalled();
  setKey('second');message({type:'mw-reader-displayed',token,revision:1});expect(displayed).not.toHaveBeenCalled();
- message({type:'mw-reader-displayed',token,revision:2});expect(displayed).toHaveBeenCalledWith('<p>Same text</p>','second');
+ message({type:'mw-reader-displayed',token,revision:2});await waitFor(()=>expect(displayed).toHaveBeenCalledWith('<p>Same text</p>','second'));
 });
 // t60: an iframe moved in the DOM reloads into a new, empty bridge document: a
 // workspace pane reordered by <For>, or detached into a popup window and back.
@@ -109,4 +109,25 @@ it('accepts address context only for the current authenticated body and validate
  send(data);expect(opened).toHaveBeenCalledWith({address:'Case@example.org',x:50,y:80,ownerDocument:document,trigger:frame});
  setKey('two');send(data);expect(opened).toHaveBeenCalledTimes(1);
  frame.setAttribute('inert','');send({...data,revision:2});expect(opened).toHaveBeenCalledTimes(1);
+});
+
+it('keeps the loading surface until the current parsed body has paint time, masks replacements, and cancels stale paints',()=>{
+ const paints=new Map<number,FrameRequestCallback>();let next=0;
+ const request=vi.spyOn(window,'requestAnimationFrame').mockImplementation(callback=>{paints.set(++next,callback);return next;});
+ const cancel=vi.spyOn(window,'cancelAnimationFrame').mockImplementation(id=>{paints.delete(id);});
+ const flush=():void=>{const pending=[...paints.values()];paints.clear();for(const callback of pending)callback(0);};
+ const displayed=vi.fn();const [html,setHtml]=createSignal('<p>First</p>');
+ const mounted=render(()=><DirectReaderFrame html={html()} title="Paint" loadingFallback={<span>Preparing current message</span>} onDisplayed={displayed}/>);
+ const frame=screen.getByTitle('Paint') as HTMLIFrameElement;const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
+ const send=(data:unknown):void=>{fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data}));};
+ expect(frame).toHaveAttribute('aria-hidden','true');expect(screen.getByTestId('reader-frame-loading')).toHaveTextContent('Preparing current message');
+ send({type:'mw-reader-ready',token});expect(screen.getByTestId('reader-frame-loading')).toBeInTheDocument();
+ send({type:'mw-reader-displayed',token,revision:1});flush();expect(displayed).not.toHaveBeenCalled();
+ setHtml('<p>Second</p>');flush();expect(displayed).not.toHaveBeenCalled();expect(frame).toHaveAttribute('aria-hidden','true');
+ send({type:'mw-reader-displayed',token,revision:1});expect(paints.size).toBe(0);
+ send({type:'mw-reader-displayed',token,revision:2});flush();flush();
+ expect(displayed).toHaveBeenCalledWith('<p>Second</p>',undefined);expect(frame).toHaveAttribute('aria-hidden','false');expect(screen.queryByTestId('reader-frame-loading')).toBeNull();
+ send({type:'mw-reader-displayed',token,revision:2});expect(paints.size).toBe(0);
+ setHtml('<p>Third</p>');send({type:'mw-reader-displayed',token,revision:3});mounted.unmount();expect(paints.size).toBe(0);
+ request.mockRestore();cancel.mockRestore();
 });

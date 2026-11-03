@@ -4,9 +4,11 @@ import {isNativeAuth,nativeServerBase} from '../api/serverAddress.ts';
 import {readerAddressContext,type ReaderAddressContext} from '../viewers/readerAddressContext.ts';
 import { t } from '../i18n/index.ts';
 import { ReaderZoomBox } from './ReaderZoomBox.tsx';
+import {MessageLoading} from './MessageLoading.tsx';
+import './readerPane.css.ts';
 /** Only fixed hash-authorized handlers run; both frames retain opaque origins.
  * The Reader remounts this wrapper when message-link consent changes. */
-export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void }): JSX.Element {
+export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
   const newToken = ():string => Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
   const [token,setToken] = createSignal(newToken());
@@ -15,6 +17,7 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
   // Each bridge document announces itself once; a new one needs the body again.
   const [bridges, setBridges] = createSignal(0);
   const [failed, setFailed] = createSignal(false);
+  const [presentedRevision,setPresentedRevision]=createSignal(0);
   const fragment = ():URLSearchParams => new URLSearchParams({ token:token(), origin: location.origin });
   const source = ():string => {
     const native = isNativeAuth(), base = native ? nativeServerBase() : null;
@@ -28,6 +31,19 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
   let fallback: ReturnType<typeof setTimeout> | undefined;
   let loadedFallback: ReturnType<typeof setTimeout> | undefined;
   let revision=0;let sentHtml='';let sentKey:string|undefined;
+  let paintHost:Window|null=null;let paint:number|undefined;
+  const presented=():boolean=>{const visible=presentedRevision();return ready()&&revision>0&&visible===revision&&sentHtml===props.html&&sentKey===props.documentKey;};
+  function cancelPaint():void {if(paint!==undefined)paintHost?.cancelAnimationFrame(paint);paint=undefined;paintHost=null;}
+  function present():void {
+    if(presented()||paint!==undefined)return;
+    const current=revision,html=sentHtml,key=sentKey,host=frame?.ownerDocument.defaultView;
+    if(!host)return;
+    paintHost=host;
+    paint=host.requestAnimationFrame(()=>{paint=host.requestAnimationFrame(()=>{
+      paint=undefined;paintHost=null;
+      if(!failed()&&ready()&&revision===current&&html===props.html&&key===props.documentKey){setPresentedRevision(current);props.onDisplayed?.(html,key);}
+    });});
+  }
   function useCompatibleFrame():void {
     if(ready()||compatible()||failed())return;
     clearTimeout(fallback);clearTimeout(loadedFallback);
@@ -58,7 +74,7 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
         return;
       }
       if(event.data?.type==='mw-reader-displayed'){
-        if(event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey)props.onDisplayed?.(sentHtml,sentKey);
+        if(event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey)present();
         return;
       }
       if(event.data?.type!=='mw-reader-ready')return;
@@ -71,8 +87,8 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
     listen(window);
     fallback = setTimeout(useCompatibleFrame,1500);
     timeout = setTimeout(() => setFailed(true), 10_000);
-    onCleanup(() => { clearTimeout(timeout);clearTimeout(fallback);clearTimeout(loadedFallback); for (const host of hosts) if (receive) host.removeEventListener('message', receive); hosts.clear(); });
+    onCleanup(() => {cancelPaint();clearTimeout(timeout);clearTimeout(fallback);clearTimeout(loadedFallback); for (const host of hosts) if (receive) host.removeEventListener('message', receive); hosts.clear(); });
   });
-  createEffect(() => { const html = props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true; void bridges(); if (ready()) {sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, linksEnabled, revision:++revision }, '*');} });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" title={props.title} sandbox={props.linksEnabled?'allow-scripts allow-popups allow-popups-to-escape-sandbox':'allow-scripts'} referrerPolicy="no-referrer" onLoad={loaded} src={source()} /></ReaderZoomBox></>;
+  createEffect(() => { const html = props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true; void bridges(); if (ready()) {cancelPaint();setPresentedRevision(0);sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, linksEnabled, revision:++revision }, '*');} });
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox={props.linksEnabled?'allow-scripts allow-popups allow-popups-to-escape-sandbox':'allow-scripts'} referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={0}/>}</div></Show></ReaderZoomBox></>;
 }
