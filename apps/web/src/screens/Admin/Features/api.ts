@@ -110,6 +110,8 @@ export interface FeatureCatalogue {
   /** All known mailbox identities; older servers expose nativeTargets only. */
   userTargets?: NativeTarget[];
   domains: string[];
+  /** Routing aliases share their canonical domain's assignment and policy. */
+  domainAliases?: Record<string, string>;
   catalogue: FeatureDef[];
   /** t98 (an older server omits these). */
   categories?: string[];
@@ -134,8 +136,22 @@ const enc = encodeURIComponent;
 
 export const featuresApi: FeaturesApi = {
   async load() {
-    const r = await adminRequest<FeatureCatalogue>('/features');
-    return { data: r.data, etag: r.etag };
+    const [r, domains] = await Promise.all([
+      adminRequest<FeatureCatalogue>('/features'),
+      // Domain visibility is separately permissioned. Its absence must never
+      // prevent editing the feature catalogue or change its write revision.
+      adminRequest<{name:string; aliases?:string[]}[]>('/domains').catch(() => null),
+    ]);
+    if (!domains) return { data: r.data, etag: r.etag };
+    const canonical = new Set(r.data.domains);
+    const aliases: Record<string, string> = {};
+    for (const domain of domains.data) {
+      if (!canonical.has(domain.name)) continue;
+      for (const alias of domain.aliases ?? []) {
+        if (alias && !canonical.has(alias)) aliases[alias] = domain.name;
+      }
+    }
+    return { data: {...r.data, domainAliases: aliases}, etag: r.etag };
   },
   async putProfile(id, body, etag) {
     return (await adminRequest(`/features/profiles/${enc(id)}`, { method: 'PUT', body, ifMatch: etag })).etag;

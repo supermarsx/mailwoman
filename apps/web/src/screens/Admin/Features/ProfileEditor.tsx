@@ -93,6 +93,7 @@ export function ProfileEditor(props: ProfileEditorProps): JSX.Element {
     return v === undefined ? 'unset' : v.value === true ? 'on' : 'off';
   };
   const setValue = (key: string, value: unknown): void => {
+    setBad(all=>{const next={...all};delete next[key];return next;});
     setValues((all) => {
       const next = { ...all };
       if (value === undefined) delete next[key];
@@ -191,7 +192,7 @@ export function ProfileEditor(props: ProfileEditorProps): JSX.Element {
     <div class={fx.controlLine}>
       <select aria-label={t('admin-features-value-for', { feature: p.label })} value={choice(p.key)} class={ux.control}
         onChange={(e) => setChoice(p.key, e.currentTarget.value as Choice)}>
-        <option value="unset">{t('admin-features-unset')}</option>
+        <option value="unset">{t('admin-features-inherit')}</option>
         <option value="on">{t('admin-features-on')}</option>
         <option value="off">{t('admin-features-off')}</option>
       </select>
@@ -218,6 +219,13 @@ export function ProfileEditor(props: ProfileEditorProps): JSX.Element {
         <label class={fx.keyLabel} for={id}>{label()}</label>
         <Show when={kind() === 'bool'} fallback={
           <Show when={kind() === 'enum' && def()?.kind.values} fallback={
+            <>
+            <select class={ux.control} aria-label={t('admin-features-setting-mode',{setting:label()})}
+              value={values()[p.key]===undefined?'inherit':'override'}
+              onChange={e=>setValue(p.key,e.currentTarget.value==='inherit'?undefined:values()[p.key]?.value??def()?.default??defaults()?.[p.key]??'')}>
+              <option value="inherit">{t('admin-features-inherit')}</option>
+              <option value="override">{t('admin-features-override')}</option>
+            </select>
             <input id={id} class={ux.control} type={kind() === 'int' ? 'number' : 'text'} inputmode={kind() === 'int' ? 'numeric' : undefined}
               min={def()?.kind.min} max={def()?.kind.max}
               placeholder={t('admin-features-default-is', { value: inputText(def()?.kind, def()?.default) || '—' })}
@@ -232,18 +240,19 @@ export function ProfileEditor(props: ProfileEditorProps): JSX.Element {
                 setBad((b) => { const n = { ...b }; delete n[p.key]; return n; });
                 setValue(p.key, v);
               }} />
+            </>
           }>
             {(vals) => (
               <select id={id} class={ux.control} value={values()[p.key] === undefined ? '' : String(values()[p.key]!.value)}
                 onChange={(e) => setValue(p.key, e.currentTarget.value === '' ? undefined : e.currentTarget.value)}>
-                <option value="">{t('admin-features-unset')}</option>
+                <option value="">{t('admin-features-inherit')}</option>
                 <For each={vals()}>{(v) => <option value={v}>{v}</option>}</For>
               </select>
             )}
           </Show>
         }>
           <select id={id} class={ux.control} value={choice(p.key)} onChange={(e) => setChoice(p.key, e.currentTarget.value as Choice)}>
-            <option value="unset">{t('admin-features-unset')}</option>
+            <option value="unset">{t('admin-features-inherit')}</option>
             <option value="on">{t('admin-features-on')}</option>
             <option value="off">{t('admin-features-off')}</option>
           </select>
@@ -262,6 +271,8 @@ export function ProfileEditor(props: ProfileEditorProps): JSX.Element {
             onInput={(e) => setName(e.currentTarget.value)} />
         )}
       </FormField>
+
+      <p class={fx.rowHelp}>{t('admin-features-inherit-help')}</p>
 
       <div class={fx.toolbar} role="group" aria-label={t('admin-features-tools')}>
         <Show when={(props.catalogue.presets ?? []).length > 0}>

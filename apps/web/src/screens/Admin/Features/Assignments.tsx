@@ -8,6 +8,7 @@
 import { For, Show, createMemo, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import type { FeatureCatalogue, FeatureProfile, ProfileAssignment, ScopeKind } from './api.ts';
+import {canonicalFeatureDomain,featureDomainLabel,featureDomainTargets} from './domainTargets.ts';
 import * as css from '../admin.css.ts';
 import * as shellCss from '../shell/shell.css.ts';
 import * as ux from '../shell/ux.css.ts';
@@ -33,22 +34,27 @@ export function Assignments(props: AssignmentsProps): JSX.Element {
 
   const targets = (k: ScopeKind): Target[] => {
     const c = props.catalogue;
-    if (k === 'domain') return c.domains.map((d) => ({ id: d, label: d }));
+    if (k === 'domain') return featureDomainTargets(c);
     if (k === 'group') return c.groups.map((g) => ({ id: g.id, label: g.domain ? `${g.name} (${g.domain})` : g.name }));
     return (c.userTargets ?? c.nativeTargets).map((u) => ({ id: u.accountId, label: u.address }));
   };
-  const labelOf = (a: ProfileAssignment): string => targets(a.scopeKind).find((x) => x.id === a.scopeId)?.label ?? a.scopeId;
+  const labelOf = (a: ProfileAssignment): string => a.scopeKind==='domain' ? featureDomainLabel(props.catalogue,canonicalFeatureDomain(props.catalogue,a.scopeId)) : targets(a.scopeKind).find((x) => x.id === a.scopeId)?.label ?? a.scopeId;
   const kindLabel = (k: ScopeKind): string =>
     k === 'domain' ? t('admin-features-scope-domain') : k === 'group' ? t('admin-features-scope-group') : t('admin-features-scope-user');
   const noTargets = (k: ScopeKind): string =>
     k === 'domain' ? t('admin-features-no-domain') : k === 'group' ? t('admin-features-no-group') : t('admin-features-no-user');
-  const mine = createMemo(() => props.catalogue.assignments.filter((a) => a.profileId === props.profile.id));
+  const mine = createMemo(() => {
+    const seen=new Set<string>();
+    return props.catalogue.assignments.filter(a=>a.profileId===props.profile.id).map(a=>a.scopeKind==='domain'?{...a,scopeId:canonicalFeatureDomain(props.catalogue,a.scopeId)}:a).filter(a=>{
+      const key=JSON.stringify([a.scopeKind,a.scopeId]);if(seen.has(key))return false;seen.add(key);return true;
+    });
+  });
   const options = createMemo(() => targets(kind()));
   const chosen = (): string => (options().some((o) => o.id === target()) ? target() : (options()[0]?.id ?? ''));
 
   async function add(e: SubmitEvent): Promise<void> {
     e.preventDefault();
-    const scopeId = chosen();
+    const scopeId = kind()==='domain' ? canonicalFeatureDomain(props.catalogue,chosen()) : chosen();
     if (!scopeId) return;
     setBusy(true);
     try {

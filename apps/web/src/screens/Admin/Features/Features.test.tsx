@@ -76,6 +76,20 @@ function setup(rest: string[] = [], data?: FeatureCatalogue) {
 }
 
 describe('Admin → Feature profiles', () => {
+  it('lists every routing alias and saves one canonical domain assignment with visible alias context',async()=>{
+    const data=catalogue();data.assignments=[];data.domainAliases={'alias.test':'example.test','second.test':'example.test'};
+    const {api}=setup(['work'],data);
+    const form=await screen.findByRole('form',{name:'Assign this profile'});
+    const select=within(form).getByRole('combobox',{name:'Name'});
+    const alias=within(select).getByRole('option',{name:/alias\.test \(alias of.*example\.test/});
+    expect(alias).toHaveValue('alias.test');expect(within(select).getByRole('option',{name:/second\.test \(alias of/})).toHaveValue('second.test');
+    fireEvent.change(select,{target:{value:'alias.test'}});fireEvent.click(within(form).getByRole('button',{name:'Assign'}));
+    await waitFor(()=>expect(api.calls.some(call=>call.includes('"scopeId":"example.test"'))).toBe(true));
+    expect(api.calls.filter(call=>call.startsWith('assign:'))).toHaveLength(1);expect(api.state.assignments).toEqual([{scopeKind:'domain',scopeId:'example.test',profileId:'work',priority:1}]);
+    expect(stripIsolates((await screen.findByText(/example\.test \(aliases:/,{selector:'th'})).textContent??'')).toBe('example.test (aliases: alias.test, second.test)');
+    expect(api.calls.join(' ')).not.toContain('"scopeId":"alias.test"');
+  });
+
   it('offers verified proxy identities even when there are no native accounts', async () => {
     const data = catalogue();
     data.nativeTargets = [];

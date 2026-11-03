@@ -200,3 +200,10 @@ admin-retention-pruned = { $count ->
 ## Admin › Logs › Authentication (t39 L5)
 
 admin-auth-attempted = Attempted as { $name }
+
+admin-features-inherit = Inherit
+admin-features-override = Set a value
+admin-features-setting-mode = Value mode for { $setting }
+admin-features-inherit-help = Inherit removes this profile's value and lock. The next applicable profile, domain or server value decides; the effective preview shows the result and its source.
+admin-features-domain-alias = { $alias } (alias of { $domain })
+admin-features-domain-aliases = { $domain } (aliases: { $aliases })

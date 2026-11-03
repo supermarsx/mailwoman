@@ -94,8 +94,9 @@ function mockApi(): MockApi {
   return api;
 }
 
-function setup(rest: string[]) {
+function setup(rest: string[], data?:FeatureCatalogue) {
   const api = mockApi();
+  if(data)api.state=data;
   const [route, setRoute] = createSignal<AdminRoute>({ section: 'features', rest });
   const navigate = vi.fn((path: string) => {
     const [, ...parts] = (path.split('#/')[1] ?? path).split('/');
@@ -113,6 +114,45 @@ const lastPut = (api: MockApi): Record<string, ProfileValue> => {
 };
 
 describe('Admin → Feature profiles editor (t98)', () => {
+  it('explicitly inherits every typed value by removing its override and lock without changing unrelated keys',async()=>{
+    const data=catalogue();
+    data.profileKeys!.push(
+      {key:'test.enum',kind:{type:'enum',values:['one','two']},default:'one',category:'limits'},
+      {key:'test.list',kind:{type:'stringList'},default:['one'],category:'limits'},
+      {key:'test.text',kind:{type:'text'},default:'default',category:'limits'},
+      {key:'test.bool',kind:{type:'bool'},default:true,category:'limits'},
+    );
+    data.profiles[0]!.values={...data.profiles[0]!.values,
+      'limit.attachment_bytes':v(1000,true),'test.enum':v('two',true),'test.list':v(['two'],true),'test.text':v('custom',true),'test.bool':v(false,true),'unknown.keep':v(7,true)};
+    const {api}=setup(['work'],data);
+    const calendar=await screen.findByLabelText('Value for Calendar');
+    expect(within(calendar).getByRole('option',{name:'Inherit'})).toHaveValue('unset');
+    fireEvent.change(calendar,{target:{value:'unset'}});
+    fireEvent.change(screen.getByLabelText('Attachment size limit'),{target:{value:'-1'}});
+    fireEvent.change(screen.getByLabelText('Value mode for Attachment size limit'),{target:{value:'inherit'}});
+    fireEvent.change(screen.getByLabelText('test.enum'),{target:{value:''}});
+    fireEvent.change(screen.getByLabelText('Value mode for test.list'),{target:{value:'inherit'}});
+    fireEvent.change(screen.getByLabelText('Value mode for test.text'),{target:{value:'inherit'}});
+    fireEvent.change(screen.getByLabelText('test.bool'),{target:{value:'unset'}});
+    expect(screen.getByLabelText('Attachment size limit')).not.toHaveAttribute('aria-invalid');
+    fireEvent.click(screen.getByRole('button',{name:'Save profile'}));
+    await waitFor(()=>expect(api.calls.some(call=>call.startsWith('put:work:'))).toBe(true));
+    expect(lastPut(api)).toEqual({'cap.compose.rich_text':v(true),'unknown.keep':v(7,true)});
+  });
+
+  it('previews an alias using its canonical policy and retains effective source information',async()=>{
+    const data=catalogue();data.domainAliases={'alias.test':'example.test','second.test':'example.test'};
+    const {api,container}=setup(['work'],data);
+    const preview=await screen.findByTestId('feature-preview');
+    fireEvent.change(within(preview).getByRole('combobox',{name:'Preview for'}),{target:{value:'domain'}});
+    const who=within(preview).getByRole('combobox',{name:'Who'});
+    expect(within(who).getByRole('option',{name:/second\.test \(alias of/})).toBeInTheDocument();
+    fireEvent.change(who,{target:{value:'alias.test'}});fireEvent.click(within(preview).getByRole('button',{name:'Show'}));
+    await waitFor(()=>expect(api.calls).toContain('effective:{"domain":"example.test"}'));
+    const row=await waitFor(()=>{const row=container.querySelector('[data-preview-feature="calendar"]');expect(row).not.toBeNull();return row!;});
+    expect(stripIsolates(row.textContent??'')).toContain('Profile Work');
+  });
+
   it('groups features by category, filters by search and marks what differs from the default', async () => {
     const { container } = setup(['work']);
     const pim = await waitFor(() => {

@@ -203,3 +203,10 @@ admin-retention-pruned = { $count ->
 ## Admin › Registos › Autenticação (t39 L5)
 
 admin-auth-attempted = Tentativa como { $name }
+
+admin-features-inherit = Herdar
+admin-features-override = Definir um valor
+admin-features-setting-mode = Modo do valor de { $setting }
+admin-features-inherit-help = Herdar remove o valor e o bloqueio deste perfil. Decide o perfil aplicável seguinte, o domínio ou o servidor; a pré-visualização efetiva mostra o resultado e a sua origem.
+admin-features-domain-alias = { $alias } (alias de { $domain })
+admin-features-domain-aliases = { $domain } (aliases: { $aliases })

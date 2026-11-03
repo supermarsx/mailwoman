@@ -8,6 +8,7 @@ import { isolate, t } from '../../../i18n';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import type { EffectiveKey, EffectivePreview, FeatureCatalogue } from './api.ts';
 import { categoryLabel, featureLabel } from './ProfileEditor.tsx';
+import {canonicalFeatureDomain,featureDomainTargets} from './domainTargets.ts';
 import * as css from '../admin.css.ts';
 import * as fx from './features.css.ts';
 import * as shellCss from '../shell/shell.css.ts';
@@ -43,9 +44,9 @@ export function Preview(props: PreviewProps): JSX.Element {
   const targets = createMemo(() =>
     kind() === 'user'
       ? users().map((u) => ({ id: u.accountId, label: u.address }))
-      : props.catalogue.domains.map((d) => ({ id: d, label: d })),
+      : featureDomainTargets(props.catalogue),
   );
-  const chosen = (): string => target() || targets()[0]?.id || '';
+  const chosen = (): string => targets().some(option=>option.id===target()) ? target() : targets()[0]?.id || '';
   const byId = createMemo(() => new Map(props.catalogue.catalogue.map((f) => [f.id, f])));
 
   async function show(e: SubmitEvent): Promise<void> {
@@ -55,7 +56,7 @@ export function Preview(props: PreviewProps): JSX.Element {
     setBusy(true);
     setError(undefined);
     try {
-      setResult(await props.load(kind() === 'user' ? { account: id } : { domain: id }));
+      setResult(await props.load(kind() === 'user' ? { account: id } : { domain: canonicalFeatureDomain(props.catalogue,id) }));
     } catch (err) {
       setError(describeAdminError(err));
     } finally {
