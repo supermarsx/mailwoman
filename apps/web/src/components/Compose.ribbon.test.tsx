@@ -1,4 +1,4 @@
-import {structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
+import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 // The composer ribbon on the t38 primitives: every tab is a RibbonPanel of
 // 3-row RibbonGroups (the editor's groups joining their tab through a slot),
 // the bar pushes the body instead of covering it, and in auto-hide mode a tab
@@ -86,11 +86,11 @@ describe('composer ribbon (t38)', () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
-    fireEvent.change(screen.getByTestId('format-toggle'), { target: { value: 'plain' } });
+    await chooseComposeFormat('plain');
     await waitFor(() => expect(screen.queryByTestId('rt-bold')).toBeNull());
     expect(screen.queryByRole('tab', { name: 'Table' })).toBeNull();
     expect(groupIds('format')).toEqual(['compose-group-recipients', 'compose-group-message-type']);
-    fireEvent.change(screen.getByTestId('format-toggle'), { target: { value: 'rich' } });
+    await chooseComposeFormat('rich');
     await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     expect(groupIds('format')[0]).toBe('rt-group-clipboard');
@@ -102,6 +102,8 @@ describe('composer ribbon (t38)', () => {
     await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     expect(bar()).toHaveAttribute('data-mode', 'auto');
+    // Selecting rich text is now a real menu gesture and focuses the ribbon.
+    fireEvent.keyDown(screen.getByTestId('format-toggle'),{key:'Escape'});
     expect(bar()).toHaveAttribute('data-expanded', 'false');
     expect(document.getElementById('mw-bar-composerRibbon')).toHaveAttribute('inert');
 
@@ -130,6 +132,7 @@ describe('composer ribbon (t38)', () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
+    fireEvent.keyDown(screen.getByTestId('format-toggle'),{key:'Escape'});
     const subject = screen.getByLabelText('Subject');
     subject.focus();
     fireEvent.keyDown(subject, { key: 'a' });

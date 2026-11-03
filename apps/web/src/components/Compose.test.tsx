@@ -199,7 +199,7 @@ describe('Compose', () => {
     expect(screen.queryByLabelText('To')).toBeNull();
     expect(screen.getByRole('region', { name: 'Quick reply' })).toHaveTextContent('alice@outside.test');
     expect(screen.getByText('1 recipient(s) outside trusted domains')).toBeVisible();
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain');
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain');
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'My quick reply\nQuoted text' } });
     fireEvent.click(screen.getByRole('button', { name: 'Edit recipients and subject' }));
     expect(screen.getByLabelText('To')).toHaveValue('alice@outside.test');
@@ -535,18 +535,18 @@ describe('Compose', () => {
   it('round-trips generated markup through HTML source and keeps plain text separate', async()=>{
     renderWithApp(()=><Compose embedded onClose={()=>undefined}/>);
     await structuredComposeEditor();
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
+    await chooseComposeFormat('html');
     const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
     const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
     if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
     frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);
     fireEvent.click(await screen.findByRole('tab',{name:'HTML source'}));
     fireEvent.input(await screen.findByRole('textbox',{name:'HTML source'}),{target:{value:'<h2>Heading</h2><p><strong>Bold</strong> text</p>'}});
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});
+    await chooseComposeFormat('rich');
     const editor=await structuredComposeEditor();
     expect(editor.querySelector('h2')).toHaveTextContent('Heading');
     expect(editor.querySelector('strong')).toHaveTextContent('Bold');
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
+    await chooseComposeFormat('html');
     const again=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
     const againView=again.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
     if(againView&&!againView.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(againView.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
@@ -562,11 +562,11 @@ describe('Compose', () => {
   it('round-trips the body text between plain and rich modes', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     await structuredComposeEditor();
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // rich -> plain
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // rich -> plain
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'hello\nworld' } });
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain -> rich (seeds editor)
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // plain -> rich (seeds editor)
     await structuredComposeEditor();
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // rich -> plain
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // rich -> plain
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hello\nworld');
   });
 
@@ -603,7 +603,7 @@ describe('Compose', () => {
       'mail.externalRecipientWarning': { value: 'confirm', source: 'global', locked: true },
       'mail.trustedRecipientDomains': { value: ['partner.test'], source: 'global', locked: true },
     } }) });
-    fillPlain('Hello', 'recipient@outside.test');
+    await fillPlain('Hello', 'recipient@outside.test');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(sendCount(client)).toBe(0);
     expect(screen.getByText('Review and confirm the external recipients before sending.')).toBeVisible();
@@ -648,8 +648,8 @@ describe('Compose', () => {
   });
 
   /** Fill To / Subject / Body in plain-text mode. */
-  function fillPlain(body: string, to = 'you@example.org'): void {
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+  async function fillPlain(body: string, to = 'you@example.org'): Promise<void> {
+    await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: to } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: body } });
@@ -674,7 +674,7 @@ describe('Compose', () => {
     expect(screen.queryByTestId('opt-tracking')).toBeNull();
     expect(screen.queryByTestId('opt-receipt')).toBeNull();
 
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // plain text
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'plain body' } });
@@ -729,7 +729,7 @@ describe('Compose', () => {
 
   it('schedules a future time: the submission carries it and the composer closes', async () => {
     const { client, onClose } = await composeWithClient();
-    fillPlain('later');
+    await fillPlain('later');
     fireEvent.input(screen.getByLabelText('Send later'), { target: { value: '2099-01-01T09:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -744,7 +744,7 @@ describe('Compose', () => {
 
   it('refuses a past send-later time: says so, sends nothing, stays open', async () => {
     const { client, onClose } = await composeWithClient();
-    fillPlain('later');
+    await fillPlain('later');
     const later = screen.getByLabelText('Send later') as HTMLInputElement;
     fireEvent.input(later, { target: { value: '2001-01-01T09:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Schedule' }));
@@ -759,7 +759,7 @@ describe('Compose', () => {
 
   it('refuses a time that passed while the composer was open (the field minimum is stale)', async () => {
     const { client, onClose } = await composeWithClient();
-    fillPlain('later');
+    await fillPlain('later');
     const later = screen.getByLabelText('Send later') as HTMLInputElement;
     // What a long-open composer looks like: the minimum was computed long ago,
     // so the browser's own range check accepts a time that is now in the past.
@@ -801,7 +801,7 @@ describe('Compose', () => {
         sessionState: 's',
       };
     });
-    fillPlain('hello');
+    await fillPlain('hello');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(
       `The server refused this message: ${isolate('from: "a b": contains whitespace')}. Nothing was sent.`,
@@ -814,7 +814,7 @@ describe('Compose', () => {
 
   it('names a recipient that is not an address, sends nothing, stays open', async () => {
     const { client, onClose } = await composeWithClient();
-    fillPlain('hello', 'you@example.org, bob');
+    await fillPlain('hello', 'you@example.org, bob');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByRole('alert')).toHaveTextContent(`This is not an email address: ${isolate('bob')}`);
     expect(sendCount(client)).toBe(0);
@@ -828,8 +828,8 @@ describe('Compose', () => {
     await app.loadIdentities();
     fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id3' } });
-    fillPlain('hi');
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain');
+    await fillPlain('hi');
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain');
     await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -842,7 +842,7 @@ describe('Compose', () => {
     const signature:Identity={...IDENTITIES[0]!,id:'native',signatureFormat:'html',signatureText:'Native brand',signatureHtml:'<style>.brand td{padding:18px;font-family:Georgia}</style><table class="brand" width="480" cellpadding="12"><tr><td><font face="Georgia" size="4">Native brand</font></td></tr></table>'};
     const {client,app,onClose}=await composeWithClient({identities:[signature]});await app.loadIdentities();
     fireEvent.click(screen.getByRole('button',{name:'From'}));fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
-    fillPlain('Existing message');fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});await structuredComposeEditor();
+    await fillPlain('Existing message');await chooseComposeFormat('rich');await structuredComposeEditor();
     if(how==='picker'){
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.change(within(await screen.findByTestId('compose-signature')).getByRole('combobox'),{target:{value:'native'}});
       const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
@@ -862,7 +862,7 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     expect(await screen.findByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
-    fillPlain('hi');
+    await fillPlain('hi');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(sentBody(client)).toEqual({ body: { value: 'hi\n\n-- \nSent from Mailwoman' } });
@@ -873,7 +873,7 @@ describe('Compose', () => {
     await app.loadIdentities();
     fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
-    fillPlain('hi');
+    await fillPlain('hi');
     // Precondition: the send would append it.
     expect(screen.getByTestId('compose-auto-signature')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
@@ -915,7 +915,7 @@ describe('Compose', () => {
       </AppContext.Provider>
     ));
     await app.login({ username: 'me@example.org', password: 'p' });
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // plain text
     const body = screen.getByLabelText('Body');
     expect(screen.queryByTestId('outer-fallback')).toBeNull();
 
@@ -961,7 +961,7 @@ describe('Compose', () => {
   it('inserts a chosen signature into the plain-text body', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.loadIdentities();
-    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // plain text
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
     fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
@@ -1080,9 +1080,9 @@ describe('Compose', () => {
       vi.stubGlobal('fetch', fetchSpy);
       const { client, app } = await composeWithClient();
       await screen.findByTestId('compose-track-opens');
-      await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
+      await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // plain text
       fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'tracked' } });
-      await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain');
+      await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain');
       await structuredComposeEditor();
       fireEvent.click(await screen.findByTestId('compose-track-opens'));
       fillAndSend();

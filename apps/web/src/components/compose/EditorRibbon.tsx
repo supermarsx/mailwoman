@@ -15,6 +15,7 @@
 // the rich editor and native HTML. Both hosts use it.
 
 import { createSignal, For, Show, type JSX } from 'solid-js';
+import {IconSelect} from '../IconSelect.tsx';
 import {
   CollapsibleBar,
   RibbonGroup,
@@ -184,8 +185,7 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
 
 export type BodyMode = 'plain' | 'rich' | 'html';
 
-/** The body's mode: plain text, the rich editor, or native HTML. One narrow
- *  select, kept above Paragraph in folding order, since it is needed at any width. */
+/** The body's mode uses the same themed icon menu as the app's view controls. */
 export function BodyModeGroup(props: {
   value: () => BodyMode;
   onChange: (mode: BodyMode) => void;
@@ -196,17 +196,11 @@ export function BodyModeGroup(props: {
   return (
     <RibbonGroup label={props.label} priority={85} icon="mail" testId={props.testId ?? 'compose-group-message-type'}>
       <RibbonItem>
-        <select
-          class="btn btn--ghost compose-rib__format"
-          data-testid={props.selectTestId ?? 'format-toggle'}
-          aria-label={props.label}
-          value={props.value()}
-          onChange={(event) => props.onChange(event.currentTarget.value as BodyMode)}
-        >
-          <option value="plain">{t('mail-compose-format-plain')}</option>
-          <option value="rich">{t('mail-compose-format-rich')}</option>
-          <option value="html">{t('mail-compose-format-html')}</option>
-        </select>
+        <IconSelect label={props.label} value={props.value()} testId={props.selectTestId ?? 'format-toggle'} showLabel options={[
+          {value:'plain',label:t('mail-compose-format-plain'),icon:'paragraph'},
+          {value:'rich',label:t('mail-compose-format-rich'),icon:'paint'},
+          {value:'html',label:t('mail-compose-format-html'),icon:'fileCode'},
+        ]} onChange={value=>props.onChange(value as BodyMode)}/>
       </RibbonItem>
     </RibbonGroup>
   );

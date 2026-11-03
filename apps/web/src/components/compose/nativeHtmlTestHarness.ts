@@ -28,9 +28,14 @@ afterEach(()=>observer?.disconnect());
 
 /** A structured-editor test chooses its editor explicitly; new-item defaults
  * remain exercised by the native-editor tests. */
+export async function chooseEditorFormat(controlId:string,mode:'plain'|'rich'|'html'):Promise<void> {
+  const control=await screen.findByTestId(controlId) as HTMLButtonElement;
+  if(control.value!==mode){fireEvent.click(control);fireEvent.click(await screen.findByRole('menuitemradio',{name:{plain:'Plain text',rich:'Rich text',html:'HTML'}[mode]}));}
+  await waitFor(()=>{if(control.value!==mode)throw new Error('Editor format is still changing');});
+}
 export async function chooseComposeFormat(mode:'plain'|'rich'|'html'):Promise<void> {
-  const control=await screen.findByTestId('format-toggle') as HTMLSelectElement;
-  if(control.value!==mode)fireEvent.change(control,{target:{value:mode}});
+  await chooseEditorFormat('format-toggle',mode);
+  const control=screen.getByTestId('format-toggle') as HTMLButtonElement;
   await waitFor(()=>{
     if(control.value!==mode)throw new Error('Composer format is still changing');
     if(mode==='plain'&&screen.queryByLabelText('Body')?.tagName!=='TEXTAREA')throw new Error('Plain body is not ready');

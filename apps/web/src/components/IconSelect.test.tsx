@@ -1,5 +1,5 @@
 import {afterEach,describe,expect,it,vi} from 'vitest';
-import {cleanup,fireEvent,render,screen} from '@solidjs/testing-library';
+import {cleanup,fireEvent,render,screen,within} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import {IconSelect,type IconSelectOption} from './IconSelect.tsx';
@@ -12,6 +12,11 @@ const options:readonly IconSelectOption[]=[
 afterEach(()=>{cleanup();suspendAccountPreferences();});
 
 describe('icon dropdown button',()=>{
+ it('opens and selects in its trigger document when hosted in a detached surface',()=>{
+  const frame=document.createElement('iframe');document.body.append(frame);const doc=frame.contentDocument!;const change=vi.fn();
+  const view=render(()=>{const [value,setValue]=createSignal('right');return <IconSelect label="View mode" value={value()} options={options} showLabel onChange={next=>{setValue(next);change(next);}}/>;},{container:doc.body});
+  try{const trigger=within(doc.body).getByRole('button',{name:'View mode'});fireEvent.click(trigger);const choice=within(doc.body).getByRole('menuitemradio',{name:'Bottom'});expect(screen.queryByRole('menu')).toBeNull();fireEvent.click(choice);expect(change).toHaveBeenCalledExactlyOnceWith('bottom');expect(doc.activeElement).toBe(trigger);expect(trigger.textContent).toContain('Bottom');}finally{view.unmount();frame.remove();}
+ });
  it('shares the app button styling and chooses a labelled icon option by click',()=>{
   const change=vi.fn();
   render(()=>{const [value,setValue]=createSignal('right');return <IconSelect label="Reading pane" value={value()} options={options} onChange={next=>{setValue(next);change(next);}}/>;});

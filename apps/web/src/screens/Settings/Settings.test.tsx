@@ -1,3 +1,4 @@
+import {chooseEditorFormat} from '../../components/compose/nativeHtmlTestHarness.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
 import {startAccountUiPreferences} from '../../api/accountPreferences.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -147,7 +148,7 @@ describe('Signatures — CRUD', () => {
 
     fireEvent.click(await screen.findByText('New signature'));
     fireEvent.input(screen.getByLabelText('Name'), { target: { value: 'Work' } });
-    fireEvent.change(screen.getByRole('combobox', { name: 'Signature format' }), { target: { value: 'plain' } });
+    await chooseEditorFormat('signature-format','plain');
     fireEvent.input(screen.getByLabelText('Signature'), { target: { value: '— Alex' } });
     fireEvent.click(screen.getByTestId('signature-save'));
 

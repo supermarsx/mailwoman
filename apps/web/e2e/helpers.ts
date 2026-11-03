@@ -351,8 +351,9 @@ export async function selectComposeFormat(page: Page, dialog: Locator, format: '
   await dialog.getByRole('tab', { name: 'Format text', exact: true }).click();
   const select = dialog.getByTestId('format-toggle');
   await revealRibbonControl(page, dialog, select);
-  await select.selectOption(format);
-  await expect(select).toHaveValue(format);
+  await select.click();
+  await page.getByRole('menuitemradio',{name:{plain:'Plain text',rich:'Rich text',html:'HTML'}[format],exact:true}).click();
+  await expect(select).toHaveAttribute('value',format);
 }
 
 /**

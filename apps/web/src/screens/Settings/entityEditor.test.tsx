@@ -1,3 +1,4 @@
+import {chooseEditorFormat} from '../../components/compose/nativeHtmlTestHarness.ts';
 import {describe,it,expect,vi} from 'vitest';
 import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
 import {Signatures} from './Signatures.tsx';
@@ -21,7 +22,7 @@ describe('dedicated account entity editors',()=>{
  });
  it('saves the dedicated page then returns to the list without a discard prompt',async()=>{
   const navigation=createSettingsNavigation({section:'signatures',editor:{kind:'new'}});const service=signatureService();render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
-  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'New signature'}});fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Hello'}});fireEvent.click(screen.getByTestId('signature-save'));
+  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'New signature'}});await chooseEditorFormat('signature-format','plain');fireEvent.input(screen.getByLabelText('Signature'),{target:{value:'Hello'}});fireEvent.click(screen.getByTestId('signature-save'));
   await waitFor(()=>expect(navigation.route()).toEqual({section:'signatures'}));expect(service.upsertSignature).toHaveBeenCalledWith({name:'New signature',format:'plain',body:'Hello',html:null,text:'Hello',textEdited:true,isDefault:false});expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
  });
  it('keeps failed saves on the editor with the draft still guarded',async()=>{
@@ -36,5 +37,5 @@ describe('dedicated account entity editors',()=>{
 
 it('prevents editing while a save is pending so later keystrokes cannot be marked saved',async()=>{
  let finish:()=>void=()=>{};const save=vi.fn(()=>new Promise<void>(resolve=>{finish=resolve;}));const service={...signatureService(),upsertSignature:save} as unknown as SettingsService;const navigation=createSettingsNavigation({section:'signatures',editor:{kind:'new'}});render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
- fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Pending'}});fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());expect(screen.getByLabelText('Signature')).toBeDisabled();expect(await navigation.canLeave()).toBe(false);finish();await waitFor(()=>expect(navigation.route().editor).toBeUndefined());
+ await chooseEditorFormat('signature-format','plain');fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Pending'}});fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());expect(screen.getByLabelText('Signature')).toBeDisabled();expect(await navigation.canLeave()).toBe(false);finish();await waitFor(()=>expect(navigation.route().editor).toBeUndefined());
 });

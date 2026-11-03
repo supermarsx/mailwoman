@@ -15,13 +15,13 @@ test('compose window preference opens native HTML by default and preserves edits
   const pending=page.waitForEvent('popup');
   if((page.viewportSize()?.width??1280)<600)await page.locator('header.shell__bar').getByRole('button',{name:'Compose',exact:true}).click();else await page.locator('.sidebar__compose').click();
   const popup=await pending;
-  await expect(popup.getByTestId('format-toggle')).toHaveValue('html');
+  await expect(popup.getByTestId('format-toggle')).toHaveAttribute('value','html');
   await expect(popup.getByRole('tab',{name:'Visual editor',exact:true})).toHaveAttribute('aria-selected','true');
   const editor=popup.frameLocator('iframe[title="Visual editor"]').getByRole('textbox',{name:'Body',exact:true});await expect(editor).toBeVisible();
   await editor.fill('Window preference preserves this draft');
   await popup.screenshot({path:info.outputPath('compose-window-preference.png'),fullPage:true});
   await popup.getByRole('button',{name:'Reattach to main window',exact:true}).click();
-  await expect(page.getByTestId('format-toggle')).toHaveValue('html');
+  await expect(page.getByTestId('format-toggle')).toHaveAttribute('value','html');
   await expect(page.frameLocator('iframe[title="Visual editor"]').getByRole('textbox',{name:'Body',exact:true})).toHaveText('Window preference preserves this draft');
   await expect.poll(()=>popup.isClosed()).toBe(true);
   const compose=page.locator('form.compose').last();await compose.getByRole('button',{name:'Discard account draft',exact:true}).click();await page.getByTestId('compose-discard-confirm').getByRole('button',{name:'Discard',exact:true}).click();await expect(compose).toHaveCount(0);

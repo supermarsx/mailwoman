@@ -7,7 +7,7 @@ import {activateAccountPreferences,suspendAccountPreferences} from '../../api/ac
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {initSync} from '../../wasm/mw-sanitize/mw_sanitize.js';
-import {loadNativeHtmlFrame} from '../../components/compose/nativeHtmlTestHarness.ts';
+import {chooseEditorFormat,loadNativeHtmlFrame} from '../../components/compose/nativeHtmlTestHarness.ts';
 // The editor and the source editor are lazy chunks (~290 kB of ProseMirror). Their
 // cold transform under a full parallel run took longer than the 1 s `findBy*`
 // budget, so the first await of the file timed out (the flake other lanes saw).
@@ -34,7 +34,7 @@ describe('dedicated signature formats',()=>{
  it('saves explicit HTML source as typed and an independent literal plain alternative',async()=>{
   const {save,done}=setup();
   fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Work'}});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
+  await chooseEditorFormat('signature-format','html');
   fireEvent.input(await sourceField(),{target:{value:'<p>Regards <strong>Team</strong></p>'}});
   fireEvent.input(screen.getByLabelText('Plain-text alternative'),{target:{value:'Regards <plain> & Team'}});
   fireEvent.click(screen.getByTestId('signature-save'));
@@ -49,7 +49,7 @@ describe('dedicated signature formats',()=>{
  });
  it('plain format explicitly removes HTML while retaining authored text',async()=>{
   const {save}=setup({name:'Work',body:'Legacy',format:'rich',html:'<p>Rich</p>',text:'Authored plain',textEdited:true,isDefault:false});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
+  await chooseEditorFormat('signature-format','plain');
   expect(screen.getByLabelText('Signature')).toHaveValue('Authored plain');
   fireEvent.click(screen.getByTestId('signature-save'));
   await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));
@@ -102,7 +102,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
  it('starts a new signature in visual HTML with the full ribbon and source view',async()=>{
   const {cancel}=setup();
   const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;loadNativeHtmlFrame(frame);
-  expect(screen.getByRole('combobox',{name:'Signature format'})).toHaveValue('html');
+  expect(screen.getByRole('button',{name:'Signature format'})).toHaveValue('html');
   expect(screen.getByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
   expect(screen.getByRole('tab',{name:'HTML source'})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Find and replace'})).toBeInTheDocument();
@@ -138,7 +138,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
  it('guards a change of the saved signature format',async()=>{
   const {cancel}=setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
+  await chooseEditorFormat('signature-format','html');
   await screen.findByRole('tab',{name:'HTML source'});
   fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
   expect(await screen.findByRole('alertdialog')).toBeInTheDocument();
@@ -165,7 +165,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
  it('opens legacy HTML in the native visual/source editor without reducing it through rich text',async()=>{
   const html='<table width="510"><tbody><tr><td style="padding:15px">Legacy HTML</td></tr></tbody></table>';
   const {cancel}=setup({name:'Legacy HTML',body:'Legacy HTML',html,isDefault:false});
-  expect(screen.getByRole('combobox',{name:'Signature format'})).toHaveValue('html');
+  expect(screen.getByRole('button',{name:'Signature format'})).toHaveValue('html');
   expect(await screen.findByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
   expect(await sourceField()).toHaveValue(html);
   fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
@@ -175,7 +175,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   const {save}=setup({name:'Change format',format:'html',html:'<p>Old</p>',body:'Old',text:'Old',isDefault:false});
   const source=await sourceField();
   fireEvent.input(source,{target:{value:'<p>Latest typed signature</p>'}});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
+  await chooseEditorFormat('signature-format','plain');
   expect(await screen.findByRole('textbox',{name:'Signature'})).toHaveValue('Latest typed signature');
   fireEvent.click(screen.getByTestId('signature-save'));
   await waitFor(()=>expect(save).toHaveBeenCalledOnce());
@@ -190,8 +190,8 @@ describe('the composer editor in the signature editor (t49)',()=>{
  it('keeps the rich HTML across a plain round trip',async()=>{
   const {save}=setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards <em>Team</em></p>',text:'Regards Team',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'plain'}});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'rich'}});
+  await chooseEditorFormat('signature-format','plain');
+  await chooseEditorFormat('signature-format','rich');
   const editor=await screen.findByRole('textbox',{name:'Rich signature'});
   expect(editor.querySelector('em')).toHaveTextContent('Team');
   fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalled());
@@ -232,7 +232,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
  });
  it('refuses to save HTML over 32 KiB',async()=>{
   const {save}=setup({name:'Big',body:'x',isDefault:false});
-  fireEvent.change(screen.getByRole('combobox',{name:'Signature format'}),{target:{value:'html'}});
+  await chooseEditorFormat('signature-format','html');
   fireEvent.input(await sourceField(),{target:{value:`<p>${'x'.repeat(33*1024)}</p>`}});
   fireEvent.click(screen.getByTestId('signature-save'));
   expect(await screen.findByRole('alert')).toHaveTextContent('over 32 KiB');expect(save).not.toHaveBeenCalled();
