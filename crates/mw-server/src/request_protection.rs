@@ -4,6 +4,7 @@ mod api;
 mod config;
 /// The Adaptive protection page's policy editor and simulator (t97).
 mod editor;
+mod probe_path;
 pub(crate) mod user_agent;
 use crate::{AppState, admin_ctx::AdminApiError};
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
@@ -62,6 +63,7 @@ struct Context {
     state: AppState,
     config: Arc<Config>,
     legacy_route: bool,
+    source_country: Option<String>,
     charged: tokio::sync::Mutex<Vec<Charged>>,
     signal: AtomicU8,
 }
@@ -125,7 +127,14 @@ impl Context {
         let answer = self
             .state
             .store
-            .request_protection(kind, value, &policy, chrono::Utc::now().timestamp(), None)
+            .request_protection_with_country(
+                kind,
+                value,
+                &policy,
+                chrono::Utc::now().timestamp(),
+                None,
+                self.source_country.as_deref(),
+            )
             .await;
         match answer {
             Ok(outcome) if outcome.decision.enforced => Err(limited(outcome.decision)),
@@ -169,12 +178,13 @@ impl Context {
             if self
                 .state
                 .store
-                .request_protection(
+                .request_protection_with_country(
                     subject.kind,
                     &subject.value,
                     &subject.policy,
                     chrono::Utc::now().timestamp(),
                     Some(signal),
+                    self.source_country.as_deref(),
                 )
                 .await
                 .is_err()
@@ -409,10 +419,84 @@ fn ua_protected(path: &str) -> bool {
     }
     !path.rsplit('/').next().unwrap_or("").contains('.')
 }
-pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
+/// Keep operational recovery and ordinary assets available. Explicit hostile
+/// paths are checked independently, including probes hidden below asset roots.
+fn probe_block_scope(path: &str) -> bool {
+    let admin = mw_admin::config::admin_path();
+    if matches!(
+        path,
+        "/health"
+            | "/healthz"
+            | "/ready"
+            | "/readyz"
+            | "/api/logout"
+            | "/api/sso/logout"
+            | "/api/public-config"
+            | "/api/rc/frame"
+            | "/api/login/2fa"
+            | "/oidc/logout"
+            | "/oidc/logout/context"
+    ) || path.strip_prefix(&admin).is_some_and(|suffix| {
+        matches!(suffix, "/logout" | "/login/2fa" | "/login/recovery")
+            || suffix.starts_with("/assets/")
+            || suffix.starts_with("/static/")
+    }) || path.starts_with("/assets/")
+        || path.starts_with("/static/")
+    {
+        return false;
+    }
+    if protected(path) {
+        return true;
+    }
+    !path.rsplit('.').next().is_some_and(|extension| {
+        matches!(
+            extension,
+            "js" | "css"
+                | "map"
+                | "wasm"
+                | "ico"
+                | "png"
+                | "jpg"
+                | "jpeg"
+                | "svg"
+                | "webp"
+                | "woff"
+                | "woff2"
+                | "ttf"
+        )
+    })
+}
+fn hostile_probe(path: &str) -> bool {
+    let Some(normalized) = probe_path::normalized_path(path) else {
+        return false;
+    };
+    let admin = mw_admin::config::admin_path();
+    let admin = probe_path::normalized_path(&admin).unwrap_or(admin);
+    // An operator may deliberately host the real console at a scanner-like
+    // name. Its own route continues using the normal authentication policy.
+    if normalized == admin {
+        return false;
+    }
+    if let Some(suffix) = normalized
+        .strip_prefix(&admin)
+        .filter(|suffix| suffix.starts_with('/'))
+    {
+        return probe_path::hostile_probe_path(suffix);
+    }
+    probe_path::hostile_probe_path(path)
+}
+pub(crate) async fn guard(
+    State(state): State<AppState>,
+    request: Request,
+    next: Next,
+) -> Response {
     let legacy_route = protected(request.uri().path());
     let ua_route = ua_protected(request.uri().path());
-    if request.method() == axum::http::Method::OPTIONS || (!legacy_route && !ua_route) {
+    let probe = hostile_probe(request.uri().path());
+    let source_scope = probe || probe_block_scope(request.uri().path());
+    if (request.method() == axum::http::Method::OPTIONS && !probe)
+        || (!legacy_route && !ua_route && !source_scope)
+    {
         return next.run(request).await;
     }
     if operator_control(
@@ -432,6 +516,53 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     if !config.enabled() {
         return next.run(request).await;
     }
+    let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
+    let source_country = match mw_engine::security::country_lookup(source) {
+        mw_engine::security::CountryLookup::Known(country) => Some(country),
+        _ => None,
+    };
+    if source_scope
+        && let Some(source) = source
+        && let Some(policy) = config.subject("client", &source.to_canonical().to_string())
+        && policy.adaptive_mode != mw_store::request_protection_model::Mode::Off
+    {
+        let source = source.to_canonical().to_string();
+        let now = chrono::Utc::now().timestamp();
+        // Strong scanner evidence belongs to the transport source even when a
+        // cookie is present. Subsequent checks never charge an anonymous budget
+        // or revise a subject simply because an authenticated page was read.
+        let decision = if probe {
+            state
+                .store
+                .request_protection_with_country(
+                    "client",
+                    &source,
+                    &policy,
+                    now,
+                    Some(Signal::ProbePath),
+                    source_country.as_deref(),
+                )
+                .await
+                .map(|outcome| outcome.decision)
+        } else {
+            state
+                .store
+                .request_protection_probe_decision("client", &source, &policy, now)
+                .await
+        };
+        match decision {
+            Ok(decision) if decision.enforced => return response(limited(decision)),
+            Err(_) => {
+                warning();
+                if config.fail_closed
+                    && policy.adaptive_mode == mw_store::request_protection_model::Mode::Enforce
+                {
+                    return response(unavailable());
+                }
+            }
+            _ => {}
+        }
+    }
     let ua_category = ua_route
         .then(|| {
             config.user_agent.classify(
@@ -445,11 +576,11 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     if (!legacy_route || !config.legacy_enabled()) && ua_category.is_none() {
         return next.run(request).await;
     }
-    let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
     let context = Arc::new(Context {
         state,
         config,
         legacy_route,
+        source_country,
         charged: Default::default(),
         signal: AtomicU8::new(0),
     });

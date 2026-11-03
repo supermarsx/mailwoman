@@ -275,7 +275,7 @@ function RuleRow(props: {
   );
 }
 
-const SIM_SIGNALS: readonly SimSignal[] = ['normal', ...SIGNALS];
+const SIM_SIGNALS: readonly SimSignal[] = ['normal', ...SIGNALS, 'probe-path'];
 
 function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<string, unknown>; preset: () => Record<string, unknown> }): JSX.Element {
   const [kind, setKind] = createSignal<SimRequest['subjectKind']>('client');
@@ -326,7 +326,7 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
         <label class={css.check}><input type="checkbox" checked={useUserAgent()} onChange={(e) => setUseUserAgent(e.currentTarget.checked)} />{t('admin-protect-sim-ua-enable')}</label>
         <Show when={useUserAgent()}><label class="field">{t('admin-protect-sim-ua')}<input maxlength="4096" value={userAgent()} onInput={(e) => setUserAgent(e.currentTarget.value)} /></label><p class={css.note}>{t('admin-protect-sim-ua-help')}</p></Show>
         <label class="field">{t('admin-protect-sim-kind')}
-          <select value={kind()} onChange={(e) => setKind(e.currentTarget.value as SimRequest['subjectKind'])}>
+          <select value={kind()} onChange={(e) => {const next=e.currentTarget.value as SimRequest['subjectKind'];if(next!=='client'&&signal()==='probe-path')setSignal('normal');setKind(next);}}>
             <option value="client">{t('admin-protect-sim-kind-client')}</option>
             <option value="account">{t('admin-protect-sim-kind-account')}</option>
             <option value="admin">{t('admin-protect-sim-kind-admin')}</option>
@@ -335,7 +335,7 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
           <input value={subject()} placeholder={kind() === 'client' ? '192.0.2.1' : ''} onInput={(e) => setSubject(e.currentTarget.value)} /></label>
         <label class="field">{t('admin-protect-sim-signal')}
           <select value={signal()} onChange={(e) => setSignal(e.currentTarget.value as SimSignal)}>
-            <For each={SIM_SIGNALS}>{(s) => <option value={s}>{t(`admin-protect-signal-${s}`)}</option>}</For>
+            <For each={kind()==='client'?SIM_SIGNALS:SIM_SIGNALS.filter(value=>value!=='probe-path')}>{(s) => <option value={s}>{t(`admin-protect-signal-${s}`)}</option>}</For>
           </select></label>
         <label class="field">{t('admin-protect-sim-requests')}<input type="number" min="0" value={requests()} onInput={num(setRequests)} /></label>
         <label class="field">{t('admin-protect-sim-short-bad')}<input type="number" min="0" value={shortBad()} onInput={num(setShortBad)} /></label>

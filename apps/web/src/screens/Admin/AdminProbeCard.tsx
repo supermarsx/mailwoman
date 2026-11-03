@@ -117,6 +117,7 @@ export function AdminProbeCard(props: { api?: AdminProbeApi | undefined }): JSX.
     await load();
   }
   const when = (iso: string | null): string => (iso ? formatDateTime(iso) : '—');
+  const reason = (signal: AdminProbeSignal | null | undefined): string => signal && PROBE_SIGNALS.includes(signal) ? t(`admin-probe-signal-${signal}`) : '—';
   return (
     <section class={css.card} aria-labelledby="admin-probe-h" data-testid="admin-probe-card">
       <h3 id="admin-probe-h" class={css.title}>{t('admin-probe-title')}</h3>
@@ -147,7 +148,7 @@ export function AdminProbeCard(props: { api?: AdminProbeApi | undefined }): JSX.
                   <th scope="row"><code>{row.source}</code></th>
                   <td>{when(row.blockedUntil)}</td>
                   <td>{formatNumber(row.strikes)}</td>
-                  <td>{row.lastSignal ? t(`admin-probe-signal-${row.lastSignal}`) : '—'}</td>
+                  <td>{reason(row.lastSignal)}</td>
                   <td><Show when={canWrite()}><button class="btn btn--ghost btn--sm" aria-label={t('admin-probe-unblock-target', { source: row.source })} onClick={() => setUnblocking(row)}>{t('admin-probe-unblock')}</button></Show></td>
                 </tr>
               )}</For></tbody>
@@ -158,12 +159,13 @@ export function AdminProbeCard(props: { api?: AdminProbeApi | undefined }): JSX.
           <Show when={d().topOffenders.length > 0} fallback={<p class={css.note}>{t('admin-probe-offenders-empty')}</p>}>
             <table class={css.diff} data-testid="admin-probe-offenders">
               <caption class={css.srCaption}>{t('admin-probe-offenders-title')}</caption>
-              <thead><tr><th scope="col">{t('admin-probe-col-source')}</th><th scope="col">{t('admin-probe-col-score')}</th><th scope="col">{t('admin-probe-col-misses')}</th><th scope="col">{t('admin-probe-col-state')}</th></tr></thead>
+              <thead><tr><th scope="col">{t('admin-probe-col-source')}</th><th scope="col">{t('admin-probe-col-score')}</th><th scope="col">{t('admin-probe-col-misses')}</th><th scope="col">{t('admin-probe-col-reason')}</th><th scope="col">{t('admin-probe-col-state')}</th></tr></thead>
               <tbody><For each={d().topOffenders}>{(row) => (
                 <tr data-fired={row.blocked ? 'true' : 'false'}>
                   <th scope="row"><code>{row.source}</code></th>
                   <td>{t('admin-probe-score', { score: row.score, grace: row.graceAllowance })}</td>
                   <td>{formatNumber(row.signals)}</td>
+                  <td>{reason(row.lastSignal)}</td>
                   <td>{row.blocked ? t('admin-probe-state-blocked') : t('admin-probe-state-watched', { last: when(row.lastSeen) })}</td>
                 </tr>
               )}</For></tbody>

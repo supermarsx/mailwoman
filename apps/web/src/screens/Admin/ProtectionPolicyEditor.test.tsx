@@ -157,4 +157,28 @@ describe('Adaptive protection editor', () => {
     expect(result).toHaveTextContent(/Slowed down for 3 s, because of: Short-window anomaly count/);
     expect(a.simulate).toHaveBeenCalledWith({ subjectKind: 'client', sample: { requestsInWindow: 1, short: { normal: 0, anomalous: 19 }, long: { normal: 0, anomalous: 0 }, signal: 'malformed', previouslyThrottled: false } });
   });
+  it('simulates a recognized scan path on the first request without making it a selectable weak signal', async () => {
+    const a = api({simulate: vi.fn(async (): Promise<SimResult> => ({action:'block',reason:'probe-path',enforced:true,durationSecs:900,signalCounted:true,off:false,exempt:false,rules:[{rule:'probe-path',enabled:true,value:1,threshold:1,fired:true}]}))});
+    render(() => <ProtectionPolicyEditor api={a} canWrite />);
+    const sim = await screen.findByTestId('protection-simulator');
+    expect(screen.queryByRole('checkbox',{name:'Recognized scan path'})).toBeNull();
+    const signal=within(sim).getByLabelText('What the request is');
+    fireEvent.change(signal,{target:{value:'probe-path'}});
+    expect(signal).toHaveValue('probe-path');
+    fireEvent.click(within(sim).getByRole('button',{name:'Check'}));
+    const result = await screen.findByTestId('protection-sim-result');
+    expect(result).toHaveAttribute('data-action','block');
+    expect(result).toHaveTextContent('Blocked for 15 min, because of: Recognized scan path (first request)');
+    expect(within(result).getByRole('rowheader',{name:'Recognized scan path (first request)'})).toBeInTheDocument();
+    expect(result).not.toHaveTextContent('admin-protection-reason-probe-path');
+    expect(a.simulate).toHaveBeenCalledWith({subjectKind:'client',sample:{requestsInWindow:1,short:{normal:0,anomalous:0},long:{normal:0,anomalous:0},signal:'probe-path',previouslyThrottled:false}});
+    const kind=within(sim).getByLabelText('Who sends it');
+    for(const next of ['account','admin']){
+      fireEvent.change(kind,{target:{value:next}});
+      expect(signal).toHaveValue('normal');
+      expect(within(sim).queryByRole('option',{name:'Recognized scan path'})).toBeNull();
+      fireEvent.change(kind,{target:{value:'client'}});
+      fireEvent.change(signal,{target:{value:'probe-path'}});
+    }
+  });
 });

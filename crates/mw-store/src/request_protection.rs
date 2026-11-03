@@ -62,6 +62,31 @@ mod tests {
             .await
             .unwrap();
         let mut policy = policy();
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 100)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert!(
+            store
+                .request_protection("client", "192.0.2.1", &policy, 100, Some(Signal::ProbePath))
+                .await
+                .unwrap()
+                .subject_key
+                .is_empty()
+        );
+        policy.rate_mode = Mode::Enforce;
+        // A rate-only policy must not read the adaptive source-block table.
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 100)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        policy.rate_mode = Mode::Off;
         assert!(
             store
                 .request_protection("client", "192.0.2.1", &policy, 100, None)
@@ -79,6 +104,336 @@ mod tests {
                 .subject_key
                 .is_empty()
         );
+    }
+
+    async fn subject_row(store: &Store, key: &str) -> (String, String, i64, i64) {
+        let row = q("SELECT state_json,revision,updated_at,expires_at FROM request_protection_subject WHERE subject_key=?1").bind(key).fetch_all(&store.backend).await.unwrap().remove(0);
+        (
+            row.get_string("state_json"),
+            row.get_string("revision"),
+            row.get_i64("updated_at"),
+            row.get_i64("expires_at"),
+        )
+    }
+
+    async fn table_counts(store: &Store) -> (i64, i64, i64) {
+        let subjects = q("SELECT COUNT(*) AS n FROM request_protection_subject")
+            .fetch_all(&store.backend)
+            .await
+            .unwrap()[0]
+            .get_i64("n");
+        let events = q("SELECT COUNT(*) AS n FROM request_protection_event")
+            .fetch_all(&store.backend)
+            .await
+            .unwrap()[0]
+            .get_i64("n");
+        let settings = q("SELECT COUNT(*) AS n FROM settings")
+            .fetch_all(&store.backend)
+            .await
+            .unwrap()[0]
+            .get_i64("n");
+        (subjects, events, settings)
+    }
+
+    #[tokio::test]
+    async fn source_country_round_trips_atomically_in_rows_and_audit_without_clearing_known_data() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        policy.signals = 0;
+        for (kind, country) in [("client", "PT"), ("ua-automation", "GB")] {
+            let outcome = store
+                .request_protection_with_country(
+                    kind,
+                    "192.0.2.1",
+                    &policy,
+                    100,
+                    Some(Signal::ProbePath),
+                    Some(country),
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome.snapshot.country_code.as_deref(), Some(country));
+            let before = subject_row(&store, &outcome.subject_key).await;
+            assert!(!before.0.contains("192.0.2.1"));
+            let decision = store
+                .request_protection_probe_decision(kind, "192.0.2.1", &policy, 101)
+                .await
+                .unwrap();
+            assert_eq!(decision.reason, Some(Reason::ProbePath));
+            assert_eq!(subject_row(&store, &outcome.subject_key).await, before);
+            // Existing callers without metadata keep the last trusted lookup.
+            let normal = store
+                .request_protection(kind, "192.0.2.1", &policy, 102, Some(Signal::Normal))
+                .await
+                .unwrap();
+            assert_eq!(normal.snapshot.country_code.as_deref(), Some(country));
+            let invalid = store
+                .request_protection_with_country(
+                    kind,
+                    "192.0.2.1",
+                    &policy,
+                    103,
+                    Some(Signal::Normal),
+                    Some("pT"),
+                )
+                .await
+                .unwrap();
+            assert_eq!(invalid.snapshot.country_code.as_deref(), Some(country));
+            let rows = store.request_protection_rows(103, None, 100).await.unwrap();
+            assert_eq!(
+                rows.iter()
+                    .find(|row| row.subject_key == outcome.subject_key)
+                    .unwrap()
+                    .snapshot
+                    .country_code
+                    .as_deref(),
+                Some(country)
+            );
+            let events = store
+                .request_protection_events(103, None, 100)
+                .await
+                .unwrap();
+            let event = events
+                .iter()
+                .find(|event| event.subject_key == outcome.subject_key)
+                .unwrap();
+            assert_eq!(event.reason, "probe-path");
+            assert_eq!(event.snapshot.country_code.as_deref(), Some(country));
+        }
+    }
+
+    #[tokio::test]
+    async fn country_is_never_assigned_to_aggregate_account_or_admin_subjects() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        for kind in ["account", "admin"] {
+            let outcome = store
+                .request_protection_with_country(
+                    kind,
+                    "verified-account",
+                    &policy,
+                    100,
+                    Some(Signal::ProbePath),
+                    Some("PT"),
+                )
+                .await
+                .unwrap();
+            assert!(outcome.snapshot.country_code.is_none());
+            assert!(
+                !subject_row(&store, &outcome.subject_key)
+                    .await
+                    .0
+                    .contains("country")
+            );
+        }
+        assert!(
+            store
+                .request_protection_rows(101, None, 100)
+                .await
+                .unwrap()
+                .iter()
+                .all(|row| row.snapshot.country_code.is_none())
+        );
+        assert!(
+            store
+                .request_protection_events(101, None, 100)
+                .await
+                .unwrap()
+                .iter()
+                .all(|event| event.snapshot.country_code.is_none())
+        );
+    }
+
+    #[tokio::test]
+    async fn probe_lookup_never_creates_an_identity_or_inventory_rows() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        let before = table_counts(&store).await;
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 100)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert_eq!(
+            store
+                .request_protection_probe_decision("account", "verified", &policy, 100)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert_eq!(table_counts(&store).await, before);
+    }
+
+    #[tokio::test]
+    async fn probe_source_lookup_preserves_state_rate_count_revision_and_audit() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        policy.rate_mode = Mode::Enforce;
+        policy.signals = 0;
+        policy.block_secs = 37;
+        let admitted = store
+            .request_protection("client", "192.0.2.1", &policy, 100, None)
+            .await
+            .unwrap();
+        let probe = store
+            .request_protection("client", "192.0.2.1", &policy, 100, Some(Signal::ProbePath))
+            .await
+            .unwrap();
+        assert_eq!(
+            probe.decision,
+            Decision {
+                action: Action::Block,
+                reason: Some(Reason::ProbePath),
+                enforced: true,
+                retry_after_secs: 37
+            }
+        );
+        assert_eq!(probe.snapshot.stage, 2);
+        assert_eq!(probe.snapshot.rate_count, admitted.snapshot.rate_count);
+        assert_eq!(probe.snapshot.short.anomalous, 1);
+        let before = subject_row(&store, &probe.subject_key).await;
+        let counts = table_counts(&store).await;
+        for value in ["192.0.2.1", "::ffff:192.0.2.1"] {
+            let decision = store
+                .request_protection_probe_decision("client", value, &policy, 101)
+                .await
+                .unwrap();
+            assert_eq!(decision.reason, Some(Reason::ProbePath));
+            assert_eq!(decision.action, Action::Block);
+            assert!(decision.enforced);
+            assert_eq!(decision.retry_after_secs, 36);
+        }
+        assert_eq!(
+            store
+                .request_protection_probe_decision("account", "192.0.2.1", &policy, 101)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        let mut observe = policy.clone();
+        observe.adaptive_mode = Mode::Observe;
+        assert!(
+            !store
+                .request_protection_probe_decision("client", "192.0.2.1", &observe, 101)
+                .await
+                .unwrap()
+                .enforced
+        );
+        let mut capped = policy.clone();
+        capped.max_stage = 1;
+        let limited = store
+            .request_protection_probe_decision("client", "192.0.2.1", &capped, 101)
+            .await
+            .unwrap();
+        assert_eq!(limited.action, Action::Throttle);
+        assert_eq!(limited.retry_after_secs, capped.throttle_secs);
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 137)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert_eq!(subject_row(&store, &probe.subject_key).await, before);
+        assert_eq!(table_counts(&store).await, counts);
+        let events = store
+            .request_protection_events(101, None, 100)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].reason, "probe-path");
+        assert_eq!(events[0].action, "block");
+        assert!(events[0].enforced);
+        // Expired inventory is ignored, not physically pruned by this read API.
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, before.3)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert_eq!(subject_row(&store, &probe.subject_key).await, before);
+        assert_eq!(table_counts(&store).await, counts);
+    }
+
+    #[tokio::test]
+    async fn first_observed_probe_only_proposes_and_stage_one_caps_use_throttle_duration() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Observe;
+        policy.signals = 0;
+        policy.block_secs = 43;
+        let outcome = store
+            .request_protection("client", "192.0.2.2", &policy, 100, Some(Signal::ProbePath))
+            .await
+            .unwrap();
+        assert_eq!(outcome.decision.action, Action::Block);
+        assert!(!outcome.decision.enforced);
+        assert_eq!(outcome.decision.retry_after_secs, 43);
+        let active = store
+            .request_protection_probe_decision("client", "192.0.2.2", &policy, 101)
+            .await
+            .unwrap();
+        assert_eq!(active.action, Action::Block);
+        assert!(!active.enforced);
+        policy.max_stage = 1;
+        policy.throttle_secs = 7;
+        policy.adaptive_mode = Mode::Enforce;
+        let outcome = store
+            .request_protection("client", "192.0.2.3", &policy, 100, Some(Signal::ProbePath))
+            .await
+            .unwrap();
+        assert_eq!(outcome.decision.action, Action::Throttle);
+        assert_eq!(outcome.snapshot.stage, 1);
+        assert!(outcome.decision.enforced);
+        assert_eq!(outcome.decision.retry_after_secs, 7);
+    }
+
+    #[tokio::test]
+    async fn probe_lookup_ignores_weak_actions_and_refuses_corrupt_state() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        policy.short.absolute_anomalies = 1;
+        let weak = store
+            .request_protection("client", "192.0.2.1", &policy, 100, Some(Signal::Malformed))
+            .await
+            .unwrap();
+        assert_eq!(weak.decision.action, Action::Throttle);
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 101)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        q("UPDATE request_protection_subject SET state_json='{' WHERE subject_key=?1")
+            .bind(&weak.subject_key)
+            .execute(&store.backend)
+            .await
+            .unwrap();
+        assert!(matches!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 101)
+                .await,
+            Err(StoreError::Corrupt(_))
+        ));
+        let before = subject_row(&store, &weak.subject_key).await;
+        policy.adaptive_mode = Mode::Off;
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 101)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert_eq!(subject_row(&store, &weak.subject_key).await, before);
     }
 
     #[tokio::test]
@@ -149,6 +504,7 @@ fn reason(value: Option<Reason>) -> &'static str {
         Some(Reason::ShortRatio) => "short-ratio",
         Some(Reason::LongAbsolute) => "long-absolute",
         Some(Reason::LongRatio) => "long-ratio",
+        Some(Reason::ProbePath) => "probe-path",
         None => "none",
     }
 }
@@ -296,6 +652,38 @@ impl Store {
         .map(|byte| format!("{byte:02x}"))
         .collect())
     }
+    /// Read only an existing high-confidence source action before authentication.
+    /// This performs one indexed lookup, never admission, expiry cleanup, audit,
+    /// state revision, inventory allocation or budget accounting.
+    pub async fn request_protection_probe_decision(
+        &self,
+        kind: &str,
+        value: &str,
+        policy: &Policy,
+        now: i64,
+    ) -> Result<Decision, StoreError> {
+        if !policy.valid() || now < 0 {
+            return Err(corrupt());
+        }
+        if policy.adaptive_mode == Mode::Off {
+            return Ok(Decision::default());
+        }
+        let key = self.request_protection_subject(kind, value)?;
+        let rows = q("SELECT state_json,subject_kind,expires_at FROM request_protection_subject WHERE subject_key=?1")
+            .bind(&key)
+            .fetch_all(&self.backend)
+            .await?;
+        let Some(row) = rows.first() else {
+            return Ok(Decision::default());
+        };
+        if row.get_string("subject_kind") != kind {
+            return Err(corrupt());
+        }
+        if row.get_i64("expires_at") <= now {
+            return Ok(Decision::default());
+        }
+        Ok(load(&row.get_string("state_json"), now)?.probe_decision(policy, now))
+    }
     /// `None` charges admission once; `Some` records one typed completion signal.
     /// Disabled policies and ignored responses perform no durable reads or writes.
     pub async fn request_protection(
@@ -305,6 +693,20 @@ impl Store {
         policy: &Policy,
         now: i64,
         signal: Option<Signal>,
+    ) -> Result<ProtectionOutcome, StoreError> {
+        self.request_protection_with_country(kind, value, policy, now, signal, None)
+            .await
+    }
+    /// Source country is trusted lookup metadata, not an identity. Aggregated
+    /// account/admin subjects ignore it; unavailable lookups preserve prior data.
+    pub async fn request_protection_with_country(
+        &self,
+        kind: &str,
+        value: &str,
+        policy: &Policy,
+        now: i64,
+        signal: Option<Signal>,
+        country: Option<&str>,
     ) -> Result<ProtectionOutcome, StoreError> {
         if !policy.valid() || now < 0 {
             return Err(corrupt());
@@ -368,6 +770,11 @@ impl Store {
             load(&row.get_string("state_json"), now)?
         };
         let previous = state.clone();
+        if (kind == "client" || kind.starts_with("ua-"))
+            && let Some(country) = country
+        {
+            state.set_country_code(country);
+        }
         let decision = match signal {
             None => state.admit(policy, now),
             Some(value) => state.observe(policy, now, value),

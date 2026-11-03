@@ -81,6 +81,355 @@ async fn login(client: &reqwest::Client, base: &str) {
     assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
 }
 #[tokio::test]
+async fn aggregate_source_country_uses_local_geoip_and_is_returned_in_lists_and_history() {
+    use mw_engine::security::geoip_fixture::{Entry, country_mmdb};
+    // The GeoIP provider is process-wide. Isolate its environment before any
+    // child threads start instead of mutating it beside other parallel tests.
+    if std::env::var_os("MW_PROTECTION_COUNTRY_TEST_CHILD").is_none() {
+        let file = common::test_db::unique_file_path("protection-country", "country.mmdb");
+        std::fs::write(
+            &file,
+            country_mmdb(&[Entry::v4("127.0.0.48/32", "PT")], 1_790_000_000),
+        )
+        .unwrap();
+        let output = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "aggregate_source_country_uses_local_geoip_and_is_returned_in_lists_and_history",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env("MW_PROTECTION_COUNTRY_TEST_CHILD", "1")
+            .env("MW_GEOIP_DB", &file)
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let (base, store) = fixture(&[
+        ("security.adminProbe.enabled", json!(false)),
+        ("security.protection.adaptiveMode", json!("enforce")),
+    ])
+    .await;
+    let known = client(48);
+    assert_eq!(
+        known
+            .get(format!("{base}/.git/config"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(
+        client(49)
+            .get(format!("{base}/cmd_sco"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    let known_key = store
+        .request_protection_subject("client", "127.0.0.48")
+        .unwrap();
+    let unknown_key = store
+        .request_protection_subject("client", "127.0.0.49")
+        .unwrap();
+    let operator = client(50);
+    admin_login(&operator, &base, "root", "hunter2").await;
+    let response = operator
+        .get(format!("{base}/admin/bans/protection/subjects"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    let rows = body["subjects"].as_array().unwrap();
+    assert_eq!(
+        rows.iter()
+            .find(|row| row["subjectKey"] == known_key)
+            .unwrap()["snapshot"]["countryCode"],
+        "PT"
+    );
+    assert!(
+        rows.iter()
+            .find(|row| row["subjectKey"] == unknown_key)
+            .unwrap()["snapshot"]["countryCode"]
+            .is_null()
+    );
+    let response = operator
+        .get(format!("{base}/admin/bans/protection/events"))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.status(), 200);
+    let body: Value = response.json().await.unwrap();
+    let events = body["events"].as_array().unwrap();
+    let event = events
+        .iter()
+        .find(|row| row["subjectKey"] == known_key)
+        .unwrap();
+    assert_eq!(event["reason"], "probe-path");
+    assert_eq!(event["snapshot"]["countryCode"], "PT");
+    assert!(
+        !body.to_string().contains("127.0.0.48"),
+        "country enrichment must not reveal stored raw addresses"
+    );
+}
+#[tokio::test]
+async fn scanner_paths_block_the_source_on_the_first_request_and_audit_the_reason() {
+    let (base, store) = fixture(&[
+        ("security.adminProbe.enabled", json!(false)),
+        ("security.protection.adaptiveMode", json!("enforce")),
+        ("security.protection.signals", json!([])),
+        ("security.protection.blockSecs", json!(120)),
+    ])
+    .await;
+    for (index, path) in [
+        "/.env",
+        "/backup/.env.production.local",
+        "/.%65nv",
+        "/assets/.env",
+        "/wp-admin/",
+        "/wordpress/wp-login.php",
+        "/xmlrpc.php",
+        "/wp-config.php.bak",
+        "/administrator/",
+        "/phpMyAdmin/index.php",
+        "/core/install.php",
+        "/sites/default/settings.php",
+        "/.git/config",
+        "/.git/HEAD",
+        "/.gitconfig",
+        "/cmd_sco",
+        "/%63md_sco",
+        "/nested/cmd_sco/execute",
+        "/api/cmd_sco",
+        "/admin/.git/config",
+    ]
+    .iter()
+    .enumerate()
+    {
+        let scanner = client(20 + index as u8);
+        let first = scanner
+            .get(format!("{base}{path}"))
+            .header("x-forwarded-for", "203.0.113.99")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(first.status(), 429, "first request to {path}");
+        assert_eq!(first.headers()["retry-after"], "120");
+        assert_eq!(
+            first.json::<Value>().await.unwrap()["code"],
+            "requestProtectionLimited"
+        );
+        for followup in ["/", "/api/me", "/unrelated-scanner.php"] {
+            assert_eq!(
+                scanner
+                    .get(format!("{base}{followup}"))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                429,
+                "{path} must block its source on {followup}"
+            );
+        }
+    }
+    // Spoofed forwarding headers never select the subject or poison another IP.
+    assert_eq!(
+        client(90)
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let rows = store
+        .request_protection_rows(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    let rows: Vec<_> = rows
+        .iter()
+        .filter(|row| {
+            row.snapshot.last_signal == Some(mw_store::request_protection_model::Signal::ProbePath)
+        })
+        .collect();
+    assert_eq!(rows.len(), 20);
+    assert!(rows.iter().all(|row| row.subject_kind == "client"
+        && row.snapshot.stage == 2
+        && row.snapshot.rate_count == 0
+        && row.snapshot.last_signal
+            == Some(mw_store::request_protection_model::Signal::ProbePath)));
+    let events = store
+        .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 20);
+    assert!(
+        events
+            .iter()
+            .all(|event| event.reason == "probe-path" && event.action == "block" && event.enforced)
+    );
+}
+
+#[tokio::test]
+async fn probe_blocks_remain_source_scoped_with_valid_sessions_and_preserve_recovery() {
+    let (base, store) = fixture(&[
+        ("security.adminProbe.enabled", json!(false)),
+        ("security.protection.adaptiveMode", json!("enforce")),
+        (
+            "security.protection.exemptClients",
+            json!(["127.0.0.44/32"]),
+        ),
+    ])
+    .await;
+    let actor = client(43);
+    login(&actor, &base).await;
+    assert_eq!(
+        actor
+            .get(format!("{base}/cmd_sco"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(
+        actor
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429,
+        "a valid cookie cannot bypass the source's probe block"
+    );
+    assert_eq!(
+        actor
+            .get(format!("{base}/healthz"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    assert_ne!(
+        actor
+            .post(format!("{base}/api/logout"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    let exempt = client(44);
+    assert_ne!(
+        exempt
+            .get(format!("{base}/.git/config"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(
+        exempt
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+    let other_device = client(45);
+    login(&other_device, &base).await;
+    assert_eq!(
+        other_device
+            .get(format!("{base}/api/me"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
+    );
+    let events = store
+        .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].subject_kind, "client");
+}
+
+#[tokio::test]
+async fn explicit_probes_respect_modes_and_do_not_treat_normal_paths_or_query_text_as_scans() {
+    for mode in ["off", "observe", "enforce"] {
+        let (base, store) = fixture(&[
+            ("security.adminProbe.enabled", json!(false)),
+            ("security.protection.adaptiveMode", json!(mode)),
+        ])
+        .await;
+        let ordinary = client(46);
+        for path in [
+            "/admin",
+            "/login",
+            "/user/login",
+            "/.gitignore",
+            "/.environment",
+            "/cmd_sco.js",
+            "/api/files/.env",
+            "/api/files/.git/config",
+            "/?next=/.env",
+        ] {
+            assert_ne!(
+                ordinary
+                    .get(format!("{base}{path}"))
+                    .send()
+                    .await
+                    .unwrap()
+                    .status(),
+                429,
+                "{mode}: {path}"
+            );
+        }
+        assert!(
+            store
+                .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+                .await
+                .unwrap()
+                .is_empty()
+        );
+        let scanner = client(47);
+        let status = scanner
+            .get(format!("{base}/cmd_sco"))
+            .send()
+            .await
+            .unwrap()
+            .status();
+        if mode == "enforce" {
+            assert_eq!(status, 429);
+        } else {
+            assert_ne!(status, 429);
+        }
+        let events = store
+            .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), usize::from(mode != "off"));
+        if let Some(event) = events.first() {
+            assert_eq!(event.reason, "probe-path");
+            assert_eq!(event.enforced, mode == "enforce");
+        }
+    }
+}
+#[tokio::test]
 async fn aggregate_ip_budget_uses_trusted_peer_and_preserves_logout_and_health() {
     let (base, _) = fixture(&[
         ("security.protection.rateMode", json!("enforce")),

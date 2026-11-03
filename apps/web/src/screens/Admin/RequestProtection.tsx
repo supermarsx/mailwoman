@@ -1,7 +1,7 @@
 import { createSignal, onMount, Show, For, useContext, type JSX } from 'solid-js';
 import { protectionApi, type ProtectionApi, type ProtectionSubject, type ProtectionEvent, type ProtectionStatus } from '../../api/admin/requestProtection.ts';
 import { loadCatalog, t } from '../../i18n';
-import { formatDateTime } from '../../i18n/format.ts';
+import { formatDateTime, formatLocale } from '../../i18n/format.ts';
 import { ShellContext } from './shell/context.ts';
 import { sectionPath } from './shell/router.ts';
 import { DataTable, type Column } from './shell/DataTable.tsx';
@@ -23,11 +23,18 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  const [loading,setLoading]=createSignal(true);const [error,setError]=createSignal('');const [success,setSuccess]=createSignal('');const [selected,setSelected]=createSignal<ProtectionSubject>();
  const date=(seconds:number):string=>formatDateTime(new Date(seconds*1000).toISOString());
  const identity=(row:{subjectKind:string;subjectKey:string}):string=>`${t(`admin-protection-kind-${row.subjectKind}`)} · ${row.subjectKey.slice(0,12)}`;
+ const country=(row:{subjectKind:string;snapshot:{countryCode?:string|null}}):string=>{
+  if(row.subjectKind!=='client'&&!row.subjectKind.startsWith('ua-'))return t('admin-protection-country-not-applicable');
+  const code=row.snapshot.countryCode;
+  if(typeof code!=='string'||!(/^[A-Z]{2}$/).test(code))return t('admin-protection-country-unknown');
+  try{return new Intl.DisplayNames(formatLocale(),{type:'region',fallback:'none'}).of(code)??t('admin-protection-country-unknown');}catch{return code;}
+ };
  async function reload():Promise<void>{setLoading(true);setError('');try{const [current,rows,history]=await Promise.all([api().status(),api().subjects(),api().events()]);setStatus(current);setSubjects(rows.subjects);setSubjectCursor(rows.cursor);setEvents(history.events);setEventCursor(history.cursor);}catch(cause){setError(describeAdminError(cause));}finally{setLoading(false);}}
  onMount(()=>void reload());
  async function next(kind:'subjects'|'events'):Promise<void>{setLoading(true);setError('');try{if(kind==='subjects'){const cursor=subjectCursor();if(!cursor)return;const result=await api().subjects(cursor);setSubjects(result.subjects);setSubjectCursor(result.cursor);}else{const cursor=eventCursor();if(!cursor)return;const result=await api().events(cursor);setEvents(result.events);setEventCursor(result.cursor);}}catch(cause){setError(describeAdminError(cause));}finally{setLoading(false);}}
  const subjectColumns=():Column<ProtectionSubject>[]=>[
  {id:'subject',header:t('admin-protection-subject'),cell:identity},
+ {id:'country',header:t('admin-protection-country'),cell:country},
  {id:'short',header:t('admin-protection-short'),cell:row=>`${row.snapshot.short.anomalous} / ${row.snapshot.short.normal}`},
  {id:'long',header:t('admin-protection-long'),cell:row=>`${row.snapshot.long.anomalous} / ${row.snapshot.long.normal}`},
  {id:'until',header:t('admin-protection-action-until'),cell:row=>row.snapshot.activeUntil>Date.now()/1000?date(row.snapshot.activeUntil):t('admin-protection-monitoring')},
@@ -43,6 +50,7 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  const eventColumns=():Column<ProtectionEvent>[]=>[
  {id:'at',header:t('admin-protection-observed-at'),cell:row=>date(row.observedAt)},
  {id:'subject',header:t('admin-protection-subject'),cell:identity},
+ {id:'country',header:t('admin-protection-country'),cell:country},
  {id:'reason',header:t('admin-protection-reason'),cell:row=><span data-testid="protection-decision">{decision(row)}</span>},
  {id:'action',header:t('admin-protection-action'),cell:row=>`${t(`admin-protection-action-${row.action}`)} · ${t(row.enforced?'admin-protection-enforced':'admin-protection-observed')}`},
  {id:'evidence',header:t('admin-protection-evidence'),cell:row=><details><summary>{t('admin-protection-evidence')}</summary><p class={css.note}>{t('admin-protection-evidence-counts',{shortBad:row.snapshot.short.anomalous,shortNormal:row.snapshot.short.normal,longBad:row.snapshot.long.anomalous,longNormal:row.snapshot.long.normal})}</p><Show when={row.policy}>{policy=><p class={css.note}>{t('admin-protection-evidence-thresholds',{shortSecs:policy().short.seconds,shortAbsolute:policy().short.absolute_anomalies,shortRatio:policy().short.ratio_percent,shortMinimum:policy().short.minimum_samples,longSecs:policy().long.seconds,longAbsolute:policy().long.absolute_anomalies,longRatio:policy().long.ratio_percent,longMinimum:policy().long.minimum_samples})}</p>}</Show><p class={css.note}>{row.snapshot.lastSignal??t('admin-protection-no-signal')}</p></details>},

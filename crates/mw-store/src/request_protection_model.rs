@@ -19,6 +19,8 @@ pub enum Signal {
     PermissionDenied,
     BodyDeadline,
     AdminRouteMiss,
+    /// High-confidence scanner evidence, independent of selected weak signals.
+    ProbePath,
     Ignored,
 }
 impl Signal {
@@ -107,6 +109,7 @@ pub enum Reason {
     ShortRatio,
     LongAbsolute,
     LongRatio,
+    ProbePath,
 }
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Decision {
@@ -136,6 +139,9 @@ pub struct Snapshot {
     pub rate_count: u32,
     #[serde(default)]
     pub rate_window_secs: u32,
+    /// Trusted source geolocation only; aggregate account subjects have none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub country_code: Option<String>,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct Bucket {
@@ -201,8 +207,22 @@ pub struct State {
     reason: Option<Reason>,
     #[serde(default)]
     last_signal: Option<Signal>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    country_code: Option<String>,
+}
+fn valid_country_code(country: &str) -> bool {
+    country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_uppercase())
 }
 impl State {
+    /// Accept only trusted ISO-style two-letter codes, preserving known data
+    /// when a lookup is unavailable or malformed. Never accepts an IP address.
+    pub fn set_country_code(&mut self, country: &str) -> bool {
+        if !valid_country_code(country) {
+            return false;
+        }
+        self.country_code = Some(country.to_owned());
+        true
+    }
     pub fn snapshot(&self) -> Snapshot {
         Snapshot {
             short: self.short.counts(),
@@ -215,6 +235,7 @@ impl State {
             last_signal: self.last_signal,
             rate_count: self.rate_count,
             rate_window_secs: self.rate_window,
+            country_code: self.country_code.clone(),
         }
     }
     pub fn valid(&self, now: i64) -> bool {
@@ -226,6 +247,7 @@ impl State {
         self.clock >= 0
             && self.clock <= now.saturating_add(300)
             && self.stage <= 2
+            && self.country_code.as_deref().is_none_or(valid_country_code)
             && window(&self.short)
             && window(&self.long)
     }
@@ -239,6 +261,7 @@ impl State {
         decision.action != Action::Allow
             && (self.until != previous.until
                 || self.stage != previous.stage
+                || self.reason != previous.reason
                 || (decision.reason == Some(Reason::RequestRate)
                     && (previous.rate_start != self.rate_start
                         || previous.rate_count <= policy.rate_limit)))
@@ -312,11 +335,26 @@ impl State {
             _ => rate,
         }
     }
+    /// Inspect an existing probe action without charging or changing any state.
+    /// Policy changes may downgrade the returned action, but never persist it.
+    pub fn probe_decision(&self, policy: &Policy, now: i64) -> Decision {
+        if policy.adaptive_mode == Mode::Off || self.reason != Some(Reason::ProbePath) {
+            return Decision::default();
+        }
+        let mut current = self.clone();
+        let now = current.time(now);
+        current.decay(policy, now);
+        if current.until > now && current.stage > 0 {
+            current.decision(policy.adaptive_mode, now)
+        } else {
+            Decision::default()
+        }
+    }
     pub fn observe(&mut self, policy: &Policy, now: i64, signal: Signal) -> Decision {
         if policy.adaptive_mode == Mode::Off || signal == Signal::Ignored {
             return Decision::default();
         }
-        let anomaly = signal.bit() & policy.signals != 0;
+        let anomaly = signal == Signal::ProbePath || signal.bit() & policy.signals != 0;
         if signal != Signal::Normal && !anomaly {
             return Decision::default();
         }
@@ -331,6 +369,18 @@ impl State {
         }
         self.last_anomaly = Some(now);
         self.last_signal = Some(signal);
+        if signal == Signal::ProbePath {
+            if self.reason != Some(Reason::ProbePath) || self.until <= now || self.stage == 0 {
+                self.stage = policy.max_stage;
+                self.reason = Some(Reason::ProbePath);
+                self.until = now.saturating_add(i64::from(if self.stage > 1 {
+                    policy.block_secs
+                } else {
+                    policy.throttle_secs
+                }));
+            }
+            return self.decision(policy.adaptive_mode, now);
+        }
         if self.until > now && self.stage > 0 {
             return self.decision(policy.adaptive_mode, now);
         }
@@ -473,7 +523,8 @@ fn sim_window(
 pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
     let signal = input.signal.unwrap_or(Signal::Normal);
     let adaptive_on = policy.adaptive_mode != Mode::Off;
-    let anomaly = adaptive_on && signal.bit() & policy.signals != 0;
+    let anomaly =
+        adaptive_on && (signal == Signal::ProbePath || signal.bit() & policy.signals != 0);
     let counted = |c: Counts| Counts {
         normal: c.normal + u64::from(adaptive_on && signal == Signal::Normal),
         anomalous: c.anomalous + u64::from(anomaly),
@@ -486,6 +537,15 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
         threshold: u64::from(policy.rate_limit),
         fired: rate_on && input.requests_in_window > policy.rate_limit,
     }];
+    if signal == Signal::ProbePath {
+        rules.push(SimRule {
+            rule: Reason::ProbePath,
+            enabled: adaptive_on,
+            value: 1,
+            threshold: 1,
+            fired: adaptive_on,
+        });
+    }
     rules.extend(sim_window(
         counted(input.short),
         policy.short,
@@ -503,7 +563,8 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
         Reason::LongRatio,
     ));
     let adaptive = rules[1..].iter().find(|r| r.fired).map(|r| {
-        let block = input.previously_throttled && policy.max_stage > 1;
+        let block =
+            (input.previously_throttled || r.rule == Reason::ProbePath) && policy.max_stage > 1;
         (
             if block {
                 Action::Block
@@ -572,6 +633,189 @@ mod tests {
             max_stage: 2,
         }
     }
+    #[test]
+    fn country_metadata_validates_round_trips_and_keeps_legacy_state_compatible() {
+        let old = serde_json::to_string(&State::default()).unwrap();
+        assert!(!old.contains("country"));
+        let mut state: State = serde_json::from_str(&old).unwrap();
+        let old_snapshot = serde_json::to_value(state.snapshot()).unwrap();
+        assert!(old_snapshot.get("countryCode").is_none());
+        assert!(
+            serde_json::from_value::<Snapshot>(old_snapshot)
+                .unwrap()
+                .country_code
+                .is_none()
+        );
+        for invalid in ["pt", "P", "PRT", "P1", "ＰＴ", "192.0.2.1"] {
+            assert!(!state.set_country_code(invalid));
+            assert!(state.snapshot().country_code.is_none());
+        }
+        assert!(state.set_country_code("PT"));
+        assert!(!state.set_country_code("pt"));
+        assert_eq!(state.snapshot().country_code.as_deref(), Some("PT"));
+        let encoded = serde_json::to_value(&state).unwrap();
+        let restored: State = serde_json::from_value(encoded.clone()).unwrap();
+        assert_eq!(restored, state);
+        assert_eq!(
+            serde_json::to_value(restored.snapshot()).unwrap()["countryCode"],
+            "PT"
+        );
+        let mut corrupt = encoded;
+        corrupt["country_code"] = serde_json::json!("pt");
+        assert!(!serde_json::from_value::<State>(corrupt).unwrap().valid(0));
+    }
+
+    #[test]
+    fn first_probe_blocks_independently_of_weak_signals_without_spending_rate_budget() {
+        let mut policy = policy();
+        policy.signals = 0;
+        policy.block_secs = 37;
+        policy.rate_mode = Mode::Enforce;
+        let mut state = State::default();
+        assert_eq!(state.admit(&policy, 100).action, Action::Allow);
+        let rate_count = state.rate_count;
+        let decision = state.observe(&policy, 100, Signal::ProbePath);
+        assert_eq!(
+            decision,
+            Decision {
+                action: Action::Block,
+                reason: Some(Reason::ProbePath),
+                enforced: true,
+                retry_after_secs: 37
+            }
+        );
+        assert_eq!(state.stage(), 2);
+        assert_eq!(state.snapshot().short.anomalous, 1);
+        assert_eq!(state.snapshot().long.anomalous, 1);
+        assert_eq!(state.snapshot().last_signal, Some(Signal::ProbePath));
+        assert_eq!(state.rate_count, rate_count);
+        assert_eq!(
+            state
+                .observe(&policy, 101, Signal::ProbePath)
+                .retry_after_secs,
+            36
+        );
+        assert_eq!(state.active_until(), 137);
+        assert_eq!(
+            serde_json::to_string(&Signal::ProbePath).unwrap(),
+            "\"probe-path\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Signal>("\"probe-path\"").unwrap(),
+            Signal::ProbePath
+        );
+    }
+
+    #[test]
+    fn probe_respects_observe_off_and_the_configured_stage_cap() {
+        let mut policy = policy();
+        policy.signals = 0;
+        policy.adaptive_mode = Mode::Observe;
+        let mut state = State::default();
+        let decision = state.observe(&policy, 100, Signal::ProbePath);
+        assert_eq!(decision.action, Action::Block);
+        assert_eq!(decision.reason, Some(Reason::ProbePath));
+        assert!(!decision.enforced);
+        let before = state.clone();
+        policy.adaptive_mode = Mode::Off;
+        assert_eq!(
+            state.observe(&policy, 101, Signal::ProbePath),
+            Decision::default()
+        );
+        assert_eq!(state.probe_decision(&policy, 101), Decision::default());
+        assert_eq!(state, before);
+        policy.adaptive_mode = Mode::Enforce;
+        policy.max_stage = 1;
+        policy.throttle_secs = 7;
+        let mut fresh = State::default();
+        let decision = fresh.observe(&policy, 100, Signal::ProbePath);
+        assert_eq!(
+            decision,
+            Decision {
+                action: Action::Throttle,
+                reason: Some(Reason::ProbePath),
+                enforced: true,
+                retry_after_secs: 7
+            }
+        );
+        assert_eq!(fresh.stage(), 1);
+    }
+
+    #[test]
+    fn probe_read_is_nonmutating_expires_and_only_returns_probe_actions() {
+        let mut policy = policy();
+        policy.block_secs = 37;
+        let mut state = State::default();
+        state.observe(&policy, 100, Signal::ProbePath);
+        let original = state.clone();
+        assert_eq!(state.probe_decision(&policy, 136).retry_after_secs, 1);
+        assert_eq!(state.probe_decision(&policy, 137), Decision::default());
+        policy.adaptive_mode = Mode::Observe;
+        assert!(!state.probe_decision(&policy, 101).enforced);
+        policy.max_stage = 1;
+        assert_eq!(state.probe_decision(&policy, 101).action, Action::Throttle);
+        assert_eq!(
+            state.probe_decision(&policy, 101).retry_after_secs,
+            policy.throttle_secs
+        );
+        assert_eq!(state, original);
+        state.reason = Some(Reason::LongAbsolute);
+        assert_eq!(state.probe_decision(&policy, 101), Decision::default());
+    }
+
+    #[test]
+    fn probe_upgrades_active_weak_actions_and_audits_changed_evidence() {
+        let policy = policy();
+        let mut state = State {
+            stage: 1,
+            until: 110,
+            reason: Some(Reason::ShortAbsolute),
+            ..Default::default()
+        };
+        assert_eq!(
+            state.observe(&policy, 100, Signal::ProbePath).action,
+            Action::Block
+        );
+        assert_eq!(state.active_until(), 400);
+        // A block that has the same duration still needs a transition when its
+        // evidence changes from a statistical crossing to a known probe.
+        state.reason = Some(Reason::LongAbsolute);
+        let previous = state.clone();
+        let decision = state.observe(&policy, 100, Signal::ProbePath);
+        assert!(state.transition_from(&previous, decision, &policy));
+        assert_eq!(decision.reason, Some(Reason::ProbePath));
+    }
+
+    #[test]
+    fn probe_simulation_agrees_with_first_observation_in_each_mode_and_stage_cap() {
+        for mode in [Mode::Off, Mode::Observe, Mode::Enforce] {
+            for cap in [1, 2] {
+                let mut policy = policy();
+                policy.signals = 0;
+                policy.adaptive_mode = mode;
+                policy.max_stage = cap;
+                let live = State::default().observe(&policy, 100, Signal::ProbePath);
+                let sim = simulate(
+                    &policy,
+                    &SimInput {
+                        signal: Some(Signal::ProbePath),
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(
+                    (sim.action, sim.reason, sim.enforced, sim.duration_secs),
+                    (
+                        live.action,
+                        live.reason,
+                        live.enforced,
+                        live.retry_after_secs
+                    )
+                );
+                assert_eq!(sim.signal_counted, mode != Mode::Off);
+            }
+        }
+    }
+
     #[test]
     fn throttle_cap_prevents_repeat_escalation_and_downgrades_existing_blocks() {
         let mut policy = policy();

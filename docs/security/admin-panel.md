@@ -179,6 +179,28 @@ log format**, so an operator can wire the existing fail2ban tooling against Mail
 admin surface without a bespoke parser. Sources that search for the console are
 handled by [admin-probe protection](#admin-probe-protection).
 
+## Adaptive protection and explicit scan paths
+
+With `security.protection.adaptiveMode` set to `enforce` and
+`security.protection.adaptiveClients` enabled, a recognized scan path such as
+`/.env`, `/.git/config`, `/wp-admin` or `/cmd_sco` immediately blocks its source
+for `security.protection.blockSecs`, starting with the first matching request.
+This strong `probe-path` evidence does not depend on the selectable weak
+signals, anomaly windows or sample thresholds. `security.protection.exemptClients`
+still applies. In `observe` mode the decision and duration are recorded without
+blocking; in `off` mode this adaptive check does not run.
+
+Ordinary unknown paths and generic 404 responses alone are not evidence. The
+console's protection history explains the first-request decision and block
+duration separately from repeated-request escalation. This adaptive rule is
+independent of the grace-based admin-probe protection below.
+
+Source rows and decision history include a country when the local GeoIP database
+can resolve the trusted client address. Only the country code is recorded, not
+the raw address. Missing lookups and older records show Unknown. Account and
+administrator aggregates span addresses and therefore have no single country.
+This information does not change the admission decision.
+
 ## Admin-probe protection
 
 A hidden console path stops scanners from finding the console. Admin-probe

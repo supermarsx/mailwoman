@@ -32,6 +32,23 @@ function api(overrides: Partial<AdminProbeApi> = {}): AdminProbeApi {
 }
 
 describe('Admin probe protection card', () => {
+  it('shows readable block reasons in top offenders and a safe fallback for a watched source without evidence', async () => {
+    const data=overview();
+    data.topOffenders=[blocked,{...blocked,id:'c'.repeat(32),source:'198.51.100.0/24',lastSignal:'admin-signin-failed'},{...blocked,id:'d'.repeat(32),source:'192.0.2.0/24',lastSignal:null,blocked:false,blockedAt:null,blockedUntil:null,retryAfterSecs:null}];
+    renderInShell(() => <AdminProbeCard api={api({overview:async()=>({data,etag:'"p1"'})})} />);
+    const table=await screen.findByTestId('admin-probe-offenders');
+    expect(within(table).getByRole('columnheader',{name:'Reason'})).toBeInTheDocument();
+    const probe=within(table).getByRole('row',{name:/203\.0\.113\.0\/24/});
+    expect(within(probe).getByRole('cell',{name:'A known scanner path'})).toBeInTheDocument();
+    expect(probe).toHaveAttribute('data-fired','true');
+    const signin=within(table).getByRole('row',{name:/198\.51\.100\.0\/24/});
+    expect(within(signin).getByRole('cell',{name:'A failed admin sign-in'})).toBeInTheDocument();
+    expect(signin).toHaveAttribute('data-fired','true');
+    const watched=within(table).getByRole('row',{name:/192\.0\.2\.0\/24/});
+    expect(within(watched).getByRole('cell',{name:'—'})).toBeInTheDocument();
+    expect(watched).toHaveAttribute('data-fired','false');
+    expect(table).not.toHaveTextContent('admin-probe-signal-');
+  });
   it('explains the policy, warns that a block also stops the mail app, and shows counters, blocks and offenders', async () => {
     renderInShell(() => <AdminProbeCard api={api()} />);
     const card = await screen.findByTestId('admin-probe-card');

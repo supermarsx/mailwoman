@@ -294,6 +294,7 @@ fn reason(value: Reason) -> &'static str {
         Reason::ShortRatio => "short-ratio",
         Reason::LongAbsolute => "long-absolute",
         Reason::LongRatio => "long-ratio",
+        Reason::ProbePath => "probe-path",
     }
 }
 fn action(value: Action) -> &'static str {
