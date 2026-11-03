@@ -412,6 +412,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [eventsCounts, setEventsCounts] = createSignal<{ total: number; unread: number } | null>(null);
   const [eventsUpcoming, setEventsUpcomingSignal] = createSignal(false);
   const [messages, setMessages] = createSignal<Email[]>([]);
+  // Pending writes project into every list response. Once acknowledged, only
+  // already-started generations are fenced; the next new read is authoritative.
+  interface RelocationProjection {token:symbol;mailboxIds:Record<Id,true>;sourceKey:string;throughGeneration:number|null}
+  const relocations=new Map<Id,RelocationProjection>();
   const [listLoading, setListLoading] = createSignal(false);
   const [legacyOpenEmail, setOpenEmail] = createSignal<Email | null>(null);
   const [legacySanitizedHtml, setSanitizedHtml] = createSignal<string | null>(null);
@@ -424,7 +428,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const cacheOwner=()=>{const owner=preferenceAccount();return owner?.id===accountId()?owner:null;};
   const readCache=createMailReadCache<CachedMailRead>({policy:readMailCachePolicy,currentOwner:cacheOwner,
     canPrefetch:()=>!switchingMailbox()&&!isOffline()&&!listLoading()&&!loadingMore()});
-  const stopCacheAuthority=observePreferenceAccount(()=>readCache.syncPolicy());
+  const stopCacheAuthority=observePreferenceAccount(()=>{readCache.syncPolicy();relocations.clear();});
   createEffect(()=>{readMailCachePolicy();readCache.syncPolicy();});
   if(getOwner())onCleanup(()=>{stopCacheAuthority();readCache.dispose();});
   const messageCacheKey=(id:Id)=>JSON.stringify(['message',id]);
@@ -503,6 +507,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [exhausted, setExhausted] = createSignal(true);
   /** The query `loadMore` repeats. `null` before the first list load. */
   const [pageSource, setPageSource] = createSignal<PageSource | null>(null);
+  // A full raw page may render no rows while a move is pending. Still advance
+  // past that server window rather than repeatedly requesting the same rows.
+  let nextServerPosition=0;
 
   // Value-compared for the same reason `virtual.ts`'s `sameWindow` exists: this
   // is read by the virtualizer, and an equal-but-fresh object every tick would
@@ -548,6 +555,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const controller = new AbortController();
     inFlight = controller;
     listGeneration += 1;
+    for(const [id,move] of relocations)if(move.throughGeneration!==null&&move.throughGeneration<listGeneration)relocations.delete(id);
     // The superseded request's `finally` will not run its own cleanup (it is no
     // longer current), so clear the append flag here or a replace that lands
     // during an append leaves it stuck true. `listLoading` needs no equivalent:
@@ -556,6 +564,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return { gen: listGeneration, signal: controller.signal };
   }
   const isCurrent = (req: ListRequest): boolean => req.gen === listGeneration;
+  const sourceKey=(source:PageSource|null):string=>JSON.stringify(source);
+  function projectRows(rows:Email[],source:PageSource,req:ListRequest):Email[] {
+    if(relocations.size===0)return rows;
+    const key=sourceKey(source);
+    const scopes=source.kind==='search'?parseQuery(source.filter.text??'').terms.filter(term=>term.kind==='field'&&term.op==='in'):[];
+    return rows.flatMap(email=>{
+      const move=relocations.get(email.id);
+      if(!move||(move.throughGeneration!==null&&req.gen>move.throughGeneration))return [email];
+      if(source.kind==='mailbox'){
+        if(source.mailboxId===EVENTS_VIEW_ID?move.sourceKey===key:!move.mailboxIds[source.mailboxId])return [];
+      }else{
+        if(move.sourceKey===key||source.filter.inMailbox&&!move.mailboxIds[source.filter.inMailbox]||source.filter.inMailboxOtherThan?.some(id=>move.mailboxIds[id]))return [];
+        if(scopes.some(term=>term.kind==='field'&&(term.negated?Boolean(move.mailboxIds[term.value]):!move.mailboxIds[term.value])))return [];
+      }
+      return [{...email,mailboxIds:move.mailboxIds}];
+    });
+  }
   function endListRequest(req: ListRequest): void {
     if (isCurrent(req)) inFlight = undefined;
   }
@@ -1082,15 +1107,33 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     const current = captureMailAuthority();
     const source = pageSource();
-    const restore = (items: readonly Taken[]) => { if (current() && pageSource() === source) restoreToList(items); };
+    const origin=sourceKey(source);
     if (acct === null || !current()) return;
     let taken = takeFromList(ids);
     if (taken.length === 0) return;
+    const originallyTaken=taken;
+    const restore = (items: readonly Taken[]) => {
+      if(!current()||sourceKey(pageSource())!==origin)return;
+      const allowed=items.filter(item=>!relocations.has(item.email.id)||relocations.get(item.email.id)?.token===token);
+      const present=new Set(messages().map(email=>email.id)),returning=new Set(allowed.map(item=>item.email.id));
+      const absent=originallyTaken.filter(item=>!present.has(item.email.id)&&!returning.has(item.email.id));let removedBefore=0;
+      restoreToList([...allowed].sort((a,b)=>a.index-b.index).map(item=>{
+        while(absent[removedBefore]&&absent[removedBefore]!.index<item.index)removedBefore++;
+        return {...item,index:item.index-removedBefore};
+      }));
+    };
     const total=taken.length;
     const folder=isolate(mailboxes().find(box=>box.id===targetMailboxId)?.name??t('mail-folder-fallback'));
     const progressId=progress?`mail-move:${newIdempotencyKey()}`:undefined;
     let finished=false,refusedCount=0;
     const offline=isOffline()&&!!ctx.enqueueOffline;
+    const token=Symbol();
+    if(!offline)for(const {email} of taken)relocations.set(email.id,{token,mailboxIds:{[targetMailboxId]:true},sourceKey:origin,throughGeneration:null});
+    const clearProjection=(items:readonly Taken[]):Taken[]=>{
+      const owned=items.filter(item=>relocations.get(item.email.id)?.token===token);
+      for(const {email} of owned)relocations.delete(email.id);
+      return owned;
+    };
     const queuedOffline=new Set<Id>();
     const stopObserving=progressId?observePreferenceAccount(()=>{if(!current())toast.dismiss(progressId);}):()=>{};
     const fail=(message:string):void=>{if(progressId){finished=true;toast.error(message,{id:progressId,testId:'mail-move-result'});}else showToast('error',message);};
@@ -1117,7 +1160,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // An open reader follows its own window's move at once (t39 L8): the
       // push that comes back must not read as a change from elsewhere.
       const followReaders = (items: readonly Taken[], back: boolean): void => {
-        for (const { email } of items) for (const view of readerViews) view.patch(email.id, { mailboxIds: back ? email.mailboxIds : { [targetMailboxId]: true } });
+        for (const { email } of items) {
+          if(back&&relocations.has(email.id)&&relocations.get(email.id)?.token!==token)continue;
+          for (const view of readerViews) view.patch(email.id, { mailboxIds: back ? email.mailboxIds : { [targetMailboxId]: true } });
+        }
       };
       followReaders(taken, false);
       const finishCounts = beginCountWrite();
@@ -1125,9 +1171,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       try {
         res = await jmapCall(updateEmails(acct, patches));
       } catch {
-        followReaders(taken, true);
         if (!current()) return;
-        restore(taken);
+        const restored=clearProjection(taken);
+        followReaders(restored, true);
+        restore(restored);
         await finishCounts();
         if (!current()) return;
         fail(t('mail-toast-move-failed'));
@@ -1135,10 +1182,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
       if (!current()) return;
       const refused = refusedUpdates(res, Object.keys(patches));
+      for(const {email} of taken){const move=relocations.get(email.id);if(move?.token===token)move.throughGeneration=listGeneration;}
       if (refused.size > 0) {
         refusedCount=refused.size;
-        followReaders(taken.filter((x) => refused.has(x.email.id)), true);
-        restore(taken.filter((x) => refused.has(x.email.id)));
+        const restored=clearProjection(taken.filter((x) => refused.has(x.email.id)));
+        followReaders(restored, true);
+        restore(restored);
         taken = taken.filter((x) => !refused.has(x.email.id));
         if(!progressId)showToast('error', t('mail-toast-update-refused', { count: refused.size }));
       }
@@ -1191,6 +1240,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           ctx.broadcastChange?.();
         }
       }
+      clearProjection([...back,...reverse]);
       restore([...back, ...reverse]);
     },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{});
     } catch(error) {
@@ -1491,7 +1541,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
     const cached=hit?.kind==='mailbox'?hit.response:undefined;
-    const apply=(res:JmapResponse)=>{const page=responseFor<EmailGetResponse>(res,'g').list;setMessages(page);setLoadedStart(0);setTotal(pageTotal(res));setExhausted(page.length<PAGE_SIZE);};
+    const apply=(res:JmapResponse)=>{const raw=responseFor<EmailGetResponse>(res,'g').list,page=projectRows(raw,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=raw.length;setTotal(page.length===raw.length?pageTotal(res):null);setExhausted(raw.length<PAGE_SIZE);};
     if(cached)apply(cached);
     setListLoading(!cached);
     try {
@@ -1499,11 +1549,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if(src.kind==='mailbox'&&owner){const result=await readCache.load(owner,key,'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal})}),{signal:req.signal,force:readMailCachePolicy().refreshOnOpen});if(result.kind!=='mailbox')throw new Error(t('mail-toast-load-more-failed'));res=result.response;}
       else res=await jmapCall(request,{signal:req.signal});
       if (!isCurrent(req)) return;
-      const page = responseFor<EmailGetResponse>(res, 'g').list;
-      setMessages(page);
-      setLoadedStart(0);
-      setTotal(pageTotal(res));
-      setExhausted(page.length < PAGE_SIZE);
+      apply(res);
     } catch (err) {
       // A superseded request's failure is not the user's problem: the request
       // that replaced it owns the outcome, including the error surface.
@@ -1529,19 +1575,21 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // cannot page costs nothing and rebuilds nothing.
     if (acct === null || src === null) return;
     if (listLoading() || loadingMore() || !hasMore()) return;
-    const position = loadedRange().end;
+    const position = [...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end,nextServerPosition):loadedRange().end;
     const req = beginListRequest();
     setLoadingMore(true);
     try {
       const res = await jmapCall(pageRequest(acct, src, position, PAGE_SIZE, false), { signal: req.signal });
       if (!isCurrent(req)) return;
-      const page = responseFor<EmailGetResponse>(res, 'g').list;
+      const raw = responseFor<EmailGetResponse>(res, 'g').list;
+      const page = projectRows(raw,src,req);
       const before = messages();
       const next = appendPage(before, page);
       setMessages(next);
+      nextServerPosition=position+raw.length;
       // Continuations do not ask for a total; keep the one the query reported.
       const t = pageTotal(res);
-      if (t !== null) setTotal(t);
+      if(page.length!==raw.length)setTotal(null);else if (t !== null) setTotal(t);
       // A page that ADDS NOTHING ends the query, not just a short one.
       //
       // A continuation can come back full-size and yet hold only ids already
@@ -1560,7 +1608,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // while leaving the visible row count unchanged, so a rows-based test ends
       // the query on a folder that is one large thread. That is a worse bug than
       // the loop this guards, and it is the version written first.
-      setExhausted(page.length < PAGE_SIZE || next === before);
+      setExhausted(raw.length < PAGE_SIZE || (next === before&&page.length===raw.length));
     } catch {
       // A failed page leaves the query un-exhausted, so the next scroll retries.
       // It must not throw: this runs from a scroll handler.
@@ -1694,11 +1742,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     try {
       const res = await jmapCall(pageRequest(acct, src, range.start, loaded, true), { signal: req.signal });
       if (!isCurrent(req)) return;
-      const page = responseFor<EmailGetResponse>(res, 'g').list;
+      const raw = responseFor<EmailGetResponse>(res, 'g').list;
+      const page = projectRows(raw,src,req);
       setMessages(page);
+      nextServerPosition=range.start+raw.length;
       setLoadedStart(range.start);
-      setTotal(pageTotal(res));
-      setExhausted(page.length < loaded);
+      setTotal(page.length===raw.length?pageTotal(res):null);
+      setExhausted(raw.length < loaded);
     } catch {
       // Transient/offline refetch — keep the current list.
     } finally {
@@ -1731,10 +1781,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (isOffline() && ctx.searchOffline) {
       const req=beginListRequest();
       const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})});
+      const projected=projectRows(hits,{kind:'search',filter:{text:serverQueryText(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})}},req);
       setPageSource(null);
-      setMessages(hits);
+      setMessages(projected);
       setLoadedStart(0);
-      setTotal(hits.length);
+      setTotal(projected.length);
       setExhausted(true);
       setSearchActive(true);
       setListLoading(false);endListRequest(req);

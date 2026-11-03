@@ -894,6 +894,110 @@ describe('mail slice — a refused send', () => {
 
 describe('mail slice — archive / trash / spam / move', () => {
   beforeEach(()=>toastStore.clear());
+  it.each(['before-pending','before-acknowledgement','during-pending'] as const)('does not resurrect a moved row from a refresh started %s',async timing=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
+      const original=jmap.getMockImplementation()!;
+      let releaseRead!:(value:JmapResponse)=>void,releaseWrite!:(value:JmapResponse)=>void;
+      jmap.mockImplementation((request:JmapRequest)=>{
+        if(request.methodCalls.some(([method,args])=>method==='Email/set'&&args['update']))return new Promise<JmapResponse>(resolve=>{releaseWrite=resolve;});
+        if(request.methodCalls.some(([method])=>method==='Email/query'))return new Promise<JmapResponse>(resolve=>{releaseRead=resolve;});
+        return original(request);
+      });
+      let refreshing:Promise<void>|undefined;
+      if(timing!=='during-pending'){
+        refreshing=mail.refreshCurrentMailbox();await vi.waitFor(()=>expect(releaseRead).toBeTypeOf('function'));
+      }
+      const moving=mail.trashMessage('a');expect(mail.messages().map(item=>item.id)).toEqual(['b']);
+      try{
+        if(timing==='during-pending'){
+          refreshing=mail.refreshCurrentMailbox();await vi.waitFor(()=>expect(releaseRead).toBeTypeOf('function'));
+        }
+        if(timing==='before-acknowledgement'){
+          releaseWrite({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null}},'set']],sessionState:'s'});await moving;
+        }
+        releaseRead({methodResponses:[['Email/query',{accountId:'acct1',ids:['a','b'],total:2},'q'],['Email/get',{accountId:'acct1',state:'old',list:[email('a'),email('b')],notFound:[]},'g']],sessionState:'s'});
+        await refreshing;
+        expect(mail.messages().map(item=>item.id)).toEqual(['b']);
+      }finally{
+        releaseWrite({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null}},'set']],sessionState:'s'});await moving;
+      }
+      // A genuinely new read after the acknowledgement is authoritative. A
+      // later server-side move back must not be hidden by a timer/tombstone.
+      jmap.mockImplementation(original);await mail.refreshCurrentMailbox();
+      expect(mail.messages().map(item=>item.id)).toEqual(['a','b']);
+    });
+  });
+  it('projects pending mailbox metadata and membership across folder and search queries',async()=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
+      const original=jmap.getMockImplementation()!;let release!:(value:JmapResponse)=>void;
+      jmap.mockImplementation((request:JmapRequest)=>request.methodCalls.some(([method,args])=>method==='Email/set'&&args['update'])?new Promise<JmapResponse>(resolve=>{release=resolve;}):original(request));
+      const moving=mail.moveMessage('a','archive');
+      try{
+        await mail.selectMailbox('archive');
+        expect(mail.messages().find(item=>item.id==='a')?.mailboxIds).toEqual({archive:true});
+        await mail.selectMailbox('inbox');expect(mail.messages().map(item=>item.id)).toEqual(['b']);
+        await mail.searchMessages('in:Inbox');expect(mail.messages().map(item=>item.id)).toEqual(['b']);
+        await mail.searchMessages('some other query');
+        expect(mail.messages().find(item=>item.id==='a')?.mailboxIds).toEqual({archive:true});
+      }finally{release({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null}},'set']],sessionState:'s'});await moving;}
+    });
+  });
+  it.each(['refused','transport'] as const)('restores only failed rows after a stale refresh during a %s move',async failure=>{
+    await withInbox([email('a'),email('b'),email('c')],async(mail,{jmap})=>{
+      const original=jmap.getMockImplementation()!;let resolve!:(value:JmapResponse)=>void,reject!:(error:Error)=>void;
+      jmap.mockImplementation((request:JmapRequest)=>request.methodCalls.some(([method,args])=>method==='Email/set'&&args['update'])?new Promise<JmapResponse>((done,fail)=>{resolve=done;reject=fail;}):original(request));
+      const moving=mail.moveMessage(['a','b'],'archive');
+      // Repeat the same folder query with a different PageSource object.
+      await mail.selectMailbox('inbox');expect(mail.messages().map(item=>item.id)).toEqual(['c']);
+      if(failure==='transport')reject(new Error('connection failed'));
+      else resolve({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null},notUpdated:{b:{type:'forbidden'}}},'set']],sessionState:'s'});
+      await moving;
+      expect(mail.messages().map(item=>item.id)).toEqual(failure==='transport'?['a','b','c']:['b','c']);
+      if(failure==='refused'){
+        jmap.mockImplementation(original);await mail.undoNow();
+        expect(mail.messages().map(item=>item.id)).toEqual(['a','b','c']);
+        await mail.refreshCurrentMailbox();expect(mail.messages().map(item=>item.id)).toEqual(['a','b','c']);
+      }
+    });
+  });
+  it.each(['accepted','rejected'] as const)('clears a pending projection on an account authority switch and ignores its later %s result',async outcome=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap,client,setSeed})=>{
+      const original=jmap.getMockImplementation()!;let release!:(value:JmapResponse)=>void,reject!:(error:Error)=>void;
+      jmap.mockImplementation((request:JmapRequest)=>request.methodCalls.some(([method,args])=>method==='Email/set'&&args['update'])?new Promise<JmapResponse>((resolve,fail)=>{release=resolve;reject=fail;}):original(request));
+      const moving=mail.trashMessage('a');
+      setSeed([email('a',{mailboxIds:{archive:true}}),email('b')]);
+      vi.mocked(client.login).mockResolvedValueOnce({username:'other@example.net',accountId:'acct1',storageAuthority:'msa1_other_verified_authority'});
+      await mail.login({username:'other@example.net',password:'p'});
+      expect(mail.messages().map(item=>item.id)).toEqual(['a','b']);
+      const reader=mail.createReaderView();await reader.openMessage('a');
+      expect(reader.openEmail()?.mailboxIds).toEqual({archive:true});
+      if(outcome==='rejected')reject(new Error('old account request failed'));
+      else release({methodResponses:[['Email/set',{accountId:'acct1',updated:{a:null}},'set']],sessionState:'s'});
+      await moving;
+      expect(mail.messages().map(item=>item.id)).toEqual(['a','b']);expect(mail.pendingUndo()).toBeNull();
+      expect(reader.openEmail()?.mailboxIds).toEqual({archive:true});reader.dispose();
+    });
+  });
+  it('advances a fully suppressed pending page and rebases the cursor after acknowledgement',async()=>{
+    const all=Array.from({length:120},(_,index)=>email(`page-${index}`));
+    await withInbox(all.slice(0,50),async(mail,{jmap})=>{
+      const original=jmap.getMockImplementation()!;let release!:(value:JmapResponse)=>void;let committed=false;
+      const positions:number[]=[];
+      jmap.mockImplementation((request:JmapRequest)=>{
+        if(request.methodCalls.some(([method,args])=>method==='Email/set'&&args['update']))return new Promise<JmapResponse>(resolve=>{release=resolve;});
+        const query=request.methodCalls.find(([method])=>method==='Email/query');if(!query)return original(request);
+        const position=Number(query[1]['position']??0),limit=Number(query[1]['limit']??50);positions.push(position);
+        const source=committed?all.slice(50):all,page=source.slice(position,position+limit);
+        return Promise.resolve({methodResponses:[['Email/query',{accountId:'acct1',ids:page.map(item=>item.id),total:source.length},'q'],['Email/get',{accountId:'acct1',state:'s',list:page,notFound:[]},'g']],sessionState:'s'} as JmapResponse);
+      });
+      const moving=mail.trashMessage(all.slice(0,50).map(item=>item.id));
+      await mail.refreshCurrentMailbox();expect(mail.messages()).toHaveLength(0);expect(mail.hasMore()).toBe(true);expect(mail.total()).toBeNull();
+      await mail.loadMore();expect(positions).toEqual([0,50]);expect(mail.messages().map(item=>item.id)).toEqual(all.slice(50,100).map(item=>item.id));
+      committed=true;release({methodResponses:[['Email/set',{accountId:'acct1',updated:Object.fromEntries(all.slice(0,50).map(item=>[item.id,null]))},'set']],sessionState:'s'});await moving;
+      await mail.loadMore();expect(positions).toEqual([0,50,50]);
+      expect(mail.messages().map(item=>item.id)).toEqual(all.slice(50).map(item=>item.id));expect(mail.hasMore()).toBe(false);
+    });
+  });
   it('shows a counted destination spinner during Trash and replaces that same toast with Undo',async()=>{
     await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
       let finish!:(value:JmapResponse)=>void;
