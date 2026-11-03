@@ -23,7 +23,10 @@ it('defaults to native visual editing and preserves authored source and email la
  const original='<style>.brand{padding:12px}</style><table class="brand" width="600" cellpadding="8"><tr><td><font face="Georgia">Start</font></td></tr></table>';
  const {api,change}=mount(original);await api.whenReady!();
  expect(screen.getByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+ expect(screen.getByTestId('html-view-group')).toContainElement(screen.getByRole('tab',{name:'Visual editor'}));
  expect(await sourceField()).toHaveValue(original);
+ expect(screen.getByTestId('html-view-group')).toContainElement(screen.getByRole('tab',{name:'HTML source'}));
+ expect(screen.queryByTestId('rt-group-font')).toBeNull();
  const source='<style>.brand{padding:12px}</style><table class="brand" width="600" onclick="steal()"><tr><td><font face="Georgia"><strong>Safe</strong></font><img src="https://tracker.test/pixel"></td></tr></table><script>steal()</script>';
  fireEvent.input(screen.getByRole('textbox',{name:'HTML source'}),{target:{value:source}});await api.whenReady!();
  const [html,text,authored]=change.mock.calls.at(-1)!;

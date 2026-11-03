@@ -1,4 +1,7 @@
-import {createEffect,createSignal,on,onCleanup,onMount,type JSX} from 'solid-js';
+import {createEffect,createSignal,on,onCleanup,onMount,useContext,type JSX} from 'solid-js';
+import {AppContext} from '../../state/context.ts';
+import type {ComposeBackground} from '../../theme/appearance.ts';
+import {surfaceTone,toggledBackground} from './messageBackground.ts';
 import {t} from '../../i18n/index.ts';
 import {nativeHtmlBody,normalizeHtmlSource} from './htmlSource.ts';
 import {HTML_MESSAGE_FONT} from './htmlMessage.ts';
@@ -23,7 +26,12 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;owned:
  const [ready,setReady]=createSignal(false);
  const [failed,setFailed]=createSignal(false);
  const [error,setError]=createSignal(''),[version,setVersion]=createSignal(0),[historyIndex,setHistoryIndex]=createSignal(0),[historyLength,setHistoryLength]=createSignal(1),[api,setApi]=createSignal<RichTextApi|null>(null);
- const [dark,setDark]=createSignal(false),[markers,setMarkers]=createSignal(false);
+ const app=useContext(AppContext);
+ const [localBackground,setLocalBackground]=createSignal<ComposeBackground>('theme'),[markers,setMarkers]=createSignal(false);
+ const background=():ComposeBackground=>app?app.appearancePrefs().composeBackground:localBackground();
+ const appTone=():'dark'|'light'=>app?.appearance()==='dark'?'dark':'light';
+ const dark=()=>surfaceTone(background(),appTone())==='dark';
+ const toggleBackground=()=>{const next=toggledBackground(background(),appTone());if(app)app.setAppearancePrefs({composeBackground:next});else setLocalBackground(next);};
  let history:string[]=[];
  const commands=createNativeHtmlCommands({root:()=>editor,change:()=>emit(),selection:()=>setVersion(value=>value+1),replaceNode:(from,to)=>{const original=originals.get(from);if(original)originals.set(to,original);}});
  let finishReady!:()=>void;
@@ -51,7 +59,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;owned:
  }
  function installStyles(doc:Document):void {
   const view=doc.defaultView as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-  if(view){const sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;background:${dark()?'#181c22':'white'};color:${dark()?'#eeeeee':'#1c1e21'}}body{padding:12px;font:${HTML_MESSAGE_FONT}}#mw-native-editor{min-height:12rem;outline:0}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=[sheet];}
+  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=[sheet];}
  }
  function loadDocument(value=props.html):void {
   const doc=frame.contentDocument;if(!doc||!editor)return;
@@ -153,7 +161,9 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;owned:
   loadDocument();history=[props.html];setHistoryIndex(0);setHistoryLength(1);if(props.bookmark)restoreBookmark(props.bookmark);setReady(true);finishReady();
  }
  createEffect(on(()=>props.revision,()=>{if(ready()){const prior=bookmark();loadDocument();record(props.html);if(prior)restoreBookmark(prior);}},{defer:true}));
+ createEffect(()=>{background();app?.theme();app?.appearance();markers();if(ready())queueMicrotask(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});});
+ onMount(()=>{const root=frame.ownerDocument.documentElement,observer=new MutationObserver(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});observer.observe(root,{attributes:true});onCleanup(()=>observer.disconnect());});
  onMount(()=>{const editorApi:NativeHtmlVisualApi={async capture(){await admitted;let latest:Promise<void>;do{latest=pending;await latest;}while(latest!==pending);if(disposed)throw new DOMException('Editor closed','AbortError');return changed?serialize():props.html;},focus:()=>{commands.restore();editor?.focus();},refreshImages:()=>previewImages(documentRevision),undo:()=>moveHistory(-1),redo:()=>moveHistory(1),historyDepth:()=>({undo:historyIndex(),redo:historyLength()-historyIndex()-1}),bookmark};setApi({...editorApi,appendHtml:value=>{commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?value:''}} as unknown as ClipboardEvent);},setHtml:value=>{pending=normalizeHtmlSource(value,props.owned(),props.embedded===true).then(safe=>{if(disposed)return;loadDocument(safe.html);emit();});void pending.catch(()=>setFailed(true));}});props.onReady(editorApi);});
  onCleanup(()=>{disposed=true;finishReady();undoListeners();});
- return <><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')setDark(value=>!value);else setMarkers(value=>!value);if(editor)installStyles(editor.ownerDocument);}}/><iframe ref={frame} class={css.frame} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></>;
+ return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
 }

@@ -36,6 +36,23 @@ it('strips editor-only caret markers from captured HTML without dropping typed t
  const span=doc.createElement('span');span.dataset['mwNativeCaret']='true';span.style.fontSize='18pt';span.textContent='\u200bTyped';doc.querySelector('p')!.append(span);fireEvent.input(span);
  const captured=await api.capture();expect(captured).toContain('Typed');expect(captured).toContain('18pt');expect(captured).not.toContain('\u200b');expect(captured).not.toContain('data-mw-native-caret');
 });
+it('refreshes the view-only app surface without rewriting authored backgrounds or outgoing HTML',async()=>{
+ const {api,frame,doc,change}=mount('<table style="background-color:#eeddaa"><tbody><tr><td>Authored surface</td></tr></tbody></table>');
+ const view=frame.contentWindow as Window&{CSSStyleSheet:typeof CSSStyleSheet};
+ const replace=vi.spyOn(view.CSSStyleSheet.prototype,'replaceSync');
+ frame.style.backgroundColor='rgb(20, 30, 40)';frame.style.color='rgb(230, 240, 250)';
+ document.documentElement.setAttribute('data-native-theme-test','dark');
+ await waitFor(()=>expect(replace.mock.calls.at(-1)?.[0]).toContain('background:rgb(20, 30, 40)'));
+ expect(frame).toHaveAttribute('data-surface','theme');expect(change).not.toHaveBeenCalled();
+ doc.querySelector('td')!.append(' edited');fireEvent.input(doc.querySelector('td')!);
+ const captured=await api.capture();
+ expect(captured).toContain('background-color: rgb(238, 221, 170)');
+ expect(captured).not.toContain('20, 30, 40');expect(captured).not.toContain('230, 240, 250');
+ frame.style.backgroundColor='rgb(250, 245, 240)';document.documentElement.setAttribute('data-native-theme-test','light');
+ await waitFor(()=>expect(replace.mock.calls.at(-1)?.[0]).toContain('background:rgb(250, 245, 240)'));
+ expect(await api.capture()).toBe(captured);
+ document.documentElement.removeAttribute('data-native-theme-test');
+});
 it('keeps a paragraph selection and its font state after undo and redo at the preceding table boundary',async()=>{
  const {api,doc}=mount('<table><tbody><tr><td>Native signature</td></tr></tbody></table><p>Editable paragraph</p>');
  const paragraph=doc.querySelector('p')!,range=doc.createRange();range.selectNodeContents(paragraph);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);fireEvent(doc,new Event('selectionchange'));
