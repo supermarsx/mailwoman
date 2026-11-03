@@ -7,8 +7,9 @@
 //!   "openTracking": true | false }
 //! ```
 //!
-//! `openTracking` is false when `MW_PUBLIC_URL` is unset; the compose control for
-//! open tracking is hidden then (see `open_tracking::availability`).
+//! `openTracking` is false when `MW_PUBLIC_URL` is unset or the authenticated
+//! sender's effective feature/locked preference forbids tracking. The composer
+//! hides its per-message control then.
 //!
 //! The reader does not offer a rendering mode less restrictive than
 //! `maxSecurityFloor`; with `capturePolicy: "protect"` the desktop and Android apps
@@ -33,16 +34,28 @@ pub(crate) fn router() -> Router<AppState> {
 }
 
 async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Response {
-    if let Err(resp) = crate::authed(&state, &headers).await {
-        return resp;
-    }
+    let session = match crate::authed(&state, &headers).await {
+        Ok(session) => session,
+        Err(response) => return response,
+    };
+    let open_tracking = match crate::open_tracking::enabled_for(&state, &session).await {
+        Ok(allowed) => allowed,
+        Err(e) => {
+            tracing::error!("GET /api/policy tracking policy: {e}");
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "tracking policy unavailable",
+            )
+                .into_response();
+        }
+    };
     match state.v6.admin.effective_security_policy().await {
         Ok(e) => (
             [(header::CACHE_CONTROL, "no-store")],
             Json(json!({
                 "maxSecurityFloor": e.policy.max_security_floor.map(|f| f.as_str()),
                 "capturePolicy": e.policy.capture_policy.as_str(),
-                "openTracking": crate::open_tracking::enabled(&state).await,
+                "openTracking": open_tracking,
             })),
         )
             .into_response(),

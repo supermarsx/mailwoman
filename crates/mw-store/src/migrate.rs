@@ -877,8 +877,8 @@ const TABLES: &[TableSpec] = &[
         // behind, every sent message's "opened" record would vanish in a store move,
         // and images already delivered would stop counting. The subject and
         // recipients travel sealed, byte for byte, under the same server key.
-        select: "SELECT token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, first_open_at, last_open_at FROM open_tracking",
-        insert: "INSERT INTO open_tracking (token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, first_open_at, last_open_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        select: "SELECT token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, first_open_at, last_open_at, policy_subject_sealed FROM open_tracking",
+        insert: "INSERT INTO open_tracking (token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, first_open_at, last_open_at, policy_subject_sealed) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
         map: |r| {
             vec![
                 t(r, "token_hash"),
@@ -890,6 +890,7 @@ const TABLES: &[TableSpec] = &[
                 i(r, "open_count"),
                 ot(r, "first_open_at"),
                 ot(r, "last_open_at"),
+                ob(r, "policy_subject_sealed"),
             ]
         },
     },

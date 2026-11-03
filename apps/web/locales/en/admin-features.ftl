@@ -207,3 +207,5 @@ admin-features-setting-mode = Value mode for { $setting }
 admin-features-inherit-help = Inherit removes this profile's value and lock. The next applicable profile, domain or server value decides; the effective preview shows the result and its source.
 admin-features-domain-alias = { $alias } (alias of { $domain })
 admin-features-domain-aliases = { $domain } (aliases: { $aliases })
+admin-features-feature-compose-open-tracking = Message open tracking
+admin-features-feature-compose-open-tracking-help = Allow recording opens of eligible formatted messages using the server's tracking image. Requires a configured public URL.

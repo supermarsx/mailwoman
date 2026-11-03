@@ -312,7 +312,12 @@ export function Compose(props: {
   let deliveryEdited=false;let deliveryDisposed=false;
   const setRequestDelivery=(value:boolean):void=>{deliveryEdited=true;setRequestDeliveryValue(value);};
   createEffect(()=>{const entry=settings()['mail.requestDeliveryReceipt'];if(!deliveryEdited&&entry&&deliveryAvailable())setRequestDeliveryValue(entry.value===true);});
-  const [trackOpens, setTrackOpens] = createSignal(false);
+  const [trackOpensValue, setTrackOpensValue] = createSignal(false);
+  let trackingEdited=false,trackingInitialized=false;
+  const trackingAllowed=()=>clientPolicy().openTracking&&featureOn('compose.open_tracking')&&settings()['cap.compose.open_tracking']?.value!==false;
+  const trackOpens=()=>trackingAllowed()&&(settings()['mail.openTracking']?.locked?settings()['mail.openTracking']?.value===true:trackOpensValue());
+  const setTrackOpens=(value:boolean):void=>{if(!trackingAllowed()||settings()['mail.openTracking']?.locked)return;trackingEdited=true;setTrackOpensValue(value);};
+  createEffect(()=>{const entry=settings()['mail.openTracking'];if(entry&&!trackingInitialized){trackingInitialized=true;if(!trackingEdited)setTrackOpensValue(entry.value===true);}});
   // Crypto/DLP state reported up by <ComposeCrypto> (encrypt/sign toggles, the
   // E2EE/TLS/mixed capability, the DLP `canSend` gate, and the WASM-encrypted
   // draft) — plan §2.5.
@@ -635,7 +640,7 @@ export function Compose(props: {
    *  open tracking on and the message is neither encrypted nor signed (the
    *  image would sit outside the encryption or break the signature). */
   const trackingAvailable = createMemo(() => {
-    if (!clientPolicy().openTracking || !richMode() || editorApi() === null) return false;
+    if (!trackingAllowed() || !richMode() || editorApi() === null) return false;
     const cs = cryptoState();
     return !(cs !== null && (cs.encrypt || cs.sign));
   });
@@ -720,7 +725,7 @@ export function Compose(props: {
     setSubject(d.subject);
     setRequestReceipt(d.requestReceipt === true);
     setRequestDelivery(d.requestDeliveryReceipt === true);
-    setTrackOpens(d.openTracking === true);
+    trackingEdited=true;setTrackOpensValue(d.openTracking === true);
     const images = (d.inline ?? []).map((i) => ({ ...i, previewUrl: null }));
     setInlineImages(images);
     setAttachments(d.attachments ?? []);
@@ -1820,6 +1825,7 @@ export function Compose(props: {
                   requestReceipt={requestReceipt()}
                   onRequestReceipt={setRequestReceipt}
                   trackingAvailable={trackingAvailable()}
+                  trackingLocked={settings()['mail.openTracking']?.locked===true}
                   tracking={trackOpens()}
                   onTracking={setTrackOpens}
                 />

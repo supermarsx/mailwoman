@@ -361,6 +361,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.compose.share-links"></a>`cap.compose.share_links` | features | global+domain+admin_user | true | plain |  | yes | POST /api/nextcloud/share-link (feature_gate.rs) |
 | <a id="cap.compose.scheduled-send"></a>`cap.compose.scheduled_send` | features | global+domain+admin_user | true | plain |  | yes | JMAP EmailSubmission/set with sendAt (feature_gate.rs) |
 | <a id="cap.compose.read-receipts"></a>`cap.compose.read_receipts` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs) |
+| <a id="cap.compose.open-tracking"></a>`cap.compose.open_tracking` | features | global+domain+admin_user | true | plain |  | yes | Allow outgoing tracking pixels; enforced on mint, bind and image recording using the sender's current policy |
 | <a id="cap.signatures"></a>`cap.signatures` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/signatures (feature_gate.rs) |
 | <a id="cap.identities"></a>`cap.identities` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/identities (feature_gate.rs) |
 | <a id="cap.keys"></a>`cap.keys` | features | global+domain+admin_user | true | plain |  | yes | JMAP CryptoKey/* (feature_gate.rs); Keys module, compose sign and encrypt |
@@ -500,6 +501,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="login.notice"></a>`login.notice` | appearance | global | null | plain |  | yes | public config sign-in notice |
 | <a id="receipts.dsnallowed"></a>`receipts.dsnAllowed` | mail | global+domain+admin_user | true | plain |  | yes | Allow delivery status notification requests at SMTP submission |
 | <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |
+| <a id="mail.opentracking"></a>`mail.openTracking` | mail | global+domain+user | false | plain |  | yes | Default outgoing open tracking for new messages; a locked false value also forbids token minting and recording |
 | <a id="notifications.pushallowed"></a>`notifications.pushAllowed` | notifications | global+domain | true | plain |  | yes | account-authorized push registration and delivery |
 | <a id="offline.persistentstorageallowed"></a>`offline.persistentStorageAllowed` | offline | global+domain | false | plain |  | yes | explicit browser persistent-storage permission request |
 | <a id="notifications.askpermission"></a>`notifications.askPermission` | notifications | global+domain+user | true | plain |  | yes | offer the browser notification permission request to the user |

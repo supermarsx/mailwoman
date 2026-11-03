@@ -374,12 +374,24 @@ How visible the watermark is, from 0.02 (faint) to 0.5.
 <a id="privacy.openTracking.retentionDays"></a>
 ### Open tracking history (`privacy.openTracking.retentionDays`)
 
-How many days read-tracking records are kept.
+How many days read-tracking records are kept (1–400; default 90). Changes apply to token creation, history reads and image recording without a restart. Expired records and their event rows are deleted; expiry cannot be extended by loading an old pixel.
 
 <a id="privacy.openTracking.unboundTtlHours"></a>
 ### Unsent tracking tokens (`privacy.openTracking.unboundTtlHours`)
 
-How many hours a tracking token waits for its message to be sent before it is deleted.
+How many hours a tracking token waits for its message to be sent before it is deleted (1–168; default 24). This limit applies independently of the overall history retention.
+
+<a id="cap.compose.open_tracking"></a>
+### Permit outgoing open tracking (`cap.compose.open_tracking`)
+
+Controls whether a sender may create or bind tracking pixels and whether existing pixels may record more events. Enabled by default as an available capability; messages do not use it unless the sender opts in. Configure it globally, by domain, by admin user value, or through an assigned feature profile/group. A locked denial wins over narrower choices. The `compose.open_tracking` feature includes this capability and the default below.
+
+<a id="mail.openTracking"></a>
+### Default outgoing open tracking (`mail.openTracking`)
+
+Off by default. Users can opt in under Compose settings, inherit the administrator default, or choose per message. Administrators can supply or lock the default globally, for domains, or for individual users and profiles. A locked false default also prevents token creation and further recording on the server. Plain text, encrypted and signed messages do not receive a tracking pixel.
+
+The sender sees load counts and first/last timestamps, not recipient IPs or user agents. Image blocking and automatic preloading make this an estimate, not proof of reading. `MW_PUBLIC_URL` is still required. Revoking a capability or locking tracking off stops new events while existing permitted history remains readable until retention expires. Tokens created before verified sender-policy metadata was stored retain their history but stop collecting events, because their sender scope cannot safely be inferred.
 
 <a id="maskedEmail.domain"></a>
 ### Masked address domain (`maskedEmail.domain`)

@@ -165,8 +165,8 @@ pub use embeddings::{MAX_EMBEDDING_DIM, MessageEmbedding};
 pub use ews_cred::EwsAccountCred;
 pub use image_grants::RemoteImageGrantRow;
 pub use open_tracking::{
-    MAX_EVENTS_PER_TOKEN, OpenBind, OpenSummary, OpenTokenRow, RETENTION_DAYS, UNBOUND_TTL_HOURS,
-    open_token_hash,
+    MAX_EVENTS_PER_TOKEN, OpenBind, OpenSummary, OpenTokenRow, OpenTrackingPolicySubject,
+    OpenTrackingRetention, RETENTION_DAYS, UNBOUND_TTL_HOURS, open_token_hash,
 };
 pub use plugin_allowlist::{PluginAllowlistError, PluginAllowlistRow, new_allowlist_pin};
 pub use plugin_kv::{PluginKvError, PluginKvLimits};

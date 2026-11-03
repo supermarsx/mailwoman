@@ -23,6 +23,7 @@ export function SendOptions(props: {
    *  nor signed. When false the option is not rendered at all. */
   trackingAvailable: boolean;
   tracking: boolean;
+  trackingLocked?: boolean;
   onTracking: (on: boolean) => void;
 }): JSX.Element {
   const deliveryHint = (): string =>
@@ -66,6 +67,7 @@ export function SendOptions(props: {
             <input
               type="checkbox"
               checked={props.tracking}
+              disabled={props.trackingLocked}
               data-testid="compose-track-opens"
               aria-describedby="compose-tracking-hint"
               onChange={(e) => props.onTracking(e.currentTarget.checked)}

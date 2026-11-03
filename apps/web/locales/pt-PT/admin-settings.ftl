@@ -887,3 +887,7 @@ admin-settings-key-mail-reader-unsafe-html-mode = HTML de mensagem potencialment
 admin-settings-help-mail-reader-unsafe-html-mode = Perguntar oferece um botão de HTML sanitizado por mensagem. Estrito mostra apenas texto seguro; sanitizado mostra automaticamente HTML limpo. Conteúdo ativo e recursos remotos automáticos continuam bloqueados. Bloqueie para impor esta política.
 admin-settings-key-reader-attachments-density = Densidade dos anexos
 admin-settings-help-reader-attachments-density = Botões de ficheiros compactos por predefinição ou pré-visualizações confortáveis. Controla a apresentação quando os anexos de uma mensagem são expandidos.
+admin-settings-key-cap-compose-open-tracking = Permitir o rastreio de aberturas
+admin-settings-help-cap-compose-open-tracking = Define se a conta pode registar aberturas de mensagens. Requer um URL público configurado; as contas desativadas não podem criar nem associar tokens de rastreio.
+admin-settings-key-mail-open-tracking = Rastrear aberturas por predefinição
+admin-settings-help-mail-open-tracking = Opção predefinida de rastreio por mensagem formatada elegível. Os utilizadores podem alterá-la, exceto se estiver bloqueada; a desativação da capacidade de rastreio tem sempre prioridade.

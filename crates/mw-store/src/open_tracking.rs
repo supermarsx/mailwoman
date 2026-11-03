@@ -13,6 +13,7 @@
 //! after that only `open_count` / `last_open_at` move.
 
 use chrono::{DateTime, Duration, SecondsFormat, Utc};
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::backend::q;
@@ -24,6 +25,59 @@ pub const UNBOUND_TTL_HOURS: i64 = 24;
 pub const RETENTION_DAYS: i64 = 90;
 /// Event rows kept per token; later loads only move the totals.
 pub const MAX_EVENTS_PER_TOKEN: i64 = 200;
+
+/// Effective hot administrator retention; validated before any durable write.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OpenTrackingRetention {
+    pub retention_days: i64,
+    pub unbound_ttl_hours: i64,
+}
+
+impl Default for OpenTrackingRetention {
+    fn default() -> Self {
+        Self {
+            retention_days: RETENTION_DAYS,
+            unbound_ttl_hours: UNBOUND_TTL_HOURS,
+        }
+    }
+}
+
+impl OpenTrackingRetention {
+    pub fn valid(self) -> bool {
+        (1..=400).contains(&self.retention_days) && (1..=168).contains(&self.unbound_ttl_hours)
+    }
+    fn cutoffs(self, now: DateTime<Utc>) -> Result<(String, String), StoreError> {
+        if !self.valid() {
+            return Err(StoreError::Corrupt(
+                "invalid open tracking retention".into(),
+            ));
+        }
+        let unbound = now.checked_sub_signed(Duration::hours(self.unbound_ttl_hours));
+        let all = now.checked_sub_signed(Duration::days(self.retention_days));
+        match (unbound, all) {
+            (Some(unbound), Some(all)) => Ok((ts(unbound), ts(all))),
+            _ => Err(StoreError::Corrupt("invalid open tracking time".into())),
+        }
+    }
+}
+
+/// Verified server-derived feature-policy identity, never supplied by a pixel
+/// request or taken from a client's send payload.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct OpenTrackingPolicySubject {
+    pub account_id: String,
+    pub personal_owner: Option<String>,
+    pub domain: String,
+    pub address: String,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SealedPolicySubject {
+    token_hash: String,
+    subject: OpenTrackingPolicySubject,
+}
 
 /// Hex SHA-256 of a wire token: the only form the store keeps.
 pub fn open_token_hash(token: &str) -> String {
@@ -82,17 +136,61 @@ impl Store {
         recipients_json: &str,
         now: DateTime<Utc>,
     ) -> Result<(), StoreError> {
-        self.prune_open_tracking(now).await?;
+        self.create_open_token_with_policy(
+            token_hash,
+            account_id,
+            subject,
+            recipients_json,
+            now,
+            OpenTrackingRetention::default(),
+            None,
+        )
+        .await
+    }
+
+    /// Mint with the current retention and an optional verified policy identity.
+    /// Legacy tokens deliberately have no identity metadata.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_open_token_with_policy(
+        &self,
+        token_hash: &str,
+        account_id: &str,
+        subject: &str,
+        recipients_json: &str,
+        now: DateTime<Utc>,
+        retention: OpenTrackingRetention,
+        policy_subject: Option<&OpenTrackingPolicySubject>,
+    ) -> Result<(), StoreError> {
+        retention.cutoffs(now)?;
+        let policy_sealed = match policy_subject {
+            Some(policy) => {
+                if policy.account_id != account_id || policy.account_id.is_empty() {
+                    return Err(StoreError::Corrupt(
+                        "open tracking policy account mismatch".into(),
+                    ));
+                }
+                let json = serde_json::to_vec(&SealedPolicySubject {
+                    token_hash: token_hash.into(),
+                    subject: policy.clone(),
+                })
+                .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+                Some(self.key.seal(&json)?)
+            }
+            None => None,
+        };
         let subject_sealed = self.key.seal(subject.as_bytes())?;
         let recipients_sealed = self.key.seal(recipients_json.as_bytes())?;
+        self.prune_open_tracking_with_retention(now, retention)
+            .await?;
         q("INSERT INTO open_tracking
-                 (token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count)
-             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 0)")
+                 (token_hash, account_id, email_id, subject_sealed, recipients_sealed, created_at, open_count, policy_subject_sealed)
+             VALUES (?1, ?2, NULL, ?3, ?4, ?5, 0, ?6)")
         .bind(token_hash)
         .bind(account_id)
         .bind(subject_sealed)
         .bind(recipients_sealed)
         .bind(ts(now))
+        .bind(policy_sealed)
         .execute(&self.backend)
         .await?;
         Ok(())
@@ -102,24 +200,66 @@ impl Store {
     /// than [`RETENTION_DAYS`] (relative to `now`), events first. Returns the
     /// number of tokens deleted.
     pub async fn prune_open_tracking(&self, now: DateTime<Utc>) -> Result<u64, StoreError> {
-        let unbound_cutoff = ts(now - Duration::hours(UNBOUND_TTL_HOURS));
-        let all_cutoff = ts(now - Duration::days(RETENTION_DAYS));
+        self.prune_open_tracking_with_retention(now, OpenTrackingRetention::default())
+            .await
+    }
+
+    pub async fn prune_open_tracking_with_retention(
+        &self,
+        now: DateTime<Utc>,
+        retention: OpenTrackingRetention,
+    ) -> Result<u64, StoreError> {
+        let (unbound_cutoff, all_cutoff) = retention.cutoffs(now)?;
         let mut tx = self.backend.begin().await?;
+        // Lock token rows before their events, as record_open does. A concurrent
+        // recorder cannot insert an event between event deletion/token deletion.
+        q("UPDATE open_tracking SET open_count=open_count WHERE (email_id IS NULL AND created_at <= ?1) OR created_at <= ?2")
+            .bind(&unbound_cutoff).bind(&all_cutoff).execute_tx(&mut tx).await?;
         q("DELETE FROM open_events WHERE token_hash IN (
                  SELECT token_hash FROM open_tracking
-                  WHERE (email_id IS NULL AND created_at < ?1) OR created_at < ?2)")
+                  WHERE (email_id IS NULL AND created_at <= ?1) OR created_at <= ?2)")
         .bind(&unbound_cutoff)
         .bind(&all_cutoff)
         .execute_tx(&mut tx)
         .await?;
         let n = q("DELETE FROM open_tracking
-                    WHERE (email_id IS NULL AND created_at < ?1) OR created_at < ?2")
+                    WHERE (email_id IS NULL AND created_at <= ?1) OR created_at <= ?2")
         .bind(&unbound_cutoff)
         .bind(&all_cutoff)
         .execute_tx(&mut tx)
         .await?;
         tx.commit().await?;
         Ok(n)
+    }
+
+    /// Decrypt only this token's bound policy subject. Legacy/missing rows have
+    /// no subject; corrupted or swapped metadata fails closed.
+    pub async fn open_tracking_policy_subject(
+        &self,
+        token_hash: &str,
+    ) -> Result<Option<OpenTrackingPolicySubject>, StoreError> {
+        let Some(row) =
+            q("SELECT account_id,policy_subject_sealed FROM open_tracking WHERE token_hash=?1")
+                .bind(token_hash)
+                .fetch_optional(&self.backend)
+                .await?
+        else {
+            return Ok(None);
+        };
+        let Some(sealed) = row.get_opt_blob("policy_subject_sealed") else {
+            return Ok(None);
+        };
+        let plain = self.key.open(&sealed)?;
+        let stored: SealedPolicySubject = serde_json::from_slice(&plain)
+            .map_err(|error| StoreError::Corrupt(error.to_string()))?;
+        if stored.token_hash != token_hash
+            || stored.subject.account_id != row.get_string("account_id")
+        {
+            return Err(StoreError::Corrupt(
+                "open tracking policy binding mismatch".into(),
+            ));
+        }
+        Ok(Some(stored.subject))
     }
 
     /// Tie a sent message to the caller's own token. Rebinding to the same id is
@@ -162,8 +302,29 @@ impl Store {
         token_hash: &str,
         at: DateTime<Utc>,
     ) -> Result<bool, StoreError> {
+        self.record_open_with_retention(token_hash, at, OpenTrackingRetention::default())
+            .await
+    }
+
+    /// Expired pixels never revive a token. Targeted expiry cleanup and recording
+    /// are atomic; unrelated tokens are left for configured global pruning.
+    pub async fn record_open_with_retention(
+        &self,
+        token_hash: &str,
+        at: DateTime<Utc>,
+        retention: OpenTrackingRetention,
+    ) -> Result<bool, StoreError> {
+        let (unbound_cutoff, all_cutoff) = retention.cutoffs(at)?;
         let at = ts(at);
         let mut tx = self.backend.begin().await?;
+        q("UPDATE open_tracking SET open_count=open_count WHERE token_hash=?1")
+            .bind(token_hash)
+            .execute_tx(&mut tx)
+            .await?;
+        q("DELETE FROM open_events WHERE token_hash=?1 AND EXISTS(SELECT 1 FROM open_tracking WHERE token_hash=?1 AND ((email_id IS NULL AND created_at<=?2) OR created_at<=?3))")
+            .bind(token_hash).bind(&unbound_cutoff).bind(&all_cutoff).execute_tx(&mut tx).await?;
+        q("DELETE FROM open_tracking WHERE token_hash=?1 AND ((email_id IS NULL AND created_at<=?2) OR created_at<=?3)")
+            .bind(token_hash).bind(&unbound_cutoff).bind(&all_cutoff).execute_tx(&mut tx).await?;
         let n = q("UPDATE open_tracking
                       SET open_count = open_count + 1,
                           first_open_at = COALESCE(first_open_at, ?2),
@@ -269,6 +430,285 @@ mod tests {
 
     async fn store() -> Store {
         Store::open_in_memory(ServerKey::generate()).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn configured_retention_extends_mint_pruning_and_shortened_expiry_removes_events() {
+        let s = store().await;
+        let now = Utc::now();
+        let longer = OpenTrackingRetention {
+            retention_days: 200,
+            unbound_ttl_hours: 48,
+        };
+        let old = open_token_hash("custom-bound");
+        s.create_open_token_with_policy(
+            &old,
+            "a",
+            "s",
+            "[]",
+            now - Duration::days(110),
+            longer,
+            None,
+        )
+        .await
+        .unwrap();
+        s.bind_open_token("a", &old, "E1").await.unwrap();
+        assert!(
+            s.record_open_with_retention(&old, now, longer)
+                .await
+                .unwrap()
+        );
+        let unbound = open_token_hash("custom-unbound");
+        s.create_open_token_with_policy(
+            &unbound,
+            "a",
+            "s",
+            "[]",
+            now - Duration::hours(36),
+            longer,
+            None,
+        )
+        .await
+        .unwrap();
+        s.create_open_token_with_policy(
+            &open_token_hash("fresh"),
+            "a",
+            "s",
+            "[]",
+            now,
+            longer,
+            None,
+        )
+        .await
+        .unwrap();
+        assert!(s.get_open_token("a", &old).await.unwrap().is_some());
+        assert!(s.get_open_token("a", &unbound).await.unwrap().is_some());
+        let shorter = OpenTrackingRetention {
+            retention_days: 100,
+            unbound_ttl_hours: 48,
+        };
+        assert!(
+            !s.record_open_with_retention(&old, now, shorter)
+                .await
+                .unwrap()
+        );
+        assert!(s.get_open_token("a", &old).await.unwrap().is_none());
+        assert!(s.open_event_times(&old).await.unwrap().is_empty());
+        assert_eq!(s.open_summary("a", "E1").await.unwrap(), None);
+        assert!(
+            s.get_open_token("a", &unbound).await.unwrap().is_some(),
+            "pixel expiry must not silently run a global default-policy prune"
+        );
+        assert_eq!(
+            s.prune_open_tracking_with_retention(
+                now,
+                OpenTrackingRetention {
+                    retention_days: 100,
+                    unbound_ttl_hours: 24
+                }
+            )
+            .await
+            .unwrap(),
+            1
+        );
+        assert!(s.get_open_token("a", &unbound).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn unbound_and_bound_tokens_expire_at_the_configured_boundary_without_a_new_mint() {
+        let s = store().await;
+        let now = Utc::now();
+        let retention = OpenTrackingRetention {
+            retention_days: 1,
+            unbound_ttl_hours: 2,
+        };
+        let unbound = open_token_hash("boundary-unbound");
+        s.create_open_token_with_policy(&unbound, "a", "s", "[]", now, retention, None)
+            .await
+            .unwrap();
+        assert!(
+            s.record_open_with_retention(
+                &unbound,
+                now + Duration::hours(2) - Duration::milliseconds(1),
+                retention
+            )
+            .await
+            .unwrap()
+        );
+        assert!(
+            !s.record_open_with_retention(&unbound, now + Duration::hours(2), retention)
+                .await
+                .unwrap()
+        );
+        assert!(s.open_event_times(&unbound).await.unwrap().is_empty());
+        let bound = open_token_hash("boundary-bound");
+        s.create_open_token_with_policy(&bound, "a", "s", "[]", now, retention, None)
+            .await
+            .unwrap();
+        s.bind_open_token("a", &bound, "E2").await.unwrap();
+        assert!(
+            s.record_open_with_retention(&bound, now + Duration::hours(3), retention)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.record_open_with_retention(&bound, now + Duration::days(1), retention)
+                .await
+                .unwrap()
+        );
+        assert!(s.get_open_token("a", &bound).await.unwrap().is_none());
+        assert!(s.open_event_times(&bound).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn verified_policy_subject_is_sealed_per_token_and_legacy_metadata_stays_absent() {
+        let s = store().await;
+        let now = Utc::now();
+        let first = open_token_hash("subject-first");
+        let second = open_token_hash("subject-second");
+        let legacy = open_token_hash("subject-legacy");
+        let subject = OpenTrackingPolicySubject {
+            account_id: "a".into(),
+            personal_owner: Some("verified-personal-owner".into()),
+            domain: "example.org".into(),
+            address: "User+tag@example.org".into(),
+        };
+        s.create_open_token_with_policy(
+            &first,
+            "a",
+            "s",
+            "[]",
+            now,
+            OpenTrackingRetention::default(),
+            Some(&subject),
+        )
+        .await
+        .unwrap();
+        let other = OpenTrackingPolicySubject {
+            address: "Other@example.org".into(),
+            personal_owner: None,
+            ..subject.clone()
+        };
+        s.create_open_token_with_policy(
+            &second,
+            "a",
+            "s",
+            "[]",
+            now,
+            OpenTrackingRetention::default(),
+            Some(&other),
+        )
+        .await
+        .unwrap();
+        s.create_open_token(&legacy, "a", "s", "[]", now)
+            .await
+            .unwrap();
+        assert_eq!(
+            s.open_tracking_policy_subject(&first).await.unwrap(),
+            Some(subject.clone())
+        );
+        assert_eq!(
+            s.open_tracking_policy_subject(&second).await.unwrap(),
+            Some(other)
+        );
+        assert_eq!(s.open_tracking_policy_subject(&legacy).await.unwrap(), None);
+        assert_eq!(
+            s.open_tracking_policy_subject("unknown").await.unwrap(),
+            None
+        );
+        let row = q("SELECT policy_subject_sealed FROM open_tracking WHERE token_hash=?1")
+            .bind(&first)
+            .fetch_one(&s.backend)
+            .await
+            .unwrap();
+        let sealed = row.get_blob("policy_subject_sealed");
+        assert!(
+            !sealed
+                .windows(subject.address.len())
+                .any(|part| part == subject.address.as_bytes())
+        );
+        q("UPDATE open_tracking SET policy_subject_sealed=?1 WHERE token_hash=?2")
+            .bind(sealed)
+            .bind(&second)
+            .execute(&s.backend)
+            .await
+            .unwrap();
+        assert!(
+            s.open_tracking_policy_subject(&second).await.is_err(),
+            "a valid sealed identity copied to another token must fail closed"
+        );
+        assert_eq!(
+            s.open_tracking_policy_subject(&first).await.unwrap(),
+            Some(subject)
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_policy_or_mismatched_subject_changes_nothing_including_expired_rows() {
+        let s = store().await;
+        let now = Utc::now();
+        let old = open_token_hash("untouched-old");
+        s.create_open_token(&old, "a", "s", "[]", now - Duration::days(2))
+            .await
+            .unwrap();
+        for invalid in [
+            OpenTrackingRetention {
+                retention_days: 0,
+                unbound_ttl_hours: 1,
+            },
+            OpenTrackingRetention {
+                retention_days: 401,
+                unbound_ttl_hours: 1,
+            },
+            OpenTrackingRetention {
+                retention_days: 1,
+                unbound_ttl_hours: 0,
+            },
+            OpenTrackingRetention {
+                retention_days: 1,
+                unbound_ttl_hours: 169,
+            },
+        ] {
+            assert!(
+                s.create_open_token_with_policy("invalid", "a", "s", "[]", now, invalid, None)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                s.prune_open_tracking_with_retention(now, invalid)
+                    .await
+                    .is_err()
+            );
+            assert!(
+                s.record_open_with_retention(&old, now, invalid)
+                    .await
+                    .is_err()
+            );
+            assert!(s.get_open_token("a", &old).await.unwrap().is_some());
+            assert!(s.open_event_times(&old).await.unwrap().is_empty());
+            assert!(s.get_open_token("a", "invalid").await.unwrap().is_none());
+        }
+        let mismatch = OpenTrackingPolicySubject {
+            account_id: "other".into(),
+            personal_owner: None,
+            domain: "example.org".into(),
+            address: "x@example.org".into(),
+        };
+        assert!(
+            s.create_open_token_with_policy(
+                "mismatch",
+                "a",
+                "s",
+                "[]",
+                now,
+                OpenTrackingRetention::default(),
+                Some(&mismatch)
+            )
+            .await
+            .is_err()
+        );
+        assert!(s.get_open_token("a", &old).await.unwrap().is_some());
+        assert!(s.get_open_token("a", "mismatch").await.unwrap().is_none());
     }
 
     #[tokio::test]

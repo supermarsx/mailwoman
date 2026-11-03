@@ -887,3 +887,7 @@ admin-settings-key-mail-reader-unsafe-html-mode = Potentially unsafe message HTM
 admin-settings-help-mail-reader-unsafe-html-mode = Ask offers a per-message sanitized HTML button by default. Strict shows only safe text; sanitized shows cleaned HTML automatically. Active content and automatic remote resources remain blocked. Lock to enforce this policy.
 admin-settings-key-reader-attachments-density = Attachment density
 admin-settings-help-reader-attachments-density = Compact file buttons by default, or comfortable previews. This controls presentation when a message's attachments are expanded.
+admin-settings-key-cap-compose-open-tracking = Allow message open tracking
+admin-settings-help-cap-compose-open-tracking = Whether this account may record message opens. Requires a configured public URL; disabled accounts cannot create or bind tracking tokens.
+admin-settings-key-mail-open-tracking = Track opens by default
+admin-settings-help-mail-open-tracking = Default per-message tracking choice for eligible formatted messages. Users can override it unless locked; disabling the tracking capability always takes precedence.

@@ -28,10 +28,11 @@
 //!   but not recorded until the bucket refills.
 //!
 //! ## The on/off switch
-//! [`availability`] is the only place that decides whether open tracking is offered.
-//! Today it requires `MW_PUBLIC_URL`: the image URL must be absolute and must not be
-//! derived from a request's `Host`, which is what made the removed feature fail. The
-//! mint route, the image route and `/api/policy`'s `openTracking` all go through it.
+//! [`availability`] requires `MW_PUBLIC_URL`, never a request's `Host`. The live
+//! sender policy additionally requires `cap.compose.open_tracking` and refuses a
+//! locked false `mail.openTracking` preference. Minting captures a verified policy
+//! subject; redemption rechecks that subject's current domain, profile and user
+//! policy. Revoked permissions stop recording without disclosing token validity.
 
 use std::sync::{Mutex, OnceLock};
 
@@ -46,7 +47,9 @@ use rand::RngCore;
 use serde::Deserialize;
 use serde_json::json;
 
+use mw_store::settings_policy::SettingSubject;
 use mw_store::{OpenBind, open_token_hash};
+use mw_store::{OpenTrackingPolicySubject, OpenTrackingRetention, StoreError};
 
 use crate::scope_mw::rate_limit::KeyedRateLimiter;
 use crate::{AppState, ExternalBase};
@@ -108,8 +111,70 @@ pub(crate) async fn availability(state: &AppState) -> Result<String, Unavailable
 }
 
 /// What `/api/policy` reports as `openTracking`.
-pub(crate) async fn enabled(state: &AppState) -> bool {
+async fn enabled(state: &AppState) -> bool {
     availability(state).await.is_ok()
+}
+
+/// Per-sender policy, also used for anonymous image loads of an existing token.
+/// A personal subject is captured from verified authentication at mint time,
+/// never recovered from an upstream account id or recipient-controlled header.
+async fn sender_allowed(
+    state: &AppState,
+    subject: &SettingSubject<'_>,
+) -> Result<bool, StoreError> {
+    let values = crate::settings_registry::effective_all(&state.store, subject, |def| {
+        matches!(def.key, "cap.compose.open_tracking" | "mail.openTracking")
+    })
+    .await?;
+    let capability = values
+        .iter()
+        .find(|value| value.key == "cap.compose.open_tracking");
+    let preference = values.iter().find(|value| value.key == "mail.openTracking");
+    Ok(
+        capability.is_some_and(|value| value.value.as_bool() == Some(true))
+            && preference
+                .is_some_and(|value| !value.locked() || value.value.as_bool() == Some(true)),
+    )
+}
+
+pub(crate) async fn enabled_for(
+    state: &AppState,
+    session: &mw_store::Session,
+) -> Result<bool, StoreError> {
+    if !enabled(state).await {
+        return Ok(false);
+    }
+    let identity = crate::settings_routes::UserSubject::resolved(&state.store, session).await?;
+    sender_allowed(state, &identity.as_subject()).await
+}
+
+async fn retention(state: &AppState) -> Result<OpenTrackingRetention, StoreError> {
+    let subject = SettingSubject {
+        personal_owner: None,
+        account_id: "",
+        domain: "",
+        address: "",
+    };
+    let values = crate::settings_registry::effective_all(&state.store, &subject, |def| {
+        matches!(
+            def.key,
+            "privacy.openTracking.retentionDays" | "privacy.openTracking.unboundTtlHours"
+        )
+    })
+    .await?;
+    let number = |key: &str| {
+        values
+            .iter()
+            .find(|value| value.key == key)
+            .and_then(|value| value.value.as_i64())
+    };
+    let defaults = OpenTrackingRetention::default();
+    Ok(OpenTrackingRetention {
+        retention_days: number("privacy.openTracking.retentionDays")
+            .unwrap_or(defaults.retention_days),
+        unbound_ttl_hours: number("privacy.openTracking.unboundTtlHours")
+            .unwrap_or(defaults.unbound_ttl_hours),
+    })
 }
 
 impl ExternalBase {
@@ -166,6 +231,27 @@ async fn mint(
         Ok(b) => b,
         Err(why) => return error(StatusCode::CONFLICT, why.code()),
     };
+    let identity = match crate::settings_routes::UserSubject::resolved(&state.store, &session).await
+    {
+        Ok(subject) => subject,
+        Err(e) => return store_failed("POST /api/track/open policy identity", e),
+    };
+    let subject = identity.as_subject();
+    match sender_allowed(&state, &subject).await {
+        Ok(true) => {}
+        Ok(false) => return error(StatusCode::FORBIDDEN, "openTrackingDisabled"),
+        Err(e) => return store_failed("POST /api/track/open policy", e),
+    }
+    let retention = match retention(&state).await {
+        Ok(retention) => retention,
+        Err(e) => return store_failed("POST /api/track/open retention", e),
+    };
+    let policy_subject = OpenTrackingPolicySubject {
+        account_id: subject.account_id.to_owned(),
+        personal_owner: subject.personal_owner.map(str::to_owned),
+        domain: subject.domain.to_owned(),
+        address: subject.address.to_owned(),
+    };
     if req.subject.chars().count() > MAX_SUBJECT_CHARS || req.to.len() > MAX_RECIPIENTS {
         return error(StatusCode::BAD_REQUEST, "tooLarge");
     }
@@ -173,12 +259,14 @@ async fn mint(
     let token = new_token();
     if let Err(e) = state
         .store
-        .create_open_token(
+        .create_open_token_with_policy(
             &open_token_hash(&token),
             &session.account_id,
             &req.subject,
             &recipients,
             chrono::Utc::now(),
+            retention,
+            Some(&policy_subject),
         )
         .await
     {
@@ -215,6 +303,14 @@ async fn bind(
     if !token_shaped(&token) {
         return error(StatusCode::NOT_FOUND, "notFound");
     }
+    match enabled_for(&state, &session).await {
+        Ok(true) => {}
+        Ok(false) => return error(StatusCode::FORBIDDEN, "openTrackingDisabled"),
+        Err(e) => return store_failed("PUT /api/track/open policy", e),
+    }
+    if let Err(e) = prune(&state).await {
+        return store_failed("PUT /api/track/open retention", e);
+    }
     match state
         .store
         .bind_open_token(&session.account_id, &open_token_hash(&token), &req.email_id)
@@ -247,6 +343,9 @@ async fn summary(
     if q.email_id.is_empty() {
         return error(StatusCode::BAD_REQUEST, "emailIdRequired");
     }
+    if let Err(e) = prune(&state).await {
+        return store_failed("GET /api/track/open retention", e);
+    }
     match state
         .store
         .open_summary(&session.account_id, &q.email_id)
@@ -267,6 +366,36 @@ fn per_token() -> &'static Mutex<KeyedRateLimiter> {
     RL.get_or_init(|| Mutex::new(KeyedRateLimiter::new(BURST, REFILL_PER_SEC, KEY_CAPACITY)))
 }
 
+async fn prune(state: &AppState) -> Result<(), StoreError> {
+    let retention = retention(state).await?;
+    state
+        .store
+        .prune_open_tracking_with_retention(chrono::Utc::now(), retention)
+        .await?;
+    Ok(())
+}
+
+async fn record_image(state: &AppState, hash: &str) -> Result<(), StoreError> {
+    // Old tokens without a verified owner retain their history, but cannot
+    // collect more events: guessing a sender would bypass scoped restrictions.
+    let Some(owner) = state.store.open_tracking_policy_subject(hash).await? else {
+        return Ok(());
+    };
+    let subject = SettingSubject {
+        personal_owner: owner.personal_owner.as_deref(),
+        account_id: &owner.account_id,
+        domain: &owner.domain,
+        address: &owner.address,
+    };
+    if sender_allowed(state, &subject).await? {
+        state
+            .store
+            .record_open_with_retention(hash, chrono::Utc::now(), retention(state).await?)
+            .await?;
+    }
+    Ok(())
+}
+
 /// `GET /t/{token}.gif`. Takes no peer address and no headers: there is nothing
 /// about the reader here to record.
 async fn pixel(State(state): State<AppState>, Path(file): Path<String>) -> Response {
@@ -279,7 +408,7 @@ async fn pixel(State(state): State<AppState>, Path(file): Path<String>) -> Respo
             .lock()
             .map(|mut rl| rl.check(&hash))
             .unwrap_or(false);
-        if allowed && let Err(e) = state.store.record_open(&hash, chrono::Utc::now()).await {
+        if allowed && let Err(e) = record_image(&state, &hash).await {
             tracing::warn!("open tracking: could not record a load: {e}");
         }
     }

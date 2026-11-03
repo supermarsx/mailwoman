@@ -1075,6 +1075,47 @@ describe('Compose', () => {
       await waitFor(() => expect(screen.queryByTestId('compose-track-opens')).toBeNull());
     });
 
+    it('initializes tracking once when its setting arrives, then keeps the per-message choice',async()=>{
+      vi.stubGlobal('fetch',serverFetch({engine:false,openTracking:true}));
+      await composeWithClient();const toggle=await screen.findByTestId('compose-track-opens');expect(toggle).not.toBeChecked();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:true,source:'user',locked:false}}})});
+      expect(toggle).toBeChecked();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:false,source:'user',locked:false}}})});
+      expect(toggle).toBeChecked();fireEvent.click(toggle);expect(toggle).not.toBeChecked();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:true,source:'user',locked:false}}})});expect(toggle).not.toBeChecked();
+    });
+
+    it('does not overwrite a manual tracking choice when defaults load late',async()=>{
+      vi.stubGlobal('fetch',serverFetch({engine:false,openTracking:true}));await composeWithClient();
+      const toggle=await screen.findByTestId('compose-track-opens');fireEvent.click(toggle);expect(toggle).toBeChecked();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:false,source:'global',locked:false}}})});expect(toggle).toBeChecked();
+    });
+
+    it.each([
+      {value:false,stored:true,locked:false,expected:true},
+      {value:true,stored:false,locked:false,expected:false},
+      {value:false,stored:true,locked:true,expected:false},
+      {value:true,stored:false,locked:true,expected:true},
+    ])('restores tracking $stored with default $value and lock $locked',async({value,stored,locked,expected})=>{
+      const fetchSpy=serverFetch({engine:false,openTracking:true});vi.stubGlobal('fetch',fetchSpy);
+      saveDraft({id:'tracking-draft',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',bodyFormat:'html',editorMode:'rich',to:'you@example.org',subject:'Saved tracking',bodyText:'Saved body',bodyHtml:'<p>Saved body</p>',openTracking:stored,savedAt:1});
+      const {app}=await composeWithClient();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value,source:'global',locked}}})});
+      fireEvent.click(screen.getByTestId('open-drafts'));fireEvent.click(await screen.findByTestId('draft-resume-tracking-draft'));
+      const toggle=await screen.findByTestId('compose-track-opens');expect((toggle as HTMLInputElement).checked).toBe(expected);expect((toggle as HTMLInputElement).disabled).toBe(locked);
+      if(locked){fireEvent.change(toggle,{target:{checked:!value}});fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));expect(fetchSpy.mock.calls.filter(call=>String(call[0]).endsWith('/api/track/open')&&call[1]?.method==='POST')).toHaveLength(value?1:0);}
+    });
+
+    it.each(['capability','feature','policy','plain'] as const)('never requests a token when tracking is denied by %s',async denied=>{
+      const fetchSpy=serverFetch({engine:false,openTracking:denied!=='policy'});vi.stubGlobal('fetch',fetchSpy);
+      const {app}=await composeWithClient();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:true,source:'global',locked:true},...(denied==='capability'?{'cap.compose.open_tracking':{value:false,source:'global',locked:true}}:{})}})});
+      if(denied==='feature')await loadFeatures({refresh:true,fetcher:async()=>json({features:{'compose.open_tracking':{enabled:false}}})});
+      if(denied==='plain')await chooseComposeFormat('plain');
+      expect(screen.queryByTestId('compose-track-opens')).toBeNull();fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      expect(fetchSpy.mock.calls.some(call=>String(call[0]).endsWith('/api/track/open')&&call[1]?.method==='POST')).toBe(false);clearFeatures();
+    });
+
     it('a tracked send carries the image from the minted URL after the body', async () => {
       const fetchSpy = serverFetch({ engine: false, openTracking: true });
       vi.stubGlobal('fetch', fetchSpy);

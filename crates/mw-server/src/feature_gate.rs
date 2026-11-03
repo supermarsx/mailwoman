@@ -70,6 +70,7 @@ const PUT: &[Method] = &[Method::PUT];
 
 /// The REST entry points of the gated features (see the module docs).
 static REST: &[RestGate] = &[
+    gate("/api/track/open", Methods::Writes, "compose.open_tracking"),
     gate(
         "/api/nextcloud/share-link",
         Methods::All,
@@ -120,6 +121,7 @@ static REST: &[RestGate] = &[
 /// the feature is off (resetting with `DELETE` stays possible).
 fn setting_feature(key: &str) -> Option<&'static str> {
     match key {
+        "mail.openTracking" => Some("compose.open_tracking"),
         "reader.zoom" => Some("reading.zoom"),
         "links.trustedDomains" | "links.trustedSubdomains" | "links.trustedSenders" => {
             Some("privacy.trusted_links")

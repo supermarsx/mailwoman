@@ -12,8 +12,8 @@
 //   screenshots and screen recordings (`platform.setCaptureProtection(true)`).
 //   The desktop and Android shells can; a browser cannot, and its implementation
 //   answers `{ supported: false }`.
-// * `openTracking` — the server can record opens (t29-e8: `MW_PUBLIC_URL` is set),
-//   so the composer offers "Record when this message is opened" (`api/tracking.ts`).
+// * `openTracking` — this verified account may record opens and the server has
+//   a public tracking URL. The composer also checks its live capability/profile.
 //
 // The policy is fetched once per session: the first successful load is kept until
 // `resetClientPolicy()`. Before sign-in the route answers 401, which is not an

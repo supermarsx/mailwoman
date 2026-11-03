@@ -937,6 +937,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs)"
     ),
     def!(
+        "cap.compose.open_tracking",
+        Kind::Bool,
+        "true",
+        GDA,
+        "features",
+        "Allow outgoing tracking pixels; enforced on mint, bind and image recording using the sender's current policy"
+    ),
+    def!(
         "cap.signatures",
         Kind::Bool,
         "true",
@@ -2103,6 +2111,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "mdn_policy:<account> (MDN/send)"
+    ),
+    def!(
+        "mail.openTracking",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Default outgoing open tracking for new messages; a locked false value also forbids token minting and recording"
     ),
     def!(
         "notifications.pushAllowed",

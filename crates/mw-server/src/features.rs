@@ -197,6 +197,16 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
         ),
         &["receipts.dsnAllowed", "mail.readReceipts"],
     ),
+    settings(
+        toggle(
+            "compose.open_tracking",
+            "compose",
+            &["cap.compose.open_tracking"],
+            &["/api/track/open"],
+            &[],
+        ),
+        &["mail.openTracking"],
+    ),
     toggle(
         "compose.signatures",
         "compose",

@@ -602,3 +602,6 @@ settings-ident-pgp-none = Use the default key
 settings-ident-pgp-unavailable = Saved key unavailable — choose another key
 settings-ident-pgp-help = Choose one of your existing OpenPGP signing keys. Private key material stays in your key vault.
 settings-ident-error-optional = Check the Reply-To and automatic Bcc addresses, organization and selected key.
+settings-compose-open-tracking = Record message opens by default
+settings-compose-open-tracking-help = Adds a tracking image to eligible formatted messages. Opens depend on the recipient loading images and do not prove the message was read. Your administrator can disable tracking or lock this default.
+settings-compose-open-tracking-inherit = Use inherited tracking default

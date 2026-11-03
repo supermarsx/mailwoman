@@ -598,3 +598,6 @@ settings-ident-pgp-none = Utilizar a chave predefinida
 settings-ident-pgp-unavailable = Chave guardada indisponível — escolha outra chave
 settings-ident-pgp-help = Escolha uma das suas chaves de assinatura OpenPGP existentes. O material privado permanece no cofre de chaves.
 settings-ident-error-optional = Verifique os endereços de resposta e Bcc automático, a organização e a chave selecionada.
+settings-compose-open-tracking = Registar aberturas das mensagens por predefinição
+settings-compose-open-tracking-help = Adiciona uma imagem de rastreio às mensagens formatadas elegíveis. As aberturas dependem do carregamento de imagens pelo destinatário e não comprovam a leitura. O administrador pode desativar o rastreio ou bloquear esta predefinição.
+settings-compose-open-tracking-inherit = Usar a predefinição de rastreio herdada
