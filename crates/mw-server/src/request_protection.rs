@@ -64,6 +64,7 @@ struct Context {
     config: Arc<Config>,
     legacy_route: bool,
     source_country: Option<String>,
+    display_subresource: bool,
     charged: tokio::sync::Mutex<Vec<Charged>>,
     signal: AtomicU8,
 }
@@ -109,9 +110,15 @@ impl Context {
         if !self.legacy_route && !kind.starts_with("ua-") {
             return Ok(());
         }
-        let Some(policy) = self.config.subject(kind, value) else {
+        let Some(mut policy) = self.config.subject(kind, value) else {
             return Ok(());
         };
+        // A verified image/inline-part capability belongs to the already
+        // admitted signing batch. Active adaptive actions and independent UA
+        // limits still apply; its individual download spends no second budget.
+        if self.display_subresource && !kind.starts_with("ua-") {
+            policy.rate_mode = mw_store::request_protection_model::Mode::Off;
+        }
         let mut charged = self.charged.lock().await;
         if charged
             .iter()
@@ -172,6 +179,9 @@ impl Context {
             _ => Signal::Ignored,
         };
         if signal == Signal::Ignored {
+            return;
+        }
+        if self.display_subresource && signal == Signal::Normal {
             return;
         }
         for subject in self.charged.lock().await.iter() {
@@ -487,7 +497,7 @@ fn hostile_probe(path: &str) -> bool {
 }
 pub(crate) async fn guard(
     State(state): State<AppState>,
-    request: Request,
+    mut request: Request,
     next: Next,
 ) -> Response {
     let legacy_route = protected(request.uri().path());
@@ -576,11 +586,21 @@ pub(crate) async fn guard(
     if (!legacy_route || !config.legacy_enabled()) && ua_category.is_none() {
         return next.run(request).await;
     }
+    let display_proof = crate::image_proxy::remote_content::display_proof(
+        &state,
+        request.method(),
+        request.uri().path(),
+    )
+    .await;
+    if let Some(proof) = &display_proof {
+        request.extensions_mut().insert(proof.clone());
+    }
     let context = Arc::new(Context {
         state,
         config,
         legacy_route,
         source_country,
+        display_subresource: display_proof.is_some(),
         charged: Default::default(),
         signal: AtomicU8::new(0),
     });
@@ -591,7 +611,12 @@ pub(crate) async fn guard(
             // that identity (per account or administrator, a larger allowance),
             // not to its source address; anonymous requests and every sign-in or
             // identity-confirmation route stay on the strict per-address budget.
-            let identified = if anonymous_only {
+            let identified = if let Some(proof) = &display_proof {
+                if let Err(limited) = session_account(proof.session()).await {
+                    return limited;
+                }
+                true
+            } else if anonymous_only {
                 false
             } else {
                 match identify(&context.state, request.headers(), request.uri().path()).await {

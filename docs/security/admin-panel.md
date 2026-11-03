@@ -201,6 +201,16 @@ the raw address. Missing lookups and older records show Unknown. Account and
 administrator aggregates span addresses and therefore have no single country.
 This information does not change the admission decision.
 
+### Message image batches
+
+The message's remote-content signing request pays its normal aggregate request
+budget once. Fully verified image and inline-part display capabilities reuse
+that admission; their separate HTTP downloads do not spend additional aggregate
+rate slots or pad the normal-request baseline. Active adaptive actions, session
+and message authorization, privacy grants, image queues, fetch and byte limits
+still apply. Invalid or expired links and deliberate file downloads keep normal
+request accounting.
+
 ## Admin-probe protection
 
 A hidden console path stops scanners from finding the console. Admin-probe

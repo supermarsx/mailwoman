@@ -312,12 +312,22 @@ async fn standin_status_proxy_with_delay(
 static MOCK_UPSTREAMS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 async fn spawn_mock() -> String {
+    spawn_mock_with_image_parts(false).await
+}
+
+async fn spawn_mock_with_image_parts(image_parts: bool) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     tokio::spawn(async move {
         let app = mw_mock_jmap::router().layer(axum::middleware::map_response(move |response: axum::response::Response| async move {
             let (parts, body) = response.into_parts();
             let bytes = axum::body::to_bytes(body, 1024 * 1024).await.unwrap();
+            if image_parts && bytes.starts_with(b"BLOB:") {
+                let mut response = axum::response::Response::from_parts(parts, axum::body::Body::from(png(4, 4)));
+                response.headers_mut().remove("content-length");
+                response.headers_mut().insert("content-type", "image/png".parse().unwrap());
+                return response;
+            }
             let mut value = serde_json::from_slice::<Value>(&bytes).ok();
             if let Some(calls) = value.as_mut().and_then(|v| v["methodResponses"].as_array_mut()) {
                 for call in calls {
@@ -445,11 +455,40 @@ struct Fixture {
 }
 
 async fn fixture(proxy: SocketAddr, tag: &str) -> Fixture {
+    fixture_with_protection(proxy, tag, &[], false).await
+}
+
+async fn fixture_with_protection(
+    proxy: SocketAddr,
+    tag: &str,
+    values: &[(&str, Value)],
+    image_parts: bool,
+) -> Fixture {
     let db = test_db::unique_dir(tag)
         .join("mw.db")
         .to_string_lossy()
         .into_owned();
-    let mock = spawn_mock().await;
+    if !values.is_empty() {
+        let store = store_at(&db).await;
+        for (key, value) in values {
+            store
+                .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                    key: (*key).into(),
+                    global_value: Some(value.to_string()),
+                    allow_user_override: false,
+                    global_locked: true,
+                    updated_by: "fixture".into(),
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+        }
+    }
+    let mock = if image_parts {
+        spawn_mock_with_image_parts(true).await
+    } else {
+        spawn_mock().await
+    };
     let addr = spawn_server(&db, &mock).await;
     let base = format!("http://{addr}");
     let user = reqwest::Client::builder()
@@ -605,6 +644,256 @@ fn token_of(src: &str) -> String {
 }
 
 // ── the tests ────────────────────────────────────────────────────────────────────
+
+#[tokio::test]
+async fn signed_display_batch_pays_one_aggregate_request_for_remote_and_inline_images() {
+    let (proxy, _) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
+    let mut f = fixture_with_protection(
+        proxy,
+        "mw-rc-batch-budget",
+        &[
+            ("security.protection.rateMode", json!("enforce")),
+            ("security.protection.clientRequests", json!(3)),
+            ("security.protection.accountRequests", json!(1)),
+            ("security.protection.adminRequests", json!(0)),
+            ("security.protection.rateWindowSecs", json!(3600)),
+            ("security.protection.adaptiveMode", json!("enforce")),
+        ],
+        true,
+    )
+    .await;
+    f.email_id = "e1".into();
+    f.grant().await;
+    let urls: Vec<_> = (0..8)
+        .map(|i| format!("http://1.2.3.4/aggregate-batch-{i}.png"))
+        .collect();
+    let refs: Vec<_> = urls.iter().map(String::as_str).collect();
+    let (status, signed) = f.sign(&refs, &["Mblob1"]).await;
+    assert_eq!(status, 200, "{signed}");
+    assert_eq!(signed["images"].as_array().unwrap().len(), 8);
+    assert_eq!(signed["parts"].as_array().unwrap().len(), 1);
+    let store = store_at(&f.db).await;
+    let before_rows = store
+        .request_protection_rows(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    let before_clients: u32 = before_rows
+        .iter()
+        .filter(|row| row.subject_kind == "client")
+        .map(|row| row.snapshot.rate_count)
+        .sum();
+    let before = before_rows
+        .into_iter()
+        .find(|row| row.subject_kind == "account")
+        .unwrap();
+    assert_eq!(before.snapshot.rate_count, 1);
+    for resource in signed["images"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(signed["parts"].as_array().unwrap())
+    {
+        let response = f.load(resource["src"].as_str().unwrap()).await;
+        assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+        assert!(response.bytes().await.unwrap().starts_with(b"\x89PNG"));
+    }
+    let after_rows = store
+        .request_protection_rows(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    let after_clients: u32 = after_rows
+        .iter()
+        .filter(|row| row.subject_kind == "client")
+        .map(|row| row.snapshot.rate_count)
+        .sum();
+    assert!(
+        before_clients > 0,
+        "fixture establishes an actual aggregate source budget"
+    );
+    assert_eq!(
+        after_clients, before_clients,
+        "cookie-less display fanout must not spend the anonymous source budget"
+    );
+    let after = after_rows
+        .into_iter()
+        .find(|row| row.subject_kind == "account")
+        .unwrap();
+    assert_eq!(
+        after.snapshot.rate_count, 1,
+        "all display URLs share the sign admission"
+    );
+    assert_eq!(
+        after.snapshot.short, before.snapshot.short,
+        "image successes must not inflate adaptive normal samples"
+    );
+    let response = f
+        .user
+        .get(format!("{}/api/me", f.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        response.status(),
+        429,
+        "the next ordinary account request still spends its quota"
+    );
+    assert_eq!(
+        response.json::<Value>().await.unwrap()["code"],
+        "requestProtectionLimited"
+    );
+}
+
+fn display_client(octet: u8) -> reqwest::Client {
+    reqwest::Client::builder()
+        .no_proxy()
+        .local_address(std::net::IpAddr::V4(std::net::Ipv4Addr::new(
+            127, 0, 0, octet,
+        )))
+        .build()
+        .unwrap()
+}
+
+#[tokio::test]
+async fn invalid_display_capabilities_keep_the_ordinary_anonymous_request_budget() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
+    let f = fixture_with_protection(
+        proxy,
+        "mw-rc-invalid-budget",
+        &[
+            ("security.protection.rateMode", json!("enforce")),
+            ("security.protection.clientRequests", json!(100)),
+            ("security.protection.accountRequests", json!(100)),
+            ("security.protection.adminRequests", json!(0)),
+            ("security.protection.rateWindowSecs", json!(3600)),
+            ("security.protection.adaptiveMode", json!("off")),
+        ],
+        false,
+    )
+    .await;
+    // Login, step-up and fixture administration complete before installing the
+    // tiny quota. Fresh client addresses below start with an empty budget.
+    let setting_url = format!(
+        "{}/admin/settings/security.protection.clientRequests",
+        f.base
+    );
+    let current = f.admin.get(&setting_url).send().await.unwrap();
+    let tag = current.headers()["etag"].to_str().unwrap().to_owned();
+    let changed = f
+        .admin
+        .put(setting_url)
+        .header("if-match", tag)
+        .json(&json!({"globalValue":2}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(changed.status(), 200, "{}", changed.text().await.unwrap());
+    f.grant().await;
+    let (status, signed) = f.sign(&["http://1.2.3.4/invalid-budget.png"], &[]).await;
+    assert_eq!(status, 200, "{signed}");
+    let token = token_of(&image_src(&signed));
+    let mut expired = claims_of(&token);
+    expired["x"] = json!(chrono::Utc::now().timestamp() - 1);
+    let paths = [
+        "/api/rc/i/abc.def".to_string(),
+        format!("/api/rc/i/{}", mint(&expired)),
+        format!("/api/rc/p/{token}"),
+        image_src(&signed),
+    ];
+    for (index, path) in paths.iter().enumerate() {
+        if index == 3 {
+            store_at(&f.db)
+                .await
+                .delete_sessions_for_account(&f.account)
+                .await
+                .unwrap();
+        }
+        let client = display_client(70 + index as u8);
+        for expected in [403, 403, 429] {
+            let response = client
+                .get(format!("{}{path}", f.base))
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), expected, "invalid case {index}: {path}");
+        }
+    }
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        0,
+        "no invalid capability starts image egress"
+    );
+}
+
+#[tokio::test]
+async fn prepaid_display_keeps_active_source_probe_and_account_adaptive_actions() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
+    let f = fixture_with_protection(
+        proxy,
+        "mw-rc-active-actions",
+        &[
+            ("security.adminProbe.enabled", json!(false)),
+            ("security.protection.rateMode", json!("off")),
+            ("security.protection.adaptiveMode", json!("enforce")),
+            ("security.protection.shortMinimumSamples", json!(1)),
+            ("security.protection.shortAbsoluteAnomalies", json!(1)),
+            ("security.protection.shortRatioPercent", json!(0)),
+            ("security.protection.longAbsoluteAnomalies", json!(0)),
+            ("security.protection.longRatioPercent", json!(0)),
+            ("security.protection.signals", json!(["malformed"])),
+        ],
+        false,
+    )
+    .await;
+    f.grant().await;
+    let (status, signed) = f.sign(&["http://1.2.3.4/active-actions.png"], &[]).await;
+    assert_eq!(status, 200, "{signed}");
+    let src = image_src(&signed);
+    assert_eq!(f.load(&src).await.status(), 200);
+    let scanner = display_client(76);
+    assert_eq!(
+        scanner
+            .get(format!("{}/cmd_sco", f.base))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429
+    );
+    assert_eq!(
+        scanner
+            .get(format!("{}{src}", f.base))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        429,
+        "valid capabilities do not bypass source blocks"
+    );
+    let malformed = f
+        .user
+        .post(format!("{}/jmap/api", f.base))
+        .header("content-type", "application/json")
+        .body("{not-json")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(malformed.status(), 400);
+    let blocked = f.load(&src).await;
+    assert_eq!(
+        blocked.status(),
+        429,
+        "valid capabilities do not bypass existing account adaptive actions"
+    );
+    assert_eq!(
+        blocked.json::<Value>().await.unwrap()["code"],
+        "requestProtectionLimited"
+    );
+    assert_eq!(
+        seen.lock().unwrap().connections,
+        1,
+        "all blocked loads stop before even cached image serving"
+    );
+}
 
 #[tokio::test]
 async fn a_signed_image_loads_without_a_cookie_and_forwards_nothing_of_the_reader() {

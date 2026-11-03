@@ -37,12 +37,15 @@
 //! default `same-origin` would block the image; the token is the authorisation,
 //! not the origin of the requester.
 
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+};
 
-use axum::Json;
 use axum::extract::{Path as UrlPath, Query, State};
-use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, Method, StatusCode, header};
 use axum::response::{IntoResponse, Response};
+use axum::{Extension, Json};
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use hmac::{Hmac, KeyInit, Mac};
@@ -726,7 +729,7 @@ pub(crate) async fn sign(
 
 /// Steps 1 and 2 of the module docs: the token, then the session it was minted
 /// for. Returns the claims and that session.
-async fn admit(
+async fn authenticate(
     state: &AppState,
     token: &str,
     kind: Kind,
@@ -771,8 +774,154 @@ async fn admit(
     if gate.disabled || gate.password_change_required {
         return Err(forbidden("invalid or expired link"));
     }
+    Ok((claims, session))
+}
+
+async fn admit(
+    state: &AppState,
+    token: &str,
+    kind: Kind,
+) -> Result<(Claims, mw_store::Session), Response> {
+    let (claims, session) = authenticate(state, token, kind).await?;
     crate::request_protection::session_account(&session).await?;
     Ok((claims, session))
+}
+
+#[derive(Clone)]
+struct PartAuthorization {
+    policy: crate::attachment_policy::Policy,
+    metadata: Vec<crate::attachment_policy::Metadata>,
+}
+
+/// A private, request-scoped authorization, never accepted from request headers.
+/// Its signing call already paid ordinary aggregate admission for this display.
+#[derive(Clone)]
+pub(crate) struct DisplayProof {
+    token: String,
+    claims: Claims,
+    session: mw_store::Session,
+    policy: Arc<crate::remote_policy::PrivacyPolicy>,
+    part: Option<PartAuthorization>,
+}
+
+impl DisplayProof {
+    pub(crate) fn session(&self) -> &mw_store::Session {
+        &self.session
+    }
+    fn matches(&self, token: &str, kind: Kind) -> bool {
+        self.token == token && self.claims.k == kind
+    }
+}
+
+fn display_target<'a>(base: &str, method: &Method, path: &'a str) -> Option<(Kind, &'a str)> {
+    if !matches!(*method, Method::GET | Method::HEAD) {
+        return None;
+    }
+    // The router's nest normally strips MW_BASE_PATH before this middleware.
+    // Also accept its exact configured prefix for callers holding an original URI.
+    let routed = if !base.is_empty() {
+        path.strip_prefix(base)
+            .filter(|suffix| suffix.starts_with('/'))
+            .unwrap_or(path)
+    } else {
+        path
+    };
+    let (kind, token) = if let Some(token) = routed.strip_prefix("/api/rc/i/") {
+        (Kind::Image, token)
+    } else {
+        (Kind::Part, routed.strip_prefix("/api/rc/p/")?)
+    };
+    if token.is_empty()
+        || token.len() > 16 * 1024
+        || !token
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-' | b'.'))
+    {
+        return None;
+    }
+    Some((kind, token))
+}
+
+/// Only live, fully authorized message-display capabilities can share their
+/// signing request's aggregate rate charge. Invalid requests keep normal gates.
+pub(crate) async fn display_proof(
+    state: &AppState,
+    method: &Method,
+    path: &str,
+) -> Option<DisplayProof> {
+    let (kind, token) = display_target(&state.base_path, method, path)?;
+    let (claims, session) = authenticate(state, token, kind).await.ok()?;
+    let policy = Arc::new(
+        crate::remote_policy::effective(state, &session)
+            .await
+            .ok()?,
+    );
+    let part = match kind {
+        Kind::Image => {
+            authorize_image(state, &session, &claims, &policy)
+                .await
+                .ok()?;
+            None
+        }
+        Kind::Part => Some(authorize_part(state, &session, &claims).await.ok()?),
+        _ => return None,
+    };
+    Some(DisplayProof {
+        token: token.to_owned(),
+        claims,
+        session,
+        policy,
+        part,
+    })
+}
+
+async fn authorize_image(
+    state: &AppState,
+    session: &mw_store::Session,
+    claims: &Claims,
+    policy: &crate::remote_policy::PrivacyPolicy,
+) -> Result<(), Response> {
+    match image_allowed(state, session, &claims.e, policy).await {
+        Ok(true) => {}
+        Ok(false) => return Err(forbidden("remote content is not allowed for this message")),
+        Err(()) => return Err(internal("remote-content grant check")),
+    }
+    if policy.trackers && mw_sanitize::remote::is_tracker_url(&claims.u) {
+        return Err(forbidden("tracker blocked by policy"));
+    }
+    Ok(())
+}
+
+async fn authorize_part(
+    state: &AppState,
+    session: &mw_store::Session,
+    claims: &Claims,
+) -> Result<PartAuthorization, Response> {
+    match part_membership(state, session, &claims.e).await {
+        Ok(parts) if parts.contains(&claims.u) => {}
+        Ok(_) => return Err(forbidden("not a part of this message")),
+        Err(()) => return Err(internal("part membership check")),
+    }
+    let policy = crate::attachment_policy::effective(state, session).await?;
+    if !policy.preview_allowed || !policy.download_allowed {
+        return Err(crate::attachment_policy::refusal(
+            "attachmentPreviewDisabled",
+        ));
+    }
+    let query = crate::attachment_policy::DownloadQuery {
+        email_id: Some(claims.e.clone()),
+        preview: Some(true),
+        acknowledge_warning: None,
+    };
+    let metadata = if state.engine.is_none() && policy.restricts_content() {
+        crate::attachment_policy::proxy_metadata(state, session, &claims.u, &query).await?
+    } else {
+        Vec::new()
+    };
+    for part in &metadata {
+        crate::attachment_policy::authorize(&policy, part, &query)?;
+    }
+    Ok(PartAuthorization { policy, metadata })
 }
 
 /// The magic-byte type of an image body, among [`ALLOWED_IMAGE_TYPES`].
@@ -890,23 +1039,29 @@ pub(crate) async fn image(
     State(state): State<AppState>,
     headers: HeaderMap,
     UrlPath(token): UrlPath<String>,
+    proof: Option<Extension<DisplayProof>>,
 ) -> Response {
-    let (claims, session) = match admit(&state, &token, Kind::Image).await {
-        Ok(v) => v,
-        Err(r) => return r,
+    let (claims, session, policy) = if let Some(Extension(proof)) =
+        proof.filter(|proof| proof.0.matches(&token, Kind::Image))
+    {
+        if let Err(response) = crate::request_protection::session_account(&proof.session).await {
+            return response;
+        }
+        (proof.claims, proof.session, proof.policy)
+    } else {
+        let (claims, session) = match admit(&state, &token, Kind::Image).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+        let policy = match crate::remote_policy::effective(&state, &session).await {
+            Ok(value) => Arc::new(value),
+            Err(response) => return response,
+        };
+        if let Err(response) = authorize_image(&state, &session, &claims, &policy).await {
+            return response;
+        }
+        (claims, session, policy)
     };
-    let policy = match crate::remote_policy::effective(&state, &session).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    match image_allowed(&state, &session, &claims.e, &policy).await {
-        Ok(true) => {}
-        Ok(false) => return forbidden("remote content is not allowed for this message"),
-        Err(()) => return internal("remote-content grant check"),
-    }
-    if policy.trackers && mw_sanitize::remote::is_tracker_url(&claims.u) {
-        return forbidden("tracker blocked by policy");
-    }
 
     fetch_image(state, session, claims, policy, headers).await
 }
@@ -915,7 +1070,7 @@ async fn fetch_image(
     state: AppState,
     session: mw_store::Session,
     claims: Claims,
-    policy: crate::remote_policy::PrivacyPolicy,
+    policy: Arc<crate::remote_policy::PrivacyPolicy>,
     headers: HeaderMap,
 ) -> Response {
     let plan = match load_plan(&state.store).await {
@@ -1251,7 +1406,8 @@ pub(crate) async fn image_download(
     if policy.trackers && *tracker {
         return forbidden("tracker blocked by policy");
     }
-    let mut response = fetch_image(state, session, claims, policy, HeaderMap::new()).await;
+    let mut response =
+        fetch_image(state, session, claims, Arc::new(policy), HeaderMap::new()).await;
     if !response.status().is_success() {
         return response;
     }
@@ -1305,57 +1461,45 @@ fn charge_fetch(
 pub(crate) async fn part(
     State(state): State<AppState>,
     UrlPath(token): UrlPath<String>,
+    proof: Option<Extension<DisplayProof>>,
 ) -> Response {
-    let (claims, session) = match admit(&state, &token, Kind::Part).await {
-        Ok(v) => v,
-        Err(r) => return r,
+    let (claims, session, policy, authorization) = if let Some(Extension(proof)) =
+        proof.filter(|proof| proof.0.matches(&token, Kind::Part))
+    {
+        if let Err(response) = crate::request_protection::session_account(&proof.session).await {
+            return response;
+        }
+        let Some(authorization) = proof.part else {
+            return internal("missing part authorization");
+        };
+        (proof.claims, proof.session, proof.policy, authorization)
+    } else {
+        let (claims, session) = match admit(&state, &token, Kind::Part).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+        let policy = match crate::remote_policy::effective(&state, &session).await {
+            Ok(value) => Arc::new(value),
+            Err(response) => return response,
+        };
+        let authorization = match authorize_part(&state, &session, &claims).await {
+            Ok(value) => value,
+            Err(response) => return response,
+        };
+        (claims, session, policy, authorization)
     };
-    let policy = match crate::remote_policy::effective(&state, &session).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    if let Err(r) = charge_fetch(&session.account_id, &policy) {
-        return r;
+    if let Err(response) = charge_fetch(&session.account_id, &policy) {
+        return response;
     }
-    match part_membership(&state, &session, &claims.e).await {
-        Ok(parts) if parts.contains(&claims.u) => {}
-        Ok(_) => return forbidden("not a part of this message"),
-        Err(()) => return internal("part membership check"),
-    }
-    let attachment_policy = match crate::attachment_policy::effective(&state, &session).await {
-        Ok(p) => p,
-        Err(r) => return r,
-    };
-    if !attachment_policy.preview_allowed || !attachment_policy.download_allowed {
-        return crate::attachment_policy::refusal("attachmentPreviewDisabled");
-    }
+    let PartAuthorization {
+        policy: attachment_policy,
+        metadata,
+    } = authorization;
     let attachment_query = crate::attachment_policy::DownloadQuery {
         email_id: Some(claims.e.clone()),
         preview: Some(true),
         acknowledge_warning: None,
     };
-    let metadata = if state.engine.is_none() && attachment_policy.restricts_content() {
-        match crate::attachment_policy::proxy_metadata(
-            &state,
-            &session,
-            &claims.u,
-            &attachment_query,
-        )
-        .await
-        {
-            Ok(parts) => parts,
-            Err(r) => return r,
-        }
-    } else {
-        Vec::new()
-    };
-    for part in &metadata {
-        if let Err(r) =
-            crate::attachment_policy::authorize(&attachment_policy, part, &attachment_query)
-        {
-            return r;
-        }
-    }
     let deadline = std::time::Instant::now() + policy.fetch.timeouts.total;
     let Some(pipeline) = acquire_bounded_permit(image_pipeline(), deadline).await else {
         return busy_response();
@@ -1667,6 +1811,33 @@ pub(crate) async fn read_part(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn display_targets_are_exact_display_routes_with_routed_or_configured_base_paths() {
+        for (method, path, kind) in [
+            (Method::GET, "/api/rc/i/abc.def", Kind::Image),
+            (Method::HEAD, "/api/rc/p/abc.def", Kind::Part),
+            (Method::GET, "/mail/api/rc/i/abc.def", Kind::Image),
+        ] {
+            assert_eq!(
+                display_target("/mail", &method, path),
+                Some((kind, "abc.def"))
+            );
+        }
+        for path in [
+            "/api/rc/i/",
+            "/api/rc/i/abc/def",
+            "/api/rc/i/abc.def/",
+            "/api/rc/i/abc%2edef",
+            "/api/rc/f/abc.def",
+            "/api/rc/d/abc.def",
+            "/other/api/rc/i/abc.def",
+            "/mail-other/api/rc/i/abc.def",
+        ] {
+            assert_eq!(display_target("/mail", &Method::GET, path), None, "{path}");
+        }
+        assert_eq!(display_target("", &Method::POST, "/api/rc/i/abc.def"), None);
+    }
 
     const KEY: [u8; 32] = [7; 32];
 
