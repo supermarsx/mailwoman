@@ -24,7 +24,7 @@ import { emittedThemeTokens } from './uiFontToken.ts';
 function legacyVars(c: ThemeTokens['color']): Record<string, string> {
   const out: Record<string, string> = {};
   for (const key of Object.keys(LEGACY_COLOR_PROPERTIES) as (keyof ThemeTokens['color'])[]) {
-    out[LEGACY_COLOR_PROPERTIES[key]] = key === 'text' ? `color-mix(in srgb, var(--mw-ui-text-color, ${c.text}) var(--mw-ui-text-mix, 100%), ${c.bg})` : c[key];
+    out[LEGACY_COLOR_PROPERTIES[key]] = key === 'text' ? `color-mix(in srgb, var(--mw-ui-text-color, ${c.text}) var(--mw-ui-text-mix, 100%), ${c.bg})` : key === 'focus' || key === 'selection' ? vars.color[key] : c[key];
   }
   return out;
 }
@@ -74,31 +74,20 @@ globalStyle(':root', {
 // ── Named accents (t32 V) ────────────────────────────────────────────────────
 // One rule per theme × accent, from the generated `accents.ts`: the slice sets
 // `data-accent="<id>"` on :root and this rule swaps in that theme's shade of
-// the accent and the ink drawn on it. Packs whose focus outline is the accent
-// (high contrast and the coloured packs) move the outline with it. The legacy
-// bridge names are set too, because `app.css` reads those, not the contract.
+// the accent and its ink. Shared focus/selection tokens reference the live
+// accent, including custom accents, instead of retaining a pack's fixed colour.
+// The legacy bridge names are set too for the plain-CSS components.
 // An attribute rule, not an inline property, so the shade can differ per theme
 // and a theme switch needs no script.
 (Object.keys(ACCENT_SHADES) as ThemeName[]).forEach((name) => {
-  const pack = THEMES[name].color;
-  const focusIsAccent = pack.focus === pack.accent;
   for (const id of ACCENT_IDS) {
     const { accent, accentText } = ACCENT_SHADES[name][id];
-    const focus = focusIsAccent
-      ? {
-          [vars.color.focus]: accent,
-          [vars.a11y.focusRingColor]: accent,
-          [vars.a11y.focusRing]: `0 0 0 2px ${pack.bg}, 0 0 0 5px ${accent}`,
-          [LEGACY_COLOR_PROPERTIES.focus]: accent,
-        }
-      : {};
     globalStyle(`:root[data-theme="${name}"][data-accent="${id}"]`, {
       vars: {
         [vars.color.accent]: accent,
         [vars.color.accentText]: accentText,
         [LEGACY_COLOR_PROPERTIES.accent]: accent,
         [LEGACY_COLOR_PROPERTIES.accentText]: accentText,
-        ...focus,
       },
     });
   }
@@ -178,7 +167,9 @@ globalStyle(':focus-visible', {
 });
 globalStyle('.sidebar', { backgroundImage: vars.texture.grain });
 globalStyle('.list__row', { minHeight: vars.density.rowH });
-globalStyle('::selection', { background: vars.color.selection });
+globalStyle('::selection', { background: vars.color.accent, color: vars.color.accentText,
+  '@media': { '(forced-colors: active)': { background: 'Highlight', color: 'HighlightText', forcedColorAdjust: 'none' } },
+});
 
 // Letter-spacing breaks Arabic joining and is not used in Japanese or Chinese
 // text, so the label tracking is 0 for those languages. `:root[data-theme]`
@@ -235,7 +226,7 @@ const HC_FOCUS = {
   [vars.a11y.focusRingWidth]: '4px',
   [vars.a11y.focusRing]: `0 0 0 2px ${vars.color.bg}, 0 0 0 6px ${vars.color.focus}`,
 } as const;
-globalStyle(':root', {
+globalStyle(':root, :root[data-theme], :root[data-theme][data-accent]', {
   '@media': {
     '(prefers-contrast: more)': { vars: HC_FOCUS },
     '(forced-colors: active)': { vars: HC_FOCUS },

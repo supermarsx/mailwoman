@@ -7,7 +7,8 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import { THEME_LIST, accentShade, type ThemeEntry } from './registry.ts';
 import { THEMES } from './tokens.ts';
-import { failingPairs, type ContrastResult } from './contrast.ts';
+import { failingPairs, parseColor, type ContrastResult } from './contrast.ts';
+import { UI_SELECTION_ACCENT_PERCENT } from './uiFontToken.ts';
 import {
   ACCENTS,
   ACCENT_IDS,
@@ -29,16 +30,19 @@ import type { SliceContext } from '../state/slices/context.ts';
 
 /**
  * The palette a page shows under `data-theme=<entry>` + `data-accent=<id>`:
- * what `themes.css.ts` emits for the cell, laid over the pack. The focus
- * outline moves with the accent only in packs whose focus IS the accent.
+ * what the shared UI emitter binds: focus follows the active accent, and
+ * selected surfaces use its tint while preserving readable normal text.
  */
 function cellPalette(entry: ThemeEntry, shade: { accent: string; accentText: string }) {
-  const focusIsAccent = entry.tokens.color.focus === entry.tokens.color.accent;
+  const accent = parseColor(shade.accent)!, bg = parseColor(entry.palette.bg)!;
+  const weight = UI_SELECTION_ACCENT_PERCENT / 100;
+  const selection = `rgb(${accent.map((channel, index) => channel * weight + bg[index]! * (1 - weight)).join(' ')})`;
   return {
     ...entry.palette,
     accent: shade.accent,
     accentText: shade.accentText,
-    focus: focusIsAccent ? shade.accent : entry.palette.focus,
+    focus: shade.accent,
+    selection,
   };
 }
 
