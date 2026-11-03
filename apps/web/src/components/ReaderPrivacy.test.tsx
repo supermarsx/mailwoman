@@ -55,6 +55,25 @@ async function open(emails:Email[]) {
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
 async function enableMessageLinks():Promise<void>{fireEvent.click(await screen.findByRole('button',{name:'Enable links'}));fireEvent.click(screen.getByRole('menuitem',{name:'Enable once'}));}
 describe('Reader signed privacy pipeline',()=>{
+  it.each(['empty', 'omitted'] as const)('opens a null-preview message with %s body fields as an ordinary blank message',async fields=>{
+    const empty=mkEmail('empty',{subject:'Empty message',preview:null,htmlBody:[],textBody:[],bodyValues:{}});
+    if(fields==='omitted'){delete empty.htmlBody;delete empty.textBody;delete empty.bodyValues;}
+    const app=await open([message('m1','<p>Previous message body</p>'),empty]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('Previous message body'));
+    await app.openMessage(empty.id);
+    await waitFor(()=>{
+      expect(app.openEmail()?.id).toBe(empty.id);
+      expect(frame()).not.toBeNull();
+      const body=new DOMParser().parseFromString(frame()!.srcdoc,'text/html').body;
+      expect(body.textContent).toBe('');
+    });
+    expect(screen.getByRole('toolbar',{name:'Message actions'})).toBeInTheDocument();
+    expect(app.readLoading()).toBe(false);
+    expect(screen.queryByText('This message could not be loaded. Close the tab and try again.')).toBeNull();
+    expect(document.querySelector('.reader__empty')).toBeNull();
+    expect(screen.queryByTestId('reader-body-blocked')).toBeNull();
+  });
+
   it('persists exact sender link trust separately from image grants and honors a current-message disable',async()=>{
     const writes:unknown[]=[];
     await loadSettings({refresh:true,fetcher:async(_url,init)=>{
