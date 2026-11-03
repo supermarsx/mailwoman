@@ -3,15 +3,17 @@
 // a dialog or menu (which render in the main window) or leave the message move
 // the pane back first.
 import {afterEach,expect,it,vi} from 'vitest';
-import {render,waitFor} from '@solidjs/testing-library';
+import {render,screen,waitFor} from '@solidjs/testing-library';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from './DetachedWorkspacePane.tsx';
 import {ReaderToolbar} from './ReaderToolbar.tsx';
 import {RemoteContentBar} from './RemoteContentBar.tsx';
 import type {Email} from '../api/jmap-types.ts';
+import {fetchMailHeaders} from '../api/mailHeaders.ts';
 
 const state=vi.hoisted(()=>({flag:vi.fn(async()=>{}),read:vi.fn(async()=>{}),pin:vi.fn(async()=>{}),archive:vi.fn(async()=>{})}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:vi.fn(async()=>({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:['m1']}],notFound:[]},'thread']]}))})}));
+vi.mock('../api/mailHeaders.ts',async original=>({...await original<typeof import('../api/mailHeaders.ts')>(),fetchMailHeaders:vi.fn()}));
 vi.mock('../api/settings.ts',async original=>({
  ...await original<typeof import('../api/settings.ts')>(),
  settings:()=>({'reader.actionStyle':{value:'icons'}}),
@@ -30,7 +32,7 @@ const email={id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@
 async function detached(){
  vi.spyOn(window,'focus').mockImplementation(()=>{});activateAccountPreferences('a','msa1_abcdefghijklmnop');const child=popup();let handle:DetachedPaneHandle|undefined;const grant=vi.fn(async()=>{});
  render(()=><DetachedWorkspacePane title={()=>'Hello'} register={value=>{handle=value;}}>{()=><>
-  <ReaderToolbar email={email} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={[]} linksTruncated={false} linkScope="a:m1" security={{value:'full-sanitized',floor:null,onChange:vi.fn()}}/>
+  <ReaderToolbar email={email} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={[]} linksTruncated={false} linkScope="a:m1" headersUrl="/mail/raw" headersScope="a:m1" security={{value:'full-sanitized',floor:null,onChange:vi.fn()}}/>
   <RemoteContentBar emailId="m1" sender="ann@example.org" report={{blockedHosts:['img.example.net'],blockedCount:2,trackerCount:0}} activeGrant={null} mode="ask" onGrant={grant}/>
  </>}</DetachedWorkspacePane>);
  handle!.detach();
@@ -60,4 +62,13 @@ it('keeps it open for Show images, and still moves back for an action that leave
  click(doc.querySelector('[data-reader-item="archive"] button')!);
  await waitFor(()=>expect(child.closed).toBe(true));expect(handle.isDetached()).toBe(false);
  await waitFor(()=>expect(state.archive).toHaveBeenCalledWith('m1'));
+});
+
+it('reattaches a detached header action before opening its popup in the main document',async()=>{
+ vi.mocked(fetchMailHeaders).mockResolvedValue('Subject: Detached message');
+ const {child,handle,doc}=await detached();
+ click(doc.querySelector('[data-testid="reader-headers"]')!);
+ await waitFor(()=>expect(child.closed).toBe(true));expect(handle.isDetached()).toBe(false);
+ expect(await screen.findByRole('dialog',{name:'Raw message headers'})).toBeInTheDocument();
+ expect(fetchMailHeaders).toHaveBeenCalledWith('/mail/raw',expect.any(AbortSignal));
 });

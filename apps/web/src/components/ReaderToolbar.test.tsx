@@ -4,24 +4,39 @@ import {ReaderToolbar,PRIORITY} from './ReaderToolbar.tsx';
 import {inspectMessageLink} from '../viewers/messageLinks.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import type {Email} from '../api/jmap-types.ts';
+import {fetchMailHeaders} from '../api/mailHeaders.ts';
 
 const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn(),archive:vi.fn(),trash:vi.fn(),spam:vi.fn(),search:vi.fn()}));
 vi.mock('../realtime/context.ts',()=>({useRealtime:()=>({subTabs:{tabs:()=>[],activate:vi.fn()}})}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:state.jmap})}));
+vi.mock('../api/mailHeaders.ts',async original=>({...await original<typeof import('../api/mailHeaders.ts')>(),fetchMailHeaders:vi.fn()}));
 vi.mock('../api/settings.ts',()=>({settings:()=>({'reader.actionStyle':{value:'icons'}})}));
 vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:state.search,mailboxes:()=>[],openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
 
 const email=(over:Partial<Email>={}):Email=>({id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@example.org'}],keywords:{$seen:true},mailboxIds:{inbox:true},...over}) as Email;
 const thread=(ids:string[])=>({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:ids}],notFound:[]},'thread']]});
 const security={value:'full-sanitized' as const,floor:null,onChange:vi.fn()};
-function toolbar(over:{email?:Email;links?:ReturnType<typeof inspectMessageLink>[]}={}){
- return render(()=><ReaderToolbar email={over.email??email()} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={(over.links??[]).filter(link=>link!==null)} linksTruncated={false} linkScope="a:m1" security={security}/>);
+function toolbar(over:{email?:Email;links?:ReturnType<typeof inspectMessageLink>[];headersUrl?:string}={}){
+ return render(()=><ReaderToolbar email={over.email??email()} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={(over.links??[]).filter(link=>link!==null)} linksTruncated={false} linkScope="a:m1" {...(over.headersUrl?{headersUrl:over.headersUrl}:{})} headersScope="account:message" security={security}/>);
 }
 
 beforeEach(()=>activateAccountPreferences('a'));
 afterEach(()=>{suspendAccountPreferences();vi.clearAllMocks();vi.unstubAllGlobals();vi.restoreAllMocks();});
 
 describe('reader action row: conversation and links',()=>{
+ it('opens original message headers beside the view selector on demand and returns focus on close',async()=>{
+  state.jmap.mockResolvedValue(thread(['m1']));vi.mocked(fetchMailHeaders).mockResolvedValue('Subject: Hello\r\nReceived: folded\r\n\tcontinued');
+  toolbar({headersUrl:'/mail/raw'});
+  const trigger=screen.getByRole('button',{name:'Raw message headers'});
+  expect(document.querySelector('[data-reader-item="security"]')?.nextElementSibling).toBe(trigger.closest('[data-reader-item="headers"]'));
+  expect(trigger).toHaveAttribute('aria-haspopup','dialog');expect(fetchMailHeaders).not.toHaveBeenCalled();
+  fireEvent.click(trigger);
+  const dialog=await screen.findByRole('dialog',{name:'Raw message headers'});
+  await waitFor(()=>expect(within(dialog).getByLabelText('Raw message headers')).toHaveTextContent('Subject: Hello'));
+  expect(fetchMailHeaders).toHaveBeenCalledWith('/mail/raw',expect.any(AbortSignal));
+  fireEvent.keyDown(dialog,{key:'Escape'});await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());
+  expect(trigger).toHaveFocus();
+ });
  it('moves related search into the actions row and preserves domain search',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));toolbar();
   const trigger=await screen.findByRole('button',{name:'Search related messages'});
@@ -93,5 +108,14 @@ describe('reader action row: overflow into More',()=>{
   const resize=layout(4000);toolbar();resize();await Promise.resolve();
   expect(screen.getByRole('toolbar').querySelectorAll('[data-reader-item][hidden]')).toHaveLength(0);
   expect(screen.getByTestId('reader-more')).toHaveAttribute('tabindex','-1');expect(screen.getByTestId('reader-more')).toHaveAttribute('aria-hidden','true');
+ });
+ it('keeps the header dialog reachable from More on narrow readers',async()=>{
+  state.jmap.mockResolvedValue(thread(['m1']));vi.mocked(fetchMailHeaders).mockResolvedValue('Subject: Narrow');
+  const resize=layout(40*6+4*6);toolbar({headersUrl:'/mail/raw'});resize();await Promise.resolve();resize();
+  expect(screen.queryByRole('button',{name:'Raw message headers'})).toBeNull();
+  const more=screen.getByRole('button',{name:'More actions'});fireEvent.click(more);
+  fireEvent.click(within(screen.getByRole('menu',{name:'More actions'})).getByRole('menuitem',{name:'Raw message headers'}));
+  const dialog=await screen.findByRole('dialog',{name:'Raw message headers'});
+  fireEvent.keyDown(dialog,{key:'Escape'});await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());expect(more).toHaveFocus();
  });
 });

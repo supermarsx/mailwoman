@@ -906,3 +906,12 @@ mail-bulk-selection-load-failed = Não foi possível selecionar toda a pasta. Ve
 
 mail-export-forbidden = O administrador desativou a exportação de mensagens para esta conta.
 mail-export-open-failed = Não foi possível abrir as opções de exportação. Feche um separador e tente novamente.
+
+mail-headers-title = Cabeçalhos originais da mensagem
+mail-headers-action-help = Ver os cabeçalhos originais da mensagem, incluindo os detalhes de entrega e autenticação.
+mail-headers-help = Cabeçalhos originais da mensagem. As linhas dobradas são preservadas; apenas os cabeçalhos são apresentados aqui.
+mail-headers-loading = A carregar os cabeçalhos da mensagem…
+mail-headers-failed = Não foi possível carregar os cabeçalhos da mensagem. Verifique a ligação e tente novamente.
+mail-headers-copy = Copiar cabeçalhos
+mail-headers-copied = Cabeçalhos copiados.
+mail-headers-copy-failed = Não foi possível copiar os cabeçalhos. Selecione o texto para o copiar manualmente.

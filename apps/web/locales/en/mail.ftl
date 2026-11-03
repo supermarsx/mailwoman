@@ -922,3 +922,12 @@ mail-bulk-selection-load-failed = The full folder could not be selected. Check y
 
 mail-export-forbidden = Your administrator has disabled message export for this account.
 mail-export-open-failed = Export options could not be opened. Close a workspace tab and try again.
+
+mail-headers-title = Raw message headers
+mail-headers-action-help = View the original message headers, including delivery and authentication details.
+mail-headers-help = Original headers from the message. Folded lines are preserved; only headers are shown here.
+mail-headers-loading = Loading message headers…
+mail-headers-failed = Message headers could not be loaded. Check your connection and try again.
+mail-headers-copy = Copy headers
+mail-headers-copied = Headers copied.
+mail-headers-copy-failed = Headers could not be copied. Select the text to copy it manually.

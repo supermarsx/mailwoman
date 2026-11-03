@@ -32,10 +32,11 @@ import * as css from './readerToolbar.css.ts';
 import {t} from '../i18n/index.ts';
 import {zoomRowAction} from './ReaderZoom.tsx';
 import {focusActions} from './MessageContextMenu.tsx';
+import {RawMessageHeaders} from './RawMessageHeaders.tsx';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,sweep:12,print:13,export:14,zoom:10.5,search:6.5,
+ reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,zoom:10.5,search:6.5,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -53,12 +54,16 @@ export function ReaderToolbar(props:{
  linksTruncated:boolean;
  /** Identity of the displayed document; a new one closes the link review. */
  linkScope:string;
+ /** Exact raw-message download URL and account/message authority scope. */
+ headersUrl?:string|null;
+ headersScope?:string;
  onCompose?:(draft:ComposeInitial)=>void;
  security:{value:SecurityMode;floor:SecurityMode|null;onChange:(mode:SecurityMode)=>void};
 }):JSX.Element {
  const app=useApp();
  const realtime=useRealtime();
  const [sweeping,setSweeping]=createSignal(false);
+ const [headersOpen,setHeadersOpen]=createSignal(false);
  const id=()=>props.email.id;
  const sender=()=>props.email.from?.[0]?.email??'';
  const pinned=()=>props.email.pinned===true;
@@ -66,6 +71,8 @@ export function ReaderToolbar(props:{
  const flagged=()=>props.email.keywords?.['$flagged']===true;
  const conversation=createConversation({threadId:()=>props.email.threadId??undefined,messageId:id,active:()=>props.active});
  const linkReview=createLinkReview({links:()=>props.links,truncated:()=>props.linksTruncated,scope:()=>props.linkScope,active:()=>props.active,...(props.onCompose?{onCompose:props.onCompose}:{})});
+ createEffect(()=>{void props.headersUrl;void props.headersScope;void app.accountId();void id();void props.active;setHeadersOpen(false);});
+ function closeHeaders():void {setHeadersOpen(false);if(folded().has('headers'))moreButton?.focus();else row?.querySelector<HTMLButtonElement>('[data-testid="reader-headers"]')?.focus();}
 
  /** A plain button action: the same descriptor drives the row and the menu. */
  function plain(spec:{id:string;icon:()=>IconName;label:()=>string;help:()=>string;testId?:string;disabled?:()=>boolean;pressed?:()=>boolean;run:()=>void;groupEnd?:boolean;local?:boolean}):RowAction {
@@ -106,8 +113,11 @@ export function ReaderToolbar(props:{
   security:{id:'security',
    inline:()=><ReaderViewMode value={props.security.value} floor={props.security.floor} onChange={props.security.onChange} scope={`${app.accountId()}:${id()}`}/>,
    menu:()=>viewModeActions(props.security,true)},
+  headers:{id:'headers',
+   inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
+   menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom','search',...(sender()!==''?['sweep']:[]),'security'],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.headersUrl?['headers']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const menuOnly=():ContextAction[]=>focusActions(app,props.email);
 
  // ── Fitting ────────────────────────────────────────────────────────────────
@@ -151,6 +161,7 @@ export function ReaderToolbar(props:{
    {menu.menu()}
    {conversation.dialog()}
    {linkReview.dialog()}
+   <Show when={headersOpen()&&props.active&&props.headersUrl}>{url=><RawMessageHeaders url={url()} scope={props.headersScope??`${app.accountId()}:${id()}`} onClose={closeHeaders}/>}</Show>
    <Show when={sweeping()}><SweepDialog fromEmail={sender()} onClose={()=>setSweeping(false)}/></Show>
   </div>
  );
