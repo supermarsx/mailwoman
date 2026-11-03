@@ -3,6 +3,8 @@ import {AsyncError,AsyncPending} from './AsyncState.tsx';
 import {createInitialSync} from './initialSync.ts';
 import * as loadingCss from './asyncState.css.ts';
 import * as listLoadingCss from './messageListLoading.css.ts';
+import {createMessageListMotion} from './messageListMotion.ts';
+import {observePreferenceAccount,preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import {createMessageContextMenu} from './MessageContextMenu.tsx';
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {EmptyTrash} from './EmptyTrash.tsx';
@@ -154,6 +156,7 @@ function MessageRow(props: {
   return (
     <li
       class={`list__slot ${rowCss.slot}`}
+      data-motion-row={`m:${email().id}`}
       role="listitem"
       aria-posinset={props.index + 1}
       aria-setsize={props.total}
@@ -284,6 +287,7 @@ function ThreadHeadRow(props: {
   return (
     <li
       class={`list__slot ${rowCss.slot} ${thread.headSlot}`}
+      data-motion-row={`h:${props.row.key}`}
       role="listitem"
       aria-posinset={props.index + 1}
       aria-setsize={props.total}
@@ -744,6 +748,19 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
   const slice = createMemo(() => {
     const s = split();
     return rows().slice(s.loadedStart, s.loadedEnd).map(rowId);
+  });
+  const motionIds=createMemo(()=>rows().map(rowId));
+  const listMotion=createMessageListMotion();
+  const stopMotionAuthority=observePreferenceAccount(()=>listMotion.clear());
+  onCleanup(()=>{stopMotionAuthority();listMotion.dispose();});
+  createEffect(()=>{
+    // The window/scroll reads refresh only the bounded visible geometry. The
+    // complete immutable ID list is rebuilt only when the visual query changes.
+    slice();scrollTop();
+    listMotion.update({host:scroller,ids:motionIds(),busy:app.listLoading()||app.loadingMore(),scope:JSON.stringify([
+      app.accountId(),preferenceAccount()?.generation,app.selectedMailboxId(),app.searchActive(),app.search?.(),
+      rowHeight(),settings()['mail.messageListOrder']?.value,[...expanded()].sort(),
+    ])});
   });
   // The mounted slots with no row yet, as absolute indices. Plain numbers so
   // `<For>` reconciles them by value and reuses the slot elements a scroll keeps.
