@@ -146,6 +146,20 @@ export const BROKEN_IMAGE_STYLE =
   'img[alt=""]::before,img[alt=""]::after,img:not([alt])::before,img:not([alt])::after{content:none}' +
   '@supports (-moz-appearance:none){img::after{position:relative;display:block;max-width:100%;min-width:22px}}';
 
+/** Per-image loading chrome is removed by the hash-authorized frame handler.
+ * Sender sizing remains authoritative; only a genuinely empty unsized box
+ * receives a small temporary minimum. Stop animation after thirty seconds,
+ * leaving a static placeholder if the network itself has not settled. */
+export const IMAGE_LOADING_STYLE =
+  'img[data-mw-image-state="loading"]{background-color:var(--mw-color-surface,#f3f4f6)!important;' +
+  'background-image:linear-gradient(100deg,transparent 25%,var(--mw-color-border,rgba(127,127,127,.18)) 50%,transparent 75%)!important;' +
+  'background-size:200% 100%!important;background-repeat:no-repeat!important;' +
+  'animation:mw-reader-image-loading 1.5s ease-in-out 20}' +
+  'img[data-mw-image-state="loading"]::before,img[data-mw-image-state="loading"]::after{content:none}' +
+  'img[data-mw-image-state="loading"][data-mw-image-unsized]{min-width:24px;min-height:18px}' +
+  '@keyframes mw-reader-image-loading{from{background-position:100% 0}to{background-position:-100% 0}}' +
+  '@media(prefers-reduced-motion:reduce){img[data-mw-image-state="loading"]{animation:none}}';
+
 /** Minimal readable body styling (distinct from the media-centering FRAME_STYLE).
  *  The opaque-origin body frame can't inherit the parent's theme vars, so e8
  *  passes the stable `--mw-*` block via `opts.themeVars`. */
@@ -238,7 +252,7 @@ export function bodyFrameDoc(
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
-    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE : ''}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
+    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
   );
 }
 

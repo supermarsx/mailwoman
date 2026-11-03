@@ -5,6 +5,45 @@
   let port = null;
   let nonce = null;
   let revision = 0;
+  let imageObserver = null;
+  let imagesClosed = false;
+  function imageState(image, pending = false) {
+    if (imagesClosed || image?.tagName !== 'IMG') return;
+    if (!image.getAttribute('src') && !image.getAttribute('srcset')) {
+      image.removeAttribute('data-mw-image-state');
+      image.removeAttribute('data-mw-image-unsized');
+      return;
+    }
+    const state = pending || !image.complete ? 'loading' : image.naturalWidth > 0 ? 'loaded' : 'error';
+    image.setAttribute('data-mw-image-state', state);
+    if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && !image.getBoundingClientRect().width && !image.getBoundingClientRect().height) image.setAttribute('data-mw-image-unsized', '');
+    else if (state !== 'loading') image.removeAttribute('data-mw-image-unsized');
+  }
+  function imageSettled(event) { imageState(event.target); }
+  function imageAdded(node) {
+    if (node?.nodeType !== 1) return;
+    if (node.tagName === 'IMG') imageState(node);
+    node.querySelectorAll('img').forEach(image => imageState(image));
+  }
+  function observeImages() {
+    if (imagesClosed || imageObserver) return;
+    document.querySelectorAll('img').forEach(image => imageState(image));
+    imageObserver = new MutationObserver(records => {
+      if (imagesClosed) return;
+      for (const record of records) {
+        if (record.type === 'attributes') {
+          const image = record.target;
+          imageState(image, true);
+          // A cached resource can already be complete before the mutation
+          // observer runs; settle it without waiting for another load event.
+          queueMicrotask(() => imageState(image));
+        } else record.addedNodes.forEach(imageAdded);
+      }
+    });
+    imageObserver.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['src', 'srcset'] });
+    document.addEventListener('load', imageSettled, true);
+    document.addEventListener('error', imageSettled, true);
+  }
   const bytes = value => new TextEncoder().encode(value).length;
   function mailbox(address) {
     if (!address || bytes(address) > 254 || /[\p{Cc}\p{Cs}]/u.test(address)) return null;
@@ -67,7 +106,7 @@
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', parsed, { once: true });
     else parsed();
   }
-  function parsed() { if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
+  function parsed() { observeImages(); if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
   addEventListener('message', initialize);
   document.addEventListener('contextmenu', event => {
     if (!event.isTrusted || event.defaultPrevented || !port) return;
@@ -83,6 +122,6 @@
     event.preventDefault();
     port.postMessage({ type: 'address-context', nonce, revision, address, x: event.clientX, y: event.clientY });
   }, true);
-  addEventListener('pagehide', () => { port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
+  addEventListener('pagehide', () => { imagesClosed = true; imageObserver?.disconnect(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
   parent.postMessage({ type: 'mw-reader-address-ready' }, '*');
 })();

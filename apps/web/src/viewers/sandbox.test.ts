@@ -118,3 +118,16 @@ describe('broken remote image placeholder (t56)', () => {
     expect(selectors).toEqual(expect.arrayContaining(['img', 'img::before', 'img::after']));
   });
 });
+
+it('ships bounded, reduced-motion-aware loading placeholders only for image-enabled bodies', async () => {
+  const { IMAGE_LOADING_STYLE } = await import('./sandbox.ts');
+  expect(bodyFrameDoc('full-sanitized', {html:'<img src="cid:logo" width="320" height="160">'})).toContain(IMAGE_LOADING_STYLE);
+  expect(bodyFrameDoc('sanitized-no-media', {html:'<img src="cid:logo">'})).not.toContain(IMAGE_LOADING_STYLE);
+  expect(bodyFrameDoc('plain-text', {text:'Hello'})).not.toContain(IMAGE_LOADING_STYLE);
+  expect(IMAGE_LOADING_STYLE).toContain('var(--mw-color-surface,');
+  expect(IMAGE_LOADING_STYLE).toContain('var(--mw-color-border,');
+  expect(IMAGE_LOADING_STYLE).toContain('1.5s ease-in-out 20');
+  expect(IMAGE_LOADING_STYLE).toContain('@media(prefers-reduced-motion:reduce)');
+  expect(IMAGE_LOADING_STYLE).not.toMatch(/infinite|url\(|https?:/);
+  expect(IMAGE_LOADING_STYLE).toContain('img[data-mw-image-state="loading"]::before');
+});

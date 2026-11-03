@@ -8,7 +8,7 @@ function handler(){
  const listeners=new Map<string,(event:Record<string,unknown>)=>void>();
  let context:((event:Record<string,unknown>)=>void)|undefined;
  const documentListeners=new Map<string,()=>void>();
- const doc={readyState:'loading',removeEventListener:(type:string)=>documentListeners.delete(type),addEventListener:(type:string,fn:typeof context)=>{if(type==='contextmenu')context=fn;else if(fn)documentListeners.set(type,fn as ()=>void);},caretPositionFromPoint:()=>null as {offsetNode:Text;offset:number}|null,createRange:()=>({setStart:vi.fn(),setEnd:vi.fn(),getClientRects:()=>[{left:0,right:999,top:0,bottom:999}]})};
+ const doc={readyState:'loading',body:document.createElement('body'),querySelectorAll:()=>[],removeEventListener:(type:string)=>documentListeners.delete(type),addEventListener:(type:string,fn:typeof context)=>{if(type==='contextmenu')context=fn;else if(fn)documentListeners.set(type,fn as ()=>void);},caretPositionFromPoint:()=>null as {offsetNode:Text;offset:number}|null,createRange:()=>({setStart:vi.fn(),setEnd:vi.fn(),getClientRects:()=>[{left:0,right:999,top:0,bottom:999}]})};
  new Function('document','parent','addEventListener','removeEventListener',source)(doc,parent,(type:string,fn:(event:Record<string,unknown>)=>void)=>listeners.set(type,fn),(type:string)=>listeners.delete(type));
  const init={source:parent,origin:'null',data:{type:'mw-reader-address-init',nonce:'a'.repeat(48),revision:1},ports:[port]};
  const anchor=document.createElement('a');
