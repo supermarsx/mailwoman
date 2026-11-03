@@ -100,7 +100,8 @@ export interface Email {
   messageId?: string[] | null;
   inReplyTo?: string[] | null;
   references?: string[] | null;
-  preview: string;
+  /** Native MIME reports null when a message has no readable body text. */
+  preview: string | null;
   htmlBody?: EmailBodyPart[];
   textBody?: EmailBodyPart[];
   bodyValues?: Record<string, EmailBodyValue>;

@@ -186,7 +186,7 @@ function plainTextOf(email: Email): string {
   const text = (email.textBody ?? [])
     .map((p) => (p.partId !== null ? (values[p.partId]?.value ?? '') : ''))
     .join('\n');
-  return text.length > 0 ? text : email.preview;
+  return text.length > 0 ? text : (email.preview ?? '');
 }
 
 function addressList(addrs: EmailAddress[] | null): string {

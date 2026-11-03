@@ -28,6 +28,11 @@ const corpus: Email[] = [
 ];
 
 describe('matchesOffline', () => {
+  it('keeps a bodyless DMARC report searchable without treating its null preview as text', () => {
+    const report = email({ id: 'dmarc', subject: 'Report domain: example.org', preview: null, hasAttachment: true });
+    expect(matchesOffline(report, { body: 'anything' })).toBe(false);
+    expect(offlineSearch([report], { text: 'Report domain', hasAttachment: true })).toEqual([report]);
+  });
   it('keeps excluded Trash out of cached results and honors an explicit Trash scope',()=>{
     const inbox=email({id:'inbox-hit'}),trash=email({id:'trash-hit',mailboxIds:{trash:true}});
     expect(offlineSearch([inbox,trash],{inMailboxOtherThan:['trash']})).toEqual([inbox]);

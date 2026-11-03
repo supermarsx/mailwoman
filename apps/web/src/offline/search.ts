@@ -49,7 +49,7 @@ export function matchesOffline(email: Email, q: OfflineQuery): boolean {
   if (q.from !== undefined && !includesCI(addressText(email.from), q.from)) return false;
   if (q.to !== undefined && !includesCI(addressText(email.to), q.to)) return false;
   if (q.subject !== undefined && !includesCI(email.subject ?? '', q.subject)) return false;
-  if (q.body !== undefined && !includesCI(email.preview, q.body)) return false;
+  if (q.body !== undefined && !includesCI(email.preview ?? '', q.body)) return false;
   if (q.hasKeyword !== undefined && email.keywords?.[q.hasKeyword] !== true) return false;
   if (q.notKeyword !== undefined && email.keywords?.[q.notKeyword] === true) return false;
   if (q.hasAttachment !== undefined && (email.hasAttachment ?? false) !== q.hasAttachment) return false;

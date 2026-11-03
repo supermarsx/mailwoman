@@ -2327,7 +2327,7 @@ export function extractHtmlBody(email: Email): string {
   const text = email.textBody
     ?.map((p) => (p.partId !== null ? (values[p.partId]?.value ?? '') : ''))
     .join('\n');
-  const fallback = text && text.length > 0 ? text : email.preview;
+  const fallback = text && text.length > 0 ? text : (email.preview ?? '');
   return `<pre>${escapeHtml(fallback)}</pre>`;
 }
 

@@ -1530,6 +1530,12 @@ describe('extractHtmlBody', () => {
   // Pure, and load-bearing: its return value becomes the reader iframe's
   // srcdoc. The escaping branch is the one that must not regress.
   const base = email('x');
+  it('keeps an attachment-only DMARC report readable when the wire preview is null or absent', () => {
+    const report: Email & { attachments: Array<EmailBodyPart & { name: string }> } = { ...base, preview: null, htmlBody: [], textBody: [], bodyValues: {}, attachments: [{ ...part('report', 'application/gzip'), name: 'example.org!20261103.xml.gz' }] };
+    expect(extractHtmlBody(report)).toBe('<pre></pre>');
+    const missing: Partial<Email> = { ...report }; delete missing.preview;
+    expect(extractHtmlBody(missing as Email)).toBe('<pre></pre>');
+  });
 
   it('prefers the HTML part when the message has one', () => {
     expect(
@@ -1588,6 +1594,25 @@ describe('extractHtmlBody', () => {
         preview: 'fallback',
       } as Email),
     ).toBe('<pre>fallback</pre>');
+  });
+});
+
+describe('attachment-only report message loading', () => {
+  it('opens a native DMARC report in a retained reader and preserves its compressed report attachment', async () => {
+    const report = { ...email('dmarc-report', { preview: null, subject: 'Report domain: example.org Submitter: reporter.example', htmlBody: [], textBody: [], bodyValues: {} }), attachments: [{ ...part('report', 'application/gzip'), name: 'reporter.example!example.org!20261103.xml.gz' }] };
+    // Native mw-jmap serializes preview:None as null when MIME has no body text.
+    await withInbox([report], async (mail, { client }) => {
+      const view = mail.createReaderView();
+      try {
+        await view.openMessage(report.id);
+        expect(view.error()).toBeUndefined();
+        expect(view.readLoading()).toBe(false);
+        expect(view.openEmail()?.id).toBe(report.id);
+        expect(view.sanitizedHtml()).toBe('<pre></pre>');
+        expect(client.sanitize).toHaveBeenCalledWith('<pre></pre>');
+        expect((view.openEmail() as typeof report | null)?.attachments).toEqual(report.attachments);
+      } finally { view.dispose(); }
+    });
   });
 });
 
