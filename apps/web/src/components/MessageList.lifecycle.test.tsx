@@ -32,6 +32,7 @@ import { AppContext } from '../state/context.ts';
 import { createAppState, type AppState } from '../state/store.ts';
 import type { Client } from '../api/client.ts';
 import type { Email, EmailGetResponse, JmapResponse } from '../api/jmap-types.ts';
+import {clearSettings,loadSettings} from '../api/settings.ts';
 
 const ROW = 72; // cozy density, the harness default
 const CREDS = { username: 'me@example.org', password: 'p' };
@@ -416,6 +417,32 @@ describe('MessageList paging trigger (t22-e5b)', () => {
 
 describe('MessageList describes the folder, not the page (t22-e5b, L4)', () => {
   beforeEach(() => localStorage.clear());
+
+  it.each([{known:true,table:false},{known:false,table:false},{known:false,table:true}])('fills a held continuation with skeleton rows and replaces them without shifting selection or scroll (known=$known, table=$table)',async({known,table})=>{
+    const corpus=Array.from({length:200},(_,i)=>mkEmail(`m${i+1}`,{subject:`Message ${i+1}`}));const queries:PagedQuery[]=[];const base=pagingClient(corpus,queries);
+    let release!:()=>void,appendCalls=0;const continuation=new Promise<void>(resolve=>{release=resolve;});
+    const client:Client={...base,jmap:async(body)=>{
+      const query=body.methodCalls.find(call=>call[0]==='Email/query');
+      if(typeof query?.[1]['position']==='number'&&query[1]['position']>0){appendCalls++;await continuation;}
+      const response=await base.jmap(body);if(known)return response;
+      return {...response,methodResponses:response.methodResponses.map((call):JmapResponse['methodResponses'][number]=>{if(call[0]!=='Email/query')return call;const value={...call[1]};delete value['total'];return [call[0],value,call[2]];})};
+    }};
+    const app=createAppState(client);const result=render(()=><AppContext.Provider value={app}><MessageList/></AppContext.Provider>);
+    try{
+      await app.login(CREDS);await waitFor(()=>expect(app.messages()).toHaveLength(50));
+      if(table)await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.messageListStyle':{value:'table',source:'user',locked:false}}}))});
+      const height=table?44:ROW;const scroller=result.container.querySelector('.list__scroll') as HTMLElement;makeScrollable(scroller);
+      fireEvent.click(result.container.querySelector('.list__row')!,{ctrlKey:true});expect(app.selectedIds()).toEqual(new Set(['m1']));
+      scrollTo(scroller,40*height);await waitFor(()=>expect(app.loadingMore()).toBe(true));scrollTo(scroller,50*height);
+      const held=result.container.querySelector('[data-email-id="m45"]');expect(held).not.toBeNull();const top=scroller.scrollTop;
+      const placeholders=result.container.querySelectorAll('[data-skeleton="message-row"]');expect(placeholders.length).toBeGreaterThanOrEqual(Math.ceil(600/height));
+      for(const shape of placeholders){expect(shape).toHaveAttribute('aria-hidden','true');expect(shape.querySelectorAll('span').length).toBeGreaterThan(2);expect(shape.querySelector('button,input,a,[tabindex]')).toBeNull();expect((shape.closest('li') as HTMLElement).style.height).toBe(`${height}px`);}
+      if(!known){expect(app.total()).toBeNull();expect(result.container.querySelector('.list__slot--pending')).toHaveAttribute('role','presentation');}
+      expect(appendCalls).toBe(1);expect(scroller.scrollTop).toBe(top);expect(app.selectedIds()).toEqual(new Set(['m1']));
+      release();await waitFor(()=>expect(app.messages()).toHaveLength(100));await waitFor(()=>expect(app.loadingMore()).toBe(false));
+      expect(renderedSubjects(result.container)).toContain('Message 51');expect(result.container.querySelectorAll('[data-skeleton="message-row"]')).toHaveLength(0);expect(scroller.scrollTop).toBe(top);expect(result.container.querySelector('[data-email-id="m45"]')).toBe(held);expect(app.selectedIds()).toEqual(new Set(['m1']));
+    }finally{release();result.unmount();clearSettings();}
+  });
 
   it('sizes the scrollbar and aria-setsize from the QUERY total', async () => {
     const { app, container } = await mountPaged(20_000);

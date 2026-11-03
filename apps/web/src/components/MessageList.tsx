@@ -2,6 +2,7 @@ import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
 import {AsyncError,AsyncPending} from './AsyncState.tsx';
 import {createInitialSync} from './initialSync.ts';
 import * as loadingCss from './asyncState.css.ts';
+import * as listLoadingCss from './messageListLoading.css.ts';
 import {createMessageContextMenu} from './MessageContextMenu.tsx';
 import {PersonAvatar} from './PersonAvatar.tsx';
 import {EmptyTrash} from './EmptyTrash.tsx';
@@ -225,17 +226,35 @@ function MessageRow(props: {
  * cursor stays inside loaded rows, because focusing a slot with no message would
  * announce nothing and strand the cursor.
  */
-function PlaceholderRow(props: { top: number; height: number; index: number; total: number }): JSX.Element {
+function PlaceholderRow(props: { top: number; height: number; index: number; total: number|null;table:boolean;preview:boolean }): JSX.Element {
   return (
     <li
       class={`list__slot list__slot--pending ${rowCss.slot}`}
-      role="listitem"
+      role={props.total===null?'presentation':'listitem'}
+      aria-hidden={props.total===null?true:undefined}
       aria-busy="true"
-      aria-posinset={props.index + 1}
-      aria-setsize={props.total}
+      aria-posinset={props.total===null?undefined:props.index + 1}
+      aria-setsize={props.total??undefined}
       style={{ transform: `translateY(${props.top}px)`, height: `${props.height}px` }}
     >
       <span class={a11y.srOnly}>{t('mail-loading')}</span>
+      <div aria-hidden="true" data-skeleton="message-row" class={`${props.table?listLoadingCss.table:loadingCss.messageSkeleton} ${listLoadingCss.row}`}>
+        <Show when={props.table} fallback={
+          <>
+            <div class={loadingCss.messageSkeletonHead}>
+              <span class={`${loadingCss.messageSkeletonAvatar} ${loadingCss.skeletonPulse}`}/>
+              <span class={`${loadingCss.skeletonLine} ${loadingCss.skeletonPulse} ${listLoadingCss.sender}`}/>
+              <span class={`${loadingCss.messageSkeletonDate} ${loadingCss.skeletonPulse}`}/>
+            </div>
+            <span class={`${loadingCss.skeletonLine} ${loadingCss.skeletonPulse} ${listLoadingCss.subject}`}/>
+            <Show when={props.preview}><span class={`${loadingCss.skeletonLine} ${loadingCss.messageSkeletonDim} ${loadingCss.skeletonPulse} ${listLoadingCss.preview}`}/></Show>
+          </>
+        }>
+          <span class={`${loadingCss.skeletonLine} ${loadingCss.skeletonPulse} ${listLoadingCss.subject}`}/>
+          <span class={`${loadingCss.skeletonLine} ${loadingCss.skeletonPulse} ${props.preview?listLoadingCss.preview:listLoadingCss.subjectWithoutPreview}`}/>
+          <span class={`${loadingCss.messageSkeletonDate} ${loadingCss.skeletonPulse} ${listLoadingCss.date}`}/>
+        </Show>
+      </div>
     </li>
   );
 }
@@ -396,11 +415,14 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
   // rather than the page — before paging they described `rows().length`, so a
   // 20 000-message folder announced "1 of 50" behind a 3 600px scrollbar.
   const spanRows = createMemo(() => projectedRowCount(rows().length, app.total(), app.loadedRange().end));
+  // An unknown query total stays unknown. Reserve only one viewport of
+  // decorative loading space while its next page is actually in flight.
+  const loadingTail=()=>app.total()===null&&app.loadingMore()?Math.ceil(viewportH()/rowHeight()):0;
   // `computeWindow` returns a fresh object every call, so without a comparator
   // this memo notifies on every scroll EVENT — including the many that leave
   // the mounted slice unchanged — and rebuilt the whole window each time.
   const win = createMemo(
-    () => computeWindow(scrollTop(), viewportH(), rowHeight(), spanRows()),
+    () => computeWindow(scrollTop(), viewportH(), rowHeight(), spanRows()+loadingTail()),
     undefined,
     { equals: sameWindow },
   );
@@ -745,7 +767,7 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
   onCleanup(() => loadToast.cancel());
 
   return (
-    <section class="list" data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || showSkeleton()}>
+    <section class="list" data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
       <ListToolbar hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={String(settings()['mail.messageListOrder']?.value??'newest')} disabled={settings()['mail.messageListOrder']?.locked===true} onChange={event=>void writeSetting('mail.messageListOrder',event.currentTarget.value).catch(()=>app.showToast('error',t('mail-list-order-error')))}><For each={['newest','oldest','sender','subject']}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
@@ -781,7 +803,9 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
                     top={index * rowHeight()}
                     height={rowHeight()}
                     index={index}
-                    total={spanRows()}
+                    total={app.total()===null?null:spanRows()}
+                    table={tableMode()}
+                    preview={settings()['mail.messageListPreview']?.value!==false}
                   />
                 )}
               </For>
