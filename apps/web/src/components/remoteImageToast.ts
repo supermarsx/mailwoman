@@ -44,10 +44,12 @@ export const TOAST_DONE_MS = 2_000;
 export const STATS_SETTLE_MS = 1_500;
 /** Give up waiting for counters this long after start. */
 export const LOAD_CAP_MS = 30_000;
+/** Allow the final frame event to arrive after the server's bounded image work. */
+export const LOAD_GRACE_MS=5_000;
 /** While "Loading images…" is shown, read the counters this often. */
 export const POLL_MS = 1_000;
 export const AUTO_RETRY_DELAY_MS = 5_000;
-export const MAX_AUTO_RETRIES = 2;
+export const MAX_AUTO_RETRIES = 3;
 
 export interface ToastSink {
   show: (tone: ToastTone, message: string, opts?: ToastOptions) => string;
@@ -72,7 +74,7 @@ export interface ImageLoadToast {
   running(): string | null;
 }
 
-export function createImageLoadToast(opts: { id: string; retry: () => void; sink?: ToastSink }): ImageLoadToast {
+export function createImageLoadToast(opts: { id: string; retry: () => void; sink?: ToastSink;retryAttempts?:Accessor<number> }): ImageLoadToast {
   const sink = opts.sink ?? toastStore;
   let key: string | null = null;
   let finished: string | null = null;
@@ -82,7 +84,7 @@ export function createImageLoadToast(opts: { id: string; retry: () => void; sink
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   function render(): void {
-    const text = attempt > 0 ? t('remote-images-toast-retrying-progress', {loaded:completed ?? 0,total,attempt,max:MAX_AUTO_RETRIES}) : completed === null ? t('remote-images-toast-loading') : t('remote-images-toast-progress',{loaded:completed,total});
+    const text = attempt > 0 ? t('remote-images-toast-retrying-progress', {loaded:completed ?? 0,total,attempt,max:opts.retryAttempts?.()??MAX_AUTO_RETRIES}) : completed === null ? t('remote-images-toast-loading') : t('remote-images-toast-progress',{loaded:completed,total});
     if (text === lastText) return;
     lastText = text;
     sink.show('info', text, { id: opts.id, duration: Infinity, testId: 'remote-images-toast', busy:true });
@@ -156,6 +158,10 @@ export function createRemoteImageLoad(opts: {
   displayed: Accessor<number>;
   /** Authenticated counts for this exact visible document, null until known. */
   progress?: Accessor<ReaderImageProgress | null | undefined>;
+  /** Current effective server policy; absent fields preserve older servers. */
+  loadBudgetMs?:Accessor<number|undefined>;
+  retryAttempts?:Accessor<number|undefined>;
+  retryDelayMs?:Accessor<number|undefined>;
   /** `privacy.remoteImagesToast` is on. */
   toastEnabled: Accessor<boolean>;
   retry: (references?: readonly string[]) => void | Promise<void>;
@@ -164,9 +170,13 @@ export function createRemoteImageLoad(opts: {
   toastId?: string;
 }): { trackers: Accessor<SettledTrackers | null>; failures: Accessor<{count:number;retrying:boolean}|null>; retry:()=>void } {
   const fetchStats = opts.fetchStats ?? decodedTrackerStats;
+  const retryAttempts=():number=>{const value=opts.retryAttempts?.();return typeof value==='number'&&Number.isSafeInteger(value)&&value>=0&&value<=8?value:MAX_AUTO_RETRIES;};
+  const retryDelay=():number=>{const value=opts.retryDelayMs?.();return typeof value==='number'&&Number.isSafeInteger(value)&&value>=500&&value<=60_000?value:AUTO_RETRY_DELAY_MS;};
+  const loadWait=():number=>{const value=opts.loadBudgetMs?.();return typeof value==='number'&&Number.isSafeInteger(value)&&value>0&&value<=3_600_000?value+LOAD_GRACE_MS:LOAD_CAP_MS;};
   const toast = createImageLoadToast({
     id: opts.toastId ?? 'remote-images',
     retry: () => retry(false),
+    retryAttempts,
     ...(opts.sink ? { sink: opts.sink } : {}),
   });
   const [trackers, setTrackers] = createSignal<SettledTrackers | null>(null, { equals: (a, b) => a?.count === b?.count && a?.limited === b?.limited });
@@ -207,7 +217,7 @@ export function createRemoteImageLoad(opts: {
     const src=untrack(opts.source);if(disposed||!src||failures()?.retrying)return;
     const refs=automatic?lastStats?.retryableImageRefs:lastStats?.failedImageRefs;
     const references=!automatic&&failureCount()>0&&!refs?.length?undefined:refs;
-    if(automatic&&(!references?.length||attempts>=MAX_AUTO_RETRIES))return;
+    if(automatic&&(!references?.length||attempts>=retryAttempts()))return;
     clearTimeout(retryTimer);retryTimer=undefined;
     if(automatic)attempts++;else attempts=0;
     setFailures({count:failureCount(),retrying:true});
@@ -232,8 +242,8 @@ export function createRemoteImageLoad(opts: {
     if(opts.progress&&(!progress||progress.pending>0))return false;
     const failed=opts.progress?progress!.failed:stats?.imagesFailed;
     toast.finish(src.load,failed,settled&&(!opts.progress||progress!.total>0));
-    if(settled&&(!opts.progress||failed!>0)&&stats?.retryableImageRefs?.length&&attempts<MAX_AUTO_RETRIES&&retryTimer===undefined&&cappedLoad!==src.load){
-      retryTimer=setTimeout(()=>{retryTimer=undefined;if(current(src))retry(true);},AUTO_RETRY_DELAY_MS);
+    if(settled&&(!opts.progress||failed!>0)&&stats?.retryableImageRefs?.length&&attempts<retryAttempts()&&retryTimer===undefined){
+      retryTimer=setTimeout(()=>{retryTimer=undefined;if(current(src))retry(true);},retryDelay());
     }
     return true;
   }
@@ -301,7 +311,7 @@ export function createRemoteImageLoad(opts: {
         }
         if (!src.stats) { toast.finish(src.load, undefined, false); return; }
         void get(src).then((stats) => { if (current(src)) finish(src, stats, covers(stats, src.total)); });
-      }, LOAD_CAP_MS);
+      }, loadWait());
     } else toast.cancel();
   }));
 
@@ -320,10 +330,16 @@ export function createRemoteImageLoad(opts: {
   }, { defer: true }));
 
   if(opts.progress)createEffect(on([opts.source,opts.progress],([src])=>{
-    if(!src||!current(src)||cappedLoad===src.load)return;
+    if(!src||!current(src))return;
     const progress=frameProgress();if(!progress)return;
     update(src,null);
-    if(progress.pending===0){toast.displayed(src.load);finish(src,lastStats);clearTimeout(pollTimer);pollTimer=undefined;}
+    if(progress.pending===0){
+      toast.displayed(src.load);finish(src,lastStats);clearTimeout(pollTimer);pollTimer=undefined;
+      // The notification/poll budget can expire while actual images still
+      // load. Keep cheap authenticated frame counts live, and read fresh retry
+      // references once when that capped document eventually settles.
+      if(cappedLoad===src.load&&src.stats&&!read.has(src.load)){read.add(src.load);void get(src).then(stats=>{if(current(src))finish(src,stats);});}
+    }
   }));
 
   createEffect(on(opts.toastEnabled, (on) => { if (!on) { toast.cancel(); clearTimeout(pollTimer); pollTimer = undefined; } }, { defer: true }));

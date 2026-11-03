@@ -738,7 +738,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // again: any other preference write (the zoom level, t79) replaces the settings
   // map too, and a fresh key object would re-sign and reload the body.
   const [privacy] = createResource(
-    () => app.accountId() && emailId() ? JSON.stringify([app.accountId(), emailId(), ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads','privacy.trackerOverrideAllowed'].map(key => settings()[key]?.value ?? null)]) : null,
+    () => app.accountId() && emailId() ? JSON.stringify([app.accountId(), emailId(), ['privacy.remoteContent', 'privacy.trackers', 'privacy.cleanLinks', 'privacy.remoteImageDownloads','privacy.trackerOverrideAllowed','privacy.imageRetryAttempts','privacy.imageRetryDelayMs'].map(key => settings()[key]?.value ?? null)]) : null,
     async () => { try { const p = await remotePolicy(); return isNativeAuth() && p.mode === 'direct' ? { ...p, mode: 'ask' as const, allowDirect: false } : p; } catch { return BLOCKED_POLICY; } },
   );
   const policy = (): RemotePolicy => settled(privacy) ?? BLOCKED_POLICY;
@@ -1111,6 +1111,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     },
     displayed: bodyDisplays,
     progress: currentImageProgress,
+    loadBudgetMs:()=>policy().imageLoadBudgetMs,
+    retryAttempts:()=>policy().imageRetryAttempts,
+    retryDelayMs:()=>policy().imageRetryDelayMs,
     toastEnabled: () => effectiveSettings()['privacy.remoteImagesToast']?.value !== false,
     retry: retryFailedImages,
   });

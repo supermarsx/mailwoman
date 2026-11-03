@@ -9,6 +9,7 @@ import {
   AUTO_RETRY_DELAY_MS,
   MAX_AUTO_RETRIES,
   LOAD_CAP_MS,
+  LOAD_GRACE_MS,
   POLL_MS,
   STATS_SETTLE_MS,
   TOAST_DELAY_MS,
@@ -81,18 +82,46 @@ describe('createImageLoadToast', () => {
 
 describe('createRemoteImageLoad', () => {
   const stats = (over: Partial<RemoteContentStats> = {}): RemoteContentStats => ({ count: 2, limited: false, windowSecs: 3600, ...over });
-  function setup(fetch = vi.fn(async () => stats()),withProgress=false) {
+  function setup(fetch = vi.fn(async () => stats()),withProgress=false,initialPolicy:{budget?:number;attempts?:number;delay?:number}={}) {
     const s = sink();
     const [source, setSource] = createSignal<RemoteImageLoadSource | null>(null);
     const [displayed, setDisplayed] = createSignal(0);
     const [enabled, setEnabled] = createSignal(true);
     const [progress,setProgress]=createSignal<ReaderImageProgress|null>(null);
+    const [policy,setPolicy]=createSignal(initialPolicy);
     const retry = vi.fn();
     let dispose = (): void => undefined;
-    const hook = createRoot((d) => { dispose = d; return createRemoteImageLoad({ source, displayed, toastEnabled: enabled, retry, fetchStats: fetch, sink: s,...(withProgress?{progress}:{}) }); });
-    return { s, fetch, setSource, setDisplayed, setEnabled,setProgress, retry, hook, dispose: () => dispose() };
+    const hook = createRoot((d) => { dispose = d; return createRemoteImageLoad({ source, displayed, toastEnabled: enabled, retry, fetchStats: fetch, sink: s,loadBudgetMs:()=>policy().budget,retryAttempts:()=>policy().attempts,retryDelayMs:()=>policy().delay,...(withProgress?{progress}:{}) }); });
+    return { s, fetch, setSource, setDisplayed, setEnabled,setProgress,setPolicy, retry, hook, dispose: () => dispose() };
   }
   const body = (load: string, over: Partial<RemoteImageLoadSource> = {}): RemoteImageLoadSource => ({ scope: 'acc:M1', emailId: 'M1', load, total: 12, stats: true, ...over });
+
+  it('keeps long queued loads observable for the server budget plus notification grace',async()=>{
+    const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:0})),true,{budget:90000});
+    h.setSource(body('long'));h.setProgress({loaded:0,failed:0,pending:12,total:12});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS+5000);expect(h.s.dismissed).toEqual([]);expect(h.s.shown.at(-1)?.tone).toBe('info');
+    await vi.advanceTimersByTimeAsync(90000+LOAD_GRACE_MS-LOAD_CAP_MS-5001);expect(h.s.dismissed).toEqual([]);
+    h.setProgress({loaded:12,failed:0,pending:0,total:12});expect(h.s.shown.at(-1)?.message).toBe('Images loaded');h.dispose();
+  });
+
+  it('keeps late frame failures and manual retry live after the finite notification budget',async()=>{
+    const reference='f'.repeat(64);let settled=false;
+    const h=setup(vi.fn(async()=>stats(settled?{imagesLoaded:1,imagesFailed:1,failedImageRefs:[reference],retryableImageRefs:[reference]}:{imagesLoaded:1,imagesFailed:0})),true,{budget:5000,attempts:0});
+    h.setSource(body('late',{total:2}));h.setProgress({loaded:1,failed:0,pending:1,total:2});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(5000+LOAD_GRACE_MS+POLL_MS);expect(h.s.dismissed).toContain('remote-images');const calls=h.fetch.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.fetch).toHaveBeenCalledTimes(calls);const notifications=h.s.shown.length;
+    settled=true;h.setProgress({loaded:1,failed:1,pending:0,total:2});await vi.advanceTimersByTimeAsync(0);
+    expect(h.hook.failures()).toEqual({count:1,retrying:false});expect(h.fetch).toHaveBeenCalledTimes(calls+1);expect(h.s.shown).toHaveLength(notifications);
+    await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS*2);expect(h.retry).not.toHaveBeenCalled();h.hook.retry();expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);h.dispose();
+  });
+
+  it('uses the effective retry delay and stops a scheduled retry when policy disables it',async()=>{
+    const reference='9'.repeat(64);const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:1,failedImageRefs:[reference],retryableImageRefs:[reference]})),true,{attempts:1,delay:1000});
+    h.setSource(body('retry',{total:1}));h.setProgress({loaded:0,failed:1,pending:0,total:1});h.setDisplayed(1);
+    await vi.advanceTimersByTimeAsync(STATS_SETTLE_MS);await vi.advanceTimersByTimeAsync(999);expect(h.retry).not.toHaveBeenCalled();
+    h.setPolicy({attempts:0,delay:1000});await vi.advanceTimersByTimeAsync(1);expect(h.retry).not.toHaveBeenCalled();
+    h.setPolicy({attempts:1,delay:1000});h.setProgress({loaded:0,failed:1,pending:0,total:1});await vi.advanceTimersByTimeAsync(1000);expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);h.dispose();
+  });
 
   it('uses current frame progress instead of stale server failures and waits until real images settle',async()=>{
     const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:21,retryableImageRefs:['a'.repeat(64)]})),true);
@@ -131,7 +160,7 @@ describe('createRemoteImageLoad', () => {
     await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS*2);expect(h.retry).not.toHaveBeenCalled();expect(h.s.shown.every(item=>item.tone==='info')).toBe(true);
     h.setProgress({loaded:1,failed:1,pending:0,total:2});await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS);expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);
     h.setProgress(null);h.setSource(body('L2',{total:2}));expect(h.hook.failures()).toBeNull();h.setProgress({loaded:1,failed:0,pending:1,total:2});h.setDisplayed(2);await vi.advanceTimersByTimeAsync(STATS_SETTLE_MS);
-    expect(h.s.shown.at(-1)?.message).toContain('Retry 1/2');expect(h.s.shown.at(-1)?.message).toContain('1/2');
+    expect(h.s.shown.at(-1)?.message).toContain(`Retry 1/${MAX_AUTO_RETRIES}`);expect(h.s.shown.at(-1)?.message).toContain('1/2');
     h.setSource(null);const calls=h.fetch.mock.calls.length;h.setProgress({loaded:0,failed:2,pending:0,total:2});await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);
     expect(h.retry).toHaveBeenCalledTimes(1);expect(h.fetch).toHaveBeenCalledTimes(calls);h.dispose();
   });
@@ -264,7 +293,7 @@ describe('createRemoteImageLoad', () => {
     await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS);
     expect(h.retry).toHaveBeenCalledExactlyOnceWith([reference]);
     recovered=true;h.setSource(body('L2',{total:2}));await vi.advanceTimersByTimeAsync(POLL_MS);
-    expect(h.s.shown.some(x=>x.message.includes('Retry 1/2'))).toBe(true);
+    expect(h.s.shown.some(x=>x.message.includes(`Retry 1/${MAX_AUTO_RETRIES}`))).toBe(true);
     expect(h.s.shown.at(-1)?.message).toBe('Images loaded');expect(h.hook.failures()).toBeNull();
     await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.retry).toHaveBeenCalledTimes(1);h.dispose();
   });
