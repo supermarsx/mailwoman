@@ -44,7 +44,7 @@ function Group(props:{title:string;children:JSX.Element}):JSX.Element {
  return <div class={stats.group} role="group" aria-label={props.title}><h4 class={stats.groupTitle}>{props.title}</h4><div class={stats.tiles}>{props.children}</div></div>;
 }
 
-export function ObservabilityStats():JSX.Element {
+export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
  const shell=useShell();
  onMount(()=>void loadCatalog('admin-stats'));
  const canDash=()=>shell.can.can('dashboard.read');
@@ -57,8 +57,8 @@ export function ObservabilityStats():JSX.Element {
  const stale=()=>busy()&&(history.data()!==undefined||dash()!==undefined);
  const unavailable=()=>t('admin-shell-not-available');
  const skeletons=(n:number)=><For each={Array.from({length:n})}>{()=><TileSkeleton/>}</For>;
- return <section class={css.page} aria-label={t('admin-obs-statistics')} aria-busy={busy()} data-testid="statistics">
-  <div class={css.head}><h2>{t('admin-obs-statistics')}</h2></div>
+ return <section class={css.page} aria-label={props.title??t('admin-obs-statistics')} aria-busy={busy()} data-testid="statistics">
+  <div class={css.head}><h2>{props.title??t('admin-obs-statistics')}</h2></div>
   <PeriodPicker history={history} refreshLabel={t('admin-stats-refresh')} onRefresh={()=>{if(canDash())void refetch();}}/>
   <HistoryNotes history={history}/>
   <div class={`${stats.view} ${stale()?stats.stale:''}`}>

@@ -2,14 +2,12 @@ import {AdminSubtabPanel} from './shell/AdminSubtabPanel.tsx';
 import { formatDateTime } from '../../i18n/format.ts';
 import { AuditActor } from './shell/AuditActor.tsx';
 import * as auditCss from './shell/audit.css.ts';
-// Admin › Observability (§19, §21). The append-only audit-log viewer + JSONL
-// export, and the login monitor's ban list with add + unban.
+// Admin › Observability opens on live statistics. The audit viewer and telemetry
+// configuration have separate tabs so neither displaces the overview's figures.
 //
 // Telemetry has a dedicated editor under /observability/telemetry. Its typed
 // configuration is applied at server startup, with explicit environment pins.
 //
-// Active bans are enforced against the trusted client IP on application requests.
-
 import { createSignal, For, Show, onMount, useContext, lazy, type JSX } from 'solid-js';
 import { ShellContext } from './shell/context.ts';
 import { sectionPath } from './shell/router.ts';
@@ -26,9 +24,18 @@ import * as css from './admin.css.ts';
 const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
 export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
-  const selected=()=>shell?.router.route().rest[0]??(!shell || shell.can.can('audit.read')?'audit':'statistics');
-  const tabs=()=>[...(!shell || shell.can.can('audit.read')?[['audit','admin-obs-audit']]:[]),...(shell?.can.can('observability.read')?[['statistics','admin-obs-statistics'],['telemetry','admin-obs-telemetry-open']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='audit'?[]:[id!])}));
-  return <><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><AdminSubtabPanel><Show when={selected()==='statistics' && shell?.can.can('observability.read')} fallback={<Show when={selected()==='telemetry' && shell?.can.can('observability.read')} fallback={<Show when={selected()==='audit' && (!shell || shell.can.can('audit.read'))}><ObservabilityAudit/></Show>}><Telemetry/></Show>}><ObservabilityStats/></Show></AdminSubtabPanel></>;
+  const canStats=()=>shell?.can.can('observability.read')===true;
+  const canAudit=()=>!shell || shell.can.can('audit.read');
+  const selected=()=>{
+    const tab=shell?.router.route().rest[0];
+    // Preserve existing Statistics bookmarks while presenting one Overview.
+    if((tab==='overview'||tab==='statistics')&&canStats())return 'overview';
+    if(tab==='audit'&&canAudit())return 'audit';
+    if(tab==='telemetry'&&canStats())return 'telemetry';
+    return canStats()?'overview':'audit';
+  };
+  const tabs=()=>[...(canStats()?[['overview','admin-obs-overview']]:[]),...(canAudit()?[['audit','admin-obs-audit']]:[]),...(canStats()?[['telemetry','admin-obs-telemetry-open']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='overview'?[]:[id!])}));
+  return <section aria-label={t('admin-obs-title')}><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><AdminSubtabPanel><Show when={selected()==='overview' && canStats()} fallback={<Show when={selected()==='telemetry' && canStats()} fallback={<Show when={selected()==='audit' && canAudit()}><ObservabilityAudit/></Show>}><Telemetry/></Show>}><ObservabilityStats title={t('admin-obs-overview')}/></Show></AdminSubtabPanel></section>;
 }
 function ObservabilityAudit(): JSX.Element {
   const shell = useContext(ShellContext);
@@ -70,8 +77,8 @@ function ObservabilityAudit(): JSX.Element {
   }
 
   return (
-    <section class={css.section} aria-label={t('admin-obs-title')}>
-      <h2 class={css.heading}>{t('admin-obs-title')}</h2>
+    <section class={css.section} aria-label={t('admin-obs-audit')}>
+      <h2 class={css.heading}>{t('admin-obs-audit')}</h2>
       <Show when={error()}>
         <p class={css.error} role="alert">
           {error()}

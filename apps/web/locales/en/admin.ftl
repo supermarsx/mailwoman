@@ -133,6 +133,7 @@ admin-integrations-unattended-error = Could not change the approval for key { $p
 
 # -- Observability -----------------------------------------------------------
 admin-obs-title = Observability
+admin-obs-overview = Overview
 admin-obs-load-error = Could not load observability data
 admin-obs-export-error = Could not export the audit log
 admin-obs-ban-add-error = Could not add the ban

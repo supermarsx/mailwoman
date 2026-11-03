@@ -132,6 +132,7 @@ admin-integrations-unattended-error = Não foi possível alterar a aprovação d
 
 # -- Observability -----------------------------------------------------------
 admin-obs-title = Observabilidade
+admin-obs-overview = Visão geral
 admin-obs-load-error = Não foi possível carregar os dados de observabilidade
 admin-obs-export-error = Não foi possível exportar o registo de auditoria
 admin-obs-ban-add-error = Não foi possível adicionar o banimento
