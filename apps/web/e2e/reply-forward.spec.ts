@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import net from 'node:net';
-import { ENGINE_CREDS, composeSurface, engineLogin, messageRow, ribbonControl, waitForInboxMessage } from './helpers.ts';
+import { ENGINE_CREDS, composeSurface, engineLogin, messageRow, ribbonControl, selectComposeFormat, waitForInboxMessage } from './helpers.ts';
 import { uid } from './pim-helpers.ts';
 
 /**
@@ -198,6 +198,7 @@ async function act(page: Page, toolbar: Locator, name: 'Reply' | 'Reply all' | '
   await toolbar.getByRole('button', { name, exact: true }).click();
   const dialog = composeSurface(page);
   await expect(dialog.getByRole('heading', { name, exact: true })).toBeVisible();
+  await selectComposeFormat(page, dialog, 'rich');
   // The quote is in the editor before anything is typed.
   await expect(dialog.getByTestId('compose-richtext')).toBeVisible();
   return dialog;
@@ -438,6 +439,7 @@ test.describe('reply, reply all, forward, Bcc (engine mode)', () => {
     await page.getByRole('button', { name: 'Compose', exact: true }).click();
     const dialog = composeSurface(page);
     await expect(dialog).toBeVisible();
+    await selectComposeFormat(page, dialog, 'rich');
     // At 1280 px the ribbon folds the Recipients group into its dropdown (t38).
     await (await ribbonControl(dialog, 'Recipients', dialog.getByRole('button', { name: 'Add Cc or Bcc' }))).click();
     await dialog.getByLabel('To', { exact: true }).fill(frank);

@@ -1,3 +1,4 @@
+import {chooseComposeFormat} from './compose/nativeHtmlTestHarness.ts';
 // t87-e4 (D11): Compose signs only with a key of the mailbox it composes for.
 // A signing session kept across a mailbox switch is locked and dropped, and a
 // key whose owner account is not the composing mailbox is refused.
@@ -110,8 +111,8 @@ describe('Compose signing session across a mailbox switch (t87 D11)', () => {
     fireEvent.click(screen.getByTestId('sign-unlock-submit'));
   }
 
-  function fill(): void {
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
+  async function fill(): Promise<void> {
+    await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'Hello' } });
@@ -120,7 +121,7 @@ describe('Compose signing session across a mailbox switch (t87 D11)', () => {
   it('locks and drops the unlocked signing key on a keys reset; a signed send then asks again', async () => {
     const h = await harness();
     const sign = vi.spyOn(getCryptoWorker(), 'sign');
-    fill();
+    await fill();
     fireEvent.click(await screen.findByTestId('sign-toggle'));
     await unlock('parent-pass');
     await waitFor(() => expect(h.unlockOwnKey).toHaveBeenCalledTimes(1));
@@ -147,7 +148,7 @@ describe('Compose signing session across a mailbox switch (t87 D11)', () => {
 
   it('refuses an owned key that belongs to a different sending address',async()=>{
     const h=await harness();h.resetKeys([{...key('parent'),addresses:['different@example.org']}],'parent');
-    fill();fireEvent.click(await screen.findByTestId('sign-toggle'));await unlock('pw');
+    await fill();fireEvent.click(await screen.findByTestId('sign-toggle'));await unlock('pw');
     expect(await screen.findByRole('alert')).toHaveTextContent('No signing key');
     expect(h.unlockOwnKey).not.toHaveBeenCalled();expect(sends(h.client)).toBe(0);
   });
@@ -155,7 +156,7 @@ describe('Compose signing session across a mailbox switch (t87 D11)', () => {
   it('refuses to unlock a key whose owner is not the composing mailbox', async () => {
     // The child is open, but the only key offered still belongs to the parent.
     const h = await harness('child', 'parent');
-    fill();
+    await fill();
     fireEvent.click(await screen.findByTestId('sign-toggle'));
     await unlock('parent-pass');
     expect(await screen.findByRole('alert')).toBeInTheDocument();
@@ -165,7 +166,7 @@ describe('Compose signing session across a mailbox switch (t87 D11)', () => {
   it('refuses and locks a key the unlock reports for another account', async () => {
     const h = await harness();
     h.unlockOwnKey.mockImplementationOnce(async () => ({ keyRef: 'ref-x', accountId: 'someone-else' }));
-    fill();
+    await fill();
     fireEvent.click(await screen.findByTestId('sign-toggle'));
     await unlock('pw');
     await waitFor(() => expect(h.lockKeyRef).toHaveBeenCalledWith('ref-x'));

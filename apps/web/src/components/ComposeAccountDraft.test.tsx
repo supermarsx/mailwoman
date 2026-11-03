@@ -1,3 +1,4 @@
+import './compose/nativeHtmlTestHarness.ts';
 import {afterEach,beforeAll,expect,it,vi} from 'vitest';
 import {render,fireEvent,screen,waitFor,within} from '@solidjs/testing-library';
 import {Compose} from './Compose.tsx';

@@ -1,3 +1,4 @@
+import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createEffect, type JSX } from 'solid-js';
@@ -64,6 +65,7 @@ async function open(initial?: ComposeInitial) {
       <Compose onClose={onClose} {...(initial !== undefined ? { initial } : {})} />
     </AppContext.Provider>
   ));
+  await structuredComposeEditor();
   return { client, app, onClose };
 }
 
@@ -127,7 +129,7 @@ describe('Compose opened as a reply or a forward', () => {
     expect(screen.queryByLabelText('Cc')).toBeNull();
     expect(screen.queryByLabelText('Bcc')).toBeNull();
     expect(screen.getByRole('heading', { name: 'New message' })).toBeInTheDocument();
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'b' } });
@@ -145,7 +147,7 @@ describe('Compose opened as a reply or a forward', () => {
   it('typed Cc and Bcc go on the draft and into the envelope', async () => {
     const { client, onClose } = await open();
     fireEvent.click(screen.getByTestId('compose-show-cc-bcc'));
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Cc'), { target: { value: 'Carol <carol@example.org>' } });
     fireEvent.input(screen.getByLabelText('Bcc'), { target: { value: 'dave@example.org; you@example.org' } });
@@ -173,7 +175,7 @@ describe('Compose opened as a reply or a forward', () => {
   it('a Bcc-only message is sent: To is not required', async () => {
     const { client, onClose } = await open();
     fireEvent.click(screen.getByTestId('compose-show-cc-bcc'));
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('Bcc'), { target: { value: 'dave@example.org' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'b' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -201,7 +203,7 @@ describe('Compose opened as a reply or a forward', () => {
     expect((screen.getByLabelText('Cc') as HTMLInputElement).value).toBe('bob@example.org');
     expect((screen.getByLabelText('Bcc') as HTMLInputElement).value).toBe('');
     expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toBe('Re: Plans');
-    const editor = await screen.findByTestId('compose-richtext');
+    const editor = await structuredComposeEditor();
     expect(editor.querySelector('blockquote')?.textContent).toBe('original text');
 
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -234,7 +236,7 @@ describe('Compose opened as a reply or a forward', () => {
         .filter((calls) => calls.length === 1 && calls[0]![0] === 'Email/set' && 'update' in calls[0]![1]);
 
     const replied = await open(reply({ cc: '', source: { emailId: 'm1', keyword: '$answered' } }));
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     // Precondition: nothing is marked before the send.
     expect(marks(replied.client)).toEqual([]);
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -245,7 +247,7 @@ describe('Compose opened as a reply or a forward', () => {
     cleanup();
 
     const fresh = await open();
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(fresh.onClose).toHaveBeenCalledTimes(1));
@@ -259,7 +261,7 @@ describe('Compose opened as a reply or a forward', () => {
         bodyHtml: '<p>x<img src="http://tracker.example/p.gif" onerror="steal()"></p><script>alert(1)</script>',
       }),
     );
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     const create = sends(client)[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>;
@@ -284,7 +286,7 @@ describe('Compose opened as a reply or a forward', () => {
     );
     expect(screen.getByRole('heading', { name: 'Forward' })).toBeInTheDocument();
     expect(screen.getByTestId('compose-attachments')).toHaveTextContent('plan.pdf');
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'carol@example.org' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -350,7 +352,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
 
   it('asks before sending unencrypted; nothing is sent until the user confirms', async () => {
     const { client, onClose } = await open(reply({ quotesDecrypted: true, cc: '' }));
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
     const dialog = await screen.findByRole('alertdialog', { name: 'Send decrypted text without encryption?' });
@@ -373,7 +375,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
 
   it('a reply that does not quote decrypted text is sent without the question', async () => {
     const { client, onClose } = await open(reply({ quotesDecrypted: false, cc: '' }));
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -383,7 +385,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
   it('an encrypted reply is sent as ciphertext without the question', async () => {
     cryptoState = ENCRYPTING;
     const { client, onClose } = await open(reply({ quotesDecrypted: true, cc: '' }));
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     expect(screen.queryByRole('alertdialog')).toBeNull();
@@ -396,7 +398,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
   it('encryption switched on without ciphertext refuses sending rather than falling back to plaintext', async () => {
     cryptoState = { ...ENCRYPTING, encryptedDraft: null };
     const { client } = await open(reply({ quotesDecrypted: true, cc: '' }));
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(await screen.findByRole('alert')).toHaveTextContent('Encryption is updating');
     expect(screen.queryByRole('alertdialog')).toBeNull();

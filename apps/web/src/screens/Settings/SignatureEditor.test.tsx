@@ -7,6 +7,7 @@ import {activateAccountPreferences,suspendAccountPreferences} from '../../api/ac
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {initSync} from '../../wasm/mw-sanitize/mw_sanitize.js';
+import {loadNativeHtmlFrame} from '../../components/compose/nativeHtmlTestHarness.ts';
 // The editor and the source editor are lazy chunks (~290 kB of ProseMirror). Their
 // cold transform under a full parallel run took longer than the 1 s `findBy*`
 // budget, so the first await of the file timed out (the flake other lanes saw).
@@ -98,10 +99,12 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(screen.getByRole('button',{name:'Undo'})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Copy formatting'})).toBeInTheDocument();
  });
- it('starts a new signature in the full rich composer without extra setup',async()=>{
+ it('starts a new signature in visual HTML with the full ribbon and source view',async()=>{
   const {cancel}=setup();
-  await screen.findByRole('textbox',{name:'Rich signature'});
-  expect(screen.getByRole('combobox',{name:'Signature format'})).toHaveValue('rich');
+  const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;loadNativeHtmlFrame(frame);
+  expect(screen.getByRole('combobox',{name:'Signature format'})).toHaveValue('html');
+  expect(screen.getByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+  expect(screen.getByRole('tab',{name:'HTML source'})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Find and replace'})).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Select all'})).toBeInTheDocument();
   fireEvent.click(screen.getByRole('tab',{name:'Insert'}));

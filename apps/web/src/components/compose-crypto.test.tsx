@@ -1,3 +1,4 @@
+import './compose/nativeHtmlTestHarness.ts';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createSignal, Suspense } from 'solid-js';

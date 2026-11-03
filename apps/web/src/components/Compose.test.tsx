@@ -1,4 +1,5 @@
 import {webcrypto} from 'node:crypto';
+import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
@@ -16,6 +17,7 @@ import { isolate, t } from '../i18n/index.ts';
 import type { Identity, JmapRequest } from '../api/jmap-types.ts';
 import { resetClientPolicy } from '../api/policy.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
+import {clearFeatures,loadFeatures} from '../state/features.ts';
 
 afterEach(()=>setAdminLeetspeak(null));
 
@@ -105,7 +107,7 @@ describe('Compose', () => {
    * Pay for the rich editor's chunk HERE, not inside a `findBy` (t22-e10 flake).
    *
    * `Compose` reaches its editor through `lazy(() => import(…))`, so the first
-   * `await screen.findByTestId('compose-richtext')` in this file was waiting on a
+   * `await structuredComposeEditor()` in this file was waiting on a
    * real dynamic import of the ~286 kB ProseMirror module. `findBy*` carries its
    * OWN 1 000 ms ceiling, independent of the 5 000 ms test timeout — so this was
    * never a test-timeout problem, and raising `testTimeout` would not have moved
@@ -196,7 +198,7 @@ describe('Compose', () => {
     expect(screen.queryByLabelText('To')).toBeNull();
     expect(screen.getByRole('region', { name: 'Quick reply' })).toHaveTextContent('alice@outside.test');
     expect(screen.getByText('1 recipient(s) outside trusted domains')).toBeVisible();
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain');
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'My quick reply\nQuoted text' } });
     fireEvent.click(screen.getByRole('button', { name: 'Edit recipients and subject' }));
     expect(screen.getByLabelText('To')).toHaveValue('alice@outside.test');
@@ -227,7 +229,7 @@ describe('Compose', () => {
     const client=makeClient();const app=createAppState(client);
     render(()=><AppContext.Provider value={app}><Compose initial={{mode:'new',to:'you@example.org',cc:'',subject:'hashes',bodyHtml:'',bodyText:'Hello',inReplyTo:[],references:[],attachments:[{name:'file.txt',blobId:'original',size:3,contentType:'text/plain'}],quotesDecrypted:false}} onClose={()=>undefined}/></AppContext.Provider>);
     await app.login({username:'me@example.org',password:'p'});
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    await chooseComposeFormat('plain');
     fireEvent.click(screen.getByLabelText('Include SHA-256 hashes of attached files'));
     await waitFor(()=>expect(finish).toBeTypeOf('function'));
     fireEvent.click(screen.getByRole('button',{name:'Send'}));expect(sendCount(client)).toBe(0);
@@ -249,6 +251,7 @@ describe('Compose', () => {
     const saved=listDrafts('acct1','test-storage-authority-acct1').find(draft=>draft.sentMailboxId===target.id)!;mounted.unmount();
     render(()=><AppContext.Provider value={app}><Compose resumeDraftId={saved.id} onClose={()=>undefined}/></AppContext.Provider>);
     await waitFor(()=>expect(screen.getByLabelText('To')).toHaveValue('you@example.org'));
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(sendCount(client)).toBe(1));
     const submit=sentRequest(client).methodCalls.find(call=>call[0]==='EmailSubmission/set')![1];
     expect(submit.onSuccessUpdateEmail).toEqual({'#send':{mailboxIds:{[target.id]:true},'keywords/$draft':null}});
@@ -465,7 +468,7 @@ describe('Compose', () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES, deps: { nextcloudFetcher: cloud } });
     await app.login({ username: 'me@example.org', password: 'p' });
     app.nextcloud.setEnabled(true);
-    fireEvent.change(screen.getByTestId('format-toggle'), { target: { value: 'plain' } });
+    await chooseComposeFormat('plain');
     fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
     const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
     await waitFor(() => expect(input.disabled).toBe(false));
@@ -502,19 +505,35 @@ describe('Compose', () => {
 
   // ── 26.16 (W1): rich-text editor + plain-text / format=flowed toggle ─────────
 
-  it('defaults to the rich editor and toggles to a plain-text textarea', async () => {
+  it('defaults to visual native HTML with the full ribbon and source view, then switches to plain text', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
-    // The rich editor mounts lazily; its editable region carries the Body label.
-    expect(await screen.findByTestId('compose-richtext')).toBeInTheDocument();
-    // Toggle to plain text: a textarea takes over, still labelled Body.
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
+    expect(await screen.findByTitle('Visual editor')).toBeInTheDocument();
+    expect(screen.getByTestId('format-toggle')).toHaveValue('html');
+    expect(screen.getByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
+    expect(screen.getByRole('tab',{name:'HTML source'})).toBeInTheDocument();
+    for(const group of ['rt-group-font','rt-group-paragraph','rt-group-insert','rt-group-table'])expect(document.querySelector(`[data-testid="${group}"]`)).not.toBeNull();
+    await chooseComposeFormat('plain');
     expect(screen.queryByTestId('compose-richtext')).toBeNull();
     expect((screen.getByLabelText('Body') as HTMLElement).tagName).toBe('TEXTAREA');
+  });
+  it('keeps the plain-text-only feature gate when new composers default to HTML',async()=>{
+    const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
+    await app.login({username:'me@example.org',password:'p'});
+    try{
+      await loadFeatures({refresh:true,fetcher:async()=>json({features:{'compose.rich_text':{enabled:false,limits:{},settings:{}}}})});
+      await waitFor(()=>expect(screen.queryByTitle('Visual editor')).toBeNull());
+      expect(screen.queryByTestId('format-toggle')).toBeNull();
+      const body=screen.getByLabelText('Body');expect(body.tagName).toBe('TEXTAREA');
+      const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
+      fireEvent.input(body,{target:{value:'Literal <b>plain</b>'}});fireEvent.input(screen.getByLabelText('To'),{target:{value:'you@example.org'}});
+      fireEvent.click(screen.getByRole('button',{name:'Send'}));
+      await waitFor(()=>expect(send).toHaveBeenCalledWith(expect.objectContaining({htmlBody:'',textBody:'Literal <b>plain</b>'})));
+    }finally{clearFeatures();}
   });
 
   it('round-trips generated markup through HTML source and keeps plain text separate', async()=>{
     renderWithApp(()=><Compose embedded onClose={()=>undefined}/>);
-    await screen.findByTestId('compose-richtext');
+    await structuredComposeEditor();
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
     const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
     const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
@@ -523,7 +542,7 @@ describe('Compose', () => {
     fireEvent.click(await screen.findByRole('tab',{name:'HTML source'}));
     fireEvent.input(await screen.findByRole('textbox',{name:'HTML source'}),{target:{value:'<h2>Heading</h2><p><strong>Bold</strong> text</p>'}});
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});
-    const editor=await screen.findByTestId('compose-richtext');
+    const editor=await structuredComposeEditor();
     expect(editor.querySelector('h2')).toHaveTextContent('Heading');
     expect(editor.querySelector('strong')).toHaveTextContent('Bold');
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'html'}});
@@ -533,7 +552,7 @@ describe('Compose', () => {
     again.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(again);
     fireEvent.click(await screen.findByRole('tab',{name:'HTML source'}));
     expect(await screen.findByRole('textbox',{name:'HTML source'})).toHaveValue('<h2>Heading</h2><p><strong>Bold</strong> text</p>');
-    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
+    await chooseComposeFormat('plain');
     expect(await screen.findByLabelText('Body')).toHaveValue('Heading\nBold text');
     expect(screen.queryByRole('button',{name:/^Close$/})).toBeNull();
     expect(screen.queryByRole('button',{name:'Cancel'})).toBeNull();
@@ -541,12 +560,12 @@ describe('Compose', () => {
 
   it('round-trips the body text between plain and rich modes', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
-    await screen.findByTestId('compose-richtext');
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // rich -> plain
+    await structuredComposeEditor();
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // rich -> plain
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'hello\nworld' } });
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain -> rich (seeds editor)
-    await screen.findByTestId('compose-richtext');
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // rich -> plain
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain -> rich (seeds editor)
+    await structuredComposeEditor();
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // rich -> plain
     expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hello\nworld');
   });
 
@@ -563,6 +582,7 @@ describe('Compose', () => {
         <Compose onClose={onClose} />
       </AppContext.Provider>
     ));
+    await structuredComposeEditor();
     return { client, app, onClose };
   }
 
@@ -603,7 +623,7 @@ describe('Compose', () => {
 
   /** Fill To / Subject / Body in plain-text mode. */
   function fillPlain(body: string, to = 'you@example.org'): void {
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
+    fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
     fireEvent.input(screen.getByLabelText('To'), { target: { value: to } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: body } });
@@ -628,7 +648,7 @@ describe('Compose', () => {
     expect(screen.queryByTestId('opt-tracking')).toBeNull();
     expect(screen.queryByTestId('opt-receipt')).toBeNull();
 
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'plain body' } });
@@ -783,8 +803,8 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button', {name:'From'}));
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id3' } });
     fillPlain('hi');
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
-    await screen.findByTestId('compose-richtext');
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain');
+    await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     const body=(sentBody(client) as {body:{value:string}}).body.value;
@@ -796,7 +816,7 @@ describe('Compose', () => {
     const signature:Identity={...IDENTITIES[0]!,id:'native',signatureFormat:'html',signatureText:'Native brand',signatureHtml:'<style>.brand td{padding:18px;font-family:Georgia}</style><table class="brand" width="480" cellpadding="12"><tr><td><font face="Georgia" size="4">Native brand</font></td></tr></table>'};
     const {client,app,onClose}=await composeWithClient({identities:[signature]});await app.loadIdentities();
     fireEvent.click(screen.getByRole('button',{name:'From'}));fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
-    fillPlain('Existing message');fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});await screen.findByTestId('compose-richtext');
+    fillPlain('Existing message');fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'rich'}});await structuredComposeEditor();
     if(how==='picker'){
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.change(within(await screen.findByTestId('compose-signature')).getByRole('combobox'),{target:{value:'native'}});
       const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
@@ -869,7 +889,7 @@ describe('Compose', () => {
       </AppContext.Provider>
     ));
     await app.login({ username: 'me@example.org', password: 'p' });
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
     const body = screen.getByLabelText('Body');
     expect(screen.queryByTestId('outer-fallback')).toBeNull();
 
@@ -898,7 +918,7 @@ describe('Compose', () => {
     fireEvent.click(screen.getByTestId('open-drafts'));
     expect(screen.queryByTestId('draft-resume-foreign')).toBeNull();
     fireEvent.click(await screen.findByTestId('draft-resume-resume-owned'));
-    expect(screen.getByTestId('format-toggle')).toHaveTextContent('Rich text');
+    expect(screen.getByTestId('format-toggle')).toHaveValue('plain');
     fireEvent.click(screen.getByRole('button', {name:'From'}));
     expect(screen.getByLabelText('From')).toHaveValue('id1');
     expect(screen.getByTestId('compose-attachments')).toHaveTextContent('saved.pdf');
@@ -915,7 +935,7 @@ describe('Compose', () => {
   it('inserts a chosen signature into the plain-text body', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
+    await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
     fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
@@ -932,7 +952,7 @@ describe('Compose', () => {
       expect(screen.getByRole('tab',{name:'Visual editor'})).toHaveAttribute('aria-selected','true');
       fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
       const value=(sentBody(client) as {body:{value:string}}).body.value;expect(value).toContain('width="480"');expect(value).toContain('cellpadding="12"');expect(value).toContain('face="Georgia"');
-    }else{expect(await screen.findByTestId('compose-richtext')).toBeVisible();expect(screen.queryByTitle('Visual editor')).not.toBeInTheDocument();}
+    }else{expect(await structuredComposeEditor()).toBeVisible();expect(screen.queryByTitle('Visual editor')).not.toBeInTheDocument();}
   });
 
   // ── t29-e12: read receipt, open tracking, inline images ──────────────────────
@@ -1034,10 +1054,10 @@ describe('Compose', () => {
       vi.stubGlobal('fetch', fetchSpy);
       const { client, app } = await composeWithClient();
       await screen.findByTestId('compose-track-opens');
-      fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}}); // plain text
+      await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'); // plain text
       fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'tracked' } });
-      fireEvent.change(screen.getByTestId('format-toggle'), {target:{value:(screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain'}});
-      await screen.findByTestId('compose-richtext');
+      await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLSelectElement).value==='plain'?'rich':'plain');
+      await structuredComposeEditor();
       fireEvent.click(await screen.findByTestId('compose-track-opens'));
       fillAndSend();
       await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
@@ -1055,7 +1075,7 @@ describe('Compose', () => {
       const revokeObjectURL = vi.fn();
       Object.assign(URL, { createObjectURL, revokeObjectURL });
       const { client, app } = await composeWithClient();
-      await screen.findByTestId('compose-richtext');
+      await structuredComposeEditor();
       await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
       const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
@@ -1094,7 +1114,7 @@ describe('Compose', () => {
         Object.assign(URL, { createObjectURL: vi.fn(() => 'blob:preview-sig'), revokeObjectURL: vi.fn() });
         const { client, app } = await composeWithClient({ identities: [LOGO_IDENTITY] });
         await app.loadIdentities();
-        await screen.findByTestId('compose-richtext');
+        await structuredComposeEditor();
         await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
         if (how === 'picker') {
           fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
@@ -1125,7 +1145,7 @@ describe('Compose', () => {
       const fetchSpy = serverFetch({ engine: true, openTracking: false });
       vi.stubGlobal('fetch', fetchSpy);
       await composeWithClient();
-      await screen.findByTestId('compose-richtext');
+      await structuredComposeEditor();
       await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
       const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;

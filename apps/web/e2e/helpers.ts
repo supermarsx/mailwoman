@@ -346,6 +346,15 @@ export function composeSurface(page: Page) {
     .or(page.getByRole('dialog', { name: 'Compose message', exact: true }));
 }
 
+/** Choose an editor explicitly when a scenario depends on that editor's model. */
+export async function selectComposeFormat(page: Page, dialog: Locator, format: 'plain' | 'rich' | 'html'): Promise<void> {
+  await dialog.getByRole('tab', { name: 'Format text', exact: true }).click();
+  const select = dialog.getByTestId('format-toggle');
+  await revealRibbonControl(page, dialog, select);
+  await select.selectOption(format);
+  await expect(select).toHaveValue(format);
+}
+
 /**
  * The iframe that holds the open message's CONTENT, as an element (for its
  * `sandbox` / `srcdoc`; `.contentFrame()` for what it shows).
@@ -390,14 +399,20 @@ export async function composeSelf(
   page: Page,
   subject: string,
   body: string,
-  opts: { sendLater?: string } = {},
+  opts: { sendLater?: string; format?: 'plain' | 'rich' | 'html' } = {},
 ): Promise<void> {
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
   const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
+  if (opts.format !== undefined) await selectComposeFormat(page, dialog, opts.format);
   await dialog.getByLabel('To', { exact: true }).fill(ENGINE_CREDS.selfAddress);
   await dialog.getByLabel('Subject', { exact: true }).fill(subject);
-  await dialog.getByLabel('Body', { exact: true }).fill(body);
+  const visualFrame = dialog.locator('iframe[title="Visual editor"]');
+  // Native HTML is the default; explicit plain/rich scenarios stay in the host document.
+  const editor = opts.format === 'plain' || opts.format === 'rich'
+    ? dialog.getByLabel('Body', { exact: true })
+    : visualFrame.contentFrame().getByRole('textbox', { name: 'Body', exact: true });
+  await editor.fill(body);
   if (opts.sendLater !== undefined) {
     await dialog.getByLabel('Send later', { exact: true }).fill(opts.sendLater);
     await expect(dialog.getByRole('button', { name: 'Schedule' })).toBeVisible();

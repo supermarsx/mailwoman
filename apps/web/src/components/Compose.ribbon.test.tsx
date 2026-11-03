@@ -1,3 +1,4 @@
+import {structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 // The composer ribbon on the t38 primitives: every tab is a RibbonPanel of
 // 3-row RibbonGroups (the editor's groups joining their tab through a slot),
 // the bar pushes the body instead of covering it, and in auto-hide mode a tab
@@ -46,6 +47,7 @@ const groupIds = (tab: string): string[] =>
 describe('composer ribbon (t38)', () => {
   it('builds every tab from 3-row groups, with the editor groups inside their tab', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
+    await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     expect(bar()).toHaveAttribute('data-reveal', 'push');
     expect(bar()).toHaveAttribute('data-mode', 'pinned');
@@ -82,12 +84,14 @@ describe('composer ribbon (t38)', () => {
 
   it('drops the Table tab and its groups in plain text, and restores them in rich text', async () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
+    await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     fireEvent.change(screen.getByTestId('format-toggle'), { target: { value: 'plain' } });
     await waitFor(() => expect(screen.queryByTestId('rt-bold')).toBeNull());
     expect(screen.queryByRole('tab', { name: 'Table' })).toBeNull();
     expect(groupIds('format')).toEqual(['compose-group-recipients', 'compose-group-message-type']);
     fireEvent.change(screen.getByTestId('format-toggle'), { target: { value: 'rich' } });
+    await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     expect(groupIds('format')[0]).toBe('rt-group-clipboard');
   });
@@ -95,6 +99,7 @@ describe('composer ribbon (t38)', () => {
   it('auto-hide: a tab opens the ribbon in the flow and Esc closes it back to the tab', async () => {
     await ribbonMode('auto');
     renderWithApp(() => <Compose onClose={() => undefined} />);
+    await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     expect(bar()).toHaveAttribute('data-mode', 'auto');
     expect(bar()).toHaveAttribute('data-expanded', 'false');
@@ -123,6 +128,7 @@ describe('composer ribbon (t38)', () => {
   it('auto-hide: pointing at the ribbon while typing in the composer does not open it', async () => {
     await ribbonMode('auto');
     renderWithApp(() => <Compose onClose={() => undefined} />);
+    await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     const subject = screen.getByLabelText('Subject');
     subject.focus();
@@ -141,6 +147,7 @@ describe('composer ribbon (t38)', () => {
   it('auto-hide: asking for the signing key reveals the Security tab', async () => {
     await ribbonMode('auto');
     renderWithApp(() => <Compose onClose={() => undefined} />);
+    await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
     fireEvent.click(within(tabPanel('security')).getByTestId('sign-toggle'));
     await waitFor(() => expect(bar()).toHaveAttribute('data-expanded', 'true'));

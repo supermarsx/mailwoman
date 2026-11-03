@@ -203,7 +203,9 @@ export function Compose(props: {
   const [richMode, setRichMode] = createSignal(true);
   // t98: a profile without rich text composes plain text only (the server refuses an HTML body).
   createEffect(() => { if (!featureOn('compose.rich_text') && richMode()) untrack(() => changeFormat('plain')); });
-  const [sourceMode,setSourceMode]=createSignal(false);
+  // New messages use the native HTML visual editor. Saved drafts still restore
+  // their explicit structured HTML or plain-text editor in resumeDraft.
+  const [sourceMode,setSourceMode]=createSignal(true);
   const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
   // W9 drafts drawer + W10 recall panel visibility, and the loaded draft list.
   const [draftsOpen, setDraftsOpen] = createSignal(false);

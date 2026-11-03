@@ -1,3 +1,4 @@
+import {chooseComposeFormat} from './compose/nativeHtmlTestHarness.ts';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { Compose } from './Compose.tsx';
@@ -30,6 +31,7 @@ describe('Compose — the rich editor chunk has not arrived', () => {
       </AppContext.Provider>
     ));
     await app.login({ username: 'me@example.org', password: 'p' });
+    await chooseComposeFormat('rich');
 
     // Precondition: still in rich mode (the toggle offers "Plain text"), the
     // editor is absent, and Body is the fallback textarea.
@@ -56,7 +58,6 @@ describe('Compose — the rich editor chunk has not arrived', () => {
   });
 
   it('auto-saves the typed text, not an empty rich body', async () => {
-    vi.useFakeTimers();
     try {
       const app = createAppState(makeClient());
       await app.login({ username: 'me@example.org', password: 'p' });
@@ -65,6 +66,8 @@ describe('Compose — the rich editor chunk has not arrived', () => {
           <Compose onClose={() => undefined} />
         </AppContext.Provider>
       ));
+      await chooseComposeFormat('rich');
+      vi.useFakeTimers();
       fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'draft text' } });
       await vi.advanceTimersByTimeAsync(1000);
       const stored = listDrafts('acct1','test-storage-authority-acct1');

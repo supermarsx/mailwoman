@@ -35,7 +35,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
   });
   const current = (): boolean => !disposed && (owner === null || preferenceAccountIsCurrent(owner));
   const [draft, setDraft] = createSignal<Signature>(structuredClone(props.initial ?? { name: '', body: '', isDefault: false }));
-  const [mode, setMode] = createSignal<BodyMode>(props.initial?.format ?? (props.initial === undefined ? 'rich' : props.initial.html ? 'html' : 'plain'));
+  const [mode, setMode] = createSignal<BodyMode>(props.initial?.format ?? (props.initial === undefined ? 'html' : props.initial.html ? 'html' : 'plain'));
   const plain = (): string => draft().text ?? draft().body;
   /** What a save sends: the HTML only while the format is not plain. Dirty = this differs from the last save. */
   const payload = (): Signature => ({ ...draft(), format: mode(), name: draft().name.trim(), body: plain(), text: plain(), html: mode() === 'plain' ? null : (draft().html ?? '') });

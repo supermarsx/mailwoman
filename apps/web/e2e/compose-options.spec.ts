@@ -1,6 +1,6 @@
 import { test, expect, type Locator, type Page } from '@playwright/test';
 import net from 'node:net';
-import { composeSurface, engineLogin } from './helpers.ts';
+import { composeSurface, engineLogin, selectComposeFormat } from './helpers.ts';
 import { uid } from './pim-helpers.ts';
 
 /**
@@ -152,6 +152,8 @@ async function compose(page: Page, to: string, subject: string, body: string): P
   await page.getByRole('button', { name: 'Compose', exact: true }).click();
   const dialog = composeSurface(page);
   await expect(dialog).toBeVisible();
+  // These cases inspect the structured editor's inline-image DOM.
+  await selectComposeFormat(page, dialog, 'rich');
   // Since e0c99a79 the From picker is shown only when the account setting
   // `mail.showFrom` is on or the ribbon's From toggle shows it for this message.
   const fromToggle = dialog.getByRole('button', { name: 'From', exact: true });

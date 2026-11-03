@@ -1,3 +1,4 @@
+import './compose/nativeHtmlTestHarness.ts';
 // t42: draft discard and unsaved close confirm in one themed modal (the shared
 // ConfirmDialog), never an inline bar. The modal opens in the composer's own
 // document, so a detached workspace window shows it where the user is working.
