@@ -1,4 +1,5 @@
 import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
+import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createEffect, type JSX } from 'solid-js';
@@ -219,7 +220,7 @@ describe('Compose opened as a reply or a forward', () => {
           subject: 'Re: Plans',
           bodyValues: {
             body: {
-              value: '<p></p><p>On 1 Jan 2026, Alice wrote:</p><blockquote><p>original text</p></blockquote>',
+              value: htmlMessageDocument('<p></p><p>On 1 Jan 2026, Alice wrote:</p><blockquote><p>original text</p></blockquote>'),
             },
           },
         },
@@ -265,7 +266,7 @@ describe('Compose opened as a reply or a forward', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     const create = sends(client)[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>;
-    expect(create['draft']!['bodyValues']).toEqual({ body: { value: '<p>x</p>' } });
+    expect(create['draft']!['bodyValues']).toEqual({ body: { value: htmlMessageDocument('<p>x</p>') } });
   });
 
   it('a forward opens with the original attachments and sends them by blob id, with no thread ids', async () => {
@@ -296,7 +297,7 @@ describe('Compose opened as a reply or a forward', () => {
           to: [{ name: null, email: 'carol@example.org' }],
           subject: 'Fwd: Plans',
           bodyValues: {
-            body: { value: '<p></p><p>---------- Forwarded message ----------</p><p>original text</p>' },
+            body: { value: htmlMessageDocument('<p></p><p>---------- Forwarded message ----------</p><p>original text</p>') },
           },
           attachments: [
             { blobId: 'm1.2', name: 'plan.pdf', type: 'application/pdf', size: 1234, disposition: 'attachment' },

@@ -1,6 +1,7 @@
 import {createEffect,createSignal,on,onCleanup,onMount,type JSX} from 'solid-js';
 import {t} from '../../i18n/index.ts';
 import {nativeHtmlBody,normalizeHtmlSource} from './htmlSource.ts';
+import {HTML_MESSAGE_FONT} from './htmlMessage.ts';
 import * as css from './nativeHtmlEditor.css.ts';
 import {NativeHtmlRibbon} from './NativeHtmlRibbon.tsx';
 import {createNativeHtmlCommands} from './nativeHtmlCommands.ts';
@@ -50,7 +51,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;owned:
  }
  function installStyles(doc:Document):void {
   const view=doc.defaultView as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-  if(view){const sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;background:${dark()?'#181c22':'white'};color:${dark()?'#eeeeee':'#1c1e21'}}body{padding:12px;font:14px/1.5 system-ui,sans-serif}#mw-native-editor{min-height:12rem;outline:0}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=[sheet];}
+  if(view){const sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;background:${dark()?'#181c22':'white'};color:${dark()?'#eeeeee':'#1c1e21'}}body{padding:12px;font:${HTML_MESSAGE_FONT}}#mw-native-editor{min-height:12rem;outline:0}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=[sheet];}
  }
  function loadDocument(value=props.html):void {
   const doc=frame.contentDocument;if(!doc||!editor)return;

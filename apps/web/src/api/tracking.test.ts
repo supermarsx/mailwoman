@@ -13,6 +13,13 @@ function json(body: unknown, status = 200): Response {
 }
 
 describe('open tracking client (t29-e12)', () => {
+  it('places its image inside a complete HTML document without changing the document or style', async () => {
+    const html='<!doctype html><html><head><meta charset="utf-8"><style>p{color:red}</style></head><body dir="rtl"><p>Olá</p></BODY>\n</HTML>\n';
+    const out=await withTrackingPixel({from:{name:null,email:'me@example.test'},to:'you@example.test',subject:'HTML',draftMailboxId:'drafts',htmlBody:html},async()=>({token:'tok',url:'https://mail.example/t/tok.gif'}));
+    expect(out.draft.htmlBody).toBe(html.replace('</BODY>',trackingPixel('https://mail.example/t/tok.gif')+'</BODY>'));
+    expect(out.draft.htmlBody).toMatch(/<img[^>]+><\/BODY>\n<\/HTML>\n$/);
+  });
+
   it('mints with the subject and recipients and returns the token and image URL', async () => {
     const fetcher = vi.fn(async () => json({ token: 'tok', url: 'https://mail.example/t/tok.gif' }));
     await expect(mintTrackingToken('Hi', ['a@x.org'], fetcher)).resolves.toEqual({

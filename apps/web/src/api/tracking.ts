@@ -118,5 +118,12 @@ export async function withTrackingPixel(
 ): Promise<{ draft: DraftInput; token: string }> {
   const to = [draft.to, draft.cc ?? '', draft.bcc ?? ''].flatMap((f) => parseRecipients(f).map((r) => r.email));
   const minted = await mint(draft.subject, to);
-  return { draft: { ...draft, htmlBody: draft.htmlBody + trackingPixel(minted.url) }, token: minted.token };
+  const pixel = trackingPixel(minted.url);
+  // Complete composer documents keep the pixel inside the body. Legacy
+  // fragments remain fragments; avoid reparsing or altering authored markup.
+  const closingBody = /<\/body>\s*<\/html>\s*$/i;
+  const htmlBody = closingBody.test(draft.htmlBody)
+    ? draft.htmlBody.replace(closingBody, closing => pixel + closing)
+    : draft.htmlBody + pixel;
+  return { draft: { ...draft, htmlBody }, token: minted.token };
 }

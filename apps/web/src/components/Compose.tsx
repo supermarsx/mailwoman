@@ -1,4 +1,5 @@
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
+import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compose/outgoingExtras.ts';
 import {checkRecipientNames} from './compose/recipientNames.ts';
 import {EditorCounts} from './compose/EditorCounts.tsx';
@@ -1348,6 +1349,7 @@ export function Compose(props: {
           if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
           else textBody += `\n\n-- \n${await signaturePlain(sig)}`;
         }
+        if (rich) htmlBody = htmlMessageDocument(htmlBody);
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied

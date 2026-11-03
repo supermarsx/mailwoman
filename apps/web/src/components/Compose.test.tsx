@@ -1,5 +1,6 @@
 import {webcrypto} from 'node:crypto';
 import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
+import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import {readFileSync} from 'node:fs';
 import {resolve} from 'node:path';
 import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
@@ -621,6 +622,31 @@ describe('Compose', () => {
     return create['draft']!['bodyValues'];
   }
 
+  it('sends captured native HTML as a complete document with authored formatting inside its body',async()=>{
+    const {client,onClose}=await composeWithClient();
+    await chooseComposeFormat('html');
+    const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
+    await waitFor(()=>expect(frame.contentDocument?.getElementById('mw-native-editor')).not.toBeNull());
+    const editor=frame.contentDocument!.getElementById('mw-native-editor')!;
+    editor.innerHTML='<p style="font-family:Georgia;font-size:18px;color:#123456"><strong>Olá, formatted mail</strong></p><table cellpadding="8"><tbody><tr><td>Cell</td></tr></tbody></table>';
+    fireEvent.input(editor);
+    fireEvent.input(screen.getByLabelText('To'),{target:{value:'you@example.org'}});
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));
+    await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    const value=(sentBody(client) as {body:{value:string}}).body.value;
+    const doc=new DOMParser().parseFromString(value,'text/html');
+    expect(doc.doctype?.name).toBe('html');
+    expect(doc.head.querySelector('meta[charset]')?.getAttribute('charset')).toBe('utf-8');
+    expect(doc.body.querySelector('strong')?.textContent).toBe('Olá, formatted mail');
+    expect(doc.body.querySelector('p')?.style.fontFamily).toBe('Georgia');
+    expect(doc.body.querySelector('p')?.style.fontSize).toBe('18px');
+    expect(doc.body.querySelector('table')?.getAttribute('cellpadding')).toBe('8');
+    expect(doc.querySelector('[contenteditable],script,meta[http-equiv]')).toBeNull();
+    const create=sentRequest(client).methodCalls[0]![1]['create'] as Record<string,Record<string,unknown>>;
+    expect(create['draft']!['htmlBody']).toEqual([{partId:'body',type:'text/html'}]);
+    expect(create['draft']!['textBody']).toBeUndefined();
+  });
+
   /** Fill To / Subject / Body in plain-text mode. */
   function fillPlain(body: string, to = 'you@example.org'): void {
     fireEvent.change(screen.getByTestId('format-toggle'),{target:{value:'plain'}});
@@ -1062,7 +1088,7 @@ describe('Compose', () => {
       fillAndSend();
       await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
       expect(draftOf(client)['bodyValues']).toEqual({
-        body: { value: '<p>tracked</p><img src="https://mail.example/t/tok.gif" width="1" height="1" alt="">' },
+        body: { value: htmlMessageDocument('<p>tracked</p><img src="https://mail.example/t/tok.gif" width="1" height="1" alt="">') },
       });
       await waitFor(() =>
         expect(fetchSpy.mock.calls.some((c) => String(c[0]).endsWith('/api/track/open/tok'))).toBe(true),
