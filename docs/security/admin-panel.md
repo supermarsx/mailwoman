@@ -196,10 +196,14 @@ duration separately from repeated-request escalation. This adaptive rule is
 independent of the grace-based admin-probe protection below.
 
 Source rows and decision history include a country when the local GeoIP database
-can resolve the trusted client address. Only the country code is recorded, not
-the raw address. Missing lookups and older records show Unknown. Account and
+can resolve the trusted client address. The operator-only lists also show the
+canonical source IP supplied by the trusted proxy resolver. Missing lookups and
+older records show Unknown. Account and
 administrator aggregates span addresses and therefore have no single country.
 This information does not change the admission decision.
+For account and administrator aggregates, the current-state IP is the last
+observed source. Each decision records its own triggering IP when available;
+an unknown source is never attributed to a previous request's address.
 
 ### Message image batches
 

@@ -21,9 +21,17 @@ pub enum Signal {
     AdminRouteMiss,
     /// High-confidence scanner evidence, independent of selected weak signals.
     ProbePath,
+    BotUserAgent,
     Ignored,
 }
 impl Signal {
+    fn strong_reason(self) -> Option<Reason> {
+        match self {
+            Self::ProbePath => Some(Reason::ProbePath),
+            Self::BotUserAgent => Some(Reason::BotUserAgent),
+            _ => None,
+        }
+    }
     fn bit(self) -> u8 {
         match self {
             Self::Malformed => 1,
@@ -110,6 +118,7 @@ pub enum Reason {
     LongAbsolute,
     LongRatio,
     ProbePath,
+    BotUserAgent,
 }
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Decision {
@@ -142,6 +151,9 @@ pub struct Snapshot {
     /// Trusted source geolocation only; aggregate account subjects have none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub country_code: Option<String>,
+    /// The last trusted transport source. Never an authenticated identity token.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ip: Option<String>,
 }
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct Bucket {
@@ -209,11 +221,21 @@ pub struct State {
     last_signal: Option<Signal>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     country_code: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_ip: Option<String>,
 }
 fn valid_country_code(country: &str) -> bool {
     country.len() == 2 && country.bytes().all(|byte| byte.is_ascii_uppercase())
 }
 impl State {
+    /// Keep one canonical transport address, preserving known data on bad input.
+    pub fn set_source_ip(&mut self, ip: &str) -> bool {
+        let Ok(ip) = ip.parse::<std::net::IpAddr>() else {
+            return false;
+        };
+        self.source_ip = Some(ip.to_canonical().to_string());
+        true
+    }
     /// Accept only trusted ISO-style two-letter codes, preserving known data
     /// when a lookup is unavailable or malformed. Never accepts an IP address.
     pub fn set_country_code(&mut self, country: &str) -> bool {
@@ -236,6 +258,7 @@ impl State {
             rate_count: self.rate_count,
             rate_window_secs: self.rate_window,
             country_code: self.country_code.clone(),
+            source_ip: self.source_ip.clone(),
         }
     }
     pub fn valid(&self, now: i64) -> bool {
@@ -248,6 +271,11 @@ impl State {
             && self.clock <= now.saturating_add(300)
             && self.stage <= 2
             && self.country_code.as_deref().is_none_or(valid_country_code)
+            && self.source_ip.as_deref().is_none_or(|value| {
+                value
+                    .parse::<std::net::IpAddr>()
+                    .is_ok_and(|ip| ip.to_canonical().to_string() == value)
+            })
             && window(&self.short)
             && window(&self.long)
     }
@@ -354,7 +382,7 @@ impl State {
         if policy.adaptive_mode == Mode::Off || signal == Signal::Ignored {
             return Decision::default();
         }
-        let anomaly = signal == Signal::ProbePath || signal.bit() & policy.signals != 0;
+        let anomaly = signal.strong_reason().is_some() || signal.bit() & policy.signals != 0;
         if signal != Signal::Normal && !anomaly {
             return Decision::default();
         }
@@ -369,10 +397,18 @@ impl State {
         }
         self.last_anomaly = Some(now);
         self.last_signal = Some(signal);
-        if signal == Signal::ProbePath {
-            if self.reason != Some(Reason::ProbePath) || self.until <= now || self.stage == 0 {
+        if let Some(reason) = signal.strong_reason() {
+            // A later bot hint cannot erase an existing, active source probe.
+            if reason == Reason::BotUserAgent
+                && self.reason == Some(Reason::ProbePath)
+                && self.until > now
+                && self.stage > 0
+            {
+                return self.decision(policy.adaptive_mode, now);
+            }
+            if self.reason != Some(reason) || self.until <= now || self.stage == 0 {
                 self.stage = policy.max_stage;
-                self.reason = Some(Reason::ProbePath);
+                self.reason = Some(reason);
                 self.until = now.saturating_add(i64::from(if self.stage > 1 {
                     policy.block_secs
                 } else {
@@ -524,7 +560,7 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
     let signal = input.signal.unwrap_or(Signal::Normal);
     let adaptive_on = policy.adaptive_mode != Mode::Off;
     let anomaly =
-        adaptive_on && (signal == Signal::ProbePath || signal.bit() & policy.signals != 0);
+        adaptive_on && (signal.strong_reason().is_some() || signal.bit() & policy.signals != 0);
     let counted = |c: Counts| Counts {
         normal: c.normal + u64::from(adaptive_on && signal == Signal::Normal),
         anomalous: c.anomalous + u64::from(anomaly),
@@ -537,9 +573,9 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
         threshold: u64::from(policy.rate_limit),
         fired: rate_on && input.requests_in_window > policy.rate_limit,
     }];
-    if signal == Signal::ProbePath {
+    if let Some(reason) = signal.strong_reason() {
         rules.push(SimRule {
-            rule: Reason::ProbePath,
+            rule: reason,
             enabled: adaptive_on,
             value: 1,
             threshold: 1,
@@ -563,8 +599,9 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
         Reason::LongRatio,
     ));
     let adaptive = rules[1..].iter().find(|r| r.fired).map(|r| {
-        let block =
-            (input.previously_throttled || r.rule == Reason::ProbePath) && policy.max_stage > 1;
+        let block = (input.previously_throttled
+            || matches!(r.rule, Reason::ProbePath | Reason::BotUserAgent))
+            && policy.max_stage > 1;
         (
             if block {
                 Action::Block
@@ -633,6 +670,145 @@ mod tests {
             max_stage: 2,
         }
     }
+    #[test]
+    fn source_ip_is_canonical_validated_optional_and_legacy_compatible() {
+        let old = serde_json::to_value(State::default()).unwrap();
+        assert!(old.get("source_ip").is_none());
+        let mut state: State = serde_json::from_value(old).unwrap();
+        let snapshot = serde_json::to_value(state.snapshot()).unwrap();
+        assert!(snapshot.get("sourceIp").is_none());
+        assert!(
+            serde_json::from_value::<Snapshot>(snapshot)
+                .unwrap()
+                .source_ip
+                .is_none()
+        );
+        assert!(state.set_source_ip("::ffff:192.0.2.1"));
+        assert_eq!(state.snapshot().source_ip.as_deref(), Some("192.0.2.1"));
+        assert!(!state.set_source_ip("spoofed, 192.0.2.1"));
+        assert_eq!(state.snapshot().source_ip.as_deref(), Some("192.0.2.1"));
+        assert!(state.set_source_ip("2001:DB8:0:0:0:0:0:1"));
+        assert_eq!(state.snapshot().source_ip.as_deref(), Some("2001:db8::1"));
+        let encoded = serde_json::to_value(&state).unwrap();
+        assert_eq!(
+            serde_json::from_value::<State>(encoded.clone()).unwrap(),
+            state
+        );
+        assert_eq!(
+            serde_json::to_value(state.snapshot()).unwrap()["sourceIp"],
+            "2001:db8::1"
+        );
+        let mut invalid = encoded;
+        invalid["source_ip"] = serde_json::json!("2001:DB8::1");
+        assert!(!serde_json::from_value::<State>(invalid).unwrap().valid(0));
+    }
+
+    #[test]
+    fn bot_first_hit_respects_modes_and_caps_without_sliding_or_spending_rate_budget() {
+        for mode in [Mode::Off, Mode::Observe, Mode::Enforce] {
+            for cap in [1, 2] {
+                let mut policy = policy();
+                policy.signals = 0;
+                policy.adaptive_mode = mode;
+                policy.rate_mode = Mode::Enforce;
+                policy.max_stage = cap;
+                policy.block_secs = 41;
+                policy.throttle_secs = 7;
+                let mut state = State::default();
+                state.admit(&policy, 100);
+                let before = state.clone();
+                let decision = state.observe(&policy, 100, Signal::BotUserAgent);
+                assert_eq!(state.rate_count, before.rate_count);
+                assert_eq!(state.probe_decision(&policy, 101), Decision::default());
+                let simulated = simulate(
+                    &policy,
+                    &SimInput {
+                        signal: Some(Signal::BotUserAgent),
+                        requests_in_window: 1,
+                        ..Default::default()
+                    },
+                );
+                assert_eq!(
+                    (
+                        simulated.action,
+                        simulated.reason,
+                        simulated.enforced,
+                        simulated.duration_secs
+                    ),
+                    (
+                        decision.action,
+                        decision.reason,
+                        decision.enforced,
+                        decision.retry_after_secs
+                    )
+                );
+                if mode == Mode::Off {
+                    assert_eq!(decision, Decision::default());
+                    assert_eq!(state, before);
+                } else {
+                    assert_eq!(decision.reason, Some(Reason::BotUserAgent));
+                    assert_eq!(decision.enforced, mode == Mode::Enforce);
+                    assert_eq!(
+                        decision.action,
+                        if cap == 2 {
+                            Action::Block
+                        } else {
+                            Action::Throttle
+                        }
+                    );
+                    assert_eq!(decision.retry_after_secs, if cap == 2 { 41 } else { 7 });
+                    let deadline = state.active_until();
+                    assert_eq!(
+                        state
+                            .observe(&policy, 101, Signal::BotUserAgent)
+                            .retry_after_secs,
+                        decision.retry_after_secs - 1
+                    );
+                    assert_eq!(state.active_until(), deadline);
+                }
+            }
+        }
+        assert_eq!(
+            serde_json::to_string(&Signal::BotUserAgent).unwrap(),
+            "\"bot-user-agent\""
+        );
+        assert_eq!(
+            serde_json::from_str::<Signal>("\"bot-user-agent\"").unwrap(),
+            Signal::BotUserAgent
+        );
+    }
+
+    #[test]
+    fn server_bot_policy_can_upgrade_a_legacy_throttle_without_erasing_active_probe_evidence() {
+        let mut legacy = policy();
+        legacy.max_stage = 1;
+        legacy.short.absolute_anomalies = 1;
+        let mut state = State::default();
+        assert_eq!(
+            state.observe(&legacy, 100, Signal::Malformed).action,
+            Action::Throttle
+        );
+        let mut bot_policy = legacy.clone();
+        bot_policy.max_stage = 2;
+        let decision = state.observe(&bot_policy, 101, Signal::BotUserAgent);
+        assert_eq!(decision.action, Action::Block);
+        assert_eq!(decision.reason, Some(Reason::BotUserAgent));
+        assert_eq!(decision.retry_after_secs, bot_policy.block_secs);
+        assert_eq!(state.probe_decision(&bot_policy, 102), Decision::default());
+        let mut probe = State::default();
+        probe.observe(&bot_policy, 100, Signal::ProbePath);
+        let until = probe.active_until();
+        assert_eq!(
+            probe.observe(&bot_policy, 101, Signal::BotUserAgent).reason,
+            Some(Reason::ProbePath)
+        );
+        assert_eq!(probe.active_until(), until);
+        assert_eq!(
+            probe.probe_decision(&bot_policy, 102).reason,
+            Some(Reason::ProbePath)
+        );
+    }
+
     #[test]
     fn country_metadata_validates_round_trips_and_keeps_legacy_state_compatible() {
         let old = serde_json::to_string(&State::default()).unwrap();

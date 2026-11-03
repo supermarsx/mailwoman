@@ -64,6 +64,7 @@ struct Context {
     config: Arc<Config>,
     legacy_route: bool,
     source_country: Option<String>,
+    source_ip: Option<String>,
     display_subresource: bool,
     charged: tokio::sync::Mutex<Vec<Charged>>,
     signal: AtomicU8,
@@ -134,13 +135,18 @@ impl Context {
         let answer = self
             .state
             .store
-            .request_protection_with_country(
+            .request_protection_with_source(
                 kind,
                 value,
                 &policy,
                 chrono::Utc::now().timestamp(),
-                None,
-                self.source_country.as_deref(),
+                kind.strip_prefix("ua-")
+                    .filter(|category| self.config.user_agent.blocks_bot(category))
+                    .map(|_| Signal::BotUserAgent),
+                mw_store::request_protection::ProtectionSource {
+                    country: self.source_country.as_deref(),
+                    ip: self.source_ip.as_deref(),
+                },
             )
             .await;
         match answer {
@@ -188,13 +194,16 @@ impl Context {
             if self
                 .state
                 .store
-                .request_protection_with_country(
+                .request_protection_with_source(
                     subject.kind,
                     &subject.value,
                     &subject.policy,
                     chrono::Utc::now().timestamp(),
                     Some(signal),
-                    self.source_country.as_deref(),
+                    mw_store::request_protection::ProtectionSource {
+                        country: self.source_country.as_deref(),
+                        ip: self.source_ip.as_deref(),
+                    },
                 )
                 .await
                 .is_err()
@@ -495,6 +504,25 @@ fn hostile_probe(path: &str) -> bool {
     }
     probe_path::hostile_probe_path(path)
 }
+fn bot_protected(path: &str) -> bool {
+    let admin = mw_admin::config::admin_path();
+    !matches!(
+        path,
+        "/health"
+            | "/healthz"
+            | "/ready"
+            | "/readyz"
+            | "/api/logout"
+            | "/api/sso/logout"
+            | "/api/public-config"
+            | "/api/rc/frame"
+            | "/api/login/2fa"
+            | "/oidc/logout"
+            | "/oidc/logout/context"
+    ) && !path
+        .strip_prefix(&admin)
+        .is_some_and(|suffix| matches!(suffix, "/logout" | "/login/2fa" | "/login/recovery"))
+}
 pub(crate) async fn guard(
     State(state): State<AppState>,
     mut request: Request,
@@ -502,10 +530,11 @@ pub(crate) async fn guard(
 ) -> Response {
     let legacy_route = protected(request.uri().path());
     let ua_route = ua_protected(request.uri().path());
+    let bot_route = bot_protected(request.uri().path());
     let probe = hostile_probe(request.uri().path());
     let source_scope = probe || probe_block_scope(request.uri().path());
     if (request.method() == axum::http::Method::OPTIONS && !probe)
-        || (!legacy_route && !ua_route && !source_scope)
+        || (!legacy_route && !ua_route && !source_scope && !bot_route)
     {
         return next.run(request).await;
     }
@@ -531,6 +560,7 @@ pub(crate) async fn guard(
         mw_engine::security::CountryLookup::Known(country) => Some(country),
         _ => None,
     };
+    let source_ip = source.map(|ip| ip.to_canonical().to_string());
     if source_scope
         && let Some(source) = source
         && let Some(policy) = config.subject("client", &source.to_canonical().to_string())
@@ -544,13 +574,16 @@ pub(crate) async fn guard(
         let decision = if probe {
             state
                 .store
-                .request_protection_with_country(
+                .request_protection_with_source(
                     "client",
                     &source,
                     &policy,
                     now,
                     Some(Signal::ProbePath),
-                    source_country.as_deref(),
+                    mw_store::request_protection::ProtectionSource {
+                        country: source_country.as_deref(),
+                        ip: source_ip.as_deref(),
+                    },
                 )
                 .await
                 .map(|outcome| outcome.decision)
@@ -573,7 +606,7 @@ pub(crate) async fn guard(
             _ => {}
         }
     }
-    let ua_category = ua_route
+    let ua_category = (ua_route || bot_route)
         .then(|| {
             config.user_agent.classify(
                 request
@@ -582,7 +615,8 @@ pub(crate) async fn guard(
                     .and_then(|v| v.to_str().ok()),
             )
         })
-        .flatten();
+        .flatten()
+        .filter(|category| ua_route || config.user_agent.blocks_bot(category));
     if (!legacy_route || !config.legacy_enabled()) && ua_category.is_none() {
         return next.run(request).await;
     }
@@ -600,6 +634,7 @@ pub(crate) async fn guard(
         config,
         legacy_route,
         source_country,
+        source_ip,
         display_subresource: display_proof.is_some(),
         charged: Default::default(),
         signal: AtomicU8::new(0),

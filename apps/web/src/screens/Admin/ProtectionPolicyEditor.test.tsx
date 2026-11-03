@@ -24,6 +24,7 @@ function policy(): ProtectionPolicy {
       setting('clientRequests', { type: 'int', min: 0, max: 1_000_000 }, 600, 600),
       setting('rateWindowSecs', { type: 'int', min: 1, max: 3600 }, 60, 60),
       setting('throttleSecs', { type: 'int', min: 1, max: 300 }, 3, 3),
+      setting('userAgentBlockBots', {type:'bool'}, true, true),
       setting('signals', { type: 'stringList', maxItems: 6 }, ['malformed', 'oversized', 'credential-rejected'], ['malformed', 'oversized', 'credential-rejected']),
     ],
     presets: {
@@ -61,6 +62,38 @@ describe('protection rule helpers', () => {
 });
 
 describe('Adaptive protection editor', () => {
+  it.each([true,false])('reflects first-request bot blocking default true and a saved override (%s)',async initial=>{
+    const p=policy();p.rules=p.rules.map(rule=>rule.key.endsWith('userAgentBlockBots')?setting('userAgentBlockBots',{type:'bool'},initial,true):rule);
+    const a=api({policy:async()=>p});
+    render(()=><ProtectionPolicyEditor api={a} canWrite/>);
+    const row=await screen.findByTestId('protect-rule-user-agent-block-bots');
+    const checkbox=within(row).getByRole('checkbox',{name:'Block recognized bots on the first request'});
+    expect(checkbox).toHaveProperty('checked',initial);
+    expect(within(row).getByRole('button',{name:'Reset Block recognized bots on the first request to its default'})).toHaveProperty('disabled',initial);
+    fireEvent.click(checkbox);fireEvent.click(within(row).getByRole('button',{name:'Save Block recognized bots on the first request'}));
+    await waitFor(()=>expect(a.save).toHaveBeenCalledWith([{key:'security.protection.userAgentBlockBots',value:!initial,etag:'"userAgentBlockBots-1"'}],undefined));
+    expect(checkbox).toHaveProperty('checked',!initial);
+  });
+  it('simulates an immediate bot-header block and keeps source-only evidence out of account samples',async()=>{
+    const a=api({simulate:vi.fn(async():Promise<SimResult>=>({action:'block',reason:'bot-user-agent',enforced:true,durationSecs:900,signalCounted:true,off:false,exempt:false,rules:[{rule:'bot-user-agent',enabled:true,value:1,threshold:1,fired:true}]}))});
+    render(()=><ProtectionPolicyEditor api={a} canWrite/>);
+    const sim=await screen.findByTestId('protection-simulator');
+    const signal=within(sim).getByLabelText('What the request is');
+    expect(screen.queryByRole('checkbox',{name:'Recognized bot User-Agent'})).toBeNull();
+    fireEvent.change(signal,{target:{value:'bot-user-agent'}});
+    fireEvent.click(within(sim).getByRole('button',{name:'Check'}));
+    const result=await screen.findByTestId('protection-sim-result');
+    expect(result).toHaveAttribute('data-action','block');
+    expect(result).toHaveTextContent('Blocked for 15 min, because of: Recognized bot User-Agent (first request)');
+    expect(within(result).getByRole('rowheader',{name:'Recognized bot User-Agent (first request)'})).toBeInTheDocument();
+    expect(a.simulate).toHaveBeenCalledWith({subjectKind:'client',sample:{requestsInWindow:1,short:{normal:0,anomalous:0},long:{normal:0,anomalous:0},signal:'bot-user-agent',previouslyThrottled:false}});
+    const kind=within(sim).getByLabelText('Who sends it');
+    for(const next of ['account','admin']){
+      fireEvent.change(kind,{target:{value:next}});expect(signal).toHaveValue('normal');
+      expect(within(sim).queryByRole('option',{name:'Recognized bot User-Agent'})).toBeNull();
+      fireEvent.change(kind,{target:{value:'client'}});fireEvent.change(signal,{target:{value:'bot-user-agent'}});
+    }
+  });
   it('edits conservative User-Agent controls without splitting regex commas and simulates a missing header', async () => {
     const p = policy();
     p.rules.push(

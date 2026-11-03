@@ -177,9 +177,18 @@ async fn aggregate_source_country_uses_local_geoip_and_is_returned_in_lists_and_
         .unwrap();
     assert_eq!(event["reason"], "probe-path");
     assert_eq!(event["snapshot"]["countryCode"], "PT");
-    assert!(
-        !body.to_string().contains("127.0.0.48"),
-        "country enrichment must not reveal stored raw addresses"
+    assert_eq!(event["snapshot"]["sourceIp"], "127.0.0.48");
+    assert_eq!(
+        rows.iter()
+            .find(|row| row["subjectKey"] == known_key)
+            .unwrap()["snapshot"]["sourceIp"],
+        "127.0.0.48"
+    );
+    assert_eq!(
+        rows.iter()
+            .find(|row| row["subjectKey"] == unknown_key)
+            .unwrap()["snapshot"]["sourceIp"],
+        "127.0.0.49"
     );
 }
 #[tokio::test]
@@ -381,7 +390,7 @@ async fn explicit_probes_respect_modes_and_do_not_treat_normal_paths_or_query_te
             "/admin",
             "/login",
             "/user/login",
-            "/.gitignore",
+            "/.gitattributes",
             "/.environment",
             "/cmd_sco.js",
             "/api/files/.env",
@@ -592,6 +601,7 @@ async fn typed_json_anomalies_enforce_but_ordinary_not_found_and_observe_mode_do
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].reason, "short-absolute");
         assert_eq!(events[0].snapshot.short.anomalous, 2);
+        assert_eq!(events[0].snapshot.source_ip.as_deref(), Some("127.0.0.2"));
         assert_eq!(events[0].enforced, mode == "enforce");
     }
 }
@@ -726,7 +736,13 @@ async fn protection_history_is_scoped_private_and_clear_requires_fresh_proof_and
             .iter()
             .any(|row| row["action"] == "cleared")
     );
-    assert!(!events.to_string().contains("127.0.0.2"));
+    assert!(
+        events["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|row| row["snapshot"]["sourceIp"] == "127.0.0.2")
+    );
     for path in [
         "subjects?limit=0",
         "events?limit=101",
@@ -841,6 +857,7 @@ async fn real_settings_write_invalidates_off_cache_before_next_request() {
 #[tokio::test]
 async fn user_agent_claims_are_lax_independent_and_do_not_trust_spoofed_forwarding() {
     let (base, _) = fixture(&[
+        ("security.protection.userAgentBlockBots", json!(false)),
         ("security.protection.userAgentWeakRequests", json!(2)),
         ("security.protection.userAgentCrawlerRequests", json!(1)),
         ("security.protection.userAgentWindowSecs", json!(3600)),
@@ -970,5 +987,155 @@ async fn user_agent_scope_excludes_verified_sessions_unless_all_is_selected() {
                 .status(),
             429
         );
+    }
+}
+
+#[tokio::test]
+async fn bot_user_agents_are_blocked_on_the_first_request_by_default_even_for_files() {
+    let (base, store) = fixture(&[
+        ("security.protection.blockSecs", json!(120)),
+        ("security.protection.userAgentAdaptive", json!(false)),
+        ("security.protection.userAgentMaxAction", json!("throttle")),
+    ])
+    .await;
+    for (index, (agent, path)) in [
+        ("GPTBot/1.2", "/api/me"),
+        ("Googlebot/2.1", "/public-document"),
+        ("AhrefsBot/7", "/robots.txt"),
+        ("Scrapy/2.0", "/assets/app.js"),
+        ("curl/8.0", "/wp-content/missing.png"),
+        ("Claude-User/1.0", "/api/me"),
+        ("CustomCrawler/1.0", "/api/me"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let actor = client(70 + index as u8);
+        let first = actor
+            .get(format!("{base}{path}"))
+            .header("user-agent", *agent)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(first.status(), 429, "{agent}: {path}");
+        assert_eq!(first.headers()["retry-after"], "120");
+        assert_eq!(
+            first.json::<Value>().await.unwrap()["code"],
+            "requestProtectionLimited"
+        );
+        // The user-agent policy rejects bot requests; a changed claim does not
+        // turn this category-specific decision into a global source ban.
+        assert_eq!(
+            actor
+                .get(format!("{base}/api/me"))
+                .header("user-agent", "Mozilla/5.0 Chrome/140.0 Safari/537.36")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            401
+        );
+        assert_eq!(
+            actor
+                .get(format!("{base}/healthz"))
+                .header("user-agent", *agent)
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            200
+        );
+    }
+    let events = store
+        .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+        .await
+        .unwrap();
+    assert_eq!(events.len(), 7);
+    assert!(events.iter().all(|event| event.reason == "bot-user-agent"
+        && event.action == "block"
+        && event.enforced
+        && event.subject_kind.starts_with("ua-")));
+}
+
+#[tokio::test]
+async fn first_hit_bot_blocks_respect_modes_categories_and_explicit_exceptions() {
+    for mode in ["off", "observe", "enforce"] {
+        let (base, store) = fixture(&[
+            ("security.protection.userAgentMode", json!(mode)),
+            (
+                "security.protection.userAgentExceptions",
+                json!(["^AllowedBot/"]),
+            ),
+        ])
+        .await;
+        let actor = client(80);
+        assert_ne!(
+            actor
+                .get(format!("{base}/api/me"))
+                .header("user-agent", "AllowedBot/1")
+                .send()
+                .await
+                .unwrap()
+                .status(),
+            429
+        );
+        let response = actor
+            .get(format!("{base}/api/me"))
+            .header("user-agent", "GPTBot/1")
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(
+            response.status().as_u16(),
+            if mode == "enforce" { 429 } else { 401 }
+        );
+        let events = store
+            .request_protection_events(chrono::Utc::now().timestamp(), None, 100)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), usize::from(mode != "off"));
+        if let Some(event) = events.first() {
+            assert_eq!(event.reason, "bot-user-agent");
+            assert_eq!(event.enforced, mode == "enforce");
+        }
+    }
+    let (base, _) = fixture(&[(
+        "security.protection.userAgentCategories",
+        json!(["missing", "uncommon"]),
+    )])
+    .await;
+    assert_eq!(
+        client(81)
+            .get(format!("{base}/api/me"))
+            .header("user-agent", "GPTBot/1")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        401
+    );
+}
+
+#[tokio::test]
+async fn bot_simulation_uses_default_first_hit_policy_for_headers_and_direct_samples() {
+    let (base, _) = fixture(&[]).await;
+    let operator = client(82);
+    admin_login(&operator, &base, "root", "hunter2").await;
+    for body in [
+        json!({"subjectKind":"client","userAgent":"GPTBot/1","sample":{"requestsInWindow":1,"signal":"normal"}}),
+        json!({"subjectKind":"client","sample":{"requestsInWindow":1,"signal":"bot-user-agent"}}),
+    ] {
+        let response = operator
+            .post(format!("{base}/admin/bans/protection/simulate"))
+            .json(&body)
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status(), 200);
+        let decision: Value = response.json().await.unwrap();
+        assert_eq!(decision["action"], "block", "{decision}");
+        assert_eq!(decision["reason"], "bot-user-agent");
+        assert_eq!(decision["enforced"], true);
+        assert_eq!(decision["signalCounted"], true);
     }
 }

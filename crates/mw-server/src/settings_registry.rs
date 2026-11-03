@@ -2440,7 +2440,15 @@ pub static REGISTRY: &[SettingDef] = &[
         "\"enforce\"",
         G,
         "security",
-        "Independent, enabled lax protection for self-claimed client classes. No header alone establishes abuse; repeated requests and authoritative anomalies use the existing counter engine."
+        "Independent protection for self-claimed client classes, enabled by default. Selected bot classes are blocked immediately when userAgentBlockBots is enabled. Missing and uncommon headers use request budgets; claims never authenticate a crawler."
+    ),
+    def!(
+        "security.protection.userAgentBlockBots",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Block selected bot, crawler, automation and custom-pattern user-agent claims on their first request. Enabled by default; observe mode records the proposed block, off disables it, and configured scope and exceptions still apply. Missing and uncommon headers retain their request budgets."
     ),
     def!(
         "security.protection.userAgentCategories",
@@ -2459,7 +2467,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "600",
         G,
         "security",
-        "Lax per-source request allowance for missing, uncommon, automation and custom-pattern claims."
+        "Per-source request allowance for missing and uncommon headers, and for automation/custom-pattern claims when immediate bot blocking is disabled."
     ),
     def!(
         "security.protection.userAgentCrawlerRequests",
@@ -2467,7 +2475,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "300",
         G,
         "security",
-        "Per-source request allowance for claimed search, AI training, AI search and user-triggered AI fetchers."
+        "Per-source request allowance for claimed search, AI training, AI search and user-triggered AI fetchers when immediate bot blocking is disabled."
     ),
     def!(
         "security.protection.userAgentWindowSecs",
@@ -2483,7 +2491,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "\"throttle\"",
         G,
         "security",
-        "Maximum adaptive escalation for user-agent subjects. Default throttle never escalates to a block. Request-rate exhaustion always uses a temporary 429."
+        "Maximum escalation for repeated weak user-agent anomalies. Immediate bot blocking is independent of this cap. Request-rate exhaustion always uses a temporary 429."
     ),
     def!(
         "security.protection.userAgentScope",
@@ -2499,7 +2507,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "true",
         G,
         "security",
-        "Combine the extra budget with the existing selected authoritative signals and rolling-window thresholds. A user-agent claim itself is never counted as an anomaly."
+        "Combine the extra budget with selected authoritative signals and rolling-window thresholds. Immediate bot blocking is controlled independently by userAgentBlockBots."
     ),
     def!(
         "security.protection.userAgentPatterns",
@@ -2510,7 +2518,7 @@ pub static REGISTRY: &[SettingDef] = &[
         "[]",
         G,
         "security",
-        "Additional case-insensitive Rust regular expressions for custom weak claims. Compiled with bounded size; no backreferences or lookaround."
+        "Additional case-insensitive Rust regular expressions for custom claims, including immediate blocking when userAgentBlockBots is enabled. Compiled with bounded size; no backreferences or lookaround."
     ),
     def!(
         "security.protection.userAgentExceptions",

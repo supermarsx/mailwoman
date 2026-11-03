@@ -45,6 +45,7 @@ pub(super) struct Rules {
     max_stage: u8,
     pub anonymous_only: bool,
     adaptive: bool,
+    block_bots: bool,
     patterns: RegexSet,
     exceptions: RegexSet,
 }
@@ -103,6 +104,7 @@ impl Rules {
                 _ => return Err(()),
             },
             adaptive: get("Adaptive")?.as_bool().ok_or(())?,
+            block_bots: get("BlockBots")?.as_bool().ok_or(())?,
             patterns: compile(&strings("Patterns")?).map_err(|_| ())?,
             exceptions: compile(&strings("Exceptions")?).map_err(|_| ())?,
         })
@@ -140,10 +142,21 @@ impl Rules {
         policy.rate_window_secs = self.window_secs;
         policy.adaptive_mode = if self.adaptive { self.mode } else { Mode::Off };
         policy.max_stage = self.max_stage;
+        if self.blocks_bot(category) {
+            policy.adaptive_mode = self.mode;
+            policy.max_stage = 2;
+        }
         Some(policy)
     }
+    pub fn blocks_bot(&self, category: &str) -> bool {
+        self.block_bots
+            && matches!(
+                category,
+                "automation" | "search" | "ai-training" | "ai-search" | "ai-user" | "custom"
+            )
+    }
     pub fn summary(&self) -> Value {
-        json!({"mode":match self.mode{Mode::Off=>"off",Mode::Observe=>"observe",Mode::Enforce=>"enforce"},"categories":self.categories,"weakRequests":self.weak_requests,"crawlerRequests":self.crawler_requests,"windowSecs":self.window_secs,"maxAction":if self.max_stage==1{"throttle"}else{"block"},"scope":if self.anonymous_only{"anonymous"}else{"all"},"adaptive":self.adaptive,"claimedOnly":true})
+        json!({"mode":match self.mode{Mode::Off=>"off",Mode::Observe=>"observe",Mode::Enforce=>"enforce"},"categories":self.categories,"weakRequests":self.weak_requests,"crawlerRequests":self.crawler_requests,"windowSecs":self.window_secs,"maxAction":if self.max_stage==1{"throttle"}else{"block"},"scope":if self.anonymous_only{"anonymous"}else{"all"},"adaptive":self.adaptive,"blockBots":self.block_bots,"claimedOnly":true})
     }
 }
 
@@ -221,23 +234,28 @@ fn classify(raw: &str) -> Option<&'static str> {
             return Some(category);
         }
     }
-    if [
-        "curl",
-        "wget",
-        "python-requests",
-        "python-urllib",
-        "httpx",
-        "go-http-client",
-        "headlesschrome",
-        "phantomjs",
-        "selenium",
-        "scrapy",
-        "aiohttp",
-        "libwww-perl",
-        "java",
-    ]
-    .iter()
-    .any(|name| token(&ua, name))
+    if ua
+        .split(|character: char| !character.is_ascii_alphanumeric())
+        .any(|product| {
+            product.ends_with("bot") || product.ends_with("spider") || product.ends_with("crawler")
+        })
+        || [
+            "curl",
+            "wget",
+            "python-requests",
+            "python-urllib",
+            "httpx",
+            "go-http-client",
+            "headlesschrome",
+            "phantomjs",
+            "selenium",
+            "scrapy",
+            "aiohttp",
+            "libwww-perl",
+            "java",
+        ]
+        .iter()
+        .any(|name| token(&ua, name))
     {
         return Some("automation");
     }
@@ -300,9 +318,12 @@ mod tests {
             assert_eq!(classify(ua), Some(class));
         }
         assert_eq!(classify("Mozilla/5.0 Chrome/140.0 Safari/537.36"), None);
-        assert_eq!(classify("FakeGooglebot/1"), Some("uncommon"));
+        assert_eq!(classify("FakeGooglebot/1"), Some("automation"));
         assert_eq!(classify("Google-Extended"), Some("uncommon"));
-        assert_eq!(classify("Applebot-Extended"), Some("uncommon"));
+        assert_eq!(classify("Applebot-Extended"), Some("automation"));
+        assert_eq!(classify("AhrefsBot/7"), Some("automation"));
+        assert_eq!(classify("CustomSpider/1"), Some("automation"));
+        assert_eq!(classify("BrowserBotanical/1"), Some("uncommon"));
     }
     #[test]
     fn regex_rules_are_bounded_and_do_not_support_backtracking_extensions() {

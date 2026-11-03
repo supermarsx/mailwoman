@@ -34,6 +34,7 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  async function next(kind:'subjects'|'events'):Promise<void>{setLoading(true);setError('');try{if(kind==='subjects'){const cursor=subjectCursor();if(!cursor)return;const result=await api().subjects(cursor);setSubjects(result.subjects);setSubjectCursor(result.cursor);}else{const cursor=eventCursor();if(!cursor)return;const result=await api().events(cursor);setEvents(result.events);setEventCursor(result.cursor);}}catch(cause){setError(describeAdminError(cause));}finally{setLoading(false);}}
  const subjectColumns=():Column<ProtectionSubject>[]=>[
  {id:'subject',header:t('admin-protection-subject'),cell:identity},
+ {id:'ip',header:t('admin-protection-last-source-ip'),cell:row=>row.snapshot.sourceIp||t('admin-protection-ip-unknown')},
  {id:'country',header:t('admin-protection-country'),cell:country},
  {id:'short',header:t('admin-protection-short'),cell:row=>`${row.snapshot.short.anomalous} / ${row.snapshot.short.normal}`},
  {id:'long',header:t('admin-protection-long'),cell:row=>`${row.snapshot.long.anomalous} / ${row.snapshot.long.normal}`},
@@ -50,6 +51,7 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  const eventColumns=():Column<ProtectionEvent>[]=>[
  {id:'at',header:t('admin-protection-observed-at'),cell:row=>date(row.observedAt)},
  {id:'subject',header:t('admin-protection-subject'),cell:identity},
+ {id:'ip',header:t('admin-protection-source-ip'),cell:row=>row.snapshot.sourceIp||t('admin-protection-ip-unknown')},
  {id:'country',header:t('admin-protection-country'),cell:country},
  {id:'reason',header:t('admin-protection-reason'),cell:row=><span data-testid="protection-decision">{decision(row)}</span>},
  {id:'action',header:t('admin-protection-action'),cell:row=>`${t(`admin-protection-action-${row.action}`)} · ${t(row.enforced?'admin-protection-enforced':'admin-protection-observed')}`},

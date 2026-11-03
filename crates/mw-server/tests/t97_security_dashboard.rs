@@ -396,18 +396,21 @@ async fn simulator_explains_the_decision_without_moving_counters() {
         (off["action"].as_str(), off["off"].as_bool()),
         (Some("allow"), Some(true))
     );
-    // UA classification is independent of those older switches; a lone claim
-    // is allowed, and repeated crawler traffic uses the same simulator engine.
+    // UA policy is independent of those older switches. Missing/uncommon
+    // headers retain budgets; selected bots are blocked on their first claim.
     for (ua, count, action, class) in [
         ("novel-client/1", 1, "allow", "uncommon"),
-        ("GPTBot/1.2", 301, "throttle", "ai-training"),
-        ("curl/8", 601, "throttle", "automation"),
+        ("GPTBot/1.2", 1, "block", "ai-training"),
+        ("curl/8", 1, "block", "automation"),
     ] {
         let outcome:Value=sim(json!({"subjectKind":"client","userAgent":ua,"sample":{"requestsInWindow":count,"short":{"normal":0,"anomalous":0},"long":{"normal":0,"anomalous":0},"signal":"normal"}})).await.unwrap().json().await.unwrap();
         assert_eq!(outcome["action"], action, "{outcome}");
         assert_eq!(outcome["userAgent"]["classification"], class);
         assert_eq!(outcome["userAgent"]["claimedOnly"], true);
     }
+    let legacy_bot: Value = sim(json!({"subjectKind":"client","userAgent":"GPTBot/1.2","sample":{"requestsInWindow":301,"signal":"normal"},"draft":{"security.protection.userAgentBlockBots":false}})).await.unwrap().json().await.unwrap();
+    assert_eq!(legacy_bot["action"], "throttle");
+    assert_eq!(legacy_bot["reason"], "request-rate");
     let capped:Value=sim(json!({"subjectKind":"client","userAgent":"novel-client/1","sample":{"requestsInWindow":1,"short":{"normal":0,"anomalous":25},"long":{"normal":0,"anomalous":0},"signal":"malformed","previouslyThrottled":true}})).await.unwrap().json().await.unwrap();
     assert_eq!(capped["action"], "throttle", "{capped}");
     // A draft turns adaptive protection on: the short absolute rule throttles.

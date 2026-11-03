@@ -292,7 +292,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 
 | Key | Category | Scopes | Default | Value | Environment | Hot | Read by |
 |---|---|---|---|---|---|---|---|
-| <a id="mail.reader.unsafehtmlmode"></a>`mail.reader.unsafeHtmlMode` | mail | global+domain+user | "ask" | plain |  | yes | Handling of message HTML detected as unsafe |
+| <a id="mail.reader.unsafehtmlmode"></a>`mail.reader.unsafeHtmlMode` | mail | global+domain+user | "sanitized" | plain |  | yes | Handling of message HTML detected as unsafe |
 | <a id="reader.attachmentsdensity"></a>`reader.attachmentsDensity` | reader | global+domain+user | "compact" | plain |  | yes | Reader attachment list density |
 | <a id="mail.composewindow"></a>`mail.composeWindow` | mail | global+domain+user | "tab" | plain |  | yes | Preferred composer location |
 | <a id="mail.replycopytooriginal"></a>`mail.replyCopyToOriginal` | mail | global+domain+user | false | plain |  | yes | Offer original folder for reply copies |
@@ -389,6 +389,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.trackers"></a>`privacy.trackers` | privacy | global+domain+user | true | plain |  | yes | Block email trackers |
 | <a id="privacy.cleanlinks"></a>`privacy.cleanLinks` | privacy | global+domain+user | true | plain |  | yes | Remove tracking parameters from links |
 | <a id="links.trusteddomains"></a>`links.trustedDomains` | privacy | global+domain+user | [] | plain |  | yes | exact trusted link domains that open from Review links without the destination step |
+| <a id="links.trustedsenders"></a>`links.trustedSenders` | privacy | global+domain+user | [] | plain |  | yes | exact sender mailboxes whose reviewed message links may open without per-message consent |
 | <a id="links.trustedsubdomains"></a>`links.trustedSubdomains` | privacy | global+domain+user | false | plain |  | yes | whether trusted link domains also trust their subdomains |
 | <a id="privacy.maxbytes"></a>`privacy.maxBytes` | privacy | global | 8388608 | plain |  | yes | Largest fetched remote image in bytes |
 | <a id="privacy.cachebytes"></a>`privacy.cacheBytes` | privacy | global | 33554432 | plain |  | yes | Remote image cache size in bytes |
@@ -466,7 +467,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="reader.colormode"></a>`reader.colorMode` | reader | global+domain+user | "auto" | plain |  | yes | message color adaptation inside the isolated reader |
 | <a id="reader.fontsize"></a>`reader.fontSize` | reader | global+domain+user | 14 | plain |  | yes | message reading font size in pixels |
 | <a id="reader.lineheight"></a>`reader.lineHeight` | reader | global+domain+user | 1.6 | plain |  | yes | message reading line height |
-| <a id="reader.contentwidth"></a>`reader.contentWidth` | reader | global+domain+user | "wide" | plain |  | yes | message content width |
+| <a id="reader.contentwidth"></a>`reader.contentWidth` | reader | global+domain+user | "full" | plain |  | yes | message content width |
 | <a id="reader.loading"></a>`reader.loading` | reader | global+domain+user | "skeleton" | plain |  | yes | message loading appearance |
 | <a id="reader.loadingdelayms"></a>`reader.loadingDelayMs` | reader | global+domain+user | 120 | plain |  | yes | delay before showing message loading feedback |
 | <a id="reader.zoom"></a>`reader.zoom` | reader | global+domain+user | 100 | plain |  | yes | message body zoom in percent; the reader snaps it to its zoom steps |
@@ -481,6 +482,15 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="appearance.badgecolor"></a>`appearance.badgeColor` | appearance | global+domain+user | "default" | plain |  | yes | appearance blob badgeColor: unread-count badge colour (default = the theme's signal colour; accent-lighter/accent-darker = the accent 0.2 OKLCH L lighter/darker) |
 | <a id="appearance.density"></a>`appearance.density` | appearance | global+domain+user | "cozy" | plain |  | yes | appearance blob density |
 | <a id="appearance.font"></a>`appearance.font` | appearance | global+domain+user | "default" | plain |  | yes | self-hosted interface font; account choice or administrator default/lock |
+| <a id="appearance.fontsize"></a>`appearance.fontSize` | appearance | global+domain+user | 14 | plain |  | yes | interface font size in pixels |
+| <a id="appearance.fontweight"></a>`appearance.fontWeight` | appearance | global+domain+user | "400" | plain |  | yes | interface base font weight; emphasized text keeps its hierarchy |
+| <a id="appearance.fontcolor"></a>`appearance.fontColor` | appearance | global+domain+user | "" | plain |  | yes | interface text color as #RRGGBB; empty follows theme |
+| <a id="appearance.lowcontrast"></a>`appearance.lowContrast` | appearance | global+domain+user | false | plain |  | yes | soften interface text contrast |
+| <a id="mail.messageliststyle"></a>`mail.messageListStyle` | mail | global+domain+user | "cards" | plain |  | yes | message list cards or Gmail-style rows with column headings |
+| <a id="mail.messagelistorder"></a>`mail.messageListOrder` | mail | global+domain+user | "newest" | plain |  | yes | message list ordering |
+| <a id="mail.messagelistpreview"></a>`mail.messageListPreview` | mail | global+domain+user | true | plain |  | yes | show body snippets in message list |
+| <a id="mail.afterdelete"></a>`mail.afterDelete` | mail | global+domain+user | "next" | plain |  | yes | message shown after deleting the open message |
+| <a id="reader.attachmentsatend"></a>`reader.attachmentsAtEnd` | reader | global+domain+user | false | plain |  | yes | show attachments after the message body |
 | <a id="appearance.leetspeak"></a>`appearance.leetspeak` | appearance | global+domain+user | false | plain |  | yes | optional leetspeak presentation for interface and message reading; stored text and submitted values stay unchanged |
 | <a id="appearance.brandname"></a>`appearance.brandName` | appearance | global | "Mailwoman" | plain |  | yes | public config brand name |
 | <a id="login.showdomainhint"></a>`login.showDomainHint` | appearance | global | false | plain |  | yes | public config preferred-domain hint visibility |
@@ -492,6 +502,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.readreceipts"></a>`mail.readReceipts` | mail | global+domain+user | "ask" | plain |  | yes | mdn_policy:<account> (MDN/send) |
 | <a id="notifications.pushallowed"></a>`notifications.pushAllowed` | notifications | global+domain | true | plain |  | yes | account-authorized push registration and delivery |
 | <a id="offline.persistentstorageallowed"></a>`offline.persistentStorageAllowed` | offline | global+domain | false | plain |  | yes | explicit browser persistent-storage permission request |
+| <a id="notifications.askpermission"></a>`notifications.askPermission` | notifications | global+domain+user | true | plain |  | yes | offer the browser notification permission request to the user |
 | <a id="notifications.enabled"></a>`notifications.enabled` | notifications | global+domain+user | false | plain |  | yes | notification rules enabled flag |
 | <a id="offline.retentiondays"></a>`offline.retentionDays` | offline | global+domain+user | 30 | plain |  | yes | web device prefs offlineRetentionDays (client clamps) |
 | <a id="offline.budgetmb"></a>`offline.budgetMb` | offline | global+domain+user | 250 | plain |  | yes | web device prefs offlineBudgetMb (client clamps) |
@@ -528,15 +539,16 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="security.protection.exemptaccounts"></a>`security.protection.exemptAccounts` | security | global | [] | plain |  | yes | Exact server-verified mailbox account IDs exempt only their account dimension, never the source-client dimension. Email addresses and caller-supplied account parameters are not identity evidence. |
 | <a id="security.protection.exemptadmins"></a>`security.protection.exemptAdmins` | security | global | [] | plain |  | yes | Exact authenticated administrator IDs exempt only their administrator dimension. Existing sign-in failure locks and strict administrator session deadlines remain unchanged. |
 | <a id="security.protection.storagefailure"></a>`security.protection.storageFailure` | security | global | "closed" | plain |  | yes | Closed refuses protected work when an enabled enforcement budget cannot be checked. Open temporarily permits it with a bounded operational warning. Observe-only failures never impose an enforcement action. |
-| <a id="security.protection.useragentmode"></a>`security.protection.userAgentMode` | security | global | "enforce" | plain |  | yes | Independent, enabled lax protection for self-claimed client classes. No header alone establishes abuse; repeated requests and authoritative anomalies use the existing counter engine. |
+| <a id="security.protection.useragentmode"></a>`security.protection.userAgentMode` | security | global | "enforce" | plain |  | yes | Independent protection for self-claimed client classes, enabled by default. Selected bot classes are blocked immediately when userAgentBlockBots is enabled. Missing and uncommon headers use request budgets; claims never authenticate a crawler. |
+| <a id="security.protection.useragentblockbots"></a>`security.protection.userAgentBlockBots` | security | global | true | plain |  | yes | Block selected bot, crawler, automation and custom-pattern user-agent claims on their first request. Enabled by default; observe mode records the proposed block, off disables it, and configured scope and exceptions still apply. Missing and uncommon headers retain their request budgets. |
 | <a id="security.protection.useragentcategories"></a>`security.protection.userAgentCategories` | security | global | ["missing","uncommon","automation","search","ai-training","ai-search","ai-user"] | plain |  | yes | Enabled header-claim categories. Known browser and mail-client families have no extra user-agent budget; these are not verified crawler identities. |
-| <a id="security.protection.useragentweakrequests"></a>`security.protection.userAgentWeakRequests` | security | global | 600 | plain |  | yes | Lax per-source request allowance for missing, uncommon, automation and custom-pattern claims. |
-| <a id="security.protection.useragentcrawlerrequests"></a>`security.protection.userAgentCrawlerRequests` | security | global | 300 | plain |  | yes | Per-source request allowance for claimed search, AI training, AI search and user-triggered AI fetchers. |
+| <a id="security.protection.useragentweakrequests"></a>`security.protection.userAgentWeakRequests` | security | global | 600 | plain |  | yes | Per-source request allowance for missing and uncommon headers, and for automation/custom-pattern claims when immediate bot blocking is disabled. |
+| <a id="security.protection.useragentcrawlerrequests"></a>`security.protection.userAgentCrawlerRequests` | security | global | 300 | plain |  | yes | Per-source request allowance for claimed search, AI training, AI search and user-triggered AI fetchers when immediate bot blocking is disabled. |
 | <a id="security.protection.useragentwindowsecs"></a>`security.protection.userAgentWindowSecs` | security | global | 60 | plain |  | yes | User-agent request-budget interval; independent of the legacy rate and adaptive mode switches. |
-| <a id="security.protection.useragentmaxaction"></a>`security.protection.userAgentMaxAction` | security | global | "throttle" | plain |  | yes | Maximum adaptive escalation for user-agent subjects. Default throttle never escalates to a block. Request-rate exhaustion always uses a temporary 429. |
+| <a id="security.protection.useragentmaxaction"></a>`security.protection.userAgentMaxAction` | security | global | "throttle" | plain |  | yes | Maximum escalation for repeated weak user-agent anomalies. Immediate bot blocking is independent of this cap. Request-rate exhaustion always uses a temporary 429. |
 | <a id="security.protection.useragentscope"></a>`security.protection.userAgentScope` | security | global | "anonymous" | plain |  | yes | By default only anonymous and sign-in requests receive the extra budget. All includes verified sessions; operator recovery remains available. |
-| <a id="security.protection.useragentadaptive"></a>`security.protection.userAgentAdaptive` | security | global | true | plain |  | yes | Combine the extra budget with the existing selected authoritative signals and rolling-window thresholds. A user-agent claim itself is never counted as an anomaly. |
-| <a id="security.protection.useragentpatterns"></a>`security.protection.userAgentPatterns` | security | global | [] | plain |  | yes | Additional case-insensitive Rust regular expressions for custom weak claims. Compiled with bounded size; no backreferences or lookaround. |
+| <a id="security.protection.useragentadaptive"></a>`security.protection.userAgentAdaptive` | security | global | true | plain |  | yes | Combine the extra budget with selected authoritative signals and rolling-window thresholds. Immediate bot blocking is controlled independently by userAgentBlockBots. |
+| <a id="security.protection.useragentpatterns"></a>`security.protection.userAgentPatterns` | security | global | [] | plain |  | yes | Additional case-insensitive Rust regular expressions for custom claims, including immediate blocking when userAgentBlockBots is enabled. Compiled with bounded size; no backreferences or lookaround. |
 | <a id="security.protection.useragentexceptions"></a>`security.protection.userAgentExceptions` | security | global | [] | plain |  | yes | Case-insensitive regular expressions exempting only the new user-agent dimension, never existing rate, adaptive or sign-in controls. |
 | <a id="security.adminprobe.enabled"></a>`security.adminProbe.enabled` | security | global | true | plain | `MW_ADMIN_PROBE_ENABLED` (pin) | yes | Count requests that look for the admin console per client network (IPv4 address, IPv6 /64) and slow, then block, a source that keeps going. The grace allowance absorbs typos and stale bookmarks. |
 | <a id="security.adminprobe.graceallowance"></a>`security.adminProbe.graceAllowance` | security | global | 10 | plain |  | yes | Misses per window that are ignored. The score drains continuously at this many points per window. |

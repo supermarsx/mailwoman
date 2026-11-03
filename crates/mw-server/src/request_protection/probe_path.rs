@@ -93,10 +93,27 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
     let Some(last) = segments.last().copied() else {
         return false;
     };
-    if segments.contains(&".git")
+    if segments
+        .iter()
+        .any(|segment| matches!(*segment, ".git" | ".ssh" | ".aws"))
         || environment_file(last)
         || config_file(last, ".gitconfig")
-        || matches!(last, "wp-login.php" | "xmlrpc.php")
+        || config_file(last, ".htaccess")
+        || config_file(last, ".gitignore")
+        || matches!(
+            last,
+            "wp-login.php"
+                | "xmlrpc.php"
+                | "wp-cron.php"
+                | "wp-signup.php"
+                | "wp-trackback.php"
+                | "wlwmanifest.xml"
+                | "admin.php"
+                | "config.php"
+                | "install.php"
+                | "setup.php"
+                | "shell.php"
+        )
         || config_file(last, "wp-config.php")
     {
         return true;
@@ -104,7 +121,8 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
     for (index, segment) in segments.iter().enumerate() {
         let tail = &segments[index + 1..];
         match *segment {
-            "wp-admin" | "typo3" | "umbraco" => return true,
+            "wp-admin" | "wp-content" | "wp-includes" | "wordpress" | "wp-json" | "typo3"
+            | "umbraco" | "myadmin" | "mysql" | "joomla" | "drupal" | "magento" => return true,
             "bitrix" if tail.first() == Some(&"admin") => return true,
             "administrator" | "phpmyadmin" | "phpmyadmin4" | "phpmyadmin5" | "pma"
             | "downloader"
@@ -254,6 +272,7 @@ mod tests {
             "/%252egit/config",
             "/safe/../.git/config",
             "/.gitconfig",
+            "/.gitignore",
             "/backup/.gitconfig.old",
             "/assets/.env",
             "/static/.git/config",
@@ -262,7 +281,6 @@ mod tests {
             assert!(hostile_probe_path(path), "{path}");
         }
         for path in [
-            "/.gitignore",
             "/.gitattributes",
             "/.github/workflows/test.yml",
             "/docs/git/config",
@@ -315,6 +333,87 @@ mod tests {
             "/?url=/wp-admin",
             "/safe%3fnext=/.env",
             "/help#wp-admin",
+        ] {
+            assert!(!hostile_probe_path(path), "{path}");
+        }
+    }
+
+    #[test]
+    fn operator_requested_wordpress_cms_and_sensitive_paths_match_without_substring_guessing() {
+        for path in [
+            "/wp-content",
+            "/blog/wp-content/uploads/payload.php",
+            "/wp-includes/js/app.js",
+            "/wordpress",
+            "/wordpress/index.php",
+            "/wp-json/wp/v2/users",
+            "/wp-cron.php",
+            "/wp-signup.php",
+            "/wp-trackback.php",
+            "/blog/wlwmanifest.xml",
+            "/myadmin",
+            "/myadmin/index.php",
+            "/mysql",
+            "/mysql/admin/login.php",
+            "/admin.php",
+            "/site/joomla/index.php",
+            "/drupal/user/login",
+            "/magento/app/etc/env.php",
+            "/config.php",
+            "/nested/install.php",
+            "/setup.php",
+            "/shell.php",
+            "/.htaccess",
+            "/backup/.htaccess.bak",
+            "/.gitignore",
+            "/repo/.gitignore.old",
+            "/.ssh",
+            "/home/.ssh/id_rsa",
+            "/.aws",
+            "/.aws/credentials",
+            "/%77p-content/payload.php",
+            "/%252eaws/credentials",
+            "/nested/.SSH/authorized_keys",
+            "/safe/../WP-JSON/users",
+            "/assets/wp-includes/style.css",
+        ] {
+            assert!(hostile_probe_path(path), "{path}");
+        }
+        for path in [
+            "/wp-contentful",
+            "/wp-includes.js",
+            "/wordpress-guide",
+            "/wp-json.js",
+            "/wp-cron.php.txt",
+            "/wp-signup.php.css",
+            "/wp-trackback.php.js",
+            "/wlwmanifest.xml.svg",
+            "/myadministrator",
+            "/mysql-client.js",
+            "/admin.php.txt",
+            "/joomla-guide",
+            "/drupal-guide",
+            "/magento-assets",
+            "/config.php.js",
+            "/install.php.txt",
+            "/setup.php.map",
+            "/shell.php.png",
+            "/.htaccess.txt",
+            "/.gitignore.js",
+            "/.ssh-agent",
+            "/.awsome",
+            "/.aws.json",
+            "/admin",
+            "/login",
+            "/user/login",
+            "/api/files/.gitignore",
+            "/api/files/wp-content",
+            "/jmap/.aws/credentials",
+            "/dav/home/.ssh/id_rsa",
+            "/api/files/config.php",
+            "/notes?file=/.htaccess",
+            "/safe%3fnext=/wp-content",
+            "/.ssh/../readme.txt",
         ] {
             assert!(!hostile_probe_path(path), "{path}");
         }

@@ -18,6 +18,13 @@ pub struct ProtectionOutcome {
     pub revision: String,
 }
 
+/// Display metadata from the server's trusted transport/source lookup only.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct ProtectionSource<'a> {
+    pub country: Option<&'a str>,
+    pub ip: Option<&'a str>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -72,6 +79,20 @@ mod tests {
         assert!(
             store
                 .request_protection("client", "192.0.2.1", &policy, 100, Some(Signal::ProbePath))
+                .await
+                .unwrap()
+                .subject_key
+                .is_empty()
+        );
+        assert!(
+            store
+                .request_protection(
+                    "client",
+                    "192.0.2.1",
+                    &policy,
+                    100,
+                    Some(Signal::BotUserAgent)
+                )
                 .await
                 .unwrap()
                 .subject_key
@@ -136,6 +157,96 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn bot_actions_are_audited_and_scoped_without_becoming_global_probe_blocks() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        policy.rate_mode = Mode::Enforce;
+        policy.signals = 0;
+        policy.block_secs = 61;
+        let first = store
+            .request_protection("ua-automation", "192.0.2.1", &policy, 100, None)
+            .await
+            .unwrap();
+        let bot = store
+            .request_protection_with_country(
+                "ua-automation",
+                "192.0.2.1",
+                &policy,
+                100,
+                Some(Signal::BotUserAgent),
+                Some("GB"),
+            )
+            .await
+            .unwrap();
+        assert_eq!(bot.decision.action, Action::Block);
+        assert_eq!(bot.decision.reason, Some(Reason::BotUserAgent));
+        assert!(bot.decision.enforced);
+        assert_eq!(bot.decision.retry_after_secs, 61);
+        assert_eq!(bot.snapshot.rate_count, first.snapshot.rate_count);
+        assert_eq!(bot.snapshot.country_code.as_deref(), Some("GB"));
+        assert_eq!(
+            store
+                .request_protection_probe_decision("ua-automation", "192.0.2.1", &policy, 101)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        assert_eq!(
+            store
+                .request_protection_probe_decision("client", "192.0.2.1", &policy, 101)
+                .await
+                .unwrap(),
+            Decision::default()
+        );
+        let repeated = store
+            .request_protection(
+                "ua-automation",
+                "192.0.2.1",
+                &policy,
+                101,
+                Some(Signal::BotUserAgent),
+            )
+            .await
+            .unwrap();
+        assert_eq!(repeated.decision.retry_after_secs, 60);
+        assert_eq!(repeated.snapshot.active_until, bot.snapshot.active_until);
+        assert_eq!(repeated.snapshot.rate_count, first.snapshot.rate_count);
+        let events = store
+            .request_protection_events(101, None, 100)
+            .await
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].reason, "bot-user-agent");
+        assert!(events[0].enforced);
+        assert_eq!(events[0].snapshot.country_code.as_deref(), Some("GB"));
+        policy.adaptive_mode = Mode::Observe;
+        let observed = store
+            .request_protection(
+                "ua-automation",
+                "192.0.2.2",
+                &policy,
+                100,
+                Some(Signal::BotUserAgent),
+            )
+            .await
+            .unwrap();
+        assert_eq!(observed.decision.action, Action::Block);
+        assert!(!observed.decision.enforced);
+        let events = store
+            .request_protection_events(101, None, 100)
+            .await
+            .unwrap();
+        assert!(
+            events
+                .iter()
+                .any(|event| event.subject_key == observed.subject_key
+                    && event.reason == "bot-user-agent"
+                    && !event.enforced)
+        );
+    }
+
+    #[tokio::test]
     async fn source_country_round_trips_atomically_in_rows_and_audit_without_clearing_known_data() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let mut policy = policy();
@@ -155,7 +266,10 @@ mod tests {
                 .unwrap();
             assert_eq!(outcome.snapshot.country_code.as_deref(), Some(country));
             let before = subject_row(&store, &outcome.subject_key).await;
-            assert!(!before.0.contains("192.0.2.1"));
+            assert_eq!(
+                serde_json::from_str::<serde_json::Value>(&before.0).unwrap()["source_ip"],
+                "192.0.2.1"
+            );
             let decision = store
                 .request_protection_probe_decision(kind, "192.0.2.1", &policy, 101)
                 .await
@@ -200,6 +314,161 @@ mod tests {
                 .unwrap();
             assert_eq!(event.reason, "probe-path");
             assert_eq!(event.snapshot.country_code.as_deref(), Some(country));
+        }
+    }
+
+    #[tokio::test]
+    async fn source_metadata_is_bound_to_its_canonical_subject_and_read_only_lookup_stays_immutable()
+     {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        for (kind, value, canonical) in [
+            ("client", "::ffff:192.0.2.1", "192.0.2.1"),
+            ("ua-automation", "2001:DB8:0:0:0:0:0:1", "2001:db8::1"),
+        ] {
+            let outcome = store
+                .request_protection_with_source(
+                    kind,
+                    value,
+                    &policy,
+                    100,
+                    Some(Signal::ProbePath),
+                    ProtectionSource {
+                        country: Some("PT"),
+                        ip: Some(canonical),
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(outcome.snapshot.source_ip.as_deref(), Some(canonical));
+            assert_eq!(
+                outcome.subject_key,
+                store.request_protection_subject(kind, canonical).unwrap()
+            );
+            let before = subject_row(&store, &outcome.subject_key).await;
+            assert!(
+                store
+                    .request_protection_probe_decision(kind, value, &policy, 101)
+                    .await
+                    .unwrap()
+                    .enforced
+            );
+            assert_eq!(subject_row(&store, &outcome.subject_key).await, before);
+            assert!(matches!(
+                store
+                    .request_protection_with_source(
+                        kind,
+                        value,
+                        &policy,
+                        101,
+                        Some(Signal::ProbePath),
+                        ProtectionSource {
+                            country: None,
+                            ip: Some("198.51.100.9")
+                        }
+                    )
+                    .await,
+                Err(StoreError::Corrupt(_))
+            ));
+            assert_eq!(subject_row(&store, &outcome.subject_key).await, before);
+            let events = store
+                .request_protection_events(101, None, 100)
+                .await
+                .unwrap();
+            assert_eq!(
+                events
+                    .iter()
+                    .find(|event| event.subject_key == outcome.subject_key)
+                    .unwrap()
+                    .snapshot
+                    .source_ip
+                    .as_deref(),
+                Some(canonical)
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn aggregate_rows_keep_last_known_ip_but_events_never_inherit_an_unknown_source() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.adaptive_mode = Mode::Enforce;
+        policy.block_secs = 2;
+        for kind in ["account", "admin"] {
+            let first = store
+                .request_protection_with_source(
+                    kind,
+                    "verified",
+                    &policy,
+                    100,
+                    Some(Signal::ProbePath),
+                    ProtectionSource {
+                        country: Some("PT"),
+                        ip: Some("192.0.2.10"),
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(first.snapshot.source_ip.as_deref(), Some("192.0.2.10"));
+            assert!(first.snapshot.country_code.is_none());
+            let next = store
+                .request_protection_with_source(
+                    kind,
+                    "verified",
+                    &policy,
+                    103,
+                    Some(Signal::ProbePath),
+                    ProtectionSource {
+                        country: Some("GB"),
+                        ip: Some("2001:DB8::1"),
+                    },
+                )
+                .await
+                .unwrap();
+            assert_eq!(next.snapshot.source_ip.as_deref(), Some("2001:db8::1"));
+            assert!(next.snapshot.country_code.is_none());
+            let unknown = store
+                .request_protection(kind, "verified", &policy, 106, Some(Signal::ProbePath))
+                .await
+                .unwrap();
+            assert_eq!(unknown.snapshot.source_ip.as_deref(), Some("2001:db8::1"));
+            let events = store
+                .request_protection_events(107, None, 100)
+                .await
+                .unwrap();
+            let ip_at = |at| {
+                events
+                    .iter()
+                    .find(|event| event.subject_key == first.subject_key && event.observed_at == at)
+                    .unwrap()
+                    .snapshot
+                    .source_ip
+                    .as_deref()
+            };
+            assert_eq!(ip_at(100), Some("192.0.2.10"));
+            assert_eq!(ip_at(103), Some("2001:db8::1"));
+            assert_eq!(ip_at(106), None);
+            assert!(
+                store
+                    .clear_request_protection(&unknown.subject_key, &unknown.revision, 107)
+                    .await
+                    .unwrap()
+            );
+            let events = store
+                .request_protection_events(107, None, 100)
+                .await
+                .unwrap();
+            assert!(
+                events
+                    .iter()
+                    .find(|event| event.subject_key == first.subject_key
+                        && event.reason == "manual-clear")
+                    .unwrap()
+                    .snapshot
+                    .source_ip
+                    .is_none()
+            );
         }
     }
 
@@ -505,6 +774,7 @@ fn reason(value: Option<Reason>) -> &'static str {
         Some(Reason::LongAbsolute) => "long-absolute",
         Some(Reason::LongRatio) => "long-ratio",
         Some(Reason::ProbePath) => "probe-path",
+        Some(Reason::BotUserAgent) => "bot-user-agent",
         None => "none",
     }
 }
@@ -617,7 +887,8 @@ impl Store {
             .collect()
     }
     /// Caller supplies a trusted transport IP or a server-authenticated account ID.
-    /// Distinct authority kinds cannot collide; identifiers never enter stored rows.
+    /// Distinct authority kinds cannot collide. Source IP display metadata is
+    /// separately validated; account IDs and tokens never enter these keys.
     pub fn request_protection_subject(
         &self,
         kind: &str,
@@ -708,6 +979,27 @@ impl Store {
         signal: Option<Signal>,
         country: Option<&str>,
     ) -> Result<ProtectionOutcome, StoreError> {
+        self.request_protection_with_source(
+            kind,
+            value,
+            policy,
+            now,
+            signal,
+            ProtectionSource { country, ip: None },
+        )
+        .await
+    }
+    /// The row keeps its last known source, while each decision event records
+    /// only the source actually available for that observation.
+    pub async fn request_protection_with_source(
+        &self,
+        kind: &str,
+        value: &str,
+        policy: &Policy,
+        now: i64,
+        signal: Option<Signal>,
+        source: ProtectionSource<'_>,
+    ) -> Result<ProtectionOutcome, StoreError> {
         if !policy.valid() || now < 0 {
             return Err(corrupt());
         }
@@ -723,6 +1015,24 @@ impl Store {
             });
         }
         let key = self.request_protection_subject(kind, value)?;
+        let source_subject = kind == "client" || kind.starts_with("ua-");
+        let canonical_ip = |value: &str| {
+            value
+                .parse::<std::net::IpAddr>()
+                .map(|ip| ip.to_canonical().to_string())
+                .map_err(|_| corrupt())
+        };
+        let observed_ip = if source_subject {
+            let expected = canonical_ip(value)?;
+            if let Some(ip) = source.ip
+                && canonical_ip(ip)? != expected
+            {
+                return Err(corrupt());
+            }
+            Some(expected)
+        } else {
+            source.ip.map(canonical_ip).transpose()?
+        };
         let mut tx = self.backend.begin().await?;
         // An existing subject uses its own row lock; independent PostgreSQL
         // subjects need not serialize every request through one global lock.
@@ -770,10 +1080,11 @@ impl Store {
             load(&row.get_string("state_json"), now)?
         };
         let previous = state.clone();
-        if (kind == "client" || kind.starts_with("ua-"))
-            && let Some(country) = country
-        {
+        if source_subject && let Some(country) = source.country {
             state.set_country_code(country);
+        }
+        if let Some(ip) = observed_ip.as_deref() {
+            state.set_source_ip(ip);
         }
         let decision = match signal {
             None => state.admit(policy, now),
@@ -791,6 +1102,8 @@ impl Store {
             .max(state.active_until());
         q("UPDATE request_protection_subject SET state_json=?1,updated_at=?2,expires_at=?3,revision=?4 WHERE subject_key=?5").bind(json).bind(now).bind(expires).bind(&rev).bind(&key).execute_tx(&mut tx).await?;
         if state.transition_from(&previous, decision, policy) {
+            let mut event_snapshot = snapshot.clone();
+            event_snapshot.source_ip = observed_ip;
             audit(
                 &mut tx,
                 &key,
@@ -806,7 +1119,7 @@ impl Store {
                     enforced: decision.enforced,
                     retry: decision.retry_after_secs,
                 },
-                &snapshot,
+                &event_snapshot,
                 Some(policy),
             )
             .await?;
@@ -858,10 +1171,15 @@ impl Store {
         if row.get_string("revision") != expected {
             return Ok(false);
         }
+        let subject_kind = row.get_string("subject_kind");
+        let mut snapshot = load(&row.get_string("state_json"), now)?.snapshot();
+        if matches!(subject_kind.as_str(), "account" | "admin") {
+            snapshot.source_ip = None;
+        }
         audit(
             &mut tx,
             key,
-            &row.get_string("subject_kind"),
+            &subject_kind,
             now,
             AuditDecision {
                 code: "manual-clear",
@@ -869,7 +1187,7 @@ impl Store {
                 enforced: false,
                 retry: 0,
             },
-            &load(&row.get_string("state_json"), now)?.snapshot(),
+            &snapshot,
             None,
         )
         .await?;

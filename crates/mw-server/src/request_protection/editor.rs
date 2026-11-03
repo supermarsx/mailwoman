@@ -31,7 +31,7 @@ use axum::{
     http::{Method, StatusCode, header},
     response::{IntoResponse, Response},
 };
-use mw_store::request_protection_model::{Action, Reason, SimInput, simulate as run};
+use mw_store::request_protection_model::{Action, Reason, Signal, SimInput, simulate as run};
 use serde::Deserialize;
 use serde_json::{Map, Value, json};
 use std::collections::BTreeMap;
@@ -295,6 +295,7 @@ fn reason(value: Reason) -> &'static str {
         Reason::LongAbsolute => "long-absolute",
         Reason::LongRatio => "long-ratio",
         Reason::ProbePath => "probe-path",
+        Reason::BotUserAgent => "bot-user-agent",
     }
 }
 fn action(value: Action) -> &'static str {
@@ -368,7 +369,13 @@ async fn simulate(
     let category = body
         .user_agent
         .as_deref()
-        .and_then(|ua| config.user_agent.classify(Some(ua)));
+        .and_then(|ua| config.user_agent.classify(Some(ua)))
+        .or_else(|| {
+            (kind == "client"
+                && body.user_agent.is_none()
+                && body.sample.signal == Some(Signal::BotUserAgent))
+            .then_some("automation")
+        });
     let ua_policy = category
         .filter(|_| kind == "client" || !config.user_agent.anonymous_only)
         .and_then(|category| {
@@ -377,8 +384,20 @@ async fn simulate(
     let ua_summary = body.user_agent.as_ref().map(
         |_| json!({"classification":category,"claimedOnly":true,"exempt":ua_policy.is_none()}),
     );
-    let legacy = config.subject(kind, value).map(|p| run(&p, &body.sample));
-    let ua = ua_policy.map(|p| run(&p, &body.sample));
+    let mut legacy_sample = body.sample;
+    if legacy_sample.signal == Some(Signal::BotUserAgent) {
+        legacy_sample.signal = Some(Signal::Ignored);
+    }
+    let legacy = config.subject(kind, value).map(|p| run(&p, &legacy_sample));
+    let ua = ua_policy.map(|p| {
+        let mut sample = body.sample;
+        if category.is_some_and(|category| config.user_agent.blocks_bot(category)) {
+            sample.signal = Some(Signal::BotUserAgent);
+        } else if sample.signal == Some(Signal::BotUserAgent) {
+            sample.signal = Some(Signal::Normal);
+        }
+        run(&p, &sample)
+    });
     // Compare actual decisions; an exception in this dimension never bypasses
     // the existing account/client protection policy.
     let rank = |o: &mw_store::request_protection_model::SimOutcome| {

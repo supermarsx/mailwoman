@@ -25,8 +25,21 @@ Training collectors, AI search crawlers and user-triggered fetchers have differe
 
 Google-Extended has no separate HTTP user agent. It controls permitted uses of data collected by existing Google crawlers. Applebot-Extended similarly controls training use of Applebot-collected data. Neither should appear as a supposed independently detectable HTTP crawler. Blocking a robots.txt token is not an HTTP enforcement capability and does not authenticate a crawler.
 
-## Conservative enforcement
+## Default enforcement
 
-An unusual or missing User-Agent is weak evidence: command-line clients, accessibility tools, embedded browsers and API integrations can all be legitimate. Matching a crawler name is also not proof of malicious intent. Use bounded request windows and configurable thresholds, preserve explicit exceptions, and keep a single unusual request from causing an immediate block. Record the matched category and reason so an administrator can explain and tune a decision.
+User-agent protection defaults to `userAgentMode: enforce` and
+`userAgentBlockBots: true`. Selected recognized search, AI, automation and custom
+bot classes trigger a temporary HTTP 429 block on their first request, for the
+configured `security.protection.blockSecs`. This is a configured access policy
+for self-claimed headers, not verification of the caller's identity or intent.
+Anonymous scope, category selection and explicit exceptions still apply.
+
+Missing or unfamiliar headers remain weak evidence and keep their bounded
+request budgets; a single such header does not cause an immediate block. Set
+`security.protection.userAgentBlockBots` to `false` to restore request budgets
+for bot headers too. `userAgentMaxAction` caps weak/repeated escalation, while
+the first-request bot rule has its own block action. Observe records decisions
+without refusing requests; off disables this dimension. Record the matched
+category and reason so an administrator can explain and tune a decision.
 
 This reference describes catalog provenance and policy design. The settings registry and policy simulator are the authority for the currently implemented defaults, categories, thresholds and actions.

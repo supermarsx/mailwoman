@@ -7,6 +7,19 @@ const row:ProtectionSubject={subjectKey:'a'.repeat(64),subjectKind:'account',upd
 const status:ProtectionStatus={policy:{rateMode:'off',adaptiveMode:'observe',clientRequests:600,accountRequests:300,adminRequests:120,rateWindowSecs:60},subjectCapacity:20000,eventCapacity:10000,eventRetentionSecs:2592000,propagationSecs:30,coverage:'router',preRouterHeadersObserved:false};
 function api(overrides:Partial<ProtectionApi>={}):ProtectionApi{return{status:async()=>status,subjects:async()=>({subjects:[row],cursor:null}),events:async()=>({events:[],cursor:null}),clear:vi.fn(async()=>undefined),...overrides};}
 describe('Adaptive request protection',()=>{
+ it('shows the decision source IP separately from the last IP of an account aggregate',async()=>{
+  const current={...row,snapshot:{...row.snapshot,sourceIp:'192.0.2.7'}};
+  const event:ProtectionEvent={id:'ip-decision',subjectKey:row.subjectKey,subjectKind:'account',observedAt:1700000000,reason:'short-absolute',action:'throttle',enforced:true,retryAfterSecs:3,snapshot:{...row.snapshot,sourceIp:'2001:db8::42'},policy:null};
+  renderInShell(()=><RequestProtection api={api({subjects:async()=>({subjects:[current,{...row,subjectKey:'d'.repeat(64)}],cursor:null}),events:async()=>({events:[event],cursor:null})})}/>);
+  const subjects=await screen.findByRole('table',{name:'Current subject state'});
+  const history=screen.getByRole('table',{name:'Protection decisions'});
+  expect(within(subjects).getByRole('columnheader',{name:'Last source IP'})).toBeInTheDocument();
+  expect(within(subjects).getByRole('cell',{name:'192.0.2.7'})).toBeInTheDocument();
+  expect(within(subjects).getByRole('cell',{name:'Unknown IP'})).toBeInTheDocument();
+  expect(within(history).getByRole('columnheader',{name:'Source IP'})).toBeInTheDocument();
+  expect(within(history).getByRole('cell',{name:'2001:db8::42'})).toBeInTheDocument();
+  expect(within(history).queryByText('192.0.2.7')).toBeNull();
+ });
  it('identifies source countries in current state and history without assigning one to account aggregates',async()=>{
   const sources:ProtectionSubject[]=[
    {...row,subjectKey:'1'.repeat(64),subjectKind:'client',snapshot:{...row.snapshot,countryCode:'PT'}},

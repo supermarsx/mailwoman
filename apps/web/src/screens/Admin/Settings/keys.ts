@@ -19,6 +19,7 @@ export function settingAnchorId(key: string): string {
 /** Every key with a label and help sentence in admin-settings.ftl and an anchor in docs/admin/settings.md. */
 export const KNOWN_KEYS: readonly string[] = [
   'security.protection.userAgentMode',
+  'security.protection.userAgentBlockBots',
   'security.protection.userAgentCategories',
   'security.protection.userAgentWeakRequests',
   'security.protection.userAgentCrawlerRequests',
