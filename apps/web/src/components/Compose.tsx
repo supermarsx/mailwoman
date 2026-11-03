@@ -293,7 +293,7 @@ export function Compose(props: {
   const [attachError, setAttachError] = createSignal<string | null>(null);
   // Images placed in the body (t29-e12): uploaded blobs with a Content-ID each.
   // The body refers to them by `cid:`; the editor shows `previewUrl`.
-  const [inlineImages, setInlineImages] = createSignal<InlineImage[]>([]);
+  const [inlineImages, setInlineImages] = createSignal<InlineImage[]>((initial?.inline??[]).map(image=>({...image,previewUrl:null})));
   const [inlineError, setInlineError] = createSignal<string | null>(null);
   const ownedCids = createMemo<ReadonlySet<string>>(() => new Set(inlineImages().map((i) => i.cid)));
   const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
@@ -449,6 +449,7 @@ export function Compose(props: {
         setDeliveryCapable(deliveryAccount!==null && supportsDeliveryReceipts(s,deliveryAccount));
         setUploadUrl(s.uploadUrl);
         setDownloadUrl(s.downloadUrl);
+        if(initial?.inline?.length)void loadPreviews(inlineImages());
         setReceiptAvailable(s.capabilities[ENGINE_CAP] !== undefined);
         const core = s.capabilities[CAP_CORE] as { maxSizeUpload?: number } | undefined;
         if (core?.maxSizeUpload !== undefined && core.maxSizeUpload > 0) {

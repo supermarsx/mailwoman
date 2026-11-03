@@ -130,6 +130,11 @@ mail-reply-all = Responder a todos
 mail-forward = Reencaminhar
 mail-reply-failed = Não foi possível preparar a mensagem. Tente novamente.
 mail-reply-unthreaded = Não foi possível ler o ID da mensagem original. Esta resposta não ficará na mesma conversa.
+mail-reply-images-omitted =
+    { $count ->
+        [one] Não foi possível incluir uma imagem na resposta.
+       *[other] Não foi possível incluir { $count } imagens na resposta.
+    }
 mail-spam = Spam
 mail-export = Exportar
 mail-export-forbidden = O administrador desativou a exportação de mensagens para esta conta.

@@ -2,7 +2,7 @@ import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vite
 import { render, screen, waitFor, fireEvent } from '@solidjs/testing-library';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Suspense } from 'solid-js';
+import { createSignal, Suspense } from 'solid-js';
 import { Reader } from './Reader.tsx';
 import { makeClient, mkEmail } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
@@ -15,6 +15,7 @@ import type { Email } from '../api/jmap-types.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import {clearFeatures,loadFeatures} from '../state/features.ts';
 import {resetClientPolicy,loadClientPolicy} from '../api/policy.ts';
+import type {ComposeInitial} from './compose/reply.ts';
 // Unit tests inspect the prepared document; real browser tests exercise the
 // opaque frames and their fixed hash-authorized address handler with actual CSP headers.
 vi.mock('./DirectReaderFrame.tsx', () => ({ DirectReaderFrame: (props: {html:string;title:string;documentKey?:string;onDisplayed?:(html:string,key:string|undefined)=>void}) => { setTimeout(() => props.onDisplayed?.(props.html, props.documentKey), 0); return <iframe class="reader__frame" title={props.title} sandbox="" srcdoc={props.html} />; } }));
@@ -49,10 +50,10 @@ beforeEach(() => {
   }));
 });
 afterEach(()=>{vi.restoreAllMocks();vi.unstubAllGlobals();});
-async function open(emails:Email[]) {
+async function open(emails:Email[],onCompose?: (initial:ComposeInitial)=>void,active?:()=>boolean) {
   const client = makeClient({emails}); const original = client.jmap;
   client.jmap = async (request, options) => { const response = await original(request, options); const get = request.methodCalls.find(call => call[0] === 'Email/get'); const ids = get?.[1]['ids']; if (Array.isArray(ids)) for (const invocation of response.methodResponses) if (invocation[0] === 'Email/get') { const body = invocation[1] as {list:Email[]}; body.list = body.list.filter(email => ids.includes(email.id)); } return response; };
-  const app=createAppState(client);render(()=> <AppContext.Provider value={app}><Reader /></AppContext.Provider>);
+  const app=createAppState(client);render(()=> <AppContext.Provider value={app}><Reader active={active?.()??true} {...(onCompose?{onCompose}:{})} /></AppContext.Provider>);
   await app.login({username:'me@example.org',password:'p'});await app.openMessage(emails[0]!.id);await screen.findByRole('toolbar',{name:'Message actions'});return app;
 }
 const frame=()=>document.querySelector<HTMLIFrameElement>('iframe.reader__frame');
@@ -62,6 +63,39 @@ async function chooseImageAction(name:string):Promise<void>{if(name==='Show imag
 async function showOriginal():Promise<void>{const button=await screen.findByRole('button',{name:'Show Original HTML'});await waitFor(()=>expect(button).toBeEnabled());fireEvent.click(button);}
 async function allowOriginal(enabled=true,cap?:boolean):Promise<void>{await loadFeatures({refresh:true,fetcher:async()=>json({features:{'reading.original_html':{enabled,limits:{},settings:{}}}})});await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.allowOriginalHtml':{value:true,locked:false,source:'user'},...(cap===undefined?{}:{'cap.reading.original_html':{value:cap,locked:true,source:'global'}})}})});}
 describe('Reader signed privacy pipeline',()=>{
+  it('prepares reply images through the authenticated proxy and seeds owned CID attachments',async()=>{
+    const base=globalThis.fetch,onCompose=vi.fn(),upload=vi.fn();
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(url.endsWith('/jmap/session'))return json(await makeClient().session());
+      if(url.includes('/api/rc/i/')){const bytes=new Uint8Array(24);bytes.set([137,80,78,71,13,10,26,10]);new DataView(bytes.buffer).setUint32(16,40);new DataView(bytes.buffer).setUint32(20,30);expect(new Headers(init?.headers).get('X-Mailwoman-Account')).toBe('acct1');return new Response(bytes,{headers:{'content-type':'image/png'}});}
+      if(url.endsWith('/u')){upload(init);return json({accountId:'acct1',blobId:'reply-image',type:'image/png',size:24});}
+      return base(input,init);
+    }));
+    await open([message('m1','<p>Original text</p><img src="https://cdn.example.test/image.png" width="90" alt="Logo">')],onCompose);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    await waitFor(()=>expect(screen.getByTestId('reader-reply')).toBeEnabled());fireEvent.click(screen.getByTestId('reader-reply'));
+    await waitFor(()=>expect(onCompose).toHaveBeenCalledOnce());expect(upload).toHaveBeenCalledOnce();
+    const initial=onCompose.mock.calls[0]![0] as ComposeInitial;
+    expect(initial.inline).toEqual([expect.objectContaining({blobId:'reply-image',type:'image/png',size:24})]);
+    expect(initial.bodyHtml).toContain(`cid:${initial.inline![0]!.cid}`);expect(initial.bodyHtml).toContain('Original text');expect(initial.bodyHtml).toContain('width="90"');expect(initial.bodyHtml).not.toMatch(/api\/rc|https:\/\/cdn/);
+  });
+  it.each(['consent','inactive'] as const)('aborts a held reply image stream when its reader scope changes: %s',async(change)=>{
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'}}})});
+    const base=globalThis.fetch,onCompose=vi.fn(),upload=vi.fn(),cancel=vi.fn(),[active,setActive]=createSignal(true);let signal:AbortSignal|undefined;
+    vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+      const url=String(input);
+      if(url.includes('/api/rc/i/')){signal=init?.signal??undefined;return new Response(new ReadableStream<Uint8Array>({cancel}),{headers:{'content-type':'image/png'}});}
+      if(url.endsWith('/u')){upload();return json({accountId:'acct1',blobId:'stale',type:'image/png',size:24});}
+      return base(input,init);
+    }));
+    await open([message('m1','<script>unsafe()</script><p>Original text</p><img src="https://cdn.example.test/image.png">')],onCompose,active);
+    fireEvent.click(await screen.findByRole('button',{name:'Show sanitized HTML'}));await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    await waitFor(()=>expect(screen.getByTestId('reader-reply')).toBeEnabled());fireEvent.click(screen.getByTestId('reader-reply'));
+    await waitFor(()=>expect(signal).toBeDefined());if(change==='consent')fireEvent.click(screen.getByRole('button',{name:'Show safe text'}));else setActive(false);
+    await waitFor(()=>expect(signal?.aborted).toBe(true));await waitFor(()=>expect(cancel).toHaveBeenCalledOnce());
+    await waitFor(()=>expect(screen.getByTestId('reader-reply')).toBeEnabled());expect(upload).not.toHaveBeenCalled();expect(onCompose).not.toHaveBeenCalled();
+  });
   it('keeps original HTML opt-in and per-message, preserves layout only after selection, and resets on message/capability/authority changes',async()=>{
     const raw='<html lang="pt"><head><style>.layout{display:grid;grid-template-columns:13px 1fr}</style></head><body style="margin:37px;font-family:Georgia"><div class="layout" data-original-layout="kept">Authored layout</div><script>evil()</script><iframe src="https://evil.test"></iframe></body></html>';
     const app=await open([message('m1',raw),message('m2',raw)]);

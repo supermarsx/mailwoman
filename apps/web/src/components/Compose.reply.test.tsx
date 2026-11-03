@@ -266,7 +266,13 @@ describe('Compose opened as a reply or a forward', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
     const create = sends(client)[0]!.methodCalls[0]![1]['create'] as Record<string, Record<string, unknown>>;
-    expect(create['draft']!['bodyValues']).toEqual({ body: { value: htmlMessageDocument('<p>x</p>') } });
+    const body=(create['draft']!['bodyValues'] as {body:{value:string}}).body.value;
+    expect(body).toContain('<p>x</p>');
+    expect(body).not.toMatch(/<img|<script|tracker\.example|steal\(/);
+    const parsed=new DOMParser().parseFromString(body,'text/html'),baseline=new DOMParser().parseFromString(htmlMessageDocument('<p>x</p>'),'text/html');
+    expect(parsed.body.textContent).toBe('x');
+    expect(parsed.body.getAttribute('style')).toBe(baseline.body.getAttribute('style'));
+    expect(parsed.body.querySelector('[style]')).toBeNull();
   });
 
   it('a forward opens with the original attachments and sends them by blob id, with no thread ids', async () => {
@@ -326,6 +332,16 @@ describe('Compose opened as a reply or a forward', () => {
       references: ['root@example.org', 'orig@example.org'],
       subject: 'Re: Plans',
     });
+  });
+  it.each(['html','rich'] as const)('keeps reply-owned inline images in the draft and %s send payload',async mode=>{
+    const inline={cid:'reply-logo@mailwoman',blobId:'uploaded-logo',type:'image/png',name:'reply-image.png',size:24};
+    const {client,onClose}=await open(reply({cc:'',bodyHtml:'<p>Reply note</p><blockquote><p>Original with image <img src="cid:reply-logo@mailwoman" alt="Logo"></p></blockquote>',bodyText:'Reply note\nOriginal with image',inline:[inline]}));
+    await chooseComposeFormat(mode);await waitFor(()=>expect(document.querySelector('.compose-source iframe, [data-testid="compose-richtext"]')).not.toBeNull());
+    await waitFor(()=>expect(listDrafts('acct1','test-storage-authority-acct1')[0]?.inline).toEqual([inline]),{timeout:2500});
+    const saved=listDrafts('acct1','test-storage-authority-acct1')[0]!;expect(saved.bodyHtml).toContain('cid:reply-logo@mailwoman');expect(saved.bodyHtml).not.toContain('/api/rc/');
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    const create=sends(client)[0]!.methodCalls.find(call=>call[0]==='Email/set')![1]['create'] as Record<string,Record<string,unknown>>;
+    expect(create['draft']!['attachments']).toEqual([{blobId:'uploaded-logo',cid:'reply-logo@mailwoman',disposition:'inline',type:'image/png',name:'reply-image.png'}]);expect(JSON.stringify(create['draft']!['bodyValues'])).toContain('cid:reply-logo@mailwoman');expect(JSON.stringify(create)).not.toContain('/api/rc/');
   });
 });
 

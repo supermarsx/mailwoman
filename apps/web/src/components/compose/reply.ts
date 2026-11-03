@@ -5,6 +5,7 @@
 
 import type { Email, EmailAddress } from '../../api/jmap-types.ts';
 import type { ThreadingHeaders } from '../../api/jmap.ts';
+import type {StoredInlineImage} from './drafts-store.ts';
 
 export type ReplyMode = 'reply' | 'reply-all' | 'forward';
 
@@ -29,6 +30,8 @@ export interface ComposeInitial {
   references: string[];
   /** The original's attachments, carried by blob id (forward only). */
   attachments: { name: string; blobId: string; size: number; contentType: string | null }[];
+  /** Images materialized through the reader proxy and uploaded for this reply. */
+  inline?:StoredInlineImage[];
   /** True when the quoted text is the decrypted content of an encrypted
    *  message. The composer then asks before sending it unencrypted, and does
    *  not auto-save it to local storage. */

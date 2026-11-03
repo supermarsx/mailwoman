@@ -59,7 +59,10 @@ import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { pickSignerArmors } from '../crypto/signerMatch.ts';
 import { createConfiguredClient } from '../api/transport.ts';
-import { fetchThreadingHeaders, parentReferences, responseFor, type ThreadingHeaders } from '../api/jmap.ts';
+import { fetchThreadingHeaders, parentReferences, responseFor,uploadBlob, type ThreadingHeaders } from '../api/jmap.ts';
+import {apiFetch} from '../api/http.ts';
+import {newCid} from './compose/inlineImages.ts';
+import type {StoredInlineImage} from './compose/drafts-store.ts';
 import { CAP_CORE, CAP_MAIL } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
@@ -782,7 +785,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       let original:OriginalHtml|undefined;
       let originalHelpers:typeof import('../viewers/originalHtml.ts')|undefined;
       if(k.original){try{originalHelpers=await import('../viewers/originalHtml.ts');original=originalHelpers.prepareOriginalHtml(k.decrypted??extractHtmlBody(k.email),k.policy);html=original.html;effective={...k.policy,mode:k.policy.mode==='direct'?'proxy':k.policy.mode,allowDirect:false};}catch{failed=true;effective=BLOCKED_POLICY;}}
-      const cancelled = () => ({ blocked: false, restored:false, original:false,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:undefined as ReturnType<typeof import('../viewers/originalHtml.ts')['originalHtmlReport']>|undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] }, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
+      const cancelled = () => ({ blocked: false, restored:false, original:false,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:undefined as ReturnType<typeof import('../viewers/originalHtml.ts')['originalHtmlReport']>|undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: '', sanitized: '', refs: { urls: [], cids: [], trackers: 0, files: [], links: [] },cidParts:{} as Record<string,string>, policy: BLOCKED_POLICY, failed: false, images: 0, imageSources:EMPTY_SIGNED.images });
       const current = () => app.accountId() === k.account && emailId() === k.email.id && maxsec.effectiveMode(sender()) === k.securityMode && htmlRenderScope()===k.scope;
       if (!current()) return cancelled();
       const refs = original?.refs??(blocked&&!restored ? { urls: [], cids: [], trackers: 0, files: [], links: [] } : readerReferences(html)); const cidParts: Record<string,string> = {};
@@ -805,7 +808,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
-      return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts), sanitized, refs, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
+      return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts), sanitized, refs,cidParts, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
   const currentBody = () => { const body = readerBody.state === 'ready' || readerBody.state === 'refreshing' ? readerBody.latest : undefined; return body?.emailId === emailId() && body.account === app.accountId() && body.scope===htmlRenderScope() ? body : undefined; };
@@ -906,8 +909,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   }
 
   const [preparing, setPreparing] = createSignal(false);
+  let replyAbort:AbortController|undefined;
+  let replyCurrent:(()=>boolean)|undefined;
+  const replyViewScope=createMemo(()=>htmlRenderScope());
+  const replyPolicyScope=createMemo(()=>JSON.stringify([maxsec.effectiveMode(sender()),renderPolicy(),activeGrant()!==null]));
+  createEffect(()=>{const active=props.active!==false;app.accountId();app.openEmail();replyViewScope();replyPolicyScope();decryptedHtml();decryptedText();if(replyCurrent&&(!active||!replyCurrent()))replyAbort?.abort();});
+  onCleanup(()=>replyAbort?.abort());
 
-  async function composeFrom(email: Email, mode: ReplyMode): Promise<ComposeInitial> {
+  async function composeFrom(email: Email, mode: ReplyMode,preparation:{account:string;signal:AbortSignal;current:()=>boolean}): Promise<ComposeInitial> {
     if (mode === 'forward' && effectiveSettings()['mail.forwardMode']?.value === 'attachment') {
       if (!email.blobId) throw new Error('Original message is unavailable');
       return {
@@ -920,6 +929,28 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     }
     const { quoteForReply, quoteForForward, quoteForOutlook } = await import('./compose/quote.ts');
     const shown = displayedContent(email);
+    let inline:StoredInlineImage[]=[];
+    if(mode!=='forward'&&shown.source.html!==undefined){
+      const {embedReplyImages}=await import('./compose/replyImages.ts');
+      const body=currentBody(),full=maxsec.effectiveMode(sender())==='full-sanitized';
+      let session:ReturnType<typeof jmapClient.session>|undefined;
+      const copied=await embedReplyImages(shown.source.html,{
+        emailId:email.id,accountId:preparation.account,cidParts:body?.cidParts??{},
+        allowRemote:full&&bodyAllowsContent()&&(body?.policy.mode==='proxy'||body?.policy.mode==='direct'&&body.policy.allowDirect||body?.policy.mode==='ask'&&activeGrant()!==null),allowInline:full&&bodyAllowsContent(),blockTrackers:body?.policy.trackers!==false,
+        current:preparation.current,signal:preparation.signal,
+        upload:async(file,signal)=>{
+          const contract=await(session??=jmapClient.session());
+          if(!preparation.current()||signal.aborted)throw new DOMException('Reply cancelled','AbortError');
+          const maximum=(contract.capabilities[CAP_CORE] as {maxSizeUpload?:number}|undefined)?.maxSizeUpload;if(maximum&&file.size>maximum)throw new Error('Reply image too large');
+          const uploaded=await uploadBlob(contract.uploadUrl,preparation.account,file,(url,init)=>apiFetch(url,{...init,signal,headers:{...init?.headers,'X-Mailwoman-Account':preparation.account}}));
+          if(!preparation.current()||signal.aborted||uploaded.accountId!==preparation.account)throw new DOMException('Reply cancelled','AbortError');
+          return {cid:newCid(),blobId:uploaded.blobId,name:file.name,type:file.type,size:uploaded.size};
+        },
+      });
+      inline=copied.inline;shown.source.html=copied.html;
+      if(inline.length)shown.source.ownedCids=new Set(inline.map(image=>image.cid));
+      if(copied.omitted&&preparation.current())app.showToast('info',t('mail-reply-images-omitted',{count:copied.omitted}),6000);
+    }
     const author = email.from?.[0];
     const authorName = stripIsolates((author?.name ?? '').trim() !== '' ? author!.name! : (author?.email ?? ''));
     const date = quoteDate(email.sentAt ?? email.receivedAt);
@@ -987,6 +1018,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       bodyText: quote.text,
       ...replyThreading(headers),
       attachments: [],
+      ...(inline.length?{inline}:{}),
       quotesDecrypted: shown.decrypted && quote.html !== '',
       source: { emailId: email.id, keyword: '$answered' },
       ...(app.selectedMailboxId() ? {sourceMailboxId: app.selectedMailboxId()!} : {}),
@@ -999,18 +1031,25 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function startReply(mode: ReplyMode, compact = false): Promise<void> {
     const email = app.openEmail();
     if (email === null || preparing() || props.onCompose === undefined) return;
+    const owner=preferenceAccount(),account=app.accountId();if(!owner||owner.id!==account||!account){app.showToast('error',t('mail-reply-failed'));return;}
+    const original=extractHtmlBody(email),viewScope=replyViewScope(),policyScope=replyPolicyScope(),decrypted=decryptedHtml(),plaintext=decryptedText();
+    const controller=new AbortController();replyAbort=controller;
+    const current=()=>props.active!==false&&!controller.signal.aborted&&preferenceAccountIsCurrent(owner)&&app.accountId()===account&&app.openEmail()?.id===email.id&&extractHtmlBody(app.openEmail()!)===original&&replyViewScope()===viewScope&&replyPolicyScope()===policyScope&&decryptedHtml()===decrypted&&decryptedText()===plaintext;
+    replyCurrent=current;
+    const unwatch=observePreferenceAccount(()=>{if(!current())controller.abort();});
     setPreparing(true);
     try {
       // The identities decide which addresses a reply-all leaves out.
       if (mode === 'reply-all' && app.identities().length === 0) await app.loadIdentities();
-      const initial = await composeFrom(email, mode);
+      const initial = await composeFrom(email, mode,{account,signal:controller.signal,current});
       // The reader moved on while this was prepared: do not open a composer
       // about a message that is no longer the one on screen.
-      if (app.openEmail()?.id !== email.id) return;
+      if (!current()) return;
       props.onCompose(compact ? {...initial, compact: true} : initial);
     } catch {
-      app.showToast('error', t('mail-reply-failed'));
+      if(current())app.showToast('error', t('mail-reply-failed'));
     } finally {
+      unwatch();if(replyAbort===controller){replyAbort=undefined;replyCurrent=undefined;}
       setPreparing(false);
     }
   }
@@ -1182,7 +1221,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               {/* One action row (t57): reply group, View conversation (threads of more
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
-              <ReaderToolbar email={email()} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
+              <ReaderToolbar email={email()} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <AutoTagSection email={email()} />
             </header>

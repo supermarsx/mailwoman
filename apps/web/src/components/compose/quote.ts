@@ -9,6 +9,8 @@
 // http/https/mailto links. It keeps only schema-validated formatting styles,
 // with no image node, arbitrary CSS, class or event attributes. Remote embeds
 // from the original cannot be carried into the outgoing body.
+// Replies may explicitly supply freshly uploaded, owned CIDs. That path keeps
+// native safe formatting and those images; every other resource is removed.
 //
 // ProseMirror is imported on demand: this module is reached from the reader,
 // which is on the entry chunk, and the schema's libraries are not.
@@ -19,6 +21,8 @@
 export interface QuoteSource {
   html?: string;
   text?: string;
+  /** Only images freshly uploaded for this reply may enter its quoted HTML. */
+  ownedCids?:ReadonlySet<string>;
 }
 
 /** A quoted block in both forms the composer keeps. */
@@ -46,6 +50,12 @@ function escapeHtml(s: string): string {
 async function reduce(source: QuoteSource): Promise<Quote> {
   const rt = await import('./richtext.ts');
   if (source.html !== undefined) {
+    if(source.ownedCids?.size){
+      const {normalizeHtmlSource}=await import('./htmlSource.ts');
+      const {referencedCids}=await import('./inlineImages.ts');
+      const original=await normalizeHtmlSource(source.html,source.ownedCids);
+      return original.text.trim()!==''||referencedCids(original.html).some(cid=>source.ownedCids!.has(cid))?original:{html:'',text:''};
+    }
     const body = rt.inertBody(source.html);
     for (const el of Array.from(body.querySelectorAll(DROPPED))) el.remove();
     const doc = rt.quoteDocFromElement(body);

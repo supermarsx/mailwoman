@@ -138,6 +138,11 @@ mail-reply-all = Reply all
 mail-forward = Forward
 mail-reply-failed = The message could not be prepared. Try again.
 mail-reply-unthreaded = The ID of the original message could not be read. This reply will not be threaded with it.
+mail-reply-images-omitted =
+    { $count ->
+        [one] One image could not be included in the reply.
+       *[other] { $count } images could not be included in the reply.
+    }
 mail-spam = Spam
 mail-export = Export
 mail-export-forbidden = Your administrator has disabled message export for this account.
