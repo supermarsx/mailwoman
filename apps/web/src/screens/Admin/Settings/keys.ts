@@ -237,6 +237,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'privacy.fetchHeadersTimeoutMs',
   'privacy.fetchIdleTimeoutMs',
   'privacy.fetchTotalTimeoutMs',
+  'privacy.fetchQueueTimeoutMs',
   'privacy.maxRedirects',
   'privacy.maxConcurrentPerMessage',
   'privacy.maxConcurrentPerAccount',

@@ -32,11 +32,12 @@ pub(crate) struct PrivacyPolicy {
 
 /// The t56 fetch keys, read in one pass (`effective_all`) rather than one query
 /// set per key: they are read on every remote image request.
-pub(crate) const FETCH_KEYS: [&str; 7] = [
+pub(crate) const FETCH_KEYS: [&str; 8] = [
     "privacy.fetchConnectTimeoutMs",
     "privacy.fetchHeadersTimeoutMs",
     "privacy.fetchIdleTimeoutMs",
     "privacy.fetchTotalTimeoutMs",
+    "privacy.fetchQueueTimeoutMs",
     "privacy.maxRedirects",
     "privacy.maxConcurrentPerMessage",
     "privacy.maxConcurrentPerAccount",
@@ -60,6 +61,12 @@ pub(crate) fn fetch_limits(
     };
     let t = defaults.timeouts;
     crate::image_proxy::remote_content::FetchLimits {
+        queue_timeout: ms(
+            "privacy.fetchQueueTimeoutMs",
+            defaults.queue_timeout,
+            1_000,
+            180_000,
+        ),
         timeouts: mw_egress::FetchTimeouts {
             connect: ms("privacy.fetchConnectTimeoutMs", t.connect, 500, 30_000),
             headers: ms("privacy.fetchHeadersTimeoutMs", t.headers, 500, 60_000),
@@ -386,12 +393,14 @@ mod tests {
             crate::image_proxy::remote_content::FetchLimits::default()
         );
         assert_eq!(none.timeouts, mw_egress::FetchTimeouts::REMOTE_IMAGE);
+        assert_eq!(none.queue_timeout, Duration::from_secs(60));
 
         let set = fetch_limits(|key| match key {
             "privacy.fetchConnectTimeoutMs" => Some(1500),
             "privacy.fetchHeadersTimeoutMs" => Some(2500),
             "privacy.fetchIdleTimeoutMs" => Some(3500),
             "privacy.fetchTotalTimeoutMs" => Some(4500),
+            "privacy.fetchQueueTimeoutMs" => Some(6500),
             "privacy.maxRedirects" => Some(0),
             "privacy.maxConcurrentPerMessage" => Some(2),
             "privacy.maxConcurrentPerAccount" => Some(3),
@@ -401,12 +410,20 @@ mod tests {
         assert_eq!(set.timeouts.headers, Duration::from_millis(2500));
         assert_eq!(set.timeouts.idle, Duration::from_millis(3500));
         assert_eq!(set.timeouts.total, Duration::from_millis(4500));
+        assert_eq!(set.queue_timeout, Duration::from_millis(6500));
+        assert_eq!(set.overall_budget(), Duration::from_secs(11));
         assert_eq!(set.timeouts.max_redirects, 0);
         assert_eq!((set.per_message, set.per_account), (2, 3));
 
         let wild = fetch_limits(|key| Some(if key.ends_with("Ms") { 0 } else { u64::MAX }));
         assert_eq!(wild.timeouts.connect, Duration::from_millis(500));
         assert_eq!(wild.timeouts.total, Duration::from_secs(1));
+        assert_eq!(wild.queue_timeout, Duration::from_secs(1));
+        assert_eq!(
+            fetch_limits(|key| (key == "privacy.fetchQueueTimeoutMs").then_some(u64::MAX))
+                .queue_timeout,
+            Duration::from_secs(180)
+        );
         assert_eq!(wild.timeouts.max_redirects, 10);
         assert_eq!((wild.per_message, wild.per_account), (32, 64));
     }

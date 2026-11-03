@@ -1247,7 +1247,15 @@ pub static REGISTRY: &[SettingDef] = &[
         "20000",
         G,
         "privacy",
-        "Remote image total time per image in milliseconds"
+        "Remote image fetch work budget in milliseconds, separate from bounded queue waiting"
+    ),
+    def!(
+        "privacy.fetchQueueTimeoutMs",
+        int(1000, 180000),
+        "60000",
+        G,
+        "privacy",
+        "Maximum queue wait budget for remote images in milliseconds; actual fetches retain their own total timeout"
     ),
     def!(
         "privacy.maxRedirects",
@@ -4886,11 +4894,12 @@ mod tests {
     /// the defaults are exactly what the fetch uses when nothing is set.
     #[test]
     fn remote_image_fetch_limits_are_bounded_global_integers() {
-        let expected: [(&str, i64, i64, i64); 7] = [
+        let expected: [(&str, i64, i64, i64); 8] = [
             ("privacy.fetchConnectTimeoutMs", 500, 30000, 5000),
             ("privacy.fetchHeadersTimeoutMs", 500, 60000, 10000),
             ("privacy.fetchIdleTimeoutMs", 500, 60000, 10000),
             ("privacy.fetchTotalTimeoutMs", 1000, 120000, 20000),
+            ("privacy.fetchQueueTimeoutMs", 1000, 180000, 60000),
             ("privacy.maxRedirects", 0, 10, 3),
             ("privacy.maxConcurrentPerMessage", 1, 32, 6),
             ("privacy.maxConcurrentPerAccount", 1, 64, 12),

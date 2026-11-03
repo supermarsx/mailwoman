@@ -1122,8 +1122,10 @@ async fn fetch_image(
     if let Some(response) = cached_response() {
         return response;
     }
-    let deadline = std::time::Instant::now() + policy.fetch.timeouts.total;
-    let Some(flight) = image_flight::acquire(&claims.a, &key.route, &claims.u, deadline).await
+    let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
+    let queue_deadline = policy.fetch.queue_deadline(deadline);
+    let Some(flight) =
+        image_flight::acquire(&claims.a, &key.route, &claims.u, queue_deadline).await
     else {
         fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, false, claims.x);
         fetch_limits::record_retryable_failure(
@@ -1257,8 +1259,8 @@ fn record_image_response(claims: &Claims, response: &Response) {
 /// network failure. Returns the body and its declared type, or the response to
 /// send.
 ///
-/// The total deadline includes single-flight admission before any fetch slot, so network work stays within
-/// `privacy.fetchTotalTimeoutMs` whether it queued, fetched or both.
+/// The overall deadline includes queue headroom and single-flight admission.
+/// Actual network work keeps its own configured total and per-phase limits.
 #[allow(clippy::too_many_arguments)]
 pub(super) async fn guarded_fetch(
     state: &AppState,
@@ -1272,8 +1274,9 @@ pub(super) async fn guarded_fetch(
     deadline: std::time::Instant,
 ) -> Result<(Vec<u8>, Option<String>, ImageAdmission), Response> {
     let limits = policy.fetch;
+    let queue_deadline = limits.queue_deadline(deadline);
     let started = std::time::Instant::now();
-    let Some(slot) = fetch_limits::acquire(account, message, &limits, deadline).await else {
+    let Some(slot) = fetch_limits::acquire(account, message, &limits, queue_deadline).await else {
         tracing::debug!(
             target: "mw_server::remote_content",
             phase = "slot",
@@ -1282,7 +1285,7 @@ pub(super) async fn guarded_fetch(
         );
         return Err(busy_response());
     };
-    let Some(pipeline) = acquire_bounded_permit(image_pipeline(), deadline).await else {
+    let Some(pipeline) = acquire_bounded_permit(image_pipeline(), queue_deadline).await else {
         return Err(busy_response());
     };
     let admission = ImageAdmission {
@@ -1290,16 +1293,11 @@ pub(super) async fn guarded_fetch(
         _pipeline: pipeline,
         _flight: None,
     };
-    let Some(_permit) = acquire_fetch_permit(deadline).await else {
+    let Some(_permit) = acquire_fetch_permit(queue_deadline).await else {
         return Err(busy_response());
     };
-    let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-    if remaining.is_zero() {
+    let Some(timeouts) = limits.network_timeouts(deadline) else {
         return Err(busy_response());
-    }
-    let timeouts = mw_egress::FetchTimeouts {
-        total: remaining.max(std::time::Duration::from_millis(1)),
-        ..limits.timeouts
     };
     let report = mw_egress::TimeoutReport::new();
     let mut request = request
@@ -1506,8 +1504,9 @@ pub(crate) async fn part(
         preview: Some(true),
         acknowledge_warning: None,
     };
-    let deadline = std::time::Instant::now() + policy.fetch.timeouts.total;
-    let Some(pipeline) = acquire_bounded_permit(image_pipeline(), deadline).await else {
+    let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
+    let queue_deadline = policy.fetch.queue_deadline(deadline);
+    let Some(pipeline) = acquire_bounded_permit(image_pipeline(), queue_deadline).await else {
         return busy_response();
     };
     let admission = ImageAdmission {
@@ -1515,11 +1514,12 @@ pub(crate) async fn part(
         _pipeline: pipeline,
         _flight: None,
     };
-    let Some(permit) = acquire_fetch_permit(deadline).await else {
+    let Some(permit) = acquire_fetch_permit(queue_deadline).await else {
         return busy_response();
     };
     let (bytes, content_type, filename) = match tokio::time::timeout_at(
         tokio::time::Instant::from_std(deadline)
+            .min(tokio::time::Instant::now() + policy.fetch.timeouts.total)
             .min(tokio::time::Instant::now() + std::time::Duration::from_secs(15)),
         read_part(
             &state,

@@ -393,6 +393,11 @@ Off by default. Users can opt in under Compose settings, inherit the administrat
 
 The sender sees load counts and first/last timestamps, not recipient IPs or user agents. Image blocking and automatic preloading make this an estimate, not proof of reading. `MW_PUBLIC_URL` is still required. Revoking a capability or locking tracking off stops new events while existing permitted history remains readable until retention expires. Tokens created before verified sender-policy metadata was stored retain their history but stop collecting events, because their sender scope cannot safely be inferred.
 
+<a id="privacy.fetchQueueTimeoutMs"></a>
+### Remote-image queue budget (`privacy.fetchQueueTimeoutMs`)
+
+Global, hot, 1,000–180,000 ms; default 60,000 ms. Queue admission has a separate allowance from `privacy.fetchTotalTimeoutMs`, so waiting for other images does not consume the entire network budget. Overall work remains bounded by their sum. The replica admits at most 1,024 waiters while retaining its active fetch, per-account/per-message and decode ceilings. Queue exhaustion remains a retryable, uncached 503; no limit bypass or direct-network fallback is used.
+
 <a id="maskedEmail.domain"></a>
 ### Masked address domain (`maskedEmail.domain`)
 

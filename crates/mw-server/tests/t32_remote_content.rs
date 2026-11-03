@@ -84,6 +84,34 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
     )
     .await;
     let f = fixture(proxy, "mw-rc-distinct-burst").await;
+    let anonymous = f
+        .anon
+        .get(format!("{}/api/image-proxy", f.base))
+        .query(&[
+            ("url", "http://1.2.3.4/anonymous.png"),
+            ("emailId", f.email_id.as_str()),
+        ])
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        anonymous.status(),
+        401,
+        "legacy proxy requires an authenticated mailbox session"
+    );
+    let anonymous = f
+        .anon
+        .post(format!("{}/api/rc/sign", f.base))
+        .json(&json!({"emailId":f.email_id,"urls":["http://1.2.3.4/anonymous.png"]}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        anonymous.status(),
+        401,
+        "anonymous clients cannot mint image capabilities"
+    );
+    assert_eq!(seen.lock().unwrap().connections, 0);
     for key in [
         "privacy.maxConcurrentPerMessage",
         "privacy.maxConcurrentPerAccount",
@@ -107,7 +135,7 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
         );
     }
     f.grant().await;
-    let urls: Vec<_> = (0..24)
+    let urls: Vec<_> = (0..96)
         .map(|index| format!("http://1.2.3.4/burst-{index}.png"))
         .collect();
     let refs: Vec<_> = urls.iter().map(String::as_str).collect();
@@ -161,7 +189,7 @@ async fn distinct_image_burst_waits_for_bounded_capacity_instead_of_shedding_val
         .json()
         .await
         .unwrap();
-    assert_eq!(stats["imagesLoaded"], 24);
+    assert_eq!(stats["imagesLoaded"], 96);
     assert_eq!(stats["imagesFailed"], 0);
 }
 

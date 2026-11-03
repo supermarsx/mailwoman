@@ -867,7 +867,10 @@ pub(crate) async fn acquire_fetch_permit(
 
 fn admission_waiters() -> &'static tokio::sync::Semaphore {
     static WAITERS: OnceLock<tokio::sync::Semaphore> = OnceLock::new();
-    WAITERS.get_or_init(|| tokio::sync::Semaphore::new(64))
+    // Several signed displays may each contain up to 256 distinct images. Keep
+    // waiters bounded without shedding ordinary HTTP/2 bursts above 64 while
+    // the unchanged network/pipeline ceilings are doing their job.
+    WAITERS.get_or_init(|| tokio::sync::Semaphore::new(1024))
 }
 
 pub(super) async fn acquire_bounded_permit(
@@ -1133,10 +1136,15 @@ async fn proxy_image(
     if let Some(response) = cached_response() {
         return response;
     }
-    let deadline = Instant::now() + policy.fetch.timeouts.total;
-    let Some(flight) =
-        remote_content::image_flight::acquire(&session.account_id, &key.route, &q.url, deadline)
-            .await
+    let deadline = Instant::now() + policy.fetch.overall_budget();
+    let queue_deadline = policy.fetch.queue_deadline(deadline);
+    let Some(flight) = remote_content::image_flight::acquire(
+        &session.account_id,
+        &key.route,
+        &q.url,
+        queue_deadline,
+    )
+    .await
     else {
         return remote_content::busy_response();
     };
@@ -1386,6 +1394,125 @@ fn internal(ctx: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn image_queue_wait_longer_than_network_total_preserves_a_real_fetch_budget() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut request = [0; 2048];
+            stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok")
+                .await
+                .unwrap();
+        });
+        let limits = remote_content::FetchLimits {
+            queue_timeout: Duration::from_secs(2),
+            timeouts: mw_egress::FetchTimeouts {
+                total: Duration::from_millis(150),
+                ..mw_egress::FetchTimeouts::REMOTE_IMAGE
+            },
+            ..remote_content::FetchLimits::default()
+        };
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let held = gate.acquire().await.unwrap();
+        let started = Instant::now();
+        let deadline = started + limits.overall_budget();
+        let queued = tokio::spawn(async move {
+            let _permit = acquire_bounded_permit(gate, limits.queue_deadline(deadline))
+                .await
+                .expect("queue headroom");
+            assert!(started.elapsed() > limits.timeouts.total);
+            let network = limits
+                .network_timeouts(deadline)
+                .expect("fetch budget remains");
+            assert_eq!(
+                network, limits.timeouts,
+                "waiting must not consume the network total"
+            );
+            reqwest::Client::builder()
+                .no_proxy()
+                .build()
+                .unwrap()
+                .get(format!("http://{address}/image"))
+                .timeout(network.total)
+                .send()
+                .await
+                .unwrap()
+                .text()
+                .await
+                .unwrap()
+        });
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        assert!(!queued.is_finished());
+        drop(held);
+        assert_eq!(queued.await.unwrap(), "ok");
+        server.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn image_queue_stops_at_its_own_deadline_and_releases_waiter_before_network_budget() {
+        let limits = remote_content::FetchLimits {
+            queue_timeout: Duration::from_millis(30),
+            timeouts: mw_egress::FetchTimeouts {
+                total: Duration::from_secs(5),
+                ..mw_egress::FetchTimeouts::REMOTE_IMAGE
+            },
+            ..remote_content::FetchLimits::default()
+        };
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let held = gate.acquire().await.unwrap();
+        let before = admission_waiters().available_permits();
+        let overall = Instant::now() + limits.overall_budget();
+        assert!(
+            acquire_bounded_permit(gate, limits.queue_deadline(overall))
+                .await
+                .is_none()
+        );
+        assert!(
+            Instant::now() < overall,
+            "admission must not consume reserved network time"
+        );
+        assert_eq!(admission_waiters().available_permits(), before);
+        drop(held);
+    }
+
+    #[tokio::test]
+    async fn image_admission_http2_burst_waits_without_early_busy_responses() {
+        let gate: &'static tokio::sync::Semaphore =
+            Box::leak(Box::new(tokio::sync::Semaphore::new(1)));
+        let held = gate.acquire().await.unwrap();
+        let before = admission_waiters().available_permits();
+        let mut jobs = Vec::new();
+        for _ in 0..300 {
+            jobs.push(tokio::spawn(async move {
+                acquire_bounded_permit(gate, Instant::now() + Duration::from_secs(3))
+                    .await
+                    .is_some()
+            }));
+        }
+        tokio::time::timeout(Duration::from_secs(1), async {
+            while admission_waiters().available_permits() > before.saturating_sub(300) {
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .unwrap();
+        assert!(
+            jobs.iter().all(|job| !job.is_finished()),
+            "legitimate image requests must wait while their deadlines remain"
+        );
+        drop(held);
+        for job in jobs {
+            assert!(job.await.unwrap());
+        }
+        assert_eq!(admission_waiters().available_permits(), before);
+    }
 
     #[tokio::test]
     async fn image_admission_queue_is_finite_and_cancellation_reclaims_waiters() {

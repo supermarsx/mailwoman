@@ -7,14 +7,14 @@
 //! id in the clear: keys are SHA-256 digests of length-prefixed parts.
 //!
 //! # Concurrency
-//! The global ceiling (`MAX_CONCURRENT`, try-acquire, shed with `503`) bounds the
+//! The global ceiling (`MAX_CONCURRENT`, with a bounded waiting queue) bounds the
 //! replica. These two bound one reader: a newsletter with sixty images may hold at
 //! most `privacy.maxConcurrentPerMessage` upstream fetches at a time, and one
 //! account across all its messages and tabs at most
 //! `privacy.maxConcurrentPerAccount`. Over either cap a fetch **waits** for a slot
-//! rather than failing, but only until the fetch's total deadline: an image
-//! answers within `privacy.fetchTotalTimeoutMs` whether it waited, fetched or
-//! both. The message slot is taken before the account slot, always in that order,
+//! rather than failing, within a separate queue allowance plus the configured
+//! network total. Network work still has `privacy.fetchTotalTimeoutMs` at most.
+//! The message slot is taken before the account slot, always in that order,
 //! so two fetches cannot hold one each and wait on the other.
 //!
 //! # Negative cache
@@ -49,6 +49,7 @@ const OUTCOME_URLS: usize = 256;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct FetchLimits {
     pub timeouts: FetchTimeouts,
+    pub queue_timeout: Duration,
     pub per_message: usize,
     pub per_account: usize,
 }
@@ -57,9 +58,37 @@ impl Default for FetchLimits {
     fn default() -> Self {
         Self {
             timeouts: FetchTimeouts::REMOTE_IMAGE,
+            queue_timeout: Duration::from_secs(60),
             per_message: 6,
             per_account: 12,
         }
+    }
+}
+
+impl FetchLimits {
+    /// One absolute bound for admission, fetching and image processing. Queue
+    /// time adds headroom; it never widens an individual network phase.
+    pub(crate) fn overall_budget(self) -> Duration {
+        self.queue_timeout.saturating_add(self.timeouts.total)
+    }
+
+    /// Admission ends before the reserved network budget begins. Derive this
+    /// from the original overall deadline, never from the time a phase starts.
+    pub(crate) fn queue_deadline(self, overall_deadline: Instant) -> Instant {
+        overall_deadline
+            .checked_sub(self.timeouts.total)
+            .unwrap_or_else(Instant::now)
+    }
+
+    pub(crate) fn network_timeouts(self, deadline: Instant) -> Option<FetchTimeouts> {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        if remaining.is_zero() {
+            return None;
+        }
+        Some(FetchTimeouts {
+            total: self.timeouts.total.min(remaining),
+            ..self.timeouts
+        })
     }
 }
 
@@ -469,6 +498,38 @@ mod tests {
             per_account,
             ..FetchLimits::default()
         }
+    }
+
+    #[test]
+    fn admission_headroom_never_extends_network_or_phase_timeouts() {
+        let limits = FetchLimits::default();
+        let started = Instant::now();
+        let deadline = started + limits.overall_budget();
+        assert_eq!(
+            limits.queue_deadline(deadline),
+            started + limits.queue_timeout
+        );
+        assert_eq!(
+            deadline.duration_since(limits.queue_deadline(deadline)),
+            limits.timeouts.total
+        );
+        assert_eq!(
+            limits.overall_budget(),
+            Duration::from_secs(60) + limits.timeouts.total
+        );
+        let fresh = limits
+            .network_timeouts(Instant::now() + limits.overall_budget())
+            .unwrap();
+        assert_eq!(fresh, limits.timeouts);
+        let short = limits
+            .network_timeouts(Instant::now() + Duration::from_millis(100))
+            .unwrap();
+        assert!(short.total <= Duration::from_millis(100));
+        assert_eq!(short.connect, limits.timeouts.connect);
+        assert_eq!(short.headers, limits.timeouts.headers);
+        assert_eq!(short.idle, limits.timeouts.idle);
+        assert_eq!(short.max_redirects, limits.timeouts.max_redirects);
+        assert!(limits.network_timeouts(Instant::now()).is_none());
     }
 
     #[tokio::test]

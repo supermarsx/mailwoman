@@ -398,7 +398,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.fetchconnecttimeoutms"></a>`privacy.fetchConnectTimeoutMs` | privacy | global | 5000 | plain |  | yes | Remote image connect and TLS handshake timeout in milliseconds |
 | <a id="privacy.fetchheaderstimeoutms"></a>`privacy.fetchHeadersTimeoutMs` | privacy | global | 10000 | plain |  | yes | Remote image time to response headers in milliseconds |
 | <a id="privacy.fetchidletimeoutms"></a>`privacy.fetchIdleTimeoutMs` | privacy | global | 10000 | plain |  | yes | Remote image longest pause between body chunks in milliseconds |
-| <a id="privacy.fetchtotaltimeoutms"></a>`privacy.fetchTotalTimeoutMs` | privacy | global | 20000 | plain |  | yes | Remote image total time per image in milliseconds |
+| <a id="privacy.fetchtotaltimeoutms"></a>`privacy.fetchTotalTimeoutMs` | privacy | global | 20000 | plain |  | yes | Remote image fetch work budget in milliseconds, separate from bounded queue waiting |
+| <a id="privacy.fetchqueuetimeoutms"></a>`privacy.fetchQueueTimeoutMs` | privacy | global | 60000 | plain |  | yes | Maximum queue wait budget for remote images in milliseconds; actual fetches retain their own total timeout |
 | <a id="privacy.maxredirects"></a>`privacy.maxRedirects` | privacy | global | 3 | plain |  | yes | Redirects followed per remote image |
 | <a id="privacy.maxconcurrentpermessage"></a>`privacy.maxConcurrentPerMessage` | privacy | global | 6 | plain |  | yes | Remote image fetches at a time per message |
 | <a id="privacy.maxconcurrentperaccount"></a>`privacy.maxConcurrentPerAccount` | privacy | global | 12 | plain |  | yes | Remote image fetches at a time per account |
