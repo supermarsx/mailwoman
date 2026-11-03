@@ -75,6 +75,9 @@ const MAX_SIGN: usize = 256;
 const MAX_URL_LEN: usize = 4096;
 /// Longest blob id that is signed.
 const MAX_BLOB_ID_LEN: usize = 256;
+/// A fixed, transparent browser-compatible identity. Some image CDNs reject a
+/// bare product token even for public images. Never forward the reader's UA.
+const IMAGE_FETCH_UA: &str = "Mozilla/5.0 (compatible; Mailwoman-Image-Proxy)";
 const MAX_PART_RAW_BYTES: usize = 32 * 1024 * 1024;
 
 /// Timeouts, concurrency caps, negative cache and load outcomes (t56).
@@ -1299,7 +1302,10 @@ pub(super) async fn guarded_fetch(
         ..limits.timeouts
     };
     let report = mw_egress::TimeoutReport::new();
-    let mut request = request.timeouts(timeouts).timeout_report(&report);
+    let mut request = request
+        .user_agent(IMAGE_FETCH_UA)
+        .timeouts(timeouts)
+        .timeout_report(&report);
     if let Some(d) = domain {
         request = request.for_domain(d);
     }

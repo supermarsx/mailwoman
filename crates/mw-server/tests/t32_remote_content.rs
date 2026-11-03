@@ -271,6 +271,14 @@ async fn standin_status_proxy_with_delay(
     replies: Vec<(u16, String, Vec<u8>)>,
     delay: std::time::Duration,
 ) -> (SocketAddr, Arc<Mutex<Seen>>) {
+    standin_status_proxy_with_agent_gate(replies, delay, false).await
+}
+
+async fn standin_status_proxy_with_agent_gate(
+    replies: Vec<(u16, String, Vec<u8>)>,
+    delay: std::time::Duration,
+    require_browser_compatible_agent: bool,
+) -> (SocketAddr, Arc<Mutex<Seen>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let seen = Arc::new(Mutex::new(Seen::default()));
@@ -291,9 +299,24 @@ async fn standin_status_proxy_with_delay(
                     .write_all(b"HTTP/1.1 200 Connection established\r\n\r\n")
                     .await;
                 let req = read_head(&mut c).await;
+                let compatible_agent = req.lines().any(|line| {
+                    line.eq_ignore_ascii_case(
+                        "user-agent: Mozilla/5.0 (compatible; Mailwoman-Image-Proxy)",
+                    )
+                });
                 sink.lock().unwrap().requests.push(req);
                 tokio::time::sleep(delay).await;
-                let (status, ctype, body) = &replies[n.min(replies.len() - 1)];
+                let denied = (
+                    410,
+                    "text/plain".to_string(),
+                    b"Access Denied!\r\n".to_vec(),
+                );
+                let (status, ctype, body) = if require_browser_compatible_agent && !compatible_agent
+                {
+                    &denied
+                } else {
+                    &replies[n.min(replies.len() - 1)]
+                };
                 let head = format!(
                     "HTTP/1.1 {status} Fixture\r\nContent-Type: {ctype}\r\nContent-Length: {}\r\n\r\n",
                     body.len()
@@ -646,6 +669,80 @@ fn token_of(src: &str) -> String {
 // ── the tests ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
+async fn image_burst_uses_a_fixed_browser_compatible_agent_for_signed_and_legacy_fetches() {
+    let (proxy, seen) = standin_status_proxy_with_agent_gate(
+        vec![(200, "image/png".into(), png(4, 4))],
+        std::time::Duration::ZERO,
+        true,
+    )
+    .await;
+    // Reproduce the upstream's policy: a bare product UA is denied, independent
+    // of load. This direct fixture control never contacts a public origin.
+    let mut control = TcpStream::connect(proxy).await.unwrap();
+    control
+        .write_all(b"CONNECT 1.2.3.4:80 HTTP/1.1\r\nHost: 1.2.3.4:80\r\n\r\n")
+        .await
+        .unwrap();
+    assert!(read_head(&mut control).await.starts_with("HTTP/1.1 200"));
+    control.write_all(b"GET /old-agent.png HTTP/1.1\r\nHost: 1.2.3.4\r\nUser-Agent: Mailwoman-Image-Proxy\r\n\r\n").await.unwrap();
+    assert!(read_head(&mut control).await.starts_with("HTTP/1.1 410"));
+    drop(control);
+    let f = fixture(proxy, "mw-rc-cdn-agent-burst").await;
+    f.grant().await;
+    let urls: Vec<_> = (0..4)
+        .map(|i| format!("http://1.2.3.4/agent-signed-{i}.png"))
+        .collect();
+    let refs: Vec<_> = urls.iter().map(String::as_str).collect();
+    let (status, signed) = f.sign(&refs, &[]).await;
+    assert_eq!(status, 200, "{signed}");
+    let mut jobs = Vec::new();
+    for index in 0..8 {
+        let (client, url) = if index < 4 {
+            (
+                f.anon.clone(),
+                format!(
+                    "{}{}",
+                    f.base,
+                    signed["images"][index]["src"].as_str().unwrap()
+                ),
+            )
+        } else {
+            let mut url = reqwest::Url::parse(&format!("{}/api/image-proxy", f.base)).unwrap();
+            url.query_pairs_mut()
+                .append_pair("url", &format!("http://1.2.3.4/agent-legacy-{index}.png"))
+                .append_pair("emailId", &f.email_id);
+            (f.user.clone(), url.to_string())
+        };
+        jobs.push(tokio::spawn(async move {
+            let response = client
+                .get(url)
+                .header("user-agent", "Sensitive Reader Device/123")
+                .header("referer", "https://private.example/reader")
+                .send()
+                .await
+                .unwrap();
+            assert_eq!(response.status(), 200, "{}", response.text().await.unwrap());
+            assert!(response.bytes().await.unwrap().starts_with(b"\x89PNG"));
+        }));
+    }
+    for job in jobs {
+        job.await.unwrap();
+    }
+    let seen = seen.lock().unwrap();
+    assert_eq!(seen.connections, 9);
+    for request in seen.requests.iter().skip(1) {
+        let head = request.to_ascii_lowercase();
+        assert!(
+            head.contains("user-agent: mozilla/5.0 (compatible; mailwoman-image-proxy)"),
+            "{head}"
+        );
+        for private in ["sensitive reader", "private.example", "cookie:"] {
+            assert!(!head.contains(private), "{head}");
+        }
+    }
+}
+
+#[tokio::test]
 async fn signed_display_batch_pays_one_aggregate_request_for_remote_and_inline_images() {
     let (proxy, _) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
     let mut f = fixture_with_protection(
@@ -935,7 +1032,6 @@ async fn a_signed_image_loads_without_a_cookie_and_forwards_nothing_of_the_reade
         "referer:",
         "not-forwarded",
         "secret-path",
-        "mozilla",
         "reader browser",
     ] {
         assert!(
@@ -943,7 +1039,10 @@ async fn a_signed_image_loads_without_a_cookie_and_forwards_nothing_of_the_reade
             "{leaked} reached the origin: {head}"
         );
     }
-    assert!(head.contains("user-agent: mailwoman-image-proxy"), "{head}");
+    assert!(
+        head.contains("user-agent: mozilla/5.0 (compatible; mailwoman-image-proxy)"),
+        "{head}"
+    );
 }
 
 #[tokio::test]
