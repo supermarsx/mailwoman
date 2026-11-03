@@ -11,6 +11,7 @@ export const tooltip = style({
   borderRadius: vars.radius.sm, boxShadow: vars.elevation[2],
   fontFamily: vars.font.ui, fontSize: '0.8125rem', lineHeight: 1.45,
   pointerEvents: 'auto',
+  userSelect: 'none', WebkitUserSelect: 'none',
 });
 
 // A bubble opened by keyboard focus has no pointer over it, so it need not be

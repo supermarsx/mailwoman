@@ -153,7 +153,17 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
       pressedAt = null;
       const element=find(event); if (element!==dismissed) pointerUntil=0; show(element, true);
     };
-    const move = (event: PointerEvent) => { if (event.pointerType !== 'touch') lastPointer = { x: event.clientX, y: event.clientY }; if (pressedAt && !stillSincePress(event)) pressedAt = null; };
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      lastPointer = { x: event.clientX, y: event.clientY };
+      if (pressedAt && !stillSincePress(event)) pressedAt = null;
+      // Keyboard-opened bubbles stay click-through, so detect their bounds
+      // here too rather than relying on pointerenter on the bubble itself.
+      const bounds = bubble?.isConnected ? bubble.getBoundingClientRect() : null;
+      if (bounds && bounds.width > 0 && bounds.height > 0
+        && event.clientX >= bounds.left && event.clientX <= bounds.right
+        && event.clientY >= bounds.top && event.clientY <= bounds.bottom) hide(true);
+    };
     const out = (event: PointerEvent) => {
       if (!(isNode(event.target)) || !(target?.contains(event.target) || bubble?.contains(event.target) || dismissed?.contains(event.target))) return;
       if (dismissed && !(isNode(event.relatedTarget) && dismissed.contains(event.relatedTarget))) restoreDismissed();
@@ -186,5 +196,5 @@ export function TooltipLayer(props:{document?:Document} = {}): JSX.Element {
       scopeWindow.visualViewport?.removeEventListener('scroll', schedulePosition);
     });
   });
-  return <Portal mount={scopeDocument.body}><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} classList={{ [css.passive]: !hoverable() }} onPointerEnter={clearHide} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
+  return <Portal mount={scopeDocument.body}><Show when={text()}>{(description) => <div ref={bubble} id={id} role="tooltip" class={css.tooltip} classList={{ [css.passive]: !hoverable() }} onPointerEnter={()=>hide(true)} onPointerLeave={scheduleHide}>{description()}</div>}</Show></Portal>;
 }

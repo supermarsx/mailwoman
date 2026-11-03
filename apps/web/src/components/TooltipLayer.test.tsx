@@ -37,6 +37,34 @@ it('shows hover immediately, prefers explicit descriptions, and cleans up remove
   expect(screen.queryByRole('tooltip')).not.toBeInTheDocument();
 });
 
+it('dismisses immediately on tooltip hover and does not reopen until its anchor is left',()=>{
+  render(()=><><button aria-label="Archive"/><TooltipLayer/></>);
+  const button=screen.getByRole('button',{name:'Archive'});
+  fireEvent.pointerOver(button,{pointerType:'mouse'});
+  fireEvent.pointerEnter(screen.getByRole('tooltip'),{pointerType:'mouse'});
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  expect(button).not.toHaveAttribute('aria-describedby');
+  fireEvent.pointerOver(button,{pointerType:'mouse'});
+  expect(screen.queryByRole('tooltip')).toBeNull();
+  fireEvent.pointerOut(button,{pointerType:'mouse',relatedTarget:document.body});
+  fireEvent.pointerOver(button,{pointerType:'mouse'});
+  expect(screen.getByRole('tooltip')).toHaveTextContent('Archive');
+});
+
+it('dismisses click-through keyboard help when the pointer crosses its visible bounds',()=>{
+  class TestPointerEvent extends MouseEvent {readonly pointerType='mouse';}
+  vi.stubGlobal('PointerEvent',TestPointerEvent);
+  onTestFinished(()=>vi.unstubAllGlobals());
+  render(()=><><button aria-label="Archive"/><TooltipLayer/></>);
+  const button=screen.getByRole('button',{name:'Archive'});
+  fireEvent.focusIn(button);
+  const tooltip=screen.getByRole('tooltip');
+  expect(tooltip).toHaveClass(css.passive);
+  vi.spyOn(tooltip,'getBoundingClientRect').mockReturnValue({left:10,right:110,top:20,bottom:60,width:100,height:40} as DOMRect);
+  fireEvent.pointerMove(document.body,{clientX:50,clientY:40});
+  expect(screen.queryByRole('tooltip')).toBeNull();
+});
+
 it('adopts non-control and newly added titles without native duplicates and updates visible text',async()=>{
   render(()=><><span title="Unread messages">12</span><TooltipLayer/></>);
   const badge=screen.getByText('12');
