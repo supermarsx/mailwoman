@@ -326,3 +326,34 @@ export const tableScroll = style({ maxInlineSize: '100%', overflowX: 'auto' });
 export const pageHost = style({ height: '100%', minWidth: 0, overflow: 'hidden' });
 /** The buttons at the end of a sidebar heading (membership, new group). */
 export const headingActions = style({ display: 'inline-flex', gap: vars.space[1] });
+
+// Keep contact links on the active app accent, including visited mail addresses.
+const contactLinks = [layout, editorPage, page].map((root) => `${root} a`);
+globalStyle(contactLinks.join(', '), {
+  color: vars.color.accent,
+  font: 'inherit',
+  textDecorationLine: 'underline',
+  textDecorationColor: 'currentColor',
+  textDecorationThickness: 'from-font',
+  textUnderlineOffset: '0.16em',
+  minInlineSize: 0,
+  maxInlineSize: '100%',
+  overflowWrap: 'anywhere',
+  wordBreak: 'normal',
+  '@media': { '(forced-colors: active)': { color: 'LinkText', textDecorationColor: 'LinkText' } },
+});
+globalStyle(contactLinks.flatMap((selector) => [`${selector}:visited`, `${selector}:active`]).join(', '), {
+  color: vars.color.accent,
+  '@media': { '(forced-colors: active)': { color: 'LinkText' } },
+});
+globalStyle(contactLinks.map((selector) => `${selector}:hover`).join(', '), {
+  color: vars.color.accent,
+  background: vars.color.selection,
+  textDecorationThickness: '2px',
+  '@media': { '(forced-colors: active)': { color: 'LinkText', background: 'Canvas' } },
+});
+globalStyle(contactLinks.map((selector) => `${selector}:focus-visible`).join(', '), {
+  ...focusOutline,
+  background: vars.color.selection,
+  '@media': { '(forced-colors: active)': { color: 'LinkText', background: 'Canvas', outlineColor: 'Highlight' } },
+});
