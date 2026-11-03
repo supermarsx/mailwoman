@@ -1,6 +1,7 @@
 import { basePath, withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
 import { isNativeAuth, nativeServerBase } from './serverAddress.ts';
+import {tokenize,TokenType as CssToken} from '@csstools/css-tokenizer';
 export function remoteServerBase(): string { return isNativeAuth() ? nativeServerBase() ?? location.origin : location.origin + basePath(); }
 
 export type RemoteMode = 'block' | 'ask' | 'proxy' | 'direct';
@@ -37,11 +38,33 @@ function httpUrl(raw: string, httpsOnly = false): string | null {
 }
 function cid(raw: string): string { try { return decodeURIComponent(raw.replace(/^cid:/i, '')).replace(/^<|>$/g, ''); } catch { return ''; } }
 const CID_TOKEN = /cid:[^"'()\s,<>\\]+/gi;
+/** Transform actual CSS URL tokens, leaving comments and ordinary strings
+ * untouched. Input remains the Rust sanitizer's allowlisted stylesheet. */
+function mapStyleUrls(source:string,map:(url:string)=>string|null):string {
+  const tokens=tokenize({css:source});let result='';
+  const replacement=(url:string):string=>{const target=map(url.trim());return target===null?'none':`url(${JSON.stringify(target)})`;};
+  for(let index=0;index<tokens.length;index++){
+    const token=tokens[index]!;
+    if(token[0]===CssToken.URL){result+=replacement(token[4].value);continue;}
+    if(token[0]===CssToken.Function&&token[4].value.toLowerCase()==='url'){
+      index++;
+      while(index<tokens.length&&(tokens[index]![0]===CssToken.Whitespace||tokens[index]![0]===CssToken.Comment))index++;
+      const value=tokens[index];
+      while(index<tokens.length&&tokens[index]![0]!==CssToken.CloseParen)index++;
+      result+=value?.[0]===CssToken.String?replacement(value[4].value):'none';
+      continue;
+    }
+    result+=token[1];
+  }
+  return result;
+}
 /** Only call on output of the Rust reader sanitizer, never a sender's raw HTML. */
 export function readerReferences(html: string): ReaderReferences {
   const doc = documentOf(html);
   const urls = [...new Set([...doc.querySelectorAll('[data-mw-rc-url]')].map(e => e.getAttribute('data-mw-rc-url') ?? '').filter(v => httpUrl(v) !== null))].slice(0, 256);
-  const cids = [...new Set([...doc.querySelectorAll('[src],[srcset],[style],[background]')].flatMap(e => ['src','srcset','style','background'].flatMap(attr => (e.getAttribute(attr) ?? '').match(CID_TOKEN) ?? [])).map(cid))].filter(Boolean).slice(0, 256);
+  const styleCids=new Set<string>();
+  for(const style of doc.querySelectorAll('style'))mapStyleUrls(style.textContent??'',url=>{if(styleCids.size<256&&/^cid:/i.test(url)){const value=cid(url);if(value)styleCids.add(value);}return url;});
+  const cids = [...new Set([...doc.querySelectorAll('[src],[srcset],[style],[background]')].flatMap(e => ['src','srcset','style','background'].flatMap(attr => (e.getAttribute(attr) ?? '').match(CID_TOKEN) ?? [])).map(cid).concat([...styleCids]))].filter(Boolean).slice(0, 256);
   const links = [...new Set([...doc.querySelectorAll('a[href]')].map(e => httpUrl(e.getAttribute('href') ?? '')).filter((url): url is string => url !== null))].slice(0, 256);
   const files = links.filter(url => /\.(?:pdf|zip|gz|tar|7z|docx?|xlsx?|pptx?|txt|csv|rtf|odt|ods|epub|ics)$/i.test(new URL(url).pathname)).slice(0, 32);
   return { urls, cids, files, links, trackers: doc.querySelectorAll('[data-mw-tracker]').length };
@@ -86,6 +109,18 @@ export function rewriteReaderContent(html: string, signed: SignedContent, policy
       const value = withParts.replace(/mw-rc:(\d+)/g, (_, id: string) => (refs.get(id) ?? EMPTY_IMAGE).replace(/["'()\\\s<>]/g, c => '%' + c.charCodeAt(0).toString(16).toUpperCase()));
       element.setAttribute(attr, value);
     }
+  }
+  for(const style of doc.querySelectorAll('style')){
+    const source=style.textContent??'';
+    const rewritten=mapStyleUrls(source,url=>{
+      if(/^cid:/i.test(url)){const blob=cidParts[cid(url)];return blob?partMap.get(blob)??null:null;}
+      const marker=/^mw-rc:(\d+)$/.exec(url);
+      if(marker)return refs.get(marker[1]!)??null;
+      // Fragment-only references cannot contact a host. An absent authorization
+      // never falls back to the sender URL, including when signing is refused.
+      return url.startsWith('#')?url:null;
+    });
+    if(rewritten!==source)style.textContent=rewritten;
   }
   for (const marker of doc.querySelectorAll('[data-mw-link-cleaned][data-mw-link-original]')) {
     const cleaned = marker.getAttribute('data-mw-link-cleaned'); const original = marker.getAttribute('data-mw-link-original');

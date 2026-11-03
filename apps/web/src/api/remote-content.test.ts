@@ -68,3 +68,34 @@ it('rewrites CID candidates in srcset and CSS only through signed message member
 it('offers only HTTP message links for explicit arbitrary file downloads', () => {
   expect(readerReferences(sanitize('<a href="https://docs.test/download?id=1">file</a><a href="mailto:a@test">mail</a>')).links).toEqual(['https://docs.test/download?id=1']);
 });
+
+it('finds stylesheet-only CID backgrounds once and maps CSS remote/CID images through fresh signed sources',()=>{
+  const html=sanitize('<style>.remote{background-image:url(https://cdn.test/style-only.png)}.inline{background-image:url( "cid:style%40test" )}.again{background:url(cid:style%40test)}</style><p class="remote inline">Text</p>');
+  const refs=readerReferences(html);
+  expect(refs.urls).toEqual(['https://cdn.test/style-only.png']);
+  expect(refs.cids).toEqual(['style@test']);
+  const output=rewriteReaderContent(html,{...EMPTY_SIGNED,images:[{url:refs.urls[0]!,src:'/api/rc/i/style.signature'}],parts:[{blobId:'original-style',src:'/api/rc/p/style-inline.signature'}]},policy,{'style@test':'original-style'});
+  const css=doc(output).querySelector('style')!.textContent!;
+  expect(css).toContain('/api/rc/i/style.signature');expect(css.match(/\/api\/rc\/p\/style-inline.signature/g)).toHaveLength(2);
+  expect(css).not.toMatch(/mw-rc:|cid:|https:\/\/cdn\.test/);
+});
+
+it('keeps unsigned, refused, tracker and foreign stylesheet sources as none without a direct fallback',()=>{
+  const html=sanitize('<style>.remote{background:url(https://cdn.test/missing.png)}.inline{background:url(cid:foreign)}</style><p>Retained text</p>');
+  for(const signed of [EMPTY_SIGNED,{...EMPTY_SIGNED,images:[{url:'https://cdn.test/missing.png',src:'https://evil.test/api/rc/i/fake.signature'}],parts:[{blobId:'other',src:'/api/rc/p/other.signature'}]}]){
+    const output=rewriteReaderContent(html,signed,policy,{}),css=doc(output).querySelector('style')!.textContent!;
+    expect(css).toContain('none');expect(css).not.toMatch(/url\(|mw-rc:|cid:|https:\/\//);expect(output).toContain('Retained text');
+  }
+  const tracker=sanitize('<style>.pixel{background:url(https://x.list-manage.com/track/open.php?u=1)}</style>',false);
+  const refs=readerReferences(tracker);
+  const css=doc(rewriteReaderContent(tracker,{...EMPTY_SIGNED,images:refs.urls.map(url=>({url,src:'/api/rc/i/tracker.signature'}))},policy,{})).querySelector('style')!.textContent!;
+  expect(css).toContain('none');expect(css).not.toContain('/api/rc/i/');
+});
+
+it('does not discover CSS comment/string CIDs and bounds stylesheet-only CID requests',()=>{
+  const onlyText='<style>/*url(cid:comment)*/.label::before{content:"url(cid:string)"}</style>';
+  expect(readerReferences(onlyText).cids).toEqual([]);
+  const styles=Array.from({length:300},(_,index)=>`.c${index}{background:url(cid:image${index})}`).join('');
+  const refs=readerReferences(`<style>${styles}</style>`);
+  expect(refs.cids).toHaveLength(256);expect(refs.cids.at(-1)).toBe('image255');
+});
