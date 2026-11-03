@@ -8,6 +8,8 @@
 #     (`FROM ${BASE}`) is refused, because it cannot be checked here;
 #   - a `FROM rust:<version>-...` tag equals the channel in rust-toolchain.toml, so the image and
 #     the pinned toolchain are bumped together;
+#   - an explicit RUSTUP_TOOLCHAIN in a Docker build stage selects that same
+#     compiler, without re-installing developer components from the checkout;
 #   - the `CADDY_IMAGE=` default in deploy.sh carries a digest.
 #
 # The digests are refreshed by Dependabot (.github/dependabot.yml, `docker` ecosystem).
@@ -48,6 +50,11 @@ check_dockerfile() {
   while IFS= read -r line || [[ -n "$line" ]]; do
     n=$((n + 1))
     line="${line%$'\r'}"
+    if [[ -n "$channel" && "$line" =~ (^|[[:space:]])RUSTUP_TOOLCHAIN=([^[:space:]]+) ]]; then
+      if [[ "${BASH_REMATCH[2]}" != "$channel" ]]; then
+        fail "$file:$n: RUSTUP_TOOLCHAIN=${BASH_REMATCH[2]} differs from rust-toolchain.toml channel $channel"
+      fi
+    fi
     [[ "$line" =~ ^[[:space:]]*[Ff][Rr][Oo][Mm][[:space:]]+(.*)$ ]] || continue
     rest="${BASH_REMATCH[1]}"
     read -r -a words <<<"$rest"

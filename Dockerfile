@@ -64,13 +64,18 @@ WORKDIR /src
 # Explicit 16 units preserves the release profile's previous codegen partitioning.
 ARG MW_CARGO_INCREMENTAL=1
 ARG MW_BUILD_JOBS=
-ENV CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
+ARG TARGETPLATFORM
+# Select the already-installed compiler explicitly. Otherwise rustup reads the
+# checkout's developer component list and fetches clippy/rustfmt in this source-
+# dependent build layer. check-image-pins.sh keeps this pin equal to the base.
+ENV RUSTUP_TOOLCHAIN=1.98.1 \
+    CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target,sharing=locked \
+    --mount=type=cache,id=mailwoman-target-gnu-${TARGETPLATFORM},target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
     && cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
@@ -140,6 +145,7 @@ WORKDIR /src
 ARG MW_CARGO_INCREMENTAL=1
 ARG MW_BUILD_JOBS=
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
+    RUSTUP_TOOLCHAIN=1.98.1 \
     CARGO_INCREMENTAL=${MW_CARGO_INCREMENTAL} \
     CARGO_PROFILE_RELEASE_CODEGEN_UNITS=16
 COPY --from=rust-source /src/ /src/
@@ -148,7 +154,7 @@ RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passw
     && printf 'nonroot:x:65532:\n' > /etc/mw-group \
     && mkdir -p /data-empty /tmp-empty
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target,sharing=locked \
+    --mount=type=cache,id=/src/target,target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
     && cargo build --locked --release --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \

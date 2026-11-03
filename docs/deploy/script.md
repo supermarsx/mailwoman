@@ -53,6 +53,24 @@ available CPUs. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`, which limit th
 running app. The corresponding direct Docker build arguments are
 `MW_BUILD_JOBS=4` and `MW_CARGO_INCREMENTAL=0` (default1).
 No build-time reduction is promised without measuring on the deployment host.
+
+GNU/distroless and musl/static builds use separate target caches. Their build
+scripts and procedural macros run against different host libraries and compiler
+flags; sharing one locked directory made the two build families wait for each
+other and replace incompatible cached intermediates. The static build preserves
+the previous `/src/target` cache identity, so a normal static deploy keeps its
+warm dependencies. GNU runtime and mock builds share a new compatible cache per
+Docker target platform and need a one-time warmup; downloaded registry sources
+remain shared. A legacy cache last populated by GNU can still require a musl
+refresh. This prevents future cross-build interference without copying caches;
+it does not make cold static compilation cheaper or avoid compiling changed Rust
+code. The static build continues to target `x86_64-unknown-linux-musl` explicitly.
+
+Build stages explicitly select the compiler already installed in their pinned
+Rust image. This prevents the checkout's developer-only `rustfmt` and `clippy`
+component list from causing rustup downloads whenever a source change reruns
+compilation. The image-pin check also checks this compiler selection. It does
+not change the compiler version, Cargo profiles or shipped binaries' features.
 For the shortest deployment, build a trusted image elsewhere and use the existing
 `--image`/`--pull` path so the deployment host does not compile Rust.
 
