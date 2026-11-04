@@ -183,6 +183,9 @@ pub(crate) async fn record_login(
     device: &SessionDevice,
     method: &str,
 ) -> Result<(), Response> {
+    // Per-account country policy (off by default): after credentials are proven,
+    // before the session is kept. The caller deletes the session on `Err`.
+    crate::account_signin_geo::check_signin(state, account, address, device, method).await?;
     let canonical = state
         .store
         .canonical_policy_address(address)
@@ -306,6 +309,7 @@ pub(crate) async fn record_login(
         }),
     )
     .await;
+    crate::account_signin_geo::record_success(state, account, address, device).await;
     if new_device {
         crate::alerts::emit(
             state,

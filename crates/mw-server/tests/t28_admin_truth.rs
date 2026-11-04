@@ -141,20 +141,27 @@ async fn admin_login(c: &reqwest::Client, base: &str) -> Login {
         .to_str()
         .unwrap()
         .to_string();
-    assert_eq!(
-        c.post(format!("{base}/admin/step-up"))
-            .header("cookie", set_cookie.split(';').next().unwrap())
-            .json(&json!({"password":ADMIN_PASS}))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
-    Login {
-        cookie: set_cookie.split(';').next().unwrap().to_string(),
-        set_cookie,
-    }
+    let stepped = c
+        .post(format!("{base}/admin/step-up"))
+        .header("cookie", set_cookie.split(';').next().unwrap())
+        .json(&json!({"password":ADMIN_PASS}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stepped.status(), 200);
+    // A granted step-up replaces the session id; hold the new one, as a browser does.
+    let cookie = stepped
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|v| v.starts_with("mw_admin_session="))
+        .expect("step-up rotates the admin session id")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
+    Login { cookie, set_cookie }
 }
 
 async fn get(c: &reqwest::Client, url: String, cookie: &str) -> reqwest::Response {

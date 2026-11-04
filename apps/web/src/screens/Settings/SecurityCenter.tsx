@@ -4,7 +4,10 @@ import { basePath } from '../../api/basePath.ts';
 import { loadCatalog, t, formatDateTime, formatDate } from '../../i18n';
 import * as css from './styles.css.ts';
 import { TwoFactor } from './TwoFactor.tsx';
+import { SigninGeography } from './SigninGeography.tsx';
 import { Sessions } from './Sessions.tsx';
+import { SessionAlerts } from './SessionAlerts.tsx';
+import { SessionAlertBanner } from './SessionAlertBanner.tsx';
 import * as tabs from './securityTabs.css.ts';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 
@@ -44,6 +47,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
   }
   return <section class={css.section} aria-label={t('security-center-title')}>
     <h2 class={css.heading}>{t('security-center-title')}</h2>
+    <Show when={tab() !== 'sessions'}><AsyncBoundary><SessionAlertBanner onReview={() => setTab('sessions')} /></AsyncBoundary></Show>
     <div class={tabs.list} role="tablist" aria-label={t('security-center-title')}><For each={sections}>{([name, label], index) => <button type="button" role="tab" id={`${uid}-${name}-tab`} aria-controls={`${uid}-${name}-panel`} aria-selected={tab() === name} tabIndex={tab() === name ? 0 : -1} onClick={() => setTab(name)} onKeyDown={event => {
       const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
       const target = event.key === 'Home' ? 0 : event.key === 'End' ? sections.length - 1 : delta ? (index() + delta + sections.length) % sections.length : -1;
@@ -54,7 +58,8 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
     {props.password}
     <p class={css.prose}>{t('security-center-passkey-mode')}</p>
     <AsyncBoundary><TwoFactor /></AsyncBoundary>
-    </div><div {...panel('sessions')}><AsyncBoundary><Sessions /></AsyncBoundary>{props.grants}</div>
+    <AsyncBoundary><SigninGeography /></AsyncBoundary>
+    </div><div {...panel('sessions')}><AsyncBoundary><SessionAlerts /></AsyncBoundary><AsyncBoundary><Sessions /></AsyncBoundary>{props.grants}</div>
     <Show when={error()}><p role="alert">{error()}</p></Show>
     <div {...panel('history')}>
     <h3 class={css.subheading}>{t('security-center-history')}</h3>

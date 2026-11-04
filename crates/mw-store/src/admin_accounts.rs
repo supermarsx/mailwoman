@@ -868,6 +868,40 @@ impl Store {
             .collect())
     }
 
+    /// Rotate an admin session id: the new row inherits the creation time and
+    /// both deadlines (idle and absolute) of the old one, and the old row is
+    /// deleted in the same transaction. `None` when `old` is not a live session
+    /// (so a replayed or expired id cannot mint a new one); otherwise the
+    /// absolute deadline, for the new cookie's `Max-Age`.
+    pub async fn rotate_admin_session(
+        &self,
+        old_hash: &str,
+        new_hash: &str,
+        now: i64,
+    ) -> Result<Option<i64>, StoreError> {
+        if old_hash == new_hash {
+            return Ok(None);
+        }
+        let mut tx = self.backend.begin().await?;
+        let inserted = q("INSERT INTO admin_sessions (token_hash, admin_id, created_at, last_seen, expires_at, absolute_expires_at) SELECT ?2, admin_id, created_at, last_seen, expires_at, absolute_expires_at FROM admin_sessions WHERE token_hash = ?1 AND expires_at > ?3 AND absolute_expires_at > ?3")
+            .bind(old_hash).bind(new_hash).bind(now).execute_tx(&mut tx).await?;
+        if inserted != 1 {
+            return Ok(None);
+        }
+        q("DELETE FROM admin_sessions WHERE token_hash = ?1")
+            .bind(old_hash)
+            .execute_tx(&mut tx)
+            .await?;
+        let absolute = q("SELECT absolute_expires_at FROM admin_sessions WHERE token_hash = ?1")
+            .bind(new_hash)
+            .fetch_all_tx(&mut tx)
+            .await?
+            .first()
+            .map(|r| r.get_i64("absolute_expires_at"));
+        tx.commit().await?;
+        Ok(absolute)
+    }
+
     /// End every session of `admin_id`; returns how many ended.
     pub async fn delete_admin_sessions_of(&self, admin_id: &str) -> Result<u64, StoreError> {
         Ok(q("DELETE FROM admin_sessions WHERE admin_id = ?1")

@@ -142,10 +142,18 @@ pub(crate) fn delegation_grants(request: &Value, response: &Value) -> Vec<String
 }
 
 fn message(notice: &crate::server_text::Notice) -> Vec<u8> {
+    message_text(
+        notice.locale,
+        notice.subject,
+        notice.description,
+        notice.guidance,
+    )
+}
+fn message_text(locale: &str, subject: &str, description: &str, guidance: &str) -> Vec<u8> {
     use base64::Engine as _;
     let mut words = Vec::new();
     let mut chunk = String::new();
-    for ch in notice.subject.chars() {
+    for ch in subject.chars() {
         if chunk.len() + ch.len_utf8() > 42 {
             words.push(format!(
                 "=?UTF-8?B?{}?=",
@@ -162,11 +170,35 @@ fn message(notice: &crate::server_text::Notice) -> Vec<u8> {
         ));
     }
     let subject = words.join("\r\n ");
-    format!("From: Mailwoman Security <security@mailwoman.invalid>\r\nSubject: {subject}\r\nDate: {}\r\nMessage-ID: <{}@mailwoman.invalid>\r\nAuto-Submitted: auto-generated\r\nX-Auto-Response-Suppress: All\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\nContent-Language: {}\r\n\r\n{}\r\n\r\n{}\r\n",chrono::Utc::now().to_rfc2822(),uuid::Uuid::new_v4(),notice.locale,notice.description,notice.guidance).into_bytes()
+    format!("From: Mailwoman Security <security@mailwoman.invalid>\r\nSubject: {subject}\r\nDate: {}\r\nMessage-ID: <{}@mailwoman.invalid>\r\nAuto-Submitted: auto-generated\r\nX-Auto-Response-Suppress: All\r\nMIME-Version: 1.0\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: 8bit\r\nContent-Language: {}\r\n\r\n{}\r\n\r\n{}\r\n",chrono::Utc::now().to_rfc2822(),uuid::Uuid::new_v4(),locale,description,guidance).into_bytes()
 }
 async fn deliver(state: &AppState, account: &str, kind: AlertKind) -> Result<(), String> {
     let notice = crate::server_text::account_notice(state, account, kind).await;
-    let raw = message(&notice);
+    deliver_raw(state, account, message(&notice)).await
+}
+
+/// Put a plain-text security message into the account's own inbox, by the same
+/// path as [`emit`]'s alerts (engine APPEND or guarded proxy JMAP import).
+pub(crate) async fn deliver_text(
+    state: &AppState,
+    account: &str,
+    locale: &str,
+    subject: &str,
+    description: &str,
+    guidance: &str,
+) -> Result<(), String> {
+    let raw = message_text(locale, subject, description, guidance);
+    match tokio::time::timeout(
+        std::time::Duration::from_secs(30),
+        deliver_raw(state, account, raw),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_) => Err("timed out".into()),
+    }
+}
+async fn deliver_raw(state: &AppState, account: &str, raw: Vec<u8>) -> Result<(), String> {
     if let Some(engine) = &state.engine {
         return engine
             .deliver_security_notice(account, &raw)

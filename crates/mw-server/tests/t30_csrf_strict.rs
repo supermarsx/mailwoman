@@ -190,14 +190,24 @@ async fn admin_login(c: &reqwest::Client, base: &str) -> Signed {
 /// Confirm the admin password for `admin`'s session (`POST /admin/step-up`, with
 /// the token, as strict mode wants). Adding or removing a ban answers
 /// `403 step_up_required` without a recent proof (12ca557d).
-async fn admin_step_up(c: &reqwest::Client, base: &str, admin: &Signed) {
-    let step_up = call(
-        "POST",
-        "/admin/step-up",
-        Some(json!({ "password": ADMIN_PASS })),
-    );
-    let (status, body) = with_token(c, base, &step_up, admin).await;
+async fn admin_step_up(c: &reqwest::Client, base: &str, admin: &mut Signed) {
+    let resp = c
+        .post(format!("{base}/admin/step-up"))
+        .header(reqwest::header::COOKIE, admin.cookies())
+        .header("x-csrf-token", &admin.token)
+        .json(&json!({ "password": ADMIN_PASS }))
+        .send()
+        .await
+        .unwrap();
+    let status = resp.status().as_u16();
+    let set = set_cookies(&resp);
+    let body = resp.text().await.unwrap();
     assert_eq!(status, 200, "admin step-up must be granted: {body}");
+    // A granted step-up replaces the admin session id (and with it the CSRF
+    // token, which is derived from the id): hold the new ones, as a browser does.
+    let rotated = cookie_value(&set, "mw_admin_session").expect("step-up rotates the admin session id");
+    admin.session = format!("mw_admin_session={rotated}");
+    admin.token = cookie_value(&set, "mw_csrf").expect("step-up reissues mw_csrf");
 }
 
 /// `_mock` is the server's only listed upstream, which it signs in to; the login
@@ -419,8 +429,8 @@ async fn a_cross_origin_admin_login_is_refused_in_both_modes() {
 async fn an_admin_write_needs_the_token() {
     let base = spawn_server(ServerMode::Proxy, true, None).await;
     let c = client();
-    let admin = admin_login(&c, &base).await;
-    admin_step_up(&c, &base, &admin).await;
+    let mut admin = admin_login(&c, &base).await;
+    admin_step_up(&c, &base, &mut admin).await;
     let ip = "203.0.113.77";
     let add = call(
         "POST",
@@ -486,8 +496,8 @@ async fn an_admin_write_needs_the_token() {
 async fn fetch_metadata_refuses_cross_site_writes_even_with_a_valid_session_token() {
     let base = spawn_server(ServerMode::Proxy, true, None).await;
     let c = client();
-    let admin = admin_login(&c, &base).await;
-    admin_step_up(&c, &base, &admin).await;
+    let mut admin = admin_login(&c, &base).await;
+    admin_step_up(&c, &base, &mut admin).await;
     let ip = "203.0.113.78";
     let request = |site| {
         c.post(format!("{base}/admin/bans"))
@@ -509,8 +519,8 @@ async fn fetch_metadata_refuses_cross_site_writes_even_with_a_valid_session_toke
 async fn admin_session_issues_a_token_only_when_the_client_has_none() {
     let base = spawn_server(ServerMode::Proxy, true, None).await;
     let c = client();
-    let admin = admin_login(&c, &base).await;
-    admin_step_up(&c, &base, &admin).await;
+    let mut admin = admin_login(&c, &base).await;
+    admin_step_up(&c, &base, &mut admin).await;
 
     // Not signed in: 401 and no token cookie.
     let anon = c.get(format!("{base}/admin/session")).send().await.unwrap();
@@ -684,8 +694,8 @@ async fn a_bearer_header_does_not_excuse_a_request_with_a_session_cookie() {
         let mock = spawn_mock().await;
         let base = spawn_server(ServerMode::Proxy, strict, Some(&mock)).await;
         let c = client();
-        let admin = admin_login(&c, &base).await;
-        admin_step_up(&c, &base, &admin).await;
+        let mut admin = admin_login(&c, &base).await;
+        admin_step_up(&c, &base, &mut admin).await;
         let user = mailbox_login(&c, &base, &mock).await;
         let bearer = Some("Bearer anything");
         let add = call(

@@ -97,10 +97,12 @@ pub enum StepUpAction {
     MaintenanceMode,
     /// Move the admin console to another path (t76).
     ConsolePath,
+    /// A session was flagged (client mismatch, travel); prove it is the holder.
+    SessionVerification,
 }
 
 impl StepUpAction {
-    pub const ALL: [StepUpAction; 15] = [
+    pub const ALL: [StepUpAction; 16] = [
         StepUpAction::DataExport,
         StepUpAction::DelegationGrant,
         StepUpAction::ApiKeyCreate,
@@ -116,6 +118,7 @@ impl StepUpAction {
         StepUpAction::UserManage,
         StepUpAction::MaintenanceMode,
         StepUpAction::ConsolePath,
+        StepUpAction::SessionVerification,
     ];
 
     /// The wire id (`action` in the 403 body and the audit detail).
@@ -136,6 +139,7 @@ impl StepUpAction {
             StepUpAction::UserManage => "userManage",
             StepUpAction::MaintenanceMode => "maintenanceMode",
             StepUpAction::ConsolePath => "consolePath",
+            StepUpAction::SessionVerification => "sessionVerification",
         }
     }
 }
@@ -282,6 +286,23 @@ impl StepUpState {
     fn take_challenge(&self, h: &Holder) -> Option<Challenge> {
         let c = self.lock().challenges.remove(h)?;
         (c.expires_at > Instant::now()).then_some(c)
+    }
+
+    /// An admin session id was rotated: its proof, factor fingerprint and failure
+    /// count follow it to the new id; the old id keeps nothing.
+    pub(crate) fn move_admin(&self, old_hash: &str, new_hash: &str) {
+        let (old, new) = (Holder::Admin(old_hash.into()), Holder::Admin(new_hash.into()));
+        let mut inner = self.lock();
+        if let Some(v) = inner.proofs.remove(&old) {
+            inner.proofs.insert(new.clone(), v);
+        }
+        if let Some(v) = inner.factor_fingerprints.remove(&old) {
+            inner.factor_fingerprints.insert(new.clone(), v);
+        }
+        if let Some(v) = inner.failures.remove(&old) {
+            inner.failures.insert(new.clone(), v);
+        }
+        inner.challenges.remove(&old);
     }
 
     /// Drop every proof of a mailbox session (sign-out, revoke).

@@ -81,6 +81,10 @@ pub(crate) async fn check(
     Ok(())
 }
 pub(crate) async fn observe(state: &AppState, event: &SigninEvent, surface: AuthSurface) {
+    // Spray detection: distinct failing usernames per source, and the
+    // instance-wide spike baseline. Neither stores a username or a password.
+    crate::signin_spray::observe(state, event, surface).await;
+    crate::signin_spike::observe(state, event).await;
     if event.result == "failure" && credential_rejection(&event.reason) {
         crate::request_protection::observe(
             mw_store::request_protection_model::Signal::CredentialRejected,
@@ -90,6 +94,14 @@ pub(crate) async fn observe(state: &AppState, event: &SigninEvent, surface: Auth
         return;
     };
     let result = if event.result == "success" {
+        // Only a successful sign-in makes a source known (trust_tier).
+        crate::trust_tier::record_success(
+            ip,
+            event
+                .account_id
+                .as_deref()
+                .unwrap_or(&event.username_attempted),
+        );
         state
             .store
             .clear_auth_source_failures(surface.as_str(), ip, None)
@@ -198,6 +210,8 @@ async fn unlock(
             "The lock changed; refresh before unlocking",
         ));
     }
+    // An unlocked source starts its spray count again.
+    crate::signin_spray::forget_source(ip);
     crate::audit::security_event(
         &state,
         crate::audit::SecurityEvent::admin(&ctx.username, "automatic-signin-lock-cleared")

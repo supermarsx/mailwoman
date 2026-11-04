@@ -12,8 +12,17 @@
 //!   does not send it is refused in that mode. [`csrf_token_exempt`] lists the
 //!   routes that are not asked for it;
 //! * in-process **idle / absolute session timeouts** and **rotation** helpers
-//!   (the store does not expose session timestamps and is owned by e9, so timing
-//!   is tracked here for the process lifetime).
+//!   ([`SessionGuard`]). This is a *secondary* clock. The authoritative timing is
+//!   persisted: a mailbox session's `created_at` / `activity_at` columns are
+//!   enforced on every request by `security_center::enforce_session_clock`,
+//!   `/api/session/rotate` copies them to the new id
+//!   (`Store::rotate_session_security`), and an admin session keeps `expires_at` /
+//!   `absolute_expires_at`. So a restart does not extend any session's life. What
+//!   a restart does drop from this guard is only its last-request instant: the
+//!   first request after it re-seeds that timer leniently (see
+//!   [`SessionGuard::check`]) while the persisted clock still applies. Step-up
+//!   proofs are also in memory only. Session fingerprints, rotation markers and
+//!   theft state are persisted too (`session_watch`).
 
 use std::collections::HashMap;
 use std::sync::Mutex;

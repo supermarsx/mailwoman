@@ -269,7 +269,7 @@ fn check_new_password(password: &str, field: &str) -> Result<(), AdminApiError> 
 ///
 /// `Path` is the console's path under the deploy prefix (t76), so the browser
 /// sends the cookie only to the console and its API, never to the mail app.
-fn set_admin_cookie(token: &str, secure: bool, absolute: i64, base: &str) -> String {
+pub(crate) fn set_admin_cookie(token: &str, secure: bool, absolute: i64, base: &str) -> String {
     let mut c = format!(
         "{}={token}; HttpOnly; SameSite=Strict; Path={}; Max-Age={}",
         mw_admin::config::session_cookie_name(),
@@ -394,6 +394,15 @@ pub(crate) async fn start_session_for_factor(
         resp.headers_mut().append(header::SET_COOKIE, v);
     }
     resp
+}
+
+/// A rotated session keeps its pending authenticator enrolment.
+pub(crate) fn move_enrollments(old_hash: &str, new_hash: &str) {
+    for pending in lock(&ENROLLING).values_mut() {
+        if pending.session_hash == old_hash {
+            pending.session_hash = new_hash.to_owned();
+        }
+    }
 }
 
 // ─── sign-in ────────────────────────────────────────────────────────────────────

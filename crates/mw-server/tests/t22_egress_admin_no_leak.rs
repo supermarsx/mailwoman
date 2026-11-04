@@ -149,16 +149,26 @@ async fn the_password_reaches_neither_the_logs_nor_any_response_body() {
         .expect("cookie name=value")
         .to_string();
 
-    assert_eq!(
-        c.post(format!("{base}/admin/step-up"))
-            .header("cookie", &cookie)
-            .json(&json!({"password":ADMIN_PASS}))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
+    let stepped = c
+        .post(format!("{base}/admin/step-up"))
+        .header("cookie", &cookie)
+        .json(&json!({"password":ADMIN_PASS}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stepped.status(), 200);
+    // A granted step-up replaces the session id; hold the new one, as a browser does.
+    let cookie = stepped
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find(|v| v.starts_with("mw_admin_session="))
+        .expect("step-up rotates the admin session id")
+        .split(';')
+        .next()
+        .unwrap()
+        .to_string();
     let mut bodies = Vec::new();
 
     // Create a route carrying the credential.

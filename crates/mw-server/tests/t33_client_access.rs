@@ -98,17 +98,25 @@ async fn fixture() -> (String, Store, reqwest::Client, String) {
         .as_str()
         .unwrap()
         .to_string();
-    assert_eq!(
-        admin
-            .post(format!("{base}/admin/step-up"))
-            .header("x-csrf-token", &token)
-            .json(&json!({"password":"hunter2"}))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
+    let stepped = admin
+        .post(format!("{base}/admin/step-up"))
+        .header("x-csrf-token", &token)
+        .json(&json!({"password":"hunter2"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(stepped.status(), 200);
+    // A granted step-up replaces the admin session id and, with it, the CSRF
+    // token derived from the id. The cookie jar already holds the new cookies;
+    // read the new token as the browser app does (from the `mw_csrf` cookie).
+    let token = stepped
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .find_map(|v| v.strip_prefix("mw_csrf="))
+        .map(|v| v.split(';').next().unwrap().to_string())
+        .expect("step-up reissues mw_csrf");
     (base, store, admin, token)
 }
 async fn configure(
