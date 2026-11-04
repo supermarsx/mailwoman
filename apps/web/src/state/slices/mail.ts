@@ -1496,7 +1496,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // t78: "upcoming only" is evaluated at each request, so a page fetched later
     // drops an event that has ended since the first one.
     const request = src.kind === 'mailbox'
-      ? listMailbox(acct, src.mailboxId, limit, page, src.upcoming === true ? { calendarEndAfter: new Date().toISOString() } : {})
+      ? listMailbox(acct, src.mailboxId, limit, page, {
+        ...(src.upcoming === true ? { calendarEndAfter: new Date().toISOString() } : {}),
+        // `mail.showSpam` off: `$junk` messages stay out of every folder list (nothing is deleted).
+        ...(mailFeature('showSpam') ? {} : { notKeyword: '$junk' }),
+      })
       : searchEmails(acct, src.filter, limit, page);
     const order=settings()['mail.messageListOrder']?.value;
     const sort=order==='oldest'?[{property:'receivedAt',isAscending:true}]:order==='sender'?[{property:'from',isAscending:true},{property:'receivedAt',isAscending:false}]:order==='subject'?[{property:'subject',isAscending:true},{property:'receivedAt',isAscending:false}]:[{property:'receivedAt',isAscending:false}];

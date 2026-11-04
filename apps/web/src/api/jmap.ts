@@ -143,6 +143,8 @@ export const EVENTS_VIEW_ID = 'mwViewEvents';
 /** Extra conditions on a folder listing: the Events view's "upcoming only". */
 export interface ListExtra {
   calendarEndAfter?: string;
+  /** Leave out messages carrying this keyword (`mail.showSpam` off: `$junk`). */
+  notKeyword?: string;
 }
 
 export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: PageWindow = {}, extra: ListExtra = {}): JmapRequest {

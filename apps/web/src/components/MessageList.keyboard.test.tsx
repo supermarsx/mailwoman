@@ -63,9 +63,10 @@ describe('MessageList arrow keys across list updates', () => {
 
   it('a focused row that leaves the list hands focus to the row now in its place', async () => {
     const app = await setup();
-    const b = row('Subject b');
-    b.focus();
-    fireEvent.keyDown(row('Subject a'), { key: 'ArrowDown' });
+    // Focusing a row moves the roving cursor to it, so start on `a` and arrow to `b`.
+    const a = row('Subject a');
+    a.focus();
+    fireEvent.keyDown(a, { key: 'ArrowDown' });
     await tick();
     expect(focusedSubject()).toBe('Subject b');
     await app.trashMessage('b');

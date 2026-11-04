@@ -5,6 +5,7 @@ import {createReplyDraftIndex} from './compose/replyDrafts.ts';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
 import * as barCss from './selectionBar.css.ts';
 import {useApp} from '../state/context.ts';
+import {spamFolderHidden} from '../state/mailFeatures.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {createFolderView} from './folderView.ts';
 import {AsyncError,AsyncPending} from './AsyncState.tsx';
@@ -67,7 +68,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
   ];
   const archive=role('archive');if(archive)out.push({id:'archive',label:t('mail-archive'),icon:'archive',disabled:off,run:()=>run({kind:'move',target:archive.id})});
   if(box()?.role==='trash'||role('trash'))out.push({id:'delete',label:t('mail-delete'),icon:'delete',disabled:off,run:remove});
-  out.push({id:'move',label:t('selection-bar-move'),icon:'folder',testId:'folder-bulk-move',disabled:off,menu:()=>app.mailboxes().filter(folder=>folder.id!==props.mailboxId&&folder.mailwomanSearchQuery===undefined).map(folder=>({id:`move:${folder.id}`,label:folder.name,icon:'folder' as const,run:()=>run({kind:'move',target:folder.id})}))});
+  out.push({id:'move',label:t('selection-bar-move'),icon:'folder',testId:'folder-bulk-move',disabled:off,menu:()=>app.mailboxes().filter(folder=>folder.id!==props.mailboxId&&folder.mailwomanSearchQuery===undefined&&!spamFolderHidden(folder)).map(folder=>({id:`move:${folder.id}`,label:folder.name,icon:'folder' as const,run:()=>run({kind:'move',target:folder.id})}))});
   return out;
  };
  function focusList():void{const rows=viewport?.querySelectorAll<HTMLButtonElement>('[data-folder-message]');if(!rows?.length)return;const last=[...view.selection()].at(-1);([...rows].find(row=>row.dataset['folderMessage']===last)??rows[0])?.focus();}

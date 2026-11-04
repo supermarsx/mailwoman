@@ -5,7 +5,7 @@ import {loadCatalog,t} from '../i18n';
 import {relatedSearchValue,relatedSenderDomain} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
-import {mailFeature} from '../state/mailFeatures.ts';
+import {mailFeature,spamFolderHidden} from '../state/mailFeatures.ts';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
@@ -41,7 +41,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    ['archive','mail-archive','archive',()=>app.archiveMessage(id)],
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],
    ['trash','mail-delete','delete',()=>app.trashMessage(id)],
-  ] as const)if(app.mailboxes().some(box=>box.role===role&&!message.mailboxIds[box.id]))rows.push({id:role,label:t(label),icon,run});
+  ] as const)if(app.mailboxes().some(box=>box.role===role&&!message.mailboxIds[box.id]&&!spamFolderHidden(box)))rows.push({id:role,label:t(label),icon,run});
   rows.push({id:'snooze',label:t('mail-snooze'),icon:'clock',run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:'clock',run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:'clock',run:()=>app.unsnoozeMessage(id)});
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:'flag',run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});

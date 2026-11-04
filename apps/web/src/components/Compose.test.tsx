@@ -605,12 +605,14 @@ describe('Compose', () => {
     } }) });
     await fillPlain('Hello', 'recipient@outside.test');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    // Send first waits for the initial identity load, so the refusal is asynchronous.
+    expect(await screen.findByText('Review and confirm the external recipients before sending.')).toBeVisible();
     expect(sendCount(client)).toBe(0);
-    expect(screen.getByText('Review and confirm the external recipients before sending.')).toBeVisible();
     fireEvent.click(screen.getByLabelText('I have checked these external recipients.'));
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'different@outside.test' } });
     expect(screen.getByLabelText('I have checked these external recipients.')).not.toBeChecked();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
     expect(sendCount(client)).toBe(0);
     fireEvent.click(screen.getByLabelText('I have checked these external recipients.'));
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
@@ -668,7 +670,9 @@ describe('Compose', () => {
   // Precondition for the t29-e12 cases below: a server that is neither this
   // server's engine nor has open tracking on gets no send options at all.
   it('offers no receipt or tracking control where the server can do neither, and sends exactly the typed body', async () => {
-    const { client, app } = await composeWithClient({ identities: IDENTITIES });
+    // An identity with no signature: the sending identity's signature is appended
+    // automatically (f004990c), and this case is about the typed body alone.
+    const { client, app } = await composeWithClient({ identities: IDENTITIES.map((identity) => ({ ...identity, signatureText: null })) });
     expect(screen.queryByTestId('compose-request-receipt')).toBeNull();
     expect(screen.getByTestId('compose-request-delivery')).toBeDisabled();
     expect(screen.queryByTestId('opt-tracking')).toBeNull();

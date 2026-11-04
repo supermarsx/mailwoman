@@ -8,7 +8,7 @@ import { useApp } from '../state/context.ts';
 import { loadCatalog, t } from '../i18n/index.ts';
 import { downloadMessages, forwardMessages } from '../api/mailBulk.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from '../api/accountPreferenceLifecycle.ts';
-import { mailFeature } from '../state/mailFeatures.ts';
+import { mailFeature, spamFolderHidden } from '../state/mailFeatures.ts';
 import { SelectionBar, type SelectionAction } from './SelectionBar.tsx';
 import type { ContextAction } from './ContextMenu.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
@@ -61,7 +61,7 @@ export function MailSelectionBar(props: {
 
   const moveItems = (): ContextAction[] =>
     app.mailboxes()
-      .filter((box) => box.id !== app.selectedMailboxId() && box.mailwomanSearchQuery === undefined)
+      .filter((box) => box.id !== app.selectedMailboxId() && box.mailwomanSearchQuery === undefined && !spamFolderHidden(box))
       .map((box) => ({ id: `move:${box.id}`, label: box.name, icon: 'folder', run: () => app.moveMessage(targets(), box.id) }));
   const labelItems = (): ContextAction[] =>
     app.tags().map((tag) => {

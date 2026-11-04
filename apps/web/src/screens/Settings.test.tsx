@@ -6,6 +6,8 @@ import { createThemeSlice } from '../state/slices/theme.ts';
 import type { SliceContext } from '../state/slices/context.ts';
 import type { AppState } from '../state/store.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
+import { ACCENT_LIST } from '../theme/registry.ts';
+import { DERIVED_BADGES } from '../theme/badgeDerived.ts';
 
 // Settings only touches the theme slice; provide just that (cast to AppState) so
 // the test stays isolated from the other executors' slices.
@@ -99,7 +101,7 @@ describe('Settings', () => {
     const { app } = renderSettings();
     await vi.waitFor(() => expect(app.badgeColor()).toBe('teal'));
     const group = screen.getByRole('group', {name:'Unread badge colour'});
-    expect(group.querySelectorAll('button')).toHaveLength(14);
+    expect(group.querySelectorAll('button')).toHaveLength(2 + DERIVED_BADGES.length + ACCENT_LIST.length); // theme default, accent, derived shades, every named accent
     for (const button of group.querySelectorAll('button')) expect(button).toBeDisabled();
     expect(group).toHaveAttribute('aria-describedby','settings-badge-color-lock');
   });
@@ -109,7 +111,7 @@ describe('Settings', () => {
     const { app } = renderSettings();
     await vi.waitFor(() => expect(app.uiFont()).toBe('inter'));
     const group = screen.getByRole('group', {name:'Interface font'});
-    expect(group.querySelectorAll('button')).toHaveLength(8);
+    expect(group.querySelectorAll('button')).toHaveLength(9); // default, system, serif, mono, Inter, Roboto, Open Sans, Jost, Manrope
     for (const button of group.querySelectorAll('button')) expect(button).toBeDisabled();
     expect(group).toHaveAttribute('aria-describedby','settings-font-lock');
   });

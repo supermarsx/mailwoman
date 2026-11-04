@@ -33,9 +33,9 @@ describe('Compose — the rich editor chunk has not arrived', () => {
     await app.login({ username: 'me@example.org', password: 'p' });
     await chooseComposeFormat('rich');
 
-    // Precondition: still in rich mode (the toggle offers "Plain text"), the
+    // Precondition: still in rich mode (the format selector shows "Rich text"), the
     // editor is absent, and Body is the fallback textarea.
-    expect(screen.getByTestId('format-toggle')).toHaveTextContent('Plain text');
+    expect(screen.getByTestId('format-toggle')).toHaveValue('rich');
     expect(screen.queryByTestId('compose-richtext')).toBeNull();
     const body = screen.getByLabelText('Body') as HTMLTextAreaElement;
     expect(body.tagName).toBe('TEXTAREA');

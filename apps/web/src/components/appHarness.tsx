@@ -49,6 +49,8 @@ export function mkEmail(id: string, over: Partial<Email> = {}): Email {
 export interface HarnessOpts {
   emails?: Email[];
   identities?: Identity[];
+  /** Replaces the default Inbox/Archive/Trash folder list. */
+  mailboxes?: Mailbox[];
   /** V7 (e14b): inject transport doubles for the Assist/directory/Nextcloud slices
    *  so integration tests can exercise the enabled path without a live server. */
   deps?: AppStateDeps;
@@ -57,10 +59,11 @@ export interface HarnessOpts {
 export function makeClient(opts: HarnessOpts = {}): Client {
   const emails = opts.emails ?? [];
   const identities = opts.identities ?? [];
+  const mailboxes = opts.mailboxes ?? MAILBOXES;
   const jmap = vi.fn(async (body: JmapRequest): Promise<JmapResponse> => {
     const names = body.methodCalls.map((c) => c[0]);
     if (names.includes('Mailbox/get')) {
-      return { methodResponses: [['Mailbox/get', { accountId: 'acct1', state: 's', list: MAILBOXES, notFound: [] }, 'c0']], sessionState: 's' };
+      return { methodResponses: [['Mailbox/get', { accountId: 'acct1', state: 's', list: mailboxes, notFound: [] }, 'c0']], sessionState: 's' };
     }
     if (names.includes('Identity/get')) {
       return { methodResponses: [['Identity/get', { accountId: 'acct1', state: 's', list: identities, notFound: [] }, 'i']], sessionState: 's' };
