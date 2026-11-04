@@ -74,3 +74,14 @@ it('switches the visual/source tabs with keyboard navigation and keeps focus on 
  await waitFor(()=>expect(source).toHaveAttribute('aria-selected','true'));expect(source).toHaveFocus();expect(visual).toHaveAttribute('tabindex','-1');
  fireEvent.keyDown(source,{key:'Home'});await waitFor(()=>expect(visual).toHaveAttribute('aria-selected','true'));expect(visual).toHaveFocus();
 });
+it('queues a reply focus request until normalization and the native document are ready, retaining the empty answer across source view',async()=>{
+ let api!:RichTextApi;const change=vi.fn();
+ render(()=><HtmlSourceEditor reply initialHtml="<p></p><p>Alice wrote:</p><blockquote><p>Original</p></blockquote>" owned={()=>new Set()} onChange={change} onReady={value=>{api=value;api.focus();}}/>);
+ await waitFor(()=>expect(change).toHaveBeenCalled());
+ function admit():Document {const frame=screen.getByTitle('Visual editor') as HTMLIFrameElement,view=frame.contentWindow as Window&{CSSStyleSheet:typeof CSSStyleSheet};if(!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});frame.contentDocument!.documentElement.setAttribute('data-mw-native-document','true');fireEvent.load(frame);return frame.contentDocument!;}
+ const doc=admit();await api.whenReady!();
+ await waitFor(()=>expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(doc.querySelector('p')));
+ const field=await sourceField();expect((field as HTMLTextAreaElement).value).toContain('<p></p>');
+ fireEvent.click(screen.getByRole('tab',{name:'Visual editor'}));await waitFor(()=>expect(screen.getByTitle('Visual editor')).toBeInTheDocument());
+ const reopened=admit();await api.whenReady!();expect(reopened.getSelection()!.getRangeAt(0).startContainer).toBe(reopened.querySelector('p'));
+});

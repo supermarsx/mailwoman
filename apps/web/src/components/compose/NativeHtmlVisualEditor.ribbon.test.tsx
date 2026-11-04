@@ -7,10 +7,10 @@ import {NativeHtmlVisualEditor,type NativeHtmlVisualApi} from './NativeHtmlVisua
 
 afterEach(()=>{cleanup();vi.restoreAllMocks();});
 beforeAll(()=>initSync({module:readFileSync(resolve(process.cwd(),'src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))}));
-function mount(html:string,upload?:(files:File[])=>Promise<{cid:string;alt:string}[]>){
+function mount(html:string,upload?:(files:File[])=>Promise<{cid:string;alt:string}[]>,reply=false){
  let api!:NativeHtmlVisualApi;
  const change=vi.fn();
- render(()=><NativeHtmlVisualEditor html={html} revision={0} owned={()=>new Set(['logo'])} {...(upload?{upload}:{})} onInput={change} onReady={value=>api=value}/>);
+ render(()=><NativeHtmlVisualEditor html={html} revision={0} reply={reply} owned={()=>new Set(['logo'])} {...(upload?{upload}:{})} onInput={change} onReady={value=>api=value}/>);
  const frame=screen.getByTitle('Visual editor') as HTMLIFrameElement;
  const doc=frame.contentDocument!,view=frame.contentWindow as Window&{CSSStyleSheet:typeof CSSStyleSheet};
  if(!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
@@ -35,6 +35,17 @@ it('strips editor-only caret markers from captured HTML without dropping typed t
  const {api,doc}=mount('<p>Text</p>');
  const span=doc.createElement('span');span.dataset['mwNativeCaret']='true';span.style.fontSize='18pt';span.textContent='\u200bTyped';doc.querySelector('p')!.append(span);fireEvent.input(span);
  const captured=await api.capture();expect(captured).toContain('Typed');expect(captured).toContain('18pt');expect(captured).not.toContain('\u200b');expect(captured).not.toContain('data-mw-native-caret');
+});
+it('focuses and bookmarks the blank reply answer without sending its view-only spacing',async()=>{
+ const {api,doc}=mount('<p></p><p>Alice wrote:</p><blockquote><table cellpadding="7"><tr><td><img src="cid:logo">Original</td></tr></table></blockquote>',undefined,true);
+ api.focus();const answer=doc.querySelector('p')!;
+ expect(answer).toHaveAttribute('data-mw-native-answer','true');
+ expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(answer);
+ expect(api.bookmark()).toEqual({start:0,end:0,answer:true});
+ answer.textContent='My response';fireEvent.input(answer);
+ const captured=await api.capture();expect(captured).toContain('<p>My response</p>');expect(captured).toContain('cellpadding="7"');expect(captured).toContain('cid:logo');expect(captured).not.toMatch(/data-mw-native-answer|min-block-size|6em/);
+ const original=doc.querySelector('td')!.lastChild!,range=doc.createRange();range.setStart(original,2);range.collapse(true);doc.getSelection()!.removeAllRanges();doc.getSelection()!.addRange(range);fireEvent(doc,new Event('selectionchange'));
+ api.focus();expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(original);expect(doc.getSelection()!.getRangeAt(0).startOffset).toBe(2);
 });
 it('refreshes the view-only app surface without rewriting authored backgrounds or outgoing HTML',async()=>{
  const {api,frame,doc,change}=mount('<table style="background-color:#eeddaa"><tbody><tr><td>Authored surface</td></tr></tbody></table>');

@@ -1880,7 +1880,7 @@ export function Compose(props: {
                 cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
-                <Show when={!sourceMode()} fallback={<HtmlSourceEditor externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={draftSource()?.keyword==='$answered'||initial?.mode==='reply'||initial?.mode==='reply-all'} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
                   initialHtml={bodyHtml()}
