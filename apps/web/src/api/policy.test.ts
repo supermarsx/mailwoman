@@ -104,3 +104,12 @@ describe('loadClientPolicy', () => {
     await expect(loadClientPolicy(failing)).resolves.toEqual(DEFAULT_CLIENT_POLICY);
   });
 });
+
+describe('clientTiming policy field', () => {
+  it('is read when valid and absent otherwise, leaving the other fields alone', () => {
+    expect(parseClientPolicy({ clientTiming: { enabled: true, sampleRatePercent: 25 } }).clientTiming).toEqual({ enabled: true, sampleRatePercent: 25 });
+    expect(parseClientPolicy({ clientTiming: { enabled: true, sampleRatePercent: 0 } })).toEqual(DEFAULT_CLIENT_POLICY);
+    expect(parseClientPolicy({ clientTiming: 'yes' })).toEqual(DEFAULT_CLIENT_POLICY);
+    expect(parseClientPolicy({})).toEqual(DEFAULT_CLIENT_POLICY);
+  });
+});

@@ -12,6 +12,7 @@ import {loadCatalog,t} from '../../i18n';
 import {useShell} from './shell/context.ts';
 import {resourceValue} from '../../components/resourceValue.ts';
 import {createRequestHistory,HistoryNotes,PeriodPicker,TrafficCharts,TrafficTables,TrafficTiles} from './RequestHistory.tsx';
+import {createClientTiming,ClientTimingCharts,ClientTimingNote,ClientTimingTables,ClientTimingTiles} from './ClientTimings.tsx';
 import {StatTile} from './shell/StatTile.tsx';
 import {BarRows} from './shell/BarChart.tsx';
 import {ChartCard,StatsSection,TileSkeleton} from './shell/ChartCard.tsx';
@@ -50,6 +51,8 @@ export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
  const canDash=()=>shell.can.can('dashboard.read');
  const [result,{refetch}]=createResource(()=>canDash()||undefined,()=>shell.services.loadDashboard());
  const history=createRequestHistory();
+ const canTiming=()=>shell.can.can('observability.read');
+ const timing=createClientTiming(history,canTiming);
  const dash=()=>{const value=resourceValue(result);return value?.kind==='ok'?value.data:undefined;};
  const dashFirstLoad=()=>canDash()&&result.loading&&dash()===undefined;
  const dashMissing=()=>canDash()&&!result.loading&&dash()===undefined;
@@ -61,9 +64,13 @@ export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
   <div class={css.head}><h2>{props.title??t('admin-obs-statistics')}</h2></div>
   <PeriodPicker history={history} refreshLabel={t('admin-stats-refresh')} onRefresh={()=>{if(canDash())void refetch();}}/>
   <HistoryNotes history={history}/>
+  <Show when={canTiming()}><ClientTimingNote timing={timing}/></Show>
   <div class={`${stats.view} ${stale()?stats.stale:''}`}>
    <StatsSection kind="tiles" title={t('admin-stats-key-figures')} testId="stats-tiles">
     <Group title={t('admin-stats-group-traffic')}><TrafficTiles history={history}/></Group>
+    <Show when={canTiming()}>
+     <Group title={t('admin-ct-group')}><ClientTimingTiles timing={timing}/></Group>
+    </Show>
     <Show when={canDash()}>
      <Show when={!dashMissing()} fallback={<p role="status">{unavailable()}</p>}>
       <Group title={t('admin-obs-accounts')}>
@@ -92,6 +99,7 @@ export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
    <StatsSection kind="charts" title={t('admin-stats-charts')} testId="stats-charts">
     <div class={stats.charts}>
      <TrafficCharts history={history}/>
+     <Show when={canTiming()}><ClientTimingCharts timing={timing}/></Show>
      <Show when={dash()?.blockedAccounts}>{blocked=>{
       const bars=()=>blocked().byDomain.map(row=>({label:row.domain,value:row.accounts}));
       return <ChartCard testId="chart-blocked" title={t('admin-dash-blocked-chart')} unit={t('admin-stats-unit-accounts')}
@@ -104,7 +112,7 @@ export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
     </div>
    </StatsSection>
    <StatsSection kind="tables" title={t('admin-stats-tables')} testId="stats-tables">
-    <div class={stats.tables}><TrafficTables history={history}/></div>
+    <div class={stats.tables}><TrafficTables history={history}/><Show when={canTiming()}><ClientTimingTables timing={timing}/></Show></div>
    </StatsSection>
   </div>
   <Show when={dashFirstLoad()}><span class={stats.cardUnit} role="status">{t('admin-stats-loading')}</span></Show>

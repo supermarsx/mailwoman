@@ -56,6 +56,7 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
                 "maxSecurityFloor": e.policy.max_security_floor.map(|f| f.as_str()),
                 "capturePolicy": e.policy.capture_policy.as_str(),
                 "openTracking": open_tracking,
+                "clientTiming": crate::client_timing::client_view(&state).await,
             })),
         )
             .into_response(),

@@ -399,6 +399,7 @@ pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
         crate::admin_router::Access::SignedIn,
         crate::request_history::not_found_paths,
     );
+    crate::client_timing::register(r);
     r.admin_endpoint(
         axum::http::Method::GET,
         "/metrics/summary",
