@@ -284,6 +284,7 @@ settings-sessions-actions = Actions
 settings-sessions-revoke-device = Sign out { $device }
 
 settings-font-inter = Inter
+settings-font-manrope = Manrope
 settings-font-roboto = Roboto
 settings-font-open-sans = Open Sans
 settings-font-jost = Jost

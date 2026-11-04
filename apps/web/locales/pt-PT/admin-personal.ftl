@@ -72,6 +72,7 @@ admin-totp-recovery-shared = Os códigos de recuperação são partilhados pelos
 admin-totp-remove-detail = Remover este autenticador da sua conta de administrador. A confirmação segura pode utilizar outro fator registado ou um código de recuperação se tiver perdido o autenticador.
 
 admin-personal-font-inter = Inter
+admin-personal-font-manrope = Manrope
 admin-personal-font-roboto = Roboto
 admin-personal-font-open-sans = Open Sans
 admin-personal-font-jost = Jost

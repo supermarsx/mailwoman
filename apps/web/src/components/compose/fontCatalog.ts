@@ -11,6 +11,7 @@ export const COMPOSER_FONTS = [
   { id: 'times-new-roman', label: 'Times New Roman', stack: '"Times New Roman", Times, serif', source: 'system' },
   { id: 'courier-new', label: 'Courier New', stack: '"Courier New", Courier, monospace', source: 'system' },
   { id: 'jost', label: 'Jost', stack: 'Jost, Arial, sans-serif', source: 'bundled' },
+  { id: 'manrope', label: 'Manrope', stack: '"Manrope Variable", Manrope, Arial, sans-serif', source: 'bundled' },
   { id: 'inter', label: 'Inter', stack: '"Inter Variable", Inter, Arial, sans-serif', source: 'bundled' },
   { id: 'roboto', label: 'Roboto', stack: '"Roboto Variable", Roboto, Arial, sans-serif', source: 'bundled' },
   { id: 'open-sans', label: 'Open Sans', stack: '"Open Sans Variable", "Open Sans", Arial, sans-serif', source: 'bundled' },

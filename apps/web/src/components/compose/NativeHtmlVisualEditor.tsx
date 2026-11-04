@@ -4,6 +4,7 @@ import type {ComposeBackground} from '../../theme/appearance.ts';
 import {surfaceTone,toggledBackground} from './messageBackground.ts';
 import {t} from '../../i18n/index.ts';
 import {editorBodyBytes} from './editorCounts.ts';
+import {ensureManropePreview} from './nativeFontPreview.ts';
 import {nativeHtmlBody,normalizeHtmlSource} from './htmlSource.ts';
 import {HTML_MESSAGE_FONT} from './htmlMessage.ts';
 import * as css from './nativeHtmlEditor.css.ts';
@@ -167,6 +168,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   undoListeners=()=>{doc.removeEventListener('input',input);doc.removeEventListener('paste',paste);doc.removeEventListener('drop',drop);doc.removeEventListener('beforeinput',before);doc.removeEventListener('click',click);doc.removeEventListener('pointerdown',focus);doc.removeEventListener('copy',copy);doc.removeEventListener('cut',copy);doc.removeEventListener('selectionchange',selection);doc.removeEventListener('keydown',key);};
   loadDocument();history=[props.html];setHistoryIndex(0);setHistoryLength(1);if(props.bookmark)restoreBookmark(props.bookmark);setReady(true);finishReady();if(focusPending)focusEditor();
  }
+ createEffect(()=>{version();if(editor)void ensureManropePreview(editor);});
  createEffect(on(()=>props.revision,()=>{if(ready()){const prior=bookmark();loadDocument();record(props.html);if(prior)restoreBookmark(prior);}},{defer:true}));
  createEffect(()=>{background();app?.theme();app?.appearance();markers();if(ready())queueMicrotask(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});});
  onMount(()=>{const root=frame.ownerDocument.documentElement,observer=new MutationObserver(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});observer.observe(root,{attributes:true});onCleanup(()=>observer.disconnect());});

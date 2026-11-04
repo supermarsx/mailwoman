@@ -39,7 +39,7 @@ export type ThemeMode = 'fixed' | 'system' | 'schedule';
 export const THEME_MODES: readonly ThemeMode[] = ['fixed', 'system', 'schedule'];
 
 /** UI-font override choice. */
-export type UiFont = 'default' | 'system' | 'serif' | 'mono' | 'inter' | 'roboto' | 'open-sans' | 'jost';
+export type UiFont = 'default' | 'system' | 'serif' | 'mono' | 'inter' | 'roboto' | 'open-sans' | 'jost' | 'manrope';
 
 /**
  * Unread-count badge colour: `default` keeps the pack's signal colour (the
@@ -76,6 +76,7 @@ export const FONT_STACKS: Record<UiFont, string | null> = {
   roboto: '"Roboto Variable", system-ui, sans-serif',
   'open-sans': '"Open Sans Variable", system-ui, sans-serif',
   jost: '"Jost", system-ui, sans-serif',
+  manrope: '"Manrope Variable", system-ui, sans-serif',
   system: 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif',
   serif: '"Newsreader Variable", Georgia, "Times New Roman", serif',
   mono: '"JetBrains Mono Variable", ui-monospace, Consolas, monospace',

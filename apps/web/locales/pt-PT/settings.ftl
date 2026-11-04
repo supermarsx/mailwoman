@@ -280,6 +280,7 @@ settings-sessions-actions = Ações
 settings-sessions-revoke-device = Terminar sessão em { $device }
 
 settings-font-inter = Inter
+settings-font-manrope = Manrope
 settings-font-roboto = Roboto
 settings-font-open-sans = Open Sans
 settings-font-jost = Jost

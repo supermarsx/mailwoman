@@ -2074,7 +2074,8 @@ pub static REGISTRY: &[SettingDef] = &[
             "inter",
             "roboto",
             "open-sans",
-            "jost"
+            "jost",
+            "manrope"
         ]),
         "\"default\"",
         GDU,
@@ -5125,6 +5126,13 @@ mod tests {
             lookup("appearance.theme").unwrap().default_value(),
             json!("dark")
         );
+    }
+
+    #[test]
+    fn appearance_font_accepts_manrope() {
+        let font = lookup("appearance.font").unwrap();
+        assert_eq!(validate(font, &json!("manrope"), "/value").unwrap(), json!("manrope"));
+        assert!(validate(font, &json!("unsupported-font"), "/value").is_err());
     }
 
     #[test]

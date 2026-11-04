@@ -3,10 +3,11 @@ import { COMPOSER_FONTS, composerFontStack, normalizeComposerFont } from './font
 
 describe('composer font catalogue', () => {
   it('keeps bundled families separate from system fallback choices', () => {
-    expect(COMPOSER_FONTS.filter(font => font.source === 'bundled')).toHaveLength(12);
+    expect(COMPOSER_FONTS.filter(font => font.source === 'bundled')).toHaveLength(13);
     expect(COMPOSER_FONTS.filter(font => font.source === 'system')).toHaveLength(7);
     expect(new Set(COMPOSER_FONTS.map(font => font.id)).size).toBe(COMPOSER_FONTS.length);
     expect(composerFontStack('inter')).toBe('"Inter Variable", Inter, Arial, sans-serif');
+    expect(composerFontStack('manrope')).toBe('"Manrope Variable", Manrope, Arial, sans-serif');
     expect(composerFontStack('unknown')).toBeUndefined();
   });
   it('preserves legacy names and permits only complete catalogue stacks', () => {
