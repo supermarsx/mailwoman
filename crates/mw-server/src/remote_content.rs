@@ -58,7 +58,7 @@ use mw_egress::plan::{self, Request};
 
 use super::{
     CacheKey, DIRECT_ROUTE, acquire_bounded_permit, acquire_fetch_permit, audit_egress_transition,
-    cache, etag_for, fetch_semaphore, if_none_match, internal, load_plan, not_modified,
+    etag_for, fetch_semaphore, if_none_match, internal, load_plan, not_modified,
     rate_limiter, refusal_response,
 };
 use crate::AppState;
@@ -89,6 +89,9 @@ pub(super) mod image_flight;
 mod membership;
 #[path = "remote_tracker_stats.rs"]
 mod tracker_stats;
+/// `POST /api/rc/batch`: one authenticated request for a message's signed images.
+#[path = "image_batch.rs"]
+pub(crate) mod image_batch;
 pub(crate) use fetch_limits::FetchLimits;
 
 /// Bound fetched buffers and the complete fetch/decode pipeline separately from
@@ -1094,6 +1097,8 @@ fn signed_image(
     etag: String,
     tracker: bool,
 ) -> Response {
+    let png: bytes::Bytes = png.into();
+    super::history::note_served(png.len());
     let mut resp = (
         StatusCode::OK,
         [
@@ -1152,13 +1157,15 @@ pub(super) async fn reencode_and_answer(
     };
     let etag = etag_for(&png);
     if let Some(key) = key {
-        // Copy before taking the lock: the cache is global and `png` can be MiB.
-        let retained = png.clone();
-        cache().lock().expect("image cache lock").put_with_policy(
-            key,
+        // The tier copies into its own buffer and queues any disk write for its
+        // background worker; this is a short in-memory insert.
+        super::tier::prepare(&policy.image_tier).await.store(
+            &key.route,
+            &key.url,
+            &key.owner,
+            key.ctx,
             etag.clone(),
-            retained,
-            super::CacheLimits::of(policy),
+            png.clone(),
         );
     }
     signed_image(png, etag, tracker)
@@ -1221,16 +1228,12 @@ async fn fetch_image(
     let key = CacheKey::new(
         &format!("{route_id}:{}:{}", policy.trackers, policy.max_bytes),
         &claims.u,
-    );
-    cache()
-        .lock()
-        .expect("image cache lock")
-        .trim_to(policy.cache_bytes, policy.cache_entries);
-    let cached_response = || {
-        let (etag, png) = cache()
-            .lock()
-            .expect("image cache lock")
-            .get_with_ttl(&key, policy.cache_ttl)?;
+    )
+    .by(&claims.a, !claims.e.is_empty());
+    // The signature, session and grant were verified above; only now is the tier read.
+    let tier = super::tier::prepare(&policy.image_tier).await;
+    let cached_response = || async {
+        let (etag, png) = tier.lookup(&key.route, &key.url, key.ctx).await?;
         super::record_cache(true);
         let tracker = policy.trackers && png.as_ref() == TRANSPARENT_PIXEL;
         if tracker {
@@ -1251,7 +1254,7 @@ async fn fetch_image(
         }
         Some(signed_image(png, etag, tracker))
     };
-    if let Some(response) = cached_response() {
+    if let Some(response) = cached_response().await {
         return response;
     }
     let current = match configure_capacity(&state, Some(&policy.fetch)).await {
@@ -1275,7 +1278,7 @@ async fn fetch_image(
         );
         return busy_response();
     };
-    if let Some(response) = cached_response() {
+    if let Some(response) = cached_response().await {
         return response;
     }
     let outcome = |loaded: bool| {
@@ -1299,11 +1302,20 @@ async fn fetch_image(
         fetch_limits::record_retryable_failure(
             &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
         );
-        return (
+        super::history::note_busy(429);
+        let mut response = (
             StatusCode::TOO_MANY_REQUESTS,
             "remote content rate limit exceeded",
         )
             .into_response();
+        // A queued request that ran out of its wait is a transient refusal.
+        response
+            .headers_mut()
+            .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+        response
+            .headers_mut()
+            .insert("x-mw-remote-retryable", HeaderValue::from_static("1"));
+        return response;
     }
     let Ok(url) = reqwest::Url::parse(&claims.u) else {
         return refusal_response(mw_egress::Refusal::BadRequest("malformed URL"));
@@ -1505,6 +1517,15 @@ pub(super) fn effective_limits_for(
 }
 
 /// Everything waiting for an image slot on this replica right now.
+pub(super) fn queue_depth() -> usize {
+    waiting_total()
+}
+
+/// Trackers replaced by a transparent pixel since the process started.
+pub(super) fn trackers_replaced() -> u64 {
+    TRACKERS_REPLACED.load(Ordering::Relaxed)
+}
+
 fn waiting_total() -> usize {
     fetch_limits::waiting()
         + fetch_semaphore().waiting()
@@ -1550,6 +1571,7 @@ pub(super) async fn charge_image_fetch(
 /// No fetch slot in time, or the replica is at its ceiling. Not remembered:
 /// nothing is wrong with the image.
 pub(super) fn busy_response() -> Response {
+    super::history::note_busy(503);
     let mut response = (StatusCode::SERVICE_UNAVAILABLE, "image proxy busy").into_response();
     let h = response.headers_mut();
     h.insert("x-mw-remote-content", HeaderValue::from_static("failed"));
@@ -1648,6 +1670,7 @@ fn charge_fetch(
     {
         Ok(())
     } else {
+        super::history::note_busy(429);
         Err((
             StatusCode::TOO_MANY_REQUESTS,
             "remote content rate limit exceeded",
@@ -1808,6 +1831,7 @@ pub(crate) async fn file(
             policy.rate_per_min as f64 / 60.0,
         )
     {
+        super::history::note_busy(429);
         return (
             StatusCode::TOO_MANY_REQUESTS,
             "remote content rate limit exceeded",
@@ -1881,11 +1905,19 @@ pub(crate) async fn file(
     resp
 }
 
+#[derive(Default, Deserialize)]
+pub(crate) struct PrivacyStatsQuery {
+    /// `15m`, `1h`, `6h` or `24h`; absent or unknown reads as `1h`.
+    range: Option<String>,
+}
+
 pub(crate) async fn stats(
     State(state): State<AppState>,
     ctx: crate::admin_ctx::AdminCtx,
+    axum::extract::Query(query): axum::extract::Query<PrivacyStatsQuery>,
 ) -> Result<Json<serde_json::Value>, crate::admin_ctx::AdminApiError> {
     ctx.require_unscoped(crate::capabilities::Capability::EgressRead)?;
+    super::history::ensure_sampler();
     let limits = configure_capacity(&state, None).await.map_err(|_| {
         crate::admin_ctx::AdminApiError::new(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -1943,13 +1975,26 @@ pub(crate) async fn stats(
             "refillFloor":rate_config.refill_floor,"refillCeiling":rate_config.refill_ceiling},
         "effective":{"burst":rate_budget.burst,"perMin":rate_budget.per_min},
     });
+    let tier_config = crate::remote_policy::instance_tier_config(&state, &cache_budget)
+        .await
+        .map_err(|_| {
+            crate::admin_ctx::AdminApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "imageCapacityUnavailable",
+                "Image capacity settings could not be read.",
+            )
+        })?;
+    // Apply the instance configuration so the readout reflects what the next
+    // request will use, then read the tier's own counters.
+    let tier = super::tier::prepare(&tier_config).await;
+    let tier_stats = tier.stats(super::tier::now_ms());
     let image_cache = json!({
         "mode":cache_config.sizing.as_str(),
         "effective":{"bytes":cache_budget.bytes,"entries":cache_budget.entries,
             "entryBytes":cache_budget.entry_bytes,"ttlSecs":cache_budget.ttl_secs},
         "hitPercent":hit_percent,
+        "tiers":super::tier::readout(&tier_config, &tier_stats),
     });
-    let cache = cache().lock().expect("image cache lock");
     let traffic: Vec<_> = mw_egress::plan::counts()
         .into_iter()
         .map(|(class, counts)| {
@@ -1960,9 +2005,10 @@ pub(crate) async fn stats(
         })
         .collect();
     Ok(Json(
-        json!({"cacheEntries":cache.map.len(),"cacheBytes":cache.bytes,
+        json!({"cacheEntries":tier_stats.ram_entries,"cacheBytes":tier_stats.ram_bytes,
         "trackersReplaced":TRACKERS_REPLACED.load(Ordering::Relaxed),"traffic":traffic,"imageConcurrency":image_concurrency,
-        "imageRate":image_rate,"imageCache":image_cache}),
+        "imageRate":image_rate,"imageCache":image_cache,
+        "history":super::history::payload(query.range.as_deref())}),
     ))
 }
 
@@ -2136,7 +2182,13 @@ mod tests {
         };
         let active = Arc::new(AtomicUsize::new(0));
         let peak = Arc::new(AtomicUsize::new(0));
+        // The process default is 10 decoder slots, so pin this test's own bound to 2
+        // (the old assertion compared the default against 2 and could never hold) and
+        // restore the shared limit afterwards.
+        let original = decoders().available_permits();
+        decoders().configure(2);
         let capacity = decoders().available_permits();
+        assert_eq!(capacity, 2);
         let mut jobs = Vec::new();
         for _ in 0..8 {
             let admission = decode_admission().await;
@@ -2161,8 +2213,9 @@ mod tests {
             assert!(job.await.unwrap());
         }
         assert!(peak.load(Ordering::SeqCst) <= capacity);
-        assert!(capacity <= 2);
+        assert!(peak.load(Ordering::SeqCst) >= 1);
         assert_eq!(decoders().available_permits(), capacity);
+        decoders().configure(original);
     }
 
     #[tokio::test]

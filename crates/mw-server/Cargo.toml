@@ -159,6 +159,10 @@ opentelemetry-otlp = { workspace = true }
 opentelemetry_sdk = { version = "0.31", features = ["rt-tokio", "trace", "metrics"] }
 tracing-opentelemetry = { workspace = true }
 
+# `statvfs` for the image disk tier's automatic size (free space of the cache directory).
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.61.2", features = ["Win32_Security_Cryptography", "Win32_Foundation"] }
 

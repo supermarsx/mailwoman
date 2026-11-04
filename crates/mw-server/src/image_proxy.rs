@@ -91,7 +91,6 @@
 //! emission, rather than two implementations that can drift apart.
 
 use std::collections::HashMap;
-use std::collections::VecDeque;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -152,26 +151,16 @@ pub(crate) const SHELL_CSP_TIGHTENED: &str = "default-src 'none'; \
 /// Global concurrent-fetch ceiling — bounds proxy load + upstream fan-out.
 const MAX_CONCURRENT: usize = 128;
 
-// ── re-encoded-image cache bounds (t22-e7 P2) ─────────────────────────────────
+// ── re-encoded-image cache defaults (t22-e7 P2) ────────────────────────────────
 //
-// An entry count alone does not bound memory. `MAX_IMAGE_BYTES` caps the bytes we
-// FETCH; the cached value is the re-encoded PNG, whose size is a function of the
-// decoded image, not of the source — a small, heavily-compressed JPEG can re-encode
-// into a far larger lossless PNG. 256 entries with no byte ceiling is therefore an
-// unbounded resident set in practice. The bounds below are all enforced together in
-// [`ProxyCache::put`]; the byte budget is the one that binds first on realistic
-// images, and the entry count survives as a cheap secondary cap.
+// The cache is bounded by BYTES as well as entries: the cached value is the
+// re-encoded PNG, whose size is a function of the decoded image, not of the
+// source. The live bounds come from the policy (`privacy.image*` keys) and are
+// enforced together by [`tier::ImageTier`]; the constants below are the manual-mode
+// defaults.
 
-/// In-memory re-encoded-image cache capacity (entries) before FIFO eviction.
-const CACHE_CAPACITY: usize = 1024;
-/// Total re-encoded bytes the cache may hold. FIFO eviction runs until an insert
-/// fits — this is the ceiling on the proxy's resident image memory.
+/// Total re-encoded RAM bytes in manual mode unless configured.
 pub(crate) const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
-/// The largest single re-encode worth a cache slot. A bigger one is still SERVED,
-/// just not retained: admitting it would evict a large share of the cache for one
-/// rarely-repeated image, and an entry above [`MAX_CACHE_BYTES`] could never fit at
-/// all.
-const MAX_ENTRY_BYTES: usize = 4 * 1024 * 1024;
 /// How long a cached re-encode stays servable. Bounds both staleness (the upstream
 /// bytes behind a URL can change) and retention of an image no one is reading any
 /// more; the `Cache-Control` we hand the browser is separate and unaffected.
@@ -416,6 +405,7 @@ const PLAN_REFRESH_EVERY: std::time::Duration = std::time::Duration::from_secs(1
 /// direct around routes it could not read. A later failed read keeps the last good
 /// plan (still the operator's routes) and logs.
 pub(crate) async fn start_plan_refresh(store: mw_store::Store) {
+    history::ensure_sampler();
     if refresh_plan(&store).await.is_err() {
         tracing::warn!(
             "egress plan not installed at start; class requests are refused until it loads"
@@ -630,6 +620,7 @@ pub(crate) fn image_proxy_router() -> Router<AppState> {
         .route("/api/remote-images/revoke", post(revoke))
         // Signed remote-content URLs for the sandboxed body frame (t32 e31a).
         .route("/api/rc/sign", post(remote_content::sign))
+        .route("/api/rc/batch", post(remote_content::image_batch::batch))
         .route("/api/rc/stats", get(remote_content::message_stats))
         .route("/api/rc/policy", get(crate::remote_policy::get))
         .route("/api/rc/frame", get(crate::remote_policy::frame))
@@ -708,24 +699,22 @@ fn refusal_response(refusal: Refusal) -> Response {
 
 // ── content-hash cache ─────────────────────────────────────────────────────────
 
-struct CacheEntry {
-    etag: String,
-    /// Shared so a hit hands out a reference-counted handle instead of copying up to
-    /// [`MAX_ENTRY_BYTES`] while the global cache lock is held.
-    png: bytes::Bytes,
-    /// When the entry was written, for the [`CACHE_TTL`] check.
-    inserted: Instant,
-}
-
 /// What a cached re-encode is filed under: the egress route that produced the bytes
 /// ([`DIRECT_ROUTE`] today) and the requested URL. Never the account — the cache is
 /// deliberately shared, since the bytes are a public resource fetched with nothing of
 /// the reader's attached, and a per-account cache would multiply the resident set by
-/// the account count for identical images.
+/// the account count for identical images. `owner` and `ctx` are NOT part of the key:
+/// they only tell the tier which account's RAM share an insert counts against and
+/// how the request relates to an open message, for scoring.
+///
+/// The cache itself is the two-tier [`tier::ImageTier`]; handlers authenticate and
+/// check the display grant first, and only then build a key and look it up.
 #[derive(Clone, PartialEq, Eq, Hash, Debug)]
 struct CacheKey {
     route: String,
     url: String,
+    owner: String,
+    ctx: tier::Context,
 }
 
 impl CacheKey {
@@ -733,35 +722,21 @@ impl CacheKey {
         Self {
             route: route.to_string(),
             url: url.to_string(),
+            owner: String::new(),
+            ctx: tier::Context::Background,
         }
     }
-}
 
-/// A bounded FIFO cache of re-encoded images. The `ETag` is the content hash of the
-/// re-encoded PNG, so a repeat load is served from memory and the browser can
-/// revalidate cheaply.
-///
-/// Three bounds, all enforced on insert: [`CACHE_TTL`] (age), [`MAX_CACHE_BYTES`]
-/// (total retained bytes, the one that binds first) and [`CACHE_CAPACITY`] (entries).
-/// `bytes` is maintained as the exact sum of the retained `png` lengths so the byte
-/// budget costs no traversal.
-/// The bounds one insert enforces; from the policy's effective cache budget.
-#[derive(Clone, Copy)]
-pub(crate) struct CacheLimits {
-    pub bytes: usize,
-    pub entries: usize,
-    pub entry_bytes: usize,
-    pub ttl: Duration,
-}
-
-impl CacheLimits {
-    pub(crate) fn of(policy: &crate::remote_policy::PrivacyPolicy) -> Self {
-        Self {
-            bytes: policy.cache_bytes,
-            entries: policy.cache_entries,
-            entry_bytes: policy.cache_entry_bytes,
-            ttl: policy.cache_ttl,
-        }
+    /// Attribute the request: `owner` is the authorised account, and a request that
+    /// names a message is `Open`.
+    fn by(mut self, owner: &str, has_message: bool) -> Self {
+        self.owner = owner.to_string();
+        self.ctx = if has_message {
+            tier::Context::Open
+        } else {
+            tier::Context::Background
+        };
+        self
     }
 }
 
@@ -791,148 +766,13 @@ pub(crate) fn hit_percent() -> Option<u8> {
     (h + m >= 20).then(|| (h * 100 / (h + m)) as u8)
 }
 
-struct ProxyCache {
-    map: HashMap<CacheKey, CacheEntry>,
-    order: VecDeque<CacheKey>,
-    bytes: usize,
-}
-
-impl ProxyCache {
-    /// A FRESH entry's `(etag, png)`, or `None`. An entry past its TTL is dropped
-    /// here rather than returned, so a stale hit never shortcuts the re-fetch.
-    #[cfg(test)]
-    fn get(&mut self, key: &CacheKey) -> Option<(String, bytes::Bytes)> {
-        self.get_with_ttl(key, CACHE_TTL)
-    }
-    fn get_with_ttl(&mut self, key: &CacheKey, ttl: Duration) -> Option<(String, bytes::Bytes)> {
-        match self.map.get(key) {
-            Some(e) if e.inserted.elapsed() < ttl => {}
-            Some(_) => {
-                self.remove(key);
-                return None;
-            }
-            None => return None,
-        }
-        self.map.get(key).map(|e| (e.etag.clone(), e.png.clone()))
-    }
-
-    /// Drop one entry, keeping `bytes` and `order` consistent with `map`.
-    fn remove(&mut self, key: &CacheKey) {
-        if let Some(e) = self.map.remove(key) {
-            self.bytes = self.bytes.saturating_sub(e.png.len());
-            if let Some(pos) = self.order.iter().position(|k| k == key) {
-                self.order.remove(pos);
-            }
-        }
-    }
-
-    /// Drop every entry past [`CACHE_TTL`]. Called on insert so an idle-then-busy
-    /// proxy does not carry an hour-old resident set into its next burst.
-    fn evict_expired(&mut self, ttl: Duration) {
-        let stale: Vec<CacheKey> = self
-            .map
-            .iter()
-            .filter(|(_, e)| e.inserted.elapsed() >= ttl)
-            .map(|(k, _)| k.clone())
-            .collect();
-        for k in stale {
-            self.remove(&k);
-        }
-    }
-
-    /// Insert (or refresh) an entry, then evict until every bound holds.
-    #[cfg(test)]
-    fn put(&mut self, key: CacheKey, etag: String, png: Vec<u8>) {
-        self.put_with_budget(key, etag, png, MAX_CACHE_BYTES);
-    }
-
-    #[cfg(test)]
-    fn trim(&mut self, budget: usize) {
-        self.trim_to(budget, CACHE_CAPACITY);
-    }
-
-    /// Evict oldest-first until both the byte budget and the entry cap hold. Run
-    /// on every request with the current policy, so a shrink applied in the admin
-    /// console takes effect without a restart.
-    fn trim_to(&mut self, budget: usize, entries: usize) {
-        while self.bytes > budget || self.map.len() > entries {
-            let Some(key) = self.order.front().cloned() else {
-                break;
-            };
-            self.remove(&key);
-        }
-    }
-
-    #[cfg(test)]
-    fn put_with_budget(&mut self, key: CacheKey, etag: String, png: Vec<u8>, budget: usize) {
-        self.put_with_policy(
-            key,
-            etag,
-            png,
-            CacheLimits {
-                bytes: budget,
-                entries: CACHE_CAPACITY,
-                entry_bytes: MAX_ENTRY_BYTES,
-                ttl: CACHE_TTL,
-            },
-        );
-    }
-    fn put_with_policy(&mut self, key: CacheKey, etag: String, png: Vec<u8>, limits: CacheLimits) {
-        let CacheLimits {
-            bytes: budget,
-            entries,
-            entry_bytes,
-            ttl,
-        } = limits;
-        self.trim_to(budget, entries);
-        // Too large to retain — serve it, forget it. Also what guarantees the
-        // eviction loop below terminates with the entry admitted.
-        if png.len() > entry_bytes || png.len() > budget || budget == 0 || ttl.is_zero() {
-            self.remove(&key);
-            return;
-        }
-        // NOT first-writer-wins: the previous value for this key is dropped and
-        // replaced. A URL whose entry has just expired, or whose upstream bytes
-        // changed, must be able to take its slot back — under the old early-return an
-        // entry could never be refreshed, only evicted by unrelated traffic.
-        self.remove(&key);
-        self.evict_expired(ttl);
-        while !self.order.is_empty()
-            && (self.map.len() >= entries || self.bytes + png.len() > budget)
-        {
-            let Some(old) = self.order.pop_front() else {
-                break;
-            };
-            if let Some(e) = self.map.remove(&old) {
-                self.bytes = self.bytes.saturating_sub(e.png.len());
-            }
-        }
-        self.bytes += png.len();
-        self.order.push_back(key.clone());
-        self.map.insert(
-            key,
-            CacheEntry {
-                etag,
-                png: bytes::Bytes::from(png),
-                inserted: Instant::now(),
-            },
-        );
-    }
-}
-
-fn cache() -> &'static Mutex<ProxyCache> {
-    static CACHE: OnceLock<Mutex<ProxyCache>> = OnceLock::new();
-    CACHE.get_or_init(|| {
-        Mutex::new(ProxyCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-            bytes: 0,
-        })
-    })
-}
+#[path = "remote_image_tier.rs"]
+pub(super) mod tier;
 
 #[path = "remote_image_adaptive.rs"]
 pub(super) mod adaptive;
+#[path = "remote_image_history.rs"]
+pub(crate) mod history;
 #[path = "remote_image_capacity.rs"]
 pub(super) mod capacity;
 #[path = "remote_image_demand.rs"]
@@ -990,6 +830,7 @@ pub(crate) async fn charge_waiting(
     per_min: usize,
     deadline: Instant,
 ) -> bool {
+    history::note_rate(burst, per_min);
     let wait = rate_limiter()
         .lock()
         .expect("image rate-limit lock")
@@ -1002,6 +843,7 @@ pub(crate) async fn charge_waiting(
     match wait {
         Some(wait) if wait.is_zero() => true,
         Some(wait) => {
+            history::note_wait(wait.as_micros() as u64);
             tokio::time::sleep(wait).await;
             true
         }
@@ -1286,23 +1128,20 @@ async fn proxy_image(
     let key = CacheKey::new(
         &format!("{route_id}:legacy:{}:{}", policy.trackers, policy.max_bytes),
         &q.url,
-    );
-    cache()
-        .lock()
-        .expect("image cache lock")
-        .trim_to(policy.cache_bytes, policy.cache_entries);
-    let cached_response = || {
-        let (etag, png) = cache()
-            .lock()
-            .expect("image cache lock")
-            .get_with_ttl(&key, policy.cache_ttl)?;
+    )
+    .by(&session.account_id, q.email_id.is_some());
+    // Authentication, the grant and the egress plan are all behind this point; the
+    // tier is only reached by an authorised request.
+    let tier = tier::prepare(&policy.image_tier).await;
+    let cached_response = || async {
+        let (etag, png) = tier.lookup(&key.route, &key.url, key.ctx).await?;
         record_cache(true);
         if if_none_match(&headers, &etag) {
             return Some(not_modified(&etag));
         }
         Some(image_response(png, etag))
     };
-    if let Some(response) = cached_response() {
+    if let Some(response) = cached_response().await {
         return response;
     }
     let current = match remote_content::configure_capacity(&state, Some(&policy.fetch)).await {
@@ -1322,7 +1161,7 @@ async fn proxy_image(
     else {
         return remote_content::busy_response();
     };
-    if let Some(response) = cached_response() {
+    if let Some(response) = cached_response().await {
         return response;
     }
 
@@ -1839,176 +1678,8 @@ mod tests {
         assert_eq!(&png[..8], &[0x89, b'P', b'N', b'G', 0x0D, 0x0A, 0x1A, 0x0A]);
     }
 
-    // ── cache + etag ───────────────────────────────────────────────────────────
-
-    fn empty_cache() -> ProxyCache {
-        ProxyCache {
-            map: HashMap::new(),
-            order: VecDeque::new(),
-            bytes: 0,
-        }
-    }
-
-    /// A key on the one route that exists today, for the tests that are not about
-    /// routing.
-    fn k(url: &str) -> CacheKey {
-        CacheKey::new(DIRECT_ROUTE, url)
-    }
-
-    #[test]
-    fn cache_is_bounded_fifo() {
-        let mut c = empty_cache();
-        for i in 0..(CACHE_CAPACITY + 10) {
-            c.put(k(&format!("k{i}")), format!("\"{i}\""), vec![i as u8]);
-        }
-        assert!(c.map.len() <= CACHE_CAPACITY);
-        // The earliest keys were evicted.
-        assert!(c.get(&k("k0")).is_none());
-        assert!(c.get(&k(&format!("k{}", CACHE_CAPACITY + 9))).is_some());
-    }
-
-    // ── P2: the cache is bounded by BYTES, not only by entry count ──────────────
-
-    #[test]
-    fn cache_byte_budget_evicts_while_far_under_the_entry_cap() {
-        // The corpus is chosen so ONLY the byte bound can fire: entries of the
-        // largest cacheable size, enough of them to exceed MAX_CACHE_BYTES, and few
-        // enough that CACHE_CAPACITY is never approached. If eviction happens here it
-        // happened on bytes.
-        let n = MAX_CACHE_BYTES / MAX_ENTRY_BYTES + 2; // 10 entries at 4 MiB = 40 MiB
-        assert!(
-            n < CACHE_CAPACITY,
-            "the corpus must stay under the entry cap ({n} vs {CACHE_CAPACITY}) or this \
-             test cannot tell which bound fired"
-        );
-        assert!(
-            n * MAX_ENTRY_BYTES > MAX_CACHE_BYTES,
-            "the corpus must exceed the byte budget"
-        );
-
-        let mut c = empty_cache();
-        for i in 0..n {
-            c.put(
-                k(&format!("big{i}")),
-                format!("\"{i}\""),
-                vec![7u8; MAX_ENTRY_BYTES],
-            );
-        }
-
-        // The entry cap was never in play, yet entries were dropped.
-        assert!(
-            c.map.len() < n,
-            "the byte budget must have evicted (kept all {n})"
-        );
-        assert!(c.map.len() < CACHE_CAPACITY);
-        assert!(
-            c.bytes <= MAX_CACHE_BYTES,
-            "retained {} bytes over a {MAX_CACHE_BYTES}-byte budget",
-            c.bytes
-        );
-        // The accounting is exact, not approximate — `bytes` equals what is held.
-        let held: usize = c.map.values().map(|e| e.png.len()).sum();
-        assert_eq!(
-            c.bytes, held,
-            "byte counter drifted from the retained entries"
-        );
-        // FIFO: the oldest went, the newest stayed.
-        assert!(c.get(&k("big0")).is_none());
-        assert!(c.get(&k(&format!("big{}", n - 1))).is_some());
-    }
-
-    #[test]
-    fn an_oversized_reencode_is_not_cached_and_evicts_nothing() {
-        let mut c = empty_cache();
-        c.put(k("small"), "\"s\"".into(), vec![1u8; 1024]);
-        // One byte over the per-entry cap: refused a slot, and the existing entry
-        // survives (an oversized image must not be able to flush the cache).
-        c.put(k("huge"), "\"h\"".into(), vec![2u8; MAX_ENTRY_BYTES + 1]);
-        assert!(
-            c.get(&k("huge")).is_none(),
-            "oversized entry must not be retained"
-        );
-        assert!(
-            c.get(&k("small")).is_some(),
-            "oversized insert must not evict"
-        );
-        assert_eq!(c.bytes, 1024);
-    }
-
-    // ── P2: TTL ────────────────────────────────────────────────────────────────
-
-    #[test]
-    fn a_cache_entry_expires_after_the_ttl() {
-        let mut c = empty_cache();
-        c.put(k("u"), "\"e\"".into(), vec![9u8; 32]);
-        assert!(c.get(&k("u")).is_some(), "fresh entry serves");
-
-        // Age it past the TTL by moving its insert time backwards.
-        let entry = c.map.get_mut(&k("u")).unwrap();
-        entry.inserted = entry
-            .inserted
-            .checked_sub(CACHE_TTL + Duration::from_secs(1))
-            .expect("shift insert time back");
-
-        assert!(
-            c.get(&k("u")).is_none(),
-            "an entry past its TTL must not serve"
-        );
-        // ...and the expired bytes are released, not merely hidden.
-        assert_eq!(
-            c.bytes, 0,
-            "expired entry must be dropped, not just skipped"
-        );
-        assert!(c.order.is_empty());
-    }
-
-    #[test]
-    fn put_refreshes_an_existing_key_rather_than_first_writer_wins() {
-        let mut c = empty_cache();
-        c.put(k("u"), "\"v1\"".into(), vec![1u8; 10]);
-        c.put(k("u"), "\"v2\"".into(), vec![2u8; 20]);
-        let (etag, png) = c.get(&k("u")).expect("entry present");
-        assert_eq!(etag, "\"v2\"", "the later write must win");
-        assert_eq!(png, vec![2u8; 20]);
-        // Exactly one entry, and the byte count reflects the replacement only.
-        assert_eq!(c.map.len(), 1);
-        assert_eq!(
-            c.order.len(),
-            1,
-            "replacing must not leave a stale order slot"
-        );
-        assert_eq!(c.bytes, 20, "the replaced entry's bytes must be released");
-    }
-
-    // ── P2: the key is (route, url), not url ───────────────────────────────────
-
-    #[test]
-    fn cache_is_keyed_by_route_and_url_not_url_alone() {
-        let mut c = empty_cache();
-        let same_url = "https://cdn.example/logo.png";
-        c.put(
-            CacheKey::new(DIRECT_ROUTE, same_url),
-            "\"d\"".into(),
-            vec![1u8; 8],
-        );
-        c.put(
-            CacheKey::new("via-proxy-1", same_url),
-            "\"p\"".into(),
-            vec![2u8; 8],
-        );
-
-        // One URL, two routes, two entries — bytes fetched over one egress path are
-        // never served to a request that took another.
-        assert_eq!(c.map.len(), 2);
-        assert_eq!(
-            c.get(&CacheKey::new(DIRECT_ROUTE, same_url)).unwrap().0,
-            "\"d\""
-        );
-        assert_eq!(
-            c.get(&CacheKey::new("via-proxy-1", same_url)).unwrap().0,
-            "\"p\""
-        );
-    }
+    // The cache itself is the two-tier ImageTier; its behaviour is tested in
+    // remote_image_tier_tests.rs.
 
     // ── R6: per-account token-bucket rate limit ──────────────────────────────────
 
@@ -2050,26 +1721,6 @@ mod tests {
         assert_eq!(rl.reserve("a", 2.0, 1.0, Duration::from_millis(10)), None);
         // Another account is unaffected.
         assert_eq!(rl.reserve("b", 2.0, 1.0, max), Some(Duration::ZERO));
-    }
-
-    #[test]
-    fn shrinking_the_policy_evicts_oldest_entries_without_a_restart() {
-        let mut c = empty_cache();
-        let limits = CacheLimits {
-            bytes: MAX_CACHE_BYTES,
-            entries: 100,
-            entry_bytes: MAX_ENTRY_BYTES,
-            ttl: CACHE_TTL,
-        };
-        for i in 0..10 {
-            c.put_with_policy(k(&format!("s{i}")), "\"e\"".into(), vec![1u8; 100], limits);
-        }
-        assert_eq!(c.map.len(), 10);
-        c.trim_to(MAX_CACHE_BYTES, 4);
-        assert_eq!(c.map.len(), 4);
-        assert!(c.get(&k("s0")).is_none() && c.get(&k("s9")).is_some());
-        c.trim_to(150, 4);
-        assert_eq!((c.map.len(), c.bytes), (1, 100));
     }
 
     #[test]

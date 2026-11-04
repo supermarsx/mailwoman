@@ -18,6 +18,14 @@
 #   - the container runtime's default seccomp profile (not set to unconfined)
 #   - PID cap; no memory/CPU limit (left to the deployer's platform)
 #
+# Image disk cache (off by default, nothing here changes that): the optional disk
+# tier of the remote-image cache (Admin > Settings > Image proxy,
+# privacy.imageDiskEnabled) writes under privacy.imageDiskPath, which defaults to
+# /data/image-cache, so the existing /data volume already covers it. To keep it on
+# a dedicated volume instead, add `volumes: ["app-image-cache:/cache/images"]` to
+# the mailwoman service, declare the volume, and set privacy.imageDiskPath to
+# /cache/images. See docs/admin/settings.md, "Image proxy cache tiers".
+#
 # No custom seccomp or AppArmor profile is shipped. A custom profile would have
 # to admit wasmtime's JIT and the render worker's namespace, Landlock and
 # seccomp calls, and would need a syscall trace on every wasmtime upgrade to
