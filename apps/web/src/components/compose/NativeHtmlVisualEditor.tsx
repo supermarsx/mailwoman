@@ -1,7 +1,7 @@
 import {createEffect,createSignal,on,onCleanup,onMount,useContext,type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
 import type {ComposeBackground} from '../../theme/appearance.ts';
-import {surfaceTone,toggledBackground} from './messageBackground.ts';
+import {cssColorHex,readableColor,surfaceTone,toggledBackground,UNREADABLE_BELOW,contrastRatio} from './messageBackground.ts';
 import {t} from '../../i18n/index.ts';
 import {editorBodyBytes} from './editorCounts.ts';
 import {ensureManropePreview} from './nativeFontPreview.ts';
@@ -23,7 +23,7 @@ const FRAME_DOCUMENT='<!doctype html><html data-mw-native-document="true"><head>
  * before insertion, so it cannot briefly load resources before being cleaned. */
 export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLimit?:number;reply?:boolean;owned:()=>ReadonlySet<string>;embedded?:boolean;preview?:(cid:string)=>Promise<string|null>;upload?:(files:File[])=>Promise<{cid:string;alt:string}[]>;ribbonSlots?:()=>EditorSlots;externalHistory?:boolean;bookmark?:NativeHtmlBookmark;onInput:(html:string)=>void;onReady:(api:NativeHtmlVisualApi)=>void}):JSX.Element {
  let frame!:HTMLIFrameElement,editor:HTMLDivElement|undefined,disposed=false,documentRevision=0,changed=false,focusPending=false;
- let styles:string[]=[];let undoListeners=()=>{};let pending:Promise<void>=Promise.resolve();let editRevision=0;
+ let styles:string[]=[],viewTimer:ReturnType<typeof setTimeout>|undefined,viewSheet:CSSStyleSheet|undefined;let undoListeners=()=>{};let pending:Promise<void>=Promise.resolve();let editRevision=0;
  const originals=new WeakMap<Element,Map<string,string>>();
  const [ready,setReady]=createSignal(false);
  const [failed,setFailed]=createSignal(false);
@@ -49,11 +49,12 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   const nodes=Array.from(editor.querySelectorAll('*')),copies=Array.from(clone.querySelectorAll('*'));
   nodes.forEach((node,index)=>{const copy=copies[index];if(!copy)return;for(const [name,value] of originals.get(node)??[]){if(name.startsWith('style:'))(copy as HTMLElement).style.setProperty(name.slice(6),value);else copy.setAttribute(name,value);}});
   for(const answer of clone.querySelectorAll('[data-mw-native-answer]'))answer.removeAttribute('data-mw-native-answer');
+  for(const shown of clone.querySelectorAll('[data-mw-vc]'))shown.removeAttribute('data-mw-vc');
   for(const caret of clone.querySelectorAll('[data-mw-native-caret]')){caret.removeAttribute('data-mw-native-caret');const text=caret.firstChild;if(text?.nodeType===3&&text.textContent?.startsWith('\u200b'))text.textContent=text.textContent.slice(1);if(!caret.textContent&&!caret.children.length)caret.remove();}
   return styles.map(style=>`<style>${style}</style>`).join('')+clone.innerHTML;
  }
  function record(value:string):void {if(history[historyIndex()]===value)return;history=history.slice(0,historyIndex()+1);history.push(value);if(history.length>101)history.shift();setHistoryIndex(history.length-1);setHistoryLength(history.length);}
- function emit():void {if(!disposed){editRevision++;changed=true;markAnswerBlock();const value=serialize();record(value);props.onInput(value);setVersion(value=>value+1);}}
+ function emit():void {if(!disposed){editRevision++;changed=true;markAnswerBlock();scheduleViewColors();const value=serialize();record(value);props.onInput(value);setVersion(value=>value+1);}}
  function moveHistory(direction:number):void {const next=historyIndex()+direction;if(next<0||next>=history.length)return;const selected=bookmark();setHistoryIndex(next);loadDocument(history[next]);if(selected)restoreBookmark(selected);changed=true;props.onInput(serialize());setVersion(value=>value+1);}
  function previewImages(revision:number):void {
   if(!props.preview||!editor)return;
@@ -63,9 +64,39 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
    void props.preview(cid).then(preview=>{if(disposed||revision!==documentRevision||!image.isConnected||!preview||!/^data:image\/(png|jpeg|gif|webp);base64,[a-z0-9+/]+=*$/i.test(preview))return;image.src=preview;},()=>undefined);
   }
  }
+
+ // View-only automatic text colour (like Outlook): text whose colour does not
+ // contrast with what is behind it (a shaded cell, a highlight, the dark or
+ // light surface) is shown in a readable colour. The colour lives in a separate
+ // sheet keyed by a `data-mw-vc` index that `serialize` and copy strip, so the
+ // HTML that is sent or saved never carries it.
+ function applyViewColors():void {
+  viewTimer=undefined;
+  if(disposed||!editor)return;
+  const doc=editor.ownerDocument,view=doc.defaultView;if(!view)return;
+  for(const shown of editor.querySelectorAll('[data-mw-vc]'))shown.removeAttribute('data-mw-vc');
+  const surface=cssColorHex(view.getComputedStyle(doc.body).backgroundColor)??(dark()?'#1e1f22':'#ffffff');
+  const rules:string[]=[],index=new Map<string,number>();
+  const behind=(element:Element):string=>{for(let node:Element|null=element;node&&node!==doc.body;node=node.parentElement){const found=cssColorHex(view.getComputedStyle(node).backgroundColor);if(found)return found;}return surface;};
+  const walker=doc.createTreeWalker(editor,4);let text:Node|null;const seen=new Set<Element>();
+  while((text=walker.nextNode())){
+   const element=text.parentElement;if(!element||seen.has(element)||!(text.textContent??'').trim())continue;
+   seen.add(element);
+   const color=cssColorHex(view.getComputedStyle(element).color);if(!color)continue;
+   const background=behind(element);
+   if(contrastRatio(color,background)>=UNREADABLE_BELOW)continue;
+   const shown=readableColor(color,background);if(!shown)continue;
+   let slot=index.get(shown);if(slot===undefined){slot=rules.length;index.set(shown,slot);rules.push(`[data-mw-vc="${slot}"]{color:${shown} !important}`);}
+   element.setAttribute('data-mw-vc',String(slot));
+  }
+  if(!viewSheet){const Sheet=(view as Window&{CSSStyleSheet:typeof CSSStyleSheet}).CSSStyleSheet;viewSheet=new Sheet();doc.adoptedStyleSheets=[...doc.adoptedStyleSheets,viewSheet];}
+  while(viewSheet.cssRules.length)viewSheet.deleteRule(0);rules.forEach(rule=>viewSheet!.insertRule(rule,viewSheet!.cssRules.length));
+ }
+ function scheduleViewColors():void {if(viewTimer===undefined)viewTimer=setTimeout(applyViewColors,120);}
  function installStyles(doc:Document):void {
   const view=doc.defaultView as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}#mw-native-editor [data-mw-native-answer]{min-block-size:6em}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=[sheet];}
+  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}#mw-native-editor [data-mw-native-answer]{min-block-size:6em}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet?[sheet,viewSheet]:[sheet];}
+  scheduleViewColors();
  }
  function loadDocument(value=props.html):void {
   const doc=frame.contentDocument;if(!doc||!editor)return;
@@ -163,7 +194,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   const selection=()=>commands.remember();
   const click=(event:Event)=>{const target=event.target as Element|null;if(typeof target?.closest==='function'&&target.closest('a'))event.preventDefault();};
   const focus=(event:Event)=>{if(editor&&event.target&&editor.contains(event.target as Node)&&doc.activeElement!==editor)editor.focus({preventScroll:true});};
-  const copy=(event:ClipboardEvent)=>{const selection=doc.getSelection();if(!editor||!event.clipboardData||!selection?.rangeCount||selection.isCollapsed)return;const range=selection.getRangeAt(0);if(!editor.contains(range.commonAncestorContainer))return;const inert=doc.implementation.createHTMLDocument(''),container=inert.createElement('div');container.append(inert.importNode(range.cloneContents(),true));const sourceImages=Array.from(editor.querySelectorAll('img')).filter(image=>range.intersectsNode(image));Array.from(container.querySelectorAll('img')).forEach((image,index)=>{const source=sourceImages[index];const src=source?originals.get(source)?.get('src'):undefined;if(src)image.setAttribute('src',src);});event.clipboardData.setData('text/html',styles.map(style=>`<style>${style}</style>`).join('')+container.innerHTML);event.clipboardData.setData('text/plain',selection.toString());event.preventDefault();if(event.type==='cut'){doc.execCommand('delete');emit();}};
+  const copy=(event:ClipboardEvent)=>{const selection=doc.getSelection();if(!editor||!event.clipboardData||!selection?.rangeCount||selection.isCollapsed)return;const range=selection.getRangeAt(0);if(!editor.contains(range.commonAncestorContainer))return;const inert=doc.implementation.createHTMLDocument(''),container=inert.createElement('div');container.append(inert.importNode(range.cloneContents(),true));container.querySelectorAll('[data-mw-vc]').forEach(shown=>shown.removeAttribute('data-mw-vc'));const sourceImages=Array.from(editor.querySelectorAll('img')).filter(image=>range.intersectsNode(image));Array.from(container.querySelectorAll('img')).forEach((image,index)=>{const source=sourceImages[index];const src=source?originals.get(source)?.get('src'):undefined;if(src)image.setAttribute('src',src);});event.clipboardData.setData('text/html',styles.map(style=>`<style>${style}</style>`).join('')+container.innerHTML);event.clipboardData.setData('text/plain',selection.toString());event.preventDefault();if(event.type==='cut'){doc.execCommand('delete');emit();}};
   doc.addEventListener('input',input);doc.addEventListener('paste',paste);doc.addEventListener('drop',drop);doc.addEventListener('beforeinput',before);doc.addEventListener('click',click);doc.addEventListener('pointerdown',focus);doc.addEventListener('copy',copy);doc.addEventListener('cut',copy);doc.addEventListener('selectionchange',selection);doc.addEventListener('keydown',key);
   undoListeners=()=>{doc.removeEventListener('input',input);doc.removeEventListener('paste',paste);doc.removeEventListener('drop',drop);doc.removeEventListener('beforeinput',before);doc.removeEventListener('click',click);doc.removeEventListener('pointerdown',focus);doc.removeEventListener('copy',copy);doc.removeEventListener('cut',copy);doc.removeEventListener('selectionchange',selection);doc.removeEventListener('keydown',key);};
   loadDocument();history=[props.html];setHistoryIndex(0);setHistoryLength(1);if(props.bookmark)restoreBookmark(props.bookmark);setReady(true);finishReady();if(focusPending)focusEditor();
@@ -173,6 +204,6 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  createEffect(()=>{background();app?.theme();app?.appearance();markers();if(ready())queueMicrotask(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});});
  onMount(()=>{const root=frame.ownerDocument.documentElement,observer=new MutationObserver(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});observer.observe(root,{attributes:true});onCleanup(()=>observer.disconnect());});
  onMount(()=>{const editorApi:NativeHtmlVisualApi={async capture(){await admitted;let latest:Promise<void>;do{latest=pending;await latest;}while(latest!==pending);if(disposed)throw new DOMException('Editor closed','AbortError');return changed?serialize():props.html;},focus:focusEditor,refreshImages:()=>previewImages(documentRevision),undo:()=>moveHistory(-1),redo:()=>moveHistory(1),historyDepth:()=>({undo:historyIndex(),redo:historyLength()-historyIndex()-1}),bookmark};setApi({...editorApi,appendHtml:value=>{commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?value:''}} as unknown as ClipboardEvent);},setHtml:value=>{pending=normalizeHtmlSource(value,props.owned(),props.embedded===true).then(safe=>{if(disposed)return;loadDocument(safe.html);emit();});void pending.catch(()=>setFailed(true));}});props.onReady(editorApi);});
- onCleanup(()=>{disposed=true;finishReady();undoListeners();});
+ onCleanup(()=>{disposed=true;if(viewTimer!==undefined)clearTimeout(viewTimer);finishReady();undoListeners();});
  return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
 }

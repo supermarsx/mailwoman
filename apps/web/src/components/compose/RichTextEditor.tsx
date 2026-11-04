@@ -180,7 +180,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const darkSurface=():boolean=>surfaceTone(background(),appTone())==='dark';
   const toggleBackground=():void=>{const next=toggledBackground(background(),appTone());if(app)app.setAppearancePrefs({composeBackground:next});else setLocalBackground(next);};
   // The surface's painted background, read once per change (not per keystroke).
-  let surfaceColor:string|null=null;
+  let surfaceColor:string|null=null,surfaceText:string|null=null;
   const embedded=():boolean=>props.embedded!==undefined;
   function fontValue(name:string):string {
     const state=activeState();if(!state)return '';
@@ -255,7 +255,9 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   // painted colour and let the view-colour plugin recompute.
   const repaintSurface=():void=>{
     if(view===undefined)return;
-    surfaceColor=cssColorHex(getComputedStyle(host).backgroundColor);
+    const painted=getComputedStyle(host);
+    surfaceColor=cssColorHex(painted.backgroundColor);
+    surfaceText=cssColorHex(painted.color);
     view.dispatch(view.state.tr.setMeta(SURFACE_CHANGED,true));
   };
   createEffect(on(()=>[background(),app?.theme(),app?.appearance()],repaintSurface,{defer:true}));
@@ -279,7 +281,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         }),
         keymap(baseKeymap),
         tableEditing(),
-        viewColorPlugin(()=>surfaceColor),
+        viewColorPlugin(()=>surfaceColor,()=>surfaceText),
       ],
     });
     view = new EditorView(host, {

@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import { EditorState } from 'prosemirror-state';
 import { docFromHtml, htmlFromDoc } from './richtext.ts';
 import {
+  autoTextColor,
   contrastRatio,
   cssColorHex,
   readableColor,
@@ -53,7 +54,7 @@ describe('message background', () => {
     expect(parseInt(blue.slice(5, 7), 16)).toBeGreaterThan(parseInt(blue.slice(1, 3), 16));
   });
 
-  it('decorates only unreadable coloured text, never highlighted or shaded text, and never the HTML', () => {
+  it('decorates only unreadable coloured text and never the HTML', () => {
     const html =
       '<p><span style="color: #000000">black</span> plain <span style="color: #ffd700">gold</span></p>' +
       '<p><span style="background-color: #ffff00"><span style="color: #000000">marked</span></span></p>' +
@@ -74,5 +75,22 @@ describe('message background', () => {
     const plugin = next.plugins[0]!;
     const light = (plugin.getState(next) as ReturnType<typeof viewColorDecorations>).find();
     expect(light.map((d) => next.doc.textBetween(d.from, d.to))).toEqual(['gold']);
+  });
+
+  it('picks black or white automatically for text that has no colour of its own', () => {
+    expect(autoTextColor('#ffffff')).toBe('#000000');
+    expect(autoTextColor('#1e1f22')).toBe('#ffffff');
+    // Light surface text on a pale highlight or a dark shaded cell is unreadable; both get an automatic colour.
+    const doc = docFromHtml(
+      '<p>plain</p>' +
+        '<p><span style="background-color: #ffff00">marked</span></p>' +
+        '<p style="background-color: #202020">shaded</p>',
+    );
+    const found = viewColorDecorations(doc, DARK, '#e8e8ea').find();
+    expect(found.map((d) => [doc.textBetween(d.from, d.to), (d.spec as { 'data-mw-view-color'?: string })['data-mw-view-color'] ?? (d as unknown as { type: { attrs: Record<string, string> } }).type.attrs['data-mw-view-color']])).toEqual([
+      ['marked', '#000000'],
+    ]);
+    // A white-on-dark default survives a dark shade, so nothing is added there.
+    expect(doc.textBetween(found[0]!.from, found[0]!.to)).toBe('marked');
   });
 });

@@ -95,33 +95,54 @@ export const viewColorKey = new PluginKey<DecorationSet>('mw-view-color');
 /** Transaction meta: the surface background changed, recompute. */
 export const SURFACE_CHANGED = 'mw-surface-changed';
 
-function shaded(node: PMNode): boolean {
-  return safeColor(node.attrs['shade']) !== null;
+/**
+ * The "automatic" text colour Outlook uses: black or white, whichever reads
+ * better on `background`.
+ */
+export function autoTextColor(background: string): string {
+  return contrastRatio('#000000', background) >= contrastRatio('#ffffff', background) ? '#000000' : '#ffffff';
 }
 
-/** The view-only colour decorations for `doc` on a `background` surface. */
-export function viewColorDecorations(doc: PMNode, background: string | null): DecorationSet {
+/**
+ * The colour to show for text on `background`, or `null` when what it has now
+ * is readable. `color` is the text's own colour (hue kept when it is lifted);
+ * without one the text takes `inherited` (the surface's text colour), and when
+ * that is unreadable too it gets the automatic black or white.
+ */
+export function viewColorOn(color: string | null, inherited: string | null, background: string): string | null {
+  if (color) return readableColor(color, background);
+  if (inherited && contrastRatio(inherited, background) >= UNREADABLE_BELOW) return null;
+  return autoTextColor(background);
+}
+
+/**
+ * The view-only colour decorations for `doc` on a `background` surface whose
+ * default text colour is `text`. Text on its own highlight or inside a shaded
+ * cell or paragraph is judged against that colour, not the surface.
+ */
+export function viewColorDecorations(doc: PMNode, background: string | null, text: string | null = null): DecorationSet {
   if (!background) return DecorationSet.empty;
   const out: Decoration[] = [];
-  const walk = (node: PMNode, pos: number, underShade: boolean): void => {
+  const walk = (node: PMNode, pos: number, behind: string | null): void => {
     node.forEach((child, offset) => {
       const at = pos + offset;
       if (child.isText) {
-        if (underShade) return;
         let color: string | null = null;
+        let under = behind;
         for (const mark of child.marks) {
-          // Text on its own highlight keeps the pair the user chose.
-          if (mark.type.name === 'highlight') return;
+          if (mark.type.name === 'highlight') under = safeColor(mark.attrs['value']) ?? under;
           if (mark.type.name === 'textColor') color = safeColor(mark.attrs['value']);
         }
-        const shown = color ? readableColor(color, background) : null;
+        // Plain text on the bare surface follows the surface's own colour rules.
+        if (!color && !under) return;
+        const shown = viewColorOn(color, text, under ?? background);
         if (shown) out.push(Decoration.inline(at, at + child.nodeSize, { style: `color:${shown}`, 'data-mw-view-color': shown }));
         return;
       }
-      walk(child, at + 1, underShade || shaded(child));
+      walk(child, at + 1, safeColor(child.attrs['shade']) ?? behind);
     });
   };
-  walk(doc, 0, false);
+  walk(doc, 0, null);
   return DecorationSet.create(doc, out);
 }
 
@@ -130,13 +151,13 @@ export function viewColorDecorations(doc: PMNode, background: string | null): De
  * `#rrggbb`, or `null` when unknown); dispatch a transaction with the
  * `SURFACE_CHANGED` meta after the surface changes.
  */
-export function viewColorPlugin(background: () => string | null): Plugin<DecorationSet> {
+export function viewColorPlugin(background: () => string | null, text: () => string | null = () => null): Plugin<DecorationSet> {
   return new Plugin<DecorationSet>({
     key: viewColorKey,
     state: {
-      init: (_config, state: EditorState) => viewColorDecorations(state.doc, background()),
+      init: (_config, state: EditorState) => viewColorDecorations(state.doc, background(), text()),
       apply: (tr, old) =>
-        tr.docChanged || tr.getMeta(SURFACE_CHANGED) === true ? viewColorDecorations(tr.doc, background()) : old,
+        tr.docChanged || tr.getMeta(SURFACE_CHANGED) === true ? viewColorDecorations(tr.doc, background(), text()) : old,
     },
     props: {
       decorations: (state) => viewColorKey.getState(state) ?? DecorationSet.empty,
