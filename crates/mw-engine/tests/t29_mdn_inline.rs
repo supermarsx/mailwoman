@@ -1822,6 +1822,7 @@ async fn standard_identity(h: &Harness) -> String {
             signature_html: None,
             signature_text: None,
             signature_name: None,
+            reply_signature_name: None,
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,

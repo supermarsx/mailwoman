@@ -138,8 +138,10 @@ export interface Identity {
   readonly organization?: string;
   readonly autoBcc?: string;
   readonly pgpKeyId?: string;
-  /** Name of the signature template this identity defaults to. */
+  /** Absent uses the account signature; empty disables new-message signatures. */
   readonly signatureName?: string;
+  /** Absent inherits the new-message choice; empty disables replies. */
+  readonly replySignatureName?: string;
 }
 
 // ── Notification rules + quiet hours (W15) ───────────────────────────────────

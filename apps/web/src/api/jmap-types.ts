@@ -380,6 +380,9 @@ export interface Identity {
   signatureHtml: string | null;
   signatureText: string | null;
   signatureFormat?: 'plain'|'rich'|'html';
+  replySignatureHtml?: string|null;
+  replySignatureText?: string|null;
+  replySignatureFormat?: 'plain'|'rich'|'html';
   sentMailboxId: Id | null;
 }
 export interface IdentityGetResponse {

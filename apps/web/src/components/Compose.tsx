@@ -1,4 +1,5 @@
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
+import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
 import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
 import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compose/outgoingExtras.ts';
@@ -175,6 +176,7 @@ export function Compose(props: {
     references: initial?.references ?? [],
   });
   const [draftSource,setDraftSource]=createSignal(initial?.source);
+  const [replyContext,setReplyContext]=createSignal(initial?.source?.keyword==='$answered'||initial?.mode==='reply'||initial?.mode==='reply-all');
   const [subject, setSubject] = createSignal(initial?.subject ?? '');
   // `body` stays the PLAIN-TEXT source of truth (crypto/DLP/dictation read it).
   // `bodyHtml` carries the rich-text HTML, and is what the normal send path
@@ -236,6 +238,14 @@ export function Compose(props: {
   let remoteAbort:AbortController|undefined;
 
   const [identityId, setIdentityId] = createSignal<string>('');
+  let initialIdentityLoad:Promise<void>|undefined;
+  function loadInitialIdentities():Promise<void>{
+    if(!initialIdentityLoad){
+      const loading=app.loadIdentities({strict:true});initialIdentityLoad=loading;
+      void loading.catch(cause=>{if(initialIdentityLoad===loading)initialIdentityLoad=undefined;if(ownsDraft()&&!(cause instanceof DOMException&&cause.name==='AbortError'))setError(t('mail-compose-identities-failed'));});
+    }
+    return initialIdentityLoad;
+  }
   const [fromOverride, setFromOverride] = createSignal('');
   const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
   const [customFrom, setCustomFrom] = createSignal(false);
@@ -425,7 +435,7 @@ export function Compose(props: {
     void loadCatalog('nextcloud'); // t112: the inserted share link text
     previouslyFocused = document.activeElement as HTMLElement | null;
     if (props.active !== false) toInputEl?.focus();
-    void app.loadIdentities().catch(cause=>{if(ownsDraft()&&!(cause instanceof DOMException&&cause.name==='AbortError'))setError(t('mail-compose-identities-failed'));});
+    void loadInitialIdentities();
     void app.loadContacts().catch(() => undefined);
     // Probe the optional V7 backends ONCE (idempotent, silent on failure): a
     // NotConfigured directory / absent Nextcloud leaves `enabled` false so their
@@ -598,19 +608,7 @@ export function Compose(props: {
   }
 
 
-  // W12: signatures the picker offers, derived from the sending identities that
-  // carry one. A signatures CRUD backend (e15) can supply the same shape later.
-  const signatures = createMemo<ComposeSignature[]>(() =>
-    app
-      .identities()
-      .map((id) => {
-        const text = (id.signatureText ?? '').trim();
-        const htmlText = (id.signatureHtml ?? '').replace(/<[^>]*>/g, '').trim();
-        const plain = text !== '' ? text : htmlText;
-        return { id: id.id, name: id.name, text: plain, html: id.signatureHtml,format:id.signatureFormat??(id.signatureHtml?'html' as const:'plain' as const) };
-      })
-      .filter((s) => s.text !== '' || (s.html ?? '') !== ''),
-  );
+  const signatures=createMemo(()=>signatureVariants(app.identities(),{new:t('mail-compose-signature-new'),replies:t('mail-compose-signature-replies')}));
 
   const hashKey=createMemo(()=>JSON.stringify([includeFileHashes(),attachments(),app.accountId(),composerAuthority(),downloadUrl()]));
   const hashesReady=()=>!includeFileHashes()||(hashResult()?.key===hashKey()&&!hashResult()?.error);
@@ -632,14 +630,16 @@ export function Compose(props: {
    *  send — there the body is ciphertext or a clear-signed block, and anything
    *  appended after it would sit outside the encryption or break the signature. */
   const autoSignature = createMemo<ComposeSignature | null>(() => {
-    const id = identity();
+    const id=customFrom()?null:identity()??app.identities().find(item=>item.email.trim().toLowerCase()===app.me()?.username?.trim().toLowerCase())??null;
     if (id === null) return null;
-    const sig = signatures().find((s) => s.id === id.id) ?? null;
-    if (sig === null || insertedSignatures().has(sig.id)) return null;
+    const sig=assignedSignature(id,replyContext());
+    if (sig === null || insertedSignatures().has(sig.id)||insertedSignatures().has(id.id)) return null;
     const cs = cryptoState();
     if (cs !== null && (cs.encrypt || cs.sign)) return null;
     return sig;
   });
+  const signatureScope=()=>JSON.stringify([identityId(),customFrom(),fromOverride(),replyContext(),autoSignature()]);
+  const sendingSelection=()=>JSON.stringify([app.accountId(),composerAuthority()?.generation,draftId,identityId(),customFrom(),fromOverride(),replyContext()]);
 
   /** "Record when this message is opened" is offered only when the server has
    *  open tracking on and the message is neither encrypted nor signed (the
@@ -663,8 +663,7 @@ export function Compose(props: {
   }
 
   async function signaturePlain(sig: ComposeSignature): Promise<string> {
-    const source = app.identities().find(identity => identity.id === sig.id);
-    if (source?.signatureText?.trim()) return source.signatureText;
+    if(sig.plainText?.trim())return sig.plainText;
     if (sig.html) {
       try { return (await import('./compose/richtext.ts')).htmlToText(sig.html); } catch { /* Plain fallback remains inert. */ }
     }
@@ -681,7 +680,7 @@ export function Compose(props: {
     if(!sig.html){
       if(richMode()&&editorApi())editorApi()!.appendHtml(plainToHtml(sig.text));
       else setBody(cur=>cur.trim()?`${cur}\n\n-- \n${sig.text}`:sig.text);
-      setInsertedSignatures(prev=>new Set(prev).add(sig.id));return;
+      setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id));return;
     }
     pendingSignature=(pendingSignature??Promise.resolve()).catch(()=>undefined).then(async()=>{
       if(!ownsDraft())return;
@@ -702,7 +701,7 @@ export function Compose(props: {
         }else editorApi()!.appendHtml(html);
       }
       if(!ownsDraft())return;
-      setInsertedSignatures(prev=>new Set(prev).add(sig.id));
+      setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id));
     });
     void pendingSignature.catch(()=>{if(ownsDraft())setError(t('mail-compose-html-failed'));});
   }
@@ -728,6 +727,7 @@ export function Compose(props: {
     setCcBccOpen((d.cc ?? '') !== '' || (d.bcc ?? '') !== '');
     setThreading({ inReplyTo: d.inReplyTo ?? [], references: d.references ?? [] });
     setDraftSource(d.source);
+    setReplyContext(d.source?.keyword==='$answered');
     setSubject(d.subject);
     setRequestReceipt(d.requestReceipt === true);
     setRequestDelivery(d.requestDeliveryReceipt === true);
@@ -1261,6 +1261,12 @@ export function Compose(props: {
     if(busy()||uploading()||discardCurrentOpen()||discardCurrentBusy())return;
     setBusy(true);
     try {
+    const expectedSelection=sendingSelection();let identityTimer:ReturnType<typeof setTimeout>|undefined;
+    try{await Promise.race([loadInitialIdentities(),new Promise<never>((_,reject)=>{identityTimer=setTimeout(()=>reject(new Error('Identity loading timed out')),15_000);})]);}
+    catch{if(ownsDraft())setError(t('mail-compose-identities-failed'));return;}
+    finally{clearTimeout(identityTimer);}
+    if(!ownsDraft())return;
+    if(sendingSelection()!==expectedSelection){setError(t('mail-compose-send-failed'));return;}
     if(pendingSignature)await pendingSignature;
     if(sourceMode()&&editorApi()===null){setError(t('mail-compose-html-processing'));return;}
     const readyEditor=editorApi();if(readyEditor?.whenReady)await readyEditor.whenReady();
@@ -1273,6 +1279,7 @@ export function Compose(props: {
       setError(t('mail-external-confirm-required'));return;
     }
     const cs = cryptoState();
+    const expectedSignatureScope=signatureScope();
     if(!hashesReady()){setError(t('mail-compose-hashes-pending'));return;}
     if(cs?.encrypt&&(!cs.encryptedDraft||cs.draftSource!==cryptoDraftSource(outgoingPlaintext(),parseRecipients([to(),cc(),bcc()].join(',')).map(r=>r.email),subject(),cs.protectSubject,cs.sign?signingSession()?.keyRef??null:null))){setError(t('mail-compose-crypto-pending'));return;}
     // DLP gate (plan §1.8 / §2.2): a `block` verdict stops the send before it
@@ -1389,6 +1396,7 @@ export function Compose(props: {
       const inline = inlineAttachments(inlineImages(), referencedCids(htmlBody));
       if(requestDelivery()&&!deliveryAvailable())throw new Error(t('mail-compose-delivery-unavailable'));
       if (!ownsDraft()) throw new Error(t('mail-compose-account-changed'));
+      if(sendingSelection()!==expectedSelection||signatureScope()!==expectedSignatureScope)throw new Error(t('mail-compose-send-failed'));
       await app.sendMessage({
         ...(remoteRevision()&&remoteStatus()!=='uncertain'&&remoteStatus()!=='conflict'?{accountDraft:{id:draftId,revision:remoteRevision()!}}:{}),
         to: to(),
@@ -1880,7 +1888,7 @@ export function Compose(props: {
                 cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
-                <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={draftSource()?.keyword==='$answered'||initial?.mode==='reply'||initial?.mode==='reply-all'} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={replyContext()} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
                   initialHtml={bodyHtml()}

@@ -121,6 +121,9 @@ struct IdentityDto {
     reply_to: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     signature_name: Option<String>,
+    /// None inherits the new-message signature; an empty value disables replies.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    reply_signature_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     organization: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -395,7 +398,11 @@ fn identity_profile_valid(dto: &IdentityDto) -> bool {
         || dto
             .signature_name
             .as_deref()
-            .is_some_and(|v| v.is_empty() || !header(v, 255))
+            .is_some_and(|v| !header(v, 255))
+        || dto
+            .reply_signature_name
+            .as_deref()
+            .is_some_and(|v| !header(v, 255))
     {
         return false;
     }
@@ -510,7 +517,12 @@ async fn identity_references_valid(
     native_account: &str,
     dto: &IdentityDto,
 ) -> Result<bool, StoreError> {
-    if let Some(name) = &dto.signature_name {
+    for name in dto
+        .signature_name
+        .iter()
+        .chain(dto.reply_signature_name.iter())
+        .filter(|name| !name.is_empty())
+    {
         if !store
             .list_personal_signatures(owner)
             .await?
@@ -1184,6 +1196,7 @@ async fn do_upsert_identity(
             signature_html: existing.as_ref().and_then(|row| row.signature_html.clone()),
             signature_text: existing.as_ref().and_then(|row| row.signature_text.clone()),
             signature_name: dto.signature_name.clone(),
+            reply_signature_name: dto.reply_signature_name.clone(),
             organization: dto.organization.clone(),
             auto_bcc: dto.auto_bcc.clone(),
             pgp_key_id: dto.pgp_key_id.clone(),
@@ -1277,6 +1290,7 @@ fn identity_to_dto(row: &IdentityRow) -> IdentityDto {
         email: row.email.clone(),
         reply_to: row.reply_to.clone(),
         signature_name: row.signature_name.clone(),
+        reply_signature_name: row.reply_signature_name.clone(),
         organization: row.organization.clone(),
         auto_bcc: row.auto_bcc.clone(),
         pgp_key_id: row.pgp_key_id.clone(),
@@ -1834,6 +1848,14 @@ mod tests {
                 .unwrap()
         );
         dto.signature_name = None;
+        dto.reply_signature_name = Some("foreign".into());
+        assert!(!identity_references_valid(&store, &owner, &account, &dto).await.unwrap());
+        dto.signature_name = Some(String::new());
+        dto.reply_signature_name = Some(String::new());
+        assert!(identity_profile_valid(&dto));
+        assert!(identity_references_valid(&store, &owner, &account, &dto).await.unwrap());
+        dto.signature_name = None;
+        dto.reply_signature_name = None;
         dto.pgp_key_id = Some("own-key".into());
         assert!(
             !identity_references_valid(&store, &owner, &account, &dto)
@@ -1912,6 +1934,7 @@ mod tests {
                 email: "sales@example.com".into(),
                 reply_to: Some("help@example.com".into()),
                 signature_name: Some("work".into()),
+                reply_signature_name: None,
                 organization: Some("Example Company".into()),
                 auto_bcc: Some("Audit <audit@example.com>; second@example.com".into()),
                 pgp_key_id: Some("pgp-test".into()),
@@ -1983,6 +2006,7 @@ mod tests {
             signature_html: Some("<p>Provider</p>".into()),
             signature_text: Some("Provider text".into()),
             signature_name: None,
+            reply_signature_name: None,
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,
@@ -2000,6 +2024,7 @@ mod tests {
                 email: "primary@example.org".into(),
                 reply_to: None,
                 signature_name: Some("local-template".into()),
+                reply_signature_name: None,
                 organization: None,
                 auto_bcc: None,
                 pgp_key_id: None,
@@ -2032,6 +2057,7 @@ mod tests {
                 email: "sales@example.com".into(),
                 reply_to: None,
                 signature_name: None,
+                reply_signature_name: None,
                 organization: None,
                 auto_bcc: None,
                 pgp_key_id: None,
@@ -2053,6 +2079,7 @@ mod tests {
                     email: "evil@example.com".into(),
                     reply_to: None,
                     signature_name: None,
+                    reply_signature_name: None,
                     organization: None,
                     auto_bcc: None,
                     pgp_key_id: None,

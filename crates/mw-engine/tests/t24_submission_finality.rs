@@ -923,6 +923,7 @@ async fn sender_test_identity(h: &Harness, id: &str, address: &str) {
             signature_html: None,
             signature_text: None,
             signature_name: None,
+            reply_signature_name: None,
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,
@@ -1071,6 +1072,7 @@ async fn sender_authority_foreign_identity_is_indistinguishable_from_missing() {
             signature_html: None,
             signature_text: None,
             signature_name: None,
+            reply_signature_name: None,
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,
@@ -1153,6 +1155,8 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
         .unwrap()
         .unwrap();
     identity.signature_name = Some("work".into());
+    identity.signature_text = Some("Provider signature".into());
+    identity.signature_html = Some("<p>Provider signature</p>".into());
     h.engine
         .store()
         .upsert_native_personal_identity(&identity)
@@ -1235,6 +1239,70 @@ async fn named_signature_is_account_scoped_and_resolved_at_identity_read() {
         result(&jmap(&h, get()).await, "get")["list"][0]["signatureFormat"],
         "rich"
     );
+    let inherited = jmap(&h, get()).await;
+    let inherited = &result(&inherited, "get")["list"][0];
+    for (reply, new) in [("replySignatureHtml", "signatureHtml"), ("replySignatureText", "signatureText"), ("replySignatureFormat", "signatureFormat")] {
+        assert_eq!(inherited[reply], inherited[new], "unconfigured replies inherit the resolved new signature");
+    }
+    let mut short = template.clone();
+    short.name = "short".into();
+    short.account_id = "foreign-signature-owner".into();
+    short.text = Some("Foreign reply signature".into());
+    h.engine.store().upsert_personal_signature(&short).await.unwrap();
+    identity.reply_signature_name = Some("short".into());
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    let foreign = jmap(&h, get()).await;
+    assert!(result(&foreign, "get")["list"][0]["replySignatureText"].is_null(), "a different owner's matching name is never used");
+    short.account_id = owner.clone();
+    short.text = Some("Short reply signature".into());
+    short.html = Some("<p>Short <em>reply</em><script>bad()</script></p>".into());
+    h.engine.store().upsert_personal_signature(&short).await.unwrap();
+    let distinct = jmap(&h, get()).await;
+    let distinct = &result(&distinct, "get")["list"][0];
+    assert_eq!(distinct["signatureText"], "Independent plain signature");
+    assert_eq!(distinct["replySignatureText"], "Short reply signature");
+    assert_eq!(distinct["replySignatureFormat"], "rich");
+    assert!(distinct["replySignatureHtml"].as_str().unwrap().contains("<em>reply</em>"));
+    assert!(!distinct["replySignatureHtml"].as_str().unwrap().contains("<script"));
+    identity.reply_signature_name = Some(String::new());
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    let disabled = jmap(&h, get()).await;
+    let disabled = &result(&disabled, "get")["list"][0];
+    assert!(disabled.get("replySignatureHtml").is_some_and(Value::is_null));
+    assert!(disabled.get("replySignatureText").is_some_and(Value::is_null));
+    assert_eq!(disabled["replySignatureFormat"], "plain");
+    assert_eq!(disabled["signatureText"], "Independent plain signature");
+    identity.reply_signature_name = None;
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    let reset = jmap(&h, get()).await;
+    assert_eq!(result(&reset, "get")["list"][0]["replySignatureText"], "Independent plain signature");
+    identity.signature_name = None;
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    let provider = jmap(&h, get()).await;
+    let provider = &result(&provider, "get")["list"][0];
+    assert_eq!(provider["signatureText"], "Provider signature");
+    assert_eq!(provider["replySignatureText"], provider["signatureText"]);
+    identity.signature_name = Some(String::new());
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    let no_new = jmap(&h, get()).await;
+    let no_new = &result(&no_new, "get")["list"][0];
+    for key in ["signatureHtml", "signatureText", "replySignatureHtml", "replySignatureText"] {
+        assert!(no_new.get(key).is_some_and(Value::is_null), "explicit no new signature must also suppress inherited replies: {key}");
+    }
+    assert_eq!(no_new["signatureFormat"], "plain");
+    assert_eq!(no_new["replySignatureFormat"], "plain");
+    identity.reply_signature_name = Some("short".into());
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    let reply_only = jmap(&h, get()).await;
+    let reply_only = &result(&reply_only, "get")["list"][0];
+    assert!(reply_only["signatureText"].is_null());
+    assert_eq!(reply_only["replySignatureText"], "Short reply signature");
+    identity.signature_name = Some("work".into());
+    identity.reply_signature_name = Some("short".into());
+    h.engine.store().upsert_native_personal_identity(&identity).await.unwrap();
+    h.engine.store().delete_personal_signature(&owner, "short").await.unwrap();
+    let deleted = jmap(&h, get()).await;
+    assert!(result(&deleted, "get")["list"][0].get("replySignatureText").is_some_and(Value::is_null), "a deleted explicit reply variant must not resurrect the new/provider signature");
     h.engine
         .store()
         .delete_personal_signature(&owner, "work")

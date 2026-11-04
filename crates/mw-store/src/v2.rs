@@ -111,6 +111,8 @@ pub struct IdentityRow {
     pub signature_text: Option<String>,
     /// Name of the signature TEMPLATE (see `signatures`) this identity applies.
     pub signature_name: Option<String>,
+    /// None inherits the new-message signature; an empty name disables replies.
+    pub reply_signature_name: Option<String>,
     pub organization: Option<String>,
     pub auto_bcc: Option<String>,
     pub pgp_key_id: Option<String>,
@@ -667,12 +669,12 @@ impl Store {
     pub async fn upsert_identity(&self, i: &IdentityRow) -> Result<(), StoreError> {
         let affected = q(
             "INSERT INTO identities
-                 (id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+                 (id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id, reply_signature_name)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
              ON CONFLICT(id) DO UPDATE SET
                  name = excluded.name, email = excluded.email, reply_to = excluded.reply_to,
                  signature_html = excluded.signature_html, signature_text = excluded.signature_text,
-                 signature_name = excluded.signature_name, organization = excluded.organization, auto_bcc = excluded.auto_bcc, pgp_key_id = excluded.pgp_key_id,
+                 signature_name = excluded.signature_name, organization = excluded.organization, auto_bcc = excluded.auto_bcc, pgp_key_id = excluded.pgp_key_id, reply_signature_name = excluded.reply_signature_name,
                  sent_mailbox_id = excluded.sent_mailbox_id, source = excluded.source
              WHERE identities.account_id = excluded.account_id",
         )
@@ -689,6 +691,7 @@ impl Store {
         .bind(i.organization.as_deref())
         .bind(i.auto_bcc.as_deref())
         .bind(i.pgp_key_id.as_deref())
+        .bind(i.reply_signature_name.as_deref())
         .execute(&self.backend)
         .await?;
         if affected == 0 {
@@ -700,7 +703,7 @@ impl Store {
     /// List an account's sending identities.
     pub async fn list_identities(&self, account_id: &str) -> Result<Vec<IdentityRow>, StoreError> {
         let rows = q(
-            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id
+            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id, reply_signature_name
              FROM identities WHERE account_id = ?1 ORDER BY source, email",
         )
         .bind(account_id)
@@ -712,7 +715,7 @@ impl Store {
     /// Fetch one identity by id.
     pub async fn get_identity(&self, id: &str) -> Result<Option<IdentityRow>, StoreError> {
         let row = q(
-            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id
+            "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id, reply_signature_name
              FROM identities WHERE id = ?1",
         )
         .bind(id)
@@ -983,6 +986,7 @@ fn identity_from_row(r: &Row) -> IdentityRow {
         signature_html: r.get_opt_string("signature_html"),
         signature_text: r.get_opt_string("signature_text"),
         signature_name: r.get_opt_string("signature_name"),
+        reply_signature_name: r.get_opt_string("reply_signature_name"),
         organization: r.get_opt_string("organization"),
         auto_bcc: r.get_opt_string("auto_bcc"),
         pgp_key_id: r.get_opt_string("pgp_key_id"),
@@ -2077,6 +2081,7 @@ mod tests {
             signature_html: None,
             signature_text: None,
             signature_name: None,
+            reply_signature_name: Some("short-reply".into()),
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,
@@ -2151,6 +2156,7 @@ mod tests {
             signature_html: None,
             signature_text: Some("--\nMe".into()),
             signature_name: Some("work".into()),
+            reply_signature_name: None,
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,

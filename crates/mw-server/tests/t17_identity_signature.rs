@@ -151,6 +151,11 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
         "{}",
         signature.text().await.unwrap()
     );
+    let reply_signature = c.post(format!("{base}/api/account/signatures"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"name":"reply-template","body":"Short reply","isDefault":false}))
+        .send().await.unwrap();
+    assert_eq!(reply_signature.status(), 200, "{}", reply_signature.text().await.unwrap());
 
     // POST an identity carrying signatureName (the 26.16-dropped, 26.17-persisted field).
     // This fixture uses the upstream address so it remains eligible for later
@@ -162,6 +167,7 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
             "name": "Work",
             "email": mw_mock_jmap::USER,
             "signatureName": "work-template",
+            "replySignatureName": "reply-template",
         }))
         .send()
         .await
@@ -195,6 +201,35 @@ async fn identity_signature_name_round_trips_through_the_prefs_route() {
         "signatureName persisted + round-tripped through the prefs route: {mine}"
     );
     assert_eq!(mine["email"], json!(mw_mock_jmap::USER));
+    assert_eq!(mine["replySignatureName"], "reply-template");
+    let disabled = c.post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"id":id,"name":"Work","email":mw_mock_jmap::USER,"signatureName":"work-template","replySignatureName":""}))
+        .send().await.unwrap();
+    assert_eq!(disabled.status(), 200, "{}", disabled.text().await.unwrap());
+    let disabled:Value = c.get(format!("{base}/api/account/identities")).send().await.unwrap().json().await.unwrap();
+    assert_eq!(disabled["identities"].as_array().unwrap().iter().find(|item|item["id"]==id).unwrap()["replySignatureName"], "");
+    let inherit = c.post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"id":id,"name":"Work","email":mw_mock_jmap::USER,"signatureName":"work-template"}))
+        .send().await.unwrap();
+    assert_eq!(inherit.status(), 200, "{}", inherit.text().await.unwrap());
+    let inherited:Value = c.get(format!("{base}/api/account/identities")).send().await.unwrap().json().await.unwrap();
+    assert!(inherited["identities"].as_array().unwrap().iter().find(|item|item["id"]==id).unwrap().get("replySignatureName").is_none());
+    let foreign = c.post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"id":id,"name":"Work","email":mw_mock_jmap::USER,"replySignatureName":"unowned-template"}))
+        .send().await.unwrap();
+    assert!(!foreign.status().is_success(), "unowned reply templates must be refused");
+    let reply_only = c.post(format!("{base}/api/account/identities"))
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&json!({"id":id,"name":"Work","email":mw_mock_jmap::USER,"signatureName":"","replySignatureName":"reply-template"}))
+        .send().await.unwrap();
+    assert_eq!(reply_only.status(), 200, "{}", reply_only.text().await.unwrap());
+    let reply_only:Value = c.get(format!("{base}/api/account/identities")).send().await.unwrap().json().await.unwrap();
+    let reply_only = reply_only["identities"].as_array().unwrap().iter().find(|item|item["id"]==id).unwrap();
+    assert_eq!(reply_only["signatureName"], "");
+    assert_eq!(reply_only["replySignatureName"], "reply-template");
 
     // An identity POSTed WITHOUT signatureName comes back without it (Option is honoured,
     // not defaulted to a stale value) — proves the column is genuinely per-row.

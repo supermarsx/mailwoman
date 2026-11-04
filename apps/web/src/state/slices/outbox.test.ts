@@ -297,4 +297,15 @@ describe('outbox slice', () => {
       expect(o.identities().map((i) => i.email)).toEqual(['work@example.org']);
     });
   });
+  it('rejects strict identity loading on transient failure while preserving the last confirmed identities',async()=>{
+    await withOutbox([],async(o,{jmap})=>{
+      await o.loadIdentities();jmap.mockRejectedValueOnce(new Error('Offline'));
+      await expect(o.loadIdentities({strict:true})).rejects.toThrow('Offline');expect(o.identities()[0]?.id).toBe(IDENTITY.id);
+      jmap.mockResolvedValueOnce({methodResponses:[['Identity/get',{accountId:'acct1'},'i']],sessionState:'s'});await expect(o.loadIdentities({strict:true})).rejects.toThrow('Invalid Identity/get response');expect(o.identities()[0]?.id).toBe(IDENTITY.id);
+      jmap.mockRejectedValueOnce(new Error('Offline'));await o.loadIdentities();expect(o.identities()).toEqual([]);
+    });
+  });
+  it('keeps an explicitly unsupported Identity/get compatible with strict discovery',async()=>{
+    await withOutbox([],async(o,{jmap})=>{jmap.mockResolvedValueOnce({methodResponses:[['error',{type:'unknownMethod'},'i']],sessionState:'s'});await expect(o.loadIdentities({strict:true})).resolves.toBeUndefined();expect(o.identities()).toEqual([]);});
+  });
 });

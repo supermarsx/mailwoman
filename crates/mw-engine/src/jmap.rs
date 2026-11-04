@@ -3090,7 +3090,11 @@ impl Engine {
             Err(e) => return server_fail(&e),
         };
         let mut signature_formats = std::collections::HashMap::<String, String>::new();
-        if rows.iter().any(|row| row.signature_name.is_some()) {
+        let mut reply_signatures = std::collections::HashMap::new();
+        if rows.iter().any(|row| {
+            row.signature_name.is_some()
+                || row.reply_signature_name.as_ref().is_some_and(|name| !name.is_empty())
+        }) {
             let owner = match self.store().native_personal_subject(account_id).await {
                 Ok(Some(owner)) => owner,
                 Ok(None) => {
@@ -3106,7 +3110,9 @@ impl Engine {
                 if let Some(name) = &row.signature_name {
                     // The owning account's explicit formats only. A removed
                     // template must not resurrect an old provider signature.
-                    let template = templates.iter().find(|template| &template.name == name);
+                    let template = templates
+                        .iter()
+                        .find(|template| !name.is_empty() && &template.name == name);
                     if let Some(template) = template {
                         signature_formats
                             .insert(row.id.clone(), template.effective_format().to_string());
@@ -3120,6 +3126,25 @@ impl Engine {
                     row.signature_html = template
                         .and_then(|template| template.html.as_deref())
                         .map(mw_sanitize::sanitize_signature_html);
+                }
+                if let Some(name) = &row.reply_signature_name {
+                    let template = templates
+                        .iter()
+                        .find(|template| !name.is_empty() && &template.name == name);
+                    reply_signatures.insert(
+                        row.id.clone(),
+                        (
+                            template
+                                .and_then(|template| template.html.as_deref())
+                                .map(mw_sanitize::sanitize_signature_html),
+                            template.map(|template| {
+                                template.text.clone().unwrap_or_else(|| template.body.clone())
+                            }),
+                            template
+                                .map(|template| template.effective_format().to_string())
+                                .unwrap_or_else(|| "plain".into()),
+                        ),
+                    );
                 }
             }
         }
@@ -3136,6 +3161,19 @@ impl Engine {
                 let mut value = identity_json(row);
                 if let Some(format) = signature_formats.get(&row.id) {
                     value["signatureFormat"] = json!(format);
+                }
+                if let Some((html, text, format)) = reply_signatures.get(&row.id) {
+                    value["replySignatureHtml"] = json!(html);
+                    value["replySignatureText"] = json!(text);
+                    value["replySignatureFormat"] = json!(format);
+                } else if row.reply_signature_name.as_deref() == Some("") {
+                    value["replySignatureHtml"] = Value::Null;
+                    value["replySignatureText"] = Value::Null;
+                    value["replySignatureFormat"] = json!("plain");
+                } else {
+                    value["replySignatureHtml"] = value["signatureHtml"].clone();
+                    value["replySignatureText"] = value["signatureText"].clone();
+                    value["replySignatureFormat"] = value["signatureFormat"].clone();
                 }
                 value
             })
@@ -3200,6 +3238,7 @@ impl Engine {
                 signature_html: None,
                 signature_text: None,
                 signature_name: None,
+                reply_signature_name: None,
                 organization: None,
                 auto_bcc: None,
                 pgp_key_id: None,
@@ -3246,6 +3285,7 @@ impl Engine {
                     signature_html: si.signature_html.clone(),
                     signature_text: si.signature_text.clone(),
                     signature_name: None,
+                    reply_signature_name: None,
                     organization: None,
                     auto_bcc: None,
                     pgp_key_id: None,

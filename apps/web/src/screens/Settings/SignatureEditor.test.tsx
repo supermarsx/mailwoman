@@ -31,6 +31,13 @@ async function sourceField(){
 const PNG='iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 function png(name='logo.png',bytes=Uint8Array.from(atob(PNG),c=>c.charCodeAt(0))):File{return new File([bytes],name,{type:'image/png'});}
 describe('dedicated signature formats',()=>{
+ it.each(['rich','html'] as const)('opens a new editable %s variant with its content and independent plain alternative intact',async format=>{
+  const html=format==='html'?'<table cellpadding="7"><tr><td><strong>Regards</strong></td></tr></table>':'<p><strong>Regards</strong></p>';
+  const save=vi.fn(async()=>{});render(()=><SignatureEditor seed={{name:'',body:'Plain custom',text:'Plain custom',textEdited:true,html,format,isDefault:false}} reservedNames={['Original']} service={{upsertSignature:save} as unknown as SettingsService} onSaved={()=>{}} onCancel={()=>{}}/>);
+  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'New variant'}});expect(screen.getByTestId('signature-format')).toHaveValue(format);
+  if(format==='html')expect(await sourceField()).toHaveValue(html);else await screen.findByRole('textbox',{name:'Rich signature'});
+  fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalledWith(expect.objectContaining({name:'New variant',format,html,text:'Plain custom',body:'Plain custom',isDefault:false})));
+ });
  it('saves explicit HTML source as typed and an independent literal plain alternative',async()=>{
   const {save,done}=setup();
   fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Work'}});

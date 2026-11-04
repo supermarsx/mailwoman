@@ -278,6 +278,8 @@ mail-compose-rt-rule = Horizontal line
 # Signature picker (W12)
 mail-compose-signature = Signature
 mail-compose-signature-none = Add a signature…
+mail-compose-signature-new = New messages
+mail-compose-signature-replies = Replies
 
 # Recall (W10)
 mail-compose-recall = Recall

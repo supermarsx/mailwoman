@@ -27,15 +27,16 @@ const NO_OWNED: ReadonlySet<string> = new Set();
 export const SIGNATURE_HTML_MAX = 32 * 1024;
 const utf8 = (value: string): number => new TextEncoder().encode(value).length;
 
-export function SignatureEditor(props: { initial?: Signature; service: SettingsService; onSaved: () => void | Promise<void>; onCancel: () => void | Promise<void> }): JSX.Element {
+export function SignatureEditor(props: { initial?: Signature; seed?: Signature; reservedNames?:readonly string[]; service: SettingsService; onSaved: () => void | Promise<void>; onCancel: () => void | Promise<void> }): JSX.Element {
   const owner = preferenceAccount();
   let disposed = false;
   onCleanup(() => {
     disposed = true;
   });
   const current = (): boolean => !disposed && (owner === null || preferenceAccountIsCurrent(owner));
-  const [draft, setDraft] = createSignal<Signature>(structuredClone(props.initial ?? { name: '', body: '', isDefault: false }));
-  const [mode, setMode] = createSignal<BodyMode>(props.initial?.format ?? (props.initial === undefined ? 'html' : props.initial.html ? 'html' : 'plain'));
+  const start=props.initial??props.seed;
+  const [draft, setDraft] = createSignal<Signature>(structuredClone(start ?? { name: '', body: '', isDefault: false }));
+  const [mode, setMode] = createSignal<BodyMode>(start?.format ?? (start === undefined ? 'html' : start.html ? 'html' : 'plain'));
   const plain = (): string => draft().text ?? draft().body;
   /** What a save sends: the HTML only while the format is not plain. Dirty = this differs from the last save. */
   const payload = (): Signature => ({ ...draft(), format: mode(), name: draft().name.trim(), body: plain(), text: plain(), html: mode() === 'plain' ? null : (draft().html ?? '') });
@@ -99,6 +100,7 @@ export function SignatureEditor(props: { initial?: Signature; service: SettingsS
       setFieldError(t('settings-sig-error-name'));
       return;
     }
+    if(!props.initial&&props.reservedNames?.includes(draft().name.trim())){setFieldError(t('settings-sig-error-existing'));return;}
     setFieldError('');
     setBusy(true);
     try {

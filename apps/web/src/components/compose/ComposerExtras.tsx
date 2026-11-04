@@ -18,6 +18,8 @@ import './compose-extras.css';
  *  (e15) can supply the same shape later. */
 export interface ComposeSignature {
   id: string;
+  identityId?:string;
+  plainText?:string;
   name: string;
   text: string;
   html: string | null;

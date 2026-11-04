@@ -2172,7 +2172,7 @@ mod admin_controls_0033 {
         ]},
         NewTable {name:"personal_identity",copied:true,cols:&[
             ("owner_subject",'T',"!","po1-delivery-owner"),("id",'T',"!","owned-profile"),("name",'T',"=","Work"),("email",'T',"!","owner@example.test"),
-            ("reply_to",'T',"~","reply@example.test"),("signature_html",'T',"~","<p>Rich</p>"),("signature_text",'T',"~","Plain"),("signature_name",'T',"~","Work"),
+            ("reply_to",'T',"~","reply@example.test"),("signature_html",'T',"~","<p>Rich</p>"),("signature_text",'T',"~","Plain"),("signature_name",'T',"~","Work"),("reply_signature_name",'T',"~","Short"),
             ("sent_mailbox_id",'T',"~","sent-personal"),("source",'T',"=configured","configured"),
             ("organization",'T',"~","Example Organization"),("auto_bcc",'T',"~","Audit <audit@example.test>"),("pgp_key_id",'T',"~","owned-key"),
         ]},
@@ -2957,6 +2957,7 @@ mod admin_controls_0033 {
             ("org_view_id", 'T', "~"),
         ]),
         ("identities", &[
+            ("reply_signature_name", 'T', "~"),
             ("auto_bcc", 'T', "~"),
             ("color", 'T', "~"),
             ("pgp_key_id", 'T', "~"),

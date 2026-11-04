@@ -508,8 +508,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "personal_identity",
-        select: "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id FROM personal_identity",
-        insert: "INSERT INTO personal_identity (id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13)",
+        select: "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id, reply_signature_name FROM personal_identity",
+        insert: "INSERT INTO personal_identity (id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id, reply_signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -525,6 +525,7 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "organization"),
                 ot(r, "auto_bcc"),
                 ot(r, "pgp_key_id"),
+                ot(r, "reply_signature_name"),
             ]
         },
     },
@@ -1003,8 +1004,8 @@ const TABLES: &[TableSpec] = &[
         // 0033 (26.20): auto-Bcc, colour, key links, receipt request, the
         // verification time (an unverified copy would block sending as it) and
         // the Sender header.
-        select: "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, auto_bcc, color, pgp_key_id, smime_cert_id, request_receipt, verified_at, sender_header, organization FROM identities",
-        insert: "INSERT INTO identities (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, auto_bcc, color, pgp_key_id, smime_cert_id, request_receipt, verified_at, sender_header, organization) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
+        select: "SELECT id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, auto_bcc, color, pgp_key_id, smime_cert_id, request_receipt, verified_at, sender_header, organization, reply_signature_name FROM identities",
+        insert: "INSERT INTO identities (id, account_id, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, auto_bcc, color, pgp_key_id, smime_cert_id, request_receipt, verified_at, sender_header, organization, reply_signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -1025,6 +1026,7 @@ const TABLES: &[TableSpec] = &[
                 oi(r, "verified_at"),
                 ot(r, "sender_header"),
                 ot(r, "organization"),
+                ot(r, "reply_signature_name"),
             ]
         },
     },

@@ -270,6 +270,8 @@ mail-compose-rt-rule = Linha horizontal
 # Signature picker (W12)
 mail-compose-signature = Assinatura
 mail-compose-signature-none = Adicionar uma assinatura…
+mail-compose-signature-new = Novas mensagens
+mail-compose-signature-replies = Respostas
 
 # Recall (W10)
 mail-compose-recall = Recolher

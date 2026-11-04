@@ -104,7 +104,7 @@ export interface OutboxSlice {
   /** (Re)load the Outbox from the server. */
   refreshOutbox(): Promise<void>;
   /** Load the sending identities (once per session; used by compose). */
-  loadIdentities(): Promise<void>;
+  loadIdentities(options?:{strict?:boolean}): Promise<void>;
   /** Cancel a waiting submission before it is sent ("Cancel" / "Discard"). */
   cancelOutbox(id: Id): Promise<void>;
   /** Send a waiting submission now ("Send now" / "Release"). */
@@ -168,13 +168,18 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     }
   }
 
-  async function loadIdentities(): Promise<void> {
+  async function loadIdentities(options?:{strict?:boolean}): Promise<void> {
     const acct = await resolveAccount();
     if (acct === null) return;
     try {
       const res = await client.jmap(identityGet(acct));
-      setIdentities(responseFor<IdentityGetResponse>(res, 'i').list ?? []);
-    } catch {
+      const unsupported=res.methodResponses.some(([name,args,id])=>id==='i'&&name==='error'&&args['type']==='unknownMethod');
+      if(unsupported){setIdentities([]);return;}
+      const result=responseFor<IdentityGetResponse>(res,'i');
+      if(options?.strict&&!Array.isArray(result.list))throw new Error('Invalid Identity/get response');
+      setIdentities(result.list??[]);
+    } catch (cause) {
+      if(options?.strict)throw cause;
       // Server lacks Identity/get (e.g. a bare IMAP server or the V0 mock):
       // fall back to no configured identities rather than breaking compose.
       setIdentities([]);

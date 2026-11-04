@@ -28,3 +28,11 @@ it('fences identity and notification calls with verified realm authority',async(
  const service=new SettingsService(fetcher);await service.listIdentities();await service.notifications();
  for(const call of fetcher.mock.calls)expect(new Headers(call[1]?.headers).get('x-mailwoman-storage-authority')).toBe('msa1_first_verified_authority');
 });
+it('preserves named, disabled and inherited reply signature replacement payloads',async()=>{
+ activateAccountPreferences('1','msa1_first_verified_authority');const fetcher=vi.fn(async(_input:string,_init?:RequestInit)=>new Response('{}',{status:200}));const service=new SettingsService(fetcher);
+ const identity={id:'identity',name:'Me',email:'me@example.org',signatureName:'Work'};
+ await service.upsertIdentity({...identity,replySignatureName:'Work'});await service.upsertIdentity({...identity,replySignatureName:''});await service.upsertIdentity(identity);
+ await service.upsertIdentity({...identity,signatureName:''});const {signatureName:_drop,...inherited}=identity;await service.upsertIdentity(inherited);
+ expect(fetcher.mock.calls.map(call=>JSON.parse(String(call[1]?.body)))).toEqual([{...identity,replySignatureName:'Work'},{...identity,replySignatureName:''},identity,{...identity,signatureName:''},inherited]);
+ for(const call of fetcher.mock.calls)expect(new Headers(call[1]?.headers).get('x-mailwoman-storage-authority')).toBe('msa1_first_verified_authority');
+});

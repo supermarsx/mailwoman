@@ -7,6 +7,17 @@ import {createSettingsNavigation,SettingsNavigationContext} from './navigation.t
 import type {SettingsService} from './service.ts';
 function signatureService(){return {listSignatures:vi.fn(async()=>[{name:'Work',body:'Original',isDefault:true}]),upsertSignature:vi.fn(async()=>{}),deleteSignature:vi.fn(async()=>{})} as unknown as SettingsService;}
 describe('dedicated account entity editors',()=>{
+ it('creates an independently named variant without overwriting the original or its default and rules',async()=>{
+  const original={name:'Work',body:'Original plain',text:'Authored alternative',textEdited:true,format:'plain' as const,isDefault:true,rule:'original-only'};
+  const service={listSignatures:vi.fn(async()=>[original]),upsertSignature:vi.fn(async()=>{})} as unknown as SettingsService;
+  const navigation=createSettingsNavigation({section:'signatures'});render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
+  fireEvent.click(await screen.findByRole('button',{name:'Create variant'}));
+  await screen.findByTestId('signature-editor');
+  expect(navigation.route().editor).toEqual({kind:'new'});expect(screen.getByLabelText('Name')).toHaveValue('');expect(screen.getByLabelText('Name')).not.toHaveAttribute('readonly');expect(screen.getByLabelText('Signature')).toHaveValue('Authored alternative');
+  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Work'}});fireEvent.click(screen.getByTestId('signature-save'));expect(screen.getByRole('alert')).toHaveTextContent('already exists');expect(service.upsertSignature).not.toHaveBeenCalled();
+  fireEvent.input(screen.getByLabelText('Name'),{target:{value:'Work reply'}});fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(service.upsertSignature).toHaveBeenCalledWith(expect.objectContaining({name:'Work reply',body:'Authored alternative',text:'Authored alternative',format:'plain',isDefault:false})));
+  expect(vi.mocked(service.upsertSignature).mock.calls[0]![0]).not.toHaveProperty('rule');expect(original).toMatchObject({name:'Work',isDefault:true,rule:'original-only'});await waitFor(()=>expect(navigation.route()).toEqual({section:'signatures'}));
+ });
  it('opens a signature page with no list and guards section navigation and workspace close',async()=>{
   const navigation=createSettingsNavigation({section:'signatures'});const service=signatureService();render(()=><SettingsNavigationContext.Provider value={navigation}><Signatures service={service}/></SettingsNavigationContext.Provider>);
   fireEvent.click(await screen.findByRole('button',{name:'Edit'}));await screen.findByTestId('signature-editor');expect(screen.queryByTestId('signature-list')).not.toBeInTheDocument();expect(navigation.route().editor).toEqual({kind:'edit',id:'Work'});
