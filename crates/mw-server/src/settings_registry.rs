@@ -436,6 +436,70 @@ pub static REGISTRY: &[SettingDef] = &[
         "Preferred forwarding format"
     ),
     def!(
+        "mail.allowSend",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Allow sending messages; drafts can still be saved"
+    ),
+    def!(
+        "mail.allowReply",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Allow reply and reply all"
+    ),
+    def!(
+        "mail.allowForward",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Allow forwarding messages"
+    ),
+    def!(
+        "mail.allowDownload",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Allow downloading messages and attachments"
+    ),
+    def!(
+        "mail.allowPrint",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Allow printing messages"
+    ),
+    def!(
+        "mail.showSpam",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Show the Spam folder and messages marked as spam"
+    ),
+    def!(
+        "mail.showAuthStatus",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Show SPF, DKIM and DMARC results in the reader"
+    ),
+    def!(
+        "mail.closeOnDelete",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Close the open message when it is deleted"
+    ),
+    def!(
         "mail.cache.refreshOnOpen",
         Kind::Bool,
         "true",

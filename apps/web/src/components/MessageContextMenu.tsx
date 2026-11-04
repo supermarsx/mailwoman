@@ -5,6 +5,7 @@ import {loadCatalog,t} from '../i18n';
 import {relatedSearchValue,relatedSenderDomain} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
+import {mailFeature} from '../state/mailFeatures.ts';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
@@ -45,7 +46,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:'clock',run:()=>app.unsnoozeMessage(id)});
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:'flag',run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
-  rows.push({id:'download' ,label:t('mail-context-download'),icon:'download',run:()=>app.exportMessage(id)});
+  if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:'download',run:()=>app.exportMessage(id)});
   return rows.map(row=>({...row,disabled:busy}));
  },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
  onCleanup(observePreferenceAccount(()=>menu.close(false)));

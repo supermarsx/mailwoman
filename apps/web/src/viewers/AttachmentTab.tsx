@@ -7,6 +7,7 @@ import { inspectFile } from './fileInfo.ts';
 import type { StripItem } from './ThumbnailStrip.tsx';
 import { formatSize } from './attachments.ts';
 import { formatNumber, t } from '../i18n';
+import { mailFeature } from '../state/mailFeatures.ts';
 import './attachment-tab.css';
 
 export interface AttachmentTabItem extends StripItem { downloadUrl: string }
@@ -42,7 +43,7 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
     <Show when={policy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>
     <Show when={decision() && !decision()!.allowed}><p role="alert">{t('mail-attachment-policy-blocked')}</p></Show>
     <Show when={decision()?.warning && !acknowledged()}><p role="alert">{t('mail-attachment-policy-warning')}</p><button class="btn" onClick={()=>setAcknowledged(true)}>{t('mail-attachment-policy-acknowledge')}</button></Show>
-    <Show when={permitted() && !decision()?.preview}><p>{t('mail-attachment-policy-no-preview')}</p><a class="btn" href={download()} download={props.item.name}>{t('common-message-preview-download')}</a></Show>
+    <Show when={permitted() && !decision()?.preview}><p>{t('mail-attachment-policy-no-preview')}</p><Show when={mailFeature('allowDownload')}><a class="btn" href={download()} download={props.item.name}>{t('common-message-preview-download')}</a></Show></Show>
     <Show when={file.loading}><p role="status">{t('mail-attachment-loading')}</p></Show>
     <Show when={file.state === 'errored'}><p role="alert">{t('mail-attachment-failed')}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={ready()}>{loaded => <>
@@ -55,7 +56,7 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
         <dt>SHA-256</dt><dd><code>{loaded().digest || t('mail-file-hash-unavailable')}</code></dd>
       </dl><p>{t('mail-file-fingerprint-help')}</p></details>
       <For each={loaded().info.warnings}>{warning => <p class="attachment-tab__warning" role="status"><Icon name="alert"/>{t(`mail-file-warning-${warning}`)}</p>}</For>
-      <a class="btn btn--ghost attachment-tab__download" href={loaded().url} download={props.item.name.replace(/[\\/]/g, '_')} rel="noopener">{t('common-message-preview-download')}</a>
+      <Show when={mailFeature('allowDownload')}><a class="btn btn--ghost attachment-tab__download" href={loaded().url} download={props.item.name.replace(/[\\/]/g, '_')} rel="noopener">{t('common-message-preview-download')}</a></Show>
       <Show when={!loaded().info.blockPreview} fallback={<p>{t('mail-file-preview-blocked')}</p>}>
         <div class="attachment-tab__viewer"><AttachmentViewer part={{ partId: null, blobId: props.item.blobId, size: loaded().size, type: props.item.mime }} blobUrl={loaded().url} mime={props.item.mime} name={props.item.name}/></div>
       </Show>

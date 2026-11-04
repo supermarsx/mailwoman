@@ -76,6 +76,7 @@ import { createFocusedSenders } from '../focusedSenders.ts';
 import type { FocusedSender } from '../../api/focusedSenders.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
 import { settings, writeSetting } from '../../api/settings.ts';
+import { mailFeature } from '../mailFeatures.ts';
 
 /**
  * Rows fetched per page. The list used to request exactly this many ids and
@@ -1773,7 +1774,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       await clearSearch();
       return;
     }
-    const excluded=excludedSearchMailboxes(parseQuery(query),mailboxes());
+    // `mail.showSpam` off: the Junk folder and `$junk` messages stay out of results (nothing is deleted).
+    const spamHidden=!mailFeature('showSpam');
+    const excluded=[...excludedSearchMailboxes(parseQuery(query),mailboxes()),...(spamHidden?mailboxes().filter(box=>box.role==='junk').map(box=>box.id):[])];
     // Offline: the reduced substring search over the cached header slice. It is
     // not a server query, so there is nothing to page: the cached slice IS the
     // whole result, which is why `total` may honestly be the row count here and
@@ -1802,6 +1805,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // `in:` names (as the filter bar writes them) become mailbox ids here.
       ...(text.trim()?{text}:{}),
       ...(excluded.length?{inMailboxOtherThan:excluded}:{}),
+      ...(spamHidden?{notKeyword:'$junk'}:{}),
       ...(opts?.semantic === true ? { semantic: true } : {}),
     };
     await loadFirstPage(acct, { kind: 'search', filter });
@@ -1851,6 +1855,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function exportMessage(id?: Id): Promise<void> {
+    if (!mailFeature('allowDownload')) { showToast('error', t('mail-feature-off')); return; }
     const email = id ? findEmail(id) : openEmail();
     const url = downloadUrl();
     const acct = accountId();
@@ -1876,6 +1881,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const acct = accountId();
     const user = me();
     if (acct === null || user === null) throw new Error(t('mail-send-not-signed-in'));
+    if (!mailFeature('allowSend')) throw new Error(t('mail-send-disabled'));
     const authority = preferenceAccount();
     const sendAuthorityCurrent = () => accountId() === acct && me() === user && (authority === null || preferenceAccountIsCurrent(authority));
     const requireCurrent = () => { if (!sendAuthorityCurrent()) throw new Error(t('mail-compose-account-changed')); };

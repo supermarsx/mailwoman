@@ -55,6 +55,8 @@ export interface SecurityPanelProps {
   initiallyExpanded?: boolean;
   /** Compact Reader metadata trigger; full details remain in the same dialog. */
   inline?: boolean;
+  /** Leave out the SPF/DKIM/DMARC/ARC results and the server's summary of them (`mail.showAuthStatus` off); signature, attachment, anomaly and sender-control sections stay. */
+  hideAuth?: boolean;
   /**
    * Dispatch a sender control. Defaults to a standalone mock (`defaultSenderControl`);
    * e8 passes a real `SenderControl/set` dispatch when it mounts the component.
@@ -75,7 +77,8 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
   onMount(() => void loadCatalog('security'));
   const [expanded, setExpanded] = createSignal(props.initiallyExpanded ?? false);
   const panelId = createUniqueId();
-  const tone = createMemo(() => overallTone(props.verdict));
+  const tone = createMemo(() => overallTone(props.verdict, props.hideAuth !== true));
+  const summary = (): string => (props.hideAuth === true ? t('security-panel-region') : props.verdict.plainLanguage);
   let chipRef: HTMLButtonElement | undefined;
 
   // Escape collapses the expanded panel and returns focus to the chip (WCAG 2.1.2).
@@ -96,12 +99,12 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
         aria-expanded={expanded()}
         aria-controls={panelId}
         aria-haspopup="dialog"
-        aria-label={props.verdict.plainLanguage}
-        data-tooltip={props.verdict.plainLanguage}
+        aria-label={summary()}
+        data-tooltip={summary()}
         onClick={() => setExpanded((v) => !v)}
       >
         <span class={`${css.chipDot} ${css.chipDotTone[tone()]}`} aria-hidden="true" />
-        <span class={css.chipLabel}>{props.inline ? `DMARC ${t(`security-auth-${props.verdict.auth.dmarc.result}`)}` : 'DKIM · SPF · DMARC'}</span>
+        <span class={css.chipLabel}>{props.hideAuth === true ? t('security-panel-region') : props.inline ? `DMARC ${t(`security-auth-${props.verdict.auth.dmarc.result}`)}` : 'DKIM · SPF · DMARC'}</span>
         <span class={css.chipCaret} aria-hidden="true">
           <Icon name={expanded() ? 'chevronUp' : 'chevronDown'} />
         </span>
@@ -110,8 +113,10 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
       <Show when={expanded()}>
         <SecurityPopup onClose={()=>{setExpanded(false);chipRef?.focus();}}>
         <div id={panelId} class={css.panel} role="region" aria-label={t('security-panel-region')}>
-          <p class={css.summary}>{props.verdict.plainLanguage}</p>
-          <AuthSection auth={props.verdict.auth} />
+          <Show when={props.hideAuth !== true}>
+            <p class={css.summary}>{props.verdict.plainLanguage}</p>
+            <AuthSection auth={props.verdict.auth} />
+          </Show>
           <ReceivedSection hops={props.verdict.received} />
           <SignatureSection signature={props.verdict.signature} />
           <AttachmentsSection attachments={props.verdict.attachments} />

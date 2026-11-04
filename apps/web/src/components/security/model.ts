@@ -151,15 +151,18 @@ export const ANOMALY_LABEL: Record<SecurityAnomaly, string> = {
 
 // ── Overall verdict tone (drives the collapsed chip colour) ──────────────────
 
-/** The worst tone across every facet of a verdict — the chip's colour. */
-export function overallTone(v: SecurityVerdict): SecurityTone {
-  const tones: SecurityTone[] = [
-    AUTH_RESULT_TONE[v.auth.dkim.result],
-    AUTH_RESULT_TONE[v.auth.spf.result],
-    AUTH_RESULT_TONE[v.auth.dmarc.result],
-    AUTH_RESULT_TONE[v.auth.arc.result],
-  ];
-  if (v.auth.dmarc.result === 'pass' && !v.auth.dmarc.aligned) tones.push('warning');
+/** The worst tone across every facet of a verdict — the chip's colour. `withAuth` false leaves the authentication results out (`mail.showAuthStatus` off). */
+export function overallTone(v: SecurityVerdict, withAuth = true): SecurityTone {
+  const tones: SecurityTone[] = [];
+  if (withAuth) {
+    tones.push(
+      AUTH_RESULT_TONE[v.auth.dkim.result],
+      AUTH_RESULT_TONE[v.auth.spf.result],
+      AUTH_RESULT_TONE[v.auth.dmarc.result],
+      AUTH_RESULT_TONE[v.auth.arc.result],
+    );
+    if (v.auth.dmarc.result === 'pass' && !v.auth.dmarc.aligned) tones.push('warning');
+  }
   if (v.signature) tones.push(signatureTone(v.signature));
   for (const a of v.attachments) tones.push(attachmentTone(a));
   if (v.anomalies.length > 0) tones.push('warning');

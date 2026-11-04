@@ -552,3 +552,56 @@ async fn mail_only_preset_refuses_pim_and_full_restores_it() {
         not_refused(s, &body, feature);
     }
 }
+
+/// `mail.allowSend` refuses a submission (a draft can still be saved) and
+/// `mail.allowDownload` refuses message export, for the subject only when the
+/// effective value is false; both keys default to on.
+#[tokio::test]
+async fn mail_send_and_export_follow_the_mail_feature_settings() {
+    let f = fixture().await;
+    let b = &f.base;
+    let submit = || {
+        f.user.post(format!("{b}/jmap/api")).json(&json!({
+            "using": ["urn:ietf:params:jmap:core", "urn:ietf:params:jmap:mail", "urn:ietf:params:jmap:submission"],
+            "methodCalls": [["EmailSubmission/set", {
+                "accountId": f.account,
+                "create": {"s": {"emailId": "e1", "envelope": {"mailFrom": {"email": "a@example.org"}, "rcptTo": [{"email": "b@example.org"}]}}}
+            }, "a"]]
+        }))
+    };
+    let setting_off = |status: u16, body: &Value, key: &str| {
+        assert_eq!(status, 403, "{key}: {body}");
+        assert_eq!(body["code"], "setting_disabled", "{body}");
+        assert_eq!(body["key"], key, "{body}");
+    };
+    let not_off = |status: u16, body: &Value| {
+        assert!(
+            !(status == 403 && body["code"] == "setting_disabled"),
+            "must be allowed: {status} {body}"
+        );
+    };
+
+    let (s, body) = send(submit()).await;
+    not_off(s, &body);
+    f.set_global("mail.allowSend", json!(false)).await;
+    let (s, body) = send(submit()).await;
+    setting_off(s, &body, "mail.allowSend");
+    // Saving a draft is not a submission.
+    let (s, body) = f
+        .jmap(
+            "Email/set",
+            json!({"create": {"d": {"subject": "draft", "keywords": {"$draft": true}}}}),
+        )
+        .await;
+    not_off(s, &body);
+    f.set_global("mail.allowSend", json!(true)).await;
+    let (s, body) = send(submit()).await;
+    not_off(s, &body);
+
+    f.set_global("mail.allowDownload", json!(false)).await;
+    let (s, body) = send(f.user.get(format!("{b}/api/export/m1?format=eml"))).await;
+    setting_off(s, &body, "mail.allowDownload");
+    f.set_global("mail.allowDownload", json!(true)).await;
+    let (s, body) = send(f.user.get(format!("{b}/api/export/m1?format=eml"))).await;
+    not_off(s, &body);
+}

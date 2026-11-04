@@ -1522,6 +1522,22 @@ or HTML.
 `mail.replyCopyToOriginal` defaults false; prefer the original folder for reply copies when allowed.
 <a id="mail.forwardMode"></a>
 `mail.forwardMode` chooses inline (default) or attachment forwarding; global/domain/user policy.
+<a id="mail.allowSend"></a>
+`mail.allowSend` defaults true. When false for a user, the server refuses `EmailSubmission/set` creates with `403 setting_disabled` and the composer disables Send and its shortcut; drafts can still be saved. Global/domain/user policy; users can only change it when it is not locked.
+<a id="mail.allowReply"></a>
+`mail.allowReply` defaults true. When false, the reader and its shortcuts offer no Reply or Reply all. Enforced in the web client only.
+<a id="mail.allowForward"></a>
+`mail.allowForward` defaults true. When false, the reader and its shortcuts offer no inline or attachment Forward, and the selection toolbar's forward-as-attachment is disabled. Enforced in the web client only.
+<a id="mail.allowDownload"></a>
+`mail.allowDownload` defaults true. When false, the web client offers no message download, bulk download or attachment download, and `GET /api/export/{stableId}` (export and bulk mbox download) answers `403 setting_disabled`. Single message and attachment downloads through `/jmap/download` are not refused by the server: the reader also fetches message headers, inline parts and previews through that route, so a user who calls it directly can still fetch a blob.
+<a id="mail.allowPrint"></a>
+`mail.allowPrint` defaults true. When false, the reader offers no Print action. Enforced in the web client only.
+<a id="mail.showSpam"></a>
+`mail.showSpam` defaults true. When false, the Junk folder is left out of the folder list and navigation, and messages marked `$junk` are left out of search results. Nothing is deleted. Enforced in the web client only.
+<a id="mail.showAuthStatus"></a>
+`mail.showAuthStatus` defaults true. When false, the reader does not show the SPF, DKIM and DMARC results of the Authentication-Results header. Unrelated warnings (spoofed sender, unsafe content) are not tied to this setting.
+<a id="mail.closeOnDelete"></a>
+`mail.closeOnDelete` defaults true. When true, deleting or moving to Trash the message open in the reader, a tab or a detached pane closes that view, whether the delete came from the reader, the list, a shortcut, a bulk action or another client. When false the reader keeps its previous behaviour (`mail.afterDelete` decides what is shown next).
 
 ### Sending identity defaults
 

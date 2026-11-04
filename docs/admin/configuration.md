@@ -297,6 +297,14 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.composewindow"></a>`mail.composeWindow` | mail | global+domain+user | "tab" | plain |  | yes | Preferred composer location |
 | <a id="mail.replycopytooriginal"></a>`mail.replyCopyToOriginal` | mail | global+domain+user | false | plain |  | yes | Offer original folder for reply copies |
 | <a id="mail.forwardmode"></a>`mail.forwardMode` | mail | global+domain+user | "inline" | plain |  | yes | Preferred forwarding format |
+| <a id="mail.allowsend"></a>`mail.allowSend` | mail | global+domain+user | true | plain |  | yes | Allow sending messages; drafts can still be saved |
+| <a id="mail.allowreply"></a>`mail.allowReply` | mail | global+domain+user | true | plain |  | yes | Allow reply and reply all |
+| <a id="mail.allowforward"></a>`mail.allowForward` | mail | global+domain+user | true | plain |  | yes | Allow forwarding messages |
+| <a id="mail.allowdownload"></a>`mail.allowDownload` | mail | global+domain+user | true | plain |  | yes | Allow downloading messages and attachments |
+| <a id="mail.allowprint"></a>`mail.allowPrint` | mail | global+domain+user | true | plain |  | yes | Allow printing messages |
+| <a id="mail.showspam"></a>`mail.showSpam` | mail | global+domain+user | true | plain |  | yes | Show the Spam folder and messages marked as spam |
+| <a id="mail.showauthstatus"></a>`mail.showAuthStatus` | mail | global+domain+user | true | plain |  | yes | Show SPF, DKIM and DMARC results in the reader |
+| <a id="mail.closeondelete"></a>`mail.closeOnDelete` | mail | global+domain+user | true | plain |  | yes | Close the open message when it is deleted |
 | <a id="mail.cache.refreshonopen"></a>`mail.cache.refreshOnOpen` | mail | global+domain+user | true | plain |  | yes | Refresh cached mail in the background on opening |
 | <a id="mail.cache.enabled"></a>`mail.cache.enabled` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: enabled |
 | <a id="mail.cache.mailboxes"></a>`mail.cache.mailboxes` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: mailboxes |

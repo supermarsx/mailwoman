@@ -4,6 +4,7 @@ import { apiFetch } from '../api/http.ts';
 import { transportBase } from '../api/transport.ts';
 import { bodyFrameDoc } from './sandbox.ts';
 import { formatNumber, t } from '../i18n';
+import { mailFeature } from '../state/mailFeatures.ts';
 import { displayText, leetspeakEnabled } from '../i18n/presentation.ts';
 import { leetspeakHtml } from './leetspeak.ts';
 
@@ -52,7 +53,7 @@ export function MessageAttachmentViewer(props: ViewerProps): JSX.Element {
       <p>{message.from}</p><p>{message.to}</p><p>{message.date}</p>
       <For each={message.warnings}>{warning => <p role="status">{warning}</p>}</For>
       <iframe class="mw-viewer__frame mw-viewer__frame--text" title={message.subject || props.name} sandbox="" srcdoc={message.html ? bodyFrameDoc('sanitized-no-media', { html: leetspeakEnabled() ? leetspeakHtml(message.html) : message.html }) : bodyFrameDoc('plain-text', { text: displayText(message.text ?? '') })} />
-      <Show when={message.attachments.length}><h3>{t('common-message-preview-attachments')}</h3><ul><For each={message.attachments}>{file => <li><span>{file.name} ({t('common-message-preview-size-bytes', { count: formatNumber(file.size) })})</span> <button class="btn btn--ghost" onClick={() => download(file)}>{t('common-message-preview-download')}</button></li>}</For></ul></Show>
+      <Show when={message.attachments.length}><h3>{t('common-message-preview-attachments')}</h3><ul><For each={message.attachments}>{file => <li><span>{file.name} ({t('common-message-preview-size-bytes', { count: formatNumber(file.size) })})</span> <Show when={mailFeature('allowDownload')}><button class="btn btn--ghost" onClick={() => download(file)}>{t('common-message-preview-download')}</button></Show></li>}</For></ul></Show>
     </>}</Show>
   </section>;
 }

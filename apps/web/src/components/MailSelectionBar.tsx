@@ -8,6 +8,7 @@ import { useApp } from '../state/context.ts';
 import { loadCatalog, t } from '../i18n/index.ts';
 import { downloadMessages, forwardMessages } from '../api/mailBulk.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from '../api/accountPreferenceLifecycle.ts';
+import { mailFeature } from '../state/mailFeatures.ts';
 import { SelectionBar, type SelectionAction } from './SelectionBar.tsx';
 import type { ContextAction } from './ContextMenu.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
@@ -83,8 +84,8 @@ export function MailSelectionBar(props: {
       { id: 'spam', label: t('mail-mark-spam'), icon: 'spam', testId: 'bulk-spam', run: () => app.markSpam(targets()) },
     ];
     if (app.tags().length > 0) out.push({ id: 'labels', label: t('selection-bar-labels'), icon: 'tag', testId: 'bulk-labels', menu: labelItems });
-    if (props.onCompose) out.push({ id: 'forward', label: t('mail-bulk-forward'), icon: 'forward', testId: 'bulk-forward', run: forward });
-    out.push({ id: 'download', label: t('mail-bulk-download'), icon: 'download', testId: 'bulk-download', disabled: busy(), run: download });
+    if (props.onCompose && mailFeature('allowForward')) out.push({ id: 'forward', label: t('mail-bulk-forward'), icon: 'forward', testId: 'bulk-forward', run: forward });
+    if (mailFeature('allowDownload')) out.push({ id: 'download', label: t('mail-bulk-download'), icon: 'download', testId: 'bulk-download', disabled: busy(), run: download });
     return out;
   };
 

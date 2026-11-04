@@ -14,6 +14,7 @@ import {useRealtime} from '../realtime/context.ts';
 import {ReaderSearchMenu,relatedSearchActions} from './search/ReaderSearchMenu.tsx';
 import {useApp} from '../state/context.ts';
 import {settings} from '../api/settings.ts';
+import {mailFeature} from '../state/mailFeatures.ts';
 import type {Email} from '../api/jmap-types.ts';
 import type {ReplyMode} from './compose/reply.ts';
 import type {ComposeInitial} from './compose/reply.ts';
@@ -117,7 +118,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const ids=createMemo(()=>['reply','reply-all','forward',...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam','export','print','zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.headersUrl?['headers']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete','spam',...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.headersUrl?['headers']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const menuOnly=():ContextAction[]=>focusActions(app,props.email);
 
  // ── Fitting ────────────────────────────────────────────────────────────────

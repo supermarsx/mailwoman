@@ -40,6 +40,7 @@ import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
+import { mailFeature } from '../state/mailFeatures.ts';
 import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
@@ -1035,6 +1036,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function startReply(mode: ReplyMode, compact = false): Promise<void> {
     const email = app.openEmail();
     if (email === null || preparing() || props.onCompose === undefined) return;
+    if (!mailFeature(mode === 'forward' ? 'allowForward' : 'allowReply')) return;
     const owner=preferenceAccount(),account=app.accountId();if(!owner||owner.id!==account||!account){app.showToast('error',t('mail-reply-failed'));return;}
     const original=extractHtmlBody(email),viewScope=replyViewScope(),policyScope=replyPolicyScope(),decrypted=decryptedHtml(),plaintext=decryptedText();
     const controller=new AbortController();replyAbort=controller;
@@ -1061,15 +1063,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // The `reply` shortcut (src/keymap/): the same as the toolbar's Reply button.
   useActions({
     replyAll: () => {
-      if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
+      if (!mailFeature('allowReply') || props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
       void startReply('reply-all'); return true;
     },
     forward: () => {
-      if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
+      if (!mailFeature('allowForward') || props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
       void startReply('forward'); return true;
     },
     reply: () => {
-      if (props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
+      if (!mailFeature('allowReply') || props.active === false || app.openEmail() === null || props.onCompose === undefined) return false;
       void startReply('reply');
       return true;
     },
@@ -1209,6 +1211,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   return (
                     <SecurityPanel
                       inline
+                      hideAuth={!mailFeature('showAuthStatus')}
                       verdict={v()}
                       senderAddress={sender()}
                       {...(tid !== undefined ? { threadId: tid } : {})}
@@ -1226,7 +1229,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
               <ReaderToolbar email={email()} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
-              <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
+              <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply')}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <ReaderReplyState answered={email().keywords?.['$answered']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />
             </header>

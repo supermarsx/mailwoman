@@ -1,0 +1,34 @@
+use mw_server::settings_registry::{REGISTRY, Scopes, validate};
+use serde_json::json;
+
+const KEYS: [&str; 8] = [
+    "mail.allowSend",
+    "mail.allowReply",
+    "mail.allowForward",
+    "mail.allowDownload",
+    "mail.allowPrint",
+    "mail.showSpam",
+    "mail.showAuthStatus",
+    "mail.closeOnDelete",
+];
+
+/// Each mail feature switch is a global/domain/user boolean that is on until
+/// an administrator or the user turns it off.
+#[test]
+fn mail_feature_switches_are_user_overridable_booleans_defaulting_on() {
+    for key in KEYS {
+        let def = REGISTRY
+            .iter()
+            .find(|d| d.key == key)
+            .unwrap_or_else(|| panic!("{key} is registered"));
+        assert!(matches!(def.scopes, Scopes::GlobalDomainUser), "{key}");
+        assert!(def.user_override, "{key}");
+        assert!(def.user_visible(), "{key} reaches GET /api/settings");
+        assert_eq!(def.category, "mail", "{key}");
+        assert_eq!(def.default, "true", "{key}");
+        assert!(validate(def, &json!(true), "/value").is_ok(), "{key}");
+        assert!(validate(def, &json!(false), "/value").is_ok(), "{key}");
+        assert!(validate(def, &json!("off"), "/value").is_err(), "{key}");
+        assert!(validate(def, &json!(0), "/value").is_err(), "{key}");
+    }
+}

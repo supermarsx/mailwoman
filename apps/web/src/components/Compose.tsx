@@ -103,6 +103,7 @@ import { ComposerTools, Dictation } from '../modules/assist/index.ts';
 import { NextcloudAttach, ShareLinkComposer, type AttachedFile, type ShareLink } from '../modules/nextcloud/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
 import { featureOn } from '../state/features.ts';
+import { mailFeature, mailFeatureOffTitle } from '../state/mailFeatures.ts';
 
 // Advertised in the session only by this server's own engine (mw-engine
 // `session_json`), which is what turns `mailwomanRequestReadReceipt` into a
@@ -1258,7 +1259,7 @@ export function Compose(props: {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
-    if(busy()||uploading()||discardCurrentOpen()||discardCurrentBusy())return;
+    if(!mailFeature('allowSend')||busy()||uploading()||discardCurrentOpen()||discardCurrentBusy())return;
     setBusy(true);
     try {
     const expectedSelection=sendingSelection();let identityTimer:ReturnType<typeof setTimeout>|undefined;
@@ -1454,7 +1455,7 @@ export function Compose(props: {
     >
       <form class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
         <header class="compose__header">
-          <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={busy()||discardCurrentOpen()||discardCurrentBusy()}>
+          <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={!mailFeature('allowSend')||busy()||discardCurrentOpen()||discardCurrentBusy()} title={mailFeature('allowSend')?undefined:mailFeatureOffTitle()}>
             <Icon name="sent"/> {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
           </button>
           <h2 class={a11y.srOnly}>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>

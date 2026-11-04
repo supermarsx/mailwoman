@@ -37,7 +37,8 @@ import {BulkSelectionSummary} from '../components/BulkSelectionSummary.tsx';
 import { readingPane } from '../components/readingPane.ts';
 import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
-import { orderedFolders, folderIcon, folderIsHidden } from './Settings/folderPreferenceModel.ts';
+import { orderedFolders, folderIcon, folderIsHidden, type PreferenceFolder } from './Settings/folderPreferenceModel.ts';
+import { spamFolderHidden, viewsClosedByDelete, vanishedIds, type ListSnapshot } from '../state/mailFeatures.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
 import '../styles/workspace.css.ts';
@@ -309,15 +310,33 @@ export function MailboxScreen(): JSX.Element {
     announceOpen(view,loading);
   }
   createEffect(on(()=>settings()['mail.messageListOrder']?.value??'newest',()=>{if(app.accountId())void app.refreshCurrentMailbox();},{defer:true}));
+  /** `mail.closeOnDelete`: the message views (reading pane, message tabs, detached panes) of deleted messages close instead of staying open on a message that is gone. */
+  function closeDeleted(ids:ReadonlySet<string>):void {
+    const closing=viewsClosedByDelete(ids,{previewId,panes:panes()});
+    if(closing.preview)closePreview();
+    for(const id of closing.paneIds)void closePane(id,true);
+  }
   onCleanup(onMessagesTrashed(event=>{
-    if(event.accountId!==app.accountId()||event.mailboxId!==app.selectedMailboxId()||event.mailboxId!==previewSourceMailboxId||event.sort!==(settings()['mail.messageListOrder']?.value??'newest')||!previewVisible()||previewId===null||!event.ids.includes(previewId))return;
+    if(event.accountId!==app.accountId())return;
+    // The reading pane moves to the neighbouring message (`mail.afterDelete`) when it can; every other open view of a deleted message closes.
+    const advances=event.mailboxId===app.selectedMailboxId()&&event.mailboxId===previewSourceMailboxId&&event.sort===(settings()['mail.messageListOrder']?.value??'newest')&&previewVisible()&&previewId!==null&&event.ids.includes(previewId);
+    if(!advances){closeDeleted(new Set(event.ids));return;}
     const mode=settings()['mail.afterDelete']?.value??'next';
-    const index=event.order.indexOf(previewId),removed=new Set(event.ids);
+    const index=event.order.indexOf(previewId!),removed=new Set(event.ids);
     const available=new Set(app.listMessages().map(message=>message.id));
     const remaining=event.order.filter(id=>!removed.has(id)&&available.has(id));
     const next=mode==='close'?undefined:mode==='previous'?[...event.order.slice(0,index)].reverse().find(id=>!removed.has(id)&&available.has(id))??remaining[0]:event.order.slice(index+1).find(id=>!removed.has(id)&&available.has(id))??remaining.at(-1);
     if(next)openPreview(next);else closePreview();
+    closeDeleted(removed);
   }));
+  // Another client (or a rule) deleted a message that is open here: the refreshed folder list no longer holds it and the folder's total fell by as many.
+  {let seen:ListSnapshot|null=null;
+  createEffect(()=>{
+    const ids=new Set(app.listMessages().map(message=>message.id)),total=app.total(),key=`${app.accountId()}:${app.selectedMailboxId()}:${settings()['mail.messageListOrder']?.value??'newest'}`;
+    if(app.listLoading()||app.searchActive()||total===null){seen=null;return;}
+    const gone=vanishedIds(seen,{key,ids,total});seen={key,ids,total};
+    if(gone.size>0)untrack(()=>closeDeleted(gone));
+  });}
   function closePreview():void {const view=preview();previewId=null;setPreviewMessage(null);previewLoading=undefined;setPreview(null);view?.dispose();}
   /** t109: the pane's message after a reload. Not a user intent (the tab restore goes on); a message that is gone closes the pane quietly. */
   function restorePreview(messageId:string):void {
@@ -570,7 +589,9 @@ export function MailboxScreen(): JSX.Element {
   const accountIconInTopBar = (): boolean => !narrow() && folderMode() === 'hidden';
   const [navOpen, setNavOpen] = createSignal(false);
   let sidebarEl: HTMLElement | undefined;
-  const navigationFolders=createMemo(()=>orderedFolders(app.mailboxes(),accountUiPreferences()).filter(box=>!folderIsHidden(box,app.mailboxes(),accountUiPreferences())));
+  // `mail.showSpam` off hides the Junk folder from navigation like a hidden folder; nothing is deleted.
+  const navHidden=(box:PreferenceFolder)=>folderIsHidden(box,app.mailboxes(),accountUiPreferences())||spamFolderHidden(box);
+  const navigationFolders=createMemo(()=>orderedFolders(app.mailboxes(),accountUiPreferences()).filter(box=>!navHidden(box)));
   createEffect(()=>{
     const policy=readMailCachePolicy(),boxes=navigationFolders(),loading=app.listLoading();
     if(!policy.prefetchEnabled||!policy.idleEnabled||loading)return;
@@ -581,7 +602,7 @@ export function MailboxScreen(): JSX.Element {
   // folder. Existing message/folder tabs remain legitimate direct destinations.
   createEffect(()=>{
     const selected=app.mailboxes().find(box=>box.id===app.selectedMailboxId());
-    if(!selected||!folderIsHidden(selected,app.mailboxes(),accountUiPreferences()))return;
+    if(!selected||!navHidden(selected))return;
     const fallback=navigationFolders().find(box=>box.role==='inbox')??navigationFolders()[0];
     if(fallback){void app.selectMailbox(fallback.id);queueMicrotask(()=>{
       if(document.activeElement===document.body)sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')?.focus();

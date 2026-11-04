@@ -1,6 +1,7 @@
-import type { JSX } from 'solid-js';
+import { Show, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { t } from '../i18n/index.ts';
+import { mailFeature } from '../state/mailFeatures.ts';
 
 /** Fallback for MIME types with no inline viewer — offers a download link only. */
 export function UnsupportedViewer(props: ViewerProps): JSX.Element {
@@ -10,9 +11,11 @@ export function UnsupportedViewer(props: ViewerProps): JSX.Element {
       <p class="mw-viewer__unsupported-meta">
         {props.name} · {props.mime || t('common-viewer-unknown-type')}
       </p>
-      <a class="btn btn--primary" href={props.blobUrl} download={props.name}>
-        {t('common-viewer-download')}
-      </a>
+      <Show when={mailFeature('allowDownload')}>
+        <a class="btn btn--primary" href={props.blobUrl} download={props.name}>
+          {t('common-viewer-download')}
+        </a>
+      </Show>
     </div>
   );
 }

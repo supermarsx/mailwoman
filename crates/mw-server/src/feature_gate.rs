@@ -407,7 +407,50 @@ pub(crate) fn jmap_max_recipients(request: &Value) -> usize {
     most
 }
 
+/// Whether a JMAP batch sends: an `EmailSubmission/set` that creates a
+/// submission, or updates one other than cancelling it. `mail.allowSend`
+/// refuses exactly these; saving a draft (`Email/set`) is never one.
+pub(crate) fn jmap_sends(request: &Value) -> bool {
+    request
+        .get("methodCalls")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter(|call| call.get(0).and_then(Value::as_str) == Some("EmailSubmission/set"))
+        .any(|call| {
+            let args = call.get(1).cloned().unwrap_or(Value::Null);
+            !values_of(&args, "create").is_empty()
+                || args.get("#create").is_some()
+                || args.get("#update").is_some()
+                || args
+                    .get("update")
+                    .and_then(Value::as_object)
+                    .is_some_and(|updates| {
+                        updates.values().any(|patch| {
+                            patch.as_object().is_none_or(|map| {
+                                map.len() != 1
+                                    || map.get("undoStatus").and_then(Value::as_str)
+                                        != Some("canceled")
+                            })
+                        })
+                    })
+        })
+}
+
 // ─── the middleware ──────────────────────────────────────────────────────────
+
+/// A mail feature setting (`mail.allowSend`, `mail.allowDownload`) is off for the subject.
+fn setting_off(key: &str) -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+        axum::Json(json!({
+            "code":"setting_disabled","key":key,
+            "error":"this action is turned off for your account by the mail feature settings",
+        })),
+    )
+        .into_response()
+}
 
 fn disabled(feature: &str, key: &str) -> Response {
     (
@@ -468,6 +511,8 @@ struct Needs {
     native: bool,
     protocol: bool,
     link_limit: bool,
+    /// Boolean registry keys that must not be `false` for this request.
+    required: Vec<&'static str>,
     upload_bytes: Option<u64>,
     recipients: usize,
     avatars: Option<Value>,
@@ -479,6 +524,7 @@ impl Needs {
             || self.native
             || self.protocol
             || self.link_limit
+            || !self.required.is_empty()
             || self.upload_bytes.is_some()
             || self.recipients > 0
             || self.avatars.is_some()
@@ -539,6 +585,9 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         link_limit: method == Method::POST && path == "/api/accounts/link",
         ..Default::default()
     };
+    if method == Method::GET && path.starts_with("/api/export/") {
+        needs.required.push("mail.allowDownload");
+    }
     if method == Method::POST && path.starts_with("/jmap/upload/") {
         needs.upload_bytes = req
             .headers()
@@ -564,6 +613,9 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
             if let Some(body) = body {
                 needs.features.extend(jmap_features(&body));
                 needs.recipients = jmap_max_recipients(&body);
+                if jmap_sends(&body) {
+                    needs.required.push("mail.allowSend");
+                }
             }
         }
     }
@@ -629,6 +681,7 @@ async fn check(
     if needs.link_limit {
         keys.push("limit.linked_mailboxes");
     }
+    keys.extend(needs.required.iter().copied());
     if needs.upload_bytes.is_some() {
         keys.push("limit.attachment_bytes");
     }
@@ -690,6 +743,12 @@ async fn check(
             {
                 return Err(disabled("access.protocols", "access.protocols"));
             }
+        }
+    }
+    for key in &needs.required {
+        // Absent means the default (on); only an explicit `false` refuses.
+        if get(key).and_then(Value::as_bool) == Some(false) {
+            return Err(setting_off(key));
         }
     }
     let limit = |key: &str| get(key).and_then(Value::as_u64).filter(|n| *n > 0);
@@ -773,6 +832,25 @@ pub(crate) async fn admit_account(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_submission_counts_as_sending() {
+        let req = |calls: Value| json!({ "methodCalls": calls });
+        assert!(jmap_sends(&req(
+            json!([["EmailSubmission/set", {"create":{"s":{"emailId":"e"}}}, "a"]])
+        )));
+        assert!(jmap_sends(&req(
+            json!([["EmailSubmission/set", {"update":{"s":{"sendAt":null}}}, "a"]])
+        )));
+        // Cancelling a pending send, and saving a draft, are not sends.
+        assert!(!jmap_sends(&req(
+            json!([["EmailSubmission/set", {"update":{"s":{"undoStatus":"canceled"}}}, "a"]])
+        )));
+        assert!(!jmap_sends(&req(
+            json!([["Email/set", {"create":{"d":{"subject":"x"}}}, "a"]])
+        )));
+        assert!(!jmap_sends(&req(json!([["EmailSubmission/get", {}, "a"]]))));
+    }
 
     #[test]
     fn rest_prefixes_map_to_their_feature_by_method() {
