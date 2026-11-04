@@ -374,7 +374,9 @@ async fn exercise(store: Store, replica: Store, key: ServerKey) {
         .await
         .unwrap();
     let encoded = serde_json::to_string(&events).unwrap();
-    assert!(!encoded.contains("198.51.100.1"));
+    // Events identify the decision source (ebc5e4d3): the IP appears only as the snapshot's `sourceIp`, never as the subject key.
+    assert!(encoded.contains("\"sourceIp\":\"198.51.100.1\""));
+    assert_eq!(encoded.matches("198.51.100.1").count(), encoded.matches("\"sourceIp\":\"198.51.100.1\"").count());
     assert!(!encoded.contains("verified-account"));
     assert!(events.iter().any(|event| event.action == "cleared"));
     let sustained = events

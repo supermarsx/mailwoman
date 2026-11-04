@@ -22,6 +22,10 @@ pub enum Signal {
     /// High-confidence scanner evidence, independent of selected weak signals.
     ProbePath,
     BotUserAgent,
+    /// A typed HTTP protocol anomaly from the protocol guard (framing, host,
+    /// request-target and similar findings). Counted in the rolling windows
+    /// regardless of the weak-signal selection, but never a strong, immediate block.
+    Protocol,
     Ignored,
 }
 impl Signal {
@@ -31,6 +35,11 @@ impl Signal {
             Self::BotUserAgent => Some(Reason::BotUserAgent),
             _ => None,
         }
+    }
+    /// Whether this observation is an anomaly for `signals`, the policy's selected
+    /// weak-signal bits. Strong evidence and protocol anomalies always count.
+    fn counts(self, signals: u8) -> bool {
+        self.strong_reason().is_some() || self == Self::Protocol || self.bit() & signals != 0
     }
     fn bit(self) -> u8 {
         match self {
@@ -382,7 +391,7 @@ impl State {
         if policy.adaptive_mode == Mode::Off || signal == Signal::Ignored {
             return Decision::default();
         }
-        let anomaly = signal.strong_reason().is_some() || signal.bit() & policy.signals != 0;
+        let anomaly = signal.counts(policy.signals);
         if signal != Signal::Normal && !anomaly {
             return Decision::default();
         }
@@ -560,7 +569,7 @@ pub fn simulate(policy: &Policy, input: &SimInput) -> SimOutcome {
     let signal = input.signal.unwrap_or(Signal::Normal);
     let adaptive_on = policy.adaptive_mode != Mode::Off;
     let anomaly =
-        adaptive_on && (signal.strong_reason().is_some() || signal.bit() & policy.signals != 0);
+        adaptive_on && signal.counts(policy.signals);
     let counted = |c: Counts| Counts {
         normal: c.normal + u64::from(adaptive_on && signal == Signal::Normal),
         anomalous: c.anomalous + u64::from(anomaly),

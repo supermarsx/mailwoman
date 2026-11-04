@@ -31,8 +31,14 @@ async fn fixture(values: &[(&str, Value)]) -> (String, Store) {
     let store = Store::open(db.to_str().unwrap(), ServerKey::from_hex(key).unwrap())
         .await
         .unwrap();
-    for (key, value) in
-        std::iter::once(("signin.retryCooldownSecs", json!(0))).chain(values.iter().cloned())
+    // These suites exercise the user-agent budgets; the trust-tier class actions
+    // (security.trust.ua*, default block for declared AI crawlers) are covered by
+    // t101_trust_geo, so the AI classes stay on the budget path here.
+    let budget_path = ["uaAiTraining", "uaAiSearch", "uaAiUser"]
+        .map(|class| (format!("security.trust.{class}"), json!("limit")));
+    for (key, value) in std::iter::once(("signin.retryCooldownSecs".to_owned(), json!(0)))
+        .chain(budget_path)
+        .chain(values.iter().map(|(k, v)| ((*k).to_owned(), v.clone())))
     {
         store
             .put_setting_policy(&SettingPolicyRow {

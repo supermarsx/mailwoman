@@ -76,6 +76,19 @@ impl KeyedRateLimiter {
     }
 
     pub(crate) fn retry_after_at(&mut self, key: &str, now: Instant) -> Option<Duration> {
+        self.retry_after_cost_at(key, now, 1.0)
+    }
+
+    /// As [`Self::retry_after_at`], charging `cost` tokens (trust tiers: a known
+    /// source pays less, an unknown one below the baseline pays more). A cost
+    /// above the burst can never be paid and is capped at it.
+    pub(crate) fn retry_after_cost_at(
+        &mut self,
+        key: &str,
+        now: Instant,
+        cost: f64,
+    ) -> Option<Duration> {
+        let cost = cost.clamp(0.01, self.burst.max(0.01));
         if !self.buckets.contains_key(key) {
             self.make_room(now);
         }
@@ -87,12 +100,12 @@ impl KeyedRateLimiter {
         let elapsed = now.saturating_duration_since(b.last).as_secs_f64();
         b.tokens = (b.tokens + elapsed * refill).min(burst);
         b.last = now;
-        if b.tokens >= 1.0 {
-            b.tokens -= 1.0;
+        if b.tokens >= cost {
+            b.tokens -= cost;
             None
         } else {
             Some(if refill > 0.0 {
-                Duration::from_secs_f64((1.0 - b.tokens) / refill)
+                Duration::from_secs_f64((cost - b.tokens) / refill)
             } else {
                 Duration::MAX
             })

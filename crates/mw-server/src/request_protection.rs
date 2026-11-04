@@ -5,6 +5,7 @@ mod config;
 /// The Adaptive protection page's policy editor and simulator (t97).
 mod editor;
 mod probe_path;
+mod tier_sim;
 pub(crate) mod user_agent;
 use crate::{AppState, admin_ctx::AdminApiError};
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
@@ -24,9 +25,25 @@ use std::sync::{
     atomic::{AtomicU8, Ordering},
 };
 
+/// What a claimed user-agent class action comes to for a request: a signed-in
+/// session is never blocked by class (it is limited like any other request).
+/// Shared with the Adaptive protection simulator.
+pub(crate) fn class_outcome(
+    action: crate::trust_tier::UaAction,
+    signed_in: bool,
+) -> crate::trust_tier::UaAction {
+    match action {
+        crate::trust_tier::UaAction::Block if signed_in => crate::trust_tier::UaAction::Limit,
+        other => other,
+    }
+}
+
 #[derive(Default)]
 pub(crate) struct Runtime {
     cache: Cache,
+    /// The protocol guard's policy cache (`security.protocol.*`), invalidated
+    /// together with the request-protection policy.
+    pub(crate) protocol: crate::protocol_guard::Cache,
 }
 impl Runtime {
     pub fn start(store: mw_store::Store) -> Arc<Self> {
@@ -38,6 +55,7 @@ impl Runtime {
                 let Some(alive) = weak.upgrade() else {
                     break;
                 };
+                crate::trust_tier::prune();
                 if store
                     .prune_request_protection(chrono::Utc::now().timestamp())
                     .await
@@ -52,6 +70,48 @@ impl Runtime {
     }
     pub fn invalidate(&self) {
         self.cache.invalidate();
+        self.protocol.invalidate();
+    }
+}
+/// Charge one typed observation to the transport source's client subject, the
+/// way a probe-path hit is charged. Returns the refusal when the source is now
+/// under an enforced adaptive action. No-op while adaptive protection is off.
+pub(crate) async fn observe_source(
+    state: &AppState,
+    source: std::net::IpAddr,
+    signal: Signal,
+) -> Option<Response> {
+    let config = state.request_protection.cache.get(&state.store).await.ok()?;
+    let source = source.to_canonical().to_string();
+    let policy = config.subject("client", &source)?;
+    if policy.adaptive_mode == mw_store::request_protection_model::Mode::Off {
+        return None;
+    }
+    let country = match mw_engine::security::country_lookup(source.parse().ok()) {
+        mw_engine::security::CountryLookup::Known(country) => Some(country),
+        _ => None,
+    };
+    match state
+        .store
+        .request_protection_with_source(
+            "client",
+            &source,
+            &policy,
+            chrono::Utc::now().timestamp(),
+            Some(signal),
+            mw_store::request_protection::ProtectionSource {
+                country: country.as_deref(),
+                ip: Some(&source),
+            },
+        )
+        .await
+    {
+        Ok(outcome) if outcome.decision.enforced => Some(response(limited(outcome.decision))),
+        Ok(_) => None,
+        Err(_) => {
+            warning();
+            None
+        }
     }
 }
 struct Charged {
@@ -66,6 +126,9 @@ struct Context {
     source_country: Option<String>,
     source_ip: Option<String>,
     display_subresource: bool,
+    /// Trust tier of this request (0 unknown, 1 known, 2 authenticated).
+    tier: AtomicU8,
+    trust: Arc<crate::trust_tier::Policy>,
     charged: tokio::sync::Mutex<Vec<Charged>>,
     signal: AtomicU8,
 }
@@ -107,6 +170,13 @@ fn warning() {
     }
 }
 impl Context {
+    fn tier(&self) -> crate::trust_tier::Tier {
+        match self.tier.load(Ordering::Relaxed) {
+            2 => crate::trust_tier::Tier::Authenticated,
+            1 => crate::trust_tier::Tier::Known,
+            _ => crate::trust_tier::Tier::Unknown,
+        }
+    }
     async fn admit(&self, kind: &'static str, value: &str) -> Result<(), AdminApiError> {
         if !self.legacy_route && !kind.starts_with("ua-") {
             return Ok(());
@@ -119,6 +189,11 @@ impl Context {
         // limits still apply; its individual download spends no second budget.
         if self.display_subresource && !kind.starts_with("ua-") {
             policy.rate_mode = mw_store::request_protection_model::Mode::Off;
+        }
+        // Trust tier: only the request allowance of an anonymous source scales.
+        // Adaptive signal thresholds and active blocks are never relaxed.
+        if kind == "client" || kind.starts_with("ua-") {
+            policy.rate_limit = self.trust.scale_limit(policy.rate_limit, self.tier());
         }
         let mut charged = self.charged.lock().await;
         if charged
@@ -552,6 +627,40 @@ pub(crate) async fn guard(
         Ok(config) => config,
         Err(()) => return response(unavailable()),
     };
+    let trust = crate::trust_tier::policy(&state.store).await;
+    let mut ua_allowed = false;
+    if ua_route || bot_route {
+        let claimed = config.user_agent.claimed_class(
+            request
+                .headers()
+                .get(header::USER_AGENT)
+                .and_then(|v| v.to_str().ok()),
+        );
+        let mut claimed = claimed.map(|class| (class, trust.ua_action(class)));
+        if let Some((_, action)) = claimed.as_mut()
+            && *action == crate::trust_tier::UaAction::Block
+            && has_session(&state, request.headers(), request.uri().path()).await
+        {
+            *action = class_outcome(crate::trust_tier::UaAction::Block, true);
+        }
+        match claimed {
+            Some((class, crate::trust_tier::UaAction::Block)) => {
+                tracing::info!(target: "request_protection", class, "anonymous request refused by user-agent class action");
+                let mut refused = response(AdminApiError::new(
+                    StatusCode::FORBIDDEN,
+                    "automatedClientBlocked",
+                    "Automated access is not available here",
+                ));
+                refused.headers_mut().insert(
+                    "x-robots-tag",
+                    "noindex, nofollow, noai, noimageai".parse().unwrap(),
+                );
+                return refused;
+            }
+            Some((_, crate::trust_tier::UaAction::Allow)) => ua_allowed = true,
+            _ => {}
+        }
+    }
     if !config.enabled() {
         return next.run(request).await;
     }
@@ -616,7 +725,8 @@ pub(crate) async fn guard(
             )
         })
         .flatten()
-        .filter(|category| ua_route || config.user_agent.blocks_bot(category));
+        .filter(|category| ua_route || config.user_agent.blocks_bot(category))
+        .filter(|_| !ua_allowed);
     if (!legacy_route || !config.legacy_enabled()) && ua_category.is_none() {
         return next.run(request).await;
     }
@@ -636,6 +746,8 @@ pub(crate) async fn guard(
         source_country,
         source_ip,
         display_subresource: display_proof.is_some(),
+        tier: AtomicU8::new(0),
+        trust,
         charged: Default::default(),
         signal: AtomicU8::new(0),
     });
@@ -659,6 +771,14 @@ pub(crate) async fn guard(
                     Err(limited) => return limited,
                 }
             };
+            context.tier.store(
+                match crate::trust_tier::tier_for(source, identified) {
+                    crate::trust_tier::Tier::Authenticated => 2,
+                    crate::trust_tier::Tier::Known => 1,
+                    crate::trust_tier::Tier::Unknown => 0,
+                },
+                Ordering::Relaxed,
+            );
             if legacy_route
                 && !identified
                 && let Some(source) = source
@@ -682,6 +802,27 @@ pub(crate) async fn guard(
             result
         })
         .await
+}
+
+/// Whether the request carries a valid session; charges nothing.
+async fn has_session(state: &AppState, headers: &axum::http::HeaderMap, path: &str) -> bool {
+    let admin = mw_admin::config::admin_path();
+    if path
+        .strip_prefix(&admin)
+        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    {
+        return crate::admin_ctx::AdminCtx::resolve(state, headers)
+            .await
+            .is_ok();
+    }
+    if let Some(token) = crate::push_relay::bearer_token(headers) {
+        let hash = crate::push_relay::hash_token(&token);
+        return matches!(state.store.get_native_session(&hash).await, Ok(Some(_)));
+    }
+    match crate::cookie_value(headers) {
+        Some(id) => state.store.get_primary_session(&id).await.is_ok(),
+        None => false,
+    }
 }
 
 /// Sign-in, second-factor, recovery, password and identity-confirmation routes:

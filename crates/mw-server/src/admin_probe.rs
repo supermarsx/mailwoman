@@ -30,6 +30,7 @@
 //! instance after a restart).
 mod api;
 mod config;
+mod geo;
 mod tracker;
 
 pub(crate) use api::register;
@@ -98,6 +99,8 @@ type Clock = Arc<dyn Fn() -> u64 + Send + Sync>;
 
 pub(crate) struct Runtime {
     tracker: Mutex<Tracker>,
+    /// Probes from unknown countries (`security.trust.adminGeo*`).
+    geo: Mutex<geo::Counter>,
     config: config::Cache,
     stats: Stats,
     clock: Clock,
@@ -118,6 +121,7 @@ impl Runtime {
         let started_ms = clock();
         Self {
             tracker: Mutex::new(Tracker::new(CAPACITY)),
+            geo: Mutex::new(geo::Counter::default()),
             config: config::Cache::default(),
             stats: Stats::default(),
             clock,
@@ -445,6 +449,12 @@ fn blocked(policy: &Policy, until_ms: u64, now_ms: u64) -> Response {
 /// security headers, so a blocked answer carries the same headers everywhere.
 pub(crate) async fn guard(State(state): State<AppState>, request: Request, next: Next) -> Response {
     let runtime = state.admin_probe.clone();
+    // Liveness and readiness probes stay reachable, whatever the source.
+    if matches!(request.uri().path(), "/healthz" | "/readyz") {
+        return next.run(request).await;
+    }
+    // Keeps the shared trust-tier policy fresh (cached 30 s) for every guard.
+    let trust = crate::trust_tier::policy(&state.store).await;
     let Some(ip) = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions())
     else {
         return next.run(request).await;
@@ -478,6 +488,7 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
     if shape == Shape::Other {
         return next.run(request).await;
     }
+    let headers = request.headers().clone();
     let response = next.run(request).await;
     let Some(verdict) = verdict(&shape, &response) else {
         return response;
@@ -492,6 +503,13 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
         Verdict::Signal(signal, cookie) => (signal, cookie),
     };
     let now = runtime.now();
+    if trust.geo.enabled
+        && let Some((until, _strike)) =
+            geo_gate(&state, &policy, &trust, &headers, ip, key, signal, now).await
+    {
+        drop(response);
+        return blocked(&policy, until, now);
+    }
     let outcome = runtime
         .lock()
         .record(key, signal, cookie, now, &policy.limits);
@@ -520,6 +538,129 @@ pub(crate) async fn guard(State(state): State<AppState>, request: Request, next:
             blocked(&policy, until_ms, now)
         }
     }
+}
+
+/// The country decision of the unknown-country rule, as the live gate and the
+/// Adaptive protection simulator both take it. `None` for a local network (never
+/// a stranger). The shared lookup-failure default adds to the feature's own key
+/// (the stricter wins); `block` acts as treat-as-unknown here, since this rule
+/// only ever blocks discovery requests, never a sign-in.
+pub(crate) fn geo_decision(
+    ip: Option<IpAddr>,
+    lookup: &mw_engine::security::CountryLookup,
+    rules: &crate::trust_tier::GeoRules,
+    shared: &crate::geo_lookup::Shared,
+    seen: impl Fn(&str) -> bool,
+) -> (
+    crate::geo_lookup::Outcome,
+    Option<crate::trust_tier::CountryVerdict>,
+) {
+    let outcome = crate::geo_lookup::classify_with(ip, lookup.clone());
+    if outcome == crate::geo_lookup::Outcome::Local {
+        return (outcome, None);
+    }
+    let mut rules = rules.clone();
+    if shared.for_outcome(&outcome).capped() == crate::geo_lookup::Failure::Unknown {
+        rules.lookup_failure_unknown = true;
+    }
+    let verdict = crate::trust_tier::country_verdict(lookup, &rules, seen);
+    (outcome, Some(verdict))
+}
+
+/// The unknown-country rule. `Some((until_ms, strike))` when this probe made a block.
+/// Never for a known-tier source, an authenticated administrator, a country with a
+/// recent successful sign-in or on the allow list, or (by default) when no country
+/// can be determined.
+#[allow(clippy::too_many_arguments)]
+async fn geo_gate(
+    state: &AppState,
+    policy: &Policy,
+    trust: &crate::trust_tier::Policy,
+    headers: &HeaderMap,
+    ip: IpAddr,
+    key: IpAddr,
+    signal: Signal,
+    now_ms: u64,
+) -> Option<(u64, u32)> {
+    use crate::trust_tier::CountryVerdict;
+    if crate::trust_tier::is_known(ip) {
+        return None;
+    }
+    let lookup = mw_engine::security::country_lookup(Some(ip.to_canonical()));
+    let shared = crate::geo_lookup::shared(state).await;
+    let (outcome, verdict) = geo_decision(Some(ip), &lookup, &trust.geo, &shared, |cc| {
+        crate::trust_tier::country_known(cc)
+    });
+    match verdict {
+        // A private or loopback source has no country; it is not a stranger.
+        None | Some(CountryVerdict::Known) => return None,
+        Some(CountryVerdict::Unresolved) => {
+            tracing::info!(target: "admin_probe", cause = outcome.cause(), "admin-discovery probe from a source with no country; not blocked by policy");
+            return None;
+        }
+        Some(CountryVerdict::Unknown) => {}
+    }
+    // A request with a valid admin session is an administrator, not discovery.
+    if cookie_value(headers, &mw_admin::config::session_cookie_name()).is_some()
+        && crate::admin_ctx::AdminCtx::resolve(state, headers)
+            .await
+            .is_ok()
+    {
+        return None;
+    }
+    let verdict = state
+        .admin_probe
+        .geo
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .hit(key, now_ms, &trust.geo);
+    let geo::Verdict::Block { strike, secs } = verdict else {
+        return None;
+    };
+    let until = now_ms + u64::from(secs) * 1000;
+    state.admin_probe.lock().force_block(
+        key,
+        signal,
+        until,
+        strike,
+        geo::REASON,
+        now_ms,
+        &policy.limits,
+    );
+    let runtime = &state.admin_probe;
+    runtime.stats.blocks.fetch_add(1, Ordering::Relaxed);
+    if policy.fail2ban {
+        tracing::warn!(
+            "{}",
+            fail2ban_probe_line(chrono::Utc::now(), signal.as_str(), strike, u64::from(secs), ip)
+        );
+    }
+    let id = runtime.id_of(key);
+    let country = match &lookup {
+        mw_engine::security::CountryLookup::Known(cc) => Some(cc.as_str()),
+        _ => None,
+    };
+    security_event(
+        state,
+        SecurityEvent::system("admin-probe-blocked")
+            .target(format!("source:{id}"))
+            .ip((policy.audit_ip == AuditIp::Full).then_some(ip.to_canonical()))
+            .detail(json!({
+                "source": display_source(key, policy.audit_ip),
+                "sourceId": id,
+                "signal": signal.as_str(),
+                "reason": geo::REASON,
+                "country": country,
+                "tier": "unknown",
+                "pathClass": geo::path_class(signal),
+                "strike": strike,
+                "blockSecs": secs,
+                "until": iso(until),
+            })),
+    )
+    .await;
+    runtime.save(&state.store, &policy.limits).await;
+    Some((until, strike))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -702,5 +843,52 @@ mod tests {
             "mw_admin_session"
         ));
         assert!(!sets_session(&with("other=abc"), "mw_admin_session"));
+    }
+}
+
+#[cfg(test)]
+mod geo_decision_tests {
+    use super::*;
+    use crate::geo_lookup::{Failure, Shared};
+    use crate::trust_tier::CountryVerdict::*;
+    use mw_engine::security::CountryLookup;
+
+    fn decide(
+        ip: &str,
+        lookup: CountryLookup,
+        own_unknown: bool,
+        shared: Shared,
+    ) -> Option<crate::trust_tier::CountryVerdict> {
+        let mut rules = crate::trust_tier::Policy::default().geo;
+        rules.lookup_failure_unknown = own_unknown;
+        geo_decision(Some(ip.parse().unwrap()), &lookup, &rules, &shared, |_| false).1
+    }
+
+    /// The lookup-failure matrix of the unknown-country rule: cause x own key x shared key.
+    #[test]
+    fn lookup_failure_matrix_and_local_networks() {
+        let public = "203.0.113.9";
+        let allow = Shared::default();
+        let block_nodb = Shared { no_database: Failure::Block, not_found: Failure::Allow };
+        let unknown_nf = Shared { no_database: Failure::Allow, not_found: Failure::Unknown };
+        for (lookup, label) in [(CountryLookup::DatabaseUnavailable, "no-db"), (CountryLookup::Unknown, "not-found")] {
+            // Default: not blocked.
+            assert_eq!(decide(public, lookup.clone(), false, allow), Some(Unresolved), "{label}");
+            // The feature's own key (adminGeoLookupFailure = unknown) counts both causes.
+            assert_eq!(decide(public, lookup.clone(), true, allow), Some(Unknown), "{label}");
+        }
+        // The shared key applies per cause; block is capped at treat-as-unknown here.
+        assert_eq!(decide(public, CountryLookup::DatabaseUnavailable, false, block_nodb), Some(Unknown));
+        assert_eq!(decide(public, CountryLookup::Unknown, false, block_nodb), Some(Unresolved));
+        assert_eq!(decide(public, CountryLookup::Unknown, false, unknown_nf), Some(Unknown));
+        assert_eq!(decide(public, CountryLookup::DatabaseUnavailable, false, unknown_nf), Some(Unresolved));
+        // A found country is judged on its own.
+        assert_eq!(decide(public, CountryLookup::Known("RU".into()), false, block_nodb), Some(Unknown));
+        // Private and loopback sources: never a stranger, whatever the settings.
+        for ip in ["10.0.0.4", "192.168.0.7", "127.0.0.1", "fd00::5"] {
+            for lookup in [CountryLookup::DatabaseUnavailable, CountryLookup::Unknown] {
+                assert_eq!(decide(ip, lookup, true, block_nodb), None, "{ip}");
+            }
+        }
     }
 }

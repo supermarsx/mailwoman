@@ -49,8 +49,9 @@ async fn status(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response
         .get(&state.store)
         .await
         .map_err(|_| super::unavailable())?;
+    let protocol_guard = crate::protocol_guard::summary(&state).await;
     Ok(private(
-        json!({"policy":config.summary(),"subjectCapacity":mw_store::request_protection::SUBJECT_CAPACITY,"eventCapacity":mw_store::request_protection::EVENT_CAPACITY,"eventRetentionSecs":mw_store::request_protection::EVENT_RETENTION_SECS,"propagationSecs":30,"coverage":"router-requests-verified-session-key-and-signed-content","preRouterHeadersObserved":false}),
+        json!({"protocolGuard":protocol_guard,"policy":config.summary(),"subjectCapacity":mw_store::request_protection::SUBJECT_CAPACITY,"eventCapacity":mw_store::request_protection::EVENT_CAPACITY,"eventRetentionSecs":mw_store::request_protection::EVENT_RETENTION_SECS,"propagationSecs":30,"coverage":"router-requests-verified-session-key-and-signed-content","preRouterHeadersObserved":false}),
     ))
 }
 #[derive(Deserialize)]

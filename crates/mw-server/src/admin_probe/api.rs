@@ -6,7 +6,9 @@
 //!   step-up `banManage`, `If-Match`, audited `admin-probe-policy-changed`);
 //! * `GET    /security/admin-probe/blocks` — active blocks (`bans.read`);
 //! * `DELETE /security/admin-probe/blocks/{id}` — lift one (`bans.write`, step-up
-//!   `banManage`, audited `admin-probe-unblocked`).
+//!   `banManage`, audited `admin-probe-unblocked`);
+//! * `DELETE /security/trust-table` — forget every known source (`bans.write`,
+//!   step-up `banManage`, audited `trust-table-forgotten`).
 use super::config::{KEYS, PREFIX};
 use super::{ROUTE, Runtime, display_source, iso, tracker};
 use crate::admin_ctx::{AdminApiError, AdminCtx, AdminJson, check_if_match, etag_of, with_etag};
@@ -44,6 +46,41 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
         Capability::BansWrite,
         unblock,
     );
+    r.admin_endpoint(
+        Method::DELETE,
+        "/security/trust-table",
+        Capability::BansWrite,
+        forget_trust_table,
+    );
+}
+
+/// Forget every known source (`security.trust.*`): the table in memory, the saved
+/// copy and, through a cut-off time, the earlier authentication-log rows.
+async fn forget_trust_table(
+    State(state): State<AppState>,
+    ctx: AdminCtx,
+) -> Result<Response, AdminApiError> {
+    ctx.require_unscoped(Capability::BansWrite)?;
+    crate::step_up::require_admin(&state, &ctx, crate::step_up::StepUpAction::BanManage).await?;
+    // Keep the table adopted for this store before it is cleared.
+    let _ = crate::trust_tier::policy(&state.store).await;
+    crate::trust_tier::forget_all(&state.store).await.map_err(|_| {
+        AdminApiError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "trustTableUnavailable",
+            "The saved known sources could not be cleared",
+        )
+    })?;
+    crate::admin_accounts::audit(
+        &state,
+        &ctx,
+        "trust-table-forgotten",
+        "trust-table",
+        None,
+        Some(json!({ "knownSources": 0 })),
+    )
+    .await;
+    Ok(StatusCode::NO_CONTENT.into_response())
 }
 
 fn unavailable() -> AdminApiError {
@@ -94,6 +131,7 @@ fn rows(runtime: &Runtime, policy: &super::Policy, only_blocked: bool) -> Vec<(f
                     "lastSignal": entry.last_signal.map(tracker::Signal::as_str),
                     "lastSeen": iso(entry.last_seen_ms),
                     "strikes": entry.strikes,
+                    "reason": entry.reason,
                     "blocked": entry.blocked_until_ms.is_some(),
                     "blockedAt": entry.blocked_at_ms.and_then(iso),
                     "blockedUntil": entry.blocked_until_ms.and_then(iso),
@@ -158,6 +196,7 @@ async fn snapshot(state: &AppState) -> Result<(Value, String), AdminApiError> {
         "topOffenders": all.into_iter().take(10).map(|(_, v)| v).collect::<Vec<_>>(),
         "scope": "instance",
         "propagationSecs": 30,
+        "trustTable": serde_json::to_value(crate::trust_tier::status()).unwrap_or(Value::Null),
     });
     Ok((body, etag))
 }

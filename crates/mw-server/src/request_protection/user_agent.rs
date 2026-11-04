@@ -127,6 +127,22 @@ impl Rules {
         let classification = classify(ua);
         classification.filter(|category| self.categories.contains(*category))
     }
+    /// The claimed class of a header, independent of the budget mode and the
+    /// monitored-category list (used for the per-class allow/limit/block action).
+    /// Operator exceptions stay allowed; custom patterns are the `custom` class.
+    pub fn claimed_class(&self, header: Option<&str>) -> Option<&'static str> {
+        let ua = header.unwrap_or("");
+        if ua.len() > MAX_UA {
+            return Some("uncommon");
+        }
+        if self.exceptions.is_match(ua) {
+            return None;
+        }
+        if self.patterns.is_match(ua) {
+            return Some("custom");
+        }
+        classify(ua)
+    }
     pub fn policy(&self, base: &Policy, category: &str) -> Option<Policy> {
         if self.mode == Mode::Off || (category != "custom" && !self.categories.contains(category)) {
             return None;
@@ -206,6 +222,8 @@ fn classify(raw: &str) -> Option<&'static str> {
                 "bytespider",
                 "meta-externalagent",
                 "facebookbot",
+                "google-extended",
+                "applebot-extended",
             ][..],
         ),
         (
@@ -319,8 +337,8 @@ mod tests {
         }
         assert_eq!(classify("Mozilla/5.0 Chrome/140.0 Safari/537.36"), None);
         assert_eq!(classify("FakeGooglebot/1"), Some("automation"));
-        assert_eq!(classify("Google-Extended"), Some("uncommon"));
-        assert_eq!(classify("Applebot-Extended"), Some("automation"));
+        assert_eq!(classify("Google-Extended"), Some("ai-training"));
+        assert_eq!(classify("Applebot-Extended"), Some("ai-training"));
         assert_eq!(classify("AhrefsBot/7"), Some("automation"));
         assert_eq!(classify("CustomSpider/1"), Some("automation"));
         assert_eq!(classify("BrowserBotanical/1"), Some("uncommon"));

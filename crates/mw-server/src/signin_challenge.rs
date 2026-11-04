@@ -88,6 +88,18 @@ pub(crate) async fn config(state: &AppState) -> Result<Config, ()> {
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
+/// Whether this source must solve the challenge whatever `signin.antiBotMode`
+/// says: it is guessing many usernames (`signin_spray`), or the instance is in
+/// heightened mode and the source is unknown (`signin_spike`). The tier is the
+/// trust tier of an anonymous request; a known source is not forced by the
+/// instance-wide mode.
+pub(crate) async fn forced_for_source(state: &AppState, ip: IpAddr) -> bool {
+    let tier = crate::trust_tier::tier_for(Some(ip), false);
+    let spray = crate::signin_spray::config(state).await;
+    let _ = crate::signin_spike::config(state).await; // refresh the cached policy
+    crate::signin_spray::action_for_source(&spray, ip, tier) >= crate::signin_spray::Action::Challenge
+        || crate::signin_spike::pressure(tier).challenge
+}
 fn peer_key(state: &AppState, ip: IpAddr) -> String {
     let normalized = match ip {
         IpAddr::V4(v) => v.to_string(),
@@ -136,13 +148,24 @@ pub(crate) async fn issue(
     let Ok(policy) = config(&state).await else {
         return unavailable();
     };
-    if !policy.enabled(query.surface) {
+    let source = crate::scope_mw::proxy::client_ip(&headers, &ext);
+    let forced = match source {
+        Some(ip) => forced_for_source(&state, ip).await,
+        None => false,
+    };
+    if !policy.enabled(query.surface) && !forced {
         return response(StatusCode::NOT_FOUND, json!({"code":"notFound"}));
     }
-    let Some(ip) = crate::scope_mw::proxy::client_ip(&headers, &ext) else {
+    let Some(ip) = source else {
         return unavailable();
     };
     let peer = peer_key(&state, ip);
+    // Trust tier: a known source solves a lighter challenge; it is still verified.
+    let difficulty = {
+        let trust = crate::trust_tier::policy(&state.store).await;
+        let tier = crate::trust_tier::tier_for(Some(ip), false);
+        scaled_difficulty(&trust, policy.difficulty, tier)
+    };
     let allowed = state
         .signin_challenges
         .0
@@ -165,7 +188,7 @@ pub(crate) async fn issue(
     let options = altcha::CreateChallengeOptions {
         algorithm: "PBKDF2/SHA-256".into(),
         cost: 1000,
-        counter: Some(rand::thread_rng().gen_range((policy.difficulty / 2)..=policy.difficulty)),
+        counter: Some(rand::thread_rng().gen_range((difficulty / 2)..=difficulty)),
         expires_at: Some(issued + policy.expiry),
         hmac_signature_secret: Some(state.store.signin_challenge_secret("signature")),
         hmac_key_signature_secret: Some(state.store.signin_challenge_secret("derived-key")),
@@ -217,7 +240,11 @@ pub(crate) async fn verify(
         Ok(policy) => policy,
         Err(_) => return Some(unavailable()),
     };
-    if !policy.enabled(surface) {
+    let forced = match crate::scope_mw::proxy::client_ip(headers, ext) {
+        Some(ip) => forced_for_source(state, ip).await,
+        None => false,
+    };
+    if !policy.enabled(surface) && !forced {
         return None;
     }
     let Some(encoded) = encoded.filter(|v| !v.is_empty()) else {
@@ -271,4 +298,16 @@ pub(crate) async fn verify(
         Ok(false) => Some(rejected(false)),
         Err(_) => Some(unavailable()),
     }
+}
+
+/// The proof-of-work difficulty for a source of `tier`: a known source solves a
+/// lighter challenge. Shared with the Adaptive protection simulator.
+pub(crate) fn scaled_difficulty(
+    trust: &crate::trust_tier::Policy,
+    base: u32,
+    tier: crate::trust_tier::Tier,
+) -> u32 {
+    u32::try_from(trust.scale_wait(u64::from(base), tier))
+        .unwrap_or(base)
+        .clamp(100, 20000)
 }

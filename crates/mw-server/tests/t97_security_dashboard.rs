@@ -491,6 +491,9 @@ async fn signed_in_requests_get_more_room_than_an_anonymous_address() {
             ("security.protection.accountRequests", json!(20)),
             ("security.protection.adminRequests", json!(20)),
             ("security.protection.rateWindowSecs", json!(3600)),
+            // This test is about the legacy per-address budget; a source that has
+            // signed in is otherwise relaxed by the trust tier (t101_trust_geo).
+            ("security.trust.knownPercent", json!(100)),
         ],
     )
     .await;

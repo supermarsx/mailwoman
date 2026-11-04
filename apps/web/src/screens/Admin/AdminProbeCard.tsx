@@ -137,6 +137,7 @@ export function AdminProbeCard(props: { api?: AdminProbeApi | undefined }): JSX.
             <Counter label={t('admin-probe-stat-cleared')} value={d().stats.clearedBySignin} />
           </div>
           <p class={css.note}>{t('admin-probe-stat-scope', { since: when(d().stats.since), tracked: d().stats.trackedSources, capacity: d().stats.capacity, seconds: d().propagationSecs })}</p>
+          <Show when={d().trustTable}>{(tt) => <p class={css.note} data-testid="admin-trust-table">{t('admin-probe-trust-table', { entries: tt().entries, restored: tt().restoredAtStartup, saved: tt().lastSaved ? formatDateTime(new Date(tt().lastSaved! * 1000).toISOString()) : '—', persist: t(tt().persist ? 'admin-probe-trust-table-on' : 'admin-probe-trust-table-off') })}</p>}</Show>
 
           <h4 class={css.title}>{t('admin-probe-blocks-title')}</h4>
           <Show when={blocks().length > 0} fallback={<p class={css.note} data-testid="admin-probe-no-blocks">{t('admin-probe-blocks-empty')}</p>}>
@@ -148,7 +149,7 @@ export function AdminProbeCard(props: { api?: AdminProbeApi | undefined }): JSX.
                   <th scope="row"><code>{row.source}</code></th>
                   <td>{when(row.blockedUntil)}</td>
                   <td>{formatNumber(row.strikes)}</td>
-                  <td>{reason(row.lastSignal)}</td>
+                  <td>{row.reason === 'admin discovery from unknown country' ? t('admin-probe-reason-geo') : reason(row.lastSignal)}</td>
                   <td><Show when={canWrite()}><button class="btn btn--ghost btn--sm" aria-label={t('admin-probe-unblock-target', { source: row.source })} onClick={() => setUnblocking(row)}>{t('admin-probe-unblock')}</button></Show></td>
                 </tr>
               )}</For></tbody>

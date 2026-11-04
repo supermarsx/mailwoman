@@ -112,6 +112,8 @@ pub(crate) struct Entry {
     pub blocked_at_ms: Option<u64>,
     pub signals: u64,
     pub last_signal: Option<Signal>,
+    /// Why the current block was made, when it was not the score (country gate).
+    pub reason: Option<&'static str>,
     /// Session-cookie fingerprints already counted as `Unauthenticated`, so an
     /// expired console tab that keeps polling costs one point, not one per poll.
     stale_cookies: Vec<u64>,
@@ -129,6 +131,7 @@ impl Entry {
             blocked_at_ms: None,
             signals: 0,
             last_signal: None,
+            reason: None,
             stale_cookies: Vec::new(),
         }
     }
@@ -144,6 +147,7 @@ impl Entry {
         {
             self.blocked_until_ms = None;
             self.blocked_at_ms = None;
+            self.reason = None;
             self.last_block_end_ms = until;
         }
         if self.strikes > 0
@@ -249,6 +253,37 @@ impl Tracker {
         })
     }
 
+    /// Block `key` until `until_ms` for a reason outside the score (the
+    /// unknown-country gate). A longer existing block is kept.
+    pub fn force_block(
+        &mut self,
+        key: IpAddr,
+        signal: Signal,
+        until_ms: u64,
+        strike: u32,
+        reason: &'static str,
+        now_ms: u64,
+        limits: &Limits,
+    ) {
+        if !self.entries.contains_key(&key) {
+            self.make_room(now_ms, limits);
+            self.entries.insert(key, Entry::new(now_ms));
+        }
+        let entry = self.entries.get_mut(&key).expect("inserted above");
+        entry.settle(now_ms, limits);
+        entry.last_seen_ms = now_ms;
+        entry.signals += 1;
+        entry.last_signal = Some(signal);
+        entry.strikes = entry.strikes.max(strike);
+        if entry.blocked_until_ms.is_none_or(|u| u < until_ms) {
+            entry.blocked_until_ms = Some(until_ms);
+            entry.blocked_at_ms = Some(now_ms);
+            entry.reason = Some(reason);
+        }
+        entry.score = f64::from(limits.grace);
+        entry.stale_cookies.clear();
+    }
+
     /// Forget `key` entirely (a successful admin sign-in from it).
     pub fn clear(&mut self, key: IpAddr) -> bool {
         self.entries.remove(&key).is_some()
@@ -263,6 +298,7 @@ impl Tracker {
             return false;
         }
         entry.blocked_at_ms = None;
+        entry.reason = None;
         entry.last_block_end_ms = now_ms;
         entry.score = 0.0;
         entry.updated_ms = now_ms;

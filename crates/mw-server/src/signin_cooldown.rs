@@ -28,10 +28,17 @@ use std::{
 };
 
 #[derive(Default)]
-pub(crate) struct Cooldown(Mutex<Option<(u64, KeyedRateLimiter)>>);
+pub(crate) struct Cooldown(Mutex<[Option<(u64, KeyedRateLimiter)>; 4]>);
 impl Cooldown {
+    #[cfg(test)]
     fn admit(&self, ip: IpAddr, seconds: u64, now: Instant) -> Option<Duration> {
-        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        self.admit_slot(0, ip, seconds, now)
+    }
+    /// `slot` 0 is the baseline wait, slot 1 the known tier's own (shorter) wait,
+    /// so tiers never rebuild each other's limiter.
+    fn admit_slot(&self, slot: usize, ip: IpAddr, seconds: u64, now: Instant) -> Option<Duration> {
+        let mut all = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        let state = &mut all[slot];
         if seconds == 0 {
             *state = None;
             return None;
@@ -47,11 +54,14 @@ impl Cooldown {
     /// Give back the token an admitted attempt was charged. A no-op when the policy
     /// changed in between (the limiter was rebuilt, so the charge is gone anyway).
     fn refund(&self, ip: IpAddr, seconds: u64, now: Instant) {
-        let mut state = self.0.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some((current, limiter)) = state.as_mut()
-            && *current == seconds
-        {
-            limiter.refund_at(&key(ip), now);
+        let mut all = self.0.lock().unwrap_or_else(|e| e.into_inner());
+        // The wait identifies its slot: a refund only reaches a limiter built for it.
+        for state in all.iter_mut() {
+            if let Some((current, limiter)) = state.as_mut()
+                && *current == seconds
+            {
+                limiter.refund_at(&key(ip), now);
+            }
         }
     }
 }
@@ -92,6 +102,12 @@ fn key(ip: IpAddr) -> String {
         },
     }
 }
+/// The wait under the instance-wide heightened mode: `percent` of the
+/// tier-scaled cooldown (at least one second of base). Shared with the
+/// Adaptive protection simulator so the two cannot drift.
+pub(crate) fn heightened_wait(seconds: u64, percent: u32) -> u64 {
+    seconds.max(1).saturating_mul(u64::from(percent)) / 100
+}
 /// Admit one sign-in attempt, charging its source; `Err` is the `429` to answer.
 pub(crate) async fn check(
     state: &AppState,
@@ -113,7 +129,37 @@ pub(crate) async fn check(
         Ok(None) => 3,
         Err(_) => return Err(StatusCode::SERVICE_UNAVAILABLE.into_response()),
     };
-    let Some(remaining) = state.signin_cooldown.admit(source, seconds, Instant::now()) else {
+    // Trust tier: a known source (recent successful sign-in) waits less between
+    // attempts. Failed credentials still count toward the lockout, unchanged.
+    let tier = crate::trust_tier::tier_for(Some(source), false);
+    let trust = crate::trust_tier::policy(&state.store).await;
+    let seconds = trust.scale_wait(seconds, tier);
+    let slot = usize::from(tier == crate::trust_tier::Tier::Known);
+    // Extra pacing under pressure: a source guessing many usernames (slot 2, its
+    // own fixed wait) and, for unknown sources, the instance-wide heightened mode
+    // (slot 3). The longest applicable wait is used; each has its own limiter.
+    let (seconds, slot) = {
+        let spray = crate::signin_spray::config(state).await;
+        let _ = crate::signin_spike::config(state).await; // refresh the cached policy
+        let mut best = (seconds, slot);
+        if crate::signin_spray::action_for_source(&spray, source, tier)
+            >= crate::signin_spray::Action::Pace
+            && spray.pace_secs > best.0
+        {
+            best = (spray.pace_secs, 2);
+        }
+        if let Some(percent) = crate::signin_spike::pressure(tier).pace_percent {
+            let waited = heightened_wait(seconds, percent);
+            if waited > best.0 {
+                best = (waited, 3);
+            }
+        }
+        best
+    };
+    let Some(remaining) = state
+        .signin_cooldown
+        .admit_slot(slot, source, seconds, Instant::now())
+    else {
         return Ok(Admission((seconds > 0).then_some((source, seconds))));
     };
     let seconds = remaining.as_secs() + u64::from(remaining.subsec_nanos() != 0);

@@ -7,6 +7,7 @@
 //   PUT    {console}/security/admin-probe/policy       ← { values: { <key>: value | null } }, If-Match
 //   GET    {console}/security/admin-probe/blocks       → { blocks: AdminProbeSource[] }
 //   DELETE {console}/security/admin-probe/blocks/{id}  → 204
+//   DELETE {console}/security/trust-table              → 204 (forget every known source)
 
 import { adminRequest } from '../../screens/Admin/shell/adminApi.ts';
 
@@ -39,6 +40,8 @@ export interface AdminProbeSource {
   lastSignal: AdminProbeSignal | null;
   lastSeen: string | null;
   strikes: number;
+  /** Set when the block was not made by the score: 'admin discovery from unknown country'. */
+  reason?: string | null;
   blocked: boolean;
   blockedAt: string | null;
   blockedUntil: string | null;
@@ -57,12 +60,22 @@ export interface AdminProbeStats {
   capacity: number;
   evictedSources: number;
 }
+export interface AdminTrustTable {
+  persist: boolean;
+  intervalSecs: number;
+  entries: number;
+  restoredAtStartup: number;
+  /** Unix seconds of the last successful save, or null. */
+  lastSaved: number | null;
+}
 export interface AdminProbeOverview {
   policy: AdminProbePolicy;
   stats: AdminProbeStats;
   topOffenders: AdminProbeSource[];
   scope: string;
   propagationSecs: number;
+  /** Known-source table (trust tiers): saved copy and entries restored at startup. */
+  trustTable?: AdminTrustTable;
 }
 export interface AdminProbeApi {
   overview(): Promise<{ data: AdminProbeOverview; etag: string | null }>;

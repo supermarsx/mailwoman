@@ -136,10 +136,15 @@ pub(crate) async fn guard(req: Request, next: Next) -> Response {
 
     // Per-source first: an abusive key is stopped by its own bucket rather than
     // draining the aggregate budget that every other source shares.
-    if !per_source()
+    // Trust tier (anonymous endpoint): a known source pays less per request, an
+    // unknown one the baseline. The aggregate ceiling below is never scaled.
+    let tier = crate::trust_tier::tier_for(Some(ip), false);
+    let cost = crate::trust_tier::snapshot().cost(tier);
+    if per_source()
         .lock()
         .expect("discover rate-limit lock")
-        .check(&rate_key(ip))
+        .retry_after_cost_at(&rate_key(ip), std::time::Instant::now(), cost)
+        .is_some()
     {
         return refused();
     }
