@@ -91,7 +91,7 @@ import { createAddressContactCard, contactComposeInitial, ContactAddresses } fro
 import type { ReaderAddressContext } from '../viewers/readerAddressContext.ts';
 import { resourceValue } from './resourceValue.ts';
 import { useReaderZoom } from './readerZoom.ts';
-import { remotePolicy, remoteServerBase, signContent, replaceFailedImages, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
+import { remotePolicy, remoteServerBase, signContent, prewarmSignedImages, replaceFailedImages, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings,settingsLoadStatus,writeSetting } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
@@ -543,7 +543,7 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
     async (): Promise<TagSuggestion[]> => {
       const acct = app.accountId();
       if (acct === null) return [];
-      const boxId = Object.keys(props.email.mailboxIds ?? {})[0] ?? '';
+      const boxId = Object.keys(app.openEmail()?.mailboxIds ?? {})[0] ?? '';
       const box = app.mailboxes().find((m) => m.id === boxId);
       const text = [props.email.subject ?? '', props.email.preview ?? '']
         .filter((s) => s.length > 0)
@@ -647,6 +647,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
 
   const sender = (): string => app.openEmail()?.from?.[0]?.email ?? '';
   const threadId = (): string | undefined => app.openEmail()?.threadId;
+  // The folder(s) the open message is in, shown beside its date.
+  const folderNames = createMemo<string[]>(() => Object.keys(app.openEmail()?.mailboxIds ?? {}).map((id) => app.mailboxes().find((m) => m.id === id)?.name ?? '').filter((name) => name !== ''));
 
   // Server verdict for the open message (public facets: auth/received/attachments/
   // anomalies + a signature/encryption first pass). Re-fetched per message.
@@ -813,6 +815,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
+      // One batched, authenticated request fetches the images into the server cache; the frame's own requests then hit it (best effort, silent).
+      if (signed.images.length > 0) void prewarmSignedImages(signed.images);
       return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts), sanitized, refs,cidParts, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
@@ -1203,6 +1207,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               </div>
               <div class="reader__metadata-line">
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
+              <Show when={folderNames().length>0}><span class="reader__folder" data-testid="reader-folder" title={t('mail-reader-folder-title',{folder:folderNames().join(', ')})}><Icon name="folder"/><span>{folderNames().map(isolate).join(', ')}</span></span></Show>
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
               <Show when={verdict()}>

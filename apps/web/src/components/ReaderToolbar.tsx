@@ -11,6 +11,7 @@
 
 import {createEffect,createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useRealtime} from '../realtime/context.ts';
+import {ReaderMoveMenu,moveActions} from './ReaderMoveMenu.tsx';
 import {ReaderSearchMenu,relatedSearchActions} from './search/ReaderSearchMenu.tsx';
 import {useApp} from '../state/context.ts';
 import {settings} from '../api/settings.ts';
@@ -37,7 +38,7 @@ import {RawMessageHeaders} from './RawMessageHeaders.tsx';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,delete:3,archive:4,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,zoom:10.5,search:6.5,
+ reply:0,'reply-all':1,forward:2,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,zoom:10.5,search:6.5,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -100,6 +101,7 @@ export function ReaderToolbar(props:{
   read:plain({id:'read',icon:()=>unread()?'mailRead':'mail',label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
   flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged()),local:true}),
   archive:plain({id:'archive',icon:icon('archive'),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
+  move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',label:t('mail-reader-move-to'),icon:'folder',children:moveActions(props.email,app),run:()=>{}}]},
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
   export:plain({id:'export',icon:icon('download'),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>void app.exportMessage()}),
@@ -118,7 +120,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.headersUrl?['headers']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.headersUrl?['headers']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const menuOnly=():ContextAction[]=>focusActions(app,props.email);
 
  // ── Fitting ────────────────────────────────────────────────────────────────

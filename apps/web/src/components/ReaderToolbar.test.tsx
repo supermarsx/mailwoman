@@ -99,9 +99,9 @@ describe('reader action row: overflow into More',()=>{
   fireEvent.keyDown(menu,{key:'Escape'});expect(screen.queryByRole('menu')).toBeNull();expect(document.activeElement).toBe(more);
   fireEvent.click(more);fireEvent.click(within(screen.getByRole('menu')).getByRole('menuitem',{name:'Spam'}));expect(state.spam).toHaveBeenCalledWith('m1');
  });
- it('folds by PRIORITY: Delete and Archive outlast the conversation, links and the rest',()=>{
+ it('folds by PRIORITY: Delete, Archive and Move outlast the conversation, links and the rest',()=>{
   const order=Object.entries(PRIORITY).sort((a,b)=>a[1]-b[1]).map(([id])=>id);
-  expect(order.slice(0,7)).toEqual(['reply','reply-all','forward','delete','archive','conversation','links']);
+  expect(order.slice(0,8)).toEqual(['reply','reply-all','forward','delete','archive','move','conversation','links']);
  });
  it('shows no More button when everything fits',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));

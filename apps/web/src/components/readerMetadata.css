@@ -38,3 +38,6 @@
 @media (max-width:760px) and (pointer:coarse) {
  .reader__addresses > summary { min-block-size:2.25rem; line-height:2.25rem; }
 }
+
+.reader__folder { display:inline-flex; align-items:center; gap:.25rem; min-inline-size:0; max-inline-size:14rem; color:var(--text-dim); }
+.reader__folder > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
