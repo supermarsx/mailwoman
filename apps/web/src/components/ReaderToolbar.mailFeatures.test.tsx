@@ -42,4 +42,13 @@ describe('reader action row and the mail feature settings',()=>{
   expect(present('print')).toBe(false);expect(present('export')).toBe(false);
   expect(present('reply')).toBe(true);
  });
+ it('hides Mark spam when mail.showSpam is off, keeping delete and archive',()=>{
+  toolbar();
+  expect(present('spam')).toBe(true);
+  document.body.innerHTML='';
+  state.values={'mail.showSpam':{value:false}};
+  toolbar();
+  expect(present('spam')).toBe(false);
+  expect(present('delete')).toBe(true);expect(present('archive')).toBe(true);
+ });
 });

@@ -16,7 +16,7 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
   const [acknowledged,setAcknowledged]=createSignal(false);
   const decision=()=>policy.state==='ready'?attachmentDecision(policy()!,props.item):undefined;
   const permitted=()=>decision()?.allowed && (!decision()?.warning || acknowledged());
-  const download=()=>attachmentPolicyUrl(props.item.downloadUrl,props.item.emailId,false,acknowledged());
+  const download=()=>attachmentPolicyUrl(props.item.downloadUrl,props.item.emailId,false,acknowledged(),true);
   const abort = new AbortController();
   let objectUrl: string | undefined;
   onCleanup(() => { abort.abort(); if (objectUrl) URL.revokeObjectURL(objectUrl); });

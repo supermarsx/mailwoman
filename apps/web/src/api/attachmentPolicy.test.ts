@@ -13,4 +13,8 @@ describe('attachment policy presentation',()=>{
     expect(url.origin).toBe('https://mail.example');expect(url.pathname).toBe('/base/jmap/download/a/b/name');
     expect(url.searchParams.get('emailId')).toBe('message/id');expect(url.searchParams.get('preview')).toBe('true');expect(url.searchParams.get('acknowledgeWarning')).toBe('true');
   });
+  it('marks only an explicit save-to-disk request with download=true',()=>{
+    expect(new URL(attachmentPolicyUrl('https://mail.example/jmap/download/a/b/n')).searchParams.has('download')).toBe(false);
+    expect(new URL(attachmentPolicyUrl('https://mail.example/jmap/download/a/b/n','m1',false,false,true)).searchParams.get('download')).toBe('true');
+  });
 });

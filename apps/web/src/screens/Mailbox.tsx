@@ -38,7 +38,7 @@ import { readingPane } from '../components/readingPane.ts';
 import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
 import { orderedFolders, folderIcon, folderIsHidden, type PreferenceFolder } from './Settings/folderPreferenceModel.ts';
-import { spamFolderHidden, viewsClosedByDelete, vanishedIds, type ListSnapshot } from '../state/mailFeatures.ts';
+import { mailFeature, spamFolderHidden, viewsClosedByDelete, vanishedIds, type ListSnapshot } from '../state/mailFeatures.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
 import '../styles/workspace.css.ts';
@@ -715,7 +715,7 @@ export function MailboxScreen(): JSX.Element {
     trash: () => shortcutMailAction(ids => app.trashMessage(ids)),
     markRead: () => shortcutMailAction(ids => app.markRead(ids, true)),
     markUnread: () => shortcutMailAction(ids => app.markRead(ids, false)),
-    spam: () => shortcutMailAction(ids => app.markSpam(ids)),
+    spam: () => mailFeature('showSpam') && shortcutMailAction(ids => app.markSpam(ids)),
     compose: () => {
       if (composing()) return false;
       openNewMessage();

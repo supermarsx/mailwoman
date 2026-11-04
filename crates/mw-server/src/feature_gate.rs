@@ -574,6 +574,13 @@ async fn key_in_use(state: &AppState, key: &str) -> bool {
     false
 }
 
+/// Whether a `/jmap/download` query string carries `download=true`.
+fn is_explicit_download(query: &str) -> bool {
+    query
+        .split('&')
+        .any(|pair| pair.split_once('=') == Some(("download", "true")))
+}
+
 /// The guard (see the module docs). Layered innermost on the user router.
 pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Next) -> Response {
     let method = req.method().clone();
@@ -586,6 +593,16 @@ pub(crate) async fn guard(State(state): State<AppState>, req: Request, next: Nex
         ..Default::default()
     };
     if method == Method::GET && path.starts_with("/api/export/") {
+        needs.required.push("mail.allowDownload");
+    }
+    // `/jmap/download` also serves the reader's raw headers, spam score and
+    // previews, so only a request that says it is a save-to-disk download
+    // (`download=true`, which the web client adds to its explicit download
+    // actions) is gated.
+    if method == Method::GET
+        && path.starts_with("/jmap/download/")
+        && req.uri().query().is_some_and(is_explicit_download)
+    {
         needs.required.push("mail.allowDownload");
     }
     if method == Method::POST && path.starts_with("/jmap/upload/") {

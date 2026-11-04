@@ -604,4 +604,25 @@ async fn mail_send_and_export_follow_the_mail_feature_settings() {
     f.set_global("mail.allowDownload", json!(true)).await;
     let (s, body) = send(f.user.get(format!("{b}/api/export/m1?format=eml"))).await;
     not_off(s, &body);
+
+    // `/jmap/download` is gated only for an explicit download: the reader's
+    // header, spam score and preview fetches go through the same route.
+    let blob = |query: &str| {
+        f.user.get(format!(
+            "{b}/jmap/download/{}/m1/message.eml{query}",
+            f.account
+        ))
+    };
+    f.set_global("mail.allowDownload", json!(false)).await;
+    let (s, body) = send(blob("?download=true")).await;
+    setting_off(s, &body, "mail.allowDownload");
+    let (s, body) = send(blob("?preview=true&download=true")).await;
+    setting_off(s, &body, "mail.allowDownload");
+    for plain in ["", "?preview=true", "?download=false"] {
+        let (s, body) = send(blob(plain)).await;
+        not_off(s, &body);
+    }
+    f.set_global("mail.allowDownload", json!(true)).await;
+    let (s, body) = send(blob("?download=true")).await;
+    not_off(s, &body);
 }

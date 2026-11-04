@@ -1529,7 +1529,7 @@ or HTML.
 <a id="mail.allowForward"></a>
 `mail.allowForward` defaults true. When false, the reader and its shortcuts offer no inline or attachment Forward, and the selection toolbar's forward-as-attachment is disabled. Enforced in the web client only.
 <a id="mail.allowDownload"></a>
-`mail.allowDownload` defaults true. When false, the web client offers no message download, bulk download or attachment download, and `GET /api/export/{stableId}` (export and bulk mbox download) answers `403 setting_disabled`. Single message and attachment downloads through `/jmap/download` are not refused by the server: the reader also fetches message headers, inline parts and previews through that route, so a user who calls it directly can still fetch a blob.
+`mail.allowDownload` defaults true. When false, the web client offers no message download, bulk download or attachment download, and `GET /api/export/{stableId}` (export and bulk mbox download) answers `403 setting_disabled`. `GET /jmap/download/...?download=true` answers the same `403`; the web client adds `download=true` to the single-message `.eml` download and to an attachment download link served by the server. Requests without it (message headers, spam score, inline parts and previews, which the reader fetches through the same route) are not refused, and an attachment the reader already fetched for preview is saved from the browser without another request, so a user who calls `/jmap/download` directly without `download=true` can still fetch a blob.
 <a id="mail.allowPrint"></a>
 `mail.allowPrint` defaults true. When false, the reader offers no Print action. Enforced in the web client only.
 <a id="mail.showSpam"></a>

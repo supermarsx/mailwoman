@@ -79,6 +79,16 @@ describe('Mailbox move targets and mail.showSpam',()=>{
     await selectOne();
     expect((await rowMenu()).some(label=>/spam/i.test(label??''))).toBe(true);
   });
+  it('offers a bulk Mark spam action by default and drops it when the setting is off',async()=>{
+    const select=async()=>{fireEvent.click(await screen.findByRole('button',{name:'Select messages'}));fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));};
+    values={};await selectOne();await select();
+    await waitFor(()=>expect(screen.queryByTestId('bulk-delete')).not.toBeNull());
+    expect(screen.queryByTestId('bulk-spam')).not.toBeNull();
+    cleanup();
+    values={'mail.showSpam':false};await selectOne();await select();
+    await waitFor(()=>expect(screen.queryByTestId('bulk-delete')).not.toBeNull());
+    expect(screen.queryByTestId('bulk-spam')).toBeNull();
+  });
   it('leaves Junk out of the bulk move menu and the row menu when the setting is off',async()=>{
     values={'mail.showSpam':false};await selectOne();
     const targets=await moveTargets();

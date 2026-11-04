@@ -24,10 +24,12 @@ export function attachmentDecision(policy:AttachmentPolicy,item:{name:string;mim
   const allowed=policy.downloadAllowed && (!policy.maxBytes||item.size<=policy.maxBytes) && !ext(policy.blockedExtensions)&&!type(policy.blockedMimeTypes)&&(!policy.allowedExtensions.length||ext(policy.allowedExtensions))&&(!policy.allowedMimeTypes.length||type(policy.allowedMimeTypes));
   return {allowed,preview:allowed&&policy.previewAllowed,warning:allowed&&(ext(policy.warnExtensions)||type(policy.warnMimeTypes))};
 }
-export function attachmentPolicyUrl(url:string,emailId?:string,preview=false,acknowledge=false):string {
+/** `download` marks a save-to-disk request, the only `/jmap/download` use the server refuses when `mail.allowDownload` is off. */
+export function attachmentPolicyUrl(url:string,emailId?:string,preview=false,acknowledge=false,download=false):string {
   const result=new URL(url,globalThis.location?.href??'http://localhost');
   if(emailId)result.searchParams.set('emailId',emailId);
   if(preview)result.searchParams.set('preview','true');
   if(acknowledge)result.searchParams.set('acknowledgeWarning','true');
+  if(download)result.searchParams.set('download','true');
   return result.href;
 }

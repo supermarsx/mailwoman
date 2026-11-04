@@ -81,8 +81,8 @@ export function MailSelectionBar(props: {
         ? { id: 'read', label: t('mail-mark-read'), icon: 'mailRead', testId: 'bulk-read', run: () => app.markRead(targets(), true) }
         : { id: 'read', label: t('mail-mark-unread'), icon: 'mail', testId: 'bulk-read', run: () => app.markRead(targets(), false) },
       { id: 'flag', label: allFlagged ? t('mail-unflag-message') : t('mail-flag-message'), icon: 'flag', testId: 'bulk-flag', run: () => app.flagMessage(targets(), !allFlagged) },
-      { id: 'spam', label: t('mail-mark-spam'), icon: 'spam', testId: 'bulk-spam', run: () => app.markSpam(targets()) },
     ];
+    if (mailFeature('showSpam')) out.push({ id: 'spam', label: t('mail-mark-spam'), icon: 'spam', testId: 'bulk-spam', run: () => app.markSpam(targets()) });
     if (app.tags().length > 0) out.push({ id: 'labels', label: t('selection-bar-labels'), icon: 'tag', testId: 'bulk-labels', menu: labelItems });
     if (props.onCompose && mailFeature('allowForward')) out.push({ id: 'forward', label: t('mail-bulk-forward'), icon: 'forward', testId: 'bulk-forward', run: forward });
     if (mailFeature('allowDownload')) out.push({ id: 'download', label: t('mail-bulk-download'), icon: 'download', testId: 'bulk-download', disabled: busy(), run: download });

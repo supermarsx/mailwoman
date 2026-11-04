@@ -41,6 +41,7 @@ import {
   type DraftInput,
 } from '../../api/jmap.ts';
 import { bindTrackingToken, withTrackingPixel } from '../../api/tracking.ts';
+import { attachmentPolicyUrl } from '../../api/attachmentPolicy.ts';
 import {
   buildDownloadUrl,
   fetchObjectUrl,
@@ -566,6 +567,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
   const isCurrent = (req: ListRequest): boolean => req.gen === listGeneration;
   const sourceKey=(source:PageSource|null):string=>JSON.stringify(source);
+  /** `mail.showSpam` off: `$junk` messages stay out of a folder list even when it comes from the offline read cache, which may predate the keyword (nothing is deleted). */
+  function withoutHiddenSpam(rows:Email[]):Email[]{
+    return mailFeature('showSpam')?rows:rows.filter(email=>email.keywords?.['$junk']!==true);
+  }
   function projectRows(rows:Email[],source:PageSource,req:ListRequest):Email[] {
     if(relocations.size===0)return rows;
     const key=sourceKey(source);
@@ -1546,7 +1551,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
     const cached=hit?.kind==='mailbox'?hit.response:undefined;
-    const apply=(res:JmapResponse)=>{const raw=responseFor<EmailGetResponse>(res,'g').list,page=projectRows(raw,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=raw.length;setTotal(page.length===raw.length?pageTotal(res):null);setExhausted(raw.length<PAGE_SIZE);};
+    const apply=(res:JmapResponse)=>{const raw=responseFor<EmailGetResponse>(res,'g').list,page=projectRows(withoutHiddenSpam(raw),src,req);setMessages(page);setLoadedStart(0);nextServerPosition=raw.length;setTotal(page.length===raw.length?pageTotal(res):null);setExhausted(raw.length<PAGE_SIZE);};
     if(cached)apply(cached);
     setListLoading(!cached);
     try {
@@ -1787,7 +1792,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // nowhere else.
     if (isOffline() && ctx.searchOffline) {
       const req=beginListRequest();
-      const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})});
+      const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{}),...(spamHidden?{notKeyword:'$junk'}:{})});
       const projected=projectRows(hits,{kind:'search',filter:{text:serverQueryText(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})}},req);
       setPageSource(null);
       setMessages(projected);
@@ -1872,7 +1877,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const base = (email.subject ?? 'message').replace(/[^\w.-]+/g, '_').slice(0, 80);
     const name = `${base.length > 0 ? base : 'message'}.eml`;
     try {
-      const dl = buildDownloadUrl(url, { accountId: acct, blobId, name, mime: 'message/rfc822' });
+      const dl = attachmentPolicyUrl(buildDownloadUrl(url, { accountId: acct, blobId, name, mime: 'message/rfc822' }), undefined, false, false, true);
       const objectUrl = await fetchObjectUrl(dl);
       triggerDownload(objectUrl, name);
       showToast('success', t('mail-toast-exported'));
