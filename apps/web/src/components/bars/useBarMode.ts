@@ -31,7 +31,7 @@ export const DEFAULT_BAR_MODE: BarMode = BAR_MODE_DEFAULT;
 export interface BarModeHandle {
   /** The mode on screen: a pending change first, then the stored value, then `pinned`. */
   mode: Accessor<BarMode>;
-  /** An administrator holds the value; the pin toggle is disabled. */
+  /** An administrator holds the value; Settings cannot change it. */
   locked: Accessor<boolean>;
   /** A write is in flight. */
   saving: Accessor<boolean>;

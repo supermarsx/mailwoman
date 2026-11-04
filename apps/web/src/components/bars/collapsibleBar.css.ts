@@ -21,7 +21,7 @@ const slideIn = keyframes({
 export const root = style({
   position: 'relative',
   display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) auto',
+  gridTemplateColumns: 'minmax(0, 1fr)',
   flex: 'none',
   minInlineSize: 0,
   userSelect: 'none',
@@ -134,42 +134,3 @@ export const panel = style({
 });
 
 export const content = style({ flex: '1 1 auto', minInlineSize: 0 });
-
-// Both modes stay reachable beside the header/handle, outside the hidden panel.
-export const modes = style({
-  gridColumn: 2,
-  gridRow: 1,
-  alignSelf: 'center',
-  display: 'flex',
-  alignItems: 'center',
-  gap: '2px',
-  padding: '2px',
-});
-
-export const modeButton = style({
-  appearance: 'none',
-  flex: 'none',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  inlineSize: '24px',
-  blockSize: '24px',
-  margin: 0,
-  padding: 0,
-  border: `${vars.border.rule} solid transparent`,
-  borderRadius: vars.radius.sm,
-  background: 'transparent',
-  color: vars.color.textDim,
-  cursor: 'pointer',
-  transition: 'background-color 120ms ease, border-color 120ms ease, color 120ms ease',
-  selectors: {
-    '&[aria-pressed="true"]': { color: vars.color.accent, background: `color-mix(in srgb, ${vars.color.accent} 14%, transparent)`, borderColor: `color-mix(in srgb, ${vars.color.accent} 40%, transparent)` },
-    '&:hover:not(:disabled)': { color: vars.color.accent, background: `color-mix(in srgb, ${vars.color.accent} 22%, transparent)`, borderColor: vars.color.accent },
-    '&:disabled': { cursor: 'not-allowed', opacity: 0.6 },
-  },
-  ':focus-visible': { outline: 'none', boxShadow: vars.a11y.focusRing },
-  '@media': {
-    '(pointer: coarse)': { inlineSize: '28px', blockSize: '28px' },
-    '(prefers-reduced-motion: reduce)': { transition: 'none' },
-  },
-});

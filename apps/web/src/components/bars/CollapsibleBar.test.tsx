@@ -1,4 +1,4 @@
-// CollapsibleBar (t38 §2.1): pin toggle and aria, hover intent and leave
+// CollapsibleBar (t38 §2.1): settings-driven modes and aria, hover intent and leave
 // delays, focus-in, Esc with focus return, touch without hover listeners, the
 // typing guard, the hold counter, reduced motion and push-mode caret keeping.
 
@@ -39,8 +39,6 @@ function stubMedia(matching: string[]): void {
 const root = (): HTMLElement => document.querySelector('[data-bar]') as HTMLElement;
 const panel = (): HTMLElement => document.querySelector('[data-bar-panel]') as HTMLElement;
 const handle = (): HTMLElement => document.querySelector('[data-bar-handle]') as HTMLElement;
-const pin = (): HTMLElement => document.querySelector('[data-bar-pin]') as HTMLElement;
-const auto = (): HTMLElement => document.querySelector('[data-bar-auto]') as HTMLElement;
 const isOpen = (): boolean => root().dataset['expanded'] === 'true';
 
 function mount(bar: BarModeHandle, extra: Partial<Parameters<typeof CollapsibleBar>[0]> = {}, outside?: () => JSX.Element) {
@@ -68,23 +66,19 @@ afterEach(() => {
 });
 
 describe('CollapsibleBar: pinned', () => {
-  it('shows both mode buttons while pinned and switches to auto-hide', async () => {
+  it('shows no client mode controls and follows a mode change from Settings', async () => {
     const bar = fakeBar('pinned');
     mount(bar);
     expect(root()).toHaveAttribute('data-mode', 'pinned');
     expect(isOpen()).toBe(true);
     expect(handle()).toBeNull();
     expect(panel()).not.toHaveAttribute('inert');
-    expect(pin()).toHaveAttribute('aria-pressed', 'true');
-    expect(pin()).toHaveAccessibleName('Keep the editor ribbon open');
-    expect(auto()).toHaveAttribute('aria-pressed', 'false');
-    expect(auto()).toHaveAccessibleName('Auto-hide the editor ribbon');
-    fireEvent.click(auto());
-    await Promise.resolve();
+    expect(root().querySelector('[data-bar-modes],[data-bar-pin],[data-bar-auto]')).toBeNull();
+    await bar.setMode('auto');
     expect(bar.calls).toEqual(['auto']);
     expect(root()).toHaveAttribute('data-mode', 'auto');
-    // It stays open under the pointer until the usual close rules apply.
-    expect(isOpen()).toBe(true);
+    expect(isOpen()).toBe(false);
+    expect(handle()).toHaveAccessibleName('Show the editor ribbon');
   });
 
   it('ignores hover and focus while pinned', () => {
@@ -96,35 +90,28 @@ describe('CollapsibleBar: pinned', () => {
     expect(isOpen()).toBe(true);
   });
 
-  it('disables the pin with the administrator tooltip when the setting is locked', () => {
+  it('keeps locked bars free of client-side mode controls', () => {
     const bar = fakeBar('pinned', true);
     mount(bar);
-    expect(pin()).toBeDisabled();
-    expect(auto()).toBeDisabled();
-    expect(pin()).toHaveAttribute('data-tooltip', 'Set by your administrator');
-    fireEvent.click(pin());
+    expect(root().querySelector('[data-bar-modes],[data-bar-pin],[data-bar-auto]')).toBeNull();
+    expect(screen.queryByRole('button',{name:/Keep the editor ribbon|Auto-hide the editor ribbon/})).toBeNull();
     expect(bar.calls).toEqual([]);
   });
 });
 
 describe('CollapsibleBar: auto-hide', () => {
-  it('keeps both mode controls outside the collapsed panel and can pin without revealing first', async () => {
+  it('can switch from a collapsed bar to pinned through Settings', async () => {
     const bar = fakeBar('auto');
     mount(bar, { revealPolicy: 'push' });
     expect(panel()).toHaveAttribute('inert');
-    expect(pin().closest('[inert]')).toBeNull();
-    expect(auto().closest('[inert]')).toBeNull();
-    expect(auto()).toHaveAttribute('aria-pressed', 'true');
-    pin().focus();
+    expect(root().querySelector('[data-bar-modes],[data-bar-pin],[data-bar-auto]')).toBeNull();
     expect(isOpen()).toBe(false);
-    fireEvent.click(pin());
-    await Promise.resolve();
+    await bar.setMode('pinned');
     expect(bar.calls).toEqual(['pinned']);
     expect(isOpen()).toBe(true);
-    expect(auto()).toHaveAttribute('aria-pressed', 'false');
   });
 
-  it('shows the handle wired to the panel and pins the revealed bar', async () => {
+  it('shows the handle wired to the panel and follows a pinned setting', async () => {
     const bar = fakeBar('auto');
     mount(bar);
     expect(isOpen()).toBe(false);
@@ -137,48 +124,22 @@ describe('CollapsibleBar: auto-hide', () => {
     expect(isOpen()).toBe(true);
     expect(handle()).toHaveAttribute('aria-expanded', 'true');
     expect(handle()).toHaveAccessibleName('Hide the editor ribbon');
-    expect(pin()).toHaveAttribute('aria-pressed', 'false');
-    expect(pin()).toHaveAccessibleName('Keep the editor ribbon open');
-    fireEvent.click(pin());
-    await Promise.resolve();
+    await bar.setMode('pinned');
     expect(bar.calls).toEqual(['pinned']);
     expect(handle()).toBeNull();
     expect(isOpen()).toBe(true);
   });
 
-  it('keeps both controls beside a ribbon header when collapsed', () => {
+  it('keeps only the ribbon header when collapsed, with normal keyboard reveal', () => {
     mount(fakeBar('auto'), { header: <button type="button">Ribbon tab</button> });
     expect(root()).toHaveAttribute('data-header', 'true');
     expect(panel()).toHaveAttribute('inert');
-    expect(pin().closest('[data-bar-panel]')).toBeNull();
-    expect(auto().closest('[data-bar-panel]')).toBeNull();
-    auto().focus();
+    expect(root().querySelector('[data-bar-modes],[data-bar-pin],[data-bar-auto]')).toBeNull();
     expect(isOpen()).toBe(false);
     screen.getByRole('button', { name: 'Ribbon tab' }).focus();
     expect(isOpen()).toBe(true);
-    auto().focus();
+    screen.getByRole('button',{name:'Outside'}).focus();
     vi.advanceTimersByTime(0);
-    expect(isOpen()).toBe(false);
-  });
-
-  it('disables both controls while saving and ignores repeated choices', async () => {
-    const bar = fakeBar('pinned');
-    const [saving, setSaving] = createSignal(false);
-    mount({ ...bar, saving });
-    fireEvent.click(pin());
-    expect(bar.calls).toEqual([]);
-    setSaving(true);
-    expect(pin()).toBeDisabled();
-    expect(auto()).toBeDisabled();
-    fireEvent.click(auto());
-    expect(bar.calls).toEqual([]);
-    setSaving(false);
-    fireEvent.click(auto());
-    await Promise.resolve();
-    expect(bar.calls).toEqual(['auto']);
-    // Focus on a mode control must not hold an auto-hide panel open forever.
-    auto().focus();
-    vi.advanceTimersByTime(LEAVE_CLOSE_MS);
     expect(isOpen()).toBe(false);
   });
 

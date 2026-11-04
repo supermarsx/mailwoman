@@ -43,7 +43,7 @@ describe('SubTabStrip as the workspaceTabs bar (t38)', () => {
     }finally{setAdminLeetspeak(null);}
   });
 
-  it('pinned: the strip is shown with a pin and no handle', () => {
+  it('pinned: the strip is shown without client mode controls or a handle', () => {
     const controller = createRealtimeController({ subTabs: { openWindow: vi.fn() } });
     controller.subTabs.open({ kind: 'messages', title: 'Inbox' });
     const bar = fakeBar('pinned');
@@ -51,7 +51,8 @@ describe('SubTabStrip as the workspaceTabs bar (t38)', () => {
     expect(barRoot()).toHaveAttribute('data-mode', 'pinned');
     expect(barRoot()).toHaveAttribute('data-reveal', 'push');
     expect(document.querySelector('[data-bar-handle]')).toBeNull();
-    fireEvent.click(document.querySelector('[data-bar-auto="workspaceTabs"]')!);
+    expect(document.querySelector('[data-bar-modes],[data-bar-pin],[data-bar-auto]')).toBeNull();
+    void bar.setMode('auto');
     expect(bar.calls).toEqual(['auto']);
   });
   it('auto: a slim handle names the active tab; focus opens the strip and Esc closes it', () => {

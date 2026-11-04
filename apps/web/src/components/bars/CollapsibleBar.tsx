@@ -3,7 +3,7 @@
 //
 // Pinned: the panel sits in the flow and is always shown. Auto: only the
 // `header` (a ribbon's tab names) or, without one, a slim handle stays on
-// screen alongside both mode buttons, and the panel opens on
+// screen. Settings controls whether bars stay shown or auto-hide. The panel opens on
 //   - pointer hover over the bar, after a 150 ms intent delay (not bound on
 //     touch-only devices, and not while the user is typing in a field outside
 //     the bar);
@@ -32,7 +32,6 @@ import {
   type JSX,
 } from 'solid-js';
 import { loadCatalog, t } from '../../i18n/index.ts';
-import { Icon } from '../Icon.tsx';
 import { useBarMode, type BarId, type BarMode, type BarModeHandle } from './useBarMode.ts';
 import * as css from './collapsibleBar.css.ts';
 
@@ -43,8 +42,6 @@ export const LEAVE_CLOSE_MS = 400;
 export const TYPING_GUARD_MS = 1500;
 
 interface BarStrings {
-  pin: string;
-  unpin: string;
   show: string;
   hide: string;
 }
@@ -52,26 +49,18 @@ interface BarStrings {
 // Static ids so the catalog gate sees every one of them.
 const STRINGS: Record<BarId, () => BarStrings> = {
   mailTopBar: () => ({
-    pin: t('bars-pin-mail-top-bar'),
-    unpin: t('bars-unpin-mail-top-bar'),
     show: t('bars-show-mail-top-bar'),
     hide: t('bars-hide-mail-top-bar'),
   }),
   workspaceTabs: () => ({
-    pin: t('bars-pin-workspace-tabs'),
-    unpin: t('bars-unpin-workspace-tabs'),
     show: t('bars-show-workspace-tabs'),
     hide: t('bars-hide-workspace-tabs'),
   }),
   mailRibbon: () => ({
-    pin: t('bars-pin-mail-ribbon'),
-    unpin: t('bars-unpin-mail-ribbon'),
     show: t('bars-show-mail-ribbon'),
     hide: t('bars-hide-mail-ribbon'),
   }),
   composerRibbon: () => ({
-    pin: t('bars-pin-composer-ribbon'),
-    unpin: t('bars-unpin-composer-ribbon'),
     show: t('bars-show-composer-ribbon'),
     hide: t('bars-hide-composer-ribbon'),
   }),
@@ -188,8 +177,7 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     clearTimeout(closeTimer);
     openTimer = closeTimer = undefined;
   };
-  const focusInside = (): boolean => rootEl?.contains(document.activeElement) === true
-    && !(document.activeElement instanceof Element && document.activeElement.closest('[data-bar-modes]'));
+  const focusInside = (): boolean => rootEl?.contains(document.activeElement) === true;
 
   // Push mode: once the panel has slid in, scroll the caret (outside the bar) back into view.
   function keepCaretVisible(): void {
@@ -372,14 +360,12 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
   const onFocusIn = (event: FocusEvent): void => {
     // A click decides for itself (the handle toggles, a tab opens); a keyboard
     // focus opens the bar.
-    if (restoringFocus || pointerPressed || pinned() || revealed()
-      || (event.target instanceof Element && event.target.closest('[data-bar-modes]'))) return;
+    if (restoringFocus || pointerPressed || pinned() || revealed()) return;
     open(event.target instanceof HTMLElement && event.target !== rootEl ? event.target : null);
   };
   const onFocusOut = (event: FocusEvent): void => {
     const next = event.relatedTarget;
-    if (next instanceof Node && rootEl?.contains(next)
-      && !(next instanceof Element && next.closest('[data-bar-modes]'))) return;
+    if (next instanceof Node && rootEl?.contains(next)) return;
     // Wait a tick: a click on a non-focusable part of the bar blurs to <body> first.
     setTimeout(() => {
       if (revealed() && !outsidePress && !focusInside() && !pointerInside && holds === 0) close();
@@ -398,19 +384,6 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     if (!revealed() || openedByHover) open(target);
     else close();
   };
-
-  async function selectMode(mode: BarMode): Promise<void> {
-    if (bar.locked() || bar.saving() || mode === bar.mode()) return;
-    if (mode === 'auto') {
-      // Stay open under the user's pointer; the usual leave and blur rules close it.
-      trigger = handleEl ?? null;
-      setRevealed(true);
-      await bar.setMode('auto');
-      if (!pointerInside && !focusInside()) scheduleClose();
-    } else {
-      await bar.setMode('pinned');
-    }
-  }
 
   const api: CollapsibleBarApi = {
     get id() {
@@ -478,35 +451,6 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
           aria-label={props.label}
         >
           <div class={css.content}>{props.children}</div>
-        </div>
-        {/* Commands precede mode controls in keyboard order, even when the controls sit beside the header. */}
-        <div class={css.modes} data-bar-modes={props.id} role="group" aria-label={props.label ?? t('settings-bars-heading')}>
-          <button
-            type="button"
-            class={css.modeButton}
-            data-bar-pin={props.id}
-            data-detached-local=""
-            aria-pressed={pinned() ? 'true' : 'false'}
-            aria-label={strings().pin}
-            data-tooltip={bar.locked() ? t('bars-locked') : strings().pin}
-            disabled={bar.locked() || bar.saving()}
-            onClick={() => void selectMode('pinned')}
-          >
-            <Icon name="pin" />
-          </button>
-          <button
-            type="button"
-            class={css.modeButton}
-            data-bar-auto={props.id}
-            data-detached-local=""
-            aria-pressed={!pinned() ? 'true' : 'false'}
-            aria-label={strings().unpin}
-            data-tooltip={bar.locked() ? t('bars-locked') : strings().unpin}
-            disabled={bar.locked() || bar.saving()}
-            onClick={() => void selectMode('auto')}
-          >
-            <Icon name="eye" />
-          </button>
         </div>
       </div>
     );

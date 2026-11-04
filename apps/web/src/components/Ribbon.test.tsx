@@ -38,14 +38,13 @@ describe('Ribbon', () => {
     expect(screen.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'ribbon-tab-view');
   });
 
-  it('is the mailRibbon collapsible bar with a pin and no legacy collapse button', () => {
+  it('follows toolbar settings without showing client pin controls', () => {
     const bar = fakeBar('pinned');
     renderWithApp(() => <Ribbon onCompose={() => undefined} onOpenSettings={() => undefined} bar={bar} />);
     expect(document.querySelector('[data-bar="mailRibbon"]')).toHaveAttribute('data-mode', 'pinned');
     expect(screen.queryByRole('button', { name: /^(Collapse|Expand)/ })).toBeNull();
-    const pin = document.querySelector('[data-bar-pin="mailRibbon"]') as HTMLButtonElement;
-    expect(pin).toHaveAttribute('aria-pressed', 'true');
-    fireEvent.click(document.querySelector('[data-bar-auto="mailRibbon"]')!);
+    expect(document.querySelector('[data-bar-modes],[data-bar-pin],[data-bar-auto]')).toBeNull();
+    void bar.setMode('auto');
     expect(bar.calls).toEqual(['auto']);
   });
 
