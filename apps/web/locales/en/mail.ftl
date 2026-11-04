@@ -280,6 +280,9 @@ mail-compose-signature = Signature
 mail-compose-signature-none = Add a signature…
 mail-compose-signature-new = New messages
 mail-compose-signature-replies = Replies
+mail-editor-body-size = { $size } KiB
+mail-editor-body-size-label = Body size
+mail-editor-body-size-help = Size of the current body as UTF-8, including HTML markup and embedded images. Message headers and separate attachments are not included.
 
 # Recall (W10)
 mail-compose-recall = Recall

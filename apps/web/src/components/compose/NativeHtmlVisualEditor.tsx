@@ -3,6 +3,7 @@ import {AppContext} from '../../state/context.ts';
 import type {ComposeBackground} from '../../theme/appearance.ts';
 import {surfaceTone,toggledBackground} from './messageBackground.ts';
 import {t} from '../../i18n/index.ts';
+import {editorBodyBytes} from './editorCounts.ts';
 import {nativeHtmlBody,normalizeHtmlSource} from './htmlSource.ts';
 import {HTML_MESSAGE_FONT} from './htmlMessage.ts';
 import * as css from './nativeHtmlEditor.css.ts';
@@ -19,7 +20,7 @@ const FRAME_DOCUMENT='<!doctype html><html data-mw-native-document="true"><head>
  * document, while sandbox and CSP prohibit every child script. Message viewers
  * keep their separate opaque-origin sandbox. Clipboard/drop HTML is sanitized
  * before insertion, so it cannot briefly load resources before being cleaned. */
-export function NativeHtmlVisualEditor(props:{html:string;revision:number;reply?:boolean;owned:()=>ReadonlySet<string>;embedded?:boolean;preview?:(cid:string)=>Promise<string|null>;upload?:(files:File[])=>Promise<{cid:string;alt:string}[]>;ribbonSlots?:()=>EditorSlots;externalHistory?:boolean;bookmark?:NativeHtmlBookmark;onInput:(html:string)=>void;onReady:(api:NativeHtmlVisualApi)=>void}):JSX.Element {
+export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLimit?:number;reply?:boolean;owned:()=>ReadonlySet<string>;embedded?:boolean;preview?:(cid:string)=>Promise<string|null>;upload?:(files:File[])=>Promise<{cid:string;alt:string}[]>;ribbonSlots?:()=>EditorSlots;externalHistory?:boolean;bookmark?:NativeHtmlBookmark;onInput:(html:string)=>void;onReady:(api:NativeHtmlVisualApi)=>void}):JSX.Element {
  let frame!:HTMLIFrameElement,editor:HTMLDivElement|undefined,disposed=false,documentRevision=0,changed=false,focusPending=false;
  let styles:string[]=[];let undoListeners=()=>{};let pending:Promise<void>=Promise.resolve();let editRevision=0;
  const originals=new WeakMap<Element,Map<string,string>>();
@@ -103,11 +104,12 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;reply?
   pending=pending.catch(()=>undefined).then(async()=>{
    setFailed(false);
    const escape=(value:string)=>value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+   if(props.htmlLimit&&clipboardHtml&&editorBodyBytes(clipboardHtml)>props.htmlLimit)throw new Error('HTML too large');
    let raw=clipboardHtml||`<p>${escape(plain).replace(/\n/g,'<br>')}</p>`;
    if(!clipboardHtml&&!plain&&files.length){
     if(files.some(file=>!['image/png','image/jpeg','image/gif','image/webp'].includes(file.type)))throw new Error('Unsupported image');
     if(props.upload){const images=await props.upload(files);if(!images.length)throw new Error('Image upload failed');raw=images.map(image=>`<img src="cid:${escape(image.cid)}" alt="${escape(image.alt)}">`).join('');}
-    else if(props.embedded){const images=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{if(file.size>1024*1024){reject(new Error('Image too large'));return;}const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);})));raw=images.map((src,index)=>`<img src="${escape(src)}" alt="${escape(files[index]!.name)}">`).join('');}
+    else if(props.embedded){if(props.htmlLimit&&files.reduce((bytes,file)=>bytes+Math.ceil(file.size/3)*4+editorBodyBytes(`<img src="data:${file.type};base64," alt="${escape(file.name)}">`),editorBodyBytes(serialize()))>props.htmlLimit)throw new Error('Image too large');const images=await Promise.all(files.map(file=>new Promise<string>((resolve,reject)=>{if(file.size>(props.htmlLimit??1024*1024)){reject(new Error('Image too large'));return;}const reader=new FileReader();reader.onload=()=>resolve(String(reader.result));reader.onerror=()=>reject(reader.error);reader.readAsDataURL(file);})));raw=images.map((src,index)=>`<img src="${escape(src)}" alt="${escape(files[index]!.name)}">`).join('');}
     else throw new Error('Image upload unavailable');
    }
    const safe=await normalizeHtmlSource(raw,props.owned(),props.embedded===true);
@@ -144,7 +146,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;reply?
   try{
    if(action!=='paste'){if(!host.ownerDocument.execCommand(action))throw new Error('Clipboard unavailable');commands.remember();return;}
    const clipboard=frame.ownerDocument.defaultView?.navigator.clipboard;if(!clipboard)throw new Error('Clipboard unavailable');let html='',plain='';
-   if(clipboard.read){const items=await clipboard.read();const item=items.find(item=>item.types.includes('text/html')||item.types.includes('text/plain'));if(!item)throw new Error('No text');const type=item.types.includes('text/html')?'text/html':'text/plain',blob=await item.getType(type);if(blob.size>786432)throw new Error('Too large');const value=await blob.text();if(type==='text/html')html=value;else plain=value;}else plain=await clipboard.readText();
+   if(clipboard.read){const items=await clipboard.read();const item=items.find(item=>item.types.includes('text/html')||item.types.includes('text/plain'));if(!item)throw new Error('No text');const type=item.types.includes('text/html')?'text/html':'text/plain',blob=await item.getType(type);if(blob.size>(type==='text/html'?(props.htmlLimit??786432):786432))throw new Error('Too large');const value=await blob.text();if(type==='text/html')html=value;else plain=value;}else plain=await clipboard.readText();
    const current=commands.range();if(disposed||revision!==documentRevision||!range||!current||range.compareBoundaryPoints(0,current)!==0||range.compareBoundaryPoints(2,current)!==0){setError(t('mail-editor-selection-changed'));return;}
    if(plain.length>786432)throw new Error('Too large');commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?html:plain}} as unknown as ClipboardEvent);setError('');
   }catch(error){if(!disposed)setError(t('mail-editor-clipboard-unavailable'));if(action==='paste')throw error;}

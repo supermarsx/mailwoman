@@ -1,3 +1,4 @@
+import {EditorCounts} from '../../components/compose/EditorCounts.tsx';
 import { preferenceAccount, preferenceAccountIsCurrent } from '../../api/accountPreferenceLifecycle.ts';
 import { createSignal, lazy, Match, onCleanup, Show, Suspense, Switch, type JSX } from 'solid-js';
 import type { Signature } from './types.ts';
@@ -24,7 +25,7 @@ const SourceEditor = lazy(() => import('../../components/compose/HtmlSourceEdito
 const plainToHtml = (text: string): string => `<p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`;
 const NO_OWNED: ReadonlySet<string> = new Set();
 /** The server's limit on a signature's HTML (`prefs_routes.rs`), in UTF-8 bytes. */
-export const SIGNATURE_HTML_MAX = 32 * 1024;
+export const SIGNATURE_HTML_MAX = 2 * 1024 * 1024;
 const utf8 = (value: string): number => new TextEncoder().encode(value).length;
 
 export function SignatureEditor(props: { initial?: Signature; seed?: Signature; reservedNames?:readonly string[]; service: SettingsService; onSaved: () => void | Promise<void>; onCancel: () => void | Promise<void> }): JSX.Element {
@@ -177,7 +178,7 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
             />
             <div class={sig.body} data-testid="signature-body" onInput={() => { settling = false; }}>
               <Switch>
-                <Match when={mode() === 'plain'}>{plainField(t('settings-sig-body-label'), 'signature-plain')}</Match>
+                <Match when={mode() === 'plain'}>{plainField(t('settings-sig-body-label'), 'signature-plain')}<EditorCounts text={plain()}/></Match>
                 <Match when={mode() === 'rich'}>
                   <Suspense fallback={loading()}>
                     <RichEditor
@@ -193,7 +194,7 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
                 </Match>
                 <Match when={mode() === 'html'}>
                   <Suspense fallback={loading()}>
-                    <SourceEditor externalHistory ribbonSlots={ribbon.slots} initialHtml={draft().html ?? ''} owned={() => NO_OWNED} embedded onChange={changeHtml} onReady={ready} />
+                    <SourceEditor htmlLimit={SIGNATURE_HTML_MAX} externalHistory ribbonSlots={ribbon.slots} initialHtml={draft().html ?? ''} owned={() => NO_OWNED} embedded onChange={changeHtml} onReady={ready} />
                   </Suspense>
                 </Match>
               </Switch>

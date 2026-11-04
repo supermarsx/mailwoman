@@ -1,6 +1,6 @@
 import {describe,it,expect,vi,beforeAll,beforeEach} from 'vitest';
 import {render,screen,fireEvent,waitFor} from '@solidjs/testing-library';
-import {SignatureEditor} from './SignatureEditor.tsx';
+import {SignatureEditor,SIGNATURE_HTML_MAX} from './SignatureEditor.tsx';
 import {SettingsService} from './service.ts';
 import type {Signature} from './types.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../../api/accountPreferenceLifecycle.ts';
@@ -227,21 +227,23 @@ describe('the composer editor in the signature editor (t49)',()=>{
   const html=save.mock.calls[0]?.[0].html??'';
   expect(html).toContain(`<img src="data:image/png;base64,${PNG}" alt="logo.png">`);
  });
- it('refuses an image that does not fit the 32 KiB signature limit, or is not raster',async()=>{
+ it('refuses an image that does not fit the 2 MiB signature limit, or is not raster',async()=>{
   setup({name:'Logo',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
-  fireEvent.change(screen.getByLabelText('Insert an image'),{target:{files:[png('big.png',new Uint8Array(30*1024))]}});
-  expect(await screen.findByRole('alert')).toHaveTextContent('limited to 32 KiB');
+  fireEvent.change(screen.getByLabelText('Insert an image'),{target:{files:[png('big.png',new Uint8Array(2*1024*1024))]}});
+  expect(await screen.findByRole('alert')).toHaveTextContent('limited to 2 MiB');
   fireEvent.change(screen.getByLabelText('Insert an image'),{target:{files:[new File(['<svg/>'],'x.svg',{type:'image/svg+xml'})]}});
   await waitFor(()=>expect(screen.getByRole('alert')).toHaveTextContent('is not a PNG'));
   expect(screen.getByRole('textbox',{name:'Rich signature'}).querySelector('img')).toBeNull();
  });
- it('refuses to save HTML over 32 KiB',async()=>{
-  const {save}=setup({name:'Big',body:'x',isDefault:false});
-  await chooseEditorFormat('signature-format','html');
-  fireEvent.input(await sourceField(),{target:{value:`<p>${'x'.repeat(33*1024)}</p>`}});
-  fireEvent.click(screen.getByTestId('signature-save'));
-  expect(await screen.findByRole('alert')).toHaveTextContent('over 32 KiB');expect(save).not.toHaveBeenCalled();
+ it('accepts exactly 2 MiB of UTF-8 HTML and refuses the next multibyte character without changing the plain limit',async()=>{
+  const {save}=setup({name:'Big',body:'Plain',text:'Plain',textEdited:true,isDefault:false});
+  await chooseEditorFormat('signature-format','html');const field=await sourceField();
+  const html=`<p>${'é'.repeat((SIGNATURE_HTML_MAX-8)/2)}x</p>`;expect(new TextEncoder().encode(html).length).toBe(SIGNATURE_HTML_MAX);
+  fireEvent.input(field,{target:{value:html}});fireEvent.click(screen.getByTestId('signature-save'));await waitFor(()=>expect(save).toHaveBeenCalledOnce(),{timeout:5000});
+  expect(save.mock.calls[0]![0]).toMatchObject({html,text:'Plain',body:'Plain'});await waitFor(()=>expect(screen.getByTestId('signature-save')).not.toBeDisabled());
+  fireEvent.input(field,{target:{value:html+'é'}});fireEvent.click(screen.getByTestId('signature-save'));
+  expect(await screen.findByRole('alert')).toHaveTextContent('over 2 MiB');expect(save).toHaveBeenCalledTimes(1);
  });
 });

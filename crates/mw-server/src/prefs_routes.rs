@@ -45,7 +45,7 @@
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{Path as UrlPath, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path as UrlPath, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
@@ -136,6 +136,12 @@ struct IdentityDto {
 // Signatures (W12)
 // ─────────────────────────────────────────────────────────────────────────────
 
+const MAX_SIGNATURE_HTML_BYTES: usize = 2 * 1024 * 1024;
+const MAX_SIGNATURE_TEXT_BYTES: usize = 64 * 1024;
+// JSON can expand one UTF-8 byte to six bytes (for example, \u0000).
+// Leave room for both plain representations and the signature metadata.
+const MAX_SIGNATURE_JSON_BYTES: usize = 6 * MAX_SIGNATURE_HTML_BYTES + 1024 * 1024;
+
 async fn personal_record_owner(
     state: &AppState,
     headers: &HeaderMap,
@@ -169,11 +175,17 @@ async fn signatures_list(State(state): State<AppState>, headers: HeaderMap) -> R
 async fn signatures_upsert(
     State(state): State<AppState>,
     headers: HeaderMap,
-    Json(body): Json<SignatureDto>,
+    request: Request,
 ) -> Response {
     let account = match personal_record_owner(&state, &headers, true).await {
         Ok(a) => a,
         Err(r) => return r,
+    };
+    // Verify the session and personal storage authority before reading the
+    // larger, signature-only JSON envelope into memory.
+    let Json(body) = match Json::<SignatureDto>::from_request(request, &state).await {
+        Ok(body) => body,
+        Err(rejection) => return rejection.into_response(),
     };
     if body
         .format
@@ -188,19 +200,27 @@ async fn signatures_upsert(
     {
         return bad_request("a signature needs a valid name of at most 200 bytes");
     }
-    if body.body.len() > 64 * 1024
+    if body.body.len() > MAX_SIGNATURE_TEXT_BYTES
         || body
             .html
             .as_ref()
-            .is_some_and(|value| value.len() > 32 * 1024)
+            .is_some_and(|value| value.len() > MAX_SIGNATURE_HTML_BYTES)
         || body
             .text
             .as_ref()
-            .is_some_and(|value| value.len() > 64 * 1024)
+            .is_some_and(|value| value.len() > MAX_SIGNATURE_TEXT_BYTES)
     {
-        return bad_request("a signature must not exceed 32 KiB HTML or 64 KiB plain text");
+        return bad_request("a signature must not exceed 2 MiB HTML or 64 KiB plain text");
     }
-    match do_upsert_signature(&state.store, &account, &body).await {
+    let row = signature_from_dto(&account, &body);
+    if row
+        .html
+        .as_ref()
+        .is_some_and(|html| html.len() > MAX_SIGNATURE_HTML_BYTES)
+    {
+        return bad_request("the sanitized signature HTML must not exceed 2 MiB");
+    }
+    match state.store.upsert_personal_signature(&row).await {
         Ok(()) => ok(),
         Err(e) => server_error("upsert signature", e),
     }
@@ -1068,6 +1088,7 @@ async fn do_list_signatures(store: &Store, account: &str) -> Result<Vec<Signatur
         .collect())
 }
 
+#[cfg(test)]
 async fn do_upsert_signature(
     store: &Store,
     account: &str,
@@ -1312,7 +1333,10 @@ pub(crate) fn prefs_router() -> Router<AppState> {
         )
         .route(
             "/api/account/signatures",
-            get(signatures_list).post(signatures_upsert),
+            get(signatures_list).merge(
+                axum::routing::post(signatures_upsert)
+                    .layer(DefaultBodyLimit::max(MAX_SIGNATURE_JSON_BYTES)),
+            ),
         )
         .route("/api/account/signatures/{name}", delete(signatures_delete))
         .route(

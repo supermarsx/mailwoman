@@ -336,3 +336,74 @@ async fn explicit_administrator_identity_deny_still_refuses_creation() {
     assert_eq!(body["code"], "feature_disabled");
     assert_eq!(body["key"], "cap.identities");
 }
+
+#[tokio::test]
+async fn large_html_signature_respects_byte_limits_and_preserves_embedded_logos() {
+    const HTML_LIMIT: usize = 2 * 1024 * 1024;
+    const TEXT_LIMIT: usize = 64 * 1024;
+    const JSON_LIMIT: usize = 6 * HTML_LIMIT + 1024 * 1024;
+    let mock = spawn_mock().await;
+    let (addr, db_path) = spawn_server().await;
+    seed_mock_account(&db_path).await;
+    let base = format!("http://{addr}");
+    let c = client();
+    let authority = login(&c, &base, &mock).await;
+    let url = format!("{base}/api/account/signatures");
+    let prefix = "<p>Signature</p><img src=\"data:image/png;base64,";
+    let suffix = "\">";
+    let payload_bytes = (HTML_LIMIT - prefix.len() - suffix.len()) / 4 * 4;
+    let mut html = format!("{prefix}{}{suffix}", "A".repeat(payload_bytes));
+    html.push_str(&" ".repeat(HTML_LIMIT - html.len()));
+    assert_eq!(html.len(), HTML_LIMIT);
+    let dto = json!({
+        "name":"large-logo", "format":"html", "html":html, "isDefault":false,
+        "body":"b".repeat(TEXT_LIMIT), "text":"t".repeat(TEXT_LIMIT),
+    });
+    // A legal escaped envelope approaches the worst-case six bytes per source
+    // byte. Its decoded HTML must still be measured as UTF-8, not wire JSON.
+    let escaped = serde_json::to_string(&dto).unwrap().replace('A', "\\u0041");
+    assert!(escaped.len() > 6 * HTML_LIMIT - 1024);
+    assert!(escaped.len() < JSON_LIMIT);
+    let saved = c.post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .header("content-type", "application/json")
+        .body(escaped).send().await.unwrap();
+    assert_eq!(saved.status(), 200, "{}", saved.text().await.unwrap());
+    let list: Value = c.get(&url).send().await.unwrap().json().await.unwrap();
+    let stored = &list["signatures"][0];
+    assert_eq!(stored["html"], dto["html"], "the complete raster data URL survives sanitization and persistence");
+    assert_eq!(stored["body"], dto["body"]);
+    assert_eq!(stored["text"], dto["text"]);
+    let resaved = c.post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(stored).send().await.unwrap();
+    assert_eq!(resaved.status(), 200, "stored signatures must save unchanged");
+    let mut expansion = dto.clone();
+    let expanding_html = format!("<p>{}</p>", "&".repeat(HTML_LIMIT / 2));
+    assert!(expanding_html.len() < HTML_LIMIT);
+    assert!(mw_sanitize::sanitize_signature_html(&expanding_html).len() > HTML_LIMIT);
+    expansion["html"] = json!(expanding_html);
+    let rejected = c.post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .json(&expansion).send().await.unwrap();
+    assert_eq!(rejected.status(), 400, "sanitizer expansion must not exceed the stored HTML limit");
+    let unchanged: Value = c.get(&url).send().await.unwrap().json().await.unwrap();
+    assert_eq!(unchanged["signatures"][0]["html"], dto["html"]);
+    for field in ["html", "body", "text"] {
+        let mut oversized = dto.clone();
+        oversized[field] = json!(format!("{}x", oversized[field].as_str().unwrap()));
+        let rejected = c.post(&url)
+            .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+            .json(&oversized).send().await.unwrap();
+        assert_eq!(rejected.status(), 400, "one byte over the {field} limit must be refused");
+    }
+    let oversized_envelope = c.post(&url)
+        .header(common::auth::STORAGE_AUTHORITY_HEADER, &authority)
+        .header("content-type", "application/json")
+        .body(" ".repeat(JSON_LIMIT + 1)).send().await.unwrap();
+    assert_eq!(oversized_envelope.status(), 413);
+    let anonymous = client().post(&url)
+        .header("content-type", "application/json")
+        .body("invalid JSON").send().await.unwrap();
+    assert_eq!(anonymous.status(), 401, "authentication must run before JSON extraction");
+}
