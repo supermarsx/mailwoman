@@ -23,6 +23,8 @@ struct Policy {
     mode: String,
     countries: Vec<String>,
     unknown: String,
+    /// `security.signin.geoNoDatabase`: `block` (fail closed) or `allow`.
+    no_database: String,
     enforce_sessions: bool,
 }
 fn unavailable() -> AdminApiError {
@@ -60,6 +62,11 @@ impl Policy {
             .as_str()
             .ok_or_else(unavailable)?
             .to_owned();
+        let no_database = value(state, "security.signin.geoNoDatabase")
+            .await?
+            .as_str()
+            .ok_or_else(unavailable)?
+            .to_owned();
         let countries = value(state, "security.signin.geoCountries")
             .await?
             .as_array()
@@ -70,6 +77,7 @@ impl Policy {
         if !GEO_SCOPES.contains(&scope.as_str())
             || !matches!(mode.as_str(), "allow" | "deny")
             || !matches!(unknown.as_str(), "allow" | "deny")
+            || !matches!(no_database.as_str(), "allow" | "block")
             || countries
                 .iter()
                 .any(|s| s.len() != 2 || !s.bytes().all(|b| b.is_ascii_uppercase()))
@@ -81,6 +89,7 @@ impl Policy {
             mode,
             countries,
             unknown,
+            no_database,
             enforce_sessions,
         })
     }
@@ -91,12 +100,31 @@ impl Policy {
                 ("admin", AuthSurface::Admin) | ("mailbox", AuthSurface::Webmail)
             )
     }
+    /// [`Self::decision`] for a request from `source`: a local network (private,
+    /// loopback, link-local) has no country and is never refused for that.
+    fn decision_for(
+        &self,
+        surface: AuthSurface,
+        source: Option<IpAddr>,
+        lookup: &CountryLookup,
+    ) -> &'static str {
+        if self.applies(surface) && source.is_some_and(crate::geo_lookup::is_local) {
+            return "allow";
+        }
+        self.decision(surface, lookup)
+    }
     fn decision(&self, surface: AuthSurface, lookup: &CountryLookup) -> &'static str {
         if !self.applies(surface) {
             return "off";
         }
         match lookup {
-            CountryLookup::DatabaseUnavailable => "unavailable",
+            CountryLookup::DatabaseUnavailable => {
+                if self.no_database == "allow" {
+                    "allow"
+                } else {
+                    "unavailable"
+                }
+            }
             CountryLookup::Unknown => {
                 if self.unknown == "allow" {
                     "allow"
@@ -124,7 +152,7 @@ pub(crate) async fn check(
     if !policy.applies(surface) {
         return Ok(());
     }
-    match policy.decision(surface, &country_lookup(source)) {
+    match policy.decision_for(surface, source, &country_lookup(source)) {
         "allow" => Ok(()),
         "unavailable" => {
             // Fail closed: an active policy without a usable database refuses.
@@ -194,7 +222,7 @@ pub(crate) async fn session_guard(
         return next.run(request).await;
     }
     let source = crate::scope_mw::proxy::client_ip(request.headers(), request.extensions());
-    let decision = policy.decision(surface, &country_lookup(source));
+    let decision = policy.decision_for(surface, source, &country_lookup(source));
     if decision == "unavailable" {
         crate::geoip::note_refusal();
     }
@@ -307,7 +335,7 @@ async fn diagnostic(
   "sourceIp":source.map(|ip|ip.to_canonical().to_string()),"country":country,
   "database":if matches!(lookup,CountryLookup::DatabaseUnavailable){"unavailable"}else{"ready"},
   "scope":policy.scope,"mode":policy.mode,"countries":policy.countries,"unknown":policy.unknown,
-  "administratorDecision":policy.decision(AuthSurface::Admin,&lookup),"mailboxDecision":policy.decision(AuthSurface::Webmail,&lookup),"enforceSessions":policy.enforce_sessions,"scopeDescription":if policy.enforce_sessions {"sign-ins-and-session-requests"} else {"new-sign-ins-only"}
+  "noDatabase":policy.no_database,"localNetwork":source.is_some_and(crate::geo_lookup::is_local),"administratorDecision":policy.decision_for(AuthSurface::Admin,source,&lookup),"mailboxDecision":policy.decision_for(AuthSurface::Webmail,source,&lookup),"enforceSessions":policy.enforce_sessions,"scopeDescription":if policy.enforce_sessions {"sign-ins-and-session-requests"} else {"new-sign-ins-only"}
  }))).into_response())
 }
 #[cfg(test)]
@@ -384,6 +412,7 @@ mod tests {
             mode: "allow".into(),
             countries: vec!["PT".into()],
             unknown: "deny".into(),
+            no_database: "block".into(),
             enforce_sessions: false,
         };
         assert_eq!(
@@ -416,6 +445,25 @@ mod tests {
             p.decision(AuthSurface::Webmail, &CountryLookup::DatabaseUnavailable),
             "unavailable"
         );
+        // Local networks are never refused for lacking a country.
+        for l in [CountryLookup::Unknown, CountryLookup::DatabaseUnavailable] {
+            p.unknown = "deny".into();
+            assert_eq!(
+                p.decision_for(AuthSurface::Webmail, Some("192.168.0.4".parse().unwrap()), &l),
+                "allow"
+            );
+            assert_eq!(
+                p.decision_for(AuthSurface::Webmail, Some("203.0.113.4".parse().unwrap()), &l),
+                if l == CountryLookup::Unknown { "deny" } else { "unavailable" }
+            );
+        }
+        // The no-database behaviour is a setting; block is the fail-closed default.
+        p.no_database = "allow".into();
+        assert_eq!(
+            p.decision(AuthSurface::Webmail, &CountryLookup::DatabaseUnavailable),
+            "allow"
+        );
+        p.unknown = "allow".into();
         p.mode = "deny".into();
         assert_eq!(
             p.decision(AuthSurface::Webmail, &CountryLookup::Known("PT".into())),

@@ -190,6 +190,32 @@ describe('Adaptive protection editor', () => {
     expect(result).toHaveTextContent(/Slowed down for 3 s, because of: Short-window anomaly count/);
     expect(a.simulate).toHaveBeenCalledWith({ subjectKind: 'client', sample: { requestsInWindow: 1, short: { normal: 0, anomalous: 19 }, long: { normal: 0, anomalous: 0 }, signal: 'malformed', previouslyThrottled: false } });
   });
+  it('sends the trust tier, user-agent class and country and explains the server numbers in plain language', async () => {
+    const tier: NonNullable<SimResult['tier']> = {
+      tier: 'unknown', percent: 50,
+      requestBudget: { base: 600, effective: 300, windowSecs: 60 }, userAgentBudget: null,
+      signinCooldown: { baseSecs: 3, effectiveSecs: 6, heightenedSecs: null },
+      challenge: { baseDifficulty: 2000, effectiveDifficulty: 4000, forcedByHeightened: false },
+      userAgentAction: { class: 'ai-training', configured: 'block', effective: 'block', signedInNeverBlocked: false },
+      heightened: { on: false, forcesChallenge: false, pacePercent: null },
+      adminProbe: { enabled: true, threshold: 3, windowSecs: 600, blockSecs: 3600, cause: 'not-found', result: 'counted' },
+    };
+    const a = api({ simulate: vi.fn(async (): Promise<SimResult> => ({ action: 'allow', reason: null, enforced: false, durationSecs: 0, signalCounted: false, off: false, exempt: false, rules: [], tier })) });
+    render(() => <ProtectionPolicyEditor api={a} canWrite />);
+    const sim = await screen.findByTestId('protection-simulator');
+    fireEvent.click(within(sim).getByLabelText('Include trust tier, user-agent class and country'));
+    fireEvent.change(within(sim).getByLabelText('Claimed user-agent class'), { target: { value: 'ai-training' } });
+    fireEvent.change(within(sim).getByLabelText('Country lookup'), { target: { value: 'notFound' } });
+    fireEvent.click(within(sim).getByLabelText('The request is an admin-console discovery probe'));
+    fireEvent.click(within(sim).getByRole('button', { name: 'Check' }));
+    const out = await screen.findByTestId('protection-sim-tier');
+    expect(a.simulate).toHaveBeenCalledWith(expect.objectContaining({ tier: { tier: 'unknown', uaClass: 'ai-training', countryState: 'notFound', adminProbe: true } }));
+    expect(out).toHaveTextContent('50 % of the configured limits');
+    expect(out).toHaveTextContent(/600 requests per 1 min becomes 300|600 requests per 60 s becomes 300/);
+    expect(out).toHaveTextContent(/Sign-in cooldown: .* becomes /);
+    expect(out).toHaveTextContent('3 probes within');
+    expect(out).toHaveTextContent('Sign-in heightened mode is off.');
+  });
   it('simulates a recognized scan path on the first request without making it a selectable weak signal', async () => {
     const a = api({simulate: vi.fn(async (): Promise<SimResult> => ({action:'block',reason:'probe-path',enforced:true,durationSecs:900,signalCounted:true,off:false,exempt:false,rules:[{rule:'probe-path',enabled:true,value:1,threshold:1,fired:true}]}))});
     render(() => <ProtectionPolicyEditor api={a} canWrite />);

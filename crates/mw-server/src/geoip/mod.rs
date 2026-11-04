@@ -692,6 +692,7 @@ pub(crate) async fn status(state: &AppState) -> Value {
         "database": database,
         "previous": previous,
         "policyActive": policy_active(state).await,
+        "countryFeatures": crate::geo_lookup::status(state).await,
         "busy": runtime().busy.load(Ordering::SeqCst),
         "downloadProgress": download_progress(),
         "config": config.public(),

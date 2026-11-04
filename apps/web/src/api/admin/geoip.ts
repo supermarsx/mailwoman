@@ -20,6 +20,11 @@ export interface GeoipDatabase {
   ipVersion: number; description: string | null; source: string; release?: string | null; label?: string | null;
   installedAt?: number; installedBy?: string; checksumVerified?: boolean; stale: boolean;
 }
+export interface CountryFeatures {
+  state: 'loaded' | 'missing' | 'invalid'; error: string | null; loaded: boolean;
+  buildEpoch: number | null; ageDays: number | null; stale: boolean;
+  features: { id: string; enabled: boolean }[]; warning: boolean; dependentFeatures: string[];
+}
 export interface GeoipStatus {
   managedBy: 'environment' | 'console';
   state: 'loaded' | 'missing' | 'invalid';
@@ -29,6 +34,7 @@ export interface GeoipStatus {
   database: GeoipDatabase | null;
   previous: { source: string; release?: string | null; buildEpoch?: number; sizeBytes?: number; installedAt?: number; sha256?: string } | null;
   policyActive: boolean;
+  countryFeatures?: CountryFeatures;
   busy: boolean;
   downloadProgress?: { phase: 'checking' | 'downloading' | 'verifying' | 'installing'; receivedBytes: number | null; totalBytes: number | null } | null;
   config: GeoipConfig;

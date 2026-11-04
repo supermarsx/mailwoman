@@ -4,7 +4,8 @@ export interface ProtectionCounts { normal:number; anomalous:number }
 export interface ProtectionSnapshot { short:ProtectionCounts; long:ProtectionCounts; shortWindowSecs:number; longWindowSecs:number; activeUntil:number; stage:number; lastAnomaly:number|null; lastSignal:string|null; rateCount:number; rateWindowSecs:number; countryCode?:string|null; sourceIp?:string|null }
 export interface ProtectionSubject { subjectKey:string;subjectKind:'client'|'account'|'admin'|`ua-${string}`;updatedAt:number;expiresAt:number;revision:string;snapshot:ProtectionSnapshot }
 export interface ProtectionEvent { id:string;subjectKey:string;subjectKind:string;observedAt:number;reason:string;action:string;enforced:boolean;retryAfterSecs:number;snapshot:ProtectionSnapshot;policy:{short:{seconds:number;minimum_samples:number;absolute_anomalies:number;ratio_percent:number};long:{seconds:number;minimum_samples:number;absolute_anomalies:number;ratio_percent:number}}|null }
-export interface ProtectionStatus { policy:{rateMode:string;adaptiveMode:string;clientRequests:number;accountRequests:number;adminRequests:number;rateWindowSecs:number};subjectCapacity:number;eventCapacity:number;eventRetentionSecs:number;propagationSecs:number;coverage:string;preRouterHeadersObserved:boolean }
+export interface ProtocolGuardRow { class:string;mode:'off'|'detect'|'enforce';detected:number;enforced:number;lastSeen:number|null }
+export interface ProtectionStatus { protocolGuard?:{classes:ProtocolGuardRow[];scope:string};policy:{rateMode:string;adaptiveMode:string;clientRequests:number;accountRequests:number;adminRequests:number;rateWindowSecs:number};subjectCapacity:number;eventCapacity:number;eventRetentionSecs:number;propagationSecs:number;coverage:string;preRouterHeadersObserved:boolean }
 export interface ProtectionApi {
  status():Promise<ProtectionStatus>;
  subjects(after?:string):Promise<{subjects:ProtectionSubject[];cursor:string|null}>;
@@ -27,9 +28,24 @@ export interface ProtectionPolicy { rules: AdminSetting[]; presets: Record<Prese
 export interface PolicyChange { key: string; value: unknown; etag?: string | undefined }
 export type SimSignal = 'normal' | 'malformed' | 'oversized' | 'credential-rejected' | 'permission-denied' | 'body-deadline' | 'admin-route-miss' | 'probe-path' | 'bot-user-agent';
 export interface SimSample { requestsInWindow: number; short: ProtectionCounts; long: ProtectionCounts; signal: SimSignal; previouslyThrottled: boolean }
-export interface SimRequest { subjectKind: 'client' | 'account' | 'admin'; subjectValue?: string; sample: SimSample; draft?: Record<string, unknown>; userAgent?: string }
+export type SimTierName = 'authenticated' | 'known' | 'unknown';
+export type SimUaClass = 'normal' | 'missing' | 'uncommon' | 'automation' | 'search' | 'ai-training' | 'ai-search' | 'ai-user' | 'custom';
+export type SimCountryState = 'found' | 'notFound' | 'noDatabase' | 'local';
+export interface SimTier { tier: SimTierName; uaClass?: SimUaClass; country?: string; countryState?: SimCountryState; adminProbe?: boolean }
+export interface SimRequest { subjectKind: 'client' | 'account' | 'admin'; subjectValue?: string; sample: SimSample; draft?: Record<string, unknown>; userAgent?: string; tier?: SimTier }
+export type SimAdminProbeResult = 'disabled' | 'notApplicable' | 'localNetwork' | 'knownCountry' | 'unresolvedNotBlocked' | 'counted';
+export interface SimTierResult {
+  tier: SimTierName; percent: number;
+  requestBudget: { base: number; effective: number; windowSecs: number } | null;
+  userAgentBudget: { base: number; effective: number; windowSecs: number } | null;
+  signinCooldown: { baseSecs: number; effectiveSecs: number; heightenedSecs: number | null };
+  challenge: { baseDifficulty: number; effectiveDifficulty: number; forcedByHeightened: boolean };
+  userAgentAction: { class: string; configured: 'allow' | 'limit' | 'block'; effective: 'allow' | 'limit' | 'block'; signedInNeverBlocked: boolean } | null;
+  heightened: { on: boolean; forcesChallenge: boolean; pacePercent: number | null };
+  adminProbe: { enabled: boolean; threshold: number; windowSecs: number; blockSecs: number; cause: string; result: SimAdminProbeResult } | null;
+}
 export type SimRuleId = 'request-rate' | 'short-absolute' | 'short-ratio' | 'long-absolute' | 'long-ratio' | 'probe-path' | 'bot-user-agent';
-export interface SimResult { userAgent?: { classification: string | null; claimedOnly: true; exempt: boolean }; action: 'allow' | 'throttle' | 'block'; reason: SimRuleId | null; enforced: boolean; durationSecs: number; signalCounted: boolean; off: boolean; exempt: boolean; rules: { rule: SimRuleId; enabled: boolean; value: number; threshold: number; fired: boolean }[] }
+export interface SimResult { tier?: SimTierResult | null; userAgent?: { classification: string | null; claimedOnly: true; exempt: boolean }; action: 'allow' | 'throttle' | 'block'; reason: SimRuleId | null; enforced: boolean; durationSecs: number; signalCounted: boolean; off: boolean; exempt: boolean; rules: { rule: SimRuleId; enabled: boolean; value: number; threshold: number; fired: boolean }[] }
 export interface ProtectionPolicyApi {
  policy(): Promise<ProtectionPolicy>;
  save(changes: PolicyChange[], preset?: PresetName): Promise<AdminSetting[]>;

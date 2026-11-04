@@ -131,9 +131,12 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
         .build()
         .unwrap();
     let body = json!({"username":mw_mock_jmap::USER,"password":mw_mock_jmap::PASS});
-    let denied = untrusted
+    // 192.0.2.55 is public (not a local network) and has no entry in the test
+    // database: `geoUnknown` (deny by default) refuses it. The untrusted loopback
+    // peer, by contrast, is a local network and is never refused for lacking a country.
+    let denied = trusted
         .post(format!("{base}/api/login"))
-        .header("x-forwarded-for", "81.2.69.160")
+        .header("x-forwarded-for", "192.0.2.55")
         .json(&body)
         .send()
         .await
@@ -317,8 +320,9 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
     );
     // Cookieless signed reader authority cannot skip source policy.
     setting(&store, "security.signin.geoUnknown", json!("deny")).await;
-    let invalid = untrusted
+    let invalid = trusted
         .get(format!("{base}/api/rc/p/untrusted-token"))
+        .header("x-forwarded-for", "192.0.2.55")
         .send()
         .await
         .unwrap();
@@ -337,9 +341,9 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
         "{payload}%2E{}",
         base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(mac.finalize().into_bytes())
     );
-    let signed = untrusted
+    let signed = trusted
         .get(format!("{base}/api/rc/p/{signed_token}"))
-        .header("x-forwarded-for", "81.2.69.160")
+        .header("x-forwarded-for", "192.0.2.55")
         .send()
         .await
         .unwrap();
@@ -400,8 +404,9 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
     );
     setting(&store, "security.signin.geoScope", json!("all")).await;
     std::fs::remove_file(&owned_database).unwrap();
-    let unavailable = untrusted
+    let unavailable = trusted
         .post(format!("{base}/api/login"))
+        .header("x-forwarded-for", "192.0.2.55")
         .json(&refused_body)
         .send()
         .await
@@ -415,6 +420,32 @@ async fn geography_uses_trusted_source_and_stops_before_upstream() {
         refused_calls.load(Ordering::SeqCst),
         0,
         "unknown=allow cannot bypass a missing database"
+    );
+    // No database is a setting: `geoNoDatabase = allow` lets a public source through
+    // unchecked; the default (`block`) fails closed. A local network (the untrusted
+    // loopback peer) is never refused for lacking a country, either way.
+    assert_eq!(
+        untrusted
+            .post(format!("{base}/api/login"))
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200,
+        "a local network is allowed even with no database"
+    );
+    setting(&store, "security.signin.geoNoDatabase", json!("allow")).await;
+    assert_eq!(
+        trusted
+            .post(format!("{base}/api/login"))
+            .header("x-forwarded-for", "192.0.2.55")
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        200
     );
     setting(&store, "security.signin.geoScope", json!("off")).await;
     assert_eq!(

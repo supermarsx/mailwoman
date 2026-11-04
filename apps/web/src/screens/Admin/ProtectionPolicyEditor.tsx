@@ -9,7 +9,7 @@
 
 import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import { protectionPolicyApi, type PolicyChange, type PresetName, type ProtectionPolicy, type ProtectionPolicyApi, type SimRequest, type SimResult, type SimSignal } from '../../api/admin/requestProtection.ts';
+import { protectionPolicyApi, type PolicyChange, type PresetName, type ProtectionPolicy, type ProtectionPolicyApi, type SimCountryState, type SimRequest, type SimResult, type SimSignal, type SimTierName, type SimUaClass } from '../../api/admin/requestProtection.ts';
 import type { AdminSetting } from '../../api/admin/settings.ts';
 import { t, formatNumber } from '../../i18n';
 import {useSavingToast} from './shell/useSavingToast.ts';
@@ -275,6 +275,30 @@ function RuleRow(props: {
   );
 }
 
+const SIM_TIERS: readonly SimTierName[] = ['unknown', 'known', 'authenticated'];
+const SIM_UA_CLASSES: readonly SimUaClass[] = ['normal', 'missing', 'uncommon', 'automation', 'search', 'ai-training', 'ai-search', 'ai-user', 'custom'];
+const SIM_COUNTRY_STATES: readonly SimCountryState[] = ['found', 'notFound', 'noDatabase', 'local'];
+
+/** The trust-tier part of a simulation, in plain language. Every number is the
+ *  server's own (the live scaling functions), never recomputed here. */
+function TierResult(props: { tier: NonNullable<SimResult['tier']> }): JSX.Element {
+  const x = (): NonNullable<SimResult['tier']> => props.tier;
+  return (
+    <div data-testid="protection-sim-tier">
+      <p class={css.note}>{t('admin-protect-sim-tier-percent', { tier: t(`admin-protect-sim-tier-${x().tier}`), percent: formatNumber(x().percent) })}</p>
+      <ul>
+        <Show when={x().requestBudget}>{(b) => <li>{t('admin-protect-sim-tier-budget', { base: formatNumber(b().base), effective: formatNumber(b().effective), window: formatSeconds(b().windowSecs) })}</li>}</Show>
+        <Show when={x().userAgentBudget}>{(b) => <li>{t('admin-protect-sim-tier-ua-budget', { base: formatNumber(b().base), effective: formatNumber(b().effective), window: formatSeconds(b().windowSecs) })}</li>}</Show>
+        <li>{t('admin-protect-sim-tier-cooldown', { base: formatSeconds(x().signinCooldown.baseSecs), effective: formatSeconds(x().signinCooldown.effectiveSecs) })}</li>
+        <li>{t('admin-protect-sim-tier-challenge', { base: formatNumber(x().challenge.baseDifficulty), effective: formatNumber(x().challenge.effectiveDifficulty) })}</li>
+        <Show when={x().userAgentAction}>{(a) => <li>{t(a().signedInNeverBlocked ? 'admin-protect-sim-tier-ua-signed-in' : 'admin-protect-sim-tier-ua-action', { class: t(`admin-protect-sim-uaclass-${a().class}`), action: t(`admin-protect-sim-ua-action-${a().effective}`), configured: t(`admin-protect-sim-ua-action-${a().configured}`) })}</li>}</Show>
+        <Show when={x().adminProbe}>{(p) => <li>{t(`admin-protect-sim-probe-${p().result}`, { threshold: formatNumber(p().threshold), window: formatSeconds(p().windowSecs), block: formatSeconds(p().blockSecs), cause: t(`admin-protect-sim-cause-${p().cause}`) })}</li>}</Show>
+        <li>{x().heightened.on ? t('admin-protect-sim-heightened-on', { pace: x().heightened.pacePercent == null ? '-' : `${formatNumber(x().heightened.pacePercent!)} %`, challenge: t(x().heightened.forcesChallenge ? 'admin-protect-sim-yes' : 'admin-protect-sim-no'), cooldown: x().signinCooldown.heightenedSecs == null ? '-' : formatSeconds(x().signinCooldown.heightenedSecs!) }) : t('admin-protect-sim-heightened-off')}</li>
+      </ul>
+    </div>
+  );
+}
+
 const SIM_SIGNALS: readonly SimSignal[] = ['normal', ...SIGNALS, 'probe-path', 'bot-user-agent'];
 const sourceOnlySignal=(signal:SimSignal):boolean=>signal==='probe-path'||signal==='bot-user-agent';
 
@@ -291,6 +315,12 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
   const [useDraft, setUseDraft] = createSignal(false);
   const [useUserAgent, setUseUserAgent] = createSignal(false);
   const [userAgent, setUserAgent] = createSignal('');
+  const [useTier, setUseTier] = createSignal(false);
+  const [tier, setTier] = createSignal<SimTierName>('unknown');
+  const [uaClass, setUaClass] = createSignal<SimUaClass>('normal');
+  const [countryState, setCountryState] = createSignal<SimCountryState>('found');
+  const [country, setCountry] = createSignal('');
+  const [adminProbe, setAdminProbe] = createSignal(false);
   const [result, setResult] = createSignal<SimResult>();
   const [error, setError] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -304,6 +334,10 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
       const body: SimRequest = { subjectKind: kind(), sample: { requestsInWindow: requests(), short: { normal: shortGood(), anomalous: shortBad() }, long: { normal: longGood(), anomalous: longBad() }, signal: signal(), previouslyThrottled: throttled() } };
       if (subject().trim()) body.subjectValue = subject().trim();
       if (useUserAgent()) body.userAgent = userAgent();
+      if (useTier()) {
+        body.tier = { tier: tier(), uaClass: uaClass(), countryState: countryState(), adminProbe: adminProbe() };
+        if (countryState() === 'found' && country().trim()) body.tier.country = country().trim().toUpperCase();
+      }
       if (useDraft() && Object.keys(draft()).length > 0) body.draft = draft();
       setResult(await props.api.simulate(body));
     } catch (cause) {
@@ -343,6 +377,23 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
         <label class="field">{t('admin-protect-sim-short-good')}<input type="number" min="0" value={shortGood()} onInput={num(setShortGood)} /></label>
         <label class="field">{t('admin-protect-sim-long-bad')}<input type="number" min="0" value={longBad()} onInput={num(setLongBad)} /></label>
         <label class="field">{t('admin-protect-sim-long-good')}<input type="number" min="0" value={longGood()} onInput={num(setLongGood)} /></label>
+        <label class={css.check}><input type="checkbox" checked={useTier()} onChange={(e) => setUseTier(e.currentTarget.checked)} />{t('admin-protect-sim-tier-enable')}</label>
+        <Show when={useTier()}>
+          <label class="field">{t('admin-protect-sim-tier')}
+            <select value={tier()} onChange={(e) => setTier(e.currentTarget.value as SimTierName)}>
+              <For each={SIM_TIERS}>{(x) => <option value={x}>{t(`admin-protect-sim-tier-${x}`)}</option>}</For>
+            </select></label>
+          <label class="field">{t('admin-protect-sim-uaclass')}
+            <select value={uaClass()} onChange={(e) => setUaClass(e.currentTarget.value as SimUaClass)}>
+              <For each={SIM_UA_CLASSES}>{(x) => <option value={x}>{t(`admin-protect-sim-uaclass-${x}`)}</option>}</For>
+            </select></label>
+          <label class="field">{t('admin-protect-sim-country-state')}
+            <select value={countryState()} onChange={(e) => setCountryState(e.currentTarget.value as SimCountryState)}>
+              <For each={SIM_COUNTRY_STATES}>{(x) => <option value={x}>{t(`admin-protect-sim-country-state-${x}`)}</option>}</For>
+            </select></label>
+          <Show when={countryState() === 'found'}><label class="field">{t('admin-protect-sim-country')}<input maxlength="2" value={country()} placeholder="PT" onInput={(e) => setCountry(e.currentTarget.value)} /></label></Show>
+          <label class={css.check}><input type="checkbox" checked={adminProbe()} onChange={(e) => setAdminProbe(e.currentTarget.checked)} />{t('admin-protect-sim-admin-probe')}</label>
+        </Show>
         <label class={css.check}><input type="checkbox" checked={throttled()} onChange={(e) => setThrottled(e.currentTarget.checked)} />{t('admin-protect-sim-throttled')}</label>
         <label class={css.check}><input type="checkbox" checked={useDraft()} onChange={(e) => setUseDraft(e.currentTarget.checked)} />{t('admin-protect-sim-use-draft')}</label>
         <div class={css.actions}><button class="btn" type="submit" disabled={busy()}>{t('admin-protect-sim-run')}</button></div>
@@ -352,6 +403,7 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
         <div class={css.simResult} data-testid="protection-sim-result" data-action={r().action} aria-live="polite">
           <p class={css.verdict}>{verdict(r())}</p>
           <Show when={r().userAgent}>{(ua) => <p class={css.note}>{t('admin-protect-sim-ua-result', { category: ua().classification ? t(`admin-protect-ua-category-${ua().classification}`) : t('admin-protect-none') })} <Show when={ua().exempt}>{t('admin-protect-sim-ua-exempt')}</Show></p>}</Show>
+          <Show when={r().tier}>{(x) => <TierResult tier={x()} />}</Show>
           <Show when={!r().signalCounted && signal() !== 'normal' && !r().off && !r().exempt}><p class={css.note}>{t('admin-protect-sim-not-counted')}</p></Show>
           <Show when={r().rules.length > 0}>
             <table class={css.diff}>

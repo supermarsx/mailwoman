@@ -283,6 +283,10 @@ struct Simulate {
     #[serde(default)]
     subject_value: Option<String>,
     sample: SimInput,
+    /// Trust tier, claimed user-agent class, country and admin-probe context.
+    /// Optional: without it the result has no `tier` section.
+    #[serde(default)]
+    tier: Option<super::tier_sim::TierInput>,
     /// Unsaved values to try instead of the stored ones (`key → value`).
     #[serde(default)]
     draft: Map<String, Value>,
@@ -381,6 +385,55 @@ async fn simulate(
         .and_then(|category| {
             config.user_agent_policy(category, if kind == "client" { value } else { "192.0.2.1" })
         });
+    let tier_effects = match &body.tier {
+        None => None,
+        Some(input) => {
+            let trust = crate::trust_tier::policy(&state.store).await;
+            let tier = super::tier_sim::tier_of(input.tier.as_deref()).map_err(|()| {
+                AdminApiError::invalid(
+                    "invalidTier",
+                    "The trust tier is authenticated, known or unknown",
+                    "/tier/tier",
+                )
+            })?;
+            let setting = |key: &'static str, default: u64, max: u64| {
+                let store = state.store.clone();
+                async move {
+                    crate::settings_registry::effective_for(&store, key, &Default::default())
+                        .await
+                        .ok()
+                        .flatten()
+                        .and_then(|e| e.value.as_u64())
+                        .unwrap_or(default)
+                        .min(max)
+                }
+            };
+            let inputs = super::tier_sim::Inputs {
+                trust: &trust,
+                shared: crate::geo_lookup::shared(&state).await,
+                subject_budget: config
+                    .subject(kind, value)
+                    .map(|p| (p.rate_limit, p.rate_window_secs)),
+                ua_budget: ua_policy.as_ref().map(|p| (p.rate_limit, p.rate_window_secs)),
+                subject_kind: kind,
+                cooldown_secs: setting("signin.retryCooldownSecs", 3, 300).await,
+                difficulty: u32::try_from(setting("signin.antiBotDifficulty", 2000, 20000).await)
+                    .unwrap_or(2000),
+                heightened: super::tier_sim::heightened_now(tier),
+            };
+            Some(
+                super::tier_sim::effects(input, &inputs, crate::trust_tier::country_known).map_err(
+                    |()| {
+                        AdminApiError::invalid(
+                            "invalidTier",
+                            "Check the user-agent class, country code and country state",
+                            "/tier",
+                        )
+                    },
+                )?,
+            )
+        }
+    };
     let ua_summary = body.user_agent.as_ref().map(
         |_| json!({"classification":category,"claimedOnly":true,"exempt":ua_policy.is_none()}),
     );
@@ -425,6 +478,7 @@ async fn simulate(
             "off": off,
             "exempt": !off,
             "rules": [],
+            "tier": tier_effects,
         })));
     };
     Ok(private(json!({
@@ -436,6 +490,7 @@ async fn simulate(
         "signalCounted": outcome.signal_counted,
         "off": false,
         "exempt": false,
+        "tier": tier_effects,
         "rules": outcome.rules.iter().map(|r| json!({
             "rule": reason(r.rule),
             "enabled": r.enabled,
