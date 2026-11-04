@@ -69,3 +69,14 @@ describe('close on delete',()=>{
   expect(vanishedIds(null,before).size).toBe(0);
  });
 });
+
+describe('create folder button',()=>{
+ it('is off by default and follows mail.showCreateFolderButton',async()=>{
+  expect(MAIL_FEATURE_DEFAULTS.showCreateFolderButton).toBe(false);
+  expect(mailFeature('showCreateFolderButton')).toBe(false);
+  await load({'mail.showCreateFolderButton':true});
+  expect(mailFeature('showCreateFolderButton')).toBe(true);
+  await load({'mail.showCreateFolderButton':'yes'});
+  expect(mailFeature('showCreateFolderButton')).toBe(false);
+ });
+});

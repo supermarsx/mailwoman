@@ -43,6 +43,8 @@ export interface Keymap {
   register(action: ActionId, handler: ActionHandler): () => void;
   /** Resolve and run one key press. True when an action handled it. */
   dispatch(e: KeyboardEvent): boolean;
+  /** Run `action`'s newest willing handler without a key press (a menu entry for a shortcut action). True when one handled it. */
+  run(action: ActionId): boolean;
   /** Detach the document listener and forget every handler. */
   dispose(): void;
 }
@@ -132,6 +134,12 @@ export function createKeymap(opts: KeymapOptions = {}): Keymap {
       };
     },
     dispatch,
+    run(action) {
+      for (const handler of [...(handlers.get(action) ?? [])].reverse()) {
+        if (handler(new KeyboardEvent('keydown')) !== false) return true;
+      }
+      return false;
+    },
     dispose() {
       target?.removeEventListener('keydown', listener);
       handlers.clear();

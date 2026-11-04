@@ -1,5 +1,8 @@
 import {onMessagesTrashed} from '../state/trashEvents.ts';
-import {FolderCreationControl} from '../components/FolderMaintenance.tsx';
+import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMaintenance.tsx';
+import {useRenameContext} from '../components/RenameFolder.tsx';
+import {treeRows,rolledUnread} from '../components/folderTree.ts';
+import {folderActivity} from '../components/folderActivity.ts';
 import {mailPrefetchEvents} from '../components/mailPrefetchEvents.ts';
 import {readMailCachePolicy} from '../state/mailCachePolicy.ts';
 import {displayText} from '../i18n/presentation.ts';
@@ -189,6 +192,10 @@ export function MailboxScreen(): JSX.Element {
     return opener&&!opener.detach?.isDetached()?opener.id:null;
   });
   const composing=()=>activePane()?.kind==='composer';
+  const [creatingFolder,setCreatingFolder]=createSignal(false);const createFolderAbility=useRenameContext();
+  const composeButton=()=><button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} aria-label={t('mail-compose')} title={t('mail-compose')} onClick={openNewMessage} style={mailFeature('showCreateFolderButton')?{flex:'1 1 auto','min-width':0}:undefined}>
+          <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
+        </button>;
   // t74: the reading pane. With it on (Right or Bottom, and not at phone width) a
   // message opened from the Mail list shows in this one reader beside the list
   // and the next one replaces it; it is not a tab. A double-click or Shift+Enter
@@ -592,6 +599,31 @@ export function MailboxScreen(): JSX.Element {
   // `mail.showSpam` off hides the Junk folder from navigation like a hidden folder; nothing is deleted.
   const navHidden=(box:PreferenceFolder)=>folderIsHidden(box,app.mailboxes(),accountUiPreferences())||spamFolderHidden(box);
   const navigationFolders=createMemo(()=>orderedFolders(app.mailboxes(),accountUiPreferences()).filter(box=>!navHidden(box)));
+  /** The folder tree, depth-first: system folders (with any subfolders), then the user's own folders; collapsed folders list no children. */
+  const folderTreeRows=createMemo(()=>{
+    const preferences=accountUiPreferences();
+    const rows=treeRows(navigationFolders(),()=>true,{sorts:preferences.folderSort,collapsed:new Set(preferences.folderCollapsed??[]),activity:folderActivity(app.accountId())});
+    const split=rows.findIndex(row=>row.depth===0&&!row.box.role);
+    return {system:split<0?rows:rows.slice(0,split),custom:split<0?[]:rows.slice(split)};
+  });
+  const sectionRows=(custom:boolean)=>custom?folderTreeRows().custom:folderTreeRows().system;
+  function toggleFolder(id:string,expand:boolean):void {
+    const collapsed=new Set(accountUiPreferences().folderCollapsed??[]);
+    if(expand)collapsed.delete(id);else collapsed.add(id);
+    setAccountUiPreferences({folderCollapsed:[...collapsed]});
+  }
+  /** Arrow keys walk the folder list; Right/Left open and close a folder with subfolders (ARIA tree behaviour). */
+  function onFolderKey(event:KeyboardEvent,id:string):void {
+    const target=event.currentTarget as HTMLElement,rtl=getComputedStyle(target).direction==='rtl';
+    const row=folderTreeRows().system.concat(folderTreeRows().custom).find(value=>value.box.id===id);
+    if(event.key===(rtl?'ArrowLeft':'ArrowRight')&&row?.hasChildren&&!row.expanded){event.preventDefault();toggleFolder(id,true);return;}
+    if(event.key===(rtl?'ArrowRight':'ArrowLeft')&&row?.hasChildren&&row.expanded){event.preventDefault();toggleFolder(id,false);return;}
+    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
+    const boxes=Array.from(sidebarEl?.querySelectorAll<HTMLElement>('[data-folder-region] .sidebar__box:not([data-folder-disclosure])')??[]),at=boxes.indexOf(target);
+    const next=event.key==='Home'?0:event.key==='End'?boxes.length-1:at+(event.key==='ArrowDown'?1:-1);
+    if(at<0||next<0||next>=boxes.length)return;
+    event.preventDefault();boxes[next]?.focus();
+  }
   createEffect(()=>{
     const policy=readMailCachePolicy(),boxes=navigationFolders(),loading=app.listLoading();
     if(!policy.prefetchEnabled||!policy.idleEnabled||loading)return;
@@ -819,7 +851,7 @@ export function MailboxScreen(): JSX.Element {
         onClick={(e) => {
           // The mailbox picker's trigger only opens its menu; choosing a
           // mailbox closes the drawer through the switch itself (below).
-          if (e.target instanceof Element && e.target.closest('button') !== null && e.target.closest('.sidebar__account') === null && e.target.closest('[data-folder-disclosure]')===null) closeNav();
+          if (e.target instanceof Element && e.target.closest('button') !== null && e.target.closest('.sidebar__account') === null && e.target.closest('[data-folder-disclosure]')===null && e.target.closest('[data-folder-twisty]')===null) closeNav();
         }}
       >
         <div class="sidebar__head">
@@ -828,20 +860,26 @@ export function MailboxScreen(): JSX.Element {
               expanded sidebar, a one-letter button when the folders are compact. */}
           <Show when={app.me()}><div class="sidebar__account" data-variant={accountIconInSidebar()?'icon':'full'}><LinkedAccountControl variant={accountIconInSidebar()?'icon':'full'}/></div></Show>
         </div>
-        <button type="button" class={`btn btn--primary sidebar__compose ${a11y.focusable}`} aria-label={t('mail-compose')} title={t('mail-compose')} onClick={openNewMessage}>
-          <Icon name="edit"/><span class="sidebar__box-name">{t('mail-compose')}</span>
-        </button>
+        <Show when={mailFeature('showCreateFolderButton')} fallback={composeButton()}>
+          <div class="sidebar__compose-row" style={{display:'flex',gap:'0.4rem','align-items':'stretch'}}>
+            <div style={{flex:'1 1 auto',display:'flex','min-width':0}}>{composeButton()}</div>
+            <button type="button" class={`btn btn--ghost sidebar__create-folder ${a11y.focusable} ${a11y.iconButton}`} aria-label={t('folder-create')} title={createFolderAbility()?.manages===false?t('folder-create-unavailable'):t('folder-create')} aria-disabled={createFolderAbility()?.manages===false} onClick={()=>{if(createFolderAbility()?.manages!==false)setCreatingFolder(true);}}>
+              <Icon name="folderPlus"/>
+            </button>
+          </div>
+        </Show>
+        <Show when={creatingFolder()}><CreateFolderDialog onClose={()=>setCreatingFolder(false)}/></Show>
         <div class="sidebar__scroll">
         <FolderCreationControl><nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
           <For each={[false,true]}>{custom=><>
-          <Show when={custom&&navigationFolders().some(box=>!box.role)}><button type="button" class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed})}><Icon name={accountUiPreferences().userFoldersCollapsed?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></Show>
-          <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} hidden={!navigationFolders().some(box=>!box.role===custom)||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
+          <Show when={custom&&sectionRows(true).length>0}><button type="button" class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed})}><Icon name={accountUiPreferences().userFoldersCollapsed?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></Show>
+          <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} hidden={sectionRows(custom).length===0||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
-          <For each={navigationFolders().filter(box=>!box.role===custom).map(box=>box.id)}>
-            {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
-              <FolderContextMenu box={box()} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+          <For each={sectionRows(custom).map(row=>row.box.id)}>
+            {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
+              <FolderContextMenu box={box()} depth={row()?.depth??0} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 {...prefetch}
@@ -849,6 +887,7 @@ export function MailboxScreen(): JSX.Element {
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
                 onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
                 onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
+                onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
                 aria-label={displayText(box().name)} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · '))}
                 onClick={() => {
                   router.navigate('mail');
@@ -857,8 +896,9 @@ export function MailboxScreen(): JSX.Element {
                 }}
               >
                 <Icon name={folderIcon(box(),accountUiPreferences())}/><span class="sidebar__box-name">{displayText(box().name)}</span>
-                <FolderCountBadge folder={box()}/>
+                <FolderCountBadge folder={row()?.hasChildren&&!row()!.expanded?{...box(),unreadEmails:rolledUnread(app.mailboxes(),id)}:box()}/>
               </button>
+              <Show when={row()?.hasChildren}><button type="button" class={`sidebar__twisty ${a11y.focusable}`} data-folder-twisty="" aria-label={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} title={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} aria-expanded={row()!.expanded} onClick={()=>toggleFolder(id,!row()!.expanded)}><Icon name={row()!.expanded?'chevronDown':'chevron'}/></button></Show>
               </FolderContextMenu>
             );}}
           </For>

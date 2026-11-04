@@ -5,7 +5,9 @@ import {loadCatalog,t} from '../i18n';
 import {relatedSearchValue,relatedSenderDomain} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
-import {mailFeature,spamFolderHidden} from '../state/mailFeatures.ts';
+import {mailFeature,mailFeatureOffTitle,spamFolderHidden} from '../state/mailFeatures.ts';
+import {copyMessageToFolder,copyText,quickPrint,replyFromList} from './messageQuickActions.ts';
+import {pickerOptions} from './FolderBulkDialogs.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
@@ -29,12 +31,28 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:'flag',run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
    {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:'pin',run:()=>app.pinMessage(id,!message.pinned)},
   ];
+  // Reply, reply all and forward go through the reader (it owns decryption, quoting and threading); the feature switches disable them with the usual tooltip.
+  rows.splice(1,0,
+   {id:'reply',label:t('mail-context-reply'),icon:'reply',separatorBefore:true,...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'reply');}},
+   {id:'reply-all',label:t('mail-context-reply-all'),icon:'replyAll',...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'replyAll');}},
+   {id:'forward',label:t('mail-context-forward'),icon:'forward',...(mailFeature('allowForward')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'forward');}});
+  {const current=new Set(Object.keys(message.mailboxIds??{}).filter(key=>message.mailboxIds[key]));
+   const targets=pickerOptions(app.mailboxes(),box=>!current.has(box.id)&&box.mailwomanSearchQuery===undefined&&box.myRights?.mayAddItems!==false&&!spamFolderHidden(box));
+   const copies:ContextAction[]=[];
+   if(targets.length)copies.push({id:'copy:folder',label:t('mail-context-copy-to-folder'),icon:'copy',run:()=>{},children:targets.map(target=>({id:`copy:to:${target.id}`,label:target.label,icon:'folder',run:async()=>{if(!await copyMessageToFolder(app,id,target.id,app.refreshFolders))app.showToast('error',t('mail-context-failed'));}}))});
+   const sender=(message.from?.[0]?.email??'').trim();
+   const text=(label:string,value:string,action:string):ContextAction=>({id:`copy:${action}`,label,icon:'copy',run:async()=>{const ok=await copyText(value);app.showToast(ok?'success':'error',t(ok?'mail-context-copied':'mail-context-copy-failed'));}});
+   if(sender)copies.push(text(t('mail-context-copy-sender'),sender,'sender'));
+   if(message.subject)copies.push(text(t('mail-context-copy-subject'),message.subject,'subject'));
+   if(copies.length)rows.push({id:'copy',label:t('mail-context-copy'),icon:'copy',children:copies,run:()=>{}});}
+  if(mailFeature('allowPrint'))rows.push({id:'quick-print',label:t('mail-context-quick-print'),icon:'print',run:()=>quickPrint(app,id)});
+  else rows.push({id:'quick-print',label:t('mail-context-quick-print'),icon:'print',disabled:true,title:mailFeatureOffTitle(),run:()=>{}});
   const searches:ContextAction[]=[];
   for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)searches.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
   // t88: scope a search to the message's folder (its chip shows in the filter bar).
   {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)searches.push({id:'search:in',label:t('search-refine-folder'),icon:'search',run:()=>app.searchMessageField('in',folder)});}
   const domain=relatedSenderDomain(message);if(domain&&app.supportsFromDomainSearch())searches.splice(1,0,{id:'search:from-domain',label:t('mail-context-search-domain'),icon:'domains',run:()=>app.searchMessageField('from-domain',domain)});
-  if(searches.length)rows.push({id:'search',label:t('search-refine-menu'),icon:'search',children:searches,run:()=>{}});
+  if(searches.length)rows.push({id:'search',label:t('search-refine-menu'),icon:'search',separatorBefore:true,children:searches,run:()=>{}});
   // t94: the sender's Focused inbox override; the current choice is checked.
   for(const row of focusActions(app,message))rows.push(row);
   for(const [role,label,icon,run] of [
@@ -42,12 +60,12 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],
    ['trash','mail-delete','delete',()=>app.trashMessage(id)],
   ] as const)if(app.mailboxes().some(box=>box.role===role&&!message.mailboxIds[box.id]&&!spamFolderHidden(box)))rows.push({id:role,label:t(label),icon,run});
-  rows.push({id:'snooze',label:t('mail-snooze'),icon:'clock',run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:'clock',run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
+  rows.push({id:'snooze',label:t('mail-snooze'),icon:'clock',separatorBefore:true,run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:'clock',run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:'clock',run:()=>app.unsnoozeMessage(id)});
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:'flag',run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:'download',run:()=>app.exportMessage(id)});
-  return rows.map(row=>({...row,disabled:busy}));
+  return rows.map(row=>({...row,disabled:busy||row.disabled===true}));
  },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
  onCleanup(observePreferenceAccount(()=>menu.close(false)));
  return menu;

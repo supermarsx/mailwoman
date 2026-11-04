@@ -231,6 +231,8 @@ export interface MailSlice {
    *  open message + selection (unlike `selectMailbox`). No-op during search. */
   refreshCurrentMailbox(): Promise<void>;
   refreshFolders(): Promise<void>;
+  /** Show these folders as having no unread mail before the server answers (mark all as read); the next folder refresh replaces the guess. */
+  clearFolderUnread(ids: readonly string[]): void;
   // ── Paging (t22-e4) ─────────────────────────────────────────────────────
   /**
    * How many messages the CURRENT query matches, or `null` when the server did
@@ -831,6 +833,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         return d === undefined ? b : { ...b, unreadEmails: Math.max(0, b.unreadEmails + d) };
       }),
     );
+  }
+
+  function clearFolderUnread(ids: readonly string[]): void {
+    const set = new Set(ids);
+    setMailboxes((boxes) => boxes.map((b) => (set.has(b.id) && b.unreadEmails > 0 ? { ...b, unreadEmails: 0 } : b)));
   }
 
   /** The ids of `ids` that an `updateEmails` response did not update: those in
@@ -2307,6 +2314,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     clearSearch,
     refreshCurrentMailbox,
     refreshFolders,
+    clearFolderUnread,
 
     total,
     loadedRange,

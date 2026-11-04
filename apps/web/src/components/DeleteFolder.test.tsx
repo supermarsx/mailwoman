@@ -51,7 +51,7 @@ async function sidebar(){
  return app;
 }
 async function openDelete(label='Home'){
- await waitFor(()=>{fireEvent.contextMenu(screen.getByText(`${label} target`));expect(screen.getByRole('menuitem',{name:'Delete folder'})).toBeInTheDocument();});
+ await waitFor(()=>{fireEvent.contextMenu(screen.getByText(`${label} target`));fireEvent.click(screen.getByRole('menuitem',{name:'More'}));expect(screen.getByRole('menuitem',{name:'Delete folder'})).not.toHaveAttribute('aria-disabled','true');});
  fireEvent.click(screen.getByRole('menuitem',{name:'Delete folder'}));return screen.findByRole('dialog');
 }
 describe('delete folder confirmation',()=>{

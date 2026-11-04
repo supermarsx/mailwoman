@@ -36,6 +36,10 @@ export interface AccountUiPreferences {
   folderIcons?: Record<string, FolderIcon>;
   tags?: Record<string, AccountTag>;
   folderLabels?: Record<string,string[]>;
+  /** How each parent folder's subfolders are ordered; the key is the parent's id, or `_top` for the top level. */
+  folderSort?: Record<string,{by:'name'|'unread'|'total'|'date'|'custom';dir:'asc'|'desc'}>;
+  /** Folders whose subfolders are collapsed in the sidebar tree. */
+  folderCollapsed?: string[];
 }
 interface Snapshot { preferences: AccountUiPreferences; etag: string }
 export interface AccountPreferencesApi {

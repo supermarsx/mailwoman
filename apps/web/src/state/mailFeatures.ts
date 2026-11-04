@@ -18,6 +18,8 @@ export const MAIL_FEATURE_DEFAULTS = {
   closeOnDelete: true,
   // Opt-in: the message list's Go to top button is off until an administrator or the user turns it on.
   showGoToTop: false,
+  // Opt-in: an icon-only Create folder button next to Compose in the sidebar.
+  showCreateFolderButton: false,
 } as const;
 
 export type MailFeature = keyof typeof MAIL_FEATURE_DEFAULTS;

@@ -81,6 +81,7 @@ export type IconName =
   | 'link'
   | 'image'
   | 'folder'
+  | 'folderPlus' | 'copy'
   | 'file'
   | 'lock'
   | 'unlock'
@@ -235,6 +236,8 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   link: () => <path d="M6 10 L10 6 M5 8 L2 11 A2 2 0 0 0 5 14 L8 11 M8 5 L11 2 A2 2 0 0 1 14 5 L11 8" {...S} />,
   image: () => <path d="M1 1 H15 V15 H1 Z M1 12 L5 8 L9 12 L12 7 L15 10 M4 4 H6" {...S} />,
   folder: () => <path d="M1 3 H6 L8 5 H15 V14 H1 Z" {...S} />,
+  copy: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z" {...S} /><path d="M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /></>,
+  folderPlus: () => <><path d="M1 3 H6 L8 5 H15 V14 H1 Z" {...S} /><path d="M8 7.5 V12 M5.75 9.75 H10.25" {...S} /></>,
   file: () => <path d="M3 1 H10 L14 5 V15 H3 Z M10 1 V5 H14" {...S} />,
   lock: () => <path d="M3 7 H13 V15 H3 Z M5 7 V4 A3 3 0 0 1 11 4 V7" {...S} />,
   unlock: () => <path d="M3 7 H13 V15 H3 Z M5 7 V4 A3 3 0 0 1 11 4" {...S} />,

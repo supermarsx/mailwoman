@@ -122,6 +122,19 @@ pub(super) struct Preferences {
     tags: Option<BTreeMap<String, Tag>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     folder_labels: Option<BTreeMap<String, Vec<String>>>,
+    /// Per parent folder ("_top" for the top level): how its subfolders are ordered.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_sort: Option<BTreeMap<String, FolderSort>>,
+    /// Folders whose subfolders are collapsed in the sidebar tree.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_collapsed: Option<Vec<String>>,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct FolderSort {
+    by: String,
+    dir: String,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -192,6 +205,15 @@ fn valid(document: &Document) -> bool {
         && valid_ids(&p.folder_pinned)
         && valid_ids(&p.folder_hidden)
         && valid_ids(&p.folder_order)
+        && valid_ids(&p.folder_collapsed)
+        && p.folder_sort.as_ref().is_none_or(|sorts| {
+            sorts.len() <= 500
+                && sorts.iter().all(|(id, sort)| {
+                    valid_id(id)
+                        && ["name", "unread", "total", "date", "custom"].contains(&sort.by.as_str())
+                        && ["asc", "desc"].contains(&sort.dir.as_str())
+                })
+        })
         && p.folder_labels.as_ref().is_none_or(|folders| {
             folders.len() <= 500
                 && folders.iter().all(|(id, labels)| {
@@ -369,6 +391,9 @@ mod tests {
         for prefs in [
             json!({"markReadDelayMs":60001}),
             json!({"folderOrder":["a","a"]}),
+            json!({"folderCollapsed":["a","a"]}),
+            json!({"folderSort":{"a":{"by":"size","dir":"asc"}}}),
+            json!({"folderSort":{"a":{"by":"name","dir":"up"}}}),
             json!({"folderIcons":{"a":"https://avatar.invalid"}}),
             json!({"keyboardPreset":"arbitrary"}),
             json!({"tags":{"$seen":{"name":"System","color":"#112233","icon":"tag"}}}),
@@ -381,7 +406,7 @@ mod tests {
         }
         assert!(valid(
             &serde_json::from_value(
-                json!({"version":1,"preferences":{"folderIcons":{"a":"star"},"markRead":"never"}})
+                json!({"version":1,"preferences":{"folderIcons":{"a":"star"},"markRead":"never","folderSort":{"_top":{"by":"unread","dir":"desc"},"a":{"by":"custom","dir":"asc"}},"folderCollapsed":["a"]}})
             )
             .unwrap()
         ));

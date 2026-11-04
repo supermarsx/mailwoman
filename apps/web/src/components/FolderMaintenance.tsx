@@ -9,6 +9,8 @@ import {expectedOutcome} from '../api/emptyFolder.ts';
 import {useRenameContext} from './RenameFolder.tsx';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
 import {createContextMenu} from './ContextMenu.tsx';
+import {folderSortAction} from './folderSortAction.ts';
+import {loadFolderActivity} from './folderActivity.ts';
 import {loadCatalog,t} from '../i18n';
 import * as css from '../screens/Settings/styles.css.ts';
 export function CreateFolderDialog(props:{parentId?:string;onClose:()=>void}):JSX.Element {
@@ -48,7 +50,7 @@ export function CleanupFolderDialog(props:{box:Mailbox;onClose:()=>void}):JSX.El
 export function FolderCreationControl(props:{children?:JSX.Element}):JSX.Element {
  const app=useApp(),ability=useRenameContext();const [open,setOpen]=createSignal(false);void loadCatalog('mail');
  onMount(()=>{createEffect(()=>{ability();});});
- const context=createContextMenu({label:()=>t('mail-nav-mailboxes'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}`,actions:()=>ability()?.manages?[{id:'create-folder',label:t('folder-create'),icon:'folder',run:()=>{setOpen(true);}}]:[]});
+ const context=createContextMenu({label:()=>t('mail-nav-mailboxes'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}`,actions:()=>ability()?.manages?[{id:'create-folder',label:t('folder-create'),icon:'folderPlus',run:()=>{setOpen(true);}},folderSortAction(null,t('folder-ops-sort-folders'),()=>{const owner=preferenceAccount(),accountId=app.accountId();if(!owner||!accountId)return;void loadFolderActivity(createConfiguredClient(),accountId,app.mailboxes().filter(value=>!value.role&&value.mailwomanSearchQuery===undefined).map(value=>value.id),()=>preferenceAccountIsCurrent(owner)&&app.accountId()===accountId);})]:[]});
  onCleanup(observePreferenceAccount(()=>{context.close(false);setOpen(false);}));
  return <div onContextMenu={event=>context.open(event)} onKeyDown={context.keydown}>{props.children}{context.menu()}<Show when={open()}><CreateFolderDialog onClose={()=>setOpen(false)}/></Show></div>;
 }
