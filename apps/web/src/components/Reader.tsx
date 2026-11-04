@@ -1,4 +1,6 @@
 import {AsyncError} from './AsyncState.tsx';
+import {ReaderReplyState} from './ReplyState.tsx';
+import {createReplyDraftIndex} from './compose/replyDrafts.ts';
 import {RemoteImageDownloads} from './RemoteImageDownloads.tsx';
 import {SaveToNextcloud} from '../modules/nextcloud/SaveToNextcloud.tsx';
 import {
@@ -576,6 +578,7 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
 
 
 interface ReaderProps {
+  onOpenReplyDraft?: (draftId:string)=>void;
   onExport?: (messageId: string) => void;
   onOpenAttachment?: (item: StripItem) => void;
   onCompose?: (initial: ComposeInitial) => void;
@@ -599,6 +602,7 @@ export function Reader(props: ReaderProps): JSX.Element {
 }
 function ReaderBody(props: ReaderProps): JSX.Element {
   const app = useApp();
+  const replyDrafts=createReplyDraftIndex(app.accountId);
   const [linkAuthority,setLinkAuthority]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(account=>setLinkAuthority(account)));
   onMount(() => { void loadCatalog('remote-images'); void loadCatalog('privacy'); void loadCatalog('contacts'); });
@@ -1223,6 +1227,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   actions and the max-security switch; what does not fit folds into More. */}
               <ReaderToolbar email={email()} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
+              <ReaderReplyState answered={email().keywords?.['$answered']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />
             </header>
             {/* The reader notice bars (t110, ReaderNoticeBar.tsx), in one stack and a

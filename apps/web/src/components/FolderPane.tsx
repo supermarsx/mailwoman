@@ -1,5 +1,7 @@
 import {createEffect,createMemo,createSignal,For,onCleanup,onMount,Show,untrack,type JSX} from 'solid-js';
 import {SelectionBar,type SelectionAction} from './SelectionBar.tsx';
+import {ReaderReplyState} from './ReplyState.tsx';
+import {createReplyDraftIndex} from './compose/replyDrafts.ts';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
 import * as barCss from './selectionBar.css.ts';
 import {useApp} from '../state/context.ts';
@@ -19,8 +21,9 @@ import {loadCatalog,t} from '../i18n/index.ts';
 import type {Email} from '../api/jmap-types.ts';
 import * as css from './folderPane.css.ts';
 
-export function FolderPane(props:{mailboxId:string;active:boolean;selecting?:boolean;onSelectionModeChange?:(enabled:boolean)=>void;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
+export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:string;active:boolean;selecting?:boolean;onSelectionModeChange?:(enabled:boolean)=>void;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
  const app=useApp();
+ const replyDrafts=createReplyDraftIndex(app.accountId);
  const owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController();
  const box=()=>app.mailboxes().find(value=>value.id===props.mailboxId);
  const view=createFolderView(client,props.mailboxId,()=>!!box());
@@ -116,6 +119,7 @@ export function FolderPane(props:{mailboxId:string;active:boolean;selecting?:boo
      <button type="button" disabled={busy()} class={css.message} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle||props.selecting===true);if(!props.selecting&&!extend&&!toggle&&view.current())props.onOpen(id);}}>
       <strong>{email().subject||t('mail-no-subject')}</strong><span>{senderLabel(email().from)}</span><span class="meta">{email().preview}</span>
      </button>
+     <ReaderReplyState answered={email().keywords?.['$answered']===true} draft={replyDrafts().get(id)} onOpen={props.onOpenReplyDraft}/>
     </li>;}}</For>
    </ul>
    <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>

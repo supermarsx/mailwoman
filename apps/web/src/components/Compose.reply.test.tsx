@@ -7,7 +7,11 @@ import { Compose } from './Compose.tsx';
 import { makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
-import { listDrafts } from './compose/drafts-store.ts';
+import { listDrafts,saveDraft } from './compose/drafts-store.ts';
+import {createReplyDraftIndex} from './compose/replyDrafts.ts';
+import {ReaderReplyState} from './ReplyState.tsx';
+import {liveReplyDrafts} from './compose/liveReplyDrafts.ts';
+import {preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import type { ComposeInitial } from './compose/reply.ts';
 import type { ComposeCryptoState } from './compose-crypto.tsx';
 import type { JmapRequest } from '../api/jmap-types.ts';
@@ -56,14 +60,14 @@ function reply(over: Partial<ComposeInitial> = {}): ComposeInitial {
   };
 }
 
-async function open(initial?: ComposeInitial) {
+async function open(initial?: ComposeInitial,resumeDraftId?:string) {
   const client = makeClient();
   const app = createAppState(client);
   const onClose = vi.fn();
   await app.login({ username: 'me@example.org', password: 'p' });
   render(() => (
     <AppContext.Provider value={app}>
-      <Compose onClose={onClose} {...(initial !== undefined ? { initial } : {})} />
+      <Compose onClose={onClose} {...(initial !== undefined ? { initial } : {})} {...(resumeDraftId?{resumeDraftId}:{})} />
     </AppContext.Provider>
   ));
   await structuredComposeEditor();
@@ -333,6 +337,14 @@ describe('Compose opened as a reply or a forward', () => {
       subject: 'Re: Plans',
     });
   });
+  it('restores a pending reply source and marks that original only after sending',async()=>{
+    const marks=(client:ReturnType<typeof makeClient>)=>vi.mocked(client.jmap).mock.calls.map(call=>call[0].methodCalls).filter(calls=>calls.length===1&&calls[0]![0]==='Email/set'&&'update' in calls[0]![1]);
+    saveDraft({id:'saved-reply',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',to:'alice@example.org',subject:'Saved reply',bodyHtml:'<p>Saved text</p>',bodyText:'Saved text',savedAt:1,source:{emailId:'original-message',keyword:'$answered'}});
+    const {client,onClose}=await open(undefined,'saved-reply');expect(screen.getByLabelText('Subject')).toHaveValue('Saved reply');expect(marks(client)).toEqual([]);
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    expect(marks(client)).toEqual([[['Email/set',{accountId:'acct1',update:{'original-message':{'keywords/$answered':true}}},'set']]]);
+    expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);
+  });
   it.each(['html','rich'] as const)('keeps reply-owned inline images in the draft and %s send payload',async mode=>{
     const inline={cid:'reply-logo@mailwoman',blobId:'uploaded-logo',type:'image/png',name:'reply-image.png',size:24};
     const {client,onClose}=await open(reply({cc:'',bodyHtml:'<p>Reply note</p><blockquote><p>Original with image <img src="cid:reply-logo@mailwoman" alt="Logo"></p></blockquote>',bodyText:'Reply note\nOriginal with image',inline:[inline]}));
@@ -365,6 +377,16 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     }
     expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);
     expect(localStorage.getItem('mw.compose.drafts.v2')).toBeNull();
+  });
+  it('offers a direct live reply control for a protected unsaved reply without storing its contents',async()=>{
+    const {app}=await open(reply({quotesDecrypted:true,source:{emailId:'protected-original',keyword:'$answered'}})),openDraft=vi.fn();
+    function Pending(){const index=createReplyDraftIndex(app.accountId);return <ReaderReplyState answered={false} draft={index().get('protected-original')} onOpen={openDraft}/>;}
+    render(()=><Pending/>);
+    const button=await screen.findByRole('button',{name:'Open reply draft'});expect(screen.getByTestId('reader-reply-state')).toHaveTextContent('Reply in progress');
+    expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);expect(localStorage.getItem('mw.compose.drafts.v2')).toBeNull();
+    fireEvent.click(button);const id=button.getAttribute('data-reply-draft-id');expect(id).toMatch(/^d-/);expect(openDraft).toHaveBeenCalledWith(id);
+    expect(liveReplyDrafts(preferenceAccount()!)).toEqual([expect.objectContaining({id,emailId:'protected-original'})]);
+    cleanup();expect(liveReplyDrafts(preferenceAccount()!)).toEqual([]);expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);
   });
 
   it('asks before sending unencrypted; nothing is sent until the user confirms', async () => {

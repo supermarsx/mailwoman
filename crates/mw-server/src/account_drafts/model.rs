@@ -34,6 +34,9 @@ pub struct EditorState {
     pub in_reply_to: Vec<String>,
     #[serde(default)]
     pub references: Vec<String>,
+    /// Draft navigation metadata only; saving never marks the source message.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source: Option<Source>,
     #[serde(default)]
     pub attachments: Vec<File>,
     #[serde(default)]
@@ -52,6 +55,19 @@ pub struct EditorState {
     pub open_tracking: bool,
     #[serde(default)]
     pub protected_content: bool,
+}
+#[derive(Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct Source {
+    pub email_id: String,
+    pub keyword: SourceKeyword,
+}
+#[derive(Clone, Deserialize, Serialize)]
+pub enum SourceKeyword {
+    #[serde(rename = "$answered")]
+    Answered,
+    #[serde(rename = "$forwarded")]
+    Forwarded,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -110,6 +126,10 @@ impl EditorState {
             || !ids(&self.inserted_signatures, 128)
             || !ids(&self.in_reply_to, 100)
             || !ids(&self.references, 100)
+            || self
+                .source
+                .as_ref()
+                .is_some_and(|source| source.email_id.is_empty() || !header(&source.email_id, 512))
             || self.attachments.len() > 100
             || self.inline.len() > 32
         {
@@ -134,7 +154,11 @@ impl EditorState {
         Ok(())
     }
     pub fn summary(&self) -> Value {
-        json!({"subject":self.subject,"bodyFormat":self.body_format})
+        let mut summary = json!({"subject":self.subject,"bodyFormat":self.body_format});
+        if let Some(source) = &self.source {
+            summary["source"] = json!(source);
+        }
+        summary
     }
     pub fn compose_spec(&self) -> Value {
         let mut spec = json!({"keywords":{"$draft":true,"$seen":true},"to":recipients(&self.to),"cc":recipients(&self.cc),"bcc":recipients(&self.bcc),"subject":self.subject,"inReplyTo":self.in_reply_to,"references":self.references});

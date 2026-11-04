@@ -1,4 +1,6 @@
 import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
+import {ReplyDraftIndicator,OpenReplyDraft} from './ReplyState.tsx';
+import {createReplyDraftIndex,type ReplyDraft} from './compose/replyDrafts.ts';
 import {AsyncError,AsyncPending} from './AsyncState.tsx';
 import {createInitialSync} from './initialSync.ts';
 import * as loadingCss from './asyncState.css.ts';
@@ -135,6 +137,7 @@ function SelectedMark(props: { selected: boolean }): JSX.Element {
 type MessageMenu = {open:(event:MouseEvent,email:Email)=>void;keydown:(event:KeyboardEvent,email:Email)=>void;isOpen:(id:string)=>boolean};
 
 function MessageRow(props: {
+  replyDraft:ReplyDraft|undefined;onOpenReplyDraft:((id:string)=>void)|undefined;
   contextMenu:MessageMenu;
   onDragStart:(event:DragEvent)=>void;
   email: Email;
@@ -157,6 +160,7 @@ function MessageRow(props: {
     <li
       class={`list__slot ${rowCss.slot}`}
       data-motion-row={`m:${email().id}`}
+      data-reply-draft={props.replyDraft?.id}
       role="listitem"
       aria-posinset={props.index + 1}
       aria-setsize={props.total}
@@ -204,10 +208,11 @@ function MessageRow(props: {
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
           <Show when={email().keywords?.['$answered'] === true}>
-            <span class="list__attach" data-testid="row-answered" aria-label={t('mail-answered')}><Icon name="reply" /></span>
+            <span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')}><Icon name="reply" /></span>
           </Show>
+          <Show when={props.replyDraft}><ReplyDraftIndicator/></Show>
           <Show when={email().keywords?.['$forwarded'] === true}>
-            <span class="list__attach" data-testid="row-forwarded" aria-label={t('mail-forwarded')}><Icon name="forward" /></span>
+            <span class="list__attach" data-testid="row-forwarded" role="img" aria-label={t('mail-forwarded')}><Icon name="forward" /></span>
           </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
@@ -215,6 +220,7 @@ function MessageRow(props: {
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
         <TagChips email={email()} />
       </button>
+      <Show when={props.replyDraft&&props.onOpenReplyDraft}><OpenReplyDraft draft={props.replyDraft!} onOpen={props.onOpenReplyDraft!} row/></Show>
       <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
     </li>
   );
@@ -266,6 +272,7 @@ function PlaceholderRow(props: { top: number; height: number; index: number; tot
  *  primary row; the primary row opens the latest message (like any message row),
  *  the toggle expands/collapses the members in place. */
 function ThreadHeadRow(props: {
+  replyDraft:ReplyDraft|undefined;onOpenReplyDraft:((id:string)=>void)|undefined;answered:boolean;
   contextMenu:MessageMenu;
   onDragStart:(event:DragEvent)=>void;
   row: ThreadVisualRow;
@@ -288,6 +295,7 @@ function ThreadHeadRow(props: {
     <li
       class={`list__slot ${rowCss.slot} ${thread.headSlot}`}
       data-motion-row={`h:${props.row.key}`}
+      data-reply-draft={props.replyDraft?.id}
       role="listitem"
       aria-posinset={props.index + 1}
       aria-setsize={props.total}
@@ -340,11 +348,14 @@ function ThreadHeadRow(props: {
           <Show when={props.row.hasAttachment}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
+          <Show when={props.answered}><span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')}><Icon name="reply"/></span></Show>
+          <Show when={props.replyDraft}><ReplyDraftIndicator/></Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(rep().subject ?? t('mail-no-subject'))}</span>
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span></Show>
       </button>
+      <Show when={props.replyDraft&&props.onOpenReplyDraft}><OpenReplyDraft draft={props.replyDraft!} onOpen={props.onOpenReplyDraft!} row/></Show>
       <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>
   );
@@ -383,12 +394,16 @@ function rowId(row: ThreadVisualRow): string {
  * shortcut); without it those fall back to `onOpenMessage`. Where each goes is
  * the host's decision (t74: Mailbox routes by the reading pane).
  */
-export function MessageList(props: { hideReadingPane?:boolean; hideSelectionToggle?:boolean; selectionMode?:()=>boolean; onSelectionModeChange?:(enabled:boolean)=>void; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
+export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideReadingPane?:boolean; hideSelectionToggle?:boolean; selectionMode?:()=>boolean; onSelectionModeChange?:(enabled:boolean)=>void; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
   /** t109: a message to bring to the top once the list has loaded (a reload's scroll anchor); one that is not loaded is skipped. */
   restoreAnchor?: () => string | null;
   /** t109: the message in the top row as the user scrolls (null at the top). */
   onAnchorChange?: (id: string | null) => void } = {}): JSX.Element {
   const app = useApp();
+  const replyDrafts=createReplyDraftIndex(app.accountId);
+  const messageThreads=createMemo(()=>new Map(app.listMessages().map(email=>[email.id,threadKey(email)])));
+  const threadDrafts=createMemo(()=>{const result=new Map<string,ReplyDraft>();for(const draft of replyDrafts().values()){const key=messageThreads().get(draft.emailId);if(key&&(!result.has(key)||result.get(key)!.savedAt<draft.savedAt))result.set(key,draft);}return result;});
+  const answeredThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$answered']===true).map(threadKey)));
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const contextMenu=createMessageContextMenu(contextEmail);
   const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
@@ -852,6 +867,7 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
                       when={row().kind === 'head'}
                       fallback={
                         <MessageRow contextMenu={messageMenu}
+                          replyDraft={replyDrafts().get(row().email.id)} onOpenReplyDraft={props.onOpenReplyDraft}
                           email={row().email}
                           top={index() * rowHeight()}
                           height={rowHeight()}
@@ -868,6 +884,7 @@ export function MessageList(props: { hideReadingPane?:boolean; hideSelectionTogg
                       }
                     >
                       <ThreadHeadRow contextMenu={messageMenu}
+                        replyDraft={threadDrafts().get(row().key)} onOpenReplyDraft={props.onOpenReplyDraft} answered={answeredThreads().has(row().key)}
                         row={row()}
                         top={index() * rowHeight()}
                         height={rowHeight()}

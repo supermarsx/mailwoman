@@ -1,4 +1,5 @@
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
+import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
 import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compose/outgoingExtras.ts';
 import {checkRecipientNames} from './compose/recipientNames.ts';
@@ -173,6 +174,7 @@ export function Compose(props: {
     inReplyTo: initial?.inReplyTo ?? [],
     references: initial?.references ?? [],
   });
+  const [draftSource,setDraftSource]=createSignal(initial?.source);
   const [subject, setSubject] = createSignal(initial?.subject ?? '');
   // `body` stays the PLAIN-TEXT source of truth (crypto/DLP/dictation read it).
   // `bodyHtml` carries the rich-text HTML, and is what the normal send path
@@ -216,6 +218,8 @@ export function Compose(props: {
   const [drafts, setDrafts] = createSignal<StoredDraft[]>([]);
   // Stable id for THIS composer's auto-saved draft (W9).
   let draftId = newDraftId();
+  const [liveDraftVersion,setLiveDraftVersion]=createSignal(0);
+  let releaseLiveReply=()=>{};
   const [remoteRevision,setRemoteRevision]=createSignal<string|null>(null);
   const [remoteReady,setRemoteReady]=createSignal(false);
   const [remoteStatus,setRemoteStatus]=createSignal<DraftSaveStatus>('idle');
@@ -723,6 +727,7 @@ export function Compose(props: {
     bccEdited=true;setBcc(d.bcc ?? '');
     setCcBccOpen((d.cc ?? '') !== '' || (d.bcc ?? '') !== '');
     setThreading({ inReplyTo: d.inReplyTo ?? [], references: d.references ?? [] });
+    setDraftSource(d.source);
     setSubject(d.subject);
     setRequestReceipt(d.requestReceipt === true);
     setRequestDelivery(d.requestDeliveryReceipt === true);
@@ -738,6 +743,7 @@ export function Compose(props: {
     if (!changingEditor&&nextRich&&api!==null)api.setHtml(d.bodyHtml);
     setDraftsOpen(false);
     void loadPreviews(images);
+    setLiveDraftVersion(value=>value+1);
   }
 
   /** Fetch a local preview for each image of a resumed draft (its uploaded
@@ -955,6 +961,11 @@ export function Compose(props: {
   let draftAuthority=app.accountId()===composerAuthority()?.id?composerAuthority():null;
   let draftDisposed=false;
   const ownsDraft=()=>!draftDisposed && app.accountId()===draftAccount && (draftAuthority===null || preferenceAccountIsCurrent(draftAuthority));
+  createEffect(()=>{
+    liveDraftVersion();const source=draftSource(),owner=composerAuthority(),account=app.accountId();
+    if(sent||!owner||owner.id!==account||!ownsDraft())return;
+    const release=registerLiveReplyDraft(owner,draftId,source);releaseLiveReply=release;onCleanup(release);
+  });
   let resumedWorkspaceDraft=false;
   createEffect(()=>{
     const account=app.accountId(),owner=composerAuthority();
@@ -985,6 +996,7 @@ export function Compose(props: {
       id: draftId,
       accountId: account,
       storageAuthority:draftAuthority.storageAuthority,
+      ...(draftSource()?{source:draftSource()!}:{}),
       ...(remoteRevision()?{serverRevision:remoteRevision()!}:{}),
       ...(remoteStatus()==='uncertain'?{serverStatus:'uncertain' as const}:{}),
       identityId: identityId(),
@@ -1384,7 +1396,7 @@ export function Compose(props: {
         bcc: bcc(),
         inReplyTo: threading().inReplyTo,
         references: threading().references,
-        ...(initial?.source !== undefined ? { source: initial.source } : {}),
+        ...(draftSource() !== undefined ? { source: draftSource()! } : {}),
         ...(initial?.sources !== undefined ? { sources: initial.sources } : {}),
         subject: subjectToSend,
         htmlBody,
@@ -1412,7 +1424,7 @@ export function Compose(props: {
       });
       if (!ownsDraft()) return;
       // W9: the composition was sent — drop its auto-saved draft.
-      sent=true;clearTimeout(saveTimer);pendingDraft=undefined;
+      sent=true;releaseLiveReply();clearTimeout(saveTimer);pendingDraft=undefined;
       deleteDraft(draftId, draftAccount,draftAuthority?.storageAuthority);
       props.onClose();
     } catch (err) {

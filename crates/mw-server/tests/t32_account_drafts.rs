@@ -109,6 +109,8 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
     assert!(saved["emailId"].is_string());
     assert_eq!(saved["state"]["to"], "incomplete, valid@example.test");
     assert!(saved["state"].get("editorMode").is_none());
+    assert!(saved["state"].get("source").is_none());
+    assert!(saved["summary"].get("source").is_none());
     assert!(
         saved["state"]["attachments"][0]["blobId"]
             .as_str()
@@ -224,9 +226,15 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
     // The HTML editing surface survives remote resume without changing the MIME
     // body or granting any sender authority. Legacy drafts above omit the field.
     let html = "<table><tbody><tr><td>Preserved HTML layout</td></tr></tbody></table>";
-    for mode in ["rich", "html"] {
+    for (mode, keyword) in [("rich", "$answered"), ("html", "$forwarded")] {
         let endpoint = format!("{base}/api/account/drafts/editor-{mode}");
-        let input = json!({"operationId":format!("editor-{mode}"),"expectedRevision":null,"state":{"version":1,"bodyFormat":"html","editorMode":mode,"bodyHtml":html,"bodyText":"Preserved HTML layout"}});
+        let original = if mode == "html" {
+            "x".repeat(512)
+        } else {
+            format!("original-source-{mode}")
+        };
+        let source = json!({"emailId":original,"keyword":keyword});
+        let input = json!({"operationId":format!("editor-{mode}"),"expectedRevision":null,"state":{"version":1,"bodyFormat":"html","editorMode":mode,"bodyHtml":html,"bodyText":"Preserved HTML layout","source":source}});
         let response = client
             .put(&endpoint)
             .header("x-mailwoman-storage-authority", authority)
@@ -238,6 +246,8 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
         let saved: Value = response.json().await.unwrap();
         assert_eq!(status, 200, "{saved}");
         assert_eq!(saved["state"]["editorMode"], mode);
+        assert_eq!(saved["state"]["source"], source);
+        assert_eq!(saved["summary"]["source"], source);
         let loaded: Value = client
             .get(&endpoint)
             .send()
@@ -248,10 +258,38 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
             .unwrap();
         assert_eq!(loaded["state"]["editorMode"], mode);
         assert_eq!(loaded["state"]["bodyHtml"], html);
+        assert_eq!(loaded["state"]["source"], source);
+        let listed: Value = client
+            .get(format!("{base}/api/account/drafts"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        let item = listed["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == format!("editor-{mode}"))
+            .unwrap();
+        assert_eq!(item["summary"]["source"], source);
+        assert!(
+            item.get("state").is_none(),
+            "listing must not expose editor bodies"
+        );
         {
             let raw = mail.messages.lock().await;
             assert_eq!(raw.len(), 1);
             assert!(!String::from_utf8_lossy(&raw[0]).contains("editorMode"));
+            assert!(
+                !String::from_utf8_lossy(&raw[0]).contains(original.as_str()),
+                "draft source metadata must not enter unsent MIME"
+            );
+            assert!(
+                !String::from_utf8_lossy(&raw[0]).contains(keyword),
+                "saving a draft must not apply source keywords"
+            );
         }
         let response = client
             .delete(&endpoint)
@@ -277,5 +315,41 @@ async fn drafts_confirm_upstream_and_fence_replay_authority_and_partial_content(
             "invalidDraftState"
         );
         assert!(mail.messages.lock().await.is_empty());
+    }
+    for (source, expected) in [
+        (json!({"emailId":"","keyword":"$answered"}), 400),
+        (
+            json!({"emailId":"x".repeat(513),"keyword":"$answered"}),
+            400,
+        ),
+        (
+            json!({"emailId":"bad\r\nsource","keyword":"$forwarded"}),
+            400,
+        ),
+        (
+            json!({"emailId":"bad\u{0000}source","keyword":"$answered"}),
+            400,
+        ),
+        (json!({"emailId":"source","keyword":"$seen"}), 400),
+        (
+            json!({"emailId":"source","keyword":"$answered","unexpected":true}),
+            400,
+        ),
+        (json!({"emailId":"source"}), 400),
+        (json!({"emailId":7,"keyword":"$answered"}), 400),
+        (json!("source"), 400),
+    ] {
+        let response = client
+            .put(format!("{base}/api/account/drafts/invalid-source"))
+            .header("x-mailwoman-storage-authority", authority)
+            .json(&json!({"operationId":"invalid-source","expectedRevision":null,"state":{"version":1,"bodyFormat":"plain","bodyText":"Never sent","source":source}}))
+            .send()
+            .await
+            .unwrap();
+        assert_eq!(response.status().as_u16(), expected, "{source}");
+        assert!(
+            mail.messages.lock().await.is_empty(),
+            "refused metadata must never append a draft"
+        );
     }
 }

@@ -36,6 +36,17 @@ function mount(attachment=false) {
   return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
+  it('reopens a live reply without persistent storage authority and keeps its unsaved composer',async()=>{
+    const {app,realtime,show,client}=setup();vi.mocked(client.login).mockResolvedValue({username:'me@example.org',accountId:'acct1'});
+    await app.login({username:'me@example.org',password:'p'});show();
+    fireEvent.click(await screen.findByText('Subject a'));
+    const reply=await screen.findByTestId('reader-reply');await waitFor(()=>expect(reply).toBeEnabled());fireEvent.click(reply);
+    await waitFor(()=>expect(realtime.subTabs.activeId()).not.toBe('mail'));const composer=await screen.findByRole('tabpanel',{name:/Re: Subject a/}),id=realtime.subTabs.activeId();
+    fireEvent.input(within(composer).getByLabelText('Subject'),{target:{value:'Unsaved protected workspace'}});
+    realtime.subTabs.activate('mail');await waitFor(()=>expect(document.querySelector('.list button[data-reply-draft-id]')).not.toBeNull());const control=document.querySelector<HTMLButtonElement>('.list button[data-reply-draft-id]')!,before=realtime.subTabs.tabs().length;
+    expect(control).toHaveAccessibleName('Open reply draft');fireEvent.click(control);await waitFor(()=>expect(realtime.subTabs.activeId()).toBe(id));expect(realtime.subTabs.tabs()).toHaveLength(before);
+    expect(within(screen.getByRole('tabpanel',{name:'Unsaved protected workspace'})).getByLabelText('Subject')).toHaveValue('Unsaved protected workspace');
+  });
   it('opens linked mailbox application tabs through actual nav clicks and honors feature policy',async()=>{
     const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
     vi.spyOn(app,'linkedMailboxId').mockReturnValue('verified-child');

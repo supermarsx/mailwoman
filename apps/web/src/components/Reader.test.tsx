@@ -9,6 +9,7 @@ import type { ComposeInitial } from './compose/reply.ts';
 import type { Email, Identity, JmapRequest, JmapResponse } from '../api/jmap-types.ts';
 import { formatDateTime } from '../i18n/format.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
+import {saveDraft,deleteDraft} from './compose/drafts-store.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -63,7 +64,7 @@ let downloadStatus = 200;
 
 async function openReader(
   email: Email,
-  opts: { identities?: Identity[]; ownKey?: boolean; contactKeys?: Record<string, unknown>[] } = {},
+  opts: { identities?: Identity[]; ownKey?: boolean; contactKeys?: Record<string, unknown>[];onOpenReplyDraft?:(id:string)=>void } = {},
 ): Promise<{ app: AppState; onCompose: ReturnType<typeof vi.fn<(i: ComposeInitial) => void>> }> {
   const client = makeClient({ emails: [email], identities: opts.identities ?? IDENTITIES });
   if (opts.ownKey === true) {
@@ -82,7 +83,7 @@ async function openReader(
   const onCompose = vi.fn<(i: ComposeInitial) => void>();
   render(() => (
     <AppContext.Provider value={app}>
-      <Reader onCompose={onCompose} />
+      <Reader onCompose={onCompose} {...(opts.onOpenReplyDraft?{onOpenReplyDraft:opts.onOpenReplyDraft}:{})} />
     </AppContext.Provider>
   ));
   await app.login({ username: 'me@example.org', password: 'p' });
@@ -150,6 +151,13 @@ describe('Reader: opening a message suspends nothing around it', () => {
 });
 
 describe('Reader: Reply, Reply all, Forward', () => {
+  it('shows a pending reply and opens its saved draft without claiming it was already replied to',async()=>{
+    const open=vi.fn();await openReader(ORIGINAL,{onOpenReplyDraft:open});
+    saveDraft({id:'pending-reply',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',to:'alice@example.org',subject:'Reply',bodyHtml:'<p>Draft</p>',bodyText:'Draft',savedAt:1,source:{emailId:ORIGINAL.id,keyword:'$answered'}});
+    const state=await screen.findByTestId('reader-reply-state');expect(state).toHaveTextContent('Reply in progress');expect(state).not.toHaveTextContent('Replied');
+    fireEvent.click(within(state).getByRole('button',{name:'Open reply draft'}));expect(open).toHaveBeenCalledWith('pending-reply');
+    deleteDraft('pending-reply','acct1','test-storage-authority-acct1');await waitFor(()=>expect(screen.queryByTestId('reader-reply-state')).toBeNull());
+  });
   beforeEach(() => {
     vi.spyOn(getCryptoWorker(), 'sanitizeReader').mockImplementation(async r => sanitizeEmailHtmlReader(r.html, r.blockTrackers, r.cleanLinks));
     localStorage.clear();

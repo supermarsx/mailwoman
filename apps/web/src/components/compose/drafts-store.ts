@@ -11,6 +11,15 @@
 const KEY = 'mw.compose.drafts.v2';
 const LEGACY_KEY='mw.compose.drafts.v1';
 const MAX_DRAFTS = 25;
+export const DRAFTS_CHANGED='mw:drafts-changed';
+export interface DraftChange {kind:'save'|'delete'|'clear';id?:string;accountId?:string;storageAuthority?:string}
+export interface DraftSource {emailId:string;keyword:'$answered'|'$forwarded'}
+export function isDraftSource(value:unknown):value is DraftSource {
+  if(typeof value!=='object'||value===null)return false;
+  const source=value as Record<string,unknown>;
+  if(Object.keys(source).some(key=>key!=='emailId'&&key!=='keyword'))return false;
+  return typeof source.emailId==='string'&&source.emailId.length>0&&new TextEncoder().encode(source.emailId).length<=512&&![...source.emailId].some(char=>{const code=char.charCodeAt(0);return code<32||code>=127&&code<=159;})&&(source.keyword==='$answered'||source.keyword==='$forwarded');
+}
 
 /** An image placed in the body, as a draft keeps it: the uploaded blob and the
  *  Content-ID the body refers to it by (`inlineImages.ts`). */
@@ -42,6 +51,7 @@ export interface StoredDraft {
   bodyFormat?: 'plain' | 'html';
   /** HTML's editor choice; absent legacy HTML opens in the native visual editor. */
   editorMode?: 'rich'|'html';
+  source?:DraftSource;
   insertedSignatures?: string[];
   to: string;
   /** Absent on a draft stored before Cc/Bcc and replies existed. */
@@ -111,6 +121,7 @@ function isDraft(d: unknown): d is StoredDraft {
     optional(r.identityId, isString) &&
     optional(r.bodyFormat, value => value === 'plain' || value === 'html') &&
     optional(r.editorMode, value => value === 'rich' || value === 'html') &&
+    optional(r.source,isDraftSource) &&
     optional(r.insertedSignatures, isStringList) &&
     typeof r.to === 'string' &&
     typeof r.subject === 'string' &&
@@ -131,7 +142,7 @@ function isDraft(d: unknown): d is StoredDraft {
   );
 }
 
-function write(drafts: StoredDraft[]): void {
+function write(drafts: StoredDraft[],change:DraftChange): void {
   try {
     const counts = new Map<string, number>();
     localStorage.setItem(KEY, JSON.stringify(drafts.filter(draft => {
@@ -142,6 +153,7 @@ function write(drafts: StoredDraft[]): void {
   } catch {
     // Storage full / disabled (private mode): drafts degrade to in-session only.
   }
+  window.dispatchEvent(new CustomEvent<DraftChange>(DRAFTS_CHANGED,{detail:change}));
 }
 
 /** Only this authenticated account drafts, newest first. Legacy unowned rows
@@ -160,13 +172,13 @@ export function draftHasContent(d: Pick<StoredDraft, 'to' | 'cc' | 'bcc' | 'subj
 export function saveDraft(draft: StoredDraft): void {
   if (!draft.accountId || !isDraft(draft) || !draftHasContent(draft)) return;
   const rest = read().filter((d) => d.id !== draft.id || d.accountId !== draft.accountId || d.storageAuthority!==draft.storageAuthority);
-  write([draft, ...rest]);
+  write([draft, ...rest],{kind:'save',id:draft.id,accountId:draft.accountId,storageAuthority:draft.storageAuthority});
 }
 
 /** Remove a draft by id (e.g. after it is sent or discarded). */
 export function deleteDraft(id: string, accountId: string | null,storageAuthority:string|null|undefined): void {
   if (!accountId||!storageAuthority) return;
-  write(read().filter((d) => d.id !== id || d.accountId !== accountId || d.storageAuthority!==storageAuthority));
+  write(read().filter((d) => d.id !== id || d.accountId !== accountId || d.storageAuthority!==storageAuthority),{kind:'delete',id,accountId,storageAuthority});
 }
 
 /** Remove every stored draft (logout: the next person at this browser must not
@@ -178,6 +190,7 @@ export function clearDrafts(): void {
   } catch {
     // Storage disabled: nothing was stored.
   }
+  window.dispatchEvent(new CustomEvent<DraftChange>(DRAFTS_CHANGED,{detail:{kind:'clear'}}));
 }
 
 /** A fresh, collision-resistant draft id for a composer session. */
