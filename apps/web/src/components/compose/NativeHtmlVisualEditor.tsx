@@ -38,7 +38,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  const commands=createNativeHtmlCommands({root:()=>editor,change:()=>emit(),selection:()=>setVersion(value=>value+1),replaceNode:(from,to)=>{const original=originals.get(from);if(original)originals.set(to,original);}});
  let finishReady!:()=>void;
  const admitted=new Promise<void>(resolve=>{finishReady=resolve;});
- function answerBlock():HTMLParagraphElement|null {return props.reply?editor?.querySelector('p')??null:null;}
+ function answerBlock():HTMLParagraphElement|null {return props.reply?editor?.querySelector(':scope > p, :scope > .mw-email-body > p')??null:null;}
  function markAnswerBlock():void {if(!editor)return;for(const element of editor.querySelectorAll('[data-mw-native-answer]'))element.removeAttribute('data-mw-native-answer');answerBlock()?.setAttribute('data-mw-native-answer','true');}
  function focusEditor():void {if(!editor||!ready()){focusPending=true;return;}focusPending=false;if(props.reply&&!commands.range()){const range=editor.ownerDocument.createRange();range.selectNodeContents(answerBlock()??editor);range.collapse(true);commands.setRange(range);}else commands.restore();editor.focus({preventScroll:true});}
  function bookmark():NativeHtmlBookmark|null {const range=commands.range();if(!range||!editor)return null;const before=range.cloneRange();before.selectNodeContents(editor);before.setEnd(range.startContainer,range.startOffset);const answer=answerBlock();return {start:before.toString().length,end:before.toString().length+range.toString().length,...(answer&&answer.contains(range.commonAncestorContainer)&&!(answer.textContent??'').replace(/\u200b/g,'').trim()?{answer:true}:{})};}

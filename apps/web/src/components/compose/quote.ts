@@ -51,10 +51,10 @@ async function reduce(source: QuoteSource): Promise<Quote> {
   const rt = await import('./richtext.ts');
   if (source.html !== undefined) {
     if(source.ownedCids?.size){
-      const {normalizeHtmlSource}=await import('./htmlSource.ts');
+      const {normalizeHtmlSource,scopeQuoteHtml}=await import('./htmlSource.ts');
       const {referencedCids}=await import('./inlineImages.ts');
       const original=await normalizeHtmlSource(source.html,source.ownedCids);
-      return original.text.trim()!==''||referencedCids(original.html).some(cid=>source.ownedCids!.has(cid))?original:{html:'',text:''};
+      return original.text.trim()!==''||referencedCids(original.html).some(cid=>source.ownedCids!.has(cid))?{html:scopeQuoteHtml(original.html),text:original.text}:{html:'',text:''};
     }
     const body = rt.inertBody(source.html);
     for (const el of Array.from(body.querySelectorAll(DROPPED))) el.remove();

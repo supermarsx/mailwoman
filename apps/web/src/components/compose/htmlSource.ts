@@ -25,6 +25,8 @@ export function nativeHtmlBody(safeHtml: string): HTMLElement {
   return body;
 }
 
+const CONTAINER = 'mw-email-body';
+
 function ownedUrl(value: string, owned: ReadonlySet<string>): boolean {
   return !/^cid:/i.test(value) || owned.has(value.slice(4));
 }
@@ -83,4 +85,25 @@ export async function normalizeHtmlSource(html: string, owned: ReadonlySet<strin
   }
   collapseContainer(body);
   return { html: body.innerHTML, text: plainText(body) };
+}
+
+/** Class of the container that holds a quoted original in a reply or forward.
+ *  The sanitizer scopes every rule of the original under `.mw-email-body`, but
+ *  once the quote sits inside our own message that class also names the
+ *  message-level wrapper any later pass emits, so `body{...}` / `p{...}` of the
+ *  original would style our own paragraphs. A class of its own keeps the rules
+ *  (and the wrapper's inline font, colour, background, dir) inside the quote. */
+export const QUOTE_CLASS = 'mw-quote-body';
+
+/** Rename the sanitizer's container to `QUOTE_CLASS` in the markup and in the
+ *  selectors of the original's stylesheet. Only text is rewritten; the HTML was
+ *  already allowlisted and is not widened. */
+export function scopeQuoteHtml(safeHtml: string): string {
+  const body = nativeHtmlBody(safeHtml);
+  for (const element of body.querySelectorAll('[class]')) {
+    const tokens = (element.getAttribute('class') ?? '').split(/\s+/).filter(Boolean);
+    if (tokens.includes(CONTAINER)) element.setAttribute('class', tokens.map((token) => (token === CONTAINER ? QUOTE_CLASS : token)).join(' '));
+  }
+  for (const style of body.querySelectorAll('style')) style.textContent = (style.textContent ?? '').replace(/\.mw-email-body(?![\w-])/g, `.${QUOTE_CLASS}`);
+  return body.innerHTML;
 }
