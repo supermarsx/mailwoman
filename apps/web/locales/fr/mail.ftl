@@ -424,3 +424,5 @@ mail-maxsec-no-media = Sans médias
 mail-maxsec-no-media-hint = HTML nettoyé, sans images ni médias.
 mail-maxsec-plain-text = Texte brut
 mail-maxsec-plain-text-hint = Aucun rendu HTML — message affiché en texte brut uniquement.
+mail-feature-off = Désactivé par vos paramètres ou par votre administrateur
+mail-send-disabled = L’envoi est désactivé par vos paramètres ou par votre administrateur. Vous pouvez toujours enregistrer un brouillon.

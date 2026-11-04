@@ -425,3 +425,5 @@ mail-maxsec-no-media = Sem mídia
 mail-maxsec-no-media-hint = HTML higienizado sem nenhuma imagem ou mídia.
 mail-maxsec-plain-text = Texto simples
 mail-maxsec-plain-text-hint = Nenhum HTML renderizado — a mensagem é exibida apenas como texto simples.
+mail-feature-off = Desativado pelas suas configurações ou pelo administrador
+mail-send-disabled = O envio está desativado pelas suas configurações ou pelo administrador. Você ainda pode salvar um rascunho.

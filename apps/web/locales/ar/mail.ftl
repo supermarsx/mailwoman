@@ -501,3 +501,5 @@ mail-maxsec-no-media = بلا وسائط
 mail-maxsec-no-media-hint = HTML معقّم مع إزالة جميع الصور والوسائط.
 mail-maxsec-plain-text = نص عادي
 mail-maxsec-plain-text-hint = لا يُعرض HTML — تُعرض الرسالة كنص عادي فقط.
+mail-feature-off = تم إيقافه من إعداداتك أو من المسؤول
+mail-send-disabled = تم إيقاف الإرسال من إعداداتك أو من المسؤول. ما زال بإمكانك حفظ مسودة.

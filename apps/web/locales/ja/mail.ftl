@@ -389,3 +389,5 @@ mail-maxsec-no-media = メディアなし
 mail-maxsec-no-media-hint = 画像とメディアをすべて取り除いた、無害化した HTML。
 mail-maxsec-plain-text = プレーンテキスト
 mail-maxsec-plain-text-hint = HTML を表示しません — メッセージはプレーンテキストのみで表示されます。
+mail-feature-off = 設定または管理者によりオフになっています
+mail-send-disabled = 送信は設定または管理者によりオフになっています。下書きは引き続き保存できます。

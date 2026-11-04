@@ -422,3 +422,5 @@ mail-maxsec-no-media = Geen media
 mail-maxsec-no-media-hint = Opgeschoonde HTML waaruit alle afbeeldingen en media zijn verwijderd.
 mail-maxsec-plain-text = Platte tekst
 mail-maxsec-plain-text-hint = Geen HTML weergegeven — bericht alleen als platte tekst getoond.
+mail-feature-off = Uitgeschakeld door je instellingen of door je beheerder
+mail-send-disabled = Verzenden is uitgeschakeld door je instellingen of door je beheerder. Je kunt nog wel een concept opslaan.

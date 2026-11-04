@@ -408,3 +408,5 @@ mail-maxsec-no-media = 无媒体
 mail-maxsec-no-media-hint = 经过净化的 HTML，已移除所有图片和媒体。
 mail-maxsec-plain-text = 纯文本
 mail-maxsec-plain-text-hint = 不渲染 HTML——邮件仅以纯文本显示。
+mail-feature-off = 已被你的设置或管理员关闭
+mail-send-disabled = 发送功能已被你的设置或管理员关闭。你仍可以保存草稿。

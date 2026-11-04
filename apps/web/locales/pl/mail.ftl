@@ -450,3 +450,5 @@ mail-maxsec-no-media = Bez multimediów
 mail-maxsec-no-media-hint = Oczyszczony HTML bez wszystkich obrazów i multimediów.
 mail-maxsec-plain-text = Zwykły tekst
 mail-maxsec-plain-text-hint = Bez renderowania HTML — wiadomość wyświetlana tylko jako zwykły tekst.
+mail-feature-off = Wyłączone w Twoich ustawieniach lub przez administratora
+mail-send-disabled = Wysyłanie jest wyłączone w Twoich ustawieniach lub przez administratora. Nadal możesz zapisać wersję roboczą.

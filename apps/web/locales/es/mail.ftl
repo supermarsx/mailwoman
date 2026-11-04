@@ -403,3 +403,5 @@ mail-maxsec-no-media = Sin multimedia
 mail-maxsec-no-media-hint = HTML saneado sin imágenes ni contenido multimedia.
 mail-maxsec-plain-text = Texto sin formato
 mail-maxsec-plain-text-hint = No se representa HTML — el mensaje se muestra solo como texto sin formato.
+mail-feature-off = Desactivado por sus ajustes o por su administrador
+mail-send-disabled = El envío está desactivado por sus ajustes o por su administrador. Todavía puede guardar un borrador.
