@@ -126,6 +126,8 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         setError(t('auth-login-rate-limited'));
       } else if (err instanceof ApiError && (err.code === 'signinChallengeRequired' || err.code === 'signinChallengeRejected')) {
         setError(t('auth-verification-required'));
+        // The server may now ask this source for the challenge (spray, spike mode): re-read the config so the widget appears.
+        void publicConfig().then(value => { setConfig(value); applyBranding(value); }).catch(() => undefined);
       } else if (err instanceof LoginTimeoutError || (err instanceof ApiError && err.status === 504)) {
         setError(t('auth-login-timeout'));
       } else if (err instanceof TwoFactorRequired) {
@@ -139,6 +141,9 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
         setError(t('auth-account-disabled'));
       } else if (err instanceof ApiError && err.status === 403 && err.code === 'signinNotAllowed') {
         setError(t('auth-signin-not-allowed'));
+      } else if (err instanceof ApiError && err.status === 403 && err.code === 'signinNotProvisioned') {
+        // `signin.newUsers` refused to create an account for this address.
+        setError(t('auth-signin-not-provisioned'));
       } else if (err instanceof ApiError && err.status === 502 && err.code === 'upstreamProtocol') {
         // The mail server answered, but not in a form this server could read
         // (t92). Not a password problem, so it is not shown as one.

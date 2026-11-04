@@ -177,6 +177,8 @@ async fn link(
     login_headers.remove(axum::http::header::COOKIE);
     login_headers.remove(axum::http::header::AUTHORIZATION);
     ext.insert(PasswordProof);
+    // `signin.newUsers`: this login links a mailbox (type `linked`).
+    ext.insert(crate::signin_policy::Linking);
     let response = crate::login(
         State(state.clone()),
         login_headers,

@@ -18,6 +18,8 @@ pub enum LoginFailureReason {
     Tls,
     Storage,
     Sync,
+    /// `signin.newUsers` refused to create a new account (see `signin_policy`).
+    NewUserRefused,
 }
 impl LoginFailureReason {
     pub fn code(self) -> &'static str {
@@ -36,6 +38,7 @@ impl LoginFailureReason {
             Self::Tls => "tls",
             Self::Storage => "storage",
             Self::Sync => "sync",
+            Self::NewUserRefused => "new-user-refused",
         }
     }
 }

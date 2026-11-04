@@ -476,7 +476,7 @@ async fn renew(
         Err(error) => {
             use crate::login_failure::LoginFailureReason as R;
             return match error.reason {
-                R::Auth | R::Disabled | R::Policy | R::NotConfigured => {
+                R::Auth | R::Disabled | R::Policy | R::NotConfigured | R::NewUserRefused => {
                     // Visible to the linked mailbox's owner like any failed sign-in.
                     crate::security_center::record_failure_backend(
                         state,

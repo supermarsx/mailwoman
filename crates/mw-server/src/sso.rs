@@ -551,6 +551,34 @@ async fn complete_flow(
         Err(e) => return crate::account_gate::unavailable("sso login", e),
     }
 
+    // First-sign-in rule (`signin.newUsers`, type `sso`): after the IdP asserted the
+    // identity and the gates above, before a session (the account) is created.
+    let existing = pairs
+        .iter()
+        .any(|(_, u)| u.eq_ignore_ascii_case(&account.username));
+    let spend = match crate::signin_policy::gate(
+        state,
+        &account.username,
+        crate::signin_policy::SigninType::Sso,
+        existing,
+    )
+    .await
+    {
+        Ok(spend) => spend,
+        Err(response) => {
+            let _ = state
+                .store
+                .append_sso_login_audit(
+                    id,
+                    entry.meta.kind.as_db(),
+                    &subject_hash,
+                    "error:new_user_refused",
+                )
+                .await;
+            return response;
+        }
+    };
+
     // Mint the SAME opaque session the password path issues (no new mechanism). SSO
     // sessions carry no upstream Basic-auth creds to proxy (engine serves the mailbox
     // locally), so the sealed credential slot is empty.
@@ -569,6 +597,7 @@ async fn complete_flow(
             return (StatusCode::INTERNAL_SERVER_ERROR, "server error").into_response();
         }
     };
+    crate::signin_policy::complete(&state.store, &spend).await;
     state.sessions.begin(&session_id);
     let mut device = crate::security_center::device(headers, ext, None);
     device.recognition_hash = browser_fingerprint.or(device.recognition_hash);

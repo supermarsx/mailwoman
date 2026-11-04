@@ -1056,6 +1056,40 @@ async fn engine_login_inner(
     let lock = connect_lock(&identity_lock_key);
     let _connecting = lock.lock().await;
 
+    // First-sign-in rule (`signin.newUsers`): governs the creation of a NEW account
+    // only. Checked under the identity lock, after the password is proved and before
+    // anything is written, so a refusal leaves no row, no stored credential and no
+    // registration; `backend` is dropped on return, closing its connection. A
+    // concurrent sign-in that created the account while this one waited counts as
+    // an existing account.
+    let existing_now = known.is_some()
+        || engine
+            .store()
+            .account_id_by_identity(url.kind, &url.host, url.port, username)
+            .await
+            .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?
+            .is_some();
+    let signin_type = crate::signin_policy::SigninType::for_kind(
+        crate::signin_policy::current_kind(),
+        url.kind,
+    );
+    let spend = match crate::signin_policy::admit(engine.store(), username, signin_type, existing_now)
+        .await
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?
+    {
+        crate::signin_policy::Admission::Admit(spend) => spend,
+        crate::signin_policy::Admission::Refuse(refused) => {
+            crate::signin_policy::note_refusal(&refused);
+            return Err(LoginFailure::new(LoginFailureReason::NewUserRefused));
+        }
+    };
+    if !crate::signin_policy::reserve(engine.store(), &spend)
+        .await
+        .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?
+    {
+        return Err(LoginFailure::new(LoginFailureReason::NewUserRefused));
+    }
+
     // Find the account this identity logged in as before, or create it. The id
     // must be stable across logins: second factors, and everything else the
     // account owns, are keyed by it.
@@ -1074,6 +1108,7 @@ async fn engine_login_inner(
         )
         .await
         .map_err(|_| LoginFailure::new(LoginFailureReason::Storage))?;
+    crate::signin_policy::complete(engine.store(), &spend).await;
 
     let submitter = build_submitter(
         &policy,

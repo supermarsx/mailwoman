@@ -215,6 +215,27 @@ pub(crate) async fn login(
         .admit(store, existing.as_ref().map(|row| row.account_id.as_str()))
         .await
         .map_err(|_| LoginFailure::new(Reason::Policy))?;
+    // `signin.newUsers`: after the password is proved, before the account is created.
+    let ty = crate::signin_policy::SigninType::for_kind(
+        crate::signin_policy::current_kind(),
+        mw_store::AccountKind::Ews,
+    );
+    let spend = match crate::signin_policy::admit(store, &selected.login_address, ty, existing.is_some())
+        .await
+        .map_err(|_| LoginFailure::new(Reason::Storage))?
+    {
+        crate::signin_policy::Admission::Admit(spend) => spend,
+        crate::signin_policy::Admission::Refuse(refused) => {
+            crate::signin_policy::note_refusal(&refused);
+            return Err(LoginFailure::new(Reason::NewUserRefused));
+        }
+    };
+    if !crate::signin_policy::reserve(store, &spend)
+        .await
+        .map_err(|_| LoginFailure::new(Reason::Storage))?
+    {
+        return Err(LoginFailure::new(Reason::NewUserRefused));
+    }
     let account = store
         .enroll_verified_ews(mw_store::provider_accounts::VerifiedEwsEnrollment {
             endpoint_url: endpoint.as_str(),
@@ -226,6 +247,7 @@ pub(crate) async fn login(
         })
         .await
         .map_err(|_| LoginFailure::new(Reason::Storage))?;
+    crate::signin_policy::complete(store, &spend).await;
     let account_lock = crate::engine_mode::connect_lock(&account.account_id);
     let _activating = account_lock.lock().await;
     crate::v7_mount::activate_ews(engine, registry, &account.account_id, mailboxes)

@@ -73,6 +73,12 @@ describe('Login › explained refusals', () => {
     expect(screen.queryByTestId('login-reference')).toBeNull();
   });
 
+  it('403 signinNotProvisioned says the account is not created automatically', async () => {
+    renderLogin(client(async () => { throw new ApiError(403, 'request failed with 403', { code: 'signinNotProvisioned' }); }));
+    await signIn();
+    expect(await screen.findByRole('alert')).toHaveTextContent(t('auth-signin-not-provisioned'));
+  });
+
   it('a uniform 401 keeps its generic text and hides account help by default', async () => {
     renderLogin(
       client(async () => {
