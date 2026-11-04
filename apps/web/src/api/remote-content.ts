@@ -143,3 +143,66 @@ export async function decodedTrackerStats(emailId: string): Promise<RemoteConten
   const references = (v: unknown): v is string[] => Array.isArray(v) && v.length <= 256 && v.every(x => typeof x === "string" && /^[a-f0-9]{64}$/.test(x)) && new Set(v).size === v.length;
   return { ...(references(value.failedImageRefs) ? {failedImageRefs:value.failedImageRefs} : {}), ...(references(value.retryableImageRefs) ? {retryableImageRefs:value.retryableImageRefs} : {}), count: value.decodedTrackersReplaced, limited: value.limited, windowSecs: value.windowSecs, ...(counter(value.imagesLoaded) ? { imagesLoaded: value.imagesLoaded } : {}), ...(counter(value.imagesFailed) ? { imagesFailed: value.imagesFailed } : {}) };
 }
+
+/** One URL's answer in a `POST /api/rc/batch` reply (same status the single-URL route gives). */
+export interface ImageBatchResult { index: number; status: number; contentType?: string; etag?: string; retryAfter?: number; retryable?: boolean; tracker?: boolean; error?: string; body?: string; bodyOmitted?: boolean }
+/** Most tokens the server accepts in one batch. */
+export const IMAGE_BATCH_MAX = 100;
+/** Quiet retries of transiently refused images (503 busy, 429 waited out) before giving up. */
+export const IMAGE_BATCH_RETRIES = 4;
+const BATCH_BASE_MS = 500;
+const BATCH_CAP_MS = 8_000;
+const BATCH_MAX_RETRY_AFTER_MS = 15_000;
+const transient = (r: ImageBatchResult): boolean => r.status === 503 || r.status === 429 || (r.retryable === true && r.status >= 500);
+/** The token of a signed image source (`…/api/rc/i/{token}`), or null. */
+export function imageToken(src: string, base = remoteServerBase()): string | null {
+  const signed = signedSource(src, 'i', base);
+  return signed ? signed.slice(signed.lastIndexOf('/') + 1) : null;
+}
+/**
+ * Fetch signed images through `POST /api/rc/batch`: one authenticated request per
+ * 100 images. Transient refusals (503 busy, 429) are retried quietly, only for the
+ * images concerned, with bounded exponential backoff that honours the server's
+ * `retryAfter`; nothing is reported to the user for them. Results come back in
+ * request order; a permanent refusal (403, 415, 502...) is returned as is, and
+ * the last transient status is returned only after the retries ran out.
+ * Rejects only when the batch route itself is unavailable (the caller falls
+ * back to the single-URL route the browser uses anyway).
+ */
+export async function fetchImageBatch(tokens: readonly string[], opts: { bodies?: boolean; retries?: number; sleep?: (ms: number) => Promise<void>; signal?: AbortSignal } = {}): Promise<ImageBatchResult[]> {
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); }));
+  const retries = opts.retries ?? IMAGE_BATCH_RETRIES;
+  const out: ImageBatchResult[] = new Array<ImageBatchResult>(tokens.length);
+  let pending = tokens.map((_, i) => i);
+  for (let round = 0; pending.length > 0; round++) {
+    const waits: number[] = [];
+    const next: number[] = [];
+    for (let at = 0; at < pending.length; at += IMAGE_BATCH_MAX) {
+      const slice = pending.slice(at, at + IMAGE_BATCH_MAX);
+      const r = await apiFetch(withBase('/api/rc/batch'), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokens: slice.map(i => tokens[i]), ...(opts.bodies ? { bodies: true } : {}) }), ...(opts.signal ? { signal: opts.signal } : {}) });
+      if (!r.ok) throw new Error('Unable to batch remote images');
+      const value = await r.json() as { results?: ImageBatchResult[] };
+      if (!Array.isArray(value.results) || value.results.length !== slice.length) throw new Error('Invalid batch answer');
+      value.results.forEach((result, k) => {
+        const index = slice[k]!;
+        out[index] = { ...result, index };
+        if (transient(result)) { next.push(index); if (typeof result.retryAfter === 'number') waits.push(Math.min(result.retryAfter * 1000, BATCH_MAX_RETRY_AFTER_MS)); }
+      });
+    }
+    if (next.length === 0 || round >= retries || opts.signal?.aborted) break;
+    await sleep(Math.max(Math.min(BATCH_BASE_MS * 2 ** round, BATCH_CAP_MS), ...waits));
+    pending = next;
+  }
+  return out;
+}
+/**
+ * Warm the server's image cache for a message's signed images in one batched
+ * request, so the reader frame's own `<img>` requests are answered from cache
+ * (before any slot or rate wait). Best effort and silent: if the batch route is
+ * unavailable the frame simply loads each image through the single-URL route.
+ */
+export async function prewarmSignedImages(images: readonly { src: string }[], opts: { sleep?: (ms: number) => Promise<void>; signal?: AbortSignal } = {}): Promise<void> {
+  const tokens = [...new Set(images.map(image => imageToken(image.src)).filter((t): t is string => t !== null))];
+  if (tokens.length === 0) return;
+  try { await fetchImageBatch(tokens, opts); } catch { /* the single-URL route remains */ }
+}

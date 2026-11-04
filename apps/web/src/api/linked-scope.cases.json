@@ -34,6 +34,7 @@
   "/api/mail/delivery-status",
   "/api/rc/policy",
   "/api/rc/sign",
+  "/api/rc/batch",
   "/api/rc/stats",
   "/api/remote-images/grants",
   "/api/remote-images/grant",
@@ -99,7 +100,8 @@
   "/api/accounts/challenges/id/confirm",
   "/api/logout",
   "/api/analytics/status",
-  "/api/analytics/events"
+  "/api/analytics/events",
+  "/api/client-timing"
  ],
  "public": [
   "/api/public-config",

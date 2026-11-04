@@ -306,11 +306,30 @@ describe('createRemoteImageLoad', () => {
     const reference='c'.repeat(64);const h=setup(vi.fn(async()=>stats({imagesLoaded:0,imagesFailed:1,failedImageRefs:[reference],retryableImageRefs:[reference]})));
     h.setSource(body('L0',{total:1}));
     for(let attempt=1;attempt<=MAX_AUTO_RETRIES;attempt++){
-      await vi.advanceTimersByTimeAsync(POLL_MS+AUTO_RETRY_DELAY_MS);expect(h.retry).toHaveBeenCalledTimes(attempt);h.setSource(body(`L${attempt}`,{total:1}));
+      await vi.advanceTimersByTimeAsync(POLL_MS+AUTO_RETRY_DELAY_MS*2**(attempt-1));expect(h.retry).toHaveBeenCalledTimes(attempt);h.setSource(body(`L${attempt}`,{total:1}));
     }
     await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);expect(h.retry).toHaveBeenCalledTimes(MAX_AUTO_RETRIES);
     h.setSource(body('new',{scope:'other-account:other-message',total:1}));await vi.advanceTimersByTimeAsync(POLL_MS);
     h.setSource(null);await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS);expect(h.retry).toHaveBeenCalledTimes(MAX_AUTO_RETRIES);h.dispose();
+  });
+
+  it('transient failures retry quietly with doubling, capped backoff and warn only once the retries are exhausted', async () => {
+    const reference = 'd'.repeat(64);
+    const h = setup(vi.fn(async () => stats({ imagesLoaded: 0, imagesFailed: 1, failedImageRefs: [reference], retryableImageRefs: [reference] })));
+    h.setSource(body('Q0', { total: 1 }));
+    await vi.advanceTimersByTimeAsync(POLL_MS + AUTO_RETRY_DELAY_MS - 1);
+    expect(h.s.shown.some((item) => item.tone === 'warning')).toBe(false);
+    for (let attempt = 1; attempt <= MAX_AUTO_RETRIES; attempt++) {
+      await vi.advanceTimersByTimeAsync(AUTO_RETRY_DELAY_MS * 2 ** (attempt - 1));
+      expect(h.retry).toHaveBeenCalledTimes(attempt);
+      expect(h.s.shown.some((item) => item.tone === 'warning')).toBe(false);
+      h.setSource(body(`Q${attempt}`, { total: 1 }));
+      await vi.advanceTimersByTimeAsync(POLL_MS);
+    }
+    // The last attempt failed too: now, and only now, the failure toast with Retry.
+    await vi.advanceTimersByTimeAsync(LOAD_CAP_MS);
+    expect(h.s.shown.some((item) => item.tone === 'warning' && item.action === 'Retry')).toBe(true);
+    h.dispose();
   });
 
   it('toast off (admin/user setting): no toast, the stats read still happens once', async () => {

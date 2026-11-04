@@ -2800,3 +2800,119 @@ async fn tracker_consent_cannot_bypass_permission_denial_or_locked_tracker_block
         );
     }
 }
+
+// ── POST /api/rc/batch ───────────────────────────────────────────────────────────
+
+impl Fixture {
+    async fn batch(&self, tokens: &[String], bodies: bool) -> (u16, Value) {
+        let r = self
+            .user
+            .post(format!("{}/api/rc/batch", self.base))
+            .json(&json!({ "tokens": tokens, "bodies": bodies }))
+            .send()
+            .await
+            .unwrap();
+        let status = r.status().as_u16();
+        (status, r.json().await.unwrap_or(Value::Null))
+    }
+}
+
+fn batch_tokens(signed: &Value) -> Vec<String> {
+    signed["images"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|image| token_of(image["src"].as_str().unwrap()))
+        .collect()
+}
+
+#[tokio::test]
+async fn batch_without_a_session_or_a_grant_never_fetches() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
+    let f = fixture(proxy, "mw-rc-batch-ungranted").await;
+    // Signing needs a grant, so mint the tokens while granted, then revoke.
+    f.grant().await;
+    let (_, signed) = f
+        .sign(&["http://1.2.3.4/batch-a.png", "http://1.2.3.4/batch-b.png"], &[])
+        .await;
+    let tokens = batch_tokens(&signed);
+    store_at(&f.db)
+        .await
+        .revoke_remote_image(&f.account, "all", "")
+        .await
+        .unwrap();
+    let anonymous = f
+        .anon
+        .post(format!("{}/api/rc/batch", f.base))
+        .json(&json!({ "tokens": tokens }))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anonymous.status(), 401);
+    let (status, body) = f.batch(&tokens, true).await;
+    assert_eq!(status, 200, "{body}");
+    for result in body["results"].as_array().unwrap() {
+        assert_eq!(result["status"], 403, "{body}");
+    }
+    assert_eq!(seen.lock().unwrap().connections, 0, "no fetch without consent");
+}
+
+#[tokio::test]
+async fn batch_caps_the_token_count() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
+    let f = fixture(proxy, "mw-rc-batch-cap").await;
+    f.grant().await;
+    let many: Vec<String> = (0..101).map(|i| format!("tok{i}")).collect();
+    assert_eq!(f.batch(&many, false).await.0, 400);
+    assert_eq!(f.batch(&[], false).await.0, 400);
+    assert_eq!(seen.lock().unwrap().connections, 0);
+}
+
+#[tokio::test]
+async fn batch_isolates_a_refused_url_and_serves_the_second_batch_from_the_cache() {
+    let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
+    let f = fixture(proxy, "mw-rc-batch-mixed").await;
+    f.grant().await;
+    let (status, signed) = f
+        .sign(
+            &[
+                "http://1.2.3.4/batch-ok-1.png",
+                "http://169.254.169.254/latest/meta-data/x.png",
+                "http://1.2.3.4/batch-ok-2.png",
+            ],
+            &[],
+        )
+        .await;
+    assert_eq!(status, 200, "{signed}");
+    let mut tokens = batch_tokens(&signed);
+    tokens.push("not-a-token".into());
+    let (status, body) = f.batch(&tokens, true).await;
+    assert_eq!(status, 200, "{body}");
+    let results = body["results"].as_array().unwrap();
+    assert_eq!(results.len(), 4);
+    assert_eq!(results[0]["status"], 200, "{body}");
+    assert_eq!(results[1]["status"], 403, "SSRF refusal stays per URL: {body}");
+    assert_eq!(results[2]["status"], 200, "{body}");
+    assert_eq!(results[3]["status"], 403, "{body}");
+    for i in [0, 2] {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(results[i]["body"].as_str().unwrap())
+            .unwrap();
+        assert!(bytes.starts_with(b"\x89PNG"));
+        assert!(results[i]["etag"].is_string());
+    }
+    let upstream = seen.lock().unwrap().requests.len();
+    assert!(upstream >= 2);
+    let (_, again) = f.batch(&tokens[..1], false).await;
+    assert_eq!(again["results"][0]["status"], 200, "{again}");
+    assert!(again["results"][0].get("body").is_none());
+    assert_eq!(
+        seen.lock().unwrap().requests.len(),
+        upstream,
+        "a cached image costs no second upstream request"
+    );
+    // The single-URL route now answers from the same cache.
+    let single = f.load(signed["images"][0]["src"].as_str().unwrap()).await;
+    assert_eq!(single.status(), 200);
+    assert_eq!(seen.lock().unwrap().requests.len(), upstream);
+}

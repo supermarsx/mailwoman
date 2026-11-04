@@ -37,6 +37,7 @@
     { "path": "/api/mail/delivery-status", "scope": "mailbox" },
     { "path": "/api/rc/policy", "scope": "mailbox" },
     { "path": "/api/rc/sign", "scope": "mailbox" },
+    { "path": "/api/rc/batch", "scope": "mailbox", "note": "signed image tokens fetched together; authed as the linked child" },
     { "path": "/api/rc/stats", "scope": "mailbox" },
     { "path": "/api/remote-images/grants", "scope": "mailbox", "note": "t82" },
     { "path": "/api/remote-images/grant", "scope": "mailbox", "note": "t82" },
@@ -97,6 +98,7 @@
     { "path": "/api/logout", "scope": "primary" },
     { "path": "/api/analytics/status", "scope": "primary", "note": "t87 D4: analytics consent follows the signed-in person" },
     { "path": "/api/analytics/events", "scope": "primary", "note": "t87 D4" },
+    { "path": "/api/client-timing", "scope": "primary", "note": "load-time beacon; aggregate histograms, nothing per mailbox" },
 
     { "path": "/api/public-config", "scope": "public" },
     { "path": "/api/signin/challenge", "scope": "public" },

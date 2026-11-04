@@ -50,6 +50,8 @@ export const LOAD_GRACE_MS=5_000;
 export const POLL_MS = 1_000;
 export const AUTO_RETRY_DELAY_MS = 5_000;
 export const MAX_AUTO_RETRIES = 3;
+/** Longest wait between two automatic retries of transiently failed images. */
+export const MAX_RETRY_BACKOFF_MS = 30_000;
 
 export interface ToastSink {
   show: (tone: ToastTone, message: string, opts?: ToastOptions) => string;
@@ -62,8 +64,10 @@ export interface ImageLoadToast {
   progress(key: string, loaded: number, total: number): void;
   /** The load is over. `failed` undefined = unknown (no failure claimed).
    *  `settled` false (gave up waiting): with no failure known, close instead of
-   *  saying the images loaded. */
-  finish(key: string, failed: number | undefined, settled?: boolean): void;
+   *  saying the images loaded. `retrying`: a quiet automatic retry of the failed
+   *  images is already scheduled, so neither the failure toast nor "Images
+   *  loaded" is shown for this attempt; the loading toast just closes. */
+  finish(key: string, failed: number | undefined, settled?: boolean, retrying?: boolean): void;
   /** "Loading images…" is on screen for `key`. */
   showing(key: string): boolean;
   /** The frame displayed the body. Before the delay ran out: no loading toast at all. */
@@ -106,12 +110,16 @@ export function createImageLoadToast(opts: { id: string; retry: () => void; sink
       if(at!==key || !Number.isFinite(loaded) || !Number.isFinite(count))return;
       total=Math.max(0,count);completed=Math.max(0,Math.min(total,loaded));if(shown)render();
     },
-    finish(at, failed, settled = true) {
+    finish(at, failed, settled = true, retrying = false) {
       if (at !== key) return;
       clearTimeout(timer); timer = undefined;
       const wasShown = shown;
       key = null; shown = false; lastText = ''; finished = at;
-      if (failed !== undefined && failed > 0) {
+      if (retrying && failed !== undefined && failed > 0) {
+        // Transient failures (a busy proxy, a rate wait that ran out) retry
+        // by themselves with backoff; the failure toast waits until they are exhausted.
+        if (wasShown) sink.dismiss(opts.id);
+      } else if (failed !== undefined && failed > 0) {
         // A failure is worth a toast even when it came back fast (negative cache).
         sink.show('warning', t('remote-images-toast-failed', { count: failed }), {
           id: opts.id, testId: 'remote-images-toast',
@@ -241,9 +249,11 @@ export function createRemoteImageLoad(opts: {
     const progress=frameProgress();
     if(opts.progress&&(!progress||progress.pending>0))return false;
     const failed=opts.progress?progress!.failed:stats?.imagesFailed;
-    toast.finish(src.load,failed,settled&&(!opts.progress||progress!.total>0));
-    if(settled&&(!opts.progress||failed!>0)&&stats?.retryableImageRefs?.length&&attempts<retryAttempts()&&retryTimer===undefined){
-      retryTimer=setTimeout(()=>{retryTimer=undefined;if(current(src))retry(true);},retryDelay());
+    const willRetry=settled&&(!opts.progress||failed!>0)&&!!stats?.retryableImageRefs?.length&&attempts<retryAttempts();
+    toast.finish(src.load,failed,settled&&(!opts.progress||progress!.total>0),willRetry);
+    if(willRetry&&retryTimer===undefined){
+      // Bounded exponential backoff: the first retry waits the policy delay, each later one doubles it (at most 30 s).
+      retryTimer=setTimeout(()=>{retryTimer=undefined;if(current(src))retry(true);},Math.min(retryDelay()*2**attempts,MAX_RETRY_BACKOFF_MS));
     }
     return true;
   }
