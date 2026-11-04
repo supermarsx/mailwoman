@@ -1,7 +1,7 @@
 import { createResource, For, onMount,onCleanup, Show, type JSX } from 'solid-js';
 import { durationFormatterFor, loadCatalog, t } from '../../i18n';
 import { listAdminSettings,putGlobal, type AdminSetting } from '../../api/admin/settings.ts';
-import {AdminImageConcurrency,IMAGE_CONCURRENCY_KEY,type ImageConcurrencyMode,type ImageConcurrencyRuntime} from './AdminImageConcurrency.tsx';
+import {AdminImageConcurrency,IMAGE_CONCURRENCY_KEY,type ImageConcurrencyMode,type ImageConcurrencyRuntime,type ImageRateRuntime,type ImageCacheRuntime} from './AdminImageConcurrency.tsx';
 import { adminRequest } from './shell/adminApi.ts';
 import { describeAdminError } from './shell/Feedback.tsx';
 import { useShell } from './shell/context.ts';
@@ -11,7 +11,7 @@ import { AdminSubsection } from './AdminSubsection.tsx';
 import { AsyncPending } from '../../components/AsyncState.tsx';
 import * as css from './admin.css.ts';
 import * as layout from './privacyLayout.css.ts';
-export interface PrivacyStats { imageConcurrency?:ImageConcurrencyRuntime;cacheEntries: number; cacheBytes: number; trackersReplaced: number; traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number; /** Exact total in μs (servers from 26.20). */ totalUs?: number }[] }
+export interface PrivacyStats { imageConcurrency?:ImageConcurrencyRuntime;imageRate?:ImageRateRuntime;imageCache?:ImageCacheRuntime;cacheEntries: number; cacheBytes: number; trackersReplaced: number; traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number; /** Exact total in μs (servers from 26.20). */ totalUs?: number }[] }
 export const privacyAdminApi = { settings: listAdminSettings, async stats(): Promise<PrivacyStats> { return (await adminRequest<PrivacyStats>('/egress/privacy-stats')).data; },async saveMode(mode:ImageConcurrencyMode,etag:string):Promise<AdminSetting>{return (await putGlobal(IMAGE_CONCURRENCY_KEY,{globalValue:mode},etag)).setting;} };
 export type PrivacyAdminApi=Pick<typeof privacyAdminApi,'settings'|'stats'>&Partial<Pick<typeof privacyAdminApi,'saveMode'>>;
 /** t56: the remote-image fetch limits, shown in their own subsection under the
@@ -45,7 +45,7 @@ export function AdminPrivacy(props: { service?: PrivacyAdminApi }): JSX.Element 
   onMount(()=>{const timer=setInterval(()=>{if(document.visibilityState!=='hidden'&&!editKey()&&!stats.loading)void refetch();},5000);onCleanup(()=>clearInterval(timer));});
   return <Show when={editKey()} keyed fallback={<section class={css.section}><h2>{t('privacy-admin-title')}</h2><p>{t('privacy-admin-help')}</p>
     <Show when={settings.error}><p role="alert">{describeAdminError(settings.error)}</p></Show>
-    <Show when={concurrencySetting()||(!stats.error&&stats.latest?.imageConcurrency)}><AdminSubsection title={t('privacy-concurrency-title')}><AdminImageConcurrency setting={concurrencySetting()} runtime={stats.error?undefined:stats.latest?.imageConcurrency} canWrite={shell.can.can('settings.write')} {...(api.saveMode?{save:api.saveMode}:{})} onSaved={savedConcurrency} onReload={()=>void refetchSettings()}/></AdminSubsection></Show>
+    <Show when={concurrencySetting()||(!stats.error&&stats.latest?.imageConcurrency)}><AdminSubsection title={t('privacy-concurrency-title')}><AdminImageConcurrency setting={concurrencySetting()} runtime={stats.error?undefined:stats.latest?.imageConcurrency} rate={stats.error?undefined:stats.latest?.imageRate} cache={stats.error?undefined:stats.latest?.imageCache} canWrite={shell.can.can('settings.write')} {...(api.saveMode?{save:api.saveMode}:{})} onSaved={savedConcurrency} onReload={()=>void refetchSettings()}/></AdminSubsection></Show>
     <Show when={settings.state === 'ready' && settings.latest?.kind === 'ok' ? settings.latest.data.filter(row => Object.hasOwn(labels, row.key) && row.key!==IMAGE_CONCURRENCY_KEY&&!FETCH_LIMIT_KEYS.includes(row.key)) : []}>{rows => <AdminSubsection title={t('privacy-policy-values')}><For each={rows()}>{row => policyRow(row, typeof row.effective.value === 'boolean' ? t(row.effective.value ? 'privacy-on':'privacy-off') : String(row.effective.value))}</For></AdminSubsection>}</Show>
     <Show when={settings.state === 'ready' && settings.latest?.kind === 'ok' ? FETCH_LIMIT_KEYS.flatMap(key => settings.latest?.kind === 'ok' ? settings.latest.data.filter(row => row.key === key) : []) : []}>{rows => <Show when={rows().length > 0}><AdminSubsection title={t('admin-settings-privacy-fetch-title')}><p>{t('admin-settings-privacy-fetch-help')}</p><For each={rows()}>{row => policyRow(row, fetchLimitValue(row.key, row.effective.value))}</For></AdminSubsection></Show>}</Show>
     <AdminSubsection title={t('privacy-process-stats')} actions={<button class="btn" disabled={stats.loading} onClick={() => void refetch()}>{t('privacy-refresh')}</button>}>

@@ -1089,7 +1089,11 @@ fn unsupported(msg: &'static str) -> Response {
 }
 
 /// A signed image response. `tracker` marks a replaced tracking pixel.
-fn signed_image(png: Vec<u8>, etag: String, tracker: bool) -> Response {
+fn signed_image(
+    png: impl axum::response::IntoResponse + Into<bytes::Bytes>,
+    etag: String,
+    tracker: bool,
+) -> Response {
     let mut resp = (
         StatusCode::OK,
         [
@@ -1148,12 +1152,13 @@ pub(super) async fn reencode_and_answer(
     };
     let etag = etag_for(&png);
     if let Some(key) = key {
+        // Copy before taking the lock: the cache is global and `png` can be MiB.
+        let retained = png.clone();
         cache().lock().expect("image cache lock").put_with_policy(
             key,
             etag.clone(),
-            png.clone(),
-            policy.cache_bytes,
-            policy.cache_ttl,
+            retained,
+            super::CacheLimits::of(policy),
         );
     }
     signed_image(png, etag, tracker)
@@ -1220,13 +1225,14 @@ async fn fetch_image(
     cache()
         .lock()
         .expect("image cache lock")
-        .trim(policy.cache_bytes);
+        .trim_to(policy.cache_bytes, policy.cache_entries);
     let cached_response = || {
         let (etag, png) = cache()
             .lock()
             .expect("image cache lock")
             .get_with_ttl(&key, policy.cache_ttl)?;
-        let tracker = policy.trackers && png == TRANSPARENT_PIXEL;
+        super::record_cache(true);
+        let tracker = policy.trackers && png.as_ref() == TRANSPARENT_PIXEL;
         if tracker {
             tracker_stats::record(&claims.a, &claims.s, &claims.e, &claims.u, claims.x);
         }
@@ -1288,15 +1294,8 @@ async fn fetch_image(
         }
         return failed_response(failure.refusal(), policy.negative_cache_ttl);
     }
-    if !rate_limiter()
-        .lock()
-        .expect("image rate-limit lock")
-        .check_with_limit(
-            &claims.a,
-            policy.rate_burst as f64,
-            policy.rate_per_min as f64 / 60.0,
-        )
-    {
+    super::record_cache(false);
+    if !charge_image_fetch(&claims.a, &claims.e, &policy, queue_deadline).await {
         fetch_limits::record_retryable_failure(
             &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
         );
@@ -1490,6 +1489,62 @@ pub(super) fn failed_response(refusal: mw_egress::Refusal, ttl: std::time::Durat
         },
     );
     response
+}
+
+/// The effective (computed) concurrency limits for a policy on this replica.
+pub(super) fn effective_limits_for(
+    policy: &crate::remote_policy::PrivacyPolicy,
+) -> super::adaptive::Limits {
+    super::adaptive::calculate(
+        policy.fetch.concurrency_mode,
+        policy.fetch.ceilings(),
+        super::resources::snapshot(),
+        policy.fetch.image_bytes,
+        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+    )
+}
+
+/// Everything waiting for an image slot on this replica right now.
+fn waiting_total() -> usize {
+    fetch_limits::waiting()
+        + fetch_semaphore().waiting()
+        + image_pipeline().waiting()
+        + image_flight::waiting()
+}
+
+/// The per-account burst and refill for the current load. `message` is optional;
+/// when it is a message whose image count is known, its count raises the burst.
+pub(super) fn rate_budget_for(
+    policy: &crate::remote_policy::PrivacyPolicy,
+    demand: Option<usize>,
+) -> super::adaptive::RateBudget {
+    let active_accounts = rate_limiter()
+        .lock()
+        .expect("image rate-limit lock")
+        .active_accounts();
+    super::adaptive::rate_budget(
+        policy.image_rate,
+        effective_limits_for(policy),
+        super::adaptive::RateLoad {
+            waiting: waiting_total(),
+            queue_capacity: policy.fetch.queued,
+            active_accounts,
+            demand,
+        },
+    )
+}
+
+/// Spend one fetch token for an authenticated, granted request, waiting in
+/// arrival order when the bucket is empty. `false` only when the wait would not
+/// fit the queue deadline (the caller answers 429).
+pub(super) async fn charge_image_fetch(
+    account: &str,
+    message: &str,
+    policy: &crate::remote_policy::PrivacyPolicy,
+    deadline: std::time::Instant,
+) -> bool {
+    let budget = rate_budget_for(policy, fetch_limits::demand_for(account, message));
+    super::charge_waiting(account, budget.burst, budget.per_min, deadline).await
 }
 
 /// No fetch slot in time, or the replica is at its ceiling. Not remembered:
@@ -1850,6 +1905,50 @@ pub(crate) async fn stats(
         "active":{"network":fetch_semaphore().active(),"pipeline":image_pipeline().active(),"decoders":decoders().active(),
         "queued":fetch_limits::waiting()+fetch_semaphore().waiting()+image_pipeline().waiting()+decoders().waiting()+image_flight::waiting()}
     });
+    let (rate_config, cache_config) = crate::remote_policy::instance_image_configs(&state)
+        .await
+        .map_err(|_| {
+            crate::admin_ctx::AdminApiError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "imageCapacityUnavailable",
+                "Image capacity settings could not be read.",
+            )
+        })?;
+    let rate_budget = super::adaptive::rate_budget(
+        rate_config,
+        effective,
+        super::adaptive::RateLoad {
+            waiting: waiting_total(),
+            queue_capacity: limits.queued,
+            active_accounts: rate_limiter()
+                .lock()
+                .expect("image rate-limit lock")
+                .active_accounts(),
+            demand: None,
+        },
+    );
+    let hit_percent = super::hit_percent();
+    let cache_budget = super::adaptive::cache_budget(
+        cache_config,
+        effective,
+        resources,
+        limits.image_bytes,
+        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        hit_percent,
+    );
+    let image_rate = json!({
+        "mode":rate_config.sizing.as_str(),
+        "configured":{"burst":rate_config.manual_burst,"perMin":rate_config.manual_per_min,
+            "burstFloor":rate_config.burst_floor,"burstCeiling":rate_config.burst_ceiling,
+            "refillFloor":rate_config.refill_floor,"refillCeiling":rate_config.refill_ceiling},
+        "effective":{"burst":rate_budget.burst,"perMin":rate_budget.per_min},
+    });
+    let image_cache = json!({
+        "mode":cache_config.sizing.as_str(),
+        "effective":{"bytes":cache_budget.bytes,"entries":cache_budget.entries,
+            "entryBytes":cache_budget.entry_bytes,"ttlSecs":cache_budget.ttl_secs},
+        "hitPercent":hit_percent,
+    });
     let cache = cache().lock().expect("image cache lock");
     let traffic: Vec<_> = mw_egress::plan::counts()
         .into_iter()
@@ -1862,7 +1961,8 @@ pub(crate) async fn stats(
         .collect();
     Ok(Json(
         json!({"cacheEntries":cache.map.len(),"cacheBytes":cache.bytes,
-        "trackersReplaced":TRACKERS_REPLACED.load(Ordering::Relaxed),"traffic":traffic,"imageConcurrency":image_concurrency}),
+        "trackersReplaced":TRACKERS_REPLACED.load(Ordering::Relaxed),"traffic":traffic,"imageConcurrency":image_concurrency,
+        "imageRate":image_rate,"imageCache":image_cache}),
     ))
 }
 

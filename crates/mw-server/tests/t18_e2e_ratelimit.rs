@@ -1,7 +1,7 @@
 //! t18-e-e2e — image-proxy per-account rate limit (R6) LIVE through `/api/image-proxy`.
 //!
 //! 26.18 (R6) adds a coarse in-memory per-account token-bucket to the image-proxy
-//! fetch path (burst 120, refill ~1/s): one account cannot drive unbounded distinct
+//! fetch path (this test pins burst 120, refill 10/min; the shipped default is adaptive): one account cannot drive unbounded distinct
 //! upstream fetches. It is charged on a cache MISS AFTER the session check, so a cache
 //! hit is free and a normal reader under the threshold is never limited. `image_proxy.rs`
 //! unit-tests the bucket (`rate_limiter_allows_burst_then_429s_and_is_per_account`);
@@ -268,6 +268,33 @@ async fn image_proxy_rate_limits_per_account_with_429() {
     let mock = spawn_mock().await;
     let addr = spawn_server(&db).await;
     let base = format!("http://{addr}");
+    // The defaults are adaptive and a drained bucket now WAITS for a token (up to the
+    // queue budget) instead of answering 429. Pin the manual bucket the assertions
+    // below describe: burst 120, 10 tokens/minute, and the shortest queue budget, so
+    // a request whose token is further away than that is refused with 429.
+    {
+        let store = Store::open(&db, ServerKey::from_hex(KEY_HEX).unwrap())
+            .await
+            .unwrap();
+        for (key, value) in [
+            ("privacy.imageRateMode", "\"manual\""),
+            ("privacy.rateBurst", "120"),
+            ("privacy.ratePerMin", "10"),
+            ("privacy.fetchQueueTimeoutMs", "1000"),
+        ] {
+            store
+                .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                    key: key.into(),
+                    global_value: Some(value.into()),
+                    allow_user_override: true,
+                    global_locked: true,
+                    updated_by: "test".into(),
+                    updated_at: 1,
+                })
+                .await
+                .unwrap();
+        }
+    }
 
     // Account A: log in through the mock (cookie stored in its jar). Recover the raw
     // cookie value so we can send it explicitly alongside account B.

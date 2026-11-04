@@ -168,6 +168,8 @@ async fn image_cache_lifetimes_and_reader_budgets_follow_hot_configuration() {
     .await;
     let f = fixture(proxy, "mw-rc-cache-controls").await;
     f.grant().await;
+    // The fixed lifetime and size keys apply in manual cache mode; the default is adaptive.
+    locked_policy(&f, "privacy.imageCacheMode", json!("manual")).await;
     let policy: Value = f
         .user
         .get(format!("{}/api/rc/policy", f.base))

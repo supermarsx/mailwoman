@@ -163,7 +163,7 @@ const MAX_CONCURRENT: usize = 128;
 // images, and the entry count survives as a cheap secondary cap.
 
 /// In-memory re-encoded-image cache capacity (entries) before FIFO eviction.
-const CACHE_CAPACITY: usize = 256;
+const CACHE_CAPACITY: usize = 1024;
 /// Total re-encoded bytes the cache may hold. FIFO eviction runs until an insert
 /// fits — this is the ceiling on the proxy's resident image memory.
 pub(crate) const MAX_CACHE_BYTES: usize = 32 * 1024 * 1024;
@@ -710,7 +710,9 @@ fn refusal_response(refusal: Refusal) -> Response {
 
 struct CacheEntry {
     etag: String,
-    png: Vec<u8>,
+    /// Shared so a hit hands out a reference-counted handle instead of copying up to
+    /// [`MAX_ENTRY_BYTES`] while the global cache lock is held.
+    png: bytes::Bytes,
     /// When the entry was written, for the [`CACHE_TTL`] check.
     inserted: Instant,
 }
@@ -743,6 +745,52 @@ impl CacheKey {
 /// (total retained bytes, the one that binds first) and [`CACHE_CAPACITY`] (entries).
 /// `bytes` is maintained as the exact sum of the retained `png` lengths so the byte
 /// budget costs no traversal.
+/// The bounds one insert enforces; from the policy's effective cache budget.
+#[derive(Clone, Copy)]
+pub(crate) struct CacheLimits {
+    pub bytes: usize,
+    pub entries: usize,
+    pub entry_bytes: usize,
+    pub ttl: Duration,
+}
+
+impl CacheLimits {
+    pub(crate) fn of(policy: &crate::remote_policy::PrivacyPolicy) -> Self {
+        Self {
+            bytes: policy.cache_bytes,
+            entries: policy.cache_entries,
+            entry_bytes: policy.cache_entry_bytes,
+            ttl: policy.cache_ttl,
+        }
+    }
+}
+
+static CACHE_HITS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static CACHE_MISSES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Count a served cache hit (`true`) or a fetch that had to go upstream.
+pub(crate) fn record_cache(hit: bool) {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (counter, other) = if hit {
+        (&CACHE_HITS, &CACHE_MISSES)
+    } else {
+        (&CACHE_MISSES, &CACHE_HITS)
+    };
+    let n = counter.fetch_add(1, Relaxed) + 1;
+    // Halve both once the window is large, so the rate follows recent traffic.
+    if n > 10_000 {
+        counter.store(n / 2, Relaxed);
+        other.store(other.load(Relaxed) / 2, Relaxed);
+    }
+}
+
+/// Recent hit rate in percent; `None` before 20 lookups.
+pub(crate) fn hit_percent() -> Option<u8> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let (h, m) = (CACHE_HITS.load(Relaxed), CACHE_MISSES.load(Relaxed));
+    (h + m >= 20).then(|| (h * 100 / (h + m)) as u8)
+}
+
 struct ProxyCache {
     map: HashMap<CacheKey, CacheEntry>,
     order: VecDeque<CacheKey>,
@@ -753,10 +801,10 @@ impl ProxyCache {
     /// A FRESH entry's `(etag, png)`, or `None`. An entry past its TTL is dropped
     /// here rather than returned, so a stale hit never shortcuts the re-fetch.
     #[cfg(test)]
-    fn get(&mut self, key: &CacheKey) -> Option<(String, Vec<u8>)> {
+    fn get(&mut self, key: &CacheKey) -> Option<(String, bytes::Bytes)> {
         self.get_with_ttl(key, CACHE_TTL)
     }
-    fn get_with_ttl(&mut self, key: &CacheKey, ttl: Duration) -> Option<(String, Vec<u8>)> {
+    fn get_with_ttl(&mut self, key: &CacheKey, ttl: Duration) -> Option<(String, bytes::Bytes)> {
         match self.map.get(key) {
             Some(e) if e.inserted.elapsed() < ttl => {}
             Some(_) => {
@@ -798,8 +846,16 @@ impl ProxyCache {
         self.put_with_budget(key, etag, png, MAX_CACHE_BYTES);
     }
 
+    #[cfg(test)]
     fn trim(&mut self, budget: usize) {
-        while self.bytes > budget {
+        self.trim_to(budget, CACHE_CAPACITY);
+    }
+
+    /// Evict oldest-first until both the byte budget and the entry cap hold. Run
+    /// on every request with the current policy, so a shrink applied in the admin
+    /// console takes effect without a restart.
+    fn trim_to(&mut self, budget: usize, entries: usize) {
+        while self.bytes > budget || self.map.len() > entries {
             let Some(key) = self.order.front().cloned() else {
                 break;
             };
@@ -809,20 +865,29 @@ impl ProxyCache {
 
     #[cfg(test)]
     fn put_with_budget(&mut self, key: CacheKey, etag: String, png: Vec<u8>, budget: usize) {
-        self.put_with_policy(key, etag, png, budget, CACHE_TTL);
+        self.put_with_policy(
+            key,
+            etag,
+            png,
+            CacheLimits {
+                bytes: budget,
+                entries: CACHE_CAPACITY,
+                entry_bytes: MAX_ENTRY_BYTES,
+                ttl: CACHE_TTL,
+            },
+        );
     }
-    fn put_with_policy(
-        &mut self,
-        key: CacheKey,
-        etag: String,
-        png: Vec<u8>,
-        budget: usize,
-        ttl: Duration,
-    ) {
-        self.trim(budget);
+    fn put_with_policy(&mut self, key: CacheKey, etag: String, png: Vec<u8>, limits: CacheLimits) {
+        let CacheLimits {
+            bytes: budget,
+            entries,
+            entry_bytes,
+            ttl,
+        } = limits;
+        self.trim_to(budget, entries);
         // Too large to retain — serve it, forget it. Also what guarantees the
         // eviction loop below terminates with the entry admitted.
-        if png.len() > MAX_ENTRY_BYTES || png.len() > budget || budget == 0 || ttl.is_zero() {
+        if png.len() > entry_bytes || png.len() > budget || budget == 0 || ttl.is_zero() {
             self.remove(&key);
             return;
         }
@@ -833,7 +898,7 @@ impl ProxyCache {
         self.remove(&key);
         self.evict_expired(ttl);
         while !self.order.is_empty()
-            && (self.map.len() >= CACHE_CAPACITY || self.bytes + png.len() > budget)
+            && (self.map.len() >= entries || self.bytes + png.len() > budget)
         {
             let Some(old) = self.order.pop_front() else {
                 break;
@@ -848,7 +913,7 @@ impl ProxyCache {
             key,
             CacheEntry {
                 etag,
-                png,
+                png: bytes::Bytes::from(png),
                 inserted: Instant::now(),
             },
         );
@@ -916,11 +981,40 @@ pub(super) async fn acquire_bounded_permit(
     (Instant::now() < deadline).then_some(permit)
 }
 
+/// Wait for a token from the account's bucket, in arrival order, for at most
+/// until `deadline`. Authentication and the grant check have already passed when
+/// this runs. `false` means the wait would not fit the queue budget (answer 429).
+pub(crate) async fn charge_waiting(
+    account_id: &str,
+    burst: usize,
+    per_min: usize,
+    deadline: Instant,
+) -> bool {
+    let wait = rate_limiter()
+        .lock()
+        .expect("image rate-limit lock")
+        .reserve(
+            account_id,
+            burst as f64,
+            per_min as f64 / 60.0,
+            deadline.saturating_duration_since(Instant::now()),
+        );
+    match wait {
+        Some(wait) if wait.is_zero() => true,
+        Some(wait) => {
+            tokio::time::sleep(wait).await;
+            true
+        }
+        None => false,
+    }
+}
+
 // ── per-account rate limit (R6, t18) ────────────────────────────────────────────
 
-/// Sustained refill rate: tokens added per second per account (≈60 fetches/min).
+/// Fixed bucket the unit tests exercise; production sizing is `adaptive::rate_budget`.
+#[cfg(test)]
 const RATE_REFILL_PER_SEC: f64 = 1.0;
-/// Burst ceiling: the most fetches an idle account can spend at once.
+#[cfg(test)]
 const RATE_BURST: f64 = 120.0;
 
 /// A single account's token bucket.
@@ -939,7 +1033,7 @@ struct TokenBucket {
 /// rate. A cluster-global limit would need a shared store and a hot-path write, not
 /// warranted for an abuse cap. The account map is bounded by the deployment's account
 /// count (one small bucket per account that has used the proxy); no eviction needed.
-struct AccountRateLimiter {
+pub(crate) struct AccountRateLimiter {
     buckets: HashMap<String, TokenBucket>,
 }
 
@@ -947,8 +1041,52 @@ impl AccountRateLimiter {
     /// Charge one token to `account_id`, refilling for elapsed time first. Returns
     /// `true` if a token was available (request allowed), `false` if the bucket is
     /// exhausted (→ `429`). A never-seen account starts with a full burst.
+    #[cfg(test)]
     fn check(&mut self, account_id: &str) -> bool {
         self.check_with_limit(account_id, RATE_BURST, RATE_REFILL_PER_SEC)
+    }
+
+    /// Accounts that spent or refilled a bucket within the last minute.
+    pub(crate) fn active_accounts(&self) -> usize {
+        let now = std::time::Instant::now();
+        self.buckets
+            .values()
+            .filter(|b| now.saturating_duration_since(b.last) < Duration::from_secs(60))
+            .count()
+    }
+
+    /// Reserve one token, allowing the balance to go negative so that waiters are
+    /// served in arrival order. Returns how long the caller must wait before it
+    /// may proceed (zero when a token was free), or `None` when that wait would
+    /// pass `max_wait`: then nothing is reserved and the caller should refuse.
+    fn reserve(
+        &mut self,
+        account_id: &str,
+        burst: f64,
+        refill_per_sec: f64,
+        max_wait: Duration,
+    ) -> Option<Duration> {
+        let now = std::time::Instant::now();
+        let b = self
+            .buckets
+            .entry(account_id.to_string())
+            .or_insert(TokenBucket {
+                tokens: burst,
+                last: now,
+            });
+        let elapsed = now.saturating_duration_since(b.last).as_secs_f64();
+        b.tokens = (b.tokens + elapsed * refill_per_sec).min(burst);
+        b.last = now;
+        if b.tokens >= 1.0 {
+            b.tokens -= 1.0;
+            return Some(Duration::ZERO);
+        }
+        let wait = Duration::from_secs_f64((1.0 - b.tokens) / refill_per_sec.max(1e-9));
+        if wait > max_wait {
+            return None;
+        }
+        b.tokens -= 1.0;
+        Some(wait)
     }
 
     fn check_with_limit(&mut self, account_id: &str, burst: f64, refill_per_sec: f64) -> bool {
@@ -972,7 +1110,7 @@ impl AccountRateLimiter {
     }
 }
 
-fn rate_limiter() -> &'static Mutex<AccountRateLimiter> {
+pub(crate) fn rate_limiter() -> &'static Mutex<AccountRateLimiter> {
     static RL: OnceLock<Mutex<AccountRateLimiter>> = OnceLock::new();
     RL.get_or_init(|| {
         Mutex::new(AccountRateLimiter {
@@ -1121,7 +1259,7 @@ async fn proxy_image(
     // catch a reordering for you; they catch it only through those specific legs.
     match grant_covers(&state.store, &session.account_id, q.email_id.as_deref()).await {
         Ok(true) => {}
-        Ok(false) => return ungranted_response(&session.account_id, &q.url).await,
+        Ok(false) => return ungranted_response(&session.account_id, &q.url, &policy).await,
         Err(()) => return internal("remote-image grant check"),
     }
 
@@ -1152,12 +1290,13 @@ async fn proxy_image(
     cache()
         .lock()
         .expect("image cache lock")
-        .trim(policy.cache_bytes);
+        .trim_to(policy.cache_bytes, policy.cache_entries);
     let cached_response = || {
         let (etag, png) = cache()
             .lock()
             .expect("image cache lock")
             .get_with_ttl(&key, policy.cache_ttl)?;
+        record_cache(true);
         if if_none_match(&headers, &etag) {
             return Some(not_modified(&etag));
         }
@@ -1200,14 +1339,14 @@ async fn proxy_image(
     // Per-account fan-out rate limit (R6): a cache MISS will fetch upstream, so
     // charge the account one token here. Exhaustion -> 429 (per-replica; see
     // `AccountRateLimiter`).
-    if !rate_limiter()
-        .lock()
-        .expect("image rate-limit lock")
-        .check_with_limit(
-            &session.account_id,
-            policy.rate_burst as f64,
-            policy.rate_per_min as f64 / 60.0,
-        )
+    record_cache(false);
+    if !remote_content::charge_image_fetch(
+        &session.account_id,
+        q.email_id.as_deref().unwrap_or(""),
+        &policy,
+        queue_deadline,
+    )
+    .await
     {
         return (
             StatusCode::TOO_MANY_REQUESTS,
@@ -1265,11 +1404,22 @@ async fn proxy_image(
 }
 
 /// Refuse without DNS or network I/O; preserve pure URL validation and throttling.
-async fn ungranted_response(account_id: &str, raw_url: &str) -> Response {
+async fn ungranted_response(
+    account_id: &str,
+    raw_url: &str,
+    policy: &crate::remote_policy::PrivacyPolicy,
+) -> Response {
+    // Refusals never wait: they are charged against the same bucket, and a drained
+    // bucket answers 429 at once so probing cannot hold a connection open.
+    let budget = remote_content::rate_budget_for(policy, None);
     if !rate_limiter()
         .lock()
         .expect("image rate-limit lock")
-        .check(account_id)
+        .check_with_limit(
+            account_id,
+            budget.burst as f64,
+            budget.per_min as f64 / 60.0,
+        )
     {
         return (
             StatusCode::TOO_MANY_REQUESTS,
@@ -1295,7 +1445,7 @@ async fn ungranted_response(account_id: &str, raw_url: &str) -> Response {
 }
 
 /// Build a `200` image response with the content-hash `ETag` + private caching.
-fn image_response(png: Vec<u8>, etag: String) -> Response {
+fn image_response(png: bytes::Bytes, etag: String) -> Response {
     (
         StatusCode::OK,
         [
@@ -1881,6 +2031,45 @@ mod tests {
             rl.check("acct-b"),
             "a second account is limited independently"
         );
+    }
+
+    #[test]
+    fn reserve_queues_in_arrival_order_and_refuses_past_the_deadline() {
+        let mut rl = AccountRateLimiter {
+            buckets: HashMap::new(),
+        };
+        let max = Duration::from_secs(5);
+        // Burst of 2 at 1 token/s: two free, then waits of ~1s, ~2s, ...
+        assert_eq!(rl.reserve("a", 2.0, 1.0, max), Some(Duration::ZERO));
+        assert_eq!(rl.reserve("a", 2.0, 1.0, max), Some(Duration::ZERO));
+        let first = rl.reserve("a", 2.0, 1.0, max).expect("fits the deadline");
+        let second = rl.reserve("a", 2.0, 1.0, max).expect("fits the deadline");
+        assert!(first > Duration::from_millis(900) && first <= Duration::from_secs(1));
+        assert!(second > first, "later arrivals wait longer: FIFO");
+        // A wait beyond the deadline reserves nothing.
+        assert_eq!(rl.reserve("a", 2.0, 1.0, Duration::from_millis(10)), None);
+        // Another account is unaffected.
+        assert_eq!(rl.reserve("b", 2.0, 1.0, max), Some(Duration::ZERO));
+    }
+
+    #[test]
+    fn shrinking_the_policy_evicts_oldest_entries_without_a_restart() {
+        let mut c = empty_cache();
+        let limits = CacheLimits {
+            bytes: MAX_CACHE_BYTES,
+            entries: 100,
+            entry_bytes: MAX_ENTRY_BYTES,
+            ttl: CACHE_TTL,
+        };
+        for i in 0..10 {
+            c.put_with_policy(k(&format!("s{i}")), "\"e\"".into(), vec![1u8; 100], limits);
+        }
+        assert_eq!(c.map.len(), 10);
+        c.trim_to(MAX_CACHE_BYTES, 4);
+        assert_eq!(c.map.len(), 4);
+        assert!(c.get(&k("s0")).is_none() && c.get(&k("s9")).is_some());
+        c.trim_to(150, 4);
+        assert_eq!((c.map.len(), c.bytes), (1, 100));
     }
 
     #[test]

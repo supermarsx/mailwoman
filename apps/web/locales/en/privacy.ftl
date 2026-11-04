@@ -147,3 +147,6 @@ privacy-concurrency-cap-decoders = Decoders
 privacy-concurrency-effective-ceiling = { $effective } effective / { $ceiling } ceiling
 privacy-concurrency-message-bound = The per-message value is an instance upper bound. Each message uses at most that bound or its approved image count, whichever is smaller.
 privacy-concurrency-active = Active: { $network } network · { $pipeline } pipelines · { $decoders } decoders · { $queued } queued
+privacy-image-rate-readout = Per-account fetch allowance ({ $mode }): burst { $burst } (configured { $configuredBurst }), refill { $perMin } per minute (configured { $configuredPerMin })
+privacy-image-cache-readout = Image cache ({ $mode }): up to { $bytes } and { $entries } entries, lifetime { $ttl } s, hit rate { $hit }
+privacy-image-hit-unknown = not enough lookups yet

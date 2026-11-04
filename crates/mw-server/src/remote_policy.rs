@@ -25,9 +25,19 @@ pub(crate) struct PrivacyPolicy {
     #[serde(skip)]
     pub cache_bytes: usize,
     #[serde(skip)]
+    pub cache_entries: usize,
+    #[serde(skip)]
+    pub cache_entry_bytes: usize,
+    #[serde(skip)]
     pub rate_per_min: usize,
     #[serde(skip)]
     pub rate_burst: usize,
+    /// Per-account image fetch bucket sizing (`privacy.imageRate*`).
+    #[serde(skip)]
+    pub image_rate: crate::image_proxy::adaptive::RateConfig,
+    /// RAM image cache sizing (`privacy.imageCache*`, `cacheBytes`, `cacheEntries`).
+    #[serde(skip)]
+    pub image_cache: crate::image_proxy::adaptive::CacheConfig,
     #[serde(skip)]
     pub cache_ttl: std::time::Duration,
     #[serde(skip)]
@@ -129,6 +139,18 @@ const POLICY_KEYS: &[&str] = &[
     "privacy.cacheBytes",
     "privacy.ratePerMin",
     "privacy.rateBurst",
+    "privacy.imageRateMode",
+    "privacy.imageRateBurstFloor",
+    "privacy.imageRateBurstCeiling",
+    "privacy.imageRateRefillFloor",
+    "privacy.imageRateRefillCeiling",
+    "privacy.imageCacheMode",
+    "privacy.imageCacheBytesFloor",
+    "privacy.imageCacheBytesCeiling",
+    "privacy.cacheEntries",
+    "privacy.cacheEntryBytes",
+    "privacy.imageCacheTtlFloorSecs",
+    "privacy.imageCacheTtlCeilingSecs",
     "privacy.cacheTtlSecs",
     "privacy.negativeCacheTtlSecs",
     "privacy.imageRetryAttempts",
@@ -194,12 +216,20 @@ pub(crate) async fn effective(
             .unwrap_or(false)
     };
     let locked = |key| values.get(key).is_none_or(|v| v.locked());
-    let number = |key, fallback| {
+    let number = |key: &str, fallback: usize| {
         values
             .get(key)
             .and_then(|v| v.value.as_u64())
             .map(|n| n as usize)
             .unwrap_or(fallback)
+    };
+    let sizing = |key: &str| {
+        crate::image_proxy::adaptive::Sizing::parse(
+            values
+                .get(key)
+                .and_then(|v| v.value.as_str())
+                .unwrap_or("auto"),
+        )
     };
     let mut fetch = fetch_limits(|key| values.get(key).and_then(|e| e.value.as_u64()));
     fetch.concurrency_mode = crate::image_proxy::adaptive::Mode::parse(
@@ -218,6 +248,22 @@ pub(crate) async fn effective(
     if mode == "direct" && !allow_direct {
         mode = "ask".into();
     }
+    let (image_rate, image_cache) = image_configs(&number, &sizing);
+    let resources = crate::image_proxy::resources::snapshot();
+    let budget = crate::image_proxy::adaptive::cache_budget(
+        image_cache,
+        crate::image_proxy::adaptive::calculate(
+            fetch.concurrency_mode,
+            fetch.ceilings(),
+            resources,
+            fetch.image_bytes,
+            mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        ),
+        resources,
+        fetch.image_bytes,
+        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        crate::image_proxy::hit_percent(),
+    );
     Ok(PrivacyPolicy {
         mode,
         trackers: boolean("privacy.trackers"),
@@ -233,13 +279,14 @@ pub(crate) async fn effective(
             clean_links: locked("privacy.cleanLinks"),
         },
         max_bytes: number("privacy.maxBytes", 8 * 1024 * 1024),
-        cache_bytes: number("privacy.cacheBytes", crate::image_proxy::MAX_CACHE_BYTES),
-        rate_per_min: number("privacy.ratePerMin", 600),
-        rate_burst: number("privacy.rateBurst", 512),
-        cache_ttl: std::time::Duration::from_secs(number(
-            "privacy.cacheTtlSecs",
-            crate::image_proxy::CACHE_TTL.as_secs() as usize,
-        ) as u64),
+        cache_bytes: budget.bytes as usize,
+        cache_entries: budget.entries,
+        cache_entry_bytes: budget.entry_bytes,
+        rate_per_min: number("privacy.ratePerMin", 1200),
+        rate_burst: number("privacy.rateBurst", 1024),
+        image_rate,
+        image_cache,
+        cache_ttl: std::time::Duration::from_secs(budget.ttl_secs),
         negative_cache_ttl: std::time::Duration::from_secs(number(
             "privacy.negativeCacheTtlSecs",
             crate::image_proxy::remote_content::fetch_limits::NEGATIVE_TTL.as_secs() as usize,
@@ -250,6 +297,61 @@ pub(crate) async fn effective(
         fetch,
     })
 }
+/// Rate and cache sizing configuration from the `privacy.*` keys. `number`
+/// reads an integer key with a fallback; `sizing` reads an auto/manual key.
+pub(crate) fn image_configs(
+    number: &dyn Fn(&str, usize) -> usize,
+    sizing: &dyn Fn(&str) -> crate::image_proxy::adaptive::Sizing,
+) -> (
+    crate::image_proxy::adaptive::RateConfig,
+    crate::image_proxy::adaptive::CacheConfig,
+) {
+    use crate::image_proxy::adaptive::{CacheConfig, RateConfig};
+    let rate_defaults = RateConfig::default();
+    let rate = RateConfig {
+        sizing: sizing("privacy.imageRateMode"),
+        burst_floor: number("privacy.imageRateBurstFloor", rate_defaults.burst_floor),
+        burst_ceiling: number("privacy.imageRateBurstCeiling", rate_defaults.burst_ceiling),
+        refill_floor: number("privacy.imageRateRefillFloor", rate_defaults.refill_floor),
+        refill_ceiling: number(
+            "privacy.imageRateRefillCeiling",
+            rate_defaults.refill_ceiling,
+        ),
+        manual_burst: number("privacy.rateBurst", rate_defaults.manual_burst),
+        manual_per_min: number("privacy.ratePerMin", rate_defaults.manual_per_min),
+    };
+    let defaults = CacheConfig::default();
+    let entries = number("privacy.cacheEntries", defaults.entries_ceiling);
+    let cache = CacheConfig {
+        sizing: sizing("privacy.imageCacheMode"),
+        bytes_floor: number(
+            "privacy.imageCacheBytesFloor",
+            defaults.bytes_floor as usize,
+        ) as u64,
+        bytes_ceiling: number(
+            "privacy.imageCacheBytesCeiling",
+            defaults.bytes_ceiling as usize,
+        ) as u64,
+        entries_ceiling: entries,
+        entry_bytes_max: number("privacy.cacheEntryBytes", defaults.entry_bytes_max),
+        ttl_floor_secs: number(
+            "privacy.imageCacheTtlFloorSecs",
+            defaults.ttl_floor_secs as usize,
+        ) as u64,
+        ttl_ceiling_secs: number(
+            "privacy.imageCacheTtlCeilingSecs",
+            defaults.ttl_ceiling_secs as usize,
+        ) as u64,
+        manual_bytes: number("privacy.cacheBytes", crate::image_proxy::MAX_CACHE_BYTES) as u64,
+        manual_entries: entries,
+        manual_ttl_secs: number(
+            "privacy.cacheTtlSecs",
+            crate::image_proxy::CACHE_TTL.as_secs() as usize,
+        ) as u64,
+    };
+    (rate, cache)
+}
+
 /// Global sizing for administrative diagnostics. No account/domain preference
 /// can raise these replica-wide resource ceilings.
 pub(crate) async fn instance_limits(
@@ -257,8 +359,7 @@ pub(crate) async fn instance_limits(
 ) -> Result<crate::image_proxy::remote_content::FetchLimits, mw_store::StoreError> {
     let subject = mw_store::settings_policy::SettingSubject::default();
     let values = settings_registry::effective_all(&state.store, &subject, |d| {
-        FETCH_KEYS.contains(&d.key)
-            || matches!(d.key, "privacy.imageConcurrencyMode" | "privacy.maxBytes")
+        FETCH_KEYS.contains(&d.key) || POLICY_KEYS.contains(&d.key)
     })
     .await?;
     let mut fetch = fetch_limits(|key| {
@@ -530,4 +631,37 @@ mod tests {
         assert_eq!(wild.timeouts.max_redirects, 10);
         assert_eq!((wild.per_message, wild.per_account), (128, 256));
     }
+}
+
+/// Global (no user override) rate and cache configuration, for the admin readout.
+pub(crate) async fn instance_image_configs(
+    state: &AppState,
+) -> Result<
+    (
+        crate::image_proxy::adaptive::RateConfig,
+        crate::image_proxy::adaptive::CacheConfig,
+    ),
+    mw_store::StoreError,
+> {
+    let subject = mw_store::settings_policy::SettingSubject::default();
+    let values =
+        settings_registry::effective_all(&state.store, &subject, |d| POLICY_KEYS.contains(&d.key))
+            .await?;
+    let number = |key: &str, fallback: usize| {
+        values
+            .iter()
+            .find(|v| v.key == key)
+            .and_then(|v| v.value.as_u64())
+            .map_or(fallback, |n| n as usize)
+    };
+    let sizing = |key: &str| {
+        crate::image_proxy::adaptive::Sizing::parse(
+            values
+                .iter()
+                .find(|v| v.key == key)
+                .and_then(|v| v.value.as_str())
+                .unwrap_or("auto"),
+        )
+    };
+    Ok(image_configs(&number, &sizing))
 }

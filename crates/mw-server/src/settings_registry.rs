@@ -500,6 +500,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Close the open message when it is deleted"
     ),
     def!(
+        "mail.showGoToTop",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Show a Go to top button in the message list"
+    ),
+    def!(
         "mail.cache.refreshOnOpen",
         Kind::Bool,
         "true",
@@ -1300,10 +1308,10 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.ratePerMin",
         int(10, 60000),
-        "600",
+        "1200",
         G,
         "privacy",
-        "Remote fetches per account per minute"
+        "Remote fetches per account per minute (the fixed refill in manual rate mode)"
     ),
     def!(
         "privacy.imageConcurrencyMode",
@@ -1348,10 +1356,106 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "privacy.rateBurst",
         int(1, 12000),
-        "512",
+        "1024",
         G,
         "privacy",
-        "Remote-image burst allowance per account, separate from sustained refill"
+        "Remote-image burst allowance per account (the fixed burst in manual rate mode), separate from sustained refill"
+    ),
+    def!(
+        "privacy.imageRateMode",
+        Kind::Enum(&["auto", "manual"]),
+        "\"auto\"",
+        G,
+        "privacy",
+        "Per-account image fetch rate sizing: auto scales burst and refill from replica capacity, queue load and message image count within the floors and ceilings; manual uses privacy.rateBurst and privacy.ratePerMin exactly"
+    ),
+    def!(
+        "privacy.imageRateBurstFloor",
+        int(1, 12000),
+        "64",
+        G,
+        "privacy",
+        "Lowest per-account burst allowance in automatic rate mode"
+    ),
+    def!(
+        "privacy.imageRateBurstCeiling",
+        int(1, 12000),
+        "2048",
+        G,
+        "privacy",
+        "Highest per-account burst allowance in automatic rate mode"
+    ),
+    def!(
+        "privacy.imageRateRefillFloor",
+        int(10, 60000),
+        "300",
+        G,
+        "privacy",
+        "Lowest per-account refill, tokens per minute, in automatic rate mode"
+    ),
+    def!(
+        "privacy.imageRateRefillCeiling",
+        int(10, 60000),
+        "6000",
+        G,
+        "privacy",
+        "Highest per-account refill, tokens per minute, in automatic rate mode"
+    ),
+    def!(
+        "privacy.imageCacheMode",
+        Kind::Enum(&["auto", "manual"]),
+        "\"auto\"",
+        G,
+        "privacy",
+        "Remote image cache sizing: auto derives bytes, entries and lifetime from the memory left after decoder and pipeline reservations and the observed hit rate; manual uses privacy.cacheBytes, privacy.cacheEntries and privacy.cacheTtlSecs exactly"
+    ),
+    def!(
+        "privacy.imageCacheBytesFloor",
+        int(0, 1073741824),
+        "16777216",
+        G,
+        "privacy",
+        "Smallest cache size in bytes in automatic cache mode"
+    ),
+    def!(
+        "privacy.imageCacheBytesCeiling",
+        int(0, 1073741824),
+        "268435456",
+        G,
+        "privacy",
+        "Largest cache size in bytes in automatic cache mode"
+    ),
+    def!(
+        "privacy.cacheEntries",
+        int(16, 65536),
+        "4096",
+        G,
+        "privacy",
+        "Most cached remote images; the fixed count in manual cache mode, the ceiling in automatic mode"
+    ),
+    def!(
+        "privacy.cacheEntryBytes",
+        int(65536, 16777216),
+        "4194304",
+        G,
+        "privacy",
+        "Largest single re-encoded image kept in the cache, in bytes"
+    ),
+    def!(
+        "privacy.imageCacheTtlFloorSecs",
+        int(0, 86400),
+        "300",
+        G,
+        "privacy",
+        "Shortest cache lifetime in seconds in automatic cache mode, used on a low hit rate or under memory pressure"
+    ),
+    def!(
+        "privacy.imageCacheTtlCeilingSecs",
+        int(0, 86400),
+        "21600",
+        G,
+        "privacy",
+        "Longest cache lifetime in seconds in automatic cache mode, used on a high hit rate with free memory"
     ),
     def!(
         "privacy.cacheTtlSecs",

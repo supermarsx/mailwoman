@@ -150,3 +150,6 @@ privacy-concurrency-cap-decoders = Descodificadores
 privacy-concurrency-effective-ceiling = { $effective } efetivo / { $ceiling } limite
 privacy-concurrency-message-bound = O valor por mensagem é um limite superior da instância. Cada mensagem utiliza no máximo esse limite ou o seu número de imagens autorizadas, o que for menor.
 privacy-concurrency-active = Ativos: { $network } de rede · { $pipeline } processamentos · { $decoders } descodificadores · { $queued } em fila
+privacy-image-rate-readout = Margem de obtenção por conta ({ $mode }): rajada de { $burst } (configurado { $configuredBurst }), reposição de { $perMin } por minuto (configurado { $configuredPerMin })
+privacy-image-cache-readout = Cache de imagens ({ $mode }): até { $bytes } e { $entries } entradas, duração de { $ttl } s, taxa de acertos { $hit }
+privacy-image-hit-unknown = ainda sem pesquisas suficientes

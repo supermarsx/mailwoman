@@ -192,6 +192,11 @@ pub(crate) async fn acquire(
     })
 }
 
+/// Image count recorded for a message the account is loading, if known.
+pub(crate) fn demand_for(account: &str, message: &str) -> Option<usize> {
+    super::super::demand::count(&digest(&["image-count", account, message]))
+}
+
 pub(crate) fn register_images(account: &str, message: &str, count: usize) {
     super::super::demand::record(digest(&["image-count", account, message]), count);
 }

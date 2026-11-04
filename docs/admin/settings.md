@@ -647,7 +647,7 @@ lock them to keep users from changing the list or the switch.
 <a id="privacy.cacheBytes"></a>
 `privacy.cacheBytes`: 0–1073741824 bytes, default 33554432.
 <a id="privacy.ratePerMin"></a>
-`privacy.ratePerMin`: 10–60000 replenished fetch tokens per account per minute, default 600. The separate burst allowance permits a large message to start without waiting for one minute of refill.
+`privacy.ratePerMin`: 10–60000 replenished fetch tokens per account per minute, default 1200 (20 per second; the fixed refill in manual rate mode). The separate burst allowance permits a large message to start without waiting for one minute of refill.
 
 Remote image fetch limits. Every image the server fetches for the reader is
 bounded in time, in redirects and in how many run at once. An image that exceeds
@@ -697,7 +697,19 @@ Additional parallelism and cache controls are available in Admin › Privacy ›
 | <a id="privacy.maxConcurrentPipeline"></a>`privacy.maxConcurrentPipeline` | 128 | 1–256 | Admitted image pipelines, retained through decode and cache publication. |
 | <a id="privacy.maxConcurrentDecodes"></a>`privacy.maxConcurrentDecodes` | 10 | 1–16 | CPU image decodes running simultaneously. |
 | <a id="privacy.maxQueuedRequests"></a>`privacy.maxQueuedRequests` | 2048 | 16–16384 | Requests waiting for network or pipeline capacity; overflow remains retryable. |
-| <a id="privacy.rateBurst"></a>`privacy.rateBurst` | 512 | 1–12000 | Maximum per-account fetch tokens, replenished at `privacy.ratePerMin`. |
+| <a id="privacy.rateBurst"></a>`privacy.rateBurst` | 1024 | 1–12000 | Maximum per-account fetch tokens, replenished at `privacy.ratePerMin`; the fixed burst in manual rate mode. |
+| <a id="privacy.imageRateMode"></a>`privacy.imageRateMode` | auto | auto, manual | Per-account image fetch rate sizing: auto scales burst and refill from replica capacity, queue load and message image count within the floors and ceilings; manual uses privacy.rateBurst and privacy.ratePerMin exactly |
+| <a id="privacy.imageRateBurstFloor"></a>`privacy.imageRateBurstFloor` | 64 | 1–12000 | Lowest per-account burst allowance in automatic rate mode |
+| <a id="privacy.imageRateBurstCeiling"></a>`privacy.imageRateBurstCeiling` | 2048 | 1–12000 | Highest per-account burst allowance in automatic rate mode |
+| <a id="privacy.imageRateRefillFloor"></a>`privacy.imageRateRefillFloor` | 300 | 10–60000 | Lowest per-account refill, tokens per minute, in automatic rate mode |
+| <a id="privacy.imageRateRefillCeiling"></a>`privacy.imageRateRefillCeiling` | 6000 | 10–60000 | Highest per-account refill, tokens per minute, in automatic rate mode |
+| <a id="privacy.imageCacheMode"></a>`privacy.imageCacheMode` | auto | auto, manual | Remote image cache sizing: auto derives bytes, entries and lifetime from the memory left after decoder and pipeline reservations and the observed hit rate; manual uses privacy.cacheBytes, privacy.cacheEntries and privacy.cacheTtlSecs exactly |
+| <a id="privacy.imageCacheBytesFloor"></a>`privacy.imageCacheBytesFloor` | 16777216 | 0–1073741824 | Smallest cache size in bytes in automatic cache mode |
+| <a id="privacy.imageCacheBytesCeiling"></a>`privacy.imageCacheBytesCeiling` | 268435456 | 0–1073741824 | Largest cache size in bytes in automatic cache mode |
+| <a id="privacy.cacheEntries"></a>`privacy.cacheEntries` | 4096 | 16–65536 | Most cached remote images; the fixed count in manual cache mode, the ceiling in automatic mode |
+| <a id="privacy.cacheEntryBytes"></a>`privacy.cacheEntryBytes` | 4194304 | 65536–16777216 | Largest single re-encoded image kept in the cache, in bytes |
+| <a id="privacy.imageCacheTtlFloorSecs"></a>`privacy.imageCacheTtlFloorSecs` | 300 | 0–86400 | Shortest cache lifetime in seconds in automatic cache mode, used on a low hit rate or under memory pressure |
+| <a id="privacy.imageCacheTtlCeilingSecs"></a>`privacy.imageCacheTtlCeilingSecs` | 21600 | 0–86400 | Longest cache lifetime in seconds in automatic cache mode, used on a high hit rate with free memory |
 | <a id="privacy.cacheTtlSecs"></a>`privacy.cacheTtlSecs` | 3600 s | 0–86400 s | Successful decoded-image reuse; zero disables reuse. |
 | <a id="privacy.negativeCacheTtlSecs"></a>`privacy.negativeCacheTtlSecs` | 10 s | 0–300 s | Eligible upstream-failure reuse; zero disables it. |
 
@@ -1560,6 +1572,8 @@ or HTML.
 `mail.messageListOrder` orders the message list: `newest` (default), `oldest`, `sender` or `subject`. Global/domain/user policy.
 <a id="mail.messageListPreview"></a>
 `mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
+<a id="mail.showGoToTop"></a>
+`mail.showGoToTop` defaults false. When true, the message list shows a Go to top button that scrolls the list back to its first message without reloading it; scrolling is instant when the user prefers reduced motion. When false the button is not shown. Global/domain/user policy; enforced in the web client only.
 <a id="mail.afterDelete"></a>
 `mail.afterDelete` chooses what the reader shows after the open message is deleted: `next` (default), `previous` or `close`. Global/domain/user policy. See `mail.closeOnDelete`.
 <a id="reader.attachmentsAtEnd"></a>

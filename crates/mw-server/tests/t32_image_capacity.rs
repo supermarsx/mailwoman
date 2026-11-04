@@ -26,7 +26,30 @@ fn proxy_controls_have_validated_defaults_and_reject_unbounded_values() {
         ("privacy.maxConcurrentDecodes", 1, 16, 10, false),
         ("privacy.maxQueuedRequests", 16, 16384, 2048, false),
         ("privacy.imageDecodeTimeoutMs", 1000, 60000, 10000, false),
-        ("privacy.rateBurst", 1, 12000, 512, false),
+        ("privacy.rateBurst", 1, 12000, 1024, false),
+        ("privacy.ratePerMin", 10, 60000, 1200, false),
+        ("privacy.imageRateBurstFloor", 1, 12000, 64, false),
+        ("privacy.imageRateBurstCeiling", 1, 12000, 2048, false),
+        ("privacy.imageRateRefillFloor", 10, 60000, 300, false),
+        ("privacy.imageRateRefillCeiling", 10, 60000, 6000, false),
+        (
+            "privacy.imageCacheBytesFloor",
+            0,
+            1073741824,
+            16777216,
+            false,
+        ),
+        (
+            "privacy.imageCacheBytesCeiling",
+            0,
+            1073741824,
+            268435456,
+            false,
+        ),
+        ("privacy.cacheEntries", 16, 65536, 4096, false),
+        ("privacy.cacheEntryBytes", 65536, 16777216, 4194304, false),
+        ("privacy.imageCacheTtlFloorSecs", 0, 86400, 300, false),
+        ("privacy.imageCacheTtlCeilingSecs", 0, 86400, 21600, false),
         ("privacy.cacheTtlSecs", 0, 86400, 3600, false),
         ("privacy.negativeCacheTtlSecs", 0, 300, 10, false),
         ("privacy.imageRetryAttempts", 0, 8, 3, true),
@@ -73,4 +96,17 @@ fn automatic_concurrency_is_the_validated_global_default() {
             .default_value(),
         json!(30)
     );
+}
+
+#[test]
+fn rate_and_cache_modes_default_to_auto_and_accept_only_auto_or_manual() {
+    use mw_server::settings_registry::{lookup, validate};
+    use serde_json::json;
+    for key in ["privacy.imageRateMode", "privacy.imageCacheMode"] {
+        let setting = lookup(key).expect(key);
+        assert_eq!(setting.default_value(), json!("auto"));
+        assert!(validate(setting, &json!("manual"), "/value").is_ok());
+        assert!(validate(setting, &json!("auto"), "/value").is_ok());
+        assert!(validate(setting, &json!("turbo"), "/value").is_err());
+    }
 }
