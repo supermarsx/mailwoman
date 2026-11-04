@@ -51,7 +51,7 @@ pub fn bin_of(ms: u64) -> usize {
     }
     // Bin j (1..=47) covers [edges[j-1], edges[j]); the last also holds MAX_MS.
     let e = edges();
-    (e.partition_point(|edge| *edge <= ms) + 1).min(BINS - 1)
+    e.partition_point(|edge| *edge <= ms).min(BINS - 1)
 }
 
 /// Low and high edge of a bin, in milliseconds.

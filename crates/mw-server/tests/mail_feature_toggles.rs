@@ -50,3 +50,20 @@ fn go_to_top_is_a_user_overridable_boolean_defaulting_off() {
     assert!(validate(def, &json!(false), "/value").is_ok());
     assert!(validate(def, &json!("on"), "/value").is_err());
 }
+
+/// The Create folder button next to Compose is opt-in, like Go to top.
+#[test]
+fn create_folder_button_is_a_user_overridable_boolean_defaulting_off() {
+    let def = REGISTRY
+        .iter()
+        .find(|d| d.key == "mail.showCreateFolderButton")
+        .expect("mail.showCreateFolderButton is registered");
+    assert!(matches!(def.scopes, Scopes::GlobalDomainUser));
+    assert!(def.user_override);
+    assert!(def.user_visible());
+    assert_eq!(def.category, "mail");
+    assert_eq!(def.default, "false");
+    assert!(validate(def, &json!(true), "/value").is_ok());
+    assert!(validate(def, &json!(false), "/value").is_ok());
+    assert!(validate(def, &json!("on"), "/value").is_err());
+}

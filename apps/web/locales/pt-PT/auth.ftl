@@ -24,6 +24,7 @@ auth-address-not-configured = Este endereço não está configurado neste servid
 # the account is disabled, or this address may not sign in on this server.
 auth-account-disabled = Esta conta foi desativada por um administrador. Não pode iniciar sessão até que um administrador a volte a ativar.
 auth-signin-not-allowed = Este endereço não pode iniciar sessão neste servidor. Contacte o seu administrador.
+auth-signin-not-provisioned = Ainda não existe conta para este endereço e as contas novas não são criadas automaticamente. Peça ao seu administrador que o adicione.
 # The id of the server's answer, for a support request.
 auth-reference = Referência: { $id }
 

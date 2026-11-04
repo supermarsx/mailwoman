@@ -28,7 +28,7 @@
 .address-card__notes { white-space: pre-wrap; font-size: .9em; }
 .address-card__save { display: flex; flex-direction: column; gap: .45rem; margin-block: .75rem; }
 .address-card__save > p { margin: 0 0 .35rem; color: var(--text-dim); }
-.address-card__save > input, .address-card__save > select { box-sizing: border-box; max-inline-size: 100%; min-inline-size: 0; padding: .5rem; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text); font: inherit; }
+.address-card__save > input:not([type="checkbox"]):not([type="radio"]), .address-card__save > select { box-sizing: border-box; max-inline-size: 100%; min-inline-size: 0; padding: .5rem; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text); font: inherit; }
 .address-card__save > button { align-self: start; }
 .address-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-block-start: .8rem; }
 @media (pointer: coarse) { .contact-address { min-block-size: 2.75rem; } .reader__address-group { padding-inline-end: 2.75rem; } .reader__address-disclosure > summary, .address-card__header > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; } }

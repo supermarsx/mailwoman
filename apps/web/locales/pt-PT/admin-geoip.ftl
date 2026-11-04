@@ -104,3 +104,15 @@ admin-geoip-progress-verifying = A validar a base de dados de países…
 admin-geoip-progress-installing = A instalar a base de dados de países…
 admin-geoip-progress-total = { $phase } { $received } de { $total }
 admin-geoip-progress-bytes = { $phase } { $received } recebidos
+
+admin-geoip-features-warning-title = Há funcionalidades por país ativas, mas nenhuma base de países está carregada
+admin-geoip-features-warning-help = Estas funcionalidades não sabem de onde vem um pedido, por isso não fazem nada ou seguem a definição «quando o país não pode ser determinado». Instale uma base para as fazer funcionar.
+admin-geoip-features-install = Ir para a base de países
+admin-geoip-feature-signinGeography = Política de país do início de sessão da instância
+admin-geoip-feature-accountGeography = Política de país do início de sessão por conta
+admin-geoip-feature-sessionGeography = Verificação do país em pedidos com sessão iniciada
+admin-geoip-feature-adminDiscovery = Bloqueio da consola de administração por país desconhecido
+admin-geoip-feature-sessionCountryAlerts = Alertas de mudança de país da sessão
+admin-geoip-features-status-loaded = Base de países carregada. Criada em { $date }, há { $age } dias.
+admin-geoip-features-status-none = Nenhuma base de países está carregada.
+admin-geoip-features-status-stale = Está desatualizada.

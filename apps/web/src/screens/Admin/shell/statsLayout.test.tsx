@@ -178,6 +178,7 @@ describe('Statistics page layout', () => {
     await waitFor(() => expect(screen.getByTestId('statistics')).toHaveAttribute('aria-busy', 'true'));
     // The same card stays mounted while the next window loads: no skeleton swap.
     expect(screen.getByTestId('spark-requests')).toBe(card);
-    expect(document.querySelectorAll('[data-skeleton]')).toHaveLength(0);
+    // The independent client-timing card keeps its own loading tiles; the request cards must not regress to skeletons.
+    expect(document.querySelectorAll('[data-skeleton="chart"], [data-skeleton="table"]')).toHaveLength(0);
   });
 });

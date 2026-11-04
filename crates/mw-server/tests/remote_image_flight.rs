@@ -42,6 +42,7 @@ async fn concurrent_misses_fetch_and_decode_once_then_read_completed_cache() {
                 "route:policy",
                 "image",
                 Instant::now() + Duration::from_secs(20),
+                4096,
             )
             .await
             .unwrap();
@@ -74,6 +75,7 @@ async fn canceled_leader_releases_waiter_and_wait_budget_is_not_reset() {
         "route",
         "url",
         Instant::now() + Duration::from_secs(1),
+        4096,
     )
     .await
     .unwrap();
@@ -82,7 +84,8 @@ async fn canceled_leader_releases_waiter_and_wait_budget_is_not_reset() {
             "cancel",
             "route",
             "url",
-            Instant::now() + Duration::from_millis(15)
+            Instant::now() + Duration::from_millis(15),
+            4096
         )
         .await
         .is_none()
@@ -101,7 +104,8 @@ async fn canceled_leader_releases_waiter_and_wait_budget_is_not_reset() {
             "cancel",
             "route",
             "url",
-            Instant::now() + Duration::from_millis(50)
+            Instant::now() + Duration::from_millis(50),
+            4096
         )
         .await
         .is_some()
@@ -115,6 +119,7 @@ async fn account_route_policy_and_url_partition_independent_work() {
         "route:policy",
         "url",
         Instant::now() + Duration::from_secs(1),
+        4096,
     )
     .await
     .unwrap();
@@ -129,7 +134,8 @@ async fn account_route_policy_and_url_partition_independent_work() {
                 account,
                 route,
                 url,
-                Instant::now() + Duration::from_millis(30)
+                Instant::now() + Duration::from_millis(30),
+                4096
             )
             .await
             .is_some()

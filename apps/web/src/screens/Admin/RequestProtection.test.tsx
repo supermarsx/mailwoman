@@ -55,13 +55,11 @@ describe('Adaptive request protection',()=>{
   expect(historyRow).toHaveTextContent('probe-path');
   expect(historyRow).toHaveTextContent(/1 unusual/);
  });
- it('shows actual modes, long-window counts and dedicated settings links',async()=>{
-  const {navigate}=renderInShell(()=><RequestProtection api={api()}/>);
+ it('shows actual modes and long-window counts, with the rules edited in place rather than behind a settings link list',async()=>{
+  renderInShell(()=><RequestProtection api={api()}/>);
   expect(await screen.findByText('Request budgets: Off. Adaptive protection: Observe only.')).toBeInTheDocument();
   expect(screen.getByText('3 / 1000')).toBeInTheDocument();
-  fireEvent.click(screen.getByText('Configure modes, windows, thresholds, and exemptions'));
-  fireEvent.click(screen.getByRole('button',{name:/^Long anomaly window \(seconds\)$/}));
-  expect(navigate).toHaveBeenCalledWith('/admin#/settings/security.protection.longWindowSecs');
+  expect(screen.queryByText('Configure modes, windows, thresholds, and exemptions')).toBeNull();
  });
  it('requires confirmation and sends the exact revision; stale state stays visible',async()=>{
   const clear=vi.fn(async()=>{throw{status:412,code:'stale'};});

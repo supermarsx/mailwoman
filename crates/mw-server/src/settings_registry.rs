@@ -508,6 +508,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Show a Go to top button in the message list"
     ),
     def!(
+        "mail.showCreateFolderButton",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Show a Create folder button next to Compose"
+    ),
+    def!(
         "mail.cache.refreshOnOpen",
         Kind::Bool,
         "true",
@@ -1302,7 +1310,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(0, 1073741824),
         "33554432",
         G,
-        "privacy",
+        "imageProxy",
         "Remote image cache size in bytes"
     ),
     def!(
@@ -1310,7 +1318,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(10, 60000),
         "1200",
         G,
-        "privacy",
+        "imageProxy",
         "Remote fetches per account per minute (the fixed refill in manual rate mode)"
     ),
     def!(
@@ -1358,7 +1366,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(1, 12000),
         "1024",
         G,
-        "privacy",
+        "imageProxy",
         "Remote-image burst allowance per account (the fixed burst in manual rate mode), separate from sustained refill"
     ),
     def!(
@@ -1366,7 +1374,7 @@ pub static REGISTRY: &[SettingDef] = &[
         Kind::Enum(&["auto", "manual"]),
         "\"auto\"",
         G,
-        "privacy",
+        "imageProxy",
         "Per-account image fetch rate sizing: auto scales burst and refill from replica capacity, queue load and message image count within the floors and ceilings; manual uses privacy.rateBurst and privacy.ratePerMin exactly"
     ),
     def!(
@@ -1374,7 +1382,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(1, 12000),
         "64",
         G,
-        "privacy",
+        "imageProxy",
         "Lowest per-account burst allowance in automatic rate mode"
     ),
     def!(
@@ -1382,7 +1390,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(1, 12000),
         "2048",
         G,
-        "privacy",
+        "imageProxy",
         "Highest per-account burst allowance in automatic rate mode"
     ),
     def!(
@@ -1390,7 +1398,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(10, 60000),
         "300",
         G,
-        "privacy",
+        "imageProxy",
         "Lowest per-account refill, tokens per minute, in automatic rate mode"
     ),
     def!(
@@ -1398,7 +1406,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(10, 60000),
         "6000",
         G,
-        "privacy",
+        "imageProxy",
         "Highest per-account refill, tokens per minute, in automatic rate mode"
     ),
     def!(
@@ -1406,7 +1414,7 @@ pub static REGISTRY: &[SettingDef] = &[
         Kind::Enum(&["auto", "manual"]),
         "\"auto\"",
         G,
-        "privacy",
+        "imageProxy",
         "Remote image cache sizing: auto derives bytes, entries and lifetime from the memory left after decoder and pipeline reservations and the observed hit rate; manual uses privacy.cacheBytes, privacy.cacheEntries and privacy.cacheTtlSecs exactly"
     ),
     def!(
@@ -1414,7 +1422,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(0, 1073741824),
         "16777216",
         G,
-        "privacy",
+        "imageProxy",
         "Smallest cache size in bytes in automatic cache mode"
     ),
     def!(
@@ -1422,7 +1430,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(0, 1073741824),
         "268435456",
         G,
-        "privacy",
+        "imageProxy",
         "Largest cache size in bytes in automatic cache mode"
     ),
     def!(
@@ -1430,7 +1438,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(16, 65536),
         "4096",
         G,
-        "privacy",
+        "imageProxy",
         "Most cached remote images; the fixed count in manual cache mode, the ceiling in automatic mode"
     ),
     def!(
@@ -1438,7 +1446,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(65536, 16777216),
         "4194304",
         G,
-        "privacy",
+        "imageProxy",
         "Largest single re-encoded image kept in the cache, in bytes"
     ),
     def!(
@@ -1446,7 +1454,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(0, 86400),
         "300",
         G,
-        "privacy",
+        "imageProxy",
         "Shortest cache lifetime in seconds in automatic cache mode, used on a low hit rate or under memory pressure"
     ),
     def!(
@@ -1454,7 +1462,7 @@ pub static REGISTRY: &[SettingDef] = &[
         int(0, 86400),
         "21600",
         G,
-        "privacy",
+        "imageProxy",
         "Longest cache lifetime in seconds in automatic cache mode, used on a high hit rate with free memory"
     ),
     def!(
@@ -1462,8 +1470,192 @@ pub static REGISTRY: &[SettingDef] = &[
         int(0, 86400),
         "3600",
         G,
-        "privacy",
+        "imageProxy",
         "Maximum age of cached re-encoded remote images in seconds; zero disables reuse"
+    ),
+    def!(
+        "privacy.imageRamMaxMiB",
+        int(0, 1048576),
+        "0",
+        G,
+        "imageProxy",
+        "Extra cap in MiB on the RAM tier of the image cache; zero leaves the automatic or manual cache size as the only limit"
+    ),
+    def!(
+        "privacy.imageDiskEnabled",
+        Kind::Bool,
+        "false",
+        G,
+        "imageProxy",
+        "Keep re-encoded remote images on disk as a second cache tier behind the RAM tier; off by default"
+    ),
+    def!(
+        "privacy.imageDiskPath",
+        text(Text::Plain, 512),
+        "\"\"",
+        G,
+        "imageProxy",
+        "Absolute directory for the image disk tier; empty uses an image-cache folder next to the database file"
+    ),
+    def!(
+        "privacy.imageDiskMode",
+        Kind::Enum(&["auto", "manual"]),
+        "\"auto\"",
+        G,
+        "imageProxy",
+        "Disk tier size: auto takes a tenth of the free space between the floor and ceiling; manual uses privacy.imageDiskMaxMiB exactly"
+    ),
+    def!(
+        "privacy.imageDiskMaxMiB",
+        int(1, 1048576),
+        "512",
+        G,
+        "imageProxy",
+        "Disk tier size in MiB in manual disk mode"
+    ),
+    def!(
+        "privacy.imageDiskFloorMiB",
+        int(0, 1048576),
+        "64",
+        G,
+        "imageProxy",
+        "Smallest disk tier size in MiB in automatic disk mode"
+    ),
+    def!(
+        "privacy.imageDiskCeilingMiB",
+        int(0, 1048576),
+        "4096",
+        G,
+        "imageProxy",
+        "Largest disk tier size in MiB in automatic disk mode"
+    ),
+    def!(
+        "privacy.imageDiskEntries",
+        int(16, 1048576),
+        "16384",
+        G,
+        "imageProxy",
+        "Most images kept on disk; also bounds the in-memory index"
+    ),
+    def!(
+        "privacy.imageDiskEntryBytes",
+        int(65536, 67108864),
+        "8388608",
+        G,
+        "imageProxy",
+        "Largest single re-encoded image written to disk, in bytes"
+    ),
+    def!(
+        "privacy.imageDiskMinHits",
+        int(0, 100),
+        "1",
+        G,
+        "imageProxy",
+        "Hits an entry needs before an eviction from RAM writes it to disk instead of dropping it"
+    ),
+    def!(
+        "privacy.imageDiskWriteQueueMiB",
+        int(1, 256),
+        "8",
+        G,
+        "imageProxy",
+        "Bytes in MiB that may wait for the background disk writer; past it, evictions are dropped"
+    ),
+    def!(
+        "privacy.imageTtlStepSecs",
+        int(0, 86400),
+        "600",
+        G,
+        "imageProxy",
+        "Base seconds added to an entry's remaining lifetime on each hit, scaled up with its decayed hit count; zero keeps every entry at the base lifetime"
+    ),
+    def!(
+        "privacy.imageTtlMaxSecs",
+        int(60, 2592000),
+        "86400",
+        G,
+        "imageProxy",
+        "Longest remaining lifetime in seconds an entry can accumulate through hits"
+    ),
+    def!(
+        "privacy.imageMaxAgeSecs",
+        int(3600, 7776000),
+        "604800",
+        G,
+        "imageProxy",
+        "Absolute age in seconds after which an entry is refetched no matter how often it is hit"
+    ),
+    def!(
+        "privacy.imageScoreHalfLifeSecs",
+        int(60, 604800),
+        "3600",
+        G,
+        "imageProxy",
+        "Half-life in seconds of the hit count and recency used in the priority score"
+    ),
+    def!(
+        "privacy.imageScoreDemoteMilli",
+        int(0, 10000),
+        "300",
+        G,
+        "imageProxy",
+        "Priority score in thousandths below which a RAM entry may be demoted to disk"
+    ),
+    def!(
+        "privacy.imageScoreHysteresisPercent",
+        int(0, 500),
+        "50",
+        G,
+        "imageProxy",
+        "Percentage the promote threshold sits above the demote threshold, so entries do not flap between tiers"
+    ),
+    def!(
+        "privacy.imageContextOpenPercent",
+        int(100, 1000),
+        "200",
+        G,
+        "imageProxy",
+        "Score weight in percent for images requested for a message that is open"
+    ),
+    def!(
+        "privacy.imageContextRecentPercent",
+        int(100, 1000),
+        "150",
+        G,
+        "imageProxy",
+        "Score weight in percent for recently used images; background loads weigh 100"
+    ),
+    def!(
+        "privacy.imageAccountSharePercent",
+        int(1, 100),
+        "50",
+        G,
+        "imageProxy",
+        "Largest share in percent of the RAM tier one account may fill while other accounts are present"
+    ),
+    def!(
+        "privacy.imageSweepSecs",
+        int(5, 3600),
+        "30",
+        G,
+        "imageProxy",
+        "Seconds between background maintenance sweeps of the image cache"
+    ),
+    def!(
+        "privacy.imageSnapshotSecs",
+        int(0, 86400),
+        "300",
+        G,
+        "imageProxy",
+        "Seconds between atomic snapshots of the disk index; zero turns snapshots off and restarts read each file header instead"
+    ),
+    def!(
+        "privacy.imageSweepBatch",
+        int(16, 8192),
+        "256",
+        G,
+        "imageProxy",
+        "Entries one maintenance sweep may expire, rescore or evict"
     ),
     def!(
         "privacy.negativeCacheTtlSecs",
@@ -2520,6 +2712,329 @@ pub static REGISTRY: &[SettingDef] = &[
         "single-use challenge lifetime"
     ),
     def!(
+        "security.spray.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Count the distinct usernames one source fails with (signin_spray.rs). Only a keyed hash of each username is kept, in memory."
+    ),
+    def!(
+        "security.spray.windowSecs",
+        int(60, 86400),
+        "900",
+        G,
+        "security",
+        "Window in which one source's failed sign-ins are counted by distinct username."
+    ),
+    def!(
+        "security.spray.challengeAt",
+        int(2, 1000),
+        "10",
+        G,
+        "security",
+        "Distinct failing usernames from one source inside the window that force the proof-of-work challenge for that source. A shared office or university address is not affected by successful sign-ins; only failures count."
+    ),
+    def!(
+        "security.spray.paceAt",
+        int(2, 1000),
+        "15",
+        G,
+        "security",
+        "Distinct failing usernames that add extra pacing between attempts from the source."
+    ),
+    def!(
+        "security.spray.lockAt",
+        int(2, 1000),
+        "25",
+        G,
+        "security",
+        "Distinct failing usernames that lock the source for security.spray.lockSecs through the existing sign-in lock."
+    ),
+    def!(
+        "security.spray.paceSecs",
+        int(1, 300),
+        "10",
+        G,
+        "security",
+        "Seconds between attempts from a source at or above the pacing step."
+    ),
+    def!(
+        "security.spray.lockSecs",
+        int(30, 86400),
+        "900",
+        G,
+        "security",
+        "Length of the temporary lock."
+    ),
+    def!(
+        "security.spray.knownMultiplier",
+        int(1, 20),
+        "3",
+        G,
+        "security",
+        "Multiplier on the three thresholds for a known source (a recent successful sign-in from the same address)."
+    ),
+    def!(
+        "security.spray.capacity",
+        int(100, 200000),
+        "20000",
+        G,
+        "security",
+        "Most sources tracked in memory; the least recently active are dropped first."
+    ),
+    def!(
+        "security.spike.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Learn a baseline of failed sign-ins and enter heightened mode when the whole instance is far above it (signin_spike.rs). Never locks the instance."
+    ),
+    def!(
+        "security.spike.multiplierPercent",
+        int(150, 2000),
+        "400",
+        G,
+        "security",
+        "A signal counts when it is at least this percentage of its learned baseline (400 = four times)."
+    ),
+    def!(
+        "security.spike.minFailuresPerMin",
+        int(1, 10000),
+        "20",
+        G,
+        "security",
+        "Floor: failed sign-ins per minute below which the failure-rate signal never counts."
+    ),
+    def!(
+        "security.spike.minSources",
+        int(2, 10000),
+        "10",
+        G,
+        "security",
+        "Floor: distinct failing sources in a five-minute bucket below which that signal never counts."
+    ),
+    def!(
+        "security.spike.minUsernames",
+        int(2, 10000),
+        "30",
+        G,
+        "security",
+        "Floor: distinct failing usernames in a five-minute bucket below which that signal never counts."
+    ),
+    def!(
+        "security.spike.signalsRequired",
+        int(1, 4),
+        "2",
+        G,
+        "security",
+        "Signals that must be over their baseline and floor together. The distributed-spray signature counts as two."
+    ),
+    def!(
+        "security.spike.warmupHours",
+        int(1, 720),
+        "48",
+        G,
+        "security",
+        "Hours of observed traffic before heightened mode can start. Until then the baseline only learns."
+    ),
+    def!(
+        "security.spike.adaptHours",
+        int(6, 2160),
+        "168",
+        G,
+        "security",
+        "Time constant of the baseline. Longer absorbs growth more slowly. A spike never updates the baseline."
+    ),
+    def!(
+        "security.spike.durationSecs",
+        int(60, 86400),
+        "1800",
+        G,
+        "security",
+        "How long heightened mode lasts after the last evidence of a spike."
+    ),
+    def!(
+        "security.spike.forceChallenge",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "In heightened mode, require the proof-of-work challenge for anonymous sign-ins from unknown sources."
+    ),
+    def!(
+        "security.spike.paceFactorPercent",
+        int(100, 1000),
+        "300",
+        G,
+        "security",
+        "In heightened mode, the sign-in wait for unknown sources as a percentage of the usual wait."
+    ),
+    def!(
+        "security.sessionBinding.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Bind each browser session to a keyed hash of its client attributes (session_binding.rs). Native clients with a bearer token, API keys and protocol clients are exempt."
+    ),
+    def!(
+        "security.sessionBinding.attributes",
+        Kind::StringList {
+            max_len: 8,
+            max_item: 16
+        },
+        "[\"browser\",\"os\",\"hints\",\"country\"]",
+        G,
+        "security",
+        "Attributes bound: browser, os, hints, language, country, network (IPv4 /16, IPv6 /48). Unknown names are ignored."
+    ),
+    def!(
+        "security.sessionBinding.strictness",
+        Kind::Enum(&["tolerant", "strict"]),
+        "\"tolerant\"",
+        G,
+        "security",
+        "Tolerant accepts browser updates and one soft attribute change; strict needs every bound attribute to match."
+    ),
+    def!(
+        "security.sessionBinding.webmailAction",
+        Kind::Enum(&["off", "detect", "step-up", "revoke"]),
+        "\"step-up\"",
+        G,
+        "security",
+        "What a webmail session mismatch does: nothing, record only, require re-authentication, or revoke the session."
+    ),
+    def!(
+        "security.sessionBinding.adminAction",
+        Kind::Enum(&["off", "detect", "step-up", "revoke"]),
+        "\"revoke\"",
+        G,
+        "security",
+        "What an admin console session mismatch does."
+    ),
+    def!(
+        "security.theft.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Session theft detection: rotated-session reuse, impossible travel and concurrent use from different countries."
+    ),
+    def!(
+        "security.theft.rotationGraceSecs",
+        int(0, 600),
+        "30",
+        G,
+        "security",
+        "After a session rotates, the old id may be presented again for this long (an in-flight request) before it counts as theft."
+    ),
+    def!(
+        "security.theft.minTravelSecs",
+        int(60, 172800),
+        "3600",
+        G,
+        "security",
+        "A country change sooner than this after the previous request is impossible travel."
+    ),
+    def!(
+        "security.theft.concurrentUse",
+        Kind::Enum(&["off", "country", "network"]),
+        "\"country\"",
+        G,
+        "security",
+        "Flag one session used alternately from different countries (or networks) within five minutes."
+    ),
+    def!(
+        "security.theft.webmailAction",
+        Kind::Enum(&["alert", "step-up", "revoke"]),
+        "\"step-up\"",
+        G,
+        "security",
+        "Response to impossible travel or concurrent use on a webmail session. Rotated-session reuse always revokes."
+    ),
+    def!(
+        "security.theft.adminAction",
+        Kind::Enum(&["alert", "step-up", "revoke"]),
+        "\"revoke\"",
+        G,
+        "security",
+        "Response to impossible travel or concurrent use on an admin console session."
+    ),
+    def!(
+        "security.theft.retentionDays",
+        int(1, 60),
+        "15",
+        G,
+        "security",
+        "How long rotated-session markers and per-session security state are kept; at least the longest session lifetime."
+    ),
+    def!(
+        "security.alerts.countryChange",
+        Kind::Bool,
+        "true",
+        GDU,
+        "security",
+        "Warn when a signed-in session is used from a country it was not started in. Country detection may be inaccurate; VPNs and mobile networks can cause false changes."
+    ),
+    def!(
+        "security.alerts.countryChangeEnabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Global switch for the country-change alert. Off disables it for everyone."
+    ),
+    def!(
+        "security.alerts.countryChangeCooldownSecs",
+        int(0, 86400),
+        "300",
+        G,
+        "security",
+        "Minimum time between country-change alerts of one session. Each new country alerts once per session."
+    ),
+    def!(
+        "security.alerts.countryChangeUserMute",
+        Kind::Bool,
+        "false",
+        G,
+        "security",
+        "Whether a user may turn their own country-change alert off."
+    ),
+    def!(
+        "security.alerts.channels",
+        Kind::Enum(&["app", "email", "both"]),
+        "\"both\"",
+        GDU,
+        "security",
+        "How session security warnings reach the user: in the app, as a message in their own mailbox, or both."
+    ),
+    def!(
+        "security.alerts.emailEnabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Allow session security warnings to be delivered to the user's own mailbox."
+    ),
+    def!(
+        "security.alerts.sensitivity",
+        Kind::Enum(&["low", "normal", "high"]),
+        "\"normal\"",
+        GDU,
+        "security",
+        "Low only warns on travel and mismatch; normal follows the administrator's actions; high doubles the travel interval and also checks concurrent networks."
+    ),
+    def!(
+        "security.alerts.noticeRetentionDays",
+        int(1, 365),
+        "30",
+        G,
+        "security",
+        "How long in-app security notices are kept per account (at most 20 per account)."
+    ),
+    def!(
         "security.protection.rateMode",
         Kind::Enum(&["off", "observe", "enforce"]),
         "\"off\"",
@@ -2836,6 +3351,176 @@ pub static REGISTRY: &[SettingDef] = &[
         "security",
         "Case-insensitive regular expressions exempting only the new user-agent dimension, never existing rate, adaptive or sign-in controls."
     ),
+    // ── HTTP protocol anomaly guard (protocol_guard.rs) ──────────────────────
+    def!(
+        "security.protocol.framingMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"enforce\"",
+        G,
+        "security",
+        "Request-smuggling class: Content-Length together with Transfer-Encoding, Transfer-Encoding other than exactly chunked (or on HTTP/1.0 and HTTP/2), non-numeric or conflicting Content-Length. Enforce answers 400 and closes the connection; detect only counts. A route-prefix exemption never applies to this class."
+    ),
+    def!(
+        "security.protocol.hostMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"enforce\"",
+        G,
+        "security",
+        "Host header syntax: missing on HTTP/1.1, empty, repeated, or holding userinfo, whitespace or path characters. IPv6 literals, ports and a trailing dot are accepted. Enforce answers 400 and closes the connection."
+    ),
+    def!(
+        "security.protocol.hostPinningMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "Host not matching the host of MW_PUBLIC_URL or one of allowedHosts. Does nothing while neither names a host. Detect by default because proxies and health checks may send an internal name."
+    ),
+    def!(
+        "security.protocol.pathControlMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"enforce\"",
+        G,
+        "security",
+        "NUL, control characters or encoded CR/LF (%00, %0d, %0a) in the request path. Enforce answers 400. Never exempted by a route prefix."
+    ),
+    def!(
+        "security.protocol.targetMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "Double or overlong percent-encoding of dots and slashes, encoded dots, dot segments, empty path segments (//), backslashes, raw non-ASCII bytes, and an absolute-form target naming another authority than Host."
+    ),
+    def!(
+        "security.protocol.pathLengthMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "Path or query longer than maxPathBytes or maxQueryBytes. Enforce answers 414."
+    ),
+    def!(
+        "security.protocol.methodMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "Method outside allowedMethods (TRACE, TRACK, CONNECT and unknown or lower-case methods by default). Enforce answers 405."
+    ),
+    def!(
+        "security.protocol.duplicateHeadersMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "A header that should appear once appearing more than once (Content-Type, Authorization, Origin, Referer, User-Agent, Sec-Fetch-*, conditional and range headers), a repeated Content-Length with equal values, or repeated Cookie headers on HTTP/1.x."
+    ),
+    def!(
+        "security.protocol.forwardedMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "Forwarded, X-Forwarded-* or X-Real-IP sent by a peer outside MW_TRUSTED_PROXIES. The headers are never trusted either way; this records the attempt. It counts toward adaptive protection only when trusted proxies are configured."
+    ),
+    def!(
+        "security.protocol.headerHygieneMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "Header count, a single value, or the Cookie header over the configured caps; non-ASCII header bytes; Upgrade or Connection: upgrade outside the WebSocket route; Connection naming headers such as Content-Length or Host. Enforce answers 431 for size and count findings and 400 for the rest."
+    ),
+    def!(
+        "security.protocol.bodyMode",
+        Kind::Enum(&["off", "detect", "enforce"]),
+        "\"detect\"",
+        G,
+        "security",
+        "GET or HEAD carrying a body, Content-Length above maxBodyBytes (413), Expect other than 100-continue (417) or without a body."
+    ),
+    def!(
+        "security.protocol.maxPathBytes",
+        int(256, 65536),
+        "4096",
+        G,
+        "security",
+        "Longest request path before the path-length class reports it."
+    ),
+    def!(
+        "security.protocol.maxQueryBytes",
+        int(256, 262144),
+        "8192",
+        G,
+        "security",
+        "Longest query string before the path-length class reports it."
+    ),
+    def!(
+        "security.protocol.maxHeaderCount",
+        int(16, 256),
+        "64",
+        G,
+        "security",
+        "Most header fields in one request before the header-hygiene class reports it. The listener's own hard limit (MW_HTTP_MAX_HEADERS) still applies."
+    ),
+    def!(
+        "security.protocol.maxHeaderValueBytes",
+        int(256, 65536),
+        "8192",
+        G,
+        "security",
+        "Longest single header value before the header-hygiene class reports it."
+    ),
+    def!(
+        "security.protocol.maxCookieBytes",
+        int(512, 65536),
+        "16384",
+        G,
+        "security",
+        "Combined size of Cookie headers before the header-hygiene class reports it."
+    ),
+    def!(
+        "security.protocol.maxBodyBytes",
+        int(1048576, 1099511627776),
+        "134217728",
+        G,
+        "security",
+        "Largest Content-Length the body class accepts without reporting it. Keep it above the largest upload or import a route accepts; a route-prefix exemption can raise it for one route."
+    ),
+    def!(
+        "security.protocol.allowedMethods",
+        Kind::StringList {
+            max_len: 32,
+            max_item: 16
+        },
+        "[\"GET\",\"HEAD\",\"POST\",\"PUT\",\"PATCH\",\"DELETE\",\"OPTIONS\",\"PROPFIND\",\"PROPPATCH\",\"REPORT\",\"MKCOL\",\"MKCALENDAR\",\"COPY\",\"MOVE\",\"LOCK\",\"UNLOCK\"]",
+        G,
+        "security",
+        "Methods the method class accepts. The default lists the ordinary HTTP verbs and the WebDAV, CalDAV and CardDAV verbs; the server mounts no inbound DAV routes today, so those reach a 405 at the router."
+    ),
+    def!(
+        "security.protocol.allowedHosts",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 255
+        },
+        "[]",
+        G,
+        "security",
+        "Host names accepted by the host-pinning class in addition to the host of MW_PUBLIC_URL, for example an internal name a proxy or health check uses. Ports and a trailing dot are ignored."
+    ),
+    def!(
+        "security.protocol.exemptPrefixes",
+        Kind::StringList {
+            max_len: 20,
+            max_item: 200
+        },
+        "[]",
+        G,
+        "security",
+        "Route prefixes (each starting with / and longer than one character) for which the heuristic classes do not run, for a legitimate client that needs it, for example a large upload route. Matches whole path segments. Framing and path-control findings are never exempted, and / is ignored."
+    ),
     // ── Admin-probe protection (t100, admin_probe.rs) ────────────────────────
     dedicated(
         pin(
@@ -3004,6 +3689,312 @@ pub static REGISTRY: &[SettingDef] = &[
         ADMIN_PROBE_ROUTE,
     ),
     def!(
+        "security.trust.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Derive a trust tier for each request: authenticated, known source (an address, IPv6 per /64, with a successful sign-in inside the window) or unknown source. When off, every anonymous request is treated as unknown with the baseline limits."
+    ),
+    def!(
+        "security.trust.knownTtlDays",
+        int(1, 365),
+        "30",
+        G,
+        "security",
+        "How long a successful sign-in keeps its source address known. Only successful sign-ins count; failed attempts and unauthenticated requests never do."
+    ),
+    def!(
+        "security.trust.knownCapacity",
+        int(100, 100000),
+        "10000",
+        G,
+        "security",
+        "Most known sources kept in memory. The oldest is dropped first. Only a salted hash of the address, its country and a small account count are kept."
+    ),
+    def!(
+        "security.trust.persist",
+        Kind::Bool,
+        "true",
+        G,
+        "security",
+        "Save the known-source table to the settings store and load it at startup, so a restart does not begin with every source unknown. Only keyed hashes of the address, the country, the last-seen time and a small account count are saved; entries older than the window are dropped when saving and loading."
+    ),
+    def!(
+        "security.trust.persistIntervalSecs",
+        int(30, 3600),
+        "300",
+        G,
+        "security",
+        "Seconds between saves of the known-source table. A save happens only when the table changed since the last one, and once more at graceful shutdown."
+    ),
+    def!(
+        "security.trust.unknownPercent",
+        int(10, 100),
+        "100",
+        G,
+        "security",
+        "Anonymous request allowance for an unknown source as a percentage of the configured limits. 100 keeps the baseline; lower is stricter. Applies to the per-address request budget, /api/discover, the sign-in cooldown and the challenge difficulty, never to credential checks, second factors, lockouts or abuse signals."
+    ),
+    def!(
+        "security.trust.knownPercent",
+        int(100, 1000),
+        "200",
+        G,
+        "security",
+        "Anonymous request allowance for a known source as a percentage of the configured limits. 200 doubles the request budgets and halves the sign-in cooldown and challenge difficulty. It never bypasses credentials, second factors, sign-in lockouts, the SSRF gate or an active block."
+    ),
+    def!(
+        "security.trust.uaMissing",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"limit\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims an empty user-agent: allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaUncommon",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"limit\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims an unrecognised user-agent: allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaAutomation",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"limit\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims a script, HTTP library, headless browser or generic bot: allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaSearch",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"limit\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims a declared search-engine crawler: allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaAiTraining",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"block\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims a declared AI training crawler (GPTBot, ClaudeBot, CCBot, Amazonbot, Bytespider, Google-Extended, Applebot-Extended): allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaAiSearch",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"block\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims a declared AI search crawler (OAI-SearchBot, PerplexityBot, Claude-SearchBot): allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaAiUser",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"block\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims a declared user-triggered AI fetcher (ChatGPT-User, Claude-User): allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    def!(
+        "security.trust.uaCustom",
+        Kind::Enum(&["allow", "limit", "block"]),
+        "\"limit\"",
+        G,
+        "security",
+        "Action for anonymous requests whose user-agent claims a user-agent matching security.protection.userAgentPatterns: allow skips the user-agent budget, limit keeps it, block refuses the request. Signed-in sessions are never affected. A claim is a header, not verified identity; security.protection.userAgentExceptions keeps a needed client allowed."
+    ),
+    pin(
+        def!(
+            "security.trust.adminGeoEnabled",
+            Kind::Bool,
+            "true",
+            G,
+            "security",
+            "Block a source that probes for the admin console from a country in which no recent sign-in succeeded. Needs a readable country database; without one nothing is blocked. security.adminProbe.enabled must also be on; MW_ADMIN_GEO_ENABLED pins this switch for recovery."
+        ),
+        "MW_ADMIN_GEO_ENABLED",
+    ),
+    def!(
+        "security.trust.adminGeoCountries",
+        Kind::StringList {
+            max_len: 249,
+            max_item: 2
+        },
+        "[]",
+        G,
+        "security",
+        "Uppercase two-letter countries always treated as known for the admin-console country block, besides the countries of recent successful sign-ins."
+    ),
+    def!(
+        "security.trust.adminGeoLookupFailure",
+        Kind::Enum(&["allow", "unknown"]),
+        "\"allow\"",
+        G,
+        "security",
+        "When the source has no country (no database, or an unmapped address): allow does not block and logs the case, unknown treats the source as an unknown country."
+    ),
+    def!(
+        "security.trust.adminGeoThreshold",
+        int(1, 100),
+        "3",
+        G,
+        "security",
+        "Admin-discovery probes from an unknown country inside the window that start a block."
+    ),
+    def!(
+        "security.trust.adminGeoWindowSecs",
+        int(60, 86400),
+        "600",
+        G,
+        "security",
+        "Window for security.trust.adminGeoThreshold."
+    ),
+    def!(
+        "security.trust.adminGeoBlockOnFirst",
+        Kind::Bool,
+        "false",
+        G,
+        "security",
+        "Block on the first admin-discovery probe from an unknown country instead of waiting for the threshold. Raises the chance of locking out a travelling administrator."
+    ),
+    def!(
+        "security.trust.adminGeoBlockSecs",
+        int(60, 2592000),
+        "3600",
+        G,
+        "security",
+        "Length of the first block."
+    ),
+    def!(
+        "security.trust.adminGeoSecondBlockSecs",
+        int(60, 2592000),
+        "86400",
+        G,
+        "security",
+        "Length of the second block of the same source inside the repeat period."
+    ),
+    def!(
+        "security.trust.adminGeoMaxBlockSecs",
+        int(60, 2592000),
+        "604800",
+        G,
+        "security",
+        "Length of the third and every later block inside the repeat period."
+    ),
+    def!(
+        "security.trust.adminGeoRepeatDays",
+        int(1, 365),
+        "30",
+        G,
+        "security",
+        "A block that follows the previous one within this many days counts as a repeat and uses the next, longer length."
+    ),
+    def!(
+        "security.signin.accountGeoMode",
+        Kind::Enum(&["off", "block-unusual-countries", "block-foreign-countries"]),
+        "\"off\"",
+        GDU,
+        "security",
+        "Per-account sign-in country policy, off by default. block-unusual-countries refuses a sign-in from a country the account has not signed in from before (its first sign-in is always allowed); block-foreign-countries refuses any country outside the allowed countries. Allowlisted IPs and countries always pass. Applies to new webmail sign-ins (password, passkey, SSO) only, never to existing sessions or protocol clients. The administrator sets the instance default and may lock it. Country detection uses an IP geolocation database that can be wrong or out of date; VPNs, mobile carriers, proxies and travel can block a legitimate sign-in or let a foreign one through. Add trusted IPs or countries to the allowlist."
+    ),
+    def!(
+        "security.signin.accountGeoAllowCountries",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 2
+        },
+        "[]",
+        GDU,
+        "security",
+        "Countries (uppercase ISO 3166 codes) always allowed for this account by the per-account sign-in policy. Country detection uses an IP geolocation database that can be wrong or out of date; VPNs, mobile carriers, proxies and travel can block a legitimate sign-in or let a foreign one through. Add trusted IPs or countries to the allowlist."
+    ),
+    def!(
+        "security.signin.accountGeoAllowIps",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 64
+        },
+        "[]",
+        GDU,
+        "security",
+        "IP addresses or CIDR networks (IPv4 or IPv6) always allowed for this account by the per-account sign-in policy. A single IPv6 address means its /64."
+    ),
+    def!(
+        "security.signin.accountGeoGlobalAllowCountries",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 2
+        },
+        "[]",
+        G,
+        "security",
+        "Countries (uppercase ISO 3166 codes) allowed for every account by the per-account sign-in policy. Added to each account's own list."
+    ),
+    def!(
+        "security.signin.accountGeoGlobalAllowIps",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 64
+        },
+        "[]",
+        G,
+        "security",
+        "IP addresses or CIDR networks allowed for every account by the per-account sign-in policy (an office or VPN). Added to each account's own list."
+    ),
+    def!(
+        "security.signin.accountGeoLookupFailure",
+        Kind::Enum(&["allow", "deny"]),
+        "\"allow\"",
+        G,
+        "security",
+        "When the source has no country (no database, or an unmapped address) and the per-account policy is on: allow the sign-in and log it, or deny it."
+    ),
+    def!(
+        "security.signin.accountGeoHistoryDays",
+        int(30, 3650),
+        "365",
+        G,
+        "security",
+        "How long a country seen in a successful sign-in stays in the account's own history for the unusual-countries policy. Older countries are ignored and removed."
+    ),
+    def!(
+        "security.geo.noDatabase",
+        Kind::Enum(&["allow", "treat-as-unknown", "block"]),
+        "\"allow\"",
+        G,
+        "security",
+        "Shared default when no country database is loaded: allow (carry on, logged), treat-as-unknown (handle the source as a country not on the feature's list) or block (refuse a sign-in; other features treat block as treat-as-unknown). A feature's own key is applied too and the stricter value wins."
+    ),
+    def!(
+        "security.geo.notFound",
+        Kind::Enum(&["allow", "treat-as-unknown", "block"]),
+        "\"allow\"",
+        G,
+        "security",
+        "Shared default when a country database is loaded but has no entry for the address (unallocated or reserved ranges). Same values and precedence as the no-database key. Private, loopback and link-local addresses are local networks and are never affected."
+    ),
+    def!(
+        "security.signin.geoNoDatabase",
+        Kind::Enum(&["allow", "block"]),
+        "\"block\"",
+        G,
+        "security",
+        "Instance sign-in country policy (`geoScope`) when no database is loaded: block refuses sign-ins in scope (the original fail-closed behaviour), allow lets them through unchecked. Local networks are always allowed."
+    ),
+    def!(
+        "security.geo.sessionLookupFailure",
+        Kind::Enum(&["ignore", "alert"]),
+        "\"ignore\"",
+        G,
+        "security",
+        "Session country-change alerts and impossible-travel checks when a request's country cannot be determined: ignore it, or raise a session alert once per session. Never revokes or blocks a session."
+    ),
+    def!(
         "security.signin.geoEnforceSessions",
         Kind::Bool,
         "false",
@@ -3113,11 +4104,121 @@ pub static REGISTRY: &[SettingDef] = &[
     dedicated(
         def!(
             "signin.newUsers",
-            Kind::Enum(&["open", "known", "provisioned", "closed"]),
+            Kind::Enum(&["open", "preprovisioned", "provisioned", "closed"]),
             "\"open\"",
             GD,
             "signin",
             "signin_policy::admit new-user rule"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.newUsers.mail",
+            Kind::Enum(&["inherit", "open", "preprovisioned", "provisioned", "closed"]),
+            "\"inherit\"",
+            GD,
+            "signin",
+            "signin_policy::admit rule for password mailbox sign-in"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.newUsers.sso",
+            Kind::Enum(&["inherit", "open", "preprovisioned", "provisioned", "closed"]),
+            "\"inherit\"",
+            GD,
+            "signin",
+            "signin_policy::admit rule for SSO and header-auth sign-in"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.newUsers.linked",
+            Kind::Enum(&["inherit", "open", "preprovisioned", "provisioned", "closed"]),
+            "\"inherit\"",
+            GD,
+            "signin",
+            "signin_policy::admit rule for linked mailboxes (all kinds)"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.newUsers.linked.imap",
+            Kind::Enum(&["inherit", "open", "preprovisioned", "provisioned", "closed"]),
+            "\"inherit\"",
+            GD,
+            "signin",
+            "signin_policy::admit rule for linked IMAP mailboxes"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.newUsers.linked.pop3",
+            Kind::Enum(&["inherit", "open", "preprovisioned", "provisioned", "closed"]),
+            "\"inherit\"",
+            GD,
+            "signin",
+            "signin_policy::admit rule for linked POP3 mailboxes"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.newUsers.linked.ews",
+            Kind::Enum(&["inherit", "open", "preprovisioned", "provisioned", "closed"]),
+            "\"inherit\"",
+            GD,
+            "signin",
+            "signin_policy::admit rule for linked Exchange (EWS) mailboxes"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.preprovision.ttlDays",
+            int(1, 3650),
+            "30",
+            G,
+            "signin",
+            "default lifetime of a pre-provisioned entry"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.preprovision.maxTtlDays",
+            int(1, 3650),
+            "90",
+            G,
+            "signin",
+            "longest lifetime an admin may give a pre-provisioned entry"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.preprovision.domainWide",
+            Kind::Bool,
+            "false",
+            G,
+            "signin",
+            "allow capped domain-wide (*@domain) pre-provisioned entries"
+        ),
+        SIGNIN_POLICY_ROUTE,
+    ),
+    dedicated(
+        def!(
+            "signin.preprovision.retentionDays",
+            int(0, 365),
+            "30",
+            G,
+            "signin",
+            "days an expired pending entry is kept before cleanup removes it"
         ),
         SIGNIN_POLICY_ROUTE,
     ),
@@ -3196,6 +4297,14 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "admin",
         "admin session absolute cap"
+    ),
+    def!(
+        "admin.session.rotateSecs",
+        int(0, 86_400),
+        "900",
+        G,
+        "admin",
+        "seconds between admin session id rotations while the console is in use (0 = only on step-up); idle and absolute clocks are unchanged"
     ),
     def!(
         "passwd.policy.minLength",
@@ -3771,6 +4880,30 @@ pub static REGISTRY: &[SettingDef] = &[
         "hourly metric rollups kept"
     ),
     def!(
+        "observability.clientTiming.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "browser load time collection"
+    ),
+    def!(
+        "observability.clientTiming.sampleRatePercent",
+        int(1, 100),
+        "100",
+        G,
+        "observability",
+        "browser load time sample rate"
+    ),
+    def!(
+        "observability.clientTiming.minSamples",
+        int(1, 100000),
+        "20",
+        G,
+        "observability",
+        "samples needed to show load time percentiles"
+    ),
+    def!(
         "diagnostics.retentionDays",
         int(1, 365),
         "30",
@@ -4072,8 +5205,13 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
             "must be inherit, disabled, or one key with Ctrl, Alt and Shift modifiers".into(),
         );
     }
-    if def.key == "security.signin.geoCountries"
-        && !value.as_array().is_some_and(|items| {
+    if matches!(
+        def.key,
+        "security.signin.geoCountries"
+            | "security.trust.adminGeoCountries"
+            | "security.signin.accountGeoAllowCountries"
+            | "security.signin.accountGeoGlobalAllowCountries"
+    ) && !value.as_array().is_some_and(|items| {
             items.iter().all(|item| {
                 item.as_str().is_some_and(|code| {
                     code.len() == 2 && code.bytes().all(|b| b.is_ascii_uppercase())
@@ -4277,8 +5415,20 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                 if text.is_empty()
                     || text.len() > max_item
                     || !text.bytes().all(|b| {
-                        if def.key == "security.signin.geoCountries" {
+                        if matches!(
+                            def.key,
+                            "security.signin.geoCountries"
+                                | "security.trust.adminGeoCountries"
+                                | "security.signin.accountGeoAllowCountries"
+                                | "security.signin.accountGeoGlobalAllowCountries"
+                        ) {
                             b.is_ascii_uppercase()
+                        } else if matches!(
+                            def.key,
+                            "security.signin.accountGeoAllowIps"
+                                | "security.signin.accountGeoGlobalAllowIps"
+                        ) {
+                            !b.is_ascii_control()
                         } else if def.key == "links.trustedSenders" {
                             !b.is_ascii_control()
                         } else if matches!(
@@ -4290,6 +5440,9 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "security.protection.userAgentPatterns"
                                 | "security.protection.userAgentExceptions"
                                 | "security.adminProbe.allowlist"
+                                | "security.protocol.allowedMethods"
+                                | "security.protocol.allowedHosts"
+                                | "security.protocol.exemptPrefixes"
                         ) {
                             !b.is_ascii_control()
                         } else if def.key == "security.adminProbe.probePaths" {
@@ -4304,6 +5457,11 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                     ) && crate::scope_mw::proxy::Cidr::parse(text).is_none())
                     || (def.key == "security.adminProbe.probePaths"
                         && (!text.starts_with('/') || text == "/" || text.contains("//")))
+                    || (def.key == "security.protocol.exemptPrefixes"
+                        && (!text.starts_with('/') || text == "/" || text.contains(' ')))
+                    || (def.key == "security.protocol.allowedMethods"
+                        && !text.bytes().all(|b| b.is_ascii_uppercase() || b == b'-'))
+                    || (def.key == "security.protocol.allowedHosts" && text.contains(' '))
                     || (def.key == "security.adminProbe.signals"
                         && !matches!(
                             text,
@@ -4312,6 +5470,17 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "admin-signin-failed"
                                 | "admin-unauthenticated"
                         ))
+                    || (matches!(
+                        def.key,
+                        "security.signin.accountGeoAllowIps"
+                            | "security.signin.accountGeoGlobalAllowIps"
+                    ) && crate::account_signin_geo::parse_ip_entry(text).is_none())
+                    || (matches!(
+                        def.key,
+                        "security.signin.accountGeoAllowCountries"
+                            | "security.signin.accountGeoGlobalAllowCountries"
+                            | "security.trust.adminGeoCountries"
+                    ) && !crate::account_signin_geo::valid_country(text))
                     || (def.key == "links.trustedDomains" && !link_trust::is_canonical(text))
                     || (def.key == "links.trustedSenders" && !link_trust::is_canonical_sender(text))
                     || (def.key == "security.protection.userAgentCategories"
@@ -5101,6 +6270,115 @@ mod tests {
             lookup("signin.refusalDetail").unwrap().default_value(),
             json!("explain")
         );
+    }
+
+    /// Every image-cache tunable is a registered, global, bounded key in the one
+    /// `imageProxy` section, documented, labelled in the console and in the en and
+    /// pt-PT admin catalogs, and read into the policy; a new cache key that is not
+    /// listed in `IMAGE_CACHE_KEYS` fails the sweep at the bottom.
+    #[test]
+    fn every_image_cache_tunable_is_keyed_documented_and_in_one_section() {
+        use crate::remote_policy::{IMAGE_CACHE_KEYS, POLICY_KEYS};
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        let read = |p: &str| std::fs::read_to_string(root.join(p)).unwrap();
+        let docs = read("docs/admin/settings.md");
+        let keys_ts = read("apps/web/src/screens/Admin/Settings/keys.ts");
+        let ftl = [
+            read("apps/web/locales/en/admin-settings.ftl"),
+            read("apps/web/locales/pt-PT/admin-settings.ftl"),
+        ];
+        let slug = |key: &str| {
+            let mut out = String::new();
+            let mut prev = ' ';
+            for c in key.chars() {
+                if c.is_ascii_uppercase() && (prev.is_ascii_lowercase() || prev.is_ascii_digit()) {
+                    out.push('-');
+                }
+                out.push(if c == '.' || c == '_' { '-' } else { c.to_ascii_lowercase() });
+                prev = c;
+            }
+            out
+        };
+        let mut problems = Vec::new();
+        for key in IMAGE_CACHE_KEYS {
+            let Some(d) = lookup(key) else {
+                problems.push(format!("{key}: not registered"));
+                continue;
+            };
+            if d.category != "imageProxy" {
+                problems.push(format!("{key}: category {}", d.category));
+            }
+            if d.scopes != Scopes::Global || d.user_override {
+                problems.push(format!("{key}: must be global only"));
+            }
+            if !docs.contains(&format!("<a id=\"{key}\"></a>")) {
+                problems.push(format!("{key}: no docs anchor"));
+            }
+            if !keys_ts.contains(&format!("'{key}'")) {
+                problems.push(format!("{key}: not in keys.ts"));
+            }
+            if !POLICY_KEYS.contains(key) {
+                problems.push(format!("{key}: not read into the policy"));
+            }
+            for (i, catalog) in ftl.iter().enumerate() {
+                for prefix in ["admin-settings-key-", "admin-settings-help-"] {
+                    if !catalog.contains(&format!("\n{prefix}{} = ", slug(key))) {
+                        problems.push(format!("{key}: no {prefix} message in catalog {i}"));
+                    }
+                }
+            }
+            // Bounds are real and the default sits inside them.
+            if let Kind::Int { min, max } = d.kind {
+                let default = d.default_value();
+                if min >= max || validate(d, &default, "/value").is_err() {
+                    problems.push(format!("{key}: default {default} outside {min}..={max}"));
+                }
+                if validate(d, &json!(min - 1), "/value").is_ok()
+                    || validate(d, &json!(max + 1), "/value").is_ok()
+                {
+                    problems.push(format!("{key}: bounds not enforced"));
+                }
+            }
+        }
+        // Sweep: nothing cache-shaped is registered without being listed.
+        for d in REGISTRY {
+            let cacheish = d.key.starts_with("privacy.cache")
+                || d.key.starts_with("privacy.imageCache")
+                || d.key.starts_with("privacy.imageDisk")
+                || d.key.starts_with("privacy.imageRam")
+                || d.key.starts_with("privacy.imageTtl")
+                || d.key.starts_with("privacy.imageScore")
+                || d.key.starts_with("privacy.imageContext")
+                || d.key.starts_with("privacy.imageSweep")
+                || d.key.starts_with("privacy.imageSnapshot")
+                || d.key.starts_with("privacy.imageAccount")
+                || d.key == "privacy.imageMaxAgeSecs";
+            if cacheish && !IMAGE_CACHE_KEYS.contains(&d.key) {
+                problems.push(format!("{}: cache key missing from IMAGE_CACHE_KEYS", d.key));
+            }
+            if d.category == "imageProxy"
+                && !IMAGE_CACHE_KEYS.contains(&d.key)
+                && !d.key.starts_with("privacy.imageRate")
+                && !matches!(d.key, "privacy.ratePerMin" | "privacy.rateBurst")
+            {
+                problems.push(format!("{}: in the Image proxy section but unlisted", d.key));
+            }
+        }
+        // The defaults the registry declares are the defaults the tier uses.
+        let budget = crate::image_proxy::adaptive::CacheBudget {
+            bytes: 32 << 20,
+            entries: 1024,
+            entry_bytes: 4 << 20,
+            ttl_secs: 3600,
+        };
+        let from_registry = crate::remote_policy::tier_config(
+            &|key| lookup(key).map(|d| d.default_value()),
+            &budget,
+        );
+        let mut expected = crate::image_proxy::tier::TierConfig::default();
+        expected.disk.path = from_registry.disk.path.clone();
+        assert_eq!(from_registry, expected, "registry defaults match the code defaults");
+        assert!(problems.is_empty(), "{problems:#?}");
     }
 
     /// Every key has its documentation anchor (UX4) and a label in the console

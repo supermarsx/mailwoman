@@ -19,4 +19,4 @@ export const current=style({marginInlineStart:'auto',paddingInlineStart:'0.75rem
 globalStyle('.list__row[data-context-open="true"]',{background:accentSurface,outline:`1px solid ${vars.color.accent}`,outlineOffset:'-1px'});
 globalStyle(`${folderRow}[data-context-open="true"] > .sidebar__box`,{background:accentSurface,outline:`1px solid ${vars.color.accent}`,outlineOffset:'-1px'});
 globalStyle(`.${menu}::-webkit-scrollbar`,{width:'8px'});
-globalStyle(`.${menu}::-webkit-scrollbar-thumb`,{background:vars.color.borderStrong,borderRadius:'4px'});
+globalStyle(`.${menu}::-webkit-scrollbar-thumb`,{background:vars.color.borderStrong,borderRadius:vars.radius.sm});

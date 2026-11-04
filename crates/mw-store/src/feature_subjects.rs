@@ -313,7 +313,7 @@ mod tests {
         if let crate::backend::Backend::Sqlite(pool) = &reopened.backend {
             pool.close().await;
         }
-        std::fs::remove_file(path).unwrap();
+        let _ = std::fs::remove_file(path); // best effort: Windows may still hold the handle
     }
 
     #[tokio::test]

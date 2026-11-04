@@ -32,3 +32,34 @@ admin-stats-delta-same = Same as the previous period
 admin-stats-delta-sr-up = Up { $change } on the previous period.
 admin-stats-delta-sr-down = Down { $change } on the previous period.
 admin-stats-delta-sr-same = The same as the previous period.
+admin-ct-group = Client load times
+admin-ct-metric-timeToUsable = Time to usable
+admin-ct-metric-ttfb = First byte
+admin-ct-metric-dcl = DOM ready
+admin-ct-metric-load = Page load
+admin-ct-metric-fcp = First contentful paint
+admin-ct-metric-lcp = Largest contentful paint
+admin-ct-metric-folderOpen = Folder open
+admin-ct-device-desktop = Desktop
+admin-ct-device-mobile = Mobile
+admin-ct-device-unknown = Unknown
+admin-ct-tile = { $metric }, { $stat }
+admin-ct-samples =
+    { $count ->
+        [one] { $count } sample
+       *[other] { $count } samples
+    }
+admin-ct-no-samples = No samples in this period.
+admin-ct-few-samples = Only { $count } samples; at least { $min } are needed.
+admin-ct-chart-usable = Time to usable
+admin-ct-chart-note = Percentiles show only for intervals with at least { $min } samples.
+admin-ct-empty-chart = No interval has the { $min } samples needed to show a median. Choose a longer period.
+admin-ct-col-samples = Samples
+admin-ct-col-metric = Measure
+admin-ct-col-device = Device
+admin-ct-table-title = Client load times by device
+admin-ct-table-caption = Samples, median and 95th percentile for each measure and device class.
+admin-ct-empty-table = No browser load times were reported in this period.
+admin-ct-failed = Client load times could not be loaded.
+admin-ct-disabled = Collection of client load times is switched off. The figures below are from before it was switched off.
+admin-ct-note = From signed-in browsers only, { $rate }% of sessions sampled, anonymous and aggregated. Time to usable runs from navigation start until the message list shows its first rows. Figures are estimates, within about { $error }% of the true value.

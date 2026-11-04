@@ -121,6 +121,33 @@ pub(crate) fn user_router() -> Router<AppState> {
     Router::new()
         .route("/api/settings", get(user_list))
         .route("/api/settings/{key}", put(user_put).delete(user_delete))
+        // The caller's own address and detected country (account sign-in geography).
+        .route(
+            "/api/security/signin-geography/context",
+            get(signin_geography_context),
+        )
+        // The countries seen in this account's successful sign-ins (forgettable).
+        .route(
+            "/api/security/signin-geography/history",
+            get(crate::account_signin_geo::history_view)
+                .delete(crate::account_signin_geo::history_forget),
+        )
+}
+
+async fn signin_geography_context(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    ext: axum::http::Extensions,
+) -> Response {
+    if let Err(r) = crate::authed(&state, &headers).await {
+        return r;
+    }
+    let ip = crate::scope_mw::proxy::client_ip(&headers, &ext);
+    (
+        [(axum::http::header::CACHE_CONTROL, "private, no-store")],
+        Json(crate::account_signin_geo::context(ip)),
+    )
+        .into_response()
 }
 
 // ─── shared helpers ───────────────────────────────────────────────────────────
@@ -572,7 +599,7 @@ async fn put_global(
     {
         return Err(AdminApiError::stale(None, None));
     }
-    if key.starts_with("security.protection.") {
+    if key.starts_with("security.protection.") || key.starts_with("security.protocol.") {
         state.request_protection.invalidate();
     }
     // t48: turning linking or credential storage off deployment-wide deletes
@@ -679,7 +706,7 @@ pub(crate) async fn write_global_values(
         {
             return Err(AdminApiError::stale(None, None));
         }
-        if key.starts_with("security.protection.") {
+        if key.starts_with("security.protection.") || key.starts_with("security.protocol.") {
             state.request_protection.invalidate();
         }
         audit(
@@ -724,7 +751,7 @@ async fn delete_global(
     {
         return Err(AdminApiError::stale(None, None));
     }
-    if key.starts_with("security.protection.") {
+    if key.starts_with("security.protection.") || key.starts_with("security.protocol.") {
         state.request_protection.invalidate();
     }
     if current.is_some() {
@@ -1526,6 +1553,7 @@ struct UserValue {
 async fn user_put(
     State(state): State<AppState>,
     headers: HeaderMap,
+    ext: axum::http::Extensions,
     UrlPath(key): UrlPath<String>,
     body: Result<Json<UserValue>, axum::extract::rejection::JsonRejection>,
 ) -> Response {
@@ -1591,6 +1619,18 @@ async fn user_put(
             return user_error(status, r.code, r.detail, r.field.as_deref());
         }
     };
+    // Self-lockout guard: the resulting sign-in policy must still admit this request.
+    if let Err(detail) = crate::account_signin_geo::guard_write(
+        &state,
+        &subject.as_subject(),
+        &key,
+        &value,
+        crate::scope_mw::proxy::client_ip(&headers, &ext),
+    )
+    .await
+    {
+        return user_error(StatusCode::CONFLICT, "signinGeographySelfLockout", detail, Some("/value"));
+    }
     let row = SettingValueRow {
         scope: SettingScope::User,
         scope_id: subject.account_id.clone(),

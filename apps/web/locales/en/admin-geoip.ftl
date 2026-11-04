@@ -102,3 +102,15 @@ admin-geoip-progress-verifying = Verifying the country database…
 admin-geoip-progress-installing = Installing the country database…
 admin-geoip-progress-total = { $phase } { $received } of { $total }
 admin-geoip-progress-bytes = { $phase } { $received } received
+
+admin-geoip-features-warning-title = Country features are on but no country database is loaded
+admin-geoip-features-warning-help = These features cannot tell where a request comes from, so they do nothing or follow their "when the country cannot be told" setting. Install a database to make them work.
+admin-geoip-features-install = Go to Country database
+admin-geoip-feature-signinGeography = Instance sign-in country policy
+admin-geoip-feature-accountGeography = Per-account sign-in country policy
+admin-geoip-feature-sessionGeography = Country check on signed-in requests
+admin-geoip-feature-adminDiscovery = Unknown-country admin console block
+admin-geoip-feature-sessionCountryAlerts = Session country-change alerts
+admin-geoip-features-status-loaded = Country database loaded. Built { $date }, { $age } days ago.
+admin-geoip-features-status-none = No country database is loaded.
+admin-geoip-features-status-stale = It is out of date.

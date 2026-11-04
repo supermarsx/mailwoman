@@ -264,6 +264,14 @@ impl Store {
             .bind(now)
             .execute_tx(&mut tx)
             .await?;
+        // The countries seen in this identity's sign-ins go with it.
+        let accounts = q("SELECT DISTINCT primary_account_id FROM session_principal WHERE principal_id=?1")
+            .bind(principal).fetch_all_tx(&mut tx).await?;
+        for row in &accounts {
+            q("DELETE FROM settings WHERE key=?1")
+                .bind(format!("{}{}", crate::sec_state::ACCOUNT_GEO_PREFIX, row.get_string("primary_account_id")))
+                .execute_tx(&mut tx).await?;
+        }
         q("DELETE FROM sessions WHERE id IN (SELECT session_id FROM session_principal WHERE principal_id=?1)")
             .bind(principal).execute_tx(&mut tx).await?;
         // t48: a retired identity keeps no stored linked-mailbox credential, as
@@ -649,10 +657,16 @@ mod tests {
             Some(native_key),
             store.session_storage_authority(&sso).await.unwrap()
         );
+        // The countries seen in this identity's sign-ins go with it (and only its).
+        let row = r#"{"v":1,"seeded":true,"cleared":0,"c":[{"cc":"PT","first":1,"last":1,"n":1}]}"#;
+        store.set_setting("acct-geo:v1:1", row).await.unwrap();
+        store.set_setting("acct-geo:v1:other", row).await.unwrap();
         store
             .retire_principal(&principal.principal_id, 200)
             .await
             .unwrap();
+        assert!(store.get_setting("acct-geo:v1:1").await.unwrap().is_none());
+        assert!(store.get_setting("acct-geo:v1:other").await.unwrap().is_some());
         assert!(
             store
                 .session_storage_authority(&sso)

@@ -75,7 +75,9 @@ export const CRUMB_WORDS: readonly string[] = [
   'audit', 'statistics', 'telemetry',
   'directory', 'webhooks', 'keys', 'hosting', 'ssh', 'domains', 'mailboxes',
   'application', 'authentication', 'jobs', 'mode', 'destinations', 'proxies', 'totp', 'security',
-  'requirements', 'client-access',
+  'requirements', 'client-access', 'signin',
+  // Privacy and Attachment policy tabs.
+  'remote', 'image-proxy', 'fetch-limits', 'traffic', 'lists', 'limits', 'delivery', 'warnings', 'test',
   // t105: the Diagnostics sub-tabs (#/diagnostics/<tab>).
   'server', 'connectivity', 'posture', 'tools', 'history', 'report',
 ];
@@ -297,6 +299,9 @@ export function specFor(section: string, rest: readonly string[], i: number): Cr
       break;
     case 'privacy':
       if (i === 1 && rest[0] === 'policy') return { kind: 'setting', key: seg };
+      break;
+    case 'attachments':
+      if (i === 0 && seg.startsWith('attachments.')) return { kind: 'setting', key: seg };
       break;
     case 'domains':
       if (i === 0) return word === 'new' ? { kind: 'word', word } : { kind: 'name', text: seg };

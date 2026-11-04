@@ -5609,6 +5609,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "ldap3",
+ "libc",
  "metrics",
  "metrics-exporter-prometheus",
  "mime_guess",

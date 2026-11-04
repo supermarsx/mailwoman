@@ -94,6 +94,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::admin_dashboard::register(r);
     crate::auth_logs::register(r);
     crate::signin_guard::register(r);
+    crate::security_alerts::register_admin(r);
     crate::request_protection::register(r);
     crate::admin_probe::register(r);
     crate::signin_geography::register(r);
@@ -102,6 +103,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::console_path::register(r);
     crate::client_access::register(r);
     crate::request_budget::register(r);
+    crate::signin_policy::register(r);
     crate::oidc_provider::register(r);
     crate::application_logs::register(r);
     // f02 (e24c): sign-in, the admin's own profile, admin accounts and roles.

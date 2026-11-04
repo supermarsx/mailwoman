@@ -52,6 +52,30 @@ interface Allowed {
 
 // Each entry needs a reason; an entry that matches nothing fails the test (no stale exemptions).
 const ALLOWLIST: Allowed[] = [
+  {
+    file: 'components/compose/nativeHtmlEditor.css.ts',
+    rule: 'colour',
+    text: "'#1e1f22'",
+    reason: 'the HTML editing frame previews the message on a fixed light or dark page, independent of the interface theme',
+  },
+  {
+    file: 'components/compose/nativeHtmlEditor.css.ts',
+    rule: 'colour',
+    text: "'#e8e8ea'",
+    reason: 'the HTML editing frame previews the message on a fixed light or dark page, independent of the interface theme',
+  },
+  {
+    file: 'components/compose/nativeHtmlEditor.css.ts',
+    rule: 'colour',
+    text: "'#ffffff'",
+    reason: 'the HTML editing frame previews the message on a fixed light or dark page, independent of the interface theme',
+  },
+  {
+    file: 'components/compose/nativeHtmlEditor.css.ts',
+    rule: 'colour',
+    text: "'#1f1f1f'",
+    reason: 'the HTML editing frame previews the message on a fixed light or dark page, independent of the interface theme',
+  },
   ...brandColors.map((text):Allowed=>({file:'components/senderIcons/brands.css',rule:'colour',text,reason:'bundled sender brand artwork uses its identifying accent; exact brand-only selectors checked below'})),
   ...AVATAR_COLORS.map((text):Allowed=>({file:'components/senderIcons/palette.css',rule:'colour',text,reason:'stable sender identity colour; generated palette paired with white initials at AA contrast'})),
   {

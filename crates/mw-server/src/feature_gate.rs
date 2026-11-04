@@ -88,6 +88,11 @@ static REST: &[RestGate] = &[
     ),
     gate("/api/image-proxy", Methods::All, "privacy.remote_images"),
     gate(
+        "/api/rc/batch",
+        Methods::Only(POST),
+        "privacy.remote_images",
+    ),
+    gate(
         "/api/remote-images/grant",
         Methods::Only(POST),
         "privacy.remote_images",

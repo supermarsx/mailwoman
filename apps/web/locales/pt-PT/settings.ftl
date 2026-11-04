@@ -518,6 +518,8 @@ settings-mail-feature-closeOnDelete = Fechar a mensagem ao apagá-la
 settings-mail-feature-closeOnDelete-help = Fecha a mensagem, o separador ou a janela abertos quando essa mensagem é apagada ou movida para o Lixo.
 settings-mail-feature-showGoToTop = Mostrar um botão Ir para o topo na lista de mensagens
 settings-mail-feature-showGoToTop-help = Adiciona um botão que volta ao início da lista, à primeira mensagem. Desativado por predefinição.
+settings-mail-feature-showCreateFolderButton = Mostrar um botão Criar pasta junto a Escrever
+settings-mail-feature-showCreateFolderButton-help = Adiciona na barra lateral um botão só com ícone para criar uma pasta. Desativado por predefinição.
 
 settings-draft-save = Rascunhos da conta
 settings-draft-save-help = Guarda na pasta Rascunhos da sua conta para acesso noutro dispositivo. O armazenamento é silencioso; só as falhas mostram uma notificação. As contas não suportadas e o conteúdo desencriptado protegido nunca são carregados sem aviso.

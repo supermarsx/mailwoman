@@ -321,3 +321,14 @@ admin-crumb-backend-mail = Correio
 admin-crumb-backend-submission = Envio
 admin-crumb-backend-rules = Regras
 admin-crumb-client-access = Acesso ao cliente
+admin-crumb-signin = Política de início de sessão
+
+admin-crumb-remote = Conteúdo remoto
+admin-crumb-image-proxy = Proxy de imagens
+admin-crumb-fetch-limits = Limites de obtenção
+admin-crumb-traffic = Tráfego
+admin-crumb-lists = Listas
+admin-crumb-limits = Limites
+admin-crumb-delivery = Transferência e pré-visualização
+admin-crumb-warnings = Avisos
+admin-crumb-test = Testar um ficheiro

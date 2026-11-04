@@ -325,3 +325,14 @@ admin-crumb-backend-mail = Mail
 admin-crumb-backend-submission = Sending
 admin-crumb-backend-rules = Rules
 admin-crumb-client-access = Client access
+admin-crumb-signin = Sign-in policy
+
+admin-crumb-remote = Remote content
+admin-crumb-image-proxy = Image proxy
+admin-crumb-fetch-limits = Fetch limits
+admin-crumb-traffic = Traffic
+admin-crumb-lists = Lists
+admin-crumb-limits = Limits
+admin-crumb-delivery = Download and preview
+admin-crumb-warnings = Warnings
+admin-crumb-test = Test a file

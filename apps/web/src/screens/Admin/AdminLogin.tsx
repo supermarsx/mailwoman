@@ -109,8 +109,12 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
         setRecovery(err.challenge.factors.includes('recovery') && !err.challenge.factors.includes('totp'));
       } else {
         if (err instanceof AdminApiError && err.status === 429) waitForRetry(err.retryAfterSecs ?? 3);
+        // The server can start requiring the challenge for this source (password spray,
+        // spike mode): re-read the public config so the widget appears.
+        const challengeRequired = (err as { code?: string }).code === 'signinChallengeRequired';
+        if (challengeRequired) void refreshBranding();
         setError(
-          err instanceof AdminApiError && err.status === 403 && needsVerification()
+          err instanceof AdminApiError && err.status === 403 && (needsVerification() || challengeRequired)
             ? t('auth-verification-required')
             : err instanceof AdminApiError && err.status === 401
             ? t('admin-login-invalid')

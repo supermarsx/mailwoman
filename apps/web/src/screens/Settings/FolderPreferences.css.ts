@@ -4,7 +4,7 @@ import { vars } from '../../theme/contract.css.ts';
 export const heading=style({display:'flex',alignItems:'start',justifyContent:'space-between',flexWrap:'wrap',gap:vars.space[3]});
 export const tools=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[2],maxInlineSize:'64rem'});
 export const search=style({display:'flex',alignItems:'center',gap:vars.space[2],flex:'1 1 16rem',maxInlineSize:'28rem',minInlineSize:0});
-globalStyle(`${search} > input`,{minInlineSize:0,inlineSize:'100%'});
+globalStyle(`${search} > input:not([type="checkbox"]):not([type="radio"])`,{minInlineSize:0,inlineSize:'100%'});
 export const bulk=style({display:'flex',alignItems:'center',flexWrap:'wrap',gap:vars.space[2],padding:vars.space[2],border:`${vars.border.hair} solid ${vars.color.borderStrong}`,background:vars.color.bgAlt,maxInlineSize:'64rem'});
 globalStyle(`${bulk} > span`,{fontWeight:vars.weight.medium,marginInlineEnd:vars.space[2]});
 export const wrap = style({maxInlineSize:'64rem',minInlineSize:0,overflowX:'auto'});

@@ -3322,6 +3322,7 @@ pub(crate) fn register_admin(r: &mut impl AdminRegistrar) {
     );
     admin_plugins::register(r);
     egress_admin::register(r);
+    crate::attachment_policy::register(r);
     assist_profiles::register(r);
 }
 

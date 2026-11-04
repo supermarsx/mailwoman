@@ -23,6 +23,7 @@ pub mod provider_accounts;
 pub mod request_protection;
 pub mod request_protection_model;
 mod security_center;
+pub mod sec_state;
 mod signin_challenges;
 pub use auth_logs::{AuthLogEvent, AuthLogLimits, AuthLogQuery, AuthSurface};
 pub use hosting_connections::{HostingConnectionRow, HostingCredentialChange, HostingMutation};
@@ -36,7 +37,9 @@ pub mod groups;
 pub mod jobs;
 pub mod personal_settings;
 mod smtp_policy_cache;
+pub mod client_timing;
 pub mod request_metrics;
+pub mod signin_admission;
 pub mod user_directory;
 pub mod user_lifecycle;
 pub use security_center::{RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
@@ -294,6 +297,12 @@ pub struct Store {
 }
 
 impl Store {
+    /// Identity of this store, stable across clones: lets a process-wide cache of
+    /// store-derived values stay separate per store.
+    pub fn instance_id(&self) -> uuid::Uuid {
+        self.cache_id
+    }
+
     /// Open a store, selecting the backend by DSN (plan §1.1):
     ///
     /// * `postgres://…` / `postgresql://…` → the Postgres backend

@@ -760,6 +760,7 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
             mw_server::inbound_http::serve(listener, app, http_limits, shutdown_signal()).await?;
         }
     }
+    mw_server::flush_trust_tiers().await;
     Ok(())
 }
 

@@ -60,6 +60,7 @@ mod login_failure;
 mod notification_policy;
 pub mod push;
 pub mod push_relay;
+mod client_timing;
 mod request_history;
 pub mod server_key;
 pub mod sharing;
@@ -127,6 +128,7 @@ pub mod jobs;
 // `gate_login` hook is called from both login branches below; `twofa_router()` is
 // merged into `router()`.
 mod admin_probe;
+mod admin_rotation;
 pub(crate) mod alerts;
 pub(crate) mod audit;
 mod deployment_security;
@@ -134,6 +136,7 @@ mod deployment_security;
 #[doc(hidden)]
 pub mod geoip;
 mod request_budget;
+mod protocol_guard;
 mod request_protection;
 mod security_center;
 mod server_text;
@@ -141,6 +144,22 @@ mod signin_challenge;
 mod signin_cooldown;
 mod signin_geography;
 mod signin_guard;
+pub(crate) mod signin_policy;
+mod trust_tier;
+/// Best-effort final save of the known-source table at graceful shutdown.
+pub async fn flush_trust_tiers() {
+    trust_tier::flush_on_shutdown().await;
+}
+mod sec_cfg;
+mod security_alerts;
+mod session_binding;
+mod session_theft;
+mod session_watch;
+mod signin_spike;
+mod signin_spray;
+mod account_geo_history;
+mod account_signin_geo;
+mod geo_lookup;
 pub(crate) mod step_up;
 pub mod twofa_routes;
 mod user_lifecycle;
@@ -890,6 +909,7 @@ pub(crate) struct AppState {
     started: std::time::Instant,
     config_snapshot: config_routes::BootConfigSnapshot,
     request_history: Arc<request_history::Recorder>,
+    client_timing: Arc<client_timing::Recorder>,
     store: Store,
     pub(crate) scheduler: Arc<jobs::Scheduler>,
     render_bin: Option<PathBuf>,
@@ -1333,6 +1353,8 @@ async fn build_app_inner(
     if !base_path.is_empty() {
         tracing::info!("serving under sub-path {base_path} (MW_BASE_PATH)");
     }
+    // Load the saved known-source table before serving, then keep it saved.
+    trust_tier::start(store.clone()).await;
     let request_protection = request_protection::Runtime::start(store.clone());
     let admin_probe = admin_probe::Runtime::start(store.clone());
     let state = AppState {
@@ -1340,6 +1362,7 @@ async fn build_app_inner(
         started: std::time::Instant::now(),
         config_snapshot,
         request_history: request_history::Recorder::start(store.clone()),
+        client_timing: client_timing::Recorder::start(store.clone()),
         store,
         scheduler: jobs::new_scheduler(),
         render_bin,
@@ -1486,6 +1509,7 @@ fn router(
         .merge(twofa_routes::twofa_router().layer(Extension(provider_plugins.clone())))
         .merge(step_up::user_router())
         .merge(security_center::router())
+        .merge(security_alerts::router())
         // t16 (26.16, e10 chain link 3): the additive route modules e6/e18/e10 deliver.
         // All session-authed and ride the same CSRF/security-headers middleware below.
         //   * image_proxy (e6, S7/S8): the anonymizing `/api/image-proxy` + the
@@ -1498,6 +1522,7 @@ fn router(
         .merge(prefs_routes::prefs_router())
         .merge(features::user_router())
         .merge(client_policy::router())
+        .merge(client_timing::router())
         .merge(import_routes::import_router())
         .merge(account_drafts::router())
         .merge(linked_accounts::router().layer(Extension(provider_plugins.clone())))
@@ -1605,6 +1630,11 @@ fn router(
             state.clone(),
             client_access::guard,
         ))
+        // Admin console session id rotation (interval and after step-up).
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin_rotation::guard,
+        ))
         // Innermost: reject cross-origin / missing-CSRF writes before handlers.
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -1613,6 +1643,11 @@ fn router(
         .layer(middleware::from_fn_with_state(
             state.clone(),
             signin_geography::session_guard,
+        ))
+        // Session binding, theft detection and the country-change alert.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            session_watch::guard,
         ))
         .layer(middleware::from_fn_with_state(
             state.clone(),
@@ -1636,6 +1671,13 @@ fn router(
         // (the Tauri origins plus `MW_NATIVE_ORIGINS`). Any other origin passes
         // through untouched, so the browser path emits no `Access-Control-*` headers.
         .layer(middleware::from_fn_with_state(state.clone(), native_cors))
+        // t49: HTTP protocol anomaly guard (framing, Host, request target, ...).
+        // Outside every routing, auth and body-parsing layer; /healthz and
+        // /readyz are never refused by it.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            protocol_guard::guard,
+        ))
         // t32-h10: a handler panic becomes a plain 500 (inside the security
         // headers) instead of a dropped connection; its message is only logged.
         .layer(middleware::from_fn_with_state(
@@ -2500,6 +2542,20 @@ async fn login(
         // Resolve the (possibly relative) upstream apiUrl to an absolute URL so
         // server-side proxying can reach it regardless of the browser origin.
         let api_url = resolve_api_url(&jmap_url, &session.api_url);
+        // `signin.newUsers`: proxy mode keeps no accounts row, so "existing" is the
+        // directory's record of an earlier sign-in. After the upstream accepted the
+        // password, before a session is issued.
+        let signin_kind = if ext.get::<signin_policy::Linking>().is_some() {
+            signin_policy::SigninType::Linked("jmap")
+        } else {
+            signin_policy::SigninType::Mail
+        };
+        match signin_policy::gate(&state, &username, signin_kind, false).await {
+            // A pending entry is consumed by the directory registration that every
+            // successful sign-in performs (`first_signin_at`).
+            Ok(_) => {}
+            Err(response) => return response,
+        }
         let primary_identity =
             match primary_identity::VerifiedLoginIdentity::proxy(&jmap_url, &account_id) {
                 Ok(identity) => identity,
@@ -2620,8 +2676,23 @@ async fn header_auth_login(
             Ok(upstream) => upstream,
             Err(_) => return Some(address_not_configured()),
         };
-        match engine_mode::engine_login(engine, upstream.url(), &username, &creds.password).await {
+        let (attempt, refused) = signin_policy::scoped(
+            signin_policy::Kind::Sso,
+            engine_mode::engine_login(engine, upstream.url(), &username, &creds.password),
+        )
+        .await;
+        if let Some(refused) = &refused {
+            signin_policy::record_refusal(state, refused).await;
+        }
+        match attempt {
             Ok((id, _)) => account_id = id,
+            Err(error)
+                if error.reason == login_failure::LoginFailureReason::NewUserRefused =>
+            {
+                return Some(signin_policy::refusal_response(
+                    signin_policy::explains(&state.store).await,
+                ));
+            }
             Err(_) => return Some(unauthorized()),
         }
         ("engine".to_string(), "engine".to_string())
@@ -2849,7 +2920,14 @@ async fn engine_login(
     body: LoginReq,
     server_url: &str,
 ) -> Response {
-    let attempt = match domain_provider::SelectedEws::for_login(&state.store, &body.username).await
+    // `signin.newUsers`: a mailbox being linked is a `linked` sign-in, not a `mail` one.
+    let kind = if ext.get::<signin_policy::Linking>().is_some() {
+        signin_policy::Kind::Linked
+    } else {
+        signin_policy::Kind::Mail
+    };
+    let (attempt, refused) = signin_policy::scoped(kind, async {
+    match domain_provider::SelectedEws::for_login(&state.store, &body.username).await
     {
         Ok(Some(selected)) => {
             if !selected
@@ -2874,7 +2952,12 @@ async fn engine_login(
         Err(_) => Err(login_failure::LoginFailure::new(
             login_failure::LoginFailureReason::Policy,
         )),
-    };
+    }
+    })
+    .await;
+    if let Some(refused) = &refused {
+        signin_policy::record_refusal(state, refused).await;
+    }
     let (account_id, username) = match attempt {
         Ok(pair) => pair,
         Err(error) => {
@@ -2894,6 +2977,10 @@ async fn engine_login(
             // password from an unreachable server. The public login answer
             // is unchanged.
             let mut response = match error.reason {
+                // `signin.newUsers`: 403 with a stable code, or the uniform 401.
+                login_failure::LoginFailureReason::NewUserRefused => {
+                    signin_policy::refusal_response(signin_policy::explains(&state.store).await)
+                }
                 login_failure::LoginFailureReason::Timeout => {
                     StatusCode::GATEWAY_TIMEOUT.into_response()
                 }
@@ -3082,6 +3169,7 @@ async fn rotate_session(State(state): State<AppState>, headers: HeaderMap) -> Re
     }
     state.step_up.forget_user(&old_id);
     state.sessions.rotate(&old_id, &new_id);
+    session_watch::on_rotate(&state, &old_id, &new_id).await;
     authenticated_response(&state, &new_id, json!({ "ok": true }))
 }
 

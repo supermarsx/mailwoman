@@ -65,7 +65,13 @@ pub(crate) async fn public_config(
     };
     let anti_bot = match crate::signin_challenge::config(&state).await {
         Ok(config) => {
-            json!({"mailbox":config.enabled(crate::signin_challenge::Surface::Mailbox),"admin":config.enabled(crate::signin_challenge::Surface::Admin)})
+            // A source guessing many usernames, or any unknown source during an
+            // instance-wide spike, is shown the challenge too.
+            let forced = match crate::scope_mw::proxy::client_ip(&headers, &ext) {
+                Some(ip) => crate::signin_challenge::forced_for_source(&state, ip).await,
+                None => false,
+            };
+            json!({"mailbox":forced || config.enabled(crate::signin_challenge::Surface::Mailbox),"admin":forced || config.enabled(crate::signin_challenge::Surface::Admin)})
         }
         Err(_) => return axum::http::StatusCode::SERVICE_UNAVAILABLE.into_response(),
     };

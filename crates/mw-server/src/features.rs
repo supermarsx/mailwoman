@@ -241,7 +241,7 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
             "privacy.remote_images",
             "reading",
             &["cap.remote_images"],
-            &["/api/image-proxy", "/api/remote-images/grant"],
+            &["/api/image-proxy", "/api/rc/batch", "/api/remote-images/grant"],
             &[],
         ),
         &["privacy.trackerOverrideAllowed"],

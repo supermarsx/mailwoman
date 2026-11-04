@@ -7,6 +7,7 @@ import { SectionTabs } from './shell/SectionTabs.tsx';
 import { sectionPath } from './shell/router.ts';
 import { SECURITY_TABS, canOpenSecurityTab } from './shell/securityNavigation.ts';
 import { SecurityDashboardView } from './SecurityDashboard.tsx';
+import { CountryFeaturesBanner } from './CountryFeaturesBanner.tsx';
 import { keySlug } from './Settings/keys.ts';
 import * as css from '../Settings/styles.css.ts';
 /** The sign-in policies the Requirements tab links to, each to its scoped, lockable editor. */
@@ -16,6 +17,7 @@ const BanEditor=lazy(()=>import('./BanEditor.tsx').then(m=>({default:m.BanEditor
 const AutomaticLocks=lazy(()=>import('./AutomaticLocks.tsx').then(m=>({default:m.AutomaticLocks})));
 const SigninGeography=lazy(()=>import('./SigninGeography.tsx').then(m=>({default:m.SigninGeographyPage})));
 const CountryDatabase=lazy(()=>import('./CountryDatabase.tsx').then(m=>({default:m.CountryDatabase})));
+const SigninPolicy=lazy(()=>import('./SigninPolicy.tsx').then(m=>({default:m.SigninPolicy})));
 const RequestProtection=lazy(()=>import('./RequestProtection.tsx').then(m=>({default:m.RequestProtection})));
 const SecurityPolicy=lazy(()=>import('./SecurityPolicy/index.tsx').then(m=>({default:m.AdminSecurityPolicy})));
 const InboundAllowlist=lazy(()=>import('./InboundAllowlist.tsx').then(m=>({default:m.InboundAllowlist})));
@@ -32,6 +34,7 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
   return <div class={css.stack}>
     <h2 class={css.heading}>{t('admin-security-center-title')}</h2>
     <SectionTabs label={t('admin-security-center-title')} items={tabs().map(tab=>({id:tab.id,label:t(tab.label),path:sectionPath('security',[tab.id])}))} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/>
+    <CountryFeaturesBanner showStatus={selected()==='geography'}/>
     <AdminSubtabPanel><Show when={allowed()} fallback={<p role="alert">{t('admin-security-tab-denied')}</p>}>
       <Switch>
         <Match when={selected()==='overview'}><SecurityDashboardView/></Match>
@@ -40,6 +43,7 @@ export function AdminSecurityCenter(props: TwoFactorPolicyProps): JSX.Element {
         <Match when={selected()==='locks'}><AutomaticLocks/></Match>
         <Match when={selected()==='geography'}><SigninGeography/></Match>
         <Match when={selected()==='geoip'}><CountryDatabase/></Match>
+        <Match when={selected()==='signin'}><SigninPolicy readOnly={!!shell && !shell.can.can('settings.write')}/></Match>
         <Match when={selected()==='protection'}><RequestProtection/></Match>
         <Match when={selected()==='policy'}><SecurityPolicy/></Match>
         <Match when={selected()==='inbound'}><InboundAllowlist/></Match>

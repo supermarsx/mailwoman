@@ -239,9 +239,9 @@
 .person-avatar[data-sender-icon="edp"] { border-color:#008576; }
 .person-avatar[data-sender-icon="goldenergy"] { border-color:#00ad6e; }
 .person-avatar[data-sender-icon="carregosa"] { border-color:#174b39; }
-.person-avatar[data-sender-icon="synology"],
-.person-avatar[data-sender-icon="qnap"],
-.person-avatar[data-sender-icon="truenas"],
+.person-avatar[data-sender-icon="synology"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="qnap"] { background-color:#ffffff; color:#111111; }
+.person-avatar[data-sender-icon="truenas"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="uzo"] { background-color:#ffffff; color:#111111; }
 .person-avatar[data-sender-icon="wtf"] { background-color:#111111; color:#ffffff; }
 .person-avatar[data-sender-icon="mailwoman"] { background-color:#111111; }

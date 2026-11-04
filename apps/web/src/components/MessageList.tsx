@@ -38,6 +38,7 @@ import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings,writeSetting} from '../api/settings.ts';
 import {mailFeature} from '../state/mailFeatures.ts';
 import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
+import { noteFolderSelected, noteMailboxList } from '../perf/clientTiming.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
 
@@ -521,6 +522,9 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     else scroller.scrollTop = 0;
     setCursor(0);
   }
+  // Load-time measurement (perf/clientTiming.ts): folder open starts here, the list reports its state.
+  createEffect(on(() => app.selectedMailboxId(), () => noteFolderSelected(), { defer: true }));
+  createEffect(() => noteMailboxList(app.listLoading(), rows().length));
   createEffect(on(app.listLoading, (busy, previous) => {
     if (!busy && previous) {
       setScrollTop(0); setCursor(0);

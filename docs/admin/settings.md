@@ -204,7 +204,64 @@ How long one request to the mail server may take, in seconds.
 <a id="signin.newUsers"></a>
 ### New users (`signin.newUsers`)
 
-Who may sign in for the first time. Changed in Sign-in policy.
+Who may create an account at first sign-in. Changed in Sign-in policy. The rule governs NEW accounts only; an identity that already has an account is never refused, so tightening it cannot lock anyone out.
+
+* `open` (default): any identity that authenticates against its mail server or identity provider is created.
+* `preprovisioned`: an administrator must have added the address in advance as a pending user (Sign-in policy, Pre-added users, or Users, Add). The entry is used up by the first sign-in and can expire. With `signin.preprovision.domainWide` on, a capped `*@domain` entry also admits.
+* `provisioned`: as `preprovisioned`, and a pending entry of any origin also admits, including imported and directory-synced users.
+* `closed`: no new accounts; only existing accounts sign in.
+
+The per-type keys below override this for one kind of sign-in. Precedence, first value that is not `inherit` wins: type for the domain, type global, then (linked mailboxes only) the provider kind before the type, then New users for the domain, New users global, then `open`. A refusal is the same 401 as a wrong password when `signin.refusalDetail` is `uniform`, otherwise 403 `signinNotProvisioned`; each is written to the security log as `signin-new-user-refused`. A stored `known` reads as `preprovisioned`.
+
+<a id="signin.newUsers.mail"></a>
+### Password sign-in: new users (`signin.newUsers.mail`)
+
+Rule for a new mailbox user signing in with a password (IMAP, POP3, Exchange). `inherit` uses `signin.newUsers`. Changed in Sign-in policy.
+
+<a id="signin.newUsers.sso"></a>
+### Single sign-on: new users (`signin.newUsers.sso`)
+
+Rule for a new user signing in through OIDC, OAuth, SAML or a trusted header. `inherit` uses `signin.newUsers`. Changed in Sign-in policy.
+
+<a id="signin.newUsers.linked"></a>
+### Linked mailboxes: new users (`signin.newUsers.linked`)
+
+Rule for linking a mailbox that has no account here yet, judged by the linked mailbox's own domain. `inherit` uses `signin.newUsers`. Changed in Sign-in policy.
+
+<a id="signin.newUsers.linked.imap"></a>
+### Linked IMAP mailboxes: new users (`signin.newUsers.linked.imap`)
+
+Rule for linked IMAP mailboxes only. `inherit` uses `signin.newUsers.linked`. Changed in Sign-in policy.
+
+<a id="signin.newUsers.linked.pop3"></a>
+### Linked POP3 mailboxes: new users (`signin.newUsers.linked.pop3`)
+
+Rule for linked POP3 mailboxes only. `inherit` uses `signin.newUsers.linked`. Changed in Sign-in policy.
+
+<a id="signin.newUsers.linked.ews"></a>
+### Linked Exchange mailboxes: new users (`signin.newUsers.linked.ews`)
+
+Rule for linked Exchange (EWS) mailboxes only. `inherit` uses `signin.newUsers.linked`. Changed in Sign-in policy.
+
+<a id="signin.preprovision.ttlDays"></a>
+### Pre-added user lifetime (days) (`signin.preprovision.ttlDays`)
+
+Default lifetime of a pending pre-provisioned user, in days. Changed in Sign-in policy.
+
+<a id="signin.preprovision.maxTtlDays"></a>
+### Longest pre-added user lifetime (days) (`signin.preprovision.maxTtlDays`)
+
+Longest lifetime an administrator may give a pending pre-provisioned user, in days. Changed in Sign-in policy.
+
+<a id="signin.preprovision.domainWide"></a>
+### Allow domain-wide pre-added entries (`signin.preprovision.domainWide`)
+
+Allow capped `*@domain` pending entries that admit any address of a domain until their use cap is reached. Off by default. Changed in Sign-in policy.
+
+<a id="signin.preprovision.retentionDays"></a>
+### Keep expired pending users (days) (`signin.preprovision.retentionDays`)
+
+Days an expired pending entry is kept before bounded cleanup removes it. Changed in Sign-in policy.
 
 <a id="signin.domainMode"></a>
 ### Sign-in domains (`signin.domainMode`)
@@ -240,6 +297,11 @@ How long an admin console session lasts without a request, in seconds.
 ### Console session limit (`admin.session.absoluteSecs`)
 
 The longest an admin console session lasts, in seconds, active or not.
+
+<a id="admin.session.rotateSecs"></a>
+### Console session id rotation (`admin.session.rotateSecs`)
+
+How often, in seconds, the admin console replaces the session id while it is in use (default 900, 0 turns interval rotation off; values under 60 act as 60). The id is also replaced right after a successful step-up confirmation. Sign-in already issues a new id every time. Rotation keeps the creation time, idle deadline and absolute deadline of the old session, so it never extends a session. The new cookie keeps the sign-in cookie's flags (`HttpOnly`, `SameSite=Strict`, the console path, `Secure` under the global rule) and the CSRF cookie is reissued. The old id is retired: presenting it again after `security.theft.rotationGraceSecs` (when theft detection is on) ends the whole admin session chain, writes a `session-security-alert` audit event for the administrator and adds an entry to the recent session alerts.
 
 <a id="passwd.policy.minLength"></a>
 ### Minimum password length (`passwd.policy.minLength`)
@@ -520,6 +582,21 @@ How many rows a metrics breakdown shows.
 
 How many days of hourly metric summaries are kept.
 
+<a id="observability.clientTiming.enabled"></a>
+### Browser load times (`observability.clientTiming.enabled`)
+
+Collect page load timings from signed-in browsers as anonymous aggregate histograms. Nothing identifies a person, session or page. Turn off to stop collection. See [Client load times](observability.md#client-load-times).
+
+<a id="observability.clientTiming.sampleRatePercent"></a>
+### Browser load time sample rate (`observability.clientTiming.sampleRatePercent`)
+
+Percentage of browser sessions that report load timings (1 to 100).
+
+<a id="observability.clientTiming.minSamples"></a>
+### Load time minimum samples (`observability.clientTiming.minSamples`)
+
+Median and 95th percentile load times stay hidden until a period has at least this many samples.
+
 <a id="diagnostics.retentionDays"></a>
 ### Diagnostics history (`diagnostics.retentionDays`)
 
@@ -712,8 +789,46 @@ Additional parallelism and cache controls are available in Admin › Privacy ›
 | <a id="privacy.imageCacheTtlCeilingSecs"></a>`privacy.imageCacheTtlCeilingSecs` | 21600 | 0–86400 | Longest cache lifetime in seconds in automatic cache mode, used on a high hit rate with free memory |
 | <a id="privacy.cacheTtlSecs"></a>`privacy.cacheTtlSecs` | 3600 s | 0–86400 s | Successful decoded-image reuse; zero disables reuse. |
 | <a id="privacy.negativeCacheTtlSecs"></a>`privacy.negativeCacheTtlSecs` | 10 s | 0–300 s | Eligible upstream-failure reuse; zero disables it. |
+| <a id="privacy.imageRamMaxMiB"></a>`privacy.imageRamMaxMiB` | 0 (no extra cap) | 0–1048576 MiB | Extra cap in MiB on the RAM tier of the image cache; zero leaves the automatic or manual cache size as the only limit. |
+| <a id="privacy.imageDiskEnabled"></a>`privacy.imageDiskEnabled` | off | on, off | Keep re-encoded remote images on disk as a second cache tier behind the RAM tier; off by default. |
+| <a id="privacy.imageDiskPath"></a>`privacy.imageDiskPath` | empty (a folder next to the database) | absolute path, at most 512 characters | Absolute directory for the image disk tier; empty uses an image-cache folder next to the database file. |
+| <a id="privacy.imageDiskMode"></a>`privacy.imageDiskMode` | auto | auto, manual | Disk tier size: auto takes a tenth of the free space between the floor and ceiling; manual uses privacy.imageDiskMaxMiB exactly. |
+| <a id="privacy.imageDiskMaxMiB"></a>`privacy.imageDiskMaxMiB` | 512 | 1–1048576 MiB | Disk tier size in MiB in manual disk mode. |
+| <a id="privacy.imageDiskFloorMiB"></a>`privacy.imageDiskFloorMiB` | 64 | 0–1048576 MiB | Smallest disk tier size in MiB in automatic disk mode. |
+| <a id="privacy.imageDiskCeilingMiB"></a>`privacy.imageDiskCeilingMiB` | 4096 | 0–1048576 MiB | Largest disk tier size in MiB in automatic disk mode. |
+| <a id="privacy.imageDiskEntries"></a>`privacy.imageDiskEntries` | 16384 | 16–1048576 | Most images kept on disk; also bounds the in-memory index. |
+| <a id="privacy.imageDiskEntryBytes"></a>`privacy.imageDiskEntryBytes` | 8388608 | 65536–67108864 | Largest single re-encoded image written to disk, in bytes. |
+| <a id="privacy.imageDiskMinHits"></a>`privacy.imageDiskMinHits` | 1 | 0–100 | Hits an entry needs before an eviction from RAM writes it to disk instead of dropping it. |
+| <a id="privacy.imageDiskWriteQueueMiB"></a>`privacy.imageDiskWriteQueueMiB` | 8 | 1–256 MiB | Bytes in MiB that may wait for the background disk writer; past it, evictions are dropped. |
+| <a id="privacy.imageTtlStepSecs"></a>`privacy.imageTtlStepSecs` | 600 s | 0–86400 s | Base seconds added to an entry's remaining lifetime on each hit, scaled up with its decayed hit count; zero keeps every entry at the base lifetime. |
+| <a id="privacy.imageTtlMaxSecs"></a>`privacy.imageTtlMaxSecs` | 86400 s | 60–2592000 s | Longest remaining lifetime in seconds an entry can accumulate through hits. |
+| <a id="privacy.imageMaxAgeSecs"></a>`privacy.imageMaxAgeSecs` | 604800 s | 3600–7776000 s | Absolute age in seconds after which an entry is refetched no matter how often it is hit. |
+| <a id="privacy.imageScoreHalfLifeSecs"></a>`privacy.imageScoreHalfLifeSecs` | 3600 s | 60–604800 s | Half-life in seconds of the hit count and recency used in the priority score. |
+| <a id="privacy.imageScoreDemoteMilli"></a>`privacy.imageScoreDemoteMilli` | 300 (0.3) | 0–10000 | Priority score in thousandths below which a RAM entry may be demoted to disk. |
+| <a id="privacy.imageScoreHysteresisPercent"></a>`privacy.imageScoreHysteresisPercent` | 50 % | 0–500 % | Percentage the promote threshold sits above the demote threshold, so entries do not flap between tiers. |
+| <a id="privacy.imageContextOpenPercent"></a>`privacy.imageContextOpenPercent` | 200 % | 100–1000 % | Score weight in percent for images requested for a message that is open. |
+| <a id="privacy.imageContextRecentPercent"></a>`privacy.imageContextRecentPercent` | 150 % | 100–1000 % | Score weight in percent for recently used images; background loads weigh 100. |
+| <a id="privacy.imageAccountSharePercent"></a>`privacy.imageAccountSharePercent` | 50 % | 1–100 % | Largest share in percent of the RAM tier one account may fill while other accounts are present. |
+| <a id="privacy.imageSweepSecs"></a>`privacy.imageSweepSecs` | 30 s | 5–3600 s | Seconds between background maintenance sweeps of the image cache. |
+| <a id="privacy.imageSnapshotSecs"></a>`privacy.imageSnapshotSecs` | 300 s | 0–86400 s (0 turns snapshots off) | Seconds between atomic snapshots of the disk index; zero turns snapshots off and restarts read each file header instead. |
+| <a id="privacy.imageSweepBatch"></a>`privacy.imageSweepBatch` | 256 | 16–8192 | Entries one maintenance sweep may expire, rescore or evict. |
 
 These limits are independent: increasing the account limit does not override the global network, pipeline or decoder ceiling. Higher decoder concurrency consumes more CPU and memory. Cached successes do not consume new network tokens. Every cache lookup still requires current authorization; setting TTL to zero does not weaken grants, tracker blocking, SSRF checks or egress routing.
+
+### Image proxy cache tiers
+
+All `privacy.image*` and `privacy.cache*` cache keys above form the **Image proxy** section of Admin › Settings. The cache has two tiers behind one in-memory index. Authentication, the display grant and the SSRF gate run before the cache is read, so an unauthenticated or ungranted request never touches either tier.
+
+- **RAM tier** (small): sized by `privacy.imageCacheMode` and its floors and ceilings, further capped by `privacy.imageRamMaxMiB`.
+- **Disk tier** (larger, off by default): `privacy.imageDiskEnabled`, with the directory in `privacy.imageDiskPath` (empty means an `image-cache` folder next to the database file). Size is automatic (a tenth of the usable space between `privacy.imageDiskFloorMiB` and `privacy.imageDiskCeilingMiB`, never more than half of it) or `privacy.imageDiskMaxMiB` exactly.
+- Lookup is RAM, then disk, then the network. A disk hit above the promote threshold moves into RAM. A RAM eviction writes to disk only when the image has at least `privacy.imageDiskMinHits` hits and a score above the demote threshold. Writes happen in a background worker, never on a request.
+- **Lifetime**: a cold image keeps the base lifetime (`privacy.imageCacheTtlFloorSecs` to `privacy.imageCacheTtlCeilingSecs` in automatic mode, `privacy.cacheTtlSecs` in manual mode). Each hit adds `privacy.imageTtlStepSecs` times one plus the log of the decayed hit count to the remaining lifetime, capped by `privacy.imageTtlMaxSecs` and never past `privacy.imageMaxAgeSecs` from creation. At the maximum age the image is fetched again: the fetch path keeps no upstream `ETag` or `Last-Modified`, so conditional revalidation is not available.
+- **Priority score**: value per byte, `(0.2 + ln(1 + hits)) * (0.25 + 0.75 * recency) * context / (1 + size / 32 KiB)`, with hits and recency halving every `privacy.imageScoreHalfLifeSecs`. A request that names a message weighs `privacy.imageContextOpenPercent` (`privacy.imageContextRecentPercent` after ten idle minutes); one that names none weighs 100. The server cannot tell a prefetch from a read beyond that. Placement uses `privacy.imageScoreDemoteMilli` and a promote threshold `privacy.imageScoreHysteresisPercent` above it. `privacy.imageAccountSharePercent` caps one account's share of RAM while other accounts use the cache.
+- **Index**: every entry, in either tier, has one in-memory record (tier, size, expiry, last use, hits, `ETag`, file name). A lookup that misses costs a hash and a map probe and no disk access. At start the index is rebuilt by a bounded directory scan; the atomic snapshot written every `privacy.imageSnapshotSecs` supplies hit counts and extended lifetimes for files whose sizes still match. A file that disappears is dropped from the index on the next read. Index records count against the RAM tier.
+- **Files**: one file per image, named by a 128-bit hash of the route and URL (the URL is never written), written under a temporary name and renamed, mode 0600 in a directory created 0700 on Unix. Only the cache's own files are ever deleted: leftover temporary files, expired, over-age, truncated or corrupt images and the snapshot. Other files in the directory are left alone.
+- **Failures**: a missing, full or read-only directory turns the disk tier off for 30 seconds at a time and the cache keeps serving from RAM; no request fails because of it. The readout shows the reason.
+
+The disk tier needs a writable path. The shipped images run as a non-root user with `/data` as the volume, and the hardened overlay makes the rest of the filesystem read-only. Nothing is written to disk unless `privacy.imageDiskEnabled` is on. To use it, either leave `privacy.imageDiskPath` empty, which uses `/data/image-cache` on the existing volume, or mount a dedicated writable volume (for example at `/cache/images`) and set the path to it. Admin › Settings › Image proxy shows the configured and effective values, per-tier size, entries, hit rate, hot and cold counts and promotions per minute.
 
 <a id="privacy.imageRetryAttempts"></a>
 <a id="privacy.imageRetryDelayMs"></a>
@@ -1120,6 +1235,195 @@ is managed under Security → Country database or supplied with `MW_GEOIP_DB`
 diagnostic under Observability before enabling. Existing authenticated requests and sessions are
 not governed by this initial sign-in policy; broader session geofencing is not implemented here.
 
+<a id="trust-tiers"></a>
+### Trust tiers, bot classes and the unknown-country admin block
+
+Every request gets one tier: authenticated (a valid session; never scaled), known (anonymous from an IPv4 address or IPv6 /64 with a successful sign-in inside `security.trust.knownTtlDays`) or unknown. The tier scales only anonymous request allowances: the per-address request budget, `/api/discover`, the sign-in cooldown and the challenge difficulty. It never bypasses a password, second factor, sign-in lockout, SSRF gate, active ban or abuse signal. Failed sign-ins and unauthenticated requests never make a source known. The table is bounded and holds a keyed hash of the source, its country, a last-seen time and a small account count. It is kept in memory and saved to the settings store (see Saved known sources below); at startup the saved copy is merged with a rebuild from the successful rows the authentication log still holds (`logs.auth.retentionDays`). A forwarded address counts only through the trusted-proxy rules; `/healthz` and `/readyz` are untouched. Changes apply within 30 seconds.
+
+**Saved known sources.** With `security.trust.persist` on (the default) the table is saved every `security.trust.persistIntervalSecs` (default 300 s, 30-3600), only when it changed, and once at graceful shutdown; a save never delays or fails a sign-in, and a failed save is logged once per interval and retried. Stored, in one row of the settings table named `trust-tier:v1` (no extra table or file): for each source a hash keyed from the server key (the address, or the IPv6 /64, is never stored), its two-letter country code, the last sign-in time, and up to 16 keyed hashes of account identifiers (used only as a count), plus the latest sign-in time per country. At most `security.trust.knownCapacity` sources are kept, the oldest dropped first, and entries older than `security.trust.knownTtlDays` are dropped both when saving and when loading, so nothing outlives the window. The row is authenticated with a key derived from the server key: a row that was edited, copied from another server or written by a newer version is ignored with one log line and the table starts from the authentication-log rebuild. Changing the server key therefore makes the saved table unusable. Replicas that share one store share the row: each save merges what is there (latest sign-in time wins, account hashes are united), and a save can briefly omit a peer's newest entries until the next interval. A snapshot restored after a rollback of the database can bring back sources whose sign-ins were within the window at the time of the snapshot; they expire by their own age. To forget every known source, call `DELETE {console}/security/trust-table` (needs `bans.write` and the ban step-up; Security, Admin probe shows the entry count, last save and entries restored at startup): the table and the saved row are emptied and earlier authentication-log rows are no longer used to rebuild it. Turning the setting off stops writing and loading; use the same action to remove a copy already saved.
+
+Bot classes (`security.trust.ua*`) act only on anonymous requests, by claimed user-agent (a header, not verified identity): `allow` skips the user-agent budget, `limit` keeps it, `block` answers 403 with `X-Robots-Tag: noindex, nofollow, noai`. A signed-in session is never blocked by class. `security.protection.userAgentExceptions` keeps a needed client allowed. The app serves no `robots.txt` or `ai.txt`.
+
+The admin-console country block adds a rule to admin-probe protection (it needs `security.adminProbe.enabled`): a probe of the console (probe list, console path guesses, unauthenticated console API calls, refused console sign-ins) from a source that is not known, not an authenticated administrator, and whose country has no successful sign-in inside the window and is not in `security.trust.adminGeoCountries`, counts toward `security.trust.adminGeoThreshold` and then blocks the source through the same tracker as other admin-probe blocks, with escalating lengths. The block shows in Security, Admin probe with the reason "admin discovery from unknown country" and is lifted with the existing one-click unblock. Without a readable country database nothing is blocked by this rule. To recover a locked-out administrator: sign in from another network, add the network to `security.adminProbe.allowlist`, add the country to `security.trust.adminGeoCountries`, or set `MW_ADMIN_GEO_ENABLED=false` (or `MW_ADMIN_PROBE_ENABLED=false`) and restart.
+
+<a id="account-signin-geography"></a>
+### Per-account sign-in country policy
+
+Off by default. `security.signin.accountGeoMode` is a global/domain/user setting: the administrator sets the instance default and can lock or force it; a user changes it under Settings, Security when not locked. `block-unusual-countries` refuses a sign-in from a country the account has not signed in from (the first sign-in is always allowed; the history is the account's own durable country list, see below); `block-foreign-countries` refuses countries outside the allowed list. Allowlisted IPs and countries (an instance-wide pair set by the administrator plus the account's own pair; the administrator can also write the account's own pair) always pass this policy and nothing else. It applies after credentials are proven, to webmail password, passkey, SSO and second-factor sign-ins, never to existing sessions, IMAP/SMTP/app-password clients or the admin console. A blocked sign-in is recorded in the authentication log (reason `account-geo-*`, with the country) and shows a generic message. Saving a policy that would block the caller's current address and country is refused (409 `signinGeographySelfLockout`). Recovery: another allowed network, an administrator editing the user's allowlist or turning the mode off for that user, or the operator setting the instance default and lock.
+
+**Accuracy:** country detection uses an IP geolocation database that can be wrong or out of date. VPNs, mobile carriers, proxies and travel can block a legitimate sign-in or let a foreign one through. Add trusted IPs or countries to the allowlist.
+
+<a id="account-geo-history"></a>
+#### Country history for "unusual countries"
+
+`block-unusual-countries` used to judge "usual" from the authentication log's retained rows, so it forgot as the log aged out (`logs.auth.retentionDays`, 7 days by default). It now keeps a separate, durable list per account, for `security.signin.accountGeoHistoryDays` days (default 365, 30 to 3650); a longer or shorter log retention no longer changes it.
+
+What is stored, exactly: one row in the settings table per account, key `acct-geo:v1:<account id>`, holding a list of at most 64 entries. Each entry is an ISO 3166 country code, the time of the first and the last successful sign-in from that country, and how many such sign-ins there were. Nothing else: no IP addresses, devices, user agents or sign-in methods. When the list is full the entry with the oldest last-seen time is dropped. Entries whose last sign-in is older than the retention are ignored immediately and removed by an hourly sweep.
+
+When it is written: only after a sign-in has completed (the geography decision allowed it and the session was kept), and only while the account's effective mode is `block-unusual-countries`. The first time the policy needs an account that has no list, the list is seeded once from the successful rows the authentication log still holds. The first sign-in of an account with an empty list is always allowed.
+
+The user sees the list under Settings, Security, Sign-in geography ("Countries seen") and can forget it. Forgetting empties the list, keeps a marker so the log is not read again for what happened before, and the next sign-in is allowed from anywhere and starts the list again. The row is removed when the account's identity is retired. Local-network addresses have no country and are never recorded.
+
+| Key | Default | Range | Meaning |
+|---|---|---|---|
+| <a id="security.trust.enabled"></a>`security.trust.enabled` | `true` | bool | Derive a trust tier per request. Off treats every anonymous request as unknown with the baseline limits. |
+| <a id="security.trust.knownTtlDays"></a>`security.trust.knownTtlDays` | `30` | 1-365 | How long a successful sign-in keeps its source known. |
+| <a id="security.trust.knownCapacity"></a>`security.trust.knownCapacity` | `10000` | 100-100000 | Most known sources kept in memory; the oldest is dropped first. |
+| <a id="security.trust.persist"></a>`security.trust.persist` | `true` | bool | Save the known-source table to the settings store and load it at startup (see Trust tiers). Off writes and loads nothing; a copy already saved stays until it is forgotten. |
+| <a id="security.trust.persistIntervalSecs"></a>`security.trust.persistIntervalSecs` | `300` | 30-3600 | Seconds between saves. A save happens only when the table changed since the last one, and once more at graceful shutdown. |
+| <a id="security.trust.unknownPercent"></a>`security.trust.unknownPercent` | `100` | 10-100 | Allowance of an unknown source as a percentage of the configured limits; lower is stricter. |
+| <a id="security.trust.knownPercent"></a>`security.trust.knownPercent` | `200` | 100-1000 | Allowance of a known source; 200 doubles request budgets and halves the sign-in cooldown and challenge difficulty. |
+| <a id="security.trust.uaMissing"></a>`security.trust.uaMissing` | `limit` | allow, limit, block | Anonymous request with an empty user-agent. |
+| <a id="security.trust.uaUncommon"></a>`security.trust.uaUncommon` | `limit` | allow, limit, block | Anonymous request with an unrecognised user-agent. |
+| <a id="security.trust.uaAutomation"></a>`security.trust.uaAutomation` | `limit` | allow, limit, block | Anonymous request claiming a script, HTTP library, headless browser or generic bot. |
+| <a id="security.trust.uaSearch"></a>`security.trust.uaSearch` | `limit` | allow, limit, block | Anonymous request claiming a search-engine crawler. |
+| <a id="security.trust.uaAiTraining"></a>`security.trust.uaAiTraining` | `block` | allow, limit, block | Claimed AI training crawler (GPTBot, ClaudeBot, CCBot, Amazonbot, Bytespider, Google-Extended, Applebot-Extended). |
+| <a id="security.trust.uaAiSearch"></a>`security.trust.uaAiSearch` | `block` | allow, limit, block | Claimed AI search crawler (OAI-SearchBot, PerplexityBot, Claude-SearchBot). |
+| <a id="security.trust.uaAiUser"></a>`security.trust.uaAiUser` | `block` | allow, limit, block | Claimed user-triggered AI fetcher (ChatGPT-User, Claude-User). |
+| <a id="security.trust.uaCustom"></a>`security.trust.uaCustom` | `limit` | allow, limit, block | Anonymous request matching `security.protection.userAgentPatterns`. |
+| <a id="security.trust.adminGeoEnabled"></a>`security.trust.adminGeoEnabled` | `true` | bool | Unknown-country admin-discovery block. `MW_ADMIN_GEO_ENABLED=false` pins it off for recovery. |
+| <a id="security.trust.adminGeoCountries"></a>`security.trust.adminGeoCountries` | `[]` | uppercase codes | Countries always treated as known, besides those of recent successful sign-ins. |
+| <a id="security.trust.adminGeoLookupFailure"></a>`security.trust.adminGeoLookupFailure` | `allow` | allow, unknown | Source without a country: allow (not blocked, logged) or treat as an unknown country. |
+| <a id="security.trust.adminGeoThreshold"></a>`security.trust.adminGeoThreshold` | `3` | 1-100 | Probes inside the window that start a block. |
+| <a id="security.trust.adminGeoWindowSecs"></a>`security.trust.adminGeoWindowSecs` | `600` | 60-86400 | Window for the threshold. |
+| <a id="security.trust.adminGeoBlockOnFirst"></a>`security.trust.adminGeoBlockOnFirst` | `false` | bool | Block on the first probe instead of the threshold. |
+| <a id="security.trust.adminGeoBlockSecs"></a>`security.trust.adminGeoBlockSecs` | `3600` | 60-2592000 | First block length. |
+| <a id="security.trust.adminGeoSecondBlockSecs"></a>`security.trust.adminGeoSecondBlockSecs` | `86400` | 60-2592000 | Second block length inside the repeat period. |
+| <a id="security.trust.adminGeoMaxBlockSecs"></a>`security.trust.adminGeoMaxBlockSecs` | `604800` | 60-2592000 | Third and later block length. |
+| <a id="security.trust.adminGeoRepeatDays"></a>`security.trust.adminGeoRepeatDays` | `30` | 1-365 | A block within this many days of the previous one is a repeat. |
+| <a id="security.signin.accountGeoMode"></a>`security.signin.accountGeoMode` | `off` | off, block-unusual-countries, block-foreign-countries | Per-account sign-in country policy (global/domain/user; admin lock supported). |
+| <a id="security.signin.accountGeoAllowCountries"></a>`security.signin.accountGeoAllowCountries` | `[]` | up to 50 ISO 3166 codes | The account's allowed countries. |
+| <a id="security.signin.accountGeoAllowIps"></a>`security.signin.accountGeoAllowIps` | `[]` | up to 50 IPs or CIDRs | The account's allowed IP addresses and networks; a single IPv6 means its /64. |
+| <a id="security.signin.accountGeoGlobalAllowCountries"></a>`security.signin.accountGeoGlobalAllowCountries` | `[]` | up to 100 ISO 3166 codes | Countries allowed for every account. |
+| <a id="security.signin.accountGeoGlobalAllowIps"></a>`security.signin.accountGeoGlobalAllowIps` | `[]` | up to 100 IPs or CIDRs | Addresses and networks allowed for every account. |
+| <a id="security.signin.accountGeoLookupFailure"></a>`security.signin.accountGeoLookupFailure` | `allow` | allow, deny | Source without a country while the per-account policy is on. |
+| <a id="security.signin.accountGeoHistoryDays"></a>`security.signin.accountGeoHistoryDays` | `365` | 30-3650 | Days a country stays in an account's own sign-in history (`block-unusual-countries`). Older entries are ignored and removed. |
+| <a id="security.geo.noDatabase"></a>`security.geo.noDatabase` | `allow` | allow, treat-as-unknown, block | Shared default when no country database is loaded. |
+| <a id="security.geo.notFound"></a>`security.geo.notFound` | `allow` | allow, treat-as-unknown, block | Shared default when the database has no entry for the address. |
+| <a id="security.signin.geoNoDatabase"></a>`security.signin.geoNoDatabase` | `block` | allow, block | Instance sign-in country policy (`geoScope`) when no database is loaded. |
+| <a id="security.geo.sessionLookupFailure"></a>`security.geo.sessionLookupFailure` | `ignore` | ignore, alert | Session alerts when a request's country cannot be told. |
+
+<a id="geo-lookup-failure"></a>
+### When a country cannot be determined
+
+Every country feature needs the local country database (Security, Country database). "No country" has two different causes, which the logs and the console keep apart:
+
+* **no database** (`no-database`): none is loaded or readable. The features below are effectively inert; the Security centre shows a warning card with a link to install one whenever a country feature is switched on while no database is loaded, and the Country database page shows its build date and age.
+* **not found** (`not-found`): a database is loaded and has no entry for the address (unallocated or reserved ranges).
+
+A third case is never a failure: **local network** addresses (loopback, private, link-local, 100.64.0.0/10, unique-local IPv6) have no country by nature. They are allowed by every country feature and never blocked, counted or alerted on.
+
+Values: `allow` (carry on, logged), `treat-as-unknown` (handle the source as a country on no list) and `block` (refuse a sign-in). `block` exists only where refusing is safe, which is a new sign-in; the admin-console rule treats it as `treat-as-unknown`, and no setting blocks an already-authenticated session for this reason except the older, explicit `security.signin.geoEnforceSessions`. Defaults keep today's behaviour.
+
+| Feature | No database | Not found |
+|---|---|---|
+| Per-account sign-in policy | stricter of `security.geo.noDatabase` and `security.signin.accountGeoLookupFailure` (`deny` = `block`) | stricter of `security.geo.notFound` and `security.signin.accountGeoLookupFailure` |
+| Instance sign-in policy (`security.signin.geoScope`) | `security.signin.geoNoDatabase` (`block` = fail closed, the default) | `security.signin.geoUnknown` |
+| Admin-console unknown-country block | stricter of `security.geo.noDatabase` (capped at `treat-as-unknown`) and `security.trust.adminGeoLookupFailure` (`unknown`) | the same with `security.geo.notFound` |
+| Session country-change alerts and travel checks | `security.geo.sessionLookupFailure` (`ignore` or `alert`, one alert per session per day) | same |
+| Trust tier known countries, adaptive protection country rules | no country is recorded; nothing is blocked | same |
+
+Precedence: a feature's own key and the shared `security.geo.*` default both apply and the stricter value wins (`allow` < `treat-as-unknown` < `block`). Treat-as-unknown in the per-account policy means: `block-foreign-countries` refuses the sign-in, and `block-unusual-countries` refuses it unless the account has no history (the first sign-in is still allowed).
+
+**Warning:** `block` for the sign-in policies refuses every non-local sign-in whose country cannot be told. With no database loaded that is every sign-in. Install and check the database before choosing it, and keep an allowlisted IP for the administrator.
+
+### Password spray: too many usernames from one source
+
+A person who mistypes a password fails with one or two usernames. A password-spraying client tries one common password against many usernames, so the number of different usernames one source has failed with is a better signal than the number of failures. The tracker counts distinct usernames per source (IPv4 /32, IPv6 /64) inside `security.spray.windowSecs`. The source is the client address resolved through the trusted-proxy rules only: a spoofed `X-Forwarded-For` from an untrusted peer is ignored. Only failures with the reasons auth-rejected and credential-rejected count; authenticated requests, successes and second-factor refusals are exempt. A successful sign-in never counts and removes that username from the source's set, so users behind an office or campus NAT who succeed do not add up.
+
+Defaults: 10 distinct usernames force the proof-of-work challenge for that source, 15 add extra pacing (`security.spray.paceSecs`, 10 seconds between attempts), 25 lock the source for `security.spray.lockSecs` (900) through the existing sign-in lock. A known source (a recent successful sign-in from the same address) has all three thresholds multiplied by `security.spray.knownMultiplier` (3). When the server starts requiring the challenge for a source that was not asked before, the public config turns `antiBot` on for that source and the refused request is answered 403 with `signinChallengeRequired`; the sign-in page then loads the challenge.
+
+Privacy: only a keyed HMAC-SHA256 hash (16 bytes) of the lower-cased username is kept, in memory only, at most 2048 names per source and `security.spray.capacity` sources (the oldest are dropped). Usernames and passwords are never stored. An administrator unlocking a source resets its count.
+
+| Key | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| <a id="security.spray.enabled"></a>`security.spray.enabled` | `true` | bool | Count the distinct usernames one source fails with. |
+| <a id="security.spray.windowSecs"></a>`security.spray.windowSecs` | `900` | 60-86400 | Window in which a source's failures are counted. |
+| <a id="security.spray.challengeAt"></a>`security.spray.challengeAt` | `10` | 2-1000 | Distinct failing usernames that force the proof-of-work challenge for the source. |
+| <a id="security.spray.paceAt"></a>`security.spray.paceAt` | `15` | 2-1000 | Distinct failing usernames that add extra pacing. |
+| <a id="security.spray.lockAt"></a>`security.spray.lockAt` | `25` | 2-1000 | Distinct failing usernames that lock the source through the existing sign-in lock. |
+| <a id="security.spray.paceSecs"></a>`security.spray.paceSecs` | `10` | 1-300 | Seconds between attempts at or above the pacing step. |
+| <a id="security.spray.lockSecs"></a>`security.spray.lockSecs` | `900` | 30-86400 | Length of the temporary lock. |
+| <a id="security.spray.knownMultiplier"></a>`security.spray.knownMultiplier` | `3` | 1-20 | Multiplier on the three thresholds for a known source (recent successful sign-in). |
+| <a id="security.spray.capacity"></a>`security.spray.capacity` | `20000` | 100-200000 | Most sources tracked in memory; the oldest are dropped first. |
+
+### Instance-wide spike detection (heightened mode)
+
+Spike detection watches the whole instance rather than one source. Failed sign-ins are counted in five-minute buckets with five metrics: failed sign-ins, distinct failing sources, distinct failing usernames, failure ratio, and a distributed-spray signature (sources that each failed with at least 3 usernames in the bucket). The baseline is a slow exponentially weighted average, kept globally and per hour-of-week slot (168 slots), with time constant `security.spike.adaptHours` (168). The effective baseline is the larger of the slot and the global value until a slot has 36 visits, then the slot (not below 25% of the global value).
+
+A signal needs the observed value to reach `security.spike.multiplierPercent` (400 = 4x) of the baseline and an absolute floor: 20 failures per minute (100 per bucket), 10 sources, 30 usernames per bucket; the ratio signal needs the failure floor and at least 60%. `security.spike.signalsRequired` (2) signals must trigger together; the distributed-spray signature counts as two. During `security.spike.warmupHours` (48) the baseline only learns and nothing is enforced.
+
+A spike bucket and every bucket during heightened mode never update the baseline; each baseline update is clamped to 1.5x the baseline plus half the floor, and a gap over one hour (a restart) is skipped, not filled with zeros. Heightened mode lasts `security.spike.durationSecs` (1800), extended while signals stay above half their trigger level, then expires.
+
+Heightened mode never locks the instance. Unknown-tier anonymous sign-ins need the proof-of-work challenge (`security.spike.forceChallenge`) and wait `security.spike.paceFactorPercent` (300) percent of the usual cooldown. Authenticated users and known sources are unaffected. The audit event `signin-spike-heightened` is the administrator alert, and Security, Adaptive protection shows the state read-only (`GET /security/session-watch`, capability `security.read`).
+
+The baseline is stored as one fixed-size JSON document (about 30 KB) under the settings key `spike:baseline:v1`, written at most once per bucket. The current-bucket sets are in memory, use 64-bit keyed hashes and are bounded.
+
+| Key | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| <a id="security.spike.enabled"></a>`security.spike.enabled` | `true` | bool | Learn a failed-sign-in baseline and enter heightened mode on an instance-wide spike. Never locks the instance. |
+| <a id="security.spike.multiplierPercent"></a>`security.spike.multiplierPercent` | `400` | 150-2000 | A signal counts at this percentage of its baseline (400 = four times). |
+| <a id="security.spike.minFailuresPerMin"></a>`security.spike.minFailuresPerMin` | `20` | 1-10000 | Floor for the failure-rate signal (failed sign-ins per minute). |
+| <a id="security.spike.minSources"></a>`security.spike.minSources` | `10` | 2-10000 | Floor for distinct failing sources per five-minute bucket. |
+| <a id="security.spike.minUsernames"></a>`security.spike.minUsernames` | `30` | 2-10000 | Floor for distinct failing usernames per five-minute bucket. |
+| <a id="security.spike.signalsRequired"></a>`security.spike.signalsRequired` | `2` | 1-4 | Signals that must trigger together; the distributed-spray signature counts as two. |
+| <a id="security.spike.warmupHours"></a>`security.spike.warmupHours` | `48` | 1-720 | Hours of traffic observed before any enforcement. |
+| <a id="security.spike.adaptHours"></a>`security.spike.adaptHours` | `168` | 6-2160 | Time constant of the baseline. |
+| <a id="security.spike.durationSecs"></a>`security.spike.durationSecs` | `1800` | 60-86400 | Length of heightened mode, extended while signals stay above half their trigger. |
+| <a id="security.spike.forceChallenge"></a>`security.spike.forceChallenge` | `true` | bool | Require the proof-of-work challenge for anonymous sign-ins from unknown sources in heightened mode. |
+| <a id="security.spike.paceFactorPercent"></a>`security.spike.paceFactorPercent` | `300` | 100-1000 | Sign-in wait for unknown sources in heightened mode, as a percentage of the usual wait. |
+
+### Session binding
+
+Each web cookie session is bound to keyed hashes of the client that created it: browser family and browser major version number (the number is stored plain so that automatic updates are tolerated), OS family, the `Sec-CH-UA-Platform` hint, optionally the primary `Accept-Language` tag, the country (on by default) and the network (IPv4 /16, IPv6 /48; off by default because mobile networks move). There is no ASN binding; the app has no ASN database. Only web cookie sessions are bound: webmail `/api` and `/jmap`, and the admin console. Requests with an `Authorization` header (native shells), `x-api-key`, IMAP, SMTP, DAV, MCP and OAuth protocol clients, and the sign-in routes are exempt. The record is created at the first cookie request of a session (the first call after the login response), also for sessions that predate the feature.
+
+Tolerant (default): any browser update is accepted; a version going back more than 2 majors, or a different browser family or OS, is a mismatch; the soft attributes (client-hints platform, language, country, network) mismatch only when two of them differ. Strict: any soft difference is a mismatch and a version more than 3 ahead is a mismatch. Missing headers never count. A blank User-Agent is recorded only and never acted on.
+
+The action is set per surface: `off`, `detect` (record only), `step-up` or `revoke`. Defaults are `step-up` for webmail and `revoke` for the admin console. Step-up flags the session: every request except sign-out and the step-up route gets 403 `step_up_required` until the user confirms the password and second factor in the existing step-up dialog.
+
+| Key | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| <a id="security.sessionBinding.enabled"></a>`security.sessionBinding.enabled` | `true` | bool | Bind each browser session to keyed hashes of its client attributes. |
+| <a id="security.sessionBinding.attributes"></a>`security.sessionBinding.attributes` | `["browser","os","hints","country"]` | list | Attributes bound: browser, os, hints, language, country, network (IPv4 /16, IPv6 /48). Unknown names are ignored. |
+| <a id="security.sessionBinding.strictness"></a>`security.sessionBinding.strictness` | `tolerant` | tolerant, strict | Tolerant accepts browser updates and one soft change; strict flags any soft difference. |
+| <a id="security.sessionBinding.webmailAction"></a>`security.sessionBinding.webmailAction` | `step-up` | off, detect, step-up, revoke | Action on a webmail session mismatch. |
+| <a id="security.sessionBinding.adminAction"></a>`security.sessionBinding.adminAction` | `revoke` | off, detect, step-up, revoke | Action on an admin console session mismatch. |
+
+### Session theft detection and country-change alerts
+
+Three findings are checked per cookie session. Rotated-id reuse: after `/api/session/rotate` the old id leaves a hash marker; presenting it again after `security.theft.rotationGraceSecs` (30) revokes the whole session family and alerts, regardless of the configured action. Impossible travel: a country change within `security.theft.minTravelSecs` (3600). Concurrent use: A, B, A alternation within 5 minutes, by country (default) or optionally by network. The response to the last two is set per surface: `alert`, `step-up` or `revoke`; defaults `step-up` for webmail and `revoke` for the admin console.
+
+Retention: `security.theft.retentionDays` (15). Per-session records and rotation markers (hashes, country codes, times) are swept hourly. They are stored in the settings table under `sess-sec:v1:<sha256>`, `sess-rot:v1:<sha256>`, notices under `sec-notice:v1:...` and a ring of the 50 most recent alerts under `sec-alerts:v1:recent`.
+
+Country-change alert: on by default for every session. It alerts once per new country per session (the start country counts as seen), with `security.alerts.countryChangeCooldownSecs` (300) between alerts. An administrator can change the default (`security.alerts.countryChange` is global/domain/user), lock it, or switch it off globally with `security.alerts.countryChangeEnabled`. A user's own "off" is honoured only if `security.alerts.countryChangeUserMute` is true; otherwise the server keeps alerting. Country detection may be inaccurate; VPNs and mobile networks can cause false changes.
+
+Channels (`security.alerts.channels`, a user choice that can be locked): `app`, `email` or `both`. Email means a message delivered into the user's own mailbox through the same path as other security alerts (engine APPEND or the guarded JMAP import). No outbound SMTP is used. If the account has no delivery session the alert stays in the app and the audit log. `security.alerts.emailEnabled` is the administrator switch. Sensitivity (`security.alerts.sensitivity`, a user choice): `low` reports only location findings and never steps up or revokes, halves the travel interval and turns concurrent use off; `normal` follows the configured actions; `high` doubles the travel interval and also checks concurrent networks.
+
+In-app notices: at most 20 per account, kept `security.alerts.noticeRetentionDays` (30). The audit event `session-security-alert` carries the reason, the country pair and the short session id, never the cookie. The user sees notices under Settings, Security, Sessions and can dismiss them or sign out everywhere.
+
+| Key | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| <a id="security.theft.enabled"></a>`security.theft.enabled` | `true` | bool | Session theft detection: rotated-id reuse, impossible travel, concurrent use. |
+| <a id="security.theft.rotationGraceSecs"></a>`security.theft.rotationGraceSecs` | `30` | 0-600 | How long a rotated id may still arrive (an in-flight request) before it counts as reuse. |
+| <a id="security.theft.minTravelSecs"></a>`security.theft.minTravelSecs` | `3600` | 60-172800 | A country change sooner than this is impossible travel. |
+| <a id="security.theft.concurrentUse"></a>`security.theft.concurrentUse` | `country` | off, country, network | Flag alternating use (A, B, A) from different countries or networks within five minutes. |
+| <a id="security.theft.webmailAction"></a>`security.theft.webmailAction` | `step-up` | alert, step-up, revoke | Response on a webmail session. Rotated-id reuse always revokes. |
+| <a id="security.theft.adminAction"></a>`security.theft.adminAction` | `revoke` | alert, step-up, revoke | Response on an admin console session. |
+| <a id="security.theft.retentionDays"></a>`security.theft.retentionDays` | `15` | 1-60 | How long per-session records and rotation markers are kept; at least the longest session lifetime. |
+| Key | Default | Range | Meaning |
+| --- | --- | --- | --- |
+| <a id="security.alerts.countryChange"></a>`security.alerts.countryChange` | `true` | bool | Country-change alert (global/domain/user; admin lock supported). Country detection may be inaccurate; VPNs and mobile networks can cause false changes. |
+| <a id="security.alerts.countryChangeEnabled"></a>`security.alerts.countryChangeEnabled` | `true` | bool | Global switch; off disables the alert for everyone. |
+| <a id="security.alerts.countryChangeCooldownSecs"></a>`security.alerts.countryChangeCooldownSecs` | `300` | 0-86400 | Minimum time between country-change alerts of one session. |
+| <a id="security.alerts.countryChangeUserMute"></a>`security.alerts.countryChangeUserMute` | `false` | bool | Whether a user's own "off" is honoured. |
+| <a id="security.alerts.channels"></a>`security.alerts.channels` | `both` | app, email, both | Delivery of session security warnings (global/domain/user; lockable). |
+| <a id="security.alerts.emailEnabled"></a>`security.alerts.emailEnabled` | `true` | bool | Allow delivery into the user's own mailbox. |
+| <a id="security.alerts.sensitivity"></a>`security.alerts.sensitivity` | `normal` | low, normal, high | Per-user sensitivity (global/domain/user; lockable). |
+| <a id="security.alerts.noticeRetentionDays"></a>`security.alerts.noticeRetentionDays` | `30` | 1-365 | How long in-app notices are kept (at most 20 per account). |
+
+Restart behaviour: mailbox idle and absolute timeouts and rotation state were already persisted (`sessions.created_at` and `activity_at`; `rotate_session_security` preserves them; admin sessions use `admin_sessions.expires_at` and `absolute_expires_at`). The in-process `SessionGuard` in `hardening.rs` is a secondary clock that re-seeds leniently after a restart and never overrides the persisted clock. Step-up proofs are in memory and are dropped on restart; the user confirms again.
+
+
 <a id="contacts.avatarMode"></a>
 ### Contact pictures (`contacts.avatarMode`)
 
@@ -1413,6 +1717,29 @@ Account draft saving supports global, domain and user defaults and administrator
 
 Defaults to true; global, domain and account overrides are supported, with administrator locks. Native SMTP/EWS submissions remove top-level X-Mailer, User-Agent and X-MimeOLE. Bodies, attachments and ARF report payloads are unchanged; upstream JMAP proxy sends are outside this boundary. See [outgoing header privacy](../deploy/outgoing-header-privacy.md) for pre-signed message conflicts and relay limitations.
 
+<a id="security.protocol.framingMode"></a>
+<a id="security.protocol.hostMode"></a>
+<a id="security.protocol.hostPinningMode"></a>
+<a id="security.protocol.pathControlMode"></a>
+<a id="security.protocol.targetMode"></a>
+<a id="security.protocol.pathLengthMode"></a>
+<a id="security.protocol.methodMode"></a>
+<a id="security.protocol.duplicateHeadersMode"></a>
+<a id="security.protocol.forwardedMode"></a>
+<a id="security.protocol.headerHygieneMode"></a>
+<a id="security.protocol.bodyMode"></a>
+<a id="security.protocol.maxPathBytes"></a>
+<a id="security.protocol.maxQueryBytes"></a>
+<a id="security.protocol.maxHeaderCount"></a>
+<a id="security.protocol.maxHeaderValueBytes"></a>
+<a id="security.protocol.maxCookieBytes"></a>
+<a id="security.protocol.maxBodyBytes"></a>
+<a id="security.protocol.allowedMethods"></a>
+<a id="security.protocol.allowedHosts"></a>
+<a id="security.protocol.exemptPrefixes"></a>
+
+An early middleware checks the method, version, request target and headers of every request before routing, sign-in or body parsing, and classes what it finds. Each class `*Mode` is `off`, `detect` (log, count, feed adaptive protection, allow) or `enforce` (reject with a minimal 400, 405, 413, 414, 417 or 431 that repeats nothing the client sent; `Connection: close` after framing and Host rejects). Defaults: `framingMode`, `hostMode` and `pathControlMode` enforce; every heuristic class detects. `/healthz` and `/readyz` are never refused. Counters per class and mode are shown in the Adaptive protection page and `GET /bans/protection`. `exemptPrefixes` switches the heuristic classes off for whole path segments under a prefix; framing and path-control findings are never exempted. The guard sees only what the HTTP server hands the application: see [protocol guard](protocol-guard.md) for what the framework already refuses, what a front proxy must do, and the deferred custom-rule and virtual-patching plan.
+
 <a id="security.protection.userAgentMode"></a>
 <a id="security.protection.userAgentBlockBots"></a>
 <a id="security.protection.userAgentCategories"></a>
@@ -1430,6 +1757,8 @@ User-agent protection is independently enabled (`userAgentMode: enforce`) even w
 `userAgentCategories` selects missing, uncommon, automation, search, ai-training, ai-search and ai-user. Setting `userAgentBlockBots: false` restores the previous request-budget behavior for bot classes: 600 requests per 60 seconds for missing/uncommon/automation/custom claims and 300 for search/AI claims by default. `userAgentWeakRequests`, `userAgentCrawlerRequests` and `userAgentWindowSecs` tune those allowances. `userAgentAdaptive` combines weak/repeated-request evidence with existing authoritative anomaly signals and rolling windows; missing or unfamiliar headers alone are not anomalies. `userAgentMaxAction` defaults to throttle and caps only weak/repeated escalation, not immediate bot blocks. Rate exhaustion and bot blocks use HTTP 429 with a temporary retry duration. Observe records decisions without refusing; off disables this extra dimension.
 
 `userAgentPatterns` and `userAgentExceptions` accept at most 32 case-insensitive Rust regular expressions, each at most 256 bytes, with bounded compiled size and no backreferences/lookaround. Additional matches use the custom automation class and are covered by first-request bot blocking when selected. Exceptions affect only this dimension, never other sign-in, rate or adaptive protections. Source addresses use the existing trusted-proxy rules and keyed identifiers; raw headers are not retained. The editor simulator previews the same classifier and policy without updating counters.
+
+The "what would happen" simulator (Security, Adaptive protection) can also include the trust tier (unknown, known, signed in), the claimed user-agent class, the country lookup result (a country code, not found, no database, or a local network address) and whether the request is an admin-console discovery probe. It then explains, in plain language: the per-address budget after `security.trust.unknownPercent` or `security.trust.knownPercent`, the sign-in cooldown and challenge difficulty after the same scaling, the action for the user-agent class (a signed-in session is never blocked by class), whether the unknown-country admin block would count the probe, with its threshold, window and first block length, and what sign-in heightened mode adds while it is on. These numbers come from the same functions the live request path calls (the simulator does not repeat their arithmetic), and the simulator never writes, counts or blocks anything. Saved trust and geography settings are used; unsaved drafts apply only to the protection rules.
 
 The optional [client interface access gate](client-access.md) has a dedicated redacted, conditional API rather than plaintext settings-registry keys. Access-key and entry-slug restrictions both default to disabled.
 
@@ -1574,6 +1903,8 @@ or HTML.
 `mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
 <a id="mail.showGoToTop"></a>
 `mail.showGoToTop` defaults false. When true, the message list shows a Go to top button that scrolls the list back to its first message without reloading it; scrolling is instant when the user prefers reduced motion. When false the button is not shown. Global/domain/user policy; enforced in the web client only.
+<a id="mail.showCreateFolderButton"></a>
+`mail.showCreateFolderButton` defaults false. When true, the sidebar shows an icon-only Create folder button next to Compose; it opens the same dialog as the Create folder menu item, with the parent set to the top level. When false the button is not shown (the folder context menu still offers New subfolder). Global/domain/user policy; enforced in the web client only.
 <a id="mail.afterDelete"></a>
 `mail.afterDelete` chooses what the reader shows after the open message is deleted: `next` (default), `previous` or `close`. Global/domain/user policy. See `mail.closeOnDelete`.
 <a id="reader.attachmentsAtEnd"></a>

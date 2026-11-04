@@ -14,8 +14,7 @@ test('adaptive controls show real evidence and clear the signed-in mailbox (coun
   for(const [key,value] of Object.entries({adaptiveMode:'off',rateMode:'off',adaptiveClients:false,adaptiveAdmins:false,shortAbsoluteAnomalies:1,shortRatioPercent:0,longAbsoluteAnomalies:0,longRatioPercent:0,throttleSecs:60,signals:['malformed']}))await set(`security.protection.${key}`,value);
   await page.goto(`${ADMIN}#/observability/protection`);await expect(page.getByRole('heading',{name:'Aggregate and adaptive protection'})).toBeVisible();
   await expect(page.getByText('Request budgets: Off. Adaptive protection: Off.')).toBeVisible();
-  await page.getByText('Configure modes, windows, thresholds, and exemptions').click();
-  await page.getByRole('button',{name:'Adaptive request protection',exact:true}).click();
+  await page.goto(`${ADMIN}#/settings/security.protection.adaptiveMode`);
   await page.getByRole('combobox',{name:/^Adaptive request protection — security\.protection\.adaptiveMode$/}).selectOption('observe');
   const saved=page.waitForResponse(response=>response.url().includes(`${ADMIN}/settings/security.protection.adaptiveMode`)&&response.request().method()==='PUT'&&response.ok());
   await page.getByRole('button',{name:'Save',exact:true}).click();await saved;
