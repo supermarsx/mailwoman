@@ -36,6 +36,7 @@ import * as bulk from './bulkBar.css.ts';
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings,writeSetting} from '../api/settings.ts';
+import {mailFeature} from '../state/mailFeatures.ts';
 import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
@@ -362,10 +363,11 @@ function ThreadHeadRow(props: {
 }
 
 /** The always-visible view toolbar: the reading-pane position control (W3). */
-function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean}): JSX.Element {
+function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean;goToTop?:(()=>void)|undefined}): JSX.Element {
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
       <Show when={!props.hideSelectionToggle}><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button></Show>
+      <Show when={props.goToTop}>{goToTop=><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} data-testid="list-go-to-top" aria-label={t('mail-go-to-top')} title={t('mail-go-to-top')} onClick={()=>goToTop()()}><Icon name="chevronUp"/></button>}</Show>
       <EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
     </div>
   );
@@ -511,6 +513,14 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   }
 
   let scroller: HTMLDivElement | undefined;
+  /** `mail.showGoToTop`: back to the first message of the list as loaded (no reload); instant under reduced motion. */
+  function goToTop(): void {
+    if (!scroller) return;
+    const still = (typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches) || document.documentElement.hasAttribute('data-reduced-motion');
+    if (typeof scroller.scrollTo === 'function') scroller.scrollTo({ top: 0, behavior: still ? 'auto' : 'smooth' });
+    else scroller.scrollTop = 0;
+    setCursor(0);
+  }
   createEffect(on(app.listLoading, (busy, previous) => {
     if (!busy && previous) {
       setScrollTop(0); setCursor(0);
@@ -807,7 +817,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
 
   return (
     <section class="list" data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
-      <ListToolbar hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
+      <ListToolbar goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={String(settings()['mail.messageListOrder']?.value??'newest')} disabled={settings()['mail.messageListOrder']?.locked===true} onChange={event=>void writeSetting('mail.messageListOrder',event.currentTarget.value).catch(()=>app.showToast('error',t('mail-list-order-error')))}><For each={['newest','oldest','sender','subject']}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>

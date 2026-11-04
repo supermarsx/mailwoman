@@ -13,10 +13,10 @@ beforeEach(()=>clearSettings());
 afterEach(()=>clearSettings());
 
 describe('mailFeature',()=>{
- it('keeps every feature on before settings load or when the server does not know the key',async()=>{
-  for(const feature of features)expect(mailFeature(feature)).toBe(true);
+ it('keeps every feature at its default (on, except the opt-in showGoToTop) before settings load or when the server does not know the key',async()=>{
+  for(const feature of features)expect(mailFeature(feature)).toBe(MAIL_FEATURE_DEFAULTS[feature]);
   await load({});
-  for(const feature of features)expect(mailFeature(feature)).toBe(true);
+  for(const feature of features)expect(mailFeature(feature)).toBe(MAIL_FEATURE_DEFAULTS[feature]);
  });
  it('follows the effective value of its own key only',async()=>{
   await load({'mail.allowReply':false,'mail.showAuthStatus':false});
@@ -29,6 +29,15 @@ describe('mailFeature',()=>{
  it('ignores a value that is not a boolean',async()=>{
   await load({'mail.allowPrint':'no'});
   expect(mailFeature('allowPrint')).toBe(true);
+ });
+});
+
+describe('go to top',()=>{
+ it('is off by default and follows mail.showGoToTop',async()=>{
+  expect(MAIL_FEATURE_DEFAULTS.showGoToTop).toBe(false);
+  expect(mailFeature('showGoToTop')).toBe(false);
+  await load({'mail.showGoToTop':true});
+  expect(mailFeature('showGoToTop')).toBe(true);
  });
 });
 

@@ -16,6 +16,8 @@ export const MAIL_FEATURE_DEFAULTS = {
   showSpam: true,
   showAuthStatus: true,
   closeOnDelete: true,
+  // Opt-in: the message list's Go to top button is off until an administrator or the user turns it on.
+  showGoToTop: false,
 } as const;
 
 export type MailFeature = keyof typeof MAIL_FEATURE_DEFAULTS;

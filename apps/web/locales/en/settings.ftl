@@ -520,6 +520,8 @@ settings-mail-feature-showAuthStatus = Show sender authentication results
 settings-mail-feature-showAuthStatus-help = Show the SPF, DKIM and DMARC results of a message in the reader.
 settings-mail-feature-closeOnDelete = Close a message when it is deleted
 settings-mail-feature-closeOnDelete-help = Close the open message, tab or window when that message is deleted or moved to Trash.
+settings-mail-feature-showGoToTop = Show a Go to top button in the message list
+settings-mail-feature-showGoToTop-help = Adds a button that scrolls the message list back to the first message. Off by default.
 
 settings-draft-save = Account drafts
 settings-draft-save-help = Save to your account’s Drafts folder for access on another device. Saving is quiet; only failures show a notification. Unsupported accounts and protected decrypted content are never silently uploaded.

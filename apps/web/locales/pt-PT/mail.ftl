@@ -493,6 +493,7 @@ mail-folder-counts = { $unread } não lidas, { $total } mensagens
 
 mail-print = Imprimir / Guardar como PDF
 mail-feature-off = Desativado nas suas definições ou pelo administrador
+mail-go-to-top = Ir para o topo
 mail-send-disabled = O envio está desativado nas suas definições ou pelo administrador. Ainda pode guardar um rascunho.
 mail-print-help = Imprima esta mensagem ou escolha «Guardar como PDF» na caixa de diálogo de impressão. As imagens externas continuam bloqueadas.
 

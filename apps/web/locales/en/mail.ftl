@@ -502,6 +502,7 @@ mail-folder-counts = { $unread } unread, { $total } messages
 
 mail-print = Print / Save as PDF
 mail-feature-off = Turned off by your settings or by your administrator
+mail-go-to-top = Go to top
 mail-send-disabled = Sending is turned off by your settings or by your administrator. You can still save a draft.
 mail-print-help = Print this message or choose Save as PDF in the print dialog. External images stay blocked.
 
