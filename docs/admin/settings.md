@@ -1538,6 +1538,34 @@ or HTML.
 `mail.showAuthStatus` defaults true. When false, the reader does not show the SPF, DKIM and DMARC results of the Authentication-Results header. Unrelated warnings (spoofed sender, unsafe content) are not tied to this setting.
 <a id="mail.closeOnDelete"></a>
 `mail.closeOnDelete` defaults true. When true, deleting or moving to Trash the message open in the reader, a tab or a detached pane closes that view, whether the delete came from the reader, the list, a shortcut, a bulk action or another client. When false the reader keeps its previous behaviour (`mail.afterDelete` decides what is shown next).
+<a id="mail.reader.unsafeHtmlMode"></a>
+`mail.reader.unsafeHtmlMode` defaults `sanitized`. For messages whose HTML is detected as unsafe: `sanitized` shows the cleaned HTML automatically, `ask` offers a per-message button to show it, `strict` shows only safe text. Active content and automatic remote resources stay blocked in every mode. Global/domain/user policy; a lock enforces the mode.
+<a id="reader.attachmentsDensity"></a>
+`reader.attachmentsDensity` is `compact` (default) or `comfortable` and sets the spacing of the reader's attachment list. Global/domain/user policy.
+<a id="cap.reading.original_html"></a>
+`cap.reading.original_html` defaults true. When false, the isolated original HTML reader option is not offered. It does not authorize scripts or unrestricted remote resources. See `mail.reader.allowOriginalHtml`.
+<a id="links.trustedSenders"></a>
+`links.trustedSenders` is a list of exact sender mailboxes (up to 100 entries, 254 characters each). Links in messages from a listed sender may open from Review links without per-message consent. Default empty. Global/domain/user policy.
+<a id="appearance.fontSize"></a>
+`appearance.fontSize` is the interface font size in pixels, 12 to 24, default 14. Global/domain/user policy.
+<a id="appearance.fontWeight"></a>
+`appearance.fontWeight` is the base interface font weight: `300`, `400` (default), `500` or `600`. Emphasized text keeps its hierarchy relative to the base. Global/domain/user policy.
+<a id="appearance.fontColor"></a>
+`appearance.fontColor` is the interface text colour as `#RRGGBB`, up to 7 characters. Empty (default) follows the theme. Global/domain/user policy.
+<a id="appearance.lowContrast"></a>
+`appearance.lowContrast` defaults false. When true, interface text contrast is softened. Global/domain/user policy.
+<a id="mail.messageListStyle"></a>
+`mail.messageListStyle` is `cards` (default) or `table`; `table` shows Gmail-style rows with column headings. Global/domain/user policy.
+<a id="mail.messageListOrder"></a>
+`mail.messageListOrder` orders the message list: `newest` (default), `oldest`, `sender` or `subject`. Global/domain/user policy.
+<a id="mail.messageListPreview"></a>
+`mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
+<a id="mail.afterDelete"></a>
+`mail.afterDelete` chooses what the reader shows after the open message is deleted: `next` (default), `previous` or `close`. Global/domain/user policy. See `mail.closeOnDelete`.
+<a id="reader.attachmentsAtEnd"></a>
+`reader.attachmentsAtEnd` defaults false. When true, the reader shows attachments after the message body instead of before it. Global/domain/user policy.
+<a id="notifications.askPermission"></a>
+`notifications.askPermission` defaults true. When true, the web client offers the browser notification permission prompt on devices that have neither allowed nor blocked notifications. Global/domain/user policy.
 
 ### Sending identity defaults
 
