@@ -19,6 +19,7 @@ import { SourceBadge } from '../shell/SourceBadge.tsx';
 import { AdminPage, PageState } from '../shell/templates/PageFrame.tsx';
 import { ListDetailPage } from '../shell/templates/ListDetailPage.tsx';
 import { resourceValue } from '../../../components/resourceValue.ts';
+import { ImageProxyReadout } from './ImageProxyReadout.tsx';
 import { CATEGORIES } from './keys.ts';
 import { categoryLabel, settingLabel } from './labels.ts';
 import { SettingDetail, sourceOf } from './SettingDetail.tsx';
@@ -88,6 +89,7 @@ export function AdminSettings(props: AdminSettingsProps): JSX.Element {
         section="settings"
         route={route()}
         testId="admin-settings"
+        before={<Show when={category() === 'imageProxy'}><ImageProxyReadout /></Show>}
         compactActions
         table={{
           caption: t('admin-settings-list-caption'),

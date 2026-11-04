@@ -40,3 +40,12 @@ export const inlineForm = style({
   gap: vars.space[3],
   minWidth: 0,
 });
+
+/** One setting edited in place (InlineSettingEditor). */
+export const inlineCard = style({
+  display: 'flex', flexDirection: 'column', gap: vars.space[3], minInlineSize: 0,
+  paddingBlock: vars.space[4], borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+});
+export const inlineHead = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'baseline', gap: vars.space[3], minInlineSize: 0 });
+export const inlineTitle = style({ margin: 0, fontSize: '1rem' });
+export const inlineEffective = style({ marginInlineStart: 'auto', color: vars.color.textDim, fontSize: '0.875rem', overflowWrap: 'anywhere' });

@@ -125,9 +125,14 @@ test('privacy and outbound sections show real policy and process diagnostics @ph
   await expect(page.getByRole('button',{name:'Sign in',exact:true})).toHaveCount(0);
   await page.goto(`${adminPath}#/privacy`);
   await expect(page.getByRole('heading',{name:'Privacy and remote content',exact:true})).toBeVisible();
-  await expect(page.getByText('Since this server process started',{exact:true})).toBeVisible();
+  await expect(page.getByRole('navigation',{name:'Privacy and remote content'}).getByRole('link',{name:'Image proxy'})).toBeVisible();
   await expect(page.getByText('Cached images',{exact:true})).toBeVisible();
-  await expect(page.getByRole('link',{name:'Edit policy'})).toHaveCount(7);
+  // Policies are edited in place on their tab; the old Edit policy links are gone.
+  await page.goto(`${adminPath}#/privacy/remote`);
+  await expect(page.getByTestId('inline-setting').first()).toBeVisible();
+  await expect(page.getByRole('link',{name:'Edit policy'})).toHaveCount(0);
+  await page.goto(`${adminPath}#/privacy/traffic`);
+  await expect(page.getByText('Since this server process started',{exact:true})).toBeVisible();
   await page.screenshot({path:info.outputPath('privacy-policy.png'),fullPage:true});
   await page.goto(`${adminPath}#/egress`);
   await expect(page.getByRole('heading',{name:'Outbound connections',exact:true})).toBeVisible();

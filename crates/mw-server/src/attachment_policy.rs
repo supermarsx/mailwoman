@@ -5,7 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 #[derive(Clone, Debug, Serialize)]
@@ -76,6 +76,63 @@ impl Policy {
                 && (extension(&self.warn_extensions) || mime_matches(&self.warn_mime_types)),
             reason,
         }
+    }
+
+    /// Nested messages and TNEF are refused outright while any restriction is on.
+    pub fn container_restricted(&self, filename: &str, mime: &str) -> bool {
+        let mime = mime
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        self.restricts_content()
+            && (matches!(
+                mime.as_str(),
+                "message/rfc822"
+                    | "message/global"
+                    | "application/ms-tnef"
+                    | "application/vnd.ms-tnef"
+            ) || filename.to_ascii_lowercase().ends_with(".eml"))
+    }
+
+    /// The rule lists a file matches, as `list` names (`blockedExtensions`, ...).
+    pub fn matched_lists(&self, filename: &str, mime: &str) -> Vec<&'static str> {
+        let name = filename
+            .rsplit(['/', '\\'])
+            .next()
+            .unwrap_or("")
+            .trim_end_matches([' ', '.'])
+            .to_ascii_lowercase();
+        let mime = mime
+            .split(';')
+            .next()
+            .unwrap_or("")
+            .trim()
+            .to_ascii_lowercase();
+        let ext = |list: &[String]| list.iter().any(|e| name.ends_with(&format!(".{e}")));
+        let mm = |list: &[String]| {
+            list.iter().any(|rule| {
+                rule == &mime
+                    || rule
+                        .strip_suffix("/*")
+                        .is_some_and(|top| mime.starts_with(&format!("{top}/")))
+            })
+        };
+        let mut out = Vec::new();
+        for (label, hit) in [
+            ("allowedExtensions", ext(&self.allowed_extensions)),
+            ("allowedMimeTypes", mm(&self.allowed_mime_types)),
+            ("blockedExtensions", ext(&self.blocked_extensions)),
+            ("blockedMimeTypes", mm(&self.blocked_mime_types)),
+            ("warnExtensions", ext(&self.warn_extensions)),
+            ("warnMimeTypes", mm(&self.warn_mime_types)),
+        ] {
+            if hit {
+                out.push(label);
+            }
+        }
+        out
     }
 
     pub fn restricts_content(&self) -> bool {
@@ -169,19 +226,7 @@ pub(crate) fn authorize(
     }
     // Nested messages/TNEF can carry attachments that outer metadata does not
     // enumerate. Do not provide an export bypass under restrictive rules.
-    let mime = metadata
-        .mime
-        .split(';')
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_ascii_lowercase();
-    if policy.restricts_content()
-        && (matches!(
-            mime.as_str(),
-            "message/rfc822" | "message/global" | "application/ms-tnef" | "application/vnd.ms-tnef"
-        ) || metadata.name.to_ascii_lowercase().ends_with(".eml"))
-    {
+    if policy.container_restricted(&metadata.name, &metadata.mime) {
         return Err(refusal("attachmentContainerRestricted"));
     }
     Ok(decision)
@@ -425,6 +470,163 @@ pub(crate) async fn get(
     }
 }
 
+/// `POST /admin/attachments/simulate`: what the server's own evaluator decides for
+/// one file. Reads the stored global policy; `draft` members replace single fields
+/// so an unsaved edit can be tried. Changes nothing.
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct SimulateRequest {
+    #[serde(default)]
+    pub filename: String,
+    #[serde(default)]
+    pub mime: String,
+    #[serde(default)]
+    pub size: u64,
+    #[serde(default)]
+    pub draft: DraftPolicy,
+}
+
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct DraftPolicy {
+    pub preview_allowed: Option<bool>,
+    pub download_allowed: Option<bool>,
+    pub max_bytes: Option<u64>,
+    pub allowed_extensions: Option<Vec<String>>,
+    pub blocked_extensions: Option<Vec<String>>,
+    pub warn_extensions: Option<Vec<String>>,
+    pub allowed_mime_types: Option<Vec<String>>,
+    pub blocked_mime_types: Option<Vec<String>>,
+    pub warn_mime_types: Option<Vec<String>>,
+}
+
+const MAX_RULES: usize = 100;
+
+fn checked(
+    field: &'static str,
+    list: Option<Vec<String>>,
+    mime: bool,
+    current: &mut Vec<String>,
+) -> Result<(), crate::admin_ctx::AdminApiError> {
+    let Some(list) = list else { return Ok(()) };
+    if list.len() > MAX_RULES {
+        return Err(crate::admin_ctx::AdminApiError::invalid(
+            "tooManyRules",
+            "too many rules",
+            format!("/draft/{field}"),
+        ));
+    }
+    if let Some(bad) = list.iter().find(|rule| !valid_rule(rule, mime)) {
+        return Err(crate::admin_ctx::AdminApiError::invalid(
+            "invalidRule",
+            format!("not a valid rule: {bad}"),
+            format!("/draft/{field}"),
+        ));
+    }
+    *current = list;
+    Ok(())
+}
+
+/// The global policy the simulator starts from: stored globals, no domain, no user.
+async fn global_policy(state: &AppState) -> Result<Policy, crate::admin_ctx::AdminApiError> {
+    let subject = mw_store::settings_policy::SettingSubject::default();
+    let read = |field: &'static str| async move {
+        let key = format!("attachments.{field}");
+        settings_registry::effective_for(&state.store, &key, &subject)
+            .await
+            .map_err(crate::admin_ctx::AdminApiError::internal)?
+            .map(|e| e.value)
+            .ok_or_else(|| {
+                crate::admin_ctx::AdminApiError::internal(format!("{key} is not registered"))
+            })
+    };
+    let list = |v: serde_json::Value| -> Vec<String> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|x| x.as_str().map(str::to_owned))
+            .collect()
+    };
+    Ok(Policy {
+        preview_allowed: read("previewAllowed").await?.as_bool().unwrap_or(false),
+        download_allowed: read("downloadAllowed").await?.as_bool().unwrap_or(false),
+        max_bytes: read("maxBytes").await?.as_u64().unwrap_or(0),
+        allowed_extensions: list(read("allowedExtensions").await?),
+        blocked_extensions: list(read("blockedExtensions").await?),
+        warn_extensions: list(read("warnExtensions").await?),
+        allowed_mime_types: list(read("allowedMimeTypes").await?),
+        blocked_mime_types: list(read("blockedMimeTypes").await?),
+        warn_mime_types: list(read("warnMimeTypes").await?),
+    })
+}
+
+/// Apply a draft over a policy, validating every rule.
+pub(crate) fn apply_draft(
+    mut policy: Policy,
+    draft: DraftPolicy,
+) -> Result<Policy, crate::admin_ctx::AdminApiError> {
+    if let Some(v) = draft.preview_allowed {
+        policy.preview_allowed = v;
+    }
+    if let Some(v) = draft.download_allowed {
+        policy.download_allowed = v;
+    }
+    if let Some(v) = draft.max_bytes {
+        policy.max_bytes = v;
+    }
+    checked("allowedExtensions", draft.allowed_extensions, false, &mut policy.allowed_extensions)?;
+    checked("blockedExtensions", draft.blocked_extensions, false, &mut policy.blocked_extensions)?;
+    checked("warnExtensions", draft.warn_extensions, false, &mut policy.warn_extensions)?;
+    checked("allowedMimeTypes", draft.allowed_mime_types, true, &mut policy.allowed_mime_types)?;
+    checked("blockedMimeTypes", draft.blocked_mime_types, true, &mut policy.blocked_mime_types)?;
+    checked("warnMimeTypes", draft.warn_mime_types, true, &mut policy.warn_mime_types)?;
+    Ok(policy)
+}
+
+/// The simulator's answer for one file under `policy`.
+pub(crate) fn simulate_decision(policy: &Policy, filename: &str, mime: &str, size: u64) -> serde_json::Value {
+    let mut decision = policy.decide(filename, mime, size);
+    if decision.reason.is_none() && policy.container_restricted(filename, mime) {
+        decision = Decision {
+            download_allowed: false,
+            preview_allowed: false,
+            warning: false,
+            reason: Some("attachmentContainerRestricted"),
+        };
+    }
+    json!({
+        "decision": decision,
+        "matched": policy.matched_lists(filename, mime),
+        "policy": policy,
+    })
+}
+
+pub(crate) async fn simulate(
+    axum::extract::State(state): axum::extract::State<AppState>,
+    ctx: crate::admin_ctx::AdminCtx,
+    Json(request): Json<SimulateRequest>,
+) -> Result<Json<serde_json::Value>, crate::admin_ctx::AdminApiError> {
+    ctx.require(crate::capabilities::Capability::SettingsRead)?;
+    if request.filename.len() > 1024 || request.mime.len() > 255 {
+        return Err(crate::admin_ctx::AdminApiError::invalid(
+            "tooLong",
+            "filename or MIME type too long",
+            "/filename",
+        ));
+    }
+    let policy = apply_draft(global_policy(&state).await?, request.draft)?;
+    Ok(Json(simulate_decision(&policy, &request.filename, &request.mime, request.size)))
+}
+
+pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
+    r.admin_endpoint(
+        axum::http::Method::POST,
+        "/attachments/simulate",
+        crate::capabilities::Capability::SettingsRead,
+        simulate,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,5 +717,41 @@ mod tests {
         for rule in [".exe", "*", "a..b", "exe ", "../exe"] {
             assert!(!valid_rule(rule, false));
         }
+    }
+
+    #[test]
+    fn simulator_uses_the_evaluator_and_reports_matches() {
+        let mut p = policy();
+        p.blocked_extensions = vec!["exe".into()];
+        p.warn_mime_types = vec!["application/zip".into()];
+        let blocked = simulate_decision(&p, "Run.EXE", "application/octet-stream", 5);
+        assert_eq!(blocked["decision"]["reason"], "attachmentBlocked");
+        assert_eq!(blocked["matched"][0], "blockedExtensions");
+        let warn = simulate_decision(&p, "a.zip", "application/zip", 5);
+        assert_eq!(warn["decision"]["warning"], true);
+        let container = simulate_decision(&p, "m.eml", "message/rfc822", 5);
+        assert_eq!(container["decision"]["reason"], "attachmentContainerRestricted");
+    }
+
+    #[test]
+    fn simulator_draft_replaces_fields_and_rejects_bad_rules() {
+        let draft = DraftPolicy {
+            max_bytes: Some(10),
+            blocked_extensions: Some(vec!["bat".into()]),
+            ..DraftPolicy::default()
+        };
+        let p = apply_draft(policy(), draft).unwrap();
+        assert_eq!(simulate_decision(&p, "a.bat", "text/plain", 1)["decision"]["reason"], "attachmentBlocked");
+        assert_eq!(simulate_decision(&p, "a.txt", "text/plain", 11)["decision"]["reason"], "attachmentTooLarge");
+        let bad = DraftPolicy {
+            blocked_mime_types: Some(vec!["notamime".into()]),
+            ..DraftPolicy::default()
+        };
+        assert!(apply_draft(policy(), bad).is_err());
+        let upper = DraftPolicy {
+            allowed_extensions: Some(vec![".PDF".into()]),
+            ..DraftPolicy::default()
+        };
+        assert!(apply_draft(policy(), upper).is_err());
     }
 }

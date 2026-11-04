@@ -36,6 +36,8 @@ export interface ListDetailPageProps<R> {
   /** Navigate in place. Default: the shell router. */
   navigate?: (path: string) => void;
   testId?: string;
+  /** Content above the list (a section's readout); not shown while an item is open. */
+  before?: JSX.Element;
 }
 
 export function ListDetailPage<R>(props: ListDetailPageProps<R>): JSX.Element {
@@ -93,6 +95,7 @@ export function ListDetailPage<R>(props: ListDetailPageProps<R>): JSX.Element {
     >
       <div class={ux.listDetail} data-detail-open={selected() !== undefined ? '' : undefined}>
         <Show when={!selected()}><div class={ux.listPane}>
+          {props.before}
           <DataTable {...props.table} rowActions={rowActions} />
         </div></Show>
         <Show when={selected()}>

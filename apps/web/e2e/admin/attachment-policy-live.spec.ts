@@ -43,8 +43,9 @@ test('stored attachment policy blocks renamed downloads and requires warning ack
     const login=page.waitForResponse(response=>new URL(response.url()).pathname===`${ADMIN}/login`&&response.request().method()==='POST');
     await page.getByRole('button',{name:'Sign in',exact:true}).click();expect((await login).status()).toBe(200);
     await page.goto(`${ADMIN}#/attachments`);
-    await expect(page.getByRole('heading',{name:'Delivery and preview rules'})).toBeVisible();
-    await expect(page.getByRole('heading',{name:'Blocked filename extensions'})).toBeVisible();
+    await expect(page.getByRole('heading',{name:'Allow and block lists'}).first()).toBeVisible();
+    // The block rule stored above is shown as an editable chip.
+    await expect(page.getByTestId('attachment-list-blocked-extension').getByText('exe',{exact:true})).toBeVisible();
     await page.screenshot({path:info.outputPath('admin-attachment-policy.png'),fullPage:true});
     expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
   }finally{
