@@ -19,7 +19,7 @@ export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focused
  return (['focused','other'] as const).map(tab=>({id:`focus:${tab}`,label:t(tab==='focused'?'mail-focus-always-focused':'mail-focus-always-other'),icon:tab==='focused'?'star':'inbox',checked:senderFocus(from)===tab,run:()=>alwaysMoveSender(from,tab)}));
 }
 /** Always targets the indicated message, not an unrelated existing selection. */
-export function createMessageContextMenu(email:Accessor<Email|undefined>) {
+export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?:{replyDraft:(emailId:string)=>{id:string}|undefined;onOpenReplyDraft?:(id:string)=>void}) {
   void loadCatalog('search'); // t112: its ids show wherever it is mounted
  const app=useApp();
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}`,actions:()=>{
@@ -36,6 +36,8 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>) {
    {id:'reply',label:t('mail-context-reply'),icon:'reply',separatorBefore:true,...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'reply');}},
    {id:'reply-all',label:t('mail-context-reply-all'),icon:'replyAll',...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'replyAll');}},
    {id:'forward',label:t('mail-context-forward'),icon:'forward',...(mailFeature('allowForward')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'forward');}});
+  {const draft=drafts?.onOpenReplyDraft?drafts.replyDraft(id):undefined,openDraft=drafts?.onOpenReplyDraft;
+   if(draft&&openDraft){const at=rows.findIndex(row=>row.id==='forward');rows.splice(at+1,0,{id:'open-reply-draft',label:t('mail-reply-draft-open'),icon:'compose',run:()=>openDraft(draft.id)});}}
   {const current=new Set(Object.keys(message.mailboxIds??{}).filter(key=>message.mailboxIds[key]));
    const targets=pickerOptions(app.mailboxes(),box=>!current.has(box.id)&&box.mailwomanSearchQuery===undefined&&box.myRights?.mayAddItems!==false&&!spamFolderHidden(box));
    const copies:ContextAction[]=[];

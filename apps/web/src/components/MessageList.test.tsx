@@ -7,14 +7,16 @@ import { clearSettings, loadSettings } from '../api/settings.ts';
 
 describe('MessageList (virtualized)', () => {
   beforeEach(() => localStorage.clear());
-  it('shows pending reply separately from actual answered state with a direct sibling draft action',async()=>{
+  it('marks a pending reply with a status icon only and offers Open draft in the row context menu',async()=>{
     const open=vi.fn(),{app,result}=renderWithApp(()=><MessageList onOpenReplyDraft={open}/>,{emails:[mkEmail('pending'),mkEmail('answered',{keywords:{$answered:true,$seen:true}})]});
     await app.login({username:'me@example.org',password:'p'});await screen.findByText('Subject pending');
     saveDraft({id:'reply-draft',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',to:'a@example.org',subject:'Re: Subject pending',bodyHtml:'<p>Draft</p>',bodyText:'Draft',savedAt:1,source:{emailId:'pending',keyword:'$answered'}});
-    const control=await screen.findByRole('button',{name:'Open draft'}),slot=control.closest('li')!;
-    expect(slot.querySelector('[data-testid="row-reply-draft"]')).not.toBeNull();expect(slot.querySelector('[data-testid="row-answered"]')).toBeNull();expect(control.parentElement?.closest('button')).toBeNull();
-    fireEvent.click(control);expect(open).toHaveBeenCalledWith('reply-draft');expect(app.openEmail()).toBeNull();expect(result.container.querySelectorAll('[data-testid="row-answered"]')).toHaveLength(1);
-    deleteDraft('reply-draft','acct1','test-storage-authority-acct1');await waitFor(()=>expect(screen.queryByRole('button',{name:'Open draft'})).toBeNull());
+    const mark=await screen.findByTestId('row-reply-draft'),slot=mark.closest('li')!;
+    expect(mark.closest('button')?.getAttribute('aria-label')).not.toBe('Open draft');expect(mark.getAttribute('aria-label')).toBe('Reply in progress');
+    expect(screen.queryByRole('button',{name:'Open draft'})).toBeNull();expect(slot.querySelector('[data-testid="row-answered"]')).toBeNull();expect(result.container.querySelectorAll('[data-testid="row-answered"]')).toHaveLength(1);
+    fireEvent.contextMenu(slot.querySelector('.list__row')!);
+    fireEvent.click(await screen.findByRole('menuitem',{name:'Open draft'}));expect(open).toHaveBeenCalledWith('reply-draft');expect(app.openEmail()).toBeNull();
+    deleteDraft('reply-draft','acct1','test-storage-authority-acct1');await waitFor(()=>expect(screen.queryByTestId('row-reply-draft')).toBeNull());
   });
 
   it('keeps sparse message previews readable when leetspeak is enabled and restored', async () => {

@@ -1,5 +1,5 @@
 import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
-import {ReplyDraftIndicator,OpenReplyDraft} from './ReplyState.tsx';
+import {ReplyDraftIndicator} from './ReplyState.tsx';
 import {createReplyDraftIndex,type ReplyDraft} from './compose/replyDrafts.ts';
 import {AsyncError,AsyncPending} from './AsyncState.tsx';
 import {createInitialSync} from './initialSync.ts';
@@ -139,7 +139,7 @@ function SelectedMark(props: { selected: boolean }): JSX.Element {
 type MessageMenu = {open:(event:MouseEvent,email:Email)=>void;keydown:(event:KeyboardEvent,email:Email)=>void;isOpen:(id:string)=>boolean};
 
 function MessageRow(props: {
-  replyDraft:ReplyDraft|undefined;onOpenReplyDraft:((id:string)=>void)|undefined;
+  replyDraft:ReplyDraft|undefined;
   contextMenu:MessageMenu;
   onDragStart:(event:DragEvent)=>void;
   email: Email;
@@ -222,7 +222,6 @@ function MessageRow(props: {
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
         <TagChips email={email()} />
       </button>
-      <Show when={props.replyDraft&&props.onOpenReplyDraft}><OpenReplyDraft draft={props.replyDraft!} onOpen={props.onOpenReplyDraft!} row/></Show>
       <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
     </li>
   );
@@ -274,7 +273,7 @@ function PlaceholderRow(props: { top: number; height: number; index: number; tot
  *  primary row; the primary row opens the latest message (like any message row),
  *  the toggle expands/collapses the members in place. */
 function ThreadHeadRow(props: {
-  replyDraft:ReplyDraft|undefined;onOpenReplyDraft:((id:string)=>void)|undefined;answered:boolean;
+  replyDraft:ReplyDraft|undefined;answered:boolean;
   contextMenu:MessageMenu;
   onDragStart:(event:DragEvent)=>void;
   row: ThreadVisualRow;
@@ -357,7 +356,6 @@ function ThreadHeadRow(props: {
         <span class="list__subject">{displayText(rep().subject ?? t('mail-no-subject'))}</span>
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span></Show>
       </button>
-      <Show when={props.replyDraft&&props.onOpenReplyDraft}><OpenReplyDraft draft={props.replyDraft!} onOpen={props.onOpenReplyDraft!} row/></Show>
       <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>
   );
@@ -408,7 +406,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const threadDrafts=createMemo(()=>{const result=new Map<string,ReplyDraft>();for(const draft of replyDrafts().values()){const key=messageThreads().get(draft.emailId);if(key&&(!result.has(key)||result.get(key)!.savedAt<draft.savedAt))result.set(key,draft);}return result;});
   const answeredThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$answered']===true).map(threadKey)));
   const [contextEmail,setContextEmail]=createSignal<Email>();
-  const contextMenu=createMessageContextMenu(contextEmail);
+  const contextMenu=createMessageContextMenu(contextEmail,{replyDraft:id=>replyDrafts().get(id)??(()=>{const key=messageThreads().get(id);return key?threadDrafts().get(key):undefined;})(),...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})});
   const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
   const [localSelecting,setLocalSelecting]=createSignal(false);
   const selecting=()=>props.selectionMode?.()??localSelecting();
@@ -881,7 +879,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                       when={row().kind === 'head'}
                       fallback={
                         <MessageRow contextMenu={messageMenu}
-                          replyDraft={replyDrafts().get(row().email.id)} onOpenReplyDraft={props.onOpenReplyDraft}
+                          replyDraft={replyDrafts().get(row().email.id)}
                           email={row().email}
                           top={index() * rowHeight()}
                           height={rowHeight()}
@@ -898,7 +896,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                       }
                     >
                       <ThreadHeadRow contextMenu={messageMenu}
-                        replyDraft={threadDrafts().get(row().key)} onOpenReplyDraft={props.onOpenReplyDraft} answered={answeredThreads().has(row().key)}
+                        replyDraft={threadDrafts().get(row().key)} answered={answeredThreads().has(row().key)}
                         row={row()}
                         top={index() * rowHeight()}
                         height={rowHeight()}

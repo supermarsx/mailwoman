@@ -3,6 +3,7 @@ import {render,screen,fireEvent,waitFor,within} from '@solidjs/testing-library';
 import {ReaderToolbar,PRIORITY} from './ReaderToolbar.tsx';
 import {inspectMessageLink} from '../viewers/messageLinks.ts';
 import {activateAccountPreferences,suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
+import {saveDraft} from './compose/drafts-store.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {fetchMailHeaders} from '../api/mailHeaders.ts';
 
@@ -16,9 +17,21 @@ vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',supportsFrom
 const email=(over:Partial<Email>={}):Email=>({id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@example.org'}],keywords:{$seen:true},mailboxIds:{inbox:true},...over}) as Email;
 const thread=(ids:string[])=>({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:ids}],notFound:[]},'thread']]});
 const security={value:'full-sanitized' as const,floor:null,onChange:vi.fn()};
-function toolbar(over:{email?:Email;links?:ReturnType<typeof inspectMessageLink>[];headersUrl?:string}={}){
- return render(()=><ReaderToolbar email={over.email??email()} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={(over.links??[]).filter(link=>link!==null)} linksTruncated={false} linkScope="a:m1" {...(over.headersUrl?{headersUrl:over.headersUrl}:{})} headersScope="account:message" security={security}/>);
+function toolbar(over:{onOpenReplyDraft?:(id:string)=>void;email?:Email;links?:ReturnType<typeof inspectMessageLink>[];headersUrl?:string}={}){
+ return render(()=><ReaderToolbar email={over.email??email()} {...(over.onOpenReplyDraft?{onOpenReplyDraft:over.onOpenReplyDraft}:{})} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={(over.links??[]).filter(link=>link!==null)} linksTruncated={false} linkScope="a:m1" {...(over.headersUrl?{headersUrl:over.headersUrl}:{})} headersScope="account:message" security={security}/>);
 }
+
+describe('reply draft action',()=>{
+ it('shows Open draft beside Forward only while a saved reply exists, and opens it',async()=>{
+  const open=vi.fn();toolbar({onOpenReplyDraft:open});
+  expect(screen.queryByTestId('reader-open-draft')).toBeNull();
+  const authority='test-storage-authority-a';activateAccountPreferences('a',authority);
+  saveDraft({id:'rd1',accountId:'a',storageAuthority:authority,to:'a@example.org',subject:'Re: Hello',bodyHtml:'<p>x</p>',bodyText:'x',savedAt:1,source:{emailId:'m1',keyword:'$answered'}});
+  const button=await screen.findByTestId('reader-open-draft');
+  expect(button.getAttribute('aria-label')??button.textContent).toMatch(/Open draft/);
+  fireEvent.click(button);expect(open).toHaveBeenCalledWith('rd1');
+ });
+});
 
 beforeEach(()=>activateAccountPreferences('a'));
 afterEach(()=>{suspendAccountPreferences();vi.clearAllMocks();vi.unstubAllGlobals();vi.restoreAllMocks();});
@@ -101,7 +114,7 @@ describe('reader action row: overflow into More',()=>{
  });
  it('folds by PRIORITY: Delete, Archive and Move outlast the conversation, links and the rest',()=>{
   const order=Object.entries(PRIORITY).sort((a,b)=>a[1]-b[1]).map(([id])=>id);
-  expect(order.slice(0,8)).toEqual(['reply','reply-all','forward','delete','archive','move','conversation','links']);
+  expect(order.slice(0,9)).toEqual(['reply','reply-all','forward','open-draft','delete','archive','move','conversation','links']);
  });
  it('shows no More button when everything fits',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));
