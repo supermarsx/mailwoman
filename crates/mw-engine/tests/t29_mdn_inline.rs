@@ -1361,7 +1361,15 @@ async fn only_the_owner_of_a_connected_account_can_ask() {
 #[test]
 fn the_mime_and_smtp_mailbox_validators_agree() {
     let long = format!("{}@example.test", "a".repeat(320));
-    let longest_accepted = format!("{}@example.test", "a".repeat(307));
+    // The 254-byte limit (RFC 5321 path of 256 with its angle brackets): a
+    // 64-octet local part and a 189-octet domain of labels of at most 63.
+    let longest_accepted = format!(
+        "{}@{}.{}.{}",
+        "a".repeat(64),
+        "b".repeat(63),
+        "b".repeat(63),
+        "b".repeat(61)
+    );
     let vectors = [
         // mw-smtp/src/addr.rs `ordinary_mailboxes_pass`
         "a@b",
@@ -1411,7 +1419,7 @@ fn the_mime_and_smtp_mailbox_validators_agree() {
         assert_eq!(mime, smtp, "mw-mime and mw-smtp disagree on {v:?}");
         accepted += usize::from(mime);
     }
-    assert_eq!(longest_accepted.len(), 320);
+    assert_eq!(longest_accepted.len(), 254);
     assert_eq!(accepted, 9, "the vectors exercise both outcomes");
 }
 

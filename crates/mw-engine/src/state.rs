@@ -1237,9 +1237,11 @@ pub(crate) mod session_state_tests {
         // mailbox count (asserted below).
         assert_eq!(
             stmts.len(),
-            12,
+            14,
             "a whole Mailbox/get request: 3 sessionState + 4 method statements + \
-             5 fixed account/policy resolution reads. Got {stmts:#?}"
+             5 fixed account/policy resolution reads + 2 `settings_revision` reads \
+             (the settings memo's validity check, one per memoized read family). \
+             Got {stmts:#?}"
         );
         assert!(
             session_state >= 3,
@@ -1299,10 +1301,17 @@ pub(crate) mod session_state_tests {
                 .len(),
             7
         );
+        // The first request filled the settings memo (the revision-checked reads
+        // are served from it now), so the second may cost less than the first,
+        // never more; and it still reads the mailbox list once, not per mailbox.
+        assert!(
+            stmts7.len() <= stmts.len(),
+            "seven mailboxes must not cost more than three did; got {stmts7:#?}"
+        );
         assert_eq!(
-            stmts7.len(),
-            stmts.len(),
-            "seven mailboxes must cost what three did; got {stmts7:#?}"
+            stmts7.against("FROM mailboxes"),
+            1,
+            "one mailbox list however many mailboxes; got {stmts7:#?}"
         );
     }
 
