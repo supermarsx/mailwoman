@@ -25,7 +25,7 @@
 
 import { NetworkError, type Client } from '../api/client.ts';
 import { draftCreateSpec, request, responseFor, type DraftInput } from '../api/jmap.ts';
-import { sendEnvelope } from '../api/jmap.ts';
+import { sendEnvelope, updateEmails } from '../api/jmap.ts';
 import {
   bindTrackingToken,
   mintTrackingToken,
@@ -83,6 +83,9 @@ export interface SendPayload {
   /** Record opens (t29-e12): the token is minted and its image appended when
    *  the item is replayed, not when it is queued. */
   track?: boolean;
+  /** Originals to mark `$answered` / `$forwarded` once the replayed send is
+   *  accepted (a send queued offline has no other chance to mark them). */
+  sources?: { emailId: Id; keyword: '$answered' | '$forwarded' }[];
 }
 export interface DraftPayload {
   accountId: Id;
@@ -366,6 +369,11 @@ async function drainOnce(store: OutboxStore, client: Client, tracking: DrainTrac
       if (outboundApplied(item, res)) {
         await store.delete(item.id);
         sent += 1;
+        if (send !== null && send.sources !== undefined && send.sources.length > 0 && active()) {
+          const patches: Record<Id, Record<string, unknown>> = {};
+          for (const source of send.sources) patches[source.emailId] = { [`keywords/${source.keyword}`]: true };
+          try { await client.jmap(updateEmails(send.accountId, patches)); } catch { /* the message went out; only the mark is missing */ }
+        }
         if (token !== null) {
           const emailId = responseFor<EmailSetResponse>(res, 'set').created?.['draft']?.id;
           if (emailId !== undefined && active()) await tracking.bind(token, emailId);

@@ -78,4 +78,18 @@ describe('MessageList — answered and forwarded marks', () => {
     );
     expect(marks).toEqual([[], ['Answered'], ['Forwarded'], ['Answered', 'Forwarded']]);
   });
+
+  it('marks a thread head forwarded when any message in it is', async () => {
+    const { app, result } = renderWithApp(() => <MessageList />, {
+      emails: [
+        mkEmail('m2', { threadId: 't1', receivedAt: '2026-01-02T00:00:00Z' }),
+        mkEmail('m1', { threadId: 't1', receivedAt: '2026-01-01T00:00:00Z', keywords: { $forwarded: true } }),
+      ],
+    });
+    await app.login({ username: 'me@example.org', password: 'p' });
+    await waitFor(() => expect(app.messages().length).toBe(2));
+    const head = result.container.querySelector('[data-testid="thread-head"]')!;
+    expect(head.querySelector('[data-testid="row-forwarded"]')?.getAttribute('title')).toBe('Forwarded');
+    expect(head.querySelector('[data-testid="row-answered"]')).toBeNull();
+  });
 });

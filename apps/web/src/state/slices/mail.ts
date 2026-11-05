@@ -2047,7 +2047,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Offline: queue the send for replay on reconnect (drainOutbox → sendEnvelope).
     // A tracked send is queued without its image; the replay mints the token.
     if (isOffline() && ctx.enqueueOffline) {
-      await ctx.enqueueOffline('send', { accountId: acct, draft, ...(track ? { track: true } : {}) });
+      await ctx.enqueueOffline('send', { accountId: acct, draft, ...(track ? { track: true } : {}), ...(sources.length > 0 ? { sources } : {}) });
       if (!sendAuthorityCurrent()) return;
       showToast('info', t('mail-toast-send-queued'));
       return;

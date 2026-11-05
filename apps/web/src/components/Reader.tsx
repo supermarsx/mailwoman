@@ -1375,7 +1375,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   actions and the max-security switch; what does not fit folds into More. */}
               <ReaderToolbar email={email()} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply')}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
-              <ReaderReplyState answered={email().keywords?.['$answered']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
+              <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />
             </header>
             {/* The reader notice bars (t110, ReaderNoticeBar.tsx), in one stack and a

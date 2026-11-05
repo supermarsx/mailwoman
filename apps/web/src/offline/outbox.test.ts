@@ -300,6 +300,24 @@ describe('drainOutbox — one drain at a time', () => {
     expect(await store.all()).toEqual([]);
   });
 
+  it('a replayed forward marks its original $forwarded only once the submission is created', async () => {
+    const fwd: SendPayload = { ...send, sources: [{ emailId: 'orig', keyword: '$forwarded' }] };
+    const accepted = jmapResponse(
+      ['Email/set', { created: { draft: { id: 'e9' } } }, 'set'],
+      ['EmailSubmission/set', { created: { send: { id: 's1' } }, notCreated: null }, 'submit'],
+    );
+    const ok = fakeClient(vi.fn(async (body) => (body.methodCalls.length === 2 ? accepted : setResponse({ updated: { orig: null } }))));
+    await drainOutbox(memoryOutboxStore([item('send', fwd, 1)]), ok);
+    expect(ok.jmap).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify((ok.jmap as any).mock.calls[1][0])).toContain('keywords/$forwarded');
+    const refused = fakeClient(vi.fn(async () => jmapResponse(
+      ['Email/set', { created: { draft: { id: 'e9' } } }, 'set'],
+      ['EmailSubmission/set', { created: null, notCreated: { send: { type: 'invalidProperties' } } }, 'submit'],
+    )));
+    await drainOutbox(memoryOutboxStore([item('send', fwd, 1)]), refused);
+    expect(refused.jmap).toHaveBeenCalledTimes(1);
+  });
+
   it('a drain started after the first finished runs normally', async () => {
     const store = memoryOutboxStore([item('flag', flag, 1)]);
     const client = fakeClient(vi.fn(async () => setResponse({ updated: { m1: null } })));

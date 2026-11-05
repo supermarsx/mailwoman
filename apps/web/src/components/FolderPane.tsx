@@ -120,7 +120,7 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
      <button type="button" disabled={busy()} class={css.message} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle||props.selecting===true);if(!props.selecting&&!extend&&!toggle&&view.current())props.onOpen(id);}}>
       <strong>{email().subject||t('mail-no-subject')}</strong><span>{senderLabel(email().from)}</span><span class="meta">{email().preview}</span>
      </button>
-     <ReaderReplyState answered={email().keywords?.['$answered']===true} draft={replyDrafts().get(id)} onOpen={props.onOpenReplyDraft}/>
+     <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(id)} onOpen={props.onOpenReplyDraft}/>
     </li>;}}</For>
    </ul>
    <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>

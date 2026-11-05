@@ -1700,6 +1700,9 @@ fn flag_to_imap(f: &Flag) -> String {
         Flag::Deleted => "\\Deleted".into(),
         Flag::Draft => "\\Draft".into(),
         Flag::Recent => "\\Recent".into(),
+        // RFC 5788 registers `$Forwarded` (IMAP) / `$forwarded` (JMAP): the
+        // engine carries the lower-case JMAP spelling, the wire the registered one.
+        Flag::Keyword(k) if k.eq_ignore_ascii_case("$forwarded") => "$Forwarded".into(),
         Flag::Keyword(k) => k.clone(),
     }
 }
@@ -1713,6 +1716,7 @@ fn imap_to_flag(s: &str) -> Flag {
         "deleted" => Flag::Deleted,
         "draft" => Flag::Draft,
         "recent" => Flag::Recent,
+        "$forwarded" => Flag::Keyword("$forwarded".to_string()),
         _ => Flag::Keyword(s.to_string()),
     }
 }
@@ -2689,5 +2693,18 @@ mod acl_metadata_tests {
         ));
         // Guarded commands must never reach the wire.
         assert!(log.lock().unwrap().is_empty());
+    }
+}
+
+#[cfg(test)]
+mod forwarded_flag_tests {
+    use super::*;
+
+    #[test]
+    fn forwarded_keyword_is_case_normalised_both_ways() {
+        assert_eq!(imap_to_flag("$Forwarded"), Flag::Keyword("$forwarded".into()));
+        assert_eq!(imap_to_flag("$FORWARDED"), Flag::Keyword("$forwarded".into()));
+        assert_eq!(flag_to_imap(&Flag::Keyword("$forwarded".into())), "$Forwarded");
+        assert_eq!(flag_to_imap(&Flag::Keyword("$other".into())), "$other");
     }
 }

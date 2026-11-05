@@ -210,12 +210,12 @@ function MessageRow(props: {
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
           <Show when={email().keywords?.['$answered'] === true}>
-            <span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')}><Icon name="reply" /></span>
+            <span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')} title={t('mail-answered')}><Icon name="reply" /></span>
+          </Show>
+          <Show when={email().keywords?.['$forwarded'] === true}>
+            <span class="list__attach" data-testid="row-forwarded" role="img" aria-label={t('mail-forwarded')} title={t('mail-forwarded')}><Icon name="forward" /></span>
           </Show>
           <Show when={props.replyDraft}><ReplyDraftIndicator/></Show>
-          <Show when={email().keywords?.['$forwarded'] === true}>
-            <span class="list__attach" data-testid="row-forwarded" role="img" aria-label={t('mail-forwarded')}><Icon name="forward" /></span>
-          </Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(email().receivedAt)}</span>
         </span>
         <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
@@ -273,7 +273,7 @@ function PlaceholderRow(props: { top: number; height: number; index: number; tot
  *  primary row; the primary row opens the latest message (like any message row),
  *  the toggle expands/collapses the members in place. */
 function ThreadHeadRow(props: {
-  replyDraft:ReplyDraft|undefined;answered:boolean;
+  replyDraft:ReplyDraft|undefined;answered:boolean;forwarded:boolean;
   contextMenu:MessageMenu;
   onDragStart:(event:DragEvent)=>void;
   row: ThreadVisualRow;
@@ -349,7 +349,8 @@ function ThreadHeadRow(props: {
           <Show when={props.row.hasAttachment}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
-          <Show when={props.answered}><span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')}><Icon name="reply"/></span></Show>
+          <Show when={props.answered}><span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')} title={t('mail-answered')}><Icon name="reply"/></span></Show>
+          <Show when={props.forwarded}><span class="list__attach" data-testid="row-forwarded" role="img" aria-label={t('mail-forwarded')} title={t('mail-forwarded')}><Icon name="forward"/></span></Show>
           <Show when={props.replyDraft}><ReplyDraftIndicator/></Show>
           <span class={`list__date ${rowCss.date}`}>{formatDate(rep().receivedAt)}</span>
         </span>
@@ -405,6 +406,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const messageThreads=createMemo(()=>new Map(app.listMessages().map(email=>[email.id,threadKey(email)])));
   const threadDrafts=createMemo(()=>{const result=new Map<string,ReplyDraft>();for(const draft of replyDrafts().values()){const key=messageThreads().get(draft.emailId);if(key&&(!result.has(key)||result.get(key)!.savedAt<draft.savedAt))result.set(key,draft);}return result;});
   const answeredThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$answered']===true).map(threadKey)));
+  const forwardedThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$forwarded']===true).map(threadKey)));
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const contextMenu=createMessageContextMenu(contextEmail,{replyDraft:id=>replyDrafts().get(id)??(()=>{const key=messageThreads().get(id);return key?threadDrafts().get(key):undefined;})(),...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})});
   const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
@@ -896,7 +898,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                       }
                     >
                       <ThreadHeadRow contextMenu={messageMenu}
-                        replyDraft={threadDrafts().get(row().key)} answered={answeredThreads().has(row().key)}
+                        replyDraft={threadDrafts().get(row().key)} answered={answeredThreads().has(row().key)} forwarded={forwardedThreads().has(row().key)}
                         row={row()}
                         top={index() * rowHeight()}
                         height={rowHeight()}
