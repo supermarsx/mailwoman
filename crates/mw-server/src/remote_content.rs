@@ -1218,9 +1218,13 @@ fn signed_image(
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "image/png".to_string()),
-            // Revalidate before reuse so revocation also applies to a browser
-            // cache hit; the server retains the re-encoded bytes and ETag.
-            (header::CACHE_CONTROL, "private, no-cache".to_string()),
+            // Private browser caching (see `IMAGE_CACHE_CONTROL`): the handle is
+            // signed and expires, and the browser revalidates by ETag after the
+            // window; a grant revoked meanwhile applies on the next revalidation.
+            (
+                header::CACHE_CONTROL,
+                crate::image_proxy::IMAGE_CACHE_CONTROL.to_string(),
+            ),
             (header::ETAG, etag),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
         ],
@@ -1367,10 +1371,6 @@ async fn fetch_image(
         fetch_limits::record_outcome(&claims.a, &claims.s, &claims.e, &claims.u, true, claims.x);
         if if_none_match(&headers, &etag) {
             let mut response = not_modified(&etag);
-            response.headers_mut().insert(
-                header::CACHE_CONTROL,
-                HeaderValue::from_static("private, no-cache"),
-            );
             response.headers_mut().insert(
                 "cross-origin-resource-policy",
                 HeaderValue::from_static("cross-origin"),
