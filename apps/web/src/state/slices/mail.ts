@@ -80,6 +80,7 @@ import { mailFeature } from '../mailFeatures.ts';
 import { effectiveRecallSeconds } from '../sendDelay.ts';
 import { recallQueued, sendQueuedNow, type QueuedSend } from '../queuedSend.ts';
 import { beginMessageLoad } from '../../perf/clientTiming.ts';
+import { prefetchSanitized, sanitizeStrip, setSanitizeFallbacks } from '../../sanitize/index.ts';
 import { clearUndoHistory, recordUndoable, undoOnly, undoReplaying, UndoUnavailable } from '../undoHistory.ts';
 
 /**
@@ -409,6 +410,7 @@ function loadList(key: string): string[] {
 
 export function createMailSlice(ctx: SliceContext): MailSlice {
   const { client, showToast } = ctx;
+  setSanitizeFallbacks({ server: (html) => client.sanitize(html) });
 
   const [me, setMe] = createSignal<Me | null>(null);
   const [switchingMailbox,setSwitchingMailbox]=createSignal(false);
@@ -449,7 +451,10 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function fetchFullMessage(account:string,id:Id,signal:AbortSignal):Promise<CachedMailRead> {
     const response=await jmapCall(emailGetFull(account,id),{signal});
     const email=responseFor<EmailGetResponse>(response,'g').list[0]??null;
-    return {kind:'message',email,html:email?await client.sanitize(extractHtmlBody(email)):null};
+    const body=email?extractHtmlBody(email):'';
+    // The reader's own mode, warmed at low priority so opening the message finds it cached.
+    if(body)prefetchSanitized({op:'reader',html:body,blockTrackers:false,cleanLinks:true});
+    return {kind:'message',email,html:email?await sanitizeStrip(body):null};
   }
   async function loadFullMessage(account:string,id:Id,signal:AbortSignal):Promise<Extract<CachedMailRead,{kind:'message'}>> {
     const owner=cacheOwner();
@@ -487,7 +492,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           if (!(error instanceof NetworkError)) {if(error instanceof ApiError&&[401,403,404].includes(error.status))readCache.clear();throw error;}
           const cached=cachedMessage(id);if(cached)return cached;
           const email=messages().find(message=>message.id===id) ?? null;
-          return {email,html:email ? await client.sanitize(extractHtmlBody(email)) : null};
+          return {email,html:email ? await sanitizeStrip(extractHtmlBody(email)) : null};
         }
       },
       readDelay(email) {
@@ -1738,7 +1743,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
 
   async function readFromCache(id: Id, current:()=>boolean): Promise<void> {
     const cached = messages().find((m) => m.id === id) ?? null;
-    const html=cached !== null ? await client.sanitize(extractHtmlBody(cached)) : null;
+    const html=cached !== null ? await sanitizeStrip(extractHtmlBody(cached)) : null;
     if(!current())return;
     setOpenEmail(cached);
     setSanitizedHtml(html);

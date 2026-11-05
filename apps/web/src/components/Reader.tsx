@@ -63,6 +63,7 @@ import { imageHostLists, imageHostOf, imageHostState, setImageHostState, type Im
 import { ImageHostRules } from './ImageHostRules.tsx';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
+import { sanitizeBody } from '../sanitize/index.ts';
 import { pickSignerArmors } from '../crypto/signerMatch.ts';
 import { createConfiguredClient } from '../api/transport.ts';
 import { fetchThreadingHeaders, parentReferences, responseFor,uploadBlob, type ThreadingHeaders } from '../api/jmap.ts';
@@ -816,7 +817,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     },
     async k => {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
-      try { if (k.decrypted === null) html = await getCryptoWorker().sanitizeReader({ html: extractHtmlBody(k.email), blockTrackers: false, cleanLinks: true }); }
+      try { if (k.decrypted === null) html = await sanitizeBody({ op: 'reader', html: extractHtmlBody(k.email), blockTrackers: false, cleanLinks: true }); }
       catch { effective = BLOCKED_POLICY; failed = true; html = `<pre>${escapeHtml(plainTextOf(k.email))}</pre>`; }
       // Only the worker's canonical quarantine wrapper is a verdict; ordinary
       // message text may legitimately mention the marker as an example.
@@ -826,7 +827,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         effective=BLOCKED_POLICY;
         if(k.allowSanitizedHtml&&!failed){
           try{
-            const safe=k.decrypted!==null?k.decryptedSafe:await getCryptoWorker().sanitizeReader({html:extractHtmlBody(k.email),blockTrackers:false,cleanLinks:true,allowSanitizedHtml:true});
+            const safe=k.decrypted!==null?k.decryptedSafe:await sanitizeBody({op:'readerSafe',html:extractHtmlBody(k.email),blockTrackers:false,cleanLinks:true});
             if(safe!==null&&!safe.startsWith('<pre data-mw-body-blocked="true">')){html=safe;restored=true;effective=k.policy;}
           }catch{failed=true;}
         }

@@ -21,6 +21,53 @@ fn element_attributes(node: &Handle, tag: &str) -> Option<Vec<(String, String)>>
     )
 }
 
+/// Chunk size for the incremental root parse.
+const ROOT_PARSE_CHUNK: usize = 16 * 1024;
+
+/// Parse enough of the document to know the `<html>`/`<body>` attributes. A
+/// later `<html>`/`<body>` start tag merges extra attributes into the existing
+/// element, so parsing can stop early only once the `<body>` element exists AND
+/// the unparsed remainder contains no further `<html`/`<body` text (a start tag
+/// needs those literal bytes). The result equals a full parse for the root
+/// elements; it just skips building a DOM for the rest of a large message.
+fn parse_root(input: &str) -> RcDom {
+    let mut parser = html5ever::parse_document(RcDom::default(), Default::default());
+    let mut offset = 0;
+    while offset < input.len() {
+        let mut end = (offset + ROOT_PARSE_CHUNK).min(input.len());
+        while !input.is_char_boundary(end) {
+            end += 1;
+        }
+        parser.process(html5ever::tendril::StrTendril::from(&input[offset..end]));
+        offset = end;
+        if offset < input.len() && body_exists(&parser.tokenizer.sink.sink) {
+            // Re-check a little before the boundary: `<bo` | `dy` may straddle it.
+            let from = input.floor_char_boundary(offset.saturating_sub(5));
+            let rest = &input[from..];
+            if !super::contains_ignore_ascii_case(rest, "<body")
+                && !super::contains_ignore_ascii_case(rest, "<html")
+            {
+                break;
+            }
+        }
+    }
+    parser.finish()
+}
+
+fn body_exists(dom: &RcDom) -> bool {
+    dom.document
+        .children
+        .borrow()
+        .iter()
+        .find(|node| element_attributes(node, "html").is_some())
+        .is_some_and(|html| {
+            html.children
+                .borrow()
+                .iter()
+                .any(|node| element_attributes(node, "body").is_some())
+        })
+}
+
 /// Both `html` and `body` selectors already map to the message container. Retain
 /// their inherited presentation there too, with body attributes taking priority.
 /// A real document parse avoids treating strings in scripts/comments/foreign
@@ -31,7 +78,7 @@ pub(super) fn container_attributes(input: &str, rec: &mut Recorded) -> Option<St
     {
         return None;
     }
-    let dom = html5ever::parse_document(RcDom::default(), Default::default()).one(input);
+    let dom = parse_root(input);
     let html = dom
         .document
         .children

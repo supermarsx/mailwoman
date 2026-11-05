@@ -11,6 +11,9 @@ use html5ever::tokenizer::{
 /// Active message HTML is rendered as inert plaintext, without remote references.
 /// The input remains untouched in storage. Compose's generic sanitizer is unchanged.
 pub fn sanitize_email_html_reader(input: &str, opts: &crate::SanitizeOptions) -> String {
+    if let Some(fallback) = crate::over_limits(input) {
+        return fallback;
+    }
     let tokenizer = Tokenizer::new(Inspect::default(), TokenizerOpts::default());
     let queue = BufferQueue::default();
     queue.push_back(StrTendril::from(input));

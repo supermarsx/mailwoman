@@ -106,15 +106,15 @@ describe('decrypted plaintext never reaches the server sanitizer', () => {
 
   it('reader sanitizer calls use original server message bodies, including offline fallbacks', () => {
     const mail = src('src/state/slices/mail.ts');
-    const calls = [...mail.matchAll(/client\s*\.\s*sanitize\(([^)]*)\)/g)];
+    const calls = [...mail.matchAll(/sanitizeStrip\(([^)]*)\)/g)];
     expect(calls).toHaveLength(3);
-    expect(calls.map(call=>call[1])).toEqual(['extractHtmlBody(email','extractHtmlBody(email','extractHtmlBody(cached']);
+    expect(calls.map(call=>call[1])).toEqual(['body','extractHtmlBody(email','extractHtmlBody(cached']);
     const fetched = mail.slice(mail.indexOf('async function fetchFullMessage'),mail.indexOf('async function loadFullMessage'));
     expect(fetched).toContain('await jmapCall(emailGetFull(account,id)');
     expect(fetched).toContain("responseFor<EmailGetResponse>(response,'g').list[0]");
     const fallback = mail.slice(mail.indexOf('async function readFromCache'),mail.indexOf('let legacyReadGeneration'));
     expect(fallback).toContain('messages().find');
-    expect(fallback).toContain('await client.sanitize(extractHtmlBody(cached))');
+    expect(fallback).toContain('await sanitizeStrip(extractHtmlBody(cached))');
     expect(mail).not.toMatch(/setMessages\([^;]*(decrypted|plaintext)/i);
   });
 });

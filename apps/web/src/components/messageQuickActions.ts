@@ -4,7 +4,7 @@ import {emailGetFull,responseFor} from '../api/jmap.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import type {EmailGetResponse} from '../api/jmap-types.ts';
 import {getKeymap} from '../keymap/index.ts';
-import {getCryptoWorker} from '../crypto/index.ts';
+import {sanitizeBody} from '../sanitize/index.ts';
 import {extractHtmlBody} from '../state/slices/mail.ts';
 import {printMessage} from '../viewers/printMessage.ts';
 import {mailFeature} from '../state/mailFeatures.ts';
@@ -34,7 +34,7 @@ export async function quickPrint(app:Pick<OpenApp,'accountId'|'showToast'>,id:st
   const email=await (fetchFull?fetchFull(account,id):(async()=>responseFor<EmailGetResponse>(await createConfiguredClient().jmap(emailGetFull(account,id)),'g').list[0])());
   if(!email||!preferenceAccountIsCurrent(owner)||app.accountId()!==account)throw new Error('gone');
   const raw=extractHtmlBody(email);
-  const html=raw?await getCryptoWorker().sanitizeReader({html:raw,blockTrackers:true,cleanLinks:true}):undefined;
+  const html=raw?await sanitizeBody({op:'reader',html:raw,blockTrackers:true,cleanLinks:true}):undefined;
   printMessage(email,html?{html}:{text:plain(email)});
  }catch{app.showToast('error',t('mail-context-print-failed'));}
 }

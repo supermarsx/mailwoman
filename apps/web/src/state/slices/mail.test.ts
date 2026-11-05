@@ -1,4 +1,5 @@
 import {onMessagesTrashed} from '../trashEvents.ts';
+import { clearSanitizeCache } from '../../sanitize/index.ts';
 import {resolveSender} from '../../api/senderResolution.ts';
 import { suspendAccountPreferences } from '../../api/accountPreferenceLifecycle.ts';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -1260,6 +1261,7 @@ describe('mail slice — reading a message', () => {
 
   it('fails closed when offline body sanitization fails', async () => {
     await withDeps([withBody], {online:()=>false}, async(mail,{client})=>{
+      clearSanitizeCache(); // the inbox prefetch has already sanitised this body
       vi.mocked(client.sanitize).mockRejectedValueOnce(new Error('sanitizer unavailable'));
       await expect(mail.openMessage('a')).rejects.toThrow('sanitizer unavailable');
       expect(mail.openEmail()).toBeNull();expect(mail.sanitizedHtml()).toBeNull();

@@ -43,6 +43,7 @@
 pub mod appearance;
 mod document_layout;
 mod reader;
+mod tidy;
 pub use reader::{sanitize_email_html_reader, sanitize_email_html_reader_safe};
 
 use std::borrow::Cow;
@@ -251,12 +252,76 @@ pub fn sanitize_email_html_and_references(
     sanitize_core(input, opts, false)
 }
 
+/// Largest input the sanitiser will process (bytes). Bigger bodies are shown as escaped
+/// text (see [`over_limits`]); real mail bodies are far below this.
+pub const MAX_INPUT_BYTES: usize = 8 * 1024 * 1024;
+/// Deepest element nesting the sanitiser will process. Browsers cap their own parser at
+/// 512; deeper input is hostile or machine-generated and would cost super-linear time
+/// and stack in the parser and serialiser.
+pub const MAX_NESTING_DEPTH: usize = 1024;
+
+/// Elements whose end tag is optional: ignored by the cheap depth estimate, since an
+/// unclosed `<p>` or `<li>` does not mean deeper nesting.
+const OPTIONAL_END: &[&str] = &[
+    "p", "li", "td", "th", "tr", "dt", "dd", "option", "optgroup", "thead", "tbody", "tfoot",
+    "colgroup", "body", "html", "head", "rp", "rt",
+];
+
+/// Estimate peak element nesting without building a tree (one byte scan).
+fn nesting_depth(input: &str) -> usize {
+    let b = input.as_bytes();
+    let (mut depth, mut peak, mut i) = (0usize, 0usize, 0usize);
+    while i < b.len() {
+        if b[i] != b'<' {
+            i += 1;
+            continue;
+        }
+        let closing = b.get(i + 1) == Some(&b'/');
+        let start = i + 1 + usize::from(closing);
+        let mut end = start;
+        while end < b.len() && b[end].is_ascii_alphanumeric() {
+            end += 1;
+        }
+        if end > start && b[start].is_ascii_alphabetic() {
+            let name = input[start..end].to_ascii_lowercase();
+            if !OPTIONAL_END.contains(&name.as_str()) && !tidy::is_void(&name) {
+                if closing {
+                    depth = depth.saturating_sub(1);
+                } else {
+                    depth += 1;
+                    peak = peak.max(depth);
+                }
+            }
+        }
+        i = end.max(i + 1);
+    }
+    peak
+}
+
+/// `Some(escaped-text fallback)` when `input` exceeds [`MAX_INPUT_BYTES`] or
+/// [`MAX_NESTING_DEPTH`]: the first 1 MiB as plain escaped text in a marked `<pre>`
+/// escaped, never parsed (a different marker from the reader quarantine, so no "safe alternative" is offered
+/// for input that is still too big to sanitise).
+pub(crate) fn over_limits(input: &str) -> Option<String> {
+    let too_big = input.len() > MAX_INPUT_BYTES;
+    if !too_big && nesting_depth(input) <= MAX_NESTING_DEPTH {
+        return None;
+    }
+    let cut = input.floor_char_boundary(input.len().min(1024 * 1024));
+    // No parse at all: pathological input is exactly what makes parsing slow.
+    let text = escape_attr(&input[..cut]);
+    Some(format!("<pre data-mw-body-truncated=\"true\">{text}</pre>"))
+}
+
 /// The sanitizer pass. `embedded` keeps raster `data:` images ([`sanitize_signature_html`]).
 fn sanitize_core(
     input: &str,
     opts: &SanitizeOptions,
     embedded: bool,
 ) -> (String, RemoteReferences) {
+    if let Some(fallback) = over_limits(input) {
+        return (fallback, RemoteReferences::default());
+    }
     // S9 side-channel: the attribute filter runs inside ammonia's single parse and
     // cannot ADD attributes to an element, so it records each stripped remote
     // `<img src>` (and, in placeholder mode, each kept reference and cleaned link)
@@ -428,6 +493,7 @@ fn sanitize_core(
         extract_and_scope_styles(input, Some(&mut *rec))
     };
 
+    let body = tidy::tidy(&body, &scoped_css);
     let mut rec = recorded.lock().expect("sanitize record lock");
     if placeholders {
         // Trackers by declared size: an `<img>` whose placeholder is `mw-rc:<n>`

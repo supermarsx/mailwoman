@@ -139,6 +139,7 @@ pub mod geoip;
 mod request_budget;
 mod protocol_guard;
 mod request_protection;
+mod sanitize_gate;
 mod security_center;
 mod server_text;
 mod signin_challenge;
@@ -1545,7 +1546,12 @@ fn router(
                 scope_mw::discover_ratelimit::guard,
             )),
         )
-        .route("/api/sanitize", post(sanitize))
+        .route(
+            "/api/sanitize",
+            post(sanitize).layer(axum::extract::DefaultBodyLimit::max(
+                sanitize_gate::MAX_HTML_BYTES + 64 * 1024,
+            )),
+        )
         .route("/api/import/oft", post(import_oft))
         .merge(attachment_preview::router())
         .merge(client_access::router())
@@ -4988,6 +4994,18 @@ async fn sanitize(
     if let Err(resp) = authed(&state, &headers).await {
         return resp;
     }
+    if body.html.len() > sanitize_gate::MAX_HTML_BYTES {
+        return (
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(json!({ "error": "html too large to sanitize" })),
+        )
+            .into_response();
+    }
+    let cache_key = sanitize_gate::key(&body.html);
+    if let Some(html) = sanitize_gate::cached(&cache_key) {
+        return Json(json!({ "html": html, "csp": MESSAGE_CSP })).into_response();
+    }
+    let _slot = sanitize_gate::permit().await;
     let clean = match &state.render_bin {
         Some(bin) => match health_probes::track_render(run_render_child(bin, &body.html)).await {
             Ok(html) => html,
@@ -5004,7 +5022,7 @@ async fn sanitize(
                 tracing::warn!(
                     "render child failed ({e}); degraded in-process sanitize (no jail expected)"
                 );
-                mw_sanitize::sanitize_email_html(&body.html)
+                sanitize_gate::sanitize_blocking(body.html).await
             }
         },
         // No render worker at all: fail closed when a jail was expected, else degrade.
@@ -5014,8 +5032,9 @@ async fn sanitize(
             );
             return render_unavailable();
         }
-        None => mw_sanitize::sanitize_email_html(&body.html),
+        None => sanitize_gate::sanitize_blocking(body.html).await,
     };
+    sanitize_gate::store(cache_key, &clean);
     // `html` is the existing contract; `csp` is additive — the web app may apply
     // it to the per-message iframe. Existing consumers read only `html`.
     Json(json!({ "html": clean, "csp": MESSAGE_CSP })).into_response()
