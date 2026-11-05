@@ -2420,6 +2420,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"
     ),
     def!(
+        "contacts.favoritesFirst",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "recipient suggestions list favourite contacts ahead of other matches; a sort preference only, it never hides a suggestion"
+    ),
+    def!(
         "reader.actionStyle",
         Kind::Enum(&["icons", "labels"]),
         "\"icons\"",

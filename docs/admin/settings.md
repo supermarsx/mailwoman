@@ -1762,6 +1762,15 @@ also hides domain icons. Government domains use a generic civic icon, not an
 identity seal. Domain matching is an appearance hint, never authentication
 verification. It does not request favicons, remote logos, or external profiles.
 
+<a id="contacts.favoritesFirst"></a>
+### Favorites first in suggestions (`contacts.favoritesFirst`)
+
+Enabled by default, with global/domain/user overrides and administrator locks.
+When on, recipient suggestions in Compose list contacts marked as favorites ahead
+of other matches; within each group the usual ranking applies. It only changes
+the order: no suggestion is hidden, and favorites are a flag on the contact
+(`CATEGORIES:favorite` in its vCard), stored per address book.
+
 <a id="mail.draftSaveMode"></a>
 <a id="mail.draftDebounceMs"></a>
 <a id="mail.draftIntervalSecs"></a>

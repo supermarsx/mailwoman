@@ -306,6 +306,29 @@ fn carried_as_written(name: &str) -> bool {
     )
 }
 
+/// The category that marks a favourite contact (`CATEGORIES:favorite`).
+const FAVORITE_CATEGORY: &str = "favorite";
+
+fn is_favorite_token(raw: &str) -> bool {
+    let t = unescape(raw.trim());
+    t.eq_ignore_ascii_case(FAVORITE_CATEGORY) || t.eq_ignore_ascii_case("favourite")
+}
+
+/// Split a `CATEGORIES` value into "has the favourite token" and the remaining
+/// value as written (`None` when nothing else is left).
+fn split_favorite(value: &str) -> (bool, Option<String>) {
+    let mut fav = false;
+    let mut rest: Vec<&str> = vec![];
+    for token in split_escaped(value, ',') {
+        if is_favorite_token(token) {
+            fav = true;
+        } else if !token.trim().is_empty() {
+            rest.push(token);
+        }
+    }
+    (fav, (!rest.is_empty()).then(|| rest.join(",")))
+}
+
 /// Parse a vCard 3/4 document into per-card Mailwoman projections.
 ///
 /// An `Err` means the document could not be delimited: it holds no card, a card
@@ -360,6 +383,7 @@ fn project(lines: &[String]) -> ParsedVcard {
     let mut anniversaries: Vec<Value> = vec![];
     let mut members: Vec<Value> = vec![];
     let mut extra: Vec<Value> = vec![];
+    let mut favorite = false;
 
     for line in lines {
         let Some(l) = content_line(line) else {
@@ -439,6 +463,16 @@ fn project(lines: &[String]) -> ParsedVcard {
             }
             "MEMBER" => members.push(Value::String(text())),
             "NOTE" => notes.push(text()),
+            // `CATEGORIES:favorite` is the interoperable favourite flag. The
+            // token is lifted into `isFavorite`; any other category stays under
+            // [`EXTRA`] as the line it was read from.
+            "CATEGORIES" => {
+                let (fav, rest) = split_favorite(l.value);
+                favorite |= fav;
+                if let Some(rest) = rest {
+                    extra.push(Value::String(format!("{}{}:{}", l.head, l.params_raw, rest)));
+                }
+            }
             name if carried_as_written(name) => extra.push(Value::String(line.clone())),
             _ => {}
         }
@@ -471,7 +505,7 @@ fn project(lines: &[String]) -> ParsedVcard {
         "members": members,
         "notes": notes.join("\n"),
         "photoBlobId": Value::Null,
-        "isFavorite": false,
+        "isFavorite": favorite,
         "groupIds": [],
         "pgpKey": pgp_key.map(Value::String).unwrap_or(Value::Null),
         "smimeCert": Value::Null,
@@ -685,12 +719,37 @@ pub fn emit_vcard(contact_json: &Value) -> Result<String> {
     // Properties with no field, as they were read. Each entry is split again
     // here, so whatever the list holds it yields one property line with a
     // well-formed name that is not one of this card's own, or nothing.
-    for raw in items(v, EXTRA).filter_map(Value::as_str) {
-        if let Some(l) = content_line(raw)
-            && carried_as_written(&l.name)
-        {
+    // `CATEGORIES` is merged: the other categories as read plus `favorite`
+    // when the card is a favourite, written once, where the first one was.
+    let favorite = v.get("isFavorite").and_then(Value::as_bool).unwrap_or(false);
+    let extras: Vec<ContentLine<'_>> = items(v, EXTRA)
+        .filter_map(Value::as_str)
+        .filter_map(content_line)
+        .filter(|l| carried_as_written(&l.name))
+        .collect();
+    let mut tokens: Vec<String> = extras
+        .iter()
+        .filter(|l| l.name == "CATEGORIES")
+        .flat_map(|l| split_escaped(l.value, ','))
+        .filter(|t| !t.trim().is_empty() && !is_favorite_token(t))
+        .map(String::from)
+        .collect();
+    if favorite {
+        tokens.push(FAVORITE_CATEGORY.to_string());
+    }
+    let mut categories_done = tokens.is_empty();
+    for l in &extras {
+        if l.name == "CATEGORIES" {
+            if !categories_done {
+                categories_done = true;
+                line(&mut out, l.head, l.params_raw, &tokens.join(","));
+            }
+        } else {
             line(&mut out, l.head, l.params_raw, l.value);
         }
+    }
+    if !categories_done {
+        line(&mut out, "CATEGORIES", "", &tokens.join(","));
     }
 
     out.push_str("END:VCARD\r\n");

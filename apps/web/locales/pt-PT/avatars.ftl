@@ -12,3 +12,6 @@ avatars-sender-icons = Mostrar ícones incluídos de domínios de remetentes
 avatars-sender-icons-help = Os domínios reconhecidos de redes sociais, programação, IA, compras e governo utilizam ícones incluídos nesta aplicação. As imagens dos seus próprios contactos têm prioridade. Os remetentes desconhecidos utilizam iniciais geradas localmente com 192 cores. Os ícones são indicações do domínio, não uma prova de que a mensagem é autêntica. Nenhum serviço externo de logótipos é contactado.
 avatars-icons-default = Repor preferência de ícones herdada
 avatars-domain-icon = Ícone do domínio { $name } · este ícone não verifica a identidade do remetente
+avatars-favorites-first = Mostrar primeiro os contactos favoritos nas sugestões de destinatários
+avatars-favorites-first-help = Os contactos marcados com estrela aparecem antes das restantes correspondências ao escrever um destinatário. Só a ordem muda; nenhuma sugestão é ocultada.
+avatars-favorites-first-default = Repor preferência de favoritos herdada

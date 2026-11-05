@@ -332,46 +332,41 @@ describe('round trip', () => {
     expect(back?.titles).toEqual(original.titles);
   });
 
-  // ── RECORDED DEFECTS ────────────────────────────────────────────────────
-  // Both are in `vcard.ts`, outside this lane's locks. They are pinned as the
-  // CURRENT behaviour, named as wrong, so a fix turns these red and gets them
-  // rewritten as ordinary round-trip assertions.
-
-  it('KNOWN BUG: export drops postal addresses entirely', () => {
-    // `applyProperty` parses ADR into seven components, but `toVCard` has no ADR
-    // branch at all — so exporting a contact loses every postal address without
-    // any warning. Fix = an ADR emit block mirroring the parse side.
-    const original = card({
-      addresses: [
-        {
-          context: 'work',
-          pobox: '',
-          ext: '',
-          street: '12 Main St',
-          locality: 'Springfield',
-          region: 'IL',
-          postcode: '62701',
-          country: 'USA',
-        },
-      ],
-    });
-    const out = toVCard(original);
-    expect(out).not.toContain('ADR');
-    expect(parseVCards(out)[0]?.addresses).toEqual([]);
+  it('exports postal addresses and reads them back', () => {
+    const address = { context: 'work', pobox: '', ext: '', street: '12 Main St', locality: 'Springfield', region: 'IL', postcode: '62701', country: 'USA' };
+    const out = toVCard(card({ addresses: [address] }));
+    expect(out).toContain('ADR;TYPE=work:;;12 Main St;Springfield;IL;62701;USA');
+    expect(parseVCards(out)[0]?.addresses).toEqual([address]);
+    expect(toVCard(card({ addresses: [{ context: '', street: '' }] }))).not.toContain('ADR');
   });
 
-  it('KNOWN BUG: multiple nicknames collapse into one on export', () => {
-    // `toVCard` joins nicknames with `,` and then hands the joined string to
-    // `emitProp`, which escapes it again — so the LIST separator is emitted as
-    // `\,`, a literal comma. The reader correctly unescapes it back into a
-    // single nickname. Fix = emit the pre-escaped list without a second pass
-    // (the `N:` property already does exactly that).
+  it('writes each nickname as a list item, not as one escaped comma', () => {
     const out = toVCard(card({ nicknames: ['Countess', 'Enchantress'] }));
-    expect(out).toContain('NICKNAME:Countess\\,Enchantress');
-    expect(parseVCards(out)[0]?.nicknames).toEqual(['Countess,Enchantress']);
-    // A single nickname is unaffected, which is why this has gone unnoticed.
-    expect(parseVCards(toVCard(card({ nicknames: ['Countess'] })))[0]?.nicknames).toEqual([
-      'Countess',
-    ]);
+    expect(out).toContain('NICKNAME:Countess,Enchantress');
+    expect(parseVCards(out)[0]?.nicknames).toEqual(['Countess', 'Enchantress']);
+  });
+
+  it('writes the favorite flag as CATEGORIES:favorite and reads it back', () => {
+    expect(toVCard(card({ isFavorite: true }))).toContain('CATEGORIES:favorite');
+    expect(toVCard(card({ isFavorite: false }))).not.toContain('CATEGORIES');
+    expect(parseVCards(toVCard(card({ isFavorite: true })))[0]?.isFavorite).toBe(true);
+    expect(parseVCards('BEGIN:VCARD\r\nFN:A\r\nCATEGORIES:Board,Favorite\r\nEND:VCARD')[0]?.isFavorite).toBe(true);
+    expect(parseVCards('BEGIN:VCARD\r\nFN:A\r\nCATEGORIES:Board\r\nEND:VCARD')[0]?.isFavorite).toBe(false);
+  });
+
+  it('folds by octets without splitting a UTF-8 sequence, and the reader restores the text', () => {
+    const note = 'çãõ€😀'.repeat(40);
+    const out = toVCard(card({ notes: note }));
+    const encoder = new TextEncoder();
+    for (const line of out.split('\r\n')) {
+      expect(encoder.encode(line).length).toBeLessThanOrEqual(75);
+      expect(line).not.toContain('\ufffd');
+    }
+    expect(parseVCards(out)[0]?.notes).toBe(note);
+  });
+
+  it('adds a REV timestamp only when asked', () => {
+    expect(toVCard(card({}))).not.toContain('REV:');
+    expect(toVCard(card({}), { rev: new Date('2026-11-05T10:20:30.456Z') })).toContain('REV:20261105T102030Z');
   });
 });

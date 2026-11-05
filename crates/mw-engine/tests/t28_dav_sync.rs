@@ -653,7 +653,11 @@ async fn carddav_pull_keeps_favourites_and_the_photo_and_sees_deletes() {
     }
     h.fake.put(
         "/book/c1.vcf",
-        &vcard("ann", "Ann Lee", "X-CUSTOM:keep\r\n"),
+        &vcard(
+            "ann",
+            "Ann Lee",
+            "X-CUSTOM:keep\r\nCATEGORIES:favorite\r\n",
+        ),
     );
     h.sync().await;
     let ann_after = h.store.get_contact(&ann.id).await.unwrap().unwrap();
@@ -666,6 +670,19 @@ async fn carddav_pull_keeps_favourites_and_the_photo_and_sees_deletes() {
         "the engine-owned favourite survives a pull"
     );
     assert!(puts_before >= 1, "the favourite edit was pushed");
+
+    // The favourite is `CATEGORIES:favorite` in the card: another client that
+    // clears it there clears it here too.
+    h.fake.put(
+        "/book/c1.vcf",
+        &vcard("ann", "Ann Lee", "X-CUSTOM:keep\r\n"),
+    );
+    h.sync().await;
+    let ann_cleared = h.store.get_contact(&ann.id).await.unwrap().unwrap();
+    assert!(
+        !ann_cleared.is_favorite,
+        "a card that dropped the category is no longer a favourite"
+    );
 
     // Deleted on a server without sync-collection: removed here.
     h.fake.delete("/book/c2.vcf");

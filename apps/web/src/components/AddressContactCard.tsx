@@ -8,6 +8,8 @@ import { featureOn } from '../state/features.ts';
 import { loadCatalog, t } from '../i18n';
 import { routeHash } from '../shell/router.ts';
 import { normalizeContactAddress } from '../modules/contacts/contactAddress.ts';
+import { ContactShareMenu } from '../modules/contacts/ContactShare.tsx';
+import { cardForAddress, copyText } from '../modules/contacts/share.ts';
 import { formatAddressList, type ComposeInitial } from './compose/reply.ts';
 import { PersonAvatar } from './PersonAvatar.tsx';
 import { Icon } from './Icon.tsx';
@@ -20,17 +22,6 @@ export function contactComposeInitial(address: string, name = ''): ComposeInitia
   const valid = normalizeContactAddress(address);
   if (!valid) return null;
   return { mode: 'new', to: formatAddressList([{ email: valid, name: name || null }]), cc: '', subject: '', bodyHtml: '', bodyText: '', inReplyTo: [], references: [], attachments: [], quotesDecrypted: false };
-}
-
-function legacyCopy(doc: Document, text: string): boolean {
-  try {
-    const area = doc.createElement('textarea');
-    area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
-    doc.body.append(area); area.select();
-    const ok = typeof doc.execCommand === 'function' && doc.execCommand('copy');
-    area.remove();
-    return ok;
-  } catch { return false; }
 }
 
 /** One card owner per reader; account/message changes revoke its snapshot. */
@@ -70,6 +61,10 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
   const [saved, setSaved] = createSignal<ContactCard>();
   const [saveOpen, setSaveOpen] = createSignal(false);
   const [copied, setCopied] = createSignal(false);
+  const [shareSlot, setShareSlot] = createSignal<HTMLElement>();
+  // The star flips at once; the store confirms, or the flip is undone.
+  const [favoriteOverride, setFavoriteOverride] = createSignal<boolean>();
+  const [favoriteBusy, setFavoriteBusy] = createSignal(false);
   let copyTimer: ReturnType<typeof setTimeout>|undefined;
   const [position, setPosition] = createSignal({ left: 8, top: 8, maxHeight: Math.max(44, (props.target.document.defaultView?.innerHeight ?? 600) - 16) });
   let alive = true;
@@ -81,6 +76,8 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
   const fullName = () => contact()?.name.full || props.target.name || props.target.address;
   const books = () => result()?.addressBooks ?? [];
   const canSave = () => featureOn('contacts') && !!result() && !contact() && books().length > 0;
+  const isFavorite = () => favoriteOverride() ?? contact()?.isFavorite ?? false;
+  const shareCard = (): ContactCard => contact() ?? cardForAddress(props.target.address, name() || props.target.name);
   createEffect(() => { const available = books(); if (available.length && !available.some(value => value.id === book())) setBook(available.find(value => value.isDefault)?.id ?? available[0]!.id); });
   function reposition(): void {
     const node = element(), host = props.target.document.defaultView;
@@ -107,15 +104,18 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
     }
     onCleanup(() => { if (props.target.trigger?.isConnected) props.target.trigger.focus({ preventScroll: true }); });
   });
-  async function save(event: Event): Promise<void> {
+  function save(event: Event): Promise<void> {
     event.preventDefault();
+    return persist(false);
+  }
+  async function persist(favorite: boolean): Promise<void> {
     if (saving() || !canSave() || !books().some(value => value.id === book())) return;
     setSaving(true);
     try {
-      const id = await app.createContact({ name: { full: name().trim(), given: '', surname: '', prefix: '', suffix: '' }, emails: [{ value: props.target.address, context: '', pref: 1 }] }, book());
+      const id = await app.createContact({ name: { full: name().trim(), given: '', surname: '', prefix: '', suffix: '' }, emails: [{ value: props.target.address, context: '', pref: 1 }], ...(favorite ? { isFavorite: true } : {}) }, book());
       if (!alive) return;
       const card = id ? app.contactById(id) : undefined;
-      if (card) { setSaved(card); app.showToast('success', t('contacts-address-saved')); queueMicrotask(() => element()?.focus({ preventScroll: true })); }
+      if (card) { setSaved(card); app.showToast('success', t(favorite ? 'contacts-address-saved-favorite' : 'contacts-address-saved')); queueMicrotask(() => element()?.focus({ preventScroll: true })); }
       else app.showToast('error', t('contacts-address-save-failed'));
     } catch { if (alive) app.showToast('error', t('contacts-address-save-failed')); }
     finally { if (alive) setSaving(false); }
@@ -128,12 +128,22 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
     return lines.join('\n');
   }
   async function copy(): Promise<void> {
-    const text = copyPayload(), doc = props.target.document;
-    let ok = false;
-    try { await (doc.defaultView?.navigator ?? navigator).clipboard.writeText(text); ok = true; } catch { ok = legacyCopy(doc, text); }
+    const ok = await copyText(props.target.document, copyPayload());
     if (!alive) return;
     app.showToast(ok ? 'success' : 'error', t(ok ? 'contacts-address-copied' : 'contacts-address-copy-failed'));
     if (ok) { setCopied(true); clearTimeout(copyTimer); copyTimer = setTimeout(() => { if (alive) setCopied(false); }, 1500); }
+  }
+  async function toggleFavorite(): Promise<void> {
+    const saved = contact();
+    if (!saved) { void persist(true); return; }
+    if (favoriteBusy()) return;
+    const previous = isFavorite();
+    setFavoriteBusy(true); setFavoriteOverride(!previous);
+    const ok = (await app.setFavorite([saved.id], !previous)).includes(saved.id);
+    if (!alive) return;
+    setFavoriteBusy(false);
+    if (ok) app.showToast('success', t(previous ? 'contacts-favorite-removed' : 'contacts-favorite-added', { name: fullName() }));
+    else { setFavoriteOverride(previous); app.showToast('error', t('contacts-favorite-failed')); }
   }
   function goToContact(id: string): void {
     const host = props.target.document.defaultView;
@@ -161,8 +171,12 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
           {card => <button type="button" class="address-card__action" title={t('contacts-address-goto')} aria-label={t('contacts-address-goto')} on:click={() => goToContact(card().id)}><Icon name="person"/></button>}
         </Show>
         <button type="button" class="address-card__action" disabled={!props.onCompose} title={t('contacts-address-compose')} aria-label={t('contacts-address-compose')} on:click={compose}><Icon name="mail"/></button>
+        <button type="button" class="address-card__action" classList={{ 'address-card__action--on': isFavorite() }} disabled={!contact() && !canSave()} aria-busy={favoriteBusy() || undefined}
+          aria-pressed={isFavorite()} aria-label={t('contacts-favorite', { name: fullName() })} title={contact() ? t(isFavorite() ? 'contacts-favorite-remove' : 'contacts-favorite-add') : t('contacts-favorite-save')} on:click={() => void toggleFavorite()}><Icon name={isFavorite() ? 'star' : 'starOutline'}/></button>
         <button type="button" class="address-card__action" title={t('contacts-address-copy')} aria-label={t('contacts-address-copy')} on:click={() => void copy()}><Icon name={copied() ? 'check' : 'copy'}/></button>
+        <ContactShareMenu card={shareCard} document={props.target.document} panelHost={shareSlot} triggerClass="address-card__action" onDone={props.onClose} {...(props.onCompose ? { onCompose: props.onCompose } : {})}/>
       </div>
+      <div class="address-card__share-slot" ref={setShareSlot}/>
       <Show when={canSave() && saveOpen()}><form class="address-card__save" on:submit={event => void save(event)}><p>{t('contacts-address-unsaved')}</p>
         <label for={nameId}>{t('contacts-full-name')}</label><input id={nameId} class="input" value={name()} on:input={event => setName(event.currentTarget.value)} disabled={saving()}/>
         <label for={bookId}>{t('contacts-address-book')}</label><select id={bookId} value={book()} on:change={event => setBook(event.currentTarget.value)} disabled={saving()}><For each={books()}>{value => <option value={value.id}>{value.name}</option>}</For></select>

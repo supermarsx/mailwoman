@@ -268,6 +268,10 @@ function applyProperty(c: ParsedContact, prop: VCardProperty): void {
     case 'KEY':
       c.pgpKey = value;
       break;
+    case 'CATEGORIES':
+      // `CATEGORIES:favorite` is the interoperable favourite flag.
+      if (splitValue(prop.value, ',').some((v) => /^favou?rite$/i.test(unescapeText(v).trim()))) c.isFavorite = true;
+      break;
     default:
       break;
   }
@@ -298,25 +302,42 @@ function escapeText(value: string): string {
   return value.replace(/\\/g, '\\\\').replace(/\n/g, '\\n').replace(/,/g, '\\,').replace(/;/g, '\\;');
 }
 
-/** Fold a content line to <=75 chars per RFC 6350 (CRLF + leading space). */
-function foldLine(line: string): string {
-  if (line.length <= 75) return line;
-  let out = line.slice(0, 75);
-  let rest = line.slice(75);
-  while (rest.length > 0) {
-    out += `\r\n ${rest.slice(0, 74)}`;
-    rest = rest.slice(74);
+const encoder = new TextEncoder();
+
+/** Fold a content line to <=75 octets per RFC 6350 (CRLF + leading space), never inside a UTF-8 sequence. */
+export function foldLine(line: string): string {
+  if (encoder.encode(line).length <= 75) return line;
+  const out: string[] = [];
+  let current = '';
+  let width = 0;
+  let limit = 75;
+  for (const ch of line) {
+    const size = encoder.encode(ch).length;
+    if (width + size > limit) { out.push(current); current = ''; width = 0; limit = 74; }
+    current += ch;
+    width += size;
   }
-  return out;
+  out.push(current);
+  return out.join('\r\n ');
+}
+
+function emitRaw(name: string, escaped: string, params: string[] = []): string {
+  const head = params.length > 0 ? `${name};${params.join(';')}` : name;
+  return foldLine(`${head}:${escaped}`);
 }
 
 function emitProp(name: string, value: string, params: string[] = []): string {
-  const head = params.length > 0 ? `${name};${params.join(';')}` : name;
-  return foldLine(`${head}:${escapeText(value)}`);
+  return emitRaw(name, escapeText(value), params);
 }
 
-/** Serialize one contact card as a vCard 4.0 entry. */
-export function toVCard(card: ContactCard): string {
+/** A vCard parameter value: quoted when it holds a character that would end the parameter. */
+function paramValue(value: string): string {
+  const clean = value.replace(/[\r\n"]/g, ' ');
+  return /[;:,]/.test(clean) ? `"${clean}"` : clean;
+}
+
+/** Serialize one contact card as a vCard 4.0 entry. `rev` adds a `REV` timestamp (RFC 6350 §6.7.4). */
+export function toVCard(card: ContactCard, options: { rev?: Date } = {}): string {
   const lines: string[] = ['BEGIN:VCARD', 'VERSION:4.0'];
   if (card.uid.length > 0) lines.push(emitProp('UID', card.uid));
   if (card.kind === 'org') lines.push(emitProp('KIND', 'org'));
@@ -326,35 +347,44 @@ export function toVCard(card: ContactCard): string {
       `N:${[card.name.surname, card.name.given, '', card.name.prefix, card.name.suffix].map(escapeText).join(';')}`,
     ),
   );
-  if (card.nicknames.length > 0) lines.push(emitProp('NICKNAME', card.nicknames.map(escapeText).join(',')));
+  if (card.nicknames.length > 0) lines.push(emitRaw('NICKNAME', card.nicknames.map(escapeText).join(',')));
   for (const org of card.organizations) lines.push(emitProp('ORG', org));
   for (const title of card.titles) lines.push(emitProp('TITLE', title));
   for (const email of card.emails) {
     const params: string[] = [];
-    if (email.context.length > 0) params.push(`TYPE=${email.context}`);
+    if (email.context.length > 0) params.push(`TYPE=${paramValue(email.context)}`);
     if (email.pref > 0) params.push(`PREF=${email.pref}`);
     lines.push(emitProp('EMAIL', email.value, params));
   }
   for (const phone of card.phones) {
-    const params = phone.context.length > 0 ? [`TYPE=${phone.context}`] : [];
+    const params = phone.context.length > 0 ? [`TYPE=${paramValue(phone.context)}`] : [];
     lines.push(emitProp('TEL', phone.value, params));
   }
   for (const svc of card.onlineServices) {
     const params = svc.context.length > 0 ? [`TYPE=${svc.context}`] : [];
     lines.push(emitProp('IMPP', svc.value, params));
   }
+  for (const address of card.addresses) {
+    const part = (key: string): string => (typeof address[key] === 'string' ? (address[key] as string) : '');
+    const fields = ['pobox', 'ext', 'street', 'locality', 'region', 'postcode', 'country'].map(part);
+    if (fields.every((value) => value.trim().length === 0)) continue;
+    const context = part('context');
+    lines.push(emitRaw('ADR', fields.map(escapeText).join(';'), context.length > 0 ? [`TYPE=${paramValue(context)}`] : []));
+  }
   for (const anniv of card.anniversaries) {
     lines.push(emitProp(anniv.kind === 'birthday' ? 'BDAY' : 'ANNIVERSARY', anniv.date));
   }
   if (card.notes.length > 0) lines.push(emitProp('NOTE', card.notes));
   if (card.pgpKey !== null && card.pgpKey.length > 0) lines.push(emitProp('KEY', card.pgpKey));
+  if (card.isFavorite) lines.push('CATEGORIES:favorite');
+  if (options.rev) lines.push(`REV:${options.rev.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z')}`);
   lines.push('END:VCARD');
   return lines.join('\r\n');
 }
 
 /** Serialize many cards as one vCard document. */
 export function toVCardDocument(cards: ContactCard[]): string {
-  return cards.map(toVCard).join('\r\n') + '\r\n';
+  return cards.map((card) => toVCard(card)).join('\r\n') + '\r\n';
 }
 
 /** Re-export helper so callers building anniversaries stay consistent. */

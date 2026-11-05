@@ -9,3 +9,6 @@ avatars-sender-icons = Show bundled sender-domain icons
 avatars-sender-icons-help = Recognised social, developer, AI, shopping and government domains use icons bundled with this app. Your own contact pictures take priority. Unknown senders use locally generated initials with 192 colours. Icons are domain hints, not proof that a message is authentic. No external logo service is contacted.
 avatars-icons-default = Restore inherited icon preference
 avatars-domain-icon = { $name } domain icon · sender identity is not verified by this icon
+avatars-favorites-first = Show favorite contacts first in recipient suggestions
+avatars-favorites-first-help = Contacts you starred are listed ahead of other matches when you type a recipient. Only the order changes; no suggestion is hidden.
+avatars-favorites-first-default = Restore inherited favorites preference

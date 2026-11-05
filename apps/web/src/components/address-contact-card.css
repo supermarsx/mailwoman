@@ -35,6 +35,16 @@
 .address-card__action:hover:not(:disabled), .address-card__action--on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-alt)); color: var(--accent); }
 .address-card__action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .address-card__action:disabled { opacity: .5; cursor: default; }
+.address-card__actions .contact-share { display: contents; }
+.contact-share { position: relative; display: inline-block; }
+.contact-share__menu { position: absolute; z-index: 30; inset-block-start: calc(100% + .25rem); inset-inline-end: 0; display: flex; flex-direction: column; min-inline-size: 13rem; padding: .25rem; border: 1px solid var(--border-strong, var(--border)); border-radius: var(--radius-md); background: var(--bg); color: var(--text); box-shadow: var(--elevation-3); }
+.address-card__share-slot { min-inline-size: 0; }
+.address-card__share-slot .contact-share__menu { position: static; box-sizing: border-box; inline-size: 100%; margin-block-start: .5rem; box-shadow: none; }
+.contact-share__item { display: flex; align-items: center; gap: .5rem; inline-size: 100%; min-block-size: 2.25rem; padding: .35rem .6rem; border: 0; border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; text-align: start; cursor: pointer; }
+.contact-share__item:hover:not(:disabled), .contact-share__item:focus-visible { background: color-mix(in srgb, var(--accent) 12%, transparent); outline: none; }
+.contact-share__item:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+.contact-share__item:disabled { opacity: .5; cursor: default; }
+@media (pointer: coarse) { .contact-share__item { min-block-size: 2.75rem; } }
 .address-card__action[aria-busy="true"] { animation: address-card-pulse 1.2s ease-in-out infinite; }
 @keyframes address-card-pulse { 50% { opacity: .35; } }
 @media (prefers-reduced-motion: reduce) { .address-card__action[aria-busy="true"] { animation: none; } }

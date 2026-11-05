@@ -150,6 +150,10 @@ export const contactRow = style({
   },
 });
 
+/** The select box at the start of a list row. */
+export const rowCheck = style({ flex: 'none', margin: 0, inlineSize: '1rem', blockSize: '1rem', cursor: 'pointer' });
+/** Actions for the selected rows, between the toolbar and the list. */
+export const bulkBar = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[2], padding: `${vars.space[1]} ${vars.space[2]}`, border: hair, borderRadius: vars.radius.md });
 export const star = style({
   border: 'none',
   background: 'transparent',

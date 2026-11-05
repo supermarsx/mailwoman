@@ -593,7 +593,20 @@ fn overlay_engine_owned(json: &mut Value, row: &mw_store::ContactRow) {
     let Some(obj) = json.as_object_mut() else {
         return;
     };
-    obj.insert("isFavorite".into(), Value::Bool(row.is_favorite));
+    // The favourite flag is also in the vCard (`CATEGORIES:favorite`). The
+    // server's card wins when it says favourite, or when it dropped the category
+    // the stored copy had; a card that never carried it keeps the local flag.
+    let remote = obj
+        .get("isFavorite")
+        .and_then(Value::as_bool)
+        .unwrap_or(false);
+    let was_in_card = mw_ics::parse_vcard(row.vcard_raw.as_bytes())
+        .ok()
+        .and_then(|cards| cards.into_iter().next())
+        .and_then(|c| c.json.get("isFavorite").and_then(Value::as_bool))
+        .unwrap_or(false);
+    let favorite = remote || (row.is_favorite && !was_in_card);
+    obj.insert("isFavorite".into(), Value::Bool(favorite));
     if let Some(photo) = &row.photo_blob_id {
         obj.insert("photoBlobId".into(), Value::String(photo.clone()));
     }
@@ -656,6 +669,7 @@ const VCARD_MODELLED: &[&str] = &[
     "ANNIVERSARY",
     "KEY",
     "MEMBER",
+    "CATEGORIES",
 ];
 
 /// RFC 5545/6350 logical lines of `text` (folded continuations joined).
@@ -966,6 +980,46 @@ BEGIN:VEVENT\r\nUID:u1\r\nSUMMARY:New\r\nEND:VEVENT\r\nEND:VCALENDAR\r\n";
         fold_into(&mut out, &long);
         assert!(out.split("\r\n").all(|l| l.len() <= 75), "{out}");
         assert_eq!(unfold(&out), vec![long]);
+    }
+
+    #[test]
+    fn a_vcard_merge_follows_the_favorite_category_of_the_edit() {
+        let card = |extra: &str| format!("BEGIN:VCARD\r\nVERSION:4.0\r\nUID:c1\r\nFN:Ann\r\n{extra}END:VCARD\r\n");
+        let stored = card("CATEGORIES:favorite\r\n");
+        let cleared = card("");
+        assert!(!merge_vcard(&stored, &cleared).contains("CATEGORIES"));
+        assert!(merge_vcard(&cleared, &stored).contains("CATEGORIES:favorite\r\n"));
+    }
+
+    #[test]
+    fn the_server_card_decides_the_favorite_flag_only_when_it_ever_carried_it() {
+        let mut row = mw_store::ContactRow {
+            id: "c".into(),
+            address_book_id: "b".into(),
+            uid: "u".into(),
+            etag: None,
+            vcard_raw: "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:A\r\nEND:VCARD\r\n".into(),
+            json: None,
+            full_name: "A".into(),
+            is_favorite: true,
+            photo_blob_id: None,
+            pgp_key: None,
+            smime_cert: None,
+        };
+        // Never carried in the card: the local flag survives a sync.
+        let mut json = serde_json::json!({"isFavorite": false});
+        overlay_engine_owned(&mut json, &row);
+        assert_eq!(json["isFavorite"], true);
+        // The stored card had the category and the server dropped it: cleared.
+        row.vcard_raw = "BEGIN:VCARD\r\nVERSION:4.0\r\nFN:A\r\nCATEGORIES:favorite\r\nEND:VCARD\r\n".into();
+        let mut json = serde_json::json!({"isFavorite": false});
+        overlay_engine_owned(&mut json, &row);
+        assert_eq!(json["isFavorite"], false);
+        // The server says favourite: set, whatever the local flag was.
+        row.is_favorite = false;
+        let mut json = serde_json::json!({"isFavorite": true});
+        overlay_engine_owned(&mut json, &row);
+        assert_eq!(json["isFavorite"], true);
     }
 
     #[test]

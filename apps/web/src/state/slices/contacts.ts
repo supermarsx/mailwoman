@@ -14,7 +14,7 @@ import { createSignal, createMemo, batch, onCleanup, type Accessor } from 'solid
 import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { CAP_CONTACTS, type AddressBook, type ContactCard, type ContactGroup } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
-import { responseFor } from '../../api/jmap.ts';
+import { responseFor, uploadBlob } from '../../api/jmap.ts';
 import { keyedAttempt } from '../../api/recovery.ts';
 import {suggestionDisplay,type ContactSuggestion} from '../../modules/contacts/autocomplete.ts';
 import { normalizeContactAddress } from '../../modules/contacts/contactAddress.ts';
@@ -150,8 +150,14 @@ export interface ContactsSlice {
   updateContact(id: Id, patch: Partial<ContactCard>): Promise<boolean>;
   /** Delete a contact. */
   deleteContact(id: Id): Promise<void>;
-  /** Flip a contact's favorite flag. */
-  toggleFavorite(id: Id): Promise<void>;
+  /** Flip a contact's favorite flag (optimistic; rolled back when the server refuses). */
+  toggleFavorite(id: Id): Promise<boolean>;
+  /** Set or clear the favorite flag on several contacts in one request; returns the ids that stuck. */
+  setFavorite(ids: readonly Id[], value: boolean): Promise<Id[]>;
+  /** Number of favorite contacts across every loaded address book. */
+  favoriteCount: Accessor<number>;
+  /** Store `text` as a blob of `accountId` so a composer can attach it; null on failure. */
+  uploadComposeBlob(accountId: Id, name: string, text: string, type: string): Promise<{ name: string; blobId: string; size: number; contentType: string } | null>;
   /** Import parsed vCard/CSV drafts into an address book; returns count created. */
   importContacts(drafts: ParsedContact[], addressBookId?: Id): Promise<number>;
   /** Merge duplicates into `keepId` (non-destructive: sources become tombstones). */
@@ -364,10 +370,55 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     ctx.broadcastChange?.();
   }
 
-  async function toggleFavorite(id: Id): Promise<void> {
+  const favoriteCount = createMemo(() => contacts().filter((c) => c.isFavorite).length);
+  const favoriteInFlight = new Set<Id>();
+
+  async function setFavorite(ids: readonly Id[], value: boolean): Promise<Id[]> {
+    // A card the list has not loaded (the message address card) is still written; a loaded one that already has the value is skipped.
+    const wanted = [...new Set(ids)].filter((id) => !favoriteInFlight.has(id) && contactById(id)?.isFavorite !== value);
+    if (wanted.length === 0) return [];
+    const version = authority;
+    // Optimistic: the star flips at once; whatever the server does not confirm flips back.
+    wanted.forEach((id) => favoriteInFlight.add(id));
+    const mine = new Set(wanted);
+    setContacts((cs) => cs.map((c) => (mine.has(c.id) ? { ...c, isFavorite: value } : c)));
+    let confirmed: Id[] = [];
+    try {
+      const acct = await resolveAccount();
+      if (acct === null) throw new Error('no contacts account');
+      const update: Record<Id, Record<string, unknown>> = {};
+      for (const id of wanted) update[id] = { isFavorite: value };
+      const res = await client.jmap(contactSet(acct, { update }));
+      if (version === authority) {
+        const result = responseFor<ContactSetResponse>(res, 'set');
+        if (result.accountId === acct && result.updated) confirmed = wanted.filter((id) => !result.notUpdated?.[id] && Object.hasOwn(result.updated!, id));
+      }
+    } catch { confirmed = []; }
+    wanted.forEach((id) => favoriteInFlight.delete(id));
+    if (version !== authority) return [];
+    const kept = new Set(confirmed);
+    const failed = wanted.filter((id) => !kept.has(id));
+    if (failed.length > 0) {
+      const back = new Set(failed);
+      setContacts((cs) => cs.map((c) => (back.has(c.id) ? { ...c, isFavorite: !value } : c)));
+    }
+    if (confirmed.length > 0) ctx.broadcastChange?.();
+    return confirmed;
+  }
+
+  async function toggleFavorite(id: Id): Promise<boolean> {
     const cur = contactById(id);
-    if (cur === undefined) return;
-    await updateContact(id, { isFavorite: !cur.isFavorite });
+    if (cur === undefined) return false;
+    return (await setFavorite([id], !cur.isFavorite)).includes(id);
+  }
+
+  async function uploadComposeBlob(accountId: Id, name: string, text: string, type: string): Promise<{ name: string; blobId: string; size: number; contentType: string } | null> {
+    try {
+      const session = await client.session();
+      const file = Object.assign(new Blob([text], { type }), { name });
+      const up = await uploadBlob(session.uploadUrl, accountId, file);
+      return { name, blobId: up.blobId, size: up.size, contentType: type };
+    } catch { return null; }
   }
 
   async function importContacts(drafts: ParsedContact[], addressBookId?: Id): Promise<number> {
@@ -528,6 +579,9 @@ export function createContactsSlice(ctx: SliceContext): ContactsSlice {
     updateContact,
     deleteContact,
     toggleFavorite,
+    setFavorite,
+    favoriteCount,
+    uploadComposeBlob,
     importContacts,
     mergeContacts,
     createGroup,

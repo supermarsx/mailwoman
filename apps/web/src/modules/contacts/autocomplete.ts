@@ -11,6 +11,16 @@
 import { createEffect, createMemo, createSignal, onCleanup, type Accessor } from 'solid-js';
 import type { ContactCard } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
+import { settings } from '../../api/settings.ts';
+
+/** The `contacts.favoritesFirst` setting (default on): favorites are listed ahead of other matches. */
+export function favoritesFirstEnabled(): boolean {
+  const value = settings()['contacts.favoritesFirst']?.value;
+  return typeof value === 'boolean' ? value : true;
+}
+
+/** A favorite outranks every non-favorite match tier; within each group the usual score decides. */
+const FAVORITE_FIRST_BOOST = 10_000;
 
 /** One ranked completion — a single (card, email) pair with a display label. */
 export interface ContactSuggestion {
@@ -65,7 +75,7 @@ export function replaceRecipientToken(value:string,caret:number,address:string):
  *   - substring match anywhere in name / email / nickname / org
  * with small boosts for favorites, the email's `pref`, and its context.
  */
-function scorePair(card: ContactCard, email: string, pref: number, context: string, q: string): number {
+function scorePair(card: ContactCard, email: string, pref: number, context: string, q: string, favoritesFirst: boolean): number {
   const name = card.name.full.toLowerCase();
   const addr = email.toLowerCase();
   const given = card.name.given.toLowerCase();
@@ -82,7 +92,7 @@ function scorePair(card: ContactCard, email: string, pref: number, context: stri
   else if (nicks.some((n) => n.includes(q)) || orgs.some((o) => o.includes(q))) score = 300;
   else return 0;
 
-  if (card.isFavorite) score += 50;
+  if (card.isFavorite && favoritesFirst) score += FAVORITE_FIRST_BOOST;
   score += Math.min(pref, 9) * 2;
   score += CONTEXT_ORDER[context] ?? 0;
   return score;
@@ -97,6 +107,7 @@ export function rankSuggestions(
   cards: readonly ContactCard[],
   prefix: string,
   limit = 8,
+  favoritesFirst: boolean = favoritesFirstEnabled(),
 ): ContactSuggestion[] {
   const q = prefix.trim().toLowerCase();
   if (q.length === 0) return [];
@@ -106,7 +117,7 @@ export function rankSuggestions(
     let top: ContactSuggestion | null = null;
     for (const e of card.emails) {
       if (e.value.length === 0) continue;
-      const score = scorePair(card, e.value, e.pref, e.context, q);
+      const score = scorePair(card, e.value, e.pref, e.context, q, favoritesFirst);
       if (score === 0) continue;
       if (top === null || score > top.score) {
         top = {
@@ -124,6 +135,22 @@ export function rankSuggestions(
 
   best.sort((a, b) => b.score - a.score || a.display.localeCompare(b.display));
   return best.slice(0, limit);
+}
+
+/**
+ * The favorites group for a picker with no query typed yet: each favorite
+ * contact's preferred address, by name, capped at `limit`.
+ */
+export function favoriteSuggestions(cards: readonly ContactCard[], limit = 8): ContactSuggestion[] {
+  const out: ContactSuggestion[] = [];
+  for (const card of cards) {
+    if (!card.isFavorite) continue;
+    const email = [...card.emails].filter((e) => e.value.length > 0).sort((a, b) => b.pref - a.pref || (CONTEXT_ORDER[b.context] ?? 0) - (CONTEXT_ORDER[a.context] ?? 0))[0];
+    if (email === undefined) continue;
+    out.push({ cardId: card.id, name: card.name.full, email: email.value, display: suggestionDisplay(card.name.full, email.value), isFavorite: true, score: 0 });
+  }
+  out.sort((a, b) => a.display.localeCompare(b.display));
+  return out.slice(0, limit);
 }
 
 /** The reactive autocomplete controller returned by {@link createContactAutocomplete}. */
@@ -159,9 +186,12 @@ export function createContactAutocomplete(
   });
   const suggestions = createMemo(() => {
     const seen=new Set<string>();
-    return [...rankSuggestions(source(),query(),limit),...remote()].filter(s=>{
+    const merged=[...rankSuggestions(source(),query(),limit),...remote()].filter(s=>{
       const key=s.email.toLowerCase();if(!s.email||seen.has(key))return false;seen.add(key);return true;
-    }).slice(0,limit);
+    });
+    // Server matches arrive after the local ones; the favorites group still leads (stable partition).
+    const ordered=favoritesFirstEnabled()?[...merged.filter(s=>s.isFavorite),...merged.filter(s=>!s.isFavorite)]:merged;
+    return ordered.slice(0,limit);
   });
   return {
     query,

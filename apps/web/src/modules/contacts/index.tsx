@@ -10,11 +10,16 @@ import { Icon } from '../../components/Icon.tsx';
 // (e10 wires it into Compose — this module does not edit Compose).
 
 import { For, Show, createMemo, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
+import { createContextMenu, type ContextAction } from '../../components/ContextMenu.tsx';
+import { contactComposeInitial } from '../../components/AddressContactCard.tsx';
+import { requestCompose } from '../../state/pendingCompose.ts';
+import { ContactShareMenu, createShareActions } from './ContactShare.tsx';
 import { ContactEditor } from './ContactEditor.tsx';
 import { GroupEditor } from './GroupEditor.tsx';
 import { observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { t, loadCatalog } from '../../i18n';
 import { useApp } from '../../state/context.ts';
+import type { AppState } from '../../state/store.ts';
 import { contactDisplayName } from '../../state/slices/contacts.ts';
 import type { ContactCard } from '../../api/pim-types.ts';
 import type { Id } from '../../api/jmap-types.ts';
@@ -38,6 +43,11 @@ function download(filename: string, text: string, mime: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** Toggle a favorite; a refused write has already been rolled back, so only say so. */
+async function toggleFavorite(app: AppState, id: Id): Promise<void> {
+  if (!(await app.toggleFavorite(id))) app.showToast('error', t('contacts-favorite-failed'));
+}
+
 export function ContactsModule(): JSX.Element {
   const app = useApp();
   onMount(() => {
@@ -58,6 +68,49 @@ export function ContactsModule(): JSX.Element {
   const isAll = createMemo(
     () => app.selectedAddressBookId() === null && app.selectedGroupId() === null && !app.favoritesOnly(),
   );
+
+  // Rows are keyed by id, so a favorite toggle keeps the row (and its focus) instead of rebuilding it.
+  const rowIds = createMemo(() => app.filteredContacts().map((card) => card.id));
+
+  // ── selection + bulk favorites ──
+  const [selected, setSelected] = createSignal<ReadonlySet<Id>>(new Set<Id>());
+  const selectedVisible = createMemo(() => app.filteredContacts().filter((card) => selected().has(card.id)));
+  function toggleSelected(id: Id, on: boolean): void {
+    setSelected((current) => { const next = new Set(current); if (on) next.add(id); else next.delete(id); return next; });
+  }
+  async function bulkFavorite(value: boolean): Promise<void> {
+    const ids = selectedVisible().map((card) => card.id);
+    const pending = ids.filter((id) => app.contactById(id)?.isFavorite !== value);
+    const done = await app.setFavorite(ids, value);
+    if (done.length > 0) app.showToast('success', t(value ? 'contacts-bulk-favorites-added' : 'contacts-bulk-favorites-removed', { count: done.length }));
+    if (done.length < pending.length) app.showToast('error', t('contacts-favorite-failed'));
+    setSelected(new Set<Id>());
+  }
+
+  // ── row context menu: favorite, send email, share ──
+  const [menuCard, setMenuCard] = createSignal<ContactCard | null>(null);
+  const rowMenu = createContextMenu({
+    label: () => t('contacts-row-menu', { name: menuCard() ? contactDisplayName(menuCard()!) : '' }),
+    scope: () => JSON.stringify([app.accountId(), menuCard()?.id ?? '']),
+    actions: () => {
+      const card = menuCard();
+      if (!card) return [];
+      const live = app.contactById(card.id) ?? card;
+      const actions = createShareActions(app, () => app.contactById(card.id) ?? card, () => document, requestCompose);
+      const address = primaryEmail(live);
+      const draft = address ? contactComposeInitial(address, live.name.full) : null;
+      return [
+        { id: 'favorite', label: t(live.isFavorite ? 'contacts-favorite-remove' : 'contacts-favorite-add'), icon: live.isFavorite ? 'starOutline' : 'star', run: () => { void toggleFavorite(app, live.id); } },
+        { id: 'email', label: t('contacts-address-compose'), icon: 'mail', disabled: !draft, run: () => { if (draft) requestCompose(draft); } },
+        { id: 'share', label: t('contacts-share'), icon: 'share', separatorBefore: true, run: () => undefined, children: [
+          { id: 'share-email', label: t('contacts-share-email'), icon: 'mail', run: () => actions.email() },
+          { id: 'share-copy', label: t('contacts-share-copy'), icon: 'copy', run: () => actions.copy() },
+          { id: 'share-download', label: t('contacts-share-download'), icon: 'download', run: () => actions.download() },
+          ...(actions.nativeAvailable() ? [{ id: 'share-native', label: t('contacts-share-native'), icon: 'share', run: () => actions.native() } satisfies ContextAction] : []),
+        ] },
+      ] satisfies ContextAction[];
+    },
+  });
 
   function openContact(id: Id): void {
     app.selectContact(id);
@@ -121,38 +174,58 @@ export function ContactsModule(): JSX.Element {
           </button>
         </div>
 
+        <Show when={selectedVisible().length > 0}>
+          <div class={css.bulkBar} role="group" aria-label={t('contacts-bulk-actions')}>
+            <span role="status">{t('contacts-selected-count', { count: selectedVisible().length })}</span>
+            <button type="button" class={css.buttonGhost} onClick={() => void bulkFavorite(true)}><Icon name="star" /> {t('contacts-favorite-add')}</button>
+            <button type="button" class={css.buttonGhost} onClick={() => void bulkFavorite(false)}><Icon name="starOutline" /> {t('contacts-favorite-remove')}</button>
+            <button type="button" class={css.buttonGhost} onClick={() => setSelected(new Set<Id>())}>{t('contacts-select-clear')}</button>
+          </div>
+        </Show>
+
         <Show
           when={app.filteredContacts().length > 0}
-          fallback={<Show when={app.contactsLoading()} fallback={<p class={css.empty}>{t('contacts-none')}</p>}><AsyncPending variant="list" message={t('contacts-loading')}/></Show>}
+          fallback={<Show when={app.contactsLoading()} fallback={<p class={css.empty}>{app.favoritesOnly() && app.contactSearch().trim() === '' ? t('contacts-favorites-empty') : t('contacts-none')}</p>}><AsyncPending variant="list" message={t('contacts-loading')}/></Show>}
         >
           <ul class={css.contactList} aria-label={t('contacts-list')}>
-            <For each={app.filteredContacts()}>
-              {(card) => (
+            <For each={rowIds()}>
+              {(id) => { const card = (): ContactCard => app.contactById(id)!; return (
                 <li>
                   <div
                     class={css.contactRow}
                     role="button"
                     tabindex={0}
-                    aria-current={app.selectedContactId() === card.id}
-                    onClick={() => openContact(card.id)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContact(card.id); } }}
+                    aria-current={app.selectedContactId() === card().id}
+                    onClick={() => openContact(card().id)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openContact(card().id); } else { setMenuCard(card()); rowMenu.keydown(e); } }}
+                    onContextMenu={(e) => { setMenuCard(card()); rowMenu.open(e); }}
                   >
+                    <input
+                      type="checkbox"
+                      class={css.rowCheck}
+                      aria-label={t('contacts-select-row', { name: contactDisplayName(card()) })}
+                      checked={selected().has(card().id)}
+                      onClick={(e) => e.stopPropagation()}
+                      onKeyDown={(e) => e.stopPropagation()}
+                      onChange={(e) => toggleSelected(card().id, e.currentTarget.checked)}
+                    />
                     <button
                       type="button"
                       class={css.star}
-                      aria-label={t('contacts-favorite', { name: contactDisplayName(card) })}
-                      aria-pressed={card.isFavorite}
-                      onClick={(e) => { e.stopPropagation(); void app.toggleFavorite(card.id); }}
+                      aria-label={t('contacts-favorite', { name: contactDisplayName(card()) })}
+                      aria-pressed={card().isFavorite}
+                      title={t(card().isFavorite ? 'contacts-favorite-remove' : 'contacts-favorite-add')}
+                      onClick={(e) => { e.stopPropagation(); void toggleFavorite(app, card().id); }}
                     >
-                      <Icon name={card.isFavorite ? 'star' : 'starOutline'} />
+                      <Icon name={card().isFavorite ? 'star' : 'starOutline'} />
                     </button>
                     <span class={css.rowBody}>
-                      <span class={css.rowName}><PersonAvatar name={contactDisplayName(card)} address={primaryEmail(card)}/><bdi>{contactDisplayName(card)}</bdi></span>
-                      <span class={css.rowMeta}><bdi>{primaryEmail(card) || card.organizations[0] || ''}</bdi></span>
+                      <span class={css.rowName}><PersonAvatar name={contactDisplayName(card())} address={primaryEmail(card())}/><bdi>{contactDisplayName(card())}</bdi></span>
+                      <span class={css.rowMeta}><bdi>{primaryEmail(card()) || card().organizations[0] || ''}</bdi></span>
                     </span>
                   </div>
                 </li>
-              )}
+              ); }}
             </For>
           </ul>
         </Show>
@@ -174,6 +247,7 @@ export function ContactsModule(): JSX.Element {
           </button>
         </div>
       </div>
+      {rowMenu.menu()}
 
       <div class={css.detail}>
         <Show when={panel() === 'view' && app.selectedContact() !== null}>
@@ -224,7 +298,7 @@ function Sidebar(props: {
         onClick={() => { app.setFavoritesOnly(!app.favoritesOnly()); app.setSelectedGroup(null); }}
       >
         <span><Icon name="star" /> {t('contacts-favorites')}</span>
-        <span class={css.count}>{app.contacts().filter((c) => c.isFavorite).length}</span>
+        <span class={css.count}>{app.favoriteCount()}</span>
       </button>
       <For each={app.addressBooks()}>
         {(book) => (
@@ -291,10 +365,12 @@ function BusinessCard(props: { card: ContactCard; onEdit: () => void; onManageMe
             class={css.buttonGhost}
             aria-label={t('contacts-favorite', { name: contactDisplayName(card()) })}
             aria-pressed={card().isFavorite}
-            onClick={() => void app.toggleFavorite(card().id)}
+            title={t(card().isFavorite ? 'contacts-favorite-remove' : 'contacts-favorite-add')}
+            onClick={() => void toggleFavorite(app, card().id)}
           >
             <Icon name={card().isFavorite ? 'star' : 'starOutline'} /> {card().isFavorite ? t('contacts-favorited') : t('contacts-favorite-action')}
           </button>
+          <ContactShareMenu card={card} triggerClass={css.buttonGhost} label onCompose={requestCompose} />
           <button type="button" class={css.button} onClick={props.onEdit}>{t('common-edit')}</button>
           <button type="button" class={css.buttonGhost} onClick={() => void app.deleteContact(card().id)}>{t('common-delete')}</button>
         </div>

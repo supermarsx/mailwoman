@@ -494,6 +494,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.compose.checkinvalidrecipients"></a>`mail.compose.checkInvalidRecipients` | mail | global+domain+user | "warn" | plain |  | yes | pre-send check for invalid recipient addresses |
 | <a id="mail.compose.checkmissingattachment"></a>`mail.compose.checkMissingAttachment` | mail | global+domain+user | "warn" | plain |  | yes | pre-send check for a message that mentions an attachment but has none |
 | <a id="mail.compose.checkemptysubject"></a>`mail.compose.checkEmptySubject` | mail | global+domain+user | "warn" | plain |  | yes | pre-send check for an empty subject |
+| <a id="mail.compose.headercollapse"></a>`mail.compose.headerCollapse` | mail | global+domain+user | "expanded" | plain |  | yes | composer header (To, Cc, Bcc, Subject): expanded, folded to a summary line, or folded while writing the body and open on focus |
 | <a id="mail.compose.autochiprecipients"></a>`mail.compose.autoChipRecipients` | mail | global+domain+user | true | plain |  | yes | finish a typed recipient when a space, comma or semicolon follows it |
 | <a id="mail.compose.recipientseparator"></a>`mail.compose.recipientSeparator` | mail | global+domain+user | "comma" | plain |  | yes | separator inserted after a finished recipient |
 | <a id="time.displayzone"></a>`time.displayZone` | time | global+domain+user | "local" | plain |  | yes | preferred message display time zone |
@@ -542,6 +543,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.accountunreadbadge"></a>`mail.accountUnreadBadge` | mail | global+domain+user | false | plain |  | yes | Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; account wide |
 | <a id="contacts.avatarmode"></a>`contacts.avatarMode` | contacts | global+domain+user | "initials" | plain |  | yes | local generated avatars or embedded photos from this account contacts; never remote photo requests |
 | <a id="contacts.sendericons"></a>`contacts.senderIcons` | contacts | global+domain+user | true | plain |  | yes | bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence |
+| <a id="contacts.favoritesfirst"></a>`contacts.favoritesFirst` | contacts | global+domain+user | true | plain |  | yes | recipient suggestions list favourite contacts ahead of other matches; a sort preference only, it never hides a suggestion |
 | <a id="reader.actionstyle"></a>`reader.actionStyle` | reader | global+domain+user | "icons" | plain |  | yes | compact reader actions or icons with visible labels |
 | <a id="reader.colormode"></a>`reader.colorMode` | reader | global+domain+user | "auto" | plain |  | yes | message color adaptation inside the isolated reader |
 | <a id="reader.fontsize"></a>`reader.fontSize` | reader | global+domain+user | 14 | plain |  | yes | message reading font size in pixels |
