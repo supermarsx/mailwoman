@@ -9,6 +9,7 @@ import { formatNumber, loadCatalog, t } from '../../../i18n';
 import { StatTile } from '../shell/StatTile.tsx';
 import { StatusBadge, type StatusTone } from '../shell/StatusBadge.tsx';
 import { ChartSkeleton, StatsSection, TableCard, TileSkeleton } from '../shell/ChartCard.tsx';
+import * as stats from '../shell/stats.css.ts';
 import * as css from './privacy.css.ts';
 import type { LatencySummary, PrivacyStats, ProxyLatency, SpeedVerdict } from './model.ts';
 import { HistoryChart } from './ProxyCharts.tsx';
@@ -69,10 +70,12 @@ function Body(props: { latency: ProxyLatency }): JSX.Element {
         <Split title={t('privacy-speed-hit')} s={l().hit} testId="speed-hit" />
         <Split title={t('privacy-speed-miss')} s={l().miss} testId="speed-miss" />
       </div>
+      <div class={stats.charts}>
       <HistoryChart testId="chart-speed" title={t('privacy-speed-chart')} unit={t('privacy-speed-chart-unit')} history={hist()} format={duration}
         series={[{ label: t('privacy-speed-median'), values: series(l(), 'p50Ms') }, { label: t('privacy-speed-p95'), values: series(l(), 'p95Ms') }]} />
       <HistoryChart testId="chart-speed-miss" title={t('privacy-speed-chart-miss')} unit={t('privacy-speed-chart-unit')} history={hist()} format={duration}
         series={[{ label: t('privacy-speed-median'), values: series(l(), 'missP50Ms') }, { label: t('privacy-speed-p95'), values: series(l(), 'missP95Ms') }]} />
+      </div>
       <TableCard title={t('privacy-speed-phases')} testId="speed-phases">
         <p>{t('privacy-speed-phases-help')}</p>
         <table>

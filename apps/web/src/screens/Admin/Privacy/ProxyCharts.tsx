@@ -8,6 +8,7 @@
 import { For, Show, type JSX } from 'solid-js';
 import { formatBytes, formatNumber, formatTime, t } from '../../../i18n';
 import { ChartCard, StatsSection } from '../shell/ChartCard.tsx';
+import * as stats from '../shell/stats.css.ts';
 import { LineChart, type LineSeries } from '../shell/LineChart.tsx';
 import { maxKnown } from '../shell/statsMath.ts';
 import * as css from './privacy.css.ts';
@@ -104,29 +105,32 @@ export function ProxyCharts(props: { stats: PrivacyStats | undefined; loading: b
           <div aria-busy={props.loading} data-testid={`proxy-charts-${props.view}`}>
             <Show when={props.view !== 'traffic'}>
             <StatsSection title={t(props.view === 'overview' ? 'privacy-history-title' : 'privacy-history-worker-title')} kind="charts">
-              <HistoryChart testId="chart-requests" title={L('requests')} unit={L('requests-unit')} history={h()} series={[{ label: L('requests'), values: slotValues(h(), 'requestsPerSec') }]} format={perSec} />
+<div class={stats.charts}>              <HistoryChart testId="chart-requests" title={L('requests')} unit={L('requests-unit')} history={h()} series={[{ label: L('requests'), values: slotValues(h(), 'requestsPerSec') }]} format={perSec} />
               <HistoryChart testId="chart-bytes" title={L('bytes')} unit={L('bytes-unit')} history={h()} series={[{ label: L('bytes'), values: slotValues(h(), 'bytesPerSec') }]} format={bytesPerSec} />
               <HistoryChart testId="chart-hit" title={L('hit')} unit={L('hit-unit')} history={h()} series={[{ label: L('ram'), values: slotValues(h(), 'ramHitPct') }, { label: L('disk'), values: slotValues(h(), 'diskHitPct') }]} format={pct} />
               <HistoryChart testId="chart-queue" title={L('queue')} unit={L('queue-unit')} history={h()} series={[{ label: L('active'), values: slotValues(h(), 'activeFetches') }, { label: L('queued'), values: slotValues(h(), 'queueDepth') }]} format={num} whole />
               <HistoryChart testId="chart-busy" title={L('busy')} unit={L('busy-unit')} history={h()} series={[{ label: '429', values: slotValues(h(), 'busy429') }, { label: '503', values: slotValues(h(), 'busy503') }]} format={num} whole />
               <Show when={props.view === 'overview'}>
                 <HistoryChart testId="chart-trackers" title={L('trackers')} unit={L('trackers-unit')} history={h()} series={[{ label: L('trackers'), values: slotValues(h(), 'trackersReplaced') }]} format={num} whole />
-              </Show>
+              </Show></div>
+
             </StatsSection>
             </Show>
             <Show when={props.view === 'proxy'}>
               <StatsSection title={t('privacy-history-cache-title')} kind="charts">
-                <HistoryChart testId="chart-size" title={L('size')} unit={L('size-unit')} history={h()} series={[{ label: L('ram'), values: slotValues(h(), 'ramBytes') }, { label: L('disk'), values: slotValues(h(), 'diskBytes') }]} format={(n) => formatBytes(n)} />
+<div class={stats.charts}>                <HistoryChart testId="chart-size" title={L('size')} unit={L('size-unit')} history={h()} series={[{ label: L('ram'), values: slotValues(h(), 'ramBytes') }, { label: L('disk'), values: slotValues(h(), 'diskBytes') }]} format={(n) => formatBytes(n)} />
                 <HistoryChart testId="chart-entries" title={L('entries')} unit={L('entries-unit')} history={h()} series={[{ label: L('ram'), values: slotValues(h(), 'ramEntries') }, { label: L('disk'), values: slotValues(h(), 'diskEntries') }]} format={num} whole />
                 <HistoryChart testId="chart-wait" title={L('wait')} unit={L('wait-unit')} history={h()} series={[{ label: L('wait'), values: slotValues(h(), 'waitMs') }]} format={ms} />
-                <HistoryChart testId="chart-rate" title={L('rate')} unit={L('rate-unit')} history={h()} series={[{ label: L('burst'), values: slotValues(h(), 'rateBurst') }, { label: L('accounts'), values: slotValues(h(), 'activeAccounts') }]} format={num} whole />
+                <HistoryChart testId="chart-rate" title={L('rate')} unit={L('rate-unit')} history={h()} series={[{ label: L('burst'), values: slotValues(h(), 'rateBurst') }, { label: L('accounts'), values: slotValues(h(), 'activeAccounts') }]} format={num} whole /></div>
+
               </StatsSection>
             </Show>
             <Show when={props.view === 'traffic'}>
               <StatsSection title={t('privacy-history-traffic-title')} kind="charts">
-                <HistoryChart testId="chart-allowed" title={L('allowed')} unit={L('traffic-unit')} history={h()} series={[{ label: t('privacy-allowed'), values: total('allowed') }]} format={num} whole />
+<div class={stats.charts}>                <HistoryChart testId="chart-allowed" title={L('allowed')} unit={L('traffic-unit')} history={h()} series={[{ label: t('privacy-allowed'), values: total('allowed') }]} format={num} whole />
  <HistoryChart testId="chart-trackers" title={L('trackers')} unit={L('trackers-unit')} history={h()} series={[{ label: L('trackers'), values: slotValues(h(), 'trackersReplaced') }]} format={num} whole />
-                <HistoryChart testId="chart-refused" title={L('refused')} unit={L('traffic-unit')} history={h()} series={[{ label: t('privacy-refused'), values: total('refused') }, { label: t('privacy-failed'), values: total('failed') }]} format={num} whole />
+                <HistoryChart testId="chart-refused" title={L('refused')} unit={L('traffic-unit')} history={h()} series={[{ label: t('privacy-refused'), values: total('refused') }, { label: t('privacy-failed'), values: total('failed') }]} format={num} whole /></div>
+
               </StatsSection>
             </Show>
           </div>
