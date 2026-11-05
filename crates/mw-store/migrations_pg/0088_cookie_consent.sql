@@ -4,7 +4,7 @@
 -- value is ever stored. A consent row holds no address, IP or user agent; the
 -- account id is present only when the person was signed in.
 CREATE TABLE cookie_consent (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     account_id TEXT,
     domain TEXT NOT NULL,
     policy_version BIGINT NOT NULL,
@@ -18,7 +18,7 @@ CREATE INDEX cookie_consent_time ON cookie_consent(created_at);
 CREATE INDEX cookie_consent_account ON cookie_consent(account_id, created_at);
 
 CREATE TABLE cookie_rule (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     kind TEXT NOT NULL,
     pattern TEXT NOT NULL,
     category TEXT NOT NULL,
@@ -28,7 +28,7 @@ CREATE TABLE cookie_rule (
 );
 
 CREATE TABLE cookie_detected (
-    id TEXT PRIMARY KEY,
+    id TEXT PRIMARY KEY NOT NULL,
     kind TEXT NOT NULL,
     name TEXT NOT NULL,
     first_seen BIGINT NOT NULL,
