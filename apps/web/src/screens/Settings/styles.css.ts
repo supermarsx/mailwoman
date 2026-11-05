@@ -83,6 +83,17 @@ export const row = style({
   flexWrap: 'wrap',
 });
 
+// A labelled choice that reads top to bottom, start-aligned: the label, then
+// the options, then the hint. Nothing is pushed to the far edge of the row.
+export const stackedRow = style({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: vars.space[2],
+  minInlineSize: 0,
+});
+export const stackedHint = style({ margin: 0, fontSize: '0.8rem', color: vars.color.textDim, maxInlineSize: '40rem' });
+
 export const grow = style({ flex: 1, minWidth: '12rem' });
 
 export const actions = style({ display: 'flex', gap: vars.space[3], flexWrap: 'wrap', alignItems: 'center' });
