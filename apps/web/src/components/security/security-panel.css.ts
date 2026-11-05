@@ -4,6 +4,7 @@
 // path, plan §2.3. Zero-runtime: compiled to static CSS by vanilla-extract.
 
 import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
+import { linkColor } from '../../theme/accentLink.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 /** Per-tone colour, shared by the chip, badges and section accents. */
@@ -350,11 +351,22 @@ export const anomalyBody = style({
 
 export const explain = style({ fontSize: '0.8rem', color: vars.color.textDim, minInlineSize: 0 });
 
+// The disclosure label is a link-like control: the accent-derived readable link
+// colour (accentText is the ink for text ON an accent fill, not for text on the
+// surface), themed hover and focus, and a caret that follows the same colour.
 export const explainSummary = style({
   cursor: 'pointer',
-  color: vars.color.accentText,
+  color: linkColor,
   textDecoration: 'underline',
+  textUnderlineOffset: '0.2em',
   minBlockSize: '1.5rem',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: vars.space[1],
+  borderRadius: vars.radius.sm,
+  ':hover': { color: vars.color.text },
+  ':focus-visible': { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' },
+  '@media': { '(forced-colors: active)': { color: 'LinkText' } },
 });
 
 export const explainBody = style({
