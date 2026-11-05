@@ -65,8 +65,6 @@ function screen<P extends object>(load: () => Promise<Component<P>>, passApi: bo
 export const SECTIONS: readonly SectionDef[] = [
   { id: 'configuration-transfer', group: 'configuration', icon: 'restore', label: () => t('admin-transfer-title'), capability: 'config.read', component: screen(() => import('../ConfigurationTransfer.tsx').then(m => m.ConfigurationTransfer), false) },
   { id: 'package-tracking', group: 'configuration', icon: 'archive', label: () => t('admin-nav-package-tracking'), capability: 'integrations.read', component: screen(() => import('../PackageTracking.tsx').then(m => m.PackageTracking), false) },
-  { id: 'data-requests', group: 'security', icon: 'download', label: () => t('admin-nav-data-requests'), capability: 'data_export.run', component: screen(() => import('../DataRequests/index.tsx').then(m => m.default), false) },
-  { id: 'retention', group: 'security', icon: 'clock', label: () => t('admin-nav-retention'), capability: 'settings.read', component: screen(() => import('../Retention/index.tsx').then(m => m.default), false) },
   { id: 'identity-provider', group: 'security', icon: 'identityProvider', label: () => t('admin-identity-title'), capability: 'integrations.read', component: screen(() => import('../IdentityProvider/index.tsx').then(m => m.default), false) },
   { id: 'attachments', group: 'security', icon: 'attachment', label: () => t('admin-attachments-title'), capability: 'settings.read', component: screen(() => import('../AttachmentPolicy.tsx').then(m => m.AdminAttachmentPolicy), false) },
   { id: 'nextcloud', group: 'configuration', icon: 'nextcloud', label: () => t('admin-nav-nextcloud'), capability: 'integrations.read', component: screen(() => import('../Nextcloud.tsx').then(m => m.AdminNextcloud), false) },
@@ -201,6 +199,14 @@ export const SECTIONS: readonly SectionDef[] = [
     label: () => t('plugins-admin-ui-nav'),
     capability: 'plugins.read',
     component: screen(() => import('../UiPlugins/index.tsx').then((m) => m.AdminUiPlugins), false),
+  },
+  {
+    id: 'compliance',
+    group: 'security',
+    icon: 'compliance',
+    label: () => t('admin-nav-compliance'),
+    anyCapabilities: ['data_export.run', 'settings.read'],
+    component: screen(() => import('../Compliance/index.tsx').then((m) => m.AdminCompliance), false),
   },
   {
     id: 'privacy',

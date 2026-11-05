@@ -24,7 +24,7 @@ import { onAdminSessionEnded } from '../../../api/adminSession.ts';
 // The labels below come from these catalogs. Until they have loaded, a label
 // still reads as its message id, so the level waits (placeholder) instead.
 export const CRUMB_CATALOGS = [
-  'admin-shell', 'admin', 'admin-settings', 'admin-identity', 'admin-admins', 'privacy', 'plugins',
+  'admin-shell', 'admin', 'admin-compliance', 'admin-settings', 'admin-identity', 'admin-admins', 'privacy', 'plugins',
   'admin-personal', 'admin-features', 'admin-branding', 'admin-analytics',
   // t97: the Security centre's Requirements tab label lives with the centre.
   'admin-security',
@@ -73,6 +73,8 @@ export const CRUMB_WORDS: readonly string[] = [
   'connections', 'diagnostics', 'policy', 'aliases', 'alias-new', 'alias-edit', 'alias-clone', 'backends',
   'bans', 'locks', 'geography', 'geoip', 'protection', 'inbound', 'deployment', 'console', 'sessions',
   'audit', 'statistics', 'telemetry',
+  // Compliance hub tabs.
+  'data-requests', 'cookies', 'retention', 'breaches', 'restrictions', 'processing-records', 'dpia', 'erasure-coverage', 'encryption',
   'directory', 'webhooks', 'keys', 'hosting', 'ssh', 'domains', 'mailboxes',
   'application', 'authentication', 'jobs', 'mode', 'destinations', 'proxies', 'totp', 'security',
   'requirements', 'client-access', 'signin',

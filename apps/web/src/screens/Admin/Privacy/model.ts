@@ -73,7 +73,6 @@ export function tabForKey(key: string, rows: readonly AdminSetting[] = []): Priv
   if (key === IMAGE_CONCURRENCY_KEY || key.startsWith('privacy.image')) return 'image-proxy';
   if (rows.find((r) => r.key === key)?.category === 'imageProxy') return 'image-proxy';
   if (REMOTE_KEYS.includes(key)) return 'remote';
-  if (key.startsWith('cookies.')) return 'cookies';
   return undefined;
 }
 
