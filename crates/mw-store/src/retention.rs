@@ -172,7 +172,7 @@ pub struct Footprint {
 
 /// A statement string with `'static` lifetime, interned: the statements are built
 /// from a fixed target list and a short account-id list, so the set stays small.
-fn stmt(sql: String) -> &'static str {
+pub(crate) fn stmt(sql: String) -> &'static str {
     static MEMO: OnceLock<Mutex<HashMap<String, &'static str>>> = OnceLock::new();
     let mut m = MEMO
         .get_or_init(Default::default)

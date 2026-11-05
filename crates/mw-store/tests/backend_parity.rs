@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2415,6 +2415,32 @@ mod admin_controls_0033 {
             ("instance_id",'T',"!","replica-one"),("bucket_start",'I',"!","3600"),
             ("metric",'T',"!","timeToUsable"),("device",'T',"!","desktop"),
             ("sample_count",'I',"!","3"),("sum_ms",'I',"!","300"),("histogram_json",'T',"!","[]"),
+        ]},
+        NewTable {name:"user_retention_rule",copied:true,cols:&[
+            ("id",'T',"!","urr-1"),("account_id",'T',"!","acct-1"),("name",'T',"!","Newsletters"),
+            ("enabled",'I',"!","1"),("sort_order",'I',"!","1"),("template",'T',"~","newsletters30"),
+            ("body_json",'T',"!","{}"),("created_at",'I',"!",TS),("updated_at",'I',"!",TS),
+        ]},
+        NewTable {name:"user_retention_account",copied:true,cols:&[
+            ("account_id",'T',"!","acct-1"),("enabled",'I',"!","1"),("trash_first",'I',"!","1"),
+            ("undo_days",'I',"!","7"),("paused_until",'I',"!","0"),("folder_defaults_json",'T',"!","[]"),
+            ("last_run_at",'I',"!",TS),("updated_at",'I',"!",TS),
+        ]},
+        NewTable {name:"user_retention_run",copied:true,cols:&[
+            ("id",'T',"!","run-1"),("account_id",'T',"!","acct-1"),("started_at",'I',"!",TS),("finished_at",'I',"!",TS),
+            ("dry_run",'I',"!","0"),("triggered_by",'T',"!","scheduler"),("matched",'I',"!","10"),("acted",'I',"!","8"),
+            ("errors",'I',"!","0"),("counts_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"retention_archive_segment",copied:true,cols:&[
+            ("id",'T',"!","seg-1"),("store_id",'T',"!","assistAudit"),("seq",'I',"!","1"),("row_count",'I',"!","3"),
+            ("first_ts",'I',"!",TS),("last_ts",'I',"!",TS),("bytes",'I',"!","120"),("content_hash",'T',"!","abc"),
+            ("prev_seal",'T',"!","genesis"),("seal",'T',"!","def"),("key_gen",'I',"!","1"),
+            ("location",'T',"!","assistAudit-00000001.mwarc"),("state",'T',"!","sealed"),
+            ("created_at",'I',"!",TS),("verified_at",'I',"!",TS),("verify_status",'T',"!","ok"),
+        ]},
+        NewTable {name:"retention_archive_index",copied:true,cols:&[
+            ("id",'T',"!","seg-1:row-1"),("segment_id",'T',"!","seg-1"),("store_id",'T',"!","assistAudit"),
+            ("row_key",'T',"!","row-1"),("ts",'I',"!",TS),("account_id",'T',"~","acct-1"),
         ]},
         NewTable {name:"cookie_consent",copied:true,cols:&[
             ("id",'T',"!","consent-1"),("account_id",'T',"~","acct-1"),("domain",'T',"!","example.test"),

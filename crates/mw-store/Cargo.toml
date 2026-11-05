@@ -31,6 +31,8 @@ async-trait = { workspace = true }
 sha2 = { workspace = true }
 # t48: linked-mailbox credentials are opened into `Zeroizing` buffers.
 zeroize = { workspace = true }
+# retention archive tier: sealed segments are gzip-compressed JSON lines.
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
 [dev-dependencies]
 # The dual-backend parity + migrate-store integration tests open a raw Postgres

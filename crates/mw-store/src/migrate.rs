@@ -2987,3 +2987,97 @@ const TABLES: &[TableSpec] = &[
         },
     },
 ];
+    TableSpec {
+        name: "user_retention_rule",
+        select: "SELECT id,account_id,name,enabled,sort_order,template,body_json,created_at,updated_at FROM user_retention_rule",
+        insert: "INSERT INTO user_retention_rule(id,account_id,name,enabled,sort_order,template,body_json,created_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "name"),
+                i(r, "enabled"),
+                i(r, "sort_order"),
+                ot(r, "template"),
+                t(r, "body_json"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "user_retention_account",
+        select: "SELECT account_id,enabled,trash_first,undo_days,paused_until,folder_defaults_json,last_run_at,updated_at FROM user_retention_account",
+        insert: "INSERT INTO user_retention_account(account_id,enabled,trash_first,undo_days,paused_until,folder_defaults_json,last_run_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "account_id"),
+                i(r, "enabled"),
+                i(r, "trash_first"),
+                i(r, "undo_days"),
+                i(r, "paused_until"),
+                t(r, "folder_defaults_json"),
+                i(r, "last_run_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "user_retention_run",
+        select: "SELECT id,account_id,started_at,finished_at,dry_run,triggered_by,matched,acted,errors,counts_json FROM user_retention_run",
+        insert: "INSERT INTO user_retention_run(id,account_id,started_at,finished_at,dry_run,triggered_by,matched,acted,errors,counts_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                i(r, "started_at"),
+                i(r, "finished_at"),
+                i(r, "dry_run"),
+                t(r, "triggered_by"),
+                i(r, "matched"),
+                i(r, "acted"),
+                i(r, "errors"),
+                t(r, "counts_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "retention_archive_segment",
+        select: "SELECT id,store_id,seq,row_count,first_ts,last_ts,bytes,content_hash,prev_seal,seal,key_gen,location,state,created_at,verified_at,verify_status FROM retention_archive_segment",
+        insert: "INSERT INTO retention_archive_segment(id,store_id,seq,row_count,first_ts,last_ts,bytes,content_hash,prev_seal,seal,key_gen,location,state,created_at,verified_at,verify_status) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "store_id"),
+                i(r, "seq"),
+                i(r, "row_count"),
+                i(r, "first_ts"),
+                i(r, "last_ts"),
+                i(r, "bytes"),
+                t(r, "content_hash"),
+                t(r, "prev_seal"),
+                t(r, "seal"),
+                i(r, "key_gen"),
+                t(r, "location"),
+                t(r, "state"),
+                i(r, "created_at"),
+                i(r, "verified_at"),
+                t(r, "verify_status"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "retention_archive_index",
+        select: "SELECT id,segment_id,store_id,row_key,ts,account_id FROM retention_archive_index",
+        insert: "INSERT INTO retention_archive_index(id,segment_id,store_id,row_key,ts,account_id) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "segment_id"),
+                t(r, "store_id"),
+                t(r, "row_key"),
+                i(r, "ts"),
+                ot(r, "account_id"),
+            ]
+        },
+    },
