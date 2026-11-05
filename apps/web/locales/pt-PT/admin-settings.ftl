@@ -1398,3 +1398,114 @@ admin-attachments-mime-group-executables = Executáveis e scripts
 admin-attachments-mime-group-media = Áudio e vídeo
 admin-attachments-mime-group-email = Correio e calendário
 admin-attachments-mime-group-other = Outros
+
+
+# Consentimento de cookies
+admin-settings-key-cookies-enabled = Controlo de consentimento de cookies
+admin-settings-help-cookies-enabled = Mostrar o controlo de consentimento de cookies aos visitantes. Desativado mantém a aplicação como se comporta sem o controlo.
+
+admin-settings-key-cookies-mode = Modelo de consentimento
+admin-settings-help-cookies-mode = optIn: nada opcional é guardado até o visitante aceitar. optOut: as predefinições das categorias aplicam-se até o visitante rejeitar. noticeOnly: o visitante é informado, sem escolha.
+
+admin-settings-key-cookies-region-mode = Modelo de consentimento nas regiões estritas
+admin-settings-help-cookies-region-mode = O modelo usado para visitantes das regiões estritas. same usa também o modelo de consentimento acima.
+
+admin-settings-key-cookies-strict-regions = Regiões estritas
+admin-settings-help-cookies-strict-regions = Códigos de país ISO 3166-1 que usam o modelo de consentimento das regiões estritas. Por predefinição, os Estados da UE e do EEE, o Reino Unido e a Suíça.
+
+admin-settings-key-cookies-region-header = Cabeçalho do país
+admin-settings-help-cookies-region-header = Nome do cabeçalho do pedido, definido por um proxy ou CDN, que contém o código de país do visitante.
+
+admin-settings-key-cookies-unknown-region = País desconhecido
+admin-settings-help-cookies-unknown-region = Que modelo se aplica quando não é possível determinar o país: o das regiões estritas ou o normal.
+
+admin-settings-key-cookies-functional-enabled = Oferecer cookies funcionais
+admin-settings-help-cookies-functional-enabled = Oferecer a categoria de preferências e funcionalidades (tema, idioma, memória de disposição) no controlo de consentimento.
+
+admin-settings-key-cookies-functional-default = Predefinição funcional
+admin-settings-help-cookies-functional-default = Estado inicial da categoria funcional quando o modelo de consentimento permite predefinições.
+
+admin-settings-key-cookies-analytics-enabled = Oferecer cookies de análise
+admin-settings-help-cookies-analytics-enabled = Oferecer a categoria de análise no controlo de consentimento.
+
+admin-settings-key-cookies-analytics-default = Predefinição de análise
+admin-settings-help-cookies-analytics-default = Estado inicial da categoria de análise quando o modelo de consentimento permite predefinições.
+
+admin-settings-key-cookies-marketing-enabled = Oferecer cookies de marketing
+admin-settings-help-cookies-marketing-enabled = Oferecer a categoria de marketing no controlo de consentimento.
+
+admin-settings-key-cookies-marketing-default = Predefinição de marketing
+admin-settings-help-cookies-marketing-default = Estado inicial da categoria de marketing quando o modelo de consentimento permite predefinições.
+
+admin-settings-key-cookies-layout = Disposição
+admin-settings-help-cookies-layout = banner é uma barra na página, card é um cartão flutuante, modal é uma caixa de diálogo que retém a página até o visitante escolher.
+
+admin-settings-key-cookies-position = Posição
+admin-settings-help-cookies-position = Onde o controlo de consentimento aparece na página.
+
+admin-settings-key-cookies-reject-prominent = Rejeitar tão visível como aceitar
+admin-settings-help-cookies-reject-prominent = Mostrar Rejeitar tudo com o mesmo tamanho e estilo que Aceitar tudo.
+
+admin-settings-key-cookies-policy-url = URL da política de cookies
+admin-settings-help-cookies-policy-url = Ligação para a sua política de cookies, mostrada no controlo de consentimento.
+
+admin-settings-key-cookies-privacy-url = URL da política de privacidade
+admin-settings-help-cookies-privacy-url = Ligação para a sua política de privacidade, mostrada no controlo de consentimento.
+
+admin-settings-key-cookies-policy-version = Versão da política
+admin-settings-help-cookies-policy-version = Aumente este número quando a sua utilização de cookies mudar, para que os visitantes sejam questionados novamente.
+
+admin-settings-key-cookies-lifetime-days = Validade do consentimento
+admin-settings-help-cookies-lifetime-days = Dias durante os quais uma decisão se mantém válida antes de o visitante ser questionado novamente.
+
+admin-settings-key-cookies-reprompt-on-version = Perguntar de novo numa nova versão
+admin-settings-help-cookies-reprompt-on-version = Perguntar novamente aos visitantes quando a versão da política é diferente daquela em que decidiram.
+
+admin-settings-key-cookies-honour-gpc = Respeitar o Global Privacy Control
+admin-settings-help-cookies-honour-gpc = Tratar um sinal Global Privacy Control do navegador como rejeição de análise e marketing.
+
+admin-settings-key-cookies-honour-dnt = Respeitar o Do Not Track
+admin-settings-help-cookies-honour-dnt = Tratar um sinal Do Not Track do navegador como rejeição de análise e marketing.
+
+admin-settings-key-cookies-log-consent = Manter registo de consentimento
+admin-settings-help-cookies-log-consent = Manter um registo no servidor de cada decisão de consentimento, para estatísticas e para os seus próprios registos.
+
+admin-settings-key-cookies-log-retention-days = Retenção do registo de consentimento
+admin-settings-help-cookies-log-retention-days = Dias durante os quais as linhas do registo de consentimento são mantidas antes de serem eliminadas.
+
+admin-settings-key-cookies-scan-interval-hours = Intervalo de análise de armazenamento
+admin-settings-help-cookies-scan-interval-hours = Horas entre análises automáticas dos cookies e do armazenamento do navegador. 0 analisa apenas a pedido.
+
+admin-settings-key-cookies-unclassified = Armazenamento não classificado
+admin-settings-help-cookies-unclassified = report deixa em paz o armazenamento que nada classifica e lista-o para revisão. Os outros valores tratam-no como essa categoria até o classificar.
+
+admin-settings-key-cookies-text-title = Título do controlo de consentimento
+admin-settings-help-cookies-text-title = Título do controlo de consentimento por idioma. Vazio usa o texto incorporado.
+
+admin-settings-key-cookies-text-body = Texto do controlo de consentimento
+admin-settings-help-cookies-text-body = Texto explicativo do controlo de consentimento por idioma. Vazio usa o texto incorporado.
+
+admin-settings-key-cookies-label-necessary = Nome da categoria estritamente necessários
+admin-settings-help-cookies-label-necessary = Nome da categoria de cookies estritamente necessários por idioma. Vazio usa o nome incorporado.
+
+admin-settings-key-cookies-description-necessary = Descrição da categoria estritamente necessários
+admin-settings-help-cookies-description-necessary = Descrição da categoria de cookies estritamente necessários por idioma. Vazia usa a descrição incorporada.
+
+admin-settings-key-cookies-label-functional = Nome da categoria funcionais
+admin-settings-help-cookies-label-functional = Nome da categoria de cookies funcionais por idioma. Vazio usa o nome incorporado.
+
+admin-settings-key-cookies-description-functional = Descrição da categoria funcionais
+admin-settings-help-cookies-description-functional = Descrição da categoria de cookies funcionais por idioma. Vazia usa a descrição incorporada.
+
+admin-settings-key-cookies-label-analytics = Nome da categoria de análise
+admin-settings-help-cookies-label-analytics = Nome da categoria de cookies de análise por idioma. Vazio usa o nome incorporado.
+
+admin-settings-key-cookies-description-analytics = Descrição da categoria de análise
+admin-settings-help-cookies-description-analytics = Descrição da categoria de cookies de análise por idioma. Vazia usa a descrição incorporada.
+
+admin-settings-key-cookies-label-marketing = Nome da categoria de marketing
+admin-settings-help-cookies-label-marketing = Nome da categoria de cookies de marketing por idioma. Vazio usa o nome incorporado.
+
+admin-settings-key-cookies-description-marketing = Descrição da categoria de marketing
+admin-settings-help-cookies-description-marketing = Descrição da categoria de cookies de marketing por idioma. Vazia usa a descrição incorporada.
+

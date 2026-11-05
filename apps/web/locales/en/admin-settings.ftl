@@ -1398,3 +1398,114 @@ admin-attachments-mime-group-executables = Executables and scripts
 admin-attachments-mime-group-media = Audio and video
 admin-attachments-mime-group-email = Email and calendar
 admin-attachments-mime-group-other = Other
+
+
+# Cookie consent
+admin-settings-key-cookies-enabled = Cookie consent control
+admin-settings-help-cookies-enabled = Show the cookie consent control to visitors. Off keeps the application as it behaves without the control.
+
+admin-settings-key-cookies-mode = Consent model
+admin-settings-help-cookies-mode = optIn: nothing optional is stored until the visitor accepts. optOut: category defaults apply until the visitor rejects. noticeOnly: the visitor is informed, with no choice.
+
+admin-settings-key-cookies-region-mode = Consent model in strict regions
+admin-settings-help-cookies-region-mode = The model used for visitors in the strict regions. same uses the consent model above there too.
+
+admin-settings-key-cookies-strict-regions = Strict regions
+admin-settings-help-cookies-strict-regions = ISO 3166-1 country codes that use the strict-region consent model. Defaults to the EU and EEA states, the United Kingdom and Switzerland.
+
+admin-settings-key-cookies-region-header = Country header
+admin-settings-help-cookies-region-header = Name of the request header, set by a proxy or CDN, that holds the visitor country code.
+
+admin-settings-key-cookies-unknown-region = Unknown country
+admin-settings-help-cookies-unknown-region = Which model applies when no country can be determined: the strict-region model or the normal one.
+
+admin-settings-key-cookies-functional-enabled = Offer functional cookies
+admin-settings-help-cookies-functional-enabled = Offer the preferences and functional category (theme, language, layout memory) in the consent control.
+
+admin-settings-key-cookies-functional-default = Functional default
+admin-settings-help-cookies-functional-default = Initial state of the functional category when the consent model allows defaults.
+
+admin-settings-key-cookies-analytics-enabled = Offer analytics cookies
+admin-settings-help-cookies-analytics-enabled = Offer the analytics category in the consent control.
+
+admin-settings-key-cookies-analytics-default = Analytics default
+admin-settings-help-cookies-analytics-default = Initial state of the analytics category when the consent model allows defaults.
+
+admin-settings-key-cookies-marketing-enabled = Offer marketing cookies
+admin-settings-help-cookies-marketing-enabled = Offer the marketing category in the consent control.
+
+admin-settings-key-cookies-marketing-default = Marketing default
+admin-settings-help-cookies-marketing-default = Initial state of the marketing category when the consent model allows defaults.
+
+admin-settings-key-cookies-layout = Layout
+admin-settings-help-cookies-layout = banner is a bar across the page, card is a floating card, modal is a dialog that holds the page until the visitor chooses.
+
+admin-settings-key-cookies-position = Position
+admin-settings-help-cookies-position = Where the consent control appears on the page.
+
+admin-settings-key-cookies-reject-prominent = Reject as prominent as accept
+admin-settings-help-cookies-reject-prominent = Show Reject all with the same size and style as Accept all.
+
+admin-settings-key-cookies-policy-url = Cookie policy URL
+admin-settings-help-cookies-policy-url = Link to your cookie policy, shown in the consent control.
+
+admin-settings-key-cookies-privacy-url = Privacy policy URL
+admin-settings-help-cookies-privacy-url = Link to your privacy policy, shown in the consent control.
+
+admin-settings-key-cookies-policy-version = Policy version
+admin-settings-help-cookies-policy-version = Raise this number when your cookie use changes, so visitors are asked again.
+
+admin-settings-key-cookies-lifetime-days = Consent lifetime
+admin-settings-help-cookies-lifetime-days = Days a decision stays valid before the visitor is asked again.
+
+admin-settings-key-cookies-reprompt-on-version = Ask again on a new policy version
+admin-settings-help-cookies-reprompt-on-version = Ask visitors again when the policy version is higher than the one they decided on.
+
+admin-settings-key-cookies-honour-gpc = Honour Global Privacy Control
+admin-settings-help-cookies-honour-gpc = Treat a Global Privacy Control signal from the browser as a rejection of analytics and marketing.
+
+admin-settings-key-cookies-honour-dnt = Honour Do Not Track
+admin-settings-help-cookies-honour-dnt = Treat a Do Not Track signal from the browser as a rejection of analytics and marketing.
+
+admin-settings-key-cookies-log-consent = Keep a consent log
+admin-settings-help-cookies-log-consent = Keep a server-side record of each consent decision, for statistics and your own records.
+
+admin-settings-key-cookies-log-retention-days = Consent log retention
+admin-settings-help-cookies-log-retention-days = Days consent log rows are kept before they are deleted.
+
+admin-settings-key-cookies-scan-interval-hours = Storage scan interval
+admin-settings-help-cookies-scan-interval-hours = Hours between automatic scans of the browser's cookies and storage. 0 scans only on demand.
+
+admin-settings-key-cookies-unclassified = Unclassified storage
+admin-settings-help-cookies-unclassified = report leaves storage that nothing classifies alone and lists it for review. The other values treat it as that category until you classify it.
+
+admin-settings-key-cookies-text-title = Consent control title
+admin-settings-help-cookies-text-title = Title of the consent control per language. Empty uses the built-in text.
+
+admin-settings-key-cookies-text-body = Consent control text
+admin-settings-help-cookies-text-body = Explanatory text of the consent control per language. Empty uses the built-in text.
+
+admin-settings-key-cookies-label-necessary = Name of the necessary category
+admin-settings-help-cookies-label-necessary = Name of the necessary category per language. Empty uses the built-in name.
+
+admin-settings-key-cookies-description-necessary = Description of the necessary category
+admin-settings-help-cookies-description-necessary = Description of the necessary category per language. Empty uses the built-in description.
+
+admin-settings-key-cookies-label-functional = Name of the functional category
+admin-settings-help-cookies-label-functional = Name of the functional category per language. Empty uses the built-in name.
+
+admin-settings-key-cookies-description-functional = Description of the functional category
+admin-settings-help-cookies-description-functional = Description of the functional category per language. Empty uses the built-in description.
+
+admin-settings-key-cookies-label-analytics = Name of the analytics category
+admin-settings-help-cookies-label-analytics = Name of the analytics category per language. Empty uses the built-in name.
+
+admin-settings-key-cookies-description-analytics = Description of the analytics category
+admin-settings-help-cookies-description-analytics = Description of the analytics category per language. Empty uses the built-in description.
+
+admin-settings-key-cookies-label-marketing = Name of the marketing category
+admin-settings-help-cookies-label-marketing = Name of the marketing category per language. Empty uses the built-in name.
+
+admin-settings-key-cookies-description-marketing = Description of the marketing category
+admin-settings-help-cookies-description-marketing = Description of the marketing category per language. Empty uses the built-in description.
+

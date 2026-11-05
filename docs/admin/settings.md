@@ -2009,3 +2009,183 @@ or HTML.
 ### Sending identity defaults
 
 An account's saved sending identities retain an optional organization (up to 255 characters), automatic Bcc recipient list (up to 20 addresses and 4096 characters), and associated OpenPGP signing-key ID. These are defaults for the composer, not additional permission to use a sender address. Reply-To and the selected signature remain separate fields. Header control characters and invalid recipient lists are refused. Signature references must belong to the current personal identity; signing-key associations must refer to a valid, own, signing-capable OpenPGP key in the current native account. Existing identities are preserved when upgrading. SQLite and PostgreSQL persist the fields, including store transfers.
+
+<a id="cookies.enabled"></a>
+### `cookies.enabled`
+
+Global/domain boolean, default `false`. Turns the consent control on for the sign-in page and the mail app. The public configuration at `GET /api/cookies/config` reports `enabled` and the resolved mode; a client with the control off applies no consent rules and blocks nothing.
+
+<a id="cookies.mode"></a>
+### `cookies.mode`
+
+Global/domain enum `optIn` | `optOut` | `noticeOnly`, default `optIn`. Applies outside the regions listed in `cookies.strictRegions`. In `optIn` every optional category starts off and storage of a category that was not accepted is blocked and purged. In `optOut` the `cookies.<category>.default` values apply until the visitor rejects. In `noticeOnly` the visitor sees the information and the defaults apply; there are no toggles.
+
+<a id="cookies.regionMode"></a>
+### `cookies.regionMode`
+
+Global/domain enum `optIn` | `optOut` | `noticeOnly` | `same`, default `optIn`. The model for visitors whose country is in `cookies.strictRegions`.
+
+<a id="cookies.strictRegions"></a>
+### `cookies.strictRegions`
+
+Global/domain list of up to 80 two-letter country codes. Default: the EU and EEA states, GB and CH. The visitor country comes from the header named by `cookies.regionHeader`, else from the region subtag of the first `Accept-Language` entry. The decision is an input to the control only and is stored as a region code, never an address.
+
+<a id="cookies.regionHeader"></a>
+### `cookies.regionHeader`
+
+Global/domain text, default `X-Country-Code`. Only a trusted proxy should set this header; a client that can reach the server directly can send any value, so enable it only behind a proxy that overwrites it. When absent, the region subtag of `Accept-Language` is used.
+
+<a id="cookies.unknownRegion"></a>
+### `cookies.unknownRegion`
+
+Global/domain enum `strict` | `normal`, default `strict`.
+
+<a id="cookies.functional.enabled"></a>
+### `cookies.functional.enabled`
+
+Global/domain boolean, default `true`. When off the category is not offered, and its storage is treated as not consented.
+
+<a id="cookies.functional.default"></a>
+### `cookies.functional.default`
+
+Global/domain boolean, default `false`. Used as the initial toggle in `optIn` and as the applied state in `optOut` and `noticeOnly`.
+
+<a id="cookies.analytics.enabled"></a>
+### `cookies.analytics.enabled`
+
+Global/domain boolean, default `false`. The application sets no analytics storage itself; turn this on when the analytics tag (Analytics section) or a plugin does.
+
+<a id="cookies.analytics.default"></a>
+### `cookies.analytics.default`
+
+Global/domain boolean, default `false`.
+
+<a id="cookies.marketing.enabled"></a>
+### `cookies.marketing.enabled`
+
+Global/domain boolean, default `false`. The application sets no marketing storage itself.
+
+<a id="cookies.marketing.default"></a>
+### `cookies.marketing.default`
+
+Global/domain boolean, default `false`.
+
+<a id="cookies.layout"></a>
+### `cookies.layout`
+
+Global/domain enum `banner` | `card` | `modal`, default `banner`. `modal` traps focus; the others leave the page usable.
+
+<a id="cookies.position"></a>
+### `cookies.position`
+
+Global/domain enum `bottom` | `top` | `start` | `end` | `center`, default `bottom`. `start` and `end` follow the reading direction.
+
+<a id="cookies.rejectProminent"></a>
+### `cookies.rejectProminent`
+
+Global/domain boolean, default `true`. When off, Reject all is a text link.
+
+<a id="cookies.policyUrl"></a>
+### `cookies.policyUrl`
+
+Global/domain `https://` URL or null. Shown as a link in the control and in the Cookie preferences dialog.
+
+<a id="cookies.privacyUrl"></a>
+### `cookies.privacyUrl`
+
+Global/domain `https://` URL or null.
+
+<a id="cookies.policyVersion"></a>
+### `cookies.policyVersion`
+
+Global/domain integer 1 to 1,000,000, default 1. Stored with each decision. A stored decision with a different version is stale when `cookies.repromptOnVersion` is on.
+
+<a id="cookies.lifetimeDays"></a>
+### `cookies.lifetimeDays`
+
+Global/domain integer 1 to 730, default 180.
+
+<a id="cookies.repromptOnVersion"></a>
+### `cookies.repromptOnVersion`
+
+Global/domain boolean, default `true`.
+
+<a id="cookies.honourGpc"></a>
+### `cookies.honourGpc`
+
+Global/domain boolean, default `true`. The client reads `navigator.globalPrivacyControl`. A signal sets the optional categories to off, and the control records the signal with the decision.
+
+<a id="cookies.honourDnt"></a>
+### `cookies.honourDnt`
+
+Global/domain boolean, default `false`. Do Not Track is deprecated in browsers; this is available when your policy asks for it.
+
+<a id="cookies.logConsent"></a>
+### `cookies.logConsent`
+
+Global/domain boolean, default `true`. Each row holds time, domain, policy version, decision, category choices, region code, the privacy signal and, for a signed-in visitor, the account id. No address, IP address or user agent is stored. When off, decisions stay in the browser and statistics stay empty.
+
+<a id="cookies.logRetentionDays"></a>
+### `cookies.logRetentionDays`
+
+Global/domain integer 1 to 3650, default 365.
+
+<a id="cookies.scanIntervalHours"></a>
+### `cookies.scanIntervalHours`
+
+Global/domain integer 0 to 720, default 24. The scan reads names only. A scan runs at load when the last one in this browser is older than the interval; a visitor or administrator can also run it on demand. Names no inventory entry or rule classifies are reported to the Unclassified list of the admin Cookies tab.
+
+<a id="cookies.unclassified"></a>
+### `cookies.unclassified`
+
+Global/domain enum `report` | `functional` | `analytics` | `marketing`, default `report`. With a category, storage that is not in the inventory or a rule is purged when that category is not consented.
+
+<a id="cookies.text.title"></a>
+### `cookies.text.title`
+
+Global/domain map of locale to text, up to 1,000 characters each. Empty uses the built-in text of the visitor's language.
+
+<a id="cookies.text.body"></a>
+### `cookies.text.body`
+
+Global/domain map of locale to text, up to 1,000 characters each. Plain text; no markup is rendered.
+
+<a id="cookies.label.necessary"></a>
+### `cookies.label.necessary`
+
+Global/domain map of locale to text, up to 120 characters each.
+
+<a id="cookies.description.necessary"></a>
+### `cookies.description.necessary`
+
+Global/domain map of locale to text, up to 600 characters each.
+
+<a id="cookies.label.functional"></a>
+### `cookies.label.functional`
+
+Global/domain map of locale to text, up to 120 characters each.
+
+<a id="cookies.description.functional"></a>
+### `cookies.description.functional`
+
+Global/domain map of locale to text, up to 600 characters each.
+
+<a id="cookies.label.analytics"></a>
+### `cookies.label.analytics`
+
+Global/domain map of locale to text, up to 120 characters each.
+
+<a id="cookies.description.analytics"></a>
+### `cookies.description.analytics`
+
+Global/domain map of locale to text, up to 600 characters each.
+
+<a id="cookies.label.marketing"></a>
+### `cookies.label.marketing`
+
+Global/domain map of locale to text, up to 120 characters each.
+
+<a id="cookies.description.marketing"></a>
+### `cookies.description.marketing`
+
+Global/domain map of locale to text, up to 600 characters each.
