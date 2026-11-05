@@ -5612,6 +5612,270 @@ pub static REGISTRY: &[SettingDef] = &[
         "completion text"
     ),
     def!(
+        "breach.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "breach register and notice clock switched on"
+    ),
+    def!(
+        "breach.noticeHours",
+        int(1, 720),
+        "72",
+        GD,
+        "privacy",
+        "hours from awareness to the supervisory authority notice"
+    ),
+    def!(
+        "breach.reminders.hours",
+        Kind::IntList { min: 1, max: 720, max_len: 6 },
+        "[6,24,48]",
+        GD,
+        "privacy",
+        "hours before the notice deadline that raise a reminder"
+    ),
+    def!(
+        "breach.reminders.overdueRepeatHours",
+        int(0, 168),
+        "24",
+        GD,
+        "privacy",
+        "hours between reminders once overdue; 0 reminds once"
+    ),
+    nullable(def!(
+        "breach.authority.name",
+        text(Text::Plain, 200),
+        "null",
+        GD,
+        "privacy",
+        "supervisory authority name used in notices"
+    )),
+    nullable(def!(
+        "breach.authority.url",
+        text(Text::HttpsUrl, 2048),
+        "null",
+        GD,
+        "privacy",
+        "supervisory authority notification page"
+    )),
+    nullable(def!(
+        "breach.authority.contact",
+        text(Text::Plain, 500),
+        "null",
+        GD,
+        "privacy",
+        "supervisory authority contact details"
+    )),
+    nullable(def!(
+        "breach.dpo.name",
+        text(Text::Plain, 200),
+        "null",
+        GD,
+        "privacy",
+        "data protection officer name used in notices"
+    )),
+    nullable(def!(
+        "breach.dpo.email",
+        text(Text::Email, 254),
+        "null",
+        GD,
+        "privacy",
+        "data protection officer address used in notices"
+    )),
+    nullable(def!(
+        "breach.dpo.phone",
+        text(Text::Plain, 60),
+        "null",
+        GD,
+        "privacy",
+        "data protection officer phone used in notices"
+    )),
+    def!(
+        "breach.template.subject",
+        Kind::LocaleMap { max: 300 },
+        "{}",
+        GD,
+        "privacy",
+        "data subject notice subject"
+    ),
+    def!(
+        "breach.template.body",
+        Kind::LocaleMap { max: 8000 },
+        "{}",
+        GD,
+        "privacy",
+        "data subject notice text"
+    ),
+    def!(
+        "breach.notify.audit",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "breach reminders and changes recorded as security events"
+    ),
+    def!(
+        "breach.notify.webhookUrls",
+        Kind::StringList { max_len: 10, max_item: 2048 },
+        "[]",
+        G,
+        "privacy",
+        "webhook URLs told about breach events"
+    ),
+    def!(
+        "breach.notify.operatorAddresses",
+        Kind::StringList { max_len: 20, max_item: 254 },
+        "[]",
+        G,
+        "privacy",
+        "local mailboxes that receive breach reminders"
+    ),
+    def!(
+        "breach.subjects.inApp",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "data subject notices shown in the person's account"
+    ),
+    def!(
+        "breach.subjects.inbox",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "data subject notices delivered to the person's own mailbox"
+    ),
+    def!(
+        "breach.subjects.webhook",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "data subject notices also sent to the webhook URLs"
+    ),
+    def!(
+        "breach.retention.years",
+        int(1, 50),
+        "10",
+        G,
+        "privacy",
+        "years a closed incident stays in the register"
+    ),
+    def!(
+        "breach.auto.enabled",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "draft incidents opened from detections"
+    ),
+    def!(
+        "breach.auto.startClock",
+        Kind::Enum(&["onConfirm", "onDetect"]),
+        "\"onConfirm\"",
+        G,
+        "privacy",
+        "when a draft incident starts the notice clock"
+    ),
+    nullable(def!(
+        "breach.auto.assignee",
+        text(Text::Plain, 120),
+        "null",
+        G,
+        "privacy",
+        "who a draft incident is assigned to"
+    )),
+    def!(
+        "breach.auto.escalateAfterHours",
+        int(0, 168),
+        "4",
+        G,
+        "privacy",
+        "hours an unassigned or unconfirmed draft waits before escalation; 0 never"
+    ),
+    nullable(def!(
+        "breach.auto.escalateTo",
+        text(Text::Plain, 120),
+        "null",
+        G,
+        "privacy",
+        "who an escalated draft is assigned to"
+    )),
+    def!(
+        "breach.auto.windowMinutes",
+        int(1, 1440),
+        "60",
+        G,
+        "privacy",
+        "minutes a rule counts events over"
+    ),
+    def!(
+        "breach.auto.theft.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "session theft alerts in the window that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.credentialStuffing.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "sign-in spray or spike events in the window that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.massForward.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "forwarding rule events in the window that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.roleEscalation.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "admin role changes in the window that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.exportVolume.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "audit and consent exports in the window that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.auditChain.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "audit chain verification failures that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.backupAnomaly.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "backup or restore failures in the window that open a draft; 0 is off"
+    ),
+    def!(
+        "breach.auto.dsrExport.threshold",
+        int(0, 1000),
+        "0",
+        G,
+        "privacy",
+        "data request exports in the window that open a draft; 0 is off"
+    ),
+    def!(
         "logs.auth.retentionDays",
         int(1, 90),
         "7",

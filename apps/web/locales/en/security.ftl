@@ -318,3 +318,7 @@ security-explain-auth-temperror-meaning = The check could not finish because of 
 security-explain-auth-temperror-legit = A short outage at the sender's or receiver's DNS.
 security-explain-auth-temperror-risk = Nothing about the message itself.
 security-explain-auth-temperror-action = No action is usually needed. Check again later if the message is important.
+
+breach-notice-heading = Notice about a personal data breach
+breach-notice-reference = Reference { $reference }
+breach-notice-ack = Acknowledge

@@ -922,6 +922,171 @@ Text added to the confirmation message. One value per language.
 
 Text added to the message sent when a request is completed. One value per language.
 
+<a id="breach.enabled"></a>
+### Breach register (`breach.enabled`)
+
+Switches the register and the notice clock on.
+
+<a id="breach.noticeHours"></a>
+### Hours to notify the authority (`breach.noticeHours`)
+
+Hours from becoming aware to the authority notice. The usual window is 72.
+
+<a id="breach.reminders.hours"></a>
+### Reminder times (`breach.reminders.hours`)
+
+Hours before the deadline that raise a reminder, for example 6, 24 and 48.
+
+<a id="breach.reminders.overdueRepeatHours"></a>
+### Overdue repeat (`breach.reminders.overdueRepeatHours`)
+
+Hours between reminders once the deadline has passed. 0 reminds once.
+
+<a id="breach.authority.name"></a>
+### Supervisory authority (`breach.authority.name`)
+
+Name printed on the authority notice.
+
+<a id="breach.authority.url"></a>
+### Authority notification page (`breach.authority.url`)
+
+Address of the authority's notification page.
+
+<a id="breach.authority.contact"></a>
+### Authority contact (`breach.authority.contact`)
+
+Contact details of the authority.
+
+<a id="breach.dpo.name"></a>
+### Data protection contact name (`breach.dpo.name`)
+
+Name given as the contact point in notices.
+
+<a id="breach.dpo.email"></a>
+### Data protection contact email (`breach.dpo.email`)
+
+Address given as the contact point in notices.
+
+<a id="breach.dpo.phone"></a>
+### Data protection contact phone (`breach.dpo.phone`)
+
+Phone number given in notices.
+
+<a id="breach.template.subject"></a>
+### Message subject (`breach.template.subject`)
+
+Subject of the message to people affected, per language.
+
+<a id="breach.template.body"></a>
+### Message text (`breach.template.body`)
+
+Text of the message to people affected, per language.
+
+<a id="breach.notify.audit"></a>
+### Record notices in the audit log (`breach.notify.audit`)
+
+Reminders and detections become security events.
+
+<a id="breach.notify.webhookUrls"></a>
+### Webhook addresses (`breach.notify.webhookUrls`)
+
+Addresses told about reminders and messages. Treat them as secrets; each call is signed.
+
+<a id="breach.notify.operatorAddresses"></a>
+### Operator mailboxes (`breach.notify.operatorAddresses`)
+
+Local mailbox addresses that receive reminders in their own inbox.
+
+<a id="breach.subjects.inApp"></a>
+### Notice in the person's account (`breach.subjects.inApp`)
+
+Show the message inside the person's account.
+
+<a id="breach.subjects.inbox"></a>
+### Message to the person's mailbox (`breach.subjects.inbox`)
+
+Deliver the message to the person's own mailbox.
+
+<a id="breach.subjects.webhook"></a>
+### Also send to webhooks (`breach.subjects.webhook`)
+
+Send the message text to the webhook addresses too.
+
+<a id="breach.retention.years"></a>
+### Register retention in years (`breach.retention.years`)
+
+Years a closed incident stays in the register.
+
+<a id="breach.auto.enabled"></a>
+### Automations (`breach.auto.enabled`)
+
+Open draft incidents from detections.
+
+<a id="breach.auto.startClock"></a>
+### Draft clock (`breach.auto.startClock`)
+
+Start the clock when the draft opens, or only when it is confirmed.
+
+<a id="breach.auto.assignee"></a>
+### Assign drafts to (`breach.auto.assignee`)
+
+Who a draft is assigned to.
+
+<a id="breach.auto.escalateAfterHours"></a>
+### Escalate after hours (`breach.auto.escalateAfterHours`)
+
+Hours a draft waits before it is escalated. 0 never escalates.
+
+<a id="breach.auto.escalateTo"></a>
+### Escalate to (`breach.auto.escalateTo`)
+
+Who an escalated draft is assigned to.
+
+<a id="breach.auto.windowMinutes"></a>
+### Counting window in minutes (`breach.auto.windowMinutes`)
+
+Minutes over which a rule counts events.
+
+<a id="breach.auto.theft.threshold"></a>
+### Session theft alerts (`breach.auto.theft.threshold`)
+
+Alerts in the window that open a draft. 0 is off.
+
+<a id="breach.auto.credentialStuffing.threshold"></a>
+### Sign-in spray or spike (`breach.auto.credentialStuffing.threshold`)
+
+Events in the window that open a draft. 0 is off.
+
+<a id="breach.auto.massForward.threshold"></a>
+### Forwarding rules in bulk (`breach.auto.massForward.threshold`)
+
+Events in the window that open a draft. 0 is off.
+
+<a id="breach.auto.roleEscalation.threshold"></a>
+### Administrator role changes (`breach.auto.roleEscalation.threshold`)
+
+Changes in the window that open a draft. 0 is off.
+
+<a id="breach.auto.exportVolume.threshold"></a>
+### Unusual exports (`breach.auto.exportVolume.threshold`)
+
+Exports in the window that open a draft. 0 is off.
+
+<a id="breach.auto.auditChain.threshold"></a>
+### Audit chain failures (`breach.auto.auditChain.threshold`)
+
+Failures that open a draft. 0 is off.
+
+<a id="breach.auto.backupAnomaly.threshold"></a>
+### Backup or restore failures (`breach.auto.backupAnomaly.threshold`)
+
+Failures in the window that open a draft. 0 is off.
+
+<a id="breach.auto.dsrExport.threshold"></a>
+### Many data request exports (`breach.auto.dsrExport.threshold`)
+
+Exports in the window that open a draft. 0 is off.
+
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 

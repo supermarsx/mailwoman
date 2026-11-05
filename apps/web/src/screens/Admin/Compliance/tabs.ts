@@ -62,6 +62,7 @@ export const COMPLIANCE_TABS: readonly ComplianceTab[] = [
   { id: 'breaches', label: 'admin-nav-breaches', description: 'compliance-card-breaches', icon: 'alert', capability: 'privacy.read', unscoped: true, load: () => import('../Breaches/index.tsx') },
   { id: 'encryption', label: 'admin-nav-encryption', description: 'compliance-card-encryption', icon: 'key', capability: 'settings.read', unscoped: true, load: () => import('../Encryption/index.tsx') },
   { id: 'erasure-coverage', label: 'admin-nav-erasure-coverage', description: 'compliance-card-erasure-coverage', icon: 'sweep', capability: 'privacy.read', unscoped: true, load: () => import('../ErasureCoverage/index.tsx') },
+  { id: 'breaches', label: 'admin-nav-breaches', description: 'compliance-card-breaches', icon: 'alert', capability: 'privacy.read', unscoped: true, load: () => import('../Breaches/index.tsx') },
   // Registry tail: other areas append one line each, above this comment.
 ];
 

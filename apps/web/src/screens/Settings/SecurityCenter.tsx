@@ -8,6 +8,7 @@ import { SigninGeography } from './SigninGeography.tsx';
 import { Sessions } from './Sessions.tsx';
 import { SessionAlerts } from './SessionAlerts.tsx';
 import { SessionAlertBanner } from './SessionAlertBanner.tsx';
+import { BreachNoticeBanner } from './BreachNoticeBanner.tsx';
 import * as tabs from './securityTabs.css.ts';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
 
@@ -47,6 +48,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
   }
   return <section class={css.section} aria-label={t('security-center-title')}>
     <h2 class={css.heading}>{t('security-center-title')}</h2>
+    <AsyncBoundary><BreachNoticeBanner /></AsyncBoundary>
     <Show when={tab() !== 'sessions'}><AsyncBoundary><SessionAlertBanner onReview={() => setTab('sessions')} /></AsyncBoundary></Show>
     <div class={tabs.list} role="tablist" aria-label={t('security-center-title')}><For each={sections}>{([name, label], index) => <button type="button" role="tab" id={`${uid}-${name}-tab`} aria-controls={`${uid}-${name}-panel`} aria-selected={tab() === name} tabIndex={tab() === name ? 0 : -1} onClick={() => setTab(name)} onKeyDown={event => {
       const delta = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;

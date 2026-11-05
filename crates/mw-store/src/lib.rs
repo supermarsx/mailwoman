@@ -44,6 +44,7 @@ pub mod retention_archive;
 pub mod user_retention;
 pub mod client_timing;
 pub mod dsr;
+pub mod breach;
 pub mod cookies;
 pub mod rc_handles;
 pub mod request_metrics;

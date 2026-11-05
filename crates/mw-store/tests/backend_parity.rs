@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, breach_incident, breach_event, breach_delivery, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2489,6 +2489,21 @@ mod admin_controls_0033 {
         NewTable {name:"dpia_version",copied:true,cols:&[
             ("id",'T',"!","dv-1"),("dpia_id",'T',"!","dpia-1"),("version",'I',"!","1"),("status",'T',"!","draft"),
             ("body_json",'T',"!","{}"),("changed_by",'T',"!","admin"),("created_at",'I',"!",TS),
+        ]},
+        NewTable {name:"breach_incident",copied:true,cols:&[
+            ("id",'T',"!","breach-1"),("title",'T',"!","Mailbox exposed"),("domain",'T',"!","example.test"),
+            ("status",'T',"!","assessing"),("severity",'T',"!","risk"),("source",'T',"!","manual"),
+            ("detected_at",'I',"!",TS),("aware_at",'I',"~",TS),("deadline_at",'I',"~",TS),("assignee",'T',"~","admin"),
+            ("created_at",'I',"!",TS),("updated_at",'I',"!",TS),("rev",'I',"!","1"),("body_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"breach_event",copied:true,cols:&[
+            ("id",'T',"!","breach-event-1"),("incident_id",'T',"!","breach-1"),("ts",'I',"!",TS),
+            ("actor",'T',"!","admin"),("kind",'T',"!","created"),("detail_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"breach_delivery",copied:true,cols:&[
+            ("id",'T',"!","breach-delivery-1"),("incident_id",'T',"!","breach-1"),("notice_id",'T',"!","notice-1"),
+            ("recipient",'T',"!","a@example.test"),("channel",'T',"!","inbox"),("status",'T',"!","sent"),
+            ("detail",'T',"!","delivered"),("ts",'I',"!",TS),
         ]},
         NewTable {name:"request_protection_subject",copied:true,cols:&[
             ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),

@@ -313,3 +313,7 @@ security-explain-auth-temperror-meaning = A verificação não pôde terminar de
 security-explain-auth-temperror-legit = Uma falha curta no DNS do remetente ou do recetor.
 security-explain-auth-temperror-risk = Nada sobre a mensagem em si.
 security-explain-auth-temperror-action = Normalmente não é preciso fazer nada. Volte a verificar mais tarde se a mensagem for importante.
+
+breach-notice-heading = Aviso sobre uma violação de dados pessoais
+breach-notice-reference = Referência { $reference }
+breach-notice-ack = Confirmar leitura

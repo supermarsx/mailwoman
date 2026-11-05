@@ -1560,6 +1560,61 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "breach_incident",
+        select: "SELECT id,title,domain,status,severity,source,detected_at,aware_at,deadline_at,assignee,created_at,updated_at,rev,body_json FROM breach_incident",
+        insert: "INSERT INTO breach_incident(id,title,domain,status,severity,source,detected_at,aware_at,deadline_at,assignee,created_at,updated_at,rev,body_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "title"),
+                t(r, "domain"),
+                t(r, "status"),
+                t(r, "severity"),
+                t(r, "source"),
+                i(r, "detected_at"),
+                oi(r, "aware_at"),
+                oi(r, "deadline_at"),
+                ot(r, "assignee"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+                i(r, "rev"),
+                t(r, "body_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "breach_event",
+        select: "SELECT id,incident_id,ts,actor,kind,detail_json FROM breach_event",
+        insert: "INSERT INTO breach_event(id,incident_id,ts,actor,kind,detail_json) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "incident_id"),
+                i(r, "ts"),
+                t(r, "actor"),
+                t(r, "kind"),
+                t(r, "detail_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "breach_delivery",
+        select: "SELECT id,incident_id,notice_id,recipient,channel,status,detail,ts FROM breach_delivery",
+        insert: "INSERT INTO breach_delivery(id,incident_id,notice_id,recipient,channel,status,detail,ts) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "incident_id"),
+                t(r, "notice_id"),
+                t(r, "recipient"),
+                t(r, "channel"),
+                t(r, "status"),
+                t(r, "detail"),
+                i(r, "ts"),
+            ]
+        },
+    },
+    TableSpec {
         name: "package_provider",
         select: "SELECT id,enabled,refresh_secs,sealed_key,revision FROM package_provider",
         insert: "INSERT INTO package_provider(id,enabled,refresh_secs,sealed_key,revision) VALUES(?1,?2,?3,?4,?5)",
