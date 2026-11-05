@@ -278,3 +278,27 @@ export function nearestAccentId(css: string): AccentId | null {
   }
   return best;
 }
+
+// ── Accent as link text ──────────────────────────────────────────────────────
+
+/** Text contrast with the same rounding margin as the shades above. */
+const LINK_MIN = TEXT_MIN;
+
+/**
+ * The accent's hue and chroma at the lightness nearest to the accent's own that
+ * reads as text (4.5:1, WCAG 1.4.3) on every surface of the theme. A shade only
+ * has to clear 3:1 as a fill, so the raw accent can be too faint to be a link.
+ * Returns `null` when the accent cannot be read or no lightness works.
+ */
+export function accentLinkColor(accent: string, surfaces: readonly string[]): string | null {
+  const lch = toOklch(accent);
+  if (lch === null) return null;
+  for (let step = 0; step <= 720; step++) {
+    const offset = Math.ceil(step / 2) * 0.0025 * (step % 2 === 0 ? 1 : -1);
+    const l = lch.l + offset;
+    if (l <= 0.02 || l >= 0.99) continue;
+    const candidate = oklchToHex(l, lch.c, lch.h);
+    if (surfaces.every((s) => contrastRatio(candidate, s) >= LINK_MIN)) return candidate;
+  }
+  return null;
+}

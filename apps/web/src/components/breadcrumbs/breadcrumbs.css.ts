@@ -5,11 +5,12 @@
 
 import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+import { linkColor } from '../../theme/accentLink.ts';
 
 export const nav = style({ fontSize: '0.8rem', minInlineSize: 0, maxInlineSize: '100%' });
 export const list = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: vars.space[2], listStyle: 'none', margin: 0, padding: 0, minInlineSize: 0 });
 export const item = style({ display: 'inline-flex', alignItems: 'center', gap: vars.space[2], color: vars.color.textDim, minInlineSize: 0, maxInlineSize: '100%' });
-export const separator = style({ flex: 'none', display: 'inline-flex' });
+export const separator = style({ flex: 'none', display: 'inline-flex', color: vars.color.textDim });
 
 // One level's text. Earlier levels are held shorter than the current page so a
 // long trail keeps the page name readable; on a phone both are narrower.
@@ -29,18 +30,36 @@ export const current = style({
   maxInlineSize: '28rem',
   '@media': { '(max-width: 760px)': { maxInlineSize: '14rem' } },
 });
-export const linkButton = style({
-  font: 'inherit',
-  color: vars.color.link,
+// Ancestor crumbs: the accent-derived link colour (4.5:1 on the surface), else
+// the theme's link. Underline kept so colour is never the only cue; visited
+// links read the same as unvisited ones (a trail is navigation, not history).
+const linkBase = {
+  color: linkColor,
   textDecoration: 'underline',
+  textDecorationThickness: '1px',
+  textUnderlineOffset: '0.2em',
+  cursor: 'pointer',
+  minInlineSize: 0,
+} as const;
+export const linkButton = style({
+  ...linkBase,
+  font: 'inherit',
   background: 'none',
   border: 0,
   padding: 0,
-  cursor: 'pointer',
-  minInlineSize: 0,
   maxInlineSize: '100%',
 });
-globalStyle(`${item} a`, { color: vars.color.link, textDecoration: 'underline', minInlineSize: 0 });
+const linkStates = {
+  ':visited': { color: linkColor },
+  ':hover': { textDecorationThickness: '2px', color: vars.color.text },
+  ':active': { color: vars.color.text },
+  ':focus-visible': { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' },
+} as const;
+globalStyle(`${item} a`, linkBase);
+for (const [state, rule] of Object.entries(linkStates)) {
+  globalStyle(`${item} a${state}`, rule);
+  globalStyle(`${linkButton}${state}`, rule);
+}
 
 const pulse = keyframes({ '0%': { opacity: 0.45 }, '50%': { opacity: 0.8 }, '100%': { opacity: 0.45 } });
 // A name still being fetched: a quiet bar the size of a short word, never the id.

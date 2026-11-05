@@ -16,6 +16,7 @@ import type { ThemeName } from '../../../theme/contract.css.ts';
 import { FONT_STACKS, parseAppearancePrefs, resolveThemeName, type AppearancePrefs, type UiFont } from '../../../theme/appearance.ts';
 import { DEFAULT_DARK_THEME, isThemeName, themeEntry, variantFor } from '../../../theme/registry.ts';
 import { isAccentId, type AccentId } from '../../../theme/accentMath.ts';
+import { applyDerivedLink } from '../../../theme/accentLink.ts';
 import { applyCustomAccent, customAccentValue } from '../../../theme/customAccent.ts';
 import { prefersDarkScheme, syncRootAppearance, watchColorScheme } from '../../../shell/rootAttributes.ts';
 
@@ -132,6 +133,7 @@ function apply(theme: ThemeName, accent: AccentId | '', webmail: AppearancePrefs
   if (accent !== '') root.setAttribute('data-accent', accent);
   else root.removeAttribute('data-accent');
   applyCustomAccent(root, prefs.customAccent ?? '', theme);
+  applyDerivedLink(root, theme, accent, prefs.customAccent ?? '');
   syncRootAppearance(themeEntry(theme).appearance);
   // Density and font: this browser's webmail preference, read-only (unchanged by e71a).
   root.setAttribute('data-density', prefs.density ?? webmail?.density ?? 'cozy');

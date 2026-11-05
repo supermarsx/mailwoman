@@ -15,6 +15,8 @@ import { AdminPasskeys } from './AdminPasskeys.tsx';
 import { DashboardPreferencesFields } from './Dashboard/PreferencesFields.tsx';
 import { ColorField } from '../../components/color/ColorPicker.tsx';
 import { applyCustomAccent } from '../../theme/customAccent.ts';
+import { applyDerivedLink } from '../../theme/accentLink.ts';
+import { isAccentId } from '../../theme/accentMath.ts';
 import { isThemeName } from '../../theme/registry.ts';
 import { horizontalWheel } from '../../components/horizontalWheel.ts';
 import * as tabsCss from './shell/sectionTabs.css.ts';
@@ -25,7 +27,11 @@ import {fieldAnchorAttrs} from './shell/fieldAnchors.ts';
 function previewAccent(value: string | null): void {
   const root = document.documentElement;
   const theme = root.getAttribute('data-theme');
-  if (isThemeName(theme)) applyCustomAccent(root, value ?? '', theme);
+  if (isThemeName(theme)) {
+    applyCustomAccent(root, value ?? '', theme);
+    const id = root.getAttribute('data-accent');
+    applyDerivedLink(root, theme, isAccentId(id) ? id : '', value ?? '');
+  }
 }
 
 export function PersonalPreferences(): JSX.Element {

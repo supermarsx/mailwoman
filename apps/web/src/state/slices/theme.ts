@@ -59,6 +59,7 @@ import { themeEntry, type Appearance } from '../../theme/registry.ts';
 import type { AccentId } from '../../theme/accentMath.ts';
 import { applyCustomAccent } from '../../theme/customAccent.ts';
 import { applyDerivedBadge } from '../../theme/badgeDerived.ts';
+import { applyDerivedLink } from '../../theme/accentLink.ts';
 import {
   prefersDarkScheme,
   syncRootAppearance,
@@ -165,6 +166,7 @@ function apply(p: AppearancePrefs, resolved: ThemeName, appearance: Appearance):
   if (p.accentId !== '') root.setAttribute('data-accent', p.accentId);
   else root.removeAttribute('data-accent');
   applyCustomAccent(root, p.customAccent ?? '', resolved);
+  applyDerivedLink(root, resolved, p.accentId, p.customAccent ?? '');
   if (p.badgeColor !== 'default') root.setAttribute('data-badge', p.badgeColor);
   else root.removeAttribute('data-badge');
   applyDerivedBadge(root, p.badgeColor, resolved, p.accentId, p.customAccent ?? '');
