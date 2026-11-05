@@ -61,6 +61,8 @@ mod notification_policy;
 pub mod push;
 pub mod push_relay;
 mod client_timing;
+mod cookie_consent;
+mod cookie_inventory;
 mod request_history;
 pub mod server_key;
 pub mod sharing;
@@ -1529,6 +1531,7 @@ fn router(
         .merge(features::user_router())
         .merge(client_policy::router())
         .merge(client_timing::router())
+        .merge(cookie_consent::router())
         .merge(import_routes::import_router())
         .merge(account_drafts::router())
         .merge(linked_accounts::router().layer(Extension(provider_plugins.clone())))

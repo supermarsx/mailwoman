@@ -904,6 +904,9 @@ async fn routes_no_cookie_authorises_answer_as_with_strict_off() {
             "/api/login/2fa",
             Some(json!({ "pendingToken": "none", "method": "totp", "code": "000000" })),
         ),
+        // Cookie consent: anonymous, no cookie read.
+        call("POST", "/api/cookies/consent", Some(json!({ "version": 1, "decision": "rejectAll" }))),
+        call("POST", "/api/cookies/detected", Some(json!({ "items": [] }))),
     ];
 
     for call in &machine {

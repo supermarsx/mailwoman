@@ -5163,6 +5163,295 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "maximum authentication history entries"
     ),
+    // Cookie consent (cookies.*)
+    def!(
+        "cookies.enabled",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Show the cookie consent control; off leaves behaviour as before"
+    ),
+    def!(
+        "cookies.mode",
+        Kind::Enum(&["optIn", "optOut", "noticeOnly"]),
+        "\"optIn\"",
+        GD,
+        "privacy",
+        "Consent model outside the strict regions: optIn (nothing optional until accepted), optOut (defaults apply until rejected), noticeOnly (information, no choice)"
+    ),
+    def!(
+        "cookies.regionMode",
+        Kind::Enum(&["optIn", "optOut", "noticeOnly", "same"]),
+        "\"optIn\"",
+        GD,
+        "privacy",
+        "Consent model in the strict regions; same uses cookies.mode there too"
+    ),
+    def!(
+        "cookies.strictRegions",
+        Kind::StringList { max_len: 80, max_item: 8 },
+        "[\"AT\",\"BE\",\"BG\",\"HR\",\"CY\",\"CZ\",\"DK\",\"EE\",\"FI\",\"FR\",\"DE\",\"GR\",\"HU\",\"IE\",\"IT\",\"LV\",\"LT\",\"LU\",\"MT\",\"NL\",\"PL\",\"PT\",\"RO\",\"SK\",\"SI\",\"ES\",\"SE\",\"IS\",\"LI\",\"NO\",\"GB\",\"CH\"]",
+        GD,
+        "privacy",
+        "ISO country codes that use cookies.regionMode"
+    ),
+    def!(
+        "cookies.regionHeader",
+        text(Text::Plain, 64),
+        "\"X-Country-Code\"",
+        GD,
+        "privacy",
+        "Request header (set by a proxy or CDN) holding the visitor country code; the Accept-Language region is the fallback"
+    ),
+    def!(
+        "cookies.unknownRegion",
+        Kind::Enum(&["strict", "normal"]),
+        "\"strict\"",
+        GD,
+        "privacy",
+        "Which model applies when no country can be determined"
+    ),
+    def!(
+        "cookies.functional.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Offer the functional category in the consent control"
+    ),
+    def!(
+        "cookies.functional.default",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Pre-selected state of the functional category when the model allows defaults"
+    ),
+    def!(
+        "cookies.analytics.enabled",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Offer the analytics category in the consent control"
+    ),
+    def!(
+        "cookies.analytics.default",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Pre-selected state of the analytics category when the model allows defaults"
+    ),
+    def!(
+        "cookies.marketing.enabled",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Offer the marketing category in the consent control"
+    ),
+    def!(
+        "cookies.marketing.default",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Pre-selected state of the marketing category when the model allows defaults"
+    ),
+    def!(
+        "cookies.layout",
+        Kind::Enum(&["banner", "card", "modal"]),
+        "\"banner\"",
+        GD,
+        "privacy",
+        "Consent control layout"
+    ),
+    def!(
+        "cookies.position",
+        Kind::Enum(&["bottom", "top", "start", "end", "center"]),
+        "\"bottom\"",
+        GD,
+        "privacy",
+        "Consent control position"
+    ),
+    def!(
+        "cookies.rejectProminent",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Show Reject all with the same prominence as Accept all"
+    ),
+    nullable(def!(
+        "cookies.policyUrl",
+        text(Text::HttpsUrl, 500),
+        "null",
+        GD,
+        "privacy",
+        "Cookie policy link"
+    )),
+    nullable(def!(
+        "cookies.privacyUrl",
+        text(Text::HttpsUrl, 500),
+        "null",
+        GD,
+        "privacy",
+        "Privacy policy link"
+    )),
+    def!(
+        "cookies.policyVersion",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "Policy version; raising it re-prompts when cookies.repromptOnVersion is on"
+    ),
+    def!(
+        "cookies.lifetimeDays",
+        int(1, 730),
+        "180",
+        GD,
+        "privacy",
+        "Days a consent decision stays valid"
+    ),
+    def!(
+        "cookies.repromptOnVersion",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Ask again when cookies.policyVersion changed since the stored decision"
+    ),
+    def!(
+        "cookies.honourGpc",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Treat a Global Privacy Control signal as rejecting analytics and marketing"
+    ),
+    def!(
+        "cookies.honourDnt",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Treat a Do Not Track signal as rejecting analytics and marketing"
+    ),
+    def!(
+        "cookies.logConsent",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Keep a server-side log of consent decisions"
+    ),
+    def!(
+        "cookies.logRetentionDays",
+        int(1, 3650),
+        "365",
+        GD,
+        "privacy",
+        "Days consent log rows are kept"
+    ),
+    def!(
+        "cookies.scanIntervalHours",
+        int(0, 720),
+        "24",
+        GD,
+        "privacy",
+        "Hours between automatic browser storage scans; 0 scans only on demand"
+    ),
+    def!(
+        "cookies.unclassified",
+        Kind::Enum(&["report", "functional", "analytics", "marketing"]),
+        "\"report\"",
+        GD,
+        "privacy",
+        "Handling of storage no inventory entry or rule classifies: report only, or treat as a category"
+    ),
+    def!(
+        "cookies.text.title",
+        Kind::LocaleMap { max: 1000 },
+        "{}",
+        GD,
+        "privacy",
+        "Consent control title per locale; empty uses the built-in text"
+    ),
+    def!(
+        "cookies.text.body",
+        Kind::LocaleMap { max: 1000 },
+        "{}",
+        GD,
+        "privacy",
+        "Consent control body per locale; empty uses the built-in text"
+    ),
+    def!(
+        "cookies.label.necessary",
+        Kind::LocaleMap { max: 120 },
+        "{}",
+        GD,
+        "privacy",
+        "Name of the necessary category per locale"
+    ),
+    def!(
+        "cookies.description.necessary",
+        Kind::LocaleMap { max: 600 },
+        "{}",
+        GD,
+        "privacy",
+        "Description of the necessary category per locale"
+    ),
+    def!(
+        "cookies.label.functional",
+        Kind::LocaleMap { max: 120 },
+        "{}",
+        GD,
+        "privacy",
+        "Name of the functional category per locale"
+    ),
+    def!(
+        "cookies.description.functional",
+        Kind::LocaleMap { max: 600 },
+        "{}",
+        GD,
+        "privacy",
+        "Description of the functional category per locale"
+    ),
+    def!(
+        "cookies.label.analytics",
+        Kind::LocaleMap { max: 120 },
+        "{}",
+        GD,
+        "privacy",
+        "Name of the analytics category per locale"
+    ),
+    def!(
+        "cookies.description.analytics",
+        Kind::LocaleMap { max: 600 },
+        "{}",
+        GD,
+        "privacy",
+        "Description of the analytics category per locale"
+    ),
+    def!(
+        "cookies.label.marketing",
+        Kind::LocaleMap { max: 120 },
+        "{}",
+        GD,
+        "privacy",
+        "Name of the marketing category per locale"
+    ),
+    def!(
+        "cookies.description.marketing",
+        Kind::LocaleMap { max: 600 },
+        "{}",
+        GD,
+        "privacy",
+        "Description of the marketing category per locale"
+    ),
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
         "serverText.*",
@@ -5649,6 +5938,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "security.trust.adminGeoCountries"
                                 | "security.signin.accountGeoAllowCountries"
                                 | "security.signin.accountGeoGlobalAllowCountries"
+                                | "cookies.strictRegions"
                         ) {
                             b.is_ascii_uppercase()
                         } else if matches!(
@@ -6639,6 +6929,53 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    /// The cookie consent keys are admin-only (global and per domain, with lock and
+    /// default through the generic settings routes), off by default, and their
+    /// defaults describe a conservative configuration.
+    #[test]
+    fn cookie_consent_keys_are_admin_scoped_and_default_conservative() {
+        let keys: Vec<_> = REGISTRY
+            .iter()
+            .filter(|d| d.key.starts_with("cookies."))
+            .collect();
+        assert!(keys.len() >= 30, "{}", keys.len());
+        for d in &keys {
+            assert_eq!(d.category, "privacy", "{}", d.key);
+            assert!(d.scopes.allows(SettingScope::Domain), "{}", d.key);
+            assert!(!d.scopes.allows(SettingScope::User), "{}", d.key);
+            assert!(!d.user_override, "{}", d.key);
+            assert!(d.dedicated_route.is_none(), "{}", d.key);
+        }
+        let default = |k: &str| lookup(k).unwrap().default_value();
+        assert_eq!(default("cookies.enabled"), json!(false));
+        assert_eq!(default("cookies.mode"), json!("optIn"));
+        assert_eq!(default("cookies.regionMode"), json!("optIn"));
+        assert_eq!(default("cookies.unknownRegion"), json!("strict"));
+        for c in ["analytics", "marketing"] {
+            assert_eq!(default(&format!("cookies.{c}.enabled")), json!(false), "{c}");
+            assert_eq!(default(&format!("cookies.{c}.default")), json!(false), "{c}");
+        }
+        assert_eq!(default("cookies.rejectProminent"), json!(true));
+        assert_eq!(default("cookies.honourGpc"), json!(true));
+        assert_eq!(default("cookies.policyUrl"), Value::Null);
+        let regions = default("cookies.strictRegions");
+        let regions: Vec<&str> = regions.as_array().unwrap().iter().filter_map(Value::as_str).collect();
+        for code in ["DE", "PT", "GB", "CH", "IS"] {
+            assert!(regions.contains(&code), "{code}");
+        }
+        assert!(regions.iter().all(|c| c.len() == 2 && c.chars().all(|x| x.is_ascii_uppercase())));
+        // Bounds: a lifetime of zero or a version below one is refused.
+        let bad = |k: &str, v: Value| validate(lookup(k).unwrap(), &v, "/value").is_err();
+        assert!(bad("cookies.lifetimeDays", json!(0)));
+        assert!(bad("cookies.lifetimeDays", json!(731)));
+        assert!(bad("cookies.policyVersion", json!(0)));
+        assert!(bad("cookies.mode", json!("always")));
+        assert!(bad("cookies.policyUrl", json!("http://example.org/p")));
+        assert!(!bad("cookies.policyUrl", json!("https://example.org/p")));
+        assert!(!bad("cookies.text.title", json!({"en": "Cookies", "pt-PT": "Cookies"})));
+        assert!(bad("cookies.text.title", json!({"xx": "Cookies"})));
     }
 
     /// t39-e6: the passkey policy keys are global/domain enums with locks, not

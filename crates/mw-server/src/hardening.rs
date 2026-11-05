@@ -268,6 +268,11 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         || path == "/api/webhooks/inbound"
         // Browser error report: unauthenticated; the handler reads no cookie.
         || path == "/errors"
+        // Cookie consent: an anonymous visitor records a decision or reports storage
+        // names; neither handler reads a cookie (the signed-in record has its own
+        // route, which is CSRF-checked).
+        || path == "/api/cookies/consent"
+        || path == "/api/cookies/detected"
         // MCP: an API key or OAuth access token in `Authorization` per call;
         // `initialize` and `tools/list` need none.
         || path == "/mcp"
@@ -687,6 +692,8 @@ mod tests {
             "/oauth/register/client-1",
             "/api/webhooks/inbound",
             "/errors",
+            "/api/cookies/consent",
+            "/api/cookies/detected",
             "/mcp",
             "/mcp/",
         ] {
@@ -716,6 +723,7 @@ mod tests {
             "/api/push/unsubscribe",
             "/api/sso/logout",
             "/errors/x",
+            "/api/cookies/consent/account",
             "/mcpx",
             "/jmap/api",
             "/",
