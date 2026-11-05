@@ -22,7 +22,8 @@ The **Request protection** page (`#/security/protection`) has its own subtabs, e
 deep link: Overview (`/overview`: status, protocol guard, admin probe, presets),
 Aggregate (`/aggregate`: request budgets and user-agent limits), Adaptive
 (`/adaptive`: unusual-request rules, actions, exceptions and the simulator),
-Object state (`/state`) and Decisions (`/decisions`). Object state and Decisions list
+Protocol guard (`/protocol-guard`: every HTTP protocol guard policy edited in place, grouped by class, with an overall off, detect or enforce switch that asks before enforcing),
+Object state (`/state`) and Decisions (`/decisions`). The Overview lists the guard's counters and the session watch figures as tiles and compact tables (relative times with the exact time in a tooltip, zero rows dimmed or hidden, rows stacked as cards on a phone). Object state and Decisions list
 the most recent first, 100 rows per page by default (25, 50, 100 or 250), with
 Previous/Next and the page count and total. The API pages with `limit` (1-250) and an
 opaque `after` cursor over a stable order (newest first, key as tie-break) and returns

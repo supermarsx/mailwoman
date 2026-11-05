@@ -4,6 +4,10 @@ The server runs an early middleware, the protocol guard, that checks the method,
 
 It is configured under `security.protocol.*` (see [settings](settings.md#security.protocol.framingMode)), takes effect within seconds of a saved change, and its counters are on the Adaptive protection page (`GET {console}/bans/protection`, field `protocolGuard`).
 
+## Editing the policies
+
+**Security, Request protection, Protocol guard** (`#/security/protection/protocol-guard`) edits every `security.protocol.*` setting in place, in five groups: Framing and smuggling, Host and request target, Headers, Limits, and Methods and exemptions. Each row shows its default, source badge (default, admin or environment-locked), validation, Save and revert-to-default, and beside each class the live detected and refused counters. The overall mode switch sets all classes to off, detect or enforce at once; moving to enforce asks first and states how many requests the detect-only classes have seen. Counters are in memory since the server started, so the hint is not a 24 hour window. Classes that are locked or pinned by an environment variable keep their value. The Overview shows the same counters grouped the same way, with the action in effect per class.
+
 ## Modes and what each class does
 
 Every class has a mode: `off`, `detect` (log, count, send a typed signal to adaptive protection, allow the request) or `enforce` (reject).

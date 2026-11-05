@@ -116,7 +116,7 @@ describe('Adaptive request protection',()=>{
   const policyApi={policy:async()=>policy,save:vi.fn(),simulate:vi.fn()};
   renderInShell(()=><RequestProtection api={api()} policyApi={policyApi}/>,{route:nav.route});
   const tabs=await screen.findByRole('navigation',{name:'Request protection sections'});
-  expect(within(tabs).getAllByRole('link').map(a=>a.textContent)).toEqual(['Overview','Aggregate','Adaptive','Object state','Decisions']);
+  expect(within(tabs).getAllByRole('link').map(a=>a.textContent)).toEqual(['Overview','Aggregate','Adaptive','Protocol guard','Object state','Decisions']);
   expect(within(tabs).getByRole('link',{name:'Aggregate'})).toHaveAttribute('aria-current','page');
   expect(within(tabs).getByRole('link',{name:'Adaptive'})).toHaveAttribute('href',expect.stringMatching(/#\/security\/protection\/adaptive$/));
   expect(await screen.findByTestId('protection-policy')).toBeInTheDocument();
