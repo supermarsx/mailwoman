@@ -1064,3 +1064,64 @@ reader-attachments-reason-policy-blocked = Your attachment policy blocks downloa
    *[other] these attachments.
   }
 reader-attachments-reason-policy-unavailable = The attachment policy could not be checked, so attachments cannot be opened yet.
+
+# Compose Drafts popup
+mail-drafts-popup-count = { $count ->
+    [one] 1 draft
+   *[other] { $count } drafts
+  }
+mail-drafts-popup-search = Search by subject or recipient
+mail-drafts-popup-tab-local = Local drafts
+mail-drafts-popup-local-hint = Local drafts are kept in this browser only.
+mail-drafts-popup-badge-account = Account
+mail-drafts-popup-badge-local = Local
+mail-drafts-popup-current = Open now
+mail-drafts-popup-select = Select
+mail-drafts-popup-select-all = Select all
+mail-drafts-popup-clear = Clear
+mail-drafts-popup-done = Done
+mail-drafts-popup-selected = { $count } selected
+mail-drafts-popup-select-row = Select { $subject }
+mail-drafts-popup-open = Open
+mail-drafts-popup-discard = Discard
+mail-drafts-popup-discard-selected = Discard selected
+mail-drafts-popup-more = More actions for { $subject }
+mail-drafts-popup-retry = Retry
+mail-drafts-popup-load-failed = Account drafts could not be loaded.
+mail-drafts-popup-empty-account = No account drafts
+mail-drafts-popup-no-match = No drafts match “{ $query }”
+mail-drafts-popup-discarding = Discarding…
+mail-drafts-popup-row-failed = Could not be discarded. Its account copy remains.
+mail-drafts-popup-confirm-title = { $count ->
+    [one] Discard this draft?
+   *[other] Discard { $count } drafts?
+  }
+mail-drafts-popup-confirm-account = Account drafts are removed from your account Drafts folder first, and their slot is released only once that removal is confirmed.
+mail-drafts-popup-confirm-local = Local drafts are removed from this browser.
+mail-drafts-popup-announce-done = { $count ->
+    [one] 1 draft discarded
+   *[other] { $count } drafts discarded
+  }
+mail-drafts-popup-announce-failed = { $done } discarded, { $failed } could not be discarded
+
+mail-check-title = Check before sending
+mail-check-intro = These may need a second look:
+mail-check-invalid = Some recipient addresses look invalid: { $list }
+mail-check-subject = The subject is empty.
+mail-check-attachment = The message mentions an attachment, but nothing is attached.
+mail-check-external = Recipients outside trusted domains: { $list }
+mail-check-send-anyway = Send anyway
+mail-check-review = Review
+mail-check-remember = Don't ask again for these
+mail-check-denied-invalid = Sending is blocked by your settings. Fix the invalid recipient addresses: { $list }
+mail-check-denied-subject = Sending is blocked by your settings. Add a subject.
+mail-check-denied-attachment = Sending is blocked by your settings. Attach the file you mention, or reword the message.
+mail-check-denied-external = Sending is blocked by your settings. Outside trusted domains: { $list }
+mail-alerts-label = Message problems
+mail-alert-invalid = Invalid address: { $address }
+mail-alert-subject = No subject
+mail-recipient-chip-remove = Remove { $address }
+mail-recipient-chips = Recipients in { $field }
+mail-recipient-invalid-title = Not a valid email address
+mail-external-line = { $count } outside trusted domains: { $domains }
+mail-external-dismiss = Dismiss

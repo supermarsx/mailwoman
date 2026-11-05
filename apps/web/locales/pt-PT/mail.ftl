@@ -1048,3 +1048,64 @@ reader-attachments-reason-policy-blocked = A sua política de anexos bloqueia a 
    *[other] destes anexos.
   }
 reader-attachments-reason-policy-unavailable = Não foi possível verificar a política de anexos, por isso ainda não é possível abrir os anexos.
+
+# Compose Drafts popup
+mail-drafts-popup-count = { $count ->
+    [one] 1 rascunho
+   *[other] { $count } rascunhos
+  }
+mail-drafts-popup-search = Pesquisar por assunto ou destinatário
+mail-drafts-popup-tab-local = Rascunhos locais
+mail-drafts-popup-local-hint = Os rascunhos locais ficam guardados apenas neste navegador.
+mail-drafts-popup-badge-account = Conta
+mail-drafts-popup-badge-local = Local
+mail-drafts-popup-current = Aberto agora
+mail-drafts-popup-select = Selecionar
+mail-drafts-popup-select-all = Selecionar tudo
+mail-drafts-popup-clear = Limpar
+mail-drafts-popup-done = Concluir
+mail-drafts-popup-selected = { $count } selecionados
+mail-drafts-popup-select-row = Selecionar { $subject }
+mail-drafts-popup-open = Abrir
+mail-drafts-popup-discard = Descartar
+mail-drafts-popup-discard-selected = Descartar selecionados
+mail-drafts-popup-more = Mais ações para { $subject }
+mail-drafts-popup-retry = Tentar novamente
+mail-drafts-popup-load-failed = Não foi possível carregar os rascunhos da conta.
+mail-drafts-popup-empty-account = Sem rascunhos da conta
+mail-drafts-popup-no-match = Nenhum rascunho corresponde a «{ $query }»
+mail-drafts-popup-discarding = A descartar…
+mail-drafts-popup-row-failed = Não foi possível descartar. A cópia na conta mantém-se.
+mail-drafts-popup-confirm-title = { $count ->
+    [one] Descartar este rascunho?
+   *[other] Descartar { $count } rascunhos?
+  }
+mail-drafts-popup-confirm-account = Os rascunhos da conta são removidos primeiro da pasta Rascunhos da conta, e o espaço só é libertado depois de a remoção ser confirmada.
+mail-drafts-popup-confirm-local = Os rascunhos locais são removidos deste navegador.
+mail-drafts-popup-announce-done = { $count ->
+    [one] 1 rascunho descartado
+   *[other] { $count } rascunhos descartados
+  }
+mail-drafts-popup-announce-failed = { $done } descartados, { $failed } não puderam ser descartados
+
+mail-check-title = Verificar antes de enviar
+mail-check-intro = Estes pontos podem merecer outra olhadela:
+mail-check-invalid = Alguns endereços de destinatários parecem inválidos: { $list }
+mail-check-subject = O assunto está vazio.
+mail-check-attachment = A mensagem menciona um anexo, mas não há nenhum anexado.
+mail-check-external = Destinatários fora dos domínios de confiança: { $list }
+mail-check-send-anyway = Enviar mesmo assim
+mail-check-review = Rever
+mail-check-remember = Não perguntar novamente sobre estes
+mail-check-denied-invalid = O envio está bloqueado pelas suas definições. Corrija os endereços de destinatários inválidos: { $list }
+mail-check-denied-subject = O envio está bloqueado pelas suas definições. Adicione um assunto.
+mail-check-denied-attachment = O envio está bloqueado pelas suas definições. Anexe o ficheiro que menciona ou reformule a mensagem.
+mail-check-denied-external = O envio está bloqueado pelas suas definições. Fora dos domínios de confiança: { $list }
+mail-alerts-label = Problemas na mensagem
+mail-alert-invalid = Endereço inválido: { $address }
+mail-alert-subject = Sem assunto
+mail-recipient-chip-remove = Remover { $address }
+mail-recipient-chips = Destinatários em { $field }
+mail-recipient-invalid-title = Não é um endereço de correio eletrónico válido
+mail-external-line = { $count } fora dos domínios de confiança: { $domains }
+mail-external-dismiss = Dispensar

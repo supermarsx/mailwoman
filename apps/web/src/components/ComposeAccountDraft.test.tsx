@@ -56,7 +56,7 @@ it.each(['revision-one','revision-two','switch-draft'])('saves with captured aut
  if(loadedRevision==='switch-draft'){
   await waitFor(()=>expect(releaseLoad).toBeDefined());
   fireEvent.click(screen.getByRole('button',{name:/^Drafts$/}));
-  await waitFor(()=>expect(screen.getByRole('button',{name:'Other draft'})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:'Other draft'}));
+  await waitFor(()=>expect(screen.getByRole('button',{name:/^[^A-Za-z]*Other draft/})).toBeEnabled());fireEvent.click(screen.getByRole('button',{name:/^[^A-Za-z]*Other draft/}));
   await waitFor(()=>expect(screen.getByLabelText('Subject')).toHaveValue('Other draft'));
   releaseLoad!();
   await waitFor(()=>expect(screen.getByRole('button',{name:'Send'})).toBeEnabled());
