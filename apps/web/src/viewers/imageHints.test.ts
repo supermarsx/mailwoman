@@ -48,14 +48,14 @@ describe('what mw-sanitize actually emits for <img> (the producer)', () => {
 });
 
 describe('withImageLoadingHints over real sanitized output (the consumer)', () => {
-  it('adds lazy/async to every surviving <img> and keeps the intrinsic size', () => {
+  it('adds eager/async to every surviving <img> and keeps the intrinsic size', () => {
     const clean = sanitizeEmailHtml(
       '<img src="cid:a" width="600" height="200"><p>x</p><img src="cid:b">' +
         '<img src="https://tracker.example/p.gif">',
     );
     const out = withImageLoadingHints(clean);
 
-    expect(attrs(out, 'loading').every((v) => v === 'lazy')).toBe(true);
+    expect(attrs(out, 'loading').every((v) => v === 'eager')).toBe(true);
     expect(attrs(out, 'decoding').every((v) => v === 'async')).toBe(true);
     expect(attrs(out, 'width')[0]).toBe('600');
     expect(attrs(out, 'height')[0]).toBe('200');
@@ -91,15 +91,18 @@ describe('withImageLoadingHints over real sanitized output (the consumer)', () =
     // property that matters and the one a regex would not have.
     expect(attrs(clean, 'src').length).toBe(1);
     expect(attrs(out, 'src').length).toBe(1);
-    expect(attrs(out, 'loading')).toEqual(['lazy']);
+    expect(attrs(out, 'loading')).toEqual(['eager']);
     expect(attrs(out, 'alt')[0]).toBe('a <img src=x onerror=y> b');
     expect(attrs(clean, 'alt')[0]).toBe(attrs(out, 'alt')[0]);
   });
 
-  it('respects hints already present rather than duplicating them', () => {
-    const out = withImageLoadingHints('<img src="cid:a" loading="eager">');
-    expect(attrs(out, 'loading')).toEqual(['eager']);
-    expect(attrs(out, 'decoding')).toEqual(['async']);
+  it('overrides a sender-supplied lazy hint and prioritises the first images', () => {
+    const many = Array.from({ length: 6 }, (_, i) => `<img src="cid:${i}" loading="lazy">`).join('');
+    const out = withImageLoadingHints('<img src="cid:a" loading="lazy">' + many);
+    expect(out).not.toContain('lazy');
+    expect(attrs(out, 'fetchpriority')).toEqual(['high', 'high', 'high', 'high', 'auto', 'auto', 'auto']);
+    expect(attrs(out, 'loading').every((v) => v === 'eager')).toBe(true);
+    expect(attrs(out, 'decoding').every((v) => v === 'async')).toBe(true);
   });
 });
 
@@ -107,7 +110,8 @@ describe('the body frame carries the hints and the CSS that makes them useful', 
   it('bodyFrameDoc applies the hints when images are enabled and keeps source-less placeholders in no-media mode', () => {
     const clean = sanitizeEmailHtml('<img src="cid:a" width="600" height="200">');
       const frame = bodyFrameDoc('full-sanitized', { html: clean });
-      expect(frame).toContain('loading="lazy"');
+      expect(frame).toContain('loading="eager"');
+      expect(frame).not.toContain('loading="lazy"');
       expect(frame).toContain('decoding="async"');
       expect(frame).toContain('width="600"');
       // `height:auto` is what lets the intrinsic width/height act as an
@@ -121,6 +125,7 @@ describe('the body frame carries the hints and the CSS that makes them useful', 
   it('plain-text mode still renders escaped text, with no img markup at all', () => {
     const frame = bodyFrameDoc('plain-text', { text: '<img src="cid:a">' });
     expect(frame).toContain('&lt;img');
-    expect(frame).not.toContain('loading="lazy"');
+    expect(frame).not.toContain('loading="eager"');
+      expect(frame).not.toContain('loading="lazy"');
   });
 });

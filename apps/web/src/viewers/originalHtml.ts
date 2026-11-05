@@ -94,7 +94,7 @@ export function prepareOriginalHtml(source:string,policy:{trackers:boolean;clean
    const tiny=width!==undefined&&height!==undefined&&width<=2&&height<=2;
    node.attrs=node.attrs.filter(value=>!value.namespace&&!value.name.startsWith('on')&&!value.name.startsWith('data-mw-')&&!REMOVE.has(value.name)&&value.name!=='style');
    if(style!==null)set(node,'style',css(style,value=>resource(value)));
-   if(name==='img'&&src!==null){set(node,'src',resource(src,tiny));set(node,'loading','lazy');set(node,'decoding','async');set(node,'referrerpolicy','no-referrer');}
+   if(name==='img'&&src!==null){set(node,'src',resource(src,tiny));set(node,'loading','eager');set(node,'decoding','async');set(node,'referrerpolicy','no-referrer');}
    if(background!==null)set(node,'background',resource(background));
    if(href!==null&&(name==='a'||name==='area')&&node.namespaceURI===html.NS.HTML){const validated=inspectMessageLink(href,'');if(validated){const value=policy.cleanLinks&&validated.kind==='web'?cleanLink(validated.href):validated.href;set(node,'href',value);if(validated.kind==='web'&&links.size<256)links.add(value);}else if(/^#[a-z0-9_-]+$/i.test(href))set(node,'href',href);}
    if(name==='style'){for(const text of node.childNodes)if(tree.isTextNode(text))text.value=css(text.value,value=>resource(value));}

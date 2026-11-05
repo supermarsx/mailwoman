@@ -184,7 +184,7 @@ const BODY_STYLE =
   'font:13px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace}';
 
 /**
- * Add `loading="lazy"` + `decoding="async"` to every `<img>` in an ALREADY
+ * Add `loading="eager"` + `decoding="async"` to every `<img>` in an ALREADY
  * SANITIZED body fragment (t22 L6).
  *
  * The sanitizer's allow-list is untouched by design: `mw-sanitize` keeps
@@ -216,10 +216,14 @@ export function withImageLoadingHints(html: string): string {
   }
   const imgs = doc.body.querySelectorAll('img');
   if (imgs.length === 0) return html;
-  for (const img of Array.from(imgs)) {
-    if (!img.hasAttribute('loading')) img.setAttribute('loading', 'lazy');
+  // Never `lazy`: the frame is as tall as its content and the reader scrolls
+  // outside it, so a lazy image below the fold waits for a scroll to start loading.
+  // Every image starts at once; the first few (the ones in view) go first.
+  Array.from(imgs).forEach((img, index) => {
+    img.setAttribute('loading', 'eager');
     if (!img.hasAttribute('decoding')) img.setAttribute('decoding', 'async');
-  }
+    if (!img.hasAttribute('fetchpriority')) img.setAttribute('fetchpriority', index < 4 ? 'high' : 'auto');
+  });
   return doc.body.innerHTML;
 }
 
