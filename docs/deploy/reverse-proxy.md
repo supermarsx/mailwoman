@@ -252,6 +252,30 @@ copy of the header. Every configuration under `docs/deploy/proxy/` does this.
 
 ---
 
+## 5a. `/healthz` is internal-only, and what that needs from the proxy config
+
+`/healthz` and `/readyz` answer only when the client address is loopback,
+private, link-local or unique-local; anyone else gets the same 404 as an unknown
+path (`security.health.mode`, `security.health.networks`, `MW_HEALTH_TOKEN`; see
+[settings](../admin/settings.md#security.health.mode)). A request that is not
+admitted also gets none of the exemptions the protection layers give the health
+paths.
+
+**Warning: the client address is the one resolved through `MW_FORWARDED_MODE` and
+`MW_TRUSTED_PROXIES`.** Behind a reverse proxy that is not configured there, every
+request, including one from the public internet, arrives from the proxy's own
+address, which is normally private. The default rule then admits everyone, and
+`/healthz` is reachable from the internet. Set both variables to the proxy before
+relying on it. Probes that stay inside the host or pod are unaffected: a Docker
+healthcheck comes from loopback, a Kubernetes exec probe from loopback, and a
+kubelet `httpGet` probe from the node address.
+
+An external monitor that must reach `/healthz` through the proxy needs either its
+network in `security.health.networks` with `security.health.mode` set to
+`allowlist`, or the token: set `MW_HEALTH_TOKEN` and send it as the
+`X-Health-Token` header (or `?token=`). `deploy.sh` sends the value from `app.env`
+on its public-URL checks when it is set there.
+
 ## 6. Sub-path hosting (`MW_BASE_PATH`)
 
 `MW_BASE_PATH=/mail` mounts the whole application under a prefix. **New in

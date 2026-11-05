@@ -959,8 +959,13 @@ verify() {
     [[ -n $cid ]] || die "App container is missing"
     MSYS_NO_PATHCONV=1 docker exec "$cid" /usr/local/bin/mailwoman healthcheck --url http://127.0.0.1:8080/healthz || die "App health check failed"
     log "Verifying $url/healthz and the web UI (up to ${wait}s)"
+    # /healthz answers only to internal client addresses; a deployment behind a
+    # trusted proxy sees this host as a public one, so send MW_HEALTH_TOKEN when
+    # app.env sets it.
+    local health_token
+    health_token=$(sed -n 's/^MW_HEALTH_TOKEN=//p' "$STATE/app.env" 2>/dev/null | tail -n 1)
     while ((SECONDS < deadline)); do
-        if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/healthz" -o /dev/null 2>/dev/null &&
+        if curl --fail --silent --show-error --connect-timeout 3 --max-time 5 -H "X-Health-Token: $health_token" "$url/healthz" -o /dev/null 2>/dev/null &&
            curl --fail --silent --show-error --connect-timeout 3 --max-time 5 "$url/" -o /dev/null 2>/dev/null; then
             log "Healthy: $url (admin credentials: $STATE/app.env)"
             local admin_path
@@ -1399,7 +1404,9 @@ run_check() {
             check_failed proxy-network "http://$PROJECT:8080/healthz does not answer on the Docker network $PROXY_NETWORK"
         log "OK: $PROJECT is healthy and answers on the Docker network $PROXY_NETWORK"
     else
-        curl --fail --silent --connect-timeout 5 --max-time 10 "$PUBLIC_URL/healthz" -o /dev/null 2>/dev/null ||
+        local health_token
+        health_token=$(sed -n 's/^MW_HEALTH_TOKEN=//p' "$STATE/app.env" 2>/dev/null | tail -n 1)
+        curl --fail --silent --connect-timeout 5 --max-time 10 -H "X-Health-Token: $health_token" "$PUBLIC_URL/healthz" -o /dev/null 2>/dev/null ||
             check_failed public-url "$PUBLIC_URL/healthz does not answer"
         log "OK: $PROJECT is healthy and $PUBLIC_URL/healthz answers"
     fi

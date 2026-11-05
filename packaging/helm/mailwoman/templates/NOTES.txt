@@ -13,6 +13,14 @@ seal data at rest across restarts. Create a Secret and set serverKeySecret.name:
 {{- end }}
 
 {{- if .Values.ingress.enabled }}
+{{- if not (and (index (.Values.env | default dict) "MW_FORWARDED_MODE") (index (.Values.env | default dict) "MW_TRUSTED_PROXIES")) }}
+
+WARNING: /healthz is reachable only from internal client addresses, but behind
+this ingress every request arrives from the ingress controller's pod address,
+which is private. Until env.MW_FORWARDED_MODE and env.MW_TRUSTED_PROXIES name
+the controller, /healthz is open to the whole internet. The in-pod probes are
+not affected.
+{{- end }}
 {{- $tlsHosts := list }}
 {{- range .Values.ingress.tls }}
 {{- $tlsHosts = concat $tlsHosts (.hosts | default list) }}

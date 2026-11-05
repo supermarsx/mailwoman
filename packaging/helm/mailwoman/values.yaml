@@ -13,6 +13,14 @@ imagePullSecrets: []
 
 replicaCount: 1
 
+# /healthz and /readyz answer only to internal client addresses by default and
+# return 404 to anyone else (settings security.health.mode / security.health.networks,
+# token MW_HEALTH_TOKEN). The client address is read through MW_FORWARDED_MODE and
+# MW_TRUSTED_PROXIES. Behind an ingress that is NOT listed there, every request
+# arrives from the ingress controller's pod address, which is private, so the
+# default admits the whole internet. When ingress.enabled, set both under `env:`,
+# for example env.MW_FORWARDED_MODE=xff and env.MW_TRUSTED_PROXIES=<controller pod CIDR>.
+
 # The scratch image runs as this fixed non-root uid/gid (see Dockerfile).
 runAsUser: 65532
 runAsGroup: 65532

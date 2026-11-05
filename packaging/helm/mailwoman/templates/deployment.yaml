@@ -52,6 +52,10 @@ spec:
                   name: {{ .Values.serverKeySecret.name | quote }}
                   key: {{ .Values.serverKeySecret.key | quote }}
             {{- end }}
+          # /healthz answers only to internal client addresses (loopback, private,
+          # link-local, unique-local). These probes run `mailwoman healthcheck`
+          # inside the pod, so they come from loopback and pass. An httpGet probe
+          # would come from the node address, which is also private and passes.
           livenessProbe:
             exec:
               command: ["/usr/local/bin/mailwoman", "healthcheck"]

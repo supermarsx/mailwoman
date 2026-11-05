@@ -55,7 +55,9 @@ target `<project>:8080`) instead of going through the public URL.
 bash deploy.sh check
 ```
 
-exits 0 only when:
+exits 0 only when (`/healthz` answers only to internal client addresses; if the
+public URL is served through a trusted proxy, set `MW_HEALTH_TOKEN` in `app.env`
+and `check` sends it, see the reverse-proxy guide, section 5a):
 
 1. the app container is running and Docker reports it `healthy` (its own
    `/healthz` check), and
