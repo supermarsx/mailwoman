@@ -1,4 +1,5 @@
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
+import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
 import {onMessagesTrashed} from '../state/trashEvents.ts';
 import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../components/RenameFolder.tsx';
@@ -33,6 +34,8 @@ import {createConfiguredClient} from '../api/transport.ts';
 import {FolderPane} from '../components/FolderPane.tsx';
 import {actions as sidebarFooterActions} from '../components/sidebarFooter.css.ts';
 import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
+import {useFolderMarquee} from '../components/useFolderMarquee.tsx';
+import {clearSelectedFolders,selectedFolderIds} from '../components/folderSelection.ts';
 import {peekMessageDrag,takeMessageDrag} from '../components/messageDrag.ts';
 import {folderDropTarget} from '../components/messageDrag.css.ts';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
@@ -235,6 +238,8 @@ export function MailboxScreen(): JSX.Element {
   function openNewMessage():void {openComposer();}
   // A recalled send (toast Undo, Outbox "Recall and edit") returns as a draft.
   createEffect(()=>{const id=recalledDraftId();if(id){takeRecalledDraft();openComposer(undefined,id);}});
+  // Another module (Contacts: send a contact by email) asked for a composer.
+  createEffect(()=>{if(pendingCompose()){const draft=takePendingCompose();if(draft)openComposer(draft);}});
   const openingReplyDrafts=new Map<string,AbortController>();
   onCleanup(()=>{for(const controller of openingReplyDrafts.values())controller.abort();});
   async function openReplyDraft(id:string):Promise<void>{
@@ -618,6 +623,7 @@ export function MailboxScreen(): JSX.Element {
     return {system:split<0?rows:rows.slice(0,split),custom:split<0?[]:rows.slice(split)};
   });
   const sectionRows=(custom:boolean)=>custom?folderTreeRows().custom:folderTreeRows().system;
+  const folderMarquee=useFolderMarquee(()=>sectionRows(false).concat(sectionRows(true)).map(row=>row.box.id));
   function toggleFolder(id:string,expand:boolean):void {
     const collapsed=new Set(accountUiPreferences().folderCollapsed??[]);
     if(expand)collapsed.delete(id);else collapsed.add(id);
@@ -880,7 +886,7 @@ export function MailboxScreen(): JSX.Element {
           </div>
         </Show>
         <Show when={creatingFolder()}><CreateFolderDialog onClose={()=>setCreatingFolder(false)}/></Show>
-        <div class="sidebar__scroll">
+        <div class="sidebar__scroll" ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
         <FolderCreationControl><nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
@@ -890,17 +896,18 @@ export function MailboxScreen(): JSX.Element {
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
           <For each={sectionRows(custom).map(row=>row.box.id)}>
             {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
-              <FolderContextMenu box={box()} depth={row()?.depth??0} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 {...prefetch}
-                class={`sidebar__box ${a11y.focusable}`}
+                class={`sidebar__box ${a11y.focusable}`} data-marquee-item="" data-folder-id={id} data-selected={selectedFolderIds().has(id)?'true':undefined}
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
                 onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
                 onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
                 onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
                 aria-label={displayText(box().name)} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · '))}
                 onClick={() => {
+                  clearSelectedFolders();
                   router.navigate('mail');
                   subTabs.activate('mail');
                   void app.selectMailbox(box().id);

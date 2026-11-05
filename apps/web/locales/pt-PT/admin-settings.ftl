@@ -753,6 +753,8 @@ admin-settings-help-metrics-default-range-seconds = Segundos apresentados quando
 admin-settings-key-metrics-max-range-seconds = Intervalo máximo do histórico de pedidos
 admin-settings-help-metrics-max-range-seconds = Número máximo de segundos por consulta de histórico. A retenção continua a ser um limite adicional.
 
+admin-settings-key-contacts-favorites-first = Favoritos primeiro nas sugestões
+admin-settings-help-contacts-favorites-first = Listar os contactos favoritos antes das restantes correspondências nas sugestões de destinatários. Só a ordem muda; nenhuma sugestão é ocultada. As substituições de utilizador e de domínio podem ser bloqueadas.
 admin-settings-key-contacts-sender-icons = Ícones de remetente incluídos
 admin-settings-help-contacts-sender-icons = Mostrar ícones incluídos localmente para domínios de remetente reconhecidos, com iniciais geradas para os restantes. As fotografias de contactos têm prioridade. Os ícones não verificam a identidade do remetente. Não é contactado nenhum serviço de logótipos externo; as substituições de utilizador e de domínio podem ser bloqueadas.
 
@@ -912,10 +914,10 @@ admin-settings-key-mail-compose-check-empty-subject = Verificar assunto vazio an
 admin-settings-help-mail-compose-check-empty-subject = O que acontece quando a mensagem não tem assunto: permitir, avisar, avisar e lembrar a escolha, ou recusar.
 admin-settings-key-mail-compose-auto-chip-recipients = Concluir automaticamente os destinatários escritos
 admin-settings-help-mail-compose-auto-chip-recipients = Transforma um endereço escrito num destinatário quando é seguido de espaço, vírgula ou ponto e vírgula.
-admin-settings-key-mail-compose-recipient-separator = Separador de destinatários
-admin-settings-help-mail-compose-recipient-separator = O separador inserido depois de um destinatário concluído: vírgula ou ponto e vírgula.
 admin-settings-key-mail-compose-header-collapse = Cabeçalho do editor
 admin-settings-help-mail-compose-header-collapse = Como se comportam as linhas Para, Cc, Bcc e Assunto do editor: expandido, recolhido numa linha de resumo, ou automático (recolhido ao escrever o corpo e aberto quando um campo recebe o foco). Os utilizadores podem recolher ou expandir por si, salvo se estiver bloqueado.
+admin-settings-key-mail-compose-recipient-separator = Separador de destinatários
+admin-settings-help-mail-compose-recipient-separator = O separador inserido depois de um destinatário concluído: vírgula ou ponto e vírgula.
 admin-settings-key-mail-reply-from-mode = Identidade usada em respostas e reencaminhamentos
 admin-settings-help-mail-reply-from-mode = A identidade a partir da qual uma resposta ou reencaminhamento é enviado: a que a mensagem original tinha como destinatário, a predefinida, um seletor, ou a atualmente escolhida.
 admin-settings-key-mail-forward-mode = Formato de reencaminhamento predefinido

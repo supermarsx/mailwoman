@@ -753,6 +753,8 @@ admin-settings-help-metrics-default-range-seconds = Seconds shown when a history
 admin-settings-key-metrics-max-range-seconds = Maximum request history range
 admin-settings-help-metrics-max-range-seconds = Maximum seconds per history query. Retention remains an additional limit.
 
+admin-settings-key-contacts-favorites-first = Favorites first in suggestions
+admin-settings-help-contacts-favorites-first = List favorite contacts ahead of other matches in recipient suggestions. Only the order changes; no suggestion is hidden. User and domain overrides can be locked.
 admin-settings-key-contacts-sender-icons = Bundled sender icons
 admin-settings-help-contacts-sender-icons = Show locally bundled icons for recognised sender domains, with generated initials for others. Contact pictures take priority. Icons do not verify a sender's identity. No external logo service is contacted; user and domain overrides can be locked.
 
@@ -912,10 +914,10 @@ admin-settings-key-mail-compose-check-empty-subject = Check for an empty subject
 admin-settings-help-mail-compose-check-empty-subject = What happens when a message has no subject: allow it, warn, warn and remember the choice, or refuse.
 admin-settings-key-mail-compose-auto-chip-recipients = Finish typed recipients automatically
 admin-settings-help-mail-compose-auto-chip-recipients = Turn a typed address into a recipient chip when a space, comma or semicolon follows it.
-admin-settings-key-mail-compose-recipient-separator = Recipient separator
-admin-settings-help-mail-compose-recipient-separator = The separator inserted after a finished recipient: a comma or a semicolon.
 admin-settings-key-mail-compose-header-collapse = Composer header
 admin-settings-help-mail-compose-header-collapse = How the To, Cc, Bcc and Subject rows of the composer behave: expanded, folded to a one-line summary, or auto (folded while writing the body, open when a field is focused). Users can fold or unfold it themselves unless this is locked.
+admin-settings-key-mail-compose-recipient-separator = Recipient separator
+admin-settings-help-mail-compose-recipient-separator = The separator inserted after a finished recipient: a comma or a semicolon.
 admin-settings-key-mail-reply-from-mode = Identity used for replies and forwards
 admin-settings-help-mail-reply-from-mode = Which identity a reply or forward is sent from: the one the original was addressed to, the default, a chooser, or the one currently selected.
 admin-settings-key-mail-forward-mode = Default forwarding format

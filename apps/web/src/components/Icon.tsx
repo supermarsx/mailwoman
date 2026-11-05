@@ -23,6 +23,7 @@ export type IconName =
   | 'fileAudio' | 'fileVideo' | 'filePdf' | 'fileCode'
   | 'print'
   | 'download'
+  | 'share'
   | 'preferences'
   | 'dashboard'
   | 'analytics'
@@ -174,6 +175,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   spam: () => <><path d="M5 1h6l4 4v6l-4 4H5l-4-4V5zM8 4v5M8 11v1" {...S}/></>,
   sweep: () => <><path d="M10 6l5-5M2 9l5-5 5 5-5 5H1zM5 9l-3 3M8 10l-3 3" {...S}/></>,
   download: () => <path d="M8 1v9m-4-4 4 4 4-4M2 11v3h12v-3" {...S}/>,
+  share: () => <><circle cx="3.5" cy="8" r="1.75" {...S} /><circle cx="12.5" cy="3.5" r="1.75" {...S} /><circle cx="12.5" cy="12.5" r="1.75" {...S} /><path d="M5 7.2 L11 4.3 M5 8.8 L11 11.7" {...S} /></>,
   shield: () => <><path d="M8 1L2 3v5c0 3 3 5 6 7 3-2 6-4 6-7V3z" {...S}/><path d="M5 8l2 2 4-4" {...S}/></>,
   fileAudio: () => <><path d="M6 12V3l7-2v9M6 6l7-2" {...S}/><ellipse cx="3.5" cy="12" rx="2.5" ry="2" {...S}/><ellipse cx="10.5" cy="10" rx="2.5" ry="2" {...S}/></>,
   fileVideo: () => <><rect x="1" y="3" width="10" height="10" {...S}/><path d="M11 6l4-2v8l-4-2M5 6l3 2-3 2z" {...S}/></>,
@@ -186,8 +188,6 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   more: () => <path d="M2 8 H4 M7 8 H9 M12 8 H14" {...S} />,
   conversation: () => <><path d="M1 2 H10 V8 H5 L2 10.5 V8 H1 Z" {...S}/><path d="M12.5 5 H15 V12 H14 V14.5 L11 12 H6 V10.5" {...S}/></>,
   sort: () => <path d="M3 5 L8 1 L13 5 M3 11 L8 15 L13 11" {...S} />,
-  quote: () => <path d="M2 3 H7 V9 H4 L2 13 V3 M10 3 H15 V9 H12 L10 13 V3" {...S} />,
-  clearFormat: () => <path d="M2 2 H14 M8 2 V12 M3 12 H10 M11 10 L15 14 M15 10 L11 14" {...S} />,
   alignLeft: () => <path d="M2 3H14M2 6.5H9M2 10H14M2 13.5H9" {...S}/>,
   alignCenter: () => <path d="M2 3H14M4.5 6.5H11.5M2 10H14M4.5 13.5H11.5" {...S}/>,
   alignRight: () => <path d="M2 3H14M7 6.5H14M2 10H14M7 13.5H14" {...S}/>,
@@ -196,6 +196,8 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   flipH: () => <path d="M8 1V15M5 4L1 8L5 12ZM11 4L15 8L11 12Z" {...S}/>,
   flipV: () => <path d="M1 8H15M4 5L8 1L12 5ZM4 11L8 15L12 11Z" {...S}/>,
   crop: () => <path d="M4 1V12H15M1 4H12V15" {...S}/>,
+  quote: () => <path d="M2 3 H7 V9 H4 L2 13 V3 M10 3 H15 V9 H12 L10 13 V3" {...S} />,
+  clearFormat: () => <path d="M2 2 H14 M8 2 V12 M3 12 H10 M11 10 L15 14 M15 10 L11 14" {...S} />,
   bold: () => <path d="M4 1 H9 A3 3 0 0 1 9 7 H4 V1 M4 7 H10 A4 4 0 0 1 10 15 H4 Z" {...S} />,
   italic: () => <path d="M7 1 H14 M2 15 H9 M11 1 L5 15" {...S} />,
   underline: () => <path d="M3 1 V8 A5 5 0 0 0 13 8 V1 M2 15 H14" {...S} />,
