@@ -2902,4 +2902,88 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+    TableSpec {
+        name: "compliance_policy_version",
+        select: "SELECT id,domain,version,kind,facts_json,changes_json,created_by,created_at FROM compliance_policy_version",
+        insert: "INSERT INTO compliance_policy_version(id,domain,version,kind,facts_json,changes_json,created_by,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "domain"),
+                i(r, "version"),
+                t(r, "kind"),
+                t(r, "facts_json"),
+                t(r, "changes_json"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "compliance_policy_override",
+        select: "SELECT id,domain,lang,section,body,updated_by,updated_at FROM compliance_policy_override",
+        insert: "INSERT INTO compliance_policy_override(id,domain,lang,section,body,updated_by,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "domain"),
+                t(r, "lang"),
+                t(r, "section"),
+                t(r, "body"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "compliance_record",
+        select: "SELECT id,kind,name,body_json,updated_by,updated_at FROM compliance_record",
+        insert: "INSERT INTO compliance_record(id,kind,name,body_json,updated_by,updated_at) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                t(r, "name"),
+                t(r, "body_json"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "dpia",
+        select: "SELECT id,title,status,template,body_json,version,review_at,created_by,created_at,updated_by,updated_at FROM dpia",
+        insert: "INSERT INTO dpia(id,title,status,template,body_json,version,review_at,created_by,created_at,updated_by,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "title"),
+                t(r, "status"),
+                t(r, "template"),
+                t(r, "body_json"),
+                i(r, "version"),
+                oi(r, "review_at"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                t(r, "updated_by"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "dpia_version",
+        select: "SELECT id,dpia_id,version,status,body_json,changed_by,created_at FROM dpia_version",
+        insert: "INSERT INTO dpia_version(id,dpia_id,version,status,body_json,changed_by,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "dpia_id"),
+                i(r, "version"),
+                t(r, "status"),
+                t(r, "body_json"),
+                t(r, "changed_by"),
+                i(r, "created_at"),
+            ]
+        },
+    },
 ];

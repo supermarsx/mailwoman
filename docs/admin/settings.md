@@ -832,6 +832,66 @@ E-mail address shown to users on the data requests page.
 
 Link shown to users on the data requests page.
 
+<a id="policy.publicPages"></a>
+### Public policy pages (`policy.publicPages`)
+
+Serve the generated privacy policy at /privacy and cookie policy at /cookies-policy without sign-in.
+
+<a id="policy.autoVersion"></a>
+### Automatic policy versions (`policy.autoVersion`)
+
+Record a new policy version when a setting the policy describes changes. Off: changes wait for Publish.
+
+<a id="policy.reconsentOnChange"></a>
+### Ask for cookie consent again on a new policy version (`policy.reconsentOnChange`)
+
+Raise the cookie policy version when a new policy version is recorded, so visitors are asked again (needs cookies.repromptOnVersion).
+
+<a id="policy.controller.name"></a>
+### Controller name (`policy.controller.name`)
+
+Name of the organisation that decides why and how data is processed, shown in the privacy policy.
+
+<a id="policy.controller.address"></a>
+### Controller address (`policy.controller.address`)
+
+Postal address of the controller, shown in the privacy policy.
+
+<a id="policy.legalBases"></a>
+### Legal bases (`policy.legalBases`)
+
+The legal bases you rely on, in your own words, shown in the privacy policy.
+
+<a id="policy.hosting.provider"></a>
+### Hosting provider (`policy.hosting.provider`)
+
+Who hosts the data and where, shown in the privacy policy.
+
+<a id="policy.hosting.transfers"></a>
+### Transfers outside the hosting country (`policy.hosting.transfers`)
+
+Any transfers of data to other countries and the safeguards you use, shown in the privacy policy.
+
+<a id="policy.supervisoryAuthority"></a>
+### Supervisory authority (`policy.supervisoryAuthority`)
+
+The authority users may complain to, shown in the privacy policy.
+
+<a id="dpia.suggest"></a>
+### Suggest impact assessments (`dpia.suggest`)
+
+List a suggested impact assessment when the assistant, open tracking or analytics is enabled and none exists.
+
+<a id="dpia.reviewMonths"></a>
+### Impact assessment review interval (`dpia.reviewMonths`)
+
+Months until the review date set when an assessment is approved.
+
+<a id="dpia.reminderDays"></a>
+### Impact assessment reminder window (`dpia.reminderDays`)
+
+Days before the review date that an assessment is listed as due.
+
 <a id="dsr.onBehalf.allowed"></a>
 ### Requests on behalf of a user (`dsr.onBehalf.allowed`)
 

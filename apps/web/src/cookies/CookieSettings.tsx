@@ -6,6 +6,7 @@ import { t, loadCatalog } from '../i18n';
 import * as css from '../screens/Settings/styles.css.ts';
 import { bootConsent, consentConfig, consentEffective, consentStored, openCookiePreferences, scanNow } from './runtime.ts';
 import { OPTIONAL } from './policy.ts';
+import { policyLinks } from './policyLinks.ts';
 
 export function CookieSettings(): JSX.Element {
   onMount(() => { void loadCatalog('cookies'); void bootConsent(); });
@@ -22,6 +23,12 @@ export function CookieSettings(): JSX.Element {
         <Show when={consentStored()}><p class={css.meta}>{t('cookies-decided', { date: new Date(consentStored()!.decidedAt).toLocaleDateString() })}</p></Show>
         <p><button type="button" class="btn btn--ghost" onClick={() => openCookiePreferences()}>{t('cookies-preferences-link')}</button>{' '}
           <button type="button" class="btn btn--ghost" onClick={() => void scanNow(true)}>{t('cookies-scan-now')}</button></p>
+        <Show when={policyLinks(consentConfig()).privacy || policyLinks(consentConfig()).cookies}>
+          <p data-testid="policy-links">
+            <Show when={policyLinks(consentConfig()).privacy}>{(url) => <a href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-privacy-link')}</a>}</Show>{' '}
+            <Show when={policyLinks(consentConfig()).cookies}>{(url) => <a href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-policy-link')}</a>}</Show>
+          </p>
+        </Show>
       </section>
     </Show>
   );

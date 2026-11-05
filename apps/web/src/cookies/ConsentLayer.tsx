@@ -11,6 +11,7 @@ import { loadCatalog, t } from '../i18n';
 import { activeLocaleSignal } from '../i18n/registry.ts';
 import { createFocusTrap } from '../components/a11y';
 import * as css from './consent.css.ts';
+import { policyLinks } from './policyLinks.ts';
 import {
   bootConsent, closeCookiePreferences, consentConfig, consentEffective, consentStored, decide, openCookiePreferences, preferencesVisible, previewing,
 } from './runtime.ts';
@@ -79,8 +80,8 @@ export function ConsentLayer(): JSX.Element {
 
   const links = (): JSX.Element => (
     <ul class={css.links}>
-      <Show when={config()?.policyUrl}>{(url) => <li><a class={css.link} href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-policy-link')}</a></li>}</Show>
-      <Show when={config()?.privacyUrl}>{(url) => <li><a class={css.link} href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-privacy-link')}</a></li>}</Show>
+      <Show when={policyLinks(config()).cookies}>{(url) => <li><a class={css.link} href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-policy-link')}</a></li>}</Show>
+      <Show when={policyLinks(config()).privacy}>{(url) => <li><a class={css.link} href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-privacy-link')}</a></li>}</Show>
     </ul>
   );
 

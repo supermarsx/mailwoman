@@ -45,6 +45,8 @@ export interface ConsentConfig {
   rejectProminent?: boolean;
   policyUrl?: string | null;
   privacyUrl?: string | null;
+  /** The generated policy pages exist (`policy.publicPages`). */
+  policyPages?: boolean;
   honourGpc?: boolean;
   honourDnt?: boolean;
   scanIntervalHours?: number;
