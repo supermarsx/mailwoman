@@ -543,6 +543,8 @@ export const CATEGORIES: readonly string[] = [
   'interface',
   'appearance',
   'mail',
+  'observability.clientTiming.folderLoads',
+  'observability.clientTiming.messageLoads',
   'notifications',
   'offline',
   'assistant',

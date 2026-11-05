@@ -1,8 +1,8 @@
 import {describe,expect,it,vi} from 'vitest';
 import {ClientTiming,collectLoadMetrics,MAX_MS,type Deps,type TimingPayload} from './clientTiming.ts';
 
-function deps(over:Partial<Deps>={}):{deps:Deps;sent:TimingPayload[];settle:()=>void;hide:()=>void} {
- const sent:TimingPayload[]=[];
+function deps(over:Partial<Deps>={}):{deps:Deps;sent:TimingPayload[];settle:()=>void;hide:()=>void;later:Array<()=>void>;measures:Array<{name:string;ms:number}>} {
+ const sent:TimingPayload[]=[];const later:Array<()=>void>=[];const measures:Array<{name:string;ms:number}>=[];
  let settle=()=>{};let hide=()=>{};
  const entries=(type:string):PerformanceEntry[]=>{
   if(type==='navigation')return [{responseStart:41.6,domContentLoadedEventEnd:900.2,loadEventEnd:1500.9,name:'https://mail.example/inbox?token=secret'} as unknown as PerformanceEntry];
@@ -12,10 +12,11 @@ function deps(over:Partial<Deps>={}):{deps:Deps;sent:TimingPayload[];settle:()=>
  const d:Deps={
   now:()=>1234.4,entries,supported:()=>true,random:()=>0.5,privacySignal:()=>false,device:()=>'desktop',
   whenSettled:fn=>{settle=fn;},onHide:fn=>{hide=fn;},
-  policy:async()=>({enabled:true,sampleRatePercent:100}),
+  policy:async()=>({enabled:true,sampleRatePercent:100,folderLoads:true,messageLoads:true}),
+  kindEnabled:()=>true,afterPaint:fn=>{fn();},later:fn=>{later.push(fn);},measure:(n,a,b)=>{measures.push({name:n,ms:b-a});},
   send:async p=>{sent.push(p);},lcp:()=>2100.7,...over,
  };
- return {deps:d,sent,settle:()=>settle(),hide:()=>hide()};
+ return {deps:d,sent,settle:()=>settle(),hide:()=>hide(),later,measures};
 }
 const flush=()=>new Promise(r=>setTimeout(r,0));
 
@@ -93,13 +94,102 @@ describe('ClientTiming',()=>{
   const h=deps({device:()=>undefined});new ClientTiming(h.deps).markUsable();h.settle();await flush();
   expect(h.sent[0]).not.toHaveProperty('device');
  });
- it('reports the first folder open after the page is usable, once',async()=>{
+ it('reports no legacy folderOpen figure any more', async()=>{
   let t=1000;const h=deps({now:()=>t});const c=new ClientTiming(h.deps);
-  c.noteList(false,10);t=5000;
-  c.noteFolderSelected();c.noteList(true,10);t=5400;c.noteList(false,3);
-  await flush();
-  expect(h.sent).toEqual([{device:'desktop',metrics:[{name:'folderOpen',ms:400}]}]);
-  c.noteFolderSelected();c.noteList(true,3);t=9000;c.noteList(false,3);await flush();
-  expect(h.sent).toHaveLength(1);
+  await armed(c,h);
+  t=5000;c.noteFolderSelected();c.noteList(true,10);t=5400;c.noteList(false,3);
+  h.later.forEach(fn=>fn());await flush();
+  expect(JSON.stringify(h.sent)).not.toContain('folderOpen');
+ });
+});
+
+async function armed(c:ClientTiming,h:ReturnType<typeof deps>):Promise<void>{
+ c.noteList(false,10);await flush();
+ // Drain the page-load beacon so interaction beacons stand alone.
+ h.settle();await flush();h.sent.length=0;
+}
+
+describe('folder loads',()=>{
+ it('measures a cold folder from the pick to the painted list, every time',async()=>{
+  let t=1000;const h=deps({now:()=>t});const c=new ClientTiming(h.deps);await armed(c,h);
+  t=5000;c.noteFolderSelected();c.noteList(true,10);t=5400;c.noteList(false,3);
+  t=7000;c.noteFolderSelected();c.noteList(true,3);t=7900;c.noteList(false,8);
+  expect(h.sent).toEqual([]);// batched, not one beacon per open
+  h.later.forEach(fn=>fn());await flush();
+  expect(h.sent).toEqual([{device:'desktop',metrics:[{name:'folderLoadCold',ms:400},{name:'folderLoadCold',ms:900}]}]);
+  expect(h.measures.map(m=>m.name)).toEqual(['mw:folder','mw:folder']);
+ });
+ it('calls a list that was already there when the pick settled cached',async()=>{
+  let t=1000;const h=deps({now:()=>t});const c=new ClientTiming(h.deps);await armed(c,h);
+  t=5000;c.noteFolderSelected();t=5016;c.noteList(false,25);
+  h.later.forEach(fn=>fn());await flush();
+  expect(h.sent[0]!.metrics).toEqual([{name:'folderLoadCached',ms:16}]);
+ });
+ it('ignores empty folders, and a pick before the page was usable',async()=>{
+  let t=1000;const h=deps({now:()=>t});const c=new ClientTiming(h.deps);
+  c.noteFolderSelected();c.noteList(true,0);c.noteList(false,5);// not armed yet: this is the page load
+  await armed(c,h);
+  t=5000;c.noteFolderSelected();c.noteList(false,0);
+  h.later.forEach(fn=>fn());await flush();
+  expect(h.sent).toEqual([]);
+ });
+ it('sends nothing when the folder feature is off server side or for this person',async()=>{
+  let t=1000;
+  const server=deps({now:()=>t,policy:async()=>({enabled:true,sampleRatePercent:100,folderLoads:false,messageLoads:true})});
+  const a=new ClientTiming(server.deps);await armed(a,server);
+  t=5000;a.noteFolderSelected();a.noteList(false,5);server.later.forEach(fn=>fn());await flush();
+  expect(server.sent).toEqual([]);
+  let on=true;
+  const user=deps({now:()=>t,kindEnabled:k=>k!=='folder'||on});
+  const b=new ClientTiming(user.deps);await armed(b,user);
+  on=false;// opted out in Settings after load: no reload needed
+  t=6000;b.noteFolderSelected();b.noteList(false,5);user.later.forEach(fn=>fn());await flush();
+  expect(user.sent).toEqual([]);
+ });
+ it('a policy from an older server (no flags) records no interactions',async()=>{
+  const old=deps({policy:async()=>({enabled:true,sampleRatePercent:100})});const c=new ClientTiming(old.deps);await armed(c,old);
+  c.noteFolderSelected();c.noteList(false,5);const m=c.beginMessage();m.done(true);
+  old.later.forEach(fn=>fn());await flush();
+  expect(old.sent).toEqual([]);
+ });
+});
+
+describe('message loads',()=>{
+ it('measures an opened message to its painted body, cold and cached, in one batch',async()=>{
+  let t=1000;const h=deps({now:()=>t});const c=new ClientTiming(h.deps);await armed(c,h);
+  t=2000;const cold=c.beginMessage();t=2700;cold.done(false);
+  t=3000;const warm=c.beginMessage();t=3012;warm.done(true);
+  h.later.forEach(fn=>fn());await flush();
+  expect(h.sent).toEqual([{device:'desktop',metrics:[{name:'messageLoadCold',ms:700},{name:'messageLoadCached',ms:12}]}]);
+  expect(h.measures.map(m=>m.name)).toEqual(['mw:message','mw:message']);
+ });
+ it('a superseded open is dropped, and done twice counts once',async()=>{
+  let t=1000;const h=deps({now:()=>t});const c=new ClientTiming(h.deps);await armed(c,h);
+  const first=c.beginMessage();t=1100;const second=c.beginMessage();t=1500;
+  first.done(false);second.done(false);second.done(false);
+  h.later.forEach(fn=>fn());await flush();
+  expect(h.sent[0]!.metrics).toEqual([{name:'messageLoadCold',ms:400}]);
+ });
+ it('carries nothing that identifies a message or folder',async()=>{
+  const h=deps();const c=new ClientTiming(h.deps);await armed(c,h);
+  const m=c.beginMessage();m.done(false);c.noteFolderSelected();c.noteList(false,3);
+  h.later.forEach(fn=>fn());await flush();
+  const keys=new Set(h.sent.flatMap(b=>[...Object.keys(b),...b.metrics.flatMap(m=>Object.keys(m))]));
+  expect([...keys].sort()).toEqual(['device','metrics','ms','name']);
+ });
+ it('is inert when the message feature is off or the page was never usable',async()=>{
+  const off=deps({kindEnabled:k=>k!=='message'});const c=new ClientTiming(off.deps);await armed(c,off);
+  c.beginMessage().done(false);off.later.forEach(fn=>fn());await flush();
+  expect(off.sent).toEqual([]);
+  const fresh=deps();const d=new ClientTiming(fresh.deps);
+  expect(()=>d.beginMessage().done(true)).not.toThrow();
+  fresh.later.forEach(fn=>fn());await flush();
+  expect(fresh.sent).toEqual([]);
+ });
+ it('holds at most one beacon of samples',async()=>{
+  const h=deps();const c=new ClientTiming(h.deps);await armed(c,h);
+  for(let i=0;i<40;i++)c.beginMessage().done(false);
+  h.later.forEach(fn=>fn());await flush();
+  expect(h.sent[0]!.metrics.length).toBeLessThanOrEqual(12);
  });
 });

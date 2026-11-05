@@ -37,7 +37,7 @@ export interface ClientPolicy {
   capturePolicy: CapturePolicy;
   openTracking: boolean;
   /** Browser load-time collection (`perf/clientTiming.ts`); absent = off. */
-  clientTiming?: { enabled: boolean; sampleRatePercent: number };
+  clientTiming?: { enabled: boolean; sampleRatePercent: number; folderLoads?: boolean; messageLoads?: boolean };
 }
 
 /** What applies when no policy has been read: no floor, no capture protection,
@@ -67,10 +67,10 @@ function isFloor(v: unknown): v is SecurityMode {
 
 /** Read the wire shape; an unknown value degrades to the default for that field. */
 export function parseClientPolicy(raw: unknown): ClientPolicy {
-  const o = (raw ?? {}) as { maxSecurityFloor?: unknown; capturePolicy?: unknown; openTracking?: unknown; clientTiming?: { enabled?: unknown; sampleRatePercent?: unknown } | null };
+  const o = (raw ?? {}) as { maxSecurityFloor?: unknown; capturePolicy?: unknown; openTracking?: unknown; clientTiming?: { enabled?: unknown; sampleRatePercent?: unknown; folderLoads?: unknown; messageLoads?: unknown } | null };
   const rate = o.clientTiming?.sampleRatePercent;
   const timing = typeof rate === 'number' && Number.isFinite(rate) && rate >= 1 && rate <= 100
-    ? { clientTiming: { enabled: o.clientTiming?.enabled === true, sampleRatePercent: rate } }
+    ? { clientTiming: { enabled: o.clientTiming?.enabled === true, sampleRatePercent: rate, folderLoads: o.clientTiming?.folderLoads === true, messageLoads: o.clientTiming?.messageLoads === true } }
     : {};
   return {
     maxSecurityFloor: isFloor(o.maxSecurityFloor) ? o.maxSecurityFloor : null,

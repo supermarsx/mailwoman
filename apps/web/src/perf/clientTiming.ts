@@ -9,6 +9,15 @@
 //   POST /api/client-timing  { device?: 'desktop'|'mobile',
 //                              metrics: [{ name, ms }] }
 //
+// Interactions are measured too, from the user's intent to the painted result, and
+// batched into one beacon every few seconds (same endpoint, same shape):
+//   folderLoadCold / folderLoadCached   pick a folder -> its list is painted
+//   messageLoadCold / messageLoadCached open a message -> headers and sanitised
+//                                       body are painted
+// "Cached" means the browser already held the data (read cache or prefetch);
+// "cold" waited on the network. Each is also a performance.measure (`mw:folder`,
+// `mw:message`) for DevTools. No folder or message id, name or kind is sent.
+//
 // Nothing else is sent: no URL, path, account, address, user agent or clock
 // time. The server keeps only counts in fixed histograms.
 //
@@ -20,8 +29,18 @@
 import { apiFetch } from '../api/http.ts';
 import { withBase } from '../api/basePath.ts';
 import { loadClientPolicy, clientPolicy } from '../api/policy.ts';
+import { settings } from '../api/settings.ts';
 
-export type TimingMetric = 'timeToUsable' | 'ttfb' | 'dcl' | 'load' | 'fcp' | 'lcp' | 'folderOpen';
+export type TimingMetric =
+  | 'timeToUsable' | 'ttfb' | 'dcl' | 'load' | 'fcp' | 'lcp' | 'folderOpen'
+  | 'folderLoadCold' | 'folderLoadCached' | 'messageLoadCold' | 'messageLoadCached';
+/** The two interaction feature sets; each has its own admin default and user switch. */
+export type TimingKind = 'folder' | 'message';
+/** Registry keys (`crates/mw-server/src/client_timing.rs`): GDU booleans, default on. */
+export const KIND_SETTING: Readonly<Record<TimingKind, string>> = {
+  folder: 'observability.clientTiming.folderLoads',
+  message: 'observability.clientTiming.messageLoads',
+};
 export interface TimingSample { name: TimingMetric; ms: number }
 export interface TimingPayload { device?: 'desktop' | 'mobile'; metrics: TimingSample[] }
 
@@ -43,7 +62,15 @@ export interface Deps {
   whenSettled(fn: () => void): void;
   /** Run `fn` when the page is being hidden or closed. */
   onHide(fn: () => void): void;
-  policy(): Promise<{ enabled: boolean; sampleRatePercent: number }>;
+  policy(): Promise<{ enabled: boolean; sampleRatePercent: number; folderLoads?: boolean; messageLoads?: boolean }>;
+  /** The person's own switch for a feature set (live: Settings can change it any time). */
+  kindEnabled(kind: TimingKind): boolean;
+  /** Run `fn` after the next frame has been painted. */
+  afterPaint(fn: () => void): void;
+  /** Run `fn` once after `ms`. */
+  later(fn: () => void, ms: number): void;
+  /** Record a DevTools measure; may do nothing. */
+  measure(name: string, startMs: number, endMs: number): void;
   send(payload: TimingPayload): Promise<void>;
   /** Largest contentful paint (ms) or null. */
   lcp(): number | null;
@@ -92,6 +119,19 @@ export function browserDeps(): Deps {
       else addEventListener('load', () => setTimeout(idle, 0), { once: true });
     },
     onHide: (fn) => addEventListener('pagehide', fn, { once: true }),
+    kindEnabled: (kind) => settings()[KIND_SETTING[kind]]?.value !== false,
+    afterPaint: (fn) => {
+      if (typeof requestAnimationFrame !== 'function') { setTimeout(fn, 0); return; }
+      requestAnimationFrame(() => setTimeout(fn, 0));
+    },
+    later: (fn, ms) => { setTimeout(fn, ms); },
+    measure: (name, startMs, endMs) => {
+      try {
+        if (typeof performance.measure === 'function') performance.measure(name, { start: startMs, end: endMs });
+      } catch {
+        // DevTools only.
+      }
+    },
     policy: async () => {
       await loadClientPolicy();
       return clientPolicy().clientTiming ?? { enabled: false, sampleRatePercent: 0 };
@@ -137,13 +177,23 @@ export function collectLoadMetrics(deps: Deps, usableMs: number | null): TimingS
   return out;
 }
 
+/** Handle for one message open. */
+export interface MessageLoad { done(cached: boolean): void }
+/** Most samples held for one beacon (the server accepts 16) and how long they wait. */
+const MAX_QUEUE = 12;
+const BATCH_MS = 5000;
+
 export class ClientTiming {
   private usableMs: number | null = null;
   private sent = false;
   private armed = false;
   private folderStart: number | null = null;
   private folderSawLoading = false;
-  private folderDone = false;
+  private folderFresh = false;
+  private messageSeq = 0;
+  private queue: TimingSample[] = [];
+  private queueTimer = false;
+  private kinds: Record<TimingKind, boolean> = { folder: false, message: false };
   private decision: Promise<boolean> | null = null;
 
   constructor(private readonly deps: Deps) {}
@@ -168,35 +218,97 @@ export class ClientTiming {
   noteList(loading: boolean, rowCount: number): void {
     try {
       if (this.usableMs === null && !loading && rowCount > 0) this.markUsable();
-      if (this.folderStart !== null && !this.folderDone) {
+      if (this.folderStart === null) return;
+      if (this.folderFresh) {
+        // First report after the pick: rows already there and no fetch = cached.
+        this.folderFresh = false;
         if (loading) this.folderSawLoading = true;
-        else if (this.folderSawLoading) this.finishFolder();
-      }
+        else if (rowCount > 0) this.finishFolder(false);
+        else this.folderStart = null; // empty folder, nothing to compare
+      } else if (loading) this.folderSawLoading = true;
+      else if (this.folderSawLoading) this.finishFolder(true);
     } catch {
       // Measurement must never reach the UI.
     }
   }
 
-  /** The user picked another folder after the first usable list. */
+  /** The user picked a folder after the first usable list. A new pick restarts the clock. */
   noteFolderSelected(): void {
     try {
-      if (!this.armed || this.folderDone || this.folderStart !== null) return;
+      this.folderStart = null;
+      if (!this.armed || !this.deps.kindEnabled('folder')) return;
       this.folderStart = this.deps.now();
       this.folderSawLoading = false;
+      this.folderFresh = true;
     } catch {
       // ignore
     }
   }
 
-  private finishFolder(): void {
-    this.folderDone = true;
-    const ms = round(this.deps.now() - (this.folderStart ?? 0));
-    if (ms !== null) void this.post([{ name: 'folderOpen', ms }]);
+  private finishFolder(cold: boolean): void {
+    const start = this.folderStart;
+    this.folderStart = null;
+    if (start === null) return;
+    // Painted, not merely set: the rows must have reached the screen.
+    this.deps.afterPaint(() => this.record('folder', cold ? 'folderLoadCold' : 'folderLoadCached', 'mw:folder', start));
+  }
+
+  /**
+   * The user asked for a message. Call `done(cached)` when its headers and
+   * sanitised body are set; a newer `beginMessage` makes an older one a no-op.
+   */
+  beginMessage(): MessageLoad {
+    const noop: MessageLoad = { done: () => {} };
+    try {
+      if (!this.armed || !this.deps.kindEnabled('message')) return noop;
+      const seq = ++this.messageSeq;
+      const start = this.deps.now();
+      return {
+        done: (cached) => {
+          try {
+            if (seq !== this.messageSeq) return;
+            this.messageSeq++;
+            this.deps.afterPaint(() => this.record('message', cached ? 'messageLoadCached' : 'messageLoadCold', 'mw:message', start));
+          } catch {
+            // ignore
+          }
+        },
+      };
+    } catch {
+      return noop;
+    }
+  }
+
+  private record(kind: TimingKind, name: TimingMetric, measure: string, start: number): void {
+    try {
+      const end = this.deps.now();
+      this.deps.measure(measure, start, end);
+      const ms = round(end - start);
+      if (ms === null || !this.kinds[kind] || !this.deps.kindEnabled(kind)) return;
+      if (this.queue.length >= MAX_QUEUE) return;
+      this.queue.push({ name, ms });
+      if (!this.queueTimer) {
+        this.queueTimer = true;
+        this.deps.later(() => { this.queueTimer = false; void this.drain(); }, BATCH_MS);
+      }
+    } catch {
+      // ignore
+    }
+  }
+
+  private async drain(): Promise<void> {
+    const batch = this.queue.splice(0, MAX_QUEUE);
+    await this.post(batch);
   }
 
   private decide(): Promise<boolean> {
     return this.deps.policy().then(
-      (p) => p.enabled && p.sampleRatePercent > 0 && this.deps.random() * 100 < p.sampleRatePercent,
+      (p) => {
+        const on = p.enabled && p.sampleRatePercent > 0 && this.deps.random() * 100 < p.sampleRatePercent;
+        // An older server sends no flags and would refuse the new names: off.
+        this.kinds = { folder: on && p.folderLoads === true, message: on && p.messageLoads === true };
+        return on;
+      },
       () => false,
     );
   }
@@ -217,6 +329,7 @@ export class ClientTiming {
     if (this.sent) return;
     this.sent = true;
     await this.post(collectLoadMetrics(this.deps, this.usableMs));
+    await this.drain();
   }
 }
 
@@ -236,6 +349,10 @@ export function noteMailboxList(loading: boolean, rowCount: number): void {
 }
 export function noteFolderSelected(): void {
   instance()?.noteFolderSelected();
+}
+/** A message open began; call `.done(cached)` when its headers and body are set. */
+export function beginMessageLoad(): MessageLoad {
+  return instance()?.beginMessage() ?? { done: () => {} };
 }
 /** Tests: forget the page's state. */
 export function resetClientTiming(): void {

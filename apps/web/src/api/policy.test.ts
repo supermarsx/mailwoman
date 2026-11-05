@@ -107,7 +107,8 @@ describe('loadClientPolicy', () => {
 
 describe('clientTiming policy field', () => {
   it('is read when valid and absent otherwise, leaving the other fields alone', () => {
-    expect(parseClientPolicy({ clientTiming: { enabled: true, sampleRatePercent: 25 } }).clientTiming).toEqual({ enabled: true, sampleRatePercent: 25 });
+    expect(parseClientPolicy({ clientTiming: { enabled: true, sampleRatePercent: 25 } }).clientTiming).toEqual({ enabled: true, sampleRatePercent: 25, folderLoads: false, messageLoads: false });
+    expect(parseClientPolicy({ clientTiming: { enabled: true, sampleRatePercent: 25, folderLoads: true, messageLoads: false } }).clientTiming).toEqual({ enabled: true, sampleRatePercent: 25, folderLoads: true, messageLoads: false });
     expect(parseClientPolicy({ clientTiming: { enabled: true, sampleRatePercent: 0 } })).toEqual(DEFAULT_CLIENT_POLICY);
     expect(parseClientPolicy({ clientTiming: 'yes' })).toEqual(DEFAULT_CLIENT_POLICY);
     expect(parseClientPolicy({})).toEqual(DEFAULT_CLIENT_POLICY);

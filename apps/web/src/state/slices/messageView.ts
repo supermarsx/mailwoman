@@ -1,5 +1,6 @@
 import { createEffect, createRoot, createSignal, on, onCleanup, type Accessor } from 'solid-js';
 import type { Email } from '../../api/jmap-types.ts';
+import { beginMessageLoad } from '../../perf/clientTiming.ts';
 
 /** A change to the open message that this window did not make (t39 L8): it was
  *  moved (to `mailboxIds`) or no longer exists on the server. The reader keeps
@@ -86,13 +87,16 @@ export function createMessageView(options: MessageViewOptions): MessageView {
         const request=++generation;loading?.abort();const controller=new AbortController();loading=controller;cancelRead();setLoading(true);setPending(id);setError(undefined);
         if(keptUnread!==id) keptUnread=null;
         // Retain a body during a same-message refresh, but never show another message's body.
-        if(openEmail()?.id!==id) {setEmail(null);setHtml(null);setRemoteChange(null);}
+        const refresh=openEmail()?.id===id;
+        if(!refresh) {setEmail(null);setHtml(null);setRemoteChange(null);}
+        // Load-time measurement (perf/clientTiming.ts): this intent to the painted body. A same-message refresh is not an open.
+        const probe=refresh?undefined:beginMessageLoad();
         const cached=options.cached?.(account,id);
-        if(cached){setEmail(cached.email);setHtml(cached.html);setLoading(false);setPending(null);}
+        if(cached){setEmail(cached.email);setHtml(cached.html);setLoading(false);setPending(null);if(cached.email) probe?.done(true);}
         try {
           const value=await options.load(account,id,controller.signal);
           if(disposed || request!==generation || account!==options.account()) return;
-          setEmail(value.email);setHtml(value.html);scheduleRead();
+          setEmail(value.email);setHtml(value.html);scheduleRead();if(value.email) probe?.done(false);
         } catch(reason) {if(!disposed && request===generation && account===options.account()) {if(cached){setEmail(null);setHtml(null);}setError(() => reason);}}
         finally {if(!disposed && request===generation) {loading=undefined;setLoading(false);setPending(null);}}
       },

@@ -78,6 +78,7 @@ import type { FocusedSender } from '../../api/focusedSenders.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
 import { settings, writeSetting } from '../../api/settings.ts';
 import { mailFeature } from '../mailFeatures.ts';
+import { beginMessageLoad } from '../../perf/clientTiming.ts';
 
 /**
  * Rows fetched per page. The list used to request exactly this many ids and
@@ -1685,11 +1686,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     cancelMarkRead();const generation=++legacyReadGeneration;legacyReadController?.abort();
     const controller=new AbortController();legacyReadController=controller;const current=captureMailAuthority();
     const cached=cachedMessage(id);setOpenEmail(cached?.email??null);setSanitizedHtml(cached?.html??null);setReadLoading(!cached);
+    // Load-time measurement (perf/clientTiming.ts): this intent to the painted body.
+    const probe=beginMessageLoad();if(cached?.email)probe.done(true);
     try{
       if(isOffline()){if(!cached)await readFromCache(id,()=>generation===legacyReadGeneration&&current()&&!controller.signal.aborted);return;}
       const value=await loadFullMessage(acct,id,controller.signal);
       if(generation!==legacyReadGeneration||!current())return;
-      setOpenEmail(value.email);setSanitizedHtml(value.html);if(value.email)scheduleMarkRead(value.email);
+      setOpenEmail(value.email);setSanitizedHtml(value.html);if(value.email){probe.done(false);scheduleMarkRead(value.email);}
     }catch(error){
       if(generation!==legacyReadGeneration||!current()||controller.signal.aborted)return;
       if(error instanceof NetworkError){if(cached){setOpenEmail(cached.email);setSanitizedHtml(cached.html);}else await readFromCache(id,()=>generation===legacyReadGeneration&&current()&&!controller.signal.aborted);}

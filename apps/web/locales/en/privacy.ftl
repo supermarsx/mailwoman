@@ -48,6 +48,12 @@ privacy-analytics-title = Optional usage counts
 privacy-analytics-help = Off by default. If your administrator enables a collector, you may share fixed screen names such as Mail or Calendar. Messages, email addresses, searches, route details and browser identifiers are never sent. These are event counts, not unique visitor statistics.
 privacy-analytics-consent = Allow optional screen usage counts for this account
 privacy-analytics-signal = Your browser privacy signal prevents analytics, even when consent is saved.
+privacy-load-time-title = Load times
+privacy-load-time-help = Help your administrator see how fast Mailwoman feels. Only the number of milliseconds and whether the data came from cache or the network are reported, anonymously and in aggregate. No folder, message, sender or subject is included.
+privacy-load-time-folder = Measure how long folders take to open
+privacy-load-time-folder-help = On by default. Reports the time from choosing a folder until its message list is shown.
+privacy-load-time-message = Measure how long messages take to open
+privacy-load-time-message-help = On by default. Reports the time from opening a message until its headers and text are shown.
 privacy-analytics-save-error = Consent could not be synchronized. This browser pauses new analytics requests until the change is saved.
 privacy-analytics-saving = Saving consent…
 

@@ -41,8 +41,15 @@ use std::{
 pub(crate) const ENABLED_KEY: &str = "observability.clientTiming.enabled";
 pub(crate) const SAMPLE_KEY: &str = "observability.clientTiming.sampleRatePercent";
 pub(crate) const MIN_SAMPLES_KEY: &str = "observability.clientTiming.minSamples";
-const BODY_CAP: usize = 1024;
-const MAX_METRICS_PER_BEACON: usize = 8;
+/// Per-person feature switches (admin default and lock, user opt-out).
+pub(crate) const FOLDER_KEY: &str = "observability.clientTiming.folderLoads";
+pub(crate) const MESSAGE_KEY: &str = "observability.clientTiming.messageLoads";
+const BODY_CAP: usize = 1536;
+const MAX_METRICS_PER_BEACON: usize = 16;
+/// Interaction beacons (folder and message loads) are batched by the client every
+/// few seconds, so their bucket refills faster than the page-load one.
+const INTERACTION_BURST: f64 = 12.0;
+const INTERACTION_REFILL_PER_SEC: f64 = 1.0 / 5.0;
 /// A page load sends one beacon (plus one for a folder open); this leaves room
 /// for a few reloads and still stops a client flooding the aggregate.
 const BEACON_BURST: f64 = 6.0;
@@ -96,6 +103,45 @@ pub(crate) struct Recorder {
     memory: Mutex<BTreeMap<Key, Hist>>,
     policy: Mutex<Option<(Instant, Policy)>>,
     limiter: Mutex<KeyedRateLimiter>,
+    interaction_limiter: Mutex<KeyedRateLimiter>,
+}
+
+/// Which feature set a metric belongs to.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Kind {
+    PageLoad,
+    Folder,
+    Message,
+}
+pub(crate) fn kind_of(metric: &str) -> Kind {
+    match metric {
+        "folderOpen" | "folderLoadCold" | "folderLoadCached" => Kind::Folder,
+        "messageLoadCold" | "messageLoadCached" => Kind::Message,
+        _ => Kind::PageLoad,
+    }
+}
+
+/// Whether this person's folder / message load measurement is on: the registry's
+/// effective value (admin default and lock, then the person's own choice).
+pub(crate) async fn kinds_for(state: &AppState, session: &mw_store::Session) -> (bool, bool) {
+    let Ok(identity) = crate::settings_routes::UserSubject::resolved(&state.store, session).await
+    else {
+        return (false, false);
+    };
+    let subject = identity.as_subject();
+    let on = |key| {
+        let store = state.store.clone();
+        let subject = subject.clone();
+        async move {
+            crate::settings_registry::effective_for(&store, key, &subject)
+                .await
+                .ok()
+                .flatten()
+                .map(|v| v.value != false)
+                .unwrap_or(true)
+        }
+    };
+    (on(FOLDER_KEY).await, on(MESSAGE_KEY).await)
 }
 fn now() -> i64 {
     chrono::Utc::now().timestamp()
@@ -109,6 +155,11 @@ impl Recorder {
             limiter: Mutex::new(KeyedRateLimiter::new(
                 BEACON_BURST,
                 BEACON_REFILL_PER_SEC,
+                20_000,
+            )),
+            interaction_limiter: Mutex::new(KeyedRateLimiter::new(
+                INTERACTION_BURST,
+                INTERACTION_REFILL_PER_SEC,
                 20_000,
             )),
         });
@@ -186,7 +237,14 @@ impl Recorder {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((Instant::now(), policy));
         policy
     }
-    fn allow(&self, session: &str) -> bool {
+    fn allow(&self, session: &str, interaction: bool) -> bool {
+        if interaction {
+            return self
+                .interaction_limiter
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .check(session);
+        }
         self.limiter
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -237,7 +295,8 @@ pub(crate) fn parse(body: &[u8]) -> Result<Accepted, &'static str> {
             .iter()
             .find(|known| **known == sample.name)
             .ok_or("unknown metric")?;
-        if values.iter().any(|(seen, _)| *seen == name) {
+        // A page load happens once; interactions repeat inside one batched beacon.
+        if kind_of(name) == Kind::PageLoad && values.iter().any(|(seen, _)| *seen == name) {
             return Err("duplicate metric");
         }
         values.push((name, sample.ms.min(MAX_MS)));
@@ -267,22 +326,54 @@ async fn ingest(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
     if body.len() > BODY_CAP {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
-    if !recorder.allow(&session.id) {
+    let interaction = parse_kinds(&body).is_some_and(|all_interaction| all_interaction);
+    if !recorder.allow(&session.id, interaction) {
         return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "30")]).into_response();
     }
     match parse(&body) {
-        Ok(accepted) => {
-            recorder.record_at(now(), accepted.device, &accepted.values);
+        Ok(mut accepted) => {
+            // Metrics of a feature this person (or the admin) turned off are dropped,
+            // not an error: a stale client stays quiet.
+            if accepted.values.iter().any(|(m, _)| kind_of(m) != Kind::PageLoad) {
+                let (folders, messages) = kinds_for(&state, &session).await;
+                accepted.values.retain(|(m, _)| match kind_of(m) {
+                    Kind::PageLoad => true,
+                    Kind::Folder => folders,
+                    Kind::Message => messages,
+                });
+            }
+            if !accepted.values.is_empty() {
+                recorder.record_at(now(), accepted.device, &accepted.values);
+            }
             StatusCode::NO_CONTENT.into_response()
         }
         Err(_) => StatusCode::BAD_REQUEST.into_response(),
     }
 }
 
+/// Whether every sample in a body is an interaction metric (`None`: unparsable;
+/// the strict parse below answers 400).
+fn parse_kinds(body: &[u8]) -> Option<bool> {
+    let beacon: Beacon = serde_json::from_slice(body).ok()?;
+    Some(
+        !beacon.metrics.is_empty()
+            && beacon
+                .metrics
+                .iter()
+                .all(|m| kind_of(&m.name) != Kind::PageLoad),
+    )
+}
+
 /// What `GET /api/policy` tells a signed-in client.
-pub(crate) async fn client_view(state: &AppState) -> Value {
+pub(crate) async fn client_view(state: &AppState, session: &mw_store::Session) -> Value {
     let policy = state.client_timing.policy(&state.store).await;
-    json!({"enabled": policy.enabled, "sampleRatePercent": policy.sample_rate_percent})
+    let (folder_loads, message_loads) = kinds_for(state, session).await;
+    json!({
+        "enabled": policy.enabled,
+        "sampleRatePercent": policy.sample_rate_percent,
+        "folderLoads": policy.enabled && folder_loads,
+        "messageLoads": policy.enabled && message_loads,
+    })
 }
 
 pub(crate) fn register(r: &mut impl crate::admin_router::AdminRegistrar) {
@@ -361,6 +452,17 @@ pub(crate) fn summarize(
     Value::Object(metrics)
 }
 
+/// The instance-wide default of a feature switch (what a person without an own
+/// value gets), for the admin screen's note.
+async fn kind_default(state: &AppState, key: &str) -> bool {
+    crate::settings_registry::effective_for(&state.store, key, &Default::default())
+        .await
+        .ok()
+        .flatten()
+        .map(|v| v.value != false)
+        .unwrap_or(true)
+}
+
 pub(crate) async fn history(
     State(state): State<AppState>,
     ctx: AdminCtx,
@@ -406,6 +508,8 @@ pub(crate) async fn history(
             "metrics": metrics,
             "policy": {
                 "enabled": policy.enabled,
+                "folderLoads": kind_default(&state, FOLDER_KEY).await,
+                "messageLoads": kind_default(&state, MESSAGE_KEY).await,
                 "sampleRatePercent": policy.sample_rate_percent,
                 "minSamples": policy.min_samples,
                 "retentionDays": policy.retention_days,
@@ -449,10 +553,53 @@ mod tests {
         }
         let many = format!(
             r#"{{"metrics":[{}]}}"#,
-            (0..9).map(|_| r#"{"name":"fcp","ms":1}"#).collect::<Vec<_>>().join(",")
+            (0..17).map(|_| r#"{"name":"folderLoadCold","ms":1}"#).collect::<Vec<_>>().join(",")
         );
         assert!(parse(many.as_bytes()).is_err());
         assert!(parse(&vec![b' '; BODY_CAP + 1]).is_err());
+    }
+
+    #[test]
+    fn interaction_metrics_may_repeat_in_one_beacon_but_page_loads_may_not() {
+        let ok = parse(
+            br#"{"device":"desktop","metrics":[{"name":"folderLoadCold","ms":300},{"name":"folderLoadCached","ms":20},{"name":"messageLoadCold","ms":900},{"name":"messageLoadCold","ms":700},{"name":"messageLoadCached","ms":9999999}]}"#,
+        )
+        .unwrap();
+        assert_eq!(ok.values.len(), 5);
+        assert_eq!(ok.values[4], ("messageLoadCached", 120_000));
+        assert_eq!(kind_of("folderLoadCold"), Kind::Folder);
+        assert_eq!(kind_of("folderOpen"), Kind::Folder);
+        assert_eq!(kind_of("messageLoadCached"), Kind::Message);
+        assert_eq!(kind_of("fcp"), Kind::PageLoad);
+        assert_eq!(parse_kinds(br#"{"metrics":[{"name":"messageLoadCold","ms":1}]}"#), Some(true));
+        assert_eq!(parse_kinds(br#"{"metrics":[{"name":"fcp","ms":1},{"name":"messageLoadCold","ms":1}]}"#), Some(false));
+        assert_eq!(parse_kinds(b"x"), None);
+        // Folder or message identity has nowhere to go.
+        for body in [
+            &br#"{"metrics":[{"name":"messageLoadCold","ms":1,"id":"m1"}]}"#[..],
+            br#"{"metrics":[{"name":"folderLoadCold:inbox","ms":1}]}"#,
+            br#"{"folder":"Inbox","metrics":[{"name":"folderLoadCold","ms":1}]}"#,
+        ] {
+            assert!(parse(body).is_err());
+        }
+    }
+
+    #[test]
+    fn interaction_beacons_have_their_own_larger_rate_limit() {
+        let recorder = Recorder {
+            instance: String::new(),
+            memory: Mutex::new(BTreeMap::new()),
+            policy: Mutex::new(None),
+            limiter: Mutex::new(KeyedRateLimiter::new(BEACON_BURST, BEACON_REFILL_PER_SEC, 10)),
+            interaction_limiter: Mutex::new(KeyedRateLimiter::new(
+                INTERACTION_BURST,
+                INTERACTION_REFILL_PER_SEC,
+                10,
+            )),
+        };
+        assert_eq!((0..40).filter(|_| recorder.allow("s", true)).count(), INTERACTION_BURST as usize);
+        // Page-load beacons are unaffected by interaction traffic.
+        assert_eq!((0..40).filter(|_| recorder.allow("s", false)).count(), BEACON_BURST as usize);
     }
 
     #[tokio::test]
@@ -473,9 +620,9 @@ mod tests {
         assert_eq!(rows.len(), 2);
         // An hour two hours old is dropped from memory.
         assert!(recorder.snapshot(t + 3 * 3600).is_empty());
-        let allowed = (0..20).filter(|_| recorder.allow("s1")).count();
+        let allowed = (0..20).filter(|_| recorder.allow("s1", false)).count();
         assert_eq!(allowed, BEACON_BURST as usize);
-        assert!(recorder.allow("s2"));
+        assert!(recorder.allow("s2", false));
         let p = Policy::load(&store).await;
         assert_eq!(p, Policy::default());
     }
@@ -501,5 +648,9 @@ mod tests {
         assert!(v["load"]["all"]["p50Ms"].is_null());
         assert_eq!(v["load"]["all"]["meanMs"], 500.0);
         assert_eq!(v["lcp"]["all"]["count"], 0);
+        // Interaction metrics summarize like any other and start empty.
+        for m in ["folderLoadCold", "folderLoadCached", "messageLoadCold", "messageLoadCached"] {
+            assert_eq!(v[m]["all"]["count"], 0, "{m}");
+        }
     }
 }

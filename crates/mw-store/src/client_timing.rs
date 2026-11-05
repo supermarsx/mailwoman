@@ -16,7 +16,12 @@ use std::sync::OnceLock;
 pub const BINS: usize = 48;
 pub const MIN_MS: u64 = 10;
 pub const MAX_MS: u64 = 120_000;
-pub const METRICS: [&str; 7] = [
+/// Page-load metrics, then interaction metrics. `folderOpen` is the first
+/// release's single folder figure; it is still accepted and shown, no longer sent.
+/// The `Cold`/`Cached` pairs split a folder or message load by whether it was
+/// served from the browser's own cache (cached or prefetched) or waited on the
+/// network. No folder or message identity is part of the key.
+pub const METRICS: [&str; 11] = [
     "timeToUsable",
     "ttfb",
     "dcl",
@@ -24,6 +29,10 @@ pub const METRICS: [&str; 7] = [
     "fcp",
     "lcp",
     "folderOpen",
+    "folderLoadCold",
+    "folderLoadCached",
+    "messageLoadCold",
+    "messageLoadCached",
 ];
 pub const DEVICES: [&str; 3] = ["desktop", "mobile", "unknown"];
 /// Upper bound on rows returned for one range.

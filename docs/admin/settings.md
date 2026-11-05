@@ -612,6 +612,16 @@ How many days of diagnostic runs are kept.
 
 How many hours a data export can be downloaded before it is deleted.
 
+<a id="observability.clientTiming.folderLoads"></a>
+### Folder load times (`observability.clientTiming.folderLoads`)
+
+Measure how long a folder takes to show its message list, split by whether it came from the browser cache or the network. On by default. Global, domain and user scope: set the default here or lock it; users can switch it off for themselves in Settings > Privacy unless it is locked. Needs browser load times to be on. See [Client load times](observability.md#client-load-times).
+
+<a id="observability.clientTiming.messageLoads"></a>
+### Message load times (`observability.clientTiming.messageLoads`)
+
+Measure how long a message takes to show its headers and sanitised body, split by whether it was cached or prefetched, or came from the network. On by default; same scopes and behaviour as folder load times.
+
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 

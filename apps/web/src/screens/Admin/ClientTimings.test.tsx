@@ -12,8 +12,10 @@ function history(over:Partial<ClientTimingHistory['policy']>={}):ClientTimingHis
  const none={all:stat(0,null,null),devices:{},series:[]};
  return {from:0,to:7200,bucketSeconds:3600,
   metrics:{timeToUsable:{all:stat(120,1200,4800),devices:{desktop:stat(100,1100,4000),mobile:stat(20,1800,6000)},series:[{t:0,count:60,p50Ms:1100,p95Ms:4000},{t:3600,count:60,p50Ms:1300,p95Ms:5000}]},
-   fcp:{all:stat(5,null,null),devices:{},series:[]},ttfb:none,dcl:none,load:none,lcp:none,folderOpen:none},
-  policy:{enabled:true,sampleRatePercent:50,minSamples:20,retentionDays:30,...over},resolution:{bins:48,maxRelativeError:0.22},scope:'client',sampled:true};
+   fcp:{all:stat(5,null,null),devices:{},series:[]},ttfb:none,dcl:none,load:none,lcp:none,folderOpen:none,
+   folderLoadCold:{all:stat(40,300,1500),devices:{desktop:stat(40,300,1500)},series:[{t:0,count:40,p50Ms:300,p95Ms:1500}]},folderLoadCached:{all:stat(60,20,90),devices:{},series:[]},
+   messageLoadCold:{all:stat(30,900,3000),devices:{mobile:stat(30,900,3000)},series:[{t:0,count:30,p50Ms:900,p95Ms:3000}]},messageLoadCached:none},
+  policy:{enabled:true,folderLoads:true,messageLoads:true,sampleRatePercent:50,minSamples:20,retentionDays:30,...over},resolution:{bins:48,maxRelativeError:0.22},scope:'client',sampled:true};
 }
 beforeEach(()=>{
  vi.mocked(loadRequestHistory).mockResolvedValue({from:0,to:7200,bucketSeconds:3600,series:[{t:0,requests:1,errors5xx:0,p50Ms:5,p95Ms:10,coverage:'complete'}],coverage:{observedSeconds:3600,requestedSeconds:7200,gaps:[]},policy:{defaultRangeSeconds:3600,maxRangeSeconds:2592000,retentionDays:30},scope:'server',timing:'response-ready'});
@@ -49,4 +51,22 @@ it('does not ask for browser figures without observability.read',async()=>{
  renderInShell(()=><ObservabilityStats/>,{loadMe:holding(['dashboard.read']),loadDashboard:dashboardReturning({kind:'ok',data:engineDashboard()})});
  expect(await screen.findByRole('region',{name:'Requests'})).toBeInTheDocument();
  expect(loadClientTiming).not.toHaveBeenCalled();
+});
+it('shows folder and message load cards with median, p95 and sample counts, cold apart from cached',async()=>{
+ vi.mocked(loadClientTiming).mockResolvedValue(history());
+ renderInShell(()=><ObservabilityStats/>,{loadDashboard:dashboardReturning({kind:'ok',data:engineDashboard()})});
+ expect(await screen.findByTestId('ct-folderLoadCold-p50Ms')).toHaveTextContent('40 samples');
+ expect(screen.getByTestId('ct-folderLoadCold-p95Ms')).toBeInTheDocument();
+ expect(screen.getByTestId('ct-folderLoadCached-p50Ms')).toHaveTextContent('60 samples');
+ expect(screen.getByTestId('ct-messageLoadCold-p95Ms')).toHaveTextContent('30 samples');
+ expect(screen.getByTestId('ct-messageLoadCached-p50Ms')).toHaveTextContent('No samples in this period.');
+ for(const id of ['chart-client-folder-cold','chart-client-folder-cached','chart-client-message-cold','chart-client-message-cached'])expect(screen.getByTestId(id)).toBeInTheDocument();
+ expect(screen.getByTestId('ct-by-device')).toHaveTextContent('Message load, from the network');
+ expect(screen.queryByTestId('ct-folder-off')).not.toBeInTheDocument();
+});
+it('says which interaction measurements an administrator switched off by default',async()=>{
+ vi.mocked(loadClientTiming).mockResolvedValue(history({folderLoads:false,messageLoads:false}));
+ renderInShell(()=><ObservabilityStats/>,{loadDashboard:dashboardReturning({kind:'ok',data:engineDashboard()})});
+ expect(await screen.findByTestId('ct-folder-off')).toBeInTheDocument();
+ expect(screen.getByTestId('ct-message-off')).toBeInTheDocument();
 });

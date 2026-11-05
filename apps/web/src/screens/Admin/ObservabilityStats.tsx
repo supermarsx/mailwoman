@@ -70,6 +70,8 @@ export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
     <Group title={t('admin-stats-group-traffic')}><TrafficTiles history={history}/></Group>
     <Show when={canTiming()}>
      <Group title={t('admin-ct-group')}><ClientTimingTiles timing={timing}/></Group>
+     <Group title={t('admin-ct-group-folder')}><ClientTimingTiles timing={timing} group="folder"/></Group>
+     <Group title={t('admin-ct-group-message')}><ClientTimingTiles timing={timing} group="message"/></Group>
     </Show>
     <Show when={canDash()}>
      <Show when={!dashMissing()} fallback={<p role="status">{unavailable()}</p>}>

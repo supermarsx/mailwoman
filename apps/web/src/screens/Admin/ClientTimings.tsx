@@ -55,12 +55,19 @@ function Tile(props:{value:ClientTimingHistory;metric:ClientTimingMetric;stat:'p
   detail={t('admin-ct-samples',{count:all().count})}/>;
 }
 
-const HEADLINE:readonly ClientTimingMetric[]=['timeToUsable','fcp','lcp','load'];
+/** The feature sets: app load (page), folder loads, message loads. */
+export type ClientTimingGroup='page'|'folder'|'message';
+const GROUP_METRICS:Record<ClientTimingGroup,readonly ClientTimingMetric[]>={
+ page:['timeToUsable','fcp','lcp','load'],
+ folder:['folderLoadCold','folderLoadCached'],
+ message:['messageLoadCold','messageLoadCached'],
+};
 
-/** Key figures: median and 95th percentile of each headline metric. */
-export function ClientTimingTiles(props:{timing:ClientTimingController}):JSX.Element {
- return <Show when={props.timing.data()} fallback={<Show when={props.timing.loading()}><For each={[1,2,3,4]}>{()=><TileSkeleton/>}</For></Show>}>{value=><>
-  <For each={HEADLINE}>{metric=><>
+/** Key figures: median and 95th percentile of each metric of one feature set. */
+export function ClientTimingTiles(props:{timing:ClientTimingController;group?:ClientTimingGroup}):JSX.Element {
+ const group=()=>props.group??'page';
+ return <Show when={props.timing.data()} fallback={<Show when={props.timing.loading()}><For each={GROUP_METRICS[group()]}>{()=><TileSkeleton/>}</For></Show>}>{value=><>
+  <For each={GROUP_METRICS[group()]}>{metric=><>
    <Tile value={value()} metric={metric} stat="p50Ms"/>
    <Tile value={value()} metric={metric} stat="p95Ms"/>
   </>}</For>
@@ -71,9 +78,9 @@ function axisTime(value:ClientTimingHistory):(s:number)=>string {
  return value.to-value.from>86400?(s=>formatDateTime(s*1000,{dateStyle:'short',timeStyle:'short'})):(s=>formatTime(s*1000));
 }
 
-function UsableCard(props:{value:ClientTimingHistory}):JSX.Element {
+function MetricCard(props:{value:ClientTimingHistory;metric:ClientTimingMetric;testId:string;title:string}):JSX.Element {
  const value=()=>props.value;
- const series=()=>value().metrics.timeToUsable.series;
+ const series=()=>value().metrics[props.metric].series;
  const p50=()=>series().map(p=>p.p50Ms);const p95=()=>series().map(p=>p.p95Ms);
  const f=()=>formatMsSet([...p50(),...p95()]);
  const labels=()=>({p50:t('admin-stats-series-p50'),p95:t('admin-stats-series-p95')});
@@ -81,7 +88,7 @@ function UsableCard(props:{value:ClientTimingHistory}):JSX.Element {
  const table=():ChartTable=>({columns:[t('admin-shell-chart-col-time'),labels().p50,labels().p95,t('admin-ct-col-samples')],numeric:[false,true,true,true],
   rows:series().map(p=>[timestamp(p.t),cell(p.p50Ms),cell(p.p95Ms),formatCount(p.count)])});
  const max50=()=>maxKnown(p50());const max95=()=>maxKnown(p95());
- return <ChartCard testId="chart-client-usable" title={t('admin-ct-chart-usable')} unit={t('admin-stats-unit-duration',{bucket:formatDuration(value().bucketSeconds)})}
+ return <ChartCard testId={props.testId} title={props.title} unit={t('admin-stats-unit-duration',{bucket:formatDuration(value().bucketSeconds)})}
   legend={[{label:labels().p50,slot:1},{label:labels().p95,slot:2}]}
   summary={<>{t('admin-stats-chart-about',{from:timestamp(value().from),to:timestamp(value().to)})} {labels().p50}: {max50()===null?absent():f()(max50()!)}. {labels().p95}: {max95()===null?absent():f()(max95()!)}. {t('admin-ct-chart-note',{min:value().policy.minSamples})}</>}
   table={table()} empty={max50()===null&&max95()===null?t('admin-ct-empty-chart',{min:value().policy.minSamples}):undefined}>
@@ -90,7 +97,13 @@ function UsableCard(props:{value:ClientTimingHistory}):JSX.Element {
 }
 
 export function ClientTimingCharts(props:{timing:ClientTimingController}):JSX.Element {
- return <Show when={props.timing.data()}>{value=><UsableCard value={value()}/>}</Show>;
+ return <Show when={props.timing.data()}>{value=><>
+  <MetricCard value={value()} metric="timeToUsable" testId="chart-client-usable" title={t('admin-ct-chart-usable')}/>
+  <MetricCard value={value()} metric="folderLoadCold" testId="chart-client-folder-cold" title={t('admin-ct-chart-folder-cold')}/>
+  <MetricCard value={value()} metric="folderLoadCached" testId="chart-client-folder-cached" title={t('admin-ct-chart-folder-cached')}/>
+  <MetricCard value={value()} metric="messageLoadCold" testId="chart-client-message-cold" title={t('admin-ct-chart-message-cold')}/>
+  <MetricCard value={value()} metric="messageLoadCached" testId="chart-client-message-cached" title={t('admin-ct-chart-message-cached')}/>
+ </>}</Show>;
 }
 
 /** Every metric by device class: samples, median and 95th percentile. */
@@ -121,6 +134,8 @@ export function ClientTimingNote(props:{timing:ClientTimingController}):JSX.Elem
   <Show when={props.timing.failed()}><p role="status" class={admin.note} data-testid="ct-failed">{t('admin-ct-failed')}</p></Show>
   <Show when={props.timing.data()}>{value=><>
    <Show when={!value().policy.enabled}><p role="status" class={admin.note} data-testid="ct-disabled">{t('admin-ct-disabled')}</p></Show>
+   <Show when={value().policy.enabled&&!value().policy.folderLoads}><p role="status" class={admin.note} data-testid="ct-folder-off">{t('admin-ct-folder-off')}</p></Show>
+   <Show when={value().policy.enabled&&!value().policy.messageLoads}><p role="status" class={admin.note} data-testid="ct-message-off">{t('admin-ct-message-off')}</p></Show>
    <p class={admin.note} data-testid="ct-note">{t('admin-ct-note',{rate:value().policy.sampleRatePercent,error:Math.round(value().resolution.maxRelativeError*100)})}</p>
   </>}</Show>
  </>;

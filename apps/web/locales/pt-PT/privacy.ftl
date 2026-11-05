@@ -51,6 +51,12 @@ privacy-analytics-title = Contagens de utilização opcionais
 privacy-analytics-help = Desativado por predefinição. Se o seu administrador ativar um coletor, pode partilhar nomes de ecrã fixos, como Correio ou Calendário. Mensagens, endereços de e-mail, pesquisas, detalhes de rotas e identificadores do navegador nunca são enviados. Trata-se de contagens de eventos, não de estatísticas de visitantes únicos.
 privacy-analytics-consent = Permitir contagens opcionais de utilização dos ecrãs para esta conta
 privacy-analytics-signal = O sinal de privacidade do seu navegador impede as análises, mesmo quando o consentimento está guardado.
+privacy-load-time-title = Tempos de carregamento
+privacy-load-time-help = Ajude o administrador a ver a rapidez do Mailwoman. Só é enviado o número de milissegundos e se os dados vieram da cache ou da rede, de forma anónima e agregada. Não inclui pasta, mensagem, remetente nem assunto.
+privacy-load-time-folder = Medir quanto tempo as pastas demoram a abrir
+privacy-load-time-folder-help = Ativado por predefinição. Envia o tempo entre escolher uma pasta e a lista de mensagens aparecer.
+privacy-load-time-message = Medir quanto tempo as mensagens demoram a abrir
+privacy-load-time-message-help = Ativado por predefinição. Envia o tempo entre abrir uma mensagem e os cabeçalhos e o texto aparecerem.
 privacy-analytics-save-error = Não foi possível sincronizar o consentimento. Este navegador suspende novos pedidos de análises até a alteração ser guardada.
 privacy-analytics-saving = A guardar o consentimento…
 

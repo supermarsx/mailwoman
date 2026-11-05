@@ -1,8 +1,8 @@
 import {adminRequest} from '../../screens/Admin/shell/adminApi.ts';
 import type {RequestHistoryRange} from './requestHistory.ts';
 
-export type ClientTimingMetric='timeToUsable'|'ttfb'|'dcl'|'load'|'fcp'|'lcp'|'folderOpen';
-export const CLIENT_TIMING_METRICS:readonly ClientTimingMetric[]=['timeToUsable','fcp','lcp','load','ttfb','dcl','folderOpen'];
+export type ClientTimingMetric='timeToUsable'|'ttfb'|'dcl'|'load'|'fcp'|'lcp'|'folderOpen'|'folderLoadCold'|'folderLoadCached'|'messageLoadCold'|'messageLoadCached';
+export const CLIENT_TIMING_METRICS:readonly ClientTimingMetric[]=['timeToUsable','fcp','lcp','load','ttfb','dcl','folderOpen','folderLoadCold','folderLoadCached','messageLoadCold','messageLoadCached'];
 export const CLIENT_TIMING_DEVICES=['desktop','mobile','unknown'] as const;
 /** Percentiles are null below the admin-set minimum sample count. */
 export interface ClientTimingStats {count:number;sufficient:boolean;meanMs:number|null;p50Ms:number|null;p75Ms:number|null;p95Ms:number|null;p99Ms:number|null}
@@ -12,7 +12,7 @@ export interface ClientTimingSeries {all:ClientTimingStats;devices:Partial<Recor
 export interface ClientTimingHistory {
  from:number;to:number;bucketSeconds:number;
  metrics:Record<ClientTimingMetric,ClientTimingSeries>;
- policy:{enabled:boolean;sampleRatePercent:number;minSamples:number;retentionDays:number};
+ policy:{enabled:boolean;folderLoads:boolean;messageLoads:boolean;sampleRatePercent:number;minSamples:number;retentionDays:number};
  resolution:{bins:number;maxRelativeError:number};
  scope:'client';sampled:true;
 }

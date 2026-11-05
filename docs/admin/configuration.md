@@ -833,3 +833,5 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="logs.auth.retentiondays"></a>`logs.auth.retentionDays` | observability | global | 7 | plain |  | yes | authentication history days kept |
 | <a id="logs.auth.maxentries"></a>`logs.auth.maxEntries` | observability | global | 50000 | plain |  | yes | maximum authentication history entries |
 | <a id="servertext."></a>`serverText.*` | serverText | global+domain | {} | plain |  | yes | server_text(id, locale, domain) overrides |
+| <a id="observability.clienttiming.folderloads"></a>`observability.clientTiming.folderLoads` | observability | global+domain+user | true | plain |  | yes | folder load time measurement |
+| <a id="observability.clienttiming.messageloads"></a>`observability.clientTiming.messageLoads` | observability | global+domain+user | true | plain |  | yes | message load time measurement |

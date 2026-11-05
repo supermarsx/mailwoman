@@ -49,6 +49,11 @@ async fn spawn() -> String {
 }
 
 async fn sign_in(server: &str) -> (reqwest::Client, String) {
+    let (c, token, _) = sign_in_full(server).await;
+    (c, token)
+}
+
+async fn sign_in_full(server: &str) -> (reqwest::Client, String, String) {
     let c = reqwest::Client::builder().cookie_store(true).build().unwrap();
     let resp = c
         .post(format!("{server}/api/login"))
@@ -58,7 +63,11 @@ async fn sign_in(server: &str) -> (reqwest::Client, String) {
         .unwrap();
     assert_eq!(resp.status(), 200);
     let body: Value = resp.json().await.unwrap();
-    (c, body["csrfToken"].as_str().unwrap().to_owned())
+    (
+        c,
+        body["csrfToken"].as_str().unwrap().to_owned(),
+        body["storageAuthority"].as_str().unwrap_or_default().to_owned(),
+    )
 }
 
 fn beacon(c: &reqwest::Client, server: &str, token: Option<&str>, body: String) -> reqwest::RequestBuilder {
@@ -152,4 +161,61 @@ async fn one_session_cannot_flood_the_aggregate() {
     }
     assert_eq!(statuses.iter().filter(|s| **s == 204).count(), 6, "{statuses:?}");
     assert!(statuses.iter().all(|s| *s == 204 || *s == 429), "{statuses:?}");
+}
+
+const INTERACTIONS: &str = r#"{"device":"desktop","metrics":[{"name":"folderLoadCold","ms":420},{"name":"folderLoadCached","ms":18},{"name":"messageLoadCold","ms":900},{"name":"messageLoadCached","ms":25},{"name":"messageLoadCold","ms":1500}]}"#;
+
+#[tokio::test]
+async fn folder_and_message_loads_are_on_by_default_and_a_person_can_opt_out() {
+    let server = spawn().await;
+    let (c, token, authority) = sign_in_full(&server).await;
+    let policy = |c: reqwest::Client, server: String| async move {
+        let v: Value = c.get(format!("{server}/api/policy")).send().await.unwrap().json().await.unwrap();
+        v["clientTiming"].clone()
+    };
+    let before = policy(c.clone(), server.clone()).await;
+    assert_eq!(before["folderLoads"], true);
+    assert_eq!(before["messageLoads"], true);
+
+    // A batched interaction beacon is accepted; its own bucket allows more than the page-load one.
+    for _ in 0..10 {
+        let r = beacon(&c, &server, Some(&token), INTERACTIONS.into()).send().await.unwrap();
+        assert_eq!(r.status(), 204);
+    }
+
+    // The person turns message loads off: the policy says so, and a stale client's beacon is
+    // still answered 204 (and dropped), never an error.
+    let off = c
+        .put(format!("{server}/api/settings/observability.clientTiming.messageLoads"))
+        .header("x-csrf-token", &token)
+        .header("x-mailwoman-storage-authority", &authority)
+        .json(&json!({"value": false}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(off.status(), 200, "{}", off.text().await.unwrap());
+    let after = policy(c.clone(), server.clone()).await;
+    assert_eq!(after["messageLoads"], false);
+    assert_eq!(after["folderLoads"], true);
+    let r = beacon(&c, &server, Some(&token), INTERACTIONS.into()).send().await.unwrap();
+    assert_eq!(r.status(), 204);
+}
+
+#[tokio::test]
+async fn interaction_beacons_are_validated_like_page_loads() {
+    let server = spawn().await;
+    let (c, token) = sign_in(&server).await;
+    for body in [
+        r#"{"metrics":[{"name":"messageLoad:inbox","ms":5}]}"#,
+        r#"{"metrics":[{"name":"folderLoadCold","ms":5,"folder":"Inbox"}]}"#,
+        r#"{"metrics":[{"name":"folderLoadCold","ms":-5}]}"#,
+    ] {
+        let r = beacon(&c, &server, Some(&token), body.into()).send().await.unwrap();
+        assert_eq!(r.status(), 400, "{body}");
+    }
+    let r = beacon(&c, &server, Some(&token), r#"{"metrics":[{"name":"messageLoadCold","ms":99999999}]}"#.into())
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(r.status(), 204);
 }

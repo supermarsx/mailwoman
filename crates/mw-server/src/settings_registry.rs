@@ -5099,6 +5099,22 @@ fn is_url(s: &str, schemes: &[&str]) -> bool {
     }
 }
 
+    def!(
+        "observability.clientTiming.folderLoads",
+        Kind::Bool,
+        "true",
+        GDU,
+        "observability",
+        "folder load time measurement"
+    ),
+    def!(
+        "observability.clientTiming.messageLoads",
+        Kind::Bool,
+        "true",
+        GDU,
+        "observability",
+        "message load time measurement"
+    ),
 fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
     let ok = match shape {
         Text::Plain => no_controls(s),
