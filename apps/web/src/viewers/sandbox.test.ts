@@ -126,9 +126,23 @@ it('ships bounded, reduced-motion-aware loading placeholders only for image-enab
   expect(bodyFrameDoc('sanitized-no-media', {html:'<img src="cid:logo">'})).not.toContain(IMAGE_LOADING_STYLE);
   expect(bodyFrameDoc('plain-text', {text:'Hello'})).not.toContain(IMAGE_LOADING_STYLE);
   expect(IMAGE_LOADING_STYLE).toContain('var(--mw-color-surface,');
-  expect(IMAGE_LOADING_STYLE).toContain('var(--mw-color-border,');
-  expect(IMAGE_LOADING_STYLE).toContain('1.5s ease-in-out 20');
+  expect(IMAGE_LOADING_STYLE).toContain('var(--mw-color-text,');
+  expect(IMAGE_LOADING_STYLE).toContain('mw-reader-image-loading 1.5s ease-in-out 40');
+  expect(IMAGE_LOADING_STYLE).toContain('mw-reader-image-pulse 1.5s ease-in-out 40');
+  expect(IMAGE_LOADING_STYLE).toContain('@keyframes mw-reader-image-pulse');
+  expect(IMAGE_LOADING_STYLE).toContain('prefers-reduced-motion:reduce');
   expect(IMAGE_LOADING_STYLE).toContain('@media(prefers-reduced-motion:reduce)');
   expect(IMAGE_LOADING_STYLE).not.toMatch(/infinite|url\(|https?:/);
   expect(IMAGE_LOADING_STYLE).toContain('img[data-mw-image-state="loading"]::before');
+});
+
+it('keeps a blocked placeholder box while its image loads and lets the shimmer win', async () => {
+  const { bodyFrameDoc: doc, BLOCKED_IMAGE_STYLE, IMAGE_LOADING_STYLE } = await import('./sandbox.ts');
+  expect(BLOCKED_IMAGE_STYLE).toContain('img[data-mw-ph][data-mw-image-state="loading"]');
+  expect(BLOCKED_IMAGE_STYLE).toContain('img[data-mw-ph="box"][data-mw-image-state="loading"]');
+  // The animated background is !important, so no placeholder rule can override it.
+  expect(IMAGE_LOADING_STYLE).toMatch(/background-image:linear-gradient[^}]*!important/);
+  const html = doc('full-sanitized', { html: '<img src="cid:a">' });
+  expect(html.indexOf('mw-reader-image-loading')).toBeGreaterThan(-1);
+  expect(html).toContain("style-src 'unsafe-inline'");
 });

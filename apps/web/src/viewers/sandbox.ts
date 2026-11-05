@@ -152,13 +152,17 @@ export const BROKEN_IMAGE_STYLE =
  * leaving a static placeholder if the network itself has not settled. */
 export const IMAGE_LOADING_STYLE =
   'img[data-mw-image-state="loading"]{background-color:var(--mw-color-surface,#f3f4f6)!important;' +
-  'background-image:linear-gradient(100deg,transparent 25%,var(--mw-color-border,rgba(127,127,127,.18)) 50%,transparent 75%)!important;' +
+  // Fallback first: an engine without color-mix() drops the second declaration only.
+  'background-image:linear-gradient(100deg,transparent 15%,rgba(127,127,127,.38) 50%,transparent 85%)!important;' +
+  'background-image:linear-gradient(100deg,transparent 15%,color-mix(in srgb,var(--mw-color-text,#1c1e21) 16%,transparent) 50%,transparent 85%)!important;' +
   'background-size:200% 100%!important;background-repeat:no-repeat!important;' +
-  'animation:mw-reader-image-loading 1.5s ease-in-out 20}' +
+  // A sweep plus a soft opacity pulse, so a tiny box or a low-contrast theme still visibly moves.
+  'animation:mw-reader-image-loading 1.5s ease-in-out 40,mw-reader-image-pulse 1.5s ease-in-out 40}' +
   'img[data-mw-image-state="loading"]::before,img[data-mw-image-state="loading"]::after{content:none}' +
   'img[data-mw-image-state="loading"][data-mw-image-unsized]{min-width:24px;min-height:18px}' +
   '@keyframes mw-reader-image-loading{from{background-position:100% 0}to{background-position:-100% 0}}' +
-  '@media(prefers-reduced-motion:reduce){img[data-mw-image-state="loading"]{animation:none}}';
+  '@keyframes mw-reader-image-pulse{0%,100%{opacity:1}50%{opacity:.6}}' +
+  '@media(prefers-reduced-motion:reduce){img[data-mw-image-state="loading"]{animation:none!important}}';
 
 /** Minimal readable body styling (distinct from the media-centering FRAME_STYLE).
  *  The opaque-origin body frame can't inherit the parent's theme vars, so e8
@@ -221,11 +225,14 @@ export function withImageLoadingHints(html: string): string {
 /** The 1x1 transparent GIF `rewriteReaderContent` puts in place of a blocked image. */
 const BLOCKED_GIF_PREFIX = 'data:image/gif;base64,R0lGODlhAQABAI';
 const PH_GIF = `img[data-mw-ph][src^="data:"][src*="R0lGODlhAQABAI"]`;
-const PH_ANY = `img[data-mw-ph]:not([src]),${PH_GIF}`;
+// A placeholder whose real source was just patched in (Show images) keeps its box
+// while the shimmer runs, so the layout does not collapse and re-expand.
+const PH_LOADING = 'img[data-mw-ph][data-mw-image-state="loading"]';
+const PH_ANY = `img[data-mw-ph]:not([src]),${PH_GIF},${PH_LOADING}`;
 const PH_CROSS =
   'linear-gradient(to top right,transparent calc(50% - .75px),rgba(127,127,127,.45) 50%,transparent calc(50% + .75px)),' +
   'linear-gradient(to bottom right,transparent calc(50% - .75px),rgba(127,127,127,.45) 50%,transparent calc(50% + .75px))';
-const phKind = (kind: string): string => `img[data-mw-ph="${kind}"]:not([src]),img[data-mw-ph="${kind}"][src^="data:"][src*="R0lGODlhAQABAI"]`;
+const phKind = (kind: string): string => `img[data-mw-ph="${kind}"]:not([src]),img[data-mw-ph="${kind}"][src^="data:"][src*="R0lGODlhAQABAI"],img[data-mw-ph="${kind}"][data-mw-image-state="loading"]`;
 
 /**
  * Placeholder for an image that is blocked or has nothing to load (the default
