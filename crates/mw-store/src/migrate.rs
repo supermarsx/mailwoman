@@ -75,9 +75,16 @@ impl Store {
         } else {
             format!("sqlite://{src_dsn}?mode=ro")
         };
+        // An encrypted source is opened with the configured database key.
+        let mut src_opts = <sqlx::sqlite::SqliteConnectOptions as std::str::FromStr>::from_str(&url)?;
+        if let Some(file) = crate::encryption::sqlite_file_from_dsn(src_dsn) {
+            if let Some(k) = crate::encryption::source_key(&file)? {
+                src_opts = src_opts.pragma("key", crate::encryption::key_pragma(&k));
+            }
+        }
         let src_pool = SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&url)
+            .connect_with(src_opts)
             .await?;
         let src = Backend::Sqlite(src_pool);
 

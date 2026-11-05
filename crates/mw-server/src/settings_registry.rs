@@ -6981,6 +6981,24 @@ pub fn resolve_loaded(
         }
         None => None,
     };
+    // ── Encryption at rest ──────────────────────────────────────────────────────
+    def!(
+        "encryption.rotationDays",
+        int(0, 3650),
+        "365",
+        G,
+        "privacy",
+        "Days after which the database key is reported as due for rotation; 0 sets no due date"
+    ),
+    def!(
+        "encryption.warnings.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "privacy",
+        "Report plaintext stores and overdue key rotation in the security assessment"
+    ),
+
     let r = resolve(&ResolveInput {
         floor: &floor,
         floor_is_env,

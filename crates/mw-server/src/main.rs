@@ -6,6 +6,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+mod db_cmd;
+
 use clap::{Parser, Subcommand};
 
 use mw_server::fonts::{self, GoogleFonts, PullOptions};
@@ -54,6 +56,12 @@ enum Command {
     /// kernel-jail posture (SPEC §7.5). Read-only; wires `mw_cache::posture()` +
     /// `mw_sandbox::probe()`. Reports the degraded mode plainly on non-Linux (t16 S4).
     Doctor(DoctorArgs),
+    /// Whole-database encryption at rest for the SQLite store: status, encrypt, rekey,
+    /// decrypt, verify, backup, restore, rollback. See docs/admin/encryption.md.
+    Db(db_cmd::DbArgs),
+    /// Erasure tooling: backup with a tombstone watermark, restore with erasure
+    /// replay, tombstone hand-over and log scrubbing. See docs/admin/erasure-coverage.md.
+    Erasure(mw_server::erasure_cmd::ErasureArgs),
 }
 
 /// `mailwoman doctor` (t16 26.16, plan §Wave-C e4 S4): diagnostics only. Reports the
@@ -507,6 +515,8 @@ async fn main() -> std::process::ExitCode {
         Command::Password(args) => run(password_cmd(args).await),
         Command::Maintenance(args) => run(maintenance_cmd(args).await),
         Command::Doctor(args) => run(doctor_cmd(args).await),
+        Command::Db(args) => run(db_cmd::run(args).await),
+        Command::Erasure(args) => run(mw_server::erasure_cmd::run(args).await),
     };
     mw_server::observability::shutdown_otlp();
     result

@@ -153,6 +153,7 @@ mod signin_challenge;
 mod signin_cooldown;
 mod signin_geography;
 mod signin_guard;
+mod encryption_status;
 pub(crate) mod signin_policy;
 mod trust_tier;
 /// Best-effort final save of the known-source table at graceful shutdown.
@@ -1117,6 +1118,7 @@ async fn build_app_inner(
     // an upgrade — set before any route is built.
     console_path::resolve(&store, &admin_overlay).await?;
     let render_bin = locate_render_bin();
+    encryption_status::remember_database(&config.db_path);
     // DQ4/S6: is a render kernel jail expected here? On Linux (or when
     // `MW_RENDER_JAIL=require`), the hostile-input render must run in the jailed
     // child — the in-process fallbacks then fail closed rather than parse untrusted

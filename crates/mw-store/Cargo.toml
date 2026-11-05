@@ -34,6 +34,13 @@ zeroize = { workspace = true }
 # retention archive tier: sealed segments are gzip-compressed JSON lines.
 flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 
+# Whole-database encryption (SQLCipher). The vendored libsqlite3-sys patch builds
+# SQLCipher with a pure-Rust crypto provider (NO OpenSSL): see
+# vendor/libsqlite3-sys-0.30.1/MAILWOMAN-PATCH.md. Plain SQLite files still open
+# unchanged when no key is supplied.
+libsqlite3-sys = { version = "0.30", features = ["bundled-sqlcipher"] }
+pbkdf2 = { version = "0.13", default-features = false, features = ["hmac"] }
+
 [dev-dependencies]
 # The dual-backend parity + migrate-store integration tests open a raw Postgres
 # pool (to TRUNCATE between runs and read ciphertext columns directly) when

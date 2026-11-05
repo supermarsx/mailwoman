@@ -52,7 +52,7 @@ async fn computed_integer_columns_decode_on_both_backends() {
     let sqlite = Store::open(&path, key()).await.unwrap();
     let raw = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{path}"))
+        .connect_with(mw_store::encryption::raw_options(&format!("{path}"), false))
         .await
         .unwrap();
     sqlx::query("INSERT INTO domains(name,upstream_json) VALUES('t33-int.test','{\"jmap\":\"https://jmap.t33-int.test\"}')")

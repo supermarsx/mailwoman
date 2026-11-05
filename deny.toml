@@ -365,6 +365,12 @@ allow = [
 ]
 confidence-threshold = 0.8
 
+# Encryption at rest (database): SQLCipher is compiled from the amalgamation in
+# `libsqlite3-sys` 0.30.1 (vendored under vendor/, MIT; SQLCipher community edition,
+# BSD-style) with its crypto provider written in Rust on RustCrypto crates already in
+# the tree. It links NO OpenSSL, so the `openssl` ban below still holds. No new crate and
+# no new licence entered `cargo deny check`; see
+# vendor/libsqlite3-sys-0.30.1/MAILWOMAN-PATCH.md and docs/admin/encryption.md.
 [bans]
 multiple-versions = "allow"
 deny = [

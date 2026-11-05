@@ -1000,7 +1000,7 @@ async fn migrate_store_sqlite_to_postgres() {
     // Row-count parity for a couple of representative tables (via SQLite source).
     let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{path_str}?mode=ro"))
+        .connect_with(mw_store::encryption::raw_options(&format!("{path_str}"), true))
         .await
         .unwrap();
     for (table, _n) in &report.tables {
@@ -1275,7 +1275,7 @@ async fn migrate_store_accounts_for_every_schema_table() {
 
     let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{path_str}?mode=ro"))
+        .connect_with(mw_store::encryption::raw_options(&format!("{path_str}"), true))
         .await
         .unwrap();
     let schema: BTreeSet<String> = sqlx::query_scalar::<_, String>(
@@ -1446,7 +1446,7 @@ async fn migrate_store_copies_every_column_of_every_copied_table() {
 
     let src_pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{path_str}?mode=ro"))
+        .connect_with(mw_store::encryption::raw_options(&format!("{path_str}"), true))
         .await
         .unwrap();
 
@@ -1544,7 +1544,7 @@ impl DestRef {
             Self::Sqlite(path) => {
                 let pool = sqlx::sqlite::SqlitePoolOptions::new()
                     .max_connections(1)
-                    .connect(&format!("sqlite://{path}?mode=ro"))
+                    .connect_with(mw_store::encryption::raw_options(&format!("{path}"), true))
                     .await
                     .unwrap();
                 sqlx::query_scalar(&sql).fetch_one(&pool).await.unwrap()
@@ -1572,7 +1572,7 @@ impl DestRef {
 async fn seed_uploaded_blob(path: &str, account: &str) {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{path}"))
+        .connect_with(mw_store::encryption::raw_options(&format!("{path}"), false))
         .await
         .unwrap();
     sqlx::query(
@@ -1601,7 +1601,7 @@ const UPLOAD_STORAGE_KEY: &str = "0123456789abcdef";
 async fn source_stable_id(path: &str) -> String {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{path}?mode=ro"))
+        .connect_with(mw_store::encryption::raw_options(&format!("{path}"), true))
         .await
         .unwrap();
     sqlx::query_scalar("SELECT stable_id FROM messages LIMIT 1")
@@ -3925,7 +3925,7 @@ mod admin_controls_0033 {
     async fn sqlite_conn(path: &str) -> (sqlx::SqlitePool, Conn) {
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
             .max_connections(1)
-            .connect(&format!("sqlite://{path}"))
+            .connect_with(mw_store::encryption::raw_options(&format!("{path}"), false))
             .await
             .unwrap();
         let conn = Conn::Lite(pool.acquire().await.unwrap());

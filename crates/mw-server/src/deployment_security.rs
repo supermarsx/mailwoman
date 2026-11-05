@@ -81,6 +81,13 @@ pub(crate) async fn checks(
         .map_err(|_| AdminApiError::internal("invalid startup connection limits"))?;
     let http = crate::inbound_http::HttpLimits::from_env()
         .map_err(|_| AdminApiError::internal("invalid startup HTTP limits"))?;
+    let enc = crate::encryption_status::snapshot(state).await;
+    let enc_warnings = enc["warnings"].as_array().map_or(0, Vec::len);
+    let enc_enabled = value(state, "encryption.warnings.enabled")
+        .await
+        .map(|v| v.as_bool().unwrap_or(true))
+        .unwrap_or(true);
+    let enc_db = enc["stores"][0]["state"].as_str().unwrap_or("unknown").to_string();
     Ok(vec![
         row(
             "httpAdmission",
@@ -196,6 +203,19 @@ pub(crate) async fn checks(
                 "security.signin.geoEnforceSessions",
             ],
         ),
+        row(
+            "encryptionAtRest",
+            if enc_enabled && enc_warnings > 0 {
+                "warning"
+            } else if enc_db == "encrypted" {
+                "pass"
+            } else {
+                "info"
+            },
+            json!({"database": enc_db, "warnings": enc_warnings}),
+            &["encryption.rotationDays", "encryption.warnings.enabled"],
+        ),
+
         row(
             "renderIsolation",
             if state.render_jail_required && state.render_bin.is_none() {

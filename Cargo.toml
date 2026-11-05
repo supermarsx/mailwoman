@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-exclude = ["vendor/russh-0.64.1"]
+exclude = ["vendor/russh-0.64.1", "vendor/libsqlite3-sys-0.30.1"]
 members = [
     "crates/mw-jmap",
     "crates/mw-sanitize",
@@ -556,3 +556,7 @@ strip = true
 # gated Linux artifact) while tripling every release build across three OS legs in
 # packaging.yml. Do NOT set panic="abort": it breaks the test harness and
 # catch_unwind. Full table + caveats: docs/perf/build-profile.md.
+
+# SQLCipher without OpenSSL: see vendor/libsqlite3-sys-0.30.1/MAILWOMAN-PATCH.md
+[patch.crates-io]
+libsqlite3-sys = { path = "vendor/libsqlite3-sys-0.30.1" }

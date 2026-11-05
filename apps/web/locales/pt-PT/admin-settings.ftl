@@ -1601,6 +1601,10 @@ admin-settings-help-cookies-label-marketing = Nome da categoria de cookies de ma
 admin-settings-key-cookies-description-marketing = Descrição da categoria de marketing
 admin-settings-help-cookies-description-marketing = Descrição da categoria de cookies de marketing por idioma. Vazia usa a descrição incorporada.
 
+admin-settings-key-encryption-rotation-days = Intervalo de rotação da chave da base de dados (dias)
+admin-settings-help-encryption-rotation-days = Dias após a última alteração da chave em que a chave da base de dados é indicada como a necessitar de rotação. 0 não define prazo. A chave nunca é guardada nas definições.
+admin-settings-key-encryption-warnings-enabled = Indicar pontos de cifragem
+admin-settings-help-encryption-warnings-enabled = Mostra áreas sem cifragem e uma rotação de chave em atraso como ponto a rever na avaliação da implementação.
 admin-settings-key-retention-sweeper-enabled = Limpeza de retenção
 admin-settings-help-retention-sweeper-enabled = Executa a limpeza diária que elimina registos mais antigos do que os limites desta página. Desativada, todos os registos são mantidos até voltar a ativar.
 admin-settings-key-retention-sweeper-batch-rows = Registos por lote

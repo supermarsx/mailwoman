@@ -6,6 +6,8 @@
 //! translated per-backend by the [`backend`]/[`dialect`] helpers (no `sqlx::Any`).
 
 pub mod analytics_secret;
+pub mod encryption;
+pub mod encryption_report;
 // 0073 (t39-e11 N8): AI provider profiles (sealed key) and local-endpoint egress grants.
 pub mod assist_profiles;
 pub mod auth_failures;
@@ -243,6 +245,10 @@ pub enum StoreError {
     #[error("upload backend error: {0}")]
     Upload(#[from] upload::UploadError),
     #[error("session not found")]
+    /// Whole-database encryption: missing/wrong key, plaintext file under
+    /// `db.encryption=required`, migration failure.
+    #[error("{0}")]
+    Encryption(#[from] encryption::EncryptionError),
     NotFound,
     #[error("corrupt store data: {0}")]
     Corrupt(String),
@@ -336,6 +342,17 @@ impl Store {
             return Self::open_postgres(path, key).await;
         }
         let url = if path.starts_with("sqlite:") {
+        let cfg = encryption::global()?;
+        Self::open_with_encryption(path, key, &cfg).await
+    }
+
+    /// [`Store::open`] for a SQLite path with an explicit encryption configuration
+    /// instead of the process-wide one (tests, `mailwoman db` tooling).
+    pub async fn open_with_encryption(
+        path: &str,
+        key: ServerKey,
+        cfg: &encryption::EncryptionConfig,
+    ) -> Result<Self, StoreError> {
             path.to_string()
         } else {
             format!("sqlite://{path}?mode=rwc")
@@ -345,15 +362,39 @@ impl Store {
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal);
         let pool = SqlitePoolOptions::new()
+        // Whole-database encryption (SQLCipher): `PRAGMA key` is applied by sqlx as
+        // the first statement of every pooled connection, migrations included.
+        encryption::init();
+        let db_file = encryption::sqlite_file_from_dsn(path);
+        let mut keyed = false;
+        if let Some(file) = &db_file {
+            if let Some(k) = cfg.key_for_open(file)? {
+                let fresh = matches!(
+                    encryption::probe_file(file)?,
+                    encryption::FileState::Missing | encryption::FileState::Empty
+                );
+                opts = opts.pragma("key", encryption::key_pragma(k));
+                keyed = true;
+                if fresh {
+                    encryption::note_created(file, k);
+                }
+            }
+        }
             .max_connections(5)
             .connect_with(opts)
-            .await?;
+            .await
+            .map_err(|e| match &db_file {
+                Some(f) => StoreError::Encryption(encryption::classify_open_error(f, e, keyed)),
+                None => StoreError::Db(e),
+            })?;
         Self::init_sqlite(pool, key).await
     }
 
     /// Open the Postgres backend at `dsn` (`postgres://…`) and migrate.
     pub async fn open_postgres(dsn: &str, key: ServerKey) -> Result<Self, StoreError> {
         let pool = PgPoolOptions::new().max_connections(5).connect(dsn).await?;
+        // MW_DB_REQUIRE_TLS=1 refuses a DSN that does not force TLS.
+        encryption_report::enforce_tls_policy(dsn)?;
         let store = Self {
             backend: Backend::Postgres(pool),
             key,
@@ -378,6 +419,15 @@ impl Store {
     }
 
     /// Open an in-memory SQLite store (tests).
+    /// Close every pooled connection (SQLite checkpoints and removes its WAL).
+    /// Needed before the database file is moved, re-keyed or backed up offline.
+    pub async fn close(&self) {
+        match &self.backend {
+            Backend::Sqlite(p) => p.close().await,
+            Backend::Postgres(p) => p.close().await,
+        }
+    }
+
     pub async fn open_in_memory(key: ServerKey) -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)

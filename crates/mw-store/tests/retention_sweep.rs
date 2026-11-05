@@ -23,7 +23,7 @@ async fn open() -> (Store, sqlx::SqlitePool) {
         .unwrap();
     let pool = SqlitePoolOptions::new()
         .max_connections(1)
-        .connect(&format!("sqlite://{}", path.display()))
+        .connect_with(mw_store::encryption::raw_options(&path.to_string_lossy(), false))
         .await
         .unwrap();
     (store, pool)

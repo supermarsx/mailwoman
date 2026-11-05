@@ -1601,6 +1601,10 @@ admin-settings-help-cookies-label-marketing = Name of the marketing category per
 admin-settings-key-cookies-description-marketing = Description of the marketing category
 admin-settings-help-cookies-description-marketing = Description of the marketing category per language. Empty uses the built-in description.
 
+admin-settings-key-encryption-rotation-days = Database key rotation interval (days)
+admin-settings-help-encryption-rotation-days = Days after the last key change at which the database key is reported as due for rotation. 0 sets no due date. The key itself is never stored in settings.
+admin-settings-key-encryption-warnings-enabled = Report encryption findings
+admin-settings-help-encryption-warnings-enabled = Show plaintext stores and an overdue key rotation as a finding in the deployment assessment.
 admin-settings-key-retention-sweeper-enabled = Retention sweeper
 admin-settings-help-retention-sweeper-enabled = Run the daily sweep that deletes rows older than the limits on this page. Turning it off keeps every row until it is turned on again.
 admin-settings-key-retention-sweeper-batch-rows = Rows per batch

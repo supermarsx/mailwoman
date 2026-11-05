@@ -588,6 +588,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'diagnostics.retentionDays',
   'logs.auth.retentionDays',
   'logs.auth.maxEntries',
+  'encryption.rotationDays',
+  'encryption.warnings.enabled',
   'retention.sweeper.enabled',
   'retention.sweeper.batchRows',
   'retention.sweeper.maxBatches',

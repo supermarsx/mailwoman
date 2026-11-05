@@ -97,3 +97,5 @@ The read-only **LDAP/GAL directory** operator guide (S/MIME cert lookup feeds th
 existing crypto path) is in [`../deploy/ldap.md`](../deploy/ldap.md). The V7 scope
 boundaries — bridge PIM-seam, EWS Kerberos, and the quick-xml write-only advisory
 ignore — are collected in [`../RELEASE-NOTES-26.8.md`](../RELEASE-NOTES-26.8.md).
+
+- **Encryption at rest.** SQLite databases can be encrypted as a whole file (SQLCipher, no OpenSSL), with a key kept outside the database. What is and is not encrypted, store by store: [`encryption-at-rest.md`](./encryption-at-rest.md) and [`../admin/encryption.md`](../admin/encryption.md).

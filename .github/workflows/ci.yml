@@ -221,6 +221,13 @@ jobs:
       # per-test unique temp DB has proven itself, that flag can be dropped.
       - name: test (lib + integration; --test-threads=1)
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --lib --tests -- --test-threads=1
+      - name: store tests against an encrypted database (MW_TEST_DB_KEY)
+        # Every Store::open in this run creates an SQLCipher database under this
+        # throwaway key; raw readers go through mw_store::encryption::raw_options.
+        # See docs/admin/encryption.md.
+        env:
+          MW_TEST_DB_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+        run: cargo test -p mw-store --lib --tests -- --test-threads=1
       - name: doc examples (a compile check, not a test leg; separate invocation — see above)
         run: cargo test --workspace --exclude mailwoman-desktop --exclude mailwoman-mobile --doc
       - name: build

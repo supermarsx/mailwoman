@@ -659,7 +659,7 @@ async fn token_history_exhaustion_revokes_family_without_forgetting_replay() {
     let (grant, code, _) = grant_fixture(&store, 80).await;
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .max_connections(1)
-        .connect_with(sqlx::sqlite::SqliteConnectOptions::new().filename(&path))
+        .connect_with(mw_store::encryption::raw_options(&path.to_string_lossy(), false))
         .await
         .unwrap();
     sqlx::query("WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<8192) INSERT INTO oidc_token(token_hash,grant_id,kind,expires_at,consumed_at) SELECT 'retained-'||x,?1,'refresh',4600,1000 FROM n")

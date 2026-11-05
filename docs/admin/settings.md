@@ -1558,6 +1558,14 @@ The checks are: a recipient address in To, Cc or Bcc that is not a valid mailbox
 
 Global/domain/user. When `autoChipRecipients` is `true` (default), a valid address followed by a space, comma or semicolon (or by Enter or leaving the field) becomes a finished recipient, underlined with the contact's name when one is known, and the separator is added for you. Invalid text stays as typed with a wavy underline. Pasting several addresses splits them. `recipientSeparator` is `comma` (default) or `semicolon` and sets the separator inserted after a finished recipient.
 
+<a id="encryption.rotationDays"></a>
+### Database key rotation interval (days) (`encryption.rotationDays`)
+Global, hot. Default `365`. Days after the last key change at which the database key is reported as due for rotation. 0 sets no due date. The key itself is never stored in settings.
+
+<a id="encryption.warnings.enabled"></a>
+### Report encryption findings (`encryption.warnings.enabled`)
+Global, hot. Default `true`. Show plaintext stores and an overdue key rotation as a finding in the deployment assessment.
+
 <a id="mail.compose.headerCollapse"></a>
 ### `mail.compose.headerCollapse`
 
