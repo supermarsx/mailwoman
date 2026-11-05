@@ -666,7 +666,7 @@ mail-draft-cleanup-pending = O novo rascunho foi guardado, mas não foi possíve
 mail-draft-account-list = Rascunhos da conta
 mail-draft-loading = A carregar rascunhos da conta…
 mail-draft-close-recovery = Fechar e manter só a recuperação local
-mail-draft-discard-account = Descartar rascunho da conta
+mail-draft-discard-account = Descartar
 mail-draft-discard-pending = Não foi possível confirmar a remoção do rascunho. O registo na conta permanece; tente «Descartar» novamente depois de rever a pasta Rascunhos.
 mail-draft-limit = Esta conta já tem 100 rascunhos guardados. Descarte um rascunho da conta que não pretenda antes de guardar um novo.
 mail-draft-quota-help = São mantidos até 100 rascunhos na conta. «Descartar» remove a cópia confirmada no servidor antes de libertar o espaço.
@@ -1107,5 +1107,18 @@ mail-alert-subject = Sem assunto
 mail-recipient-chip-remove = Remover { $address }
 mail-recipient-chips = Destinatários em { $field }
 mail-recipient-invalid-title = Não é um endereço de correio eletrónico válido
+mail-recipient-chip-name = { $name }, { $address }. Enter para os detalhes do contacto, Backspace ou F2 para editar, Delete para remover
+mail-recipient-chip-name-invalid = { $address }, endereço inválido. Enter para editar, Delete para remover
+mail-recipient-added = { $name } adicionado
+mail-recipient-removed = { $name } removido
+mail-recipient-removed-many = { $count ->
+    [one] { $count } destinatário removido
+   *[other] { $count } destinatários removidos
+}
+mail-recipient-editing = A editar { $name }
+mail-recipient-all-selected = { $count ->
+    [one] { $count } destinatário selecionado
+   *[other] { $count } destinatários selecionados
+}
 mail-external-line = { $count } fora dos domínios de confiança: { $domains }
 mail-external-dismiss = Dispensar

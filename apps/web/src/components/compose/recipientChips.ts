@@ -1,13 +1,10 @@
 import { isMailbox, parseRecipients, splitAddressList } from '../../api/jmap.ts';
-import { recipientToken } from '../../modules/contacts/autocomplete.ts';
 
 export type RecipientSeparator = 'comma' | 'semicolon';
 export function isRecipientSeparator(value: unknown): value is RecipientSeparator {
   return value === 'comma' || value === 'semicolon';
 }
-const sepChar = (sep: RecipientSeparator): string => (sep === 'semicolon' ? ';' : ',');
-
-export type RecipientTrigger = 'space' | 'comma' | 'semicolon' | 'blur' | 'enter';
+export const sepChar = (sep: RecipientSeparator): string => (sep === 'semicolon' ? ';' : ',');
 
 /** Whether `text` is exactly one deliverable recipient: `a@b.c` or `Name <a@b.c>`. */
 export function isCompleteRecipient(text: string): boolean {
@@ -19,28 +16,29 @@ export function isCompleteRecipient(text: string): boolean {
   return trimmed.includes('<') || !/\s/u.test(trimmed);
 }
 
-/**
- * Turn the recipient being typed into a finished one. `caret` is the caret after the
- * trigger character was typed (for `space`, `comma` and `semicolon`) or the caret
- * itself (for `blur` and `enter`). Returns the new field text with the configured
- * separator inserted, or null when nothing should change (the text is not yet a
- * valid recipient, so it stays as typed).
- */
-export function commitRecipient(value: string, caret: number, trigger: RecipientTrigger, sep: RecipientSeparator): { value: string; caret: number } | null {
-  const typed = trigger === 'space' || trigger === 'comma' || trigger === 'semicolon';
-  const end = typed ? Math.max(0, caret - 1) : caret;
-  const token = recipientToken(value, end);
-  const text = value.slice(token.start, typed ? end : token.end).trim();
-  if (!isCompleteRecipient(text)) return null;
-  const head = value.slice(0, token.start).replace(/\s+$/u, '') + (token.start > 0 ? ' ' : '');
-  const tail = value.slice(typed ? caret : token.end).replace(/^[\s,;]+/u, '');
-  const lead = head + text + sepChar(sep) + ' ';
-  const next = lead + tail;
-  return next === value ? null : { value: next, caret: lead.length };
+/** One finished recipient as the field model holds it. `text` is what is serialised. */
+export interface Recipient { text: string; email: string; name: string | null; valid: boolean }
+
+export function recipientOf(text: string): Recipient {
+  const trimmed = text.trim();
+  const address = parseRecipients(trimmed)[0];
+  const email = address?.email ?? trimmed;
+  return { text: trimmed, email, name: address?.name ?? null, valid: isMailbox(email) };
 }
 
-/** Pasted text with several addresses becomes a separated list; null when it is a single entry. */
-export function splitPasted(text: string, sep: RecipientSeparator): string | null {
+/** The non-empty entries of an address list, trimmed. */
+export function entriesOf(value: string): string[] {
+  return splitAddressList(value).map(entry => entry.trim()).filter(entry => entry !== '');
+}
+
+/** Finished recipients followed by the text still being typed (the draft). */
+export function serializeRecipients(list: readonly { text: string }[], draft: string, sep: RecipientSeparator): string {
+  const head = list.length === 0 ? '' : `${list.map(item => item.text).join(`${sepChar(sep)} `)}${sepChar(sep)} `;
+  return head + draft;
+}
+
+/** Pasted text as separate entries (comma, semicolon, newline or whitespace separated, `Name <addr>` kept whole). */
+export function splitPastedEntries(text: string): string[] {
   const entries: string[] = [];
   for (const entry of splitAddressList(text.replace(/[\r\n\t]+/gu, ','))) {
     const trimmed = entry.trim();
@@ -48,22 +46,5 @@ export function splitPasted(text: string, sep: RecipientSeparator): string | nul
     const parts = !trimmed.includes('<') && /\s/u.test(trimmed) ? trimmed.split(/\s+/u) : [trimmed];
     entries.push(...(parts.every(isMailbox) ? parts : [trimmed]));
   }
-  if (entries.length < 2) return null;
-  return entries.join(sepChar(sep) + ' ') + sepChar(sep) + ' ';
-}
-
-export interface RecipientChip { index: number; text: string; email: string; name: string | null; valid: boolean }
-export function chipsOf(value: string): RecipientChip[] {
-  return splitAddressList(value).flatMap((entry, index) => {
-    const text = entry.trim();
-    if (text === '') return [];
-    const address = parseRecipients(text)[0]!;
-    return [{ index, text, email: address.email, name: address.name, valid: isMailbox(address.email) }];
-  });
-}
-
-/** Remove the entry at `index` (as numbered by `chipsOf`). */
-export function removeRecipient(value: string, index: number, sep: RecipientSeparator): string {
-  const kept = splitAddressList(value).filter((entry, i) => i !== index && entry.trim() !== '').map(entry => entry.trim());
-  return kept.length === 0 ? '' : kept.join(sepChar(sep) + ' ') + sepChar(sep) + ' ';
+  return entries;
 }

@@ -133,12 +133,6 @@
 .compose-alerts { display:flex; flex-wrap:wrap; gap:.25rem .5rem; padding:.375rem .75rem; margin-block:0 .5rem; border-inline-start:var(--border-heavy) solid var(--danger); background:var(--surface); list-style:none; }
 .compose-alerts__item { display:inline-flex; align-items:center; gap:.25rem; padding:.125rem .5rem; border:var(--border-hair) solid var(--danger); background:transparent; color:inherit; font:inherit; cursor:pointer; }
 .compose-alerts__item:focus-visible { outline:2px solid var(--signal); outline-offset:2px; }
-.compose-chips { display:flex; flex-wrap:wrap; gap:.25rem; margin:0 0 .25rem; padding:0; list-style:none; }
-.compose-chip { display:inline-flex; align-items:center; gap:.25rem; padding:0 .25rem 0 .5rem; border:var(--border-hair) solid var(--border); background:var(--surface); font-size:.8125rem; }
-.compose-chip__label { text-decoration:underline; text-underline-offset:2px; }
-.compose-chip--invalid .compose-chip__label { text-decoration:underline wavy var(--danger); text-underline-offset:3px; }
-.compose-chip__remove { border:0; background:transparent; color:inherit; cursor:pointer; padding:0 .25rem; font:inherit; }
-.compose-chip__remove:focus-visible { outline:2px solid var(--signal); outline-offset:1px; }
 .compose-check-list { margin:.5rem 0; padding-inline-start:1.25rem; overflow-wrap:anywhere; }
 .compose-check-remember { display:flex; align-items:center; gap:.5rem; margin-block-start:.75rem; }
 .compose-external summary { cursor:pointer; }

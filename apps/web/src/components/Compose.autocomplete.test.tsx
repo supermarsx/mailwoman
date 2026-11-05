@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
+import { recipientValue } from './compose/recipientTestUtils.ts';
 import { Compose } from './Compose.tsx';
 import type { Client } from '../api/client.ts';
 import { CAP_CONTACTS, type ContactCard } from '../api/pim-types.ts';
@@ -96,13 +97,13 @@ describe('Compose contacts autocomplete', () => {
       const input=screen.getByRole('combobox',{name}) as HTMLInputElement;input.focus();
       fireEvent.input(input,{target:{value:'new@example.org'}});
       fireEvent.keyDown(input,{key:'Enter'});
-      expect(input.value).toBe('new@example.org, ');expect(input).toHaveFocus();
+      expect(recipientValue(input)).toBe('new@example.org, ');expect(input).toHaveFocus();
       expect(input.selectionStart).toBe(input.value.length);
       fireEvent.input(input,{target:{value:input.value+'"原,a"@example.org'}});
       fireEvent.keyDown(input,{key:'Enter'});
-      expect(input.value).toBe('new@example.org, "原,a"@example.org, ');
+      expect(recipientValue(input)).toBe('new@example.org, "原,a"@example.org, ');
       fireEvent.keyDown(input,{key:'Enter'});
-      expect(input.value).toBe('new@example.org, "原,a"@example.org, ');
+      expect(recipientValue(input)).toBe('new@example.org, "原,a"@example.org, ');
     }
     expect(close).not.toHaveBeenCalled();
     expect(vi.mocked(client.jmap).mock.calls.some(([request])=>request.methodCalls.some(([method])=>method==='EmailSubmission/set'))).toBe(false);
@@ -115,10 +116,12 @@ describe('Compose contacts autocomplete', () => {
     fireEvent.input(input,{target:{value:'alice@example.org'}});
     await screen.findByTestId('contact-suggestion');
     fireEvent.keyDown(input,{key:'Enter'});
-    expect(input.value).toBe('alice@example.org, ');
+    expect(recipientValue(input)).toBe('alice@example.org, ');
     fireEvent.input(input,{target:{value:'unfinished@'}});
     fireEvent.keyDown(input,{key:'Enter'});
-    expect(input.value).toBe('unfinished@');
+    // An unfinished address becomes an invalid chip the user can see and click to edit.
+    expect(recipientValue(input)).toBe('alice@example.org, unfinished@, ');
+    expect(document.querySelector('[data-valid="false"]')).not.toBeNull();
   });
 
   it('suggests a contact by prefix and inserts it into the To field', async () => {
@@ -137,7 +140,7 @@ describe('Compose contacts autocomplete', () => {
     expect(suggestion).toHaveTextContent('Alice');
 
     fireEvent.click(suggestion);
-    expect((screen.getByLabelText('To') as HTMLInputElement).value).toContain('alice@example.org');
+    expect(recipientValue(screen.getByLabelText('To'))).toContain('alice@example.org');
     // Dropdown closes after a pick.
     expect(screen.queryByTestId('contact-suggestion')).toBeNull();
   });
@@ -157,20 +160,20 @@ describe('Compose contacts autocomplete', () => {
     const forCc = await screen.findByTestId('contact-suggestion');
     expect(forCc).toHaveTextContent('Bob');
     // The list is the Cc field's, not To's.
-    expect(cc.closest('label')!.contains(forCc)).toBe(true);
+    expect(cc.closest('.compose__to')!.contains(forCc)).toBe(true);
     fireEvent.click(forCc);
-    expect(cc.value).toBe('x@example.org, Bob Brown <bob@work.example>, ');
+    expect(recipientValue(cc)).toBe('x@example.org, Bob Brown <bob@work.example>, ');
     expect(screen.queryByTestId('contact-suggestion')).toBeNull();
 
     const bcc = screen.getByLabelText('Bcc') as HTMLInputElement;
     fireEvent.input(bcc, { target: { value: 'ali' } });
     const forBcc = await screen.findByTestId('contact-suggestion');
-    expect(bcc.closest('label')!.contains(forBcc)).toBe(true);
+    expect(bcc.closest('.compose__to')!.contains(forBcc)).toBe(true);
     fireEvent.click(forBcc);
-    expect(bcc.value).toBe('Alice Adams <alice@example.org>, ');
+    expect(recipientValue(bcc)).toBe('Alice Adams <alice@example.org>, ');
     // Neither pick went into To, and Cc kept its own.
-    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('');
-    expect(cc.value).toBe('x@example.org, Bob Brown <bob@work.example>, ');
+    expect(recipientValue(screen.getByLabelText('To'))).toBe('');
+    expect(recipientValue(cc)).toBe('x@example.org, Bob Brown <bob@work.example>, ');
   });
 
   it('shows no dropdown until the user types', async () => {
@@ -198,7 +201,7 @@ describe('Compose contacts autocomplete', () => {
       fireEvent.keyDown(input,{key:'ArrowDown'});
       const selected=within(list).getByRole('option',{selected:true});expect(input.getAttribute('aria-activedescendant')).toBe(selected.id);
       expect(input).toHaveFocus();fireEvent.keyDown(input,{key:'Enter'});
-      expect(input.value).toBe('Alice Adams <alice@example.org>, ');expect(input).toHaveFocus();
+      expect(recipientValue(input)).toBe('Alice Adams <alice@example.org>, ');expect(input).toHaveFocus();
       expect(input).toHaveAttribute('aria-expanded','false');expect(input).not.toHaveAttribute('aria-activedescendant');
       fireEvent.keyDown(input,{key:'Enter'});
     }
@@ -213,17 +216,17 @@ describe('Compose contacts autocomplete', () => {
     fireEvent.input(input,{target:{value:'example'}});await screen.findAllByTestId('contact-suggestion');
     fireEvent.keyDown(input,{key:'Escape'});expect(screen.queryByRole('listbox')).toBeNull();expect(close).not.toHaveBeenCalled();
     fireEvent.keyDown(input,{key:'ArrowUp'});expect(within(screen.getByRole('listbox')).getByRole('option',{selected:true})).toHaveTextContent('Bob');
-    fireEvent.keyDown(input,{key:'Enter'});expect(input.value).toBe('Bob Brown <bob@work.example>, ');
+    fireEvent.keyDown(input,{key:'Enter'});expect(recipientValue(input)).toBe('Bob Brown <bob@work.example>, ');
   });
 
-  it('replaces the token at the caret while preserving following recipients and quoted commas',async()=>{
+  it('replaces the token being typed with a chip while keeping earlier recipients and quoted commas',async()=>{
     const app=createAppState(contactsClient());render(()=><AppContext.Provider value={app}><Compose onClose={()=>undefined}/></AppContext.Provider>);await app.loadContacts();
     const input=screen.getByRole('combobox',{name:'To'}) as HTMLInputElement;
-    input.value='"Last, First" <first@example.org>, al, tail@example.org';input.setSelectionRange(36,36);
-    const caret=input.value.indexOf(', tail');input.setSelectionRange(caret,caret);fireEvent.input(input);
+    fireEvent.input(input,{target:{value:'"Last, First" <first@example.org>, al'}});
     const option=await screen.findByTestId('contact-suggestion');fireEvent.click(option);
-    expect(input.value).toBe('"Last, First" <first@example.org>, Alice Adams <alice@example.org>, tail@example.org');
-    expect(input.selectionStart).toBe(input.value.indexOf(', tail'));
+    expect(recipientValue(input)).toBe('"Last, First" <first@example.org>, Alice Adams <alice@example.org>, ');
+    expect(input.value).toBe('');
+    expect(within(screen.getByTestId('compose-chips-to')).getAllByRole('listitem')).toHaveLength(2);
   });
 
   it('waits for IME composition to finish and never treats its Enter or Escape as a draft command',async()=>{
@@ -231,9 +234,9 @@ describe('Compose contacts autocomplete', () => {
     const input=screen.getByRole('combobox',{name:'To'}) as HTMLInputElement;
     fireEvent.compositionStart(input);fireEvent.input(input,{target:{value:'ali'}});
     fireEvent.keyDown(input,{key:'Enter',isComposing:true});fireEvent.keyDown(input,{key:'Escape',isComposing:true});
-    expect(screen.queryByRole('listbox')).toBeNull();expect(input.value).toBe('ali');expect(close).not.toHaveBeenCalled();
+    expect(screen.queryByRole('listbox')).toBeNull();expect(recipientValue(input)).toBe('ali');expect(close).not.toHaveBeenCalled();
     fireEvent.compositionEnd(input);await screen.findByTestId('contact-suggestion');fireEvent.keyDown(input,{key:'Enter'});
-    expect(input.value).toBe('Alice Adams <alice@example.org>, ');
+    expect(recipientValue(input)).toBe('Alice Adams <alice@example.org>, ');
   });
 
   it('finds an owned contact outside the loaded book through debounced full-store autocomplete',async()=>{
@@ -245,7 +248,7 @@ describe('Compose contacts autocomplete', () => {
     const option=await screen.findByTestId('contact-suggestion');expect(option).toHaveTextContent('Zelda Remote');
     const requests=vi.mocked(client.jmap).mock.calls.map(([request])=>request.methodCalls[0]).filter(call=>call?.[0]==='ContactCard/autocomplete');
     expect(requests).toHaveLength(1);expect(requests[0]![1]).toMatchObject({accountId:'acct1',prefix:'zelda',limit:8});
-    fireEvent.click(option);expect(input.value).toBe('Zelda Remote <Zelda.Canonical@example.org>, ');
+    fireEvent.click(option);expect(recipientValue(input)).toBe('Zelda Remote <Zelda.Canonical@example.org>, ');
   });
 
   it('accepts a touch click after focus moves into the suggestion without losing the pick',async()=>{
@@ -254,6 +257,6 @@ describe('Compose contacts autocomplete', () => {
     const option=await screen.findByTestId('contact-suggestion');
     fireEvent.pointerDown(option,{pointerType:'touch'});fireEvent.blur(input,{relatedTarget:option});
     expect(screen.getByRole('listbox')).toBeInTheDocument();fireEvent.pointerUp(option,{pointerType:'touch'});fireEvent.click(option);
-    expect(input.value).toBe('Alice Adams <alice@example.org>, ');expect(input).toHaveFocus();
+    expect(recipientValue(input)).toBe('Alice Adams <alice@example.org>, ');expect(input).toHaveFocus();
   });
 });

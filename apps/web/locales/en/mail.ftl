@@ -675,7 +675,7 @@ mail-draft-cleanup-pending = The new draft was saved, but its previous copy coul
 mail-draft-account-list = Account drafts
 mail-draft-loading = Loading account drafts…
 mail-draft-close-recovery = Close and keep local recovery only
-mail-draft-discard-account = Discard account draft
+mail-draft-discard-account = Discard
 mail-draft-discard-pending = Draft removal could not be confirmed. Its account record remains; retry Discard after reviewing the Drafts folder.
 mail-draft-limit = This account already has 100 saved drafts. Discard an unwanted account draft before saving a new one.
 mail-draft-quota-help = Up to 100 account drafts are retained. Discard removes the confirmed upstream copy before releasing its slot.
@@ -1123,5 +1123,18 @@ mail-alert-subject = No subject
 mail-recipient-chip-remove = Remove { $address }
 mail-recipient-chips = Recipients in { $field }
 mail-recipient-invalid-title = Not a valid email address
+mail-recipient-chip-name = { $name }, { $address }. Enter for contact details, Backspace or F2 to edit, Delete to remove
+mail-recipient-chip-name-invalid = { $address }, not a valid address. Enter to edit, Delete to remove
+mail-recipient-added = Added { $name }
+mail-recipient-removed = Removed { $name }
+mail-recipient-removed-many = { $count ->
+    [one] Removed { $count } recipient
+   *[other] Removed { $count } recipients
+}
+mail-recipient-editing = Editing { $name }
+mail-recipient-all-selected = { $count ->
+    [one] { $count } recipient selected
+   *[other] { $count } recipients selected
+}
 mail-external-line = { $count } outside trusted domains: { $domains }
 mail-external-dismiss = Dismiss

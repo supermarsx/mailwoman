@@ -16,7 +16,9 @@ import { settings, writeSetting } from '../api/settings.ts';
 import { supportsDeliveryReceipts } from '../api/deliveryReceipts.ts';
 import { externalRecipients } from './compose/recipientTrust.ts';
 import { CHECK_KEYS, externalDomains, invalidRecipients, mentionsAttachment, planSend, resolvePolicy, type CheckId, type SendIssue } from './compose/sendChecks.ts';
-import { chipsOf, commitRecipient, isRecipientSeparator, removeRecipient, splitPasted, type RecipientSeparator } from './compose/recipientChips.ts';
+import { isRecipientSeparator, type RecipientSeparator } from './compose/recipientChips.ts';
+import { RecipientField as RecipientTokenField } from './compose/RecipientField.tsx';
+import { createAddressContactCard } from './AddressContactCard.tsx';
 import { Icon } from './Icon.tsx';
 import {
   createEffect,
@@ -284,7 +286,6 @@ export function Compose(props: {
   const [recipientComposing,setRecipientComposing]=createSignal(false);
   const recipientInputs:Partial<Record<RecipientField,HTMLInputElement>>={};
   const recipientCarets:Partial<Record<RecipientField,number>>={};
-  const recipientTouched:Partial<Record<RecipientField,boolean>>={};
   // V7 GAL (plan §2.7): the in-progress recipient token also drives a directory
   // autocomplete as an ADDITIONAL source beside contacts. `pickedGroup` holds a
   // distribution group the sender may expand-before-send into its leaf recipients.
@@ -658,7 +659,7 @@ export function Compose(props: {
     const field=(['to','cc','bcc'] as const).find(f=>needle?fieldValue(f).includes(needle):fieldValue(f).trim()!=='')??'to';
     if(field!=='to')setCcBccOpen(true);
     const input=recipientInputs[field];input?.focus();
-    const at=needle?fieldValue(field).indexOf(needle):-1;
+    const at=needle&&!autoChip()?fieldValue(field).indexOf(needle):-1;
     if(at>=0)input?.setSelectionRange(at,at+needle.length);
   }
   function askChecks(asked:SendIssue[],rememberable:CheckId[]):Promise<'send'|'review'> {
@@ -1203,72 +1204,72 @@ export function Compose(props: {
   const recipientListId=(field:RecipientField)=>`${composeId}-${field}-suggestions`;
   const recipientListOpen=(field:RecipientField)=>!recipientComposing()&&acField()===field&&contactAc.suggestions().length>0;
   function dismissRecipients():void {setAcField(null);setAcIndex(-1);contactAc.reset();setGalToken('');}
-  const recipientInputProps=(field:RecipientField):JSX.InputHTMLAttributes<HTMLInputElement>=>({
-    ref:input=>{recipientInputs[field]=input;if(field==='to')toInputEl=input;},
+  const caretOf=(field:RecipientField,input:HTMLInputElement):number=>autoChip()?fieldValue(field).length:(input.selectionStart??input.value.length);
+  const recipientAttrs=(field:RecipientField):JSX.InputHTMLAttributes<HTMLInputElement>=>({
     role:'combobox','aria-autocomplete':'list','aria-haspopup':'listbox',
     'aria-label':t(field==='to'?'mail-compose-to':field==='cc'?'mail-compose-cc':'mail-compose-bcc'),
     get 'aria-expanded'(){return recipientListOpen(field);},
     get 'aria-controls'(){return recipientListOpen(field)?recipientListId(field):undefined;},
     get 'aria-activedescendant'(){return recipientListOpen(field)&&acIndex()>=0&&acIndex()<contactAc.suggestions().length?`${recipientListId(field)}-${acIndex()}`:undefined;},
-    onInput:event=>{
-      const input=event.currentTarget;const value=input.value;const caret=input.selectionStart??value.length;
-      recipientTouched[field]=true;
-      const previous=recipientFields[field][0]();const typed=value[caret-1];
-      const trigger=autoChip()&&!recipientComposing()&&value.length===previous.length+1?(typed===' '?'space':typed===','?'comma':typed===';'?'semicolon':null):null;
-      const done=trigger?commitRecipient(value,caret,trigger,separator()):null;
-      if(done){input.value=done.value;onRecipientInput(field,done.value,done.caret);input.setSelectionRange(done.caret,done.caret);return;}
-      onRecipientInput(field,value,caret);
-    },
-    onPaste:event=>{
-      if(!autoChip())return;
-      const list=splitPasted(event.clipboardData?.getData('text')??'',separator());
-      if(list===null)return;
-      event.preventDefault();
-      const input=event.currentTarget;const value=input.value;
-      const start=input.selectionStart??value.length;const end=input.selectionEnd??start;
-      const head=value.slice(0,start);
-      const lead=head.trim()===''||/[,;]\s*$/u.test(head)?head:`${head.replace(/\s+$/u,'')}${separator()==='semicolon'?';':','} `;
-      const next=lead+list+value.slice(end).replace(/^\s+/u,'');
-      if(field==='bcc')bccEdited=true;
-      onRecipientInput(field,next,lead.length+list.length);
-    },
-    onFocus:()=>setFocusedRecipient(field),
-    onClick:event=>onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length),
+  });
+  const contactName=(email:string):string|null=>{
+    const lower=email.toLowerCase();
+    for(const card of app.contacts())if(card.name.full&&card.emails.some(entry=>entry.value.toLowerCase()===lower))return card.name.full;
+    return null;
+  };
+  // One contact card for the three fields: a chip click opens it, as an address does in the reader.
+  const addressCard=createAddressContactCard({scope:()=>JSON.stringify([app.accountId(),'compose']),active:()=>true});
+  /** Props of the token field for To, Cc or Bcc. The contact suggestions are its children. */
+  const recipientProps=(field:RecipientField)=>({
+    field,
+    get groupLabel(){return t('mail-recipient-chips',{field:t(field==='to'?'mail-compose-to':field==='cc'?'mail-compose-cc':'mail-compose-bcc')});},
+    get value(){return fieldValue(field);},
+    onChange:(value:string,caret:number)=>onRecipientInput(field,value,caret),
+    get separator(){return separator();},
+    get autoChip(){return autoChip();},
+    nameOf:contactName,
+    inputAttrs:recipientAttrs(field),
+    inputRef:(input:HTMLInputElement)=>{recipientInputs[field]=input;if(field==='to')toInputEl=input;},
+    isComposing:recipientComposing,
+    openCard:addressCard.open,
+    closeCard:addressCard.close,
+    onInputFocus:()=>setFocusedRecipient(field),
+    onInputClick:(event:MouseEvent&{currentTarget:HTMLInputElement})=>onRecipientInput(field,fieldValue(field),caretOf(field,event.currentTarget)),
     onCompositionStart:()=>{setRecipientComposing(true);dismissRecipients();},
-    onCompositionEnd:event=>{setRecipientComposing(false);onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length);},
-    onKeyUp:event=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)&&!event.isComposing&&!recipientComposing())onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length);},
-    onBlur:event=>{
+    onCompositionEnd:(event:CompositionEvent&{currentTarget:HTMLInputElement})=>{setRecipientComposing(false);onRecipientInput(field,fieldValue(field),caretOf(field,event.currentTarget));},
+    onInputKeyUp:(event:KeyboardEvent&{currentTarget:HTMLInputElement})=>{if(['ArrowLeft','ArrowRight','Home','End'].includes(event.key)&&!event.isComposing&&!recipientComposing())onRecipientInput(field,fieldValue(field),caretOf(field,event.currentTarget));},
+    onInputBlur:(event:FocusEvent&{currentTarget:HTMLInputElement})=>{
       const next=event.relatedTarget as Node|null;
       if(next?.nodeType&&event.currentTarget.ownerDocument.getElementById(recipientListId(field))?.contains(next))return;
       // Keep the separate GAL picker mounted while focus moves into its buttons.
       setAcField(null);setAcIndex(-1);contactAc.reset();
       setFocusedRecipient(current=>current===field?null:current);
-      if(autoChip()&&!recipientComposing()&&recipientTouched[field]){const done=commitRecipient(event.currentTarget.value,event.currentTarget.value.length,'blur',separator());if(done)onRecipientInput(field,done.value,done.caret);}
     },
-    onKeyDown:event=>{
-      if(event.isComposing||recipientComposing()||event.keyCode===229){event.stopPropagation();return;}
+    onInputKeyDown:(event:KeyboardEvent&{currentTarget:HTMLInputElement})=>{
+      if(event.isComposing||recipientComposing()||event.keyCode===229)return;
       if(event.key==='Escape'&&(acField()===field||galToken())){event.preventDefault();event.stopPropagation();dismissRecipients();return;}
       if(event.key==='Enter'){
-        event.preventDefault();event.stopPropagation();
         const input=event.currentTarget;
-        const caret=input.selectionStart??input.value.length;
+        const caret=caretOf(field,input);
         recipientCarets[field]=caret;
-        const token=recipientToken(input.value,caret);
-        const typed=input.value.slice(token.start,token.end).trim();
+        const token=recipientToken(fieldValue(field),caret);
+        const typed=fieldValue(field).slice(token.start,token.end).trim();
         const addresses=parseRecipients(typed);
+        let handled=false;
         // An explicitly highlighted suggestion wins; otherwise a complete
         // typed mailbox must not silently become a different contact match.
-        if(acIndex()<0&&addresses.length===1&&isMailbox(addresses[0]!.email)){
-          insertRecipient(field,typed);
-        }else if(recipientListOpen(field)){
+        if(acIndex()<0&&addresses.length===1&&isMailbox(addresses[0]!.email)){insertRecipient(field,typed);handled=true;}
+        else if(recipientListOpen(field)){
           const pick=contactAc.suggestions()[Math.max(0,acIndex())];
-          if(pick)insertRecipient(field,pick.display);
+          if(pick){insertRecipient(field,pick.display);handled=true;}
         }
+        // Nothing to pick: the token field finishes the typed text itself.
+        if(handled||!autoChip()){event.preventDefault();event.stopPropagation();}
         return;
       }
       if(event.key==='ArrowDown'||event.key==='ArrowUp'){
-        const caret=event.currentTarget.selectionStart??event.currentTarget.value.length;
-        if(!recipientListOpen(field)||recipientCarets[field]!==caret)onRecipientInput(field,event.currentTarget.value,caret);
+        const caret=caretOf(field,event.currentTarget);
+        if(!recipientListOpen(field)||recipientCarets[field]!==caret)onRecipientInput(field,fieldValue(field),caret);
         const count=contactAc.suggestions().length;if(!recipientListOpen(field)||!count)return;
         event.preventDefault();event.stopPropagation();
         const next=event.key==='ArrowDown'?(acIndex()+1)%count:(acIndex()<0?count-1:(acIndex()+count-1)%count);setAcIndex(next);
@@ -1276,31 +1277,6 @@ export function Compose(props: {
       }
     },
   });
-
-  const contactName=(email:string):string|null=>{
-    const lower=email.toLowerCase();
-    for(const card of app.contacts())if(card.name.full&&card.emails.some(entry=>entry.value.toLowerCase()===lower))return card.name.full;
-    return null;
-  };
-  /** Finished recipients of `field` as underlined chips; the token still being typed is left out. */
-  function chipList(field:RecipientField):JSX.Element {
-    const chips=()=>{
-      if(!autoChip())return [];
-      const value=fieldValue(field);const all=chipsOf(value);
-      return focusedRecipient()===field&&!/[,;]\s*$/u.test(value)?all.slice(0,-1):all;
-    };
-    return <Show when={chips().length>0}>
-      <ul class="compose-chips" aria-label={t('mail-recipient-chips',{field:t(field==='to'?'mail-compose-to':field==='cc'?'mail-compose-cc':'mail-compose-bcc')})} data-testid={`compose-chips-${field}`}>
-        <For each={chips()}>{chip=>{
-          const label=chip.name??(chip.valid?contactName(chip.email):null)??chip.text;
-          return <li class={`compose-chip${chip.valid?'':' compose-chip--invalid'}`} data-valid={chip.valid?'true':'false'}>
-            <span class="compose-chip__label" title={chip.valid?chip.email:t('mail-recipient-invalid-title')}>{isolate(label)}</span>
-            <button type="button" class="compose-chip__remove" tabindex={-1} aria-label={t('mail-recipient-chip-remove',{address:isolate(chip.text)})} onClick={()=>{recipientFields[field][1](removeRecipient(fieldValue(field),chip.index,separator()));if(field==='bcc')bccEdited=true;}}>×</button>
-          </li>;
-        }}</For>
-      </ul>
-    </Show>;
-  }
 
   /** The contact suggestions under `field`, while it is the one being typed in. */
   const suggestionList = (field: RecipientField): JSX.Element => (
@@ -1738,18 +1714,11 @@ export function Compose(props: {
             setFromOverride(address);setError(previous=>previous===t('mail-compose-from-invalid')?null:previous);toInputEl?.focus();
           }} aria-describedby={fromHelpId}/><small id={fromHelpId}>{t('mail-compose-from-alias-help')}</small></label></Show>
 
-        <label class="field compose__to">
+        <div class="field compose__to">
           <span>{t('mail-compose-to')}</span>
-          <input
-            type="text"
-            {...recipientInputProps('to')}
-            placeholder={t('mail-compose-to-placeholder')}
-            autocomplete="off"
-            value={to()}
-          />
-          {suggestionList('to')}
-        </label>
-        {chipList('to')}
+          <RecipientTokenField {...recipientProps('to')} placeholder={t('mail-compose-to-placeholder')}>{suggestionList('to')}</RecipientTokenField>
+        </div>
+        {addressCard.card()}
 
         {/* V7 GAL autocomplete (plan §2.7): an ADDITIONAL recipient source beside
             contacts. Mounted only when a directory is configured, so an unconfigured
@@ -1776,28 +1745,14 @@ export function Compose(props: {
         </Show>
 
         <Show when={ccBccOpen()}>
-          <label class="field compose__to">
+          <div class="field compose__to">
             <span>{t('mail-compose-cc')}</span>
-            <input
-              type="text"
-              autocomplete="off"
-              value={cc()}
-              {...recipientInputProps('cc')}
-            />
-            {suggestionList('cc')}
-          </label>
-          {chipList('cc')}
-          <label class="field compose__to">
+            <RecipientTokenField {...recipientProps('cc')}>{suggestionList('cc')}</RecipientTokenField>
+          </div>
+          <div class="field compose__to">
             <span>{t('mail-compose-bcc')}</span>
-            <input
-              type="text"
-              autocomplete="off"
-              value={bcc()}
-              {...recipientInputProps('bcc')}
-            />
-            {suggestionList('bcc')}
-          </label>
-          {chipList('bcc')}
+            <RecipientTokenField {...recipientProps('bcc')}>{suggestionList('bcc')}</RecipientTokenField>
+          </div>
         </Show>
 
         <label class="field compose__subject">

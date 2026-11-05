@@ -3,6 +3,7 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
+import { recipientValue } from './compose/recipientTestUtils.ts';
 import { Compose } from './Compose.tsx';
 import { clearSettings, loadSettings } from '../api/settings.ts';
 import type { Client } from '../api/client.ts';
@@ -127,15 +128,18 @@ async function mount() {
 
 describe('Compose recipient chips', () => {
   afterEach(() => clearSettings());
+  const cardEl = () => document.querySelector<HTMLElement>('.address-card');
+  const chipsOf = (field = 'to') => within(screen.getByTestId(`compose-chips-${field}`));
 
-  it('finishes a valid address on space and adds the separator', async () => {
+  it('replaces a valid address with a chip inside the box when space is typed', async () => {
     await configure(POLICIES());
     const { to } = await mount();
     to.focus();
     typeInto(to, 'a@b.example ');
-    expect(to.value).toBe('a@b.example, ');
-    expect(to.selectionStart).toBe(to.value.length);
-    expect(within(screen.getByTestId('compose-chips-to')).getByText(/a@b\.example/)).toBeInTheDocument();
+    expect(to.value).toBe('');
+    expect(to.closest('.compose-rf__box')!.contains(chipsOf().getByText(/a@b\.example/))).toBe(true);
+    expect(recipientValue(to)).toBe('a@b.example, ');
+    expect(to).toHaveFocus();
   });
 
   it('shows the contact name on the chip and follows the semicolon setting', async () => {
@@ -143,19 +147,20 @@ describe('Compose recipient chips', () => {
     const { to } = await mount();
     to.focus();
     typeInto(to, 'alice@example.org ');
-    expect(to.value).toBe('alice@example.org; ');
-    expect(within(screen.getByTestId('compose-chips-to')).getByText(/Alice Adams/)).toBeInTheDocument();
+    typeInto(to, 'x@y.example ');
+    expect(chipsOf().getByText(/Alice Adams/)).toBeInTheDocument();
+    expect(chipsOf().getAllByRole('listitem')).toHaveLength(2);
   });
 
-  it('turns a typed semicolon into the configured separator', async () => {
+  it('turns a typed semicolon into a chip and keeps typing after it', async () => {
     await configure(POLICIES());
     const { to } = await mount();
     to.focus();
     typeInto(to, 'a@b.example;');
-    expect(to.value).toBe('a@b.example, ');
+    expect(recipientValue(to)).toBe('a@b.example, ');
   });
 
-  it('keeps invalid text as typed, marks it invalid and alerts in the top bar once it is left', async () => {
+  it('keeps invalid text as typed until it is left, then shows an invalid chip and alerts in the top bar', async () => {
     await configure(POLICIES({ 'mail.compose.checkInvalidRecipients': entry('warn') }));
     const { to } = await mount();
     to.focus();
@@ -163,6 +168,7 @@ describe('Compose recipient chips', () => {
     expect(to.value).toBe('nope ');
     expect(screen.queryByTestId('compose-alerts')).toBeNull();
     fireEvent.blur(to);
+    expect(to.value).toBe('');
     const strip = await screen.findByTestId('compose-alerts');
     expect(strip).toHaveAttribute('role', 'status');
     fireEvent.click(within(strip).getByRole('button', { name: /Invalid address: .*nope/ }));
@@ -176,12 +182,13 @@ describe('Compose recipient chips', () => {
     expect(screen.queryByTestId('compose-alerts')).toBeNull();
   });
 
-  it('splits a pasted list into separated recipients', async () => {
+  it('splits a pasted list into chips', async () => {
     await configure(POLICIES());
     const { to } = await mount();
     to.focus();
     fireEvent.paste(to, { clipboardData: { getData: () => 'a@b.example\nAnn <c@d.example>' } });
-    expect(to.value).toBe('a@b.example, Ann <c@d.example>, ');
+    expect(recipientValue(to)).toBe('a@b.example, Ann <c@d.example>, ');
+    expect(chipsOf().getAllByRole('listitem')).toHaveLength(2);
   });
 
   it('removes a chip and its address', async () => {
@@ -189,10 +196,10 @@ describe('Compose recipient chips', () => {
     const { to } = await mount();
     to.focus();
     typeInto(to, 'a@b.example ');
-    typeInto(to, 'a@b.example, c@d.example ');
-    expect(to.value).toBe('a@b.example, c@d.example, ');
+    typeInto(to, 'c@d.example ');
+    expect(recipientValue(to)).toBe('a@b.example, c@d.example, ');
     fireEvent.click(screen.getByRole('button', { name: /Remove .*a@b\.example/ }));
-    expect(to.value).toBe('c@d.example, ');
+    expect(recipientValue(to)).toBe('c@d.example, ');
   });
 
   it('leaves text alone when the setting is off', async () => {
@@ -202,6 +209,52 @@ describe('Compose recipient chips', () => {
     fireEvent.input(to, { target: { value: 'a@b.example ' } });
     expect(to.value).toBe('a@b.example ');
     expect(screen.queryByTestId('compose-chips-to')).toBeNull();
+  });
+
+  it('opens the contact card of a chip on click and returns focus on Escape', async () => {
+    await configure(POLICIES());
+    const { to } = await mount();
+    to.focus();
+    typeInto(to, 'alice@example.org ');
+    const chip = chipsOf().getByRole('button', { name: /^\W*Alice Adams\W+alice@example\.org/ });
+    fireEvent.click(chip);
+    const card = await waitFor(() => { const el = cardEl(); expect(el).not.toBeNull(); return el!; });
+    expect(card).toHaveTextContent('Alice Adams');
+    expect(card).toHaveTextContent('alice@example.org');
+    fireEvent.keyDown(card, { key: 'Escape' });
+    await waitFor(() => expect(cardEl()).toBeNull());
+    expect(chip).toHaveFocus();
+  });
+
+  it('opens the card for an unknown address and not on hover', async () => {
+    await configure(POLICIES());
+    const { to } = await mount();
+    to.focus();
+    typeInto(to, 'stranger@nowhere.example ');
+    const chip = chipsOf().getByRole('button', { name: /^\W*stranger@nowhere\.example/ });
+    fireEvent.mouseEnter(chip); fireEvent.mouseOver(chip); fireEvent.pointerEnter(chip);
+    expect(cardEl()).toBeNull();
+    fireEvent.click(chip);
+    await waitFor(() => expect(cardEl()).not.toBeNull());
+    expect(cardEl()).toHaveTextContent('stranger@nowhere.example');
+  });
+
+  it('closes the card when its chip is removed, and F2 or double click edits the address', async () => {
+    await configure(POLICIES());
+    const { to } = await mount();
+    to.focus();
+    typeInto(to, 'alice@example.org ');
+    fireEvent.click(chipsOf().getByRole('button', { name: /^\W*Alice Adams\W+alice@example\.org/ }));
+    await waitFor(() => expect(cardEl()).not.toBeNull());
+    fireEvent.click(screen.getByRole('button', { name: /Remove .*alice@example\.org/ }));
+    expect(cardEl()).toBeNull();
+    typeInto(to, 'b@c.example ');
+    fireEvent.keyDown(chipsOf().getByRole('button', { name: /^\W*b@c\.example/ }), { key: 'F2' });
+    expect(to.value).toBe('b@c.example');
+    expect(screen.queryByTestId('compose-chips-to')).toBeNull();
+    typeInto(to, 'b@c.example ');
+    fireEvent.dblClick(chipsOf().getByRole('button', { name: /^\W*b@c\.example/ }));
+    expect(to.value).toBe('b@c.example');
   });
 });
 

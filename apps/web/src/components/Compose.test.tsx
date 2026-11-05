@@ -9,6 +9,7 @@ import { saveDraft, listDrafts } from './compose/drafts-store.ts';
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { Suspense } from 'solid-js';
+import { recipientList } from './compose/recipientTestUtils.ts';
 import { Compose } from './Compose.tsx';
 import { renderWithApp, makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
@@ -213,7 +214,7 @@ describe('Compose', () => {
     await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain');
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'My quick reply\nQuoted text' } });
     fireEvent.click(screen.getByRole('button', { name: 'Edit recipients and subject' }));
-    expect(screen.getByLabelText('To')).toHaveValue('alice@outside.test');
+    expect(recipientList(screen.getByLabelText('To'))).toBe('alice@outside.test');
     expect(screen.getByLabelText('Subject')).toHaveValue('Re: Plans');
     expect(screen.getByLabelText('Body')).toHaveValue('My quick reply\nQuoted text');
   });
@@ -262,7 +263,7 @@ describe('Compose', () => {
     await waitFor(()=>expect(listDrafts('acct1','test-storage-authority-acct1').some(draft=>draft.sentMailboxId===target.id)).toBe(true),{timeout:3000});
     const saved=listDrafts('acct1','test-storage-authority-acct1').find(draft=>draft.sentMailboxId===target.id)!;mounted.unmount();
     render(()=><AppContext.Provider value={app}><Compose resumeDraftId={saved.id} onClose={()=>undefined}/></AppContext.Provider>);
-    await waitFor(()=>expect(screen.getByLabelText('To')).toHaveValue('you@example.org'));
+    await waitFor(()=>expect(recipientList(screen.getByLabelText('To'))).toBe('you@example.org'));
     await structuredComposeEditor();
     fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(sendCount(client)).toBe(1));
     const submit=sentRequest(client).methodCalls.find(call=>call[0]==='EmailSubmission/set')![1];
@@ -275,12 +276,13 @@ describe('Compose', () => {
     await app.login({username:'me@example.org',password:'p'});await app.loadIdentities();
     fireEvent.click(screen.getByRole('button',{name:'From'}));
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
-    expect(screen.getByLabelText('Bcc')).toHaveValue('audit@example.org');
+    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('audit@example.org');
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'id2'}});
-    expect(screen.getByLabelText('Bcc')).toHaveValue('archive@example.org');
+    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('archive@example.org');
     fireEvent.input(screen.getByLabelText('Bcc'),{target:{value:'personal@example.org'}});
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
-    expect(screen.getByLabelText('Bcc')).toHaveValue('personal@example.org');
+    // The typed address joins the default chip in the box; switching identity keeps the user's edit.
+    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('archive@example.org, personal@example.org');
   });
 
   it('switches the Send button to Schedule when a send-later time is set', () => {
@@ -302,7 +304,7 @@ describe('Compose', () => {
     expect(within(listbox).getByText('Alice Example')).toBeInTheDocument();
     // Picking a person inserts their directory address as a recipient.
     fireEvent.click(within(listbox).getByText('Alice Example'));
-    expect((screen.getByLabelText('To') as HTMLInputElement).value).toContain('alice@corp.example');
+    expect(recipientList(screen.getByLabelText('To'))).toContain('alice@corp.example');
   });
 
   it('expands a distribution group to its leaf recipients before send', async () => {
@@ -320,7 +322,7 @@ describe('Compose', () => {
     await within(panel).findByTestId('member-count');
     fireEvent.click(within(panel).getByRole('button', { name: /Replace group with 2 recipients/i }));
 
-    const to = (screen.getByLabelText('To') as HTMLInputElement).value;
+    const to = recipientList(screen.getByLabelText('To'));
     expect(to).toContain('bob@corp.example');
     expect(to).toContain('carol@corp.example');
     expect(to).not.toContain('team@corp.example');

@@ -4,6 +4,7 @@ import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
 import { cleanup, render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
 import { createEffect, type JSX } from 'solid-js';
+import { recipientList } from './compose/recipientTestUtils.ts';
 import { Compose } from './Compose.tsx';
 import { makeClient } from './appHarness.tsx';
 import { createAppState } from '../state/store.ts';
@@ -205,9 +206,9 @@ describe('Compose opened as a reply or a forward', () => {
   it('a reply-all opens with its recipients, subject and quote, and sends them with the thread ids', async () => {
     const { client, onClose } = await open(reply());
     expect(screen.getByRole('heading', { name: 'Reply all' })).toBeInTheDocument();
-    expect((screen.getByLabelText('To') as HTMLInputElement).value).toBe('Alice <alice@example.org>');
-    expect((screen.getByLabelText('Cc') as HTMLInputElement).value).toBe('bob@example.org');
-    expect((screen.getByLabelText('Bcc') as HTMLInputElement).value).toBe('');
+    expect(recipientList(screen.getByLabelText('To'))).toBe('Alice <alice@example.org>');
+    expect(recipientList(screen.getByLabelText('Cc'))).toBe('bob@example.org');
+    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('');
     expect((screen.getByLabelText('Subject') as HTMLInputElement).value).toBe('Re: Plans');
     const editor = await structuredComposeEditor();
     expect(editor.querySelector('blockquote')?.textContent).toBe('original text');
