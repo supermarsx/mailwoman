@@ -35,6 +35,22 @@ export function mailFeature(feature: MailFeature): boolean {
   return typeof value === 'boolean' ? value : MAIL_FEATURE_DEFAULTS[feature];
 }
 
+/** `mail.rowActionsMode`: how the per-row quick actions in the message list are presented. */
+export const ROW_ACTIONS_MODES = ['open', 'hover', 'click', 'off'] as const;
+export type RowActionsMode = (typeof ROW_ACTIONS_MODES)[number];
+export const ROW_ACTIONS_MODE_DEFAULT: RowActionsMode = 'open';
+export const ROW_ACTIONS_MODE_KEY = 'mail.rowActionsMode';
+
+export function isRowActionsMode(value: unknown): value is RowActionsMode {
+  return typeof value === 'string' && (ROW_ACTIONS_MODES as readonly string[]).includes(value);
+}
+
+/** Reactive: the administrator's lock or default, else the user's own choice; 'open' until loaded or unknown. */
+export function rowActionsMode(): RowActionsMode {
+  const value = settings()[ROW_ACTIONS_MODE_KEY]?.value;
+  return isRowActionsMode(value) ? value : ROW_ACTIONS_MODE_DEFAULT;
+}
+
 /** Tooltip for a control a feature setting turns off. */
 export function mailFeatureOffTitle(): string {
   return t('mail-feature-off');

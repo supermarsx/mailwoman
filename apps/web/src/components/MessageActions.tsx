@@ -1,7 +1,8 @@
 import { Icon, tagIconName } from './Icon.tsx';
-import { createSignal, For, Show, type JSX } from 'solid-js';
+import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
 import { t } from '../i18n/index.ts';
+import { rowActionsMode, type RowActionsMode } from '../state/mailFeatures.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './messageRow.css.ts';
 import type { Email } from '../api/jmap-types.ts';
@@ -16,6 +17,12 @@ import type { Email } from '../api/jmap-types.ts';
 // opened and closed by the "More actions" button, which is why that button is
 // a sibling of `.msg-actions` and not inside it. Opening it that way moves
 // focus to the first action; closing it hands focus back to the button.
+//
+// `mail.rowActionsMode` picks the presentation: 'open' (the above), 'hover'
+// (the same reveal, but compact: flag, archive and delete plus a More button
+// that expands pin, snooze and label; on touch it behaves like 'click'),
+// 'click' (the toggle on every pointer type, cluster or context menu opens on
+// click) and 'off' (no row controls; only the follow-up mark stays).
 // The "follow-up" button sets a reminder for 24 hours from now (`followUpAt`);
 // it does not set `$flagged`. A message with a follow-up carries a small mark
 // on its row, outside the cluster, so the state shows while the cluster is shut.
@@ -43,6 +50,23 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
   const [menu, setMenu] = createSignal<'none' | 'snooze' | 'tag'>('none');
   // Whether the "More actions" toggle has the cluster open (touch / phone).
   const [open, setOpen] = createSignal(false);
+  // 'hover' mode: whether the More button has expanded the secondary actions.
+  const [expanded, setExpanded] = createSignal(false);
+  // Where hovering cannot reveal anything, 'hover' means 'click'.
+  const [touch, setTouch] = createSignal(false);
+  onMount(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia('(hover: none), (max-width: 760px)');
+    setTouch(query.matches);
+    const listener = (): void => { setTouch(query.matches); };
+    query.addEventListener?.('change', listener);
+    onCleanup(() => { query.removeEventListener?.('change', listener); });
+  });
+  const mode = (): RowActionsMode => {
+    const configured = rowActionsMode();
+    return configured === 'hover' && touch() ? 'click' : configured;
+  };
+  const compact = () => mode() === 'hover';
 
   const id = () => props.email.id;
   const pinned = () => props.email.pinned === true;
@@ -56,6 +80,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
   function closeAll(): void {
     setMenu('none');
     setOpen(false);
+    setExpanded(false);
   }
 
   let wrapper: HTMLDivElement | undefined;
@@ -88,6 +113,9 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
     } else if (open()) {
       setOpen(false);
       toggleEl?.focus();
+    } else if (expanded()) {
+      setExpanded(false);
+      wrapper?.querySelector<HTMLElement>('[data-testid="msg-actions-expand"]')?.focus();
     } else {
       return;
     }
@@ -110,10 +138,12 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
       onKeyDown={onKeyDown}
       onFocusOut={onFocusOut}
     >
+      <Show when={mode() !== 'off'}>
       <button
         type="button"
         ref={toggleEl}
         class={`msg-more__toggle ${css.moreToggle} ${a11y.focusable}`}
+        classList={{ [css.moreToggleAlways]: mode() === 'click' }}
         aria-label={t('mail-more-actions')}
         aria-expanded={props.onMore?props.contextOpen:open()}
         aria-haspopup={props.onMore?'menu':undefined}
@@ -122,6 +152,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
       >
         <Icon name={open() ? 'close' : 'more'} />
       </button>
+      </Show>
 
       <Show when={hasFollowUp()}>
         <span
@@ -134,16 +165,36 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
         </span>
       </Show>
 
+      <Show when={mode() !== 'off'}>
       <div
         ref={clusterEl}
-        class={`msg-actions ${css.actions}`}
-        classList={{ [css.actionsOpen]: open() || menu() !== 'none' }}
+        class={`msg-actions ${css.actions} ${css.actionsFade}`}
+        classList={{
+          [css.actionsOpen]: open() || menu() !== 'none',
+          [css.actionsOnClick]: mode() === 'click',
+          [css.actionsOnClickOpen]: mode() === 'click' && (open() || menu() !== 'none'),
+        }}
+        data-mode={mode()}
         role="group"
         aria-label={t('mail-more-actions')}
       >
+        <Show when={compact()}>
+          <button
+            type="button"
+            class={`msg-actions__btn ${css.actionBtn} ${css.actionExpand} ${a11y.iconButton}`}
+            aria-label={t('mail-row-actions-expand')}
+            aria-expanded={expanded()}
+            aria-haspopup="true"
+            data-testid="msg-actions-expand"
+            onClick={() => setExpanded((v) => !v)}
+          >
+            <Icon name="more" />
+          </button>
+        </Show>
         <button
           type="button"
           class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
+          classList={{ [css.actionSecondary]: compact() && !expanded() }}
           aria-label={pinned() ? t('mail-unpin') : t('mail-pin')}
           aria-pressed={pinned()}
           onClick={() => void app.pinMessage(id(), !pinned())}
@@ -151,7 +202,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           <Icon name="pin" />
         </button>
 
-        <div class={`msg-actions__wrap ${css.menuWrap}`}>
+        <div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() }}>
           <button
             type="button"
             class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
@@ -196,7 +247,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           </Show>
         </div>
 
-        <div class={`msg-actions__wrap ${css.menuWrap}`}>
+        <div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() }}>
           <button
             type="button"
             class={`msg-actions__btn ${css.actionBtn} ${a11y.iconButton}`}
@@ -266,6 +317,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           <Icon name="delete" />
         </button>
       </div>
+      </Show>
     </div>
   );
 }

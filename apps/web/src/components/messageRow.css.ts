@@ -253,3 +253,38 @@ export const swatch = style({
   height: '0.7rem',
   borderRadius: '50%',
 });
+
+// `mail.rowActionsMode` presentations. They are declared after the base rules
+// above so that, at equal specificity, they win whatever the pointer or width.
+
+/** 'click' (and 'hover' on touch): the toggle shows on every pointer type. */
+export const moreToggleAlways = style({display: 'inline-flex', alignItems: 'center', justifyContent: 'center'});
+
+/** 'click': the cluster stays shut until the toggle opens it, then covers the row as a bar. */
+export const actionsOnClick = style({
+  display: 'none',
+  opacity: 1,
+  pointerEvents: 'auto',
+  insetBlock: 0,
+  insetInlineStart: 0,
+  insetInlineEnd: '3.25rem',
+  justifyContent: 'space-around',
+  padding: '0 0.25rem',
+  borderBlockStartWidth: 0,
+  borderInlineStartWidth: 0,
+  borderRadius: 0,
+});
+export const actionsOnClickOpen = style({display: 'flex'});
+
+/** 'hover': the actions beyond the three primary ones stay hidden until More expands them. */
+export const actionSecondary = style({display: 'none'});
+
+/** The More button of the compact bar. */
+export const actionExpand = style({display: 'inline-flex'});
+
+/** The bar's reveal is an opacity change only; none of it under reduced motion. */
+export const actionsFade = style({
+  '@media': {
+    '(prefers-reduced-motion: no-preference)': {transition: 'opacity 120ms ease-out'},
+  },
+});
