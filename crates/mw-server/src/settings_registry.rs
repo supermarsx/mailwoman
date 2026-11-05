@@ -5148,6 +5148,374 @@ pub static REGISTRY: &[SettingDef] = &[
         "data export download window"
     ),
     def!(
+        "dsr.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "data subject requests accepted"
+    ),
+    def!(
+        "dsr.type.access",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "access requests accepted"
+    ),
+    def!(
+        "dsr.type.portability",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "portability requests accepted"
+    ),
+    def!(
+        "dsr.type.rectification",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "rectification requests accepted"
+    ),
+    def!(
+        "dsr.type.erasure",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "erasure requests accepted"
+    ),
+    def!(
+        "dsr.type.restriction",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "restriction requests accepted"
+    ),
+    def!(
+        "dsr.type.objection",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "objection requests accepted"
+    ),
+    def!(
+        "dsr.type.other",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "other requests accepted"
+    ),
+    def!(
+        "dsr.approval.export",
+        Kind::Enum(&["auto", "admin"]),
+        "\"auto\"",
+        GD,
+        "privacy",
+        "who approves access and portability requests"
+    ),
+    def!(
+        "dsr.approval.erasure",
+        Kind::Enum(&["auto", "admin"]),
+        "\"admin\"",
+        GD,
+        "privacy",
+        "who approves erasure requests"
+    ),
+    def!(
+        "dsr.approval.other",
+        Kind::Enum(&["auto", "admin"]),
+        "\"admin\"",
+        GD,
+        "privacy",
+        "who handles other request types"
+    ),
+    def!(
+        "dsr.reauth.required",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "fresh password or second factor to submit or download"
+    ),
+    def!(
+        "dsr.confirmation.required",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "confirmation message to the requester's inbox"
+    ),
+    def!(
+        "dsr.identityVerification.required",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "admin identity verification step"
+    ),
+    def!(
+        "dsr.erasure.graceDays",
+        int(0, 365),
+        "14",
+        GD,
+        "privacy",
+        "days between approval and erasure"
+    ),
+    def!(
+        "dsr.sla.days",
+        int(1, 90),
+        "30",
+        GD,
+        "privacy",
+        "days allowed to answer a request"
+    ),
+    def!(
+        "dsr.sla.maxExtensionDays",
+        int(0, 90),
+        "60",
+        G,
+        "privacy",
+        "longest extension an admin can record"
+    ),
+    def!(
+        "dsr.sla.reminderDays",
+        Kind::IntList { min: 1, max: 90, max_len: 5 },
+        "[1,3,7]",
+        G,
+        "privacy",
+        "days before the due date that flag a request"
+    ),
+    def!(
+        "dsr.export.mailAllowed",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "mail may be included in an export"
+    ),
+    def!(
+        "dsr.export.mailFormat",
+        Kind::Enum(&["mbox", "eml"]),
+        "\"mbox\"",
+        GD,
+        "privacy",
+        "format of mail in an export"
+    ),
+    def!(
+        "dsr.export.include.settings",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "settings in an export"
+    ),
+    def!(
+        "dsr.export.include.identities",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "identities in an export"
+    ),
+    def!(
+        "dsr.export.include.contacts",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "contacts in an export"
+    ),
+    def!(
+        "dsr.export.include.calendars",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "calendars in an export"
+    ),
+    def!(
+        "dsr.export.include.notes",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "notes in an export"
+    ),
+    def!(
+        "dsr.export.include.rules",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "rules in an export"
+    ),
+    def!(
+        "dsr.export.include.sessions",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "sessions in an export"
+    ),
+    def!(
+        "dsr.export.include.consent",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "consent in an export"
+    ),
+    def!(
+        "dsr.export.include.audit",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "audit in an export"
+    ),
+    def!(
+        "dsr.export.maxMegabytes",
+        int(1, 2000),
+        "500",
+        G,
+        "privacy",
+        "size cap of one export"
+    ),
+    def!(
+        "dsr.export.format",
+        Kind::Enum(&["json", "jsonCsv"]),
+        "\"json\"",
+        GD,
+        "privacy",
+        "machine-readable formats in an export"
+    ),
+    def!(
+        "dsr.export.encrypt",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "exports sealed at rest"
+    ),
+    def!(
+        "dsr.download.linkMinutes",
+        int(5, 10080),
+        "1440",
+        GD,
+        "privacy",
+        "minutes a download link works"
+    ),
+    def!(
+        "dsr.download.singleUse",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "download link works once"
+    ),
+    def!(
+        "dsr.retention.completedDays",
+        int(30, 3650),
+        "365",
+        G,
+        "privacy",
+        "days a finished request is kept"
+    ),
+    def!(
+        "dsr.notify.admins",
+        Kind::Bool,
+        "true",
+        G,
+        "privacy",
+        "new requests recorded as security events for admins"
+    ),
+    def!(
+        "dsr.notify.requester",
+        Kind::Bool,
+        "true",
+        GDU,
+        "privacy",
+        "progress messages to the requester's inbox"
+    ),
+    nullable(def!(
+        "dsr.contact.name",
+        text(Text::Plain, 200),
+        "null",
+        GD,
+        "privacy",
+        "data protection contact name shown to users"
+    )),
+    nullable(def!(
+        "dsr.contact.email",
+        text(Text::Email, 254),
+        "null",
+        GD,
+        "privacy",
+        "data protection contact address shown to users"
+    )),
+    nullable(def!(
+        "dsr.contact.url",
+        text(Text::HttpsUrl, 2048),
+        "null",
+        GD,
+        "privacy",
+        "data protection contact page shown to users"
+    )),
+    def!(
+        "dsr.onBehalf.allowed",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "admins may file a request for a user"
+    ),
+    def!(
+        "dsr.rateLimit.perDay",
+        int(1, 100),
+        "5",
+        GD,
+        "privacy",
+        "requests one person may file per day"
+    ),
+    def!(
+        "dsr.legalHold.subjects",
+        Kind::StringList { max_len: 500, max_item: 254 },
+        "[]",
+        G,
+        "privacy",
+        "addresses and @domains under legal hold"
+    ),
+    def!(
+        "dsr.text.intro",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "intro text"
+    ),
+    def!(
+        "dsr.text.confirmation",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "confirmation text"
+    ),
+    def!(
+        "dsr.text.completion",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "completion text"
+    ),
+    def!(
         "logs.auth.retentionDays",
         int(1, 90),
         "7",

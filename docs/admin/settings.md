@@ -632,6 +632,236 @@ How many days of diagnostic runs are kept.
 
 How many hours a data export can be downloaded before it is deleted.
 
+<a id="dsr.enabled"></a>
+### Data requests (`dsr.enabled`)
+
+Whether people can file data requests (access, download, correction, erasure, restriction, objection) from Settings.
+
+<a id="dsr.type.access"></a>
+### Accept access requests (`dsr.type.access`)
+
+Whether the access request type is offered to users.
+
+<a id="dsr.type.portability"></a>
+### Accept download (portable copy) requests (`dsr.type.portability`)
+
+Whether the download (portable copy) request type is offered to users.
+
+<a id="dsr.type.rectification"></a>
+### Accept correction requests (`dsr.type.rectification`)
+
+Whether the correction request type is offered to users.
+
+<a id="dsr.type.erasure"></a>
+### Accept erasure requests (`dsr.type.erasure`)
+
+Whether the erasure request type is offered to users.
+
+<a id="dsr.type.restriction"></a>
+### Accept restriction requests (`dsr.type.restriction`)
+
+Whether the restriction request type is offered to users.
+
+<a id="dsr.type.objection"></a>
+### Accept objection requests (`dsr.type.objection`)
+
+Whether the objection request type is offered to users.
+
+<a id="dsr.type.other"></a>
+### Accept other requests (`dsr.type.other`)
+
+Whether the generic request type is offered to users.
+
+<a id="dsr.approval.export"></a>
+### Approval of access and download requests (`dsr.approval.export`)
+
+auto starts the export once the request is confirmed. admin waits for an administrator to approve it.
+
+<a id="dsr.approval.erasure"></a>
+### Approval of erasure requests (`dsr.approval.erasure`)
+
+auto schedules the erasure once the request is confirmed. admin waits for an administrator to approve it.
+
+<a id="dsr.approval.other"></a>
+### Handling of other requests (`dsr.approval.other`)
+
+auto marks the request as in progress once confirmed. admin waits for an administrator to approve it.
+
+<a id="dsr.reauth.required"></a>
+### Re-authentication for requests (`dsr.reauth.required`)
+
+Require a fresh password or second factor to file an export or erasure request and to create a download link.
+
+<a id="dsr.confirmation.required"></a>
+### Confirmation message (`dsr.confirmation.required`)
+
+Send a confirmation message with a code to the requester's inbox; the request does not proceed until the code is entered.
+
+<a id="dsr.identityVerification.required"></a>
+### Identity verification step (`dsr.identityVerification.required`)
+
+An administrator must record that the requester's identity was verified before the request is approved.
+
+<a id="dsr.erasure.graceDays"></a>
+### Erasure grace period (`dsr.erasure.graceDays`)
+
+Days between approval and the erasure. The requester can cancel during this time. 0 runs the erasure at the next worker pass.
+
+<a id="dsr.sla.days"></a>
+### Days to answer a request (`dsr.sla.days`)
+
+The number of days from filing to the due date shown to users and administrators.
+
+<a id="dsr.sla.maxExtensionDays"></a>
+### Longest extension (`dsr.sla.maxExtensionDays`)
+
+The most days an administrator can add to a request's due date, with a recorded reason.
+
+<a id="dsr.sla.reminderDays"></a>
+### Due date flags (`dsr.sla.reminderDays`)
+
+Days before the due date at which a request is flagged as due soon in the queue.
+
+<a id="dsr.export.mailAllowed"></a>
+### Mail in exports (`dsr.export.mailAllowed`)
+
+Allow a requester to include messages in an export. Only messages held in this server's own cache are included; mail that stays on the upstream mail server is not.
+
+<a id="dsr.export.mailFormat"></a>
+### Mail format in exports (`dsr.export.mailFormat`)
+
+mbox writes one file per folder; eml writes one file per message.
+
+<a id="dsr.export.include.settings"></a>
+### Export: settings (`dsr.export.include.settings`)
+
+Include settings in an export.
+
+<a id="dsr.export.include.identities"></a>
+### Export: identities (`dsr.export.include.identities`)
+
+Include identities in an export.
+
+<a id="dsr.export.include.contacts"></a>
+### Export: contacts (`dsr.export.include.contacts`)
+
+Include contacts in an export.
+
+<a id="dsr.export.include.calendars"></a>
+### Export: calendars (`dsr.export.include.calendars`)
+
+Include calendars in an export.
+
+<a id="dsr.export.include.notes"></a>
+### Export: notes (`dsr.export.include.notes`)
+
+Include notes in an export.
+
+<a id="dsr.export.include.rules"></a>
+### Export: filters and rules (`dsr.export.include.rules`)
+
+Include filters and rules in an export.
+
+<a id="dsr.export.include.sessions"></a>
+### Export: sessions, devices and sign-in history (`dsr.export.include.sessions`)
+
+Include sessions, devices and sign-in history in an export.
+
+<a id="dsr.export.include.consent"></a>
+### Export: consent records (`dsr.export.include.consent`)
+
+Include consent records in an export.
+
+<a id="dsr.export.include.audit"></a>
+### Export: audit entries about the person (`dsr.export.include.audit`)
+
+Include audit entries about the person in an export.
+
+<a id="dsr.export.maxMegabytes"></a>
+### Export size cap (`dsr.export.maxMegabytes`)
+
+Largest export in megabytes. Sections that would exceed it are left out and listed in the manifest.
+
+<a id="dsr.export.format"></a>
+### Export formats (`dsr.export.format`)
+
+json writes JSON files. jsonCsv also writes CSV files for list data.
+
+<a id="dsr.export.encrypt"></a>
+### Seal exports at rest (`dsr.export.encrypt`)
+
+Store built exports encrypted with the server key until they are downloaded or expire.
+
+<a id="dsr.download.linkMinutes"></a>
+### Download link lifetime (`dsr.download.linkMinutes`)
+
+Minutes a download link works after it is created. The export itself is kept for the data export download window.
+
+<a id="dsr.download.singleUse"></a>
+### Single-use download link (`dsr.download.singleUse`)
+
+A download link stops working after it has been used once.
+
+<a id="dsr.retention.completedDays"></a>
+### Finished request retention (`dsr.retention.completedDays`)
+
+Days a finished request and its trail are kept before they are deleted.
+
+<a id="dsr.notify.admins"></a>
+### Record new requests for admins (`dsr.notify.admins`)
+
+Record each new request as a security event in the audit log, where admins and alert sinks see it.
+
+<a id="dsr.notify.requester"></a>
+### Progress messages to the requester (`dsr.notify.requester`)
+
+Put a message in the requester's inbox when a request changes state.
+
+<a id="dsr.contact.name"></a>
+### Data protection contact name (`dsr.contact.name`)
+
+Name shown to users on the data requests page.
+
+<a id="dsr.contact.email"></a>
+### Data protection contact address (`dsr.contact.email`)
+
+E-mail address shown to users on the data requests page.
+
+<a id="dsr.contact.url"></a>
+### Data protection contact page (`dsr.contact.url`)
+
+Link shown to users on the data requests page.
+
+<a id="dsr.onBehalf.allowed"></a>
+### Requests on behalf of a user (`dsr.onBehalf.allowed`)
+
+Allow an administrator to file a request for a user, for example one received by post.
+
+<a id="dsr.rateLimit.perDay"></a>
+### Requests per person per day (`dsr.rateLimit.perDay`)
+
+The most requests one person can file in 24 hours.
+
+<a id="dsr.legalHold.subjects"></a>
+### Legal holds (`dsr.legalHold.subjects`)
+
+Addresses, or @domain entries, whose erasure is blocked. An erasure request for them is kept in the queue as blocked until the entry is removed.
+
+<a id="dsr.text.intro"></a>
+### Data requests introduction (`dsr.text.intro`)
+
+Text shown above the request form. One value per language.
+
+<a id="dsr.text.confirmation"></a>
+### Confirmation message text (`dsr.text.confirmation`)
+
+Text added to the confirmation message. One value per language.
+
+<a id="dsr.text.completion"></a>
+### Completion message text (`dsr.text.completion`)
+
+Text added to the message sent when a request is completed. One value per language.
+
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 

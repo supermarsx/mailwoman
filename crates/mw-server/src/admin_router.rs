@@ -118,6 +118,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::domain_routes::register(r);
     crate::domain_probe::register(r);
     crate::user_lifecycle::register(r);
+    crate::dsr::register(r);
     crate::integration_directory::register(r);
     crate::hosting_connections::register(r);
     crate::ssh_tunnels::register(r);

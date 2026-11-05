@@ -61,6 +61,8 @@ mod notification_policy;
 pub mod push;
 pub mod push_relay;
 mod client_timing;
+mod dsr;
+mod dsr_data;
 mod cookie_consent;
 mod cookie_inventory;
 mod request_history;
@@ -1398,6 +1400,7 @@ async fn build_app_inner(
         directory: directory.clone(),
     };
     jobs::start(state.clone());
+    dsr::start(state.clone());
     image_proxy::remote_content::start_capacity_monitor(state.clone());
     geoip::start(state.clone(), geoip_dir);
     let v7 = V7Extensions {
@@ -1531,6 +1534,7 @@ fn router(
         .merge(features::user_router())
         .merge(client_policy::router())
         .merge(client_timing::router())
+        .merge(dsr::router())
         .merge(cookie_consent::router())
         .merge(import_routes::import_router())
         .merge(account_drafts::router())
