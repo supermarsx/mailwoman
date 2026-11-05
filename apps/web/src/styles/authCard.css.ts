@@ -10,7 +10,7 @@
 // The theme contract has no size tokens (it is frozen), so the width is this one
 // named value; e2e/t32-h14-login-size.spec.ts reads it from this file.
 
-import { style } from '@vanilla-extract/css';
+import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 /** The widest a sign-in card gets, on both sign-in screens. */
@@ -26,3 +26,9 @@ export const authCard = style({
   width: '100%',
   maxWidth: AUTH_CARD_MAX_WIDTH,
 });
+
+// Titles, field labels and buttons are controls, not content: dragging across
+// the form must not highlight them. Inputs stay selectable, and so do errors,
+// hints and the support reference, which people copy.
+globalStyle(`${authCard} :is(h1, label, button)`, { userSelect: 'none', WebkitUserSelect: 'none' });
+globalStyle(`${authCard} :is(input, textarea)`, { userSelect: 'text', WebkitUserSelect: 'text' });
