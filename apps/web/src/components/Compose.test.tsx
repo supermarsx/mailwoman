@@ -140,6 +140,15 @@ describe('Compose', () => {
     expect(screen.getByRole('button', { name: 'Send' })).toBeInTheDocument();
   });
 
+  it('starts a reply from the identity the original was sent to and explains why', async () => {
+    const initial = { mode: 'reply' as const, to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Q', bodyHtml: '<p>Q</p>', inReplyTo: [], references: [], attachments: [], quotesDecrypted: false, received: { to: ['Work <WORK+news@corp.example>'], cc: [] } };
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} initial={initial} />, { identities: IDENTITIES });
+    await app.loadIdentities();
+    const hint = await screen.findByTestId('compose-from-hint');
+    expect(hint).toHaveTextContent('work@corp.example');
+    fireEvent.click(within(hint).getByRole('button', { name: 'Change' }));
+    expect(await screen.findByLabelText('From')).toHaveValue('id2');
+  });
   it('offers the sending identities once loaded', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.loadIdentities();

@@ -6,6 +6,7 @@ import { SettingsError, type SettingsService } from './service.ts';
 import { isTransientFailure, showFailure } from '../../components/recoverableAction.ts';
 import { t, isolate } from '../../i18n';
 import { toast } from '../../components/toast/index.ts';
+import { createConfirm } from '../../components/confirm.tsx';
 import { useEditorGuard } from './entityEditor.tsx';
 import { escapeHtml } from '../../viewers/sandbox.ts';
 import { BodyModeGroup, EditorRibbon, createEditorRibbon, type BodyMode, type EditorTab } from '../../components/compose/EditorRibbon.tsx';
@@ -46,6 +47,7 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
   const [busy, setBusy] = createSignal(false);
   const [fieldError, setFieldError] = createSignal('');
   const [imageError, setImageError] = createSignal('');
+  const removal = createConfirm();
   const guard = useEditorGuard(() => snapshot() !== baseline(), busy);
   const ribbon = createEditorRibbon();
   const [editorApi, setEditorApi] = createSignal<RichTextApi | null>(null);
@@ -101,7 +103,8 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
       setFieldError(t('settings-sig-error-name'));
       return;
     }
-    if(!props.initial&&props.reservedNames?.includes(draft().name.trim())){setFieldError(t('settings-sig-error-existing'));return;}
+    const renamed = props.initial !== undefined && draft().name.trim() !== props.initial.name;
+    if((!props.initial||renamed)&&props.reservedNames?.includes(draft().name.trim())){setFieldError(t('settings-sig-error-existing'));return;}
     setFieldError('');
     setBusy(true);
     try {
@@ -121,7 +124,7 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
       const submitted = JSON.stringify(value);
       // Retry the exact captured signature, keeping ownership and dirty guards.
       const persist = async (): Promise<void> => {
-        await props.service.upsertSignature(value);
+        if (renamed) await props.service.renameSignature(props.initial!.name, value); else await props.service.upsertSignature(value);
         if (!current()) return;
         setBaseline(submitted);
         if (snapshot() !== submitted) return;
@@ -135,6 +138,23 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
         if (isTransientFailure(cause)) showFailure({ key: 'settings-signature-save', error: cause, message: (reason) => t('settings-sig-save-failed', { reason }), retry: persist });
         else toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
       }
+    } catch (cause) {
+      if (current()) toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function remove(): Promise<void> {
+    if (busy() || !props.initial) return;
+    const name = props.initial.name;
+    if (!(await removal.ask({ title: t('settings-sig-delete-title', { name: isolate(name) }), body: t('settings-sig-delete-body'), confirmLabel: t('settings-delete'), testId: 'signature-delete-confirm' }))) return;
+    setBusy(true);
+    try {
+      await props.service.deleteSignatureAndReferences(name);
+      setBaseline(snapshot());
+      toast.success(t('settings-sig-deleted'));
+      await props.onSaved();
     } catch (cause) {
       if (current()) toast.error(cause instanceof SettingsError ? cause.message : t('settings-sig-error-generic'));
     } finally {
@@ -162,7 +182,7 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
         <fieldset disabled={busy()} class={layout.fields}>
           <label class={css.field}>
             <span class={css.label}>{t('settings-sig-name-label')}</span>
-            <input class={css.input} aria-label={t('settings-sig-name-label')} readOnly={props.initial !== undefined} value={draft().name} onInput={(e) => { settling = false; setDraft({ ...draft(), name: e.currentTarget.value }); }} />
+            <input class={css.input} aria-label={t('settings-sig-name-label')} value={draft().name} onInput={(e) => { settling = false; setDraft({ ...draft(), name: e.currentTarget.value }); }} />
           </label>
           <div inert={busy()}>
             <EditorRibbon
@@ -216,11 +236,12 @@ export function SignatureEditor(props: { initial?: Signature; seed?: Signature; 
           <div class={css.actions}>
             <button type="submit" class={css.button} disabled={busy()} data-testid="signature-save">{t('settings-save')}</button>
             <button type="button" class={css.ghost} disabled={busy()} onClick={() => void guard.leave(props.onCancel)}>{t('settings-cancel')}</button>
+            <Show when={props.initial}><button type="button" class={css.danger} disabled={busy()} onClick={() => void remove()} data-testid="signature-delete">{t('settings-delete')}</button></Show>
           </div>
         </fieldset>
       </form>
       <Show when={fieldError()}><p class={css.error} role="alert">{fieldError()}</p></Show>
-      {guard.dialog()}
+      {guard.dialog()}<removal.Dialog />
     </section>
   );
 }

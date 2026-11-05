@@ -1,6 +1,7 @@
 import { createEffect, createMemo, createSignal, Show, type JSX } from 'solid-js';
 import { normalizeTrustedDomain } from '../../components/compose/recipientTrust.ts';
 import { isReplyImagePolicy, type ReplyImagePolicy } from '../../components/compose/replyImagePolicy.ts';
+import { isReplyFromMode, type ReplyFromMode } from '../../components/compose/replyIdentity.ts';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
 import { t } from '../../i18n';
@@ -12,6 +13,7 @@ export function ComposePreferences(): JSX.Element {
   const quote = useSetting<'classic'|'outlook'>('mail.quoteStyle', 'classic', (v): v is 'classic'|'outlook' => v === 'classic' || v === 'outlook');
   const disabled = () => !quote.entry() || quote.locked() || quote.saving();
   const showFrom = useSetting<boolean>('mail.showFrom', false);
+  const replyFrom = useSetting<ReplyFromMode>('mail.replyFromMode', 'match', isReplyFromMode);
   const quick = useSetting<boolean>('mail.quickReply', false);
   const warning = useSetting<'off'|'warn'|'confirm'>('mail.externalRecipientWarning', 'warn', (v): v is 'off'|'warn'|'confirm' => v === 'off' || v === 'warn' || v === 'confirm');
   const domains = useSetting<string[]>('mail.trustedRecipientDomains', [], (v): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string'));
@@ -44,6 +46,7 @@ export function ComposePreferences(): JSX.Element {
   }
   return <section class={css.section} aria-label={t('settings-compose-title')}><h3 class={css.heading}>{t('settings-compose-title')}</h3>
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={showFrom.value()} disabled={!showFrom.entry() || showFrom.locked() || showFrom.saving()} onChange={event => void showFrom.set(event.currentTarget.checked)} aria-describedby="show-from-help"/>{t('settings-show-from')}</label><p id="show-from-help" class={css.meta}>{t('settings-show-from-help')}</p><LockNote locked={showFrom.locked()}/><Show when={showFrom.error()}><p role="alert">{showFrom.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!showFrom.entry() || showFrom.locked() || showFrom.saving()} onClick={() => void showFrom.reset()}>{t('reader-inherit')}</button></div></div>
+    <div class={css.field}><label class={css.label} for="reply-from-mode">{t('settings-reply-from')}</label><select id="reply-from-mode" class={css.select} style={{'max-inline-size':'24rem'}} value={replyFrom.value()} disabled={!replyFrom.entry() || replyFrom.locked() || replyFrom.saving()} onChange={event => { const next = event.currentTarget.value; if (isReplyFromMode(next)) void replyFrom.set(next); }} aria-describedby="reply-from-help"><option value="match">{t('settings-reply-from-match')}</option><option value="default">{t('settings-reply-from-default')}</option><option value="ask">{t('settings-reply-from-ask')}</option><option value="keep">{t('settings-reply-from-keep')}</option></select><p id="reply-from-help" class={css.meta}>{t('settings-reply-from-help')}</p><LockNote locked={replyFrom.locked()}/><Show when={replyFrom.error()}><p role="alert">{replyFrom.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!replyFrom.entry() || replyFrom.locked() || replyFrom.saving()} onClick={() => void replyFrom.reset()}>{t('reader-inherit')}</button></div></div>
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={quick.value()} disabled={!quick.entry() || quick.locked() || quick.saving()} onChange={event => void quick.set(event.currentTarget.checked)} aria-describedby="quick-reply-help"/>{t('mail-quick-reply')}</label><p id="quick-reply-help" class={css.meta}>{t('mail-quick-reply-help')}</p><LockNote locked={quick.locked()}/><Show when={quick.error()}><p role="alert">{quick.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!quick.entry() || quick.locked() || quick.saving()} onClick={() => void quick.reset()}>{t('reader-inherit')}</button></div></div>
     <div class={css.field}><label for="quote-style">{t('settings-quote-style')}</label><select id="quote-style" class={css.select} value={quote.value()} disabled={disabled()} onChange={event => void quote.set(event.currentTarget.value as 'classic'|'outlook')} aria-describedby="quote-style-help">
       <option value="classic">{t('settings-quote-classic')}</option><option value="outlook">{t('settings-quote-outlook')}</option>

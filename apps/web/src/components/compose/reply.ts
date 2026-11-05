@@ -53,6 +53,8 @@ export interface ComposeInitial {
   /** The message this one answers or forwards, and the keyword it gets once
    *  the send has been accepted (`$answered` / `$forwarded`, RFC 8621 §4.1.1). */
   source?: { emailId: string; keyword: '$answered' | '$forwarded' };
+  /** The original's recipients, used to pick the identity a reply is sent from. */
+  received?: { to: string[]; cc: string[] };
   /** Originals attached by a bulk forward. Mark only after accepted submission. */
   sources?: { emailId: string; keyword: '$answered' | '$forwarded' }[];
 }

@@ -252,6 +252,33 @@ export class SettingsService {
     );
   }
 
+  /** Re-point (or, with `to` undefined, clear) every identity assignment of a signature name. */
+  private async rewriteSignatureReferences(from: string, to: string | undefined): Promise<void> {
+    for (const identity of await this.listIdentities()) {
+      if (identity.signatureName !== from && identity.replySignatureName !== from) continue;
+      const { signatureName, replySignatureName, ...rest } = identity;
+      const next: Identity = {
+        ...rest,
+        ...(signatureName === from ? (to === undefined ? {} : { signatureName: to }) : signatureName !== undefined ? { signatureName } : {}),
+        ...(replySignatureName === from ? (to === undefined ? {} : { replySignatureName: to }) : replySignatureName !== undefined ? { replySignatureName } : {}),
+      };
+      await this.upsertIdentity(next);
+    }
+  }
+
+  /** Rename: store under the new name, move identity assignments, then drop the old name. */
+  async renameSignature(from: string, sig: Signature): Promise<void> {
+    await this.upsertSignature(sig);
+    await this.rewriteSignatureReferences(from, sig.name);
+    await this.deleteSignature(from);
+  }
+
+  /** Delete a signature and clear the identity assignments that pointed at it (they fall back to the account/new-message signature). */
+  async deleteSignatureAndReferences(name: string): Promise<void> {
+    await this.rewriteSignatureReferences(name, undefined);
+    await this.deleteSignature(name);
+  }
+
   // ── Identities ───────────────────────────────────────────────────────────
 
   async listIdentities(): Promise<Identity[]> {

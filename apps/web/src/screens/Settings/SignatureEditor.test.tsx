@@ -247,3 +247,20 @@ describe('the composer editor in the signature editor (t49)',()=>{
   expect(await screen.findByRole('alert')).toHaveTextContent('over 2 MiB');expect(save).toHaveBeenCalledTimes(1);
  });
 });
+
+it('renames a stored signature in place through renameSignature',async()=>{
+  const rename=vi.fn(async()=>{}),upsert=vi.fn(async()=>{});
+  render(()=><SignatureEditor initial={{name:'Old',body:'Hi',format:'plain',isDefault:false}} reservedNames={['Old','Taken']} service={{renameSignature:rename,upsertSignature:upsert} as unknown as SettingsService} onSaved={()=>{}} onCancel={()=>{}}/>);
+  const name=screen.getByLabelText('Name');expect(name).not.toHaveAttribute('readonly');
+  fireEvent.input(name,{target:{value:'Taken'}});fireEvent.click(screen.getByTestId('signature-save'));
+  await waitFor(()=>expect(screen.getByRole('alert')).toBeVisible());expect(rename).not.toHaveBeenCalled();
+  fireEvent.input(name,{target:{value:'New'}});fireEvent.click(screen.getByTestId('signature-save'));
+  await waitFor(()=>expect(rename).toHaveBeenCalledWith('Old',expect.objectContaining({name:'New'})));expect(upsert).not.toHaveBeenCalled();
+});
+it('deletes from the edit page after confirmation and clears identity references',async()=>{
+  const del=vi.fn(async()=>{}),done=vi.fn();
+  render(()=><SignatureEditor initial={{name:'Old',body:'Hi',format:'plain',isDefault:false}} service={{deleteSignatureAndReferences:del} as unknown as SettingsService} onSaved={done} onCancel={()=>{}}/>);
+  fireEvent.click(screen.getByTestId('signature-delete'));
+  await waitFor(()=>expect(screen.getAllByRole('button',{name:'Delete'})).toHaveLength(2));fireEvent.click(screen.getAllByRole('button',{name:'Delete'}).at(-1)!);
+  await waitFor(()=>expect(del).toHaveBeenCalledWith('Old'));await waitFor(()=>expect(done).toHaveBeenCalled());
+});

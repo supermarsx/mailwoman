@@ -82,6 +82,7 @@ import {
 } from '../modules/contacts/autocomplete.ts';
 import { ComposeCrypto, cryptoDraftSource, type ComposeCryptoState } from './compose-crypto.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
+import { chooseReplyIdentity, isReplyFromMode, type ReplyFromMode, type ReplyIdentityChoice } from './compose/replyIdentity.ts';
 import {
   assertSigningKeyOwner,
   clearSignBody,
@@ -248,6 +249,11 @@ export function Compose(props: {
     return initialIdentityLoad;
   }
   const [fromOverride, setFromOverride] = createSignal('');
+  // mail.replyFromMode: a reply or forward starts from the identity the original was sent to.
+  const [autoPick, setAutoPick] = createSignal<ReplyIdentityChoice | null>(null);
+  let identityTouched = false;
+  let autoPicked = false;
+  const pickIdentity = (value: string): void => { identityTouched = true; setAutoPick(null); setIdentityId(value); };
   const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
   const [customFrom, setCustomFrom] = createSignal(false);
   const fromHelpId = createUniqueId();
@@ -579,6 +585,18 @@ export function Compose(props: {
     }
   }
 
+  createEffect(() => {
+    const received = initial?.received;
+    const list = app.identities();
+    if (autoPicked || identityTouched || !received || initial?.mode === 'new' || list.length === 0 || identityId() !== '' || customFrom()) return;
+    const configured = settings()['mail.replyFromMode']?.value;
+    const mode: ReplyFromMode = isReplyFromMode(configured) ? configured : 'match';
+    autoPicked = true;
+    const choice = chooseReplyIdentity(list, received, mode);
+    if (choice.identityId === null) return;
+    setIdentityId(choice.identityId);
+    setAutoPick(choice);
+  });
   const identity = createMemo(() => app.identities().find((i) => i.id === identityId()) ?? null);
   createEffect(on(()=>[identity()?.id,identity()?.autoBcc,identity()?.pgpKeyId,customFrom(),fromOverride()] as const,()=>{
     signingGeneration+=1;dropSigningSession();
@@ -741,7 +759,7 @@ export function Compose(props: {
     setRemoteRevision(d.serverRevision??null);
     props.onDraftIdChange?.(draftId);
     setExpanded(true);
-    setIdentityId(d.identityId ?? '');
+    identityTouched = true;setAutoPick(null);setIdentityId(d.identityId ?? '');
     setFromOverride(d.fromOverride ?? '');
     setImportance(d.importance ?? 'normal');
     setCustomFrom(Boolean(d.fromOverride));
@@ -1546,7 +1564,7 @@ export function Compose(props: {
         <Show when={!compact()}>
           <Show when={showFrom()}><label class="field compose__from">
             <span>{t('mail-compose-from')}</span>
-            <select value={customFrom() ? "__custom_from__" : identityId()} onChange={(e) => { const value=e.currentTarget.value; setCustomFrom(value === "__custom_from__"); if(value !== "__custom_from__") setIdentityId(value); }}>
+            <select value={customFrom() ? "__custom_from__" : identityId()} onChange={(e) => { const value=e.currentTarget.value; setCustomFrom(value === "__custom_from__"); if(value !== "__custom_from__") pickIdentity(value); }}>
               <option value="">{isolate(app.me()?.username ?? t('mail-compose-from-default'))}</option>
               <option value="__custom_from__">{t('mail-compose-from-custom')}</option>
               <For each={app.identities()}>
@@ -1559,6 +1577,13 @@ export function Compose(props: {
             </select>
           </label>
           </Show>
+          <Show when={autoPick()}>{(choice) => <p class="compose__from-hint" role="status" data-testid="compose-from-hint">
+            {t(`mail-compose-from-why-${choice().reason}`, { address: isolate(choice().address ?? ''), identity: isolate(identity()?.email ?? '') })}{' '}
+            <button type="button" class="btn btn--ghost" onClick={() => setFromVisibleOverride(true)}>{t('mail-compose-from-change')}</button>
+            <Show when={choice().alternatives.length > 0 && choice().reason === 'ambiguous'}>
+              {' '}<For each={choice().alternatives}>{(alt) => <button type="button" class="btn btn--ghost" onClick={() => pickIdentity(alt.id)}>{isolate(alt.email)}</button>}</For>
+            </Show>
+          </p>}</Show>
           <Show when={customFrom()}><label class="field compose__from"><span>{t('mail-compose-from-alias')}</span><input type="text" inputMode="email" required maxlength={320} autocomplete="off" autocapitalize="off" spellcheck={false} value={fromOverride()} onInput={event=>setFromOverride(event.currentTarget.value)} onKeyDown={event=>{
             if(event.key!=='Enter'||event.isComposing||event.keyCode===229)return;
             event.preventDefault();event.stopPropagation();
