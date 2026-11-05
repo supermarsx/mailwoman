@@ -7,7 +7,9 @@ import { formatBytes, t } from '../../../i18n';
 import { adminRequest } from '../shell/adminApi.ts';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import { AdminSubsection } from '../AdminSubsection.tsx';
-import { BYTE_UNITS, toBytes, type ByteUnit } from './rules.ts';
+import { BYTE_UNITS, splitBytes, toBytes, type ByteUnit } from './rules.ts';
+import { DEFAULT_MIME, detectMime } from './mimeTypes.ts';
+import { MimeCombobox } from './MimeCombobox.tsx';
 import * as css from './attachments.css.ts';
 
 export interface SimulationResult {
@@ -19,17 +21,35 @@ export interface SimulateRequest { filename: string; mime: string; size: number 
 export const simulateAttachment = async (body: SimulateRequest): Promise<SimulationResult> =>
   (await adminRequest<SimulationResult>('/attachments/simulate', { method: 'POST', body })).data;
 
+const MIME_KEY = 'mailwoman.admin.attachments.simulatorMime';
+const readMime = (): string => {
+  try { return sessionStorage.getItem(MIME_KEY) || DEFAULT_MIME; } catch { return DEFAULT_MIME; }
+};
+const rememberMime = (value: string): void => {
+  try { sessionStorage.setItem(MIME_KEY, value); } catch { /* remembering is a convenience only */ }
+};
+
 const REASONS = ['downloadsDisabled', 'attachmentTooLarge', 'attachmentBlocked', 'attachmentNotAllowed', 'attachmentContainerRestricted'];
 
 export function AttachmentSimulator(props: { simulate?: typeof simulateAttachment }): JSX.Element {
   const run = props.simulate ?? simulateAttachment;
   const [filename, setFilename] = createSignal('');
-  const [mime, setMime] = createSignal('application/octet-stream');
+  const [mime, setMime] = createSignal(readMime());
   const [amount, setAmount] = createSignal('0');
   const [unit, setUnit] = createSignal<ByteUnit>('KiB');
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [result, setResult] = createSignal<(SimulationResult & { size: number }) | null>(null);
+
+  // Only the file's name, size and type are read; its content never is.
+  function pick(file: File | undefined): void {
+    if (!file) return;
+    setFilename(file.name);
+    setMime(detectMime(file));
+    const split = splitBytes(file.size);
+    setAmount(String(split.amount));
+    setUnit(split.unit);
+  }
 
   async function submit(e: Event): Promise<void> {
     e.preventDefault();
@@ -39,6 +59,7 @@ export function AttachmentSimulator(props: { simulate?: typeof simulateAttachmen
       return;
     }
     const size = toBytes(n, unit());
+    rememberMime(mime().trim());
     setBusy(true);
     setError(null);
     try {
@@ -55,21 +76,22 @@ export function AttachmentSimulator(props: { simulate?: typeof simulateAttachmen
   return (
     <AdminSubsection title={t('admin-attachments-sim-title')} description={t('admin-attachments-sim-help')}>
       <form class={css.simulator} onSubmit={(e) => void submit(e)} noValidate>
-        <label>{t('admin-attachments-sim-filename')}
+        <label class={css.simFile}>{t('admin-attachments-sim-pick')}
+          <input type="file" onChange={(e) => { pick(e.currentTarget.files?.[0]); e.currentTarget.value = ''; }} />
+        </label>
+        <label class={css.simName}>{t('admin-attachments-sim-filename')}
           <input type="text" value={filename()} autocapitalize="none" spellcheck={false} onInput={(e) => setFilename(e.currentTarget.value)} />
         </label>
-        <label>{t('admin-attachments-sim-mime')}
-          <input type="text" value={mime()} autocapitalize="none" spellcheck={false} onInput={(e) => setMime(e.currentTarget.value)} />
-        </label>
-        <label>{t('admin-attachments-sim-size')}
+        <div class={css.simMime}><MimeCombobox value={mime()} onChange={setMime} /></div>
+        <label class={css.simSize}>{t('admin-attachments-sim-size')}
           <input type="text" inputmode="decimal" value={amount()} onInput={(e) => setAmount(e.currentTarget.value)} />
         </label>
-        <label>{t('admin-attachments-bytes-unit')}
+        <label class={css.simUnit}>{t('admin-attachments-bytes-unit')}
           <select value={unit()} onChange={(e) => setUnit(e.currentTarget.value as ByteUnit)}>
             <For each={BYTE_UNITS}>{(u) => <option value={u} selected={u === unit()}>{u}</option>}</For>
           </select>
         </label>
-        <button type="submit" class="btn btn--primary" aria-busy={busy()} disabled={busy()}>{t('admin-attachments-sim-run')}</button>
+        <button type="submit" class={`btn btn--primary ${css.simRun}`} aria-busy={busy()} disabled={busy()}>{t('admin-attachments-sim-run')}</button>
       </form>
       <Show when={error()}>{(message) => <p role="alert">{message()}</p>}</Show>
       <div aria-live="polite">

@@ -111,6 +111,41 @@ describe('attachment policy, edited in place', () => {
     expect(simulate).toHaveBeenCalledWith({ filename: 'setup.EXE', mime: 'application/octet-stream', size: 2048 });
   });
 
+  it('offers common MIME types in a grouped combobox and also accepts a custom one', async () => {
+    const simulate = vi.fn(async () => ({ decision: { downloadAllowed: true, previewAllowed: false, warning: false, reason: null }, matched: [] }));
+    renderInShell(() => <AdminAttachmentPolicy load={load} simulate={simulate} />, { route: route('test') });
+    const combo = await screen.findByRole('combobox', { name: 'MIME type' });
+    fireEvent.focus(combo);
+    fireEvent.input(combo, { target: { value: 'pdf' } });
+    fireEvent.keyDown(combo, { key: 'ArrowDown' });
+    fireEvent.keyDown(combo, { key: 'Enter' });
+    expect(combo).toHaveValue('application/pdf');
+    fireEvent.input(combo, { target: { value: 'application/x-custom' } });
+    expect(screen.queryByText(/not a type\/subtype/)).not.toBeInTheDocument();
+    fireEvent.input(combo, { target: { value: 'notamime' } });
+    expect(screen.getByText(/not a type\/subtype/)).toBeInTheDocument();
+    expect(combo).toHaveAttribute('aria-invalid', 'true');
+    fireEvent.input(screen.getByLabelText('File name'), { target: { value: 'a.bin' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    await waitFor(() => expect(simulate).toHaveBeenCalledWith({ filename: 'a.bin', mime: 'notamime', size: 0 }));
+  });
+
+  it('fills name, type and size from a chosen file and remembers the type for the session', async () => {
+    const simulate = vi.fn(async () => ({ decision: { downloadAllowed: true, previewAllowed: false, warning: false, reason: null }, matched: [] }));
+    const view = renderInShell(() => <AdminAttachmentPolicy load={load} simulate={simulate} />, { route: route('test') });
+    const picker = (await screen.findByLabelText('Fill in from a file (optional)')) as HTMLInputElement;
+    const file = new File([new Uint8Array(2048)], 'report.docx', { type: '' });
+    fireEvent.change(picker, { target: { files: [file] } });
+    expect(screen.getByLabelText('File name')).toHaveValue('report.docx');
+    expect(screen.getByRole('combobox', { name: 'MIME type' })).toHaveValue('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    await waitFor(() => expect(simulate).toHaveBeenCalledTimes(1));
+    view.unmount();
+    renderInShell(() => <AdminAttachmentPolicy load={load} simulate={simulate} />, { route: route('test') });
+    expect(await screen.findByRole('combobox', { name: 'MIME type' })).toHaveValue('application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    sessionStorage.clear();
+  });
+
   it('asks for a file name before testing', async () => {
     const simulate = vi.fn();
     renderInShell(() => <AdminAttachmentPolicy load={load} simulate={simulate} />, { route: route('test') });

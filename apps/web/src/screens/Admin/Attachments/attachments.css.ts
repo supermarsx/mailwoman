@@ -18,5 +18,15 @@ export const warning = style({ margin: 0, overflowWrap: 'anywhere' });
 export const muted = style({ margin: 0, color: vars.color.textDim, fontSize: '0.875rem' });
 export const readonlyLabel = style({ color: vars.color.textDim });
 export const byteSize = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[3], alignItems: 'center' });
-export const simulator = style({ display: 'grid', gap: vars.space[4], gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 14rem), 1fr))', alignItems: 'end' });
+export const simulator = style({
+  display: 'grid', gap: `${vars.space[3]} ${vars.space[4]}`, alignItems: 'start', maxInlineSize: '44rem',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 12rem), 1fr))',
+});
+const simLabel = { display: 'flex', flexDirection: 'column', gap: vars.space[2], minInlineSize: 0 } as const;
+export const simFile = style({ ...simLabel, gridColumn: '1 / -1' });
+export const simName = style({ ...simLabel });
+export const simMime = style({ minInlineSize: 0 });
+export const simSize = style({ ...simLabel });
+export const simUnit = style({ ...simLabel });
+export const simRun = style({ justifySelf: 'start', alignSelf: 'end' });
 export const result = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2], padding: vars.space[4], border: `${vars.border.hair} solid ${vars.color.border}` });
