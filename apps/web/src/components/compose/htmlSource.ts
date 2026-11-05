@@ -40,6 +40,45 @@ function ownedCss(value: string, owned: ReadonlySet<string>): string {
   });
 }
 
+/** Schemes that reach the local machine or browser internals. The Rust policy
+ * already refuses them; this is the second line for every compose path, since
+ * Firefox reports each such reference as "may not load or link to file:///". */
+const LOCAL_SCHEME = /^(?:file|filesystem|ms-help|ms-its|mk|res|chrome|resource|view-source|javascript|vbscript|jar|wyciwyg|moz-extension|chrome-extension)$/i;
+const URL_ATTRIBUTES = ['src', 'srcset', 'href', 'background', 'poster', 'action', 'formaction', 'xlink:href', 'data', 'longdesc', 'usemap'];
+
+/** True when `value` names a scheme that must not appear in outgoing mail. */
+export function localUrl(value: string): boolean {
+  const compact = value.replace(/[\u0000-\u0020\u007f]+/g, '');
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(compact)?.[1];
+  if (scheme === undefined) return false;
+  if (LOCAL_SCHEME.test(scheme)) return true;
+  if (/^about$/i.test(scheme)) return !/^about:blank$/i.test(compact);
+  if (/^data$/i.test(scheme)) return !/^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(compact);
+  return false;
+}
+
+/** Remove local-scheme references from `body`. Dead images lose the attribute
+ * and keep their alt text; links keep their text and lose the href. */
+export function stripLocalUrls(body: HTMLElement): void {
+  for (const element of Array.from(body.querySelectorAll('*'))) {
+    for (const name of URL_ATTRIBUTES) {
+      const value = element.getAttribute(name);
+      if (value === null) continue;
+      const candidates = name === 'srcset' ? value.split(',').map((part) => part.trim().split(/\s+/)[0] ?? '') : [value];
+      if (candidates.some(localUrl)) element.removeAttribute(name);
+    }
+    const style = element.getAttribute('style');
+    if (style !== null && /(?:file|ms-help|ms-its|mk|res|chrome|resource|view-source|javascript|vbscript)\s*:/i.test(style)) {
+      element.setAttribute('style', style.replace(/url\(\s*(['"]?)\s*(?:file|ms-help|ms-its|mk|res|chrome|resource|view-source|javascript|vbscript)\s*:[^)]*\)/gi, 'none'));
+    }
+    if (element.tagName === 'STYLE') {
+      element.textContent = (element.textContent ?? '')
+        .replace(/@import[^;]*(?:;|$)/gi, '')
+        .replace(/url\(\s*(['"]?)\s*(?:file|ms-help|ms-its|mk|res|chrome|resource|view-source|javascript|vbscript)\s*:[^)]*\)/gi, 'none');
+    }
+  }
+}
+
 function collapseContainer(body: HTMLElement): void {
   // The Rust sanitizer emits a fresh stylesheet wrapper. Reuse an existing
   // root wrapper when normalizing its own output, preserving its presentation.
@@ -83,6 +122,7 @@ export async function normalizeHtmlSource(html: string, owned: ReadonlySet<strin
     if (style !== null && element instanceof HTMLElement) element.style.cssText = ownedCss(style, owned);
     if (element.tagName === 'STYLE') element.textContent = ownedCss(element.textContent ?? '', owned);
   }
+  stripLocalUrls(body);
   collapseContainer(body);
   return { html: body.innerHTML, text: plainText(body) };
 }

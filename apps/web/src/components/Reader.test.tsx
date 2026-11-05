@@ -210,16 +210,15 @@ describe('Reader: Reply, Reply all, Forward', () => {
       to: 'Alice Example <alice@example.org>',
       cc: '',
       subject: 'Re: Plans',
-      bodyHtml:
-        `<p></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p>` +
-        '<blockquote><div><p>See you <strong>there</strong>.</p><p>Second paragraph</p></div></blockquote>',
+      bodyHtml: expect.stringMatching(new RegExp(`^<p></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p><blockquote style="[^"]*max-width:100%"><div class="mw-quote-body"><p>See you <b>there</b>.</p><p>Second paragraph</p></div></blockquote>$`)),
       bodyText:
         `\n\nOn ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:\n` +
-        '> See you there.\n>\n> Second paragraph',
+        '> See you there.\n> Second paragraph',
       inReplyTo: ['orig@example.org'],
       references: ['root@example.org', 'orig@example.org'],
       attachments: [],
       quotesDecrypted: false,
+      received: expect.anything(),
       imageOffer: expect.objectContaining({ domain: 'example.org' }),
       source: { emailId: 'm1', keyword: '$answered' },
       sourceMailboxId: 'inbox',
@@ -333,7 +332,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       to: '',
       cc: '',
       subject: 'Fwd: Plans',
-      bodyHtml: `<p></p><p>${header}</p><div><p>See you <strong>there</strong>.</p><p>Second paragraph</p></div>`,
+      bodyHtml: `<p></p><p>${header}</p><div class="mw-quote-body"><p>See you <b>there</b>.</p><p>Second paragraph</p></div>`,
       bodyText:
         '\n\n---------- Forwarded message ----------\n' +
         'From: Alice Example <alice@example.org>\n' +
@@ -341,7 +340,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
         'Subject: Fwd: Plans\n' +
         'To: Me <me@example.org>, Bob <bob@example.org>\n' +
         'Cc: carol@example.org, alias@corp.example\n\n' +
-        'See you there.\n\nSecond paragraph',
+        'See you there.\nSecond paragraph',
       inReplyTo: [],
       references: [],
       attachments: [
@@ -350,6 +349,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       ],
       // The original holds an image and the default policy asks first.
       imageOffer: expect.objectContaining({ domain: 'example.org', canTrust: true }),
+      received: expect.anything(),
       quotesDecrypted: false,
       source: { emailId: 'm1', keyword: '$forwarded' },
     });
@@ -385,7 +385,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
     expect(initial.quotesDecrypted).toBe(true);
     expect(initial.bodyHtml).toBe(
       `<p></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p>` +
-        '<blockquote><p>STUB decrypted body</p></blockquote>',
+        '<blockquote style="margin:0 0 0 .8em;padding:0 0 0 1em;border-left:2px solid #c8c8c8;max-width:100%"><p>STUB decrypted body</p></blockquote>',
     );
     expect(initial.bodyHtml).not.toContain('BEGIN PGP MESSAGE');
   });

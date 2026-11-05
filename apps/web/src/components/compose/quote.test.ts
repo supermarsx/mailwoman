@@ -1,6 +1,13 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { beforeAll } from 'vitest';
+import { initSync } from '../../wasm/mw-sanitize/mw_sanitize.js';
+beforeAll(() => {
+  initSync({ module: readFileSync(resolve(process.cwd(), 'src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) });
+});
 import { describe, it, expect } from 'vitest';
 import { quoteForForward, quoteForReply, quoteForOutlook } from './quote.ts';
-import { docFromHtml, htmlFromDoc, inertBody } from './richtext.ts';
+import { inertBody } from './richtext.ts';
 
 /** A message body holding everything a quote must not carry out. The quote is
  *  built from sanitised HTML in production; this is deliberately NOT sanitised,
@@ -24,29 +31,29 @@ const HOSTILE = [
   '<blockquote>earlier quote</blockquote>',
   '</body></html>',
 ].join('');
-const SAFE_TABLE='<table><tbody><tr><td colspan="1" rowspan="1"><p>cell text</p></td></tr></tbody></table>';
+const BQ='<blockquote style="margin:0 0 0 .8em;padding:0 0 0 1em;border-left:2px solid #c8c8c8;max-width:100%">';
 
 describe('the quote of a hostile original', () => {
-  it('retains inert text, bold, one http link, a bounded table and a blockquote', async () => {
-    const quote = await quoteForReply({ html: HOSTILE }, 'On 1 Jan 2026, Mallory wrote:');
-    expect(quote.html).toBe(
-      '<p></p><p>On 1 Jan 2026, Mallory wrote:</p><blockquote>' +
-        '<p>Hello <strong>bold</strong> js-link <a href="https://ok.example/page">ok-link</a> data-link</p>' +
-        SAFE_TABLE +
-        '<blockquote><p>earlier quote</p></blockquote>' +
-        '</blockquote>',
-    );
+  it('keeps the original structure: bold, one http link, the table and the nested quote', async () => {
+    const { html } = await quoteForReply({ html: HOSTILE }, 'On 1 Jan 2026, Mallory wrote:');
+    const body = inertBody(html);
+    expect(html.startsWith('<p></p><p>On 1 Jan 2026, Mallory wrote:</p>' + BQ)).toBe(true);
+    expect(body.querySelectorAll('table')).toHaveLength(1);
+    expect(body.querySelector('td')?.textContent).toBe('cell text');
+    expect(body.querySelectorAll('b')).toHaveLength(1);
+    expect(body.querySelector('blockquote blockquote')?.textContent).toBe('earlier quote');
+    expect(body.querySelectorAll('a[href]')).toHaveLength(1);
+    expect(body.querySelector('table')?.getAttribute('style')).toMatch(/max-width:\s*100%/);
   });
 
   it('holds no element, attribute or URL that loads or runs anything', async () => {
     const { html } = await quoteForReply({ html: HOSTILE }, 'A wrote:');
     const body = inertBody(html);
     const tags = new Set(Array.from(body.querySelectorAll('*')).map((el) => el.tagName.toLowerCase()));
-    expect([...tags].sort()).toEqual(['a', 'blockquote', 'p', 'strong','table','tbody','td','tr']);
-    const attrs = Array.from(body.querySelectorAll('*')).flatMap((el) =>
-      Array.from(el.attributes).map((a) => `${el.tagName.toLowerCase()}[${a.name}=${a.value}]`),
-    );
-    expect(attrs).toEqual(['a[href=https://ok.example/page]','td[colspan=1]','td[rowspan=1]']);
+    expect([...tags].sort()).toEqual(['a', 'b', 'blockquote', 'div', 'p', 'table', 'tbody', 'td', 'tr']);
+    const names = new Set(Array.from(body.querySelectorAll('*')).flatMap((el) => Array.from(el.attributes).map((a) => a.name)));
+    expect([...names].sort()).toEqual(['class', 'href', 'id', 'rel', 'style']);
+    expect(Array.from(body.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(['https://ok.example/page']);
     expect(html).not.toMatch(/evil\.example|tracker\.example|javascript:|data:|cid:|url\(|<img|<script|<style|<link|<iframe|\son\w+=/i);
     // Content of the removed elements is gone with them, not left behind as text.
     expect(html).not.toMatch(/S-SCRIPT|S-STYLE|T-TITLE|F-FALLBACK|O-FALLBACK|S-SVG|I-VALUE|B-LABEL|V-FALLBACK/);
@@ -55,13 +62,8 @@ describe('the quote of a hostile original', () => {
   it('the plain-text form holds the same text behind quote markers', async () => {
     const { text } = await quoteForReply({ html: HOSTILE }, 'A wrote:');
     expect(text).toBe(
-      '\n\nA wrote:\n> Hello bold js-link ok-link data-link\n>\n> cell text\n>\n> earlier quote',
+      '\n\nA wrote:\n> Hello bold js-link ok-link data-link\n> cell text\n> earlier quote',
     );
-  });
-
-  it('survives the composer: parsing the quote through the schema again changes nothing', async () => {
-    const { html } = await quoteForReply({ html: HOSTILE }, 'A wrote:');
-    expect(htmlFromDoc(docFromHtml(html))).toBe(html);
   });
 
   it('a forward carries the same reduced body under an escaped header block', async () => {
@@ -70,14 +72,10 @@ describe('the quote of a hostile original', () => {
       'From: Mallory <img src=x onerror=steal()> <m@evil.example>',
       'Subject: <script>alert(1)</script>',
     ]);
-    expect(quote.html).toBe(
-      '<p></p><p>---------- Forwarded message ----------<br>' +
+    expect(quote.html.startsWith('<p></p><p>---------- Forwarded message ----------<br>' +
         'From: Mallory &lt;img src=x onerror=steal()&gt; &lt;m@evil.example&gt;<br>' +
-        'Subject: &lt;script&gt;alert(1)&lt;/script&gt;</p>' +
-        '<p>Hello <strong>bold</strong> js-link <a href="https://ok.example/page">ok-link</a> data-link</p>' +
-        SAFE_TABLE +
-        '<blockquote><p>earlier quote</p></blockquote>',
-    );
+        'Subject: &lt;script&gt;alert(1)&lt;/script&gt;</p><div class="mw-quote-body">')).toBe(true);
+    expect(inertBody(quote.html).querySelectorAll('table')).toHaveLength(1);
     expect(inertBody(quote.html).querySelectorAll('img, script').length).toBe(0);
   });
 });
@@ -85,13 +83,13 @@ describe('the quote of a hostile original', () => {
 describe('quote sources', () => {
   it('escapes the attribution line', async () => {
     const { html } = await quoteForReply({ html: '<p>x</p>' }, 'On <b>today</b>, "A" & B wrote:');
-    expect(html).toBe('<p></p><p>On &lt;b&gt;today&lt;/b&gt;, "A" &amp; B wrote:</p><blockquote><p>x</p></blockquote>');
+    expect(html).toBe('<p></p><p>On &lt;b&gt;today&lt;/b&gt;, "A" &amp; B wrote:</p>'+BQ+'<p>x</p></blockquote>');
   });
 
   it('quotes plain text as text: markup in it is not parsed', async () => {
     const quote = await quoteForReply({ text: 'line one\n<img src=http://t.example/p.gif>\n\nline four' }, 'A wrote:');
     expect(quote.html).toBe(
-      '<p></p><p>A wrote:</p><blockquote><p>line one<br>&lt;img src=http://t.example/p.gif&gt;<br><br>line four</p></blockquote>',
+      '<p></p><p>A wrote:</p>'+BQ+'<p>line one<br>&lt;img src=http://t.example/p.gif&gt;<br><br>line four</p></blockquote>',
     );
     expect(quote.text).toBe('\n\nA wrote:\n> line one\n> <img src=http://t.example/p.gif>\n>\n> line four');
   });

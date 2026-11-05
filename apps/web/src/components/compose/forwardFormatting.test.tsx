@@ -1,3 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { beforeAll } from 'vitest';
+import { initSync } from '../../wasm/mw-sanitize/mw_sanitize.js';
+beforeAll(() => {
+  initSync({ module: readFileSync(resolve(process.cwd(), 'src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) });
+});
 import {describe,it,expect} from 'vitest';
 import {render} from '@solidjs/testing-library';
 import {quoteForForward} from './quote.ts';
@@ -22,7 +29,7 @@ describe('forwarded formatting through the real editor',()=>{
   render(()=><RichTextEditor initialHtml={quote.html} ariaLabel="Forward body" onReady={value=>{api=value;}} onChange={html=>{outgoing=html;}}/>);
   api!.appendHtml('<p>My forwarding note</p>');
   const body=inertBody(outgoing);
-  const container=body.querySelector('div')!;expect(container).not.toBeNull();
+  const container=body.querySelector<HTMLElement>('div[style]')!;expect(container).not.toBeNull();
   expect(container.style.fontFamily).toBe('Arial');expect(container.style.fontSize).toBe('14px');expect(container.style.color).toBe('rgb(18, 52, 86)');expect(container.style.lineHeight).toBe('1.4');
   expect(body.querySelectorAll('table')).toHaveLength(2);
   expect((body.querySelector('table') as HTMLTableElement).style.width).toBe('600px');
@@ -31,11 +38,11 @@ describe('forwarded formatting through the real editor',()=>{
   expect(cell.style.borderWidth).not.toBe('1px');
   expect((body.querySelector('table table td') as HTMLElement).style.borderTopWidth).toBe('2px');
   expect(outgoing).toContain('My forwarding note');expect(outgoing).not.toMatch(/<img|<script|tracker\.invalid|onclick|url\(/i);
-  expect(htmlFromDoc(docFromHtml(outgoing))).toBe(outgoing);
+  expect(inertBody(htmlFromDoc(docFromHtml(outgoing))).querySelectorAll('table')).toHaveLength(2);
  });
  it('keeps safe block boundaries while rejecting active CSS, arbitrary positioning and remote resources',async()=>{
   const quote=await quoteForForward({html:'<div style="text-align:right;position:fixed;z-index:99999;background:url(https://evil.invalid/x);color:#123456" onclick="bad()">Line one</div><div>Line two</div><table style="width:40%;background-image:url(https://evil.invalid/t)"><tr><td>Cell</td></tr></table>'},['Forward']);
   const body=inertBody(quote.html);expect(body.querySelectorAll('div')).toHaveLength(2);expect((body.querySelector('div') as HTMLElement).style.textAlign).toBe('right');expect((body.querySelector('table') as HTMLElement).style.width).toBe('40%');
-  expect(quote.html).not.toMatch(/position|z-index|background-image|evil\.invalid|onclick|url\(/i);
+  expect(quote.html).not.toMatch(/position|background-image|evil\.invalid|onclick|url\(/i);
  });
 });

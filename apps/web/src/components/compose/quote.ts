@@ -2,15 +2,11 @@
 //
 // The input is what the reader displayed: the sanitised HTML of the message
 // (server-sanitised cleartext, or an encrypted message's plaintext sanitised in
-// the crypto worker), or its plain text. It is parsed into a document that has
-// no browsing context, stripped of everything that embeds or loads, and then
-// reduced to the composer's quote schema (`quoteSchema` in `richtext.ts`) —
-// paragraphs, headings, lists, bounded tables, blockquotes, code, and
-// http/https/mailto links. It keeps only schema-validated formatting styles,
-// with no image node, arbitrary CSS, class or event attributes. Remote embeds
-// from the original cannot be carried into the outgoing body.
-// Replies may explicitly supply freshly uploaded, owned CIDs. That path keeps
-// native safe formatting and those images; every other resource is removed.
+// the crypto worker), or its plain text. HTML is re-run through the Rust
+// policy (`normalizeHtmlSource`) and kept as native markup: tables, safe inline
+// styles, fonts and spacing survive, local-file and other dangerous URL
+// schemes are removed, and only images this reply owns (freshly uploaded CIDs)
+// remain. Plain text is quoted as paragraphs.
 //
 // ProseMirror is imported on demand: this module is reached from the reader,
 // which is on the entry chunk, and the schema's libraries are not.
@@ -31,13 +27,13 @@ export interface Quote {
   text: string;
 }
 
-/** Elements removed whole, with their content, before the schema sees the
- *  markup. The schema would drop the tags anyway; this also drops what is
- *  inside them (fallback text of an `<iframe>`, the label of a `<button>`). */
+/** Elements removed whole, with their content, before the Rust policy runs:
+ *  the policy would drop the tags, but their fallback text (an `<iframe>`'s,
+ *  a `<button>`'s label, a `<title>`) must not become visible quote text. */
 const DROPPED = [
-  'script', 'style', 'link', 'meta', 'base', 'title', 'head', 'template', 'noscript',
+  'script', 'link', 'meta', 'base', 'title', 'template', 'noscript',
   'iframe', 'frame', 'frameset', 'object', 'embed', 'applet',
-  'img', 'picture', 'source', 'video', 'audio', 'track', 'canvas', 'svg', 'math', 'map', 'area',
+  'picture', 'source', 'video', 'audio', 'track', 'canvas', 'svg', 'math', 'map', 'area',
   'form', 'input', 'button', 'select', 'textarea',
 ].join(',');
 
@@ -45,22 +41,54 @@ function escapeHtml(s: string): string {
   return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
+
+/** Spacing and overflow tokens of the quote. Em values keep the margins
+ *  proportional to the sender's font size in every mail client. */
+const QUOTE_BLOCKQUOTE_STYLE = 'margin:0 0 0 .8em;padding:0 0 0 1em;border-left:2px solid #c8c8c8;max-width:100%';
+
+/** Keep quoted images and tables inside the message width. Existing
+ *  `max-width` declarations of the original are respected. */
+export function fitQuoteHtml(safeHtml: string): string {
+  const template = document.createElement('template');
+  template.innerHTML = safeHtml;
+  // Placeholders of removed content leave empty spans behind.
+  for (const span of Array.from(template.content.querySelectorAll('span'))) if (span.attributes.length === 0 && span.childNodes.length === 0) span.remove();
+  // A link whose href the policy removed is plain text.
+  for (const a of Array.from(template.content.querySelectorAll('a:not([href])'))) a.replaceWith(...Array.from(a.childNodes));
+  // An image whose source the policy removed is dead: keep its alt text only.
+  for (const img of Array.from(template.content.querySelectorAll('img'))) {
+    if ((img.getAttribute('src') ?? '').trim() !== '') continue;
+    const alt = (img.getAttribute('alt') ?? '').trim();
+    if (alt !== '') img.replaceWith(alt); else img.remove();
+  }
+  for (const el of Array.from(template.content.querySelectorAll('img,table')) as HTMLElement[]) {
+    const style = el.getAttribute('style') ?? '';
+    if (/max-width\s*:/i.test(style)) continue;
+    el.setAttribute('style', `${style.replace(/;?\s*$/, style ? ';' : '')}max-width:100%`);
+  }
+  return template.innerHTML;
+}
+
 /** The source reduced to the compose schema, as HTML and as text. Empty when
  *  the source holds nothing to quote. */
 async function reduce(source: QuoteSource): Promise<Quote> {
   const rt = await import('./richtext.ts');
   if (source.html !== undefined) {
-    if(source.ownedCids?.size){
-      const {normalizeHtmlSource,scopeQuoteHtml}=await import('./htmlSource.ts');
-      const {referencedCids}=await import('./inlineImages.ts');
-      const original=await normalizeHtmlSource(source.html,source.ownedCids);
-      return original.text.trim()!==''||referencedCids(original.html).some(cid=>source.ownedCids!.has(cid))?{html:scopeQuoteHtml(original.html),text:original.text}:{html:'',text:''};
-    }
-    const body = rt.inertBody(source.html);
-    for (const el of Array.from(body.querySelectorAll(DROPPED))) el.remove();
-    const doc = rt.quoteDocFromElement(body);
-    const text = rt.textFromDoc(doc);
-    return text.trim() === '' ? { html: '', text: '' } : { html: rt.htmlFromDoc(doc), text };
+    // The original stays native HTML: the Rust policy allowlists it (tables,
+    // safe inline styles, fonts, spacing, classes scoped to the quote), and
+    // only images this reply owns survive. No schema reduction, so a
+    // newsletter or Outlook layout reaches the editor and the sent MIME intact.
+    const owned = source.ownedCids ?? new Set<string>();
+    const {normalizeHtmlSource,scopeQuoteHtml}=await import('./htmlSource.ts');
+    const {referencedCids}=await import('./inlineImages.ts');
+    // A parsed-but-inert document: its head stylesheets and body attributes
+    // reach the policy together with the body.
+    const cleaned=new DOMParser().parseFromString(source.html,'text/html');
+    for (const el of Array.from(cleaned.querySelectorAll(DROPPED))) el.remove();
+    const original=await normalizeHtmlSource(cleaned.documentElement.outerHTML,owned);
+    const html=fitQuoteHtml(scopeQuoteHtml(original.html));
+    const hasOwnedImage=referencedCids(html).some(cid=>owned.has(cid));
+    return original.text.trim()!==''||hasOwnedImage?{html,text:original.text}:{html:'',text:''};
   }
   const text = source.text ?? '';
   if (text.trim() === '') return { html: '', text: '' };
@@ -84,7 +112,7 @@ export async function quoteForReply(source: QuoteSource, attribution: string): P
   const original = await reduce(source);
   if (original.html === '') return original;
   return {
-    html: `<p></p><p>${escapeHtml(attribution)}</p><blockquote>${original.html}</blockquote>`,
+    html: `<p></p><p>${escapeHtml(attribution)}</p><blockquote style="${QUOTE_BLOCKQUOTE_STYLE}">${original.html}</blockquote>`,
     text: `\n\n${attribution}\n${quoteLines(original.text)}`,
   };
 }
