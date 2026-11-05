@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 privacy-speed-title = Velocidade
 privacy-speed-unavailable = Os valores de velocidade não estão disponíveis neste servidor.
 privacy-speed-empty = Ainda não foram servidas imagens neste intervalo.

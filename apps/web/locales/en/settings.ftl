@@ -650,7 +650,7 @@ settings-reply-images-deny = Never include
 settings-reply-images-help = Choose whether a reply or forward carries the original message's images. Included images are copied into the draft as attachments.
 settings-reply-image-domains = Trusted image sender domains
 settings-reply-image-domains-help = Enter up to 200 exact sender domains, one per line. Used when the choice above is trusted domains.
-settings-reply-image-domains-save = Save trusted domains
+settings-reply-image-domains-save = Save trusted image domains
 
 settings-ident-group-basics = Basics
 settings-ident-group-replies = Reply handling

@@ -646,7 +646,7 @@ settings-reply-images-deny = Nunca incluir
 settings-reply-images-help = Escolha se uma resposta ou reencaminhamento leva as imagens da mensagem original. As imagens incluídas são copiadas para o rascunho como anexos.
 settings-reply-image-domains = Domínios de remetentes fidedignos para imagens
 settings-reply-image-domains-help = Introduza até 200 domínios exatos de remetentes, um por linha. Usado quando a escolha acima é domínios fidedignos.
-settings-reply-image-domains-save = Guardar domínios fidedignos
+settings-reply-image-domains-save = Guardar domínios de imagens fidedignos
 
 settings-ident-group-basics = Essencial
 settings-ident-group-replies = Tratamento de respostas

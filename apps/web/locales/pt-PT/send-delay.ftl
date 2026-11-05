@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 send-delay-title = Anular envio
 send-delay-help = Depois de premir Enviar, a mensagem espera na Caixa de saída durante este tempo. Até lá pode recuperá-la e continuar a editar. O servidor guarda-a, por isso fechar o navegador não a envia antes de tempo nem a perde.
 send-delay-label = Reter as mensagens enviadas durante
