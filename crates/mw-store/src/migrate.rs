@@ -1454,6 +1454,55 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "cookie_consent",
+        select: "SELECT id,account_id,domain,policy_version,decision,categories_json,region,signal,created_at FROM cookie_consent",
+        insert: "INSERT INTO cookie_consent(id,account_id,domain,policy_version,decision,categories_json,region,signal,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                ot(r, "account_id"),
+                t(r, "domain"),
+                i(r, "policy_version"),
+                t(r, "decision"),
+                t(r, "categories_json"),
+                t(r, "region"),
+                t(r, "signal"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "cookie_rule",
+        select: "SELECT id,kind,pattern,category,note,created_at FROM cookie_rule",
+        insert: "INSERT INTO cookie_rule(id,kind,pattern,category,note,created_at) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                t(r, "pattern"),
+                t(r, "category"),
+                t(r, "note"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "cookie_detected",
+        select: "SELECT id,kind,name,first_seen,last_seen,seen_count,status FROM cookie_detected",
+        insert: "INSERT INTO cookie_detected(id,kind,name,first_seen,last_seen,seen_count,status) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                t(r, "name"),
+                i(r, "first_seen"),
+                i(r, "last_seen"),
+                i(r, "seen_count"),
+                t(r, "status"),
+            ]
+        },
+    },
+    TableSpec {
         name: "package_provider",
         select: "SELECT id,enabled,refresh_secs,sealed_key,revision FROM package_provider",
         insert: "INSERT INTO package_provider(id,enabled,refresh_secs,sealed_key,revision) VALUES(?1,?2,?3,?4,?5)",

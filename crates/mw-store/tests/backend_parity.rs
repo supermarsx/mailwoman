@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2415,6 +2415,19 @@ mod admin_controls_0033 {
             ("instance_id",'T',"!","replica-one"),("bucket_start",'I',"!","3600"),
             ("metric",'T',"!","timeToUsable"),("device",'T',"!","desktop"),
             ("sample_count",'I',"!","3"),("sum_ms",'I',"!","300"),("histogram_json",'T',"!","[]"),
+        ]},
+        NewTable {name:"cookie_consent",copied:true,cols:&[
+            ("id",'T',"!","consent-1"),("account_id",'T',"~","acct-1"),("domain",'T',"!","example.test"),
+            ("policy_version",'I',"!","2"),("decision",'T',"!","custom"),("categories_json",'T',"!","{}"),
+            ("region",'T',"!","PT"),("signal",'T',"!","none"),("created_at",'I',"!",TS),
+        ]},
+        NewTable {name:"cookie_rule",copied:true,cols:&[
+            ("id",'T',"!","rule-1"),("kind",'T',"!","cookie"),("pattern",'T',"!","vendor_*"),
+            ("category",'T',"!","analytics"),("note",'T',"!","vendor cookie"),("created_at",'I',"!",TS),
+        ]},
+        NewTable {name:"cookie_detected",copied:true,cols:&[
+            ("id",'T',"!","detected-1"),("kind",'T',"!","localStorage"),("name",'T',"!","vendor.key"),
+            ("first_seen",'I',"!",TS),("last_seen",'I',"!",TS),("seen_count",'I',"!","3"),("status",'T',"!","unclassified"),
         ]},
         NewTable {name:"request_protection_subject",copied:true,cols:&[
             ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),
