@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Administração > Privacidade > Cookies. São controlos configuráveis; saber se uma configuração cumpre uma determinada lei cabe ao operador.
 admin-cookies-intro = Defina como o controlo de consentimento de cookies se comporta para os visitantes da página de início de sessão e da aplicação de correio, reveja os cookies e o armazenamento do navegador que a aplicação define, classifique o armazenamento comunicado pelos navegadores e consulte as estatísticas de consentimento. As alterações aplicam-se em menos de um minuto.
 admin-cookies-group-general = Controlo e regiões

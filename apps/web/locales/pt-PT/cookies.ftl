@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Controlo de consentimento de cookies (apps/web/src/cookies). O texto que o administrador pode substituir por idioma define-se no separador Cookies da administração.
 cookies-title = Cookies e armazenamento do navegador
 cookies-preferences-title = Preferências de cookies

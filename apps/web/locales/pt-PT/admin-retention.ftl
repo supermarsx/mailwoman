@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Administração > Retenção: áreas, limites de retenção, estado da limpeza e rotação de registos.
 # São controlos configuráveis; se uma configuração cumpre determinada lei cabe ao operador avaliar.
 

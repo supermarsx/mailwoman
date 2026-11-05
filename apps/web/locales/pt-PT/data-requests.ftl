@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 ## Pedidos de dados (Definições > Privacidade e dados, e nomes de eventos partilhados com Admin > Pedidos de dados)
 dr-title = Os seus dados
 dr-loading = A carregar

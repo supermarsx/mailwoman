@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 ## Admin > Pedidos de dados
 admin-dr-title = Pedidos de dados
 admin-dr-intro = As pessoas submetem-nos em Definições > Privacidade e dados. Os tipos de pedido oferecidos, quem os aprova, quanto demoram e o que uma exportação contém são definições, por domínio.
