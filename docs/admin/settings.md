@@ -1064,6 +1064,126 @@ Global, hot. Default 7 days; range 1–90. Authentication history is pruned on w
 ### Authentication entry limit (`logs.auth.maxEntries`)
 Global, hot. Default 50,000; range 1,000–100,000. Oldest entries are removed on writes. Matching failed attempts in the same minute share one bounded counter; successful authentications remain separate. The privileged authentication log requires unscoped `logs.read` and distinguishes administration from webmail. Unknown transport details remain unavailable; no raw upstream error or credential is stored.
 
+### Retention and log files
+
+Retention limits and log rotation are global settings. They have no domain or user scope because the sweep and the log files belong to the whole server. `docs/admin/retention.md` lists every store, what it holds and who removes it. A limit of 0 keeps rows until they are deleted by hand; the console shows a warning for it. These keys are configurable controls and do not make a deployment compliant with any law.
+
+<a id="retention.sweeper.enabled"></a>
+### Retention sweeper (`retention.sweeper.enabled`)
+Global, hot. Default `true`. Run the daily sweep that deletes rows older than the limits on this page. Turning it off keeps every row until it is turned on again.
+
+<a id="retention.sweeper.batchRows"></a>
+### Rows per batch (`retention.sweeper.batchRows`)
+Global, hot. Default `500`. Rows one delete statement removes. Smaller batches hold database locks for less time.
+
+<a id="retention.sweeper.maxBatches"></a>
+### Batches per store per run (`retention.sweeper.maxBatches`)
+Global, hot. Default `20`. Most delete statements one store gets in a run. A store with more old rows continues in the next run.
+
+<a id="retention.sweeper.jitterMinutes"></a>
+### Start-time spread (minutes) (`retention.sweeper.jitterMinutes`)
+Global, hot. Default `30`. The next run starts a random number of minutes up to this value after 24 hours, so several servers do not sweep together.
+
+<a id="retention.sweeper.vacuumAfterRows"></a>
+### Reclaim space after (rows) (`retention.sweeper.vacuumAfterRows`)
+Global, hot. Default `100000`. When one run deletes at least this many rows the database is compacted (VACUUM). 0 never compacts after a sweep; the weekly vacuum job is separate.
+
+<a id="retention.passwordChangeAudit.days"></a>
+### Password-change records (days) (`retention.passwordChangeAudit.days`)
+Global, hot. Default `365`. Days a password-change record (account, method, outcome) is kept. 0 keeps them forever.
+
+<a id="retention.ssoLoginAudit.days"></a>
+### Single sign-on login records (days) (`retention.ssoLoginAudit.days`)
+Global, hot. Default `90`. Days a single sign-on login record (provider, hashed subject, outcome) is kept. 0 keeps them forever.
+
+<a id="retention.dlpAudit.days"></a>
+### Data-loss-prevention records (days) (`retention.dlpAudit.days`)
+Global, hot. Default `365`. Days a record of a data-loss-prevention rule match is kept. 0 keeps them forever.
+
+<a id="retention.assistAudit.days"></a>
+### Assistant access records (days) (`retention.assistAudit.days`)
+Global, hot. Default `365`. Days a record of an assistant using a capability (actor, capability, scope summary) is kept. 0 keeps them forever.
+
+<a id="retention.alertEvents.days"></a>
+### Fired alert records (days) (`retention.alertEvents.days`)
+Global, hot. Default `90`. Days a record of a fired administrator alert is kept. 0 keeps them forever.
+
+<a id="retention.jobRuns.days"></a>
+### Background job history (days) (`retention.jobRuns.days`)
+Global, hot. Default `90`. Days a finished background-job run is kept. A run that is still running is never removed. 0 keeps the history forever.
+
+<a id="retention.outbox.days"></a>
+### Sent and cancelled send records (days) (`retention.outbox.days`)
+Global, hot. Default `30`. Days the send record of a delivered or cancelled message is kept. A message that is waiting, being retried, failed or uncertain is never removed. 0 keeps them forever.
+
+<a id="retention.expiredCredentials.graceDays"></a>
+### Expired credentials (days after expiry) (`retention.expiredCredentials.graceDays`)
+Global, hot. Default `1`. Days an expired remembered device, sign-in challenge, sign-in token, OAuth token, webhook nonce, source failure counter or image link handle is kept after it expired. 0 removes it on the next run.
+
+<a id="retention.ipAddresses.days"></a>
+### Reduce stored IP addresses after (days) (`retention.ipAddresses.days`)
+Global, hot. Default `90`. After this many days the IP address in authentication history and audit entries is truncated or hashed and the row is kept. 0 keeps addresses as recorded.
+
+<a id="retention.ipAddresses.mode"></a>
+### IP reduction method (`retention.ipAddresses.mode`)
+Global, hot. Default `"truncate"`. Truncate keeps the IPv4 /24 or IPv6 /48 prefix. Hash replaces the address with a short keyed hash that still groups the same address.
+
+<a id="logging.file.enabled"></a>
+### Write log files (`logging.file.enabled`)
+Global, hot. Default `false`. Also write the server log to rotating files. Off keeps logging to standard output only, which is what a container normally uses.
+
+<a id="logging.file.directory"></a>
+### Log directory (`logging.file.directory`)
+Global, hot. Default `"logs"`. Directory for the log files, absolute or relative to the server's working directory. Parent-directory segments (..) are refused.
+
+<a id="logging.file.maxSizeMb"></a>
+### Rotate at size (MB) (`logging.file.maxSizeMb`)
+Global, hot. Default `50`. The current log file is closed and a new one started when it reaches this size.
+
+<a id="logging.file.rotateHours"></a>
+### Rotate at age (hours) (`logging.file.rotateHours`)
+Global, hot. Default `24`. The current log file is rotated once it is this old. 0 rotates by size only.
+
+<a id="logging.file.maxAgeDays"></a>
+### Keep rotated files (days) (`logging.file.maxAgeDays`)
+Global, hot. Default `14`. Rotated log files older than this are deleted.
+
+<a id="logging.file.maxFiles"></a>
+### Most rotated files (`logging.file.maxFiles`)
+Global, hot. Default `14`. The oldest rotated files beyond this count are deleted.
+
+<a id="logging.file.maxTotalMb"></a>
+### Most total size (MB) (`logging.file.maxTotalMb`)
+Global, hot. Default `500`. The oldest rotated files are deleted until the log directory is under this size.
+
+<a id="logging.file.compress"></a>
+### Compress rotated files (`logging.file.compress`)
+Global, hot. Default `true`. Rotated log files are compressed with gzip.
+
+<a id="logging.level"></a>
+### Log level (`logging.level`)
+Global, hot. Default `"info"`. The level for components that have no level of their own below. The MW_LOG environment variable sets the level at start-up until this setting is read.
+
+<a id="logging.componentLevels"></a>
+### Component log levels (`logging.componentLevels`)
+Global, hot. Default `[]`. One component=level entry per line, for example mw_imap=debug. Levels are error, warn, info, debug and trace.
+
+<a id="logging.redaction.addresses"></a>
+### Email addresses in logs (`logging.redaction.addresses`)
+Global, hot. Default `"full"`. Full leaves addresses as logged. Truncated keeps the first letter and the domain. Hashed replaces the local part with a short hash. None removes the address.
+
+<a id="logging.redaction.ips"></a>
+### IP addresses in logs (`logging.redaction.ips`)
+Global, hot. Default `"full"`. Full leaves addresses as logged. Truncated keeps the IPv4 /24 or IPv6 /48 prefix. Hashed replaces the address with a short hash. None removes it.
+
+<a id="logging.redaction.tokens"></a>
+### Secrets in logs (`logging.redaction.tokens`)
+Global, hot. Default `true`. Cuts bearer tokens, API keys, passwords in URLs and similar secrets out of log lines.
+
+<a id="retention.sessions.idleDays"></a>
+### Unused sessions (days) (`retention.sessions.idleDays`)
+Global, hot. Default `90`. Days a browser or native-client session record, with its address and user agent, may go unused before it is deleted. The session timeouts apply first; this only removes rows left behind. 0 keeps them.
+
 ### Message display
 
 <a id="mail.quickReply"></a>

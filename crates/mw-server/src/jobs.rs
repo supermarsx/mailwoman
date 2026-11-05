@@ -185,6 +185,12 @@ fn builtin(r: &mut Registry) {
         JobSpec::new(|ctx| Box::pin(crate::auth_logs::retention::prune_job(ctx)))
             .schedule(crate::auth_logs::retention::default_schedule()),
     );
+    r.register(
+        crate::auth_logs::sweeper::JOB_KIND,
+        JobSpec::new(|ctx| Box::pin(crate::auth_logs::sweeper::sweep_job(ctx)))
+            .schedule(crate::auth_logs::sweeper::default_schedule())
+            .lease(Duration::from_secs(600)),
+    );
 }
 
 fn valid_kind(kind: &str) -> bool {
@@ -595,6 +601,7 @@ pub(crate) fn new_scheduler() -> Arc<Scheduler> {
 
 /// Start the scheduler loop of `state`'s app (from `build_app`).
 pub(crate) fn start(state: AppState) {
+    crate::auth_logs::sweeper::start(state.clone());
     tokio::spawn(async move {
         loop {
             if !paused() {
@@ -941,7 +948,6 @@ async fn execute(
 
 /// Why "Run now" did not start a run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[expect(dead_code, reason = "jobs admin API is a subsequent f12 slice")]
 pub(crate) enum RunNowError {
     UnknownKind,
     AlreadyRunning,
@@ -950,7 +956,6 @@ pub(crate) enum RunNowError {
 
 /// Start a run of `kind` now on this process (`POST /admin/jobs/{kind}/run`).
 /// Returns the run id; the run continues in the background.
-#[expect(dead_code, reason = "jobs admin API is a subsequent f12 slice")]
 pub(crate) async fn run_now(
     state: &AppState,
     kind: &str,

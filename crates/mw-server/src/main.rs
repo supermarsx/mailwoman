@@ -468,6 +468,16 @@ async fn main() -> std::process::ExitCode {
             .reload(Some(tracing_opentelemetry::layer().with_tracer(tracer)))
             .map_err(|error| error.to_string())
     });
+    // The filter is reloadable so `logging.level` and `logging.componentLevels`
+    // can change it once the store is open; the start-up directives come back when
+    // those settings return to their defaults.
+    let initial_directives = std::env::var("RUST_LOG")
+        .ok()
+        .filter(|v| !v.trim().is_empty())
+        .unwrap_or_else(|| obs.log_directives.clone());
+    let (level_layer, level_handle) =
+        mw_server::observability::subsystem_reload_layer(&initial_directives);
+    mw_server::observability::log_files::install_level_handle(level_handle, &initial_directives);
     tracing_subscriber::registry()
         // Export only our fixed, non-personal request spans. Existing diagnostic
         // tracing events are for local logs, not implicit remote collection.
@@ -476,11 +486,12 @@ async fn main() -> std::process::ExitCode {
                 metadata.name() == "mailwoman.http.request"
             })),
         )
+        .with(level_layer)
+        // Redacted stdout, plus the rotating file when `logging.file.enabled`.
         .with(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new(&obs.log_directives)),
+            tracing_subscriber::fmt::layer()
+                .with_writer(mw_server::observability::log_files::LogWriter),
         )
-        .with(tracing_subscriber::fmt::layer())
         .with(mw_server::application_logs::CaptureLayer::default())
         .init();
 

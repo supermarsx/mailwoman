@@ -17,10 +17,14 @@ use serde_json::json;
 /// Audit-log retention, its routes and the `audit_prune` job (t39 L5).
 #[path = "audit_retention.rs"]
 pub(crate) mod retention;
+/// Retention sweeper for stores without a retention of their own, and log files.
+#[path = "retention_sweeper.rs"]
+pub(crate) mod sweeper;
 
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/logs/auth", Capability::LogsRead, history);
     retention::register(r);
+    sweeper::register(r);
 }
 pub(crate) async fn limits(store: &mw_store::Store) -> AuthLogLimits {
     let subject = mw_store::settings_policy::SettingSubject {

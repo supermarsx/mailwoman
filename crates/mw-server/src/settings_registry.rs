@@ -5163,6 +5163,238 @@ pub static REGISTRY: &[SettingDef] = &[
         "observability",
         "maximum authentication history entries"
     ),
+    def!(
+        "retention.sessions.idleDays",
+        int(0, 3650),
+        "90",
+        G,
+        "privacy",
+        "Days a browser or native-client session row may sit unused before it is deleted; 0 keeps them"
+    ),
+    def!(
+        "retention.sweeper.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "privacy",
+        "The retention sweeper runs daily and deletes rows older than the limits below"
+    ),
+    def!(
+        "retention.sweeper.batchRows",
+        int(50, 10000),
+        "500",
+        G,
+        "privacy",
+        "Rows deleted per statement by the sweeper"
+    ),
+    def!(
+        "retention.sweeper.maxBatches",
+        int(1, 1000),
+        "20",
+        G,
+        "privacy",
+        "Delete statements per store in one run"
+    ),
+    def!(
+        "retention.sweeper.jitterMinutes",
+        int(0, 240),
+        "30",
+        G,
+        "privacy",
+        "Spread of the daily start time"
+    ),
+    def!(
+        "retention.sweeper.vacuumAfterRows",
+        int(0, 100000000),
+        "100000",
+        G,
+        "privacy",
+        "Reclaim database space after a run that deleted this many rows"
+    ),
+    def!(
+        "retention.passwordChangeAudit.days",
+        int(0, 3650),
+        "365",
+        G,
+        "privacy",
+        "Days password-change records are kept; 0 keeps them forever"
+    ),
+    def!(
+        "retention.ssoLoginAudit.days",
+        int(0, 3650),
+        "90",
+        G,
+        "privacy",
+        "Days single sign-on login records are kept; 0 keeps them forever"
+    ),
+    def!(
+        "retention.dlpAudit.days",
+        int(0, 3650),
+        "365",
+        G,
+        "privacy",
+        "Days data-loss-prevention match records are kept; 0 keeps them forever"
+    ),
+    def!(
+        "retention.assistAudit.days",
+        int(0, 3650),
+        "365",
+        G,
+        "privacy",
+        "Days assistant access records are kept; 0 keeps them forever"
+    ),
+    def!(
+        "retention.alertEvents.days",
+        int(0, 3650),
+        "90",
+        G,
+        "privacy",
+        "Days fired-alert records are kept; 0 keeps them forever"
+    ),
+    def!(
+        "retention.jobRuns.days",
+        int(0, 3650),
+        "90",
+        G,
+        "privacy",
+        "Days finished background-job runs are kept; running jobs are never removed"
+    ),
+    def!(
+        "retention.outbox.days",
+        int(0, 3650),
+        "30",
+        G,
+        "privacy",
+        "Days delivered or cancelled send records are kept; unsent, retrying and failed ones are never removed"
+    ),
+    def!(
+        "retention.expiredCredentials.graceDays",
+        int(0, 365),
+        "1",
+        G,
+        "privacy",
+        "Days an expired token, remembered device, sign-in challenge or image link is kept after it expired; 0 removes it at once"
+    ),
+    def!(
+        "retention.ipAddresses.days",
+        int(0, 3650),
+        "90",
+        G,
+        "privacy",
+        "Days before stored IP addresses in authentication and audit history are truncated or hashed; 0 keeps them as recorded"
+    ),
+    def!(
+        "retention.ipAddresses.mode",
+        Kind::Enum(&["truncate", "hash"]),
+        "\"truncate\"",
+        G,
+        "privacy",
+        "Whether old IP addresses are cut to a network prefix or replaced by a short keyed hash"
+    ),
+    def!(
+        "logging.file.enabled",
+        Kind::Bool,
+        "false",
+        G,
+        "observability",
+        "Also write the server log to rotating files in logging.file.directory"
+    ),
+    def!(
+        "logging.file.directory",
+        text(Text::Plain, 500),
+        "\"logs\"",
+        G,
+        "observability",
+        "Directory for rotating log files, absolute or relative to the server working directory; no parent-directory segments"
+    ),
+    def!(
+        "logging.file.maxSizeMb",
+        int(1, 4096),
+        "50",
+        G,
+        "observability",
+        "Size at which the current log file is rotated, in megabytes"
+    ),
+    def!(
+        "logging.file.rotateHours",
+        int(0, 8760),
+        "24",
+        G,
+        "observability",
+        "Age at which the current log file is rotated, in hours; 0 rotates by size only"
+    ),
+    def!(
+        "logging.file.maxAgeDays",
+        int(1, 3650),
+        "14",
+        G,
+        "observability",
+        "Days rotated log files are kept"
+    ),
+    def!(
+        "logging.file.maxFiles",
+        int(1, 1000),
+        "14",
+        G,
+        "observability",
+        "Most rotated log files kept"
+    ),
+    def!(
+        "logging.file.maxTotalMb",
+        int(1, 102400),
+        "500",
+        G,
+        "observability",
+        "Most disk space all rotated log files may use, in megabytes"
+    ),
+    def!(
+        "logging.file.compress",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "Compress rotated log files with gzip"
+    ),
+    def!(
+        "logging.level",
+        Kind::Enum(&["error", "warn", "info", "debug", "trace"]),
+        "\"info\"",
+        G,
+        "observability",
+        "Log level for every component without its own level"
+    ),
+    def!(
+        "logging.componentLevels",
+        Kind::StringList { max_len: 50, max_item: 80 },
+        "[]",
+        G,
+        "observability",
+        "Per-component log levels as component=level, for example mw_imap=debug"
+    ),
+    def!(
+        "logging.redaction.addresses",
+        Kind::Enum(&["full", "truncated", "hashed", "none"]),
+        "\"full\"",
+        G,
+        "observability",
+        "How email addresses appear in log lines: full, truncated (first letter and domain), hashed or none (removed)"
+    ),
+    def!(
+        "logging.redaction.ips",
+        Kind::Enum(&["full", "truncated", "hashed", "none"]),
+        "\"full\"",
+        G,
+        "observability",
+        "How IP addresses appear in log lines: full, truncated (IPv4 /24, IPv6 /48), hashed or none (removed)"
+    ),
+    def!(
+        "logging.redaction.tokens",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "Cut bearer tokens, API keys and similar secrets out of log lines"
+    ),
     // Cookie consent (cookies.*)
     def!(
         "cookies.enabled",

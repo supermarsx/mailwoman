@@ -32,6 +32,10 @@ use tracing_subscriber::EnvFilter;
 use tracing_subscriber::registry::LookupSpan;
 use tracing_subscriber::reload;
 
+/// Rotating log files, redaction and per-component levels (`logging.*`).
+#[path = "log_files.rs"]
+pub mod log_files;
+
 // ---------------------------------------------------------------------------
 // Typed redaction wrappers (§21.1 — no mail content in logs / metric labels)
 // ---------------------------------------------------------------------------

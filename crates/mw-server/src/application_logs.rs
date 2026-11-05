@@ -20,6 +20,13 @@ use tracing_subscriber::{Layer, layer::Context};
 #[path = "observability/redact_log.rs"]
 mod redact_log;
 
+/// Free text with known secret shapes cut out, for log lines written outside the
+/// capture layer (the rotating file and redacted stdout).
+pub(crate) fn redact_text(input: &str) -> String {
+    static R: std::sync::OnceLock<redact_log::Redactor> = std::sync::OnceLock::new();
+    R.get_or_init(redact_log::Redactor::from_env).text(input)
+}
+
 const CAPACITY: usize = 1000;
 const MAX_AGE: i64 = 86_400;
 #[derive(Clone, Serialize)]
