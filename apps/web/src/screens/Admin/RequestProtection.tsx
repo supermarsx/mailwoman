@@ -16,6 +16,7 @@ import { ProtectionPolicyEditor } from './ProtectionPolicyEditor.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import { AdminProbeCard } from './AdminProbeCard.tsx';
 import { AdminProbePanel } from './AdminProbePanel.tsx';
+import { AdaptiveInsights, AggregateInsights, InsightsSummary, RangeSelect, createProtectionHistory } from './ProtectionInsights.tsx';
 import { SessionWatchCard } from './SessionWatchCard.tsx';
 import type { AdminProbeApi } from '../../api/admin/adminProbe.ts';
 import { formatSeconds } from './protectionRules.ts';
@@ -34,6 +35,8 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  void loadCatalog('admin-settings');void loadCatalog('admin-security');
  const shell=useContext(ShellContext);const api=()=>props.api??protectionApi;
  const [status,setStatus]=createSignal<ProtectionStatus>();
+ const history=createProtectionHistory(api);
+ const [objects,setObjects]=createSignal<number|null>(null);
  const subjectPager=createPager<ProtectionSubject>(async(after,limit)=>{const r=await api().subjects(after,limit);return{items:r.subjects,cursor:r.cursor,total:r.total??r.subjects.length};});
  const eventPager=createPager<ProtectionEvent>(async(after,limit)=>{const r=await api().events(after,limit);return{items:r.events,cursor:r.cursor,total:r.total??r.events.length};});
  const tab=():ProtectionTab=>protectionTab(shell?.router.route().rest??[]);
@@ -51,10 +54,11 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  async function reload():Promise<void>{
   setLoading(true);setError('');
   try{setStatus(await api().status());}catch(cause){setError(describeAdminError(cause));}finally{setLoading(false);}
+  history.reload();
   if(tab()==='state')await subjectPager.reload();
   if(tab()==='decisions')await eventPager.reload();
  }
- onMount(()=>void reload());
+ onMount(()=>void reload()); createEffect(()=>{if(tab()==='adaptive'){void(async()=>{try{setObjects((await api().subjects(undefined,1)).total);}catch{setObjects(null);}})();}});
  createEffect(()=>{
   const current=tab();
   if(current==='state'&&!subjectPager.loaded()&&!subjectPager.loading())void subjectPager.reload();
@@ -98,12 +102,14 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  <Show when={tab()==='overview'}>
   <Show when={status()}>{current=><div class={css.card}><h3 class={css.heading}>{t('admin-protection-current-policy')}</h3><p>{t('admin-protection-modes',{rate:t(`admin-protection-mode-${current().policy.rateMode}`),adaptive:t(`admin-protection-mode-${current().policy.adaptiveMode}`)})}</p><p class={css.note}>{t('admin-protection-retention',{subjects:current().subjectCapacity,events:current().eventCapacity,days:current().eventRetentionSecs/86400,seconds:current().propagationSecs})}</p><p class={css.note}>{t('admin-protection-coverage')}</p></div>}</Show>
   <Show when={status()?.protocolGuard}>{guard=><ProtocolGuardStats rows={guard().classes} onOpenEditor={shell?()=>void shell.router.navigate(sectionPath('security',['protection','protocol-guard'])):undefined}/>}</Show>
+  <RangeSelect history={history}/>
+  <InsightsSummary history={history}/>
   <AdminProbeCard api={props.probeApi} onOpenEditor={shell?()=>void shell.router.navigate(sectionPath('security',['protection','admin-probe'])):undefined}/>
   <SessionWatchCard/>
   <ProtectionPolicyEditor part="overview" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/>
  </Show>
- <Show when={tab()==='aggregate'}><p class={css.note}>{t('admin-protection-aggregate-help')}</p><ProtectionPolicyEditor part="aggregate" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/></Show>
- <Show when={tab()==='adaptive'}><p class={css.note}>{t('admin-protection-adaptive-help')}</p><ProtectionPolicyEditor part="adaptive" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/></Show>
+ <Show when={tab()==='aggregate'}><p class={css.note}>{t('admin-protection-aggregate-help')}</p><RangeSelect history={history}/><AggregateInsights history={history}/><ProtectionPolicyEditor part="aggregate" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/></Show>
+ <Show when={tab()==='adaptive'}><p class={css.note}>{t('admin-protection-adaptive-help')}</p><RangeSelect history={history}/><AdaptiveInsights history={history} status={status()} objects={objects()}/><ProtectionPolicyEditor part="adaptive" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/></Show>
  <Show when={tab()==='protocol-guard'}><ProtocolGuardPanel {...(props.api?{api:props.api}:{})}/></Show>
  <Show when={tab()==='admin-probe'}><AdminProbePanel api={props.probeApi}/></Show>
  <Show when={tab()==='state'}><div class={css.card}><h3 class={css.heading}>{t('admin-protection-subjects')}</h3><p class={css.note}>{t('admin-protection-counts-note')}</p><p class={css.note}>{t('admin-protection-newest-first')}</p>{pagerBar(subjectPager,t('admin-protection-subjects'))}<DataTable caption={t('admin-protection-subjects')} columns={subjectColumns()} rows={subjectPager.items()} rowKey={row=>row.subjectKey} state={subjectPager.loading()?'loading':(subjectPager.error()||error())?'error':'ready'} errorText={subjectPager.error()||error()} onRetry={()=>void reload()} emptyText={t('admin-protection-empty')} paging={{hasPrev:subjectPager.hasPrev(),hasNext:subjectPager.hasNext(),onPrev:()=>void subjectPager.prevPage(),onNext:()=>void subjectPager.nextPage()}} rowActions={row=><Show when={shell?.can.can('bans.write')}><button type="button" class={`btn btn--ghost ${css.compactIconAction}`} aria-label={t('admin-protection-clear-target',{subject:identity(row)})} data-tooltip={t('admin-protection-clear')} title={t('admin-protection-clear')} onClick={()=>setSelected(row)}><Icon name="unlock"/></button></Show>}/></div></Show>

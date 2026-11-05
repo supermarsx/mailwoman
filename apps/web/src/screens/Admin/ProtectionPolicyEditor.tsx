@@ -8,6 +8,7 @@
 // the change. A save updates only the rows it changed (t75: no page swap).
 
 import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js';
+import { rememberSimulation } from './simulationMemory.ts';
 import { createStore, reconcile } from 'solid-js/store';
 import { protectionPolicyApi, type PolicyChange, type PresetName, type ProtectionPolicy, type ProtectionPolicyApi, type SimCountryState, type SimRequest, type SimResult, type SimSignal, type SimTierName, type SimUaClass } from '../../api/admin/requestProtection.ts';
 import type { AdminSetting } from '../../api/admin/settings.ts';
@@ -351,7 +352,9 @@ function Simulator(props: { api: ProtectionPolicyApi; drafts: () => Record<strin
         if (countryState() === 'found' && country().trim()) body.tier.country = country().trim().toUpperCase();
       }
       if (useDraft() && Object.keys(draft()).length > 0) body.draft = draft();
-      setResult(await props.api.simulate(body));
+      const answer = await props.api.simulate(body);
+      setResult(answer);
+      rememberSimulation(answer);
     } catch (cause) {
       setError(describeAdminError(cause));
       setResult(undefined);

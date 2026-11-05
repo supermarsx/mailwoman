@@ -6,12 +6,30 @@ export interface ProtectionSubject { subjectKey:string;subjectKind:'client'|'acc
 export interface ProtectionEvent { id:string;subjectKey:string;subjectKind:string;observedAt:number;reason:string;action:string;enforced:boolean;retryAfterSecs:number;snapshot:ProtectionSnapshot;policy:{short:{seconds:number;minimum_samples:number;absolute_anomalies:number;ratio_percent:number};long:{seconds:number;minimum_samples:number;absolute_anomalies:number;ratio_percent:number}}|null }
 export interface ProtocolGuardRow { class:string;mode:'off'|'detect'|'enforce';detected:number;enforced:number;lastSeen:number|null }
 export interface ProtectionStatus { protocolGuard?:{classes:ProtocolGuardRow[];scope:string};policy:{rateMode:string;adaptiveMode:string;clientRequests:number;accountRequests:number;adminRequests:number;rateWindowSecs:number};subjectCapacity:number;eventCapacity:number;eventRetentionSecs:number;propagationSecs:number;coverage:string;preRouterHeadersObserved:boolean }
+export type ProtectionRange = '15m' | '1h' | '6h' | '24h';
+export const PROTECTION_RANGES: readonly ProtectionRange[] = ['15m', '1h', '6h', '24h'];
+export interface ProtectionActionCounts { throttleObserved: number; throttleEnforced: number; blockObserved: number; blockEnforced: number }
+export interface ProtectionHistoryPoint { t: number; allowed: number; throttled: number; blocked: number; actions: ProtectionActionCounts }
+export interface ProtectionOutcomes { allowed: number; throttled: number; blocked: number }
+/** Counts only (no address, account or user-agent text); kept in memory per minute for 24 hours since the server started. */
+export interface ProtectionHistory {
+ rangeSecs: number; stepSecs: number; start: number; scope: string;
+ points: ProtectionHistoryPoint[];
+ totals: ProtectionOutcomes & { evaluated: number };
+ budgets: (ProtectionOutcomes & { budget: 'client' | 'account' | 'admin' | 'userAgent' })[];
+ userAgents: (ProtectionOutcomes & { class: string })[];
+ tiers: { unknown: number; known: number; authenticated: number };
+ actions: ProtectionActionCounts;
+ rules: { rule: string; count: number }[];
+}
 export interface ProtectionApi {
  status():Promise<ProtectionStatus>;
  /** Newest first. `after` is the previous page's cursor; `total` counts every retained row. */
  subjects(after?:string,limit?:number):Promise<{subjects:ProtectionSubject[];cursor:string|null;total:number}>;
  events(after?:string,limit?:number):Promise<{events:ProtectionEvent[];cursor:string|null;total:number}>;
  clear(subject:ProtectionSubject):Promise<void>;
+ /** `GET /bans/protection/history?range=`; absent on a mock or an older server. */
+ history?(range:ProtectionRange):Promise<ProtectionHistory>;
 }
 /** `?limit=&after=` for the paged lists (the server caps `limit` at 250). */
 export function pageQuery(after?:string,limit?:number):string{
@@ -22,6 +40,7 @@ export const protectionApi:ProtectionApi={
  async status(){return(await adminRequest<ProtectionStatus>('/bans/protection')).data;},
  async subjects(after,limit){return(await adminRequest<{subjects:ProtectionSubject[];cursor:string|null;total:number}>(`/bans/protection/subjects${pageQuery(after,limit)}`)).data;},
  async events(after,limit){return(await adminRequest<{events:ProtectionEvent[];cursor:string|null;total:number}>(`/bans/protection/events${pageQuery(after,limit)}`)).data;},
+ async history(range){return(await adminRequest<ProtectionHistory>(`/bans/protection/history?range=${range}`)).data;},
  async clear(subject){await adminRequest(`/bans/protection/subjects/${encodeURIComponent(subject.subjectKey)}`,{method:'DELETE',ifMatch:`"${subject.revision}"`});},
 };
 

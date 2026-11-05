@@ -26,3 +26,5 @@ globalStyle(`${table} td[data-label]::before`, { '@media': { [PHONE]: { content:
 export const editRow = style({ display: 'grid', gap: vars.space[1], marginBlockEnd: vars.space[3] });
 export const statLine = style({ fontSize: '0.8rem', color: vars.color.textDim, fontVariantNumeric: 'tabular-nums', margin: 0 });
 export const modeSwitch = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2], alignItems: 'center' });
+
+export const rangeField = style({ display: 'inline-flex', gap: vars.space[2], alignItems: 'center', margin: `${vars.space[2]} 0` });
