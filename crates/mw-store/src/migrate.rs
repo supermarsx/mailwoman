@@ -508,8 +508,8 @@ const TABLES: &[TableSpec] = &[
     },
     TableSpec {
         name: "personal_identity",
-        select: "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id, reply_signature_name FROM personal_identity",
-        insert: "INSERT INTO personal_identity (id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id, reply_signature_name) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        select: "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id, reply_signature_name, is_default, variant_of, label, created_at FROM personal_identity",
+        insert: "INSERT INTO personal_identity (id, owner_subject, name, email, reply_to, signature_html, signature_text, sent_mailbox_id, source, signature_name, organization, auto_bcc, pgp_key_id, reply_signature_name, is_default, variant_of, label, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18)",
         map: |r| {
             vec![
                 t(r, "id"),
@@ -526,6 +526,10 @@ const TABLES: &[TableSpec] = &[
                 ot(r, "auto_bcc"),
                 ot(r, "pgp_key_id"),
                 ot(r, "reply_signature_name"),
+                i(r, "is_default"),
+                ot(r, "variant_of"),
+                ot(r, "label"),
+                i(r, "created_at"),
             ]
         },
     },

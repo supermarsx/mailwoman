@@ -100,7 +100,7 @@ pub struct SubmissionHold {
 }
 
 /// A sending identity (plan §0.7): configured or server-pulled allowed-from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct IdentityRow {
     pub id: String,
     pub account_id: String,
@@ -119,6 +119,12 @@ pub struct IdentityRow {
     pub sent_mailbox_id: Option<String>,
     /// `configured` | `pulled`.
     pub source: String,
+    /// The owner's default sender; exactly one per owner (personal identities).
+    pub is_default: bool,
+    /// Base identity id when this row is a variant (one level only).
+    pub variant_of: Option<String>,
+    /// Display label of a variant.
+    pub label: Option<String>,
 }
 
 /// One row of the change log for a `*/changes` diff.
@@ -992,6 +998,7 @@ fn identity_from_row(r: &Row) -> IdentityRow {
         pgp_key_id: r.get_opt_string("pgp_key_id"),
         sent_mailbox_id: r.get_opt_string("sent_mailbox_id"),
         source: r.get_string("source"),
+        ..Default::default()
     }
 }
 
@@ -2087,6 +2094,7 @@ mod tests {
             pgp_key_id: None,
             sent_mailbox_id: None,
             source: "configured".into(),
+            ..Default::default()
         };
         store.upsert_identity(&row).await.unwrap();
         let mut foreign = row.clone();
@@ -2162,6 +2170,7 @@ mod tests {
             pgp_key_id: None,
             sent_mailbox_id: None,
             source: "configured".into(),
+            ..Default::default()
         })
         .await
         .unwrap();

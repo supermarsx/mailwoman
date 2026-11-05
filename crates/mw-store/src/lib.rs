@@ -18,6 +18,7 @@ pub mod feature_subjects;
 pub mod linked_accounts;
 pub mod oidc_provider;
 pub mod personal_delivery;
+pub mod personal_identity;
 pub mod personal_records;
 pub mod provider_accounts;
 pub mod request_protection;
@@ -238,6 +239,9 @@ pub enum StoreError {
     Corrupt(String),
     #[error("unsupported store DSN: {0}")]
     UnsupportedDsn(String),
+    /// A caller-supplied value broke a store invariant (for example a nested identity variant).
+    #[error("invalid request: {0}")]
+    Invalid(&'static str),
 }
 
 /// Per-table row counts produced by [`Store::migrate_from_sqlite`] (powers the

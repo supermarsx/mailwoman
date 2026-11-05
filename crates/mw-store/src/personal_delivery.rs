@@ -5,85 +5,6 @@ use crate::{
 };
 use chrono::Utc;
 impl Store {
-    pub async fn upsert_personal_identity(&self, i: &IdentityRow) -> Result<(), StoreError> {
-        let affected = q(
-            "INSERT INTO personal_identity
-                 (id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id, reply_signature_name)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
-             ON CONFLICT(owner_subject,id) DO UPDATE SET
-                 name = excluded.name, email = excluded.email, reply_to = excluded.reply_to,
-                 signature_html = excluded.signature_html, signature_text = excluded.signature_text,
-                 signature_name = excluded.signature_name, organization = excluded.organization, auto_bcc = excluded.auto_bcc, pgp_key_id = excluded.pgp_key_id, reply_signature_name = excluded.reply_signature_name,
-                 sent_mailbox_id = excluded.sent_mailbox_id, source = excluded.source
-             WHERE personal_identity.owner_subject = excluded.owner_subject",
-        )
-        .bind(&i.id)
-        .bind(&i.account_id)
-        .bind(&i.name)
-        .bind(&i.email)
-        .bind(i.reply_to.as_deref())
-        .bind(i.signature_html.as_deref())
-        .bind(i.signature_text.as_deref())
-        .bind(i.signature_name.as_deref())
-        .bind(i.sent_mailbox_id.as_deref())
-        .bind(&i.source)
-        .bind(i.organization.as_deref())
-        .bind(i.auto_bcc.as_deref())
-        .bind(i.pgp_key_id.as_deref())
-        .bind(i.reply_signature_name.as_deref())
-        .execute(&self.backend)
-        .await?;
-        if affected == 0 {
-            return Err(StoreError::NotFound);
-        }
-        Ok(())
-    }
-
-    /// List an account's sending personal_identity.
-    pub async fn list_personal_identities(
-        &self,
-        owner_subject: &str,
-    ) -> Result<Vec<IdentityRow>, StoreError> {
-        let rows = q(
-            "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id, reply_signature_name
-             FROM personal_identity WHERE owner_subject = ?1 ORDER BY source, email",
-        )
-        .bind(owner_subject)
-        .fetch_all(&self.backend)
-        .await?;
-        Ok(rows.iter().map(identity_from_row).collect())
-    }
-
-    /// Fetch one identity by id.
-    pub async fn get_personal_identity(
-        &self,
-        owner_subject: &str,
-        id: &str,
-    ) -> Result<Option<IdentityRow>, StoreError> {
-        let row = q(
-            "SELECT id, owner_subject, name, email, reply_to, signature_html, signature_text, signature_name, sent_mailbox_id, source, organization, auto_bcc, pgp_key_id, reply_signature_name
-             FROM personal_identity WHERE id = ?1 AND owner_subject = ?2",
-        )
-        .bind(id).bind(owner_subject)
-        .fetch_optional(&self.backend)
-        .await?;
-        Ok(row.as_ref().map(identity_from_row))
-    }
-
-    /// Delete a sending identity only under its current account owner.
-    pub async fn delete_personal_identity(
-        &self,
-        owner_subject: &str,
-        id: &str,
-    ) -> Result<bool, StoreError> {
-        let affected = q("DELETE FROM personal_identity WHERE id = ?1 AND owner_subject = ?2")
-            .bind(id)
-            .bind(owner_subject)
-            .execute(&self.backend)
-            .await?;
-        Ok(affected == 1)
-    }
-
     pub async fn put_personal_notification_rules(
         &self,
         rules: &NotificationRulesRow,
@@ -223,7 +144,11 @@ impl Store {
             .native_personal_subject(account)
             .await?
             .ok_or(StoreError::NotFound)?;
-        let mut rows = self.list_personal_identities(&owner).await?;
+        // Variants are served with their effective profile (empty fields come from
+        // the base) so sending, signatures and JMAP never see a half-empty identity.
+        let mut rows = crate::personal_identity::resolve_variants(
+            self.list_personal_identities(&owner).await?,
+        );
         for row in &mut rows {
             row.account_id = account.into();
         }
@@ -238,13 +163,16 @@ impl Store {
             .native_personal_subject(account)
             .await?
             .ok_or(StoreError::NotFound)?;
-        Ok(self
-            .get_personal_identity(&owner, id)
-            .await?
-            .map(|mut row| {
-                row.account_id = account.into();
-                row
-            }))
+        let Some(mut row) = self.get_personal_identity(&owner, id).await? else {
+            return Ok(None);
+        };
+        if let Some(base_id) = row.variant_of.clone()
+            && let Some(base) = self.get_personal_identity(&owner, &base_id).await?
+        {
+            row = row.resolved_against(&base);
+        }
+        row.account_id = account.into();
+        Ok(Some(row))
     }
     pub async fn upsert_native_personal_identity(
         &self,
@@ -259,24 +187,6 @@ impl Store {
     }
 }
 
-fn identity_from_row(r: &Row) -> IdentityRow {
-    IdentityRow {
-        id: r.get_string("id"),
-        account_id: r.get_string("owner_subject"),
-        name: r.get_string("name"),
-        email: r.get_string("email"),
-        reply_to: r.get_opt_string("reply_to"),
-        signature_html: r.get_opt_string("signature_html"),
-        signature_text: r.get_opt_string("signature_text"),
-        signature_name: r.get_opt_string("signature_name"),
-        reply_signature_name: r.get_opt_string("reply_signature_name"),
-        organization: r.get_opt_string("organization"),
-        auto_bcc: r.get_opt_string("auto_bcc"),
-        pgp_key_id: r.get_opt_string("pgp_key_id"),
-        sent_mailbox_id: r.get_opt_string("sent_mailbox_id"),
-        source: r.get_string("source"),
-    }
-}
 fn personal_notification_rules_from_row(r: &Row) -> NotificationRulesRow {
     NotificationRulesRow {
         account_id: r.get_string("owner_subject"),
@@ -319,6 +229,7 @@ mod tests {
             pgp_key_id: Some(format!("key-{owner}")),
             sent_mailbox_id: None,
             source: "configured".into(),
+            ..Default::default()
         };
         store
             .upsert_personal_identity(&identity("po1-a", "Realm A"))
@@ -343,9 +254,14 @@ mod tests {
         );
         assert!(
             store
-                .delete_personal_identity("po1-b", "shared-provider-id")
+                .delete_personal_identity(
+                    "po1-b",
+                    "shared-provider-id",
+                    crate::personal_identity::VariantPolicy::Reject
+                )
                 .await
                 .unwrap()
+                == crate::personal_identity::IdentityDelete::Deleted
         );
         assert!(
             store

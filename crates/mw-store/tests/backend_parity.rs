@@ -2175,6 +2175,7 @@ mod admin_controls_0033 {
             ("reply_to",'T',"~","reply@example.test"),("signature_html",'T',"~","<p>Rich</p>"),("signature_text",'T',"~","Plain"),("signature_name",'T',"~","Work"),("reply_signature_name",'T',"~","Short"),
             ("sent_mailbox_id",'T',"~","sent-personal"),("source",'T',"=configured","configured"),
             ("organization",'T',"~","Example Organization"),("auto_bcc",'T',"~","Audit <audit@example.test>"),("pgp_key_id",'T',"~","owned-key"),
+            ("is_default",'I',"=0","1"),("variant_of",'T',"~","base-profile"),("label",'T',"~","Newsletters"),("created_at",'I',"=0","1"),
         ]},
         NewTable {name:"personal_notification_rules",copied:true,cols:&[
             ("owner_subject",'T',"!","po1-delivery-owner"),("rule_json",'T',"!","[]"),("quiet_hours_json",'T',"!","{}"),("enabled",'I',"=0","1"),("updated_at",'T',"!",TS),
@@ -3092,6 +3093,7 @@ mod admin_controls_0033 {
         ("idx_brand_asset_scope", "brand_asset", false, false, "scope,kind"),
         ("idx_sieve_script_active", "sieve_script", true, true, "account_id"),
         ("idx_identity_verification_identity", "identity_verification", false, false, "identity_id"),
+        ("idx_personal_identity_default", "personal_identity", true, true, "owner_subject"),
         ("idx_child_account_account", "child_account", false, false, "account_id"),
         ("idx_oauth_client_provider", "oauth_client", false, false, "provider_id"),
         ("idx_delegation_grant_owner", "delegation_grant", false, false, "owner_account_id"),
