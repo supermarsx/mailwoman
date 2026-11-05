@@ -21,6 +21,10 @@
 use crate::backend::{Backend, Row, q};
 use crate::{Store, StoreError};
 
+/// Retention sweeper primitives (kept beside the scheduler that runs them).
+#[path = "retention.rs"]
+pub mod retention;
+
 /// How a run ended (`job_run.status`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum JobStatus {
