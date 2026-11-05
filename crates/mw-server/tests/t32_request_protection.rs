@@ -157,6 +157,12 @@ async fn aggregate_source_country_uses_local_geoip_and_is_returned_in_lists_and_
     assert_eq!(response.status(), 200);
     let body: Value = response.json().await.unwrap();
     let rows = body["subjects"].as_array().unwrap();
+    // Newest first, with the retained total for the pager.
+    assert!(
+        rows.windows(2)
+            .all(|pair| pair[0]["updatedAt"].as_i64() >= pair[1]["updatedAt"].as_i64())
+    );
+    assert_eq!(body["total"].as_u64().unwrap() as usize, rows.len());
     assert_eq!(
         rows.iter()
             .find(|row| row["subjectKey"] == known_key)
@@ -751,9 +757,10 @@ async fn protection_history_is_scoped_private_and_clear_requires_fresh_proof_and
     );
     for path in [
         "subjects?limit=0",
-        "events?limit=101",
+        "events?limit=251",
         "events?after=invalid",
         "subjects?after=raw-address",
+        "subjects?after=5:raw-address",
     ] {
         assert_eq!(
             admin

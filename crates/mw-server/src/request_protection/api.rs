@@ -62,7 +62,7 @@ struct Page {
 }
 fn page(query: &Page) -> Result<usize, AdminApiError> {
     let limit = query.limit.unwrap_or(50);
-    if !(1..=100).contains(&limit) || query.after.as_ref().is_some_and(|value| value.len() > 160) {
+    if !(1..=250).contains(&limit) || query.after.as_ref().is_some_and(|value| value.len() > 160) {
         return Err(AdminApiError::invalid(
             "invalidPage",
             "Invalid page limit or cursor",
@@ -84,28 +84,45 @@ async fn subjects(
 ) -> Result<Response, AdminApiError> {
     ctx.require_unscoped(Capability::BansRead)?;
     let limit = page(&query)?;
-    if query.after.as_ref().is_some_and(|key| !key_valid(key)) {
-        return Err(AdminApiError::invalid(
-            "invalidCursor",
-            "Invalid subject cursor",
-            "/after",
-        ));
-    }
+    let cursor = query
+        .after
+        .as_deref()
+        .map(|raw| {
+            let (at, key) = raw.split_once(':').ok_or(())?;
+            let at = at.parse::<i64>().map_err(|_| ())?;
+            if at < 0 || !key_valid(key) {
+                return Err(());
+            }
+            Ok((at, key))
+        })
+        .transpose()
+        .map_err(|()| {
+            AdminApiError::invalid("invalidCursor", "Invalid subject cursor", "/after")
+        })?;
     let rows = state
         .store
         .request_protection_rows(
             chrono::Utc::now().timestamp(),
-            query.after.as_deref(),
+            cursor,
             limit,
         )
         .await
         .map_err(|_| super::unavailable())?;
     let cursor = if rows.len() == limit {
-        rows.last().map(|row| row.subject_key.clone())
+        rows.last()
+            .map(|row| format!("{}:{}", row.updated_at, row.subject_key))
     } else {
         None
     };
-    Ok(private(json!({"subjects":rows,"cursor":cursor})))
+    let total = state
+        .store
+        .request_protection_totals(chrono::Utc::now().timestamp())
+        .await
+        .map_err(|_| super::unavailable())?
+        .0;
+    Ok(private(
+        json!({"subjects":rows,"cursor":cursor,"total":total}),
+    ))
 }
 async fn events(
     State(state): State<AppState>,
@@ -140,7 +157,13 @@ async fn events(
     } else {
         None
     };
-    Ok(private(json!({"events":rows,"cursor":cursor})))
+    let total = state
+        .store
+        .request_protection_totals(chrono::Utc::now().timestamp())
+        .await
+        .map_err(|_| super::unavailable())?
+        .1;
+    Ok(private(json!({"events":rows,"cursor":cursor,"total":total})))
 }
 async fn clear(
     State(state): State<AppState>,

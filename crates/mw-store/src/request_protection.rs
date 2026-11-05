@@ -157,6 +157,32 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn subject_rows_page_newest_first_with_stable_cursor_and_totals() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let mut policy = policy();
+        policy.rate_mode = Mode::Enforce;
+        for (i, ip) in ["192.0.2.1", "192.0.2.2", "192.0.2.3"].iter().enumerate() {
+            store
+                .request_protection("client", ip, &policy, 100 + i as i64, None)
+                .await
+                .unwrap();
+        }
+        let all = store.request_protection_rows(101, None, 10).await.unwrap();
+        assert!(all.windows(2).all(|w| w[0].updated_at >= w[1].updated_at));
+        assert_eq!(all.len(), 3);
+        assert_eq!(all[0].updated_at, 102);
+        let first = store.request_protection_rows(101, None, 2).await.unwrap();
+        let last = first.last().unwrap();
+        let rest = store
+            .request_protection_rows(101, Some((last.updated_at, &last.subject_key)), 2)
+            .await
+            .unwrap();
+        assert_eq!(rest.len(), 1);
+        assert_eq!(rest[0].subject_key, all[2].subject_key);
+        assert_eq!(store.request_protection_totals(101).await.unwrap().0, 3);
+    }
+
+    #[tokio::test]
     async fn bot_actions_are_audited_and_scoped_without_becoming_global_probe_blocks() {
         let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
         let mut policy = policy();
@@ -855,7 +881,7 @@ impl Store {
     ) -> Result<Vec<ProtectionEvent>, StoreError> {
         self.prune_request_protection(now).await?;
         let (at, id) = before.unwrap_or((i64::MAX, ""));
-        let rows=q("SELECT id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json FROM request_protection_event WHERE observed_at>?1 AND observed_at<=?2 AND (observed_at<?3 OR (observed_at=?3 AND id<?4)) ORDER BY observed_at DESC,id DESC LIMIT ?5").bind(now.saturating_sub(EVENT_RETENTION_SECS)).bind(now).bind(at).bind(id).bind(limit.clamp(1,100) as i64).fetch_all(&self.backend).await?;
+        let rows=q("SELECT id,subject_key,subject_kind,observed_at,reason,action,enforced,retry_after_secs,counts_json FROM request_protection_event WHERE observed_at>?1 AND observed_at<=?2 AND (observed_at<?3 OR (observed_at=?3 AND id<?4)) ORDER BY observed_at DESC,id DESC LIMIT ?5").bind(now.saturating_sub(EVENT_RETENTION_SECS)).bind(now).bind(at).bind(id).bind(limit.clamp(1,250) as i64).fetch_all(&self.backend).await?;
         rows.iter()
             .map(|row| {
                 let raw = row.get_string("counts_json");
@@ -1132,14 +1158,31 @@ impl Store {
             revision: rev,
         })
     }
+    /// Live row totals `(subjects, events)` for the admin pagination controls.
+    pub async fn request_protection_totals(&self, now: i64) -> Result<(i64, i64), StoreError> {
+        let subjects = q("SELECT COUNT(*) AS n FROM request_protection_subject WHERE expires_at>?1")
+            .bind(now)
+            .fetch_all(&self.backend)
+            .await?[0]
+            .get_i64("n");
+        let events = q("SELECT COUNT(*) AS n FROM request_protection_event WHERE observed_at>?1 AND observed_at<=?2")
+            .bind(now.saturating_sub(EVENT_RETENTION_SECS))
+            .bind(now)
+            .fetch_all(&self.backend)
+            .await?[0]
+            .get_i64("n");
+        Ok((subjects, events))
+    }
     pub async fn request_protection_rows(
         &self,
         now: i64,
-        after: Option<&str>,
+        before: Option<(i64, &str)>,
         limit: usize,
     ) -> Result<Vec<ProtectionRow>, StoreError> {
         self.prune_request_protection(now).await?;
-        let rows=q("SELECT subject_key,subject_kind,state_json,updated_at,expires_at,revision FROM request_protection_subject WHERE expires_at>?1 AND subject_key>?2 ORDER BY subject_key LIMIT ?3").bind(now).bind(after.unwrap_or("")).bind(limit.clamp(1,100) as i64).fetch_all(&self.backend).await?;
+        // Most recently updated first; the key breaks ties so paging is stable.
+        let (at, key) = before.unwrap_or((i64::MAX, ""));
+        let rows=q("SELECT subject_key,subject_kind,state_json,updated_at,expires_at,revision FROM request_protection_subject WHERE expires_at>?1 AND (updated_at<?2 OR (updated_at=?2 AND subject_key<?3)) ORDER BY updated_at DESC,subject_key DESC LIMIT ?4").bind(now).bind(at).bind(key).bind(limit.clamp(1,250) as i64).fetch_all(&self.backend).await?;
         rows.iter()
             .map(|row| {
                 Ok(ProtectionRow {
