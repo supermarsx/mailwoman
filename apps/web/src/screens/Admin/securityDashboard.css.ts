@@ -2,6 +2,7 @@
 // detail panels under them (one column on a phone, two or three on wide screens).
 
 import { style, globalStyle } from '@vanilla-extract/css';
+import { masonry } from '../../components/masonry.css.ts';
 import { vars } from '../../theme/contract.css.ts';
 
 export const page = style({ display: 'flex', flexDirection: 'column', gap: vars.space[4], minInlineSize: 0 });
@@ -9,12 +10,7 @@ export const head = style({ display: 'flex', alignItems: 'center', flexWrap: 'wr
 export const lede = style({ margin: 0, flex: '1 1 20rem', color: vars.color.textDim, lineHeight: 1.5 });
 export const updated = style({ margin: 0, fontSize: '0.8rem', color: vars.color.textDim, fontVariantNumeric: 'tabular-nums' });
 
-export const panels = style({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 20rem), 1fr))',
-  gap: vars.space[4],
-  alignItems: 'start',
-});
+export const panels = masonry;
 export const panel = style({
   display: 'flex',
   flexDirection: 'column',

@@ -3,6 +3,7 @@
 // edge), logical properties so the layout mirrors under dir=rtl, and nothing
 // wider than the pane at 390 px.
 
+import { masonry } from '../../../components/masonry.css.ts';
 import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
 import { subsectionSurface } from '../subsectionLayout.css.ts';
@@ -30,13 +31,7 @@ globalStyle(`${checkTable} tbody th`,{fontWeight:vars.weight.medium});
 globalStyle(`${checkTable} td > * + *`,{marginBlockStart:vars.space[3]});
 
 /** Cards flow in one column on a phone, two or more where there is room. */
-export const cards = style({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 22rem), 1fr))',
-  gap: vars.space[5],
-  alignItems: 'start',
-  minInlineSize: 0,
-});
+export const cards = masonry;
 export const sectionTitle = style({ margin: 0, fontSize: '1rem', fontWeight: vars.weight.heavy });
 export const group = style({ display: 'flex', flexDirection: 'column', gap: vars.space[4], minInlineSize: 0 });
 
