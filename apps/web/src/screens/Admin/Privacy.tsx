@@ -103,7 +103,7 @@ export function AdminPrivacy(props: { service?: PrivacyAdminApi }): JSX.Element 
       fallback={
         <section class={css.section}>
           <h2>{t('privacy-admin-title')}</h2>
-          <SectionTabs label={t('privacy-admin-title')} items={tabs().map((tab) => ({ id: tab.id, label: t(tab.label), path: sectionPath('privacy', [tab.id]) }))} selected={selected()} navigate={open} />
+          <SectionTabs label={t('privacy-admin-title')} items={tabs().map((tab) => ({ id: tab.id, label: t(tab.label), path: sectionPath('privacy', [tab.id]) }))} selected={selected()} navigate={(path) => void shell.router.navigate(path)} />
           <AdminSubtabPanel>
             <Show when={allowed()} fallback={<p role="alert">{t('privacy-tab-denied')}</p>}>
               <Switch>

@@ -48,6 +48,20 @@ describe('Admin Privacy tabs', () => {
     renderInShell(() => <AdminPrivacy service={api} />, { route: route() });
     expect(await within(await screen.findByTestId('chart-requests')).findByText('No samples in this range yet.')).toBeInTheDocument();
   });
+  it('every tab opens (clicking a tab navigates to its own plain path, not a doubled one) and renders its content', async () => {
+    const api = { settings: vi.fn(async () => ({ kind: 'ok' as const, data: [setting, limit('privacy.maxRedirects', 3)], etag: null })), stats: vi.fn(async () => ({ ...stats, history })) };
+    const cases: [string, string][] = [['overview', 'Privacy and remote content'], ['remote', 'privacy.remoteContent'], ['image-proxy', 'Worker history'], ['fetch-limits', 'Remote image fetching'], ['traffic', 'Since this server process started']];
+    for (const [tab, text] of cases) {
+      const view = renderInShell(() => <AdminPrivacy service={api} />, { route: route(tab) });
+      expect((await screen.findAllByText(new RegExp(text))).length).toBeGreaterThan(0);
+      expect(screen.queryByText(/Something went wrong|Could not load/)).toBeNull();
+      const links = screen.getAllByRole('link').filter((a) => /#\/privacy\//.test(a.getAttribute('href') ?? ''));
+      expect(links.length).toBe(5);
+      fireEvent.click(links[2]!);
+      expect(view.navigate).toHaveBeenLastCalledWith(expect.stringMatching(/#\/privacy\/image-proxy$/));
+      view.unmount();
+    }
+  });
   it('lists the traffic tab with the since-start tables', async () => {
     const api = { settings: vi.fn(async () => ({ kind: 'ok' as const, data: [setting], etag: null })), stats: vi.fn(async () => ({ ...stats, history })) };
     renderInShell(() => <AdminPrivacy service={api} />, { route: route('traffic') });
