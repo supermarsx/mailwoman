@@ -42,8 +42,8 @@
 @media (prefers-reduced-motion:reduce) { .compose-head__chev { transition:none; } }
 .compose-head__body[hidden] { display:none; }
 .compose-head__body .field { margin-block:0; }
-.compose-head__body .compose__to, .compose-head__body .compose__subject, .compose-head__body .compose__from-row { display:grid; grid-template-columns:3.25rem minmax(0,1fr) auto; align-items:center; gap:.25rem; margin-block:.1rem; inline-size:auto; }
-.compose-head__body .compose__subject { grid-template-columns:3.25rem minmax(0,1fr); }
+.compose .compose-head__body .compose__to, .compose .compose-head__body .compose__subject, .compose .compose-head__body .compose__from-row { display:grid; grid-template-columns:4.25rem minmax(0,1fr) auto; align-items:center; gap:.25rem; margin-block:.1rem; inline-size:auto; }
+.compose .compose-head__body .compose__subject { grid-template-columns:4.25rem minmax(0,1fr); }
 .compose-head__body .compose__to > span, .compose-head__body .compose__subject > span, .compose-head__body .compose__from-row > span { font-size:.75rem; color:var(--text-dim); margin:0; }
 .compose-head__body .compose__to input:not([type=checkbox]):not([type=radio]), .compose-head__body .compose__subject input:not([type=checkbox]):not([type=radio]) { min-block-size:1.75rem; padding:.15rem .4rem; }
 .compose-head__body .compose__from select { min-block-size:1.75rem; padding:.1rem .4rem; }
