@@ -204,11 +204,12 @@ describe('Compose', () => {
   });
 
   it('expands a quick reply without losing its draft or external-recipient safeguard', async () => {
+    await allowSendChecks({ 'mail.externalRecipientWarning': { value: 'warn', source: 'user', locked: false } });
     const { app } = renderWithApp(() => <Compose embedded initial={{ compact: true, mode: 'reply', to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Quoted text', bodyHtml: '<p>Quoted text</p>', inReplyTo: ['original@example.org'], references: [], attachments: [], quotesDecrypted: false }} onClose={() => undefined} />, { identities: IDENTITIES });
     await app.login({ username: 'me@example.org', password: 'p' });
     expect(screen.queryByLabelText('To')).toBeNull();
     expect(screen.getByRole('region', { name: 'Quick reply' })).toHaveTextContent('alice@outside.test');
-    expect(screen.getByText('1 recipient(s) outside trusted domains')).toBeVisible();
+    expect(screen.getByText(/1 outside trusted domains: .*outside.test/)).toBeVisible();
     await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain');
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'My quick reply\nQuoted text' } });
     fireEvent.click(screen.getByRole('button', { name: 'Edit recipients and subject' }));
@@ -229,7 +230,7 @@ describe('Compose', () => {
 
     // The compose flow completes (draft + submission built with the identity)
     // and surfaces the undo-send toast rather than an error.
-    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -693,7 +694,7 @@ describe('Compose', () => {
     fireEvent.input(screen.getByLabelText('Subject'), { target: { value: 'Hi' } });
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'plain body' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
-    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+    await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
 
     expect(sentRequest(client).methodCalls).toEqual([
       [
@@ -1057,7 +1058,7 @@ describe('Compose', () => {
       const receipt=await screen.findByTestId('compose-request-receipt');
       expect(receipt).toBeChecked();expect(receipt).toBeDisabled();
       fireEvent.change(receipt,{target:{checked:false}});fillAndSend();
-      await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
       expect(draftOf(client).mailwomanRequestReadReceipt).toBe(true);clearSettings();
     });
 
@@ -1071,7 +1072,7 @@ describe('Compose', () => {
 
       fireEvent.click(receipt);
       fillAndSend();
-      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
       expect(draftOf(client)['mailwomanRequestReadReceipt']).toBe(true);
     });
 
@@ -1117,7 +1118,7 @@ describe('Compose', () => {
       await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value,source:'global',locked}}})});
       fireEvent.click(screen.getByTestId('open-drafts'));fireEvent.click(await screen.findByTestId('draft-resume-tracking-draft'));
       const toggle=await screen.findByTestId('compose-track-opens');expect((toggle as HTMLInputElement).checked).toBe(expected);expect((toggle as HTMLInputElement).disabled).toBe(locked);
-      if(locked){fireEvent.change(toggle,{target:{checked:!value}});fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));expect(fetchSpy.mock.calls.filter(call=>String(call[0]).endsWith('/api/track/open')&&call[1]?.method==='POST')).toHaveLength(value?1:0);}
+      if(locked){fireEvent.change(toggle,{target:{checked:!value}});fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Undo'));expect(fetchSpy.mock.calls.filter(call=>String(call[0]).endsWith('/api/track/open')&&call[1]?.method==='POST')).toHaveLength(value?1:0);}
     });
 
     it.each(['capability','feature','policy','plain'] as const)('never requests a token when tracking is denied by %s',async denied=>{
@@ -1126,7 +1127,7 @@ describe('Compose', () => {
       await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value:true,source:'global',locked:true},...(denied==='capability'?{'cap.compose.open_tracking':{value:false,source:'global',locked:true}}:{})}})});
       if(denied==='feature')await loadFeatures({refresh:true,fetcher:async()=>json({features:{'compose.open_tracking':{enabled:false}}})});
       if(denied==='plain')await chooseComposeFormat('plain');
-      expect(screen.queryByTestId('compose-track-opens')).toBeNull();fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      expect(screen.queryByTestId('compose-track-opens')).toBeNull();fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
       expect(fetchSpy.mock.calls.some(call=>String(call[0]).endsWith('/api/track/open')&&call[1]?.method==='POST')).toBe(false);clearFeatures();
     });
 
@@ -1141,7 +1142,7 @@ describe('Compose', () => {
       await structuredComposeEditor();
       fireEvent.click(await screen.findByTestId('compose-track-opens'));
       fillAndSend();
-      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
       expect(draftOf(client)['bodyValues']).toEqual({
         body: { value: htmlMessageDocument('<p>tracked</p><img src="https://mail.example/t/tok.gif" width="1" height="1" alt="">') },
       });
@@ -1170,7 +1171,7 @@ describe('Compose', () => {
       expect(shown.getAttribute('src')).toBe('blob:preview-1');
 
       fillAndSend();
-      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+      await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
       const draft = draftOf(client);
       const attachments = draft['attachments'] as { cid: string }[];
       expect(attachments).toEqual([
@@ -1212,7 +1213,7 @@ describe('Compose', () => {
           expect(await screen.findByTestId('compose-auto-signature')).toBeInTheDocument();
         }
         fillAndSend();
-        await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));
+        await waitFor(() => expect(app.pendingUndo()?.actionLabel).toBe('Undo'));
         const draft = draftOf(client);
         const attachments = draft['attachments'] as { cid: string }[];
         expect(attachments).toEqual([{ blobId: 'Gimg1', cid: attachments[0]!.cid, disposition: 'inline', type: 'image/png', name: 'signature-1.png' }]);

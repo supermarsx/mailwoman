@@ -7,7 +7,7 @@ import type { StoredDraft } from './drafts-store.ts';
 
 const account = (id: string, subject: string, savedAt: number, to = ''): AccountDraftDocument => ({
   accountId: 'a', storageAuthority: 's', id, revision: 'r', emailId: null, savedAt, status: 'saved', cleanupPending: false,
-  summary: { subject }, ...(to ? { state: { to } as AccountDraftDocument['state'] } : {}),
+  summary: { subject }, ...(to ? { state: { to } as NonNullable<AccountDraftDocument['state']> } : {}),
 });
 const local = (id: string, subject: string, savedAt: number, to = 'x@y.z'): StoredDraft =>
   ({ id, accountId: 'a', storageAuthority: 's', to, subject, bodyHtml: '', bodyText: '', savedAt }) as StoredDraft;

@@ -136,7 +136,7 @@ export function AdminAccountMenu(props: AdminAccountMenuProps): JSX.Element {
         </Show>
       </button>
       <Show when={open()}>
-        <div ref={popover} id={id} class={css.popover} role="group" aria-label={label()} style={pos()}>
+        <div ref={(el) => { popover = el; for (const [k, v] of Object.entries(pos())) el.style.setProperty(k, String(v)); }} id={id} class={css.popover} role="group" aria-label={label()}>
           <div class={css.identity}>
             <span class={`person-avatar ${css.avatar}`} data-avatar-color={look().palette} aria-hidden="true">{look().initials}</span>
             <span class={css.identityText}>{t('admin-shell-signed-in-as', { name: isolate(props.username) })}</span>

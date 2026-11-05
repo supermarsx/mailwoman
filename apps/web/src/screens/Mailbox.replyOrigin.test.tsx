@@ -1,4 +1,7 @@
-import {afterEach,beforeEach,expect,it,vi} from 'vitest';
+import {afterEach,beforeAll,beforeEach,expect,it,vi} from 'vitest';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
 import {cleanup,fireEvent,render,screen,waitFor,within} from '@solidjs/testing-library';
 import {AppContext} from '../state/context.ts';
 import {createAppState} from '../state/store.ts';
@@ -14,6 +17,8 @@ import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
 // the outgoing editor are independent contracts covered in their own suites.
 vi.mock('../components/FolderPane.tsx',()=>({FolderPane:(props:{onOpen:(id:string)=>void})=><button onClick={()=>props.onOpen('shared')}>Open project message</button>}));
 vi.mock('../components/Compose.tsx',()=>({Compose:(props:{initial?:ComposeInitial})=><output data-testid="reply-origin">{JSON.stringify(props.initial)}</output>}));
+// Preparing a reply quotes the original, which needs the sanitizer loaded.
+beforeAll(()=>initSync({module:readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))}));
 beforeEach(()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');});
 afterEach(()=>{cleanup();suspendAccountPreferences();});
 

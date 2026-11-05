@@ -83,6 +83,7 @@ function appDouble(): AppState {
   return {
     downloadUrl: () => '/jmap/download/{accountId}/{blobId}/{name}',
     accountId: () => 'acct1',
+    showToast: vi.fn(),
     nextcloud:{enabled:()=>false,ensureEnabled:vi.fn(async()=>{})},
   } as unknown as AppState;
 }

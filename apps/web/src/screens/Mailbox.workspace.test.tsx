@@ -5,7 +5,10 @@ import {loadFeatures,clearFeatures} from '../state/features.ts';
 import {loadSettings} from '../api/settings.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import {readFileSync} from 'node:fs';
+import {resolve} from 'node:path';
+import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
 import { render, fireEvent, screen, within, waitFor } from '@solidjs/testing-library';
 import { AppContext } from '../state/context.ts';
 import { createAppState } from '../state/store.ts';
@@ -17,6 +20,8 @@ import type { EmailGetResponse, JmapRequest } from '../api/jmap-types.ts';
 import { setReadingPane } from '../components/readingPane.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 
+// Preparing a reply quotes the original, which needs the sanitizer loaded.
+beforeAll(()=>initSync({module:readFileSync(resolve('src/wasm/mw-sanitize/mw_sanitize_bg.wasm'))}));
 beforeEach(async()=>{suspendAccountPreferences();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 
 afterEach(()=>vi.unstubAllGlobals());

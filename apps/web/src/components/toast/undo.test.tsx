@@ -33,17 +33,19 @@ describe('undo toast', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Undo' }));
     await waitFor(() => expect(app.visibleMessages().map((m) => m.id)).toEqual(['a', 'b']));
-    await waitFor(() => expect(screen.queryByTestId('toast')).toBeNull());
+    // The history confirms with its own "undone" toast; the pending Undo is gone.
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Undo' })).toBeNull());
     expect(app.pendingUndo()).toBeNull();
   });
 
-  it('labels the undo-send window Cancel', async () => {
+  it('labels the undo-send window Undo and offers Send now', async () => {
     const { app } = renderWithApp(() => <ToastRegion />, { emails: [mkEmail('a')] });
     await app.login({ username: 'me@example.org', password: 'p' });
 
     await app.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', holdSeconds: 10 });
-    expect(await screen.findByRole('button', { name: 'Cancel' })).toBeInTheDocument();
-    expect(screen.getByTestId('toast')).toHaveTextContent('Message sent');
+    expect(await screen.findByRole('button', { name: 'Undo' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Send now' })).toBeInTheDocument();
+    expect(screen.getByTestId('toast')).toHaveTextContent('Message queued');
   });
 
   it('closing commits: the toast goes and the action stays applied', async () => {
@@ -73,8 +75,8 @@ describe('undo toast', () => {
 
     setToastPause('hover', true);
     await app.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', holdSeconds: 3 });
-    expect(app.pendingUndo()?.actionLabel).toBe('Cancel');
-    // The engine sends when its hold ends; Cancel must not outlive it.
+    expect(app.pendingUndo()?.actionLabel).toBe('Undo');
+    // The engine sends when its hold ends; Undo must not outlive it.
     vi.advanceTimersByTime(3_000);
     expect(app.pendingUndo()).toBeNull();
     expect(toasts()).toEqual([]);

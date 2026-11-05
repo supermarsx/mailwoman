@@ -159,6 +159,14 @@ export const note = style({
   color: vars.color.textDim,
 });
 
+/** A note with controls beside it (a pager): wraps on a phone. */
+export const noteRow = style([note, {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '0.75rem',
+  alignItems: 'center',
+}]);
+
 /** An error line: text plus the danger colour, never colour alone (P6). */
 export const error = style({
   color: vars.color.danger,

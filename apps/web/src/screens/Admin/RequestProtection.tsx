@@ -60,7 +60,7 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  });
  /** Page-size picker and "page X of Y · N total" for one newest-first list. */
  const pagerBar=(pager:{page:()=>number;pages:()=>number;total:()=>number;size:()=>number;setSize:(n:number)=>Promise<void>},label:string):JSX.Element=>
-  <div class={css.note} style={{display:'flex','flex-wrap':'wrap',gap:'0.75rem','align-items':'center'}} data-testid="protection-pager">
+  <div class={css.noteRow} data-testid="protection-pager">
    <span role="status">{t('admin-protection-page-status',{page:pager.page(),pages:pager.pages(),total:pager.total()})}</span>
    <label>{t('admin-protection-page-size')} <select aria-label={`${label} · ${t('admin-protection-page-size')}`} value={String(pager.size())} onChange={event=>void pager.setSize(Number(event.currentTarget.value))}><For each={PAGE_SIZES}>{size=><option value={String(size)} selected={pager.size()===size}>{size}</option>}</For></select></label>
   </div>;
