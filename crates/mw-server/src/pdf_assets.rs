@@ -178,6 +178,22 @@ pub(crate) fn response(
     // with an old library after an upgrade. Always revalidate; the ETag makes it a 304.
     resp.headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-cache"));
+    // The viewer document is sandboxed without `allow-same-origin`, so everything it
+    // loads is a cross-origin request from the opaque origin `null`: module scripts,
+    // the worker's import, fonts, wasm and `fetch` need CORS, and the stylesheet
+    // (a no-cors request) needs a CORP that admits it. These are public library
+    // files with no mail and no cookies, so a wildcard grants nothing.
+    {
+        let h = resp.headers_mut();
+        h.insert(
+            header::ACCESS_CONTROL_ALLOW_ORIGIN,
+            HeaderValue::from_static("*"),
+        );
+        h.insert(
+            "cross-origin-resource-policy",
+            HeaderValue::from_static("cross-origin"),
+        );
+    }
     if *method == Method::HEAD {
         if resp.status() == StatusCode::OK {
             resp.headers_mut()

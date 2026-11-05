@@ -9,7 +9,7 @@ import { PDF_CHANNEL } from './pdfBridge.ts';
 
 vi.mock('../screens/Admin/shell/ConfirmDialog.tsx', () => ({ ConfirmDialog: () => null }));
 const part = { partId: '1', blobId: 'b', size: 1, type: 'application/pdf' };
-function message(frame: HTMLIFrameElement, data: Record<string, unknown>, source: Window|null = frame.contentWindow, origin = location.origin): void {
+function message(frame: HTMLIFrameElement, data: Record<string, unknown>, source: Window|null = frame.contentWindow, origin = 'null'): void {
   window.dispatchEvent(new MessageEvent('message', { source, origin, data: { channel: PDF_CHANNEL, instance: 'frame-one', ...data } }));
 }
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
@@ -30,7 +30,9 @@ describe('full PDF viewer authorized byte bridge', () => {
     await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
     const payload = post.mock.calls[0]![0] as { bytes: ArrayBuffer; nonce: string };
     expect(new Uint8Array(payload.bytes)).toEqual(new Uint8Array([37, 80, 68, 70]));
-    expect(post.mock.calls[0]![1]).toBe(location.origin);
+    // An opaque-origin frame cannot be targeted by origin; the window itself is the address.
+    expect(post.mock.calls[0]![1]).toBe('*');
+    expect(frame.getAttribute('sandbox')).not.toContain('allow-same-origin');
     message(frame, { type: 'ready' });
     expect(post).toHaveBeenCalledTimes(1);
     message(frame, { type: 'loaded', nonce: 'wrong' });
@@ -40,7 +42,7 @@ describe('full PDF viewer authorized byte bridge', () => {
     const signal = fetch.mock.calls[0]![1] as RequestInit;
     view.unmount();
     expect((signal.signal as AbortSignal).aborted).toBe(true);
-    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'destroy', nonce: payload.nonce }), location.origin, []);
+    expect(post).toHaveBeenLastCalledWith(expect.objectContaining({ type: 'destroy', nonce: payload.nonce }), '*', []);
   });
   it('aborts the old attachment and rejects its frame after a document switch', async () => {
     const requests: AbortSignal[] = [];

@@ -89,8 +89,15 @@ export default defineConfig({
   projects: [
     {
       name: 'mock',
-      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'settings-optional-methods.spec.ts', 'csrf-strict.spec.ts', 't32-h10-errors.spec.ts'],
+      testMatch: ['happy-path.spec.ts', 'sanitizer.spec.ts', 'settings-optional-methods.spec.ts', 'csrf-strict.spec.ts', 't32-h10-errors.spec.ts', 'pdf-attachment.spec.ts'],
       use: { ...devices['Desktop Chrome'], baseURL: mockBaseURL },
+    },
+    {
+      name: 'mock-firefox',
+      // The PDF attachment viewer in Firefox, against the same proxy stack as `mock`:
+      // Firefox is where the sandbox warning ("can remove its sandboxing") shows.
+      testMatch: ['pdf-attachment.spec.ts'],
+      use: { ...devices['Desktop Firefox'], baseURL: mockBaseURL },
     },
     {
       name: 'engine',

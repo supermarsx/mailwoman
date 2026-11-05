@@ -2,20 +2,54 @@
 // Mailwoman bridge for the unmodified, pinned Mozilla PDF.js generic viewer.
 // PDF-embedded code and external resource fetching are never enabled.
 const CHANNEL = 'mailwoman-pdf-v1';
-const origin = location.origin;
+// The frame is sandboxed WITHOUT allow-same-origin, so its own origin is opaque
+// ('null') and it cannot read the embedding page or its storage. It can neither
+// name nor read the host's origin up front: the host is `window.parent`, and the
+// origin of the first message that window delivers is pinned (see `receive`).
+const host = window.parent;
+let hostOrigin = null;
 const instance = crypto.randomUUID();
 let nonce = null;
 let opened = false;
 let application = null;
 let configuration = null;
 const worker = new URL('../pdf.worker.mjs', import.meta.url).href;
+const base = new URL('./web/', import.meta.url).href;
+// A data: module worker has an opaque origin like this document and may import the
+// real worker over CORS (a blob: worker is refused outright from an opaque origin,
+// and so is a direct http(s) worker URL). The wrapper is the only script URL ever
+// handed to the Worker constructor.
+const workerWrapper = `data:text/javascript,${encodeURIComponent(`await import(${JSON.stringify(worker)});`)}`;
+let workerPort = null;
 
-// Only the fixed self-hosted worker can enter a script-URL sink. HTML is used
+// An opaque-origin document has no localStorage (the getter throws). The viewer
+// reads it for signatures and history, both disabled here; give it a private
+// in-memory store so nothing throws and nothing is ever persisted.
+function memoryStorage() {
+  const map = new Map();
+  return {
+    get length() { return map.size; },
+    key: index => [...map.keys()][index] ?? null,
+    getItem: key => map.get(String(key)) ?? null,
+    setItem: (key, value) => { map.set(String(key), String(value)); },
+    removeItem: key => { map.delete(String(key)); },
+    clear: () => map.clear(),
+  };
+}
+try { Object.defineProperty(window, 'localStorage', { value: memoryStorage(), configurable: true }); } catch { /* keep the native one */ }
+// The viewer announces `webviewerloaded` on `parent.document` so a same-origin
+// host can set options. That read throws here (and logs an error), so make the
+// frame its own announcement target; options are set from this file instead.
+try { Object.defineProperty(window, 'parent', { value: { document }, configurable: true }); } catch { /* falls back to document.dispatchEvent */ }
+
+// Only the fixed self-hosted worker and its data: wrapper can enter a script-URL
+// sink. HTML is used
 // by upstream Fluent's local-translation overlay, which sanitizes its DOM.
 globalThis.trustedTypes?.createPolicy('default', {
   createHTML: value => value,
   createScriptURL: value => {
-    if (new URL(value, location.href).href !== worker) throw new TypeError('Untrusted PDF worker');
+    if (value === workerWrapper || new URL(value, location.href).href === worker) return value;
+    throw new TypeError('Untrusted PDF worker');
     return value;
   },
 });
@@ -23,8 +57,10 @@ globalThis.trustedTypes?.createPolicy('default', {
 // The generic viewer normally accepts file= and hash/debug preferences. This
 // embedded viewer accepts bytes from its owning app only, never a URL parameter.
 history.replaceState(null, '', location.pathname);
+// Messages go to the host window only. Until the host has spoken first the origin
+// is unknown, and the only thing sent then is this frame's random instance id.
 function send(type, detail = {}) {
-  if (window.parent !== window) window.parent.postMessage({ channel: CHANNEL, type, nonce, instance, ...detail }, origin);
+  if (host !== window) host.postMessage({ channel: CHANNEL, type, nonce, instance, ...detail }, hostOrigin ?? '*');
 }
 function externalLink(url) {
   try {
@@ -43,9 +79,28 @@ function applyTheme(theme) {
   document.documentElement.style.colorScheme = theme.dark ? 'dark' : 'light';
 }
 
+// PDF.js cannot start its own worker from an opaque origin (it judges "same
+// origin" by URL, builds a direct http(s) worker, and silently drops to parsing on
+// the main thread). Start it here and hand the port over; when it does not come up
+// (blocked request, no module-worker support) PDF.js's main-thread fallback runs.
+function startWorker() {
+  return new Promise(resolve => {
+    let worker;
+    try { worker = new Worker(workerWrapper, { type: 'module' }); } catch { resolve(null); return; }
+    const done = value => { clearTimeout(timer); worker.removeEventListener('message', ready); worker.removeEventListener('error', failed); if (!value) worker.terminate(); resolve(value ? worker : null); };
+    const ready = () => done(true);
+    const failed = () => done(false);
+    const timer = setTimeout(failed, 8000);
+    worker.addEventListener('message', ready);
+    worker.addEventListener('error', failed);
+  });
+}
+
 const initialization = new Promise(resolve => {
   function receive(event) {
-    if (event.source !== window.parent || event.origin !== origin || event.data?.channel !== CHANNEL) return;
+    if (event.source !== host || event.data?.channel !== CHANNEL) return;
+    if (hostOrigin === null) hostOrigin = event.origin;
+    else if (event.origin !== hostOrigin) return;
     const message = event.data;
     if (message.type === 'probe') { send('ready'); return; }
     if (message.instance !== instance) return;
@@ -73,9 +128,11 @@ function configure(event) {
     enableScripting: false, isEvalSupported: false, enableXfa: false,
     enableAltText: false, enableGuessAltText: false, enableAltTextModelDownload: false,
     enableNewAltTextWhenAddingImage: false, enableSignatureEditor: false,
-    enableUpdatedAddImage: false, enablePermissions: true, workerSrc: worker,
+    enableUpdatedAddImage: false, enablePermissions: true, workerSrc: worker, workerPort,
     localeProperties: { lang: configuration?.locale || 'en-US' },
     enableAutoLinking: true,
+    // Absolute: the worker runs from a blob URL and cannot resolve relative ones.
+    cMapUrl: `${base}cmaps/`, standardFontDataUrl: `${base}standard_fonts/`, wasmUrl: `${base}wasm/`, iccUrl: `${base}iccs/`,
   };
   for (const [key, value] of Object.entries(settings)) options.set(key, value);
 }
@@ -83,15 +140,23 @@ function configure(event) {
 async function start() {
   send('ready');
   const message = await initialization;
-  const hostDocument = window.parent.document;
-  hostDocument.addEventListener('webviewerloaded', configure);
+  workerPort = await startWorker();
+  // The viewer measures layout as it starts. Let our stylesheets finish first, or the
+  // browser warns that layout was forced before the page was fully loaded (Firefox) and
+  // the first measurements are taken against unstyled content.
+  await Promise.all([...document.querySelectorAll('link[rel="stylesheet"]')].map(link => link.sheet ? null : new Promise(resolve => {
+    link.addEventListener('load', resolve, { once: true });
+    link.addEventListener('error', resolve, { once: true });
+  })));
+  if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
+  document.addEventListener('webviewerloaded', configure);
   try {
     await import('./build/pdf.mjs');
     await import('./web/viewer.mjs');
     application = window.PDFViewerApplication;
     await application.initializedPromise;
   } finally {
-    hostDocument.removeEventListener('webviewerloaded', configure);
+    document.removeEventListener('webviewerloaded', configure);
   }
   // Never place an external URL in a live anchor (including context-menu and
   // middle-click navigation); all supported URL schemes pass app confirmation.
@@ -125,7 +190,7 @@ async function start() {
   }
   const open = application.open.bind(application);
   application.open = args => {
-    if (!args?.data && !(typeof args?.url === 'string' && args.url.startsWith(`blob:${origin}/`))) return Promise.reject(new Error('PDF URLs are not permitted'));
+    if (!args?.data && !(typeof args?.url === 'string' && args.url.startsWith('blob:'))) return Promise.reject(new Error('PDF URLs are not permitted'));
     return open(args);
   };
   // Reuse the live upstream scale control in the overflow menu on small

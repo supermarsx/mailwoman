@@ -68,6 +68,9 @@ async fn pdf_document_has_its_own_narrow_policy_and_query_cannot_select_a_file()
         .to_owned();
     assert!(csp.contains("frame-ancestors 'self'"));
     assert!(csp.contains("connect-src 'self' blob: data:"));
+    // The opaque-origin viewer starts its worker from a data: module wrapper.
+    assert!(csp.contains("worker-src 'self' data:"));
+    assert!(!csp.contains("allow-same-origin"));
     assert!(csp.contains("require-trusted-types-for 'script'"));
     assert!(!csp.contains("connect-src *"));
     let body = response.text().await.unwrap();
@@ -162,6 +165,11 @@ async fn viewer_assets_are_embedded_with_script_and_style_types_even_over_a_stal
         let ct = r.headers()["content-type"].to_str().unwrap().to_owned();
         assert!(ct.starts_with(mime), "{path}: {ct}");
         assert_eq!(r.headers()["x-content-type-options"], "nosniff");
+        // The viewer frame is sandboxed without allow-same-origin (origin `null`), so
+        // every file it loads is a cross-origin request: CORS for scripts, fonts, wasm
+        // and fetch, and a CORP that admits the no-cors stylesheet.
+        assert_eq!(r.headers()["access-control-allow-origin"], "*", "{path}");
+        assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin", "{path}");
         let etag = r.headers()["etag"].to_str().unwrap().to_owned();
         assert!(!r.bytes().await.unwrap().is_empty(), "{path}");
         let cached = f

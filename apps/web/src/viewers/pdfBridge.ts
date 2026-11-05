@@ -1,5 +1,9 @@
 /** Narrow protocol shared with the self-hosted generic PDF viewer bootstrap. */
 export const PDF_CHANNEL = 'mailwoman-pdf-v1';
+/** The viewer frame is sandboxed without `allow-same-origin`, so its origin is opaque and its messages carry this origin. */
+export const PDF_FRAME_ORIGIN = 'null';
+/** Scripts only: the frame never shares the app's origin, storage or cookies. */
+export const PDF_FRAME_SANDBOX = 'allow-scripts allow-downloads allow-modals';
 export function authorizedPdfBlob(value: string, origin = location.origin): boolean {
   try { const url = new URL(value); return url.protocol === 'blob:' && url.origin === origin; } catch { return false; }
 }

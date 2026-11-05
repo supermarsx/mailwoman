@@ -2,25 +2,24 @@
 // The iframe receives authorized attachment bytes, never account credentials or
 // an arbitrary PDF URL. Its own CSP and bootstrap disable PDF scripting/network.
 //
-// Why the frame keeps `allow-scripts allow-same-origin` (Firefox warns that such a
-// frame "can remove its sandboxing"): the pinned upstream viewer is built to run
-// same-origin with its host. The bootstrap hands options to the viewer through
-// `window.parent.document` (the `webviewerloaded` event), the viewer uses
-// localStorage, creates its module Worker from a same-origin URL, and fetches
-// cmaps/fonts/wasm with credentialed same-origin requests; an opaque origin breaks
-// each of these (cross-origin module/worker/CORS, `parent.document` throws). The
-// frame only ever loads our fixed, embedded, script-free-of-inline document under
-// a tight CSP (script-src 'self', Trusted Types, no PDF scripting, connect-src
-// 'self' blob:), so the "remove its sandbox" path needs a code-execution bug in
-// pinned PDF.js first. Dropping the token needs the viewer reworked and verified
-// in real browsers; until then this is the documented, accepted residual.
+// The viewer frame is sandboxed with `allow-scripts` only, so it has an opaque
+// origin and cannot touch this page, its storage or its cookies (and Firefox no
+// longer warns that it "can remove its sandboxing"). The upstream viewer expects
+// to run same-origin with its host, so the frame's bootstrap adapts it instead:
+// options come from the bootstrap (not `parent.document`), storage is in memory,
+// the worker is started through a blob wrapper, and every `/pdfjs/*` file is
+// served with CORS + CORP for the opaque origin. The PDF bytes never come from a
+// URL the frame can choose: this component fetches them through the
+// authenticated attachment route and posts them to the frame, which is addressed
+// by window (an opaque origin cannot be a postMessage target, so '*') and
+// answers only to the frame window with the origin 'null' and the per-frame nonce.
 import { createMemo, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { shellBase } from '../api/basePath.ts';
 import { apiFetch } from '../api/http.ts';
 import { t } from '../i18n/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
-import { authorizedPdfBlob, PDF_CHANNEL, safePdfLink, validPdfMessage } from './pdfBridge.ts';
+import { authorizedPdfBlob, PDF_CHANNEL, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX, safePdfLink, validPdfMessage } from './pdfBridge.ts';
 
 export { PDF_WORKER_SRC, isSelfHosted } from './pdfWorkerSrc.ts';
 
@@ -62,7 +61,7 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     return result;
   }
   function post(type: string, details: Record<string, unknown> = {}, transfer: Transferable[] = []): void {
-    frame.contentWindow?.postMessage({ channel: PDF_CHANNEL, nonce, instance, type, ...details }, host.location.origin, transfer);
+    frame.contentWindow?.postMessage({ channel: PDF_CHANNEL, nonce, instance, type, ...details }, '*', transfer);
   }
   function open(): void {
     if (!ready || !bytes || sent || disposed || failed) return;
@@ -71,7 +70,7 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     bytes = undefined;
   }
   function receive(event: MessageEvent): void {
-    if (disposed || !validPdfMessage(event, frame.contentWindow, host.location.origin)) return;
+    if (disposed || !validPdfMessage(event, frame.contentWindow, PDF_FRAME_ORIGIN)) return;
     if (event.data.type === 'ready' && typeof event.data.instance === 'string' && event.data.instance.length <= 100) {
       if (event.data.instance === instance || (failed && instance === undefined)) return;
       if (instance !== undefined) {
@@ -127,7 +126,7 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     <Show when={status() === 'error'}><p role="alert" class="mw-viewer__error">{t('common-viewer-pdf-failed')}</p></Show>
     <iframe ref={frame} class="mw-viewer__pdf-frame" src={`${shellBase()}pdfjs/web/mailwoman.html`} title={t('common-pdf-preview') + ': ' + props.name}
       onLoad={() => { bindHost(); post('probe'); }}
-      sandbox="allow-scripts allow-same-origin allow-downloads allow-modals" allowfullscreen referrerPolicy="no-referrer" />
+      sandbox={PDF_FRAME_SANDBOX} allowfullscreen referrerPolicy="no-referrer" />
     <ConfirmDialog open={link() !== undefined} title={t('common-pdf-link-title')} body={t('common-pdf-link-help')} danger={false}
       confirmLabel={t('common-pdf-link-open')} cancelLabel={t('common-cancel')} onCancel={() => setLink(undefined)} mount={frame?.ownerDocument.body}
       onConfirm={() => { const url = safePdfLink(link()); if (url) host.open(url, '_blank', 'noopener,noreferrer'); setLink(undefined); }}>
