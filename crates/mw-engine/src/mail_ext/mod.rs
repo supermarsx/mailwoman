@@ -32,6 +32,7 @@ pub mod dsn;
 pub mod email_ext;
 pub mod mdn;
 pub mod quota;
+pub mod send_policy;
 pub mod snippet;
 pub mod threads;
 pub mod vacation;

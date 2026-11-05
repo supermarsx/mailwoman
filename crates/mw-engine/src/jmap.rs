@@ -2405,7 +2405,7 @@ impl Engine {
                         .cancel_submission(account_id, id)
                         .await
                         .map(|()| Value::Null)
-                        .map_err(|e| set_error(&e)),
+                        .map_err(|e| submission_update_error(&e)),
                     (Ok(SubmissionUpdate::Release), Ok(on_success)) => {
                         match self
                             .release_submission(account_id, id, on_success.as_ref())
@@ -2415,7 +2415,7 @@ impl Engine {
                                 note_filed(filed, &email_id);
                                 Ok(changed)
                             }
-                            Err(e) => Err(set_error(&e)),
+                            Err(e) => Err(submission_update_error(&e)),
                         }
                     }
                 };
@@ -2582,6 +2582,11 @@ impl Engine {
             .and_then(Value::as_u64)
             .unwrap_or(0) as u32;
         let hold = checked_hold(spec)?;
+        // Administrator ceilings on the undo hold, the scheduling horizon and
+        // the queue size (`mail.send.*`, mail_ext/send_policy.rs).
+        let hold_seconds = self
+            .apply_send_limits(account_id, hold_seconds, send_at.as_deref(), false)
+            .await?;
         if !self.mdn_sending_allowed(account_id).await.map_err(
             |_| json!({"type":"serverFail","description":"receipt policy could not be checked"}),
         )? {
@@ -3060,6 +3065,7 @@ impl Engine {
         account_id: &str,
         rt: &AccountRuntime,
     ) -> Result<Vec<IdentityRow>> {
+        // The native adapters already resolve variants to their effective profile.
         let rows = self
             .store()
             .list_native_personal_identities(account_id)
@@ -3239,6 +3245,9 @@ impl Engine {
                 signature_text: None,
                 signature_name: None,
                 reply_signature_name: None,
+                is_default: false,
+                variant_of: None,
+                label: None,
                 organization: None,
                 auto_bcc: None,
                 pgp_key_id: None,
@@ -3286,6 +3295,9 @@ impl Engine {
                     signature_text: si.signature_text.clone(),
                     signature_name: None,
                     reply_signature_name: None,
+                    is_default: false,
+                    variant_of: None,
+                    label: None,
                     organization: None,
                     auto_bcc: None,
                     pgp_key_id: None,
@@ -5142,6 +5154,18 @@ fn moves_mailbox(patch: &Value, current_mailbox_id: &str) -> bool {
 /// What a client is told in place of an internal error's text.
 const SERVER_FAIL_TEXT: &str = "the server could not complete this request";
 
+/// A cancel or release of a submission that is no longer pending is a state
+/// conflict the client caused, not a server fault: `invalidArguments`. Every
+/// other failure keeps the generic [`set_error`] mapping.
+fn submission_update_error(e: &EngineError) -> Value {
+    if let EngineError::Protocol(m) = e {
+        if m.ends_with("and cannot be canceled") || m.ends_with("and cannot be released") {
+            return json!({ "type": "invalidArguments", "description": m });
+        }
+    }
+    set_error(e)
+}
+
 /// A JMAP method-level `SetError` object for a failed create/update.
 ///
 /// A store, transport or authentication failure is logged here and reaches
@@ -5760,6 +5784,22 @@ fn now_rfc3339() -> String {
 ///   own client created it (`kind: "apiKey"`, `name`: the key's prefix), else
 ///   `null`. Kept after a release, so the Outbox can still say where a sent
 ///   message came from.
+/// The instant a pending submission becomes due (RFC 3339), mirroring the
+/// dispatcher: `sendAt` when set, else `createdAt + holdSeconds`.
+fn submission_due_at(row: &SubmissionRow) -> Option<String> {
+    if let Some(at) = &row.send_at
+        && chrono::DateTime::parse_from_rfc3339(at).is_ok()
+    {
+        return Some(at.clone());
+    }
+    let created = chrono::DateTime::parse_from_rfc3339(&row.created_at).ok()?;
+    Some(
+        (created.with_timezone(&chrono::Utc)
+            + chrono::Duration::seconds(i64::from(row.hold_seconds)))
+        .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+    )
+}
+
 fn submission_json(
     row: &SubmissionRow,
     attempts: u32,
@@ -5775,6 +5815,9 @@ fn submission_json(
         "sendAt": row.send_at,
         "undoStatus": public_undo_status(&row.undo_status),
         "mailwomanHoldSeconds": row.hold_seconds,
+        // When the engine will send it: `sendAt`, else created + hold. Lets the
+        // Outbox count down without knowing how the window was derived.
+        "mailwomanDueAt": submission_due_at(row),
         "mailwomanHold": hold.filter(|_| row.undo_status == SUBMISSION_PENDING),
         "mailwomanOrigin": origin.and_then(|o| serde_json::from_str::<Value>(o).ok()),
         "mailwomanFailed": row.undo_status == SUBMISSION_FAILED,
@@ -5803,7 +5846,7 @@ fn public_undo_status(stored: &str) -> &str {
 /// (`"configured"` | `"server"`) is surfaced additively so a client can tell a
 /// server-advertised allowed-from from the account's own configured identity.
 fn identity_json(row: &IdentityRow) -> Value {
-    json!({
+    let mut value = json!({
         "id": row.id,
         "name": row.name,
         "email": row.email,
@@ -5816,7 +5859,16 @@ fn identity_json(row: &IdentityRow) -> Value {
         "signatureText": row.signature_text,
         "sentMailboxId": row.sent_mailbox_id,
         "source": row.source,
-    })
+        // Extension properties; a client that does not know them ignores them.
+        "isDefault": row.is_default,
+    });
+    // `variantOf`/`label` appear only on a variant. Its other fields are already
+    // the effective (inherited) values.
+    if let Some(base) = &row.variant_of {
+        value["variantOf"] = json!(base);
+        value["label"] = json!(row.label);
+    }
+    value
 }
 
 /// A filesystem/id-safe slug of an email address for a server-identity row id

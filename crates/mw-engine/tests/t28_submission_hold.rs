@@ -429,7 +429,7 @@ async fn a_manual_hold_waits_for_a_release_and_is_then_sent_once() {
 
     // A second release of a sent submission is refused and sends nothing.
     let again = release(&h, sub_id).await;
-    assert_not_updated(&again, sub_id, "serverFail");
+    assert_not_updated(&again, sub_id, "invalidArguments");
     assert_eq!(h.submitter.calls(), 1);
 }
 
@@ -538,7 +538,7 @@ async fn a_held_submission_can_be_discarded_and_is_then_never_sent() {
     );
 
     let resp = release(&h, sub_id).await;
-    assert_not_updated(&resp, sub_id, "serverFail");
+    assert_not_updated(&resp, sub_id, "invalidArguments");
     tick_long_after(&h).await;
     assert_eq!(h.submitter.calls(), 0);
     assert!(!email(&h, &draft).await.is_null(), "the draft is kept");
@@ -1060,4 +1060,138 @@ async fn an_on_success_instruction_that_cannot_be_applied_refuses_the_create() {
     .await;
     assert_not_updated(&resp, sub_id, "invalidArguments");
     assert_eq!(submission(&h, sub_id).await["undoStatus"], "pending");
+}
+
+// ---- recall, send-later and the mail.send.* limits ---------------------------
+
+async fn set_policy(h: &Harness, key: &str, value: &str) {
+    h.engine
+        .store()
+        .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+            key: key.into(),
+            global_value: Some(value.into()),
+            allow_user_override: false,
+            global_locked: false,
+            updated_by: "root".into(),
+            updated_at: 1,
+        })
+        .await
+        .unwrap();
+}
+
+async fn queued_draft_submission(h: &Harness, extra: Value) -> Value {
+    let draft = create_draft(h).await;
+    let mut spec = json!({ "emailId": draft });
+    for (k, v) in extra.as_object().unwrap() {
+        spec[k] = v.clone();
+    }
+    submission_set(h, json!({ "create": { "send": spec } })).await
+}
+
+/// A recall wins while the row is pending; afterwards neither the dispatcher,
+/// a second recall nor a release can do anything with it.
+#[tokio::test]
+async fn a_recalled_submission_is_never_sent_and_a_second_recall_is_refused() {
+    let h = setup(Smtp::Deliver).await;
+    let resp = queued_draft_submission(&h, json!({ "mailwomanHoldSeconds": 60 })).await;
+    let sub_id = result(&resp, "s")["created"]["send"]["id"].as_str().unwrap().to_string();
+    assert_eq!(h.submitter.calls(), 0, "held for the undo window");
+
+    let cancel = json!({ "update": { sub_id.clone(): { "undoStatus": "canceled" } } });
+    let first = submission_set(&h, cancel.clone()).await;
+    assert!(result(&first, "s")["updated"].get(&sub_id).is_some(), "{first}");
+    let second = submission_set(&h, cancel).await;
+    assert_not_updated(&second, &sub_id, "invalidArguments");
+    assert_not_updated(&release(&h, &sub_id).await, &sub_id, "invalidArguments");
+
+    tick_long_after(&h).await;
+    assert_eq!(h.submitter.calls(), 0, "a recalled message is never sent");
+    assert_eq!(submission(&h, &sub_id).await["undoStatus"], "canceled");
+}
+
+/// A send that has gone cannot be recalled afterwards.
+#[tokio::test]
+async fn a_sent_submission_cannot_be_recalled() {
+    let h = setup(Smtp::Deliver).await;
+    let resp = queued_draft_submission(&h, json!({ "mailwomanHoldSeconds": 60 })).await;
+    let sub_id = result(&resp, "s")["created"]["send"]["id"].as_str().unwrap().to_string();
+    release(&h, &sub_id).await;
+    assert_eq!(h.submitter.delivered(), 1);
+    let resp = submission_set(&h, json!({ "update": { sub_id.clone(): { "undoStatus": "canceled" } } })).await;
+    assert!(result(&resp, "s")["updated"].get(&sub_id).is_none(), "{resp}");
+    tick_long_after(&h).await;
+    assert_eq!(h.submitter.delivered(), 1, "delivered exactly once");
+}
+
+/// A due scheduled send goes at its time, and one missed while the server was
+/// down goes on the first pass after it.
+#[tokio::test]
+async fn a_scheduled_send_waits_for_its_time_and_catches_up_after_downtime() {
+    let h = setup(Smtp::Deliver).await;
+    let at = (Utc::now() + chrono::Duration::hours(1)).to_rfc3339();
+    let resp = queued_draft_submission(&h, json!({ "sendAt": at })).await;
+    assert!(result(&resp, "s")["created"]["send"]["id"].is_string(), "{resp}");
+    h.engine.dispatch_tick_at(Utc::now()).await.unwrap();
+    assert_eq!(h.submitter.calls(), 0, "not due yet");
+    h.engine
+        .dispatch_tick_at(Utc::now() + chrono::Duration::minutes(59))
+        .await
+        .unwrap();
+    assert_eq!(h.submitter.calls(), 0, "still not due");
+    // The server was down past the time: the first pass afterwards sends it.
+    h.engine
+        .dispatch_tick_at(Utc::now() + chrono::Duration::days(2))
+        .await
+        .unwrap();
+    assert_eq!(h.submitter.delivered(), 1);
+    h.engine
+        .dispatch_tick_at(Utc::now() + chrono::Duration::days(3))
+        .await
+        .unwrap();
+    assert_eq!(h.submitter.delivered(), 1, "and only once");
+}
+
+#[tokio::test]
+async fn the_recall_cap_shortens_the_hold_and_allow_recall_off_sends_at_once() {
+    let h = setup(Smtp::Deliver).await;
+    set_policy(&h, "mail.send.recallDelayMaxSeconds", "5").await;
+    let resp = queued_draft_submission(&h, json!({ "mailwomanHoldSeconds": 600 })).await;
+    let id = result(&resp, "s")["created"]["send"]["id"].as_str().unwrap().to_string();
+    assert_eq!(submission(&h, &id).await["mailwomanHoldSeconds"], 5);
+    assert_eq!(h.submitter.calls(), 0);
+
+    set_policy(&h, "mail.send.allowRecall", "false").await;
+    let resp = queued_draft_submission(&h, json!({ "mailwomanHoldSeconds": 60 })).await;
+    assert!(result(&resp, "s")["created"]["send"]["id"].is_string(), "{resp}");
+    assert_eq!(h.submitter.delivered(), 1, "no hold: sent by the create");
+}
+
+#[tokio::test]
+async fn the_scheduling_horizon_refuses_a_send_time_too_far_ahead() {
+    let h = setup(Smtp::Deliver).await;
+    set_policy(&h, "mail.send.maxDelayedSeconds", "3600").await;
+    let far = (Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
+    let resp = queued_draft_submission(&h, json!({ "sendAt": far })).await;
+    let set = result(&resp, "s");
+    assert_eq!(set["notCreated"]["send"]["type"], "invalidProperties", "{resp}");
+    assert_eq!(set["notCreated"]["send"]["properties"], json!(["sendAt"]));
+    let near = (Utc::now() + chrono::Duration::minutes(30)).to_rfc3339();
+    let resp = queued_draft_submission(&h, json!({ "sendAt": near })).await;
+    assert!(result(&resp, "s")["created"]["send"]["id"].is_string(), "{resp}");
+}
+
+#[tokio::test]
+async fn the_queue_limit_refuses_the_next_send_and_drops_nothing() {
+    let h = setup(Smtp::Deliver).await;
+    set_policy(&h, "mail.send.maxQueued", "2").await;
+    for _ in 0..2 {
+        let resp = queued_draft_submission(&h, json!({ "mailwomanHoldSeconds": 60 })).await;
+        assert!(result(&resp, "s")["created"]["send"]["id"].is_string(), "{resp}");
+    }
+    let resp = queued_draft_submission(&h, json!({ "mailwomanHoldSeconds": 60 })).await;
+    assert_eq!(result(&resp, "s")["notCreated"]["send"]["type"], "overQuota", "{resp}");
+    // An immediate send is not queued, so the limit does not apply to it.
+    let resp = queued_draft_submission(&h, json!({})).await;
+    assert!(result(&resp, "s")["created"]["send"]["id"].is_string(), "{resp}");
+    assert_eq!(h.submitter.delivered(), 1);
 }
