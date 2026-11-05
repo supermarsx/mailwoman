@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2428,6 +2428,20 @@ mod admin_controls_0033 {
         NewTable {name:"cookie_detected",copied:true,cols:&[
             ("id",'T',"!","detected-1"),("kind",'T',"!","localStorage"),("name",'T',"!","vendor.key"),
             ("first_seen",'I',"!",TS),("last_seen",'I',"!",TS),("seen_count",'I',"!","3"),("status",'T',"!","unclassified"),
+        ]},
+        NewTable {name:"dsr_request",copied:true,cols:&[
+            ("id",'T',"!","dsr-1"),("address",'T',"!","a@example.test"),("domain",'T',"!","example.test"),
+            ("account_id",'T',"!","acct-1"),("kind",'T',"!","access"),("status",'T',"!","approved"),
+            ("created_at",'I',"!",TS),("updated_at",'I',"!",TS),("due_at",'I',"!",TS),("assignee",'T',"~","admin"),
+            ("rev",'I',"!","1"),("body_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"dsr_event",copied:true,cols:&[
+            ("id",'T',"!","dsr-event-1"),("request_id",'T',"!","dsr-1"),("ts",'I',"!",TS),
+            ("actor",'T',"!","admin"),("kind",'T',"!","created"),("detail_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"dsr_part",copied:true,cols:&[
+            ("request_id",'T',"!","dsr-1"),("name",'T',"!","profile.json"),("seq",'I',"!","0"),
+            ("sealed",'I',"!","0"),("data",'B',"!","part-bytes"),
         ]},
         NewTable {name:"request_protection_subject",copied:true,cols:&[
             ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),

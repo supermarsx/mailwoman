@@ -1053,6 +1053,12 @@ impl Engine {
         Ok(thread::thread_root(&target, &ancestors))
     }
 
+    /// Remove every search-index document of `account_id` for a data-subject
+    /// erasure; the number of documents removed.
+    pub fn erase_account_index(&self, account_id: &str) -> u64 {
+        self.search.delete_account(account_id).unwrap_or(0)
+    }
+
     /// Remove every search-index document of `account_id` (one commit; none
     /// when the account has no document). Called when a write finds the account
     /// zero-access, so documents indexed before the posture changed do not

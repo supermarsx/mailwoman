@@ -1503,6 +1503,56 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "dsr_request",
+        select: "SELECT id,address,domain,account_id,kind,status,created_at,updated_at,due_at,assignee,rev,body_json FROM dsr_request",
+        insert: "INSERT INTO dsr_request(id,address,domain,account_id,kind,status,created_at,updated_at,due_at,assignee,rev,body_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "address"),
+                t(r, "domain"),
+                t(r, "account_id"),
+                t(r, "kind"),
+                t(r, "status"),
+                i(r, "created_at"),
+                i(r, "updated_at"),
+                i(r, "due_at"),
+                ot(r, "assignee"),
+                i(r, "rev"),
+                t(r, "body_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "dsr_event",
+        select: "SELECT id,request_id,ts,actor,kind,detail_json FROM dsr_event",
+        insert: "INSERT INTO dsr_event(id,request_id,ts,actor,kind,detail_json) VALUES(?1,?2,?3,?4,?5,?6)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "request_id"),
+                i(r, "ts"),
+                t(r, "actor"),
+                t(r, "kind"),
+                t(r, "detail_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "dsr_part",
+        select: "SELECT request_id,name,seq,sealed,data FROM dsr_part",
+        insert: "INSERT INTO dsr_part(request_id,name,seq,sealed,data) VALUES(?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                t(r, "request_id"),
+                t(r, "name"),
+                i(r, "seq"),
+                i(r, "sealed"),
+                b(r, "data"),
+            ]
+        },
+    },
+    TableSpec {
         name: "package_provider",
         select: "SELECT id,enabled,refresh_secs,sealed_key,revision FROM package_provider",
         insert: "INSERT INTO package_provider(id,enabled,refresh_secs,sealed_key,revision) VALUES(?1,?2,?3,?4,?5)",
