@@ -47,3 +47,7 @@ remote-images-toast-retry = Tentar novamente
 
 remote-images-toast-progress = A carregar imagens… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = A carregar imagens… { $loaded }/{ $total } · Tentativa { $attempt }/{ $max }
+
+remote-images-toast-cancel = Cancelar
+remote-images-toast-cancelled = Carregamento de imagens cancelado
+remote-images-toast-load-again = Carregar novamente

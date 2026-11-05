@@ -344,3 +344,18 @@ describe('createRemoteImageLoad', () => {
     h.dispose();
   });
 });
+
+describe('cancelable image loading', () => {
+  it('the loading toast offers Cancel; cancelling stops the load and offers Load again', () => {
+    const s = sink(); const onCancel = vi.fn(); const onLoadAgain = vi.fn();
+    const tt = createImageLoadToast({ id: 'r', retry: () => undefined, sink: s, onCancel, onLoadAgain });
+    tt.start('L1', 4); vi.advanceTimersByTime(TOAST_DELAY_MS + 1);
+    expect(s.shown.at(-1)?.action).toBe('Cancel');
+    s.run();
+    expect(onCancel).toHaveBeenCalledOnce();
+    expect(s.shown.at(-1)).toMatchObject({ message: 'Image loading cancelled', action: 'Load again' });
+    expect(tt.running()).toBeNull();
+    s.run();
+    expect(onLoadAgain).toHaveBeenCalledOnce();
+  });
+});

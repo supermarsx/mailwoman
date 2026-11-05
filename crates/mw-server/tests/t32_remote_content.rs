@@ -1319,7 +1319,7 @@ async fn a_signed_image_loads_without_a_cookie_and_forwards_nothing_of_the_reade
     assert_eq!(r.status(), 200);
     assert_eq!(r.headers()["content-type"], "image/png");
     assert_eq!(r.headers()["cross-origin-resource-policy"], "cross-origin");
-    assert_eq!(r.headers()["cache-control"], "private, no-cache");
+    assert_eq!(r.headers()["cache-control"], "private, max-age=600");
     assert!(r.headers().get("x-mw-remote-content").is_none());
     let body = r.bytes().await.unwrap();
     assert_eq!(png_size(&body), (4, 4), "re-encoded, same size");

@@ -53,3 +53,11 @@ describe('fetchImageBatch', () => {
     expect(imageToken(`${location.origin}/api/rc/p/abc`)).toBeNull();
   });
 });
+
+describe('cancelling image batches', () => {
+  it('refuses to start when already aborted and stops retrying once aborted', async () => {
+    const controller = new AbortController(); controller.abort();
+    await expect(fetchImageBatch(['a'], { signal: controller.signal })).rejects.toMatchObject({ name: 'AbortError' });
+    await expect(prewarmSignedImages([{ src: '/api/rc/i/aaa' }], { signal: controller.signal })).resolves.toBeUndefined();
+  });
+});

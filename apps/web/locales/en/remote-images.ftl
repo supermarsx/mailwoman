@@ -57,3 +57,7 @@ remote-images-toast-retry = Retry
 
 remote-images-toast-progress = Loading images… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = Loading images… { $loaded }/{ $total } · Retry { $attempt }/{ $max }
+
+remote-images-toast-cancel = Cancel
+remote-images-toast-cancelled = Image loading cancelled
+remote-images-toast-load-again = Load again

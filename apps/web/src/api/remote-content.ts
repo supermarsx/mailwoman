@@ -170,7 +170,8 @@ export function imageToken(src: string, base = remoteServerBase()): string | nul
  * back to the single-URL route the browser uses anyway).
  */
 export async function fetchImageBatch(tokens: readonly string[], opts: { bodies?: boolean; retries?: number; sleep?: (ms: number) => Promise<void>; signal?: AbortSignal } = {}): Promise<ImageBatchResult[]> {
-  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(resolve => { setTimeout(resolve, ms); }));
+  const sleep = opts.sleep ?? ((ms: number) => new Promise<void>(resolve => { const timer = setTimeout(resolve, ms); opts.signal?.addEventListener('abort', () => { clearTimeout(timer); resolve(); }, { once: true }); }));
+  if (opts.signal?.aborted) throw new DOMException('Image loading cancelled', 'AbortError');
   const retries = opts.retries ?? IMAGE_BATCH_RETRIES;
   const out: ImageBatchResult[] = new Array<ImageBatchResult>(tokens.length);
   let pending = tokens.map((_, i) => i);
@@ -191,6 +192,7 @@ export async function fetchImageBatch(tokens: readonly string[], opts: { bodies?
     }
     if (next.length === 0 || round >= retries || opts.signal?.aborted) break;
     await sleep(Math.max(Math.min(BATCH_BASE_MS * 2 ** round, BATCH_CAP_MS), ...waits));
+    if (opts.signal?.aborted) break;
     pending = next;
   }
   return out;

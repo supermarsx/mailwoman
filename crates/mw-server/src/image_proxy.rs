@@ -1286,13 +1286,21 @@ async fn ungranted_response(
         .into_response()
 }
 
+/// Browser caching of a proxied image. The URL carries the signed handle, which
+/// names one (account, source URL) pair and expires; the bytes behind a handle
+/// do not change while it lives, so a re-opened message or reply is answered
+/// from the browser's per-user cache for ten minutes (well inside the one-hour
+/// handle lifetime) and revalidated by `ETag` after that. `private`: never a
+/// shared cache. The web client sends `Clear-Site-Data: "cache"` on sign-out.
+pub const IMAGE_CACHE_CONTROL: &str = "private, max-age=600";
+
 /// Build a `200` image response with the content-hash `ETag` + private caching.
 fn image_response(png: bytes::Bytes, etag: String) -> Response {
     (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "image/png".to_string()),
-            (header::CACHE_CONTROL, "private, no-cache".to_string()),
+            (header::CACHE_CONTROL, IMAGE_CACHE_CONTROL.to_string()),
             (header::ETAG, etag),
             (header::X_CONTENT_TYPE_OPTIONS, "nosniff".to_string()),
         ],
@@ -1302,7 +1310,14 @@ fn image_response(png: bytes::Bytes, etag: String) -> Response {
 }
 
 fn not_modified(etag: &str) -> Response {
-    (StatusCode::NOT_MODIFIED, [(header::ETAG, etag.to_string())]).into_response()
+    (
+        StatusCode::NOT_MODIFIED,
+        [
+            (header::ETAG, etag.to_string()),
+            (header::CACHE_CONTROL, IMAGE_CACHE_CONTROL.to_string()),
+        ],
+    )
+        .into_response()
 }
 
 /// Whether the request's `If-None-Match` covers `etag`.
@@ -1745,6 +1760,19 @@ mod tests {
         assert!(rl.check("a"), "first refilled token available");
         assert!(rl.check("a"), "second refilled token available");
         assert!(!rl.check("a"), "only ~2 tokens refilled, third is refused");
+    }
+
+    #[test]
+    fn image_responses_are_privately_cacheable_and_never_shared() {
+        for response in [
+            image_response(bytes::Bytes::from_static(b"png"), "\"t\"".to_string()),
+            not_modified("\"t\""),
+        ] {
+            let cc = response.headers()[header::CACHE_CONTROL].to_str().unwrap();
+            assert!(cc.starts_with("private"), "{cc}");
+            assert!(cc.contains("max-age=600"), "{cc}");
+            assert!(!cc.contains("public") && !cc.contains("immutable"), "{cc}");
+        }
     }
 
     #[test]

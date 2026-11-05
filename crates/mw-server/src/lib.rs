@@ -3086,6 +3086,12 @@ async fn logout(State(state): State<AppState>, headers: HeaderMap) -> Response {
     let mut resp = StatusCode::NO_CONTENT.into_response();
     resp.headers_mut()
         .append(header::SET_COOKIE, clear_cookie(state.cookie_secure));
+    // Proxied message images are cached privately by the browser; signing out
+    // drops them so the next person on this browser cannot reuse them.
+    resp.headers_mut().insert(
+        axum::http::HeaderName::from_static("clear-site-data"),
+        HeaderValue::from_static("\"cache\""),
+    );
     resp
 }
 

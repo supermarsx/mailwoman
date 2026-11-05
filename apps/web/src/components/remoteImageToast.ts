@@ -78,7 +78,7 @@ export interface ImageLoadToast {
   running(): string | null;
 }
 
-export function createImageLoadToast(opts: { id: string; retry: () => void; sink?: ToastSink;retryAttempts?:Accessor<number> }): ImageLoadToast {
+export function createImageLoadToast(opts: { id: string; retry: () => void; sink?: ToastSink;retryAttempts?:Accessor<number>;onCancel?:()=>void;onLoadAgain?:()=>void }): ImageLoadToast {
   const sink = opts.sink ?? toastStore;
   let key: string | null = null;
   let finished: string | null = null;
@@ -91,7 +91,7 @@ export function createImageLoadToast(opts: { id: string; retry: () => void; sink
     const text = attempt > 0 ? t('remote-images-toast-retrying-progress', {loaded:completed ?? 0,total,attempt,max:opts.retryAttempts?.()??MAX_AUTO_RETRIES}) : completed === null ? t('remote-images-toast-loading') : t('remote-images-toast-progress',{loaded:completed,total});
     if (text === lastText) return;
     lastText = text;
-    sink.show('info', text, { id: opts.id, duration: Infinity, testId: 'remote-images-toast', busy:true });
+    sink.show('info', text, { id: opts.id, duration: Infinity, testId: 'remote-images-toast', busy:true, ...(opts.onCancel ? { action: { label: t('remote-images-toast-cancel'), run: () => { const at = key; clearTimeout(timer); timer = undefined; shown = false; lastText = ''; key = null; finished = at; opts.onCancel!(); sink.show('info', t('remote-images-toast-cancelled'), { id: opts.id, duration: Infinity, testId: 'remote-images-toast', action: { label: t('remote-images-toast-load-again'), run: () => { finished = null; sink.dismiss(opts.id); opts.onLoadAgain?.(); } } }); } } } : {}) });
   }
   function close(): void {
     clearTimeout(timer); timer = undefined;
@@ -173,6 +173,10 @@ export function createRemoteImageLoad(opts: {
   /** `privacy.remoteImagesToast` is on. */
   toastEnabled: Accessor<boolean>;
   retry: (references?: readonly string[]) => void | Promise<void>;
+  /** The loading toast's Cancel: stop this message's pending image loads. */
+  cancelLoad?: () => void;
+  /** The cancelled toast's Load again. */
+  loadAgain?: () => void;
   fetchStats?: (emailId: string) => Promise<RemoteContentStats>;
   sink?: ToastSink;
   toastId?: string;
@@ -184,6 +188,8 @@ export function createRemoteImageLoad(opts: {
   const toast = createImageLoadToast({
     id: opts.toastId ?? 'remote-images',
     retry: () => retry(false),
+    ...(opts.cancelLoad ? { onCancel: opts.cancelLoad } : {}),
+    ...(opts.loadAgain ? { onLoadAgain: opts.loadAgain } : {}),
     retryAttempts,
     ...(opts.sink ? { sink: opts.sink } : {}),
   });
