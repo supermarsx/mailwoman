@@ -104,7 +104,7 @@ describe('withImageLoadingHints over real sanitized output (the consumer)', () =
 });
 
 describe('the body frame carries the hints and the CSS that makes them useful', () => {
-  it('bodyFrameDoc applies the hints when images are enabled and removes images in no-media mode', () => {
+  it('bodyFrameDoc applies the hints when images are enabled and keeps source-less placeholders in no-media mode', () => {
     const clean = sanitizeEmailHtml('<img src="cid:a" width="600" height="200">');
       const frame = bodyFrameDoc('full-sanitized', { html: clean });
       expect(frame).toContain('loading="lazy"');
@@ -113,7 +113,9 @@ describe('the body frame carries the hints and the CSS that makes them useful', 
       // `height:auto` is what lets the intrinsic width/height act as an
       // aspect-ratio reservation instead of pinning the box.
       expect(frame).toContain('img,video{max-width:100%;height:auto}');
-      expect(bodyFrameDoc('sanitized-no-media', { html: clean })).not.toContain('<img');
+      const noMedia = bodyFrameDoc('sanitized-no-media', { html: clean });
+      expect(noMedia).toMatch(/<img[^>]*data-mw-ph="sized"/);
+      expect(noMedia).not.toMatch(/<img[^>]* src=/);
   });
 
   it('plain-text mode still renders escaped text, with no img markup at all', () => {

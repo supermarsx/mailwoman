@@ -241,7 +241,7 @@ describe('Reader signed privacy pipeline',()=>{
     const show=await screen.findByRole('button',{name:'Show images'});
     expect(requests).toEqual([]);
     const body=()=>new DOMParser().parseFromString(frame()?.srcdoc??'','text/html');
-    expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/);
+    expect(body().querySelector('img')?.getAttribute('data-mw-ph')).toBe('box');
     expect(body().querySelector('a')?.getAttribute('href')).not.toBe(link);
     fireEvent.click(enable);
     await waitFor(()=>expect(body().querySelector('a')?.getAttribute('href')).toBe(link));
@@ -250,7 +250,7 @@ describe('Reader signed privacy pipeline',()=>{
     expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
     expect(requests).toContainEqual({emailId:'m1',urls:[image],parts:[]});
     fireEvent.click(await screen.findByRole('button',{name:'More image options'}));fireEvent.click(screen.getByRole('menuitem',{name:/Undo/}));
-    await waitFor(()=>expect(body().querySelector('img')?.getAttribute('src')).toMatch(/^data:image/));
+    await waitFor(()=>expect(body().querySelector('img')?.getAttribute('data-mw-ph')).toBe('box'));
     expect(body().querySelector('a')?.getAttribute('href')).toBe(link);
     expect(await screen.findByRole('button',{name:'Show images'})).toBeEnabled();
     expect(frame()?.getAttribute('sandbox')).toBe('');
@@ -381,7 +381,7 @@ describe('Reader signed privacy pipeline',()=>{
   });
   it.each(['block','ask'] as const)('does not sign ungranted remote URLs in %s mode',async mode=>{
     policy.mode=mode;await open([message('m1','<img src="https://cdn.example.test/image.png">')]);
-    await waitFor(()=>expect(frame()?.srcdoc).toContain('data:image/gif'));
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('data-mw-ph='));
     expect(requests).toEqual([]);
   });
   it('honors a message grant in ask mode',async()=>{
@@ -404,7 +404,7 @@ describe('Reader signed privacy pipeline',()=>{
   it('trusts nothing in block mode',async()=>{
     policy.mode='block';await hostRules(['cdn.shop.test'],[]);
     await open([message('m1','<img src="https://cdn.shop.test/a.png">')]);
-    await waitFor(()=>expect(frame()?.srcdoc).toContain('data:image/gif'));expect(requests).toEqual([]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('data-mw-ph='));expect(requests).toEqual([]);
   });
   it('keeps refused images blocked while retaining readable text',async()=>{
     signFailed=true;await open([message('m1','<p>Still readable</p><img src="https://cdn.example.test/image.png">')]);

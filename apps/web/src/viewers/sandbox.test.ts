@@ -9,11 +9,12 @@ describe('SANDBOX_TOKENS', () => {
   });
 });
 
-it('removes image placeholders and their data-image CSS in no-media and text modes', () => {
+it('keeps images as source-less placeholders, and drops their data-image CSS in no-media and text modes', () => {
   const content = '<p>Keep this layout</p><table background="data:image/gif;base64,R0lGODlh"><tr><td style="background-image:url(data:image/gif;base64,R0lGODlh);width:200px;color:red">No background image</td></tr></table><img src="data:image/gif;base64,R0lGODlh"><img src="https://blocked.test/a.png"><picture><source srcset="https://blocked.test/b.png"></picture>';
   const doc = bodyFrameDoc('sanitized-no-media', { html: content });
   expect(doc).toContain('<p>Keep this layout</p>');
-  expect(doc).not.toContain('<img');
+  expect(doc).not.toMatch(/<img[^>]* (?:src|srcset)=/);
+  expect(doc.match(/<img /g)).toHaveLength(2);
   expect(doc).not.toContain('<source');
   expect(doc).not.toContain('data:image');
   expect(doc).not.toContain('blocked.test');

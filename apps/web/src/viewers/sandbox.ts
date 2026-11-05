@@ -218,11 +218,115 @@ export function withImageLoadingHints(html: string): string {
   return doc.body.innerHTML;
 }
 
-/** Remove inert image placeholders too, rather than asking the no-media CSP to
- * reject their data URLs (and our own broken-image background) on every render. */
+/** The 1x1 transparent GIF `rewriteReaderContent` puts in place of a blocked image. */
+const BLOCKED_GIF_PREFIX = 'data:image/gif;base64,R0lGODlhAQABAI';
+const PH_GIF = `img[data-mw-ph][src^="data:"][src*="R0lGODlhAQABAI"]`;
+const PH_ANY = `img[data-mw-ph]:not([src]),${PH_GIF}`;
+const PH_CROSS =
+  'linear-gradient(to top right,transparent calc(50% - .75px),rgba(127,127,127,.45) 50%,transparent calc(50% + .75px)),' +
+  'linear-gradient(to bottom right,transparent calc(50% - .75px),rgba(127,127,127,.45) 50%,transparent calc(50% + .75px))';
+const phKind = (kind: string): string => `img[data-mw-ph="${kind}"]:not([src]),img[data-mw-ph="${kind}"][src^="data:"][src*="R0lGODlhAQABAI"]`;
+
+/**
+ * Placeholder for an image that is blocked or has nothing to load (the default
+ * safe mode). Pure CSS on the `<img>` itself: the element and its position in the
+ * document never change, so the in-place hot patcher (which addresses body
+ * elements by index and later sets `src`) keeps working. The rules match only
+ * while the image has NO `src` (or still the transparent blocked GIF); once a
+ * signed source is patched in they stop matching and the picture takes over.
+ * No `data:` URL is used (the no-media CSP forbids it); the generic-image look is
+ * a gradient cross. The `data-mw-image-state="loading"` shimmer still wins on top.
+ *
+ *   hidden  tracker-sized (<= 2px) or display:none / visibility:hidden: invisible
+ *   sized   width and height declared: that box (aspect-ratio set inline)
+ *   partial one dimension declared: the other follows a 2:1 ratio
+ *   box     nothing declared: a default 160x80 box
+ *   min     a declared dimension <= 16px (spacer/icon): space kept, no chrome
+ *   deco    alt="" and nothing declared: collapses to a 1px dot, as a spacer would
+ */
+export const BLOCKED_IMAGE_STYLE =
+  `${PH_ANY}{display:inline-block;box-sizing:border-box;max-width:100%;overflow:hidden;vertical-align:middle;` +
+  'border:1px dashed var(--mw-color-border,rgba(127,127,127,.5));border-radius:4px;' +
+  'background-color:var(--mw-color-surface,#f3f4f6);color:var(--mw-color-text-dim,#6b7280);' +
+  'font:12px/18px ui-sans-serif,system-ui,sans-serif;padding:2px 6px;text-align:start;unicode-bidi:plaintext}' +
+  `img[data-mw-ph]:not([src]):not([alt]),img[data-mw-ph]:not([src])[alt=""],${PH_GIF}:not([alt]),${PH_GIF}[alt=""]{background-image:${PH_CROSS}}` +
+  `${phKind('box')}{min-width:160px;min-height:80px;height:auto}` +
+  `${phKind('partial')}{aspect-ratio:2/1;height:auto;min-width:24px;min-height:12px}` +
+  `${phKind('min')}{border:0;background:var(--mw-color-surface,rgba(127,127,127,.15));padding:0;font-size:0;min-width:2px;min-height:2px}` +
+  `${phKind('deco')}{border:0;background:none;padding:0;width:1px;height:1px;min-width:0}` +
+  `${phKind('hidden')}{visibility:hidden;border:0;background:none;padding:0}`;
+
+type Dim = { px: number } | { pct: number } | null;
+function parseDim(value: string | null | undefined): Dim {
+  const m = /^\s*(\d+(?:\.\d+)?)\s*(px|%)?\s*(?:!important)?\s*$/i.exec(value ?? '');
+  if (!m) return null;
+  const n = Number(m[1]);
+  return m[2] === '%' ? { pct: n } : { px: n };
+}
+function styleProp(style: string, name: string): string | null {
+  let found: string | null = null;
+  for (const part of readerStyleDeclarations(style)) {
+    const at = part.indexOf(':');
+    if (at > 0 && part.slice(0, at).trim().toLowerCase() === name) found = part.slice(at + 1).trim();
+  }
+  return found;
+}
+
+/**
+ * Mark every `<img>` that cannot show a picture (no `src`/`srcset`, the blocked
+ * transparent GIF, an unresolved `mw-rc:`/`cid:` reference; every image when
+ * `all`) as a placeholder: drop `src`/`srcset`, set `data-mw-ph` (kind, see
+ * BLOCKED_IMAGE_STYLE) and `data-mw-blocked-src` (the sanitizer reference such as
+ * `mw-rc:3`, else empty), and `role="img"` + `aria-label` from a non-empty `alt`
+ * (`alt=""` becomes `aria-hidden`). Attributes only: no element is added, moved
+ * or removed. Run on ALREADY SANITIZED html; alt is never parsed as markup.
+ */
+export function withBlockedImagePlaceholders(html: string, all = false): string {
+  if (!/<img\b/i.test(html) || typeof DOMParser === 'undefined') return html;
+  let doc: Document;
+  try { doc = new DOMParser().parseFromString(html, 'text/html'); } catch { return html; }
+  let changed = false;
+  for (const img of Array.from(doc.body.querySelectorAll('img'))) {
+    const src = (img.getAttribute('src') ?? '').trim();
+    const srcset = (img.getAttribute('srcset') ?? '').trim();
+    const blocked = all || src.startsWith(BLOCKED_GIF_PREFIX) || /^(?:mw-rc:|cid:)/i.test(src) || (src === '' && (srcset === '' || /mw-rc:|cid:/i.test(srcset)));
+    if (!blocked || img.hasAttribute('data-mw-ph')) continue;
+    changed = true;
+    const style = img.getAttribute('style') ?? '';
+    const w = parseDim(styleProp(style, 'width') ?? img.getAttribute('width'));
+    const h = parseDim(styleProp(style, 'height') ?? img.getAttribute('height'));
+    const alt = img.getAttribute('alt');
+    const hiddenStyle = /^none$/i.test(styleProp(style, 'display') ?? '') || /^(?:hidden|collapse)$/i.test(styleProp(style, 'visibility') ?? '');
+    const wpx = w && 'px' in w ? w.px : null, hpx = h && 'px' in h ? h.px : null;
+    let kind: string;
+    if (hiddenStyle || (wpx !== null && wpx <= 2 && (hpx === null || hpx <= 2)) || (wpx === null && hpx !== null && hpx <= 2)) kind = 'hidden';
+    else if ((wpx !== null && wpx <= 16) || (hpx !== null && hpx <= 16)) kind = 'min';
+    else if (w && h) kind = 'sized';
+    else if (w || h) kind = 'partial';
+    else kind = alt === '' ? 'deco' : 'box';
+    if (kind === 'sized' && wpx !== null && hpx !== null) {
+      const ratio = `aspect-ratio:${wpx}/${hpx}`;
+      img.setAttribute('style', style.trim() === '' ? ratio : `${style.replace(/;\s*$/, '')};${ratio}`);
+    }
+    img.setAttribute('data-mw-blocked-src', /^mw-rc:\d+$/.test(src) ? src : '');
+    img.setAttribute('data-mw-ph', kind);
+    img.removeAttribute('src');
+    img.removeAttribute('srcset');
+    if (alt !== null && alt.trim() !== '') {
+      img.setAttribute('role', 'img');
+      img.setAttribute('aria-label', alt);
+      if (!img.hasAttribute('dir')) img.setAttribute('dir', 'auto');
+    } else if (alt !== null) img.setAttribute('aria-hidden', 'true');
+  }
+  return changed ? doc.body.innerHTML : html;
+}
+
+/** Remove media but keep images as source-less placeholders, so the no-media CSP
+ * has nothing to reject and the layout the sender declared is preserved. */
 function withoutBodyMedia(html: string): string {
-  const doc = new DOMParser().parseFromString(html, 'text/html');
-  for (const media of doc.body.querySelectorAll('img,picture,video,audio,source,track')) media.remove();
+  // Images stay as source-less attribute-only placeholders (BLOCKED_IMAGE_STYLE).
+  const doc = new DOMParser().parseFromString(withBlockedImagePlaceholders(html, true), 'text/html');
+  for (const media of doc.body.querySelectorAll('video,audio,source,track')) media.remove();
   for (const element of doc.body.querySelectorAll('[background],[style]')) {
     element.removeAttribute('background');
     const style = element.getAttribute('style');
@@ -248,11 +352,11 @@ export function bodyFrameDoc(
       ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
       : mode === 'sanitized-no-media'
         ? withoutBodyMedia(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '')
-        : withImageLoadingHints(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '');
+        : withBlockedImagePlaceholders(withImageLoadingHints(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? ''));
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
-    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
+    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${mode === 'plain-text' ? '' : BLOCKED_IMAGE_STYLE}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
   );
 }
 
