@@ -14,8 +14,9 @@ async function open(imageOffer:ComposeImageOffer){
  await structuredComposeEditor();
 }
 function offer(over:Partial<ComposeImageOffer>={}):ComposeImageOffer{
- return {domain:'example.org',canTrust:true,include:vi.fn().mockResolvedValue({bodyHtml:base.bodyHtml,bodyText:base.bodyText,inline:[{cid:'r1@mailwoman',blobId:'b1',name:'a.png',type:'image/png',size:3}]}),trust:vi.fn().mockResolvedValue(undefined),...over};
+ return {domain:'example.org',canTrust:true,anchor:'Alice wrote:',kind:'reply',include:vi.fn().mockResolvedValue({bodyHtml:base.bodyHtml,bodyText:base.bodyText,inline:[{cid:'r1@mailwoman',blobId:'b1',name:'a.png',type:'image/png',size:3}]}),trust:vi.fn().mockResolvedValue(undefined),...over};
 }
+const withImage='<p></p><p>Alice wrote:</p><blockquote><p>original text</p><p><img src="cid:r1@mailwoman" alt="pic"></p></blockquote>';
 describe('reply images prompt',()=>{
  beforeAll(async()=>{await import('./compose/RichTextEditor.tsx');},60_000);
  beforeEach(()=>{cleanup();localStorage.clear();});
@@ -48,5 +49,18 @@ describe('reply images prompt',()=>{
   expect(signal.aborted).toBe(true);
   expect(screen.getByText(/Loading cancelled/)).toBeInTheDocument();
   expect(screen.getByRole('button',{name:'Load again'})).toBeInTheDocument();
+ });
+ it('swaps the quote in place after the user typed: one copy, the typed text kept, the image embedded',async()=>{
+  const o=offer({include:vi.fn().mockResolvedValue({bodyHtml:withImage,bodyText:base.bodyText,inline:[{cid:'r1@mailwoman',blobId:'b1',name:'a.png',type:'image/png',size:3}]})});
+  await open(o);
+  const editor=await screen.findByTestId('compose-richtext');
+  const first=editor.querySelector('p')!;first.textContent='My answer';
+  fireEvent.input(first);
+  fireEvent.click(screen.getByTestId('image-offer-include'));
+  await waitFor(()=>expect(o.include).toHaveBeenCalledOnce());
+  await waitFor(()=>expect(editor.querySelectorAll('img[data-cid="r1@mailwoman"]').length).toBe(1));
+  expect(editor.textContent?.match(/original text/g)).toHaveLength(1);
+  expect(editor.textContent?.match(/Alice wrote:/g)).toHaveLength(1);
+  expect(editor.querySelectorAll('blockquote')).toHaveLength(1);
  });
 });

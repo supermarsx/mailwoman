@@ -1045,6 +1045,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         imageOffer={
           domain:domain??'',
           canTrust:domain!==null&&!policyLocked&&!listLocked,
+          anchor:'',kind:'reply',
           include:async(signal)=>{
             const account=preparation.account;
             const next=await composeFrom(email,mode,{account,signal,current:()=>!signal.aborted&&app.accountId()===account},captured);
@@ -1082,6 +1083,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           ? [rawT('mail-forward-cc', { addr: stripIsolates(addressList(email.cc ?? null)) })]
           : []),
       ];
+      if(imageOffer){imageOffer.kind='tail';imageOffer.anchor=outlook?`${outlookFields[0]!.label} ${outlookFields[0]!.value}`:lines[0]!;}
       const quote = outlook ? await quoteForOutlook(shown.source, outlookFields) : await quoteForForward(shown.source, lines);
       const parts = (email as { attachments?: AttachmentPart[] }).attachments ?? [];
       return {
@@ -1119,6 +1121,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       date !== ''
         ? rawT('mail-quote-attribution', { date, name: authorName })
         : rawT('mail-quote-attribution-undated', { name: authorName });
+    if(imageOffer){imageOffer.kind=outlook?'tail':'reply';imageOffer.anchor=outlook?`${outlookFields[0]!.label} ${outlookFields[0]!.value}`:attribution;}
     const quote = outlook ? await quoteForOutlook(shown.source, outlookFields) : await quoteForReply(shown.source, attribution);
     return {
       mode,

@@ -13,6 +13,10 @@ export interface ComposeImageOffer {
   domain:string;
   /** Whether "Always trust this domain" can be remembered (not admin-locked). */
   canTrust:boolean;
+  /** Where the quote starts in the body (its header line) and how far it runs,
+   *  so the composer swaps the quote in place instead of adding a second copy. */
+  anchor:string;
+  kind:'reply'|'tail';
   /** Fetch the images, upload them, and return the quote with them inline. */
   include(signal:AbortSignal):Promise<{bodyHtml:string;bodyText:string;inline:StoredInlineImage[]}>;
   /** Remember the sender's domain in the user's settings. */

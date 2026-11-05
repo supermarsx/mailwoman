@@ -1,3 +1,4 @@
+import {swapQuote} from './compose/quoteRegion.ts';
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
 import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
 import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
@@ -339,13 +340,21 @@ export function Compose(props: {
       const result = await imageOffer.include(controller.signal);
       if (controller.signal.aborted) { setOfferState('cancelled'); return; }
       if (!ownsDraft()) return;
-      setInlineImages((cur) => [...cur, ...result.inline.map((image) => ({ ...image, previewUrl: null }))]);
       const api = editorApi();
-      if (bodyHtml() === initial?.bodyHtml) {
-        if (api?.replaceHtml) api.replaceHtml(result.bodyHtml); else setBodyHtml(result.bodyHtml);
-        setBody(result.bodyText);
-      } else if (api) api.appendHtml(result.bodyHtml);
-      else { setBodyHtml((cur) => cur + result.bodyHtml); setBody((cur) => cur + result.bodyText); }
+      // The quote is swapped where it stands, so what the user wrote around it
+      // is kept and the original never appears twice. The editor emits the new
+      // text itself; setting `body` here would make a native editor flatten it.
+      const swapped = richMode() ? swapQuote(bodyHtml(), result.bodyHtml, imageOffer.anchor, imageOffer.kind) : null;
+      if (richMode() && swapped === null) { setOfferState('done'); return; } // the user removed the quote
+      const added = result.inline.map((image) => ({ ...image, previewUrl: null }));
+      setInlineImages((cur) => [...cur, ...added]);
+      if (swapped !== null) {
+        if (api?.replaceHtml) api.replaceHtml(swapped); else if (api) api.setHtml(swapped); else setBodyHtml(swapped);
+      } else {
+        const anchorAt = body().indexOf(imageOffer.anchor), freshAt = result.bodyText.indexOf(imageOffer.anchor);
+        if (anchorAt >= 0 && freshAt >= 0) { const next = body().slice(0, anchorAt) + result.bodyText.slice(freshAt); setBody(next); setBodyHtml(plainToHtml(next)); }
+      }
+      void loadPreviews(added);
       setOfferState(result.inline.length > 0 ? 'done' : 'error');
     } catch { setOfferState(controller.signal.aborted ? 'cancelled' : 'error'); }
   }
