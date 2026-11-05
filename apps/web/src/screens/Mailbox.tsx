@@ -315,6 +315,13 @@ export function MailboxScreen(): JSX.Element {
     previewId=messageId;setPreviewMessage(messageId);
     const loading=view.openMessage(messageId);previewLoading=loading;
     announceOpen(view,loading);
+    prefetchNeighbours(messageId);
+  }
+  /** Opening a message warms its list neighbours (next, previous, then one further down), so j/k and arrow navigation hits the cache. Bounded to three, deduplicated by the read cache. */
+  function prefetchNeighbours(messageId:string):void {
+    const list=app.listMessages(),index=list.findIndex(message=>message.id===messageId);
+    if(index<0)return;
+    for(const neighbour of [list[index+1],list[index-1],list[index+2]])if(neighbour)app.prefetchMessage?.(neighbour.id,'focus');
   }
   createEffect(on(()=>settings()['mail.messageListOrder']?.value??'newest',()=>{if(app.accountId())void app.refreshCurrentMailbox();},{defer:true}));
   /** `mail.closeOnDelete`: the message views (reading pane, message tabs, detached panes) of deleted messages close instead of staying open on a message that is gone. */

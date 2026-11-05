@@ -1229,6 +1229,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // shell, and every open message frame reloads (t60).
   const bannerMode = () => (resourceValue(privacy) ?? policy()).mode;
   // t59: body zoom shortcuts and Ctrl/Cmd + wheel, only while focus is in this reader.
+  // The list row of the message being loaded (its header is already known).
+  const pendingEntry = () => {
+    const id = props.view?.pendingId();
+    return id ? app.listMessages().find((message) => message.id === id) : undefined;
+  };
   let readerRoot: HTMLElement | undefined;
   useReaderZoom({ root: () => readerRoot, active: () => props.active !== false });
 
@@ -1240,7 +1245,18 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       classList={{ 'reader--open': app.openEmail() !== null }}
       aria-label={t('mail-reader-label')}
     >
-      <Show when={app.openEmail()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
+      <Show when={app.openEmail()} fallback={<Show when={app.readLoading() || pendingEntry()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
+        {/* Loading another message: keep the reader frame and show the list row's known header with the delayed skeleton; never the previous body, never the empty text. */}
+        <div class="reader__pending" data-testid="reader-pending" aria-busy="true">
+          <Show when={pendingEntry()}>{(entry) => <header class="reader__header">
+            <p class="reader__pending-subject">{displayText(entry().subject ?? rawT('mail-no-subject'))}</p>
+            <div class="reader__meta"><div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-from')}</span><span>{(entry().from ?? []).map((a) => displayText(a.name || a.email || '')).join(', ')}</span></div></div>
+            <Show when={entry().receivedAt}><div class="reader__metadata-line"><span>{formatDateTime(entry().receivedAt!)}</span></div></Show>
+            <Show when={entry().preview}><p class="reader__preview-known">{displayText(entry().preview!)}</p></Show>
+          </header>}</Show>
+          {messageLoading()}
+        </div>
+      </Show>}>
         {(email) => (
           <>
             <Show when={props.view}>{(view) => <RemoteChangeNotice view={view()} />}</Show>

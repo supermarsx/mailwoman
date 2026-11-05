@@ -510,6 +510,11 @@ body {
 .reader__subject {
   margin: 0 0 0.4rem;
 }
+.reader__pending-subject {
+  margin: 0 0 0.4rem;
+  font-size: 1.17em;
+  font-weight: 600;
+}
 .reader__meta {
   display: flex;
   flex-direction: column;

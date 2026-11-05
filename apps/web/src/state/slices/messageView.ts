@@ -12,6 +12,8 @@ export interface MessageView {
   openEmail: Accessor<Email | null>;
   sanitizedHtml: Accessor<string | null>;
   readLoading: Accessor<boolean>;
+  /** The id being loaded (null when idle): lets the reader show a loading frame, not the empty state. */
+  pendingId: Accessor<string | null>;
   error: Accessor<unknown>;
   openMessage(id: string): Promise<void>;
   closeMessage(): void;
@@ -47,6 +49,7 @@ export function createMessageView(options: MessageViewOptions): MessageView {
     const [openEmail, setEmail] = createSignal<Email | null>(null);
     const [sanitizedHtml, setHtml] = createSignal<string | null>(null);
     const [readLoading, setLoading] = createSignal(false);
+    const [pendingId, setPending] = createSignal<string | null>(null);
     const [error, setError] = createSignal<unknown>();
     const [remoteChange, setRemoteChange] = createSignal<RemoteChange | null>(null);
     let generation=0;
@@ -68,7 +71,7 @@ export function createMessageView(options: MessageViewOptions): MessageView {
       const run=():void => {timer=undefined;if(!disposed && active && request===generation && account===options.account()) options.markRead(email.id);};
       if(delay===0) run();else timer=setTimeout(run,delay);
     }
-    function closeMessage(): void {generation++;loading?.abort();loading=undefined;cancelRead();setEmail(null);setHtml(null);setLoading(false);setError(undefined);setRemoteChange(null);}
+    function closeMessage(): void {generation++;loading?.abort();loading=undefined;cancelRead();setEmail(null);setHtml(null);setLoading(false);setPending(null);setError(undefined);setRemoteChange(null);}
     // Close on an account CHANGE only. An effect's first run is deferred when the
     // view is created inside another computation (the workspace restore runs in
     // one), so closing on that first run discarded the load `openMessage` had
@@ -76,22 +79,22 @@ export function createMessageView(options: MessageViewOptions): MessageView {
     createEffect(on(options.account, closeMessage, {defer:true}));
     onCleanup(cancelRead);
     return {
-      openEmail,sanitizedHtml,readLoading,error,
+      openEmail,sanitizedHtml,readLoading,pendingId,error,
       async openMessage(id) {
         if(disposed) return;
         const account=options.account();if(!account) {closeMessage();return;}
-        const request=++generation;loading?.abort();const controller=new AbortController();loading=controller;cancelRead();setLoading(true);setError(undefined);
+        const request=++generation;loading?.abort();const controller=new AbortController();loading=controller;cancelRead();setLoading(true);setPending(id);setError(undefined);
         if(keptUnread!==id) keptUnread=null;
         // Retain a body during a same-message refresh, but never show another message's body.
         if(openEmail()?.id!==id) {setEmail(null);setHtml(null);setRemoteChange(null);}
         const cached=options.cached?.(account,id);
-        if(cached){setEmail(cached.email);setHtml(cached.html);setLoading(false);}
+        if(cached){setEmail(cached.email);setHtml(cached.html);setLoading(false);setPending(null);}
         try {
           const value=await options.load(account,id,controller.signal);
           if(disposed || request!==generation || account!==options.account()) return;
           setEmail(value.email);setHtml(value.html);scheduleRead();
         } catch(reason) {if(!disposed && request===generation && account===options.account()) {if(cached){setEmail(null);setHtml(null);}setError(() => reason);}}
-        finally {if(!disposed && request===generation) {loading=undefined;setLoading(false);}}
+        finally {if(!disposed && request===generation) {loading=undefined;setLoading(false);setPending(null);}}
       },
       closeMessage,
       setActive(value) {active=value;scheduleRead();},

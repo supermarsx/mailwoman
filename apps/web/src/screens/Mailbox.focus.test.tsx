@@ -82,3 +82,14 @@ describe('opening a message keeps focus in the list (t51)',()=>{
   // Folder tabs: the jsdom harness has no folder page (Email/query by mailbox),
   // so the companion pane is covered live in e2e/receipts/list-keyboard-live.spec.ts.
 });
+
+describe('opening a message warms its neighbours',()=>{
+  it('prefetches the next and previous list messages (bounded), never the open one',async()=>{
+    const {app}=await mount();setReadingPane('right');
+    const spy=vi.spyOn(app,'prefetchMessage');
+    const second=row('Subject b');fireEvent.click(second);
+    await waitFor(()=>expect(screen.getByTestId('reading-pane').querySelector('.reader__subject')?.textContent).toBe('Subject b'));
+    const ids=spy.mock.calls.map(call=>call[0]);
+    expect(ids).toContain('c');expect(ids).toContain('a');expect(ids).not.toContain('b');expect(ids.length).toBeLessThanOrEqual(3);
+  });
+});
