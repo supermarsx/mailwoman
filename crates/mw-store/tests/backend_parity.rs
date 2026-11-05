@@ -2443,6 +2443,27 @@ mod admin_controls_0033 {
             ("request_id",'T',"!","dsr-1"),("name",'T',"!","profile.json"),("seq",'I',"!","0"),
             ("sealed",'I',"!","0"),("data",'B',"!","part-bytes"),
         ]},
+        NewTable {name:"compliance_policy_version",copied:true,cols:&[
+            ("id",'T',"!","pv-1"),("domain",'T',"!","example.test"),("version",'I',"!","2"),("kind",'T',"!","auto"),
+            ("facts_json",'T',"!","{}"),("changes_json",'T',"!","[]"),("created_by",'T',"!","admin"),("created_at",'I',"!",TS),
+        ]},
+        NewTable {name:"compliance_policy_override",copied:true,cols:&[
+            ("id",'T',"!","po-1"),("domain",'T',"!","example.test"),("lang",'T',"!","en"),("section",'T',"!","contact"),
+            ("body",'T',"!","text"),("updated_by",'T',"!","admin"),("updated_at",'I',"!",TS),
+        ]},
+        NewTable {name:"compliance_record",copied:true,cols:&[
+            ("id",'T',"!","cr-1"),("kind",'T',"!","activity"),("name",'T',"!","Payroll"),("body_json",'T',"!","{}"),
+            ("updated_by",'T',"!","admin"),("updated_at",'I',"!",TS),
+        ]},
+        NewTable {name:"dpia",copied:true,cols:&[
+            ("id",'T',"!","dpia-1"),("title",'T',"!","Assistant"),("status",'T',"!","draft"),("template",'T',"!","generic"),
+            ("body_json",'T',"!","{}"),("version",'I',"!","1"),("review_at",'I',"~",TS),("created_by",'T',"!","admin"),
+            ("created_at",'I',"!",TS),("updated_by",'T',"!","admin"),("updated_at",'I',"!",TS),
+        ]},
+        NewTable {name:"dpia_version",copied:true,cols:&[
+            ("id",'T',"!","dv-1"),("dpia_id",'T',"!","dpia-1"),("version",'I',"!","1"),("status",'T',"!","draft"),
+            ("body_json",'T',"!","{}"),("changed_by",'T',"!","admin"),("created_at",'I',"!",TS),
+        ]},
         NewTable {name:"request_protection_subject",copied:true,cols:&[
             ("subject_key",'T',"!","subject-hmac"),("subject_kind",'T',"!","client"),
             ("state_json",'T',"!","{}"),("updated_at",'I',"!",TS),("expires_at",'I',"!",TS),("revision",'T',"!","state-revision"),
