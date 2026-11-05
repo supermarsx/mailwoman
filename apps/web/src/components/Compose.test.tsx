@@ -1,3 +1,4 @@
+import { allowSendChecks, SEND_CHECKS_OFF } from './compose/sendChecksTestSettings.ts';
 import {webcrypto} from 'node:crypto';
 import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 import {htmlMessageDocument} from './compose/htmlMessage.ts';
@@ -101,7 +102,7 @@ const IDENTITIES: Identity[] = [
 ];
 
 describe('Compose', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(async () => { localStorage.clear(); await allowSendChecks(); });
   afterEach(() => clearSettings());
 
   /**
@@ -255,7 +256,7 @@ describe('Compose', () => {
   it('persists the actual reply pane destination across draft resume without main reader context',async()=>{
     const client=makeClient();const app=createAppState(client);await app.login({username:'me@example.org',password:'p'});
     const target=app.mailboxes().find(box=>box.role==='inbox')!;expect(target).toBeDefined();
-    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.replyCopyToOriginal':{value:true,source:'user',locked:false}}})});
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.replyCopyToOriginal':{value:true,source:'user',locked:false}}})});
     const mounted=render(()=><AppContext.Provider value={app}><Compose initial={{mode:'reply',to:'you@example.org',cc:'',subject:'reply',bodyHtml:'',bodyText:'Hello',inReplyTo:[],references:[],attachments:[],quotesDecrypted:false,source:{emailId:'different-reader-pane',keyword:'$answered'},sourceMailboxId:target.id,sourceMailboxIds:[target.id]}} onClose={()=>undefined}/></AppContext.Provider>);
     await waitFor(()=>expect(listDrafts('acct1','test-storage-authority-acct1').some(draft=>draft.sentMailboxId===target.id)).toBe(true),{timeout:3000});
     const saved=listDrafts('acct1','test-storage-authority-acct1').find(draft=>draft.sentMailboxId===target.id)!;mounted.unmount();
@@ -608,10 +609,10 @@ describe('Compose', () => {
   it('requires renewed confirmation when external recipients change before sending', async () => {
     const { client, app } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
-    await loadSettings({ refresh: true, fetcher: async () => json({ settings: {
+    await allowSendChecks({
       'mail.externalRecipientWarning': { value: 'confirm', source: 'global', locked: true },
       'mail.trustedRecipientDomains': { value: ['partner.test'], source: 'global', locked: true },
-    } }) });
+    });
     await fillPlain('Hello', 'recipient@outside.test');
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     // Send first waits for the initial identity load, so the refusal is asynchronous.
@@ -1052,7 +1053,7 @@ describe('Compose', () => {
     it('enforces a locked read-receipt default at send time even after a synthetic toggle',async()=>{
       vi.stubGlobal('fetch',serverFetch({engine:true,openTracking:false}));
       const {client,app}=await composeWithClient();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.requestReadReceipt':{value:true,source:'global',locked:true}}})});
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.requestReadReceipt':{value:true,source:'global',locked:true}}})});
       const receipt=await screen.findByTestId('compose-request-receipt');
       expect(receipt).toBeChecked();expect(receipt).toBeDisabled();
       fireEvent.change(receipt,{target:{checked:false}});fillAndSend();
@@ -1091,17 +1092,17 @@ describe('Compose', () => {
     it('initializes tracking once when its setting arrives, then keeps the per-message choice',async()=>{
       vi.stubGlobal('fetch',serverFetch({engine:false,openTracking:true}));
       await composeWithClient();const toggle=await screen.findByTestId('compose-track-opens');expect(toggle).not.toBeChecked();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:true,source:'user',locked:false}}})});
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value:true,source:'user',locked:false}}})});
       expect(toggle).toBeChecked();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:false,source:'user',locked:false}}})});
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value:false,source:'user',locked:false}}})});
       expect(toggle).toBeChecked();fireEvent.click(toggle);expect(toggle).not.toBeChecked();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:true,source:'user',locked:false}}})});expect(toggle).not.toBeChecked();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value:true,source:'user',locked:false}}})});expect(toggle).not.toBeChecked();
     });
 
     it('does not overwrite a manual tracking choice when defaults load late',async()=>{
       vi.stubGlobal('fetch',serverFetch({engine:false,openTracking:true}));await composeWithClient();
       const toggle=await screen.findByTestId('compose-track-opens');fireEvent.click(toggle);expect(toggle).toBeChecked();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:false,source:'global',locked:false}}})});expect(toggle).toBeChecked();
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value:false,source:'global',locked:false}}})});expect(toggle).toBeChecked();
     });
 
     it.each([
@@ -1113,7 +1114,7 @@ describe('Compose', () => {
       const fetchSpy=serverFetch({engine:false,openTracking:true});vi.stubGlobal('fetch',fetchSpy);
       saveDraft({id:'tracking-draft',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',bodyFormat:'html',editorMode:'rich',to:'you@example.org',subject:'Saved tracking',bodyText:'Saved body',bodyHtml:'<p>Saved body</p>',openTracking:stored,savedAt:1});
       const {app}=await composeWithClient();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value,source:'global',locked}}})});
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value,source:'global',locked}}})});
       fireEvent.click(screen.getByTestId('open-drafts'));fireEvent.click(await screen.findByTestId('draft-resume-tracking-draft'));
       const toggle=await screen.findByTestId('compose-track-opens');expect((toggle as HTMLInputElement).checked).toBe(expected);expect((toggle as HTMLInputElement).disabled).toBe(locked);
       if(locked){fireEvent.change(toggle,{target:{checked:!value}});fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));expect(fetchSpy.mock.calls.filter(call=>String(call[0]).endsWith('/api/track/open')&&call[1]?.method==='POST')).toHaveLength(value?1:0);}
@@ -1122,7 +1123,7 @@ describe('Compose', () => {
     it.each(['capability','feature','policy','plain'] as const)('never requests a token when tracking is denied by %s',async denied=>{
       const fetchSpy=serverFetch({engine:false,openTracking:denied!=='policy'});vi.stubGlobal('fetch',fetchSpy);
       const {app}=await composeWithClient();
-      await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.openTracking':{value:true,source:'global',locked:true},...(denied==='capability'?{'cap.compose.open_tracking':{value:false,source:'global',locked:true}}:{})}})});
+      await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.openTracking':{value:true,source:'global',locked:true},...(denied==='capability'?{'cap.compose.open_tracking':{value:false,source:'global',locked:true}}:{})}})});
       if(denied==='feature')await loadFeatures({refresh:true,fetcher:async()=>json({features:{'compose.open_tracking':{enabled:false}}})});
       if(denied==='plain')await chooseComposeFormat('plain');
       expect(screen.queryByTestId('compose-track-opens')).toBeNull();fillAndSend();await waitFor(()=>expect(app.pendingUndo()?.actionLabel).toBe('Cancel'));

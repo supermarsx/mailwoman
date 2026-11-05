@@ -1,6 +1,8 @@
 import { createEffect, createMemo, createSignal, Show, type JSX } from 'solid-js';
 import { normalizeTrustedDomain } from '../../components/compose/recipientTrust.ts';
 import { isReplyImagePolicy, type ReplyImagePolicy } from '../../components/compose/replyImagePolicy.ts';
+import { isCheckPolicy, type CheckPolicy } from '../../components/compose/sendChecks.ts';
+import { isRecipientSeparator, type RecipientSeparator } from '../../components/compose/recipientChips.ts';
 import { isReplyFromMode, type ReplyFromMode } from '../../components/compose/replyIdentity.ts';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
@@ -9,13 +11,32 @@ import * as css from './styles.css.ts';
 import {ResponseTemplatePreferences} from './ResponseTemplatePreferences.tsx';
 import {ComposeDefaults} from './ComposeDefaults.tsx';
 
+const CHECK_ROWS: ReadonlyArray<{ key: string; id: string; label: string }> = [
+  { key: 'mail.compose.checkInvalidRecipients', id: 'check-invalid', label: 'settings-check-invalid' },
+  { key: 'mail.compose.checkMissingAttachment', id: 'check-attachment', label: 'settings-check-attachment' },
+  { key: 'mail.compose.checkEmptySubject', id: 'check-subject', label: 'settings-check-subject' },
+];
+
+function CheckPolicyField(props: { settingKey: string; id: string; label: string }): JSX.Element {
+  const policy = useSetting<CheckPolicy>(props.settingKey, 'warn', isCheckPolicy);
+  const disabled = () => !policy.entry() || policy.locked() || policy.saving();
+  return <div class={css.field}><label for={props.id}>{t(props.label)}</label>
+    <select id={props.id} class={css.select} value={policy.value()} disabled={disabled()} onChange={event => { const next = event.currentTarget.value; if (isCheckPolicy(next)) void policy.set(next); }} aria-describedby="check-policy-help">
+      <option value="allow">{t('settings-check-policy-allow')}</option><option value="warn">{t('settings-check-policy-warn')}</option><option value="warn-remember">{t('settings-check-policy-warn-remember')}</option><option value="deny">{t('settings-check-policy-deny')}</option>
+    </select><LockNote locked={policy.locked()}/>
+    <Show when={policy.error()}><p role="alert">{policy.error()}</p></Show>
+    <div class={css.actions}><button type="button" class={css.ghost} disabled={disabled()} onClick={() => void policy.reset()}>{t('reader-inherit')}</button></div></div>;
+}
+
 export function ComposePreferences(): JSX.Element {
   const quote = useSetting<'classic'|'outlook'>('mail.quoteStyle', 'classic', (v): v is 'classic'|'outlook' => v === 'classic' || v === 'outlook');
   const disabled = () => !quote.entry() || quote.locked() || quote.saving();
   const showFrom = useSetting<boolean>('mail.showFrom', false);
   const replyFrom = useSetting<ReplyFromMode>('mail.replyFromMode', 'match', isReplyFromMode);
   const quick = useSetting<boolean>('mail.quickReply', false);
-  const warning = useSetting<'off'|'warn'|'confirm'>('mail.externalRecipientWarning', 'warn', (v): v is 'off'|'warn'|'confirm' => v === 'off' || v === 'warn' || v === 'confirm');
+  const autoChip = useSetting<boolean>('mail.compose.autoChipRecipients', true);
+  const separator = useSetting<RecipientSeparator>('mail.compose.recipientSeparator', 'comma', isRecipientSeparator);
+  const warning = useSetting<'off'|'warn'|'confirm'|'warn-remember'|'deny'>('mail.externalRecipientWarning', 'warn', (v): v is 'off'|'warn'|'confirm'|'warn-remember'|'deny' => v === 'off' || v === 'warn' || v === 'confirm' || v === 'warn-remember' || v === 'deny');
   const domains = useSetting<string[]>('mail.trustedRecipientDomains', [], (v): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string'));
   const imagePolicy = useSetting<ReplyImagePolicy>('mail.replyImages', 'ask', isReplyImagePolicy);
   const imageDomains = useSetting<string[]>('mail.replyImageTrustedDomains', [], (v): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string'));
@@ -48,14 +69,18 @@ export function ComposePreferences(): JSX.Element {
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={showFrom.value()} disabled={!showFrom.entry() || showFrom.locked() || showFrom.saving()} onChange={event => void showFrom.set(event.currentTarget.checked)} aria-describedby="show-from-help"/>{t('settings-show-from')}</label><p id="show-from-help" class={css.meta}>{t('settings-show-from-help')}</p><LockNote locked={showFrom.locked()}/><Show when={showFrom.error()}><p role="alert">{showFrom.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!showFrom.entry() || showFrom.locked() || showFrom.saving()} onClick={() => void showFrom.reset()}>{t('reader-inherit')}</button></div></div>
     <div class={css.field}><label class={css.label} for="reply-from-mode">{t('settings-reply-from')}</label><select id="reply-from-mode" class={css.select} style={{'max-inline-size':'24rem'}} value={replyFrom.value()} disabled={!replyFrom.entry() || replyFrom.locked() || replyFrom.saving()} onChange={event => { const next = event.currentTarget.value; if (isReplyFromMode(next)) void replyFrom.set(next); }} aria-describedby="reply-from-help"><option value="match">{t('settings-reply-from-match')}</option><option value="default">{t('settings-reply-from-default')}</option><option value="ask">{t('settings-reply-from-ask')}</option><option value="keep">{t('settings-reply-from-keep')}</option></select><p id="reply-from-help" class={css.meta}>{t('settings-reply-from-help')}</p><LockNote locked={replyFrom.locked()}/><Show when={replyFrom.error()}><p role="alert">{replyFrom.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!replyFrom.entry() || replyFrom.locked() || replyFrom.saving()} onClick={() => void replyFrom.reset()}>{t('reader-inherit')}</button></div></div>
     <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={quick.value()} disabled={!quick.entry() || quick.locked() || quick.saving()} onChange={event => void quick.set(event.currentTarget.checked)} aria-describedby="quick-reply-help"/>{t('mail-quick-reply')}</label><p id="quick-reply-help" class={css.meta}>{t('mail-quick-reply-help')}</p><LockNote locked={quick.locked()}/><Show when={quick.error()}><p role="alert">{quick.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!quick.entry() || quick.locked() || quick.saving()} onClick={() => void quick.reset()}>{t('reader-inherit')}</button></div></div>
+    <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={autoChip.value()} disabled={!autoChip.entry() || autoChip.locked() || autoChip.saving()} onChange={event => void autoChip.set(event.currentTarget.checked)} aria-describedby="auto-chip-help"/>{t('settings-auto-chip')}</label><p id="auto-chip-help" class={css.meta}>{t('settings-auto-chip-help')}</p><LockNote locked={autoChip.locked()}/><Show when={autoChip.error()}><p role="alert">{autoChip.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!autoChip.entry() || autoChip.locked() || autoChip.saving()} onClick={() => void autoChip.reset()}>{t('reader-inherit')}</button></div></div>
+    <div class={css.field}><label for="recipient-separator">{t('settings-recipient-separator')}</label><select id="recipient-separator" class={css.select} style={{'max-inline-size':'24rem'}} value={separator.value()} disabled={!separator.entry() || separator.locked() || separator.saving()} onChange={event => { const next = event.currentTarget.value; if (isRecipientSeparator(next)) void separator.set(next); }}><option value="comma">{t('settings-recipient-separator-comma')}</option><option value="semicolon">{t('settings-recipient-separator-semicolon')}</option></select><LockNote locked={separator.locked()}/><Show when={separator.error()}><p role="alert">{separator.error()}</p></Show><div class={css.actions}><button type="button" class={css.ghost} disabled={!separator.entry() || separator.locked() || separator.saving()} onClick={() => void separator.reset()}>{t('reader-inherit')}</button></div></div>
+    <p id="check-policy-help" class={css.meta}>{t('settings-check-help')}</p>
+    {CHECK_ROWS.map(row => <CheckPolicyField settingKey={row.key} id={row.id} label={row.label}/>)}
     <div class={css.field}><label for="quote-style">{t('settings-quote-style')}</label><select id="quote-style" class={css.select} value={quote.value()} disabled={disabled()} onChange={event => void quote.set(event.currentTarget.value as 'classic'|'outlook')} aria-describedby="quote-style-help">
       <option value="classic">{t('settings-quote-classic')}</option><option value="outlook">{t('settings-quote-outlook')}</option>
     </select><p id="quote-style-help" class={css.meta}>{t('settings-quote-help')}</p><LockNote locked={quote.locked()}/>
     <Show when={quote.error()}><p role="alert">{quote.error()}</p></Show>
     <div class={css.actions}><button type="button" class={css.ghost} disabled={disabled()} onClick={() => void quote.reset()}>{t('reader-inherit')}</button></div></div>
     <div class={css.field}><label for="external-warning">{t('settings-external-warning')}</label>
-      <select id="external-warning" class={css.select} value={warning.value()} disabled={!warning.entry() || warning.locked() || warning.saving()} onChange={event => void warning.set(event.currentTarget.value as 'off'|'warn'|'confirm')} aria-describedby="external-warning-help">
-        <option value="off">{t('settings-external-off')}</option><option value="warn">{t('settings-external-warn')}</option><option value="confirm">{t('settings-external-confirm')}</option>
+      <select id="external-warning" class={css.select} value={warning.value()} disabled={!warning.entry() || warning.locked() || warning.saving()} onChange={event => void warning.set(event.currentTarget.value as 'off'|'warn'|'confirm'|'warn-remember'|'deny')} aria-describedby="external-warning-help">
+        <option value="off">{t('settings-external-off')}</option><option value="warn">{t('settings-external-warn')}</option><option value="confirm">{t('settings-external-confirm')}</option><option value="warn-remember">{t('settings-external-warn-remember')}</option><option value="deny">{t('settings-external-deny')}</option>
       </select><p id="external-warning-help" class={css.meta}>{t('settings-external-help')}</p><LockNote locked={warning.locked()}/>
       <Show when={warning.error()}><p role="alert">{warning.error()}</p></Show>
       <div class={css.actions}><button type="button" class={css.ghost} disabled={!warning.entry() || warning.locked() || warning.saving()} onClick={() => void warning.reset()}>{t('reader-inherit')}</button></div>

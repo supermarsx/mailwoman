@@ -1,3 +1,4 @@
+import { allowSendChecks } from './compose/sendChecksTestSettings.ts';
 import {chooseComposeFormat} from './compose/nativeHtmlTestHarness.ts';
 import {beforeEach,afterEach,expect,it,vi} from 'vitest';
 import {render,screen,fireEvent,waitFor,within} from '@solidjs/testing-library';
@@ -11,7 +12,7 @@ import type {ComposeInitial} from './compose/reply.ts';
 import {t} from '../i18n/index.ts';
 const primary=(over:Partial<Identity>={}):Identity=>({id:'primary',name:'Primary',email:'me@example.org',replyTo:null,sentMailboxId:null,signatureHtml:'<p>NEW BRAND</p>',signatureText:'NEW BRAND',signatureFormat:'html',replySignatureHtml:'<table cellpadding="13"><tr><td>REPLY BRAND</td></tr></table>',replySignatureText:'REPLY BRAND',replySignatureFormat:'html',...over});
 const initial=(mode:ComposeInitial['mode']='reply'):ComposeInitial=>({mode,to:'alice@example.org',cc:'',subject:'Re: Topic',bodyHtml:'<p>Answer</p>',bodyText:'Answer',inReplyTo:[],references:[],attachments:[],quotesDecrypted:false,...(mode==='reply'||mode==='reply-all'?{source:{emailId:'original',keyword:'$answered' as const}}:{})});
-beforeEach(()=>{localStorage.clear();vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:404})));});
+beforeEach(async()=>{localStorage.clear();await allowSendChecks();vi.stubGlobal('fetch',vi.fn(async()=>new Response('{}',{status:404})));});
 afterEach(()=>vi.unstubAllGlobals());
 async function open(identities:Identity[],seed?:ComposeInitial,resumeDraftId?:string){
  const client=makeClient({identities}),app=createAppState(client),close=vi.fn();await app.login({username:'me@example.org',password:'p'});await app.loadIdentities();

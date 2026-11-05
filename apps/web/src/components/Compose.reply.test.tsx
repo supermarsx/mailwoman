@@ -1,3 +1,4 @@
+import { allowSendChecks } from './compose/sendChecksTestSettings.ts';
 import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
@@ -124,7 +125,7 @@ describe('Compose opened as a reply or a forward', () => {
     await import('./compose/RichTextEditor.tsx');
   }, 60_000);
 
-  beforeEach(() => {
+  beforeEach(async () => { await allowSendChecks();
     localStorage.clear();
     cryptoState = null;
   });
@@ -362,7 +363,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     await import('./compose/RichTextEditor.tsx');
   }, 60_000);
 
-  beforeEach(() => {
+  beforeEach(async () => { await allowSendChecks();
     localStorage.clear();
     cryptoState = null;
   });
@@ -446,7 +447,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
 });
 
 describe('Compose: Bcc on an encrypted message', () => {
-  beforeEach(() => {
+  beforeEach(async () => { await allowSendChecks();
     localStorage.clear();
     cryptoState = ENCRYPTING;
   });

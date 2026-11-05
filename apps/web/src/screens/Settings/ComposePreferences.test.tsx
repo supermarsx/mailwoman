@@ -55,3 +55,30 @@ it('preserves the administrator lock on the default From visibility', () => {
   render(() => <ComposePreferences />);
   expect(screen.getByLabelText('Show From when composing')).toBeDisabled();
 });
+
+it('offers the four policies for each pre-send check and saves the choice', () => {
+  render(() => <ComposePreferences />);
+  for (const [label, key] of [['Invalid recipient addresses', 'mail.compose.checkInvalidRecipients'], ['Attachment mentioned but missing', 'mail.compose.checkMissingAttachment'], ['Empty subject', 'mail.compose.checkEmptySubject']] as const) {
+    const select = screen.getByLabelText(label) as HTMLSelectElement;
+    expect(Array.from(select.options).map(option => option.value)).toEqual(['allow', 'warn', 'warn-remember', 'deny']);
+    expect(select.value).toBe('warn');
+    fireEvent.change(select, { target: { value: 'warn-remember' } });
+    expect(handles.save).toHaveBeenCalledWith(key, 'warn-remember');
+  }
+});
+
+it('saves the recipient entry behaviour and separator, and honours the administrator lock', () => {
+  render(() => <ComposePreferences />);
+  expect(screen.getByLabelText('Finish a recipient when I type a space, comma or semicolon')).toBeChecked();
+  fireEvent.click(screen.getByLabelText('Finish a recipient when I type a space, comma or semicolon'));
+  expect(handles.save).toHaveBeenCalledWith('mail.compose.autoChipRecipients', false);
+  fireEvent.change(screen.getByLabelText('Recipient separator'), { target: { value: 'semicolon' } });
+  expect(handles.save).toHaveBeenCalledWith('mail.compose.recipientSeparator', 'semicolon');
+});
+
+it('locks the pre-send checks and recipient entry settings for an administrator', () => {
+  handles.locked = true;
+  render(() => <ComposePreferences />);
+  expect(screen.getByLabelText('Empty subject')).toBeDisabled();
+  expect(screen.getByLabelText('Recipient separator')).toBeDisabled();
+});
