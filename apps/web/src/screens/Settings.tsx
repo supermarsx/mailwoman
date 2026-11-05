@@ -71,6 +71,7 @@ import { LoadTimePreferences } from './Settings/LoadTimePreferences.tsx';
 import {DraftSavePreferences} from './Settings/DraftSavePreferences.tsx';
 import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import { MailFeaturePreferences } from './Settings/MailFeaturePreferences.tsx';
+import { UndoRedoPreferences } from './Settings/UndoRedoPreferences.tsx';
 import {MailInteractionPreferences} from './Settings/MailInteractionPreferences.tsx';
 import { KeyboardShortcuts } from './Settings/KeyboardShortcuts.tsx';
 import { TimeZones } from './Settings/TimeZones.tsx';
@@ -349,7 +350,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="mail-transfer" active={visible('mail-transfer')}>{()=><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="receipts" active={visible('receipts')}>{()=><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences /><DraftSavePreferences/></AsyncBoundary>}</RetainedSettingsSection>
-              <RetainedSettingsSection name="shortcuts" active={visible('shortcuts')}>{()=><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/><MailFeaturePreferences/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="shortcuts" active={visible('shortcuts')}>{()=><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/><MailFeaturePreferences/><UndoRedoPreferences/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="time" active={visible('time')}>{()=><AsyncBoundary><TimeZones navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="packages" active={visible('packages')}>{()=><AsyncBoundary><Packages accountId={accountId()} navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="labels" active={visible('labels')}>{()=><AsyncBoundary><Labels navigation={navigation}/></AsyncBoundary>}</RetainedSettingsSection>
@@ -507,13 +508,13 @@ function ThemeGallery(props: { locked: boolean }): JSX.Element {
         {(group) => (
           <Show when={group.themes.length > 0}>
             <div class={css.row}>
-              <span class={css.label} id={`appearance-family-${group.family}`}>
+              <span class={css.label} id={`appearance-family-${group.group}`}>
                 {t(group.labelId)}
               </span>
               <div
                 class={css.options}
                 role="group"
-                aria-labelledby={`appearance-family-${group.family}`}
+                aria-labelledby={`appearance-family-${group.group}`}
               >
                 <For each={group.themes}>
                   {(entry) => (

@@ -520,6 +520,12 @@ settings-mail-feature-showAuthStatus = Show sender authentication results
 settings-mail-feature-showAuthStatus-help = Show the SPF, DKIM and DMARC results of a message in the reader.
 settings-mail-feature-closeOnDelete = Close a message when it is deleted
 settings-mail-feature-closeOnDelete-help = Close the open message, tab or window when that message is deleted or moved to Trash.
+settings-row-actions-mode = Message list quick actions
+settings-row-actions-mode-open = Always open
+settings-row-actions-mode-hover = Show on hover
+settings-row-actions-mode-click = Show on click
+settings-row-actions-mode-off = Off
+settings-row-actions-mode-help = How the quick actions on each message row appear. On hover shows three controls and a More button; on click shows one button that opens them; on touch screens hover behaves like click. Off removes them from the rows (the context menu and toolbar still have every action).
 settings-mail-feature-showGoToTop = Show a Go to top button in the message list
 settings-mail-feature-showGoToTop-help = Adds a button that scrolls the message list back to the first message. Off by default.
 settings-mail-feature-showCreateFolderButton = Show a Create folder button next to Compose
@@ -668,3 +674,56 @@ settings-reply-from-default = Always my default identity
 settings-reply-from-ask = Ask me when several identities match
 settings-reply-from-keep = Keep the identity already selected
 settings-reply-from-help = When you reply or forward, choose which identity is used. If no identity matches the address the message was sent to, your default identity is used. Plus addresses such as name+tag@example.org match name@example.org.
+
+# Identities: default sender and variants
+settings-ident-default-badge = Default
+settings-ident-make-default = Make default
+settings-ident-default-set = { $email } is now your default identity.
+settings-ident-create-variant = Create variant
+settings-ident-variant-count = { $count } { $count ->
+        [one] variant
+       *[other] variants
+    }
+settings-ident-inherits = Uses { $base } for: { $fields }
+settings-ident-field-replyTo = reply-to
+settings-ident-field-autoBcc = automatic Bcc
+settings-ident-field-organization = organization
+settings-ident-field-pgpKeyId = OpenPGP key
+settings-ident-field-signatureName = signature
+settings-ident-delete-default-body = This is your default identity. Your oldest remaining identity becomes the default. You will no longer be able to send from this identity. Drafts and sent messages are not affected.
+settings-ident-variants-choice-title = Delete { $email }?
+settings-ident-variants-choice-body = This identity has { $count } { $count ->
+        [one] variant
+       *[other] variants
+    }. Delete { $count ->
+        [one] it
+       *[other] them
+    } too, or keep { $count ->
+        [one] it
+       *[other] them
+    } as separate identities. A kept variant copies the settings it inherited from this identity.
+settings-ident-delete-with-variants = Delete identity and variants
+settings-ident-delete-keep-variants = Delete identity, keep variants
+settings-ident-new-variant = New variant
+settings-ident-edit-variant-title = Edit variant
+settings-ident-variant-intro = A variant of { $base }. Leave a field empty to use the value from that identity.
+settings-ident-label-label = Variant label
+settings-ident-label-required = Enter a label for this variant, such as Newsletters.
+settings-ident-inherit-hint = Empty: uses { $value } from the base identity.
+settings-ident-inherit-none = nothing
+
+settings-check-policy-allow = Send without asking
+settings-check-policy-warn = Ask each time
+settings-check-policy-warn-remember = Ask, and let me stop asking
+settings-check-policy-deny = Block sending
+settings-check-invalid = Invalid recipient addresses
+settings-check-attachment = Attachment mentioned but missing
+settings-check-subject = Empty subject
+settings-check-help = What to do when the check finds a problem. Asking always offers Send anyway; only Block sending stops a message.
+settings-external-warn-remember = Ask, and let me stop asking
+settings-external-deny = Block sending
+settings-auto-chip = Finish a recipient when I type a space, comma or semicolon
+settings-auto-chip-help = A valid address becomes a finished recipient and the separator is added for you.
+settings-recipient-separator = Recipient separator
+settings-recipient-separator-comma = Comma
+settings-recipient-separator-semicolon = Semicolon

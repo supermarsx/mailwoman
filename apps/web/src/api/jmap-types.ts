@@ -341,6 +341,8 @@ export interface EmailSubmission {
   undoStatus: UndoStatus;
   /** Engine-held delay before SMTP dispatch (the undo-send window), in seconds. */
   mailwomanHoldSeconds: number;
+  /** When the engine will send it (`sendAt`, else created + hold). */
+  mailwomanDueAt?: UtcDate | null;
   /** `"manual"` while the submission waits for the owner to release it. */
   mailwomanHold?: 'manual' | null;
   mailwomanOrigin?: SubmissionOrigin | null;
@@ -384,6 +386,12 @@ export interface Identity {
   replySignatureText?: string|null;
   replySignatureFormat?: 'plain'|'rich'|'html';
   sentMailboxId: Id | null;
+  /** Extension: the account's default sender (exactly one). Absent on servers without it. */
+  isDefault?: boolean;
+  /** Extension: set on a variant, the id of its base identity. Fields are already the effective values. */
+  variantOf?: Id;
+  /** Extension: display label of a variant. */
+  label?: string;
 }
 export interface IdentityGetResponse {
   accountId: Id;

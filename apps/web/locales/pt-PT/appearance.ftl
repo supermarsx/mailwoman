@@ -87,10 +87,9 @@ appearance-theme-hc-dark-desc = Branco sobre preto com contornos brancos e sem s
 
 appearance-family-core = Predefinição
 appearance-family-bauhaus = Bauhaus
+appearance-family-naturals = Naturais
+appearance-family-specialty = Temas especiais
 appearance-family-slate = Ardósia
-appearance-family-ocean = Oceano
-appearance-family-plum = Ameixa
-appearance-family-grove = Bosque
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Alto contraste
 
@@ -166,16 +165,22 @@ appearance-preference-inherit = Usar predefinição do administrador ou do tema
 
 appearance-theme-cyberpunk = Cyberpunk
 appearance-theme-cyberpunk-desc = Superfícies em carvão com ações em amarelo elétrico e destaques em ciano.
-appearance-family-cyberpunk = Cyberpunk
 appearance-theme-retrowave = Retrowave
 appearance-theme-retrowave-desc = Superfícies em violeta profundo com ações em magenta e destaques néon em ciano.
-appearance-family-retrowave = Retrowave
 appearance-theme-fight-club = Fight Club
 appearance-theme-fight-club-desc = Superfícies em verde-azeitona gasto, texto em tons de papel e ações em rosa-sabão.
-appearance-family-fight-club = Fight Club
 appearance-accent-gold = Ouro
 appearance-accent-brown = Castanho
 appearance-accent-beige = Bege
 appearance-accent-taupe = Taupe
 appearance-accent-silver = Prata
 appearance-accent-stone = Pedra
+
+appearance-theme-slate-mist = Ardósia névoa
+appearance-theme-slate-mist-desc = Tema claro azul-acinzentado de tom médio com uma cor de destaque azul-petróleo.
+appearance-theme-slate-midnight = Ardósia meia-noite
+appearance-theme-slate-midnight-desc = Tema escuro azul-acinzentado quase preto com uma cor de destaque azul-gelo.
+appearance-theme-nineteen-eighty-four = 1984
+appearance-theme-nineteen-eighty-four-desc = Betão cinzento de ministério, texto em papel desbotado e vermelho do Grande Irmão; mensagens em monoespaçado.
+appearance-theme-pop-art = Pop Art
+appearance-theme-pop-art-desc = Página branca, contornos pretos, vermelho, azul e amarelo primários e pontos Ben-Day na barra lateral.

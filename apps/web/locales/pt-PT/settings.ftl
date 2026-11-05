@@ -516,6 +516,12 @@ settings-mail-feature-showAuthStatus = Mostrar resultados de autenticação do r
 settings-mail-feature-showAuthStatus-help = Mostra no leitor os resultados SPF, DKIM e DMARC de uma mensagem.
 settings-mail-feature-closeOnDelete = Fechar a mensagem ao apagá-la
 settings-mail-feature-closeOnDelete-help = Fecha a mensagem, o separador ou a janela abertos quando essa mensagem é apagada ou movida para o Lixo.
+settings-row-actions-mode = Ações rápidas da lista de mensagens
+settings-row-actions-mode-open = Sempre abertas
+settings-row-actions-mode-hover = Mostrar ao passar o rato
+settings-row-actions-mode-click = Mostrar ao clicar
+settings-row-actions-mode-off = Desativadas
+settings-row-actions-mode-help = Como aparecem as ações rápidas em cada linha de mensagem. Ao passar o rato mostra três controlos e um botão Mais; ao clicar mostra um botão que os abre; em ecrãs táteis passar o rato comporta-se como clicar. Desativadas retira-as das linhas (o menu de contexto e a barra de ferramentas mantêm todas as ações).
 settings-mail-feature-showGoToTop = Mostrar um botão Ir para o topo na lista de mensagens
 settings-mail-feature-showGoToTop-help = Adiciona um botão que volta ao início da lista, à primeira mensagem. Desativado por predefinição.
 settings-mail-feature-showCreateFolderButton = Mostrar um botão Criar pasta junto a Escrever
@@ -664,3 +670,56 @@ settings-reply-from-default = Sempre a minha identidade predefinida
 settings-reply-from-ask = Perguntar quando várias identidades correspondem
 settings-reply-from-keep = Manter a identidade já selecionada
 settings-reply-from-help = Ao responder ou reencaminhar, escolha que identidade é usada. Se nenhuma identidade corresponder ao endereço para o qual a mensagem foi enviada, é usada a identidade predefinida. Endereços com mais, como nome+etiqueta@exemplo.org, correspondem a nome@exemplo.org.
+
+# Identidades: remetente predefinido e variantes
+settings-ident-default-badge = Predefinida
+settings-ident-make-default = Tornar predefinida
+settings-ident-default-set = { $email } é agora a sua identidade predefinida.
+settings-ident-create-variant = Criar variante
+settings-ident-variant-count = { $count } { $count ->
+        [one] variante
+       *[other] variantes
+    }
+settings-ident-inherits = Usa { $base } para: { $fields }
+settings-ident-field-replyTo = responder para
+settings-ident-field-autoBcc = Bcc automático
+settings-ident-field-organization = organização
+settings-ident-field-pgpKeyId = chave OpenPGP
+settings-ident-field-signatureName = assinatura
+settings-ident-delete-default-body = Esta é a sua identidade predefinida. A identidade mais antiga que restar passa a ser a predefinida. Deixará de poder enviar a partir desta identidade. Os rascunhos e as mensagens enviadas não são afetados.
+settings-ident-variants-choice-title = Eliminar { $email }?
+settings-ident-variants-choice-body = Esta identidade tem { $count } { $count ->
+        [one] variante
+       *[other] variantes
+    }. Elimine { $count ->
+        [one] a variante
+       *[other] as variantes
+    } também ou mantenha { $count ->
+        [one] a variante
+       *[other] as variantes
+    } como identidades separadas. Uma variante mantida copia as definições que herdava desta identidade.
+settings-ident-delete-with-variants = Eliminar identidade e variantes
+settings-ident-delete-keep-variants = Eliminar identidade, manter variantes
+settings-ident-new-variant = Nova variante
+settings-ident-edit-variant-title = Editar variante
+settings-ident-variant-intro = Uma variante de { $base }. Deixe um campo vazio para usar o valor dessa identidade.
+settings-ident-label-label = Etiqueta da variante
+settings-ident-label-required = Indique uma etiqueta para esta variante, como Newsletters.
+settings-ident-inherit-hint = Vazio: usa { $value } da identidade base.
+settings-ident-inherit-none = nada
+
+settings-check-policy-allow = Enviar sem perguntar
+settings-check-policy-warn = Perguntar sempre
+settings-check-policy-warn-remember = Perguntar, e deixar-me deixar de perguntar
+settings-check-policy-deny = Bloquear o envio
+settings-check-invalid = Endereços de destinatários inválidos
+settings-check-attachment = Anexo mencionado mas em falta
+settings-check-subject = Assunto vazio
+settings-check-help = O que fazer quando a verificação encontra um problema. Perguntar oferece sempre Enviar mesmo assim; só Bloquear o envio impede uma mensagem.
+settings-external-warn-remember = Perguntar, e deixar-me deixar de perguntar
+settings-external-deny = Bloquear o envio
+settings-auto-chip = Concluir um destinatário quando escrevo um espaço, vírgula ou ponto e vírgula
+settings-auto-chip-help = Um endereço válido torna-se um destinatário concluído e o separador é acrescentado por si.
+settings-recipient-separator = Separador de destinatários
+settings-recipient-separator-comma = Vírgula
+settings-recipient-separator-semicolon = Ponto e vírgula

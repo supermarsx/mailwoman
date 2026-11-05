@@ -93,10 +93,9 @@ appearance-theme-hc-dark-desc = White on black with white borders and no tinted 
 
 appearance-family-core = Default
 appearance-family-bauhaus = Bauhaus
+appearance-family-naturals = Naturals
+appearance-family-specialty = Specialty themes
 appearance-family-slate = Slate
-appearance-family-ocean = Ocean
-appearance-family-plum = Plum
-appearance-family-grove = Grove
 appearance-family-amoled = AMOLED
 appearance-family-contrast = High contrast
 
@@ -172,16 +171,22 @@ appearance-preference-option-subject = Subject
 
 appearance-theme-cyberpunk = Cyberpunk
 appearance-theme-cyberpunk-desc = Charcoal surfaces with electric yellow actions and cyan highlights.
-appearance-family-cyberpunk = Cyberpunk
 appearance-theme-retrowave = Retrowave
 appearance-theme-retrowave-desc = Deep violet surfaces with magenta actions and cyan neon highlights.
-appearance-family-retrowave = Retrowave
 appearance-theme-fight-club = Fight Club
 appearance-theme-fight-club-desc = Worn olive surfaces, warm paper text and soap-pink actions.
-appearance-family-fight-club = Fight Club
 appearance-accent-gold = Gold
 appearance-accent-brown = Brown
 appearance-accent-beige = Beige
 appearance-accent-taupe = Taupe
 appearance-accent-silver = Silver
 appearance-accent-stone = Stone
+
+appearance-theme-slate-mist = Slate Mist
+appearance-theme-slate-mist-desc = Mid-tone blue-grey light theme with a teal accent.
+appearance-theme-slate-midnight = Slate Midnight
+appearance-theme-slate-midnight-desc = Near-black blue-grey dark theme with an ice-blue accent.
+appearance-theme-nineteen-eighty-four = 1984
+appearance-theme-nineteen-eighty-four-desc = Ministry-grey concrete, faded paper text, Big Brother red; messages set in monospace.
+appearance-theme-pop-art = Pop Art
+appearance-theme-pop-art-desc = White page, black outlines, primary red, blue and yellow, Ben-Day dots in the sidebar.

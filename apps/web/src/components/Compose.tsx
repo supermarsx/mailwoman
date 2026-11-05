@@ -6,13 +6,17 @@ import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compo
 import {checkRecipientNames} from './compose/recipientNames.ts';
 import {EditorCounts} from './compose/EditorCounts.tsx';
 import {InsertAccountItem} from './compose/InsertAccountItem.tsx';
+import {DraftsPopup} from './compose/DraftsPopup.tsx';
+import {SendLaterMenu} from './compose/SendLaterMenu.tsx';
 import {accountDraftApi,draftEditorState,localAccountDraft,type AccountDraftDocument} from '../api/accountDrafts.ts';
 import {createDraftAutosave,type DraftSaveStatus,type DraftSaveMode} from './compose/accountDraftAutosave.ts';
 import {toast} from './toast/toast.ts';
 import {observePreferenceAccount,preferenceAccount, preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
-import { settings } from '../api/settings.ts';
+import { settings, writeSetting } from '../api/settings.ts';
 import { supportsDeliveryReceipts } from '../api/deliveryReceipts.ts';
 import { externalRecipients } from './compose/recipientTrust.ts';
+import { CHECK_KEYS, externalDomains, invalidRecipients, mentionsAttachment, planSend, resolvePolicy, type CheckId, type SendIssue } from './compose/sendChecks.ts';
+import { chipsOf, commitRecipient, isRecipientSeparator, removeRecipient, splitPasted, type RecipientSeparator } from './compose/recipientChips.ts';
 import { Icon } from './Icon.tsx';
 import {
   createEffect,
@@ -41,7 +45,6 @@ import {RibbonPopover} from './compose/ribbonParts.tsx';
 import {
   SignaturePicker,
   RecallPanel,
-  DraftsDrawer,
   type ComposeSignature,
 } from './compose/ComposerExtras.tsx';
 import {
@@ -228,6 +231,7 @@ export function Compose(props: {
   const [remoteReady,setRemoteReady]=createSignal(false);
   const [remoteStatus,setRemoteStatus]=createSignal<DraftSaveStatus>('idle');
   const [remoteDrafts,setRemoteDrafts]=createSignal<AccountDraftDocument[]>([]);
+  const [remoteListFailed,setRemoteListFailed]=createSignal(false);
   const [remoteLoading,setRemoteLoading]=createSignal(false);
   const [discardCurrentOpen,setDiscardCurrentOpen]=createSignal(false);
   const [discardCurrentBusy,setDiscardCurrentBusy]=createSignal(false);
@@ -280,6 +284,7 @@ export function Compose(props: {
   const [recipientComposing,setRecipientComposing]=createSignal(false);
   const recipientInputs:Partial<Record<RecipientField,HTMLInputElement>>={};
   const recipientCarets:Partial<Record<RecipientField,number>>={};
+  const recipientTouched:Partial<Record<RecipientField,boolean>>={};
   // V7 GAL (plan §2.7): the in-progress recipient token also drives a directory
   // autocomplete as an ADDITIONAL source beside contacts. `pickedGroup` holds a
   // distribution group the sender may expand-before-send into its leaf recipients.
@@ -609,6 +614,72 @@ export function Compose(props: {
   });
   const recipientReviewKey=()=>JSON.stringify([outside(),identity()?.email,externalMode()]);
   const [reviewedRecipients,setReviewedRecipients]=createSignal('');
+  // Pre-send checks (invalid recipients, empty subject, missing attachment, external
+  // recipients): each has a policy; only `deny` ever stops a send.
+  const policyOf=(id:CheckId)=>resolvePolicy(settings()[CHECK_KEYS[id]]?.value);
+  const autoChip=()=>settings()['mail.compose.autoChipRecipients']?.value!==false;
+  const separator=():RecipientSeparator=>{const value=settings()['mail.compose.recipientSeparator']?.value;return isRecipientSeparator(value)?value:'comma';};
+  const [focusedRecipient,setFocusedRecipient]=createSignal<RecipientField|null>(null);
+  const fieldValue=(field:RecipientField)=>field==='to'?to():field==='cc'?cc():bcc();
+  /** Finished recipients only: the token still being typed in the focused field is not judged yet. */
+  const liveInvalid=createMemo(()=>{
+    if(policyOf('invalidRecipients')==='allow')return [] as string[];
+    const focus=focusedRecipient();
+    return invalidRecipients((['to','cc','bcc'] as const).map(field=>field===focus?fieldValue(field).replace(/[^,;]*$/u,''):fieldValue(field)));
+  });
+  const subjectAlert=()=>policyOf('emptySubject')!=='allow'&&subject().trim()===''&&body().trim()!=='';
+  const [dismissedExternal,setDismissedExternal]=createSignal<string[]>([]);
+  const externalHidden=()=>outside().every(address=>dismissedExternal().includes(address));
+  let subjectInput:HTMLInputElement|undefined;
+  const [checkPrompt,setCheckPrompt]=createSignal<{asked:SendIssue[];rememberable:CheckId[]}|null>(null);
+  const [rememberChecked,setRememberChecked]=createSignal(false);
+  let checkResolve:((answer:'send'|'review')=>void)|undefined;
+  onCleanup(()=>checkResolve?.('review'));
+  function collectIssues():SendIssue[] {
+    const issues:SendIssue[]=[];
+    const bad=invalidRecipients([to(),cc(),bcc()]);
+    if(bad.length)issues.push({id:'invalidRecipients',details:bad});
+    if(subject().trim()==='')issues.push({id:'emptySubject',details:[]});
+    if(attachments().length===0&&inlineImages().length===0&&!attachPublicKey()&&mentionsAttachment(body()))issues.push({id:'missingAttachment',details:[]});
+    const external=outside().filter(isMailbox);
+    if(external.length)issues.push({id:'externalRecipients',details:externalDomains(external)});
+    return issues;
+  }
+  function issueText(issue:SendIssue,denied=false):string {
+    const list=isolate(issue.details.join(', '));
+    const key=`mail-check-${denied?'denied-':''}${issue.id==='invalidRecipients'?'invalid':issue.id==='emptySubject'?'subject':issue.id==='missingAttachment'?'attachment':'external'}`;
+    return t(key,{list});
+  }
+  function focusIssue(issue:SendIssue|undefined):void {
+    if(!issue)return;
+    if(issue.id==='emptySubject'){subjectInput?.focus();return;}
+    if(issue.id==='missingAttachment')return;
+    const needle=issue.id==='invalidRecipients'?issue.details[0]??'':'';
+    const field=(['to','cc','bcc'] as const).find(f=>needle?fieldValue(f).includes(needle):fieldValue(f).trim()!=='')??'to';
+    if(field!=='to')setCcBccOpen(true);
+    const input=recipientInputs[field];input?.focus();
+    const at=needle?fieldValue(field).indexOf(needle):-1;
+    if(at>=0)input?.setSelectionRange(at,at+needle.length);
+  }
+  function askChecks(asked:SendIssue[],rememberable:CheckId[]):Promise<'send'|'review'> {
+    return new Promise(resolve=>{checkResolve=resolve;setRememberChecked(false);setCheckPrompt({asked,rememberable});});
+  }
+  function answerChecks(answer:'send'|'review'):void {
+    const prompt=checkPrompt();const remember=rememberChecked();
+    setCheckPrompt(null);
+    if(answer==='send'&&remember&&prompt)for(const id of prompt.rememberable)void writeSetting(CHECK_KEYS[id],id==='externalRecipients'?'off':'allow').catch(()=>undefined);
+    const resolve=checkResolve;checkResolve=undefined;resolve?.(answer);
+  }
+  /** True when the send may go on. One combined dialog covers every `warn` check. */
+  async function runSendChecks():Promise<boolean> {
+    const ids:CheckId[]=['invalidRecipients','emptySubject','missingAttachment','externalRecipients'];
+    const policies=Object.fromEntries(ids.map(id=>[id,policyOf(id)])) as Record<CheckId,ReturnType<typeof policyOf>>;
+    const locked=Object.fromEntries(ids.map(id=>[id,settings()[CHECK_KEYS[id]]?.locked===true])) as Record<CheckId,boolean>;
+    const plan=planSend(collectIssues(),policies,locked);
+    if(plan.denied.length){setError(plan.denied.map(issue=>issueText(issue,true)).join(' '));focusIssue(plan.denied[0]);return false;}
+    if(plan.asked.length&&await askChecks(plan.asked,plan.rememberable)==='review'){focusIssue(plan.asked[0]);return false;}
+    return true;
+  }
 
   /** Plain text → the same minimal HTML the plain-text send path has always
    *  produced (escaped, newlines as `<br>`). Used to seed the rich editor when
@@ -887,9 +958,9 @@ export function Compose(props: {
   }
   async function refreshRemoteDrafts():Promise<void>{
     const owner=composerAuthority();if(!owner?.storageAuthority||!ownsDraft())return;
-    setRemoteLoading(true);
+    setRemoteLoading(true);setRemoteListFailed(false);
     try{const result=await accountDraftApi(owner,remoteAbort?.signal).list();if(!ownsDraft())return;setRemoteReady(result.supported);setRemoteDrafts(result.items);if(!result.supported)setRemoteStatus('unsupported');}
-    catch{if(ownsDraft())setRemoteStatus('error');}
+    catch{if(ownsDraft()){setRemoteStatus('error');setRemoteListFailed(true);}}
     finally{if(ownsDraft())setRemoteLoading(false);}
   }
   async function resumeRemoteDraft(id:string):Promise<void>{
@@ -904,13 +975,14 @@ export function Compose(props: {
       setRemoteStatus(document.status==='uncertain'?'uncertain':'saved');
     }catch{remoteFailure('draftStateUnavailable');}finally{if(ownsDraft())setRemoteLoading(false);}
   }
-  async function discardRemoteDraft(document:AccountDraftDocument):Promise<void>{
-    const owner=composerAuthority();if(!owner?.storageAuthority||!ownsDraft()||remoteLoading())return;
+  async function discardRemoteDraft(document:AccountDraftDocument):Promise<boolean>{
+    const owner=composerAuthority();if(!owner?.storageAuthority||!ownsDraft()||remoteLoading())return false;
     if(remoteWriterId===document.id){remoteWriter?.suspend(true);await remoteWriter?.settled();}
     setRemoteLoading(true);
-    try{await accountDraftApi(owner,remoteAbort?.signal).discard(document.id,document.revision);if(!ownsDraft())return;deleteDraft(document.id,owner.id,owner.storageAuthority);setRemoteDrafts(rows=>rows.filter(row=>row.id!==document.id));void app.refreshFolders();
+    try{await accountDraftApi(owner,remoteAbort?.signal).discard(document.id,document.revision);if(!ownsDraft())return false;deleteDraft(document.id,owner.id,owner.storageAuthority);setRemoteDrafts(rows=>rows.filter(row=>row.id!==document.id));void app.refreshFolders();
       if(draftId===document.id){allowRecoveryClose=true;pendingDraft=undefined;sent=true;props.onClose();}
-    }catch{remoteFailure('draftDiscardPending');}finally{if(ownsDraft())setRemoteLoading(false);}
+      return true;
+    }catch{remoteFailure('draftDiscardPending');return false;}finally{if(ownsDraft())setRemoteLoading(false);}
   }
   async function discardCurrentDraft():Promise<void>{
     if(!ownsDraft()||busy()||uploading()||discardCurrentBusy())return;
@@ -1118,6 +1190,7 @@ export function Compose(props: {
     if(field==='bcc')bccEdited=true;
     const [value, setValue] = recipientFields[field];
     const replacement=replaceRecipientToken(value(),recipientCarets[field]??value().length,address);
+    if(separator()==='semicolon'&&replacement.value.endsWith(', ')&&replacement.caret===replacement.value.length)replacement.value=`${replacement.value.slice(0,-2)}; `;
     setValue(replacement.value);
     recipientCarets[field]=replacement.caret;
     contactAc.reset();
@@ -1137,7 +1210,29 @@ export function Compose(props: {
     get 'aria-expanded'(){return recipientListOpen(field);},
     get 'aria-controls'(){return recipientListOpen(field)?recipientListId(field):undefined;},
     get 'aria-activedescendant'(){return recipientListOpen(field)&&acIndex()>=0&&acIndex()<contactAc.suggestions().length?`${recipientListId(field)}-${acIndex()}`:undefined;},
-    onInput:event=>onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length),
+    onInput:event=>{
+      const input=event.currentTarget;const value=input.value;const caret=input.selectionStart??value.length;
+      recipientTouched[field]=true;
+      const previous=recipientFields[field][0]();const typed=value[caret-1];
+      const trigger=autoChip()&&!recipientComposing()&&value.length===previous.length+1?(typed===' '?'space':typed===','?'comma':typed===';'?'semicolon':null):null;
+      const done=trigger?commitRecipient(value,caret,trigger,separator()):null;
+      if(done){input.value=done.value;onRecipientInput(field,done.value,done.caret);input.setSelectionRange(done.caret,done.caret);return;}
+      onRecipientInput(field,value,caret);
+    },
+    onPaste:event=>{
+      if(!autoChip())return;
+      const list=splitPasted(event.clipboardData?.getData('text')??'',separator());
+      if(list===null)return;
+      event.preventDefault();
+      const input=event.currentTarget;const value=input.value;
+      const start=input.selectionStart??value.length;const end=input.selectionEnd??start;
+      const head=value.slice(0,start);
+      const lead=head.trim()===''||/[,;]\s*$/u.test(head)?head:`${head.replace(/\s+$/u,'')}${separator()==='semicolon'?';':','} `;
+      const next=lead+list+value.slice(end).replace(/^\s+/u,'');
+      if(field==='bcc')bccEdited=true;
+      onRecipientInput(field,next,lead.length+list.length);
+    },
+    onFocus:()=>setFocusedRecipient(field),
     onClick:event=>onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length),
     onCompositionStart:()=>{setRecipientComposing(true);dismissRecipients();},
     onCompositionEnd:event=>{setRecipientComposing(false);onRecipientInput(field,event.currentTarget.value,event.currentTarget.selectionStart??event.currentTarget.value.length);},
@@ -1147,6 +1242,8 @@ export function Compose(props: {
       if(next?.nodeType&&event.currentTarget.ownerDocument.getElementById(recipientListId(field))?.contains(next))return;
       // Keep the separate GAL picker mounted while focus moves into its buttons.
       setAcField(null);setAcIndex(-1);contactAc.reset();
+      setFocusedRecipient(current=>current===field?null:current);
+      if(autoChip()&&!recipientComposing()&&recipientTouched[field]){const done=commitRecipient(event.currentTarget.value,event.currentTarget.value.length,'blur',separator());if(done)onRecipientInput(field,done.value,done.caret);}
     },
     onKeyDown:event=>{
       if(event.isComposing||recipientComposing()||event.keyCode===229){event.stopPropagation();return;}
@@ -1179,6 +1276,31 @@ export function Compose(props: {
       }
     },
   });
+
+  const contactName=(email:string):string|null=>{
+    const lower=email.toLowerCase();
+    for(const card of app.contacts())if(card.name.full&&card.emails.some(entry=>entry.value.toLowerCase()===lower))return card.name.full;
+    return null;
+  };
+  /** Finished recipients of `field` as underlined chips; the token still being typed is left out. */
+  function chipList(field:RecipientField):JSX.Element {
+    const chips=()=>{
+      if(!autoChip())return [];
+      const value=fieldValue(field);const all=chipsOf(value);
+      return focusedRecipient()===field&&!/[,;]\s*$/u.test(value)?all.slice(0,-1):all;
+    };
+    return <Show when={chips().length>0}>
+      <ul class="compose-chips" aria-label={t('mail-recipient-chips',{field:t(field==='to'?'mail-compose-to':field==='cc'?'mail-compose-cc':'mail-compose-bcc')})} data-testid={`compose-chips-${field}`}>
+        <For each={chips()}>{chip=>{
+          const label=chip.name??(chip.valid?contactName(chip.email):null)??chip.text;
+          return <li class={`compose-chip${chip.valid?'':' compose-chip--invalid'}`} data-valid={chip.valid?'true':'false'}>
+            <span class="compose-chip__label" title={chip.valid?chip.email:t('mail-recipient-invalid-title')}>{isolate(label)}</span>
+            <button type="button" class="compose-chip__remove" tabindex={-1} aria-label={t('mail-recipient-chip-remove',{address:isolate(chip.text)})} onClick={()=>{recipientFields[field][1](removeRecipient(fieldValue(field),chip.index,separator()));if(field==='bcc')bccEdited=true;}}>×</button>
+          </li>;
+        }}</For>
+      </ul>
+    </Show>;
+  }
 
   /** The contact suggestions under `field`, while it is the one being typed in. */
   const suggestionList = (field: RecipientField): JSX.Element => (
@@ -1301,7 +1423,7 @@ export function Compose(props: {
 
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
-    if(!mailFeature('allowSend')||busy()||uploading()||discardCurrentOpen()||discardCurrentBusy())return;
+    if(!mailFeature('allowSend')||busy()||uploading()||discardCurrentOpen()||discardCurrentBusy()||checkPrompt()!==null)return;
     setBusy(true);
     try {
     const expectedSelection=sendingSelection();let identityTimer:ReturnType<typeof setTimeout>|undefined;
@@ -1309,6 +1431,7 @@ export function Compose(props: {
     catch{if(ownsDraft())setError(t('mail-compose-identities-failed'));return;}
     finally{clearTimeout(identityTimer);}
     if(!ownsDraft())return;
+    if(!await runSendChecks()||!ownsDraft())return;
     if(sendingSelection()!==expectedSelection){setError(t('mail-compose-send-failed'));return;}
     if(pendingSignature)await pendingSignature;
     if(sourceMode()&&editorApi()===null){setError(t('mail-compose-html-processing'));return;}
@@ -1500,6 +1623,7 @@ export function Compose(props: {
           <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={!mailFeature('allowSend')||busy()||discardCurrentOpen()||discardCurrentBusy()} title={mailFeature('allowSend')?undefined:mailFeatureOffTitle()}>
             <Icon name="sent"/> {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
           </button>
+          <Show when={featureOn('compose.scheduled_send')&&mailFeature('allowSend')}><SendLaterMenu disabled={busy()} onPick={value=>{setSendAt(value);queueMicrotask(()=>backdropEl?.querySelector<HTMLFormElement>('form.compose')?.requestSubmit());}}/></Show>
           <h2 class={a11y.srOnly}>{t(initial !== undefined ? TITLE_KEY[initial.mode] : 'mail-compose-title')}</h2>
           <div class="compose__header-actions">
             <button type="button" class="btn btn--ghost compose-action--secondary" data-detached-local="" aria-haspopup="dialog" aria-label={t('mail-draft-discard-account')} disabled={busy()||uploading()||discardCurrentBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict'} onClick={()=>setDiscardCurrentOpen(true)} data-tooltip={t('mail-draft-discard-confirm')}><Icon name="delete"/><span>{t('mail-draft-discard-account')}</span></button>
@@ -1508,6 +1632,7 @@ export function Compose(props: {
               type="button"
               class={`btn btn--ghost ${a11y.focusable}`}
               data-testid="open-drafts"
+              aria-haspopup="dialog"
               aria-expanded={draftsOpen()}
               onClick={() => (draftsOpen() ? setDraftsOpen(false) : openDrafts())}
             >
@@ -1533,9 +1658,15 @@ export function Compose(props: {
         <p role="status" aria-live="polite" class="compose__sign-unlock-note" data-testid="account-draft-status">{t(protectedDraft()?'mail-draft-protected':`mail-draft-status-${remoteStatus()}`)}</p>
         <Show when={['error','uncertain','conflict'].includes(remoteStatus())&&localDraftAuthority()}><button type="button" class="btn btn--ghost" onClick={()=>{allowRecoveryClose=true;props.onClose();}}>{t('mail-draft-close-recovery')}</button></Show>
 
-        <Show when={draftsOpen()}><section aria-label={t('mail-draft-account-list')}><h3>{t('mail-draft-account-list')}</h3><p>{t('mail-draft-quota-help')}</p><Show when={remoteLoading()}><p role="status">{t('mail-draft-loading')}</p></Show><For each={remoteDrafts()}>{document=><div><button type="button" class="btn btn--ghost" disabled={remoteLoading()} onClick={()=>void resumeRemoteDraft(document.id)}>{document.summary.subject||t('mail-no-subject')}</button><button type="button" class="btn btn--ghost" disabled={remoteLoading()||document.status==='uncertain'} data-detached-local="" aria-haspopup="dialog" onClick={()=>setDiscardConfirmation(document)}>{t('mail-draft-discard-account')}</button></div>}</For></section></Show>
         {/* Discard confirmations and the unsaved-close prompt share one themed modal,
             mounted in the composer's own document (a detached window, when torn off). */}
+        <ConfirmDialog open={checkPrompt()!==null} testId="compose-send-checks" mount={dialogMount()} danger={false}
+          title={t('mail-check-title')} confirmLabel={t('mail-check-send-anyway')} cancelLabel={t('mail-check-review')}
+          onCancel={()=>answerChecks('review')} onConfirm={()=>answerChecks('send')}>
+          <p>{t('mail-check-intro')}</p>
+          <ul class="compose-check-list"><For each={checkPrompt()?.asked??[]}>{issue=><li>{issueText(issue)}</li>}</For></ul>
+          <Show when={(checkPrompt()?.rememberable.length??0)>0}><label class="compose-check-remember"><input type="checkbox" checked={rememberChecked()} onChange={event=>setRememberChecked(event.currentTarget.checked)}/>{t('mail-check-remember')}</label></Show>
+        </ConfirmDialog>
         <ConfirmDialog open={discardCurrentOpen()} testId="compose-discard-confirm" mount={dialogMount()}
           title={t('mail-draft-discard-title')} body={t('mail-draft-discard-confirm-detail',{subject:subject()||t('mail-no-subject')})}
           confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
@@ -1548,11 +1679,20 @@ export function Compose(props: {
           title={t('mail-draft-close-title')} body={closePrompt()?.body??''}
           confirmLabel={t('mail-draft-discard-action')} cancelLabel={t('mail-draft-keep-editing')}
           onCancel={()=>closePrompt()?.answer(false)} onConfirm={()=>closePrompt()?.answer(true)}/>
-        <DraftsDrawer
+        <DraftsPopup
           open={draftsOpen()}
-          drafts={drafts}
-          onResume={resumeDraft}
-          onDelete={discardDraft}
+          accountDrafts={remoteDrafts}
+          localDrafts={drafts}
+          accountSupported={remoteReady()}
+          loading={remoteLoading()}
+          loadFailed={remoteListFailed()}
+          currentId={draftId}
+          mount={dialogMount()}
+          onRetryLoad={()=>void refreshRemoteDrafts()}
+          onOpenAccount={id=>void resumeRemoteDraft(id)}
+          onOpenLocal={resumeDraft}
+          onDiscardAccount={discardRemoteDraft}
+          onDiscardLocal={discardDraft}
           onClose={() => setDraftsOpen(false)}
         />
         <Show when={recallOpen()}>
@@ -1561,6 +1701,12 @@ export function Compose(props: {
 
         <Show when={!localDraftAuthority()}><p role="status" class="compose__sign-unlock-note">{t('mail-compose-private-storage-unavailable')}</p></Show>
         <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}>{' · '}{t('mail-compose-cc')}: {cc()}</Show><Show when={bcc()}>{' · '}{t('mail-compose-bcc')}: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
+        <Show when={liveInvalid().length>0||subjectAlert()}>
+          <ul class="compose-alerts" role="status" aria-label={t('mail-alerts-label')} data-testid="compose-alerts">
+            <For each={liveInvalid()}>{bad=><li><button type="button" class="compose-alerts__item" data-alert="invalid" onClick={()=>focusIssue({id:'invalidRecipients',details:[bad]})}><Icon name="alert"/>{t('mail-alert-invalid',{address:isolate(bad)})}</button></li>}</For>
+            <Show when={subjectAlert()}><li><button type="button" class="compose-alerts__item" data-alert="subject" onClick={()=>subjectInput?.focus()}><Icon name="alert"/>{t('mail-alert-subject')}</button></li></Show>
+          </ul>
+        </Show>
         <Show when={!compact()}>
           <Show when={showFrom()}><label class="field compose__from">
             <span>{t('mail-compose-from')}</span>
@@ -1570,7 +1716,7 @@ export function Compose(props: {
               <For each={app.identities()}>
                 {(id) => (
                   <option value={id.id}>
-                    {isolate(id.name)} &lt;{id.email}&gt;
+                    {isolate(id.name)} &lt;{id.email}&gt;{id.label ? ` (${isolate(id.label)})` : ''}
                   </option>
                 )}
               </For>
@@ -1603,6 +1749,7 @@ export function Compose(props: {
           />
           {suggestionList('to')}
         </label>
+        {chipList('to')}
 
         {/* V7 GAL autocomplete (plan §2.7): an ADDITIONAL recipient source beside
             contacts. Mounted only when a directory is configured, so an unconfigured
@@ -1639,6 +1786,7 @@ export function Compose(props: {
             />
             {suggestionList('cc')}
           </label>
+          {chipList('cc')}
           <label class="field compose__to">
             <span>{t('mail-compose-bcc')}</span>
             <input
@@ -1649,11 +1797,12 @@ export function Compose(props: {
             />
             {suggestionList('bcc')}
           </label>
+          {chipList('bcc')}
         </Show>
 
         <label class="field compose__subject">
           <span>{t('mail-compose-subject')}</span>
-          <input type="text" value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
+          <input type="text" ref={subjectInput} value={subject()} onInput={(e) => setSubject(e.currentTarget.value)} />
         </label>
         </Show>
         {/* Shared attachment list (Nextcloud + local-file uploads). Rendered
@@ -1693,7 +1842,7 @@ export function Compose(props: {
             </div>
           )}
         </For>
-        <Show when={externalMode()!=='off' && outside().length>0}><section class="compose-external" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-count',{count:outside().length})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
+        <Show when={externalMode()!=='off' && outside().length>0 && (externalMode()==='confirm' || !externalHidden())}><section class="compose-external" role="status" aria-label={t('mail-external-recipients')}><details><summary><Icon name="alert"/> {t('mail-external-line',{count:outside().length,domains:isolate(externalDomains(outside().filter(isMailbox)).join(', '))})}</summary><p>{t('mail-external-help')}</p><ul><For each={outside()}>{address=><li>{address}</li>}</For></ul></details><Show when={externalMode()!=='confirm'}><button type="button" class="btn btn--ghost compose-external__dismiss" onClick={()=>setDismissedExternal(outside())}>{t('mail-external-dismiss')}</button></Show><Show when={externalMode()==='confirm'}><label><input type="checkbox" checked={reviewedRecipients()===recipientReviewKey()} onChange={event=>setReviewedRecipients(event.currentTarget.checked?recipientReviewKey():'')}/>{t('mail-external-reviewed')}</label></Show></section></Show>
         {/* The composer ribbon (t38): pinned, or auto-hide with only the history
             and tab names showing. It pushes the body down when it opens (never
             covers it) and has a fixed height, so the body (flex:1, t37) takes

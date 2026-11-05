@@ -22,7 +22,6 @@ import {createMailReadCache, type PrefetchTrigger} from '../mailReadCache.ts';
 import {readMailCachePolicy} from '../mailCachePolicy.ts';
 import { ApiError, NetworkError, PasswordChangeRequired, type Client, type LoginInput, type Me } from '../../api/client.ts';
 import {
-  cancelSubmission,
   emailGetFull,
   invalidRecipients,
   listMailbox,
@@ -78,7 +77,10 @@ import type { FocusedSender } from '../../api/focusedSenders.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
 import { settings, writeSetting } from '../../api/settings.ts';
 import { mailFeature } from '../mailFeatures.ts';
+import { effectiveRecallSeconds } from '../sendDelay.ts';
+import { recallQueued, sendQueuedNow, type QueuedSend } from '../queuedSend.ts';
 import { beginMessageLoad } from '../../perf/clientTiming.ts';
+import { clearUndoHistory, recordUndoable, undoOnly, undoReplaying, UndoUnavailable } from '../undoHistory.ts';
 
 /**
  * Rows fetched per page. The list used to request exactly this many ids and
@@ -124,6 +126,8 @@ export interface PendingUndo {
   run: () => Promise<void>;
   /** Epoch ms when the window would end if the toast is never paused. */
   expiresAt: number;
+  /** The global undo history entry (state/undoHistory.ts) this toast belongs to, when one was recorded. */
+  historyId?: number;
 }
 
 /** Which sweep to run against a sender's mail (Outlook-style, §1.5). */
@@ -622,6 +626,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // it stops while the toast is hovered or focused, except for undo-send,
   // whose window is the engine's hold and ends regardless (`hardDeadline`).
   async function runUndo(p: PendingUndo): Promise<void> {
+    // Through the global history when the action is in it, so Undo/Redo agree with the toast.
+    if (p.historyId !== undefined && (await undoOnly(p.historyId)) !== null) return;
     try {
       await p.run();
     } catch {
@@ -634,9 +640,19 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     ttlMs = 10_000,
     actionLabel = t('mail-undo-action'),
     hardDeadline = false,
-    notice: {id?:string;tone?:'info'|'warning'} = {},
+    notice: {id?:string;tone?:'info'|'warning';secondary?:{label:string;run:()=>void|Promise<void>}} = {},
+    redo?: () => Promise<void>,
   ): void {
+    // A replay from the global history raises no toast of its own and records nothing.
+    if (undoReplaying()) return;
+    if (redo !== undefined) void loadCatalog('undo');
     const entry: PendingUndo = { label, actionLabel, run, expiresAt: Date.now() + ttlMs };
+    // The global history (Undo/Redo buttons) records the same action; the toast's Undo goes through it.
+    const recorded = redo === undefined ? null : recordUndoable({
+      label, accountId: accountId(), undo: run, redo,
+      onSettled: () => { if (pendingUndo() === entry) dismissUndo(); },
+    });
+    if (recorded !== null) entry.historyId = recorded.id;
     setPendingUndo(entry);
     const id=notice.id??UNDO_TOAST_ID;
     if(undoToastId!==id)toast.dismiss(undoToastId);
@@ -647,6 +663,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       countdown: true,
       pausable: !hardDeadline,
       action: { label: actionLabel, run: () => runUndo(entry) },
+      ...(notice.secondary?{secondaryAction:notice.secondary}:{}),
       onClose: () => {
         if (pendingUndo() === entry) setPendingUndo(null);
       },
@@ -991,8 +1008,34 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (written === 0 || !current()) return;
     showUndo(label(written), async () => {
       if(!current())return;
-      await writeKeyword(keyword, prior);
+      await writeKeywordById(keyword, prior);
+    }, 10_000, t('mail-undo-action'), false, {}, async () => {
+      if(!current())throw new UndoUnavailable();
+      await writeKeywordById(keyword, new Map(ids.map((id) => [id, on])));
     });
+  }
+
+  /** A keyword change for the undo history: messages the list holds go through `writeKeyword` (list, badges); the rest straight to the server, and a message that no longer exists fails the undo. */
+  async function writeKeywordById(keyword: string, changes: ReadonlyMap<Id, boolean>): Promise<void> {
+    const acct = accountId();
+    if (acct === null) throw new UndoUnavailable();
+    const loaded = new Map<Id, boolean>(), absent = new Map<Id, boolean>();
+    for (const [id, on] of changes) (findEmail(id) !== null ? loaded : absent).set(id, on);
+    if (loaded.size > 0) await writeKeyword(keyword, loaded);
+    if (absent.size === 0) return;
+    if (isOffline() && ctx.enqueueOffline) {
+      for (const [id, on] of absent) await ctx.enqueueOffline('flag', { accountId: acct, emailId: id, keyword, value: on });
+      return;
+    }
+    const patches: Record<Id, Record<string, unknown>> = {};
+    for (const [id, on] of absent) patches[id] = { [`keywords/${keyword}`]: on ? true : null };
+    const finishCounts = beginCountWrite();
+    let res: JmapResponse;
+    try { res = await jmapCall(updateEmails(acct, patches)); } catch (error) { await finishCounts(); throw error; }
+    const refused = refusedUpdates(res, Object.keys(patches));
+    await finishCounts(res);
+    if (refused.size === absent.size && loaded.size === 0) throw new UndoUnavailable(t('undo-reason-gone'));
+    ctx.broadcastChange?.();
   }
 
   async function markRead(ids: Id | readonly Id[], read: boolean): Promise<void> {
@@ -1074,11 +1117,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
   async function applyTag(id: Id, keyword: string): Promise<void> {
     await rawKeyword(id, keyword, true);
-    showUndo(t('mail-toast-label-added'), () => rawKeyword(id, keyword, false));
+    showUndo(t('mail-toast-label-added'), () => rawKeyword(id, keyword, false), 10_000, t('mail-undo-action'), false, {}, () => rawKeyword(id, keyword, true));
   }
   async function removeTag(id: Id, keyword: string): Promise<void> {
     await rawKeyword(id, keyword, false);
-    showUndo(t('mail-toast-label-removed'), () => rawKeyword(id, keyword, true));
+    showUndo(t('mail-toast-label-removed'), () => rawKeyword(id, keyword, true), 10_000, t('mail-undo-action'), false, {}, () => rawKeyword(id, keyword, false));
   }
 
   // ── pin / snooze / follow-up ──────────────────────────────────────────────
@@ -1086,12 +1129,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const target = toastTarget(findEmail(id)?.subject, t('mail-no-subject'));
     const prev = messages().find((m) => m.id === id)?.pinned ?? false;
     await rawMeta(id, { pinned });
-    showUndo(pinned ? t('mail-toast-pinned', { target }) : t('mail-toast-unpinned', { target }), () => rawMeta(id, { pinned: prev }));
+    showUndo(pinned ? t('mail-toast-pinned', { target }) : t('mail-toast-unpinned', { target }), () => rawMeta(id, { pinned: prev }), 10_000, t('mail-undo-action'), false, {}, () => rawMeta(id, { pinned }));
   }
   async function snoozeMessage(id: Id, untilIso: string): Promise<void> {
     const prev = messages().find((m) => m.id === id)?.snoozedUntil ?? null;
     await rawMeta(id, { snoozedUntil: untilIso });
-    showUndo(t('mail-toast-snoozed'), () => rawMeta(id, { snoozedUntil: prev }));
+    showUndo(t('mail-toast-snoozed'), () => rawMeta(id, { snoozedUntil: prev }), 10_000, t('mail-undo-action'), false, {}, () => rawMeta(id, { snoozedUntil: untilIso }));
   }
   async function unsnoozeMessage(id: Id): Promise<void> {
     await rawMeta(id, { snoozedUntil: null });
@@ -1100,7 +1143,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const prev = messages().find((m) => m.id === id)?.followUpAt ?? null;
     await rawMeta(id, { followUpAt: atIso });
     showUndo(atIso ? t('mail-toast-follow-up-set') : t('mail-toast-follow-up-cleared'), () =>
-      rawMeta(id, { followUpAt: prev }),
+      rawMeta(id, { followUpAt: prev }), 10_000, t('mail-undo-action'), false, {}, () => rawMeta(id, { followUpAt: atIso }),
     );
   }
 
@@ -1250,13 +1293,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           await finishCounts(response);
           if (!current()) return;
           for (let i = reverse.length - 1; i >= 0; i--) if (refused.has(reverse[i]!.email.id)) reverse.splice(i, 1);
+          // Every message was moved or deleted elsewhere since: nothing to put back.
+          if (reverse.length === 0 && back.length === 0) throw new UndoUnavailable(t('undo-reason-moved'));
           if (refused.size > 0) showToast('error', t('mail-toast-update-refused', { count: refused.size }));
           ctx.broadcastChange?.();
         }
       }
       clearProjection([...back,...reverse]);
       restore([...back, ...reverse]);
-    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{});
+    },10_000,t('mail-undo-action'),false,progressId?{id:progressId,tone:refusedCount>0?'warning':'info'}:{},async()=>{if(!current())throw new UndoUnavailable();await moveIdsAgain(moved.map(item=>item.email.id),targetMailboxId);});
     } catch(error) {
       if(!progressId)throw error;
       if(current()){if(offline)restore(taken.filter(item=>!queuedOffline.has(item.email.id)));fail(t('mail-toast-move-failed'));}
@@ -1264,6 +1309,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       stopObserving();
       if(progressId&&(!current()||!finished))toast.dismiss(progressId);
     }
+  }
+  /** Repeat a move for the undo history's Redo: straight to the server (the messages may be in another folder's list now), leaving the rows of the current list. */
+  async function moveIdsAgain(ids: readonly Id[], targetMailboxId: Id): Promise<void> {
+    const acct = accountId();
+    if (acct === null) throw new UndoUnavailable();
+    if (isOffline() && ctx.enqueueOffline) {
+      for (const id of ids) await ctx.enqueueOffline('move', { accountId: acct, emailId: id, mailboxIds: { [targetMailboxId]: true } });
+      takeFromList(ids);
+      return;
+    }
+    const patches: Record<Id, Record<string, unknown>> = {};
+    for (const id of ids) patches[id] = { mailboxIds: { [targetMailboxId]: true } };
+    const finishCounts = beginCountWrite();
+    let res: JmapResponse;
+    try { res = await jmapCall(updateEmails(acct, patches)); } catch (error) { await finishCounts(); throw error; }
+    const refused = refusedUpdates(res, ids);
+    await finishCounts(res);
+    if (refused.size === ids.length) throw new UndoUnavailable(t('undo-reason-moved'));
+    takeFromList(ids.filter((id) => !refused.has(id)));
+    for (const id of ids) for (const view of readerViews) if (!refused.has(id)) view.patch(id, { mailboxIds: { [targetMailboxId]: true } });
+    ctx.broadcastChange?.();
   }
   async function archiveMessage(ids: Id | readonly Id[]): Promise<void> {
     const target = roleOf(mailboxes(), 'archive');
@@ -1943,7 +2009,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       if (Number.isNaN(at) || at <= Date.now()) throw new Error(t('mail-send-later-past'));
       scheduled = true;
     }
-    const holdSeconds = scheduled ? 0 : (input.holdSeconds ?? 10);
+    const holdSeconds = scheduled ? 0 : (input.holdSeconds ?? effectiveRecallSeconds());
 
     const draft: DraftInput = {
       ...(input.accountDraft?{accountDraft:input.accountDraft}:{}),
@@ -2046,21 +2112,25 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (scheduled) {
       showToast('success', t('mail-toast-send-scheduled'));
     } else if (submissionId !== null) {
-      // Undo-send: the engine holds the submission for `holdSeconds`; the toast
-      // Cancel path flips it to `canceled` before it dials SMTP (plan §1.3).
-      showUndo(
-        t('mail-toast-sent'),
-        async () => {
-          requireCurrent();
-          await jmapCall(cancelSubmission(acct, submissionId));
-          if (!sendAuthorityCurrent()) return;
-          await markSources(false).catch(() => undefined);
-          showToast('info', t('mail-toast-send-canceled'));
-        },
-        holdSeconds * 1000,
-        t('mail-undo-send-cancel'),
-        true,
-      );
+      // Queued: the engine holds the submission for `holdSeconds` (the user's
+      // recall window; 0 sends at once and shows no countdown). Undo is a
+      // server-side compare-and-set: a send already claimed is refused and the
+      // toast says so; a recalled message reopens as a draft (queuedSend.ts).
+      const queued: QueuedSend = {
+        accountId: acct, submissionId, holdSeconds, input, call: jmapCall,
+        current: sendAuthorityCurrent, onRecalled: () => markSources(false),
+      };
+      if (holdSeconds > 0) {
+        await loadCatalog('send-delay');
+        showUndo(
+          t('send-queued'),
+          async () => { await recallQueued(queued); },
+          holdSeconds * 1000,
+          t('send-queued-undo'),
+          true,
+          {secondary: { label: t('send-queued-now'), run: async () => { await sendQueuedNow(queued); } }},
+        );
+      } else showToast('success', t('mail-toast-sent'));
     } else {
       showToast('success', t('mail-toast-sent'));
     }
@@ -2240,6 +2310,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       setExhausted(true);
       setListLoading(false);
       dismissUndo();
+      clearUndoHistory();
       // What this browser holds for the account outside the store: the
       // composer's auto-saved drafts (plaintext in localStorage) and the
       // service worker's caches. The worker deletes its caches itself when it
@@ -2275,7 +2346,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       batch(()=>{
         suspendAccountPreferences();
         for(const view of readerViews)view.closeMessage();
-        setActiveReader(null);cancelMarkRead();dismissUndo();beginListRequest();
+        setActiveReader(null);cancelMarkRead();dismissUndo();clearUndoHistory();beginListRequest();
         setMailboxes([]);setMessages([]);setSelectedMailboxId(null);setSelectionRaw(new Set<Id>());
         setOpenEmail(null);setSanitizedHtml(null);setDownloadUrl(null);setExactFromDomain(false);setSearch('');setSearchActive(false);
         setPageSource(null);setTotal(null);setLoadedStart(0);setExhausted(true);setListLoading(false);setLoadingMore(false);

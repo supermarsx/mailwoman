@@ -78,6 +78,11 @@ function makeClient(
         ? ['Mailbox/get', { accountId: 'acct1', state: 's', list: boxes, notFound: [] }, call[2]]
         : [call[0], { accountId: 'acct1' }, call[2]]), sessionState: 's' };
     }
+    const subUpdate = body.methodCalls.find((c) => c[0] === 'EmailSubmission/set' && 'update' in (c[1] as object));
+    if (subUpdate !== undefined) {
+      const ids = Object.keys((subUpdate[1] as { update: Record<string, unknown> }).update);
+      return { methodResponses: [['EmailSubmission/set', { accountId: 'acct1', updated: Object.fromEntries(ids.map((id) => [id, null])) }, subUpdate[2]]], sessionState: 's' };
+    }
     if (names.includes('EmailSubmission/set')) {
       return {
         methodResponses: [
@@ -410,8 +415,8 @@ describe('mail slice — undo-send', () => {
     await withInbox([email('a')], async (mail, { jmap }) => {
       await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>', holdSeconds: 10 });
       const undo = mail.pendingUndo();
-      expect(undo?.label).toBe('Message sent');
-      expect(undo?.actionLabel).toBe('Cancel');
+      expect(undo?.label).toBe('Message queued — sends in');
+      expect(undo?.actionLabel).toBe('Undo');
 
       jmap.mockClear();
       await mail.undoNow();
@@ -835,7 +840,7 @@ describe('mail slice — a refused send', () => {
     await withInbox([email('a')], async (mail, { jmap, toast }) => {
       // Precondition: with the default response the same send succeeds.
       await mail.sendMessage({ to: 'you@example.org', subject: 'Hi', htmlBody: '<p>x</p>' });
-      expect(mail.pendingUndo()?.label).toBe('Message sent');
+      expect(mail.pendingUndo()?.label).toBe('Message queued — sends in');
       mail.dismissUndo();
       toast.mockClear();
 

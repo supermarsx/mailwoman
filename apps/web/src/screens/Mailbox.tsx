@@ -1,3 +1,4 @@
+import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {onMessagesTrashed} from '../state/trashEvents.ts';
 import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../components/RenameFolder.tsx';
@@ -10,6 +11,7 @@ import {LinkedAccountControl} from '../components/accounts/LinkedAccountControl.
 import {accountIndicatorLabel} from '../components/accounts/MailboxPicker.tsx';
 import {mailboxNickname} from '../api/mailboxLayout.ts';
 import {CollapsibleBar} from '../components/bars/index.ts';
+import {UndoRedoControl} from '../components/UndoRedoControl.tsx';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from '../components/DetachedWorkspacePane.tsx';
 import {WorkspaceLayoutControls} from '../components/WorkspaceLayoutControls.tsx';
 import {createWorkspaceViews,isSplitLayout,isStackedLayout,workspaceLayout as parseWorkspaceLayout,type WorkspaceLayout,type WorkspaceViewSlot} from '../realtime/workspaceLayout.ts';
@@ -231,6 +233,8 @@ export function MailboxScreen(): JSX.Element {
     setPanes(old=>[...old,{id,kind:'composer',title,autoDetach:!restoredId&&settings()['mail.composeWindow']?.value==='window',...(resumeDraftId?{draftId:resumeDraftId}:{}),...(initial ? {initial} : {})}]);
   }
   function openNewMessage():void {openComposer();}
+  // A recalled send (toast Undo, Outbox "Recall and edit") returns as a draft.
+  createEffect(()=>{const id=recalledDraftId();if(id){takeRecalledDraft();openComposer(undefined,id);}});
   const openingReplyDrafts=new Map<string,AbortController>();
   onCleanup(()=>{for(const controller of openingReplyDrafts.values())controller.abort();});
   async function openReplyDraft(id:string):Promise<void>{
@@ -1002,6 +1006,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={previewVisible()&&preview()!==null}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} aria-pressed={listVisible()} onClick={()=>setAccountUiPreferences({messageListCollapsed:listVisible()})}><Icon name="layoutColumns"/></button></Show>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
+          <UndoRedoControl/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
         </div>
         </CollapsibleBar>
