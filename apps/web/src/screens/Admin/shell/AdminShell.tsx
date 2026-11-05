@@ -24,7 +24,8 @@ import * as brandCss from '../branding.css.ts';
 import { COMMON_SECTIONS, GROUPS, canOpenSection, prefetchSectionsWhenIdle, preloadSection, type SectionDef } from './sections.ts';
 import { fieldPath, hrefFor, sectionPath, type AdminRoute } from './router.ts';
 import { Icon } from './icons.tsx';
-import { AdminAccountMenu } from './AdminAccountMenu.tsx';
+import { AdminAccountButtons } from './AdminAccountButtons.tsx';
+import * as accountCss from './accountButtons.css.ts';
 import { Breadcrumbs, type Crumb } from './Breadcrumbs.tsx';
 import { CommandPalette, type AdminSearch, type PaletteField } from './CommandPalette.tsx';
 import { fieldAnchors, focusFieldWhenReady } from './fieldAnchors.ts';
@@ -194,9 +195,22 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
     </Show>
   );
 
+  const Account = (p: { testId?: string }): JSX.Element => (
+    <AdminAccountButtons
+      username={props.username}
+      onSignOut={props.onSignOut}
+      href={visible().some((s) => s.id === 'preferences') ? hrefFor(sectionPath('preferences')) : undefined}
+      onOpenAccount={(e) => inPlace(e, () => go('preferences'))}
+      testId={p.testId}
+    />
+  );
+
   const Footer = (): JSX.Element => (
     <div class={css.sidebarFooter}>
-      <AdminAccountMenu variant="full" placement="up" username={props.username} onSignOut={props.onSignOut} languagePicker={props.languagePicker} />
+      <Show when={props.languagePicker}>
+        <div class={accountCss.picker}>{props.languagePicker}</div>
+      </Show>
+      <Account />
     </div>
   );
 
@@ -244,7 +258,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
           <Icon name="search" />
           <span class={css.srOnly}>{t('admin-shell-search')}</span>
         </button>
-        <AdminAccountMenu variant="icon" placement="down" username={props.username} onSignOut={props.onSignOut} languagePicker={props.languagePicker} testId="admin-account-button-phone" />
+        <Account testId="admin-account-button-phone" />
       </header>
 
       <Show when={drawerOpen()}>
@@ -282,7 +296,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
             onClick={() => { setSidebarCollapsed(!sidebarCollapsed()); saveLayout(); }}><Icon name="menu" /></button>
           <Breadcrumbs items={props.breadcrumbs ?? []} />
           <span class={css.collapsedAccount}>
-            <AdminAccountMenu variant="icon" placement="down" username={props.username} onSignOut={props.onSignOut} languagePicker={props.languagePicker} testId="admin-account-button-collapsed" />
+            <Account testId="admin-account-button-collapsed" />
           </span>
           <button
             type="button"
