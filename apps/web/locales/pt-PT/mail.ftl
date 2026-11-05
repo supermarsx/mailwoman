@@ -1210,3 +1210,22 @@ mail-picture-remove = Remover
 mail-picture-failed-no-image = Selecione primeiro uma imagem.
 mail-picture-failed-no-source = Esta imagem não tem cópia local para editar. Substitua-a.
 mail-picture-failed-failed = Não foi possível alterar a imagem.
+
+# -- Message list: attachments, reply and forward navigation ------------------
+mail-context-download-attachments = Transferir anexos
+mail-context-download-named = Transferir { $name }
+mail-context-download-all = Transferir tudo em ZIP
+mail-context-loading-attachments = A carregar anexos…
+mail-context-attachments-failed = Não foi possível carregar os anexos.
+mail-context-searching = A procurar a mensagem…
+mail-context-go-reply = Ir para a resposta
+mail-context-go-forward = Ir para o reencaminhamento
+mail-context-reply-not-found = Resposta não encontrada
+mail-context-forward-not-found = Reencaminhamento não encontrado
+mail-no-recipients = (sem destinatários)
+mail-attachment-downloaded = { $name } transferido
+mail-attachment-download-failed = A transferência falhou.
+mail-attachments-zip-done = { $count } anexos transferidos num ZIP.
+mail-attachments-zip-capped = O ZIP contém os primeiros { $count } anexos; o limite é de { $max } ficheiros ou { $size }.
+mail-focus-not-found = Mensagem não encontrada em { $folder }
+mail-focus-go-to = Ir para { $folder }

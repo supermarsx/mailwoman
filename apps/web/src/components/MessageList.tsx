@@ -33,6 +33,8 @@ import * as a11y from './mailA11y.css.ts';
 import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
 import * as bulk from './bulkBar.css.ts';
+import './messageFlash.css.ts';
+import {focusRequest,clearFocusRequest} from './messageFocus.ts';
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings,writeSetting} from '../api/settings.ts';
@@ -637,6 +639,31 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // it survives a density change and rows arriving above it.
   let pendingAnchor: string | null = null;
   let reportedAnchor: string | null | undefined;
+  // Go to reply / forward / folder indicator: centre the requested row, move the cursor to it and flash it.
+  let flashTimer:ReturnType<typeof setTimeout>|undefined;
+  onCleanup(()=>clearTimeout(flashTimer));
+  function applyFocusRequest(): void {
+    const request = focusRequest();
+    if (request === null || app.listLoading() || scroller === undefined) return;
+    const index = rows().findIndex((row) => row.email.id === request.emailId || (row.kind === 'head' && idsOf(row).includes(request.emailId)));
+    if (index < 0) return;
+    clearFocusRequest();
+    const view = scroller.clientHeight || viewportH();
+    scroller.scrollTop = Math.max(0, index * rowHeight() - (view - rowHeight()) / 2);
+    setScrollTop(scroller.scrollTop);
+    setCursor(index);
+    const host = scroller;
+    const flash = (attempt = 0): void => {
+      const row = Array.from(host.querySelectorAll<HTMLElement>('.list__row')).find((value) => value.dataset['emailId'] === request.emailId) ?? host.querySelector<HTMLElement>(`.list__row[data-index="${index}"]`);
+      if (!row) { if (attempt < 5) setTimeout(() => flash(attempt + 1), 30); return; }
+      row.focus({ preventScroll: true });
+      row.removeAttribute('data-flash'); void row.offsetWidth; row.setAttribute('data-flash', 'true');
+      clearTimeout(flashTimer);
+      flashTimer = setTimeout(() => row.removeAttribute('data-flash'), 1600);
+    };
+    queueMicrotask(() => flash());
+  }
+  createEffect(on([focusRequest, rows, app.listLoading], () => { if (focusRequest() !== null) queueMicrotask(applyFocusRequest); }));
   function reportAnchor(): void {
     if (!props.onAnchorChange || scroller === undefined || pendingAnchor !== null || app.listLoading()) return;
     const top = scroller.scrollTop < rowHeight() / 2 ? undefined : rows()[Math.round(scroller.scrollTop / rowHeight())];

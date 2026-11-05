@@ -1226,3 +1226,22 @@ mail-picture-remove = Remove
 mail-picture-failed-no-image = Select a picture first.
 mail-picture-failed-no-source = This picture has no local copy to edit. Replace it instead.
 mail-picture-failed-failed = The picture could not be changed.
+
+# -- Message list: attachments, reply and forward navigation ------------------
+mail-context-download-attachments = Download attachments
+mail-context-download-named = Download { $name }
+mail-context-download-all = Download all as ZIP
+mail-context-loading-attachments = Loading attachments…
+mail-context-attachments-failed = The attachments could not be loaded.
+mail-context-searching = Looking for the message…
+mail-context-go-reply = Go to reply
+mail-context-go-forward = Go to forward
+mail-context-reply-not-found = Reply not found
+mail-context-forward-not-found = Forward not found
+mail-no-recipients = (no recipients)
+mail-attachment-downloaded = Downloaded { $name }
+mail-attachment-download-failed = The download failed.
+mail-attachments-zip-done = Downloaded { $count } attachments as a ZIP.
+mail-attachments-zip-capped = The ZIP holds the first { $count } attachments; the limit is { $max } files or { $size }.
+mail-focus-not-found = Message not found in { $folder }
+mail-focus-go-to = Go to { $folder }
