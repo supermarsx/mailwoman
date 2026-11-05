@@ -899,6 +899,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function setImageHostRule(host:string,state:ImageHostState):Promise<void>{
     const next=setImageHostState(host,state,hostLists());
     if(!next){app.showToast('error',t('image-hosts-failed'));return;}
+    clearImagesCancelled();
     try{
       // Both lists in one pass; the body is re-rendered and hot-patched once the settings arrive.
       await writeSetting('images.blockedHosts',[...next.blocked]);
@@ -1222,6 +1223,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function onRemoteGrant(scope: GrantScope, options?: MutationOptions): Promise<void> {
     const acct = app.accountId();
     if (acct === null) return;
+    // An explicit Show images supersedes an earlier "Cancel loading" for this message.
+    clearImagesCancelled();
     await remoteImages.grant(acct, scope, options);
     void refetchGrants();
     // Re-fetch + re-sanitize so the now-permitted images load through the proxy.
@@ -1231,6 +1234,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function onRemoteRevoke(scope: GrantScope, options?: MutationOptions): Promise<void> {
     const acct = app.accountId();
     if (acct === null) return;
+    clearImagesCancelled();
     await remoteImages.revoke(acct, scope, options);
     void refetchGrants();
     await reloadOpenMessage().catch(() => undefined);
@@ -1239,10 +1243,12 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // Loading-images toast + the one stats read per displayed body (t55). Only the
   // reader on screen reads or toasts; a message switch drops both.
   const bodyLoadIds = new WeakMap<object, string>(); let bodyLoadSeq = 0;
-  async function loadImagesAgain(): Promise<void> {
+  function clearImagesCancelled(): void {
     const id = emailId();
-    setImagesCancelled(cur => { const next = new Set(cur); if (id) next.delete(id); return next; });
+    if (!id) return;
+    setImagesCancelled(cur => { if (!cur.has(id)) return cur; const next = new Set(cur); next.delete(id); return next; });
   }
+  async function loadImagesAgain(): Promise<void> { clearImagesCancelled(); }
   const bodyLoadId = (body: object): string => { let id = bodyLoadIds.get(body); if (id === undefined) { id = String(++bodyLoadSeq); bodyLoadIds.set(body, id); } return id; };
   async function retryFailedImages(references?:readonly string[]):Promise<void> {
     const body=currentBody(),account=app.accountId();if(!body||(body.blocked&&!body.restored&&!body.original)||!account||props.active===false||!fullMode())return;

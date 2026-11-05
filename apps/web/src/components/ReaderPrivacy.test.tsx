@@ -401,6 +401,17 @@ describe('Reader signed privacy pipeline',()=>{
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
     expect(requests.at(-1)?.urls).toEqual(['https://cdn.shop.test/a.png']);
   });
+  async function undoImages():Promise<void>{fireEvent.click(await screen.findByRole('button',{name:'More image options'}));fireEvent.click(await screen.findByRole('menuitem',{name:/Undo/}));}
+  it('Show images -> Undo -> Show images (repeatedly) always reconciles the frame to the granted state',async()=>{
+    policy.mode='ask';await open([message('m1','<p>Hi</p><img src="https://cdn.example.test/image.png">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toMatch(/<img[^>]*data-mw-ph=/));
+    for(let round=0;round<3;round++){
+      await chooseImageAction('Show images');
+      await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));expect(frame()?.srcdoc).not.toMatch(/<img[^>]*data-mw-ph=/);
+      await undoImages();
+      await waitFor(()=>expect(frame()?.srcdoc).toMatch(/<img[^>]*data-mw-ph=/));expect(frame()?.srcdoc).not.toContain('/api/rc/i/');
+    }
+  });
   it('trusts nothing in block mode',async()=>{
     policy.mode='block';await hostRules(['cdn.shop.test'],[]);
     await open([message('m1','<img src="https://cdn.shop.test/a.png">')]);

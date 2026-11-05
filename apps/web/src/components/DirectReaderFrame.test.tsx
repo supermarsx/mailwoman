@@ -194,3 +194,32 @@ it('falls back to a swap when the document refuses a patch, and ignores stale ac
  h.send({type:'mw-reader-patched',token:h.token,revision:1,id:1,ok:false});
  expect(h.post).toHaveBeenCalledWith(expect.objectContaining({type:'mw-reader-frame',swap:true}),'*');
 });
+
+// Show images -> Undo -> Show images again (and rapid toggles): the frame is always reconciled to the latest desired document.
+const blockedDoc=`<!doctype html><html><head></head><body><p>Hi</p><img data-mw-ph="sized" data-mw-blocked-src="mw-rc:1"></body></html>`;
+const shownDoc=`<!doctype html><html><head></head><body><p>Hi</p><img src="${signed}"></body></html>`;
+const lastDoc=(h:ReturnType<typeof shown>):unknown=>h.post.mock.calls.filter(c=>(c[0] as {type:string}).type==='mw-reader-frame').at(-1)?.[0];
+const settle=(h:ReturnType<typeof shown>):void=>{const rev=(lastDoc(h) as {revision:number}|undefined)?.revision;if(rev)h.send({type:'mw-reader-displayed',token:h.token,revision:rev});h.flush();};
+it('show -> undo -> show again re-delivers the images each time',()=>{
+ const h=shown(blockedDoc);
+ for(let round=0;round<3;round++){
+  h.setHtml(shownDoc);expect((lastDoc(h) as {html:string}).html).toBe(shownDoc);settle(h);
+  h.setHtml(blockedDoc);expect((lastDoc(h) as {html:string}).html).toBe(blockedDoc);settle(h);
+ }
+ h.setHtml(shownDoc);expect((lastDoc(h) as {html:string}).html).toBe(shownDoc);settle(h);
+ expect(h.frame).toHaveAttribute('aria-hidden','false');
+});
+it('show -> undo -> redo -> show with no acknowledgement between toggles ends on the latest document',()=>{
+ const h=shown(blockedDoc);
+ for(const doc of [shownDoc,blockedDoc,shownDoc,blockedDoc,shownDoc])h.setHtml(doc);
+ expect((lastDoc(h) as {html:string}).html).toBe(shownDoc);
+ settle(h);expect(h.frame).toHaveAttribute('aria-hidden','false');
+ h.setHtml(blockedDoc);expect((lastDoc(h) as {html:string}).html).toBe(blockedDoc);
+});
+it('a patched toggle (same structure) also survives show -> undo -> show',()=>{
+ const a=`<!doctype html><html><body><img src="${gif}"></body></html>`,b=`<!doctype html><html><body><img src="${signed}"></body></html>`;
+ const h=shown(a);
+ for(let n=0;n<3;n++){h.setHtml(b);h.send({type:'mw-reader-patched',token:h.token,revision:1,id:n*2+1,ok:true});h.setHtml(a);h.send({type:'mw-reader-patched',token:h.token,revision:1,id:n*2+2,ok:true});}
+ h.post.mockClear();h.setHtml(b);
+ expect(h.post.mock.calls.at(-1)![0]).toMatchObject({type:'mw-reader-patch',ops:[{a:'src',v:signed}]});
+});
