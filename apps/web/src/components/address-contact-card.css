@@ -30,6 +30,13 @@
 .address-card__save > p { margin: 0 0 .35rem; color: var(--text-dim); }
 .address-card__save > input:not([type="checkbox"]):not([type="radio"]), .address-card__save > select { box-sizing: border-box; max-inline-size: 100%; min-inline-size: 0; padding: .5rem; border: 1px solid var(--border); background: var(--bg-alt); color: var(--text); font: inherit; }
 .address-card__save > button { align-self: start; }
-.address-card__actions { display: flex; flex-wrap: wrap; gap: .5rem; margin-block-start: .8rem; }
-@media (pointer: coarse) { .contact-address { min-block-size: 2.75rem; } .reader__address-group { padding-inline-end: 2.75rem; } .reader__address-disclosure > summary, .address-card__header > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; } }
+.address-card__actions { display: flex; flex-wrap: nowrap; align-items: center; justify-content: flex-start; gap: .5rem; margin-block: .8rem 0; min-inline-size: 0; }
+.address-card__action { flex: none; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; inline-size: 2.25rem; block-size: 2.25rem; padding: 0; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-alt); color: var(--text); cursor: pointer; }
+.address-card__action:hover:not(:disabled), .address-card__action--on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg-alt)); color: var(--accent); }
+.address-card__action:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.address-card__action:disabled { opacity: .5; cursor: default; }
+.address-card__action[aria-busy="true"] { animation: address-card-pulse 1.2s ease-in-out infinite; }
+@keyframes address-card-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .address-card__action[aria-busy="true"] { animation: none; } }
+@media (pointer: coarse) { .address-card__action { inline-size: 2.75rem; block-size: 2.75rem; } .contact-address { min-block-size: 2.75rem; } .reader__address-group { padding-inline-end: 2.75rem; } .reader__address-disclosure > summary, .address-card__header > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; } }
 @media (forced-colors: active) { .contact-address, .address-card a, .address-card a:visited { color: LinkText; } .contact-address:focus-visible, .address-card a:focus-visible { outline-color: Highlight; } }

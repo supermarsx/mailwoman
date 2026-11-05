@@ -6,6 +6,7 @@ import { observePreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
 import { useApp } from '../state/context.ts';
 import { featureOn } from '../state/features.ts';
 import { loadCatalog, t } from '../i18n';
+import { routeHash } from '../shell/router.ts';
 import { normalizeContactAddress } from '../modules/contacts/contactAddress.ts';
 import { formatAddressList, type ComposeInitial } from './compose/reply.ts';
 import { PersonAvatar } from './PersonAvatar.tsx';
@@ -19,6 +20,17 @@ export function contactComposeInitial(address: string, name = ''): ComposeInitia
   const valid = normalizeContactAddress(address);
   if (!valid) return null;
   return { mode: 'new', to: formatAddressList([{ email: valid, name: name || null }]), cc: '', subject: '', bodyHtml: '', bodyText: '', inReplyTo: [], references: [], attachments: [], quotesDecrypted: false };
+}
+
+function legacyCopy(doc: Document, text: string): boolean {
+  try {
+    const area = doc.createElement('textarea');
+    area.value = text; area.setAttribute('readonly', ''); area.style.position = 'fixed'; area.style.opacity = '0';
+    doc.body.append(area); area.select();
+    const ok = typeof doc.execCommand === 'function' && doc.execCommand('copy');
+    area.remove();
+    return ok;
+  } catch { return false; }
 }
 
 /** One card owner per reader; account/message changes revoke its snapshot. */
@@ -56,9 +68,12 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
   const [book, setBook] = createSignal('');
   const [saving, setSaving] = createSignal(false);
   const [saved, setSaved] = createSignal<ContactCard>();
+  const [saveOpen, setSaveOpen] = createSignal(false);
+  const [copied, setCopied] = createSignal(false);
+  let copyTimer: ReturnType<typeof setTimeout>|undefined;
   const [position, setPosition] = createSignal({ left: 8, top: 8, maxHeight: Math.max(44, (props.target.document.defaultView?.innerHeight ?? 600) - 16) });
   let alive = true;
-  onCleanup(() => { alive = false; });
+  onCleanup(() => { alive = false; clearTimeout(copyTimer); });
   const [lookup, { refetch }] = createResource(() => props.target.address, address => featureOn('contacts') ? app.lookupContactAddress(address) : Promise.resolve(null));
   // Never read a pending resource: it would suspend/remount the mail workspace.
   const result = () => lookup.state === 'ready' ? lookup() : undefined;
@@ -105,6 +120,27 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
     } catch { if (alive) app.showToast('error', t('contacts-address-save-failed')); }
     finally { if (alive) setSaving(false); }
   }
+  function copyPayload(): string {
+    const card = contact(), display = fullName();
+    const lines = [display && display !== props.target.address ? `${display} <${props.target.address}>` : props.target.address];
+    for (const phone of card?.phones ?? []) lines.push(phone.value);
+    for (const org of card?.organizations ?? []) lines.push(org);
+    return lines.join('\n');
+  }
+  async function copy(): Promise<void> {
+    const text = copyPayload(), doc = props.target.document;
+    let ok = false;
+    try { await (doc.defaultView?.navigator ?? navigator).clipboard.writeText(text); ok = true; } catch { ok = legacyCopy(doc, text); }
+    if (!alive) return;
+    app.showToast(ok ? 'success' : 'error', t(ok ? 'contacts-address-copied' : 'contacts-address-copy-failed'));
+    if (ok) { setCopied(true); clearTimeout(copyTimer); copyTimer = setTimeout(() => { if (alive) setCopied(false); }, 1500); }
+  }
+  function goToContact(id: string): void {
+    const host = props.target.document.defaultView;
+    props.onClose();
+    app.selectContact(id);
+    if (host) host.location.hash = routeHash('contacts', id);
+  }
   function compose(): void {
     const draft = contactComposeInitial(props.target.address, contact()?.name.full || name());
     if (draft && props.onCompose) { props.onClose(); props.onCompose(draft); }
@@ -120,12 +156,18 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
         <dl><For each={card().emails}>{email => <><dt>{email.context || t('contacts-email')}</dt><dd><bdi>{email.value}</bdi></dd></>}</For><For each={card().phones}>{phone => <><dt>{phone.context || t('contacts-phone')}</dt><dd><bdi>{phone.value}</bdi></dd></>}</For></dl>
         <Show when={card().notes}><p class="address-card__notes">{card().notes}</p></Show>
       </div>}</Show>
-      <Show when={canSave()}><form class="address-card__save" on:submit={event => void save(event)}><p>{t('contacts-address-unsaved')}</p>
+      <div class="address-card__actions" role="group" aria-label={t('contacts-address-actions')}>
+        <Show when={contact()} fallback={<button type="button" class="address-card__action" classList={{ 'address-card__action--on': saveOpen() }} disabled={!canSave()} aria-busy={lookup.loading} aria-expanded={canSave() ? saveOpen() : undefined} title={t('contacts-address-save-to')} aria-label={t('contacts-address-save-to')} on:click={() => setSaveOpen(value => !value)}><Icon name="plus"/></button>}>
+          {card => <button type="button" class="address-card__action" title={t('contacts-address-goto')} aria-label={t('contacts-address-goto')} on:click={() => goToContact(card().id)}><Icon name="person"/></button>}
+        </Show>
+        <button type="button" class="address-card__action" disabled={!props.onCompose} title={t('contacts-address-compose')} aria-label={t('contacts-address-compose')} on:click={compose}><Icon name="mail"/></button>
+        <button type="button" class="address-card__action" title={t('contacts-address-copy')} aria-label={t('contacts-address-copy')} on:click={() => void copy()}><Icon name={copied() ? 'check' : 'copy'}/></button>
+      </div>
+      <Show when={canSave() && saveOpen()}><form class="address-card__save" on:submit={event => void save(event)}><p>{t('contacts-address-unsaved')}</p>
         <label for={nameId}>{t('contacts-full-name')}</label><input id={nameId} class="input" value={name()} on:input={event => setName(event.currentTarget.value)} disabled={saving()}/>
         <label for={bookId}>{t('contacts-address-book')}</label><select id={bookId} value={book()} on:change={event => setBook(event.currentTarget.value)} disabled={saving()}><For each={books()}>{value => <option value={value.id}>{value.name}</option>}</For></select>
         <button type="submit" class="btn" disabled={saving()}>{t('contacts-address-save')}</button>
       </form></Show>
-      <footer class="address-card__actions"><button type="button" class="btn" disabled={!props.onCompose} on:click={compose}><Icon name="compose"/>{t('contacts-address-compose')}</button></footer>
     </section>
   </div></Portal>;
 }

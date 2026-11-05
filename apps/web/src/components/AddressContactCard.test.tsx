@@ -23,6 +23,13 @@ function setup(options: { client?: Client; address?: string; name?: string; onCo
   return { app, client, compose, changeScope, open: () => fireEvent.click(screen.getByRole('button', { name: 'Address' })) };
 }
 
+async function openSave(root: { findByRole: typeof screen.findByRole } = screen) {
+  const toggle = await root.findByRole('button', { name: 'Save to contacts' });
+  await waitFor(() => expect((toggle as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(toggle);
+  return root.findByRole('button', { name: 'Save contact' });
+}
+
 describe('address contact card', () => {
   it('loads saved information from another book without changing contact list filters', async () => {
     const seed = defaultSeed();
@@ -39,7 +46,7 @@ describe('address contact card', () => {
   it('persists a new contact once to the selected book using the real store API', async () => {
     const view = setup();
     const jmap = vi.spyOn(view.client, 'jmap'); view.open();
-    const save = await screen.findByRole('button', { name: 'Save contact' });
+    const save = await openSave();
     fireEvent.input(screen.getByLabelText('Full name'), { target: { value: 'Saved Person' } });
     fireEvent.click(save); fireEvent.click(save);
     await waitFor(() => expect(view.app.contacts().some(card => card.name.full === 'Saved Person' && card.emails[0]?.value === 'new@example.org')).toBe(true));
@@ -49,7 +56,7 @@ describe('address contact card', () => {
   });
   it('keeps the editable name and shows one error toast when a save fails', async () => {
     const view = setup(); view.open();
-    const save = await screen.findByRole('button', { name: 'Save contact' });
+    const save = await openSave();
     const toast = vi.spyOn(view.app, 'showToast');
     vi.spyOn(view.app, 'createContact').mockResolvedValue(null);
     fireEvent.input(screen.getByLabelText('Full name'), { target: { value: 'Keep My Draft' } });
@@ -63,7 +70,7 @@ describe('address contact card', () => {
     let height = 60;
     const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) { return { x: 0, y: 0, left: 0, top: 0, width: 260, height: this.classList.contains('address-card') ? height : 24, right: 260, bottom: height, toJSON: () => ({}) }; });
     const view = setup(); view.open();
-    await screen.findByRole('button', { name: 'Save contact' });
+    await openSave();
     fireEvent.input(screen.getByLabelText('Full name'), { target: { value: 'Keyboard Draft' } });
     height = 500;
     vi.spyOn(window, 'innerHeight', 'get').mockReturnValue(320);
@@ -87,7 +94,7 @@ describe('address contact card', () => {
     const view = setup({ client }); view.open(); const dialog = screen.getByRole('dialog');
     expect(dialog.style.top).toBe('208px');
     height = 280; release();
-    await screen.findByRole('button', { name: 'Save contact' });
+    await openSave();
     await waitFor(() => expect(dialog.style.top).toBe('32px'));
   });
   it('composes to an escaped address and closes on account/message scope change', async () => {
@@ -109,7 +116,7 @@ describe('address contact card', () => {
       const doc = frame.contentDocument!, trigger = doc.createElement('button'); trigger.textContent = 'Foreign address'; doc.body.append(trigger);
       const seed = defaultSeed(); seed.addressBooks.push({ id: 'ab2', name: 'Another Book', isDefault: false, carddavUrl: null, syncToken: null });
       const view = setup({ ownerDocument: doc, trigger, client: makeContactsClient(seed) }); const jmap = vi.spyOn(view.client, 'jmap');
-      view.open(); await within(doc.body).findByRole('button', { name: 'Save contact' });
+      view.open(); await openSave(within(doc.body));
       const input = within(doc.body).getByLabelText('Full name');
       fireEvent.input(input, { target: { value: 'Foreign Saved Name' } });
       fireEvent.change(within(doc.body).getByLabelText('Address book'), { target: { value: 'ab2' } });
@@ -123,5 +130,63 @@ describe('address contact card', () => {
       expect(within(doc.body).queryByRole('dialog')).toBeNull();
       await waitFor(() => expect(doc.activeElement).toBe(trigger));
     } finally { cleanup(); frame.remove(); }
+  });
+  it('shows the four aligned icon actions on one row with accessible names', async () => {
+    const view = setup(); view.open();
+    await screen.findByRole('button', { name: 'Save to contacts' });
+    const row = screen.getByRole('group', { name: 'Contact actions' });
+    const buttons = within(row).getAllByRole('button');
+    expect(buttons.map(button => button.getAttribute('aria-label'))).toEqual(['Save to contacts', 'Send email', 'Copy contact information']);
+    for (const button of buttons) expect(button).toHaveAttribute('title', button.getAttribute('aria-label')!);
+    expect(screen.queryByRole('button', { name: 'Go to contact' })).toBeNull();
+  });
+  it('reserves the first slot while the lookup resolves so nothing shifts', async () => {
+    const view = setup(); view.open();
+    const slot = screen.getByRole('button', { name: 'Save to contacts' });
+    expect(slot).toBeDisabled();
+    await waitFor(() => expect(slot).toBeEnabled());
+  });
+  it('shows Go to contact instead of Save for a saved address and navigates to it', async () => {
+    const seed = defaultSeed(), target = seed.contacts![0]!;
+    const view = setup({ client: makeContactsClient(seed), address: target.emails[0]!.value });
+    const select = vi.spyOn(view.app, 'selectContact'); view.open();
+    const go = await screen.findByRole('button', { name: 'Go to contact' });
+    expect(screen.queryByRole('button', { name: 'Save to contacts' })).toBeNull();
+    fireEvent.click(go);
+    expect(select).toHaveBeenCalledWith(target.id);
+    expect(window.location.hash).toBe(`#/contacts/${encodeURIComponent(target.id)}`);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+  it('sends mail from the icon action', async () => {
+    const view = setup(); view.open();
+    fireEvent.click(await screen.findByRole('button', { name: 'Send email' }));
+    expect(view.compose).toHaveBeenCalledTimes(1);
+  });
+  it('copies name, address, phone and organisation as plain text with feedback', async () => {
+    const seed = defaultSeed();
+    seed.contacts![0] = { ...seed.contacts![0]!, organizations: ['Acme'], phones: [{ value: '+351123456789', context: 'work' }] };
+    const target = seed.contacts![0]!, writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
+    const view = setup({ client: makeContactsClient(seed), address: target.emails[0]!.value });
+    const toast = vi.spyOn(view.app, 'showToast'); view.open();
+    await screen.findByRole('button', { name: 'Go to contact' });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy contact information' }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('success', 'Contact information copied.'));
+    expect(writeText).toHaveBeenCalledWith(`${target.name.full} <${target.emails[0]!.value}>
++351123456789
+Acme`);
+  });
+  it('falls back to execCommand when the clipboard API is unavailable, and reports failure otherwise', async () => {
+    Object.defineProperty(navigator, 'clipboard', { value: undefined, configurable: true });
+    const exec = vi.fn().mockReturnValue(true);
+    Object.defineProperty(document, 'execCommand', { value: exec, configurable: true });
+    const view = setup(); const toast = vi.spyOn(view.app, 'showToast'); view.open();
+    await screen.findByRole('button', { name: 'Save to contacts' });
+    fireEvent.click(screen.getByRole('button', { name: 'Copy contact information' }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('success', 'Contact information copied.'));
+    expect(exec).toHaveBeenCalledWith('copy');
+    exec.mockReturnValue(false);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy contact information' }));
+    await waitFor(() => expect(toast).toHaveBeenCalledWith('error', 'Could not copy the contact information.'));
   });
 });
