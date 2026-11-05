@@ -153,6 +153,7 @@ appearance-preference-mail-messageListStyle = Message list style
 appearance-preference-mail-messageListPreview = Show message body previews
 appearance-preference-mail-afterDelete = After deleting a message
 appearance-preference-reader-attachmentsAtEnd = Show attachments at the end of messages
+appearance-preference-ui-notifyNewVersion = Tell me when a new version of Mailwoman is available
 appearance-preference-option-300 = Light
 appearance-preference-option-400 = Regular
 appearance-preference-option-500 = Medium

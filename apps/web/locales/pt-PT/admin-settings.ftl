@@ -183,6 +183,8 @@ admin-settings-cat-server-text = Textos do servidor
 # One label and one help sentence per setting (UX4). Keys: crates/mw-server/src/settings_registry.rs
 admin-settings-key-ui-language = Idioma
 admin-settings-help-ui-language = O idioma do cliente de correio para os utilizadores que não escolheram nenhum. «Igual ao navegador» segue os idiomas de cada navegador.
+admin-settings-key-ui-notify-new-version = Aviso de nova versão
+admin-settings-help-ui-notify-new-version = Ativo (predefinição) mostra aos utilizadores com sessão iniciada um aviso com «Recarregar agora» e «Mais tarde» quando foi instalada uma versão mais recente da aplicação web desde que a página foi carregada. Desligado nunca o mostra; os utilizadores recebem o código novo no próximo recarregamento.
 admin-settings-key-ui-bar-mail-top-bar = Barra de ferramentas do correio
 admin-settings-help-ui-bar-mail-top-bar = «pinned» mantém sempre visível a barra de ferramentas do correio com os controlos de disposição. «auto» oculta-a atrás de uma pega fina que a abre quando o utilizador aponta, toca ou navega até ela com a tecla Tab.
 admin-settings-key-ui-bar-workspace-tabs = Separadores da área de trabalho

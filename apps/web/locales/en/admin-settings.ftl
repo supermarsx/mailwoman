@@ -183,6 +183,8 @@ admin-settings-cat-server-text = Server text
 # One label and one help sentence per setting (UX4). Keys: crates/mw-server/src/settings_registry.rs
 admin-settings-key-ui-language = Language
 admin-settings-help-ui-language = The language of the mail client for users who have not chosen one. "Same as the browser" follows each browser's languages.
+admin-settings-key-ui-notify-new-version = New version notice
+admin-settings-help-ui-notify-new-version = On (default) shows a toast with "Reload now" and "Later" to signed-in users when a newer version of the web app has been deployed since their page loaded. Off never shows it; users then get new code at their next reload.
 admin-settings-key-ui-bar-mail-top-bar = Mail toolbar
 admin-settings-help-ui-bar-mail-top-bar = "pinned" keeps the mail toolbar with the layout controls always shown. "auto" hides it behind a slim handle that opens it when a user points at, taps or tabs to it.
 admin-settings-key-ui-bar-workspace-tabs = Workspace tabs

@@ -22,6 +22,7 @@ vi.mock('./screens/Mailbox.tsx',()=>({MailboxScreen:()=> <p>Notification test ma
 vi.mock('./plugins-ui/Tier.tsx',()=>({default:()=>null}));
 vi.mock('./components/NotificationPermissionPrompt.tsx',()=>({NotificationPermissionPrompt:()=>null}));
 vi.mock('./realtime/ConnectionToast.tsx',()=>({ConnectionToast:()=>null}));
+vi.mock('./state/NewVersionToast.tsx',()=>({NewVersionToast:()=>null}));
 vi.mock('./components/toast/index.ts',()=>({ToastRegion:()=>null}));
 
 const {App}=await import('./App.tsx');

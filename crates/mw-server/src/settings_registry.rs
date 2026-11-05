@@ -2359,6 +2359,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "web client locale (cached in localStorage mw.locale)"
     ),
     def!(
+        "ui.notifyNewVersion",
+        Kind::Bool,
+        "true",
+        GDU,
+        "interface",
+        "show a toast when a newer version of the web app has been deployed"
+    ),
+    def!(
         "ui.bar.mailTopBar",
         Kind::Enum(&["pinned", "auto"]),
         "\"pinned\"",
@@ -6203,6 +6211,7 @@ mod tests {
     fn planned_keys_are_registered() {
         for key in [
             "ui.language",
+            "ui.notifyNewVersion",
             "ui.bar.mailTopBar",
             "ui.bar.workspaceTabs",
             "ui.bar.mailRibbon",

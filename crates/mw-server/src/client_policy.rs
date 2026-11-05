@@ -30,7 +30,57 @@ use serde_json::json;
 use crate::AppState;
 
 pub(crate) fn router() -> Router<AppState> {
-    Router::new().route("/api/policy", get(get_policy))
+    Router::new()
+        .route("/api/policy", get(get_policy))
+        .route("/api/version", get(get_version))
+}
+
+/// The identity of the web app this server serves, for the "new version
+/// available" toast. `webBuild` is a hash of the sorted file names under
+/// `assets/` (Vite fingerprints them, so any rebuilt bundle changes it) of the
+/// directory actually served: `MW_WEB_DIR` when set, else the embedded bundle.
+/// Names only are hashed, so a poll never reads the bundle's bytes.
+pub(crate) fn web_build_id(web_dir: Option<&std::path::Path>) -> String {
+    use sha2::{Digest, Sha256};
+    let mut names: Vec<String> = match web_dir {
+        Some(dir) => std::fs::read_dir(dir.join("assets"))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter_map(|e| e.file_name().to_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default(),
+        None => crate::WebAssets::iter()
+            .filter_map(|p| p.strip_prefix("assets/").map(str::to_string))
+            .collect(),
+    };
+    names.sort();
+    let mut hash = Sha256::new();
+    for name in &names {
+        hash.update(name.as_bytes());
+        hash.update([0]);
+    }
+    hash.finalize()[..8]
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+/// `GET /api/version` — session required, `no-store`. Nothing here is served to
+/// an unauthenticated caller.
+async fn get_version(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if let Err(response) = crate::authed(&state, &headers).await {
+        return response;
+    }
+    (
+        [(header::CACHE_CONTROL, "no-store")],
+        Json(json!({
+            "version": env!("CARGO_PKG_VERSION"),
+            "webBuild": web_build_id(state.web_dir.as_deref()),
+        })),
+    )
+        .into_response()
 }
 
 async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -56,7 +106,7 @@ async fn get_policy(State(state): State<AppState>, headers: HeaderMap) -> Respon
                 "maxSecurityFloor": e.policy.max_security_floor.map(|f| f.as_str()),
                 "capturePolicy": e.policy.capture_policy.as_str(),
                 "openTracking": open_tracking,
-                "clientTiming": crate::client_timing::client_view(&state).await,
+                "clientTiming": crate::client_timing::client_view(&state, &session).await,
             })),
         )
             .into_response(),

@@ -92,6 +92,11 @@ Restricts package tracking globally, by domain or for an individual account. Def
 
 The language of the mail client for users who have not chosen one. "Same as the browser" follows each browser's languages.
 
+<a id="ui.notifyNewVersion"></a>
+### New version notice (`ui.notifyNewVersion`)
+
+`true` (default) shows signed-in users a toast with **Reload now** and **Later** when a newer version of the web app has been deployed since their page loaded. The client compares the build id from the authenticated `GET /api/version` when the window regains focus, when the connection returns and about every ten minutes. **Later** snoozes the notice for an hour. `false` never shows it; users then get the new code at their next reload. Users change it under **Settings → Interface** unless the value is locked.
+
 <a id="ui.bar.mailTopBar"></a>
 ### Mail toolbar (`ui.bar.mailTopBar`)
 

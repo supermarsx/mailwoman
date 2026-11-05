@@ -14,6 +14,7 @@ const fields: {key:string; fallback:string|number|boolean; choices?:string[]; mi
   {key:'mail.messageListPreview',fallback:true},
   {key:'mail.afterDelete',fallback:'next',choices:['next','previous','close']},
   {key:'reader.attachmentsAtEnd',fallback:false},
+  {key:'ui.notifyNewVersion',fallback:true},
 ];
 
 export function InterfacePreferences() {

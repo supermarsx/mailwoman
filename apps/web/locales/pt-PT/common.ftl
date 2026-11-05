@@ -59,6 +59,10 @@ common-conn-reconnect = Voltar a ligar
 common-conn-sign-in-again = Iniciar sessão novamente
 common-conn-reconnected = Ligação restabelecida
 
+# -- New-version notice (state/NewVersionToast.tsx). -------------------------
+common-new-version = Está disponível uma nova versão do Mailwoman. Se fechar este aviso, voltamos a lembrá-lo daqui a uma hora.
+common-new-version-reload = Recarregar agora
+
 # -- Toasts (components/toast/ToastRegion.tsx), in the webmail and the admin
 #    console. The seconds are the time left on an undo window. -----------------
 common-toast-close = Fechar notificação

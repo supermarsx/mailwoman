@@ -12,6 +12,7 @@ import { capabilityEnabled } from './platform/capabilities.ts';
 import { Login } from './screens/Login.tsx';
 import { ToastRegion } from './components/toast/index.ts';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
+import { NewVersionToast } from './state/NewVersionToast.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { scheduleIdlePrefetch } from './boot/idlePrefetch.ts';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
@@ -327,6 +328,7 @@ export function App(): JSX.Element {
       </Show>
       <ToastRegion />
       <ConnectionToast />
+      <NewVersionToast />
     </AppContext.Provider>
   );
 }

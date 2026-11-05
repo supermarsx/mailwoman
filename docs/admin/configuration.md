@@ -537,6 +537,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="reader.zoom"></a>`reader.zoom` | reader | global+domain+user | 100 | plain |  | yes | message body zoom in percent; the reader snaps it to its zoom steps |
 | <a id="reader.attachmentscollapsed"></a>`reader.attachmentsCollapsed` | reader | global+domain+user | true | plain |  | yes | start the reader's attachments bar collapsed (t110) |
 | <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
+| <a id="ui.notifynewversion"></a>`ui.notifyNewVersion` | interface | global+domain+user | true | plain |  | yes | show a toast when a newer version of the web app has been deployed |
 | <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.workspacetabs"></a>`ui.bar.workspaceTabs` | interface | global+domain+user | "pinned" | plain |  | yes | workspace tab strip: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.mailribbon"></a>`ui.bar.mailRibbon` | interface | global+domain+user | "pinned" | plain |  | yes | mail ribbon (ribbon layout): always shown, or only its tab names |

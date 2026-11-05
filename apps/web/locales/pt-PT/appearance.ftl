@@ -148,6 +148,7 @@ appearance-preference-mail-messageListPreview = Mostrar pré-visualização do c
 appearance-preference-mail-messageListOrder = Ordenação da lista de mensagens
 appearance-preference-mail-afterDelete = Depois de eliminar uma mensagem
 appearance-preference-reader-attachmentsAtEnd = Mostrar anexos no fim das mensagens
+appearance-preference-ui-notifyNewVersion = Avisar-me quando houver uma nova versão do Mailwoman
 appearance-preference-option-300 = Leve
 appearance-preference-option-400 = Normal
 appearance-preference-option-500 = Média

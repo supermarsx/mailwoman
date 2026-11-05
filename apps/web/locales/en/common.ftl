@@ -72,6 +72,10 @@ common-conn-reconnect = Reconnect
 common-conn-sign-in-again = Sign in again
 common-conn-reconnected = Reconnected
 
+# -- New-version notice (state/NewVersionToast.tsx). -------------------------
+common-new-version = A new version of Mailwoman is available. Closing this reminds you again in an hour.
+common-new-version-reload = Reload now
+
 # -- Toasts (components/toast/ToastRegion.tsx), in the webmail and the admin
 #    console. The seconds are the time left on an undo window. -----------------
 common-toast-close = Close notification

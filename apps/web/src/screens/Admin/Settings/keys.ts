@@ -410,6 +410,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'cap.sieve.raw_edit',
   'cap.sieve.forward_external',
   'ui.language',
+  'ui.notifyNewVersion',
   'ui.bar.mailTopBar',
   'ui.bar.workspaceTabs',
   'ui.bar.mailRibbon',
