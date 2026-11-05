@@ -33,7 +33,8 @@
 .mw-viewer__pdf-full { position: relative; display: flex; flex: 1; flex-direction: column; min-height: 0; height: 100%; }
 .mw-viewer__pdf-frame { display: block; width: 100%; height: 100%; flex: 1; min-height: 0; border: 0; }
 .mw-viewer__pdf-full > [role="status"], .mw-viewer__pdf-full > [role="alert"] { position: absolute; z-index: 2; inset: 0 0 auto; margin: 0; background: var(--bg); }
-.mw-viewer__pdf-link { overflow-wrap: anywhere; user-select: text; }
+.mw-viewer__pdf-link { overflow-wrap: anywhere; user-select: text; color: var(--mw-link-derived, var(--link)); }
+.mw-viewer__pdf-link:visited { color: var(--mw-link-derived, var(--link)); }
 
 .mw-viewer__pdf {
   overflow: auto;
@@ -97,10 +98,23 @@
   cursor: pointer;
   text-align: center;
 }
-.mw-thumb--active {
+.mw-thumb:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.mw-thumb:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: 2px; }
+/* Selected: accent fill with its ink; the preview keeps its own sunken surface. */
+.mw-thumb--active, .mw-thumb--active:hover {
   border-color: var(--accent);
-  outline: var(--border-rule) solid var(--accent);
+  background: var(--accent);
+  color: var(--accent-text);
 }
+.mw-thumb--active .mw-thumb__action { color: var(--accent-text); }
+/* File-type badge: a semantic token mixed toward the text colour, so each kind
+   keeps contrast on the sunken preview in every theme and accent. */
+.mw-thumb__preview[data-category] .mw-thumb__icon { color: var(--kind, var(--text-dim)); }
+.mw-thumb__preview[data-category='image'], .mw-attach__card[data-category='image'] { --kind: color-mix(in srgb, var(--success) 65%, var(--text)); }
+.mw-thumb__preview[data-category='pdf'], .mw-attach__card[data-category='pdf'] { --kind: color-mix(in srgb, var(--danger) 65%, var(--text)); }
+.mw-thumb__preview[data-category='audio'], .mw-attach__card[data-category='audio'] { --kind: color-mix(in srgb, var(--warning) 65%, var(--text)); }
+.mw-thumb__preview[data-category='video'], .mw-attach__card[data-category='video'] { --kind: color-mix(in srgb, var(--accent) 65%, var(--text)); }
+.mw-thumb__preview[data-category='message'], .mw-attach__card[data-category='message'] { --kind: var(--mw-link-derived, var(--link)); }
 .mw-thumb__preview {
   display: grid;
   place-items: center;
@@ -123,8 +137,8 @@
 }
 .mw-thumb__action {
   font-size: 0.7rem;
-  font-weight: 600;
-  color: var(--link, currentColor);
+  font-weight: var(--weight-bold);
+  color: var(--mw-link-derived, var(--link));
 }
 
 .mw-thumb__name {
@@ -206,15 +220,19 @@
   cursor: pointer;
 }
 .mw-attach__card:hover {
-  border-color: var(--border-strong);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--bg-alt));
   box-shadow: var(--elevation-1);
 }
+.mw-attach__card:focus-visible,
+.mw-attach__search:focus-visible,
+.mw-attach__cat:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: 2px; }
 .mw-attach__kind {
   font-size: 0.68rem;
   font-weight: var(--weight-bold);
   letter-spacing: var(--tracking-label);
   text-transform: uppercase;
-  color: var(--accent);
+  color: var(--kind, var(--mw-link-derived, var(--link)));
 }
 .mw-attach__name {
   font-weight: var(--weight-bold);
@@ -237,3 +255,14 @@
 .mw-thumbs[data-density="compact"] .mw-thumb__preview { flex: 0 0 28px; width: 28px; height: 28px; }
 .mw-thumbs[data-density="compact"] .mw-thumb__name { min-width: 0; max-width: 180px; }
 .mw-thumbs[data-density="compact"] .mw-thumb__action { display: none; }
+
+/* High-contrast / forced-colors: system colours for the selected thumb and
+   cards, since background fills and mixed tints are overridden. */
+@media (forced-colors: active) {
+  .mw-thumb, .mw-attach__card { border: 2px solid ButtonText; background: ButtonFace; color: ButtonText; }
+  .mw-thumb:hover, .mw-attach__card:hover { border-color: Highlight; }
+  .mw-thumb--active, .mw-thumb--active:hover { background: Highlight; color: HighlightText; border-color: HighlightText; forced-color-adjust: none; }
+  .mw-thumb--active .mw-thumb__action { color: HighlightText; }
+  .mw-thumb__icon, .mw-attach__kind, .mw-thumb__action { color: LinkText; }
+  .mw-thumb:focus-visible, .mw-attach__card:focus-visible { outline: 2px solid Highlight; }
+}

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { render, waitFor } from '@solidjs/testing-library';
 import { AttachmentViewer } from './AttachmentViewer.tsx';
 import { ImageViewer } from './ImageViewer.tsx';
@@ -73,5 +74,19 @@ describe('sandboxed frame attributes (plan §2.4)', () => {
     const srcdoc = frame.getAttribute('srcdoc') ?? '';
     expect(srcdoc).toContain('&lt;script&gt;');
     expect(srcdoc).not.toContain('<script>alert');
+  });
+});
+
+describe('attachment view theming (CSS source)', () => {
+  const css = (name: string): string => readFileSync(new URL(name, import.meta.url), 'utf8');
+  it('viewers.css uses tokens only: no hex or rgb literals', () => {
+    expect(css('./viewers.css')).not.toMatch(/#[0-9a-fA-F]{3,8}\b|rgba?\(/);
+  });
+  it('selected thumbs fill with the accent and its ink, links follow the derived link', () => {
+    const c = css('./viewers.css');
+    expect(c).toMatch(/\.mw-thumb--active[^{]*\{[^}]*background: var\(--accent\);[^}]*color: var\(--accent-text\)/);
+    expect(c).toContain('var(--mw-link-derived, var(--link))');
+    expect(c).toContain('@media (forced-colors: active)');
+    expect(c).toContain('outline: var(--focus-ring-width) solid var(--focus)');
   });
 });

@@ -9,3 +9,9 @@
 .attachment-tab__warning { display:flex; gap:.5rem; align-items:flex-start; padding:.75rem; border-inline-start:var(--border-heavy) solid var(--danger); margin:0; background:var(--surface); }
 .attachment-tab__download { align-self:flex-start; }
 .attachment-tab__viewer { flex:1 1 auto; min-height:20rem; min-width:0; }
+
+.attachment-tab__details summary:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: 2px; }
+.attachment-tab__details summary { accent-color: var(--accent); }
+.attachment-tab a { color: var(--mw-link-derived, var(--link)); }
+.attachment-tab__warning { color: var(--text); }
+@media (forced-colors: active) { .attachment-tab__warning { border-inline-start-color: CanvasText; } .attachment-tab a { color: LinkText; } }

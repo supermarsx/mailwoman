@@ -686,6 +686,8 @@ body {
   overflow: hidden;
 }
 .attachment-modal__bar {
+  background: var(--bg-alt);
+  color: var(--text);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -693,6 +695,9 @@ body {
   padding: 0.5rem 0.8rem;
   border-block-end: var(--border-hair) solid var(--border);
 }
+.attachment-modal [role='alert'] { border-inline-start: var(--border-heavy) solid var(--danger); padding: 0.5rem 0.8rem; margin: 0; background: var(--bg-alt); color: var(--text); }
+.attachment-modal__loading { color: var(--text-dim); padding: 1rem; }
+@media (forced-colors: active) { .attachment-modal { border-color: CanvasText; } }
 .attachment-modal__name {
   font-weight: var(--weight-bold);
   overflow: hidden;

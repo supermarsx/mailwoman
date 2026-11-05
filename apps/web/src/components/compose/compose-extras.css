@@ -135,6 +135,9 @@
 
 .compose__attachments { display:flex; flex-wrap:wrap; align-items:center; gap:.35rem; list-style:none; margin:.25rem 0; padding:0; max-block-size:7rem; overflow:auto; }
 .compose__attachments li { display:inline-flex; align-items:center; gap:.3rem; padding:.2rem .4rem; max-inline-size:100%; border:var(--border-hair) solid var(--border); background:var(--bg-alt); }
+.compose__attachments li:hover { border-color:var(--accent); background:color-mix(in srgb, var(--accent) 10%, var(--bg-alt)); }
+.compose__attachments li:focus-within { outline:var(--focus-ring-width) solid var(--focus); outline-offset:1px; }
+@media (forced-colors:active) { .compose__attachments li { border:var(--border-hair) solid ButtonText; } }
 .compose__attachments li > span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
 .compose__from { inline-size:min(32rem, 100%); align-self:flex-start; }
