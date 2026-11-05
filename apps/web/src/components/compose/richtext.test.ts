@@ -59,11 +59,12 @@ describe('richtext serialization (W1)', () => {
   describe('inline images', () => {
     const owned = new Set(['c1@mailwoman']);
 
-    it('keeps an image whose cid the draft owns, and serialises it as that cid only', () => {
+    it('keeps an image whose cid the draft owns, and serialises it as that cid and a bounded size only', () => {
       const html = htmlFromDoc(
         docFromHtml('<p>a<img src="cid:c1@mailwoman" alt="chart.png" width="900" style="x" onerror="y()">b</p>', owned),
       );
-      expect(html).toBe('<p>a<img src="cid:c1@mailwoman" alt="chart.png">b</p>');
+      expect(html).toBe('<p>a<img src="cid:c1@mailwoman" alt="chart.png" width="900" style="width: 900px; height: auto;">b</p>');
+      expect(html).not.toContain('onerror');
     });
 
     it('drops a remote image, a data: image and a cid the draft does not own', () => {

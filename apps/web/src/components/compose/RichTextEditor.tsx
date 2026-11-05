@@ -1,10 +1,15 @@
 import {Portal} from 'solid-js/web';
 import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
 import {RibbonGroup,RibbonItem} from '../bars/index.ts';
-import {EDITOR_TABS,EditorRibbon,createEditorRibbon,type EditorSlots,type EditorTab} from './EditorRibbon.tsx';
+import {EDITOR_TABS,SLOT_TABS,EditorRibbon,createEditorRibbon,type EditorSlots,type EditorTab} from './EditorRibbon.tsx';
+import {PictureGroups} from './PictureGroups.tsx';
+import {TableLayoutGroups} from './TableLayoutGroups.tsx';
+import {imageStyle,cleanImageLook} from './imageAttrs.ts';
+import {renderWithCanvas,selectedImage,setImageSource,transformImage,type ImageIO,type ImageOp} from './imageCommands.ts';
+import {inTable} from './tableLayout.ts';
 import {InRibbonSlot,RibbonPopover} from './ribbonParts.tsx';
 import {EditorCounts} from './EditorCounts.tsx';
-import {documentCounts,tableLimitPlugin} from './richCommands.ts';
+import {documentCounts,paragraphStyle,tableLimitPlugin} from './richCommands.ts';
 import {tableEditing,goToNextCell} from 'prosemirror-tables';
 import {COMPOSER_FONTS} from './fontCatalog.ts';
 import {SURFACE_CHANGED,cssColorHex,surfaceTone,toggledBackground,viewColorPlugin} from './messageBackground.ts';
@@ -129,6 +134,9 @@ export interface EmbeddedImageSupport {
  *  editing, view; Insert = insert, tableInsert; Table = table, tableShading. */
 export type EditorGroup = 'clipboard'|'font'|'paragraph'|'editing'|'view'|'insert'|'tableInsert'|'table'|'tableShading';
 
+/** What the caret or selection is in: drives the Picture and Table layout tabs. */
+export interface EditorContext { image: boolean; table: boolean }
+
 export interface RichTextEditorProps {
   /** Initial HTML to seed the document (from the composer's `bodyHtml`). */
   initialHtml: string;
@@ -149,6 +157,8 @@ export interface RichTextEditorProps {
   ariaLabel: string;
   /** Receives the imperative handle once the view is live. */
   onReady?: (api: RichTextApi) => void;
+  /** Reports what the selection is on, for contextual ribbon tabs: an image, or a table cell. */
+  onContext?: (context: EditorContext) => void;
   /** Inline images; absent = the editor offers none and keeps none. */
   inline?: InlineImageSupport;
   /** Embedded images instead of inline ones (the signature editor). */
@@ -165,6 +175,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   const [activeState, setActiveState] = createSignal<EditorState | null>(null);
   const [bodyHtml,setBodyHtml]=createSignal(props.initialHtml??'');
   const [editorError,setEditorError]=createSignal('');
+  const [imageLoads,setImageLoads]=createSignal(0);
   const [zoom,setZoom]=createSignal(100),[markers,setMarkers]=createSignal(false);
   const documentNode=createMemo(()=>activeState()?.doc);
   const counts=createMemo(()=>{const doc=documentNode();return doc?documentCounts(doc):{words:0,paragraphs:0,characters:0};});
@@ -201,6 +212,11 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     const src = node.attrs['src'] as string | null;
     dom.src = src ?? props.inline?.preview(node.attrs['cid'] as string) ?? '';
     dom.dataset['cid'] = node.attrs['cid'] as string;
+    const look = cleanImageLook(node.attrs);
+    // Through the CSSOM: a style attribute is refused by the production CSP.
+    for (const [property, value] of imageStyle(look)) dom.style.setProperty(property, value);
+    if (look.title !== '') dom.title = look.title;
+    dom.addEventListener('load', () => setImageLoads((n) => n + 1));
     return { dom };
   }
 
@@ -275,6 +291,13 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           'Mod-b': toggleMark(mStrong),
           'Mod-i': toggleMark(mEm),
           'Mod-u': toggleMark(mUnderline),
+          'Mod-Alt-0': paragraphStyle('normal'),
+          'Mod-Alt-1': paragraphStyle('heading1'),
+          'Mod-Alt-2': paragraphStyle('heading2'),
+          'Mod-Alt-3': paragraphStyle('heading3'),
+          'Mod-Alt-4': paragraphStyle('heading4'),
+          'Mod-Alt-q': paragraphStyle('quote'),
+          'Mod-Alt-c': paragraphStyle('code'),
           Enter: splitListItem(nListItem),
           Tab: goToNextCell(1),
           'Shift-Tab': goToNextCell(-1),
@@ -398,6 +421,40 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   };
   const row=(...controls:JSX.Element[]):JSX.Element=><div class="compose-rib__row">{controls}</div>;
 
+  // Contextual tabs: the Picture tab while an image is selected, the Table layout tab while the caret is in a table.
+  const context=createMemo<EditorContext>(()=>{const state=activeState();return {image:state!==null&&selectedImage(state)!==null,table:state!==null&&inTable(state)};},{image:false,table:false},{equals:(a,b)=>a.image===b.image&&a.table===b.table});
+  createEffect(()=>props.onContext?.(context()));
+  onCleanup(()=>props.onContext?.({image:false,table:false}));
+  /** Run a command from a ribbon control, saying so when it does not apply here. */
+  const execute=(command:Command):void=>{if(!view||!command(view.state)){setEditorError(t('mail-editor-selection-required'));return;}setEditorError('');run(command);};
+  const naturalSize=createMemo(()=>{
+    activeState();imageLoads();
+    const state=view?.state;const found=state?selectedImage(state):null;
+    const dom=found&&view?view.nodeDOM(found.pos):null;
+    return dom instanceof HTMLImageElement&&dom.naturalWidth>0?{width:dom.naturalWidth,height:dom.naturalHeight}:null;
+  });
+  const imageIo:ImageIO={
+    sourceUrl:node=>(node.attrs['src'] as string|null)??props.inline?.preview(node.attrs['cid'] as string)??null,
+    render:(url,op)=>renderWithCanvas(url,op),
+    store:async file=>{
+      if(props.embedded!==undefined){const stored=await embedImages(props.embedded,[file]);return stored[0]?{src:stored[0].src}:null;}
+      if(props.inline!==undefined){const stored=await props.inline.upload([file]);return stored[0]?{cid:stored[0].cid}:null;}
+      return null;
+    },
+  };
+  async function transformPicture(op:ImageOp):Promise<void> {
+    if(!view)return;
+    const result=await transformImage(view,op,imageIo);
+    setEditorError(result==='done'?'':t(`mail-picture-failed-${result}`));
+  }
+  async function replacePicture(file:File):Promise<void> {
+    if(!view)return;
+    const stored=await imageIo.store(file);
+    if(stored===null){setEditorError(t('mail-picture-failed-failed'));return;}
+    execute(setImageSource(stored,true));
+  }
+  const pictureGroups=():JSX.Element=><PictureGroups state={activeState} execute={execute} naturalSize={naturalSize} transform={op=>void transformPicture(op)} replace={file=>void replacePicture(file)} canStore={props.inline!==undefined||props.embedded!==undefined}/>;
+
   // The Format tab: Clipboard, Font, Paragraph and Editing, each exactly three rows (t38 §2.2).
   const formatGroups=():JSX.Element=><>
     <Show when={has('clipboard')}><RibbonGroup label={t('mail-compose-group-clipboard')} priority={100} icon="paste" testId="rt-group-clipboard">
@@ -457,26 +514,19 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     </RibbonGroup></Show>
   </>;
 
-  // The Table tab: the structure commands, then the cell shading (which folds first).
-  const tableGroups=():JSX.Element=><>
-    <Show when={has('table')}><RibbonGroup label={t('mail-compose-ribbon-table')} priority={30} icon="table" testId="rt-group-table">
-      <For each={tools.tableActionList}>{([name,command])=><RibbonItem>{tools.tableAction(name,command)}</RibbonItem>}</For>
-    </RibbonGroup></Show>
-    <Show when={has('tableShading')}><RibbonGroup label={t('mail-editor-table-shading')} priority={25} icon="paint" testId="rt-group-table-shading">
-      <RibbonItem>{tools.tableShading()}</RibbonItem><RibbonItem>{tools.clearTableShading()}</RibbonItem>
-    </RibbonGroup></Show>
-  </>;
+  // The Table layout tab: rows, columns, cells, then the cell shading and the table itself.
+  const tableGroups=():JSX.Element=><Show when={has('table')}><TableLayoutGroups state={activeState} execute={execute} shading={tools.tableShading} clearShading={tools.clearTableShading}/></Show>;
 
-  const groupsFor=(tab:EditorTab):JSX.Element=>tab==='format'?formatGroups():tab==='insert'?insertGroups():tableGroups();
+  const groupsFor=(tab:EditorTab):JSX.Element=>tab==='format'?formatGroups():tab==='insert'?insertGroups():tab==='picture'?pictureGroups():tableGroups();
 
   // Without a host ribbon, the editor shows the same `EditorRibbon` of its own (editor tabs only).
   const own=props.ribbonSlots===undefined?createEditorRibbon():undefined;
   const slots=():EditorSlots=>props.ribbonSlots?.()??own?.slots()??{};
-  const ownRibbon=(state:NonNullable<typeof own>):JSX.Element=><EditorRibbon state={state} tabs={EDITOR_TABS.map(id=>({id}))} visible={()=>EDITOR_TABS} history={editorApi} showHistory={()=>!props.externalHistory}/>;
+  const ownRibbon=(state:NonNullable<typeof own>):JSX.Element=><EditorRibbon state={state} tabs={SLOT_TABS.map(id=>({id}))} visible={()=>context().image?SLOT_TABS:EDITOR_TABS} history={editorApi} showHistory={()=>!props.externalHistory}/>;
   return (
     <div class="compose-rt" data-testid="compose-rt" data-markers={markers()}>
       <Show when={own}>{state=><Show when={props.toolbarMount} fallback={ownRibbon(state())}>{mount=><Portal mount={mount()}>{ownRibbon(state())}</Portal>}</Show>}</Show>
-      <For each={EDITOR_TABS}>{tab=><Show when={slots()[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
+      <For each={SLOT_TABS}>{tab=><Show when={slots()[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
       <div class="compose-rt__surface" data-zoom={zoom()} data-surface={background()} data-tone={darkSurface()?'dark':'light'} ref={host} />
       <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
       <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()} html={bodyHtml()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>

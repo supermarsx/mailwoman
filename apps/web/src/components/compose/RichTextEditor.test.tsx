@@ -101,7 +101,7 @@ it('edits real table structure, reverses it with history, and keeps display sett
  fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
  fireEvent.click(screen.getByRole('button',{name:'Insert table'}));
  expect(html).toContain('<table');expect((html.match(/<td/g)??[]).length).toBe(4);
- fireEvent.click(screen.getByRole('tab',{name:'Table'}));
+ fireEvent.click(screen.getByRole('tab',{name:'Table layout'}));
  fireEvent.click(screen.getByRole('button',{name:'Row below'}));
  expect((html.match(/<td/g)??[]).length).toBe(6);
  fireEvent.click(screen.getByRole('button',{name:'Undo'}));

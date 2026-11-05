@@ -1,7 +1,8 @@
 import { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttributes.ts';
 export { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttributes.ts';
-import {styledBlock,emailContainer,colorMark,composeTableNodes,boundTableHtml} from './richFormatting.ts';
+import {styledBlock,emailContainer,colorMark,composeTableNodes,boundTableHtml,tightenCells} from './richFormatting.ts';
 import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
+import { imageLookAttrs, imageStyleText, readImageLook, cleanImageLook } from './imageAttrs.ts';
 // Rich-text (ProseMirror) schema + serialization for the composer (W1).
 //
 // This module is DOM-serializer-based (ProseMirror `DOMSerializer`/`DOMParser`),
@@ -59,10 +60,19 @@ const image: NodeSpec = {
   inline: true,
   group: 'inline',
   draggable: true,
-  attrs: { cid: { default: '' }, alt: { default: '' }, src: { default: null } },
+  attrs: { cid: { default: '' }, alt: { default: '' }, src: { default: null }, ...imageLookAttrs },
   toDOM(node) {
     const embedded = node.attrs['src'] as string | null;
-    return ['img', { src: embedded ?? `cid:${node.attrs['cid'] as string}`, alt: node.attrs['alt'] as string }];
+    const look = cleanImageLook(node.attrs);
+    const style = imageStyleText(look);
+    return ['img', {
+      src: embedded ?? `cid:${node.attrs['cid'] as string}`,
+      alt: node.attrs['alt'] as string,
+      ...(look.title !== '' ? { title: look.title } : {}),
+      ...(look.width !== null ? { width: String(look.width) } : {}),
+      ...(look.height !== null ? { height: String(look.height) } : {}),
+      ...(style !== '' ? { style } : {}),
+    }];
   },
 };
 
@@ -139,7 +149,7 @@ function ownedImageRule(owned: ReadonlySet<string>): TagParseRule {
       const m = /^cid:(.+)$/i.exec((dom.getAttribute('src') ?? '').trim());
       const cid = m?.[1];
       if (cid === undefined || !CID.test(cid) || !owned.has(cid)) return false;
-      return { cid, alt: dom.getAttribute('alt') ?? '' };
+      return { cid, alt: dom.getAttribute('alt') ?? '', ...readImageLook(dom) };
     },
   };
 }
@@ -156,7 +166,7 @@ const embeddedImageRule: TagParseRule = {
   getAttrs(dom: HTMLElement) {
     const src = (dom.getAttribute('src') ?? '').trim();
     if (!EMBEDDED_IMAGE.test(src)) return false;
-    return { src, alt: dom.getAttribute('alt') ?? '' };
+    return { src, alt: dom.getAttribute('alt') ?? '', ...readImageLook(dom) };
   },
 };
 
@@ -175,6 +185,7 @@ export function htmlFromDoc(doc: PMNode): string {
   const fragment = serializer.serializeFragment(doc.content, { document: inert });
   const container = inert.createElement('div');
   container.appendChild(fragment);
+  tightenCells(container);
   return container.innerHTML;
 }
 

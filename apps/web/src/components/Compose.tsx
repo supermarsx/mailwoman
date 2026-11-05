@@ -44,7 +44,7 @@ import { useApp } from '../state/context.ts';
 import { rawT, t, isolate, loadCatalog } from '../i18n/index.ts';
 import * as a11y from './mailA11y.css.ts';
 import { AsyncBoundary } from './ErrorBoundary.tsx';
-import type { RichTextApi } from './compose/RichTextEditor.tsx';
+import type { EditorContext, RichTextApi } from './compose/RichTextEditor.tsx';
 import {RibbonGroup,RibbonItem} from './bars/index.ts';
 import {BodyModeGroup,EditorRibbon,createEditorRibbon,type BodyMode} from './compose/EditorRibbon.tsx';
 import {RibbonPopover} from './compose/ribbonParts.tsx';
@@ -1602,6 +1602,13 @@ export function Compose(props: {
   const headerSummaryText=()=>headerSummary({to:to(),cc:cc(),bcc:bcc(),subject:subject()},{to:t('mail-compose-to'),cc:t('mail-compose-cc'),bcc:t('mail-compose-bcc'),subject:t('mail-compose-subject'),noSubject:t('mail-no-subject')});
   const headerEmpty=()=>to().trim()===''&&cc().trim()===''&&bcc().trim()===''&&subject().trim()==='';
   const [fromChipOpen,setFromChipOpen]=createSignal(false);
+  // What the rich editor's selection is on. The HTML editors keep their own Table tab; the rich editor's
+  // Table layout and Picture tabs show only while the caret is in a table or an image is selected.
+  const [editorContext,setEditorContext]=createSignal<EditorContext>({image:false,table:false});
+  const visibleTabs=():('format'|'insert'|'table'|'picture'|'security'|'delivery')[]=>richMode()
+    ?['format','insert',...(sourceMode()||editorContext().table?['table' as const]:[]),...(!sourceMode()&&editorContext().image?['picture' as const]:[]),'security','delivery']
+    :['format','insert','security','delivery'];
+  createEffect(()=>{if(!visibleTabs().includes(ribbonTab() as never))setRibbonTab('format');});
   const noRecipients=()=>to().trim()===''&&cc().trim()===''&&bcc().trim()===''&&(attempted()||subject().trim()!==''||body().trim()!=='');
   const lacksAttachment=createMemo(()=>policyOf('missingAttachment')!=='allow'&&attachments().length===0&&inlineImages().length===0&&!attachPublicKey()&&mentionsAttachment(body()));
   const severityOf=(id:CheckId):'danger'|'warning'=>policyOf(id)==='deny'?'danger':'warning';
@@ -1858,7 +1865,7 @@ export function Compose(props: {
             tabs stay mounted, so the security evaluation is always live. */}
         <EditorRibbon
           state={ribbon}
-          visible={()=>richMode()?['format','insert','table','security','delivery']:['format','insert','security','delivery']}
+          visible={()=>visibleTabs()}
           history={editorApi}
           showHistory={()=>richMode()}
           tabs={[
@@ -1956,6 +1963,7 @@ export function Compose(props: {
               </Show>
             </>},
             {id:'table'},
+            {id:'picture'},
             {id:'security',before:()=><>
               {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
                   status from real per-recipient CryptoKey/lookup, and the Dlp/scan
@@ -2022,8 +2030,7 @@ export function Compose(props: {
               </Show>
             </>},
             {id:'delivery',before:()=><>
-              <RibbonGroup label={t('mail-compose-ribbon-delivery')} priority={10} icon="sent" testId="compose-send-options">
-                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem>
+              <Show when={featureOn('compose.scheduled_send')}><RibbonGroup label={t('mail-compose-group-timing')} priority={16} icon="clock" testId="compose-send-options">
                 <Show when={featureOn('compose.scheduled_send')}><RibbonItem>
                   <label class="compose-rib__field">
                     <span class="compose-rib__text">{t('mail-compose-send-later')}</span>
@@ -2039,9 +2046,11 @@ export function Compose(props: {
                     />
                   </label>
                 </RibbonItem></Show>
-                <RibbonItem><label><input type="checkbox" checked={attachPublicKey()} disabled={busy()} onChange={e=>setAttachPublicKey(e.currentTarget.checked)}/>{t('mail-compose-attach-public-key')}</label></RibbonItem>
-                <RibbonItem><label><input type="checkbox" checked={includeFileHashes()} disabled={busy()} onChange={e=>setIncludeFileHashes(e.currentTarget.checked)}/>{t('mail-compose-include-hashes')}</label><Show when={includeFileHashes()&&!hashesReady()}><span role="status" data-testid="compose-hash-status">{t(hashResult()?.error?'mail-compose-hashes-failed':'mail-compose-hashes-pending')}</span></Show></RibbonItem>
-                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
+              </RibbonGroup></Show>
+              <RibbonGroup label={t('mail-compose-group-priority')} priority={12} icon="flag" testId="compose-delivery-priority">
+                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem>
+              </RibbonGroup>
+              <RibbonGroup label={t('mail-compose-group-receipts')} priority={14} icon="mailCheck" testId="compose-delivery-receipts">
                 <SendOptions
                   deliveryLocked={settings()['mail.requestDeliveryReceipt']?.locked===true}
                   receiptLocked={settings()['mail.requestReadReceipt']?.locked===true}
@@ -2056,6 +2065,13 @@ export function Compose(props: {
                   tracking={trackOpens()}
                   onTracking={setTrackOpens}
                 />
+              </RibbonGroup>
+              <RibbonGroup label={t('mail-compose-group-keys-files')} priority={8} icon="key" testId="compose-delivery-keys">
+                <RibbonItem><label><input type="checkbox" checked={attachPublicKey()} disabled={busy()} onChange={e=>setAttachPublicKey(e.currentTarget.checked)}/>{t('mail-compose-attach-public-key')}</label></RibbonItem>
+                <RibbonItem><label><input type="checkbox" checked={includeFileHashes()} disabled={busy()} onChange={e=>setIncludeFileHashes(e.currentTarget.checked)}/>{t('mail-compose-include-hashes')}</label><Show when={includeFileHashes()&&!hashesReady()}><span role="status" data-testid="compose-hash-status">{t(hashResult()?.error?'mail-compose-hashes-failed':'mail-compose-hashes-pending')}</span></Show></RibbonItem>
+              </RibbonGroup>
+              <RibbonGroup label={t('mail-compose-group-sent-copy')} priority={6} icon="folder" testId="compose-delivery-saving">
+                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
               </RibbonGroup>
             </>},
           ]}
@@ -2102,6 +2118,7 @@ export function Compose(props: {
                   ariaLabel={t('mail-compose-body')}
                   onChange={onEditorChange}
                   onReady={setEditorApi}
+                  onContext={setEditorContext}
                   inline={{
                     owned: ownedCids,
                     preview: (cid) => inlineImages().find((i) => i.cid === cid)?.previewUrl ?? null,

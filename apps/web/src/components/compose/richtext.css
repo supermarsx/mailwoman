@@ -149,8 +149,14 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
 .compose-rt__surface[data-zoom="125"] .ProseMirror {zoom:1.25;}
 .compose-rt__surface[data-zoom="150"] .ProseMirror {zoom:1.5;}
 .compose-rt__surface[data-zoom="200"] .ProseMirror {zoom:2;}
-.compose-rt .ProseMirror table {border-collapse:collapse;table-layout:fixed;width:100%;margin:.5rem 0;}
-.compose-rt .ProseMirror td,.compose-rt .ProseMirror th {border:1px solid var(--border);vertical-align:top;padding:.3rem;position:relative;min-width:2rem;}
+.compose-rt .ProseMirror table {border-collapse:collapse;border-spacing:0;table-layout:fixed;width:100%;margin:.5rem 0;}
+.compose-rt .ProseMirror td,.compose-rt .ProseMirror th {border:1px solid var(--border);vertical-align:top;padding:6px 8px;position:relative;min-width:2rem;}
+/* The first and last block of a cell sit flush, so rows and columns keep an even rhythm (the sent HTML does the same). */
+.compose-rt .ProseMirror :is(td,th) > :first-child {margin-top:0;}
+.compose-rt .ProseMirror :is(td,th) > :last-child {margin-bottom:0;}
+.compose-rt .ProseMirror :is(td,th) > :is(p,h1,h2,h3,h4,h5,h6) {margin-block:.25em;}
+.compose-rt .ProseMirror :is(td,th) > :is(p,h1,h2,h3,h4,h5,h6):first-child {margin-top:0;}
+.compose-rt .ProseMirror :is(td,th) > :is(p,h1,h2,h3,h4,h5,h6):last-child {margin-bottom:0;}
 .compose-rt .ProseMirror th {font-weight:bold;background:var(--bg-alt);}
 .compose-rt .ProseMirror .selectedCell::after {content:'';position:absolute;inset:0;pointer-events:none;background:var(--accent);opacity:.15;}
 
@@ -192,3 +198,26 @@ label.compose-rt__btn:focus-within:has(:focus-visible) {
   background: var(--bg);
   color: var(--text);
 }
+
+/* The paragraph style gallery: each style drawn in its own look, with its shortcut. */
+.compose-rt__style-button { min-inline-size:7rem; justify-content:flex-start; }
+.compose-rt__styles { display:flex; flex-direction:column; min-inline-size:15rem; max-block-size:20rem; overflow:auto; }
+.compose-rt__style-option { display:flex; align-items:baseline; gap:.75rem; inline-size:100%; padding:.3rem .5rem; border:var(--border-hair) solid transparent; background:transparent; color:var(--text); font:inherit; text-align:start; cursor:pointer; }
+.compose-rt__style-option:hover, .compose-rt__style-option:focus-visible { background:var(--bg-alt); border-color:var(--border); }
+.compose-rt__style-option:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); outline-offset:-2px; }
+.compose-rt__style-option[aria-selected=true] { border-inline-start:3px solid var(--accent); background:var(--bg-alt); }
+.compose-rt__style-preview { flex:1 1 auto; min-inline-size:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.compose-rt__style-preview[data-style=heading1] { font-size:1.6em; font-weight:700; }
+.compose-rt__style-preview[data-style=heading2] { font-size:1.35em; font-weight:700; }
+.compose-rt__style-preview[data-style=heading3] { font-size:1.17em; font-weight:700; }
+.compose-rt__style-preview[data-style=heading4] { font-size:1em; font-weight:700; }
+.compose-rt__style-preview[data-style=heading5] { font-size:.9em; font-weight:700; }
+.compose-rt__style-preview[data-style=heading6] { font-size:.8em; font-weight:700; }
+.compose-rt__style-preview[data-style=title] { font-size:1.8em; }
+.compose-rt__style-preview[data-style=subtitle] { font-size:1.25em; color:var(--text-dim); }
+.compose-rt__style-preview[data-style=quote] { font-style:italic; padding-inline-start:.5rem; border-inline-start:3px solid var(--border-strong,var(--border)); color:var(--text-dim); }
+.compose-rt__style-preview[data-style=code] { font-family:ui-monospace,Menlo,Consolas,monospace; font-size:.9em; }
+.compose-rt__style-keys { flex:none; font:inherit; font-size:.7rem; color:var(--text-dim); }
+.compose-rt__style-check { flex:none; display:inline-flex; }
+.compose-rt .ProseMirror pre { font-family:ui-monospace,Menlo,Consolas,monospace; padding:.4rem .6rem; background:var(--bg-alt); overflow-x:auto; }
+.compose-rt .ProseMirror blockquote { margin-inline:0; padding-inline-start:.75rem; border-inline-start:3px solid var(--border-strong,var(--border)); }

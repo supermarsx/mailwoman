@@ -13,6 +13,7 @@ export type IconName =
   | 'paneRight' | 'paneBottom' | 'layoutTabs' | 'layoutColumns' | 'layoutRows' | 'layoutMasonryColumns' | 'layoutMasonryRows'
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
   | 'undo' | 'redo'
+  | 'alignLeft' | 'alignCenter' | 'alignRight' | 'rotateCw' | 'rotateCcw' | 'flipH' | 'flipV' | 'crop'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
   | 'mailboxes' | 'signature' | 'compose' | 'mailCheck' | 'transfer' | 'palette' | 'keyboard' | 'bell' | 'package' | 'key'
   | 'office' | 'laptop' | 'team' | 'store' | 'chart' | 'heartHome' | 'person' | 'smile' | 'gear' | 'crown' | 'wrench' | 'bolt' | 'receipt' | 'cart' | 'family'
@@ -187,6 +188,14 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   sort: () => <path d="M3 5 L8 1 L13 5 M3 11 L8 15 L13 11" {...S} />,
   quote: () => <path d="M2 3 H7 V9 H4 L2 13 V3 M10 3 H15 V9 H12 L10 13 V3" {...S} />,
   clearFormat: () => <path d="M2 2 H14 M8 2 V12 M3 12 H10 M11 10 L15 14 M15 10 L11 14" {...S} />,
+  alignLeft: () => <path d="M2 3H14M2 6.5H9M2 10H14M2 13.5H9" {...S}/>,
+  alignCenter: () => <path d="M2 3H14M4.5 6.5H11.5M2 10H14M4.5 13.5H11.5" {...S}/>,
+  alignRight: () => <path d="M2 3H14M7 6.5H14M2 10H14M7 13.5H14" {...S}/>,
+  rotateCw: () => <path d="M13 8A5 5 0 1 1 11.5 4.5M13 2V5H10" {...S}/>,
+  rotateCcw: () => <path d="M3 8A5 5 0 1 0 4.5 4.5M3 2V5H6" {...S}/>,
+  flipH: () => <path d="M8 1V15M5 4L1 8L5 12ZM11 4L15 8L11 12Z" {...S}/>,
+  flipV: () => <path d="M1 8H15M4 5L8 1L12 5ZM4 11L8 15L12 11Z" {...S}/>,
+  crop: () => <path d="M4 1V12H15M1 4H12V15" {...S}/>,
   bold: () => <path d="M4 1 H9 A3 3 0 0 1 9 7 H4 V1 M4 7 H10 A4 4 0 0 1 10 15 H4 Z" {...S} />,
   italic: () => <path d="M7 1 H14 M2 15 H9 M11 1 L5 15" {...S} />,
   underline: () => <path d="M3 1 V8 A5 5 0 0 0 13 8 V1 M2 15 H14" {...S} />,

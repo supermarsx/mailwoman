@@ -62,9 +62,10 @@ describe('composer ribbon (t38)', () => {
       'compose-group-message-type',
     ]);
     expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'rt-group-insert', 'rt-group-table-insert']);
-    expect(groupIds('table')).toEqual(['rt-group-table', 'rt-group-table-shading']);
+    expect(groupIds('table')).toEqual(['rt-group-table-rows', 'rt-group-table-columns', 'rt-group-table-cells', 'rt-group-table-shading', 'rt-group-table']);
+    expect(groupIds('picture')).toEqual(['rt-group-picture-size', 'rt-group-picture-arrange', 'rt-group-picture-text', 'rt-group-picture-style', 'rt-group-picture-edit']);
     expect(groupIds('security')).toEqual(['compose-crypto']);
-    expect(groupIds('delivery')).toEqual(['compose-send-options']);
+    expect(groupIds('delivery')).toEqual(['compose-send-options', 'compose-delivery-priority', 'compose-delivery-receipts', 'compose-delivery-keys', 'compose-delivery-saving']);
 
     // Only ribbon items sit in a group's grid: nothing outside the 3-row contract.
     for (const controls of Array.from(bar().querySelectorAll('[data-ribbon-controls]'))) {
@@ -80,6 +81,21 @@ describe('composer ribbon (t38)', () => {
     const body = document.querySelector('.compose > .field--grow')!;
     expect(bar().compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(bar().contains(body)).toBe(false);
+  });
+
+  it('shows the Table layout tab only while the caret is in a table, and Delivery groups carry titles', async () => {
+    renderWithApp(() => <Compose onClose={() => undefined} />);
+    await structuredComposeEditor();
+    await screen.findByTestId('rt-bold');
+    expect(screen.queryByRole('tab', { name: 'Table layout' })).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Insert table' }));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Table layout' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('tab', { name: 'Table layout' }));
+    expect(within(tabPanel('table')).getByRole('button', { name: 'Row below' })).toBeEnabled();
+    const titles = Array.from(tabPanel('delivery').querySelectorAll('[data-ribbon-group]')).map((g) => g.getAttribute('data-testid'));
+    expect(titles).toContain('compose-delivery-receipts');
+    for (const label of ['Send timing', 'Priority', 'Receipts and tracking', 'Keys and files', 'Sent copy']) expect(within(tabPanel('delivery')).getByText(label)).toBeInTheDocument();
   });
 
   it('drops the Table tab and its groups in plain text, and restores them in rich text', async () => {

@@ -1,6 +1,6 @@
 import {countEditorText,type EditorCounts} from './editorCounts.ts';
 import {Plugin,TextSelection,AllSelection,type Command,type EditorState} from 'prosemirror-state';
-import {setBlockType} from 'prosemirror-commands';
+import {setBlockType,wrapIn,lift} from 'prosemirror-commands';
 import type {Mark,Node as PMNode} from 'prosemirror-model';
 import {TableMap} from 'prosemirror-tables';
 import {TABLE_LIMITS,safeColor} from './richFormatting.ts';
@@ -11,6 +11,12 @@ export function paragraphStyle(name:string):Command {
  return (state,dispatch)=>{
   const heading=/^heading([1-6])$/.exec(name);
   if(heading)return setBlockType(state.schema.nodes['heading']!,{level:Number(heading[1])})(state,dispatch);
+  if(name==='code')return state.selection.$from.parent.type.name==='code_block'?setBlockType(state.schema.nodes['paragraph']!)(state,dispatch):setBlockType(state.schema.nodes['code_block']!)(state,dispatch);
+  if(name==='quote'){
+   const quote=state.schema.nodes['blockquote']!;
+   for(let depth=state.selection.$from.depth;depth>0;depth--)if(state.selection.$from.node(depth).type===quote)return lift(state,dispatch);
+   return wrapIn(quote)(state,dispatch);
+  }
   if(!['normal','no-spacing','title','subtitle'].includes(name))return false;
   return setBlockType(state.schema.nodes['paragraph']!,name==='normal'?{}:{preset:name,...(name==='no-spacing'?{before:0,after:0,lineHeight:'1'}:{})})(state,dispatch);
  };

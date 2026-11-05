@@ -99,7 +99,7 @@ describe('the composer editor in the signature editor (t49)',()=>{
   setup({name:'Work',body:'Regards',format:'rich',html:'<p>Regards</p>',text:'Regards',isDefault:false});
   await screen.findByRole('textbox',{name:'Rich signature'});
   const tabs=screen.getAllByRole('tab').map(tab=>tab.textContent);
-  expect(tabs).toEqual(['Format text','Insert','Table']);
+  expect(tabs).toEqual(['Format text','Insert','Table layout']);
   for(const id of ['rt-group-clipboard','rt-group-font','rt-group-paragraph','rt-group-editing','rt-group-view','rt-group-insert','rt-group-table-insert','rt-group-table','signature-group-format'])expect(document.querySelector(`[data-testid="${id}"]`),id).not.toBeNull();
   for(const id of ['compose-group-recipients','compose-attach','compose-crypto','compose-send-options','compose-group-signature'])expect(document.querySelector(`[data-testid="${id}"]`),id).toBeNull();
   expect(screen.queryByRole('button',{name:'Send'})).toBeNull();

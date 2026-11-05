@@ -40,6 +40,13 @@ export function colorMark(property:'color'|'background-color'):MarkSpec {
 export const composeTableNodes=tableNodes({tableGroup:'block',cellContent:'block+',cellAttributes:{emailStyles:{default:null,getFromDOM:readEmailStyles},shade:{default:null,getFromDOM:element=>safeColor(element.style.backgroundColor),setDOMAttr:(value,attrs)=>{const color=safeColor(value);if(color)attrs['style']=`background-color:${color}`;}}}});
 // Emit email-visible table borders; editor-only stylesheet rules are not sent.
 // Styles through the CSSOM: a `style` attribute is refused by the production CSP (style-src 'self', t49).
+/** What a cell looks like until someone styles it: a thin grey border, 6px 8px of padding, content at the top. */
+export const CELL_PADDING={vertical:6,horizontal:8} as const;
+export function defaultCellStyles():Record<string,string> {
+ const defaults=document.createElement('td');
+ defaults.style.border='1px solid #808080';defaults.style.padding=`${CELL_PADDING.vertical}px ${CELL_PADDING.horizontal}px`;defaults.style.verticalAlign='top';
+ return readEmailStyles(defaults);
+}
 composeTableNodes.table.attrs={emailStyles:{default:null}};
 composeTableNodes.table.parseDOM=[{tag:'table',getAttrs:element=>({emailStyles:readEmailStyles(element)})}];
 composeTableNodes.table.toDOM=node=>{const table=document.createElement('table'),body=document.createElement('tbody');if(node.attrs['emailStyles']===null){applyEmailStyles(table,{'width':'100%','border-collapse':'collapse'});}else applyEmailStyles(table,node.attrs['emailStyles']);table.appendChild(body);return {dom:table,contentDOM:body};};
@@ -47,10 +54,19 @@ for(const name of ['table_cell','table_header'] as const){
  composeTableNodes[name].toDOM=node=>{
   const cell=document.createElement(name==='table_header'?'th':'td');
   cell.colSpan=node.attrs['colspan'];cell.rowSpan=node.attrs['rowspan'];
-  if(node.attrs['emailStyles']===null){const defaults=document.createElement('td');defaults.style.border='1px solid #808080';defaults.style.padding='4px';defaults.style.verticalAlign='top';applyEmailStyles(cell,readEmailStyles(defaults));}else applyEmailStyles(cell,node.attrs['emailStyles']);
+  applyEmailStyles(cell,node.attrs['emailStyles']===null?defaultCellStyles():node.attrs['emailStyles']);
   const color=safeColor(node.attrs['shade']);if(color)cell.style.backgroundColor=color;
   return {dom:cell,contentDOM:cell};
  };
+}
+/** In a cell the first and last block sit flush: mail clients give a paragraph a default margin, which
+ *  would add a stray gap above and below the cell's content. An explicit margin the author set stays. */
+export function tightenCells(root:HTMLElement):void {
+ for(const cell of Array.from(root.querySelectorAll<HTMLElement>('td,th'))){
+  const first=cell.firstElementChild as HTMLElement|null,last=cell.lastElementChild as HTMLElement|null;
+  if(first&&first.style.marginTop==='')first.style.marginTop='0pt';
+  if(last&&last.style.marginBottom==='')last.style.marginBottom='0pt';
+ }
 }
 /** Flatten oversized or excessively nested pasted tables without dropping their text. */
 export function boundTableHtml(root:HTMLElement):void {

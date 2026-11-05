@@ -9,6 +9,7 @@ import {LINE_HEIGHTS,PARAGRAPH_SPACING,TABLE_LIMITS} from './richFormatting.ts';
 import {docFromHtml} from './richtext.ts';
 import {Icon,type IconName} from '../Icon.tsx';
 import {RibbonPopover} from './ribbonParts.tsx';
+import {StyleGallery} from './StyleGallery.tsx';
 import {ColorField,type ColorContrast} from '../color/ColorPicker.tsx';
 import {loadCatalog,t} from '../../i18n/index.ts';
 
@@ -68,7 +69,7 @@ export function createAdvancedEditorTools(props:AdvancedEditorToolsProps) {
   copy:()=>clip('copy'),
   copyFormat:()=>painter('copy-format',()=>{const state=props.state();if(state)setPaint({marks:state.storedMarks??state.selection.$from.marks(),attributes:{...state.selection.$from.parent.attrs}});},()=>false),
   applyFormat:()=>painter('apply-format',paintFormat,()=>!paint()),
-  style:()=><select aria-label={t('mail-editor-style')} data-tooltip={t('mail-editor-style')} value={attrs()['preset']??(props.state()?.selection.$from.parent.type.name==='heading'?`heading${attrs()['level']}`:'normal')} onChange={event=>execute(paragraphStyle(event.currentTarget.value))}><For each={['normal','no-spacing','title','subtitle','heading1','heading2','heading3','heading4','heading5','heading6']}>{name=><option value={name}>{t(`mail-editor-style-${name}`)}</option>}</For></select>,
+  style:()=><StyleGallery state={props.state} apply={name=>execute(paragraphStyle(name))}/>,
   textColor:()=>color('text-color',value=>execute(applyColor('textColor',value??'')),()=>markColor('textColor'),{fallback:'#000000',emptyLabel:()=>t('color-picker-automatic'),contrast:onWhite}),
   clearColor:()=>button('clear-color',applyColor('textColor',''),undefined,true),
   highlight:()=>color('highlight',value=>execute(applyColor('highlight',value??'')),()=>markColor('highlight'),{fallback:'#ffff00',emptyLabel:()=>t('color-picker-no-colour'),contrast:underText}),

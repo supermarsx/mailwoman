@@ -33,11 +33,14 @@ import { t } from '../../i18n/index.ts';
 import './richtext.css';
 import './compose-extras.css';
 
-export type EditorTab = 'format' | 'insert' | 'table';
+export type EditorTab = 'format' | 'insert' | 'table' | 'picture';
+/** The tabs every editor ribbon has. */
 export const EDITOR_TABS: readonly EditorTab[] = ['format', 'insert', 'table'];
+/** Every tab the rich-text editor can fill with groups: the always-present ones and the contextual Picture tab. */
+export const SLOT_TABS: readonly EditorTab[] = [...EDITOR_TABS, 'picture'];
 export type EditorSlots = Partial<Record<EditorTab, RibbonSlotTarget>>;
 
-const isEditorTab = (tab: string): tab is EditorTab => (EDITOR_TABS as readonly string[]).includes(tab);
+const isEditorTab = (tab: string): tab is EditorTab => (SLOT_TABS as readonly string[]).includes(tab);
 
 /** The ribbon's state, created by its host: the open tab, the editor's slots and the bar. */
 export interface EditorRibbonState<T extends string> {
@@ -108,7 +111,9 @@ export interface EditorRibbonProps<T extends string> {
   class?: string;
 }
 
-const tabLabel = <T extends string>(spec: EditorRibbonTab<T>): string => spec.label ?? t(`mail-compose-ribbon-${spec.id}`);
+/** The contextual tabs are named for what they do, not for the object (the Insert tab has its own "Table"). */
+const TAB_LABEL_KEYS: Readonly<Record<string, string>> = { table: 'mail-compose-ribbon-table-layout', picture: 'mail-compose-ribbon-picture' };
+const tabLabel = <T extends string>(spec: EditorRibbonTab<T>): string => spec.label ?? t(TAB_LABEL_KEYS[spec.id] ?? `mail-compose-ribbon-${spec.id}`);
 
 export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX.Element {
   const state = props.state;
