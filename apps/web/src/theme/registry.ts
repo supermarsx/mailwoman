@@ -20,13 +20,13 @@ import {
   THEMES,
   THEME_META,
   type Appearance,
-  type ThemeFamily,
+  type ThemeGroup,
   type ThemeMeta,
   type ThemeTokens,
 } from './tokens.ts';
 import { ACCENTS, type AccentDef, type AccentId, type AccentShade } from './accentMath.ts';
 import { ACCENT_SHADES } from './accents.ts';
-export type { Appearance, ThemeFamily } from './tokens.ts';
+export type { Appearance, ThemeFamily, ThemeGroup } from './tokens.ts';
 export type { AccentDef, AccentId, AccentShade } from './accentMath.ts';
 
 /** A theme's colour palette with every value resolved to a concrete colour. */
@@ -81,6 +81,9 @@ const COUNTERPARTS: Partial<Record<ThemeName, ThemeName>> = {
   paper: 'blueprint',
   blueprint: 'paper',
   terminal: 'paper',
+  // Slate ships two light and two dark packs; pair them by weight.
+  'slate-mist': 'slate-midnight',
+  'slate-midnight': 'slate-mist',
 };
 
 function siblingOf(meta: ThemeMeta): ThemeName {
@@ -132,32 +135,33 @@ export function themesByAppearance(appearance: Appearance): readonly ThemeEntry[
 }
 
 export interface ThemeFamilyGroup {
-  readonly family: ThemeFamily;
-  /** Fluent id of the family label (the pack name without its variant suffix). */
+  /** The gallery section id. */
+  readonly group: ThemeGroup;
+  /** Fluent id of the section heading. */
   readonly labelId: string;
   readonly themes: readonly ThemeEntry[];
 }
 
-const FAMILY_LABEL_IDS: Record<ThemeFamily, string> = {
+const GROUP_LABEL_IDS: Record<ThemeGroup, string> = {
   core: 'appearance-family-core',
   bauhaus: 'appearance-family-bauhaus',
   slate: 'appearance-family-slate',
-  ocean: 'appearance-family-ocean',
-  plum: 'appearance-family-plum',
-  grove: 'appearance-family-grove',
-  cyberpunk: 'appearance-family-cyberpunk',
-  retrowave: 'appearance-family-retrowave',
-  'fight-club': 'appearance-family-fight-club',
+  naturals: 'appearance-family-naturals',
+  specialty: 'appearance-family-specialty',
   amoled: 'appearance-family-amoled',
   contrast: 'appearance-family-contrast',
 };
 
-/** The gallery grouping: one row per pack, its variants in appearance order. */
+/**
+ * The gallery grouping, one section per group in gallery order. A section can
+ * hold several families (Naturals: Grove, Plum, Ocean) or several independent
+ * themes (Specialty); each member keeps its own preview and description.
+ */
 export const THEME_GROUPS: readonly ThemeFamilyGroup[] = Object.freeze(
-  (Object.keys(FAMILY_LABEL_IDS) as ThemeFamily[]).map((family) => ({
-    family,
-    labelId: FAMILY_LABEL_IDS[family],
-    themes: THEME_LIST.filter((e) => e.family === family),
+  (Object.keys(GROUP_LABEL_IDS) as ThemeGroup[]).map((group) => ({
+    group,
+    labelId: GROUP_LABEL_IDS[group],
+    themes: THEME_LIST.filter((e) => e.group === group),
   })),
 );
 

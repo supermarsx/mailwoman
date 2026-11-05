@@ -74,9 +74,24 @@ describe('theme gallery', () => {
   it('groups the cards by pack family', async () => {
     renderSettings();
     await vi.waitFor(() => expect(card('Ocean Light')).toBeInTheDocument());
-    const group = screen.getByRole('group', { name: 'Ocean' });
+    const group = screen.getByRole('group', { name: 'Naturals' });
     expect(within(group).getByRole('button', { name: 'Ocean Light' })).toBeInTheDocument();
-    expect(within(group).queryByRole('button', { name: 'Plum Light' })).toBeNull();
+    expect(within(group).getByRole('button', { name: 'Plum Light' })).toBeInTheDocument();
+    expect(within(group).getByRole('button', { name: 'Grove Dark' })).toBeInTheDocument();
+    expect(within(group).queryByRole('button', { name: 'Slate Light' })).toBeNull();
+  });
+
+  it('lists the Specialty themes in one section and four Slate themes', async () => {
+    renderSettings();
+    await vi.waitFor(() => expect(card('Pop Art')).toBeInTheDocument());
+    const specialty = screen.getByRole('group', { name: 'Specialty themes' });
+    for (const name of ['Cyberpunk', 'Retrowave', 'Fight Club', '1984', 'Pop Art']) {
+      expect(within(specialty).getByRole('button', { name: name })).toBeInTheDocument();
+    }
+    const slate = screen.getByRole('group', { name: 'Slate' });
+    for (const name of ['Slate Light', 'Slate Dark', 'Slate Mist', 'Slate Midnight']) {
+      expect(within(slate).getByRole('button', { name })).toBeInTheDocument();
+    }
   });
 
   it('a card shows the pack description and its light/dark nature', async () => {

@@ -97,15 +97,15 @@ describe('WCAG maths — independent cross-check', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 describe('the requirement table itself', () => {
-  it('measures all 21 built-in themes', () => {
+  it('measures all 25 built-in themes', () => {
     // Guards against a pack being added to the token table but never reaching
     // the registry — the matrix below iterates the registry, so a theme missing
     // from it would be silently unmeasured rather than failing.
     // 13 packs before t32 V, plus Black, Paper, Blueprint, Terminal and
-    // Primary blocks, then Cyberpunk, Retrowave and Fight Club.
-    expect(THEME_LIST).toHaveLength(21);
-    expect(THEME_LIST.filter((e) => e.appearance === 'light')).toHaveLength(8);
-    expect(THEME_LIST.filter((e) => e.appearance === 'dark')).toHaveLength(13);
+    // Primary blocks, Cyberpunk, Retrowave, Fight Club, 1984, Pop Art, Slate Mist and Midnight.
+    expect(THEME_LIST).toHaveLength(25);
+    expect(THEME_LIST.filter((e) => e.appearance === 'light')).toHaveLength(10);
+    expect(THEME_LIST.filter((e) => e.appearance === 'dark')).toHaveLength(15);
   });
 
   it('covers every surface × foreground combination it claims to', () => {
@@ -260,6 +260,8 @@ describe('t32 token additions', () => {
     cyberpunk: '#f2e900',
     retrowave: '#65e7ff',
     'fight-club': '#f294b1',
+    'nineteen-eighty-four': '#e5392d',
+    'pop-art': '#ffd400',
   };
 
   it('puts the brand slots in front of each pack value', () => {

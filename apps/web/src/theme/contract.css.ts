@@ -152,6 +152,8 @@ export type ThemeName =
   | 'grove-dark'
   | 'slate-light'
   | 'slate-dark'
+  | 'slate-mist'
+  | 'slate-midnight'
   | 'ocean-light'
   | 'ocean-dark'
   | 'plum-light'
@@ -164,7 +166,9 @@ export type ThemeName =
   | 'primary'
   | 'cyberpunk'
   | 'retrowave'
-  | 'fight-club';
+  | 'fight-club'
+  | 'nineteen-eighty-four'
+  | 'pop-art';
 
 /** The frozen `data-density` values (plan §2.3). */
 export type Density = 'compact' | 'cozy' | 'relaxed';

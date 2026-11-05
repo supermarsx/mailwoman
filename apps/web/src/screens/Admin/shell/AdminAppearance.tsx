@@ -157,8 +157,8 @@ export function AdminAppearanceFields(props: { controller: AdminAppearanceContro
           <legend class={ux.appearanceLegend}>{t('admin-ux-appearance-theme')}</legend>
           <For each={THEME_GROUPS.filter((g) => g.themes.length > 0)}>
             {(group) => (
-              <div class={ux.appearanceSection} role="group" aria-labelledby={`${id}-family-${group.family}`}>
-                <p id={`${id}-family-${group.family}`} class={ux.familyLabel}>
+              <div class={ux.appearanceSection} role="group" aria-labelledby={`${id}-family-${group.group}`}>
+                <p id={`${id}-family-${group.group}`} class={ux.familyLabel}>
                   {t(group.labelId)}
                 </p>
                 <div class={ux.themeGrid}>

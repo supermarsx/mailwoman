@@ -393,6 +393,46 @@ const slateDark: PackPalette = {
   focus: accent('#7aa2d6'),
 };
 
+// Slate Mist: a mid-tone blue-grey page, deeper than Slate Light, teal accent.
+const slateMist: PackPalette = {
+  bg: '#d5dde3',
+  bgAlt: '#c7d1d9',
+  bgSink: '#b9c5cf',
+  surface: '#e6ecf0',
+  border: '#8497a5',
+  borderStrong: '#4f5f6c',
+  text: '#141d26',
+  textDim: '#2f3b47',
+  accent: accent('#0b6b6b'),
+  accentText: '#ffffff',
+  danger: brand('danger', '#9e1c1c'),
+  success: '#145a30',
+  warning: '#6a3f05',
+  link: '#0a4f6e',
+  selection: '#a9c9d2',
+  focus: accent('#0b6b6b'),
+};
+
+// Slate Midnight: a near-black blue-grey page with an ice-blue accent.
+const slateMidnight: PackPalette = {
+  bg: '#0b0f16',
+  bgAlt: '#111722',
+  bgSink: '#070a10',
+  surface: '#161d2a',
+  border: '#2f3d52',
+  borderStrong: '#6580a3',
+  text: '#dfe8f5',
+  textDim: '#8fa0b8',
+  accent: accent('#8fd3ff'),
+  accentText: '#07121c',
+  danger: brand('danger', '#f08a8a'),
+  success: '#6fd08c',
+  warning: '#e9b45c',
+  link: '#9bd7ff',
+  selection: '#1d3552',
+  focus: accent('#8fd3ff'),
+};
+
 // Ocean: blue-green ground, teal accent. Cooler and more saturated than Slate.
 const oceanLight: PackPalette = {
   bg: '#f2f8f9',
@@ -621,6 +661,30 @@ const fightClub: PackPalette = {
   signal: '#f294b1', signalText: '#151611',
 };
 
+// 1984: Ministry concrete and faded paper, Big Brother red. Muted and stark;
+// the message body is set in the monospace face like a typed memo.
+const nineteenEightyFour: PackPalette = {
+  bg: '#1b1c1d', bgAlt: '#242627', bgSink: '#121313', surface: '#2d2f30',
+  border: '#55595a', borderStrong: '#8f9591',
+  text: '#d9d3c0', textDim: '#a7a28f',
+  accent: accent('#e5392d'), accentText: '#120a09',
+  danger: brand('danger', '#ff8f80'), success: '#9bc296', warning: '#d8b45a',
+  link: '#a9c0cf', selection: '#4a2321', focus: '#f0e6c0',
+  signal: '#e5392d', signalText: '#120a09',
+};
+
+// Pop Art: Lichtenstein primaries on a white page with black outlines; the
+// sidebar carries a Ben-Day dot screen.
+const popArt: PackPalette = {
+  bg: '#fffbea', bgAlt: '#fff0b8', bgSink: '#ffe680', surface: '#ffffff',
+  border: '#222222', borderStrong: '#000000',
+  text: '#000000', textDim: '#2e2e2e',
+  accent: accent('#d9001b'), accentText: '#ffffff',
+  danger: brand('danger', '#a8001a'), success: '#006b2d', warning: '#7a3e00',
+  link: '#0036b8', selection: '#ffd400', focus: '#0036b8',
+  signal: '#ffd400', signalText: '#000000',
+};
+
 // Shared a11y token values. Structural constants (touch target, motion
 // durations) are identical across themes; the focus ring is derived per theme
 // from its `focus` colour. `focusRingColor` + `focusRingWidth` drive the global
@@ -644,6 +708,7 @@ function themeOf(
   pack: PackPalette,
   appearance: Appearance,
   texture: ThemeTokens['texture'],
+  fonts: Partial<ThemeTokens['font']> = {},
 ): ThemeTokens {
   const { signal: _signal, signalText: _signalText, ...own } = pack;
   const color: Palette = {
@@ -660,7 +725,7 @@ function themeOf(
     elevation: elevationOf(appearance),
     border,
     texture,
-    font,
+    font: { ...font, ...fonts },
     fontSize,
     weight,
     tracking,
@@ -670,6 +735,7 @@ function themeOf(
   };
 }
 
+const POPART_TEXTURE = { grain: "url('/themes/popart-dots.svg')", paper: 'none' } as const;
 const GROVE_TEXTURE = { grain: GROVE_GRAIN, paper: GROVE_PAPER } as const;
 
 /** Every built-in theme, keyed by its frozen `data-theme` value. */
@@ -683,6 +749,8 @@ export const THEMES: Record<ThemeName, ThemeTokens> = {
   'grove-dark': themeOf(groveDark, 'dark', GROVE_TEXTURE),
   'slate-light': themeOf(slateLight, 'light', NO_TEXTURE),
   'slate-dark': themeOf(slateDark, 'dark', NO_TEXTURE),
+  'slate-mist': themeOf(slateMist, 'light', NO_TEXTURE),
+  'slate-midnight': themeOf(slateMidnight, 'dark', NO_TEXTURE),
   'ocean-light': themeOf(oceanLight, 'light', NO_TEXTURE),
   'ocean-dark': themeOf(oceanDark, 'dark', NO_TEXTURE),
   'plum-light': themeOf(plumLight, 'light', NO_TEXTURE),
@@ -695,6 +763,8 @@ export const THEMES: Record<ThemeName, ThemeTokens> = {
   cyberpunk: themeOf(cyberpunk, 'dark', NO_TEXTURE),
   retrowave: themeOf(retrowave, 'dark', NO_TEXTURE),
   'fight-club': themeOf(fightClub, 'dark', NO_TEXTURE),
+  'nineteen-eighty-four': themeOf(nineteenEightyFour, 'dark', NO_TEXTURE, { reading: font.mono }),
+  'pop-art': themeOf(popArt, 'light', POPART_TEXTURE),
 };
 
 // ── Theme metadata (presentation layer) ──────────────────────────────────────
@@ -714,7 +784,22 @@ export type ThemeFamily =
   | 'contrast'
   | 'cyberpunk'
   | 'retrowave'
-  | 'fight-club';
+  | 'fight-club'
+  | 'nineteen-eighty-four'
+  | 'pop-art';
+
+/**
+ * A gallery section. Several families can share one section: Naturals holds
+ * the Grove, Plum and Ocean packs, Specialty the independent character themes.
+ */
+export type ThemeGroup =
+  | 'core'
+  | 'bauhaus'
+  | 'slate'
+  | 'naturals'
+  | 'specialty'
+  | 'amoled'
+  | 'contrast';
 
 /** Whether a pack paints a light or a dark page. */
 export type Appearance = 'light' | 'dark';
@@ -729,6 +814,8 @@ export interface ThemeMeta {
   /** Fluent id of one honest line describing what the pack looks like. */
   readonly descriptionId: string;
   readonly family: ThemeFamily;
+  /** The gallery section this theme is listed under. */
+  readonly group: ThemeGroup;
   readonly appearance: Appearance;
 }
 
@@ -743,6 +830,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-dark',
     descriptionId: 'appearance-theme-dark-desc',
     family: 'core',
+    group: 'core',
     appearance: 'dark',
   },
   {
@@ -750,6 +838,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-light',
     descriptionId: 'appearance-theme-light-desc',
     family: 'core',
+    group: 'core',
     appearance: 'light',
   },
   {
@@ -757,6 +846,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-bauhaus-black',
     descriptionId: 'appearance-theme-bauhaus-black-desc',
     family: 'bauhaus',
+    group: 'bauhaus',
     appearance: 'dark',
   },
   {
@@ -764,6 +854,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-paper',
     descriptionId: 'appearance-theme-paper-desc',
     family: 'bauhaus',
+    group: 'bauhaus',
     appearance: 'light',
   },
   {
@@ -771,6 +862,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-blueprint',
     descriptionId: 'appearance-theme-blueprint-desc',
     family: 'bauhaus',
+    group: 'bauhaus',
     appearance: 'dark',
   },
   {
@@ -778,6 +870,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-terminal',
     descriptionId: 'appearance-theme-terminal-desc',
     family: 'bauhaus',
+    group: 'bauhaus',
     appearance: 'dark',
   },
   {
@@ -785,6 +878,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-primary',
     descriptionId: 'appearance-theme-primary-desc',
     family: 'bauhaus',
+    group: 'bauhaus',
     appearance: 'light',
   },
   {
@@ -792,6 +886,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-slate-light',
     descriptionId: 'appearance-theme-slate-light-desc',
     family: 'slate',
+    group: 'slate',
     appearance: 'light',
   },
   {
@@ -799,34 +894,23 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-slate-dark',
     descriptionId: 'appearance-theme-slate-dark-desc',
     family: 'slate',
+    group: 'slate',
     appearance: 'dark',
   },
   {
-    id: 'ocean-light',
-    labelId: 'appearance-theme-ocean-light',
-    descriptionId: 'appearance-theme-ocean-light-desc',
-    family: 'ocean',
+    id: 'slate-mist',
+    labelId: 'appearance-theme-slate-mist',
+    descriptionId: 'appearance-theme-slate-mist-desc',
+    family: 'slate',
+    group: 'slate',
     appearance: 'light',
   },
   {
-    id: 'ocean-dark',
-    labelId: 'appearance-theme-ocean-dark',
-    descriptionId: 'appearance-theme-ocean-dark-desc',
-    family: 'ocean',
-    appearance: 'dark',
-  },
-  {
-    id: 'plum-light',
-    labelId: 'appearance-theme-plum-light',
-    descriptionId: 'appearance-theme-plum-light-desc',
-    family: 'plum',
-    appearance: 'light',
-  },
-  {
-    id: 'plum-dark',
-    labelId: 'appearance-theme-plum-dark',
-    descriptionId: 'appearance-theme-plum-dark-desc',
-    family: 'plum',
+    id: 'slate-midnight',
+    labelId: 'appearance-theme-slate-midnight',
+    descriptionId: 'appearance-theme-slate-midnight-desc',
+    family: 'slate',
+    group: 'slate',
     appearance: 'dark',
   },
   {
@@ -834,6 +918,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-grove-light',
     descriptionId: 'appearance-theme-grove-light-desc',
     family: 'grove',
+    group: 'naturals',
     appearance: 'light',
   },
   {
@@ -841,6 +926,39 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-grove-dark',
     descriptionId: 'appearance-theme-grove-dark-desc',
     family: 'grove',
+    group: 'naturals',
+    appearance: 'dark',
+  },
+  {
+    id: 'plum-light',
+    labelId: 'appearance-theme-plum-light',
+    descriptionId: 'appearance-theme-plum-light-desc',
+    family: 'plum',
+    group: 'naturals',
+    appearance: 'light',
+  },
+  {
+    id: 'plum-dark',
+    labelId: 'appearance-theme-plum-dark',
+    descriptionId: 'appearance-theme-plum-dark-desc',
+    family: 'plum',
+    group: 'naturals',
+    appearance: 'dark',
+  },
+  {
+    id: 'ocean-light',
+    labelId: 'appearance-theme-ocean-light',
+    descriptionId: 'appearance-theme-ocean-light-desc',
+    family: 'ocean',
+    group: 'naturals',
+    appearance: 'light',
+  },
+  {
+    id: 'ocean-dark',
+    labelId: 'appearance-theme-ocean-dark',
+    descriptionId: 'appearance-theme-ocean-dark-desc',
+    family: 'ocean',
+    group: 'naturals',
     appearance: 'dark',
   },
   {
@@ -848,6 +966,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-cyberpunk',
     descriptionId: 'appearance-theme-cyberpunk-desc',
     family: 'cyberpunk',
+    group: 'specialty',
     appearance: 'dark',
   },
   {
@@ -855,6 +974,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-retrowave',
     descriptionId: 'appearance-theme-retrowave-desc',
     family: 'retrowave',
+    group: 'specialty',
     appearance: 'dark',
   },
   {
@@ -862,13 +982,31 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-fight-club',
     descriptionId: 'appearance-theme-fight-club-desc',
     family: 'fight-club',
+    group: 'specialty',
     appearance: 'dark',
+  },
+  {
+    id: 'nineteen-eighty-four',
+    labelId: 'appearance-theme-nineteen-eighty-four',
+    descriptionId: 'appearance-theme-nineteen-eighty-four-desc',
+    family: 'nineteen-eighty-four',
+    group: 'specialty',
+    appearance: 'dark',
+  },
+  {
+    id: 'pop-art',
+    labelId: 'appearance-theme-pop-art',
+    descriptionId: 'appearance-theme-pop-art-desc',
+    family: 'pop-art',
+    group: 'specialty',
+    appearance: 'light',
   },
   {
     id: 'amoled',
     labelId: 'appearance-theme-amoled',
     descriptionId: 'appearance-theme-amoled-desc',
     family: 'amoled',
+    group: 'amoled',
     appearance: 'dark',
   },
   {
@@ -876,6 +1014,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-hc-light',
     descriptionId: 'appearance-theme-hc-light-desc',
     family: 'contrast',
+    group: 'contrast',
     appearance: 'light',
   },
   {
@@ -883,6 +1022,7 @@ export const THEME_META: readonly ThemeMeta[] = [
     labelId: 'appearance-theme-hc-dark',
     descriptionId: 'appearance-theme-hc-dark-desc',
     family: 'contrast',
+    group: 'contrast',
     appearance: 'dark',
   },
 ];

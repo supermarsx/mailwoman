@@ -53,7 +53,7 @@ function describeFailures(results: ContrastResult[]): string[] {
 describe('the theme × accent matrix', () => {
   it('has a cell for every theme and every accent', () => {
     expect(Object.keys(ACCENT_SHADES).sort()).toEqual(THEME_LIST.map((e) => e.id).sort());
-    expect(THEME_LIST).toHaveLength(21);
+    expect(THEME_LIST).toHaveLength(25);
     expect(ACCENT_IDS).toHaveLength(16);
     for (const entry of THEME_LIST) {
       expect(Object.keys(ACCENT_SHADES[entry.id]), entry.id).toEqual([...ACCENT_IDS]);

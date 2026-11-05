@@ -64,9 +64,13 @@ describe('theme registry', () => {
   });
 
   it('ships the three new packs with both appearances', () => {
-    for (const family of ['slate', 'ocean', 'plum'] as const) {
+    for (const family of ['ocean', 'plum'] as const) {
       const packs = THEME_LIST.filter((e) => e.family === family);
       expect(packs.map((p) => p.appearance).sort()).toEqual(['dark', 'light']);
+    }
+    for (const family of ['slate'] as const) {
+      const packs = THEME_LIST.filter((e) => e.family === family);
+      expect(packs.map((p) => p.appearance).sort()).toEqual(['dark', 'dark', 'light', 'light']);
     }
   });
 
@@ -77,11 +81,73 @@ describe('theme registry', () => {
       expect(entry.appearance).toBe('dark');
       expect(variantFor(id, 'dark')).toBe(id);
       expect(variantFor(id, 'light')).toBe('light');
-      expect(THEME_GROUPS.find(group => group.family === id)?.themes.map(pack => pack.id)).toEqual([id]);
+      expect(entry.group).toBe('specialty');
     }
     expect(themeEntry('cyberpunk').palette.accent).toBe('#f2e900');
     expect(themeEntry('retrowave').palette.accent).toBe('#ff77d9');
     expect(themeEntry('fight-club').palette.accent).toBe('#f294b1');
+  });
+
+  it('lists Cyberpunk, Retrowave, Fight Club, 1984 and Pop Art in one Specialty section', () => {
+    const specialty = THEME_GROUPS.find((g) => g.group === 'specialty');
+    expect(specialty?.labelId).toBe('appearance-family-specialty');
+    expect(enText('appearance-family-specialty')).toBe('Specialty themes');
+    expect(specialty?.themes.map((t) => t.id)).toEqual([
+      'cyberpunk',
+      'retrowave',
+      'fight-club',
+      'nineteen-eighty-four',
+      'pop-art',
+    ]);
+    // Independent themes: each keeps its own family, name and description.
+    expect(new Set(specialty?.themes.map((t) => t.family)).size).toBe(5);
+    // Specialty themes always have a way back to a neutral light/dark pair.
+    expect(variantFor('nineteen-eighty-four', 'light')).toBe('light');
+    expect(variantFor('pop-art', 'dark')).toBe('dark');
+  });
+
+  it('lists Grove, Plum and Ocean in one Naturals section, ids unchanged', () => {
+    const naturals = THEME_GROUPS.find((g) => g.group === 'naturals');
+    expect(enText('appearance-family-naturals')).toBe('Naturals');
+    expect(naturals?.themes.map((t) => t.id)).toEqual([
+      'grove-light',
+      'grove-dark',
+      'plum-light',
+      'plum-dark',
+      'ocean-light',
+      'ocean-dark',
+    ]);
+    for (const id of ['grove-dark', 'plum-light', 'ocean-light'] as const) {
+      expect(isThemeName(id)).toBe(true);
+    }
+    expect(variantFor('plum-dark', 'light')).toBe('plum-light');
+  });
+
+  it('ships four Slate themes: two light, two dark, ids of the old pair unchanged', () => {
+    const slate = THEME_GROUPS.find((g) => g.group === 'slate');
+    expect(slate?.themes.map((t) => t.id)).toEqual([
+      'slate-light',
+      'slate-dark',
+      'slate-mist',
+      'slate-midnight',
+    ]);
+    expect(variantFor('slate-light', 'dark')).toBe('slate-dark');
+    expect(variantFor('slate-mist', 'dark')).toBe('slate-midnight');
+    expect(variantFor('slate-midnight', 'light')).toBe('slate-mist');
+    expect(themeEntry('slate-mist').palette.accent).toBe('#0b6b6b');
+    expect(themeEntry('slate-midnight').palette.accent).toBe('#8fd3ff');
+  });
+
+  it('carries 1984 and Pop Art specifics: reading face, Ben-Day texture, full tokens', () => {
+    expect(themeEntry('nineteen-eighty-four').tokens.font.reading).toBe(THEMES.dark.font.mono);
+    expect(themeEntry('nineteen-eighty-four').tokens.font.ui.startsWith('"Jost"')).toBe(true);
+    expect(themeEntry('pop-art').tokens.texture.grain).toContain('popart-dots.svg');
+    expect(themeEntry('pop-art').palette.borderStrong).toBe('#000000');
+    for (const id of ['slate-mist', 'slate-midnight', 'nineteen-eighty-four', 'pop-art'] as const) {
+      const keys = Object.keys(THEMES.dark.color).sort();
+      expect(Object.keys(themeEntry(id).tokens.color).sort()).toEqual(keys);
+      expect(failingPairs(themeEntry(id).palette)).toEqual([]);
+    }
   });
 
   it('resolves the accent past its --mw-accent override wrapper', () => {

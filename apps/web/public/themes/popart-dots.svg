@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Pop Art Ben-Day dot screen: red dots on a 8px grid, ~14% alpha so text on
+     it keeps its contrast. Gated off under reduced-transparency / forced
+     colours / data-saver by themes.css.ts. -->
+<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8" viewBox="0 0 8 8">
+  <circle cx="2" cy="2" r="1.4" fill="#d9001b" fill-opacity="0.14"/>
+  <circle cx="6" cy="6" r="1.4" fill="#d9001b" fill-opacity="0.14"/>
+</svg>
