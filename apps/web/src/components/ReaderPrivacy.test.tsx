@@ -64,6 +64,7 @@ async function showOriginal():Promise<void>{const button=await screen.findByRole
 async function allowOriginal(enabled=true,cap?:boolean):Promise<void>{await loadFeatures({refresh:true,fetcher:async()=>json({features:{'reading.original_html':{enabled,limits:{},settings:{}}}})});await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.allowOriginalHtml':{value:true,locked:false,source:'user'},...(cap===undefined?{}:{'cap.reading.original_html':{value:cap,locked:true,source:'global'}})}})});}
 describe('Reader signed privacy pipeline',()=>{
   it('prepares reply images through the authenticated proxy and seeds owned CID attachments',async()=>{
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.replyImages':{value:'allow',locked:false,source:'user'}}})});
     const base=globalThis.fetch,onCompose=vi.fn(),upload=vi.fn();
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input);
@@ -81,7 +82,7 @@ describe('Reader signed privacy pipeline',()=>{
     expect(initial.bodyHtml).toContain(`cid:${initial.inline![0]!.cid}`);expect(initial.bodyHtml).toContain('Original text');expect(initial.bodyHtml).toContain('width="90"');expect(initial.bodyHtml).not.toMatch(/api\/rc|https:\/\/cdn/);
   });
   it.each(['consent','inactive'] as const)('aborts a held reply image stream when its reader scope changes: %s',async(change)=>{
-    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'}}})});
+    await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value:'ask',locked:false,source:'user'},'mail.replyImages':{value:'allow',locked:false,source:'user'}}})});
     const base=globalThis.fetch,onCompose=vi.fn(),upload=vi.fn(),cancel=vi.fn(),[active,setActive]=createSignal(true);let signal:AbortSignal|undefined;
     vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
       const url=String(input);
