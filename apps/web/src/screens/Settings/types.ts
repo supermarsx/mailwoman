@@ -142,6 +142,28 @@ export interface Identity {
   readonly signatureName?: string;
   /** Absent inherits the new-message choice; empty disables replies. */
   readonly replySignatureName?: string;
+  /** The account's default sender; exactly one identity has it. */
+  readonly isDefault?: boolean;
+  /** Set on a variant: the id of its base identity. Fields left empty are inherited from the base. */
+  readonly variantOf?: string;
+  /** Display label of a variant ("Newsletters"). */
+  readonly label?: string;
+}
+
+/** The inheritable profile fields a variant can leave empty (the base supplies them). */
+export const IDENTITY_INHERITED_FIELDS = ['replyTo', 'autoBcc', 'organization', 'pgpKeyId', 'signatureName'] as const;
+export type IdentityInheritedField = (typeof IDENTITY_INHERITED_FIELDS)[number];
+
+/**
+ * Which inheritable fields of a variant are empty and so come from its base.
+ * `signatureName` empty-string means "no signature" and is an own value; the
+ * server resolves the same way for JMAP, so list and send agree.
+ */
+export function inheritedFields(variant: Identity): IdentityInheritedField[] {
+  return IDENTITY_INHERITED_FIELDS.filter((field) => {
+    const value = variant[field];
+    return field === 'signatureName' || field === 'pgpKeyId' ? value === undefined : value === undefined || value === '';
+  });
 }
 
 // ── Notification rules + quiet hours (W15) ───────────────────────────────────

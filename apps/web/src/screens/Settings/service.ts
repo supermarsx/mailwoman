@@ -301,10 +301,17 @@ export class SettingsService {
     await keyedAttempt(`identity:${JSON.stringify(identity)}`, async (key) => okOrThrow(await postJson(fetch, url, identity, keyedWrite(key).recovery)));
   }
 
-  async deleteIdentity(id: string): Promise<void> {
+  /** A base with variants is refused (409 `has_variants`) unless `variants` says what happens to them. */
+  async deleteIdentity(id: string, variants?: 'delete' | 'promote'): Promise<void> {
+    const query = variants === undefined ? '' : `?variants=${variants}`;
     await okOrThrow(
-      await this.personalRecordFetch.bind(this)(withBase(`/api/account/identities/${encodeURIComponent(id)}`), { method: 'DELETE' }),
+      await this.personalRecordFetch.bind(this)(withBase(`/api/account/identities/${encodeURIComponent(id)}${query}`), { method: 'DELETE' }),
     );
+  }
+
+  /** Make an identity the default sender; the previous default is cleared in the same step. */
+  async makeIdentityDefault(id: string): Promise<void> {
+    await okOrThrow(await postJson(this.personalRecordFetch.bind(this), withBase(`/api/account/identities/${encodeURIComponent(id)}/default`), undefined, { idempotent: true }));
   }
 
   // ── Notification rules + quiet hours (W15) ───────────────────────────────
