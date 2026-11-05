@@ -77,6 +77,17 @@ async fn governed_proxy_batch_fails_closed_before_any_upstream_mutation() {
     )
     .await;
     assert_eq!(status, 200, "{login}");
+    // Signing in from a new browser sends the user a new-device notice through the
+    // upstream asynchronously; let it finish so only the batch under test is counted.
+    let mut quiet = calls.load(std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..50 {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let now = calls.load(std::sync::atomic::Ordering::SeqCst);
+        if now == quiet {
+            break;
+        }
+        quiet = now;
+    }
     let before = calls.load(std::sync::atomic::Ordering::SeqCst);
     let batch = json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail","urn:ietf:params:jmap:submission"],"methodCalls":[["Email/set",{"create":{"draft":{"subject":"not forwarded"}}},"a"],["EmailSubmission/set",{"create":{"send":{"emailId":"#draft"}}},"b"]]});
     store

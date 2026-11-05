@@ -88,6 +88,17 @@ async fn held_never_blocks_entire_proxy_batch_before_upstream() {
         })
         .await
         .unwrap();
+    // Signing in from a new browser sends the user a new-device notice through the
+    // upstream asynchronously; let it finish so only the batch under test is counted.
+    let mut quiet = calls.load(std::sync::atomic::Ordering::SeqCst);
+    for _ in 0..50 {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let now = calls.load(std::sync::atomic::Ordering::SeqCst);
+        if now == quiet {
+            break;
+        }
+        quiet = now;
+    }
     let before = calls.load(std::sync::atomic::Ordering::SeqCst);
     let (status,result)=send(user.post(format!("{base}/jmap/api")).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"create":{"first":{}}},"a"],["MDN/send",{"emailId":"message","automatic":false},"b"]]}))).await;
     assert_eq!(status, 403, "{result}");

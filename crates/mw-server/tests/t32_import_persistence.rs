@@ -61,6 +61,17 @@ async fn import_writes_upstream_and_exports_under_existing_step_up_policy() {
     let login: Value = response.json().await.unwrap();
     assert_eq!(status, 200, "{login}");
     let account = login["accountId"].as_str().unwrap();
+    // The new-device notice a first sign-in delivers is not part of the import.
+    let mut notices = mail.messages.lock().await.len();
+    for _ in 0..50 {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let now = mail.messages.lock().await.len();
+        if now == notices {
+            break;
+        }
+        notices = now;
+    }
+    let baseline = mail.messages.lock().await.clone();
     let formats: Value = client
         .get(format!("{base}/api/import/formats"))
         .send()
@@ -80,7 +91,7 @@ async fn import_writes_upstream_and_exports_under_existing_step_up_policy() {
         .await
         .unwrap();
     assert_eq!(refused.status(), 400);
-    assert!(mail.messages.lock().await.is_empty());
+    assert_eq!(mail.messages.lock().await.as_slice(), baseline.as_slice());
     let response = client
         .post(format!("{base}/api/import/eml?mailboxId={inbox}"))
         .header("content-type", "message/rfc822")
@@ -92,7 +103,9 @@ async fn import_writes_upstream_and_exports_under_existing_step_up_policy() {
     let imported: Value = response.json().await.unwrap();
     assert_eq!(status, 200, "{imported}");
     assert_eq!(imported["imported"], 1, "{imported}");
-    assert_eq!(mail.messages.lock().await.as_slice(), &[raw.to_vec()]);
+    let mut expected = baseline.clone();
+    expected.push(raw.to_vec());
+    assert_eq!(mail.messages.lock().await.as_slice(), expected.as_slice());
     let queried = jmap(
         &client,
         &base,
