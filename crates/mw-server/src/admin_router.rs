@@ -86,6 +86,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::branding_routes::register(r);
     crate::analytics_routes::register(r);
     crate::cookie_consent::register(r);
+    crate::compliance::register(r);
     crate::inbound_allowlist::register(r);
     crate::appearance_customization::register(r);
     crate::nextcloud_accounts::register(r);

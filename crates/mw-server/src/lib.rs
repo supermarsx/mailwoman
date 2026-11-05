@@ -64,6 +64,9 @@ mod client_timing;
 mod dsr;
 mod dsr_data;
 mod cookie_consent;
+mod compliance;
+mod compliance_dpia;
+mod compliance_policy;
 mod cookie_inventory;
 mod request_history;
 pub mod server_key;
@@ -1536,6 +1539,7 @@ fn router(
         .merge(client_timing::router())
         .merge(dsr::router())
         .merge(cookie_consent::router())
+        .merge(compliance::router())
         .merge(import_routes::import_router())
         .merge(account_drafts::router())
         .merge(linked_accounts::router().layer(Extension(provider_plugins.clone())))

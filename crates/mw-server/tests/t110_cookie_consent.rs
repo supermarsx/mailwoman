@@ -98,7 +98,7 @@ fn on() -> Vec<(&'static str, Value)> {
 async fn config_is_minimal_while_off() {
     let base = spawn(&[]).await;
     let body: Value = client().get(format!("{base}/api/cookies/config")).send().await.unwrap().json().await.unwrap();
-    assert_eq!(body, json!({"enabled": false}));
+    assert_eq!(body, json!({"enabled": false, "policyPages": true}));
 }
 
 #[tokio::test]

@@ -5468,6 +5468,102 @@ pub static REGISTRY: &[SettingDef] = &[
         "data protection contact page shown to users"
     )),
     def!(
+        "policy.publicPages",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "serve the generated privacy and cookie policy pages at /privacy and /cookies-policy"
+    ),
+    def!(
+        "policy.autoVersion",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "record a new policy version automatically when a policy-relevant setting changes"
+    ),
+    def!(
+        "policy.reconsentOnChange",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "raise cookies.policyVersion when a new policy version is recorded, so visitors are asked again"
+    ),
+    nullable(def!(
+        "policy.controller.name",
+        text(Text::Plain, 300),
+        "null",
+        GD,
+        "privacy",
+        "name of the data controller shown in the privacy policy"
+    )),
+    nullable(def!(
+        "policy.controller.address",
+        text(Text::Plain, 500),
+        "null",
+        GD,
+        "privacy",
+        "postal address of the data controller shown in the privacy policy"
+    )),
+    nullable(def!(
+        "policy.legalBases",
+        text(Text::Plain, 1000),
+        "null",
+        GD,
+        "privacy",
+        "legal bases the operator relies on, as written in the privacy policy"
+    )),
+    nullable(def!(
+        "policy.hosting.provider",
+        text(Text::Plain, 500),
+        "null",
+        GD,
+        "privacy",
+        "hosting provider and location of the data, shown in the privacy policy"
+    )),
+    nullable(def!(
+        "policy.hosting.transfers",
+        text(Text::Plain, 1000),
+        "null",
+        GD,
+        "privacy",
+        "transfers of data outside the hosting country and their safeguards, shown in the privacy policy"
+    )),
+    nullable(def!(
+        "policy.supervisoryAuthority",
+        text(Text::Plain, 500),
+        "null",
+        GD,
+        "privacy",
+        "supervisory authority users may complain to, shown in the privacy policy"
+    )),
+    def!(
+        "dpia.suggest",
+        Kind::Bool,
+        "true",
+        G,
+        "privacy",
+        "suggest an impact assessment when the assistant, open tracking or analytics is enabled"
+    ),
+    def!(
+        "dpia.reviewMonths",
+        int(1, 60),
+        "12",
+        G,
+        "privacy",
+        "months between impact assessment reviews when a new assessment is approved"
+    ),
+    def!(
+        "dpia.reminderDays",
+        int(0, 365),
+        "30",
+        G,
+        "privacy",
+        "days before an impact assessment review date it is listed as due"
+    ),
+    def!(
         "dsr.onBehalf.allowed",
         Kind::Bool,
         "true",

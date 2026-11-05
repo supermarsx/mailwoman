@@ -268,12 +268,18 @@ pub(crate) fn config_view(v: &Values, region: Option<&str>, rules: &[CookieRule]
     })
 }
 
-async fn request_domain(state: &AppState, headers: &HeaderMap, ext: &axum::http::Extensions) -> Option<String> {
+pub(crate) async fn request_domain(state: &AppState, headers: &HeaderMap, ext: &axum::http::Extensions) -> Option<String> {
     let host = state.external.host(headers, ext);
     domain_config::canonical(&state.store, "hint", host.as_deref())
         .await
         .ok()
         .map(|identity| identity.domain)
+}
+
+/// The configuration plus whether the generated policy pages are on, so the client links to them only while they exist.
+fn with_policy_pages(mut view: Value, pages: bool) -> Value {
+    view["policyPages"] = json!(pages);
+    view
 }
 
 async fn public_config(
@@ -302,7 +308,7 @@ async fn public_config(
             (header::CACHE_CONTROL, "no-store"),
             (header::VARY, "Accept-Language, X-Country-Code"),
         ],
-        Json(config_view(&v, region.as_deref(), &rules)),
+        Json(with_policy_pages(config_view(&v, region.as_deref(), &rules), crate::compliance::flag(&state, &domain, "policy.publicPages").await)),
     )
         .into_response()
 }
