@@ -45,7 +45,25 @@
     if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && !image.getBoundingClientRect().width && !image.getBoundingClientRect().height) image.setAttribute('data-mw-image-unsized', '');
     else if (state !== 'loading') image.removeAttribute('data-mw-image-unsized');
   }
-  function imageSettled(event) { imageState(event.target); }
+  // A signed image the proxy could not serve right now (busy, rate-limited, a
+  // transient upstream failure) is asked for again after a growing pause, so the
+  // reader sees the picture arrive instead of a broken image. Bounded, per image.
+  const retries = new WeakMap();
+  const retryDelays = [800, 2000, 4500, 9000];
+  function retryImage(image) {
+    if (imagesClosed || image?.tagName !== 'IMG') return;
+    const source = image.getAttribute('src') || '';
+    if (!prefixes.some(prefix => prefix.endsWith('/i/') && source.startsWith(prefix))) return;
+    const attempt = retries.get(image) || 0;
+    if (attempt >= retryDelays.length) return;
+    retries.set(image, attempt + 1);
+    setTimeout(() => {
+      if (imagesClosed || !document.body.contains(image) || image.getAttribute('src') !== source || (image.complete && image.naturalWidth > 0)) return;
+      image.removeAttribute('src');
+      image.setAttribute('src', source);
+    }, retryDelays[attempt] + Math.floor(Math.random() * 300));
+  }
+  function imageSettled(event) { imageState(event.target); if (event.type === 'error') retryImage(event.target); }
   function imageAdded(node) {
     if (node?.nodeType !== 1) return;
     if (node.tagName === 'IMG') imageState(node);
@@ -125,6 +143,7 @@
     }
     ops.forEach((op, index) => {
       const node = targets[index];
+      if (op.a === 'src') retries.delete(node);
       if (op.a === 'text') node.textContent = op.v;
       else if (op.v === null) node.removeAttribute(op.a);
       else node.setAttribute(op.a, op.v);

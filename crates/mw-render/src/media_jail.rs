@@ -31,6 +31,12 @@ static MEDIA_WASM: &[u8] = include_bytes!("../../mw-media-wasm/media.wasm");
 /// bitmap of a legitimate image, a hard backstop against decompression bombs (the
 /// guest also caps decode dimensions/alloc).
 pub const IMAGE_MEMORY_MAX_BYTES: usize = 512 * 1024 * 1024;
+/// What one image decode typically needs, used only to size how many decodes may
+/// run at once. The limiter above is the hard ceiling; reserving that ceiling for
+/// every decoder (as sizing once did) left a 2 GiB instance with a single decoder
+/// and made image bursts queue until they timed out. A 12 MP photo is ~48 MB of
+/// bitmap, so 96 MiB covers the working set of the images mail actually carries.
+pub const IMAGE_DECODE_TYPICAL_BYTES: usize = 96 * 1024 * 1024;
 /// Wall-clock CPU budget per invocation, enforced via epoch interruption.
 const DEADLINE_MS: u64 = 5_000;
 /// Epoch ticker cadence (coarse but < the smallest useful deadline).
@@ -58,6 +64,20 @@ impl ResourceLimiter for Limiter {
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
         Ok(desired <= 100_000)
+    }
+}
+
+/// Compile the guest module now rather than inside the first image request.
+/// Compilation took seconds on a cold process, and every request arriving meanwhile
+/// waited on it (and was answered "busy" once its deadline passed). Blocking; call
+/// from a background thread at start-up.
+pub fn warm() {
+    use base64::Engine as _;
+    const PIXEL: &str = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    if let Ok(png) = base64::engine::general_purpose::STANDARD.decode(PIXEL) {
+        let _ = reencode_image_classified(&png);
+    } else {
+        let _ = module();
     }
 }
 
@@ -406,5 +426,96 @@ mod tests {
         assert!(png.starts_with(b"\x89PNG\r\n\x1a\n"));
         assert_eq!(&png[16..24], &[0, 0, 0, 1, 0, 0, 0, 1]);
         assert!(reencode_image(&webp[..20]).is_err());
+    }
+}
+
+/// Throughput probe for the image re-encode path (run by hand:
+/// `cargo test -p mw-render --release --lib image_reencode_bench -- --ignored --nocapture`).
+/// Not an assertion test: it prints cold/warm latency and parallel scaling.
+#[cfg(test)]
+mod bench {
+    fn crc32(data: &[u8]) -> u32 {
+        let mut crc = 0xFFFF_FFFFu32;
+        for &b in data {
+            crc ^= u32::from(b);
+            for _ in 0..8 {
+                crc = if crc & 1 != 0 { (crc >> 1) ^ 0xEDB8_8320 } else { crc >> 1 };
+            }
+        }
+        !crc
+    }
+    fn chunk(out: &mut Vec<u8>, kind: &[u8; 4], data: &[u8]) {
+        out.extend((data.len() as u32).to_be_bytes());
+        let mut body = kind.to_vec();
+        body.extend(data);
+        out.extend(&body);
+        out.extend(crc32(&body).to_be_bytes());
+    }
+    /// An RGB PNG with deterministic noise, deflated with stored blocks.
+    fn png(width: u32, height: u32) -> Vec<u8> {
+        let mut raw = Vec::new();
+        let mut seed = 0x1234_5678u32;
+        for _ in 0..height {
+            raw.push(0);
+            for _ in 0..width * 3 {
+                seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                raw.push((seed >> 24) as u8 & 0xE0);
+            }
+        }
+        let mut z = vec![0x78, 0x01];
+        let mut chunks = raw.chunks(65_535).peekable();
+        while let Some(c) = chunks.next() {
+            z.push(u8::from(chunks.peek().is_none()));
+            z.extend((c.len() as u16).to_le_bytes());
+            z.extend((!(c.len() as u16)).to_le_bytes());
+            z.extend(c);
+        }
+        let (mut a, mut b) = (1u32, 0u32);
+        for &x in &raw {
+            a = (a + u32::from(x)) % 65_521;
+            b = (b + a) % 65_521;
+        }
+        z.extend(((b << 16) | a).to_be_bytes());
+        let mut out = b"\x89PNG\r\n\x1a\n".to_vec();
+        let mut ihdr = Vec::new();
+        ihdr.extend(width.to_be_bytes());
+        ihdr.extend(height.to_be_bytes());
+        ihdr.extend([8, 2, 0, 0, 0]);
+        chunk(&mut out, b"IHDR", &ihdr);
+        chunk(&mut out, b"IDAT", &z);
+        chunk(&mut out, b"IEND", &[]);
+        out
+    }
+    #[test]
+    #[ignore = "timing probe, run by hand"]
+    fn image_reencode_bench() {
+        use std::time::Instant;
+        let small = png(200, 120);
+        let medium = png(640, 400);
+        let t = Instant::now();
+        super::reencode_image(&small).expect("small");
+        println!("cold first call (module compile + 200x120): {:?}", t.elapsed());
+        for (name, image) in [("200x120", &small), ("640x400", &medium)] {
+            let t = Instant::now();
+            let mut out = 0;
+            for _ in 0..5 {
+                out = super::reencode_image(image).expect("reencode").len();
+            }
+            println!("warm {name}: in {} B out {out} B, {:?} per image", image.len(), t.elapsed() / 5);
+        }
+        for threads in [1usize, 2, 4, 8] {
+            let t = Instant::now();
+            let handles: Vec<_> = (0..threads * 4)
+                .map(|_| {
+                    let image = medium.clone();
+                    std::thread::spawn(move || super::reencode_image(&image).expect("reencode").len())
+                })
+                .collect();
+            // Run `threads` at a time by joining sequentially in waves.
+            for h in handles {
+                h.join().unwrap();
+            }
+            println!("{} jobs of 640x400 with {threads}-wide waves: {:?}", threads * 4, t.elapsed());
+        }
     }
 }

@@ -384,6 +384,20 @@ mod tests {
         assert_eq!(message_limit(effective.per_message, Some(200)), 30);
         assert_eq!(message_limit(effective.per_message, None), 30);
     }
+    /// Sizing decoders by the 512 MiB hard ceiling left small instances with one
+    /// decoder; the typical working set lets the cores be used.
+    #[test]
+    fn decoders_follow_cores_not_the_worst_case_memory_ceiling() {
+        let sized = |bytes| {
+            calculate(Mode::Auto, ceilings(), resources(4_000, 2), 8 * 1024 * 1024, bytes).decoders
+        };
+        let before = sized(512 * 1024 * 1024);
+        let after = sized(mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES);
+        assert_eq!(before, 2, "worst-case reservation halved the four cores");
+        assert_eq!(after, 4, "four cores, two GiB: one decoder per core");
+        let eight = calculate(Mode::Auto, ceilings(), resources(8_000, 4), 8 * 1024 * 1024, mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES);
+        assert_eq!(eight.decoders, 8);
+    }
     #[test]
     fn small_instances_scale_down_and_recover_with_real_headroom() {
         let small = calculate(

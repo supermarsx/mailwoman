@@ -1356,6 +1356,8 @@ async fn build_app_inner(
     }
     // Load the saved known-source table before serving, then keep it saved.
     trust_tier::start(store.clone()).await;
+    // Compile the image jail now, off the request path (a cold first image otherwise waits seconds).
+    drop(tokio::task::spawn_blocking(mw_render::media_jail::warm));
     let request_protection = request_protection::Runtime::start(store.clone());
     let admin_probe = admin_probe::Runtime::start(store.clone());
     let state = AppState {
