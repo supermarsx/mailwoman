@@ -1,0 +1,30 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-PT · Module: undo. Source: ../en/undo.ftl
+undo-done = Anulado: { $label }
+redo-done = Refeito: { $label }
+undo-cant-undo = Não é possível anular: { $label }
+undo-cant-undo-reason = Não é possível anular: { $reason }
+undo-cant-redo = Não é possível refazer: { $label }
+undo-cant-redo-reason = Não é possível refazer: { $reason }
+undo-reason-moved = a mensagem foi movida ou eliminada
+undo-reason-gone = a mensagem já não existe
+undo-group = Anular e refazer
+undo-button = Anular
+undo-button-next = Anular: { $label }
+undo-button-none = Nada para anular
+redo-button = Refazer
+redo-button-next = Refazer: { $label }
+redo-button-none = Nada para refazer
+undo-menu-button = Ações recentes a anular
+redo-menu-button = Ações a refazer
+undo-menu-title = Anular ações recentes
+redo-menu-title = Refazer ações
+undo-progress = A anular { $done } de { $total }
+redo-progress = A refazer { $done } de { $total }
+undo-setting-section = Anular e refazer
+undo-setting-enabled = Ativar o histórico de anular e refazer
+undo-setting-help = Mostra os botões Anular e Refazer na barra de ferramentas do correio e responde a Ctrl+Z e Ctrl+Shift+Z fora dos campos de texto. O histórico dura até terminar a sessão ou mudar de conta.
+undo-setting-size = Ações memorizadas
+undo-setting-size-count = { $count } ações
+undo-setting-capped = O administrador limita o histórico a { $max } ações.
+undo-setting-off = Desligado
