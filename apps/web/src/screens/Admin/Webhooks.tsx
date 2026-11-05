@@ -26,6 +26,7 @@ import { Feedback, describeAdminError } from './shell/Feedback.tsx';
 import { FormField } from './shell/FormField.tsx';
 import { loadCatalog, t } from '../../i18n';
 import { formatDateTime } from '../../i18n/format.ts';
+import { HostBrandCell } from '../../brands/BrandLogo.tsx';
 import * as css from './admin.css.ts';
 import * as shellCss from './shell/shell.css.ts';
 
@@ -233,9 +234,11 @@ export function Webhooks(): JSX.Element {
                           when={w.direction === 'outbound'}
                           fallback={(w.actions ?? []).map((a) => label(ACTION_LABELS, a)).join(', ')}
                         >
-                          <div class={css.mono} dir="ltr">
-                            {w.url}
-                          </div>
+                          <HostBrandCell host={w.url ?? ''}>
+                            <div class={css.mono} dir="ltr">
+                              {w.url}
+                            </div>
+                          </HostBrandCell>
                           <div class={css.note}>{(w.events ?? []).map((e) => label(EVENT_LABELS, e)).join(', ')}</div>
                         </Show>
                       </td>

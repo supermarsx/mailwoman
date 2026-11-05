@@ -1,3 +1,4 @@
+import { HostBrandCell } from '../../brands/BrandLogo.tsx';
 import {AsyncPending} from '../../components/AsyncState.tsx';
 import { controls, field, fields, editor, group, choices, check, actions } from './Egress.css.ts';
 // Egress-proxy routes admin (26.20 t22-e16), over t22-e12's API (`2eede09`):
@@ -521,7 +522,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
                     <>
                     <tr data-testid={`egress-row-${row.id}`} data-active={String(row.active)}>
                       <td class={css.mono}>{row.id}</td>
-                      <td class={css.mono}>{`${row.scheme}://${row.host}:${row.port}`}<Show when={row.scope}><p>{row.scope}</p></Show><Show when={row.trafficClasses?.length}><p>{row.trafficClasses?.map(value => t(`admin-egress-class-${value}`)).join(', ')}</p></Show></td>
+                      <td class={css.mono}><HostBrandCell host={row.host}>{`${row.scheme}://${row.host}:${row.port}`}</HostBrandCell><Show when={row.scope}><p>{row.scope}</p></Show><Show when={row.trafficClasses?.length}><p>{row.trafficClasses?.map(value => t(`admin-egress-class-${value}`)).join(', ')}</p></Show></td>
                       <td>{row.username}</td>
                       <td>
                         {/* The only credential fact the server will state, and the

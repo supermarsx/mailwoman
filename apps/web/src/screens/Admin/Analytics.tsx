@@ -1,3 +1,4 @@
+import { BrandCell } from '../../brands/BrandLogo.tsx';
 import { For, Show, createSignal, onMount, useContext, type JSX } from 'solid-js';
 import { analyticsApi, type AnalyticsApi, type AnalyticsConfig, type AnalyticsView } from '../../api/admin/analytics.ts';
 import { formatNumber, loadCatalog, t } from '../../i18n';
@@ -39,7 +40,7 @@ export function Analytics(props:{api?:AnalyticsApi;tagApi?:AnalyticsTagApi}):JSX
     <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('admin-analytics-reload')}</button>}><AsyncPending /></Show>}>{value=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
       <AdminSubsection title={t('admin-analytics-collector')}>
         <label><input type="checkbox" checked={value().enabled} disabled={!writable()||busy()} onChange={event=>change({enabled:event.currentTarget.checked})}/> {t('admin-analytics-enabled')}</label>
-        <label class="field"><span>{t('admin-analytics-provider')}</span><select value={value().provider} disabled={!writable()||busy()} onChange={event=>{const provider=event.currentTarget.value as AnalyticsConfig['provider'];setApiSecret('');setClearApiSecret(false);change({provider,...(provider==='ga4'?{endpoint:'https://www.google-analytics.com/mp/collect',allowHttp:false}:{})});}}><option value="umami">Umami</option><option value="matomo">Matomo</option><option value="ga4">Google Analytics 4</option></select></label>
+        <label class="field"><span>{t('admin-analytics-provider')}</span><BrandCell brand={value().provider} size={24}><select value={value().provider} disabled={!writable()||busy()} onChange={event=>{const provider=event.currentTarget.value as AnalyticsConfig['provider'];setApiSecret('');setClearApiSecret(false);change({provider,...(provider==='ga4'?{endpoint:'https://www.google-analytics.com/mp/collect',allowHttp:false}:{})});}}><option value="umami">Umami</option><option value="matomo">Matomo</option><option value="ga4">Google Analytics 4</option></select></BrandCell></label>
         <Show when={value().provider==='ga4'} fallback={<>
         <label class="field"><span>{t('admin-analytics-endpoint')}</span><input type="url" maxlength={2048} required={value().enabled} value={value().endpoint} disabled={!writable()||busy()} onInput={event=>change({endpoint:event.currentTarget.value})}/><small>{t('admin-analytics-endpoint-help')}</small></label>
         <label class="field"><span>{t('admin-analytics-site')}</span><input maxlength={64} required={value().enabled} value={value().siteId} disabled={!writable()||busy()} onInput={event=>change({siteId:event.currentTarget.value})}/><small>{t('admin-analytics-site-help')}</small></label>

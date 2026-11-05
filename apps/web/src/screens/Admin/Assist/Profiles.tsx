@@ -17,6 +17,8 @@
 // "Test" sends a fixed one-line prompt with no mail content and shows the time
 // to the end of the reply, or the classified error.
 
+import { BrandCell } from '../../../brands/BrandLogo.tsx';
+import { brandForHost, brandInText } from '../../../brands/registry.ts';
 import { For, Show, createMemo, createSignal, onMount, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { PasswordInput } from '../../../components/PasswordInput.tsx';
@@ -285,7 +287,7 @@ export function AssistProfiles(props: AssistProfilesProps): JSX.Element {
                             {p.name}
                             <div class={css.mono}>{p.id}</div>
                           </td>
-                          <td>{presetOf(p.preset)?.label ?? p.preset}</td>
+                          <td><BrandCell brand={brandForHost(p.endpoint)?.id ?? brandInText(presetOf(p.preset)?.label ?? p.preset)?.id ?? (presetOf(p.preset)?.label ?? p.preset)} size={16}>{presetOf(p.preset)?.label ?? p.preset}</BrandCell></td>
                           <td class={css.mono}>{p.endpoint}</td>
                           <td class={css.mono}>{p.model}</td>
                           <td>{p.hasApiKey ? t('assist-profiles-key-stored') : t('assist-profiles-key-none')}</td>

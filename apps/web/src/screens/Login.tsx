@@ -9,6 +9,8 @@ import { isNativeAuth } from '../api/serverAddress.ts';
 import { basePath } from '../api/basePath.ts';
 import { useApp } from '../state/context.ts';
 import { t, loadCatalog } from '../i18n';
+import { BrandLabel } from '../brands/BrandLogo.tsx';
+import { brandInText } from '../brands/registry.ts';
 import { listSsoProviders, ssoBeginPath, type SsoProviderSummary } from '../modules/sso';
 import { TwoFactorChallenge } from './Settings/TwoFactorChallenge.tsx';
 import { authCard, authPage } from '../styles/authCard.css.ts';
@@ -260,7 +262,9 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
                   data-sso-id={p.id}
                   rel="nofollow"
                 >
-                  {t('auth-sso-button', { name: p.displayName })}
+                  <Show when={brandInText(p.displayName) ?? brandInText(p.id)} fallback={t('auth-sso-button', { name: p.displayName })}>
+                    {(brand) => <BrandLabel brand={brand().id} label={t('auth-sso-button', { name: p.displayName })} />}
+                  </Show>
                 </a>
               )}
             </For>

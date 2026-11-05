@@ -1,3 +1,4 @@
+import { BrandCell } from '../../brands/BrandLogo.tsx';
 import { For, Match, Show, Switch, createMemo, createSignal, onMount, untrack, useContext, type JSX } from 'solid-js';
 import { TAG_PROVIDERS, analyticsTagApi, type AnalyticsTagApi, type AnalyticsTagConfig, type AnalyticsTagTest, type AnalyticsTagView, type TagProvider } from '../../api/admin/analyticsTag.ts';
 import { formatNumber, loadCatalog, t } from '../../i18n';
@@ -109,9 +110,11 @@ export function AnalyticsTag(props: { api?: AnalyticsTagApi }): JSX.Element {
     <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={() => void reload()}>{t('admin-analytics-reload')}</button>}><AsyncPending /></Show>}>{value => <form class={css.subsectionBody} onSubmit={event => void save(event)} aria-label={t('admin-analytics-tag-title')}>
       <label class={ux.checkboxRow}><input type="checkbox" checked={value().enabled} disabled={disabled()} onChange={event => change({ enabled: event.currentTarget.checked })} /> {t('admin-analytics-tag-enabled')}</label>
       <label class="field"><span>{t('admin-analytics-tag-provider')}</span>
+        <BrandCell brand={value().provider === 'custom' ? '' : value().provider} size={24}>
         <select class={ux.control} value={value().provider} disabled={disabled()} onChange={event => change({ provider: event.currentTarget.value as TagProvider })}>
           <For each={TAG_PROVIDERS}>{provider => <option value={provider}>{provider === 'custom' ? t('admin-analytics-tag-custom') : PROVIDER_NAMES[provider]}</option>}</For>
         </select>
+        </BrandCell>
       </label>
       <Show when={value().provider !== 'custom'} fallback={<CustomFields value={value()} disabled={disabled()} change={change} snippetBytes={snippetBytes()} max={view()?.maxSnippetBytes ?? 32768} />}>
         <label class="field"><span>{siteLabel(value().provider)}</span>

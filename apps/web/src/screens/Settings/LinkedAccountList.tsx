@@ -4,6 +4,7 @@ import {NICKNAME_MAX,cleanNickname,linkOf,orderedKeys} from '../../api/mailboxLa
 import {createPointerReorder} from '../../components/accounts/pointerReorder.ts';
 import {MailboxAvatarEditor} from './MailboxAvatarEditor.tsx';
 import type {MailboxAvatarSpec} from '../../api/mailboxAvatar.ts';
+import {HostBrandCell} from '../../brands/BrandLogo.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import {isolate,t} from '../../i18n/index.ts';
 import * as a11y from '../../components/mailA11y.css.ts';
@@ -123,7 +124,7 @@ export function LinkedAccountList(props:{
               onSave={avatar=>props.onAvatar?.(linkId,avatar)??Promise.resolve(false)}/>
             <Show when={renaming()===key} fallback={
               <div class={table.who} title={nicknameOf(key)?`${nicknameOf(key)}\n${addressOf(key)}`:addressOf(key)}>
-                <span class={table.name} data-linked-name>{isolate(labelOf(key))}</span>
+                <HostBrandCell host={addressOf(key)}><span class={table.name} data-linked-name>{isolate(labelOf(key))}</span></HostBrandCell>
                 <Show when={labelOf(key)!==addressOf(key)}><span class={table.address}>{isolate(addressOf(key))}</span></Show>
                 <Show when={expired()}><span class={a11y.srOnly}>{t('linked-accounts-expired')}</span></Show>
               </div>}>
