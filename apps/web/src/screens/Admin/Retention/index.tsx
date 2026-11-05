@@ -7,7 +7,7 @@
 import { For, Show, createResource, createSignal, onMount, type JSX } from 'solid-js';
 import { formatDateTime, formatNumber, loadCatalog, t } from '../../../i18n';
 import {
-  loadRetention, previewRetention, runRetention,
+  loadArchive, loadClasses, loadRetention, loadUserRules, previewRetention, restoreArchive, runRetention, searchArchive, verifyArchive,
   type DryRun, type RetentionSnapshot, type RetentionStore,
 } from '../../../api/admin/retention.ts';
 import { listAdminSettings, type AdminSetting } from '../../../api/admin/settings.ts';
@@ -18,6 +18,7 @@ import { StatsSection } from '../shell/ChartCard.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import { StatTile } from '../shell/StatTile.tsx';
 import * as css from '../admin.css.ts';
+import { TiersPanel, type TiersApi } from './TiersPanel.tsx';
 import { formatBytes, keepsForever, limitKeys, limitMessage, storeData, storeLabel, topBy } from './model.ts';
 
 const when = (s: number | null): string => (s === null ? t('admin-retention-never') : formatDateTime(s * 1000));
@@ -27,15 +28,23 @@ export interface RetentionApi {
   preview: () => Promise<DryRun>;
   run: () => Promise<{ runId: string }>;
   settings: () => Promise<AdminSetting[]>;
+  /** Classes, archive tier and user rules; the panel is shown when present. */
+  tiers?: TiersApi;
 }
+
+const loadSettings = async (): Promise<AdminSetting[]> => {
+  const r = await listAdminSettings();
+  return r.kind === 'ok' ? r.data : [];
+};
 
 const liveApi: RetentionApi = {
   load: loadRetention,
   preview: previewRetention,
   run: runRetention,
-  settings: async () => {
-    const r = await listAdminSettings();
-    return r.kind === 'ok' ? r.data : [];
+  settings: loadSettings,
+  tiers: {
+    classes: loadClasses, archive: loadArchive, userRules: loadUserRules, verify: verifyArchive,
+    search: searchArchive, restore: restoreArchive, settings: loadSettings,
   },
 };
 
@@ -168,6 +177,8 @@ export default function Retention(props: { api?: RetentionApi }): JSX.Element {
               <BarChart testId="retention-chart-size" title={t('admin-retention-chart-size')} bars={topBy(s().stores, (x) => x.bytes).map((x) => ({ label: label(x.id), value: x.value }))} format={formatBytes} emptyText={t('admin-retention-chart-empty')} />
               <BarChart testId="retention-chart-purged" title={t('admin-retention-chart-purged')} bars={topBy(s().stores, (x) => (x.owner === 'sweeper' ? x.purged : null)).map((x) => ({ label: label(x.id), value: x.value }))} emptyText={t('admin-retention-chart-empty')} />
             </StatsSection>
+
+            <Show when={api.tiers}>{(tiers) => <TiersPanel api={tiers()} />}</Show>
 
             <AdminSubsection title={t('admin-retention-limits')} description={t('admin-retention-limits-note')}>
               <For each={settingRows([...Object.values(s().sweeper.keys), ...limitKeys(s().stores)])}>{(row) => (

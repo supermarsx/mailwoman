@@ -31,7 +31,7 @@ describe('Settings navigation categories (t66)', () => {
   it('every section belongs to exactly one category', () => {
     const ids = SETTINGS_CATEGORIES.flatMap(category => category.sections.map(entry => entry.id));
     expect(new Set(ids).size).toBe(ids.length);
-    expect(ids).toHaveLength(21);
+    expect(ids).toHaveLength(22);
     expect(categoryOf('linked-accounts')?.id).toBe('account');
     expect(categoryOf('metadata')?.id).toBe('about');
     expect(categoryOf('preferences')).toBeUndefined();
@@ -44,7 +44,7 @@ describe('Settings navigation categories (t66)', () => {
     expect(within(account).getAllByRole('button').map(button => button.textContent)).toEqual(['Linked mailboxes', 'Identities', 'Signatures', 'Security centre', 'Privacy']);
     // Headings are labels, not entries.
     expect(within(nav).queryByRole('button', { name: 'Account' })).toBeNull();
-    expect(desktopEntries(nav)).toHaveLength(21);
+    expect(desktopEntries(nav)).toHaveLength(22);
   });
 
   it('hides a category whose sections are all unavailable', () => {

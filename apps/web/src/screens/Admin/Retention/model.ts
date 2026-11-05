@@ -33,6 +33,20 @@ export function topBy(stores: readonly RetentionStore[], pick: (s: RetentionStor
     .slice(0, limit);
 }
 
+/** Labels of the age buckets for the given edges (days): younger than the first edge, ..., older than the last. */
+export function bucketLabels(edges: readonly number[], translate: (id: string, args?: Record<string, number>) => string): string[] {
+  const out = edges.map((e, i) => (i === 0
+    ? translate('admin-retention-age-under', { days: e })
+    : translate('admin-retention-age-between', { from: edges[i - 1] ?? 0, to: e })));
+  out.push(translate('admin-retention-age-over', { days: edges[edges.length - 1] ?? 0 }));
+  return out;
+}
+
+/** Message ids for the cross-check warnings of the class settings. */
+export function classWarnings(c: { warnings: readonly string[] }): string[] {
+  return c.warnings.map((w) => `admin-retention-warn-${w}`);
+}
+
 export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   const units = ['KiB', 'MiB', 'GiB', 'TiB'];

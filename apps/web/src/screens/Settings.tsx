@@ -10,6 +10,7 @@ import { NextcloudAccounts } from './Settings/NextcloudAccounts.tsx';
 import { MailTransfer } from './Settings/MailTransfer.tsx';
 import { Receipts } from './Settings/Receipts.tsx';
 import { FolderPreferences } from './Settings/FolderPreferences.tsx';
+import { RetentionRules } from './Settings/RetentionRules.tsx';
 import { createSettingsNavigation, SettingsNavigationContext, type SettingsNavigation } from './Settings/navigation.tsx';
 import * as workspace from './Settings/workspace.css.ts';
 import { Icon } from '../components/Icon.tsx';
@@ -168,6 +169,7 @@ export function Settings(props: SettingsProps): JSX.Element {
     void loadCatalog('linked-accounts');
     void loadCatalog('mail-transfer');
     void loadCatalog('receipts');
+    void loadCatalog('retention');
     void loadCatalog('packages');
     void loadCatalog('labels');
     void loadCatalog('appearance');
@@ -350,6 +352,7 @@ export function Settings(props: SettingsProps): JSX.Element {
               <RetainedSettingsSection name="linked-accounts" active={visible('linked-accounts')} retain={false}>{()=><AsyncBoundary><LinkedAccounts/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="folders" active={visible('folders')}>{()=><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="mail-transfer" active={visible('mail-transfer')}>{()=><AsyncBoundary><MailTransfer accountId={accountId()} mailboxes={app.mailboxes()} onImported={()=>void app.refreshFolders()}/></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="retention" active={visible('retention')}>{()=><AsyncBoundary><RetentionRules folders={app.mailboxes}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="receipts" active={visible('receipts')}>{()=><AsyncBoundary><Receipts accountId={accountId()}/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="compose" active={visible('compose')}>{()=><AsyncBoundary><ComposePreferences /><DraftSavePreferences/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="shortcuts" active={visible('shortcuts')}>{()=><AsyncBoundary><KeyboardShortcuts navigation={navigation}/><MailInteractionPreferences/><MailFeaturePreferences/><UndoRedoPreferences/></AsyncBoundary>}</RetainedSettingsSection>

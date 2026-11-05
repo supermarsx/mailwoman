@@ -21,12 +21,12 @@ import {DeleteTreeDialog,MoveFolderDialog,TransferDialog} from './FolderBulkDial
 import {useActions} from '../keymap/index.ts';
 import * as renameCss from './renameFolder.css.ts';
 import * as css from './contextMenu.css.ts';
-export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number;/** Folders picked with the marquee; a menu opened on one of several offers bulk actions. */selection?:()=>ReadonlySet<string>}):JSX.Element {
+export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;/** Opens Settings > Retention with a rule started for this folder. */onRetention?:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number;/** Folders picked with the marquee; a menu opened on one of several offers bulk actions. */selection?:()=>ReadonlySet<string>}):JSX.Element {
  const [creating,setCreating]=createSignal(false),[cleaning,setCleaning]=createSignal(false);
  const app=useApp();const [empty,setEmpty]=createSignal(false);const [deleting,setDeleting]=createSignal(false);const [deletingTree,setDeletingTree]=createSignal(false),[moving,setMoving]=createSignal(false),[transfer,setTransfer]=createSignal<'copy'|'move'|null>(null);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
  const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal<'inline'|'dialog'|null>(null);let row:HTMLDivElement|undefined;
  // Ask for the empty-folder and rename abilities now, so the first menu opened already has them.
- onMount(()=>{void loadCatalog('folder-select');void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');ability();renameContext();});
+ onMount(()=>{void loadCatalog('folder-select');void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('retention');void loadCatalog('rename-folder');ability();renameContext();});
  // Rename (t65): inline in the list, a modal on phones and in the compact rail.
  function startRename():void {const box=app.mailboxes().find(value=>value.id===props.box.id);if(!box||!canRename(box)||renaming())return;setRenaming(prefersRenameDialog(row)?'dialog':'inline');}
  function endRename():void {setRenaming(null);queueMicrotask(()=>row?.querySelector<HTMLElement>('.sidebar__box')?.focus());}
@@ -64,6 +64,7 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
   // Any real folder (t45): ordinary folders move to Trash, Trash and Junk empty for good.
   if(canEmpty(box))rows.push({id:'empty',label:t('empty-folder-action'),icon:'delete',run:()=>{if(app.mailboxes().some(value=>value.id===box.id)&&canEmpty(box))setEmpty(true);}});
   rows.push({id:'settings',label:t('mail-context-folder-settings'),icon:'settings',separatorBefore:true,run:props.onSettings});
+  if(props.onRetention&&box.mailwomanSearchQuery===undefined)rows.push({id:'retention',label:t('retention-context-action'),icon:'archive',run:props.onRetention});
   if(box.role!=='inbox')rows.push({id:'hide',label:t('mail-context-hide-folder'),icon:'eye',run:()=>{
    const hidden=accountUiPreferences().folderHidden??[];
    if(!hidden.includes(box.id))setAccountUiPreferences({folderHidden:[...hidden,box.id]});

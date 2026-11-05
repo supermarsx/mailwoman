@@ -85,6 +85,7 @@ import { featureOn } from '../state/features.ts';
 import { createShellRouter, isPimSurface, type ShellSurface } from '../shell/router.ts';
 import { shouldRefetchPim } from '../realtime/pimRefetch.ts';
 import { useActions } from '../keymap/index.ts';
+import { setRetentionFolder } from '../state/retentionFocus.ts';
 // V7 Assist in the mailbox (plan §14.3, e14b): the chat panel + the semantic-search
 // toggle. Both are gated on the Assist gateway/capabilities, so a Disabled gateway
 // renders NOTHING and the mailbox is unchanged.
@@ -896,7 +897,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
           <For each={sectionRows(custom).map(row=>row.box.id)}>
             {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
-              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 {...prefetch}

@@ -22,6 +22,11 @@ it('offers pin and real folder actions without navigating on open',async()=>{
  expect(screen.queryByRole('button',{name:'More actions: Inbox'})).toBeNull();fireEvent.keyDown(screen.getByText('Inbox target'),{key:'F10',shiftKey:true});expect(screen.getByRole('menuitem',{name:'Unpin'})).toBeInTheDocument();fireEvent.click(screen.getByRole('menuitem',{name:'Folder settings'}));expect(settings).toHaveBeenCalledOnce();expect(open).not.toHaveBeenCalled();
  fireEvent.keyDown(screen.getByText('Inbox target'),{key:'F10',shiftKey:true});suspendAccountPreferences();expect(screen.queryByRole('menu')).toBeNull();
 });
+it('offers Retention… only when the screen can open it, and calls it once',async()=>{
+ const app=createAppState(makeClient()),retention=vi.fn();
+ render(()=><AppContext.Provider value={app}><FolderContextMenu box={MAILBOXES[0]!} onOpen={()=>{}} onSettings={()=>{}} onRetention={retention} onShare={()=>{}} canShare={()=>false} onProbe={()=>{}}><button>Inbox target</button></FolderContextMenu></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});await waitFor(()=>expect(app.mailboxes()).toHaveLength(3));
+ fireEvent.contextMenu(screen.getByText('Inbox target'));fireEvent.click(await screen.findByRole('menuitem',{name:'Retention…'}));expect(retention).toHaveBeenCalledOnce();
+});
 it('does not open sharing after a pending selection crosses account authority',async()=>{
  const app=createAppState(makeClient()),share=vi.fn();render(()=><AppContext.Provider value={app}><FolderContextMenu box={MAILBOXES[0]!} onOpen={()=>{}} onSettings={()=>{}} onShare={share} canShare={()=>true} onProbe={()=>{}}><button>Inbox target</button></FolderContextMenu></AppContext.Provider>);await app.login({username:'me@example.org',password:'p'});
  let finish!:()=>void;vi.spyOn(app,'selectMailbox').mockImplementation(async()=>await new Promise<void>(resolve=>{finish=resolve;}));fireEvent.contextMenu(screen.getByText('Inbox target'));fireEvent.click(screen.getByRole('menuitem',{name:'Share folder'}));suspendAccountPreferences();finish();await Promise.resolve();expect(share).not.toHaveBeenCalled();

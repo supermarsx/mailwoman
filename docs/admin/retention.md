@@ -63,12 +63,78 @@ After `retention.ipAddresses.days` days the address in authentication history (`
 
 ### Not swept, and why
 
-- **Mail, calendars, contacts, notes, drafts and templates** are the user's own data, not logs. They stay until the user or an administrator deletes them, or an erasure request removes them.
+- **Mail, calendars, contacts, notes, drafts and templates** are the user's own data, not logs. They stay until the user or an administrator deletes them, a retention rule the user set (or an organisation-wide rule, see below) acts on mail, or an erasure request removes them. Calendars, notes and contacts have no retention rules yet.
 - **Account credentials and second factors** (password hashes, TOTP secrets, passkeys, recovery codes, push subscriptions, API keys) are live configuration of an account. They are removed with the account or by an erasure request, not by age.
 - **Invitations and pre-provisioned sign-ins** expire by `signin.preprovision.ttlDays`; their records are removed with the account that used them.
 - **Image proxy latency and statistics** (`remote_image_latency`, `remote_image_history`, tracker counts) are in process memory only. They hold no address, are kept 24 hours, and are lost on restart.
 - **Search index** entries belong to the user's mail and are removed with the message or the account; there is no age limit.
 - **Postgres or SQLite write-ahead logs and backups** follow the database's own settings. Database backups taken by `backup.*` keep rows that this page removes until the backup itself is deleted (`backup.retentionCount`).
+
+## Retention classes
+
+Every store above belongs to one of three classes. A class is a ceiling in days and a way to talk about a group of stores. The class of each store is in the console (**Administration > Retention**, classes) and in the table below.
+
+| Class | What it holds | Ceiling setting | Default |
+| --- | --- | --- | --- |
+| Short | Operational data: sessions, tokens, remembered devices, sign-in challenges, source failures, image links, the outbox, alert events, job history, request and load-time metrics, diagnostics, uploads, log files. Stores: `alertEvents`, `jobRuns`, `outbox`, `sessions`, `nativeSessions`, `rememberedDevices`, `signinChallenges`, `oidcTokens`, `oidcCodes`, `oauthTokens`, `webhookNonces`, `sourceFailures`, `imageHandles`, `requestMetrics`, `clientTiming`, `diagnostics`, `uploads`, `logFiles`. | `retention.class.short.days` | 365 days |
+| Medium | Security and sign-in history: `authHistory`, `authHistoryIp`, `auditLogIp`, `protectionEvents`, `protectionSubjects`, `sessionWatch`, `openTracking`, `securityNotices`, `usageCounters`, `accountGeo`. | `retention.class.medium.days` | 1095 days (3 years) |
+| Long | Security audit and records of requests: `auditLog`, `passwordChangeAudit`, `ssoLoginAudit`, `dlpAudit`, `assistAudit`, `dsrRequests`. | `retention.class.long.days` | 2555 days (7 years) |
+
+- **Cross-check.** The long class must not be below the medium class and the medium class must not be below the short class. A value that breaks this is raised to the class below it when it is used, and the console shows a warning.
+- **Forever.** Only the long class can be set to 0, which keeps its data (including the archive) for ever. The console shows a warning for it. Choosing a period is a decision for the operator; this page does not say what period any law or contract requires.
+- **`retention.class.enforce`** (off by default). With it off, each store keeps the limit set for it, and the class ceilings are shown for comparison; a store whose own limit is above its class (or 0) is marked in the console. With it on, each store's limit is held to its class ceiling and 0 counts as the ceiling. The expiry grace of tokens (`retention.expiredCredentials.graceDays`) is never changed by it.
+- The age of the stored rows of each class is drawn in the console as bars (under 30 days, 30 to 90, 90 to 365, 1 to 3 years, over 3 years) for the stores that have an age column the sweeper reads.
+
+## Long-term archive
+
+With `retention.archive.enabled`, the stores that have an archive table (`passwordChangeAudit`, `ssoLoginAudit`, `dlpAudit`, `assistAudit`) do not delete rows older than their own limit. The sweeper moves them into sealed archive files instead. The hash-chained audit log keeps its own prune and checkpoint (see the audit retention page) and is not archived.
+
+- **Files.** A file is gzip-compressed JSON lines: one header line, then one object per row. It is written under a temporary name and renamed, once. The directory is `retention.archive.directory` (a local directory, absolute or relative to the working directory; parent-directory segments are refused). There is no remote destination: the archive is a directory, and moving it to other storage is up to the operator.
+- **Order.** A row leaves the hot table only after its file is on disk and its metadata and index rows are committed. A run that stops in between repeats only the delete on the next run; rows already in the index are not archived twice. `retention.archive.batchRows` rows go into one file and `retention.archive.maxSegments` files are written per store per run.
+- **Seal and chain.** Each file has a SHA-256 hash and a seal, `HMAC-SHA256(key, previous seal | file hash | store | number | row count | first and last time | key generation)`. The key is derived from the server key and `retention.archive.keyGeneration`. The first file of a store links to the fixed value `genesis`. A changed file, a changed or removed metadata row, or a reordered file is reported as `contentChanged`, `sealMismatch`, `chainBroken` or `missing`.
+- **Key rotation.** Raise `retention.archive.keyGeneration`. New files are sealed with the new generation; older files carry their own generation and still check. The seal key follows the server key, so losing the server key means the seals can no longer be checked.
+- **Index.** Each archived row has an index entry (store, row key, time, account id), so a lookup by row id or by account opens one file. Row contents are only in the file.
+- **Check job.** The `retention_archive` job (daily) verifies every file when `retention.archive.verifyDays` have passed since the last check, then removes files whose newest row is older than the long class. The outcome is shown in the console (files, rows, size, last check, files failing) and every failure or removal is an audit entry (counts only). **Check the archive now** runs the check at once.
+- **Legal hold.** `retention.archive.legalHold` keeps every file whatever the long class says. Rows of accounts in `dsr.legalHold.subjects` are not archived or deleted by the sweeper.
+- **Search, restore, export.** In the console an administrator can look up archived rows by row id or account id (each search is an audit entry), restore a file (its rows go back into the table; rows already there are skipped) and download a file as JSON lines.
+- **Removing a file** deletes the file and its index rows and keeps its metadata row (state `purged`), so the chain of the files after it stays checkable.
+- Database backups (`backup.*`) and copies of the archive directory keep data this page removes until those copies are deleted.
+
+## User retention rules
+
+Each person can set rules for their own mail in **Settings > Retention**, and start one from a folder's context menu (**Retention…**). Rules are kept in the database (`user_retention_rule`) and run by the `user_retention` job (daily, at most once per `retention.user.intervalHours` per account) and on request with **Run my rules now**. The job reaches the mailbox through the mail engine's JMAP methods (`Mailbox/get`, `Email/query`, `Email/get`, `Email/set`), the same way the web client does, so it works for accounts proxied to an IMAP server.
+
+**What a rule can do.** Keep for ever; delete after N days (to Trash first, or permanently where allowed); move to Trash; move to Archive; move to a chosen folder; mark as read. Removing attachments is not available and is refused when a rule names it. **What a rule can look at:** folders (with or without sub-folders, or a role such as Inbox, Junk, Trash), labels (keywords), sender addresses and domains, size, read state, attachment. **What a rule leaves alone:** flagged mail, unread mail (optional) and mail with a label such as `keep` (default). A rule that matches a message too young for it lets the next rule look; a `keep` rule or an exclusion ends the search with no change. Folder defaults apply to a folder and its sub-folders, deepest first, after the explicit rules; the Inbox has none unless the person adds one.
+
+**Order of decisions** for a message: the Trash undo window, then the organisation-wide rules, then protected folders, then the person's rules and folder defaults.
+
+- **Undo window.** A rule that deletes moves the message to Trash and adds the keyword `mw-ret-<day>`. It is purged `retention.user.undoDays` days after that day (a person may choose a shorter window). A message in Trash without that keyword is left to the organisation-wide Trash rule.
+- **Dry run equals real run.** The preview and the run build the same plan from the same code, so "this would change 1,243 messages" is what the run does, up to `retention.user.maxPerRun`. The preview lists up to 20 examples (subject, sender, date, action); examples are shown to the person and never written to a log.
+- **Batches and pacing.** `retention.user.batchMessages` messages per call (at most 200), `retention.user.pauseMs` between calls, `retention.user.maxPerRun` changes per account per run; the rest waits for the next run. A folder is read only when some rule could act on it, and only for messages older than the shortest age that could apply; one folder scan stops at 20,000 messages.
+- **Idempotent.** A message that was moved, read or stamped no longer matches, so a second run finds nothing.
+- **Skipped accounts.** An account covered by `dsr.legalHold.subjects` is skipped whole. An account under a restriction of processing is skipped unless `retention.user.runForRestricted` is on.
+- **Records.** A run writes a row of counts (matched, changed, errors) and, when it changed something, an audit entry with the same counts. No subject, sender or address is stored.
+
+| Setting | Scope | Default | What it controls |
+| --- | --- | --- | --- |
+| `retention.user.enabled` | global, domain | on | Whether rules can be saved and run. Off: existing rules do not run; the organisation-wide rules still do. |
+| `retention.user.minDays` | global, domain | 7 | Fewest days before a deleting rule acts. Refused on save, raised when it runs. |
+| `retention.user.maxDays` | global, domain | 0 | Most days a deleting rule may wait; 0 sets no ceiling. |
+| `retention.user.maxRules` | global, domain | 50 | Rules per person. |
+| `retention.user.allowPermanentDelete` | global, domain | off | Whether a rule may delete for good. Off: always Trash first. |
+| `retention.user.undoDays` | global, domain | 7 | Days in Trash before a rule's purge. |
+| `retention.user.mandatory` | global, domain | none | Organisation-wide rules, as `role:days` (for example `trash:30`, `junk:30`). They purge that folder, ignore a person's exclusions and pause switch, and cannot be changed by the person. Mail under a legal hold is skipped. |
+| `retention.user.protectedFolders` | global, domain | `drafts` | Folders no rule touches, by role or name. A protected folder wins over an organisation-wide rule for the same folder. |
+| `retention.user.templates` | global, domain | all six | Templates offered: `newsletters30`, `receipts365`, `notifications14`, `trash30`, `junk30`, `readArchive180`. They use the labels `newsletter`, `receipt` and `notification` and ask the person to check them. |
+| `retention.user.runForRestricted` | global | off | Run for accounts under a restriction of processing. |
+| `retention.user.intervalHours` | global | 24 | Hours between scheduled runs of one account. |
+| `retention.user.batchMessages`, `retention.user.maxPerRun`, `retention.user.pauseMs` | global | 200, 5000, 100 | Batch size, changes per account per run, pause between calls. |
+
+Because the keys have domain scope, the usual lock and default controls apply: an administrator can lock a value for the whole server or for a domain.
+
+**What applies to a person.** `GET /api/retention/effective` (signed-in user) returns the retention that applies to the caller: the organisation-wide mail rules, the person's own rules with the days after the administrator's limits, and for each store that holds the person's data its class, days, whether it is kept for ever and whether the archive holds it afterwards. The same data comes from the function `user_retention::effective_for_account`, which other server code can call.
+
+The console shows the number of people with rules, active rules, messages changed in the last 30 days and the last job.
 
 ## Log rotation
 

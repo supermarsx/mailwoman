@@ -12,7 +12,7 @@ describe('Settings section icons (t86)', () => {
   it('the sections show the icons chosen for them', () => {
     expect(Object.fromEntries(sections.map((section) => [section.id, section.icon]))).toEqual({
       'linked-accounts': 'mailboxes', identities: 'identityProvider', signatures: 'signature', security: 'shield', privacy: 'eyeOff',
-      reader: 'mailRead', compose: 'compose', folders: 'folder', labels: 'tag', rules: 'filter', searches: 'search', receipts: 'mailCheck', 'mail-transfer': 'transfer',
+      reader: 'mailRead', compose: 'compose', folders: 'folder', retention: 'archive', labels: 'tag', rules: 'filter', searches: 'search', receipts: 'mailCheck', 'mail-transfer': 'transfer',
       appearance: 'palette', shortcuts: 'keyboard', notifications: 'bell', time: 'clock',
       nextcloud: 'nextcloud', packages: 'package', access: 'key',
       metadata: 'serverMetadata',

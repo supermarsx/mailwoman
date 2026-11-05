@@ -732,3 +732,4 @@ settings-header-collapse-expanded = Always show
 settings-header-collapse-collapsed = Fold to a summary line
 settings-header-collapse-auto = Fold while I write the body
 settings-header-collapse-help = Folded, the header shows one line such as To: Ana +2 and opens when you click it or a field needs attention.
+settings-retention-title = Retention

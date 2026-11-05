@@ -1626,6 +1626,106 @@ trusted source IP in a rolling 900-second window. `security.signin.mailboxFailur
 from `signin.retryCooldownSecs` (failed-attempt pacing) and manual global IP bans. Source counters
 are durable across replicas; rejection while locked does not extend expiry. Admin and mailbox
 counters are separate. A successful completed login resets its matching source/surface counter;
+<a id="retention.user.enabled"></a>
+### Users may set retention rules (`retention.user.enabled`)
+Global and domain, hot. Default `true`. Users can set their own retention rules for folders and mail. When off, existing user rules stop running; the organisation-wide rules below still run.
+
+<a id="retention.user.minDays"></a>
+### Fewest days before a user rule deletes mail (`retention.user.minDays`)
+Global and domain, hot. Default `7`. A user rule that deletes mail cannot act on mail younger than this. A smaller value is refused when the rule is saved and raised when it runs.
+
+<a id="retention.user.maxDays"></a>
+### Most days a user rule may wait to delete mail (`retention.user.maxDays`)
+Global and domain, hot. Default `0`. A user rule that deletes mail cannot wait longer than this. 0 sets no ceiling. A larger value is refused when the rule is saved and lowered when it runs.
+
+<a id="retention.user.maxRules"></a>
+### Most retention rules per user (`retention.user.maxRules`)
+Global and domain, hot. Default `50`. The most retention rules one user may keep.
+
+<a id="retention.user.allowPermanentDelete"></a>
+### User rules may delete mail permanently (`retention.user.allowPermanentDelete`)
+Global and domain, hot. Default `false`. When off, a delete rule always moves mail to Trash and the undo window applies before it is purged.
+
+<a id="retention.user.undoDays"></a>
+### Undo window for retention rules (days) (`retention.user.undoDays`)
+Global and domain, hot. Default `7`. Days mail moved to Trash by a retention rule stays there before it is purged. A user may choose a shorter window. 0 purges at the next run.
+
+<a id="retention.user.mandatory"></a>
+### Organisation-wide mail rules (`retention.user.mandatory`)
+Global and domain, hot. Default `[]`. Rules every account gets, as folder-role:days entries, for example trash:30 or junk:30. Mail in that folder older than the days is purged. A user cannot change, pause or exclude mail from these. Mail of an account under legal hold is skipped.
+
+<a id="retention.user.protectedFolders"></a>
+### Folders retention rules never touch (`retention.user.protectedFolders`)
+Global and domain, hot. Default `["drafts"]`. Folders no user rule works on, by role (drafts, sent, inbox, archive) or by folder name. A protected folder wins over an organisation-wide rule for the same folder.
+
+<a id="retention.user.templates"></a>
+### Retention templates offered to users (`retention.user.templates`)
+Global and domain, hot. Default `["newsletters30","receipts365","notifications14","trash30","junk30","readArchive180"]`. Templates users can adopt in Settings, by id: newsletters30, receipts365, notifications14, trash30, junk30, readArchive180.
+
+<a id="retention.user.runForRestricted"></a>
+### Run user rules for restricted accounts (`retention.user.runForRestricted`)
+Global, hot. Default `false`. Whether user retention rules also run for accounts under a restriction of processing. Off skips those accounts.
+
+<a id="retention.user.intervalHours"></a>
+### Hours between user retention runs (`retention.user.intervalHours`)
+Global, hot. Default `24`. Hours between scheduled runs of the user retention job for one account.
+
+<a id="retention.user.batchMessages"></a>
+### Messages per retention call (`retention.user.batchMessages`)
+Global, hot. Default `200`. Messages one move or delete call handles. At most 200 are used.
+
+<a id="retention.user.maxPerRun"></a>
+### Most messages changed per account per run (`retention.user.maxPerRun`)
+Global, hot. Default `5000`. Most messages the user retention job changes for one account in one run. The rest waits for the next run.
+
+<a id="retention.user.pauseMs"></a>
+### Pause between retention batches (ms) (`retention.user.pauseMs`)
+Global, hot. Default `100`. Pause between batches, in milliseconds, so a large cleanup does not load the mail server.
+
+<a id="retention.class.short.days"></a>
+### Short class ceiling (days) (`retention.class.short.days`)
+Global, hot. Default `365`. Ceiling for operational data: sessions, tokens, rate limits, job history and metrics. Applies when the class limit is on.
+
+<a id="retention.class.medium.days"></a>
+### Medium class ceiling (days) (`retention.class.medium.days`)
+Global, hot. Default `1095`. Ceiling for sign-in history, request protection history and security notices. Must not be below the short class; a lower value is raised to it.
+
+<a id="retention.class.long.days"></a>
+### Long class retention (days) (`retention.class.long.days`)
+Global, hot. Default `2555`. Days the long class (security audit, administrator actions, requests, consent, tombstones) is kept, archive included. 0 keeps it for ever and the console warns. Must not be below the medium class.
+
+<a id="retention.class.enforce"></a>
+### Hold each store to its class ceiling (`retention.class.enforce`)
+Global, hot. Default `false`. When on, each store's own limit is clamped to its class ceiling and 0 (keep) counts as the ceiling. When off, per-store limits stand.
+
+<a id="retention.archive.enabled"></a>
+### Archive aged rows of the long class (`retention.archive.enabled`)
+Global, hot. Default `false`. Move aged rows of the long class into sealed, compressed archive files instead of deleting them.
+
+<a id="retention.archive.directory"></a>
+### Archive directory (`retention.archive.directory`)
+Global, hot. Default `"archive"`. Directory for archive files, absolute or relative to the server working directory. Parent-directory segments (..) are refused.
+
+<a id="retention.archive.batchRows"></a>
+### Rows per archive file (`retention.archive.batchRows`)
+Global, hot. Default `1000`. Rows written into one archive file.
+
+<a id="retention.archive.maxSegments"></a>
+### Archive files per store per run (`retention.archive.maxSegments`)
+Global, hot. Default `10`. Archive files one run may write for each store. The rest waits for the next run.
+
+<a id="retention.archive.keyGeneration"></a>
+### Archive sealing key generation (`retention.archive.keyGeneration`)
+Global, hot. Default `1`. Generation of the key that seals new archive files. Raise it to rotate the key; earlier files still verify with their own generation.
+
+<a id="retention.archive.verifyDays"></a>
+### Days between archive checks (`retention.archive.verifyDays`)
+Global, hot. Default `7`. Days between integrity checks of the archive files.
+
+<a id="retention.archive.legalHold"></a>
+### Legal hold on the archive (`retention.archive.legalHold`)
+Global, hot. Default `false`. Keep every archive file, whatever the long class limit says.
+
 issuing an MFA challenge is not success. Typed network, configuration and unknown-challenge errors
 do not count as rejected credentials. Existing permanent bans remain until an operator removes them.
 
