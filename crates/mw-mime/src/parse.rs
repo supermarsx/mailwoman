@@ -472,8 +472,21 @@ fn has_attachment(message: &Message<'_>) -> bool {
     message.attachments().any(|p| !is_inline_resource(p))
 }
 
+/// A part the rendered body consumes, not a file the reader offers. An explicit
+/// `Content-Disposition: attachment` always wins (Outlook stamps real files with
+/// a Content-ID too). Otherwise a Content-ID marks a `cid:` resource, and an
+/// `inline` part without a filename is a body resource; an `inline` part that
+/// carries a filename and no Content-ID (Apple Mail sends PDFs this way) is a
+/// downloadable attachment and must reach the attachments list.
 fn is_inline_resource(part: &MessagePart<'_>) -> bool {
-    part.content_disposition().is_some_and(|d| d.is_inline()) || part.content_id().is_some()
+    let disposition = part.content_disposition();
+    if disposition.is_some_and(|d| d.ctype().eq_ignore_ascii_case("attachment")) {
+        return false;
+    }
+    if part.content_id().is_some() {
+        return true;
+    }
+    disposition.is_some_and(|d| d.is_inline()) && part.attachment_name().is_none()
 }
 
 fn address_header(
