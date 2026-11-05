@@ -44,6 +44,8 @@ pub(crate) struct Runtime {
     /// The protocol guard's policy cache (`security.protocol.*`), invalidated
     /// together with the request-protection policy.
     pub(crate) protocol: crate::protocol_guard::Cache,
+    /// Who may reach `/healthz` (`security.health.*`).
+    pub(crate) health: crate::health_access::Cache,
 }
 impl Runtime {
     pub fn start(store: mw_store::Store) -> Arc<Self> {
@@ -71,6 +73,7 @@ impl Runtime {
     pub fn invalidate(&self) {
         self.cache.invalidate();
         self.protocol.invalidate();
+        self.health.invalidate();
     }
 }
 /// Charge one typed observation to the transport source's client subject, the

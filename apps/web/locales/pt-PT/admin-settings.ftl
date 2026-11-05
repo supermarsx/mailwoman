@@ -1186,6 +1186,10 @@ admin-settings-key-security-protocol-allowed-hosts = Guarda de protocolo: anfitr
 admin-settings-help-security-protocol-allowed-hosts = Nomes de anfitrião aceites pela classe de fixação do Host, além do anfitrião de MW_PUBLIC_URL, por exemplo um nome interno usado por um proxy ou verificação de estado. Portas e ponto final são ignorados.
 admin-settings-key-security-protocol-exempt-prefixes = Guarda de protocolo: prefixos de rota isentos
 admin-settings-help-security-protocol-exempt-prefixes = Prefixos de rota (cada um a começar por / e com mais de um carater) em que as classes heurísticas não correm, para um cliente legítimo que precise, por exemplo uma rota de envio grande. Corresponde a segmentos completos do caminho. Deteções de delimitação e de controlo no caminho nunca são isentas, e / é ignorado.
+admin-settings-key-security-health-mode = Acesso ao ponto de estado
+admin-settings-help-security-health-mode = Quem pode aceder a /healthz e /readyz. internal-only: endereços de cliente de loopback, privados, link-local e unique-local. allowlist: esses mais as redes abaixo. open: qualquer pessoa. Os restantes recebem o mesmo 404 que um caminho desconhecido. Um pedido com o token MW_HEALTH_TOKEN é sempre admitido. O endereço do cliente é o resolvido através dos proxies de confiança: atrás de um proxy inverso sem MW_FORWARDED_MODE e MW_TRUSTED_PROXIES todos os pedidos parecem vir do endereço privado do proxy, pelo que toda a Internet é admitida.
+admin-settings-key-security-health-networks = Redes do ponto de estado
+admin-settings-help-security-health-networks = Endereços IP ou redes CIDR que podem aceder a /healthz e /readyz no modo allowlist, além dos intervalos internos, por exemplo um monitor de disponibilidade externo.
 
 admin-settings-key-security-spray-enabled = Deteção de pulverização de palavras-passe
 admin-settings-help-security-spray-enabled = Conta os nomes de utilizador distintos com que uma origem falha. Só é guardado, em memória, um hash com chave de cada nome.

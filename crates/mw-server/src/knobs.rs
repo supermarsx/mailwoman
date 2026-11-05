@@ -628,6 +628,14 @@ pub static CATALOGUE: &[Knob] = &[
         "peers that may set the client address and scheme",
     ),
     boot(
+        "MW_HEALTH_TOKEN",
+        Gr::Listener,
+        Secret,
+        R::Trust,
+        "",
+        "token that lets an external monitor reach /healthz from any address (header X-Health-Token or query token)",
+    ),
+    boot(
         "MW_FORWARDED_MODE",
         Gr::Listener,
         Plain,

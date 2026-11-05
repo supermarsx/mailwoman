@@ -49,6 +49,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'security.protocol.allowedMethods',
   'security.protocol.allowedHosts',
   'security.protocol.exemptPrefixes',
+  'security.health.mode',
+  'security.health.networks',
 
   'mail.templates.enabled',
   'mail.templates.allowPersonal',

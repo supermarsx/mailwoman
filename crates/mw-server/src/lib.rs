@@ -65,6 +65,7 @@ mod request_history;
 pub mod server_key;
 pub mod sharing;
 mod source_bans;
+mod health_access;
 mod static_resilience;
 pub mod tls;
 pub mod watermark;
@@ -1600,7 +1601,7 @@ fn router(
         .route("/api/push/permission", get(push_relay::push_permission))
         .route("/api/push/subscribe", post(push_relay::push_subscribe))
         .route("/api/push/unsubscribe", post(push_relay::push_unsubscribe))
-        .route("/healthz", get(|| async { "ok" }))
+        .route("/healthz", get(health_access::healthz))
         // t32-h10: a mounted path with the wrong method answers `{error, code}`
         // like every other error; axum still adds the `Allow` header.
         .method_not_allowed_fallback(|| async {
@@ -1677,6 +1678,12 @@ fn router(
         .layer(middleware::from_fn_with_state(
             state.clone(),
             protocol_guard::guard,
+        ))
+        // Who may reach /healthz and /readyz. Outside every guard: a request it
+        // does not admit becomes an unknown path, so no probe exemption applies.
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            health_access::layer,
         ))
         // t32-h10: a handler panic becomes a plain 500 (inside the security
         // headers) instead of a dropped connection; its message is only logged.

@@ -599,7 +599,9 @@ async fn put_global(
     {
         return Err(AdminApiError::stale(None, None));
     }
-    if key.starts_with("security.protection.") || key.starts_with("security.protocol.") {
+    if key.starts_with("security.protection.") || key.starts_with("security.protocol.")
+        || key.starts_with("security.health.")
+    {
         state.request_protection.invalidate();
     }
     // t48: turning linking or credential storage off deployment-wide deletes
@@ -706,7 +708,9 @@ pub(crate) async fn write_global_values(
         {
             return Err(AdminApiError::stale(None, None));
         }
-        if key.starts_with("security.protection.") || key.starts_with("security.protocol.") {
+        if key.starts_with("security.protection.") || key.starts_with("security.protocol.")
+        || key.starts_with("security.health.")
+    {
             state.request_protection.invalidate();
         }
         audit(
@@ -751,7 +755,9 @@ async fn delete_global(
     {
         return Err(AdminApiError::stale(None, None));
     }
-    if key.starts_with("security.protection.") || key.starts_with("security.protocol.") {
+    if key.starts_with("security.protection.") || key.starts_with("security.protocol.")
+        || key.starts_with("security.health.")
+    {
         state.request_protection.invalidate();
     }
     if current.is_some() {

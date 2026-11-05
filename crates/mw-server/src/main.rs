@@ -833,7 +833,11 @@ async fn healthcheck(args: HealthArgs) -> std::process::ExitCode {
         .no_proxy()
         .build()
         .expect("reqwest client builds");
-    match client.get(&url).send().await {
+    let mut request = client.get(&url);
+    if let Some(token) = std::env::var("MW_HEALTH_TOKEN").ok().filter(|t| !t.is_empty()) {
+        request = request.header("X-Health-Token", token);
+    }
+    match request.send().await {
         Ok(resp) if resp.status().is_success() => std::process::ExitCode::SUCCESS,
         Ok(resp) => {
             eprintln!("healthcheck: {url} -> {}", resp.status());

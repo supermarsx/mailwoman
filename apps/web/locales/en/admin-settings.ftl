@@ -1186,6 +1186,10 @@ admin-settings-key-security-protocol-allowed-hosts = Protocol guard: extra accep
 admin-settings-help-security-protocol-allowed-hosts = Host names accepted by the host-pinning class in addition to the host of MW_PUBLIC_URL, for example an internal name a proxy or health check uses. Ports and a trailing dot are ignored.
 admin-settings-key-security-protocol-exempt-prefixes = Protocol guard: exempt route prefixes
 admin-settings-help-security-protocol-exempt-prefixes = Route prefixes (each starting with / and longer than one character) for which the heuristic classes do not run, for a legitimate client that needs it, for example a large upload route. Matches whole path segments. Framing and path-control findings are never exempted, and / is ignored.
+admin-settings-key-security-health-mode = Health endpoint access
+admin-settings-help-security-health-mode = Who may reach /healthz and /readyz. internal-only: loopback, private, link-local and unique-local client addresses. allowlist: those plus the networks below. open: anyone. Anyone else gets the same 404 as an unknown path. A request with the MW_HEALTH_TOKEN token is always admitted. The client address is the trusted-proxy-resolved one: behind a reverse proxy without MW_FORWARDED_MODE and MW_TRUSTED_PROXIES every request looks like the proxy's private address, so the whole internet is admitted.
+admin-settings-key-security-health-networks = Health endpoint networks
+admin-settings-help-security-health-networks = IP addresses or CIDR networks that may reach /healthz and /readyz in allowlist mode, in addition to the internal ranges, for example an external uptime monitor.
 
 admin-settings-key-security-spray-enabled = Password spray detection
 admin-settings-help-security-spray-enabled = Counts the distinct usernames one source fails with. Only a keyed hash of each username is kept, in memory.

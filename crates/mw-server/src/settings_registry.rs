@@ -3521,6 +3521,26 @@ pub static REGISTRY: &[SettingDef] = &[
         "security",
         "Route prefixes (each starting with / and longer than one character) for which the heuristic classes do not run, for a legitimate client that needs it, for example a large upload route. Matches whole path segments. Framing and path-control findings are never exempted, and / is ignored."
     ),
+    // ── Health endpoint access (health_access.rs) ────────────────────────────
+    def!(
+        "security.health.mode",
+        Kind::Enum(&["internal-only", "allowlist", "open"]),
+        "\"internal-only\"",
+        G,
+        "security",
+        "Who may reach /healthz and /readyz. internal-only: loopback, private, link-local and unique-local client addresses. allowlist: those plus the networks below. open: anyone. Anyone else gets the same 404 as an unknown path. A request with the MW_HEALTH_TOKEN token is always admitted. The client address is the trusted-proxy-resolved one: behind a reverse proxy without MW_FORWARDED_MODE and MW_TRUSTED_PROXIES every request looks like the proxy's private address, so the whole internet is admitted."
+    ),
+    def!(
+        "security.health.networks",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 64
+        },
+        "[]",
+        G,
+        "security",
+        "IP addresses or CIDR networks that may reach /healthz and /readyz in allowlist mode, in addition to the internal ranges, for example an external uptime monitor."
+    ),
     // ── Admin-probe protection (t100, admin_probe.rs) ────────────────────────
     dedicated(
         pin(
@@ -5440,6 +5460,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "security.protection.userAgentPatterns"
                                 | "security.protection.userAgentExceptions"
                                 | "security.adminProbe.allowlist"
+                                | "security.health.networks"
                                 | "security.protocol.allowedMethods"
                                 | "security.protocol.allowedHosts"
                                 | "security.protocol.exemptPrefixes"
@@ -5453,7 +5474,9 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                     })
                     || (matches!(
                         def.key,
-                        "security.protection.exemptClients" | "security.adminProbe.allowlist"
+                        "security.protection.exemptClients"
+                            | "security.adminProbe.allowlist"
+                            | "security.health.networks"
                     ) && crate::scope_mw::proxy::Cidr::parse(text).is_none())
                     || (def.key == "security.adminProbe.probePaths"
                         && (!text.starts_with('/') || text == "/" || text.contains("//")))
