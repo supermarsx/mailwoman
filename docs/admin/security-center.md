@@ -18,6 +18,16 @@ Each write still uses its existing capability, fresh verification and confirmati
 Old `#/two-factor`, `#/sessions`, `#/security-policy`, `#/inbound-allowlist` and
 `#/observability/bans`, `/locks`, `/geography`, `/protection` bookmarks resolve to
 the corresponding Security centre page, including the ban editor and field query.
+The **Request protection** page (`#/security/protection`) has its own subtabs, each a
+deep link: Overview (`/overview`: status, protocol guard, admin probe, presets),
+Aggregate (`/aggregate`: request budgets and user-agent limits), Adaptive
+(`/adaptive`: unusual-request rules, actions, exceptions and the simulator),
+Object state (`/state`) and Decisions (`/decisions`). Object state and Decisions list
+the most recent first, 100 rows per page by default (25, 50, 100 or 250), with
+Previous/Next and the page count and total. The API pages with `limit` (1-250) and an
+opaque `after` cursor over a stable order (newest first, key as tie-break) and returns
+`total`.
+
 Observability contains audit, request statistics and telemetry. Audit and ban lists
 load independently, so lacking one capability does not break the other page.
 

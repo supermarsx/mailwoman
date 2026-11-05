@@ -8,14 +8,20 @@ export interface ProtocolGuardRow { class:string;mode:'off'|'detect'|'enforce';d
 export interface ProtectionStatus { protocolGuard?:{classes:ProtocolGuardRow[];scope:string};policy:{rateMode:string;adaptiveMode:string;clientRequests:number;accountRequests:number;adminRequests:number;rateWindowSecs:number};subjectCapacity:number;eventCapacity:number;eventRetentionSecs:number;propagationSecs:number;coverage:string;preRouterHeadersObserved:boolean }
 export interface ProtectionApi {
  status():Promise<ProtectionStatus>;
- subjects(after?:string):Promise<{subjects:ProtectionSubject[];cursor:string|null}>;
- events(after?:string):Promise<{events:ProtectionEvent[];cursor:string|null}>;
+ /** Newest first. `after` is the previous page's cursor; `total` counts every retained row. */
+ subjects(after?:string,limit?:number):Promise<{subjects:ProtectionSubject[];cursor:string|null;total:number}>;
+ events(after?:string,limit?:number):Promise<{events:ProtectionEvent[];cursor:string|null;total:number}>;
  clear(subject:ProtectionSubject):Promise<void>;
+}
+/** `?limit=&after=` for the paged lists (the server caps `limit` at 250). */
+export function pageQuery(after?:string,limit?:number):string{
+ const params=new URLSearchParams();if(limit)params.set('limit',String(limit));if(after)params.set('after',after);
+ const text=params.toString();return text?`?${text}`:'';
 }
 export const protectionApi:ProtectionApi={
  async status(){return(await adminRequest<ProtectionStatus>('/bans/protection')).data;},
- async subjects(after){return(await adminRequest<{subjects:ProtectionSubject[];cursor:string|null}>(`/bans/protection/subjects${after?`?after=${encodeURIComponent(after)}`:''}`)).data;},
- async events(after){return(await adminRequest<{events:ProtectionEvent[];cursor:string|null}>(`/bans/protection/events${after?`?after=${encodeURIComponent(after)}`:''}`)).data;},
+ async subjects(after,limit){return(await adminRequest<{subjects:ProtectionSubject[];cursor:string|null;total:number}>(`/bans/protection/subjects${pageQuery(after,limit)}`)).data;},
+ async events(after,limit){return(await adminRequest<{events:ProtectionEvent[];cursor:string|null;total:number}>(`/bans/protection/events${pageQuery(after,limit)}`)).data;},
  async clear(subject){await adminRequest(`/bans/protection/subjects/${encodeURIComponent(subject.subjectKey)}`,{method:'DELETE',ifMatch:`"${subject.revision}"`});},
 };
 

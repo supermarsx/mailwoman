@@ -24,7 +24,13 @@ export interface ProtectionPolicyEditorProps {
   canWrite: boolean;
   /** Called after a save, so the page can refresh its status line. */
   onSaved?: () => void;
+  /** Which part of the editor to show; the tabs of the screen each take one. Default: everything. */
+  part?: ProtectionEditorPart;
 }
+
+/** `overview`: summary and presets. `aggregate`: request budgets and per-user-agent limits. `adaptive`: unusual-request rules, actions, exceptions and the simulator. */
+export type ProtectionEditorPart = 'all' | 'overview' | 'aggregate' | 'adaptive';
+const PART_GROUPS: Record<ProtectionEditorPart, readonly string[] | null> = { all: null, overview: [], aggregate: ['budget', 'user-agent'], adaptive: ['unusual', 'actions', 'exceptions'] };
 
 export function ProtectionPolicyEditor(props: ProtectionPolicyEditorProps): JSX.Element {
   const api = (): ProtectionPolicyApi => props.api ?? protectionPolicyApi;
@@ -100,12 +106,17 @@ export function ProtectionPolicyEditor(props: ProtectionPolicyEditorProps): JSX.
   }
 
   const show = (r: AdminSetting, v: unknown): string => describeValue(r, v);
+  const part = (): ProtectionEditorPart => props.part ?? 'all';
+  const showOverview = (): boolean => part() === 'all' || part() === 'overview';
+  const showSimulator = (): boolean => part() === 'all' || part() === 'adaptive';
+  const groups = () => RULE_GROUPS.filter((g) => PART_GROUPS[part()]?.includes(g.id) ?? true);
 
   return (
     <div class={css.stack} data-testid="protection-policy">
       <Feedback kind="success" as="toast" message={saved()} />
       <Show when={loadError()}><Feedback kind="error" message={loadError()} /></Show>
       <Show when={policy.value} fallback={<Show when={!loadError()}><div class={loading.skeletonCards} aria-hidden="true" data-testid="protection-policy-skeleton"><span class={loading.skeletonCard} /><span class={loading.skeletonCard} /></div></Show>}>
+        <Show when={showOverview()}>
         <section class={css.card} aria-labelledby="protect-summary-h" data-testid="protection-summary">
           <h3 id="protect-summary-h" class={css.title}>{t('admin-protect-summary-title')}</h3>
           <Summary value={value} />
@@ -138,11 +149,12 @@ export function ProtectionPolicyEditor(props: ProtectionPolicyEditorProps): JSX.
             </Show>
           </Show>
         </section>
+        </Show>
 
         <Show when={!canEdit()}><p class={css.note} data-testid="protection-readonly">{t('admin-protect-readonly')}</p></Show>
         <Show when={policy.value && !policy.value.domainScopes}><p class={css.note}>{t('admin-protect-global-only')}</p></Show>
 
-        <For each={RULE_GROUPS}>{(group) => (
+        <For each={groups()}>{(group) => (
           <section class={css.card} aria-labelledby={`protect-group-${group.id}`} data-testid={`protect-group-${group.id}`}>
             <h3 id={`protect-group-${group.id}`} class={css.title}>{t(`admin-protect-group-${group.id}`)}</h3>
             <p class={css.note}>{t(`admin-protect-group-${group.id}-help`)}</p>
@@ -160,9 +172,9 @@ export function ProtectionPolicyEditor(props: ProtectionPolicyEditorProps): JSX.
           </section>
         )}</For>
 
-        <Simulator api={api()} drafts={() => Object.fromEntries(Object.entries(drafts).filter(([, v]) => v !== undefined))} preset={() => {
+        <Show when={showSimulator()}><Simulator api={api()} drafts={() => Object.fromEntries(Object.entries(drafts).filter(([, v]) => v !== undefined))} preset={() => {
           const name = preset(); return name ? Object.fromEntries(diff().map((d) => [d.rule.key, d.to])) : {};
-        }} />
+        }} /></Show>
       </Show>
     </div>
   );

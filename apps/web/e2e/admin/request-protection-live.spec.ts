@@ -25,13 +25,14 @@ test('adaptive controls show real evidence and clear the signed-in mailbox (coun
   await page.goto(`${ADMIN}#/observability/protection`);
   await expect(page.getByText('Request budgets: Off. Adaptive protection: Observe only.')).toBeVisible();
   const history=page.getByRole('table',{name:'Protection decisions'});await expect(history.getByText('Short-window anomaly count').first()).toBeVisible();
+  await page.goto(`${ADMIN}#/security/protection/state`);
   const state=page.getByRole('table',{name:'Current subject state'});const target=state.locator('tbody tr').filter({has:page.getByRole('button',{name:/Clear protection state for Mailbox account/})}).first();
   await expect(target).toBeVisible();await target.getByRole('button',{name:/Clear protection state/}).click();
   await expect(page.getByRole('alertdialog')).toContainText('does not change policy');
   const cleared=page.waitForResponse(response=>response.url().includes(`${ADMIN}/bans/protection/subjects/`)&&response.request().method()==='DELETE'&&response.status()===204);
   await page.getByRole('alertdialog').getByRole('button',{name:'Clear state',exact:true}).click();
   const proof=page.getByRole('dialog',{name:'Confirm it is you'});await expect(proof).toBeVisible();await proof.getByRole('textbox',{name:'Password',exact:true}).fill('hunter2');await proof.getByRole('button',{name:'Confirm and continue'}).click();await cleared;
-  await expect(page.getByRole('alertdialog')).toHaveCount(0);await expect(history.getByText('Administrator cleared state').first()).toBeVisible();
+  await expect(page.getByRole('alertdialog')).toHaveCount(0);await page.goto(`${ADMIN}#/security/protection/decisions`);await expect(history.getByText('Administrator cleared state').first()).toBeVisible();
   await expect(page.getByRole('button',{name:'Refresh',exact:true})).toBeEnabled();
   await page.screenshot({path:test.info().outputPath('adaptive-protection-evidence.png'),fullPage:true});expect(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth)).toBe(true);
  }finally{
