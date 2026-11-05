@@ -60,3 +60,8 @@ image-hosts-allow = Mostrar sempre
 image-hosts-ask = Perguntar
 image-hosts-block = Nunca mostrar
 image-hosts-failed = Não foi possível guardar a definição da origem das imagens.
+
+# Dica sobre o marcador de uma imagem numa mensagem (com o tema da aplicação, desenhada na moldura da mensagem).
+image-tip-blocked = Imagem bloqueada. Escolha Mostrar imagens para a carregar.
+image-tip-loading = A carregar imagem…
+image-tip-error = Imagem indisponível

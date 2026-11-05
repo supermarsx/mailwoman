@@ -37,6 +37,7 @@
       image.removeAttribute('data-mw-image-state');
       image.removeAttribute('data-mw-image-unsized');
       countImage(image, null);
+      tipRefresh(image);
       return;
     }
     const state = pending || !image.complete ? 'loading' : image.naturalWidth > 0 ? 'loaded' : 'error';
@@ -44,6 +45,7 @@
     countImage(image, state);
     if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && !image.getBoundingClientRect().width && !image.getBoundingClientRect().height) image.setAttribute('data-mw-image-unsized', '');
     else if (state !== 'loading') image.removeAttribute('data-mw-image-unsized');
+    tipRefresh(image);
   }
   // A signed image the proxy could not serve right now (busy, rate-limited, a
   // transient upstream failure) is asked for again after a growing pause, so the
@@ -156,7 +158,7 @@
     port.postMessage({ type: 'patch-result', nonce, revision, id: Number.isSafeInteger(value.id) ? value.id : 0, ok: applyPatch(value.ops) });
   }
   let scrollScheduled = false;
-  function reportScroll() {
+  function reportScroll() { tipHide();
     if (scrollScheduled || !port) return;
     scrollScheduled = true;
     setTimeout(() => { scrollScheduled = false; if (port) port.postMessage({ type: 'scroll', nonce, revision, x: scrollX, y: scrollY }); }, 100);
@@ -228,6 +230,101 @@
   }
   function restore() { if (restoreScroll) scrollTo(restoreScroll.x, restoreScroll.y); }
   function parsed() { restore(); observeImages(); if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
+  // Themed image tooltip. The frame is opaque, so a native `title` tooltip would
+  // be OS-styled; the app strips those into `data-mw-tip` and this draws one
+  // bubble (`.mw-frame-tip`, styled by the document's own --mw-tip-* tokens) after
+  // a short hover delay or on keyboard focus. Text comes from the sender's own
+  // title, else the alt, else a string the app put on <body data-mw-tip-*>; it is
+  // only ever set as textContent. The bubble is a child of <html>, after <body>,
+  // so body element indices used by in-place patches never shift.
+  let tipEl = null, tipImage = null, tipHost = null, tipTimer = 0;
+  function tipImageOf(node) {
+    const element = node?.nodeType === 1 ? node : node?.parentElement;
+    if (!element) return null;
+    if (element.tagName === 'IMG') return element;
+    const link = element.closest('a,area');
+    const images = link ? link.querySelectorAll('img') : [];
+    return images.length === 1 ? images[0] : null;
+  }
+  function tipText(image) {
+    if (!image || !document.body.contains(image)) return null;
+    const placeholder = image.getAttribute('data-mw-ph');
+    if (placeholder === 'hidden' || placeholder === 'deco') return null;
+    const source = image.getAttribute('src') || '', state = image.getAttribute('data-mw-image-state');
+    const kind = placeholder !== null && (!source || source === emptyImage || /^mw-(?:rc|original):/i.test(source)) ? 'blocked'
+      : state === 'loading' ? 'loading' : state === 'error' ? 'error' : null;
+    const text = (image.getAttribute('data-mw-tip') || '').trim()
+      || (kind ? (image.getAttribute('alt') || '').trim() || (document.body.getAttribute('data-mw-tip-' + kind) || '').trim() : '');
+    return text ? text.slice(0, 300) : null;
+  }
+  function tipHide() {
+    clearTimeout(tipTimer); tipTimer = 0;
+    if (tipHost) {
+      const rest = (tipHost.getAttribute('aria-describedby') || '').split(/\s+/).filter(part => part && part !== 'mw-frame-tip');
+      if (rest.length) tipHost.setAttribute('aria-describedby', rest.join(' ')); else tipHost.removeAttribute('aria-describedby');
+    }
+    if (tipEl) tipEl.remove();
+    tipEl = null; tipImage = null; tipHost = null;
+  }
+  function tipPosition() {
+    if (!tipEl || !tipImage || !tipImage.isConnected) { tipHide(); return; }
+    const anchor = tipImage.getBoundingClientRect(), box = tipEl.getBoundingClientRect();
+    const width = document.documentElement.clientWidth, height = document.documentElement.clientHeight, edge = 4, gap = 6;
+    if (anchor.bottom < 0 || anchor.top > height || anchor.right < 0 || anchor.left > width) { tipHide(); return; }
+    const top = Math.max(anchor.top, 0), bottom = Math.min(anchor.bottom, height);
+    const x = Math.max(edge, Math.min(anchor.left + (anchor.width - box.width) / 2, width - box.width - edge));
+    let y = top - box.height - gap;
+    if (y < edge) y = bottom + gap;
+    y = Math.max(edge, Math.min(y, height - box.height - edge));
+    tipEl.style.left = Math.round(x) + 'px'; tipEl.style.top = Math.round(y) + 'px';
+  }
+  function tipShow(image, host) {
+    const text = tipText(image);
+    if (!text) { tipHide(); return; }
+    if (!tipEl) {
+      tipEl = document.createElement('div');
+      tipEl.className = 'mw-frame-tip'; tipEl.id = 'mw-frame-tip'; tipEl.setAttribute('role', 'tooltip');
+      document.documentElement.append(tipEl);
+    }
+    tipEl.textContent = text; tipImage = image;
+    if (tipHost !== host) {
+      tipHost = host;
+      host.setAttribute('aria-describedby', [host.getAttribute('aria-describedby'), 'mw-frame-tip'].filter(Boolean).join(' '));
+    }
+    tipPosition();
+  }
+  function tipRefresh(image) {
+    if (!tipEl || image !== tipImage) return;
+    if (!tipText(image)) tipHide(); else tipShow(image, tipHost || image);
+  }
+  const tipListeners = [
+    ['pointerover', event => {
+      if (!event.isTrusted || event.pointerType === 'touch') return;
+      const image = tipImageOf(event.target);
+      if (!image || (image === tipImage && (tipEl || tipTimer))) return;
+      tipHide();
+      if (!tipText(image)) return;
+      tipImage = image;
+      tipTimer = setTimeout(() => { tipTimer = 0; tipShow(image, image); }, 400);
+    }, true],
+    ['pointerout', event => {
+      if (!tipImage || tipImageOf(event.target) !== tipImage) return;
+      if (event.relatedTarget && tipImageOf(event.relatedTarget) === tipImage) return;
+      tipHide();
+    }, true],
+    ['focusin', event => {
+      const image = tipImageOf(event.target);
+      tipHide();
+      if (!image || !event.isTrusted) return;
+      try { if (!event.target.matches(':focus-visible')) return; } catch { /* engine without :focus-visible */ }
+      tipShow(image, event.target);
+    }, false],
+    ['focusout', tipHide, false],
+    ['keydown', event => { if (event.key === 'Escape') tipHide(); }, false],
+    ['pointerdown', tipHide, true],
+  ];
+  for (const [type, listener, capture] of tipListeners) document.addEventListener(type, listener, capture);
+  addEventListener('resize', tipHide);
   addEventListener('message', initialize);
   addEventListener('scroll', reportScroll, { passive: true });
   addEventListener('load', () => { restore(); restoreScroll = null; }, { once: true });
@@ -245,6 +342,6 @@
     event.preventDefault();
     port.postMessage({ type: 'address-context', nonce, revision, address, x: event.clientX, y: event.clientY });
   }, true);
-  addEventListener('pagehide', () => { imagesClosed = true; imageObserver?.disconnect(); imageStates.clear(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
+  addEventListener('pagehide', () => { tipHide(); for (const [type, listener, capture] of tipListeners) document.removeEventListener(type, listener, capture); removeEventListener('resize', tipHide); imagesClosed = true; imageObserver?.disconnect(); imageStates.clear(); document.removeEventListener('load', imageSettled, true); document.removeEventListener('error', imageSettled, true); port?.close(); port = null; removeEventListener('message', initialize); document.removeEventListener('DOMContentLoaded', parsed); }, { once: true });
   parent.postMessage({ type: 'mw-reader-address-ready' }, '*');
 })();

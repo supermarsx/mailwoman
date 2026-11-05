@@ -14,6 +14,7 @@
 // "no transcode" rule (native <img>/<audio>/<video>) while staying script-free.
 
 import { apiFetch } from '../api/http.ts';
+import { frameTipParts, withoutImageTitles, type FrameTips } from './frameTooltip.ts';
 import { adaptReaderColors, readerAppearanceCss, readerStyleDeclarations, type ReaderAppearance } from './readerAppearance.ts';
 
 /** The frozen sandbox token set: no scripts, no same-origin, opaque frame. */
@@ -351,19 +352,21 @@ function withoutBodyMedia(html: string): string {
 export function bodyFrameDoc(
   mode: SecurityMode,
   content: { html?: string | null; text?: string | null },
-  opts: { themeVars?: string; direct?: boolean; serverBase?: string; appearance?: ReaderAppearance } = {},
+  opts: { themeVars?: string; direct?: boolean; serverBase?: string; appearance?: ReaderAppearance; tips?: FrameTips } = {},
 ): string {
   const styleVars = opts.themeVars !== undefined && opts.themeVars.length > 0 ? opts.themeVars : '';
   const inner =
     mode === 'plain-text'
       ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
       : mode === 'sanitized-no-media'
-        ? withoutBodyMedia(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '')
-        : withBlockedImagePlaceholders(withImageLoadingHints(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? ''));
+        ? withoutBodyMedia(withoutImageTitles(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? ''))
+        : withBlockedImagePlaceholders(withImageLoadingHints(withoutImageTitles(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '')));
+  // The themed image tooltip is drawn by the frame handler, so only HTML modes get it.
+  const tip = mode === 'plain-text' ? { css: '', bodyAttrs: '' } : frameTipParts(opts.tips);
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
-    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${mode === 'plain-text' ? '' : BLOCKED_IMAGE_STYLE}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}</style></head><body>${inner}</body></html>`
+    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${mode === 'plain-text' ? '' : BLOCKED_IMAGE_STYLE}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}${tip.css}</style></head><body${tip.bodyAttrs}>${inner}</body></html>`
   );
 }
 

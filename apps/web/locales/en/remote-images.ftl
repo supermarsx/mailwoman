@@ -70,3 +70,8 @@ image-hosts-allow = Always show
 image-hosts-ask = Ask
 image-hosts-block = Never show
 image-hosts-failed = The image source setting could not be saved.
+
+# Tooltip over an image placeholder inside a message (themed, drawn in the message frame).
+image-tip-blocked = Image blocked. Choose Show images to load it.
+image-tip-loading = Loading image…
+image-tip-error = Image unavailable

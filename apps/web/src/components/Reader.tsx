@@ -880,7 +880,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const width = values['reader.contentWidth']?.value;
     return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'wide' ? width : 'full' };
   };
-  const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '' });
+  const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '', tips: { theme: app.theme(), invert: readerAppearance().colorMode === 'invert', labels: { blocked: t('image-tip-blocked'), loading: t('image-tip-loading'), error: t('image-tip-error') } } });
   const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
   const unreviewedBodySrcdoc = createMemo<string | null>(() => {
     const email = app.openEmail(); if (!email) return null;
