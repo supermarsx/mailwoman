@@ -29,12 +29,12 @@ vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({
  jmap:vi.fn(async(request:JmapRequest)=>{const reply=answer(request);if(!reply)throw new Error(`unexpected ${request.methodCalls[0]![0]}`);return reply;}),
 })}));
 afterEach(()=>{cleanup();localStorage.clear();jmap.calls=[];});
-async function open(id:string){
+async function open(id:string,selection?:string[]){
  jmap.boxes=BOXES;const base=makeClient({mailboxes:BOXES});
  const client={...base,jmap:vi.fn(async(request:JmapRequest)=>{const calls=jmap.calls.length;const reply=answer(request);if(reply)return reply;jmap.calls.length=calls;return base.jmap(request);})} as typeof base;
  const app=createAppState(client);
  const box=BOXES.find(value=>value.id===id)!;
- render(()=><AppContext.Provider value={app}><FolderContextMenu box={box} onOpen={()=>{}} onSettings={()=>{}} onShare={()=>{}} canShare={()=>false} onProbe={()=>{}}><button class="sidebar__box">{`${box.name} target`}</button></FolderContextMenu></AppContext.Provider>);
+ render(()=><AppContext.Provider value={app}><FolderContextMenu box={box} {...(selection?{selection:()=>new Set(selection)}:{})} onOpen={()=>{}} onSettings={()=>{}} onShare={()=>{}} canShare={()=>false} onProbe={()=>{}}><button class="sidebar__box">{`${box.name} target`}</button></FolderContextMenu></AppContext.Provider>);
  await app.login({username:'me@example.org',password:'p'});await waitFor(()=>expect(app.mailboxes()).toHaveLength(BOXES.length));
  await waitFor(()=>{fireEvent.contextMenu(screen.getByText(`${box.name} target`));expect(screen.queryByRole('menuitem',{name:'New subfolder'})).not.toBeNull();});
  return app;
@@ -96,5 +96,20 @@ describe('folder context menu by folder kind',()=>{
   await open('work');fireEvent.click(screen.getByRole('menuitem',{name:'More'}));fireEvent.click(await screen.findByRole('menuitem',{name:'Delete folder and subfolders'}));
   const dialog=await screen.findByRole('alertdialog');expect(dialog.textContent).toContain('3 folders');expect(dialog.textContent).toContain('7 messages');
   expect(jmap.calls.some(call=>call.name==='Mailbox/set')).toBe(false);
+ });
+ it('marquee selection: a menu opened on one of several selected folders marks exactly those read',async()=>{
+  const app=await open('work',['work','home','q3']);const clear=vi.spyOn(app,'clearFolderUnread');
+  const row=await screen.findByRole('menuitem',{name:'Mark 3 selected folders as read'});
+  expect(row).not.toHaveAttribute('aria-disabled','true');
+  fireEvent.click(row);
+  await waitFor(()=>expect(clear).toHaveBeenCalled());
+  expect([...clear.mock.calls[0]![0]].sort()).toEqual(['home','q3','work']);
+ });
+ it('marquee selection: no bulk entry for a single selected folder or for a folder outside the selection',async()=>{
+  await open('work',['work']);
+  expect(screen.queryByRole('menuitem',{name:/selected folders as read/})).toBeNull();
+  cleanup();
+  await open('work',['home','q3']);
+  expect(screen.queryByRole('menuitem',{name:/selected folders as read/})).toBeNull();
  });
 });

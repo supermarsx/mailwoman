@@ -21,12 +21,12 @@ import {DeleteTreeDialog,MoveFolderDialog,TransferDialog} from './FolderBulkDial
 import {useActions} from '../keymap/index.ts';
 import * as renameCss from './renameFolder.css.ts';
 import * as css from './contextMenu.css.ts';
-export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number}):JSX.Element {
+export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number;/** Folders picked with the marquee; a menu opened on one of several offers bulk actions. */selection?:()=>ReadonlySet<string>}):JSX.Element {
  const [creating,setCreating]=createSignal(false),[cleaning,setCleaning]=createSignal(false);
  const app=useApp();const [empty,setEmpty]=createSignal(false);const [deleting,setDeleting]=createSignal(false);const [deletingTree,setDeletingTree]=createSignal(false),[moving,setMoving]=createSignal(false),[transfer,setTransfer]=createSignal<'copy'|'move'|null>(null);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
  const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal<'inline'|'dialog'|null>(null);let row:HTMLDivElement|undefined;
  // Ask for the empty-folder and rename abilities now, so the first menu opened already has them.
- onMount(()=>{void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');ability();renameContext();});
+ onMount(()=>{void loadCatalog('folder-select');void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('rename-folder');ability();renameContext();});
  // Rename (t65): inline in the list, a modal on phones and in the compact rail.
  function startRename():void {const box=app.mailboxes().find(value=>value.id===props.box.id);if(!box||!canRename(box)||renaming())return;setRenaming(prefersRenameDialog(row)?'dialog':'inline');}
  function endRename():void {setRenaming(null);queueMicrotask(()=>row?.querySelector<HTMLElement>('.sidebar__box')?.focus());}
@@ -42,6 +42,11 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
   const boxes=app.mailboxes(),subs=descendantsOf(boxes,box.id),system=isSystemFolder(box),ability=renameContext();
   const rows:ContextAction[]=[{id:'open',label:t('mail-context-open-folder'),icon:'folder',run:props.onOpen}];
   if(props.onOpenTab)rows.push({id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
+  // Several folders picked with the marquee: mark all of them read at once.
+  {const picked=props.selection?.()??new Set<string>();
+   if(picked.size>1&&picked.has(box.id)){
+    const chosen=boxes.filter(value=>picked.has(value.id)),blocked=chosen.every(value=>value.myRights?.maySetSeen===false||value.mailwomanSearchQuery!==undefined),idle=chosen.every(value=>value.unreadEmails===0);
+    rows.push({id:'mark-read-selected',label:t('folder-select-mark-read',{count:chosen.length}),icon:'mailRead',disabled:blocked||idle,run:()=>{const account=preferenceAccount(),accountId=app.accountId();if(!account||!accountId||account.id!==accountId)return;void runMarkAllRead({app,client,accountId,current:()=>preferenceAccountIsCurrent(account)&&app.accountId()===accountId},t('folder-select-count',{count:chosen.length}),chosen.filter(value=>value.myRights?.maySetSeen!==false&&value.mailwomanSearchQuery===undefined).map(value=>value.id));}});}}
   // Mark all as read: this folder, or with its subfolders (a choice when there are any).
   {const own=box.unreadEmails,all=rolledUnread(boxes,box.id),blocked=box.myRights?.maySetSeen===false||box.mailwomanSearchQuery!==undefined;
    const run=(include:boolean)=>()=>{const account=preferenceAccount(),accountId=app.accountId();if(!account||!accountId||account.id!==accountId)return;void runMarkAllRead({app,client,accountId,current:()=>preferenceAccountIsCurrent(account)&&app.accountId()===accountId},box.name,include?[box.id,...subs.map(value=>value.id)]:[box.id]);};
