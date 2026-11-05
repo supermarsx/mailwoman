@@ -2886,6 +2886,10 @@ pub(crate) async fn finish_login_ext(
         response
             .extensions_mut()
             .insert(signin_cooldown::SessionIssued);
+        // A bearer client keeps no cookie jar: no browser-recognition marker either.
+        response
+            .extensions_mut()
+            .insert(security_center::device_recognition::NativeCredential);
         return response;
     }
     let mut body = json!({

@@ -27,6 +27,10 @@ fn cookie(token: &str, secure: bool) -> HeaderValue {
     value.set_sensitive(true);
     value
 }
+/// Response marker: a native (bearer-token) sign-in, which never receives a cookie.
+#[derive(Clone, Copy)]
+pub(crate) struct NativeCredential;
+
 pub(crate) async fn layer(
     State(state): State<AppState>,
     mut request: Request,
@@ -69,6 +73,7 @@ pub(crate) async fn layer(
     }
     let mut response = next.run(request).await;
     if (response.status().is_success() || response.status().is_redirection())
+        && response.extensions().get::<NativeCredential>().is_none()
         && let Some(token) = fresh
     {
         response
