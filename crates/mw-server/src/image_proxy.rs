@@ -1066,6 +1066,9 @@ async fn proxy_image(
         Ok(s) => s,
         Err(r) => return r,
     };
+    if q.url.len() > remote_content::MAX_URL_LEN {
+        return (StatusCode::URI_TOO_LONG, remote_content::URL_TOO_LONG).into_response();
+    }
     let policy = match crate::remote_policy::effective_for_message(
         &state,
         &session,

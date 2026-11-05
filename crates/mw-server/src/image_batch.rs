@@ -36,7 +36,7 @@ use futures_util::StreamExt as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{Claims, Kind, fetch_image, image_allowed, now_secs, signing_key, verify};
+use super::{Claims, Kind, fetch_image, image_allowed, now_secs, signing_key};
 use crate::AppState;
 
 /// Most tokens one batch may carry.
@@ -111,7 +111,7 @@ pub(crate) async fn batch(
             results[index] = Some(refused(index, 403, "invalid or expired link"));
             continue;
         }
-        let claims = match verify(&key, token, now) {
+        let claims = match super::resolve(&state, &key, token, now).await {
             Ok(c) if c.k == Kind::Image && c.a == session.account_id && c.s == sid => c,
             _ => {
                 results[index] = Some(refused(index, 403, "invalid or expired link"));

@@ -11,7 +11,16 @@
 //! `/api/rc/f/<token>` for "download through the server" of a remote file linked
 //! from the message (always a download, never rendered).
 //!
-//! # The token
+//! # The handle
+//! Signing now returns a short opaque handle (22 url-safe characters, 16 bytes of
+//! an HMAC over the claims) instead of the claims themselves. The claims live in
+//! the shared store (`mw_store::rc_handles`, `settings` rows `rc.h.<handle>`),
+//! bounded by [`MAX_LIVE_HANDLES`] with expiry purge and nearest-expiry eviction,
+//! so every replica resolves it. [`resolve`] looks a handle up and otherwise falls
+//! back to the self-contained token below, which stays valid until it expires.
+//! Every check listed under "What is checked" applies to both forms.
+//!
+//! # The legacy token
 //! `base64url(claims) "." base64url(HMAC-SHA256(key, "mw-rc-token\0" ‖ payload))`,
 //! with the key derived from the server key under the label
 //! `mw-remote-content-v1` (`mw_store::Store::derive_key`). The claims bind the
@@ -72,7 +81,9 @@ pub(crate) const PART_TTL_SECS: i64 = 300;
 /// Most URLs or parts one sign request may ask for.
 const MAX_SIGN: usize = 256;
 /// Longest URL that is signed.
-const MAX_URL_LEN: usize = 4096;
+pub(crate) const MAX_URL_LEN: usize = 4096;
+/// The message sent with a `length` refusal.
+pub(crate) const URL_TOO_LONG: &str = "remote URL is longer than 4096 bytes and is not fetched";
 /// Longest blob id that is signed.
 const MAX_BLOB_ID_LEN: usize = 256;
 /// A fixed, transparent browser-compatible identity. Some image CDNs reject a
@@ -562,6 +573,7 @@ fn authority_tag(key: &[u8; 32], session: &mw_store::Session) -> String {
 }
 
 /// Mint a token for `claims`.
+#[cfg(test)]
 pub(crate) fn mint(key: &[u8; 32], claims: &Claims) -> String {
     let payload = URL_SAFE_NO_PAD.encode(serde_json::to_vec(claims).expect("claims serialize"));
     let tag = mac(key, b"mw-rc-token\0", payload.as_bytes())
@@ -581,6 +593,81 @@ pub(crate) fn verify(key: &[u8; 32], token: &str, now: i64) -> Result<Claims, ()
         .map_err(|_| ())?;
     let bytes = URL_SAFE_NO_PAD.decode(payload).map_err(|_| ())?;
     let claims: Claims = serde_json::from_slice(&bytes).map_err(|_| ())?;
+    if claims.v != 1 || claims.x < now {
+        return Err(());
+    }
+    Ok(claims)
+}
+
+/// Most live short handles kept in the shared store; the ones closest to expiry
+/// are evicted first when a signing request would exceed it.
+pub(crate) const MAX_LIVE_HANDLES: usize = 100_000;
+
+/// The short opaque handle for `claims`: 16 bytes of an HMAC over the claims,
+/// url-safe base64 (22 characters). Deterministic, so signing the same claims
+/// in the same second yields the same URL (browser caches and the fetch-outcome
+/// bookkeeping rely on that); the retry nonce `n` makes a retry a new handle.
+/// The server key keeps handles unguessable.
+pub(crate) fn handle_for(key: &[u8; 32], claims: &Claims) -> String {
+    let tag = mac(
+        key,
+        b"mw-rc-handle ",
+        &serde_json::to_vec(claims).expect("claims serialize"),
+    )
+    .finalize()
+    .into_bytes();
+    URL_SAFE_NO_PAD.encode(&tag[..16])
+}
+
+/// Claims minted during one request, stored together before the response.
+#[derive(Default)]
+pub(crate) struct HandleBatch {
+    pending: Vec<(String, i64, String)>,
+}
+
+impl HandleBatch {
+    /// Queue `claims` and return its handle.
+    pub(crate) fn add(&mut self, key: &[u8; 32], claims: &Claims) -> String {
+        let handle = handle_for(key, claims);
+        if !self.pending.iter().any(|(h, _, _)| *h == handle) {
+            self.pending.push((
+                handle.clone(),
+                claims.x,
+                serde_json::to_string(claims).expect("claims serialize"),
+            ));
+        }
+        handle
+    }
+
+    /// Persist every queued handle.
+    pub(crate) async fn store(self, state: &AppState, now: i64) -> Result<(), ()> {
+        state
+            .store
+            .rc_handles_put(&self.pending, now, MAX_LIVE_HANDLES)
+            .await
+            .map_err(|_| ())
+    }
+}
+
+/// Resolve a link token to its claims: a short handle is looked up in the shared
+/// store, anything else is checked as a legacy self-contained signed token
+/// (still honoured until it expires). `Err` for unknown, expired or forged.
+pub(crate) async fn resolve(
+    state: &AppState,
+    key: &[u8; 32],
+    token: &str,
+    now: i64,
+) -> Result<Claims, ()> {
+    if !mw_store::rc_handles::is_handle(token) {
+        return verify(key, token, now);
+    }
+    let json = state
+        .store
+        .rc_handle_get(token, now)
+        .await
+        .map_err(|_| ())?
+        .ok_or(())?;
+    let claims: Claims = serde_json::from_str(&json).map_err(|_| ())?;
     if claims.v != 1 || claims.x < now {
         return Err(());
     }
@@ -719,6 +806,7 @@ pub(crate) async fn sign(
             .then(|| format!("{:032x}", rand::random::<u128>())),
     };
 
+    let mut handles = HandleBatch::default();
     let mut images = Vec::new();
     let mut refused = Vec::new();
     for url in &body.urls {
@@ -732,12 +820,14 @@ pub(crate) async fn sign(
             None
         };
         match reason {
+            Some("length") => refused
+                .push(json!({ "url": url, "reason": "length", "message": URL_TOO_LONG })),
             Some(r) => refused.push(json!({ "url": url, "reason": r })),
             None => {
                 if body.retry {
                     fetch_limits::forget(&session.account_id, [url.as_str()]);
                 }
-                let token = mint(&key, &claims(Kind::Image, url, IMAGE_TTL_SECS));
+                let token = handles.add(&key, &claims(Kind::Image, url, IMAGE_TTL_SECS));
                 images.push(json!({
                     "url": url,
                     "ref": fetch_limits::image_reference(url),
@@ -763,10 +853,11 @@ pub(crate) async fn sign(
     }
     let mut files = Vec::new();
     for url in &body.files {
-        if url.len() > MAX_URL_LEN
-            || !mw_sanitize::remote::is_http_url(url)
-            || reqwest::Url::parse(url).is_err()
-        {
+        if url.len() > MAX_URL_LEN {
+            refused.push(json!({ "url": url, "reason": "length", "message": URL_TOO_LONG }));
+            continue;
+        }
+        if !mw_sanitize::remote::is_http_url(url) || reqwest::Url::parse(url).is_err() {
             refused.push(json!({ "url": url, "reason": "scheme" }));
             continue;
         }
@@ -778,7 +869,7 @@ pub(crate) async fn sign(
             refused.push(json!({"url":url,"reason":"message"}));
             continue;
         };
-        let token = mint(&key, &claims(Kind::File, &normalized, PART_TTL_SECS));
+        let token = handles.add(&key, &claims(Kind::File, &normalized, PART_TTL_SECS));
         files.push(json!({
             "url": url,
             "src": format!("{}/api/rc/f/{token}", state.base_path),
@@ -801,7 +892,7 @@ pub(crate) async fn sign(
             refused.push(json!({"url":url,"reason":"tracker"}));
             continue;
         }
-        let token = mint(
+        let token = handles.add(
             &key,
             &claims(Kind::ImageDownload, &normalized, PART_TTL_SECS),
         );
@@ -829,7 +920,7 @@ pub(crate) async fn sign(
             refused.push(json!({"blobId":blob,"reason":"notMessagePart"}));
             continue;
         }
-        let token = mint(&key, &claims(Kind::Part, blob, PART_TTL_SECS));
+        let token = handles.add(&key, &claims(Kind::Part, blob, PART_TTL_SECS));
         parts.push(json!({
             "blobId": blob,
             "src": format!("{}/api/rc/p/{token}", state.base_path),
@@ -845,6 +936,9 @@ pub(crate) async fn sign(
             .filter_map(|part| part["blobId"].as_str())
             .collect::<std::collections::HashSet<_>>()
             .len();
+    if handles.store(&state, now).await.is_err() {
+        return internal("remote-content handle store");
+    }
     fetch_limits::register_images(&session.account_id, &body.email_id, image_count);
     Json(json!({ "images": images, "parts": parts, "files": files, "imageDownloads": image_downloads, "refused": refused }))
         .into_response()
@@ -860,7 +954,7 @@ async fn authenticate(
     kind: Kind,
 ) -> Result<(Claims, mw_store::Session), Response> {
     let key = signing_key(state);
-    let claims = match verify(&key, token, now_secs()) {
+    let claims = match resolve(state, &key, token, now_secs()).await {
         Ok(c) if c.k == kind => c,
         _ => return Err(forbidden("invalid or expired link")),
     };

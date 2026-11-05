@@ -181,17 +181,22 @@ pub(crate) async fn session_guard(
         use axum::extract::FromRequestParts;
         let (mut parts, body) = request.into_parts();
         let token = axum::extract::Path::<String>::from_request_parts(&mut parts, &state).await;
-        let valid = token.ok().is_some_and(|token| {
-            let key = state
-                .store
-                .derive_key(crate::image_proxy::remote_content::KEY_LABEL);
-            crate::image_proxy::remote_content::verify(
-                &key,
-                &token.0,
-                chrono::Utc::now().timestamp(),
-            )
-            .is_ok_and(|claims| claims.k == kind)
-        });
+        let valid = match token.ok() {
+            Some(token) => {
+                let key = state
+                    .store
+                    .derive_key(crate::image_proxy::remote_content::KEY_LABEL);
+                crate::image_proxy::remote_content::resolve(
+                    &state,
+                    &key,
+                    &token.0,
+                    chrono::Utc::now().timestamp(),
+                )
+                .await
+                .is_ok_and(|claims| claims.k == kind)
+            }
+            None => false,
+        };
         let request = axum::extract::Request::from_parts(parts, body);
         if !valid {
             return next.run(request).await;

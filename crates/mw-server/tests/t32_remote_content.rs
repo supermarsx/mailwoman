@@ -751,9 +751,19 @@ fn mint(claims: &Value) -> String {
     format!("{payload}.{}", URL_SAFE_NO_PAD.encode(tag))
 }
 
-fn claims_of(token: &str) -> Value {
-    let payload = token.split_once('.').unwrap().0;
-    serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap()
+/// The claims behind a link token: a short handle is read from the shared
+/// store, a legacy token decodes from its own payload.
+async fn claims_of(db: &str, token: &str) -> Value {
+    if let Some((payload, _)) = token.split_once('.') {
+        return serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap();
+    }
+    let json = store_at(db)
+        .await
+        .rc_handle_get(token, 0)
+        .await
+        .unwrap()
+        .expect("handle is stored");
+    serde_json::from_str(&json).unwrap()
 }
 
 // ── fixture ──────────────────────────────────────────────────────────────────────
@@ -1179,7 +1189,7 @@ async fn invalid_display_capabilities_keep_the_ordinary_anonymous_request_budget
     let (status, signed) = f.sign(&["http://1.2.3.4/invalid-budget.png"], &[]).await;
     assert_eq!(status, 200, "{signed}");
     let token = token_of(&image_src(&signed));
-    let mut expired = claims_of(&token);
+    let mut expired = claims_of(&f.db, &token).await;
     expired["x"] = json!(chrono::Utc::now().timestamp() - 1);
     let paths = [
         "/api/rc/i/abc.def".to_string(),
@@ -1337,20 +1347,71 @@ async fn a_signed_image_loads_without_a_cookie_and_forwards_nothing_of_the_reade
 }
 
 #[tokio::test]
+async fn signing_returns_short_handles_that_resolve_for_the_owner_only() {
+    let (proxy, _seen) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
+    let f = fixture(proxy, "mw-t32-rc-handle").await;
+    f.grant().await;
+    let long = format!("http://1.2.3.4/{}.png", "a".repeat(3000));
+    let (status, signed) = f.sign(&[&long], &[]).await;
+    assert_eq!(status, 200, "{signed}");
+    let src = image_src(&signed);
+    let token = token_of(&src);
+    assert_eq!(token.len(), 22, "short opaque handle: {src}");
+    assert!(!token.contains('.'), "{token}");
+    assert!(src.len() < 64, "{src}");
+    // The stored claims carry the full URL and the documented lifetimes.
+    let claims = claims_of(&f.db, &token).await;
+    assert_eq!(claims["u"], json!(long));
+    let ttl = claims["x"].as_i64().unwrap() - chrono::Utc::now().timestamp();
+    assert!(ttl <= 3600 && ttl > 3590, "{ttl}");
+    assert_eq!(f.load(&src).await.status(), 200);
+
+    // A handle holding another account's or session's claims is refused, as is
+    // an expired one and one used as another kind.
+    let store = store_at(&f.db).await;
+    let now = chrono::Utc::now().timestamp();
+    let mut rows = Vec::new();
+    for (name, edit) in [
+        ("other account", ("a", json!("someone-else"))),
+        ("other session", ("s", json!("00".repeat(16)))),
+        ("expired", ("x", json!(now - 5))),
+    ] {
+        let mut c = claims.clone();
+        c[edit.0] = edit.1;
+        let handle = URL_SAFE_NO_PAD.encode(Sha256::digest(name.as_bytes()))[..22].to_string();
+        rows.push((handle.clone(), now + 60, c.to_string()));
+        let r = f.load(&format!("/api/rc/i/{handle}")).await;
+        assert_eq!(r.status(), 403, "{name} before storing");
+    }
+    store.rc_handles_put(&rows, now, 1000).await.unwrap();
+    for (handle, _, _) in &rows {
+        let r = f.load(&format!("/api/rc/i/{handle}")).await;
+        assert_eq!(r.status(), 403, "{handle}");
+    }
+    assert_eq!(f.load(&format!("/api/rc/p/{token}")).await.status(), 403);
+    // A legacy self-contained token minted before the change still loads.
+    assert_eq!(
+        f.load(&format!("/api/rc/i/{}", mint(&claims))).await.status(),
+        200
+    );
+}
+
+#[tokio::test]
 async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
     let (proxy, seen) = standin_proxy(vec![("image/png".into(), png(4, 4))]).await;
     let f = fixture(proxy, "mw-t32-rc-forge").await;
     f.grant().await;
     let (_, signed) = f.sign(&["http://1.2.3.4/forge.png"], &[]).await;
     let token = token_of(&image_src(&signed));
-    let claims = claims_of(&token);
+    let claims = claims_of(&f.db, &token).await;
 
     // This file's own key derivation reproduces the server's tag for the server's
     // payload — so the forgeries below differ from a valid token only in what they
     // change. (The payload is compared as bytes: a re-serialized JSON object may
     // order its keys differently, which the server accepts but which is not the
     // same string.)
-    let (payload, tag) = token.split_once('.').unwrap();
+    let legacy = mint(&claims);
+    let (payload, tag) = legacy.split_once('.').unwrap();
     assert_eq!(
         URL_SAFE_NO_PAD.encode(hmac(
             &signing_key(),
@@ -1376,7 +1437,7 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
     let mut as_part = claims.clone();
     as_part["k"] = json!("p");
 
-    let mut flipped = token.clone().into_bytes();
+    let mut flipped = legacy.clone().into_bytes();
     let last = flipped.len() - 1;
     flipped[last] = if flipped[last] == b'A' { b'B' } else { b'A' };
     for (what, t) in [
@@ -1385,6 +1446,7 @@ async fn a_tampered_retargeted_or_expired_token_is_refused_before_any_fetch() {
         ("expired", mint(&expired)),
         ("another session", mint(&wrong_session)),
         ("junk", "abc.def".to_string()),
+        ("unknown handle", "A".repeat(22)),
     ] {
         let r = f.load(&format!("/api/rc/i/{t}")).await;
         assert_eq!(r.status(), 403, "{what}");
@@ -1835,13 +1897,13 @@ async fn signing_refuses_trackers_and_non_http_urls_and_parts_load_without_a_coo
     assert!(part.starts_with("/api/rc/p/"), "{part}");
     let r = f.load(&part).await;
     assert_eq!(r.status(), 415, "{}", r.text().await.unwrap());
-    let claims = claims_of(&token_of(&part));
+    let claims = claims_of(&f.db, &token_of(&part)).await;
     let ttl = claims["x"].as_i64().unwrap() - chrono::Utc::now().timestamp();
     assert!(
         ttl <= 300 && ttl > 290,
         "part tokens live five minutes: {ttl}"
     );
-    let img = claims_of(&token_of(signed["images"][0]["src"].as_str().unwrap()));
+    let img = claims_of(&f.db, &token_of(signed["images"][0]["src"].as_str().unwrap())).await;
     let ttl = img["x"].as_i64().unwrap() - chrono::Utc::now().timestamp();
     assert!(
         ttl <= 3600 && ttl > 3590,
@@ -1969,7 +2031,7 @@ async fn part_redemption_rechecks_membership_and_charges_rate_budget() {
     let (status, signed) = f.sign(&[], &["Mblob1"]).await;
     assert_eq!(status, 200, "{signed}");
     let src = signed["parts"][0]["src"].as_str().unwrap();
-    let mut claims = claims_of(&token_of(src));
+    let mut claims = claims_of(&f.db, &token_of(src)).await;
     claims["u"] = json!("another-message-blob");
     assert_eq!(
         f.load(&format!("/api/rc/p/{}", mint(&claims)))
@@ -2413,7 +2475,7 @@ async fn manual_image_downloads_require_policy_and_real_message_membership_at_ev
     enable(&f, true).await;
     // The signing secret is available only to this test: forge a valid token for
     // an absent URL, proving redemption rechecks membership rather than trusting it.
-    let mut claims = claims_of(&token_of(image));
+    let mut claims = claims_of(&f.db, &token_of(image)).await;
     claims["u"] = json!("http://1.2.3.4/retargeted.png");
     let forged = mint(&claims);
     assert_eq!(

@@ -46,6 +46,15 @@ While any card has unsaved edits, the page stops refreshing the statistics and t
 
 The charts are SVG with the console's theme colours and no animation. Each has a summary sentence and a "View as table" switch; the table is always in the page for screen readers. The Image proxy and Overview tabs show a range selector, a Refresh button and the time of the last update.
 
+## Remote-content links
+
+The reader loads remote images, inline parts and downloads of linked files through `/api/rc/i/<handle>`, `/api/rc/p/<handle>`, `/api/rc/f/<handle>` and `/api/rc/d/<handle>`. A handle is 22 URL-safe characters. The claims behind it (account, session, message, target, expiry) are stored on the server, in the shared `settings` table under `rc.h.<handle>`, so any replica sharing the database can resolve it and the link length does not depend on the remote URL.
+
+- Lifetimes are unchanged: one hour for an image, five minutes for a part or a file. A handle is checked against the same session, account, message and grant rules as before.
+- The store holds at most 100,000 live handles. Expired rows are removed on the next signing request; if the cap is still exceeded, the rows closest to expiry are dropped first. A dropped handle answers `403 invalid or expired link` and the reader signs again.
+- Links issued before this change (a long `payload.tag` token) keep working until they expire.
+- A remote URL longer than 4096 bytes is not signed. `POST /api/rc/sign` lists it under `refused` with the reason `length` and a message, and `GET /api/image-proxy?url=` answers `414`. Download file names in `Content-Disposition` are cut to 100 characters.
+
 ## Attachment policy
 
 The Attachments section has tabs: **Allow and block lists**, **Limits**, **Download and preview**, **Warnings** and **Test a file**. Every `attachments.*` setting is edited in place.
