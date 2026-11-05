@@ -34,7 +34,7 @@ import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
 import * as bulk from './bulkBar.css.ts';
 import './messageFlash.css.ts';
-import {focusRequest,clearFocusRequest} from './messageFocus.ts';
+import {focusRequest,clearFocusRequest,focusMessageInFolder} from './messageFocus.ts';
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings,writeSetting} from '../api/settings.ts';
@@ -140,6 +140,22 @@ function SelectedMark(props: { selected: boolean }): JSX.Element {
 
 type MessageMenu = {open:(event:MouseEvent,email:Email)=>void;keydown:(event:KeyboardEvent,email:Email)=>void;isOpen:(id:string)=>boolean};
 
+/** In a list that spans folders (search results) the row's folder, as a real button that goes to the folder and flashes the message. */
+function FolderChip(props:{email:Email}): JSX.Element {
+  const app = useApp();
+  const folder = () => app.searchActive() ? Object.keys(props.email.mailboxIds ?? {}).map((id) => app.mailboxes().find((box) => box.id === id && props.email.mailboxIds[id])).find((box) => box !== undefined) : undefined;
+  return (
+    <Show when={folder()} keyed>
+      {(box) => (
+        <button type="button" class="list__folder-chip" data-testid="row-folder" aria-label={t('mail-focus-go-to', { folder: isolate(box.name) })} title={t('mail-focus-go-to', { folder: isolate(box.name) })}
+          onClick={(e) => { e.stopPropagation(); void focusMessageInFolder(app, box.id, props.email.id); }}>
+          <Icon name="folder" />{isolate(box.name)}
+        </button>
+      )}
+    </Show>
+  );
+}
+
 function MessageRow(props: {
   replyDraft:ReplyDraft|undefined;
   contextMenu:MessageMenu;
@@ -224,6 +240,7 @@ function MessageRow(props: {
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
         <TagChips email={email()} />
       </button>
+      <FolderChip email={email()}/>
       <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
     </li>
   );
