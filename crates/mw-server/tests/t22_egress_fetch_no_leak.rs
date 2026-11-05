@@ -66,6 +66,21 @@ const KEY_HEX: &str = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 const ADMIN_TOKEN: &str = "t22-e14-admin-token";
 
+/// The live admin session id. Step-up rotates it (admin_rotation), so every
+/// step-up must hand the fresh id on from its Set-Cookie.
+static LIVE_ADMIN_TOKEN: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+fn admin_cookie_header() -> String {
+    let live = LIVE_ADMIN_TOKEN.lock().unwrap();
+    format!("mw_admin_session={}", if live.is_empty() { ADMIN_TOKEN } else { live.as_str() })
+}
+fn adopt_rotated_session(response: &reqwest::Response) {
+    for value in response.headers().get_all("set-cookie") {
+        if let Some(rest) = value.to_str().unwrap_or_default().strip_prefix("mw_admin_session=") {
+            *LIVE_ADMIN_TOKEN.lock().unwrap() = rest.split(';').next().unwrap_or_default().to_string();
+        }
+    }
+}
+
 /// Distinctive enough that a substring match cannot collide with anything else the
 /// server might legitimately emit.
 const PASSWORD: &str = "vx9-Egress-Fetch-Secret-Never-Log-8c1d";
@@ -329,16 +344,15 @@ async fn put_route(
     with_credentials: bool,
     bodies: &mut Vec<String>,
 ) {
-    assert_eq!(
-        c.post(format!("{base}/admin/step-up"))
-            .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
-            .json(&json!({"password":"fixture-admin-proof"}))
-            .send()
-            .await
-            .unwrap()
-            .status(),
-        200
-    );
+    let step_up = c
+        .post(format!("{base}/admin/step-up"))
+        .header("cookie", admin_cookie_header())
+        .json(&json!({"password":"fixture-admin-proof"}))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(step_up.status(), 200);
+    adopt_rotated_session(&step_up);
     let mut payload = json!({
         "id": id,
         "scheme": "http",
@@ -352,7 +366,7 @@ async fn put_route(
     }
     let resp = c
         .post(format!("{base}/admin/egress/proxies"))
-        .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
+        .header("cookie", admin_cookie_header())
         .json(&payload)
         .send()
         .await
@@ -366,7 +380,7 @@ async fn put_route(
 async fn activate(c: &reqwest::Client, base: &str, id: &str, bodies: &mut Vec<String>) {
     let resp = c
         .post(format!("{base}/admin/egress/proxies/{id}/activate"))
-        .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
+        .header("cookie", admin_cookie_header())
         .send()
         .await
         .expect("activate");

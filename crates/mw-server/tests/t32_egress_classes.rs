@@ -32,6 +32,21 @@ const KEY_HEX: &str = "1f2e3d4c5b6a79889796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c
 const INDEX_HTML: &str = "<!doctype html><title>Mailwoman</title><div id=app>MW</div>";
 const ADMIN_TOKEN: &str = "t32-f17-admin-token";
 
+/// The live admin session id. Step-up rotates it (admin_rotation), so every
+/// step-up must hand the fresh id on from its Set-Cookie.
+static LIVE_ADMIN_TOKEN: std::sync::Mutex<String> = std::sync::Mutex::new(String::new());
+fn admin_cookie_header() -> String {
+    let live = LIVE_ADMIN_TOKEN.lock().unwrap();
+    format!("mw_admin_session={}", if live.is_empty() { ADMIN_TOKEN } else { live.as_str() })
+}
+fn adopt_rotated_session(response: &reqwest::Response) {
+    for value in response.headers().get_all("set-cookie") {
+        if let Some(rest) = value.to_str().unwrap_or_default().strip_prefix("mw_admin_session=") {
+            *LIVE_ADMIN_TOKEN.lock().unwrap() = rest.split(';').next().unwrap_or_default().to_string();
+        }
+    }
+}
+
 static MOCK_UPSTREAMS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 async fn spawn_mock() -> String {
@@ -253,7 +268,7 @@ async fn a_route_carries_only_its_classes_and_the_plan_follows_admin_changes() {
     let admin = reqwest::Client::builder().no_proxy().build().unwrap();
     // Egress route writes are sensitive (`integrationManage` step-up, 7e9af0d0/12ca557d):
     // confirm the admin's password for this session first, through the real route.
-    let admin_cookie = format!("mw_admin_session={ADMIN_TOKEN}");
+    let admin_cookie = admin_cookie_header();
     let step_up = admin
         .post(format!("{base}/admin/step-up"))
         .header("cookie", &admin_cookie)
@@ -262,9 +277,10 @@ async fn a_route_carries_only_its_classes_and_the_plan_follows_admin_changes() {
         .await
         .unwrap();
     assert_eq!(step_up.status(), 200, "admin step-up");
+    adopt_rotated_session(&step_up);
     let put = admin
         .post(format!("{base}/admin/egress/proxies"))
-        .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
+        .header("cookie", admin_cookie_header())
         .json(&json!({
             "id": "corp",
             "scheme": "http",
@@ -278,7 +294,7 @@ async fn a_route_carries_only_its_classes_and_the_plan_follows_admin_changes() {
     assert_eq!(put.status(), 200, "{}", put.text().await.unwrap());
     let act = admin
         .post(format!("{base}/admin/egress/proxies/corp/activate"))
-        .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
+        .header("cookie", admin_cookie_header())
         .send()
         .await
         .unwrap();
@@ -340,7 +356,7 @@ async fn a_route_carries_only_its_classes_and_the_plan_follows_admin_changes() {
     // Deactivation re-installs a plan with no live route.
     let off = admin
         .post(format!("{base}/admin/egress/proxies/deactivate"))
-        .header("cookie", format!("mw_admin_session={ADMIN_TOKEN}"))
+        .header("cookie", admin_cookie_header())
         .send()
         .await
         .unwrap();

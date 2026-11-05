@@ -755,6 +755,16 @@ const GATED_CONSTRUCTION: (&str, &str) = ("crates/mw-server/src/lib.rs", "upstre
 /// Every production function that reads a session URL field, and why it is safe.
 const SESSION_URL_READERS: &[(&str, &str, &str)] = &[
     (
+        "crates/mw-store/src/feature_subjects.rs",
+        "remember_feature_subject",
+        "SQL only: matches the stored session row to the feature subject; no request is sent",
+    ),
+    (
+        "crates/mw-store/src/feature_subjects.rs",
+        "backfill_feature_subjects",
+        "SQL only: matches the stored session row to the feature subject; no request is sent",
+    ),
+    (
         "crates/mw-server/src/linked_accounts/mod.rs",
         "of",
         "no request: copies already authenticated session URLs into the linked-policy memo key so endpoint changes invalidate cached policy passes",

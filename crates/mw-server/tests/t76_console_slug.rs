@@ -260,7 +260,8 @@ async fn sign_in(console: &str) -> Admin {
     }
 }
 
-async fn step_up(console: &str, admin: &Admin) {
+/// Step-up rotates the session id (admin_rotation): carry the fresh cookies forward.
+async fn step_up(console: &str, admin: &mut Admin) {
     let a = send(
         reqwest::Method::POST,
         &format!("{console}/step-up"),
@@ -270,6 +271,10 @@ async fn step_up(console: &str, admin: &Admin) {
     )
     .await;
     assert_eq!(a.status, 200, "step-up: {}", a.body);
+    if let (Some(session), Some(csrf)) = (cookie_pair(&a, "mw_admin_session"), cookie_pair(&a, "mw_csrf")) {
+        admin.csrf = csrf.split_once('=').unwrap().1.to_string();
+        admin.cookie = format!("{session}; {csrf}");
+    }
 }
 
 async fn read_path(console: &str, admin: &Admin) -> (Value, String) {
@@ -361,7 +366,7 @@ async fn a_new_installation_gets_a_generated_path_and_admin_is_unknown() {
     assert_unknown(&url, "/admin").await;
     assert_console(&url, &stored).await;
     let console = format!("{url}{stored}");
-    let admin = sign_in(&console).await;
+    let mut admin = sign_in(&console).await;
     assert!(
         admin.set_cookie.contains(&format!("Path={stored};")),
         "the admin cookie is scoped to the console: {}",
@@ -378,7 +383,7 @@ async fn a_new_installation_gets_a_generated_path_and_admin_is_unknown() {
     assert_console(&url2, &stored).await;
     assert_unknown(&url2, "/admin").await;
     let console2 = format!("{url2}{stored}");
-    let admin2 = sign_in(&console2).await;
+    let mut admin2 = sign_in(&console2).await;
     assert_eq!(read_path(&console2, &admin2).await.0["source"], "stored");
 
     // Sign-out clears the scoped cookie and the pre-t76 `Path=/` one.
@@ -424,7 +429,7 @@ async fn an_upgraded_installation_keeps_admin_with_a_warning() {
     );
     assert_console(&url, "/admin").await;
     let console = format!("{url}/admin");
-    let admin = sign_in(&console).await;
+    let mut admin = sign_in(&console).await;
     assert!(
         admin.set_cookie.contains("Path=/admin;"),
         "{}",
@@ -451,7 +456,7 @@ async fn a_change_needs_step_up_is_checked_and_applies_at_the_next_start() {
         .unwrap()
         .unwrap();
     let console = format!("{url}{generated}");
-    let admin = sign_in(&console).await;
+    let mut admin = sign_in(&console).await;
     let (_, tag) = read_path(&console, &admin).await;
 
     // Without a fresh confirmation: 403 step_up_required, nothing stored.
@@ -460,7 +465,7 @@ async fn a_change_needs_step_up_is_checked_and_applies_at_the_next_start() {
     assert_eq!(refused.json()["code"], "step_up_required");
     assert_eq!(refused.json()["action"], "consolePath");
 
-    step_up(&console, &admin).await;
+    step_up(&console, &mut admin).await;
     for bad in [
         json!({"path": "/admin"}),
         json!({"path": "/short"}),
@@ -517,12 +522,12 @@ async fn a_change_needs_step_up_is_checked_and_applies_at_the_next_start() {
         store.get_setting(APPLIED_KEY).await.unwrap().as_deref(),
         Some("/ops-console-t76x")
     );
-    let admin2 = sign_in(&format!("{url2}/ops-console-t76x")).await;
+    let mut admin2 = sign_in(&format!("{url2}/ops-console-t76x")).await;
     let (view, tag2) = read_path(&format!("{url2}/ops-console-t76x"), &admin2).await;
     assert_eq!(view["pending"], Value::Null);
 
     // A generated one works the same way.
-    step_up(&format!("{url2}/ops-console-t76x"), &admin2).await;
+    step_up(&format!("{url2}/ops-console-t76x"), &mut admin2).await;
     let gen_ = put_path(
         &format!("{url2}/ops-console-t76x"),
         &admin2,
@@ -542,11 +547,11 @@ async fn mw_admin_path_pins_the_path() {
     let (url, _) = start(&s).await;
     assert_unknown(&url, "/admin").await;
     let console = format!("{url}/ops-pinned-t76");
-    let admin = sign_in(&console).await;
+    let mut admin = sign_in(&console).await;
     let (view, tag) = read_path(&console, &admin).await;
     assert_eq!(view["source"], "env");
     assert_eq!(view["pinnedBy"], "MW_ADMIN_PATH");
-    step_up(&console, &admin).await;
+    step_up(&console, &mut admin).await;
     let a = put_path(&console, &admin, &tag, json!({"generate": true})).await;
     assert_eq!(a.status, 409, "{}", a.body);
     assert_eq!(a.json()["code"], "pinnedByEnvironment");
@@ -604,7 +609,7 @@ async fn no_answer_outside_the_console_names_the_generated_path() {
         }
     }
     // The admin cookie is never sent outside the console: its Path says so.
-    let admin = sign_in(&format!("{url}{path}")).await;
+    let mut admin = sign_in(&format!("{url}{path}")).await;
     assert!(admin.set_cookie.contains(&format!("Path={path};")));
     assert!(!admin.set_cookie.contains("Path=/;"));
 }

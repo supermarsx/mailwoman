@@ -1117,7 +1117,7 @@ async fn signature_formats_http_sanitizes_and_fences_account_switch() {
             .is_empty()
     );
     let mut too_large = dto.clone();
-    too_large["html"] = json!("x".repeat(32 * 1024 + 1));
+    too_large["html"] = json!("x".repeat(2 * 1024 * 1024 + 1));
     assert_eq!(
         client
             .post(&url)

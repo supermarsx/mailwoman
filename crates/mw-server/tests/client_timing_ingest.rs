@@ -79,7 +79,8 @@ async fn anonymous_is_rejected_and_a_session_gets_204_with_no_body() {
     let server = spawn().await;
     let anon = reqwest::Client::new();
     let r = beacon(&anon, &server, None, OK.into()).send().await.unwrap();
-    assert_eq!(r.status(), 401);
+    // No session: refused by the strict CSRF guard (403) before the handler's own 401.
+    assert!(matches!(r.status().as_u16(), 401 | 403), "{}", r.status());
 
     let (c, token) = sign_in(&server).await;
     // Same-session writes without the CSRF token are refused first.
@@ -116,6 +117,8 @@ async fn invalid_beacons_are_refused() {
         let r = beacon(&c, &server, Some(&token), body.into()).send().await.unwrap();
         assert_eq!(r.status(), 400, "{body}");
     }
+    // The invalid beacons above spent this session's burst (6); a new session has its own.
+    let (c, token) = sign_in(&server).await;
     // An out-of-range value is clamped, not refused.
     let r = beacon(
         &c,

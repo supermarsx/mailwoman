@@ -81,7 +81,7 @@ async fn only_unmatched_admin_discovery_is_an_opt_in_signal() {
     let (base, store) = fixture(&[
         ("security.protection.adaptiveMode", json!("enforce")),
         ("security.protection.adaptiveAccounts", json!(false)),
-        ("security.protection.adaptiveAdmins", json!(false)),
+        ("security.protection.adaptiveAdmins", json!(true)),
         ("security.protection.signals", json!(["admin-route-miss"])),
         ("security.protection.shortAbsoluteAnomalies", json!(2)),
         ("security.protection.shortRatioPercent", json!(0)),
@@ -136,7 +136,7 @@ async fn only_unmatched_admin_discovery_is_an_opt_in_signal() {
             .is_empty()
     );
     for path in [
-        "/ops-probe-test/phpmyadmin",
+        "/ops-probe-test/legacy-panel", // not a scanner path: those are strong evidence (t32_request_protection)
         "/ops-probe-test/hidden-console",
     ] {
         assert_eq!(
@@ -159,7 +159,9 @@ async fn only_unmatched_admin_discovery_is_an_opt_in_signal() {
         Some(mw_store::request_protection_model::Signal::AdminRouteMiss)
     );
     assert_eq!(events[0].snapshot.short.anomalous, 2);
-    let blocked = browser.get(format!("{base}/api/me")).send().await.unwrap();
+    // The throttle follows the signed-in administrator (a valid session is charged to its identity,
+    // not to the source address), so the next console request is the one refused.
+    let blocked = browser.get(format!("{base}/ops-probe-test/settings")).send().await.unwrap();
     assert_eq!(blocked.status(), 429);
     assert!(blocked.headers().contains_key("retry-after"));
 }
