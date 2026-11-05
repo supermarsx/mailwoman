@@ -154,6 +154,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.compose.autoChipRecipients',
   'mail.compose.recipientSeparator',
   'mail.replyImages',
+  'mail.compose.headerCollapse',
   'mail.replyImageTrustedDomains',
   'rateLimit.diagnosticsBurst',
   'rateLimit.diagnosticsPerMinute',

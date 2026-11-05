@@ -49,7 +49,7 @@ describe('composer ribbon (t38)', () => {
     renderWithApp(() => <Compose onClose={() => undefined} />);
     await structuredComposeEditor();
     await screen.findByTestId('rt-bold');
-    expect(bar()).toHaveAttribute('data-reveal', 'push');
+    expect(bar()).toHaveAttribute('data-reveal', 'overlay');
     expect(bar()).toHaveAttribute('data-mode', 'pinned');
 
     expect(groupIds('format')).toEqual([

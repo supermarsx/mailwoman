@@ -2027,6 +2027,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "pre-send check for an empty subject"
     ),
     def!(
+        "mail.compose.headerCollapse",
+        Kind::Enum(&["expanded", "collapsed", "auto"]),
+        "\"expanded\"",
+        GDU,
+        "mail",
+        "composer header (To, Cc, Bcc, Subject): expanded, folded to a summary line, or folded while writing the body and open on focus"
+    ),
+    def!(
         "mail.compose.autoChipRecipients",
         Kind::Bool,
         "true",

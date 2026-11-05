@@ -166,10 +166,10 @@ describe('Compose recipient chips', () => {
     to.focus();
     typeInto(to, 'nope ');
     expect(to.value).toBe('nope ');
-    expect(screen.queryByTestId('compose-alerts')).toBeNull();
+    expect(screen.queryByTestId('compose-status-invalid')).toBeNull();
     fireEvent.blur(to);
     expect(to.value).toBe('');
-    const strip = await screen.findByTestId('compose-alerts');
+    const strip = await screen.findByTestId('compose-status');
     expect(strip).toHaveAttribute('role', 'status');
     fireEvent.click(within(strip).getByRole('button', { name: /Invalid address: .*nope/ }));
     expect(to).toHaveFocus();
@@ -179,7 +179,8 @@ describe('Compose recipient chips', () => {
   it('does not nag on an empty draft', async () => {
     await configure(POLICIES({ 'mail.compose.checkEmptySubject': entry('warn'), 'mail.compose.checkInvalidRecipients': entry('warn') }));
     await mount();
-    expect(screen.queryByTestId('compose-alerts')).toBeNull();
+    const bar = screen.getByTestId('compose-status');
+    for (const id of ['no-recipients', 'subject', 'invalid']) expect(within(bar).queryByTestId(`compose-status-${id}`)).toBeNull();
   });
 
   it('splits a pasted list into chips', async () => {
@@ -353,8 +354,8 @@ describe('Compose pre-send checks', () => {
     await mount();
     await chooseComposeFormat('plain');
     fireEvent.input(screen.getByLabelText('Body'), { target: { value: 'Hello' } });
-    const strip = await screen.findByTestId('compose-alerts');
-    fireEvent.click(within(strip).getByRole('button', { name: 'No subject' }));
+    const strip = await screen.findByTestId('compose-status');
+    fireEvent.click(await within(strip).findByRole('button', { name: 'No subject' }));
     expect(screen.getByLabelText('Subject')).toHaveFocus();
   });
 
@@ -362,9 +363,10 @@ describe('Compose pre-send checks', () => {
     await configure(POLICIES({ 'mail.externalRecipientWarning': entry('warn'), 'mail.trustedRecipientDomains': entry(['b.example']) }));
     const { to } = await mount();
     fireEvent.input(to, { target: { value: 'a@b.example, c@other.example' } });
-    const bar = await screen.findByRole('status', { name: 'External recipients' });
+    const bar = await screen.findByTestId('compose-status-external');
     expect(bar).toHaveTextContent('other.example');
+    expect(bar).toHaveAttribute('data-subdued');
     fireEvent.click(within(bar).getByRole('button', { name: 'Dismiss' }));
-    expect(screen.queryByRole('status', { name: 'External recipients' })).toBeNull();
+    expect(screen.queryByTestId('compose-status-external')).toBeNull();
   });
 });

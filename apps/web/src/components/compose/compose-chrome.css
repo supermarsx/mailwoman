@@ -1,0 +1,54 @@
+/* The composer's chrome: the bottom status bar, the collapsible header and the
+   ribbon's overlay reveal. Colours come from the theme tokens; severity is
+   always carried by an icon and text too, never by colour alone. */
+
+.compose-status { position:relative; flex:none; display:flex; align-items:center; gap:.5rem; box-sizing:border-box; block-size:1.75rem; min-block-size:1.75rem; max-block-size:1.75rem; padding:0 .5rem; border-block-start:var(--border-hair) solid var(--border); background:var(--bg-alt); font-size:.75rem; color:var(--text-dim); overflow:visible; }
+.compose-status__row { display:flex; align-items:center; gap:.25rem .75rem; min-inline-size:0; flex:1 1 auto; overflow:hidden; white-space:nowrap; }
+.compose-status__item { display:inline-flex; align-items:center; gap:.25rem; min-inline-size:0; max-inline-size:100%; color:var(--text); }
+.compose-status__item[data-subdued] { font-size:.6875rem; color:var(--text-dim); }
+.compose-status__body { display:inline-flex; align-items:center; gap:.25rem; min-inline-size:0; padding:0; border:0; background:none; color:inherit; font:inherit; }
+.compose-status__btn { cursor:pointer; }
+.compose-status__btn:hover .compose-status__text { text-decoration:underline; }
+.compose-status__btn:focus-visible, .compose-status__action:focus-visible, .compose-status__more:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); outline-offset:1px; }
+.compose-status__text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.compose-status__icon { display:inline-flex; flex:none; }
+.compose-status__icon svg { inline-size:.875rem; block-size:.875rem; }
+.compose-status__icon--spin svg { animation:compose-status-spin 1s linear infinite; }
+@keyframes compose-status-spin { to { transform:rotate(360deg); } }
+@media (prefers-reduced-motion:reduce) { .compose-status__icon--spin svg { animation:none; } }
+.compose-status__item[data-severity=danger] .compose-status__icon { color:var(--danger); }
+.compose-status__item[data-severity=danger] .compose-status__text { font-weight:600; }
+.compose-status__item[data-severity=warning] .compose-status__icon { color:var(--warning); }
+.compose-status__item[data-severity=success] .compose-status__icon { color:var(--success); }
+.compose-status__action { padding:0 .35rem; border:var(--border-hair) solid var(--border-strong,var(--border)); background:transparent; color:var(--link,var(--accent)); font:inherit; cursor:pointer; }
+.compose-status__action:hover { background:color-mix(in srgb,var(--accent) 12%,transparent); }
+.compose-status__sr { position:absolute; inline-size:1px; block-size:1px; overflow:hidden; clip-path:inset(50%); white-space:nowrap; }
+.compose-status__more { display:inline-flex; align-items:center; gap:.15rem; flex:none; padding:0 .4rem; border:var(--border-hair) solid var(--border-strong,var(--border)); background:var(--surface); color:var(--text); font:inherit; cursor:pointer; }
+.compose-status__pop { position:absolute; inset-inline-end:.5rem; inset-block-end:100%; z-index:40; display:flex; flex-direction:column; gap:.3rem; min-inline-size:14rem; max-inline-size:min(32rem,calc(100% - 1rem)); max-block-size:12rem; overflow:auto; padding:.4rem .6rem; border:var(--border-hair) solid var(--border-strong,var(--border)); background:var(--surface); }
+.compose-status__pop[hidden] { display:none; }
+.compose-status__pop .compose-status__item { white-space:normal; }
+.compose-status__pop .compose-status__text { white-space:normal; overflow:visible; }
+@media (forced-colors:active) { .compose-status, .compose-status__pop { border-color:CanvasText; } }
+
+/* The collapsible header (From/To/Cc/Bcc/Subject): tight rows, labels inline. */
+.compose-head { display:flex; flex-direction:column; gap:0; min-inline-size:0; }
+.compose-head__bar { display:flex; align-items:center; gap:.35rem; min-block-size:1.5rem; }
+.compose-head__toggle { display:inline-flex; align-items:center; gap:.25rem; flex:1 1 auto; min-inline-size:0; padding:.1rem .3rem; border:0; background:none; color:var(--text-dim); font:inherit; font-size:.8125rem; text-align:start; cursor:pointer; }
+.compose-head__toggle:hover { color:var(--text); }
+.compose-head__toggle:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); outline-offset:1px; }
+.compose-head__summary { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; min-inline-size:0; }
+.compose-head__chev { display:inline-flex; flex:none; transition:transform .12s; }
+.compose-head[data-collapsed] .compose-head__chev { transform:rotate(-90deg); }
+@media (prefers-reduced-motion:reduce) { .compose-head__chev { transition:none; } }
+.compose-head__body[hidden] { display:none; }
+.compose-head__body .field { margin-block:0; }
+.compose-head__body .compose__to, .compose-head__body .compose__subject, .compose-head__body .compose__from-row { display:grid; grid-template-columns:3.25rem minmax(0,1fr) auto; align-items:center; gap:.25rem; margin-block:.1rem; inline-size:auto; }
+.compose-head__body .compose__subject { grid-template-columns:3.25rem minmax(0,1fr); }
+.compose-head__body .compose__to > span, .compose-head__body .compose__subject > span, .compose-head__body .compose__from-row > span { font-size:.75rem; color:var(--text-dim); margin:0; }
+.compose-head__body .compose__to input:not([type=checkbox]):not([type=radio]), .compose-head__body .compose__subject input:not([type=checkbox]):not([type=radio]) { min-block-size:1.75rem; padding:.15rem .4rem; }
+.compose-head__body .compose__from select { min-block-size:1.75rem; padding:.1rem .4rem; }
+.compose-head__chip { display:inline-flex; align-items:center; gap:.3rem; padding:.05rem .5rem; border:var(--border-hair) solid var(--border); background:var(--bg-alt); font-size:.8125rem; max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.compose-head__ccbcc { display:inline-flex; gap:.15rem; }
+.compose-head__ccbcc button { padding:0 .35rem; min-block-size:1.5rem; border:var(--border-hair) solid transparent; background:none; color:var(--link,var(--accent)); font:inherit; font-size:.75rem; cursor:pointer; }
+.compose-head__ccbcc button:hover, .compose-head__ccbcc button[aria-pressed=true] { border-color:var(--border); background:var(--bg-alt); }
+.compose-head__ccbcc button:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); }

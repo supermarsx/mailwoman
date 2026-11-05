@@ -1138,3 +1138,35 @@ mail-recipient-all-selected = { $count ->
 }
 mail-external-line = { $count } outside trusted domains: { $domains }
 mail-external-dismiss = Dismiss
+
+# Composer status bar, collapsible header
+mail-status-label = Composer status
+mail-status-more = { $count } more notices
+mail-status-more-label = More notices
+mail-status-no-recipients = No recipients
+mail-status-no-attachment = No attachment
+mail-status-external = { $count } external
+mail-status-external-reviewed = External recipients reviewed
+mail-status-external-review = Mark reviewed
+mail-status-from-match = From { $identity }
+mail-status-from-match-plus = From { $identity }
+mail-status-from-ambiguous = From { $identity } (several match)
+mail-status-from-default = From default identity
+mail-status-from-forced-default = From default identity
+mail-status-from-keep = From { $identity }
+mail-status-held = { $count } queued
+mail-status-storage = No local recovery
+mail-status-protected = Not saved as plaintext
+mail-status-saving = Saving…
+mail-status-saved = Saved to account Drafts · { $time }
+mail-status-not-saved = Draft not saved
+mail-status-retry = Retry
+mail-status-conflict = Changed on another device
+mail-status-uncertain = Save not confirmed
+mail-status-close-recovery = Close, keep recovery
+mail-status-unsupported = Draft save unconfirmed
+mail-compose-header = Message header
+mail-header-label = Message header
+mail-header-collapse = Collapse message header
+mail-header-expand = Expand message header: { $summary }
+mail-header-from-chip = From { $address }. Change sender

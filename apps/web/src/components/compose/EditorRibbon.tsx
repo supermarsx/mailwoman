@@ -157,7 +157,7 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
   return (
     <CollapsibleBar
       id="composerRibbon"
-      revealPolicy="push"
+      revealPolicy="overlay"
       {...(props.bar ? { bar: props.bar } : {})}
       class={props.class ? `compose-ribbon ${props.class}` : 'compose-ribbon'}
       label={t('mail-compose-ribbon')}

@@ -41,16 +41,16 @@ it.each(['revision-one','revision-two','switch-draft'])('saves with captured aut
  expect(writes).toHaveLength(1);expect(state?.to).toBe('unfinished');expect(state?.subject).toBe('Remote editable');expect(success).not.toHaveBeenCalled();
  const saveCall=fetcher.mock.calls.find(call=>String(call[0]).includes('/api/account/drafts/')&&call[1]?.method==='PUT');
  expect(new Headers(saveCall?.[1]?.headers).get('x-mailwoman-storage-authority')).toBe('test-storage-authority-acct1');success.mockRestore();
- fireEvent.click(screen.getByRole('button',{name:'Discard account draft'}));
+ fireEvent.click(screen.getByRole('button',{name:'Discard'}));
  expect(removals).toHaveLength(0);expect(closed).not.toHaveBeenCalled();expect(screen.getByRole('button',{name:'Send'})).toBeDisabled();
  // A themed modal (t42): labelled alertdialog, the safe choice focused, Esc cancels.
  const dialog=await screen.findByRole('alertdialog',{name:'Discard this draft?'});
  expect(dialog).toHaveAttribute('aria-modal','true');expect(dialog).toHaveAccessibleDescription(/Remote editable/);
  await waitFor(()=>expect(screen.getByRole('button',{name:'Keep editing'})).toHaveFocus());
  fireEvent.keyDown(dialog,{key:'Escape'});expect(screen.queryByRole('alertdialog')).toBeNull();expect(closed).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole('button',{name:'Discard account draft'}));
+ fireEvent.click(screen.getByRole('button',{name:'Discard'}));
  fireEvent.click(screen.getByRole('button',{name:'Keep editing'}));expect(closed).not.toHaveBeenCalled();
- fireEvent.click(screen.getByRole('button',{name:'Discard account draft'}));
+ fireEvent.click(screen.getByRole('button',{name:'Discard'}));
  const failure=vi.spyOn(toast,'error');
  fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'Discard'}));
  if(loadedRevision==='switch-draft'){

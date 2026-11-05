@@ -154,7 +154,7 @@ describe('Compose', () => {
   it('offers the sending identities once loaded', async () => {
     const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     const select = await screen.findByLabelText('From');
     expect(select).toBeInTheDocument();
     // Scope to the From select — the signature picker (W12) also renders an
@@ -167,7 +167,7 @@ describe('Compose', () => {
     const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
     await app.login({username:'me@example.org',password:'p'});
     const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'__custom_from__'}});
     const from=screen.getByLabelText(/^From address for this message/) as HTMLInputElement;
     from.focus();fireEvent.input(from,{target:{value:'unfinished@'}});fireEvent.keyDown(from,{key:'Enter'});
@@ -180,7 +180,7 @@ describe('Compose', () => {
     const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
     await app.login({username:'me@example.org',password:'p'});
     const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'__custom_from__'}});
     const from=screen.getByLabelText(/^From address for this message/) as HTMLInputElement;
     fireEvent.input(from,{target:{value:'δοκιμή@παράδειγμα.δοκιμή'}});
@@ -194,7 +194,7 @@ describe('Compose', () => {
     const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>);
     await app.login({username:'me@example.org',password:'p'});
     const send=vi.spyOn(app,'sendMessage').mockResolvedValue(undefined);
-    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'__custom_from__'}});
     const from=screen.getByLabelText(/^From address for this message/) as HTMLInputElement;
     fireEvent.input(from,{target:{value:'a@example.org,b@example.org'}});
@@ -225,7 +225,7 @@ describe('Compose', () => {
     await app.loadIdentities();
 
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id2' } });
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
 
@@ -274,7 +274,7 @@ describe('Compose', () => {
   it('applies identity Bcc defaults while preserving a user edit',async()=>{
     const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>,{identities:IDENTITIES.map((identity,index)=>({...identity,autoBcc:index===0?'audit@example.org':'archive@example.org'}))});
     await app.login({username:'me@example.org',password:'p'});await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
     expect(recipientList(screen.getByLabelText('Bcc'))).toBe('audit@example.org');
     fireEvent.change(screen.getByLabelText('From'),{target:{value:'id2'}});
@@ -621,13 +621,14 @@ describe('Compose', () => {
     // Send first waits for the initial identity load, so the refusal is asynchronous.
     expect(await screen.findByText('Review and confirm the external recipients before sending.')).toBeVisible();
     expect(sendCount(client)).toBe(0);
-    fireEvent.click(screen.getByLabelText('I have checked these external recipients.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed' }));
+    expect(screen.getByTestId('compose-status-external')).toHaveTextContent('External recipients reviewed');
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'different@outside.test' } });
-    expect(screen.getByLabelText('I have checked these external recipients.')).not.toBeChecked();
+    expect(screen.getByRole('button', { name: 'Mark reviewed' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'Send' })).toBeEnabled());
     expect(sendCount(client)).toBe(0);
-    fireEvent.click(screen.getByLabelText('I have checked these external recipients.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Mark reviewed' }));
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(sendCount(client)).toBe(1));
   });
@@ -843,7 +844,7 @@ describe('Compose', () => {
   it('appends the identity HTML signature safely without requiring the visual schema', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id3' } });
     await fillPlain('hi');
     await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain');
@@ -858,7 +859,7 @@ describe('Compose', () => {
   for(const how of ['auto','picker'] as const)it(`preserves native HTML signature layout through ${how} insertion and sending`,async()=>{
     const signature:Identity={...IDENTITIES[0]!,id:'native',signatureFormat:'html',signatureText:'Native brand',signatureHtml:'<style>.brand td{padding:18px;font-family:Georgia}</style><table class="brand" width="480" cellpadding="12"><tr><td><font face="Georgia" size="4">Native brand</font></td></tr></table>'};
     const {client,app,onClose}=await composeWithClient({identities:[signature]});await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button',{name:'From'}));fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
+    fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
     await fillPlain('Existing message');await chooseComposeFormat('rich');await structuredComposeEditor();
     if(how==='picker'){
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.change(within(await screen.findByTestId('compose-signature')).getByRole('combobox'),{target:{value:'native'}});
@@ -876,7 +877,7 @@ describe('Compose', () => {
   it('appends a text-only signature literally to plain text', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     expect(await screen.findByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
     await fillPlain('hi');
@@ -888,7 +889,7 @@ describe('Compose', () => {
   it('does not append a signature the picker already put in the body', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     await fillPlain('hi');
     // Precondition: the send would append it.
@@ -907,7 +908,7 @@ describe('Compose', () => {
   it('appends no signature to a signed send', async () => {
     const { app } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id1' } });
     fireEvent.input(screen.getByLabelText('To'), { target: { value: 'you@example.org' } });
     // Precondition: unsigned, the signature would be appended.
@@ -962,7 +963,7 @@ describe('Compose', () => {
     expect(screen.queryByTestId('draft-resume-foreign')).toBeNull();
     fireEvent.click(await screen.findByTestId('draft-resume-resume-owned'));
     expect(screen.getByTestId('format-toggle')).toHaveValue('plain');
-    fireEvent.click(screen.getByRole('button', {name:'From'}));
+    fireEvent.click(screen.getByRole('button', {name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
     expect(screen.getByLabelText('From')).toHaveValue('id1');
     expect(screen.getByTestId('compose-attachments')).toHaveTextContent('saved.pdf');
     fireEvent.click(screen.getByRole('button',{name:'Send'}));
@@ -1211,6 +1212,7 @@ describe('Compose', () => {
           await waitFor(()=>expect(frame.contentDocument?.querySelector('img')).not.toBeNull());
         } else {
           fireEvent.click(screen.getByRole('button', { name: 'From' }));
+          { const chip = screen.queryByTestId('compose-from-chip'); if (chip) fireEvent.click(chip); }
           fireEvent.change(await screen.findByLabelText('From'), { target: { value: 'id4' } });
           expect(await screen.findByTestId('compose-auto-signature')).toBeInTheDocument();
         }

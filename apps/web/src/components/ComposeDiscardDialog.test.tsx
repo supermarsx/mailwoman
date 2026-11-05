@@ -58,7 +58,7 @@ it('opens the discard modal in the document that holds the composer (detached wi
   const frame=document.createElement('iframe');document.body.append(frame);const popup=frame.contentDocument!;delegateEvents(['click','keydown','input'],popup);
   const container=popup.createElement('main');popup.body.append(container);
   render(()=><AppContext.Provider value={app}><Compose embedded onClose={()=>{}}/></AppContext.Provider>,{container});
-  const discard=await within(container).findByRole('button',{name:'Discard account draft'});
+  const discard=await within(container).findByRole('button',{name:'Discard'});
   // Cross-realm nodes: jest-dom matchers reject them, so read the DOM directly.
   expect(discard.hasAttribute('data-detached-local')).toBe(true);
   fireEvent.click(discard);

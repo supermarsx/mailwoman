@@ -1122,3 +1122,35 @@ mail-recipient-all-selected = { $count ->
 }
 mail-external-line = { $count } fora dos domínios de confiança: { $domains }
 mail-external-dismiss = Dispensar
+
+# Barra de estado do editor, cabeçalho recolhível
+mail-status-label = Estado do editor
+mail-status-more = Mais { $count } avisos
+mail-status-more-label = Mais avisos
+mail-status-no-recipients = Sem destinatários
+mail-status-no-attachment = Sem anexo
+mail-status-external = { $count } externos
+mail-status-external-reviewed = Destinatários externos revistos
+mail-status-external-review = Marcar como revisto
+mail-status-from-match = De { $identity }
+mail-status-from-match-plus = De { $identity }
+mail-status-from-ambiguous = De { $identity } (várias coincidem)
+mail-status-from-default = Da identidade predefinida
+mail-status-from-forced-default = Da identidade predefinida
+mail-status-from-keep = De { $identity }
+mail-status-held = { $count } em fila
+mail-status-storage = Sem recuperação local
+mail-status-protected = Não guardado em texto simples
+mail-status-saving = A guardar…
+mail-status-saved = Guardado nos Rascunhos da conta · { $time }
+mail-status-not-saved = Rascunho não guardado
+mail-status-retry = Tentar de novo
+mail-status-conflict = Alterado noutro dispositivo
+mail-status-uncertain = Guardar não confirmado
+mail-status-close-recovery = Fechar, manter recuperação
+mail-status-unsupported = Guardar rascunho não confirmado
+mail-compose-header = Cabeçalho da mensagem
+mail-header-label = Cabeçalho da mensagem
+mail-header-collapse = Recolher o cabeçalho da mensagem
+mail-header-expand = Expandir o cabeçalho da mensagem: { $summary }
+mail-header-from-chip = De { $address }. Alterar remetente

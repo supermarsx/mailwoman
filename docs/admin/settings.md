@@ -1148,6 +1148,11 @@ The checks are: a recipient address in To, Cc or Bcc that is not a valid mailbox
 
 Global/domain/user. When `autoChipRecipients` is `true` (default), a valid address followed by a space, comma or semicolon (or by Enter or leaving the field) becomes a finished recipient, underlined with the contact's name when one is known, and the separator is added for you. Invalid text stays as typed with a wavy underline. Pasting several addresses splits them. `recipientSeparator` is `comma` (default) or `semicolon` and sets the separator inserted after a finished recipient.
 
+<a id="mail.compose.headerCollapse"></a>
+### `mail.compose.headerCollapse`
+
+Global/domain/user. How the composer header (From, To, Cc, Bcc, Subject) behaves: `expanded` (default; always shown until the user folds it), `collapsed` (folded to a one-line summary such as `To: Ana +2 · Cc: 1 · Subject: Re: Invoice`, opened by clicking it) or `auto` (folded while the user writes the body, open while a header field has focus). A header with no recipient and no subject is always open, and a click on a problem in the composer's status bar opens it. A user's own fold or unfold is remembered in that browser. An administrator can set the default and lock it. The composer ribbon's pinned or auto-hide behaviour is the existing `ui.bar.composerRibbon` key.
+
 <a id="mail.replyImages"></a>
 ### `mail.replyImages`
 Global/domain/user policy for including the original message's images (inline parts and proxied remote images) in a reply or forward: `ask` (default; the quote shows a prompt with Include images, Not now and Always trust this domain), `allow` (always include), `trusted` (include when the sender's domain is in `mail.replyImageTrustedDomains`, otherwise ask) or `deny` (the quote shows no images and none are fetched). Included images are copied into the draft as inline attachments, so they are fetched through the same authorised, tracker-filtering routes the reader uses. Administrators can lock the value to prevent user overrides. Only newly opened compositions change.
