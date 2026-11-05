@@ -89,6 +89,7 @@ export function SecurityDashboardView(props: { load?: () => Promise<SecurityDash
     void shell.router.navigate(path);
   };
   const tab = (id: string): string => sectionPath('security', [id]);
+  const probeTab = sectionPath('security', ['protection', 'admin-probe']);
   return (
     <div class={css.page} aria-busy={busy() ? 'true' : 'false'} data-testid="security-dashboard">
       <div class={css.head}>
@@ -131,7 +132,7 @@ export function SecurityDashboardView(props: { load?: () => Promise<SecurityDash
           <Show when={probeAllowed() ? probe() : undefined}>{(p) => (
             <StatTile testId="secdash-admin-probe" label={t('admin-secdash-admin-probe')} value={p().policy.enabled ? p().stats.activeBlocks : t('admin-secdash-admin-probe-off')}
               detail={t('admin-secdash-admin-probe-detail', { day: p().stats.blocksLast24h, refused: p().stats.refusedRequests })}
-              href={tab('protection')} onLink={go(tab('protection'))} linkLabel={t('admin-secdash-open-admin-probe')} />
+              href={probeTab} onLink={go(probeTab)} linkLabel={t('admin-secdash-open-admin-probe')} />
           )}</Show>
           <Show when={d().admins}>{(a) => (
             <StatTile testId="secdash-admins" label={t('admin-secdash-admin-sessions')} value={a().activeSessions}

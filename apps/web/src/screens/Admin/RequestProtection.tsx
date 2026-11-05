@@ -15,6 +15,7 @@ import { ProtocolGuardPanel } from './ProtocolGuardPanel.tsx';
 import { ProtectionPolicyEditor } from './ProtectionPolicyEditor.tsx';
 import {Icon} from '../../components/Icon.tsx';
 import { AdminProbeCard } from './AdminProbeCard.tsx';
+import { AdminProbePanel } from './AdminProbePanel.tsx';
 import { SessionWatchCard } from './SessionWatchCard.tsx';
 import type { AdminProbeApi } from '../../api/admin/adminProbe.ts';
 import { formatSeconds } from './protectionRules.ts';
@@ -22,7 +23,7 @@ import { createPager, PAGE_SIZES } from './protectionPager.ts';
 import type { ProtectionPolicyApi } from '../../api/admin/requestProtection.ts';
 
 /** The screen's subtabs (`#/security/protection/<id>`); an unknown id opens the Overview. */
-export const PROTECTION_TABS = ['overview', 'aggregate', 'adaptive', 'protocol-guard', 'state', 'decisions'] as const;
+export const PROTECTION_TABS = ['overview', 'aggregate', 'adaptive', 'protocol-guard', 'admin-probe', 'state', 'decisions'] as const;
 export type ProtectionTab = (typeof PROTECTION_TABS)[number];
 export function protectionTab(rest: readonly string[]): ProtectionTab {
  const id = rest[1] ?? '';
@@ -97,13 +98,14 @@ export function RequestProtection(props:{api?:ProtectionApi;policyApi?:Protectio
  <Show when={tab()==='overview'}>
   <Show when={status()}>{current=><div class={css.card}><h3 class={css.heading}>{t('admin-protection-current-policy')}</h3><p>{t('admin-protection-modes',{rate:t(`admin-protection-mode-${current().policy.rateMode}`),adaptive:t(`admin-protection-mode-${current().policy.adaptiveMode}`)})}</p><p class={css.note}>{t('admin-protection-retention',{subjects:current().subjectCapacity,events:current().eventCapacity,days:current().eventRetentionSecs/86400,seconds:current().propagationSecs})}</p><p class={css.note}>{t('admin-protection-coverage')}</p></div>}</Show>
   <Show when={status()?.protocolGuard}>{guard=><ProtocolGuardStats rows={guard().classes} onOpenEditor={shell?()=>void shell.router.navigate(sectionPath('security',['protection','protocol-guard'])):undefined}/>}</Show>
-  <AdminProbeCard api={props.probeApi}/>
+  <AdminProbeCard api={props.probeApi} onOpenEditor={shell?()=>void shell.router.navigate(sectionPath('security',['protection','admin-probe'])):undefined}/>
   <SessionWatchCard/>
   <ProtectionPolicyEditor part="overview" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/>
  </Show>
  <Show when={tab()==='aggregate'}><p class={css.note}>{t('admin-protection-aggregate-help')}</p><ProtectionPolicyEditor part="aggregate" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/></Show>
  <Show when={tab()==='adaptive'}><p class={css.note}>{t('admin-protection-adaptive-help')}</p><ProtectionPolicyEditor part="adaptive" api={props.policyApi} canWrite={canWrite()} onSaved={()=>void reload()}/></Show>
  <Show when={tab()==='protocol-guard'}><ProtocolGuardPanel {...(props.api?{api:props.api}:{})}/></Show>
+ <Show when={tab()==='admin-probe'}><AdminProbePanel api={props.probeApi}/></Show>
  <Show when={tab()==='state'}><div class={css.card}><h3 class={css.heading}>{t('admin-protection-subjects')}</h3><p class={css.note}>{t('admin-protection-counts-note')}</p><p class={css.note}>{t('admin-protection-newest-first')}</p>{pagerBar(subjectPager,t('admin-protection-subjects'))}<DataTable caption={t('admin-protection-subjects')} columns={subjectColumns()} rows={subjectPager.items()} rowKey={row=>row.subjectKey} state={subjectPager.loading()?'loading':(subjectPager.error()||error())?'error':'ready'} errorText={subjectPager.error()||error()} onRetry={()=>void reload()} emptyText={t('admin-protection-empty')} paging={{hasPrev:subjectPager.hasPrev(),hasNext:subjectPager.hasNext(),onPrev:()=>void subjectPager.prevPage(),onNext:()=>void subjectPager.nextPage()}} rowActions={row=><Show when={shell?.can.can('bans.write')}><button type="button" class={`btn btn--ghost ${css.compactIconAction}`} aria-label={t('admin-protection-clear-target',{subject:identity(row)})} data-tooltip={t('admin-protection-clear')} title={t('admin-protection-clear')} onClick={()=>setSelected(row)}><Icon name="unlock"/></button></Show>}/></div></Show>
  <Show when={tab()==='decisions'}><div class={css.card}><h3 class={css.heading}>{t('admin-protection-history')}</h3><p class={css.note}>{t('admin-protection-newest-first')}</p>{pagerBar(eventPager,t('admin-protection-history'))}<DataTable caption={t('admin-protection-history')} columns={eventColumns()} rows={eventPager.items()} rowKey={row=>row.id} state={eventPager.loading()?'loading':(eventPager.error()||error())?'error':'ready'} errorText={eventPager.error()||error()} onRetry={()=>void reload()} emptyText={t('admin-protection-history-empty')} paging={{hasPrev:eventPager.hasPrev(),hasNext:eventPager.hasNext(),onPrev:()=>void eventPager.prevPage(),onNext:()=>void eventPager.nextPage()}}/></div></Show>
  <ConfirmDialog open={selected()!==undefined} title={t('admin-protection-clear-target',{subject:selected()?identity(selected()!):''})} body={t('admin-protection-clear-body')} confirmLabel={t('admin-protection-clear')} onCancel={()=>setSelected(undefined)} onConfirm={async()=>{const subject=selected();if(!subject)return;await api().clear(subject);setSelected(undefined);setSuccess(t('admin-protection-cleared',{subject:identity(subject)}));await reload();}}/>

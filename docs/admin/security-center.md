@@ -23,6 +23,7 @@ deep link: Overview (`/overview`: status, protocol guard, admin probe, presets),
 Aggregate (`/aggregate`: request budgets and user-agent limits), Adaptive
 (`/adaptive`: unusual-request rules, actions, exceptions and the simulator),
 Protocol guard (`/protocol-guard`: every HTTP protocol guard policy edited in place, grouped by class, with an overall off, detect or enforce switch that asks before enforcing),
+Admin probe (`/admin-probe`: every admin-probe policy in five groups, Detection and evidence, Responses and bans, Countries and trust tiers, Exemptions and allowlists, Audit and logging, with an On/Off switch that asks before turning on, live counters, evidence by type with the last time seen, the blocked sources with Unblock and the top offenders; the dedicated admin-probe keys save through the ban step-up, the country-block keys through the ordinary settings route; the Overview keeps a compact summary with an Edit policies link),
 Object state (`/state`) and Decisions (`/decisions`). The Overview lists the guard's counters and the session watch figures as tiles and compact tables (relative times with the exact time in a tooltip, zero rows dimmed or hidden, rows stacked as cards on a phone). Object state and Decisions list
 the most recent first, 100 rows per page by default (25, 50, 100 or 250), with
 Previous/Next and the page count and total. The API pages with `limit` (1-250) and an
