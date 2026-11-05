@@ -513,6 +513,7 @@ admin-session-watch-surface = Superfície
 admin-session-watch-caveat = A deteção do país pode ser imprecisa; VPN e redes móveis podem causar alterações falsas.
 admin-session-watch-loading = A carregar a vigilância de sessões.
 admin-session-watch-ready = Pronto
+admin-session-watch-warming-value = A aquecer
 admin-session-watch-spike-help = Compara as falhas de início de sessão atuais com a base desta instância. O modo reforçado aperta a proteção do início de sessão até o pico passar.
 admin-session-watch-baseline-help = O que é normal nesta instância, aprendido ao longo do tempo. A deteção de picos só atua depois de aquecer.
 admin-session-watch-floor-help = O valor mínimo que conta como pico, para que instâncias calmas não alarmem com números pequenos.

@@ -510,6 +510,7 @@ admin-session-watch-surface = Surface
 admin-session-watch-caveat = Country detection may be inaccurate; VPNs and mobile networks can cause false changes.
 admin-session-watch-loading = Loading the session watch.
 admin-session-watch-ready = Ready
+admin-session-watch-warming-value = Warming up
 admin-session-watch-spike-help = Compares sign-in failures now with the baseline of this instance. Heightened mode tightens sign-in protection until the spike passes.
 admin-session-watch-baseline-help = What normal looks like for this instance, learned over time. Spike detection does not act until it has warmed up.
 admin-session-watch-floor-help = The least value that counts as a spike, so quiet instances do not alarm on small numbers.

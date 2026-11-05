@@ -455,6 +455,21 @@ export const tileValue = style({
   fontWeight: vars.weight.heavy,
   margin: 0,
   fontVariantNumeric: 'tabular-nums',
+  overflowWrap: 'anywhere',
+  minInlineSize: 0,
+});
+// Long text (a rule name, a user agent) never takes the headline size.
+export const tileValueCompact = style({
+  fontSize: '0.95rem',
+  fontWeight: vars.weight.bold,
+  margin: 0,
+  lineHeight: 1.3,
+  overflowWrap: 'anywhere',
+  minInlineSize: 0,
+  display: '-webkit-box',
+  WebkitBoxOrient: 'vertical',
+  WebkitLineClamp: 3,
+  overflow: 'hidden',
 });
 export const tileNa = style({ fontSize: '0.9rem', fontWeight: vars.weight.bold, margin: 0 });
 export const tileDetail = style({ fontSize: '0.75rem', color: vars.color.textDim, margin: 0 });

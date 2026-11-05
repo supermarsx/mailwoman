@@ -42,6 +42,9 @@ export interface StatTileProps {
   trend?: readonly (number | null)[] | undefined;
 }
 
+/** A value longer than this is text, not a figure: it takes the compact style. */
+export const COMPACT_OVER = 14;
+
 const TW = 100;
 const TH = 24;
 
@@ -106,7 +109,7 @@ export function StatTile(props: StatTileProps): JSX.Element {
           </>
         }
       >
-        <p class={css.tileValue}>{shown()}</p>
+        <p class={shown()!.length > COMPACT_OVER ? css.tileValueCompact : css.tileValue} title={shown()!.length > COMPACT_OVER ? shown()! : undefined} data-compact={shown()!.length > COMPACT_OVER ? '' : undefined}>{shown()}</p>
         <Show when={change()}>
           {(d) => (
             <p class={`${stats.delta} ${stats.deltaTone[deltaTone(d(), props.delta?.upIsGood)]}`} data-delta={d().direction}>

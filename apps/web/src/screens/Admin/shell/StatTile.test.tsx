@@ -3,6 +3,12 @@ import { render, screen, fireEvent } from '@solidjs/testing-library';
 import { StatTile } from './StatTile.tsx';
 
 describe('StatTile', () => {
+  it('long text takes the compact style, short figures keep the headline style', () => {
+    render(() => (<><StatTile testId="long" label="Top rule" value="Recognized bot User-Agent (first request)" /><StatTile testId="short" label="Count" value="1,234" /></>));
+    expect(screen.getByTestId('long').querySelector('[data-compact]')).not.toBeNull();
+    expect(screen.getByTestId('short').querySelector('[data-compact]')).toBeNull();
+  });
+
   it('shows a figure under its label', () => {
     render(() => <StatTile testId="t" label="Provisioned users" value={42} detail="3 disabled" />);
     const tile = screen.getByTestId('t');

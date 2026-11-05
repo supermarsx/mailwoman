@@ -23,11 +23,12 @@ const metricName = (m: string): string => (KNOWN_METRICS.includes(m) ? t(`admin-
 const kindName = (k: string): string => (KNOWN_KINDS.includes(k) ? t(`admin-session-watch-kind-${k}`) : k);
 const metricValue = (metric: string, v: number): string => (metric === 'failureRatio' ? formatPercent(v) : formatNumber(v, { maximumFractionDigits: 1 }));
 
-function Tile(props: { value: JSX.Element; label: string; hint?: string }): JSX.Element {
+function Tile(props: { value: JSX.Element; label: string; hint?: string; caption?: string | undefined }): JSX.Element {
   return (
     <div class={pg.tile} title={props.hint}>
-      <span class={pg.tileValue}>{props.value}</span>
+      <span class={typeof props.value === 'string' && props.value.length > 14 ? pg.tileValueCompact : pg.tileValue}>{props.value}</span>
       <span class={pg.tileLabel}>{props.label}</span>
+      <Show when={props.caption}><span class={pg.tileCaption} data-testid="tile-caption">{props.caption}</span></Show>
     </div>
   );
 }
@@ -86,7 +87,8 @@ export function SessionWatchCard(props: { api?: SessionWatchApi }): JSX.Element 
                 <Tile
                   label={d().spike.warmedUp ? t('admin-session-watch-warm') : t('admin-session-watch-baseline')}
                   hint={t('admin-session-watch-baseline-help')}
-                  value={d().spike.warmedUp ? t('admin-session-watch-ready') : t('admin-session-watch-warming', { done: d().spike.observedBuckets, total: d().spike.warmupBuckets })}
+                  value={d().spike.warmedUp ? t('admin-session-watch-ready') : t('admin-session-watch-warming-value')}
+                  caption={d().spike.warmedUp ? undefined : t('admin-session-watch-warming', { done: d().spike.observedBuckets, total: d().spike.warmupBuckets })}
                 />
                 <Tile
                   label={t('admin-session-watch-tile-sources')}

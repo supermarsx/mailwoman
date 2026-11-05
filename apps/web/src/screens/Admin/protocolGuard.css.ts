@@ -5,7 +5,9 @@ const PHONE = '(max-width: 560px)';
 
 export const tiles = style({ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(10rem, 1fr))', gap: vars.space[3], margin: `${vars.space[3]} 0` });
 export const tile = style({ display: 'grid', gap: vars.space[1], padding: vars.space[3], border: `${vars.border.hair} solid ${vars.color.borderStrong}`, borderRadius: vars.radius.md, background: vars.color.bg, minInlineSize: 0 });
-export const tileValue = style({ fontSize: '1.5rem', fontVariantNumeric: 'tabular-nums', fontWeight: 700 });
+export const tileValue = style({ fontSize: '1.5rem', fontVariantNumeric: 'tabular-nums', fontWeight: 700, overflowWrap: 'anywhere', minInlineSize: 0 });
+export const tileValueCompact = style({ fontSize: '0.95rem', fontWeight: 700, lineHeight: 1.3, overflowWrap: 'anywhere', minInlineSize: 0 });
+export const tileCaption = style({ color: vars.color.textDim, fontSize: '0.75rem', margin: 0 });
 export const tileLabel = style({ color: vars.color.textDim, fontSize: '0.8rem' });
 export const toolbar = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[3], alignItems: 'center', justifyContent: 'space-between', margin: `${vars.space[2]} 0` });
 export const groupHead = style({ display: 'flex', flexWrap: 'wrap', gap: vars.space[2], alignItems: 'baseline', justifyContent: 'space-between' });
