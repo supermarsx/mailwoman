@@ -1,0 +1,33 @@
+/* Send-later split button menu. Design tokens only, so it follows light/dark. */
+.send-later { position: relative; display: inline-flex; }
+.send-later__menu {
+  position: absolute;
+  inset-block-start: 100%;
+  inset-inline-start: 0;
+  z-index: 30;
+  min-width: 16rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  padding: 0.35rem;
+  border: var(--border-hair) solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-alt);
+}
+.send-later__item {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.4rem 0.55rem;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+.send-later__item:hover,
+.send-later__item:focus-visible { background: var(--bg); }
+.send-later__when,
+.send-later__zone { color: var(--text-dim); font-size: 0.8rem; margin: 0; }
+.send-later__picker { display: flex; flex-direction: column; gap: 0.4rem; padding: 0.4rem 0.55rem; }
+.send-later__error { margin: 0.25rem 0.55rem; color: var(--danger, inherit); font-size: 0.85rem; }

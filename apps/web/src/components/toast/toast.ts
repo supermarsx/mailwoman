@@ -44,6 +44,8 @@ export interface ToastOptions {
   /** Reserve the single background-job slot; ordinary notifications cannot evict it. */
   persistent?: boolean;
   action?: ToastAction;
+  /** A second button beside `action` ("Send now" next to "Undo"). */
+  secondaryAction?: ToastAction;
   /** Milliseconds on screen. Defaults by tone (TOAST_DURATIONS); `Infinity` stays until closed. */
   duration?: number;
   /** Show the seconds left beside the message (undo windows). */
@@ -64,6 +66,7 @@ export interface ToastItem {
   readonly tone: ToastTone;
   readonly message: string;
   readonly action: ToastAction | undefined;
+  readonly secondaryAction: ToastAction | undefined;
   readonly duration: number;
   readonly countdown: boolean;
   readonly pausable: boolean;
@@ -139,6 +142,7 @@ function show(tone: ToastTone, message: string, opts: ToastOptions = {}): string
     tone,
     message,
     action: opts.action,
+    secondaryAction: opts.secondaryAction,
     duration: defaultDuration(tone, opts),
     countdown: opts.countdown === true,
     pausable: opts.pausable !== false,

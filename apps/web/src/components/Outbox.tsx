@@ -2,7 +2,8 @@ import {AsyncPending} from './AsyncState.tsx';
 import { For, Show, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import { useApp } from '../state/context.ts';
-import { formatDateTime, isolate, t } from '../i18n/index.ts';
+import { formatDateTime, isolate, loadCatalog, t } from '../i18n/index.ts';
+import { formatCountdown } from '../state/sendDelay.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './outbox.css.ts';
 import {
@@ -32,9 +33,16 @@ const STATE_LABEL: Record<OutboxState, string> = {
   uncertain: 'mail-outbox-uncertain',
 };
 
-function whenText(sub: OutboxSubmission): string {
-  if (sub.sendAt === null) return '';
-  return formatDateTime(sub.sendAt);
+function whenText(sub: OutboxSubmission, now: number): string {
+  const due = sub.mailwomanDueAt ?? sub.sendAt;
+  if (due === null || due === undefined) return '';
+  const state = outboxStateOf(sub, now);
+  if (state === 'holding') {
+    const left = (new Date(due).getTime() - now) / 1000;
+    return left > 0 ? t('outbox-sends-in', { time: formatCountdown(left) }) : '';
+  }
+  if (state === 'scheduled') return t('outbox-sends-at', { when: formatDateTime(due) });
+  return sub.sendAt === null ? '' : formatDateTime(sub.sendAt);
 }
 
 /** The line under a held row: that it is held, and who created it. */
@@ -68,6 +76,11 @@ export function Outbox(): JSX.Element {
   const [failed,setFailed]=createSignal(false);
   let disposed=false;
   onCleanup(()=>{disposed=true;});
+  // One-second clock for the countdowns; it only matters while something waits.
+  const [now,setNow]=createSignal(Date.now());
+  const ticker=setInterval(()=>setNow(Date.now()),1000);
+  onCleanup(()=>clearInterval(ticker));
+  void loadCatalog('send-delay');
   function refresh(owner:PreferenceAccount|null=preferenceAccount()):void {
     if(owner===null)return;
     setFailed(false);
@@ -93,7 +106,7 @@ export function Outbox(): JSX.Element {
         <ul class={`outbox__items ${css.items}`}>
           <For each={app.outbox()}>
             {(sub) => {
-              const state = () => outboxStateOf(sub);
+              const state = () => outboxStateOf(sub, now());
               const held = () => state() === 'held';
               const waiting = () => held() || state() === 'scheduled' || state() === 'holding';
               const message = () => app.outboxMessages()[sub.emailId];
@@ -104,7 +117,10 @@ export function Outbox(): JSX.Element {
                   <span class={`outbox__state outbox__state--${state()} ${css.state} ${css.stateOf[state()]}`}>
                     {t(STATE_LABEL[state()])}
                   </span>
-                  <span class={`outbox__when ${css.when}`}>{whenText(sub)}</span>
+                  <Show when={state() === 'scheduled'}>
+                    <span class={`outbox__badge ${css.state}`} data-testid="outbox-scheduled-badge">{t('outbox-scheduled-badge')}</span>
+                  </Show>
+                  <span class={`outbox__when ${css.when}`}>{whenText(sub, now())}</span>
                   <Show when={message() !== undefined}>
                     <span class={`outbox__subject ${css.subject}`}>
                       {message()?.subject !== null && message()?.subject !== ''
@@ -136,6 +152,16 @@ export function Outbox(): JSX.Element {
                       >
                         {t(held() ? 'mail-outbox-release' : 'mail-outbox-send-now')}
                       </button>
+                      <Show when={!held()}>
+                        <button
+                          type="button"
+                          class={`btn btn--ghost ${a11y.focusable} ${css.action}`}
+                          data-action="recall-edit"
+                          onClick={() => void app.recallOutbox(sub.id)}
+                        >
+                          {t('outbox-recall-edit')}
+                        </button>
+                      </Show>
                       <button
                         type="button"
                         class={`btn btn--ghost ${a11y.focusable} ${css.action}`}

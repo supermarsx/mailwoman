@@ -255,6 +255,24 @@ function Toast(props: {
           </button>
         )}
       </Show>
+      <Show when={props.item.secondaryAction}>
+        {(action) => (
+          <button
+            type="button"
+            class={css.action}
+            data-toast-secondary=""
+            onClick={() => {
+              const run = action().run;
+              props.onClose('action');
+              void Promise.resolve()
+                .then(run)
+                .catch(() => undefined);
+            }}
+          >
+            {action().label}
+          </button>
+        )}
+      </Show>
       <button
         type="button"
         class={css.close}

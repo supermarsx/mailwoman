@@ -19,6 +19,7 @@ function renderOutbox(subs: OutboxSubmission[], messages: Record<string, OutboxM
     refreshOutbox: vi.fn(async () => undefined),
     sendOutboxNow: vi.fn(async (_id: string) => undefined),
     cancelOutbox: vi.fn(async (_id: string) => undefined),
+    recallOutbox: vi.fn(async (_id: string) => undefined),
   };
   const app = { outbox: () => subs, outboxLoading: () => loading, outboxMessages: () => messages, ...calls } as unknown as AppState;
   render(() => (
@@ -119,5 +120,27 @@ describe('Outbox', () => {
   it('shows a retrying row its last error', () => {
     renderOutbox([sub('r1', { mailwomanAttempts: 1, mailwomanLastError: 'transport error: connection refused' })]);
     expect(text(row('holding'))).toContain('Error: transport error: connection refused');
+  });
+  it('shows a scheduled row with a badge and offers Recall and edit, Send now and Cancel', () => {
+    const at = new Date(Date.now() + 3_600_000).toISOString();
+    const calls = renderOutbox([sub('s1', { sendAt: at, mailwomanDueAt: at })]);
+    const scheduled = row('scheduled');
+    expect(scheduled.querySelector('[data-testid="outbox-scheduled-badge"]')).not.toBeNull();
+    const buttons = [...scheduled.querySelectorAll('button')].map((b) => b.getAttribute('data-action'));
+    expect(buttons).toEqual(['release', 'recall-edit', 'cancel']);
+    fireEvent.click(scheduled.querySelector('[data-action="recall-edit"]')!);
+    expect(calls.recallOutbox).toHaveBeenCalledWith('s1');
+  });
+  it('counts down a row inside its undo window', () => {
+    vi.useFakeTimers();
+    try {
+      const due = new Date(Date.now() + 25_000).toISOString();
+      renderOutbox([sub('w1', { mailwomanHoldSeconds: 30, mailwomanDueAt: due })]);
+      expect(text(row('holding')).replace(/\s+/g, ' ')).toMatch(/0:2[45]/);
+      vi.advanceTimersByTime(10_000);
+      expect(text(row('holding'))).toMatch(/0:1[45]/);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

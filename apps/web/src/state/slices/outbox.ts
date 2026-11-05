@@ -16,6 +16,7 @@
 // offline/**).
 
 import { createSignal, type Accessor } from 'solid-js';
+import { recallFromOutbox } from '../recallFromOutbox.ts';
 import {
   cancelSubmission,
   identityGet,
@@ -36,7 +37,7 @@ import {
   type IdentityGetResponse,
   type JmapResponse,
 } from '../../api/jmap-types.ts';
-import { t } from '../../i18n/index.ts';
+import { loadCatalog, t } from '../../i18n/index.ts';
 import type { SliceContext } from './context.ts';
 
 export type { SubmissionOrigin } from '../../api/jmap-types.ts';
@@ -109,6 +110,8 @@ export interface OutboxSlice {
   cancelOutbox(id: Id): Promise<void>;
   /** Send a waiting submission now ("Send now" / "Release"). */
   sendOutboxNow(id: Id): Promise<void>;
+  /** Cancel a waiting submission and reopen its message as a draft in the composer. */
+  recallOutbox(id: Id): Promise<void>;
 }
 
 export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
@@ -232,6 +235,23 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     }
   }
 
+  async function recallOutbox(id: Id): Promise<void> {
+    const acct = await resolveAccount();
+    if (acct === null) return;
+    const sub = outbox().find((s) => s.id === id);
+    if (sub === undefined) return;
+    await loadCatalog('send-delay');
+    try {
+      const result = await recallFromOutbox((body) => client.jmap(body), acct, sub);
+      if (result === 'too-late') showToast('error', t('outbox-recall-too-late'));
+      else if (result === 'recalled') patchRow(id, { undoStatus: 'canceled', mailwomanHold: null });
+      else showToast('error', t('mail-outbox-toast-not-canceled', { error: '' }));
+    } catch {
+      showToast('error', t('mail-outbox-toast-not-canceled', { error: '' }));
+    }
+    await refreshOutbox();
+  }
+
   const cancelableOutbox: Accessor<OutboxSubmission[]> = () => outbox().filter(isWaiting);
 
   return {
@@ -244,5 +264,6 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     loadIdentities,
     cancelOutbox,
     sendOutboxNow,
+    recallOutbox,
   };
 }
