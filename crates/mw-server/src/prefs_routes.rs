@@ -45,13 +45,14 @@
 
 use axum::Json;
 use axum::Router;
-use axum::extract::{DefaultBodyLimit, FromRequest, Path as UrlPath, Request, State};
+use axum::extract::{DefaultBodyLimit, FromRequest, Path as UrlPath, Query, Request, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+use mw_store::personal_identity::{IdentityDelete, VariantPolicy};
 use mw_store::{
     IdentityRow, NotificationRulesRow, SavedSearchRow, SignatureRow, Store, StoreError,
 };
@@ -130,6 +131,18 @@ struct IdentityDto {
     auto_bcc: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pgp_key_id: Option<String>,
+    /// The owner's default sender. On a write, `true` makes this identity the
+    /// default (clearing the previous one); `false`/absent never clears it.
+    #[serde(default)]
+    is_default: bool,
+    /// Base identity id when this is a variant. Raw, as stored: the optional
+    /// fields a variant leaves empty are inherited from the base by the client
+    /// (REST) and resolved by the server (JMAP `Identity/get`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    variant_of: Option<String>,
+    /// Display label of a variant (required for a variant, absent otherwise).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    label: Option<String>,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -410,6 +423,15 @@ fn identity_profile_valid(dto: &IdentityDto) -> bool {
     {
         return false;
     }
+    match (&dto.variant_of, dto.label.as_deref()) {
+        (Some(base), Some(label))
+            if !base.is_empty()
+                && base.len() <= 256
+                && !label.trim().is_empty()
+                && header(label, 255) => {}
+        (None, None) => {}
+        _ => return false,
+    }
     if dto.organization.as_deref().is_some_and(|v| !header(v, 255))
         || dto
             .pgp_key_id
@@ -615,6 +637,7 @@ async fn identities_upsert(
         Ok(Some(id)) => Json(json!({ "ok": true, "id": id })).into_response(),
         Ok(None) => not_found("no such identity"),
         Err(StoreError::NotFound) => not_found("no such identity"),
+        Err(StoreError::Invalid(reason)) => bad_request(reason),
         Err(e) => server_error("upsert identity", e),
     }
 }
@@ -704,7 +727,42 @@ async fn resolve_sender_identity(
     }
 }
 
+/// `DELETE /api/account/identities/{id}?variants=delete|promote`. Without the
+/// query a base that still has variants is refused `409` with the variant count.
 async fn identities_delete(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    UrlPath(id): UrlPath<String>,
+    Query(query): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let policy = match query.get("variants").map(String::as_str) {
+        None => VariantPolicy::Reject,
+        Some("delete") => VariantPolicy::Delete,
+        Some("promote") => VariantPolicy::Promote,
+        Some(_) => return bad_request("variants must be delete or promote"),
+    };
+    let account = match personal_record_owner(&state, &headers, true).await {
+        Ok(a) => a,
+        Err(r) => return r,
+    };
+    match state
+        .store
+        .delete_personal_identity(&account, &id, policy)
+        .await
+    {
+        Ok(IdentityDelete::Deleted) => ok(),
+        Ok(IdentityDelete::NotFound) => not_found("no such identity"),
+        Ok(IdentityDelete::HasVariants(count)) => (
+            StatusCode::CONFLICT,
+            Json(json!({"error": "identity has variants", "code": "has_variants", "variants": count})),
+        )
+            .into_response(),
+        Err(e) => server_error("delete identity", e),
+    }
+}
+
+/// `POST /api/account/identities/{id}/default` makes the identity the owner's default.
+async fn identities_make_default(
     State(state): State<AppState>,
     headers: HeaderMap,
     UrlPath(id): UrlPath<String>,
@@ -713,10 +771,10 @@ async fn identities_delete(
         Ok(a) => a,
         Err(r) => return r,
     };
-    match do_delete_identity(&state.store, &account, &id).await {
+    match state.store.set_personal_identity_default(&account, &id).await {
         Ok(true) => ok(),
         Ok(false) => not_found("no such identity"),
-        Err(e) => server_error("delete identity", e),
+        Err(e) => server_error("set default identity", e),
     }
 }
 
@@ -1221,6 +1279,9 @@ async fn do_upsert_identity(
             organization: dto.organization.clone(),
             auto_bcc: dto.auto_bcc.clone(),
             pgp_key_id: dto.pgp_key_id.clone(),
+            is_default: dto.is_default,
+            variant_of: dto.variant_of.clone(),
+            label: dto.label.clone(),
             sent_mailbox_id: existing
                 .as_ref()
                 .and_then(|row| row.sent_mailbox_id.clone()),
@@ -1230,9 +1291,13 @@ async fn do_upsert_identity(
     Ok(Some(id))
 }
 
-/// Delete an identity iff it belongs to `account`. `Ok(false)` = absent or foreign.
+
+#[cfg(test)]
 async fn do_delete_identity(store: &Store, account: &str, id: &str) -> Result<bool, StoreError> {
-    store.delete_personal_identity(account, id).await
+    Ok(store
+        .delete_personal_identity(account, id, VariantPolicy::Reject)
+        .await?
+        == IdentityDelete::Deleted)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1315,6 +1380,9 @@ fn identity_to_dto(row: &IdentityRow) -> IdentityDto {
         organization: row.organization.clone(),
         auto_bcc: row.auto_bcc.clone(),
         pgp_key_id: row.pgp_key_id.clone(),
+        is_default: row.is_default,
+        variant_of: row.variant_of.clone(),
+        label: row.label.clone(),
     }
 }
 
@@ -1356,6 +1424,10 @@ pub(crate) fn prefs_router() -> Router<AppState> {
             get(identities_list).post(identities_upsert),
         )
         .route("/api/account/identities/{id}", delete(identities_delete))
+        .route(
+            "/api/account/identities/{id}/default",
+            axum::routing::post(identities_make_default),
+        )
         .route(
             "/api/account/sender/resolve",
             axum::routing::post(sender_resolution::resolve),
@@ -1959,6 +2031,9 @@ mod tests {
                 reply_to: Some("help@example.com".into()),
                 signature_name: Some("work".into()),
                 reply_signature_name: None,
+                is_default: false,
+                variant_of: None,
+                label: None,
                 organization: Some("Example Company".into()),
                 auto_bcc: Some("Audit <audit@example.com>; second@example.com".into()),
                 pgp_key_id: Some("pgp-test".into()),
@@ -2031,6 +2106,9 @@ mod tests {
             signature_text: Some("Provider text".into()),
             signature_name: None,
             reply_signature_name: None,
+            is_default: false,
+            variant_of: None,
+            label: None,
             organization: None,
             auto_bcc: None,
             pgp_key_id: None,
@@ -2049,6 +2127,9 @@ mod tests {
                 reply_to: None,
                 signature_name: Some("local-template".into()),
                 reply_signature_name: None,
+                is_default: false,
+                variant_of: None,
+                label: None,
                 organization: None,
                 auto_bcc: None,
                 pgp_key_id: None,
@@ -2082,6 +2163,9 @@ mod tests {
                 reply_to: None,
                 signature_name: None,
                 reply_signature_name: None,
+                is_default: false,
+                variant_of: None,
+                label: None,
                 organization: None,
                 auto_bcc: None,
                 pgp_key_id: None,
@@ -2104,6 +2188,9 @@ mod tests {
                     reply_to: None,
                     signature_name: None,
                     reply_signature_name: None,
+                    is_default: false,
+                    variant_of: None,
+                    label: None,
                     organization: None,
                     auto_bcc: None,
                     pgp_key_id: None,

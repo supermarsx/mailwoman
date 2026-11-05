@@ -306,6 +306,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.showspam"></a>`mail.showSpam` | mail | global+domain+user | true | plain |  | yes | Show the Spam folder and messages marked as spam |
 | <a id="mail.showauthstatus"></a>`mail.showAuthStatus` | mail | global+domain+user | true | plain |  | yes | Show SPF, DKIM and DMARC results in the reader |
 | <a id="mail.closeondelete"></a>`mail.closeOnDelete` | mail | global+domain+user | true | plain |  | yes | Close the open message when it is deleted |
+| <a id="mail.rowactionsmode"></a>`mail.rowActionsMode` | mail | global+domain+user | "open" | plain |  | yes | How the quick actions on message list rows are shown |
 | <a id="mail.showgototop"></a>`mail.showGoToTop` | mail | global+domain+user | false | plain |  | yes | Show a Go to top button in the message list |
 | <a id="mail.showcreatefolderbutton"></a>`mail.showCreateFolderButton` | mail | global+domain+user | false | plain |  | yes | Show a Create folder button next to Compose |
 | <a id="mail.cache.refreshonopen"></a>`mail.cache.refreshOnOpen` | mail | global+domain+user | true | plain |  | yes | Refresh cached mail in the background on opening |
@@ -403,6 +404,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.trackers"></a>`privacy.trackers` | privacy | global+domain+user | true | plain |  | yes | Block email trackers |
 | <a id="privacy.trackeroverrideallowed"></a>`privacy.trackerOverrideAllowed` | privacy | global+domain+user | true | plain |  | yes | Offer explicit per-message tracker consent; a locked privacy.trackers=true still forbids this override |
 | <a id="privacy.cleanlinks"></a>`privacy.cleanLinks` | privacy | global+domain+user | true | plain |  | yes | Remove tracking parameters from links |
+| <a id="images.trustedhosts"></a>`images.trustedHosts` | privacy | global+domain+user | [] | plain |  | yes | image hosts (and their subdomains) whose remote images load without asking; the reader sets one state per host |
+| <a id="images.blockedhosts"></a>`images.blockedHosts` | privacy | global+domain+user | [] | plain |  | yes | image hosts (and their subdomains) whose remote images never load; wins over a trusted host and over any grant |
 | <a id="links.trusteddomains"></a>`links.trustedDomains` | privacy | global+domain+user | [] | plain |  | yes | exact trusted link domains that open from Review links without the destination step |
 | <a id="links.trustedsenders"></a>`links.trustedSenders` | privacy | global+domain+user | [] | plain |  | yes | exact sender mailboxes whose reviewed message links may open without per-message consent |
 | <a id="links.trustedsubdomains"></a>`links.trustedSubdomains` | privacy | global+domain+user | false | plain |  | yes | whether trusted link domains also trust their subdomains |
@@ -452,6 +455,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="privacy.imagesnapshotsecs"></a>`privacy.imageSnapshotSecs` | imageProxy | global | 300 | plain |  | yes | Seconds between atomic snapshots of the disk index; zero turns snapshots off and restarts read each file header instead |
 | <a id="privacy.imagesweepbatch"></a>`privacy.imageSweepBatch` | imageProxy | global | 256 | plain |  | yes | Entries one maintenance sweep may expire, rescore or evict |
 | <a id="privacy.negativecachettlsecs"></a>`privacy.negativeCacheTtlSecs` | privacy | global | 10 | plain |  | yes | Maximum age of remembered remote-image failures in seconds; zero disables negative caching |
+| <a id="privacy.imagelatencytracking"></a>`privacy.imageLatencyTracking` | imageProxy | global | true | plain |  | yes | Record image proxy speed (median, p95, p99 and phase timings) as aggregate histogram buckets in memory; no URLs, hosts or accounts are stored |
 | <a id="privacy.imageretryattempts"></a>`privacy.imageRetryAttempts` | privacy | global+domain+user | 3 | plain |  | yes | Automatic retry rounds for transient image failures; zero disables automatic retries |
 | <a id="privacy.imageretrydelayms"></a>`privacy.imageRetryDelayMs` | privacy | global+domain+user | 5000 | plain |  | yes | Delay between automatic transient image retry rounds in milliseconds |
 | <a id="privacy.fetchconnecttimeoutms"></a>`privacy.fetchConnectTimeoutMs` | privacy | global | 5000 | plain |  | yes | Remote image connect and TLS handshake timeout in milliseconds |
@@ -487,6 +491,11 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.replyimages"></a>`mail.replyImages` | mail | global+domain+user | "ask" | plain |  | yes | whether a reply or forward includes the original's images |
 | <a id="mail.replyimagetrusteddomains"></a>`mail.replyImageTrustedDomains` | mail | global+domain+user | [] | plain |  | yes | sender domains whose images are included in replies and forwards without asking |
 | <a id="mail.trustedrecipientdomains"></a>`mail.trustedRecipientDomains` | mail | global+domain+user | [] | plain |  | yes | exact trusted recipient domains for composer warnings |
+| <a id="mail.compose.checkinvalidrecipients"></a>`mail.compose.checkInvalidRecipients` | mail | global+domain+user | "warn" | plain |  | yes | pre-send check for invalid recipient addresses |
+| <a id="mail.compose.checkmissingattachment"></a>`mail.compose.checkMissingAttachment` | mail | global+domain+user | "warn" | plain |  | yes | pre-send check for a message that mentions an attachment but has none |
+| <a id="mail.compose.checkemptysubject"></a>`mail.compose.checkEmptySubject` | mail | global+domain+user | "warn" | plain |  | yes | pre-send check for an empty subject |
+| <a id="mail.compose.autochiprecipients"></a>`mail.compose.autoChipRecipients` | mail | global+domain+user | true | plain |  | yes | finish a typed recipient when a space, comma or semicolon follows it |
+| <a id="mail.compose.recipientseparator"></a>`mail.compose.recipientSeparator` | mail | global+domain+user | "comma" | plain |  | yes | separator inserted after a finished recipient |
 | <a id="time.displayzone"></a>`time.displayZone` | time | global+domain+user | "local" | plain |  | yes | preferred message display time zone |
 | <a id="time.comparisonzone"></a>`time.comparisonZone` | time | global+domain+user | "" | plain |  | yes | optional second time zone for message and event helpers |
 | <a id="time.showhelpers"></a>`time.showHelpers` | time | global+domain+user | true | plain |  | yes | show message and event time zone comparisons |
@@ -514,10 +523,16 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.requestreadreceipt"></a>`mail.requestReadReceipt` | mail | global+domain+user | false | plain |  | yes | request a read receipt by default when composing supported mail |
 | <a id="mail.requestdeliveryreceipt"></a>`mail.requestDeliveryReceipt` | mail | global+domain+user | false | plain |  | yes | request delivery status notifications by default when the account supports DSN |
 | <a id="mail.showfrom"></a>`mail.showFrom` | mail | global+domain+user | false | plain |  | yes | show the From field by default when composing; sending authority is unchanged |
+| <a id="mail.replyfrommode"></a>`mail.replyFromMode` | mail | global+domain+user | "match" | plain |  | yes | which identity replies and forwards are sent from: the one the original was addressed to, the default, a chooser, or the current one |
 | <a id="mail.modifierselection"></a>`mail.modifierSelection` | mail | global+domain+user | true | plain |  | yes | select messages with Ctrl, Command, Shift and arrow keys |
 | <a id="mail.draftsavemode"></a>`mail.draftSaveMode` | mail | global+domain+user | "realtime" | plain |  | yes | account draft save scheduling; manual disables automatic upstream writes |
 | <a id="mail.draftdebouncems"></a>`mail.draftDebounceMs` | mail | global+domain+user | 1000 | plain |  | yes | idle milliseconds before saving an edited account draft |
 | <a id="mail.draftintervalsecs"></a>`mail.draftIntervalSecs` | mail | global+domain+user | 30 | plain |  | yes | periodic account draft save interval in seconds |
+| <a id="mail.send.recalldelayseconds"></a>`mail.send.recallDelaySeconds` | mail | global+domain+user | 10 | plain |  | yes | Undo-send window in seconds: how long a sent message waits in the Outbox and can be recalled; 0 sends at once, capped by mail.send.recallDelayMaxSeconds |
+| <a id="mail.send.recalldelaymaxseconds"></a>`mail.send.recallDelayMaxSeconds` | mail | global+domain | 1800 | plain |  | yes | Longest undo-send window a user may choose, in seconds (enforced by the engine) |
+| <a id="mail.send.allowrecall"></a>`mail.send.allowRecall` | mail | global+domain | true | plain |  | yes | Allow recalling a message during the undo-send window; off sends immediately (scheduled sends are unaffected) |
+| <a id="mail.send.maxdelayedseconds"></a>`mail.send.maxDelayedSeconds` | mail | global+domain | 7776000 | plain |  | yes | How far ahead a message may be scheduled, in seconds (default 90 days, maximum 1 year; 0 turns scheduling off) |
+| <a id="mail.send.maxqueued"></a>`mail.send.maxQueued` | mail | global+domain | 200 | plain |  | yes | Queued or scheduled messages allowed per mailbox |
 | <a id="mail.resumetabs"></a>`mail.resumeTabs` | mail | global+domain+user | true | plain |  | yes | restore account-owned workspace tab references after reload |
 | <a id="mail.dragtofolder"></a>`mail.dragToFolder` | mail | global+domain+user | true | plain |  | yes | move selected messages by dragging them to a folder |
 | <a id="mail.foldercounts"></a>`mail.folderCounts` | mail | global+domain+user | "both" | plain |  | yes | counts displayed beside mail folders (unreadIfAny: unread count, hidden at 0); account wide across linked mailboxes |
@@ -538,6 +553,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="reader.attachmentscollapsed"></a>`reader.attachmentsCollapsed` | reader | global+domain+user | true | plain |  | yes | start the reader's attachments bar collapsed (t110) |
 | <a id="ui.language"></a>`ui.language` | interface | global+domain+user | "browser" | plain |  | yes | web client locale (cached in localStorage mw.locale) |
 | <a id="ui.notifynewversion"></a>`ui.notifyNewVersion` | interface | global+domain+user | true | plain |  | yes | show a toast when a newer version of the web app has been deployed |
+| <a id="ui.undohistorysize"></a>`ui.undoHistorySize` | interface | global+domain+user | 50 | plain |  | yes | how many recent mail actions the Undo and Redo buttons remember (0 turns them off) |
+| <a id="ui.undohistorymax"></a>`ui.undoHistoryMax` | interface | global | 50 | plain |  | yes | most recent mail actions any user may keep in the Undo and Redo history |
 | <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.workspacetabs"></a>`ui.bar.workspaceTabs` | interface | global+domain+user | "pinned" | plain |  | yes | workspace tab strip: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.mailribbon"></a>`ui.bar.mailRibbon` | interface | global+domain+user | "pinned" | plain |  | yes | mail ribbon (ribbon layout): always shown, or only its tab names |
@@ -828,10 +845,10 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="observability.clienttiming.enabled"></a>`observability.clientTiming.enabled` | observability | global | true | plain |  | yes | browser load time collection |
 | <a id="observability.clienttiming.sampleratepercent"></a>`observability.clientTiming.sampleRatePercent` | observability | global | 100 | plain |  | yes | browser load time sample rate |
 | <a id="observability.clienttiming.minsamples"></a>`observability.clientTiming.minSamples` | observability | global | 20 | plain |  | yes | samples needed to show load time percentiles |
+| <a id="observability.clienttiming.folderloads"></a>`observability.clientTiming.folderLoads` | observability | global+domain+user | true | plain |  | yes | folder load time measurement |
+| <a id="observability.clienttiming.messageloads"></a>`observability.clientTiming.messageLoads` | observability | global+domain+user | true | plain |  | yes | message load time measurement |
 | <a id="diagnostics.retentiondays"></a>`diagnostics.retentionDays` | diagnostics | global | 30 | plain |  | yes | diagnostic runs kept |
 | <a id="dataexport.linkhours"></a>`dataExport.linkHours` | users | global | 24 | plain |  | yes | data export download window |
 | <a id="logs.auth.retentiondays"></a>`logs.auth.retentionDays` | observability | global | 7 | plain |  | yes | authentication history days kept |
 | <a id="logs.auth.maxentries"></a>`logs.auth.maxEntries` | observability | global | 50000 | plain |  | yes | maximum authentication history entries |
 | <a id="servertext."></a>`serverText.*` | serverText | global+domain | {} | plain |  | yes | server_text(id, locale, domain) overrides |
-| <a id="observability.clienttiming.folderloads"></a>`observability.clientTiming.folderLoads` | observability | global+domain+user | true | plain |  | yes | folder load time measurement |
-| <a id="observability.clienttiming.messageloads"></a>`observability.clientTiming.messageLoads` | observability | global+domain+user | true | plain |  | yes | message load time measurement |

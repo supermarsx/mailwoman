@@ -278,7 +278,14 @@ impl SettingDef {
         self.scopes == Scopes::GlobalDomainUser
             || PUBLIC_KEYS.contains(&self.key)
             || self.key == "receipts.dsnAllowed"
-            || matches!(self.key, "mail.templates.shared" | "mail.templates.allowPersonal")
+            || matches!(
+                self.key,
+                "mail.templates.shared"
+                    | "mail.templates.allowPersonal"
+                    | "mail.send.recallDelayMaxSeconds"
+                    | "mail.send.allowRecall"
+                    | "mail.send.maxDelayedSeconds"
+            )
             // t39-e7: the storage meter warns at the admin's thresholds; the
             // user reads them and cannot change them (scope is global/domain).
             || matches!(self.key, "quota.warnEnabled" | "quota.warnThresholds")
@@ -498,6 +505,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "Close the open message when it is deleted"
+    ),
+    def!(
+        "mail.rowActionsMode",
+        Kind::Enum(&["open", "hover", "click", "off"]),
+        "\"open\"",
+        GDU,
+        "mail",
+        "How the quick actions on message list rows are shown"
     ),
     def!(
         "mail.showGoToTop",
@@ -1268,6 +1283,28 @@ pub static REGISTRY: &[SettingDef] = &[
         "Remove tracking parameters from links"
     ),
     def!(
+        "images.trustedHosts",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 253
+        },
+        "[]",
+        GDU,
+        "privacy",
+        "image hosts (and their subdomains) whose remote images load without asking; the reader sets one state per host"
+    ),
+    def!(
+        "images.blockedHosts",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 253
+        },
+        "[]",
+        GDU,
+        "privacy",
+        "image hosts (and their subdomains) whose remote images never load; wins over a trusted host and over any grant"
+    ),
+    def!(
         "links.trustedDomains",
         Kind::StringList {
             max_len: 100,
@@ -1666,6 +1703,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Maximum age of remembered remote-image failures in seconds; zero disables negative caching"
     ),
     def!(
+        "privacy.imageLatencyTracking",
+        Kind::Bool,
+        "true",
+        G,
+        "imageProxy",
+        "Record image proxy speed (median, p95, p99 and phase timings) as aggregate histogram buckets in memory; no URLs, hosts or accounts are stored"
+    ),
+    def!(
         "privacy.imageRetryAttempts",
         int(0, 8),
         "3",
@@ -1921,7 +1966,7 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.externalRecipientWarning",
-        Kind::Enum(&["off", "warn", "confirm"]),
+        Kind::Enum(&["off", "warn", "confirm", "warn-remember", "deny"]),
         "\"warn\"",
         GDU,
         "mail",
@@ -1956,6 +2001,46 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "exact trusted recipient domains for composer warnings"
+    ),
+    def!(
+        "mail.compose.checkInvalidRecipients",
+        Kind::Enum(&["allow", "warn", "warn-remember", "deny"]),
+        "\"warn\"",
+        GDU,
+        "mail",
+        "pre-send check for invalid recipient addresses"
+    ),
+    def!(
+        "mail.compose.checkMissingAttachment",
+        Kind::Enum(&["allow", "warn", "warn-remember", "deny"]),
+        "\"warn\"",
+        GDU,
+        "mail",
+        "pre-send check for a message that mentions an attachment but has none"
+    ),
+    def!(
+        "mail.compose.checkEmptySubject",
+        Kind::Enum(&["allow", "warn", "warn-remember", "deny"]),
+        "\"warn\"",
+        GDU,
+        "mail",
+        "pre-send check for an empty subject"
+    ),
+    def!(
+        "mail.compose.autoChipRecipients",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "finish a typed recipient when a space, comma or semicolon follows it"
+    ),
+    def!(
+        "mail.compose.recipientSeparator",
+        Kind::Enum(&["comma", "semicolon"]),
+        "\"comma\"",
+        GDU,
+        "mail",
+        "separator inserted after a finished recipient"
     ),
     def!(
         "time.displayZone",
@@ -2175,6 +2260,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "show the From field by default when composing; sending authority is unchanged"
     ),
     def!(
+        "mail.replyFromMode",
+        Kind::Enum(&["match", "default", "ask", "keep"]),
+        "\"match\"",
+        GDU,
+        "mail",
+        "which identity replies and forwards are sent from: the one the original was addressed to, the default, a chooser, or the current one"
+    ),
+    def!(
         "mail.modifierSelection",
         Kind::Bool,
         "true",
@@ -2205,6 +2298,46 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "periodic account draft save interval in seconds"
+    ),
+    def!(
+        "mail.send.recallDelaySeconds",
+        int(0, 1800),
+        "10",
+        GDU,
+        "mail",
+        "Undo-send window in seconds: how long a sent message waits in the Outbox and can be recalled; 0 sends at once, capped by mail.send.recallDelayMaxSeconds"
+    ),
+    def!(
+        "mail.send.recallDelayMaxSeconds",
+        int(0, 1800),
+        "1800",
+        GD,
+        "mail",
+        "Longest undo-send window a user may choose, in seconds (enforced by the engine)"
+    ),
+    def!(
+        "mail.send.allowRecall",
+        Kind::Bool,
+        "true",
+        GD,
+        "mail",
+        "Allow recalling a message during the undo-send window; off sends immediately (scheduled sends are unaffected)"
+    ),
+    def!(
+        "mail.send.maxDelayedSeconds",
+        int(0, 31536000),
+        "7776000",
+        GD,
+        "mail",
+        "How far ahead a message may be scheduled, in seconds (default 90 days, maximum 1 year; 0 turns scheduling off)"
+    ),
+    def!(
+        "mail.send.maxQueued",
+        int(1, 5000),
+        "200",
+        GD,
+        "mail",
+        "Queued or scheduled messages allowed per mailbox"
     ),
     def!(
         "mail.resumeTabs",
@@ -2365,6 +2498,22 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "interface",
         "show a toast when a newer version of the web app has been deployed"
+    ),
+    def!(
+        "ui.undoHistorySize",
+        int(0, 50),
+        "50",
+        GDU,
+        "interface",
+        "how many recent mail actions the Undo and Redo buttons remember (0 turns them off)"
+    ),
+    def!(
+        "ui.undoHistoryMax",
+        int(0, 50),
+        "50",
+        G,
+        "interface",
+        "most recent mail actions any user may keep in the Undo and Redo history"
     ),
     def!(
         "ui.bar.mailTopBar",
@@ -4951,6 +5100,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "samples needed to show load time percentiles"
     ),
     def!(
+        "observability.clientTiming.folderLoads",
+        Kind::Bool,
+        "true",
+        GDU,
+        "observability",
+        "folder load time measurement"
+    ),
+    def!(
+        "observability.clientTiming.messageLoads",
+        Kind::Bool,
+        "true",
+        GDU,
+        "observability",
+        "message load time measurement"
+    ),
+    def!(
         "diagnostics.retentionDays",
         int(1, 365),
         "30",
@@ -5099,22 +5264,6 @@ fn is_url(s: &str, schemes: &[&str]) -> bool {
     }
 }
 
-    def!(
-        "observability.clientTiming.folderLoads",
-        Kind::Bool,
-        "true",
-        GDU,
-        "observability",
-        "folder load time measurement"
-    ),
-    def!(
-        "observability.clientTiming.messageLoads",
-        Kind::Bool,
-        "true",
-        GDU,
-        "observability",
-        "message load time measurement"
-    ),
 fn check_text(shape: Text, s: &str) -> Result<(), &'static str> {
     let ok = match shape {
         Text::Plain => no_controls(s),
@@ -5547,7 +5696,10 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             | "security.signin.accountGeoGlobalAllowCountries"
                             | "security.trust.adminGeoCountries"
                     ) && !crate::account_signin_geo::valid_country(text))
-                    || (def.key == "links.trustedDomains" && !link_trust::is_canonical(text))
+                    || (matches!(
+                        def.key,
+                        "links.trustedDomains" | "images.trustedHosts" | "images.blockedHosts"
+                    ) && !link_trust::is_canonical(text))
                     || (def.key == "links.trustedSenders" && !link_trust::is_canonical_sender(text))
                     || (def.key == "security.protection.userAgentCategories"
                         && !crate::request_protection::user_agent::CATEGORIES.contains(&text))
@@ -6426,7 +6578,10 @@ mod tests {
             if d.category == "imageProxy"
                 && !IMAGE_CACHE_KEYS.contains(&d.key)
                 && !d.key.starts_with("privacy.imageRate")
-                && !matches!(d.key, "privacy.ratePerMin" | "privacy.rateBurst")
+                && !matches!(
+                    d.key,
+                    "privacy.ratePerMin" | "privacy.rateBurst" | "privacy.imageLatencyTracking"
+                )
             {
                 problems.push(format!("{}: in the Image proxy section but unlisted", d.key));
             }

@@ -407,3 +407,118 @@ async fn large_html_signature_respects_byte_limits_and_preserves_embedded_logos(
         .body("invalid JSON").send().await.unwrap();
     assert_eq!(anonymous.status(), 401, "authentication must run before JSON extraction");
 }
+
+#[tokio::test]
+async fn identity_default_and_variants_work_through_the_prefs_routes() {
+    let mock = spawn_mock().await;
+    let (addr, db_path) = spawn_server().await;
+    seed_mock_account(&db_path).await;
+    let base = format!("http://{addr}");
+    let c = client();
+    let authority = login(&c, &base, &mock).await;
+    let h = common::auth::STORAGE_AUTHORITY_HEADER;
+    let post = |body: Value| {
+        let (c, base, authority) = (c.clone(), base.clone(), authority.clone());
+        async move {
+            c.post(format!("{base}/api/account/identities"))
+                .header(h, authority)
+                .json(&body)
+                .send()
+                .await
+                .unwrap()
+        }
+    };
+    let list = || {
+        let (c, base) = (c.clone(), base.clone());
+        async move {
+            c.get(format!("{base}/api/account/identities"))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()["identities"]
+                .as_array()
+                .unwrap()
+                .clone()
+        }
+    };
+    let create = |body: Value| {
+        let post = &post;
+        async move {
+            let r = post(body).await;
+            assert_eq!(r.status(), 200);
+            r.json::<Value>().await.unwrap()["id"].as_str().unwrap().to_string()
+        }
+    };
+    let first = create(json!({"name":"Me","email":"me@example.test","replyTo":"help@example.test"})).await;
+    let second = create(json!({"name":"Other","email":"other@example.test"})).await;
+    let rows = list().await;
+    let default_of = |rows: &[Value]| -> Vec<String> {
+        rows.iter().filter(|r| r["isDefault"] == true).map(|r| r["id"].as_str().unwrap().to_string()).collect()
+    };
+    assert_eq!(default_of(&rows), [first.clone()], "the first identity is the default");
+
+    let made = c
+        .post(format!("{base}/api/account/identities/{second}/default"))
+        .header(h, &authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(made.status(), 200);
+    assert_eq!(default_of(&list().await), [second.clone()]);
+    let missing = c
+        .post(format!("{base}/api/account/identities/nope/default"))
+        .header(h, &authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(missing.status(), 404);
+
+    // Variants: label required, base must exist, no nesting.
+    assert_eq!(post(json!({"name":"V","email":"v@example.test","variantOf":first})).await.status(), 400);
+    assert_eq!(post(json!({"name":"V","email":"v@example.test","variantOf":"nope","label":"X"})).await.status(), 400);
+    assert_eq!(post(json!({"name":"V","email":"v@example.test","label":"X"})).await.status(), 400);
+    let variant = create(json!({"name":"Me (news)","email":"me@example.test","variantOf":first,"label":"News"})).await;
+    assert_eq!(
+        post(json!({"name":"W","email":"w@example.test","variantOf":variant,"label":"Nested"})).await.status(),
+        400
+    );
+    let rows = list().await;
+    let v = rows.iter().find(|r| r["id"] == variant.as_str()).unwrap();
+    assert_eq!(v["variantOf"], first.as_str());
+    assert_eq!(v["label"], "News");
+    assert!(v.get("replyTo").is_none(), "REST returns raw fields; the client resolves inheritance");
+
+    // A base with variants needs a choice.
+    let refused = c
+        .delete(format!("{base}/api/account/identities/{first}"))
+        .header(h, &authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), 409);
+    assert_eq!(refused.json::<Value>().await.unwrap()["variants"], 1);
+    let promoted = c
+        .delete(format!("{base}/api/account/identities/{first}?variants=promote"))
+        .header(h, &authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(promoted.status(), 200);
+    let rows = list().await;
+    let v = rows.iter().find(|r| r["id"] == variant.as_str()).unwrap();
+    assert!(v.get("variantOf").is_none());
+    assert_eq!(v["replyTo"], "help@example.test", "promotion copies inherited fields");
+    assert_eq!(default_of(&rows), [second.clone()]);
+
+    // Deleting the default promotes another.
+    let del = c
+        .delete(format!("{base}/api/account/identities/{second}"))
+        .header(h, &authority)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(del.status(), 200);
+    assert_eq!(default_of(&list().await), [variant.clone()]);
+}

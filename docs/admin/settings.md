@@ -97,6 +97,16 @@ The language of the mail client for users who have not chosen one. "Same as the 
 
 `true` (default) shows signed-in users a toast with **Reload now** and **Later** when a newer version of the web app has been deployed since their page loaded. The client compares the build id from the authenticated `GET /api/version` when the window regains focus, when the connection returns and about every ten minutes. **Later** snoozes the notice for an hour. `false` never shows it; users then get the new code at their next reload. Users change it under **Settings → Interface** unless the value is locked.
 
+<a id="ui.undoHistorySize"></a>
+### Undo and redo history size (`ui.undoHistorySize`)
+
+An integer from 0 to 50, default 50. The number of recent mail actions the **Undo** and **Redo** buttons in the mailbox toolbar remember: archive, delete, move, mark as spam, mark read or unread, flag, label, pin, snooze, follow-up and the whole-folder "mark all read" and "move all" jobs. Each user gesture is one entry, however many messages it covered. The same history answers Ctrl/Cmd+Z, Ctrl/Cmd+Shift+Z and Ctrl+Y outside text fields. `0` removes the buttons and the shortcuts. Recording a new action empties the Redo list. An action that cannot be reversed any more (for example the message was moved or deleted elsewhere) is reported in a toast and dropped. The history is kept in the browser tab only, is never stored, and is cleared on sign-out and account switch. Global/domain/user policy: users choose their own size in Settings unless an administrator locks it, and a user's size is lowered to `ui.undoHistoryMax`. Enforced in the web client only.
+
+<a id="ui.undoHistoryMax"></a>
+### Undo and redo history maximum (`ui.undoHistoryMax`)
+
+An integer from 0 to 50, default 50. The most actions any user may keep in the Undo and Redo history, whatever `ui.undoHistorySize` says for them. `0` turns the history off for everyone. Global only; enforced in the web client only.
+
 <a id="ui.bar.mailTopBar"></a>
 ### Mail toolbar (`ui.bar.mailTopBar`)
 
@@ -602,16 +612,6 @@ Percentage of browser sessions that report load timings (1 to 100).
 
 Median and 95th percentile load times stay hidden until a period has at least this many samples.
 
-<a id="diagnostics.retentionDays"></a>
-### Diagnostics history (`diagnostics.retentionDays`)
-
-How many days of diagnostic runs are kept.
-
-<a id="dataExport.linkHours"></a>
-### Data export download window (`dataExport.linkHours`)
-
-How many hours a data export can be downloaded before it is deleted.
-
 <a id="observability.clientTiming.folderLoads"></a>
 ### Folder load times (`observability.clientTiming.folderLoads`)
 
@@ -621,6 +621,16 @@ Measure how long a folder takes to show its message list, split by whether it ca
 ### Message load times (`observability.clientTiming.messageLoads`)
 
 Measure how long a message takes to show its headers and sanitised body, split by whether it was cached or prefetched, or came from the network. On by default; same scopes and behaviour as folder load times.
+
+<a id="diagnostics.retentionDays"></a>
+### Diagnostics history (`diagnostics.retentionDays`)
+
+How many days of diagnostic runs are kept.
+
+<a id="dataExport.linkHours"></a>
+### Data export download window (`dataExport.linkHours`)
+
+How many hours a data export can be downloaded before it is deleted.
 
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
@@ -738,6 +748,8 @@ lock them to keep users from changing the list or the switch.
 `privacy.maxBytes`: 65536–8388608 bytes, default 8388608.
 <a id="privacy.cacheBytes"></a>
 `privacy.cacheBytes`: 0–1073741824 bytes, default 33554432.
+<a id="privacy.imageLatencyTracking"></a>
+`privacy.imageLatencyTracking`: on or off, default on. Records the image proxy's speed (median, p95, p99, maximum and count, per outcome and per phase) in fixed log-scale histogram buckets, one set per minute for 24 hours, in memory. Only bucket counts are kept: no URLs, hosts, accounts or messages. The history is per server process and resets on restart. A change applies from the next image request; turning it off stops new recording and leaves the recorded figures readable.
 <a id="privacy.ratePerMin"></a>
 `privacy.ratePerMin`: 10–60000 replenished fetch tokens per account per minute, default 1200 (20 per second; the fixed refill in manual rate mode). The separate burst allowance permits a large message to start without waiting for one minute of refill.
 
@@ -1110,11 +1122,31 @@ Default `classic`; choose `outlook` for structured From, Sent, To, Cc and Subjec
 
 <a id="mail.externalRecipientWarning"></a>
 ### `mail.externalRecipientWarning`
-Global/domain/user composer safeguard: `off`, `warn` (default), or `confirm`. Checks To, Cc and Bcc. Confirmation is invalidated when the external recipient set or sending identity changes. This is not a server-side delivery block and does not restrict other mail clients or direct API submissions.
+Global/domain/user composer safeguard: `off`, `warn` (default), `confirm`, `warn-remember` or `deny` (see `mail.compose.checkInvalidRecipients` for what warn, warn-remember and deny do). Checks To, Cc and Bcc. Confirmation is invalidated when the external recipient set or sending identity changes. This is not a server-side delivery block and does not restrict other mail clients or direct API submissions.
 
 <a id="mail.trustedRecipientDomains"></a>
 ### `mail.trustedRecipientDomains`
 Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
+
+<a id="mail.compose.checkInvalidRecipients"></a>
+<a id="mail.compose.checkMissingAttachment"></a>
+<a id="mail.compose.checkEmptySubject"></a>
+### `mail.compose.checkInvalidRecipients`, `mail.compose.checkMissingAttachment`, `mail.compose.checkEmptySubject`
+
+Global/domain/user pre-send checks in the composer. Each takes one of four values; the default is `warn`.
+
+- `allow`: no check and no warning.
+- `warn`: Send shows one combined dialog listing every problem, with **Send anyway** and **Review**. The message is never blocked.
+- `warn-remember`: like `warn`, with a "Don't ask again for these" option. Choosing it together with Send anyway stores `allow` for that check in the user's own settings. The option is not offered when an administrator has locked the value.
+- `deny`: Send is refused with the reason shown in the composer. This is the only value that blocks a message.
+
+The checks are: a recipient address in To, Cc or Bcc that is not a valid mailbox; text that mentions an attachment ("attached", "enclosed", "anexo", "adjunto", "pièce jointe", "angehängt", "allegato", "bijlage" and similar) while nothing is attached (quoted lines, the quoted original and the signature are ignored); and an empty subject. The external-recipient check is `mail.externalRecipientWarning`, which also accepts `warn-remember` and `deny`; its `off` value means no check, and `confirm` keeps its separate "I have checked these recipients" box. Administrators can lock any of these to prevent user overrides. While a draft is open, the composer also shows invalid addresses and a missing subject in a compact strip above the fields; recipients outside the trusted domains appear in a smaller, dismissible line.
+
+<a id="mail.compose.autoChipRecipients"></a>
+<a id="mail.compose.recipientSeparator"></a>
+### `mail.compose.autoChipRecipients`, `mail.compose.recipientSeparator`
+
+Global/domain/user. When `autoChipRecipients` is `true` (default), a valid address followed by a space, comma or semicolon (or by Enter or leaving the field) becomes a finished recipient, underlined with the contact's name when one is known, and the separator is added for you. Invalid text stays as typed with a wavy underline. Pasting several addresses splits them. `recipientSeparator` is `comma` (default) or `semicolon` and sets the separator inserted after a finished recipient.
 
 <a id="mail.replyImages"></a>
 ### `mail.replyImages`
@@ -1735,6 +1767,10 @@ Account draft saving supports global, domain and user defaults and administrator
 
 `mail.showFrom` is a global/domain/user boolean, default false. It controls the initial visibility of the composer From field. A per-compose ribbon action can reveal the field; visibility never grants permission to send as an address. Typed one-message addresses must pass current native or upstream sender authorization and are not saved as identities.
 
+<a id="mail.replyFromMode"></a>
+
+`mail.replyFromMode` is a global/domain/user enum, default `match`. When replying, replying to all or forwarding, `match` sends from the identity whose address the original was addressed to (To, then Cc; case-insensitive, and `user+tag@host` matches `user@host`; an exact address beats a plus-tag match) and falls back to the default identity. `default` always uses the default identity, `ask` matches the same way but lists the other candidates for a one-click change, and `keep` leaves the composer identity unchanged. The choice never grants permission to send as an address.
+
 <a id="privacy.stripMailerHeaders"></a>
 ### Outgoing mailer header privacy (`privacy.stripMailerHeaders`)
 
@@ -1913,6 +1949,10 @@ or HTML.
 `reader.attachmentsDensity` is `compact` (default) or `comfortable` and sets the spacing of the reader's attachment list. Global/domain/user policy.
 <a id="cap.reading.original_html"></a>
 `cap.reading.original_html` defaults true. When false, the isolated original HTML reader option is not offered. It does not authorize scripts or unrestricted remote resources. See `mail.reader.allowOriginalHtml`.
+<a id="images.trustedHosts"></a>
+`images.trustedHosts` is a list of image hosts (up to 100 canonical domains, 253 characters each; default empty). Remote images from a listed host, or a subdomain of it, load through the image proxy without a per-message grant while `privacy.remoteContent` is `ask`. It never lifts `privacy.remoteContent=block`, and a host also in `images.blockedHosts` stays blocked. The reader sets one state per host (Always show, Ask, Never show), so a host is in at most one of the two lists. Global/domain/user policy; a locked value hides the control.
+<a id="images.blockedHosts"></a>
+`images.blockedHosts` is a list of image hosts (up to 100 canonical domains; default empty) whose images never load, in any `privacy.remoteContent` mode, whatever grants exist. The server refuses to sign or fetch them. Blocked wins over `images.trustedHosts`. Global/domain/user policy.
 <a id="links.trustedSenders"></a>
 `links.trustedSenders` is a list of exact sender mailboxes (up to 100 entries, 254 characters each). Links in messages from a listed sender may open from Review links without per-message consent. Default empty. Global/domain/user policy.
 <a id="appearance.fontSize"></a>
@@ -1929,6 +1969,18 @@ or HTML.
 `mail.messageListOrder` orders the message list: `newest` (default), `oldest`, `sender` or `subject`. Global/domain/user policy.
 <a id="mail.messageListPreview"></a>
 `mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
+<a id="mail.rowActionsMode"></a>
+`mail.rowActionsMode` defaults `open`. Controls the quick-action buttons on each message list row: `open` shows the full set as before (revealed on row hover or keyboard focus), `hover` shows three controls (flag, archive, delete) and a More button that reveals pin, snooze and label, `click` shows one button per row that opens the actions, and `off` removes them from the rows (the context menu and toolbar still carry every action). On touch screens `hover` behaves like `click`. Global/domain/user policy: an administrator sets the default or locks the value for everyone, otherwise each user chooses in Settings; enforced in the web client only.
+<a id="mail.send.recallDelaySeconds"></a>
+`mail.send.recallDelaySeconds` defaults 10 and accepts 0 to 1800 seconds. After Send, the message waits in the Outbox for this long and can be recalled; 0 sends at once. Global/domain/user policy: each user chooses in Settings (Off, 5 s, 10 s, 20 s, 30 s, 1, 2, 5, 10 or 30 minutes, or a custom value) up to the limit below, unless an administrator locks the value. See [Outbox, recall and scheduled sending](outbox-recall.md).
+<a id="mail.send.recallDelayMaxSeconds"></a>
+`mail.send.recallDelayMaxSeconds` defaults and is capped at 1800. The longest window a user may choose. The engine shortens a longer request to this value when the submission is created. Global/domain policy.
+<a id="mail.send.allowRecall"></a>
+`mail.send.allowRecall` defaults true. When false, new messages are sent immediately (no hold) and cannot be recalled; scheduled sends remain cancellable until their time. Global/domain policy.
+<a id="mail.send.maxDelayedSeconds"></a>
+`mail.send.maxDelayedSeconds` defaults 7776000 (90 days) and accepts 0 to 31536000 (1 year). How far ahead a message may be scheduled; a later `sendAt` is refused. 0 turns scheduled sending off. Global/domain policy.
+<a id="mail.send.maxQueued"></a>
+`mail.send.maxQueued` defaults 200 and accepts 1 to 5000. The number of messages one mailbox may have waiting (undo window or scheduled); a further send is refused with `overQuota` and is never dropped. Global/domain policy.
 <a id="mail.showGoToTop"></a>
 `mail.showGoToTop` defaults false. When true, the message list shows a Go to top button that scrolls the list back to its first message without reloading it; scrolling is instant when the user prefers reduced motion. When false the button is not shown. Global/domain/user policy; enforced in the web client only.
 <a id="mail.showCreateFolderButton"></a>
