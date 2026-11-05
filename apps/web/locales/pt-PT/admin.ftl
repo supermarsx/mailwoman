@@ -1125,3 +1125,4 @@ admin-insights-rule = Regra
 admin-insights-times-col = Vezes
 admin-insights-empty-rules = Nenhuma regra adaptativa disparou neste intervalo.
 admin-insights-share-of = { $share } dos pedidos
+admin-nav-retention = Retenção

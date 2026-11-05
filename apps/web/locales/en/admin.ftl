@@ -1140,3 +1140,4 @@ admin-insights-rule = Rule
 admin-insights-times-col = Times
 admin-insights-empty-rules = No adaptive rule fired in this range.
 admin-insights-share-of = { $share } of requests
+admin-nav-retention = Retention
