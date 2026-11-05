@@ -106,7 +106,9 @@ it('passes explicit consent to the authenticated bridge and permits only popup n
  fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data:{type:'mw-reader-ready',token:value}}));
  expect(post).toHaveBeenCalledWith(expect.objectContaining({type:'mw-reader-frame',linksEnabled:true}),'*');
  view.unmount();render(()=><DirectReaderFrame html="<p>Other message</p>" title="No consent"/>);
- expect(screen.getByTitle('No consent')).toHaveAttribute('sandbox','allow-scripts');
+ // The outer wrapper is never reloaded for consent; the nested document's own sandbox carries the consent.
+ expect(screen.getByTitle('No consent')).toHaveAttribute('sandbox','allow-scripts allow-popups allow-popups-to-escape-sandbox');
+ expect(post.mock.calls.some(call=>(call[0] as {linksEnabled?:boolean}).linksEnabled===false)).toBe(false);
 });
 
 it('accepts address context only for the current authenticated body and validates coordinates/mailbox before translating zoom',()=>{
@@ -144,4 +146,51 @@ it('keeps the loading surface until the current parsed body has paint time, mask
  send({type:'mw-reader-displayed',token,revision:2});expect(paints.size).toBe(0);
  setHtml('<p>Third</p>');send({type:'mw-reader-displayed',token,revision:3});mounted.unmount();expect(paints.size).toBe(0);
  request.mockRestore();cancel.mockRestore();
+});
+
+const gif='data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+const signed=`${location.origin}/api/rc/i/handle1`;
+function shown(initial:string,linksEnabled=false){
+ const paints=new Map<number,FrameRequestCallback>();let next=0;
+ vi.spyOn(window,'requestAnimationFrame').mockImplementation(callback=>{paints.set(++next,callback);return next;});
+ vi.spyOn(window,'cancelAnimationFrame').mockImplementation(id=>{paints.delete(id);});
+ const flush=():void=>{for(let n=0;n<2;n++){const pending=[...paints.values()];paints.clear();for(const callback of pending)callback(0);}};
+ const [html,setHtml]=createSignal(initial);const [links,setLinks]=createSignal(linksEnabled);
+ render(()=><DirectReaderFrame html={html()} linksEnabled={links()} documentKey="m1" title="Hot"/>);
+ const frame=screen.getByTitle('Hot') as HTMLIFrameElement;const token=new URLSearchParams(new URL(frame.src).hash.slice(1)).get('token');
+ const post=vi.spyOn(frame.contentWindow!,'postMessage');
+ const send=(data:unknown):void=>{fireEvent(window,new MessageEvent('message',{source:frame.contentWindow,origin:'null',data}));};
+ send({type:'mw-reader-ready',token});send({type:'mw-reader-displayed',token,revision:1});flush();
+ post.mockClear();
+ return {frame,token,post,send,flush,setHtml,setLinks};
+}
+it('patches image references in the shown document instead of reloading it',()=>{
+ const h=shown(`<!doctype html><html><head></head><body><p>Hi</p><img src="${gif}"></body></html>`);
+ expect(h.frame).toHaveAttribute('aria-hidden','false');
+ h.setHtml(`<!doctype html><html><head></head><body><p>Hi</p><img src="${signed}"></body></html>`);
+ expect(h.post).toHaveBeenCalledTimes(1);
+ expect(h.post).toHaveBeenCalledWith({type:'mw-reader-patch',token:h.token,revision:1,id:1,ops:[{s:'b',i:1,a:'src',v:signed}]},'*');
+ expect(h.frame).toHaveAttribute('aria-hidden','false');expect(screen.queryByTestId('reader-frame-loading')).toBeNull();
+});
+it('does not patch toward unsigned sources and refreshes behind the shown document instead',()=>{
+ const h=shown(`<!doctype html><html><body><img src="${gif}"></body></html>`);
+ h.setHtml('<!doctype html><html><body><img src="https://tracker.example/p.gif"></body></html>');
+ expect(h.post).toHaveBeenCalledTimes(1);
+ expect(h.post.mock.calls[0]![0]).toMatchObject({type:'mw-reader-frame',swap:true,revision:2});
+ expect(h.frame).toHaveAttribute('aria-hidden','false');
+});
+it('a changed link consent swaps the nested document without hiding the message and without remounting',()=>{
+ const h=shown('<!doctype html><html><body><a>Link</a></body></html>');
+ h.setLinks(true);h.setHtml('<!doctype html><html><body><a href="https://x.test/" target="_blank">Link</a></body></html>');
+ expect(h.post).toHaveBeenCalledWith(expect.objectContaining({type:'mw-reader-frame',swap:true,linksEnabled:true,revision:2}),'*');
+ expect(h.frame).toHaveAttribute('aria-hidden','false');expect(screen.getByTitle('Hot')).toBe(h.frame);
+ h.send({type:'mw-reader-displayed',token:h.token,revision:2});h.flush();expect(h.frame).toHaveAttribute('aria-hidden','false');
+});
+it('falls back to a swap when the document refuses a patch, and ignores stale acknowledgements',()=>{
+ const h=shown(`<!doctype html><html><body><img src="${gif}"></body></html>`);
+ h.setHtml(`<!doctype html><html><body><img src="${signed}"></body></html>`);h.post.mockClear();
+ h.send({type:'mw-reader-patched',token:h.token,revision:1,id:99,ok:false});expect(h.post).not.toHaveBeenCalled();
+ h.send({type:'mw-reader-patched',token:h.token,revision:1,id:1,ok:true});expect(h.post).not.toHaveBeenCalled();
+ h.send({type:'mw-reader-patched',token:h.token,revision:1,id:1,ok:false});
+ expect(h.post).toHaveBeenCalledWith(expect.objectContaining({type:'mw-reader-frame',swap:true}),'*');
 });

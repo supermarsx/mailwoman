@@ -17,6 +17,16 @@
   content.style.cssText = 'border:0;width:100%;height:100%;display:block';
   document.body.append(content);
   let addressPort = null;
+  let portNonce = null;
+  // A same-document refresh builds the next document hidden beside the shown one
+  // and swaps when it has loaded, so the message never blanks.
+  let incoming = null;
+  let swapTimer = null;
+  let lastScroll = null;
+  // Signed image handles are the only non-data sources a patch may introduce.
+  const handleBase = new URL('./', location.href);
+  const prefixes = [handleBase.origin + handleBase.pathname + 'i/', handleBase.origin + handleBase.pathname + 'p/'];
+  const PATCH_ATTRS = ['src', 'srcset', 'background', 'style', 'text'];
   let documentRevision = 0;
   let displayedRevision = 0;
   function displayed(revision) {
@@ -25,7 +35,15 @@
       parent.postMessage({ type: 'mw-reader-displayed', token, revision }, origin);
     }
   }
-  function closePort() { if (addressPort) addressPort.close(); addressPort = null; }
+  function closePort() { if (addressPort) addressPort.close(); addressPort = null; portNonce = null; }
+  function commit(next) {
+    if (incoming !== next) return;
+    clearTimeout(swapTimer);
+    next.style.cssText = content.style.cssText;
+    content.remove();
+    content = next; incoming = null;
+    displayed(documentRevision);
+  }
   addEventListener('pagehide', closePort, { once: true });
   // Preserve the already sanitized layout; remove executable nodes/attributes
   // independently before admitting our one fixed, hash-authorized handler.
@@ -55,27 +73,35 @@
     try { const opener = parent.opener; return opener !== null && source === opener; } catch { return false; }
   };
   addEventListener('message', event => {
-    if (event.source === content.contentWindow && event.origin === 'null' && event.data?.type === 'mw-reader-address-ready' && documentRevision > 0 && !addressPort) {
+    const fromIncoming = incoming !== null && event.source === incoming.contentWindow;
+    if ((fromIncoming || (event.source === content.contentWindow && !addressPort)) && event.origin === 'null' && event.data?.type === 'mw-reader-address-ready' && documentRevision > 0) {
+      if (fromIncoming) closePort();
       const channel = new MessageChannel();
       const nonce = Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
-      const current = content, revision = documentRevision;
-      addressPort = channel.port1;
+      const current = fromIncoming ? incoming : content, revision = documentRevision;
+      addressPort = channel.port1; portNonce = nonce;
       channel.port1.onmessage = received => {
         const value = received.data;
-        if (content !== current || documentRevision !== revision || value?.nonce !== nonce || value.revision !== revision) return;
+        if (value?.type === 'scroll' && content === current && value.nonce === nonce && Number.isFinite(value.x) && Number.isFinite(value.y) && value.x >= 0 && value.y >= 0 && value.x < 1e7 && value.y < 1e7) { lastScroll = { x: value.x, y: value.y }; return; }
+        if (value?.type === 'patch-result' && value.nonce === nonce && value.revision === revision && documentRevision === revision && typeof value.ok === 'boolean' && Number.isSafeInteger(value.id)) {
+          parent.postMessage({ type: 'mw-reader-patched', token, revision, id: value.id, ok: value.ok }, origin);
+          return;
+        }
+        if ((content !== current && incoming !== current) || documentRevision !== revision || value?.nonce !== nonce || value.revision !== revision) return;
         if (value.type === 'image-progress') {
           const { loaded, failed, pending, total } = value;
           if ([loaded, failed, pending, total].every(count => Number.isSafeInteger(count) && count >= 0 && count <= 1000000) && loaded + failed + pending === total)
             parent.postMessage({ type: 'mw-reader-image-progress', token, revision, loaded, failed, pending, total }, origin);
           return;
         }
+        if (content !== current) return;
         if (value.type === 'displayed') { displayed(revision); return; }
         if (value.type !== 'address-context' || typeof value.address !== 'string' || value.address.length > 254 || !Number.isFinite(value.x) || !Number.isFinite(value.y) || value.x < 0 || value.y < 0 || value.x > current.clientWidth || value.y > current.clientHeight) return;
         const bounds = current.getBoundingClientRect();
         parent.postMessage({ type: 'mw-reader-address-context', token, revision, address: value.address, x: bounds.left + value.x, y: bounds.top + value.y }, origin);
       };
       channel.port1.start();
-      current.contentWindow.postMessage({ type: 'mw-reader-address-init', nonce, revision }, '*', [channel.port2]);
+      current.contentWindow.postMessage({ type: 'mw-reader-address-init', nonce, revision, prefixes, ...(fromIncoming && lastScroll ? { scroll: lastScroll } : {}) }, '*', [channel.port2]);
       return;
     }
     if (event.origin !== origin || !event.source || !trusted(event.source)) return;
@@ -83,6 +109,17 @@
     // The app asks again once it listens on the window holding this frame.
     if (data && data.type === 'mw-reader-ping' && data.token === token) {
       parent.postMessage({ type: 'mw-reader-ready', token }, origin);
+      return;
+    }
+    // Hot patch: image-bearing attributes only, on the document already shown.
+    if (data && data.type === 'mw-reader-patch' && data.token === token) {
+      const ops = data.ops;
+      if (!addressPort || incoming || data.revision !== documentRevision || !Number.isSafeInteger(data.id) || !Array.isArray(ops) || ops.length > 4096 ||
+          !ops.every(op => op && typeof op === 'object' && (op.s === 'b' || op.s === 'h') && Number.isSafeInteger(op.i) && op.i >= 0 && PATCH_ATTRS.includes(op.a) && (op.v === null || typeof op.v === 'string' && op.v.length <= 65536))) {
+        parent.postMessage({ type: 'mw-reader-patched', token, revision: data.revision, id: data.id, ok: false }, origin);
+        return;
+      }
+      addressPort.postMessage({ type: 'patch', nonce: portNonce, revision: documentRevision, id: data.id, ops: ops.map(op => ({ s: op.s, i: op.i, a: op.a, v: op.v })) });
       return;
     }
     if (!data || data.type !== 'mw-reader-frame' || data.token !== token ||
@@ -93,9 +130,13 @@
     const next = content.cloneNode(false);
     next.setAttribute('sandbox', data.linksEnabled === true ? 'allow-scripts allow-popups allow-popups-to-escape-sandbox' : 'allow-scripts');
     const revision = data.revision;
-    closePort(); documentRevision = revision;
+    const swap = data.swap === true && addressPort !== null;
+    if (incoming) { clearTimeout(swapTimer); incoming.remove(); incoming = null; }
+    if (!swap) closePort();
+    documentRevision = revision;
     next.addEventListener('load', () => {
-      if (content === next && Number.isSafeInteger(revision) && revision > 0)
+      if (incoming === next) commit(next);
+      else if (content === next && Number.isSafeInteger(revision) && revision > 0)
         displayed(revision);
     }, { once: true });
     // Some engines do not inherit the outer document's image CSP into srcdoc.
@@ -104,8 +145,16 @@
     // The leading doctype preserves standards mode for full documents/fragments.
     const compatible = new URLSearchParams(location.search).get('coep') === 'require-corp';
     next.srcdoc = addressDocument(data.html, compatible);
-    content.replaceWith(next);
-    content = next;
+    if (swap) {
+      next.style.cssText = content.style.cssText + ';position:absolute;left:0;top:0;visibility:hidden';
+      incoming = next;
+      content.after(next);
+      // Never leave the old document up if the new one cannot finish loading.
+      swapTimer = setTimeout(() => commit(next), 2500);
+    } else {
+      content.replaceWith(next);
+      content = next;
+    }
   });
   parent.postMessage({ type: 'mw-reader-ready', token }, origin);
 })();

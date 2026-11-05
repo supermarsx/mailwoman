@@ -870,7 +870,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     catch{if(current())app.showToast('error',t('privacy-links-trust-failed'));}
     finally{if(trustPending()===scope)setTrustPending(null);}
   }
-  const linkFrameState=createMemo(()=>({enabled:linksEnabled()}));
   const reviewedBody=createMemo(()=>{const html=unreviewedBodySrcdoc();return html===null?null:(currentBody()?.originalReview??reviewMessageLinks)(html,t('mail-links-inert'),linksEnabled());});
   const bodySrcdoc=createMemo(()=>{const html=reviewedBody()?.html;return html===undefined?null:!currentBody()?.original&&leetspeakEnabled()?leetspeakHtml(html):html;});
   const [imageProgress,setImageProgress]=createSignal<{scope:string;key:string;html:string|null;progress:ReaderImageProgress}|null>(null);
@@ -1354,7 +1353,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, only the fixed hash-authorized address
                     handler runs; the opaque frame cannot access its parent.
                   */}
-                  <Show when={linkFrameState()} keyed>{state=><DirectReaderFrame linksEnabled={state.enabled} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} loadingFallback={messageLoading()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>}</Show>
+                  <DirectReaderFrame linksEnabled={linksEnabled()} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} loadingFallback={messageLoading()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
                 </Show>
               }
             >

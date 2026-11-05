@@ -7,6 +7,8 @@
   let revision = 0;
   let imageObserver = null;
   let imagesClosed = false;
+  let prefixes = [];
+  let restoreScroll = null;
   const emptyImage = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
   const imageStates = new Map();
   const imageCounts = { loaded: 0, failed: 0, pending: 0, total: 0 };
@@ -74,6 +76,72 @@
     document.addEventListener('load', imageSettled, true);
     document.addEventListener('error', imageSettled, true);
   }
+  // In-place image patching. The bridge relays parent-requested operations over
+  // this nonce-bound port; every operation is validated here again, and the
+  // whole batch is refused if any single one is not acceptable.
+  const dataImage = /^data:image\/(?:gif|png|jpeg|webp|avif);base64,[A-Za-z0-9+\/=]*$/;
+  const cssForbidden = /[\x00\x5c]|@import|image-set|cross-fade|-webkit-image|element\(|\bimage\(|expression\(/i;
+  const patchAttrs = ['src', 'srcset', 'background', 'style'];
+  function urlAllowed(raw) {
+    if (typeof raw !== 'string' || raw.length > 4096) return false;
+    if (raw.length > 5 && raw.startsWith('data:')) return dataImage.test(raw);
+    return prefixes.some(prefix => raw.startsWith(prefix) && /^[A-Za-z0-9_.-]{1,512}$/.test(raw.slice(prefix.length)));
+  }
+  function cssAllowed(value) {
+    if (value.length > 65536 || cssForbidden.test(value)) return false;
+    const all = (value.match(/url\s*\(/gi) || []).length;
+    let seen = 0, ok = true;
+    value.replace(/url\(\s*(?:"([^"]*)"|'([^']*)'|([^)"'\s]*))\s*\)/gi, (_m, a, b, c) => { seen++; ok = ok && urlAllowed(a ?? b ?? c ?? ''); return ''; });
+    return ok && seen === all;
+  }
+  function valueAllowed(attr, value) {
+    if (value === null) return attr !== 'text';
+    if (typeof value !== 'string') return false;
+    if (attr === 'src' || attr === 'background') return urlAllowed(value);
+    if (attr === 'srcset') {
+      const parts = value.split(',').map(part => part.trim());
+      return parts.length > 0 && parts.length <= 64 && parts.every(part => { const [url, descriptor, ...rest] = part.split(/\s+/); return rest.length === 0 && urlAllowed(url) && (descriptor === undefined || /^\d+(?:\.\d+)?[wx]$/.test(descriptor)); });
+    }
+    return (attr === 'style' || attr === 'text') && cssAllowed(value);
+  }
+  function patchTarget(op) {
+    if (!op || typeof op !== 'object' || !Number.isSafeInteger(op.i) || op.i < 0) return null;
+    if (op.a === 'text') {
+      const node = (op.s === 'h' ? document.head.querySelectorAll('style') : op.s === 'b' ? document.body.querySelectorAll('style') : [])[op.i];
+      return node && node.tagName === 'STYLE' ? node : null;
+    }
+    if (op.s !== 'b' || !patchAttrs.includes(op.a)) return null;
+    return document.body.querySelectorAll('*')[op.i] || null;
+  }
+  function applyPatch(ops) {
+    if (!Array.isArray(ops) || ops.length > 4096) return false;
+    // Body <style> text is addressed by its position among all body elements.
+    const targets = [];
+    for (const op of ops) {
+      if (!op || !valueAllowed(op.a, op.v)) return false;
+      const node = op.a === 'text' && op.s === 'b' ? document.body.querySelectorAll('*')[op.i] : patchTarget(op);
+      if (!node || (op.a === 'text' && node.tagName !== 'STYLE')) return false;
+      targets.push(node);
+    }
+    ops.forEach((op, index) => {
+      const node = targets[index];
+      if (op.a === 'text') node.textContent = op.v;
+      else if (op.v === null) node.removeAttribute(op.a);
+      else node.setAttribute(op.a, op.v);
+    });
+    return true;
+  }
+  function onPortMessage(received) {
+    const value = received.data;
+    if (!port || !value || value.type !== 'patch' || value.nonce !== nonce || value.revision !== revision) return;
+    port.postMessage({ type: 'patch-result', nonce, revision, id: Number.isSafeInteger(value.id) ? value.id : 0, ok: applyPatch(value.ops) });
+  }
+  let scrollScheduled = false;
+  function reportScroll() {
+    if (scrollScheduled || !port) return;
+    scrollScheduled = true;
+    setTimeout(() => { scrollScheduled = false; if (port) port.postMessage({ type: 'scroll', nonce, revision, x: scrollX, y: scrollY }); }, 100);
+  }
   const bytes = value => new TextEncoder().encode(value).length;
   function mailbox(address) {
     if (!address || bytes(address) > 254 || /[\p{Cc}\p{Cs}]/u.test(address)) return null;
@@ -129,15 +197,21 @@
   function initialize(event) {
     const data = event.data;
     if (port || event.source !== parent || event.origin !== 'null' || data?.type !== 'mw-reader-address-init' || !/^[a-f0-9]{48}$/.test(data.nonce) || !Number.isSafeInteger(data.revision) || data.revision <= 0 || event.ports.length !== 1) return;
-    nonce = data.nonce; revision = data.revision; port = event.ports[0]; port.start();
+    nonce = data.nonce; revision = data.revision; port = event.ports[0]; port.onmessage = onPortMessage; port.start();
+    if (Array.isArray(data.prefixes)) prefixes = data.prefixes.filter(value => typeof value === 'string' && value.length < 512).slice(0, 4);
+    const at = data.scroll;
+    if (at && Number.isFinite(at.x) && Number.isFinite(at.y) && at.x >= 0 && at.y >= 0 && at.x < 1e7 && at.y < 1e7) restoreScroll = { x: at.x, y: at.y };
     removeEventListener('message', initialize);
     // HTML is readable before remote images finish. The app's visible window
     // waits two paint frames before uncovering this opaque document.
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', parsed, { once: true });
     else parsed();
   }
-  function parsed() { observeImages(); if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
+  function restore() { if (restoreScroll) scrollTo(restoreScroll.x, restoreScroll.y); }
+  function parsed() { restore(); observeImages(); if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
   addEventListener('message', initialize);
+  addEventListener('scroll', reportScroll, { passive: true });
+  addEventListener('load', () => { restore(); restoreScroll = null; }, { once: true });
   document.addEventListener('contextmenu', event => {
     if (!event.isTrusted || event.defaultPrevented || !port) return;
     const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;

@@ -1,4 +1,6 @@
-import { batch, createEffect, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { batch, createEffect, createSignal, onCleanup, onMount, Show, untrack, type JSX } from 'solid-js';
+import { remoteServerBase } from '../api/remote-content.ts';
+import { diffReaderDocument, patchPrefixes } from '../viewers/readerPatch.ts';
 import { withBase } from '../api/basePath.ts';
 import {isNativeAuth,nativeServerBase} from '../api/serverAddress.ts';
 import {readerAddressContext,type ReaderAddressContext} from '../viewers/readerAddressContext.ts';
@@ -36,18 +38,23 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
   let timeout: ReturnType<typeof setTimeout> | undefined;
   let fallback: ReturnType<typeof setTimeout> | undefined;
   let loadedFallback: ReturnType<typeof setTimeout> | undefined;
-  let revision=0;let sentHtml='';let sentKey:string|undefined;
+  let revision=0;let sentHtml='';let sentKey:string|undefined;let sentLinks=false;let sentBridge=0;let patchId=0;
+  // A same-message refresh keeps the shown document visible until its replacement is up (or patched in place).
+  const [holding,setHolding]=createSignal(false);
+  // Bumped when `sentHtml` moves without a new document (a patch), so the view re-evaluates `settled`.
+  const [sentTick,setSentTick]=createSignal(0);
   let paintHost:Window|null=null;let paint:number|undefined;
-  const presented=():boolean=>{const visible=presentedRevision();return ready()&&revision>0&&visible===revision&&sentHtml===props.html&&sentKey===props.documentKey;};
+  const settled=():boolean=>{void sentTick();const visible=presentedRevision();return ready()&&revision>0&&visible===revision&&sentHtml===props.html&&sentKey===props.documentKey;};
+  const presented=():boolean=>settled()||(holding()&&ready()&&!failed()&&sentKey===props.documentKey);
   function cancelPaint():void {if(paint!==undefined)paintHost?.cancelAnimationFrame(paint);paint=undefined;paintHost=null;}
   function present():void {
-    if(presented()||paint!==undefined)return;
+    if(settled()||paint!==undefined)return;
     const current=revision,html=sentHtml,key=sentKey,host=frame?.ownerDocument.defaultView;
     if(!host)return;
     paintHost=host;
     paint=host.requestAnimationFrame(()=>{paint=host.requestAnimationFrame(()=>{
       paint=undefined;paintHost=null;
-      if(!failed()&&ready()&&revision===current&&html===props.html&&key===props.documentKey){setPresentedRevision(current);props.onDisplayed?.(html,key);}
+      if(!failed()&&ready()&&revision===current&&html===props.html&&key===props.documentKey){batch(()=>{setPresentedRevision(current);setHolding(false);});props.onDisplayed?.(html,key);}
     });});
   }
   function useCompatibleFrame():void {
@@ -83,6 +90,11 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
         if(ready()&&event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey){const progress=imageProgress(event.data);if(progress)props.onImageProgress?.(progress);}
         return;
       }
+      if(event.data?.type==='mw-reader-patched'){
+        // The document refused the patch (or it could not be delivered): redo it as a full, flicker-free refresh.
+        if(event.data.ok===false&&event.data.revision===revision&&event.data.id===patchId&&ready())sendFrame(true);
+        return;
+      }
       if(event.data?.type==='mw-reader-displayed'){
         if(event.data.revision===revision&&revision>0&&sentHtml===props.html&&sentKey===props.documentKey)present();
         return;
@@ -99,6 +111,32 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
     timeout = setTimeout(() => setFailed(true), 10_000);
     onCleanup(() => {cancelPaint();clearTimeout(timeout);clearTimeout(fallback);clearTimeout(loadedFallback); for (const host of hosts) if (receive) host.removeEventListener('message', receive); hosts.clear(); });
   });
-  createEffect(() => { const html = props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true; void bridges(); if (ready()) {cancelPaint();setPresentedRevision(0);sentHtml=html;sentKey=key;frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, linksEnabled, revision:++revision }, '*');} });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox={props.linksEnabled?'allow-scripts allow-popups allow-popups-to-escape-sandbox':'allow-scripts'} referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={0}/>}</div></Show></ReaderZoomBox></>;
+  function sendFrame(swap:boolean):void {
+    const html=props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true;
+    sentHtml=html;sentKey=key;sentLinks=linksEnabled;
+    cancelPaint();
+    if(swap)setHolding(true);else{setHolding(false);setPresentedRevision(0);}
+    frame?.contentWindow?.postMessage({ type: 'mw-reader-frame', token:token(), html, linksEnabled, swap, revision:++revision }, '*');
+  }
+  createEffect(() => {
+    const html = props.html,key=props.documentKey,linksEnabled=props.linksEnabled===true,bridge=bridges();
+    if (!ready()) return;
+    untrack(() => {
+      const sameBridge=bridge===sentBridge;sentBridge=bridge;
+      const shown=sameBridge&&revision>0&&sentKey===key&&(holding()||presentedRevision()===revision);
+      if(!shown){sendFrame(false);return;}
+      if(html===sentHtml&&linksEnabled===sentLinks)return;
+      // Image toggles only change image references: patch the document that is on screen.
+      if(!holding()&&linksEnabled===sentLinks){
+        const ops=diffReaderDocument(sentHtml,html,patchPrefixes(remoteServerBase()));
+        if(ops){
+          sentHtml=html;setSentTick(n=>n+1);
+          if(ops.length>0)frame?.contentWindow?.postMessage({ type:'mw-reader-patch', token:token(), revision, id:++patchId, ops }, '*');
+          return;
+        }
+      }
+      sendFrame(true);
+    });
+  });
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={0}/>}</div></Show></ReaderZoomBox></>;
 }

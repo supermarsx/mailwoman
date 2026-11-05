@@ -21,21 +21,21 @@ function bridge(options: { opener?: object | null; openerThrows?: boolean } = {}
   let listener: ((event: { origin: string; source: unknown; data: unknown }) => void) | undefined;
   const replaced: string[] = [];
   const sandboxes:string[]=[];
-  const frames:Record<string,unknown>[]=[];
+  const frames:Record<string,unknown>[]=[];const afters:unknown[]=[];const removed:unknown[]=[];
   const channels:{port1:{onmessage:((event:{data:unknown})=>void)|null;start:ReturnType<typeof vi.fn>;close:ReturnType<typeof vi.fn>};port2:object}[]=[];
   class Channel {port1={onmessage:null as ((event:{data:unknown})=>void)|null,start:vi.fn(),close:vi.fn()};port2={};constructor(){channels.push(this);}}
   const frame = (): Record<string, unknown> => {
     const element: Record<string, unknown> = { srcdoc: '', style: {},contentWindow:{postMessage:vi.fn()},clientWidth:500,clientHeight:400,getBoundingClientRect:()=>({left:0,top:0}), setAttribute(name:string,value:string) {if(name==='sandbox')sandboxes.push(value);}, addEventListener() {},
-      cloneNode: () => frame(), replaceWith: (next: { srcdoc: string }) => { replaced.push(next.srcdoc); } };
+      cloneNode: () => frame(), after(next: unknown) { afters.push(next); }, remove() { removed.push(element); }, replaceWith: (next: { srcdoc: string }) => { replaced.push(next.srcdoc); } };
     frames.push(element);
     return element;
   };
   const document = { referrer: '', createElement: frame, body: { append() {} } };
-  const location = { hash: `#token=${TOKEN}&origin=${encodeURIComponent(ORIGIN)}`, origin: ORIGIN, search: '' };
+  const location = { hash: `#token=${TOKEN}&origin=${encodeURIComponent(ORIGIN)}`, origin: ORIGIN, search: '', href: ORIGIN + '/api/rc/frame?x=1#t' };
   new Function('location', 'parent', 'document', 'addEventListener','MessageChannel', source)(location, parent, document,
     (type: string, handler: typeof listener) => { if (type === 'message') listener = handler; },Channel);
   const send = (from: unknown, data: unknown, origin = ORIGIN) => listener!({ origin, source: from, data });
-  return { parent, posted, replaced, send, sandboxes,frames,channels };
+  return { parent, posted, replaced, send, sandboxes,frames,channels,afters,removed };
 }
 const body = (html = '<p>hi</p>') => ({ type: 'mw-reader-frame', token: TOKEN, html, revision: 1 });
 
@@ -134,4 +134,45 @@ it('accepts parsed-body readiness only through the current authenticated channel
  expect(frame.posted.filter(value=>value.data.type==='mw-reader-displayed')).toEqual([{data:{type:'mw-reader-displayed',token:TOKEN,revision:1},origin:ORIGIN}]);
  frame.send(frame.parent,{...body(),revision:2});port.onmessage!({data:parsed});
  expect(frame.posted.filter(value=>value.data.type==='mw-reader-displayed')).toHaveLength(1);
+});
+
+function ready(frame:ReturnType<typeof bridge>,html='<p>hi</p>'){
+ frame.send(frame.parent,body(html));
+ const child=frame.frames.at(-1)!.contentWindow as {postMessage:ReturnType<typeof vi.fn>};frame.send(child,{type:'mw-reader-address-ready'},'null');
+ return {child,init:child.postMessage.mock.calls.at(-1)![0] as {nonce:string;revision:number;prefixes:string[]},port:frame.channels.at(-1)!.port1 as unknown as {onmessage:(e:{data:unknown})=>void}};
+}
+it('tells the document which signed handle prefixes it may patch toward',()=>{
+ const frame=bridge();const {init}=ready(frame);
+ expect(init.prefixes).toEqual([`${ORIGIN}/api/rc/i/`,`${ORIGIN}/api/rc/p/`]);
+});
+it('relays a parent hot patch to the current document over its port, and its result back',()=>{
+ const frame=bridge();const {init,port}=ready(frame);
+ const channel=frame.channels[0]!.port1 as unknown as {postMessage?:ReturnType<typeof vi.fn>};channel.postMessage=vi.fn();
+ const ops=[{s:'b',i:0,a:'src',v:`${ORIGIN}/api/rc/i/a`}];
+ frame.send(frame.parent,{type:'mw-reader-patch',token:TOKEN,revision:1,id:4,ops});
+ expect(channel.postMessage).toHaveBeenCalledWith({type:'patch',nonce:init.nonce,revision:1,id:4,ops});
+ port.onmessage({data:{type:'patch-result',nonce:init.nonce,revision:1,id:4,ok:true}});
+ expect(frame.posted.at(-1)).toEqual({data:{type:'mw-reader-patched',token:TOKEN,revision:1,id:4,ok:true},origin:ORIGIN});
+ port.onmessage({data:{type:'patch-result',nonce:'wrong',revision:1,id:4,ok:true}});
+ expect(frame.posted.filter(p=>p.data.type==='mw-reader-patched')).toHaveLength(1);
+});
+it('refuses patches from strangers, wrong tokens, stale revisions and malformed operations',()=>{
+ const frame=bridge();ready(frame);
+ const channel=frame.channels[0]!.port1 as unknown as {postMessage?:ReturnType<typeof vi.fn>};channel.postMessage=vi.fn();
+ const good={type:'mw-reader-patch',token:TOKEN,revision:1,id:1,ops:[{s:'b',i:0,a:'src',v:'x'}]};
+ frame.send({},good);frame.send(frame.parent,good,'https://evil.test');frame.send(frame.parent,{...good,token:'other'});
+ expect(channel.postMessage).not.toHaveBeenCalled();expect(frame.posted.filter(p=>p.data.type==='mw-reader-patched')).toHaveLength(0);
+ for(const bad of [{...good,revision:9},{...good,ops:[{s:'x',i:0,a:'src',v:'x'}]},{...good,ops:[{s:'b',i:0,a:'href',v:'x'}]},{...good,ops:[{s:'b',i:0,a:'src',v:5}]},{...good,ops:'no'},{...good,id:'1'}])
+  frame.send(frame.parent,bad);
+ expect(channel.postMessage).not.toHaveBeenCalled();
+ expect(frame.posted.filter(p=>p.data.type==='mw-reader-patched').every(p=>(p.data as unknown as {ok:boolean}).ok===false)).toBe(true);
+});
+it('swaps a same-message refresh in beside the shown document and only commits when it has loaded',()=>{
+ const frame=bridge();ready(frame);const shown=frame.frames.at(-1)!;
+ frame.send(frame.parent,{...body('<p>next</p>'),revision:2,swap:true,linksEnabled:true});
+ const next=frame.frames.at(-1)!;
+ expect(frame.afters).toEqual([next]);expect(frame.replaced).toHaveLength(1);
+ expect(frame.sandboxes.at(-1)).toBe('allow-scripts allow-popups allow-popups-to-escape-sandbox');
+ expect(shown).not.toBe(next);expect(frame.removed).toHaveLength(0);
+ expect(frame.posted.some(p=>p.data.type==='mw-reader-displayed'&&p.data.revision===2)).toBe(false);
 });
