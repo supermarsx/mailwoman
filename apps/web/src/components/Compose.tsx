@@ -311,6 +311,30 @@ export function Compose(props: {
   const [inlineImages, setInlineImages] = createSignal<InlineImage[]>((initial?.inline??[]).map(image=>({...image,previewUrl:null})));
   const [inlineError, setInlineError] = createSignal<string | null>(null);
   const ownedCids = createMemo<ReadonlySet<string>>(() => new Set(inlineImages().map((i) => i.cid)));
+  // The original's images, held back by the reply-images policy until the user decides.
+  const imageOffer = initial?.imageOffer;
+  const [offerState, setOfferState] = createSignal<'ask'|'loading'|'done'|'dismissed'|'cancelled'|'error'>(imageOffer ? 'ask' : 'dismissed');
+  let offerAbort: AbortController | undefined;
+  async function includeQuoteImages(trust: boolean): Promise<void> {
+    if (!imageOffer || offerState() === 'loading') return;
+    const controller = new AbortController(); offerAbort = controller; setOfferState('loading');
+    try {
+      if (trust) await imageOffer.trust().catch(() => undefined);
+      const result = await imageOffer.include(controller.signal);
+      if (controller.signal.aborted) { setOfferState('cancelled'); return; }
+      if (!ownsDraft()) return;
+      setInlineImages((cur) => [...cur, ...result.inline.map((image) => ({ ...image, previewUrl: null }))]);
+      const api = editorApi();
+      if (bodyHtml() === initial?.bodyHtml) {
+        if (api?.replaceHtml) api.replaceHtml(result.bodyHtml); else setBodyHtml(result.bodyHtml);
+        setBody(result.bodyText);
+      } else if (api) api.appendHtml(result.bodyHtml);
+      else { setBodyHtml((cur) => cur + result.bodyHtml); setBody((cur) => cur + result.bodyText); }
+      setOfferState(result.inline.length > 0 ? 'done' : 'error');
+    } catch { setOfferState(controller.signal.aborted ? 'cancelled' : 'error'); }
+  }
+  function cancelQuoteImages(): void { offerAbort?.abort(); setOfferState('cancelled'); }
+  onCleanup(() => offerAbort?.abort());
   const [downloadUrl, setDownloadUrl] = createSignal<string | null>(null);
   // Receipt preferences supply initial choices; drafts keep their own choices.
   // Read-receipt headers need the engine; DSN needs this account's capability.
@@ -1905,6 +1929,22 @@ export function Compose(props: {
                 /></Show>
               </Suspense>
             </AsyncBoundary>
+          </Show>
+          <Show when={imageOffer && ['ask', 'loading', 'cancelled', 'error'].includes(offerState())}>
+            <div class="compose__image-offer" role="group" aria-label={t('mail-reply-images-title')} data-testid="compose-image-offer" aria-busy={offerState() === 'loading'}>
+              <span class="compose__image-offer-text" role="status">
+                {offerState() === 'loading' ? t('mail-reply-images-loading') : offerState() === 'cancelled' ? t('mail-reply-images-cancelled') : offerState() === 'error' ? t('mail-reply-images-failed') : t('mail-reply-images-ask')}
+              </span>
+              <Show when={offerState() === 'loading'} fallback={<>
+                <button type="button" class="btn btn--ghost" data-testid="image-offer-include" onClick={() => void includeQuoteImages(false)}>{offerState() === 'ask' ? t('mail-reply-images-include') : t('mail-reply-images-retry')}</button>
+                <Show when={offerState() === 'ask'}>
+                  <button type="button" class="btn btn--ghost" data-testid="image-offer-dismiss" onClick={() => setOfferState('dismissed')}>{t('mail-reply-images-not-now')}</button>
+                  <Show when={imageOffer?.canTrust && imageOffer.domain !== ''}><button type="button" class="btn btn--ghost" data-testid="image-offer-trust" onClick={() => void includeQuoteImages(true)}>{t('mail-reply-images-trust', { domain: imageOffer!.domain })}</button></Show>
+                </Show>
+              </>}>
+                <button type="button" class="btn btn--ghost" data-testid="image-offer-cancel" onClick={cancelQuoteImages}>{t('mail-image-cancel')}</button>
+              </Show>
+            </div>
           </Show>
           <Show when={inlineError()}>
             <p class="login__error" role="alert">

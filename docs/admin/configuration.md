@@ -484,6 +484,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.sieve.raw-edit"></a>`cap.sieve.raw_edit` | sieve | global+domain+admin_user | false | plain |  | yes | Raw Sieve editing permission |
 | <a id="cap.sieve.forward-external"></a>`cap.sieve.forward_external` | sieve | global+domain+admin_user | false | plain |  | yes | Sieve forwarding outside the account domain |
 | <a id="mail.externalrecipientwarning"></a>`mail.externalRecipientWarning` | mail | global+domain+user | "warn" | plain |  | yes | external recipient composer warning |
+| <a id="mail.replyimages"></a>`mail.replyImages` | mail | global+domain+user | "ask" | plain |  | yes | whether a reply or forward includes the original's images |
+| <a id="mail.replyimagetrusteddomains"></a>`mail.replyImageTrustedDomains` | mail | global+domain+user | [] | plain |  | yes | sender domains whose images are included in replies and forwards without asking |
 | <a id="mail.trustedrecipientdomains"></a>`mail.trustedRecipientDomains` | mail | global+domain+user | [] | plain |  | yes | exact trusted recipient domains for composer warnings |
 | <a id="time.displayzone"></a>`time.displayZone` | time | global+domain+user | "local" | plain |  | yes | preferred message display time zone |
 | <a id="time.comparisonzone"></a>`time.comparisonZone` | time | global+domain+user | "" | plain |  | yes | optional second time zone for message and event helpers |

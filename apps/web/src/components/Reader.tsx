@@ -91,6 +91,7 @@ import { createAddressContactCard, contactComposeInitial, ContactAddresses } fro
 import type { ReaderAddressContext } from '../viewers/readerAddressContext.ts';
 import { resourceValue } from './resourceValue.ts';
 import { useReaderZoom } from './readerZoom.ts';
+import {replyImageDecision,senderDomain,hasQuoteImages} from './compose/replyImagePolicy.ts';
 import { remotePolicy, remoteServerBase, signContent, prewarmSignedImages, replaceFailedImages, readerReferences, rewriteReaderContent, BLOCKED_POLICY, EMPTY_SIGNED, type RemotePolicy } from '../api/remote-content.ts';
 import { settings,settingsLoadStatus,writeSetting } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
@@ -105,7 +106,7 @@ import {
   replyRecipients,
   replySubject,
   replyThreading,
-  type ComposeInitial,
+  type ComposeInitial,type ComposeImageOffer,type ImageContext,
   type ReplyMode,
 } from './compose/reply.ts';
 import type { QuoteSource } from './compose/quote.ts';
@@ -765,11 +766,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   createEffect(on(originalScope,()=>setOriginalConsent(null)));
   const originalSelected=()=>originalAllowed()&&originalConsent()===originalScope();
   const htmlRenderScope=()=>JSON.stringify([htmlConsentScope(),allowSanitizedHtml(),originalSelected(),trackersAllowed()]);
+  // Messages whose image loading the user cancelled; their bodies render without signed image sources until Load again.
+  const [imagesCancelled, setImagesCancelled] = createSignal<ReadonlySet<string>>(new Set());
+  let prewarmAbort: AbortController | undefined;
   const [readerBody, {mutate:mutateReaderBody,refetch:retryReaderBody}] = createResource(
     () => {
       const email = app.openEmail(); const account = app.accountId();
       if (!email || !account || privacy.loading || grants.loading) return null;
-      return { email, account, policy: renderPolicy(), original:originalSelected(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, fallback: app.sanitizedHtml() };
+      return { email, account, policy: renderPolicy(), original:originalSelected(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, imagesOff: imagesCancelled().has(email.id), fallback: app.sanitizedHtml() };
     },
     async k => {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
@@ -811,12 +815,12 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         } catch { failed = true; }
       }
       if (!current()) return cancelled();
-      const urls = k.securityMode === 'full-sanitized' && (effective.mode === 'proxy' || (effective.mode === 'ask' && k.granted)) ? refs.urls : [];
+      const urls = !k.imagesOff && k.securityMode === 'full-sanitized' && (effective.mode === 'proxy' || (effective.mode === 'ask' && k.granted)) ? refs.urls : [];
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
       // One batched, authenticated request fetches the images into the server cache; the frame's own requests then hit it (best effort, silent).
-      if (signed.images.length > 0) void prewarmSignedImages(signed.images);
+      if (signed.images.length > 0) { prewarmAbort?.abort(); prewarmAbort = new AbortController(); void prewarmSignedImages(signed.images, { signal: prewarmAbort.signal }); }
       return { blocked, restored, original:!!original,originalReview:originalHelpers?.reviewOriginalLinks,originalReport:original&&originalHelpers?originalHelpers.originalHtmlReport(original):undefined, scope:k.scope, emailId: k.email.id, account: k.account, html: original&&originalHelpers?originalHelpers.renderOriginalHtml(original,signed,effective,cidParts,remoteServerBase(),k.securityMode==='full-sanitized'):rewriteReaderContent(html, signed, effective, cidParts), sanitized, refs,cidParts, policy: effective, failed, images: signed.images.length, imageSources:signed.images };
     },
   );
@@ -925,7 +929,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   createEffect(()=>{const active=props.active!==false;app.accountId();app.openEmail();replyViewScope();replyPolicyScope();decryptedHtml();decryptedText();if(replyCurrent&&(!active||!replyCurrent()))replyAbort?.abort();});
   onCleanup(()=>replyAbort?.abort());
 
-  async function composeFrom(email: Email, mode: ReplyMode,preparation:{account:string;signal:AbortSignal;current:()=>boolean}): Promise<ComposeInitial> {
+  function captureImageContext():ImageContext{
+    const body=currentBody(),full=maxsec.effectiveMode(sender())==='full-sanitized';
+    return {
+      cidParts:body?.cidParts??{},
+      allowRemote:full&&bodyAllowsContent()&&(body?.policy.mode==='proxy'||body?.policy.mode==='direct'&&body.policy.allowDirect||body?.policy.mode==='ask'&&activeGrant()!==null),
+      allowInline:full&&bodyAllowsContent(),blockTrackers:body?.policy.trackers!==false,
+    };
+  }
+  async function composeFrom(email: Email, mode: ReplyMode,preparation:{account:string;signal:AbortSignal;current:()=>boolean},forced?:{shown:{source:QuoteSource;decrypted:boolean};context:ImageContext}): Promise<ComposeInitial> {
     if (mode === 'forward' && effectiveSettings()['mail.forwardMode']?.value === 'attachment') {
       if (!email.blobId) throw new Error('Original message is unavailable');
       return {
@@ -937,28 +949,57 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       };
     }
     const { quoteForReply, quoteForForward, quoteForOutlook } = await import('./compose/quote.ts');
-    const shown = displayedContent(email);
+    const shown = forced?.shown ?? displayedContent(email);
+    if(forced)shown.source={...shown.source};
     let inline:StoredInlineImage[]=[];
-    if(mode!=='forward'&&shown.source.html!==undefined){
-      const {embedReplyImages}=await import('./compose/replyImages.ts');
-      const body=currentBody(),full=maxsec.effectiveMode(sender())==='full-sanitized';
-      let session:ReturnType<typeof jmapClient.session>|undefined;
-      const copied=await embedReplyImages(shown.source.html,{
-        emailId:email.id,accountId:preparation.account,cidParts:body?.cidParts??{},
-        allowRemote:full&&bodyAllowsContent()&&(body?.policy.mode==='proxy'||body?.policy.mode==='direct'&&body.policy.allowDirect||body?.policy.mode==='ask'&&activeGrant()!==null),allowInline:full&&bodyAllowsContent(),blockTrackers:body?.policy.trackers!==false,
-        current:preparation.current,signal:preparation.signal,
-        upload:async(file,signal)=>{
-          const contract=await(session??=jmapClient.session());
-          if(!preparation.current()||signal.aborted)throw new DOMException('Reply cancelled','AbortError');
-          const maximum=(contract.capabilities[CAP_CORE] as {maxSizeUpload?:number}|undefined)?.maxSizeUpload;if(maximum&&file.size>maximum)throw new Error('Reply image too large');
-          const uploaded=await uploadBlob(contract.uploadUrl,preparation.account,file,(url,init)=>apiFetch(url,{...init,signal,headers:{...init?.headers,'X-Mailwoman-Account':preparation.account}}));
-          if(!preparation.current()||signal.aborted||uploaded.accountId!==preparation.account)throw new DOMException('Reply cancelled','AbortError');
-          return {cid:newCid(),blobId:uploaded.blobId,name:file.name,type:file.type,size:uploaded.size};
-        },
-      });
-      inline=copied.inline;shown.source.html=copied.html;
-      if(inline.length)shown.source.ownedCids=new Set(inline.map(image=>image.cid));
-      if(copied.omitted&&preparation.current())app.showToast('info',t('mail-reply-images-omitted',{count:copied.omitted}),6000);
+    let imageOffer:ComposeImageOffer|undefined;
+    if(shown.source.html!==undefined&&hasQuoteImages(shown.source.html)){
+      const context=forced?.context??captureImageContext();
+      const settingsNow=effectiveSettings();
+      const domain=senderDomain(email.from?.[0]?.email??'');
+      const trustedList=(settingsNow['mail.replyImageTrustedDomains']?.value as string[]|undefined)??[];
+      const decision=forced?'include':replyImageDecision(settingsNow['mail.replyImages']?.value,domain,trustedList);
+      if(decision==='include'){
+        const {embedReplyImages}=await import('./compose/replyImages.ts');
+        let session:ReturnType<typeof jmapClient.session>|undefined;
+        const copied=await embedReplyImages(shown.source.html,{
+          emailId:email.id,accountId:preparation.account,cidParts:context.cidParts,
+          allowRemote:context.allowRemote,allowInline:context.allowInline,blockTrackers:context.blockTrackers,
+          current:preparation.current,signal:preparation.signal,
+          upload:async(file,signal)=>{
+            const contract=await(session??=jmapClient.session());
+            if(!preparation.current()||signal.aborted)throw new DOMException('Reply cancelled','AbortError');
+            const maximum=(contract.capabilities[CAP_CORE] as {maxSizeUpload?:number}|undefined)?.maxSizeUpload;if(maximum&&file.size>maximum)throw new Error('Reply image too large');
+            const uploaded=await uploadBlob(contract.uploadUrl,preparation.account,file,(url,init)=>apiFetch(url,{...init,signal,headers:{...init?.headers,'X-Mailwoman-Account':preparation.account}}));
+            if(!preparation.current()||signal.aborted||uploaded.accountId!==preparation.account)throw new DOMException('Reply cancelled','AbortError');
+            return {cid:newCid(),blobId:uploaded.blobId,name:file.name,type:file.type,size:uploaded.size};
+          },
+        });
+        inline=copied.inline;shown.source.html=copied.html;
+        if(inline.length)shown.source.ownedCids=new Set(inline.map(image=>image.cid));
+        if(copied.omitted&&preparation.current())app.showToast('info',t('mail-reply-images-omitted',{count:copied.omitted}),6000);
+      }else if(decision==='ask'&&context.allowInline){
+        // The prompt in the composer runs this same preparation on request,
+        // from what the reader showed now, whichever message is on screen later.
+        const policyLocked=settingsNow['mail.replyImages']?.locked===true;
+        const listLocked=settingsNow['mail.replyImageTrustedDomains']?.locked===true;
+        const captured={shown:{source:{...shown.source},decrypted:shown.decrypted},context};
+        imageOffer={
+          domain:domain??'',
+          canTrust:domain!==null&&!policyLocked&&!listLocked,
+          include:async(signal)=>{
+            const account=preparation.account;
+            const next=await composeFrom(email,mode,{account,signal,current:()=>!signal.aborted&&app.accountId()===account},captured);
+            return {bodyHtml:next.bodyHtml,bodyText:next.bodyText,inline:next.inline??[]};
+          },
+          trust:async()=>{
+            if(domain===null)return;
+            const list=(effectiveSettings()['mail.replyImageTrustedDomains']?.value as string[]|undefined)??[];
+            if(!list.includes(domain))await writeSetting('mail.replyImageTrustedDomains',[...list,domain]);
+            if((effectiveSettings()['mail.replyImages']?.value??'ask')==='ask')await writeSetting('mail.replyImages','trusted');
+          },
+        };
+      }
     }
     const author = email.from?.[0];
     const authorName = stripIsolates((author?.name ?? '').trim() !== '' ? author!.name! : (author?.email ?? ''));
@@ -1002,6 +1043,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             size: a.size,
             contentType: a.type.length > 0 ? a.type : null,
           })),
+        ...(inline.length?{inline}:{}),
+        ...(imageOffer?{imageOffer}:{}),
         quotesDecrypted: shown.decrypted && quote.html !== '',
         source: { emailId: email.id, keyword: '$forwarded' },
       };
@@ -1028,6 +1071,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       ...replyThreading(headers),
       attachments: [],
       ...(inline.length?{inline}:{}),
+      ...(imageOffer?{imageOffer}:{}),
       quotesDecrypted: shown.decrypted && quote.html !== '',
       source: { emailId: email.id, keyword: '$answered' },
       ...(app.selectedMailboxId() ? {sourceMailboxId: app.selectedMailboxId()!} : {}),
@@ -1136,6 +1180,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // Loading-images toast + the one stats read per displayed body (t55). Only the
   // reader on screen reads or toasts; a message switch drops both.
   const bodyLoadIds = new WeakMap<object, string>(); let bodyLoadSeq = 0;
+  async function loadImagesAgain(): Promise<void> {
+    const id = emailId();
+    setImagesCancelled(cur => { const next = new Set(cur); if (id) next.delete(id); return next; });
+  }
   const bodyLoadId = (body: object): string => { let id = bodyLoadIds.get(body); if (id === undefined) { id = String(++bodyLoadSeq); bodyLoadIds.set(body, id); } return id; };
   async function retryFailedImages(references?:readonly string[]):Promise<void> {
     const body=currentBody(),account=app.accountId();if(!body||(body.blocked&&!body.restored&&!body.original)||!account||props.active===false||!fullMode())return;
@@ -1165,6 +1213,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     retryDelayMs:()=>policy().imageRetryDelayMs,
     toastEnabled: () => effectiveSettings()['privacy.remoteImagesToast']?.value !== false,
     retry: retryFailedImages,
+    cancelLoad: () => {
+      // Stops the batched prewarm and re-renders the body without signed
+      // image sources, which cancels the frame's own pending requests.
+      prewarmAbort?.abort();
+      const id = emailId();
+      if (id) setImagesCancelled(cur => new Set(cur).add(id));
+    },
+    loadAgain: () => { void loadImagesAgain(); },
   });
   // The banner keeps the last known mode while the policy refetches, so it does
   // not flash "blocked by your privacy settings" (presentation only: the body

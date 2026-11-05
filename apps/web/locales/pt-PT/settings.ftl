@@ -631,3 +631,13 @@ settings-ident-error-optional = Verifique os endereços de resposta e Bcc autom�
 settings-compose-open-tracking = Registar aberturas das mensagens por predefinição
 settings-compose-open-tracking-help = Adiciona uma imagem de rastreio às mensagens formatadas elegíveis. As aberturas dependem do carregamento de imagens pelo destinatário e não comprovam a leitura. O administrador pode desativar o rastreio ou bloquear esta predefinição.
 settings-compose-open-tracking-inherit = Usar a predefinição de rastreio herdada
+
+settings-reply-images = Imagens em respostas e reencaminhamentos
+settings-reply-images-ask = Perguntar sempre
+settings-reply-images-allow = Incluir sempre
+settings-reply-images-trusted = Incluir para domínios fidedignos, perguntar nos restantes
+settings-reply-images-deny = Nunca incluir
+settings-reply-images-help = Escolha se uma resposta ou reencaminhamento leva as imagens da mensagem original. As imagens incluídas são copiadas para o rascunho como anexos.
+settings-reply-image-domains = Domínios de remetentes fidedignos para imagens
+settings-reply-image-domains-help = Introduza até 200 domínios exatos de remetentes, um por linha. Usado quando a escolha acima é domínios fidedignos.
+settings-reply-image-domains-save = Guardar domínios fidedignos

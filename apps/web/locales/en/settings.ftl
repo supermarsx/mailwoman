@@ -635,3 +635,13 @@ settings-ident-error-optional = Check the Reply-To and automatic Bcc addresses, 
 settings-compose-open-tracking = Record message opens by default
 settings-compose-open-tracking-help = Adds a tracking image to eligible formatted messages. Opens depend on the recipient loading images and do not prove the message was read. Your administrator can disable tracking or lock this default.
 settings-compose-open-tracking-inherit = Use inherited tracking default
+
+settings-reply-images = Images in replies and forwards
+settings-reply-images-ask = Ask each time
+settings-reply-images-allow = Always include
+settings-reply-images-trusted = Include for trusted sender domains, ask otherwise
+settings-reply-images-deny = Never include
+settings-reply-images-help = Choose whether a reply or forward carries the original message's images. Included images are copied into the draft as attachments.
+settings-reply-image-domains = Trusted image sender domains
+settings-reply-image-domains-help = Enter up to 200 exact sender domains, one per line. Used when the choice above is trusted domains.
+settings-reply-image-domains-save = Save trusted domains

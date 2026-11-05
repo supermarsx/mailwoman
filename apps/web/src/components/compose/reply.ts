@@ -7,6 +7,18 @@ import type { Email, EmailAddress } from '../../api/jmap-types.ts';
 import type { ThreadingHeaders } from '../../api/jmap.ts';
 import type {StoredInlineImage} from './drafts-store.ts';
 
+/** Offered when the policy says to ask before including the original's images. */
+export interface ComposeImageOffer {
+  /** The sender's domain (empty when unknown). */
+  domain:string;
+  /** Whether "Always trust this domain" can be remembered (not admin-locked). */
+  canTrust:boolean;
+  /** Fetch the images, upload them, and return the quote with them inline. */
+  include(signal:AbortSignal):Promise<{bodyHtml:string;bodyText:string;inline:StoredInlineImage[]}>;
+  /** Remember the sender's domain in the user's settings. */
+  trust():Promise<void>;
+}
+export interface ImageContext{cidParts:Readonly<Record<string,string>>;allowRemote:boolean;allowInline:boolean;blockTrackers:boolean}
 export type ReplyMode = 'reply' | 'reply-all' | 'forward';
 
 /** What a composer opened from a message starts with. */
@@ -32,6 +44,8 @@ export interface ComposeInitial {
   attachments: { name: string; blobId: string; size: number; contentType: string | null }[];
   /** Images materialized through the reader proxy and uploaded for this reply. */
   inline?:StoredInlineImage[];
+  /** Present when the images were held back for the user to decide. */
+  imageOffer?:ComposeImageOffer;
   /** True when the quoted text is the decrypted content of an encrypted
    *  message. The composer then asks before sending it unencrypted, and does
    *  not auto-save it to local storage. */

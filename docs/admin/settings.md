@@ -1101,6 +1101,14 @@ Global/domain/user composer safeguard: `off`, `warn` (default), or `confirm`. Ch
 ### `mail.trustedRecipientDomains`
 Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
 
+<a id="mail.replyImages"></a>
+### `mail.replyImages`
+Global/domain/user policy for including the original message's images (inline parts and proxied remote images) in a reply or forward: `ask` (default; the quote shows a prompt with Include images, Not now and Always trust this domain), `allow` (always include), `trusted` (include when the sender's domain is in `mail.replyImageTrustedDomains`, otherwise ask) or `deny` (the quote shows no images and none are fetched). Included images are copied into the draft as inline attachments, so they are fetched through the same authorised, tracker-filtering routes the reader uses. Administrators can lock the value to prevent user overrides. Only newly opened compositions change.
+
+<a id="mail.replyImageTrustedDomains"></a>
+### `mail.replyImageTrustedDomains`
+Global/domain/user list of up to 200 exact sender domains, each at most 253 characters, used by the `trusted` policy of `mail.replyImages`. Subdomains are not implicitly trusted. Choosing Always trust this domain in the quote prompt appends the sender's domain to the user's own list and, when the policy is still `ask`, switches the user's policy to `trusted`. When an administrator locks either setting the prompt offers only Include images and Not now.
+
 <a id="signin.antiBotMode"></a>
 ### `signin.antiBotMode`
 Global self-hosted ALTCHA proof-of-work policy: `off` (default), `mailbox`, `admin`, or `all`. Applies to initial password login, including native clients; MFA continuation remains protected by existing factor attempt limits. The widget and worker are served locally with no external verification service. Passkey ceremonies retain their challenge/signature protections.

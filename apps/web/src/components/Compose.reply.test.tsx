@@ -382,7 +382,7 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     const {app}=await open(reply({quotesDecrypted:true,source:{emailId:'protected-original',keyword:'$answered'}})),openDraft=vi.fn();
     function Pending(){const index=createReplyDraftIndex(app.accountId);return <ReaderReplyState answered={false} draft={index().get('protected-original')} onOpen={openDraft}/>;}
     render(()=><Pending/>);
-    const button=await screen.findByRole('button',{name:'Open reply draft'});expect(screen.getByTestId('reader-reply-state')).toHaveTextContent('Reply in progress');
+    const button=await screen.findByRole('button',{name:'Open draft'});expect(screen.getByTestId('reader-reply-state')).toHaveTextContent('Reply in progress');
     expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);expect(localStorage.getItem('mw.compose.drafts.v2')).toBeNull();
     fireEvent.click(button);const id=button.getAttribute('data-reply-draft-id');expect(id).toMatch(/^d-/);expect(openDraft).toHaveBeenCalledWith(id);
     expect(liveReplyDrafts(preferenceAccount()!)).toEqual([expect.objectContaining({id,emailId:'protected-original'})]);

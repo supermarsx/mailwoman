@@ -1337,3 +1337,8 @@ admin-attachments-reason-attachmentTooLarge = The file is larger than the size l
 admin-attachments-reason-attachmentBlocked = A block rule matches.
 admin-attachments-reason-attachmentNotAllowed = An allow list exists and nothing in it matches.
 admin-attachments-reason-attachmentContainerRestricted = Attached messages and TNEF files are refused while any restriction is on, because their contents are not listed.
+
+admin-settings-key-mail-reply-images = Images in replies and forwards
+admin-settings-help-mail-reply-images = Whether a reply or forward includes the original message's images: ask (default), always allow, allow only for trusted sender domains and ask otherwise, or always deny. Lock this setting to enforce it. Images are only ever read when included.
+admin-settings-key-mail-reply-image-trusted-domains = Trusted image sender domains
+admin-settings-help-mail-reply-image-trusted-domains = Up to 200 exact sender domains whose images are included without asking when the policy is trusted domains. Users add to their own list from the quote prompt unless this setting is locked.

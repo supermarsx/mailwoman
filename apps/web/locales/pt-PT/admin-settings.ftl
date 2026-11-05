@@ -1337,3 +1337,8 @@ admin-attachments-reason-attachmentTooLarge = O ficheiro excede o limite de tama
 admin-attachments-reason-attachmentBlocked = Uma regra de bloqueio corresponde.
 admin-attachments-reason-attachmentNotAllowed = Existe uma lista de permissão e nada nela corresponde.
 admin-attachments-reason-attachmentContainerRestricted = As mensagens anexadas e os ficheiros TNEF são recusados enquanto houver qualquer restrição ativa, porque o seu conteúdo não está listado.
+
+admin-settings-key-mail-reply-images = Imagens em respostas e reencaminhamentos
+admin-settings-help-mail-reply-images = Se uma resposta ou reencaminhamento inclui as imagens da mensagem original: perguntar (predefinição), permitir sempre, permitir só para domínios de remetentes fidedignos e perguntar nos restantes, ou recusar sempre. Bloqueie esta definição para a impor. As imagens só são lidas quando incluídas.
+admin-settings-key-mail-reply-image-trusted-domains = Domínios de remetentes fidedignos para imagens
+admin-settings-help-mail-reply-image-trusted-domains = Até 200 domínios exatos de remetentes cujas imagens são incluídas sem perguntar quando a política é domínios fidedignos. Os utilizadores acrescentam à sua lista a partir do pedido na citação, salvo se esta definição estiver bloqueada.

@@ -1928,6 +1928,25 @@ pub static REGISTRY: &[SettingDef] = &[
         "external recipient composer warning"
     ),
     def!(
+        "mail.replyImages",
+        Kind::Enum(&["ask", "allow", "trusted", "deny"]),
+        "\"ask\"",
+        GDU,
+        "mail",
+        "whether a reply or forward includes the original's images"
+    ),
+    def!(
+        "mail.replyImageTrustedDomains",
+        Kind::StringList {
+            max_len: 200,
+            max_item: 253
+        },
+        "[]",
+        GDU,
+        "mail",
+        "sender domains whose images are included in replies and forwards without asking"
+    ),
+    def!(
         "mail.trustedRecipientDomains",
         Kind::StringList {
             max_len: 100,

@@ -44,7 +44,7 @@ describe('retained mailbox workspace',()=>{
     await waitFor(()=>expect(realtime.subTabs.activeId()).not.toBe('mail'));const composer=await screen.findByRole('tabpanel',{name:/Re: Subject a/}),id=realtime.subTabs.activeId();
     fireEvent.input(within(composer).getByLabelText('Subject'),{target:{value:'Unsaved protected workspace'}});
     realtime.subTabs.activate('mail');await waitFor(()=>expect(document.querySelector('.list button[data-reply-draft-id]')).not.toBeNull());const control=document.querySelector<HTMLButtonElement>('.list button[data-reply-draft-id]')!,before=realtime.subTabs.tabs().length;
-    expect(control).toHaveAccessibleName('Open reply draft');fireEvent.click(control);await waitFor(()=>expect(realtime.subTabs.activeId()).toBe(id));expect(realtime.subTabs.tabs()).toHaveLength(before);
+    expect(control).toHaveAccessibleName('Open draft');fireEvent.click(control);await waitFor(()=>expect(realtime.subTabs.activeId()).toBe(id));expect(realtime.subTabs.tabs()).toHaveLength(before);
     expect(within(screen.getByRole('tabpanel',{name:'Unsaved protected workspace'})).getByLabelText('Subject')).toHaveValue('Unsaved protected workspace');
   });
   it('opens linked mailbox application tabs through actual nav clicks and honors feature policy',async()=>{

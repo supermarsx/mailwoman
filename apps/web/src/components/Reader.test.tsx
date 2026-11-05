@@ -155,7 +155,9 @@ describe('Reader: Reply, Reply all, Forward', () => {
     const open=vi.fn();await openReader(ORIGINAL,{onOpenReplyDraft:open});
     saveDraft({id:'pending-reply',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',to:'alice@example.org',subject:'Reply',bodyHtml:'<p>Draft</p>',bodyText:'Draft',savedAt:1,source:{emailId:ORIGINAL.id,keyword:'$answered'}});
     const state=await screen.findByTestId('reader-reply-state');expect(state).toHaveTextContent('Reply in progress');expect(state).not.toHaveTextContent('Replied');
-    fireEvent.click(within(state).getByRole('button',{name:'Open reply draft'}));expect(open).toHaveBeenCalledWith('pending-reply');
+    fireEvent.click(within(state).getByRole('button',{name:'Open draft'}));expect(open).toHaveBeenCalledWith('pending-reply');
+    // The whole alert-style notice opens the draft, not only its button.
+    open.mockClear();fireEvent.click(within(state).getByTestId('reply-in-progress-notice'));expect(open).toHaveBeenCalledExactlyOnceWith('pending-reply');
     deleteDraft('pending-reply','acct1','test-storage-authority-acct1');await waitFor(()=>expect(screen.queryByTestId('reader-reply-state')).toBeNull());
   });
   beforeEach(() => {
@@ -218,6 +220,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       references: ['root@example.org', 'orig@example.org'],
       attachments: [],
       quotesDecrypted: false,
+      imageOffer: expect.objectContaining({ domain: 'example.org' }),
       source: { emailId: 'm1', keyword: '$answered' },
       sourceMailboxId: 'inbox',
       sourceMailboxIds: ['inbox'],
@@ -295,6 +298,16 @@ describe('Reader: Reply, Reply all, Forward', () => {
     } finally { clearSettings(); }
   });
 
+  it.each([['deny', false], ['allow', false], ['ask', true]])('mail.replyImages=%s: offer shown=%s, and nothing is fetched for the quote', async (value, offered) => {
+    const {loadSettings} = await import('../api/settings.ts');
+    await loadSettings({refresh: true, fetcher: async () => new Response(JSON.stringify({settings: {'mail.replyImages': {value, source: 'global', locked: false}}}), {headers: {'content-type': 'application/json'}})});
+    const { onCompose } = await openReader(ORIGINAL);
+    const initial = await click('Reply', onCompose);
+    expect(initial.imageOffer !== undefined).toBe(offered);
+    expect(initial.bodyHtml).not.toContain('<img');
+    await loadSettings({refresh: true, fetcher: async () => new Response(JSON.stringify({settings: {}}), {headers: {'content-type': 'application/json'}})});
+  });
+
   it('Forward: no recipients, one Fwd:, the header block, the attachments by blob id, no thread ids', async () => {
     const withFiles = {
       ...ORIGINAL,
@@ -335,6 +348,8 @@ describe('Reader: Reply, Reply all, Forward', () => {
         { name: 'plan.pdf', blobId: 'm1.2', size: 1234, contentType: 'application/pdf' },
         { name: '(unnamed)', blobId: 'm1.3', size: 9, contentType: null },
       ],
+      // The original holds an image and the default policy asks first.
+      imageOffer: expect.objectContaining({ domain: 'example.org', canTrust: true }),
       quotesDecrypted: false,
       source: { emailId: 'm1', keyword: '$forwarded' },
     });

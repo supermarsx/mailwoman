@@ -11,10 +11,10 @@ describe('MessageList (virtualized)', () => {
     const open=vi.fn(),{app,result}=renderWithApp(()=><MessageList onOpenReplyDraft={open}/>,{emails:[mkEmail('pending'),mkEmail('answered',{keywords:{$answered:true,$seen:true}})]});
     await app.login({username:'me@example.org',password:'p'});await screen.findByText('Subject pending');
     saveDraft({id:'reply-draft',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',to:'a@example.org',subject:'Re: Subject pending',bodyHtml:'<p>Draft</p>',bodyText:'Draft',savedAt:1,source:{emailId:'pending',keyword:'$answered'}});
-    const control=await screen.findByRole('button',{name:'Open reply draft'}),slot=control.closest('li')!;
+    const control=await screen.findByRole('button',{name:'Open draft'}),slot=control.closest('li')!;
     expect(slot.querySelector('[data-testid="row-reply-draft"]')).not.toBeNull();expect(slot.querySelector('[data-testid="row-answered"]')).toBeNull();expect(control.parentElement?.closest('button')).toBeNull();
     fireEvent.click(control);expect(open).toHaveBeenCalledWith('reply-draft');expect(app.openEmail()).toBeNull();expect(result.container.querySelectorAll('[data-testid="row-answered"]')).toHaveLength(1);
-    deleteDraft('reply-draft','acct1','test-storage-authority-acct1');await waitFor(()=>expect(screen.queryByRole('button',{name:'Open reply draft'})).toBeNull());
+    deleteDraft('reply-draft','acct1','test-storage-authority-acct1');await waitFor(()=>expect(screen.queryByRole('button',{name:'Open draft'})).toBeNull());
   });
 
   it('keeps sparse message previews readable when leetspeak is enabled and restored', async () => {
