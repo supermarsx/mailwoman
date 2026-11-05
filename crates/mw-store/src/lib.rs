@@ -38,6 +38,7 @@ pub mod jobs;
 pub mod personal_settings;
 mod smtp_policy_cache;
 pub mod client_timing;
+pub mod rc_handles;
 pub mod request_metrics;
 pub mod signin_admission;
 pub mod user_directory;
