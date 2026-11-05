@@ -37,7 +37,7 @@ export function sumSeries(parts: readonly (readonly (number | null)[])[], length
 
 interface SeriesDef { label: string; values: readonly (number | null)[] }
 
-function HistoryChart(props: { title: string; unit?: string; history: ProxyHistory; series: SeriesDef[]; format: Fmt; whole?: boolean; testId: string }): JSX.Element {
+export function HistoryChart(props: { title: string; unit?: string; history: ProxyHistory; series: SeriesDef[]; format: Fmt; whole?: boolean; testId: string }): JSX.Element {
   const times = (): number[] => props.history.t;
   const latest = (s: SeriesDef): string => {
     for (let i = s.values.length - 1; i >= 0; i--) {

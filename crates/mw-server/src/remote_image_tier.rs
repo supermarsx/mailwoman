@@ -1362,6 +1362,26 @@ impl ImageTier {
         url: &str,
         ctx: Context,
     ) -> Option<(String, Bytes)> {
+        // Only an authorised request gets here: it is proxy work worth timing.
+        super::latency::engage();
+        let found = super::latency::timed(
+            super::latency::Phase::Cache,
+            self.lookup_tiers(route, url, ctx),
+        )
+        .await;
+        if let Some((_, _, disk)) = &found {
+            super::latency::note_hit(*disk);
+        }
+        found.map(|(etag, png, _)| (etag, png))
+    }
+
+    /// The lookup itself; the flag says the hit came from disk.
+    async fn lookup_tiers(
+        self: &Arc<Self>,
+        route: &str,
+        url: &str,
+        ctx: Context,
+    ) -> Option<(String, Bytes, bool)> {
         let h = key_hash(route, url);
         let now = now_ms();
         let (probe, io) = {
@@ -1372,7 +1392,7 @@ impl ImageTier {
         };
         match probe {
             Probe::Miss => None,
-            Probe::Hit { etag, png, .. } => Some((etag, png)),
+            Probe::Hit { etag, png, .. } => Some((etag, png, false)),
             Probe::NeedDisk { name, size } => {
                 let Some(io) = io else {
                     // Disk detached since the index entry was made.
@@ -1389,7 +1409,7 @@ impl ImageTier {
                 .flatten();
                 let result = self.lock().finish_disk(h, read, ctx, now_ms());
                 self.notify.notify_one();
-                result
+                result.map(|(etag, png)| (etag, png, true))
             }
         }
     }

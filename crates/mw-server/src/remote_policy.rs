@@ -40,6 +40,9 @@ pub(crate) struct PrivacyPolicy {
     pub image_tier: crate::image_proxy::tier::TierConfig,
     #[serde(skip)]
     pub negative_cache_ttl: std::time::Duration,
+    /// Record image proxy latency histograms (`privacy.imageLatencyTracking`).
+    #[serde(skip)]
+    pub track_latency: bool,
     pub image_load_budget_ms: u64,
     pub image_retry_attempts: usize,
     pub image_retry_delay_ms: usize,
@@ -210,6 +213,7 @@ pub(crate) const POLICY_KEYS: &[&str] = &[
     "privacy.imageSnapshotSecs",
     "privacy.imageSweepBatch",
     "privacy.negativeCacheTtlSecs",
+    "privacy.imageLatencyTracking",
     "privacy.imageRetryAttempts",
     "privacy.imageRetryDelayMs",
 ];
@@ -358,6 +362,10 @@ pub(crate) async fn effective(
             "privacy.negativeCacheTtlSecs",
             crate::image_proxy::remote_content::fetch_limits::NEGATIVE_TTL.as_secs() as usize,
         ) as u64),
+        track_latency: values
+            .get("privacy.imageLatencyTracking")
+            .and_then(|v| v.value.as_bool())
+            .unwrap_or(true),
         image_load_budget_ms: fetch.overall_budget().as_millis() as u64,
         image_retry_attempts: number("privacy.imageRetryAttempts", 3),
         image_retry_delay_ms: number("privacy.imageRetryDelayMs", 5000),

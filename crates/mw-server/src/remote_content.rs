@@ -254,9 +254,12 @@ async fn decode_image(
     if std::time::Instant::now() >= deadline {
         return Err(DecodeFailure::Busy);
     }
-    let permit = tokio::time::timeout_at(
-        tokio::time::Instant::from_std(deadline),
-        decoders().acquire(),
+    let permit = super::latency::timed(
+        super::latency::Phase::Queue,
+        tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            decoders().acquire(),
+        ),
     )
     .await
     .map_err(|_| DecodeFailure::Busy)?
@@ -270,7 +273,12 @@ async fn decode_image(
         let _permit = permit;
         (work(), admission)
     });
-    match tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), job).await {
+    let finished = super::latency::timed(
+        super::latency::Phase::Decode,
+        tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), job),
+    )
+    .await;
+    match finished {
         Ok(Ok((Ok(png), admission))) => Ok((png, admission)),
         Ok(Ok((Err(mw_render::media_jail::ImageDecodeFailure::InvalidImage), _))) => {
             Err(DecodeFailure::Invalid)
@@ -1285,6 +1293,15 @@ pub(crate) async fn image(
     UrlPath(token): UrlPath<String>,
     proof: Option<Extension<DisplayProof>>,
 ) -> Response {
+    super::latency::track(image_inner(state, headers, token, proof)).await
+}
+
+async fn image_inner(
+    state: AppState,
+    headers: HeaderMap,
+    token: String,
+    proof: Option<Extension<DisplayProof>>,
+) -> Response {
     let (claims, session, policy) = if let Some(Extension(proof)) =
         proof.filter(|proof| proof.0.matches(&token, Kind::Image))
     {
@@ -1318,6 +1335,7 @@ async fn fetch_image(
     policy: Arc<crate::remote_policy::PrivacyPolicy>,
     headers: HeaderMap,
 ) -> Response {
+    super::latency::set_enabled(policy.track_latency);
     let plan = match load_plan(&state.store).await {
         Ok(p) => p,
         Err(()) => return internal("egress route lookup"),
@@ -1370,12 +1388,15 @@ async fn fetch_image(
     };
     let deadline = std::time::Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
-    let Some(flight) = image_flight::acquire(
-        &claims.a,
-        &key.route,
-        &claims.u,
-        queue_deadline,
-        current.queued,
+    let Some(flight) = super::latency::timed(
+        super::latency::Phase::Queue,
+        image_flight::acquire(
+            &claims.a,
+            &key.route,
+            &claims.u,
+            queue_deadline,
+            current.queued,
+        ),
     )
     .await
     else {
@@ -1533,7 +1554,12 @@ pub(super) async fn guarded_fetch(
     let current = configure_capacity(state, Some(&limits)).await?;
     let queue_deadline = limits.queue_deadline(deadline);
     let started = std::time::Instant::now();
-    let Some(slot) = fetch_limits::acquire(account, message, &current, queue_deadline).await else {
+    let Some(slot) = super::latency::timed(
+        super::latency::Phase::Queue,
+        fetch_limits::acquire(account, message, &current, queue_deadline),
+    )
+    .await
+    else {
         tracing::debug!(
             target: "mw_server::remote_content",
             phase = "slot",
@@ -1564,7 +1590,11 @@ pub(super) async fn guarded_fetch(
     if let Some(d) = domain {
         request = request.for_domain(d);
     }
-    let fetched = plan::send_with(plan, url, &request).await;
+    let fetched = super::latency::timed(
+        super::latency::Phase::Upstream,
+        plan::send_with(plan, url, &request),
+    )
+    .await;
     audit_egress_transition(state, route_id, fetched.traversed_proxy).await;
     match fetched.outcome {
         Ok(bytes) => Ok((bytes, fetched.content_type, admission)),
@@ -2115,7 +2145,8 @@ pub(crate) async fn stats(
         json!({"cacheEntries":tier_stats.ram_entries,"cacheBytes":tier_stats.ram_bytes,
         "trackersReplaced":TRACKERS_REPLACED.load(Ordering::Relaxed),"traffic":traffic,"imageConcurrency":image_concurrency,
         "imageRate":image_rate,"imageCache":image_cache,
-        "history":super::history::payload(query.range.as_deref())}),
+        "history":super::history::payload(query.range.as_deref()),
+        "latency":super::latency::payload(query.range.as_deref())}),
     ))
 }
 

@@ -44,6 +44,20 @@ While any card has unsaved edits, the page stops refreshing the statistics and t
 - Series: images and bytes served per second, memory and disk hit rate, memory and disk size and entries, fetches in flight and waiting, average rate-limit wait, `429` and `503` answers, burst allowance and active accounts, tracking pixels replaced, and allowed, refused and failed requests per traffic class.
 - A counter that goes backwards (a reset) leaves a gap in the chart. It never draws a negative rate.
 
+### Image proxy speed
+
+The same response carries a `latency` object (additive; older clients ignore it), for the same `?range=` window. It is controlled by `privacy.imageLatencyTracking` (on by default). Per image request the server measures the time from the request arriving to the response being ready, and four phases of it: **queue** (waiting for a fetch slot, decoder, the rate limit or another request for the same image), **cache** (RAM, then disk lookup), **upstream** (the fetch) and **decode** (re-encode in the media jail).
+
+- Each request is counted into a fixed log-scale histogram (8 steps per power of two, 1 microsecond to about 67 seconds), so a reported percentile is within 6.25 % of the true value and nothing per request is stored. No URL, host, account or message is recorded, only bucket counts.
+- One set of histograms per minute is kept for 24 hours, next to the worker history: **in memory, empty after a restart, and per server process**. With several replicas each answers for itself.
+- The range is answered by adding the buckets of its slices together, then reading median (`p50Ms`), `p95Ms`, `p99Ms`, `maxMs` and `count`. Percentiles are never averaged across slices.
+- Outcomes: `hitRam`, `hitDisk`, `miss` (fetched upstream and answered), `timeout` (`504`), `upstreamError` (`502` and other `5xx`), `rejected` (policy, type or size refusals; not a speed signal), `busy` (`429` or `503`) and `cancelled` (the client went away). Requests refused before the cache is reached (no session, blocked by policy) are not counted.
+- `phases` describe requests that were not cache hits: each phase's median, p95 and its share of their total time (`sharePct`); `otherPct` is the rest (routing, grant checks, building the response).
+- `series` holds up to 120 points of count, p50, p95, p99 and max overall, p50 and p95 for misses and for hits separately, and counts of busy, timeout, upstream-error and cancelled answers; a point with no requests is `null`.
+- `health.verdict` is `healthy`, `slow`, `degraded` or `noData` for the range, from fixed thresholds (returned in `health.thresholds`): fewer than 10 requests is `noData`; **degraded** when 10 % or more of the requests ended busy, timed out or failed upstream, or the miss p95 is 8 s or more; **slow** when 2 % or more did, the miss p95 is 3 s or more, or the hit p95 is 250 ms or more; otherwise healthy. The thresholds are constants, not settings.
+
+The Image proxy tab shows this as the **Speed** section: median and p95 over time, tiles for the range, hit and miss side by side, where the time goes by phase, and the busy and timeout counts. The browser-side time to show an image is not part of this; it is measured by the client load timings.
+
 The charts are SVG with the console's theme colours and no animation. Each has a summary sentence and a "View as table" switch; the table is always in the page for screen readers. The Image proxy and Overview tabs show a range selector, a Refresh button and the time of the last update.
 
 ## Remote-content links

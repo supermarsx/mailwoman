@@ -6,6 +6,7 @@ import { ImageProxyReadout } from '../Settings/ImageProxyReadout.tsx';
 import { InlineGroup, SettingsGate } from './InlineGroup.tsx';
 import { imageGroup, imageProxyRows, type ImageGroup, type PrivacyTabContext } from './model.ts';
 import { HistoryControls, ProxyCharts } from './ProxyCharts.tsx';
+import { SpeedSection } from './SpeedSection.tsx';
 
 const GROUPS: readonly ImageGroup[] = ['rate', 'cache', 'ram', 'disk', 'tiering'];
 
@@ -20,6 +21,7 @@ export default function ImageProxyTab(props: { ctx: PrivacyTabContext; canWrite:
         <ImageProxyReadout shared={stats} />
         <ProxyCharts stats={stats()} loading={ctx().statsLoading()} error={ctx().statsError()} view="proxy" />
       </AdminSubsection>
+      <SpeedSection stats={stats()} loading={ctx().statsLoading()} error={ctx().statsError()} />
       <Show when={mode() || stats()?.imageConcurrency}>
         <AdminSubsection title={t('privacy-concurrency-title')}>
           <AdminImageConcurrency

@@ -80,6 +80,68 @@ async fn automatic_capacity_presets_are_live_and_preserve_numeric_ceilings() {
 }
 
 #[tokio::test]
+async fn privacy_stats_reports_image_speed_by_outcome_and_follows_the_switch() {
+    let (proxy, _) = standin_proxy(vec![("image/png".into(), png(64, 64))]).await;
+    let f = fixture(proxy, "mw-image-speed").await;
+    f.grant().await;
+    let read = |range: &'static str| {
+        let f = &f;
+        async move {
+            f.admin
+                .get(format!("{}/admin/egress/privacy-stats?range={range}", f.base))
+                .send()
+                .await
+                .unwrap()
+                .json::<Value>()
+                .await
+                .unwrap()
+        }
+    };
+    let before = read("15m").await;
+    // Additive: the existing history object is still there.
+    assert!(before["history"]["t"].is_array());
+    let lat = &before["latency"];
+    assert_eq!(lat["enabled"], true);
+    assert_eq!(lat["scope"], "instance");
+    assert_eq!(lat["range"], "15m");
+    assert!(lat["health"]["thresholds"]["slowMissP95Ms"].as_f64().unwrap() > 0.0);
+    let n = |v: &Value, k: &str| v["outcomes"][k]["count"].as_u64().unwrap();
+
+    let (_, signed) = f.sign(&["http://1.2.3.4/speed/a.png"], &[]).await;
+    let src = format!("{}{}", f.base, signed["images"][0]["src"].as_str().unwrap());
+    for _ in 0..2 {
+        let r = f.anon.get(&src).send().await.unwrap();
+        assert_eq!(r.status(), 200);
+        r.bytes().await.unwrap();
+    }
+    let after = read("15m").await;
+    let lat = &after["latency"];
+    assert!(n(lat, "miss") > n(&before["latency"], "miss"), "the fetched image is a miss");
+    assert!(
+        n(lat, "hitRam") + n(lat, "hitDisk") > n(&before["latency"], "hitRam") + n(&before["latency"], "hitDisk"),
+        "the repeat is a cache hit"
+    );
+    assert!(lat["miss"]["p50Ms"].as_f64().unwrap() > 0.0);
+    assert!(lat["miss"]["p95Ms"].as_f64().unwrap() >= lat["miss"]["p50Ms"].as_f64().unwrap());
+    assert!(lat["total"]["count"].as_u64().unwrap() >= 2);
+    assert!(lat["phases"]["upstream"]["count"].as_u64().unwrap() >= 1);
+    assert_eq!(lat["t"].as_array().unwrap().len(), lat["series"]["p95Ms"].as_array().unwrap().len());
+    // Nothing identifying is in the payload.
+    let text = lat.to_string();
+    assert!(!text.contains("1.2.3.4") && !text.contains("speed/a.png"));
+
+    // Switched off: a new fetch is not recorded and the payload says so.
+    locked_policy(&f, "privacy.imageLatencyTracking", json!(false)).await;
+    let (_, signed) = f.sign(&["http://1.2.3.4/speed/b.png"], &[]).await;
+    let src = format!("{}{}", f.base, signed["images"][0]["src"].as_str().unwrap());
+    assert_eq!(f.anon.get(&src).send().await.unwrap().status(), 200);
+    let off = read("15m").await;
+    assert_eq!(off["latency"]["enabled"], false);
+    assert_eq!(n(&off["latency"], "miss"), n(lat, "miss"));
+    locked_policy(&f, "privacy.imageLatencyTracking", json!(true)).await;
+}
+
+#[tokio::test]
 async fn an_old_request_waiting_for_a_flight_cannot_restore_pre_shrink_limits() {
     let (proxy, seen) = standin_status_proxy_with_delay(
         vec![(200, "image/png".into(), png(64, 64))],

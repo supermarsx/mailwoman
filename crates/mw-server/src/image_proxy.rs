@@ -773,6 +773,8 @@ pub(super) mod tier;
 pub(super) mod adaptive;
 #[path = "remote_image_history.rs"]
 pub(crate) mod history;
+#[path = "remote_image_latency.rs"]
+pub(crate) mod latency;
 #[path = "remote_image_capacity.rs"]
 pub(super) mod capacity;
 #[path = "remote_image_demand.rs"]
@@ -811,9 +813,12 @@ pub(super) async fn acquire_bounded_permit(
     }
     // One shared finite waiting budget across image-pipeline and network slots.
     let _waiting = admission_waiters().try_acquire().ok()?;
-    let permit = tokio::time::timeout_at(
-        tokio::time::Instant::from_std(deadline),
-        semaphore.acquire(),
+    let permit = latency::timed(
+        latency::Phase::Queue,
+        tokio::time::timeout_at(
+            tokio::time::Instant::from_std(deadline),
+            semaphore.acquire(),
+        ),
     )
     .await
     .ok()?
@@ -844,7 +849,7 @@ pub(crate) async fn charge_waiting(
         Some(wait) if wait.is_zero() => true,
         Some(wait) => {
             history::note_wait(wait.as_micros() as u64);
-            tokio::time::sleep(wait).await;
+            latency::timed(latency::Phase::Queue, tokio::time::sleep(wait)).await;
             true
         }
         None => false,
@@ -1060,6 +1065,10 @@ async fn proxy_image(
     headers: HeaderMap,
     Query(q): Query<ProxyQuery>,
 ) -> Response {
+    latency::track(proxy_image_inner(state, headers, q)).await
+}
+
+async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -> Response {
     // Require a session — never an open relay. Capture it for the per-account rate
     // limit below.
     let session = match crate::authed(&state, &headers).await {
@@ -1079,6 +1088,7 @@ async fn proxy_image(
         Ok(p) => p,
         Err(r) => return r,
     };
+    latency::set_enabled(policy.track_latency);
     if policy.mode == "block" || (policy.trackers && mw_sanitize::remote::is_tracker_url(&q.url)) {
         return (StatusCode::FORBIDDEN, "remote content blocked by policy").into_response();
     }
@@ -1153,12 +1163,15 @@ async fn proxy_image(
     };
     let deadline = Instant::now() + policy.fetch.overall_budget();
     let queue_deadline = policy.fetch.queue_deadline(deadline);
-    let Some(flight) = remote_content::image_flight::acquire(
-        &session.account_id,
-        &key.route,
-        &q.url,
-        queue_deadline,
-        current.queued,
+    let Some(flight) = latency::timed(
+        latency::Phase::Queue,
+        remote_content::image_flight::acquire(
+            &session.account_id,
+            &key.route,
+            &q.url,
+            queue_deadline,
+            current.queued,
+        ),
     )
     .await
     else {

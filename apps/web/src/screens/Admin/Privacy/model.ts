@@ -23,11 +23,39 @@ export interface ProxyHistory {
   classes?: Record<string, { allowed: (number | null)[]; refused: (number | null)[]; failed: (number | null)[] }>;
 }
 
+/** One summarised histogram of the proxy's speed; times in milliseconds, `null` when nothing was measured. */
+export interface LatencySummary { count: number; p50Ms: number | null; p95Ms: number | null; p99Ms: number | null; maxMs: number | null; meanMs: number | null }
+export type SpeedVerdict = 'healthy' | 'slow' | 'degraded' | 'noData';
+
+/** `latency` of the privacy statistics: per-process, in memory, empty after a restart. */
+export interface ProxyLatency {
+  enabled: boolean;
+  scope?: string;
+  resetsOnRestart?: boolean;
+  sliceSecs?: number;
+  stepSecs?: number;
+  relativeError?: number;
+  range?: string;
+  t: number[];
+  series: Record<string, (number | null)[]>;
+  total: LatencySummary;
+  hit: LatencySummary;
+  miss: LatencySummary;
+  outcomes: Record<string, LatencySummary>;
+  phases: Record<string, LatencySummary & { sharePct: number | null }>;
+  otherPct: number | null;
+  failures: number;
+  failurePct: number | null;
+  health: { verdict: SpeedVerdict; reason: string; thresholds: Record<string, number> };
+}
+
 export interface PrivacyStats {
   imageConcurrency?: ImageConcurrencyRuntime; imageRate?: ImageRateRuntime; imageCache?: ImageCacheRuntime;
   cacheEntries: number; cacheBytes: number; trackersReplaced: number;
   traffic: { class: string; allowed: number; refused: number; failed: number; totalMs: number; /** Exact total in μs (servers from 26.20). */ totalUs?: number }[];
   history?: ProxyHistory;
+  /** Image proxy speed (newer servers only; absent on older ones). */
+  latency?: ProxyLatency;
 }
 export type TrafficRow = PrivacyStats['traffic'][number];
 
