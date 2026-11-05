@@ -1,6 +1,19 @@
 // PDF.js's complete, pinned generic viewer is fetched only for a PDF preview.
 // The iframe receives authorized attachment bytes, never account credentials or
 // an arbitrary PDF URL. Its own CSP and bootstrap disable PDF scripting/network.
+//
+// Why the frame keeps `allow-scripts allow-same-origin` (Firefox warns that such a
+// frame "can remove its sandboxing"): the pinned upstream viewer is built to run
+// same-origin with its host. The bootstrap hands options to the viewer through
+// `window.parent.document` (the `webviewerloaded` event), the viewer uses
+// localStorage, creates its module Worker from a same-origin URL, and fetches
+// cmaps/fonts/wasm with credentialed same-origin requests; an opaque origin breaks
+// each of these (cross-origin module/worker/CORS, `parent.document` throws). The
+// frame only ever loads our fixed, embedded, script-free-of-inline document under
+// a tight CSP (script-src 'self', Trusted Types, no PDF scripting, connect-src
+// 'self' blob:), so the "remove its sandbox" path needs a code-execution bug in
+// pinned PDF.js first. Dropping the token needs the viewer reworked and verified
+// in real browsers; until then this is the documented, accepted residual.
 import { createMemo, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import type { ViewerProps } from '../contracts/viewer.ts';
 import { shellBase } from '../api/basePath.ts';

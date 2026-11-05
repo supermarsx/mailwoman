@@ -203,6 +203,14 @@ async fn server_suite(
         )
         .await,
     ];
+    let pdf_start = Instant::now();
+    let pdf = crate::pdf_assets::audit(state.web_dir.as_deref());
+    results.push(CheckResult::timed(
+        "pdfjs-viewer-assets",
+        pdf.status,
+        pdf_start.elapsed(),
+        pdf.summary.into(),
+    ));
     let upstream = ctx
         .require_unscoped(Capability::DomainsUpstreamWrite)
         .is_ok();

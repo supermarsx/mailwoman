@@ -83,7 +83,7 @@ describe('diagnostics screen', () => {
     await vi.waitFor(() => expect(within(attention).getByRole('link', { name: 'HSTS' })).toBeInTheDocument());
     expect(within(attention).getByRole('link', { name: 'Public name' })).toBeInTheDocument();
     const server = container.querySelector('[data-group="server"]')!;
-    expect(server).toHaveTextContent('2 OK · 0 warnings · 0 failed · 2 not run');
+    expect(server).toHaveTextContent('2 OK · 0 warnings · 0 failed · 3 not run');
     await expectNoAxeViolations(container);
   });
 

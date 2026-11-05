@@ -35,7 +35,7 @@ export function cardStatus(status: string | undefined): CardStatus {
 
 /** The server-suite checks this build knows, by tab, in reading order. */
 export const KNOWN_CHECKS: Readonly<Record<Exclude<CheckGroup, 'backends'>, readonly string[]>> = {
-  server: ['database-connectivity', 'database-write', 'database-migrations', 'server-key-roundtrip'],
+  server: ['database-connectivity', 'database-write', 'database-migrations', 'server-key-roundtrip', 'pdfjs-viewer-assets'],
   connectivity: ['network-public-dns', 'network-public-port', 'network-backend-ports', 'egress-private-policy'],
   posture: [
     'security-https', 'security-secure-cookies', 'security-hsts', 'security-csrf', 'security-admin-factors',

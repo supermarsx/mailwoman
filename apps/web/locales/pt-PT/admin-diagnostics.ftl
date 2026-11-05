@@ -231,3 +231,6 @@ admin-crumb-tools = Ferramentas
 admin-crumb-history = Histórico
 admin-crumb-report = Relatório
 admin-diagx-table-actions = Ações
+admin-diagx-check-pdfjs-viewer-assets = Ficheiros do visualizador de PDF
+admin-diagx-check-pdfjs-viewer-assets-purpose = Os ficheiros do visualizador de PDF existem todos, têm o tipo correto e correspondem a esta versão do servidor.
+admin-diagx-check-pdfjs-viewer-assets-fix = Volte a implementar a compilação web ou remova a pasta pdfjs de MW_WEB_DIR para usar a cópia incluída no servidor. Se falhar em vez de avisar, reconstrua a imagem do servidor.

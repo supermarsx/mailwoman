@@ -231,3 +231,6 @@ admin-crumb-tools = Tools
 admin-crumb-history = History
 admin-crumb-report = Report
 admin-diagx-table-actions = Actions
+admin-diagx-check-pdfjs-viewer-assets = PDF viewer files
+admin-diagx-check-pdfjs-viewer-assets-purpose = The PDF viewer's files are all present, correctly typed and match this server build.
+admin-diagx-check-pdfjs-viewer-assets-fix = Redeploy the web build, or remove the pdfjs folder from MW_WEB_DIR so the copy built into the server is used. If this fails rather than warns, rebuild the server image.

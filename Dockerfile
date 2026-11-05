@@ -47,8 +47,10 @@ COPY apps/mobile/src-tauri /src/apps/mobile/src-tauri
 COPY apps/web/dist/.gitkeep /src/apps/web/dist/.gitkeep
 # The server embeds this inert shell independently of optional SPA assets.
 COPY apps/web/public/workspace-popup.html /src/apps/web/public/workspace-popup.html
-# The PDF viewer route also embeds its fixed entry document at compile time.
-COPY apps/web/public/pdfjs/web/mailwoman.html /src/apps/web/public/pdfjs/web/mailwoman.html
+# The PDF viewer is embedded whole (entry document, bootstrap, CSS, library, cmaps,
+# fonts, wasm, locales and the worker), so a stale MW_WEB_DIR cannot skew it.
+COPY apps/web/public/pdfjs /src/apps/web/public/pdfjs
+COPY apps/web/public/pdf.worker.mjs /src/apps/web/public/pdf.worker.mjs
 # The linked-mailbox scope is one list shared with the web client (t87).
 COPY apps/web/src/api/linked-scope.json /src/apps/web/src/api/linked-scope.json
 

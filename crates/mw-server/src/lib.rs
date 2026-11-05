@@ -229,6 +229,7 @@ pub mod domain_transport;
 mod domain_upgrade;
 mod integration_directory;
 mod remote_policy;
+mod pdf_assets;
 mod pdf_viewer;
 mod upstream_resolve;
 mod username_format;
@@ -1360,6 +1361,7 @@ async fn build_app_inner(
     drop(tokio::task::spawn_blocking(mw_render::media_jail::warm));
     let request_protection = request_protection::Runtime::start(store.clone());
     let admin_probe = admin_probe::Runtime::start(store.clone());
+    pdf_assets::log_startup_audit(config.web_dir.as_deref());
     let state = AppState {
         started_at: std::time::SystemTime::now(),
         started: std::time::Instant::now(),
@@ -5256,6 +5258,11 @@ async fn static_handler(
     }
     if path == pdf_viewer::PATH {
         return pdf_viewer::response(&method, &headers);
+    }
+    // The PDF.js library is embedded, so a stale MW_WEB_DIR cannot skew it; a miss
+    // is a plain-text 404, never the JSON error body a script/stylesheet can't load.
+    if pdf_assets::owns(path) {
+        return pdf_assets::response(state.web_dir.as_deref(), &method, path, &headers);
     }
     // The detached workspace is a server-owned document, not an optional build
     // asset. A stale MW_WEB_DIR must never turn its mount target into a 404 page.
