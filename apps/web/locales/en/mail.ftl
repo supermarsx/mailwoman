@@ -118,6 +118,7 @@ mail-clear-flag = Clear follow-up
 mail-archive = Archive
 mail-delete = Delete
 # Opens the row's actions where they cannot be revealed by hovering (touch, phone).
+mail-row-actions-expand = Show more actions
 mail-more-actions = More actions
 
 # -- Reader ------------------------------------------------------------------
@@ -1050,3 +1051,16 @@ mail-compose-from-why-default = Sending from your default identity, { $identity 
 mail-compose-from-why-forced-default = Sending from your default identity, { $identity }, as set in your settings.
 mail-compose-from-why-keep = Sending from { $identity }.
 mail-compose-from-change = Change
+
+reader-attachments-reason-encrypted = This message is encrypted. Its attachments appear after you unlock it.
+reader-attachments-reason-list-missing = The attachment list for this message could not be loaded, so the attachments bar is hidden.
+reader-attachments-reason-inline-only = This message's attachments ({ $count }) are inline images shown in the message itself.
+reader-attachments-reason-unavailable-parts = { $count ->
+    [one] One attachment of this message has no downloadable content, so the attachments bar is hidden.
+   *[other] { $count } attachments of this message have no downloadable content, so the attachments bar is hidden.
+  }
+reader-attachments-reason-policy-blocked = Your attachment policy blocks downloading { $count ->
+    [one] this attachment.
+   *[other] these attachments.
+  }
+reader-attachments-reason-policy-unavailable = The attachment policy could not be checked, so attachments cannot be opened yet.

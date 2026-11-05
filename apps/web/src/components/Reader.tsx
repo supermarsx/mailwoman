@@ -37,6 +37,7 @@ import { readingPane } from './readingPane.ts';
 import { accountUiPreferences } from '../api/accountPreferences.ts';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
+import { attachmentBarReason } from './attachmentBarReason.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
@@ -211,6 +212,15 @@ function quoteDate(iso: string | null | undefined): string {
   return formatDateTime(iso);
 }
 
+const announced = new Set<string>();
+/** True the first time `key` is seen; the set is bounded so a long session cannot grow it. */
+function announceOnce(key: string): boolean {
+  if (announced.has(key)) return false;
+  if (announced.size >= 500) announced.clear();
+  announced.add(key);
+  return true;
+}
+
 /** Attachment thumbnails + the on-click viewer, rendered AROUND (never inside)
  *  the sandboxed message iframe. Since t110 they sit in a collapsible reader
  *  notice bar ("3 attachments · 4.2 MB"), last in the notice stack; the open or
@@ -218,7 +228,7 @@ function quoteDate(iso: string | null | undefined): string {
  *  collapsed), and previews load only in comfortable density after expansion. Each viewer keeps its own sandbox (§2.4). In a
  *  locked-down max-security mode attachments open ONLY through this re-encode
  *  preview jail (the AttachmentViewer sandbox), never as original bytes (§7.2). */
-export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void }): JSX.Element {
+export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item: StripItem) => void; encrypted?: boolean; inlineCount?: number }): JSX.Element {
   const app = useApp();
   const cloudAccount=app.accountId();
   const [cloudItem,setCloudItem]=createSignal<StripItem|null>(null);
@@ -241,6 +251,28 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         mime: a.type.length > 0 ? a.type : 'application/octet-stream',
         size: a.size,
       }));
+  });
+
+  // Why the bar is missing or unusable, told once per message (never a silent gap).
+  const barState = createMemo(() => attachmentBarReason({
+    hasAttachment: props.email.hasAttachment,
+    attachments: (props.email as { attachments?: AttachmentPart[] }).attachments,
+    ...(props.encrypted !== undefined ? { encrypted: props.encrypted } : {}),
+    ...(props.inlineCount !== undefined ? { inlineCount: props.inlineCount } : {}),
+    policy: attachmentPolicy.error ? 'error' : attachmentPolicy.state === 'ready' ? 'ready' : attachmentPolicy.loading ? 'loading' : 'idle',
+    blockedCount: attachmentPolicy.state === 'ready' ? items().filter((item) => !decision(item)?.allowed).length : 0,
+  }));
+  createEffect(() => {
+    const { reason, count } = barState();
+    if (reason === null) return;
+    const id = props.email.id;
+    const key = `attachments-${id}-${reason}`;
+    if (!announceOnce(key)) return;
+    const text = t(`reader-attachments-reason-${reason}`, { count });
+    const retry = reason === 'list-missing' ? () => { announced.delete(key); void app.openMessage(id); }
+      : reason === 'policy-unavailable' ? () => { announced.delete(key); void retryPolicy(); } : undefined;
+    app.showToast(reason === 'policy-unavailable' || reason === 'list-missing' || reason === 'unavailable-parts' ? 'warning' : 'info', text, 10_000,
+      { id: key, ...(retry ? { action: { label: t('common-retry'), run: retry } } : {}) });
   });
 
   function blobUrlFor(item: StripItem, acknowledge=false): Promise<string> {
@@ -1358,7 +1390,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   onRevokeSender:()=>setSenderLinkTrust(false),emailId:email().id,scope:linkConsentScope(),urls:currentBody()?.refs.files??[],links:currentBody()?.refs.links??[]
                 }:undefined}/>
                 <Show when={hostsOpen()&&showRemoteBar()}><ImageHostRules hosts={imageSourceHosts()} lists={hostLists()} disabled={settingsLoadStatus()!=='ready'||!!(settings()['images.trustedHosts']?.locked||settings()['images.blockedHosts']?.locked)} onChange={setImageHostRule}/></Show>
-                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
+                <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
               </div>
             </Show>
             <Show when={hasCalendarPart(email()) && app.accountId()}>{(accountId) => (
@@ -1398,7 +1430,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               />
             </Show>
-            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && noticesReady()}><AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
+            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && noticesReady()}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
           </>
         )}
       </Show>

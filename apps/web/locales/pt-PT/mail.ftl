@@ -110,6 +110,7 @@ mail-clear-flag = Limpar seguimento
 mail-archive = Arquivar
 mail-delete = Eliminar
 # Opens the row's actions where they cannot be revealed by hovering (touch, phone).
+mail-row-actions-expand = Mostrar mais ações
 mail-more-actions = Mais ações
 
 # -- Reader ------------------------------------------------------------------
@@ -1034,3 +1035,16 @@ mail-compose-from-why-default = A enviar a partir da identidade predefinida, { $
 mail-compose-from-why-forced-default = A enviar a partir da identidade predefinida, { $identity }, conforme as suas definições.
 mail-compose-from-why-keep = A enviar a partir de { $identity }.
 mail-compose-from-change = Alterar
+
+reader-attachments-reason-encrypted = Esta mensagem está cifrada. Os anexos aparecem depois de a desbloquear.
+reader-attachments-reason-list-missing = Não foi possível carregar a lista de anexos desta mensagem, por isso a barra de anexos está oculta.
+reader-attachments-reason-inline-only = Os anexos desta mensagem ({ $count }) são imagens incorporadas apresentadas na própria mensagem.
+reader-attachments-reason-unavailable-parts = { $count ->
+    [one] Um anexo desta mensagem não tem conteúdo transferível, por isso a barra de anexos está oculta.
+   *[other] { $count } anexos desta mensagem não têm conteúdo transferível, por isso a barra de anexos está oculta.
+  }
+reader-attachments-reason-policy-blocked = A sua política de anexos bloqueia a transferência { $count ->
+    [one] deste anexo.
+   *[other] destes anexos.
+  }
+reader-attachments-reason-policy-unavailable = Não foi possível verificar a política de anexos, por isso ainda não é possível abrir os anexos.
