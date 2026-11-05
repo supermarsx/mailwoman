@@ -42,6 +42,8 @@ const KNOWN_DYNAMIC: &[(&str, &str)] = &[
     ("lib.rs", "base"),
     // The registrar: the one place an admin path reaches `.route(`.
     ("admin_router.rs", "&mw_admin::config::admin_route(suffix)"),
+    // The client-access unlock page: a fixed path held in a constant (`UNLOCK`), not an admin route.
+    ("client_access.rs", "UNLOCK"),
 ];
 
 const CALLS: &[&str] = &[".route(", ".route_service(", ".nest(", ".nest_service("];
