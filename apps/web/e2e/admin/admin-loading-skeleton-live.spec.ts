@@ -232,7 +232,8 @@ for (const width of WIDTHS) {
 
       // Signed out: the sign-in form forgets the session, so the next boot is the card.
       if (width >= 761) {
-        await page.locator('#admin-sidebar').getByRole('button', { name: 'Sign out' }).click();
+        await page.locator('#admin-sidebar').getByRole('button', { name: /^Account menu for/ }).click();
+        await page.getByRole('button', { name: 'Sign out' }).click();
         await expect(page.getByTestId('admin-login-card')).toBeVisible();
         expect(await page.evaluate(() => localStorage.getItem('mw.boot.admin'))).toBeNull();
         await page.reload();

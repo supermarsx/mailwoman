@@ -336,3 +336,4 @@ admin-crumb-limits = Limits
 admin-crumb-delivery = Download and preview
 admin-crumb-warnings = Warnings
 admin-crumb-test = Test a file
+admin-account-menu = Account menu for { $name }

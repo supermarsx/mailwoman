@@ -145,7 +145,8 @@ describe('AdminScreen (gate + shell)', () => {
     const api = mockAdminApi();
     render(() => <AdminScreen api={api} {...offlineShell()} />);
     await findRegion('Dashboard');
-    fireEvent.click(screen.getAllByRole('button', { name: 'Sign out' })[0]!);
+    fireEvent.click(screen.getAllByRole('button', { name: /^Account menu for/ })[0]!);
+    fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     await waitFor(() => expect(api.logout).toHaveBeenCalled());
     expect(await screen.findByRole('form', { name: 'Admin sign in' })).toBeInTheDocument();
   });
@@ -198,7 +199,7 @@ describe('capability-aware navigation (GET /admin/me)', () => {
     await waitFor(() => expect(container.querySelector('[data-screen="admin"]')).not.toBeNull());
     expect(screen.getByTestId('admin-nav-skeleton')).toBeInTheDocument();
     expect(screen.getByTestId('admin-page-skeleton')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /^Account menu for/ }).length).toBeGreaterThan(0);
     expect(screen.queryAllByRole('link')).toHaveLength(0);
     expect(screen.queryByTestId('admin-no-section')).toBeNull();
     expect(screen.queryByTestId('admin-unknown-section')).toBeNull();

@@ -112,6 +112,7 @@ test.describe('admin panel on a deployed installation', () => {
     await expect(page.getByRole('form', { name: 'Admin sign in' })).toHaveCount(0);
 
     // Sign-out is a write too.
+    await page.getByRole('button', { name: /^Account menu for/ }).click();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('form', { name: 'Admin sign in' })).toBeVisible();
     expect((await page.request.get(`${BASE}${ADMIN}/session`)).status(), 'the session ended on the server').toBe(401);

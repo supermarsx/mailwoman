@@ -66,6 +66,13 @@ export const sidebarToggle = style({
   '@media': { [PHONE]: { display: 'none' } },
 });
 
+/** The account avatar in the main header: only while the sidebar is hidden on desktop. */
+export const collapsedAccount = style({
+  display: 'none',
+  selectors: { [`${frame}[data-sidebar-collapsed] &`]: { display: 'flex' } },
+  '@media': { [PHONE]: { selectors: { [`${frame}[data-sidebar-collapsed] &`]: { display: 'none' } } } },
+});
+
 /** The desktop sidebar. Its 3px rule takes 2px from the inline-end padding (P1). */
 export const sidebar = style({
   display: 'flex',

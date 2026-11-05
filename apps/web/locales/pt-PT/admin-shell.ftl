@@ -332,3 +332,4 @@ admin-crumb-limits = Limites
 admin-crumb-delivery = Transferência e pré-visualização
 admin-crumb-warnings = Avisos
 admin-crumb-test = Testar um ficheiro
+admin-account-menu = Menu da conta de { $name }

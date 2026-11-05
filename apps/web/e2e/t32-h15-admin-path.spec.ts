@@ -61,6 +61,7 @@ test.describe('admin console at MW_ADMIN_PATH', () => {
     await expect(page.getByRole('navigation', { name: 'Admin sections' })).toBeVisible();
     await expect(page).toHaveURL(/#\/users$/);
 
+    await page.getByRole('button', { name: /^Account menu for/ }).click();
     await page.getByRole('button', { name: 'Sign out' }).click();
     await expect(page.getByRole('form', { name: 'Admin sign in' })).toBeVisible();
     expect((await page.request.get(`${ADMIN_PATH}/session`)).status(), 'the session ended on the server').toBe(401);
