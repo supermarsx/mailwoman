@@ -11,6 +11,7 @@ admin-nav-users = Users
 admin-nav-integrations = Integrations
 admin-nav-observability = Observability
 admin-nav-plugins = Plugins
+admin-nav-data-requests = Data requests
 admin-nav-assist = AI assistant
 admin-nav-sso = Single sign-on
 admin-nav-servermeta = Server metadata

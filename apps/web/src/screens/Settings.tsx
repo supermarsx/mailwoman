@@ -69,6 +69,7 @@ import { Privacy } from './Settings/Privacy.tsx';
 import { CookieSettings } from '../cookies/CookieSettings.tsx';
 import { AnalyticsConsent } from './Settings/AnalyticsConsent.tsx';
 import { LoadTimePreferences } from './Settings/LoadTimePreferences.tsx';
+import { DataRequests } from './Settings/DataRequests.tsx';
 import {DraftSavePreferences} from './Settings/DraftSavePreferences.tsx';
 import { ComposePreferences } from './Settings/ComposePreferences.tsx';
 import { MailFeaturePreferences } from './Settings/MailFeaturePreferences.tsx';
@@ -344,7 +345,7 @@ export function Settings(props: SettingsProps): JSX.Element {
                 <AccountSettings hideSecurity onSearchFoldersChanged={() => app.refreshFolders()} {...(props.embedded ? {section:()=>navigation.route().section} : {})} />
               </AsyncBoundary>
               <RetainedSettingsSection name="security" active={visible('security')} retain={false}>{()=><AsyncBoundary><SecurityCenter password={<AsyncBoundary><PasswordChange accountId={accountId()} /></AsyncBoundary>} grants={<AsyncBoundary><IdentityGrants /></AsyncBoundary>} encryption={<AsyncBoundary><ZeroAccessBlock /></AsyncBoundary>} /></AsyncBoundary>}</RetainedSettingsSection>
-              <RetainedSettingsSection name="privacy" active={visible('privacy')}>{()=><AsyncBoundary><Privacy /><AnalyticsConsent /><CookieSettings /><LoadTimePreferences /></AsyncBoundary>}</RetainedSettingsSection>
+              <RetainedSettingsSection name="privacy" active={visible('privacy')}>{()=><AsyncBoundary><Privacy /><AnalyticsConsent /><CookieSettings /><LoadTimePreferences /><DataRequests /></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="nextcloud" active={visible('nextcloud')}>{()=><AsyncBoundary><NextcloudAccounts /></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="linked-accounts" active={visible('linked-accounts')} retain={false}>{()=><AsyncBoundary><LinkedAccounts/></AsyncBoundary>}</RetainedSettingsSection>
               <RetainedSettingsSection name="folders" active={visible('folders')}>{()=><AsyncBoundary><FolderPreferences folders={app.mailboxes} tags={app.tags} navigation={navigation} onRolesSaved={app.refreshFolders}/></AsyncBoundary>}</RetainedSettingsSection>
