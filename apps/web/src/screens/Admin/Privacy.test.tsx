@@ -56,7 +56,7 @@ describe('Admin Privacy tabs', () => {
       expect((await screen.findAllByText(new RegExp(text))).length).toBeGreaterThan(0);
       expect(screen.queryByText(/Something went wrong|Could not load/)).toBeNull();
       const links = screen.getAllByRole('link').filter((a) => /#\/privacy\//.test(a.getAttribute('href') ?? ''));
-      expect(links.length).toBe(5);
+      expect(links.length).toBe(6);
       fireEvent.click(links[2]!);
       expect(view.navigate).toHaveBeenLastCalledWith(expect.stringMatching(/#\/privacy\/image-proxy$/));
       view.unmount();
@@ -121,8 +121,8 @@ describe('Privacy navigation', () => {
   it('gates each tab on its capability and keeps scoped admins off the process-wide tabs', () => {
     const ids = (caps: Capability[], scope: string[] | null = null) => PRIVACY_TABS.filter((tab) => canOpenPrivacyTab(grants(caps, scope), tab)).map((tab) => tab.id);
     expect(ids(['egress.read'])).toEqual(['overview', 'image-proxy', 'traffic']);
-    expect(ids(['egress.read', 'settings.read'])).toEqual(['overview', 'remote', 'image-proxy', 'fetch-limits', 'traffic']);
-    expect(ids(['settings.read'])).toEqual(['remote', 'image-proxy', 'fetch-limits']);
+    expect(ids(['egress.read', 'settings.read'])).toEqual(['overview', 'remote', 'image-proxy', 'fetch-limits', 'traffic', 'cookies']);
+    expect(ids(['settings.read'])).toEqual(['remote', 'image-proxy', 'fetch-limits', 'cookies']);
     expect(ids(['egress.read', 'settings.read'], ['example.com'])).toEqual(['remote', 'fetch-limits']);
     expect(ids(['users.read'])).toEqual([]);
   });
@@ -132,6 +132,7 @@ describe('Privacy navigation', () => {
     expect(tabForKey('privacy.rateBurst')).toBe('fetch-limits');
     expect(tabForKey('privacy.imageConcurrencyMode')).toBe('image-proxy');
     expect(tabForKey('privacy.imageDiskPath')).toBe('image-proxy');
+    expect(tabForKey('cookies.mode')).toBe('cookies');
     expect(tabForKey('nothing.else')).toBeUndefined();
   });
   it('shows the denied message for a tab the viewer cannot open', async () => {

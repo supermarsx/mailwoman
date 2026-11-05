@@ -85,3 +85,7 @@ The Attachments section has tabs: **Allow and block lists**, **Limits**, **Downl
 `POST /admin/attachments/simulate` runs the server's own evaluator (`attachment_policy.rs`) on a file name, MIME type and size under the stored global policy and returns the decision (delivered, preview allowed, warning, reason code) and which rule lists matched. It needs `settings.read`, changes and stores nothing, and never reads a message or attachment. The request may carry a `draft` object with any of the `attachments.*` fields (`blockedExtensions`, `maxBytes`, ...) to try an unsaved policy; the console does not send one. Draft rules are validated like saved ones.
 
 Old links keep working: `#/settings/attachments.<key>` opens the Settings page for the key, and `#/attachments/attachments.<key>` opens the owning tab on that row.
+
+## Cookies
+
+The **Cookies** tab configures the cookie consent control, the cookie and storage inventory, the storage scan and the consent log. See [Cookie consent controls](cookies.md).

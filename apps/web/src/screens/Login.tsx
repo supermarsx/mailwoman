@@ -14,6 +14,7 @@ import { TwoFactorChallenge } from './Settings/TwoFactorChallenge.tsx';
 import { authCard, authPage } from '../styles/authCard.css.ts';
 import { PasswordInput } from '../components/PasswordInput.tsx';
 import { publicConfig, type PublicConfig } from '../api/publicConfig.ts';
+import { CookiePreferencesLink } from '../cookies/ConsentLayer.tsx';
 import { applyBranding, brandAssetUrl } from '../branding.ts';
 import { passwordlessAvailable, signInWithPasskey } from '../api/passwordless.ts';
 
@@ -264,6 +265,7 @@ export function Login(props: { returnPath?: string } = {}): JSX.Element {
           </div>
         </Show>
       </form>
+      <p class="login__hint"><CookiePreferencesLink /></p>
     </main>
     );
   }

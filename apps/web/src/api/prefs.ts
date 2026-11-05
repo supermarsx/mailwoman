@@ -56,6 +56,7 @@ import { idempotentWrite } from './recovery.ts';
 import { onPageHide, pendingWrite } from './unloadFlush.ts';
 import { defaultAppearance, parseAppearancePrefs, FONT_STACKS, isBadgeColor, type AppearancePrefs, type BadgeColor, type UiFont } from '../theme/appearance.ts';
 import { observePreferenceAccount, preferenceAccount } from './accountPreferenceLifecycle.ts';
+import { functionalAllowed, onConsentChange } from '../cookies/runtime.ts';
 
 /** The subset of the theme slice this module drives (t19-e6's sync seam). */
 export interface AppearancePrefsSeam {
@@ -572,7 +573,9 @@ export function bindAppearanceToAccount(prefs: AppearancePrefsSeam): () => void 
   stopAppearanceSync();
   const sync = createAppearanceSync(prefs, {
     markKey: () => preferenceAccount()?.storageAuthority?`${MARK_KEY}:v2:${encodeURIComponent(preferenceAccount()!.storageAuthority!)}`:'',
-    allowed: () => preferenceAccount() !== null,
+    // Syncing appearance to the account is a functional feature: it waits for the
+    // visitor's cookie consent when the administrator has the consent control on.
+    allowed: () => preferenceAccount() !== null && functionalAllowed(),
     serverWins: true,
   });
   singleton = sync;
@@ -592,6 +595,10 @@ export function bindAppearanceToAccount(prefs: AppearancePrefsSeam): () => void 
     prefs.setAppearancePrefs(markedPrefs(key) ?? defaultAppearance());
     if (account) void sync.start();
   });
-  accountBindingDispose = () => { unsubscribe(); sync.stop(); if (singleton === sync) singleton = null; };
+  const stopConsent = onConsentChange(() => {
+    if (preferenceAccount() === null) return;
+    if (functionalAllowed()) void sync.start(); else sync.stop();
+  });
+  accountBindingDispose = () => { unsubscribe(); stopConsent(); sync.stop(); if (singleton === sync) singleton = null; };
   return accountBindingDispose;
 }

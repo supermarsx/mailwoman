@@ -65,7 +65,7 @@ export const FETCH_LIMIT_KEYS: readonly string[] = ['privacy.fetchConnectTimeout
 /** The remote-content and tracker policy keys, in the order the tab shows them. */
 export const REMOTE_KEYS: readonly string[] = ['privacy.remoteContent','privacy.remoteImageDownloads','privacy.remoteImagesToast','privacy.trackers','privacy.trackerOverrideAllowed','privacy.cleanLinks','privacy.allowDirect','privacy.stripMailerHeaders'];
 
-export type PrivacyTabId = 'overview' | 'remote' | 'image-proxy' | 'fetch-limits' | 'traffic';
+export type PrivacyTabId = 'overview' | 'remote' | 'image-proxy' | 'fetch-limits' | 'traffic' | 'cookies';
 
 /** Which tab edits a key; the Image proxy tab takes everything of the `imageProxy` category. */
 export function tabForKey(key: string, rows: readonly AdminSetting[] = []): PrivacyTabId | undefined {
@@ -73,6 +73,7 @@ export function tabForKey(key: string, rows: readonly AdminSetting[] = []): Priv
   if (key === IMAGE_CONCURRENCY_KEY || key.startsWith('privacy.image')) return 'image-proxy';
   if (rows.find((r) => r.key === key)?.category === 'imageProxy') return 'image-proxy';
   if (REMOTE_KEYS.includes(key)) return 'remote';
+  if (key.startsWith('cookies.')) return 'cookies';
   return undefined;
 }
 

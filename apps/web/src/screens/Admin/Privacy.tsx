@@ -37,6 +37,7 @@ const RemoteTab = lazy(() => import('./Privacy/RemoteTab.tsx'));
 const ImageProxyTab = lazy(() => import('./Privacy/ImageProxyTab.tsx'));
 const FetchLimitsTab = lazy(() => import('./Privacy/FetchLimitsTab.tsx'));
 const TrafficTab = lazy(() => import('./Privacy/TrafficTab.tsx'));
+const CookiesTab = lazy(() => import('./Cookies/CookiesTab.tsx'));
 
 export function AdminPrivacy(props: { service?: PrivacyAdminApi }): JSX.Element {
   const api = props.service ?? privacyAdminApi;
@@ -112,6 +113,7 @@ export function AdminPrivacy(props: { service?: PrivacyAdminApi }): JSX.Element 
                 <Match when={selected() === 'image-proxy'}><ImageProxyTab ctx={ctx} canWrite={shell.can.can('settings.write')} /></Match>
                 <Match when={selected() === 'fetch-limits'}><FetchLimitsTab ctx={ctx} /></Match>
                 <Match when={selected() === 'traffic'}><TrafficTab ctx={ctx} /></Match>
+                <Match when={selected() === 'cookies'}><CookiesTab ctx={ctx} /></Match>
               </Switch>
             </Show>
           </AdminSubtabPanel>

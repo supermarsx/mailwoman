@@ -163,6 +163,7 @@ privacy-tab-remote = Remote content and trackers
 privacy-tab-image-proxy = Image proxy
 privacy-tab-fetch-limits = Fetch limits
 privacy-tab-traffic = Traffic
+privacy-tab-cookies = Cookies
 privacy-tab-denied = You do not have access to this tab.
 privacy-tab-remote-help = Defaults, locks and per-domain values for remote content, tracking protection and link cleaning. Each setting saves on its own.
 privacy-settings-denied = Reading settings needs the settings.read permission, which you do not hold. The statistics on the other tabs are still available.

@@ -1,6 +1,8 @@
 import { render } from 'solid-js/web';
 import { App } from './App.tsx';
 import { TooltipLayer } from './components/TooltipLayer.tsx';
+import { ConsentLayer } from './cookies/ConsentLayer.tsx';
+import { bootConsent } from './cookies/runtime.ts';
 import { LocaleProvider } from './i18n/index.ts';
 import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
 import { installBundleRecovery } from './sw/bundleRecovery.ts';
@@ -25,6 +27,10 @@ if (root === null) {
   throw new Error('#root element not found');
 }
 
+// Cookie consent: load the configuration and apply the stored decision (block and
+// purge) as early as the server answers; the control itself is `ConsentLayer`.
+void bootConsent();
+
 // LocaleProvider (i18n foundation, plan §6 e0): negotiates the active locale,
 // loads the critical `en` catalog, drives `<html lang/dir>` + reduced-motion.
 // Wraps the whole tree so `t()` is reactive everywhere. The language chosen in
@@ -36,6 +42,7 @@ render(
     <LocaleProvider {...(startLocale !== null ? { locale: startLocale } : {})}>
       <App />
       <TooltipLayer />
+      <ConsentLayer />
     </LocaleProvider>
   ),
   root,

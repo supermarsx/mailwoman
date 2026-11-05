@@ -166,6 +166,7 @@ privacy-tab-remote = Conteúdo remoto e rastreadores
 privacy-tab-image-proxy = Proxy de imagens
 privacy-tab-fetch-limits = Limites de obtenção
 privacy-tab-traffic = Tráfego
+privacy-tab-cookies = Cookies
 privacy-tab-denied = Não tem acesso a este separador.
 privacy-tab-remote-help = Valores por omissão, bloqueios e valores por domínio do conteúdo remoto, da proteção contra rastreio e da limpeza de ligações. Cada definição guarda-se por si.
 privacy-settings-denied = Ler as definições requer a permissão settings.read, que não possui. As estatísticas dos outros separadores continuam disponíveis.

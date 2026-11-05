@@ -1,0 +1,28 @@
+// Settings > Privacy: the visitor's current cookie choices and a button that
+// reopens the consent dialog. Shown only while the administrator has the control on.
+
+import { For, Show, onMount, type JSX } from 'solid-js';
+import { t, loadCatalog } from '../i18n';
+import * as css from '../screens/Settings/styles.css.ts';
+import { bootConsent, consentConfig, consentEffective, consentStored, openCookiePreferences, scanNow } from './runtime.ts';
+import { OPTIONAL } from './policy.ts';
+
+export function CookieSettings(): JSX.Element {
+  onMount(() => { void loadCatalog('cookies'); void bootConsent(); });
+  const offered = () => OPTIONAL.filter((c) => consentConfig()?.categories?.find((x) => x.id === c)?.enabled === true);
+  return (
+    <Show when={consentConfig()?.enabled}>
+      <section class={css.section} aria-labelledby="cookie-settings-heading" data-testid="cookie-settings">
+        <h3 id="cookie-settings-heading" class={css.heading}>{t('cookies-settings-title')}</h3>
+        <p class={css.prose}>{t('cookies-settings-help')}</p>
+        <ul aria-label={t('cookies-settings-current')}>
+          <li>{t('cookies-category-necessary')}: {t('cookies-always-on')}</li>
+          <For each={offered()}>{(c) => <li>{t(`cookies-category-${c}`)}: {consentEffective()?.allowed[c] ? t('cookies-state-on') : t('cookies-state-off')}</li>}</For>
+        </ul>
+        <Show when={consentStored()}><p class={css.meta}>{t('cookies-decided', { date: new Date(consentStored()!.decidedAt).toLocaleDateString() })}</p></Show>
+        <p><button type="button" class="btn btn--ghost" onClick={() => openCookiePreferences()}>{t('cookies-preferences-link')}</button>{' '}
+          <button type="button" class="btn btn--ghost" onClick={() => void scanNow(true)}>{t('cookies-scan-now')}</button></p>
+      </section>
+    </Show>
+  );
+}

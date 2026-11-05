@@ -8,6 +8,7 @@ export const PRIVACY_TABS: readonly { id: string; label: string; capability: Cap
   { id: 'image-proxy', label: 'privacy-tab-image-proxy', capability: 'egress.read', anyOf: ['egress.read', 'settings.read'], unscoped: true },
   { id: 'fetch-limits', label: 'privacy-tab-fetch-limits', capability: 'settings.read' },
   { id: 'traffic', label: 'privacy-tab-traffic', capability: 'egress.read', unscoped: true },
+  { id: 'cookies', label: 'privacy-tab-cookies', capability: 'settings.read', unscoped: true },
 ];
 
 export function canOpenPrivacyTab(can: Can, tab: (typeof PRIVACY_TABS)[number]): boolean {
