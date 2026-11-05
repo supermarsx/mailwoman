@@ -2,6 +2,8 @@
 //! Never infer abuse from a generic HTTP status code.
 mod api;
 mod config;
+/// Per-minute counts behind the Aggregate and Adaptive charts.
+mod history;
 /// The Adaptive protection page's policy editor and simulator (t97).
 mod editor;
 mod probe_path;
@@ -227,6 +229,9 @@ impl Context {
                 },
             )
             .await;
+        if let Ok(outcome) = &answer {
+            history::note_decision(kind, &outcome.decision);
+        }
         match answer {
             Ok(outcome) if outcome.decision.enforced => Err(limited(outcome.decision)),
             Ok(_) => {
@@ -649,6 +654,7 @@ pub(crate) async fn guard(
         match claimed {
             Some((class, crate::trust_tier::UaAction::Block)) => {
                 tracing::info!(target: "request_protection", class, "anonymous request refused by user-agent class action");
+                history::note_class_refused(class);
                 let mut refused = response(AdminApiError::new(
                     StatusCode::FORBIDDEN,
                     "automatedClientBlocked",
@@ -705,6 +711,9 @@ pub(crate) async fn guard(
                 .request_protection_probe_decision("client", &source, &policy, now)
                 .await
         };
+        if let Ok(decision) = &decision {
+            history::note_decision("client", decision);
+        }
         match decision {
             Ok(decision) if decision.enforced => return response(limited(decision)),
             Err(_) => {
@@ -782,6 +791,7 @@ pub(crate) async fn guard(
                 },
                 Ordering::Relaxed,
             );
+            history::note_tier(context.tier.load(Ordering::Relaxed) as usize);
             if legacy_route
                 && !identified
                 && let Some(source) = source

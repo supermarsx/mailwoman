@@ -24,6 +24,12 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     );
     r.admin_endpoint(
         Method::GET,
+        "/bans/protection/history",
+        Capability::BansRead,
+        history,
+    );
+    r.admin_endpoint(
+        Method::GET,
         "/bans/protection/subjects",
         Capability::BansRead,
         subjects,
@@ -53,6 +59,32 @@ async fn status(State(state): State<AppState>, ctx: AdminCtx) -> Result<Response
     Ok(private(
         json!({"protocolGuard":protocol_guard,"policy":config.summary(),"subjectCapacity":mw_store::request_protection::SUBJECT_CAPACITY,"eventCapacity":mw_store::request_protection::EVENT_CAPACITY,"eventRetentionSecs":mw_store::request_protection::EVENT_RETENTION_SECS,"propagationSecs":30,"coverage":"router-requests-verified-session-key-and-signed-content","preRouterHeadersObserved":false}),
     ))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct HistoryQuery {
+    range: Option<String>,
+}
+/// Counts per minute for the last 15 minutes, 1, 6 or 24 hours (`?range=15m|1h|6h|24h`).
+async fn history(
+    ctx: AdminCtx,
+    Query(query): Query<HistoryQuery>,
+) -> Result<Response, AdminApiError> {
+    ctx.require_unscoped(Capability::BansRead)?;
+    let secs = match query.range.as_deref().unwrap_or("1h") {
+        "15m" => 900,
+        "1h" => 3_600,
+        "6h" => 21_600,
+        "24h" => 86_400,
+        _ => {
+            return Err(AdminApiError::invalid(
+                "invalidRange",
+                "The range is 15m, 1h, 6h or 24h",
+                "/range",
+            ));
+        }
+    };
+    Ok(private(super::history::summary(secs)))
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
