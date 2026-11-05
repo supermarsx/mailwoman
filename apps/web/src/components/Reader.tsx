@@ -58,6 +58,8 @@ import type { SenderControlRequest, SenderControlResult } from './security/model
 import { defaultSenderControl } from './security/model.ts';
 import { createMaxSecurityStore } from '../viewers/max-security.ts';
 import { bodyFrameDoc, escapeHtml } from '../viewers/sandbox.ts';
+import { imageHostLists, imageHostOf, imageHostState, setImageHostState, type ImageHostLists, type ImageHostState } from '../viewers/imageHostRules.ts';
+import { ImageHostRules } from './ImageHostRules.tsx';
 import { createObjectUrlOwner } from '../viewers/objectUrl.ts';
 import { getCryptoWorker } from '../crypto/index.ts';
 import { pickSignerArmors } from '../crypto/signerMatch.ts';
@@ -769,11 +771,16 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // Messages whose image loading the user cancelled; their bodies render without signed image sources until Load again.
   const [imagesCancelled, setImagesCancelled] = createSignal<ReadonlySet<string>>(new Set());
   let prewarmAbort: AbortController | undefined;
+  // The user's per-image-host rules. Keyed by a string, so an unrelated preference write does not reload the body.
+  const hostRulesKey = createMemo(() => JSON.stringify(imageHostLists(settings())));
+  const hostLists = (): ImageHostLists => JSON.parse(hostRulesKey()) as ImageHostLists;
+  const [hostsOpen, setHostsOpen] = createSignal(false);
+  createEffect(on(receiptDocumentKey, () => setHostsOpen(false)));
   const [readerBody, {mutate:mutateReaderBody,refetch:retryReaderBody}] = createResource(
     () => {
       const email = app.openEmail(); const account = app.accountId();
       if (!email || !account || privacy.loading || grants.loading) return null;
-      return { email, account, policy: renderPolicy(), original:originalSelected(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, imagesOff: imagesCancelled().has(email.id), fallback: app.sanitizedHtml() };
+      return { email, account, policy: renderPolicy(), original:originalSelected(), securityMode: maxsec.effectiveMode(sender()), decrypted: decryptedHtml(), decryptedSafe:decryptedSafeHtml(), allowSanitizedHtml:allowSanitizedHtml(), scope:htmlRenderScope(), granted: activeGrant() !== null, hostRules: hostRulesKey(), imagesOff: imagesCancelled().has(email.id), fallback: app.sanitizedHtml() };
     },
     async k => {
       let html = k.decrypted ?? k.fallback ?? ''; let effective = k.policy; let failed = false;
@@ -815,7 +822,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         } catch { failed = true; }
       }
       if (!current()) return cancelled();
-      const urls = !k.imagesOff && k.securityMode === 'full-sanitized' && (effective.mode === 'proxy' || (effective.mode === 'ask' && k.granted)) ? refs.urls : [];
+      const rules = JSON.parse(k.hostRules) as ImageHostLists;
+      // A blocked host never loads (not even directly); a trusted host loads while images are on "ask".
+      if (effective.mode === 'direct' && rules.blocked.length > 0) effective = { ...effective, mode: 'proxy', allowDirect: false };
+      const loadsAll = effective.mode === 'proxy' || (effective.mode === 'ask' && k.granted);
+      const urls = !k.imagesOff && k.securityMode === 'full-sanitized' && (loadsAll || effective.mode === 'ask')
+        ? refs.urls.filter(url => { const host = imageHostOf(url); const state = host ? imageHostState(host, rules) : 'ask'; return state !== 'block' && (loadsAll || state === 'allow'); })
+        : [];
       const parts = k.securityMode === 'full-sanitized' ? [...new Set(refs.cids.map(id => cidParts[id]).filter((id): id is string => Boolean(id)))] : [];
       let signed = EMPTY_SIGNED;
       if (urls.length || parts.length) { try { signed = await signContent(k.email.id, { urls, parts }); } catch { failed = true; } }
@@ -847,6 +860,18 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     if ((body.blocked&&!body.restored) || mode === 'sanitized-no-media') return bodyFrameDoc('sanitized-no-media', { html: body.html }, frameOptions());
     return bodyFrameDoc('full-sanitized', { html: body.html }, { ...frameOptions(), direct: body.policy.mode === 'direct' && body.policy.allowDirect, serverBase: remoteServerBase() });
   });
+
+  /** The image sources of the open message, as they appear in its body. */
+  const imageSourceHosts=createMemo(()=>[...new Set((currentBody()?.refs.urls??[]).map(imageHostOf).filter((host):host is string=>host!==null))].sort().slice(0,24));
+  async function setImageHostRule(host:string,state:ImageHostState):Promise<void>{
+    const next=setImageHostState(host,state,hostLists());
+    if(!next){app.showToast('error',t('image-hosts-failed'));return;}
+    try{
+      // Both lists in one pass; the body is re-rendered and hot-patched once the settings arrive.
+      await writeSetting('images.blockedHosts',[...next.blocked]);
+      await writeSetting('images.trustedHosts',[...next.trusted]);
+    }catch{app.showToast('error',t('image-hosts-failed'));}
+  }
 
   const linkAccountCurrent=():boolean=>{const owner=linkAuthority();return !!owner&&owner.id===app.accountId()&&preferenceAccountIsCurrent(owner);};
   // Readiness can change while the same body is rebuilt after an image grant.
@@ -1046,6 +1071,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         ...(imageOffer?{imageOffer}:{}),
         quotesDecrypted: shown.decrypted && quote.html !== '',
         source: { emailId: email.id, keyword: '$forwarded' },
+        received: { to: (email.to ?? []).map((a) => a.email), cc: (email.cc ?? []).map((a) => a.email) },
       };
     }
 
@@ -1073,6 +1099,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       ...(imageOffer?{imageOffer}:{}),
       quotesDecrypted: shown.decrypted && quote.html !== '',
       source: { emailId: email.id, keyword: '$answered' },
+      received: { to: (email.to ?? []).map((a) => a.email), cc: (email.cc ?? []).map((a) => a.email) },
       ...(app.selectedMailboxId() ? {sourceMailboxId: app.selectedMailboxId()!} : {}),
       sourceMailboxIds: Object.keys(email.mailboxIds),
     };
@@ -1323,12 +1350,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   decodedTrackers:remoteLoad.trackers(),imageFailures:remoteLoad.failures(),imageProgress:currentImageProgress(),
                   trackerOverrideAllowed:policy().trackerOverrideAllowed===true&&!(policy().locked.trackers&&policy().trackers),trackersAllowed:trackersAllowed(),
                   onRetryImages:remoteLoad.retry,onGrant:onRemoteGrant,onRevoke:onRemoteRevoke,
+                  ...(bodyAllowsContent()&&imageSourceHosts().length>0?{onManageHosts:()=>setHostsOpen(open=>!open)}:{}),
                   ...(props.onOpenSettings?{onOpenPrivacySettings:()=>props.onOpenSettings?.('privacy')}:{})
                 }:undefined} links={bodyAllowsContent()&&(reviewedBody()?.links.length??0)>0?{
                   linksReady:linksReady(),linksEnabled:linksEnabled(),onToggleLinks:toggleLinks,senderTrusted:senderLinksTrusted(),
                   senderTrustEditable:senderTrustEditable(),senderTrustPending:senderTrustPending(),onTrustSender:()=>setSenderLinkTrust(true),
                   onRevokeSender:()=>setSenderLinkTrust(false),emailId:email().id,scope:linkConsentScope(),urls:currentBody()?.refs.files??[],links:currentBody()?.refs.links??[]
                 }:undefined}/>
+                <Show when={hostsOpen()&&showRemoteBar()}><ImageHostRules hosts={imageSourceHosts()} lists={hostLists()} disabled={settingsLoadStatus()!=='ready'||!!(settings()['images.trustedHosts']?.locked||settings()['images.blockedHosts']?.locked)} onChange={setImageHostRule}/></Show>
                 <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
               </div>
             </Show>

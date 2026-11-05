@@ -19,6 +19,12 @@ pub(crate) struct PrivacyPolicy {
     pub allow_direct: bool,
     pub inline_parts: bool,
     pub remote_image_downloads: bool,
+    /// The user's `images.trustedHosts` / `images.blockedHosts` (canonical
+    /// lowercase domains). Blocked wins; trusted never overrides `block` mode.
+    #[serde(skip)]
+    pub trusted_hosts: Vec<String>,
+    #[serde(skip)]
+    pub blocked_hosts: Vec<String>,
     pub locked: Locks,
     #[serde(skip)]
     pub max_bytes: usize,
@@ -118,9 +124,45 @@ pub(crate) fn fetch_limits(
         ),
     }
 }
+impl PrivacyPolicy {
+    /// `host` is `entry` or a subdomain of it (whole labels only).
+    fn host_listed(list: &[String], url: &str) -> bool {
+        let Some(host) = reqwest::Url::parse(url)
+            .ok()
+            .and_then(|u| u.host_str().map(|h| h.trim_end_matches('.').to_ascii_lowercase()))
+        else {
+            return false;
+        };
+        list.iter()
+            .any(|entry| host == *entry || host.ends_with(&format!(".{entry}")))
+    }
+    /// The user blocked this image's host. Wins over every grant and trust.
+    pub(crate) fn host_blocked(&self, url: &str) -> bool {
+        Self::host_listed(&self.blocked_hosts, url)
+    }
+    /// Pure rule behind [`Self::host_trusted`], for tests.
+    #[cfg(test)]
+    fn rule(mode: &str, trusted: &[&str], blocked: &[&str], url: &str) -> (bool, bool) {
+        let own = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let (trusted, blocked) = (own(trusted), own(blocked));
+        let is_blocked = Self::host_listed(&blocked, url);
+        (
+            is_blocked,
+            mode != "block" && !is_blocked && Self::host_listed(&trusted, url),
+        )
+    }
+    /// The user trusts this image's host: it loads without a grant. Never in
+    /// `block` mode (the administrator's cap) and never when blocked.
+    pub(crate) fn host_trusted(&self, url: &str) -> bool {
+        self.mode != "block" && !self.host_blocked(url) && Self::host_listed(&self.trusted_hosts, url)
+    }
+}
+
 pub(crate) const POLICY_KEYS: &[&str] = &[
     "privacy.imageConcurrencyMode",
     "privacy.remoteContent",
+    "images.trustedHosts",
+    "images.blockedHosts",
     "privacy.remoteImageDownloads",
     "privacy.trackers",
     "privacy.trackerOverrideAllowed",
@@ -231,6 +273,18 @@ pub(crate) async fn effective(
             .unwrap_or(false)
     };
     let locked = |key| values.get(key).is_none_or(|v| v.locked());
+    let hosts = |key: &str| -> Vec<String> {
+        values
+            .get(key)
+            .and_then(|v| v.value.as_array())
+            .map(|list| {
+                list.iter()
+                    .filter_map(|item| item.as_str().map(str::to_owned))
+                    .take(100)
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
     let number = |key: &str, fallback: usize| {
         values
             .get(key)
@@ -272,11 +326,11 @@ pub(crate) async fn effective(
             fetch.ceilings(),
             resources,
             fetch.image_bytes,
-            mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+            mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES,
         ),
         resources,
         fetch.image_bytes,
-        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES,
         crate::image_proxy::hit_percent(),
     );
     Ok(PrivacyPolicy {
@@ -288,6 +342,8 @@ pub(crate) async fn effective(
         allow_direct,
         inline_parts: state.engine.is_some(),
         remote_image_downloads: boolean("privacy.remoteImageDownloads"),
+        trusted_hosts: hosts("images.trustedHosts"),
+        blocked_hosts: hosts("images.blockedHosts"),
         locked: Locks {
             mode: locked("privacy.remoteContent"),
             trackers: locked("privacy.trackers"),
@@ -820,4 +876,25 @@ pub(crate) async fn instance_image_configs(
         )
     };
     Ok(image_configs(&number, &sizing))
+}
+
+#[cfg(test)]
+mod host_rule_tests {
+    use super::PrivacyPolicy as P;
+    #[test]
+    fn blocked_wins_trusted_needs_a_mode_that_loads_and_labels_are_whole() {
+        let url = |h: &str| format!("https://{h}/a.png");
+        let t = ["shop.test", "news.test"];
+        let b = ["ads.news.test"];
+        assert_eq!(P::rule("ask", &t, &b, &url("cdn.shop.test")), (false, true));
+        assert_eq!(P::rule("ask", &t, &b, &url("ads.news.test")), (true, false));
+        assert_eq!(P::rule("ask", &t, &b, &url("x.ads.news.test")), (true, false));
+        assert_eq!(P::rule("ask", &t, &b, &url("evilshop.test")), (false, false));
+        assert_eq!(P::rule("ask", &t, &b, &url("shop.test.evil.example")), (false, false));
+        assert_eq!(P::rule("ask", &t, &b, &url("SHOP.test.")), (false, true));
+        // The administrator's block mode is a cap trust cannot lift.
+        assert_eq!(P::rule("block", &t, &b, &url("shop.test")), (false, false));
+        assert_eq!(P::rule("proxy", &t, &b, &url("ads.news.test")), (true, false));
+        assert_eq!(P::rule("ask", &t, &b, "not a url"), (false, false));
+    }
 }

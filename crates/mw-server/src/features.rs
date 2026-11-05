@@ -244,7 +244,11 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
             &["/api/image-proxy", "/api/rc/batch", "/api/remote-images/grant"],
             &[],
         ),
-        &["privacy.trackerOverrideAllowed"],
+        &[
+            "privacy.trackerOverrideAllowed",
+            "images.trustedHosts",
+            "images.blockedHosts",
+        ],
     ),
     toggle(
         "privacy.direct_content",

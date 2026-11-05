@@ -218,7 +218,7 @@ async fn refresh_capacity(
         limits.ceilings(),
         resources,
         limits.image_bytes,
-        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES,
     );
     if changed || controller.effective != Some(effective) || controller.revision == 0 {
         controller.revision = controller.revision.saturating_add(1);
@@ -761,11 +761,16 @@ pub(crate) async fn sign(
         )
             .into_response();
     }
+    // A message-wide grant (or proxy mode) admits every image except a blocked
+    // host's. Without one, only images from a host the user trusts are signed.
+    let mut message_allowed = true;
     if !body.urls.is_empty() {
-        match image_allowed(&state, &session, &body.email_id, &policy).await {
-            Ok(true) => {}
-            Ok(false) => return forbidden("remote content is not allowed for this message"),
+        message_allowed = match image_allowed(&state, &session, &body.email_id, &policy).await {
+            Ok(allowed) => allowed,
             Err(()) => return internal("remote-content grant check"),
+        };
+        if !message_allowed && !body.urls.iter().any(|url| policy.host_trusted(url)) {
+            return forbidden("remote content is not allowed for this message");
         }
     }
     if !body.files.is_empty() || !body.parts.is_empty() {
@@ -816,6 +821,10 @@ pub(crate) async fn sign(
             Some("scheme")
         } else if policy.trackers && mw_sanitize::remote::is_tracker_url(url) {
             Some("tracker")
+        } else if policy.host_blocked(url) {
+            Some("blocked-host")
+        } else if !message_allowed && !policy.host_trusted(url) {
+            Some("consent")
         } else {
             None
         };
@@ -1100,8 +1109,12 @@ async fn authorize_image(
     claims: &Claims,
     policy: &crate::remote_policy::PrivacyPolicy,
 ) -> Result<(), Response> {
+    if policy.host_blocked(&claims.u) {
+        return Err(forbidden("image host blocked by the user"));
+    }
     match image_allowed(state, session, &claims.e, policy).await {
         Ok(true) => {}
+        Ok(false) if policy.host_trusted(&claims.u) => {}
         Ok(false) => return Err(forbidden("remote content is not allowed for this message")),
         Err(()) => return Err(internal("remote-content grant check")),
     }
@@ -1606,7 +1619,7 @@ pub(super) fn effective_limits_for(
         policy.fetch.ceilings(),
         super::resources::snapshot(),
         policy.fetch.image_bytes,
-        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES,
     )
 }
 
@@ -2059,7 +2072,7 @@ pub(crate) async fn stats(
         effective,
         resources,
         limits.image_bytes,
-        mw_render::media_jail::IMAGE_MEMORY_MAX_BYTES,
+        mw_render::media_jail::IMAGE_DECODE_TYPICAL_BYTES,
         hit_percent,
     );
     let image_rate = json!({

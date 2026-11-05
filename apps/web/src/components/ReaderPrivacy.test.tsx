@@ -388,6 +388,24 @@ describe('Reader signed privacy pipeline',()=>{
     policy.mode='ask';granted=true;await open([message('m1','<img src="https://cdn.example.test/image.png">')]);
     await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
   });
+  async function hostRules(trusted:string[],blocked:string[]):Promise<void>{await loadSettings({refresh:true,fetcher:async()=>json({settings:{'images.trustedHosts':{value:trusted,locked:false,source:'user'},'images.blockedHosts':{value:blocked,locked:false,source:'user'}}})});}
+  it('signs only trusted hosts while images are on ask, and never a blocked host in any mode',async()=>{
+    policy.mode='ask';await hostRules(['cdn.shop.test'],['ads.shop.test']);
+    await open([message('m1','<img src="https://cdn.shop.test/a.png"><img src="https://other.test/b.png"><img src="https://ads.shop.test/c.png">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    expect(requests).toEqual([{emailId:'m1',urls:['https://cdn.shop.test/a.png'],parts:[]}].map(r=>expect.objectContaining({urls:r.urls})));
+  });
+  it('lets a blocked host win over a grant and over proxy mode',async()=>{
+    policy.mode='proxy';granted=true;await hostRules(['shop.test'],['ads.shop.test']);
+    await open([message('m1','<img src="https://cdn.shop.test/a.png"><img src="https://ads.shop.test/c.png">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('/api/rc/i/m1.signature'));
+    expect(requests.at(-1)?.urls).toEqual(['https://cdn.shop.test/a.png']);
+  });
+  it('trusts nothing in block mode',async()=>{
+    policy.mode='block';await hostRules(['cdn.shop.test'],[]);
+    await open([message('m1','<img src="https://cdn.shop.test/a.png">')]);
+    await waitFor(()=>expect(frame()?.srcdoc).toContain('data:image/gif'));expect(requests).toEqual([]);
+  });
   it('keeps refused images blocked while retaining readable text',async()=>{
     signFailed=true;await open([message('m1','<p>Still readable</p><img src="https://cdn.example.test/image.png">')]);
     await waitFor(()=>expect(frame()?.srcdoc).toContain('Still readable'));

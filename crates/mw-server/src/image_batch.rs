@@ -139,19 +139,27 @@ pub(crate) async fn batch(
     };
     // The grant and membership are checked once for the message. A refusal
     // answers every token and fetches nothing.
-    match image_allowed(&state, &session, &email, &policy).await {
-        Ok(true) => {}
-        Ok(false) => {
-            for (index, _) in &accepted {
-                results[*index] = Some(refused(
-                    *index,
-                    403,
-                    "remote content is not allowed for this message",
-                ));
-            }
-            return respond(results);
-        }
+    let message_allowed = match image_allowed(&state, &session, &email, &policy).await {
+        Ok(allowed) => allowed,
         Err(()) => return super::internal("remote-content grant check"),
+    };
+    // Blocked hosts never load; without a grant only trusted hosts do.
+    let (accepted, denied): (Vec<_>, Vec<_>) = accepted.into_iter().partition(|(_, claims)| {
+        !policy.host_blocked(&claims.u) && (message_allowed || policy.host_trusted(&claims.u))
+    });
+    for (index, claims) in &denied {
+        results[*index] = Some(refused(
+            *index,
+            403,
+            if policy.host_blocked(&claims.u) {
+                "image host blocked by the user"
+            } else {
+                "remote content is not allowed for this message"
+            },
+        ));
+    }
+    if accepted.is_empty() {
+        return respond(results);
     }
 
     let mut first_for_url: HashMap<String, usize> = HashMap::new();

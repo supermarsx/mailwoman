@@ -129,6 +129,7 @@ fn setting_feature(key: &str) -> Option<&'static str> {
         "mail.openTracking" => Some("compose.open_tracking"),
         "mail.reader.allowOriginalHtml" => Some("reading.original_html"),
         "reader.zoom" => Some("reading.zoom"),
+        "images.trustedHosts" | "images.blockedHosts" => Some("privacy.remote_images"),
         "links.trustedDomains" | "links.trustedSubdomains" | "links.trustedSenders" => {
             Some("privacy.trusted_links")
         }

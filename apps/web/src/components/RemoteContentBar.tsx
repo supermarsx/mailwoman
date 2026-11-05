@@ -62,6 +62,8 @@ export interface RemoteContentBarProps {
   onGrant?: (scope: GrantScope, options?: MutationOptions) => Promise<void> | void;
   /** Revoke a grant. Defaults to a no-op. */
   onRevoke?: (scope: GrantScope, options?: MutationOptions) => Promise<void> | void;
+  /** Open the per-source image rules (Always show / Ask / Never show). Shown only when given. */
+  onManageHosts?: () => void;
   /** Open Settings › Privacy. The menu item is shown only when given. */
   onOpenPrivacySettings?: () => void;
 }
@@ -165,6 +167,8 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
       if(props.imageFailures&&props.imageFailures.count>0&&props.onRetryImages&&(mode()==='proxy'||(mode()==='ask'&&granted())))items.push({id:'retry',label:t('remote-images-toast-retry'),icon:'restore',disabled:pending()||props.imageFailures.retrying,run:()=>props.onRetryImages?.()});
     }
     if(props.trackerOverrideAllowed&&mode()!=='block')items.push({id:'trackers',label:t(props.trackersAllowed?'mail-privacy-trackers-block':'mail-privacy-trackers-allow'),icon:props.trackersAllowed?'shield':'eye',disabled:pending(),run:()=>change('trackers',()=>props.trackersAllowed?props.onRevoke?.({kind:'trackers-single',value:props.emailId},options):props.onGrant?.({kind:'trackers-single',value:props.emailId},options))});
+    const manage = props.onManageHosts;
+    if (manage && mode() !== 'block') items.push({ id: 'hosts', label: t('remote-banner-hosts-manage'), icon: 'domains', disabled: pending(), run: () => manage() });
     if (mode() === 'ask' && !granted()) {
       for (const kind of MENU_KINDS) {
         if (kind === 'per-sender' && props.sender === '') continue;
