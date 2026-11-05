@@ -139,7 +139,7 @@ export function SecurityPopup(props:{onClose:()=>void;children:JSX.Element;title
   onMount(()=>{if(element)onCleanup(wireDialogFocus(element,props.onClose));});
   return <Portal><div class={css.backdrop} onClick={event=>{if(event.target===event.currentTarget)props.onClose();}}>
     <div ref={element} id={props.id} class={css.dialog} role="dialog" aria-modal="true" aria-labelledby={props.labelledBy} aria-label={props.labelledBy ? undefined : props.title ?? t('security-panel-region')} tabIndex={-1}>
-      <header class={css.dialogHeader}><h3 id={props.labelledBy}>{props.title ?? t('security-panel-region')}</h3><button type="button" aria-label={t('mail-compose-close')} onClick={props.onClose}><Icon name="close"/></button></header>
+      <header class={css.dialogHeader}><h3 id={props.labelledBy} class={css.dialogTitle}>{props.title ?? t('security-panel-region')}</h3><button type="button" class={css.dialogClose} aria-label={t('mail-compose-close')} onClick={props.onClose}><Icon name="close"/></button></header>
       {props.children}
     </div>
   </div></Portal>;
@@ -199,15 +199,65 @@ function AuthRow(props: {
   return (
     <div class={css.authRow}>
       <span class={css.authName}>{props.name}</span>
-      <span>
+      <span class={css.authBody}>
         <Badge tone={AUTH_RESULT_TONE[props.result]}>
           {props.name} {t(`security-auth-${props.result}`)}
         </Badge>
         <Show when={props.children}>
-          <span class={css.authDetail}> {props.children}</span>
+          <span class={css.authDetail}>{props.children}</span>
+        </Show>
+        <Show when={props.result !== 'pass'}>
+          <Explain code={`auth-${props.result}`} />
         </Show>
       </span>
     </div>
+  );
+}
+
+// ── Explanations ─────────────────────────────────────────────────────────────
+
+export const EXPLAIN_FIELDS = ['severity', 'meaning', 'legit', 'risk', 'action'] as const;
+
+/** Severity per finding code; the copy lives in `security-explain-<code>-*` (security.ftl). */
+export const EXPLAIN_SEVERITY: Record<string, 'info' | 'caution' | 'suspicious'> = {
+  messageIdDomainAnomaly: 'caution',
+  replyToMismatch: 'caution',
+  envelopeFromDivergence: 'info',
+  dateSkew: 'info',
+  punycodeSender: 'suspicious',
+  'auth-fail': 'suspicious',
+  'auth-permerror': 'caution',
+  'auth-none': 'info',
+  'auth-neutral': 'info',
+  'auth-temperror': 'info',
+};
+const SEVERITY_TONE: Record<'info' | 'caution' | 'suspicious', SecurityTone> = {
+  info: 'neutral',
+  caution: 'warning',
+  suspicious: 'bad',
+};
+
+/** Severity chip plus an expandable "What does this mean?" for one finding. */
+export function Explain(props: { code: string }): JSX.Element {
+  const field = (f: (typeof EXPLAIN_FIELDS)[number]): string => t(`security-explain-${props.code}-${f}`);
+  const sev = (): 'info' | 'caution' | 'suspicious' => EXPLAIN_SEVERITY[props.code] ?? 'info';
+  return (
+    <details class={css.explain} data-explain={props.code} data-severity={sev()}>
+      <summary class={css.explainSummary}>{t('security-explain-toggle')}</summary>
+      <div class={css.explainBody}>
+        <Badge tone={SEVERITY_TONE[sev()]}>{field('severity')}</Badge>
+        <dl class={css.explainList}>
+          <dt>{t('security-explain-label-checked')}</dt>
+          <dd>{field('meaning')}</dd>
+          <dt>{t('security-explain-label-legit')}</dt>
+          <dd>{field('legit')}</dd>
+          <dt>{t('security-explain-label-risk')}</dt>
+          <dd>{field('risk')}</dd>
+          <dt>{t('security-explain-label-action')}</dt>
+          <dd>{field('action')}</dd>
+        </dl>
+      </div>
+    </details>
   );
 }
 
@@ -395,7 +445,10 @@ function AnomaliesSection(props: {
                 <span class={css.anomalyMark} aria-hidden="true">
                   <Icon name="alert" />
                 </span>
-                <span>{t(`security-anomaly-${token}`)}</span>
+                <span class={css.anomalyBody}>
+                  <span>{t(`security-anomaly-${token}`)}</span>
+                  <Explain code={token} />
+                </span>
               </li>
             )}
           </For>

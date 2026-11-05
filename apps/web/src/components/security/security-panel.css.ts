@@ -3,7 +3,7 @@
 // chrome (light/dark/hc/amoled/grove) — the "new components use vars.* directly"
 // path, plan §2.3. Zero-runtime: compiled to static CSS by vanilla-extract.
 
-import { style, styleVariants } from '@vanilla-extract/css';
+import { globalStyle, style, styleVariants } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 
 /** Per-tone colour, shared by the chip, badges and section accents. */
@@ -75,21 +75,23 @@ export const chipCaret = style({
 // ── Expanded panel ───────────────────────────────────────────────────────────
 
 export const panel = style({
-  marginBlockStart: vars.space[2],
-  border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
-  borderRadius: vars.radius.md,
-  background: vars.color.surface,
-  boxShadow: vars.elevation[2],
-  padding: `calc(${vars.space[4]} - 1px)`,
+  // Lives inside the dialog, which already supplies the frame and padding, so the
+  // panel just fills the dialog's content box (no nested frame, no max-width).
+  marginBlockStart: vars.space[3],
+  inlineSize: '100%',
+  boxSizing: 'border-box',
+  minInlineSize: 0,
   display: 'flex',
   flexDirection: 'column',
   gap: vars.space[4],
-  maxWidth: '32rem',
 });
 
 export const backdrop=style({position:'fixed',inset:0,zIndex:1200,background:vars.color.scrim,display:'grid',placeItems:'center',padding:vars.space[4]});
 export const dialog=style({background:vars.color.surface,color:vars.color.text,border:`${vars.border.rule} solid ${vars.color.borderStrong}`,boxShadow:vars.elevation[2],inlineSize:'min(38rem, 100%)',maxBlockSize:'calc(100dvh - 2rem)',overflow:'auto',padding:vars.space[4]});
-export const dialogHeader=style({display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[3]});
+export const dialogHeader=style({display:'flex',alignItems:'center',justifyContent:'space-between',gap:vars.space[3],paddingBlockEnd:vars.space[2],borderBlockEnd:`${vars.border.hair} solid ${vars.color.border}`});
+export const dialogTitle=style({margin:0,fontSize:'1rem',minInlineSize:0,overflowWrap:'anywhere'});
+// Close sits at the inline-end edge of the header, inside the dialog padding.
+export const dialogClose=style({appearance:'none',flex:'0 0 auto',display:'inline-grid',placeItems:'center',margin:0,marginInlineStart:'auto',minInlineSize:vars.a11y.touchTarget,minBlockSize:vars.a11y.touchTarget,padding:0,border:'none',background:'transparent',color:vars.color.textDim,cursor:'pointer',borderRadius:vars.radius.sm,selectors:{'&:hover':{color:vars.color.text}}});
 
 export const summary = style({
   margin: 0,
@@ -145,9 +147,21 @@ export const badgeTone = styleVariants(TONE_COLOR, (color) => ({ color, borderCo
 
 export const authRow = style({
   display: 'grid',
-  gridTemplateColumns: 'auto 1fr',
+  gridTemplateColumns: 'minmax(3.5rem, max-content) minmax(0, 1fr)',
   alignItems: 'baseline',
   gap: vars.space[3],
+  inlineSize: '100%',
+  paddingBlock: vars.space[1],
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+  selectors: { '&:last-child': { borderBlockEnd: 'none' } },
+});
+
+export const authBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: vars.space[1],
+  minInlineSize: 0,
 });
 
 export const authName = style({
@@ -221,7 +235,8 @@ export const hopMeta = style({
 
 export const factGrid = style({
   display: 'grid',
-  gridTemplateColumns: 'auto 1fr',
+  inlineSize: '100%',
+  gridTemplateColumns: 'minmax(6rem, max-content) minmax(0, 1fr)',
   gap: `${vars.space[1]} ${vars.space[3]}`,
   fontSize: '0.82rem',
   margin: 0,
@@ -322,3 +337,42 @@ export const inlineChip = style({
   border: 'none', background: 'transparent', paddingInline: 0,
   selectors: {'&:hover': {boxShadow: 'none', textDecoration: 'underline'}},
 });
+
+// ── Finding explanations ─────────────────────────────────────────────────────
+
+export const anomalyBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: vars.space[1],
+  minInlineSize: 0,
+  flex: '1 1 auto',
+});
+
+export const explain = style({ fontSize: '0.8rem', color: vars.color.textDim, minInlineSize: 0 });
+
+export const explainSummary = style({
+  cursor: 'pointer',
+  color: vars.color.accentText,
+  textDecoration: 'underline',
+  minBlockSize: '1.5rem',
+});
+
+export const explainBody = style({
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'flex-start',
+  gap: vars.space[2],
+  marginBlockStart: vars.space[1],
+  paddingInlineStart: vars.space[3],
+  borderInlineStart: `${vars.border.rule} solid ${vars.color.border}`,
+});
+
+export const explainList = style({
+  margin: 0,
+  display: 'grid',
+  gridTemplateColumns: 'minmax(0, 1fr)',
+  gap: vars.space[0],
+});
+
+globalStyle(`${explainList} dt`, { fontWeight: vars.weight.bold, color: vars.color.text, marginBlockStart: vars.space[1] });
+globalStyle(`${explainList} dd`, { margin: 0, overflowWrap: 'anywhere' });
