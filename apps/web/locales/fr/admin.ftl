@@ -23,7 +23,6 @@ admin-saved = Enregistré.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = Connexion administrateur
-admin-login-note = Ce panneau fonctionne dans une session d’administration distincte. La session se termine après 30 minutes d’inactivité, et au plus tard 12 heures après la connexion.
 admin-login-session-ended = Votre session d’administration est terminée. Reconnectez-vous.
 admin-login-username = Nom d’utilisateur administrateur
 admin-login-password = Mot de passe

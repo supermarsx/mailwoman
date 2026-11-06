@@ -24,7 +24,6 @@ admin-saved = Opgeslagen.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = Inloggen als beheerder
-admin-login-note = Dit paneel draait onder een aparte beheersessie. De sessie eindigt na 30 minuten zonder activiteit, en uiterlijk 12 uur na het inloggen.
 admin-login-session-ended = Uw beheersessie is beëindigd. Log opnieuw in.
 admin-login-username = Gebruikersnaam beheerder
 admin-login-password = Wachtwoord

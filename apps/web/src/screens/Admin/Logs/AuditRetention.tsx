@@ -178,17 +178,17 @@ export function AuditRetention(props: { api?: RetentionApi; canWrite?: boolean; 
   return (
     <Show when={!hidden()}>
     <section class={css.section} aria-labelledby="audit-retention-title" data-testid="audit-retention">
-      <h3 id="audit-retention-title" class={css.heading}>{t('admin-retention-title')}</h3>
-      <p class={css.note}>{t('admin-retention-intro')}</p>
+      <h3 id="audit-retention-title" class={css.heading}>{t('admin-audit-retention-title')}</h3>
+      <p class={css.note}>{t('admin-audit-retention-intro')}</p>
       <Feedback kind="error" message={error()} />
       <Feedback kind="success" message={notice()} testId="retention-notice" />
-      <Show when={state() !== undefined} fallback={<p class={css.note}>{t('admin-retention-loading')}</p>}>
-        <Show when={state()} fallback={<p class={css.note}>{t('admin-retention-unavailable')}</p>}>
+      <Show when={state() !== undefined} fallback={<p class={css.note}>{t('admin-audit-retention-loading')}</p>}>
+        <Show when={state()} fallback={<p class={css.note}>{t('admin-audit-retention-unavailable')}</p>}>
           {(s) => (
             <>
-              <div class={css.tableWrap} tabindex="0" role="group" aria-label={t('admin-retention-title')}>
+              <div class={css.tableWrap} tabindex="0" role="group" aria-label={t('admin-audit-retention-title')}>
                 <table class={css.table}>
-                  <caption class={shellCss.srOnly}>{t('admin-retention-title')}</caption>
+                  <caption class={shellCss.srOnly}>{t('admin-audit-retention-title')}</caption>
                   <thead><tr>
                     <th scope="col">{t('admin-retention-col-category')}</th>
                     <th scope="col">{t('admin-retention-col-kept')}</th>

@@ -202,3 +202,7 @@ admin-retention-pruned = { $count ->
    *[other] { $count } voci rimosse.
  }
 admin-auth-attempted = Tentato come { $name }
+admin-audit-retention-title = Conservazione del registro di audit
+admin-audit-retention-intro = Per quanto tempo vengono conservate le voci di audit, per categoria. Una categoria senza valore proprio segue il predefinito; senza predefinito ogni voce viene conservata. Un blocco legale ferma la pulizia della sua categoria, e un blocco sul predefinito la ferma per tutte. Modifiche e pulizie vengono registrate nel registro di audit.
+admin-audit-retention-loading = Caricamento dei criteri di conservazione…
+admin-audit-retention-unavailable = La conservazione dell’audit non è disponibile su questo server.

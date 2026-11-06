@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = Białe na czarnym z białymi obramowaniami, bez 
 appearance-family-core = Domyślne
 appearance-family-bauhaus = Bauhaus
 appearance-family-slate = Łupek
-appearance-family-ocean = Ocean
-appearance-family-plum = Śliwka
-appearance-family-grove = Gaj
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Wysoki kontrast
 

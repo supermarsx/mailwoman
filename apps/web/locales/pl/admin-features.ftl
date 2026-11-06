@@ -216,8 +216,7 @@ admin-features-domain-alias = { $alias } (alias domeny { $domain })
 admin-features-domain-aliases = { $domain } (aliasy: { $aliases })
 
 # -- Machine translation (2026-11): added to match en ---------------------
-admin-retention-title = Retencja dziennika audytu
-admin-retention-intro = Jak długo przechowywane są wpisy audytu, według kategorii. Kategoria bez własnej wartości stosuje wartość domyślną; bez wartości domyślnej zachowywany jest każdy wpis. Blokada prawna wstrzymuje usuwanie dla swojej kategorii, a blokada na wartości domyślnej wstrzymuje je dla wszystkich. Zmiany i usunięcia są zapisywane w dzienniku audytu.
-admin-retention-loading = Wczytywanie zasad retencji…
-admin-retention-unavailable = Retencja audytu nie jest dostępna na tym serwerze.
-admin-retention-never = Nie usunięto jeszcze żadnych wpisów.
+admin-audit-retention-title = Retencja dziennika audytu
+admin-audit-retention-intro = Jak długo przechowywane są wpisy audytu, według kategorii. Kategoria bez własnej wartości stosuje wartość domyślną; bez wartości domyślnej zachowywany jest każdy wpis. Blokada prawna wstrzymuje usuwanie dla swojej kategorii, a blokada na wartości domyślnej wstrzymuje je dla wszystkich. Zmiany i usunięcia są zapisywane w dzienniku audytu.
+admin-audit-retention-loading = Wczytywanie zasad retencji…
+admin-audit-retention-unavailable = Retencja audytu nie jest dostępna na tym serwerze.

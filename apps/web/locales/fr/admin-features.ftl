@@ -200,3 +200,7 @@ admin-features-setting-mode = Mode de valeur pour { $setting }
 admin-features-inherit-help = Hériter supprime la valeur et le verrou de ce profil. Le profil applicable suivant, le domaine ou la valeur du serveur décide ; l'aperçu des valeurs effectives montre le résultat et sa source.
 admin-features-domain-alias = { $alias } (alias de { $domain })
 admin-features-domain-aliases = { $domain } (alias : { $aliases })
+admin-audit-retention-title = Conservation du journal d’audit
+admin-audit-retention-intro = Durée de conservation des entrées d’audit, par catégorie. Une catégorie sans valeur propre suit la valeur par défaut ; sans valeur par défaut, toutes les entrées sont conservées. Une conservation légale suspend la purge de sa catégorie, et une conservation sur la valeur par défaut la suspend pour toutes. Les modifications et les purges sont consignées dans le journal d’audit.
+admin-audit-retention-loading = Chargement de la politique de conservation…
+admin-audit-retention-unavailable = La conservation de l’audit n’est pas disponible sur ce serveur.

@@ -74,9 +74,6 @@ appearance-theme-hc-dark-desc = Blanc sur noir, bordures blanches et aucune surf
 appearance-family-core = Par défaut
 appearance-family-bauhaus = Bauhaus
 appearance-family-slate = Ardoise
-appearance-family-ocean = Océan
-appearance-family-plum = Prune
-appearance-family-grove = Bosquet
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Contraste élevé
 

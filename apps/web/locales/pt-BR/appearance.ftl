@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = Branco sobre preto com bordas brancas e sem supe
 appearance-family-core = Padrão
 appearance-family-bauhaus = Bauhaus
 appearance-family-slate = Ardósia
-appearance-family-ocean = Oceano
-appearance-family-plum = Ameixa
-appearance-family-grove = Bosque
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Alto contraste
 

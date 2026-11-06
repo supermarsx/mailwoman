@@ -202,3 +202,7 @@ admin-retention-pruned = { $count ->
    *[other] { $count } entradas removidas.
  }
 admin-auth-attempted = Tentado como { $name }
+admin-audit-retention-title = Retenção do registro de auditoria
+admin-audit-retention-intro = Por quanto tempo as entradas de auditoria são mantidas, por categoria. Uma categoria sem valor próprio segue o padrão; sem padrão, todas as entradas são mantidas. Uma retenção legal interrompe a limpeza da sua categoria, e uma retenção no padrão a interrompe em todas. Alterações e limpezas são registradas no registro de auditoria.
+admin-audit-retention-loading = Carregando a política de retenção…
+admin-audit-retention-unavailable = A retenção de auditoria não está disponível neste servidor.

@@ -74,9 +74,6 @@ appearance-theme-hc-dark-desc = 黒地に白、白の枠線、色付きの面な
 appearance-family-core = 既定
 appearance-family-bauhaus = バウハウス
 appearance-family-slate = スレート
-appearance-family-ocean = オーシャン
-appearance-family-plum = プラム
-appearance-family-grove = グローブ
 appearance-family-amoled = AMOLED
 appearance-family-contrast = ハイコントラスト
 

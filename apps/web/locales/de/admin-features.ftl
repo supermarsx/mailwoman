@@ -200,3 +200,7 @@ admin-features-setting-mode = Wertmodus für { $setting }
 admin-features-inherit-help = „Erben“ entfernt Wert und Sperre dieses Profils. Das nächste anwendbare Profil, die Domain oder der Serverwert entscheidet; die Vorschau der wirksamen Werte zeigt das Ergebnis und seine Quelle.
 admin-features-domain-alias = { $alias } (Alias von { $domain })
 admin-features-domain-aliases = { $domain } (Aliase: { $aliases })
+admin-audit-retention-title = Aufbewahrung des Audit-Protokolls
+admin-audit-retention-intro = Wie lange Audit-Einträge aufbewahrt werden, je Kategorie. Eine Kategorie ohne eigenen Wert folgt dem Standard; ohne Standard bleibt jeder Eintrag erhalten. Eine rechtliche Sperre stoppt das Löschen für ihre Kategorie, eine Sperre auf dem Standard für alle. Änderungen und Löschläufe werden im Audit-Protokoll festgehalten.
+admin-audit-retention-loading = Aufbewahrungsrichtlinie wird geladen…
+admin-audit-retention-unavailable = Die Audit-Aufbewahrung ist auf diesem Server nicht verfügbar.

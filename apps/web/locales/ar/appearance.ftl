@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = أبيض على أسود بحدود بيضاء �
 appearance-family-core = الافتراضية
 appearance-family-bauhaus = باوهاوس
 appearance-family-slate = أردوازي
-appearance-family-ocean = محيط
-appearance-family-plum = برقوقي
-appearance-family-grove = بستان
 appearance-family-amoled = AMOLED
 appearance-family-contrast = تباين عالٍ
 

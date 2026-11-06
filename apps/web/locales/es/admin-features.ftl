@@ -200,3 +200,7 @@ admin-features-setting-mode = Modo de valor para { $setting }
 admin-features-inherit-help = Heredar quita el valor y el bloqueo de este perfil. Decide el siguiente perfil aplicable, el dominio o el valor del servidor; la vista previa de valores efectivos muestra el resultado y su origen.
 admin-features-domain-alias = { $alias } (alias de { $domain })
 admin-features-domain-aliases = { $domain } (alias: { $aliases })
+admin-audit-retention-title = Conservación del registro de auditoría
+admin-audit-retention-intro = Cuánto tiempo se conservan las entradas de auditoría, por categoría. Una categoría sin valor propio sigue el predeterminado; sin predeterminado se conservan todas las entradas. Una retención legal detiene la depuración de su categoría, y una retención sobre el predeterminado la detiene en todas. Los cambios y las depuraciones quedan registrados en el registro de auditoría.
+admin-audit-retention-loading = Cargando la política de conservación…
+admin-audit-retention-unavailable = La conservación de auditoría no está disponible en este servidor.

@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = Weiß auf Schwarz mit weißen Rahmen und ohne ge
 appearance-family-core = Standard
 appearance-family-bauhaus = Bauhaus
 appearance-family-slate = Schiefer
-appearance-family-ocean = Ozean
-appearance-family-plum = Pflaume
-appearance-family-grove = Hain
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Hoher Kontrast
 

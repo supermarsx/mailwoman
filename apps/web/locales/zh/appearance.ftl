@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = 黑底白字，白色边框，无着色表面。
 appearance-family-core = 默认
 appearance-family-bauhaus = 包豪斯
 appearance-family-slate = 石板
-appearance-family-ocean = 海洋
-appearance-family-plum = 梅紫
-appearance-family-grove = 林木
 appearance-family-amoled = AMOLED
 appearance-family-contrast = 高对比度
 

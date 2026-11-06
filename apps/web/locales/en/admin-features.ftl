@@ -153,10 +153,10 @@ admin-features-source-locked = { $source } (locked)
 
 ## Admin › Observability › Audit log retention (t39 L5)
 
-admin-retention-title = Audit log retention
-admin-retention-intro = How long audit entries are kept, per category. A category without its own value follows the default; with no default every entry is kept. A legal hold stops pruning for its category, and a hold on the default stops it for all. Changes and prunes are recorded in the audit log.
-admin-retention-loading = Loading the retention policy…
-admin-retention-unavailable = Audit retention is not available on this server.
+admin-audit-retention-title = Audit log retention
+admin-audit-retention-intro = How long audit entries are kept, per category. A category without its own value follows the default; with no default every entry is kept. A legal hold stops pruning for its category, and a hold on the default stops it for all. Changes and prunes are recorded in the audit log.
+admin-audit-retention-loading = Loading the retention policy…
+admin-audit-retention-unavailable = Audit retention is not available on this server.
 admin-retention-col-category = Category
 admin-retention-col-kept = Kept
 admin-retention-col-change = Change
@@ -187,7 +187,6 @@ admin-retention-task-disabled = The scheduled prune task is disabled; entries ar
 admin-retention-task-next = Next scheduled prune: { $when }.
 admin-retention-task-daily = Pruned daily at 03:15 UTC.
 admin-retention-last = Last prune that removed entries: { $when }.
-admin-retention-never = No entries have been pruned yet.
 admin-retention-prune = Prune now
 admin-retention-prune-title = Prune the audit log now?
 admin-retention-prune-body = Entries older than their category's retention are deleted. Categories that keep every entry or are on legal hold are not changed. This cannot be undone.

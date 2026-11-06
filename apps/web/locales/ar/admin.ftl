@@ -23,7 +23,6 @@ admin-saved = تم الحفظ.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = تسجيل دخول المسؤول
-admin-login-note = تعمل هذه اللوحة ضمن جلسة مسؤول منفصلة. تنتهي الجلسة بعد 30 دقيقة من عدم النشاط، وبعد 12 ساعة من تسجيل الدخول كحدّ أقصى.
 admin-login-session-ended = انتهت جلسة المسؤول. سجّل الدخول مرة أخرى.
 admin-login-username = اسم مستخدم المسؤول
 admin-login-password = كلمة المرور

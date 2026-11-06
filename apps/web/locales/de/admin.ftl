@@ -23,7 +23,6 @@ admin-saved = Gespeichert.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = Admin-Anmeldung
-admin-login-note = Dieser Bereich läuft in einer eigenen Admin-Sitzung. Die Sitzung endet nach 30 Minuten ohne Aktivität und spätestens 12 Stunden nach der Anmeldung.
 admin-login-session-ended = Ihre Admin-Sitzung ist beendet. Melden Sie sich erneut an.
 admin-login-username = Admin-Benutzername
 admin-login-password = Passwort

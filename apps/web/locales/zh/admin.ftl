@@ -24,7 +24,6 @@ admin-saved = 已保存。
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = 管理员登录
-admin-login-note = 此面板在单独的管理员会话中运行。会话在 30 分钟无活动后结束，最迟在登录 12 小时后结束。
 admin-login-session-ended = 你的管理员会话已结束。请重新登录。
 admin-login-username = 管理员用户名
 admin-login-password = 密码

@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = Белое на чёрном с белыми р�
 appearance-family-core = По умолчанию
 appearance-family-bauhaus = Баухаус
 appearance-family-slate = Сланец
-appearance-family-ocean = Океан
-appearance-family-plum = Слива
-appearance-family-grove = Роща
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Высокая контрастность
 

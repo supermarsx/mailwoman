@@ -88,9 +88,6 @@ appearance-theme-hc-dark-desc = Wit op zwart met witte randen en zonder getinte 
 appearance-family-core = Standaard
 appearance-family-bauhaus = Bauhaus
 appearance-family-slate = Leisteen
-appearance-family-ocean = Oceaan
-appearance-family-plum = Pruim
-appearance-family-grove = Bosje
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Hoog contrast
 

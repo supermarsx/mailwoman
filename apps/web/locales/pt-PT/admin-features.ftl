@@ -156,10 +156,10 @@ admin-features-source-locked = { $source } (bloqueado)
 
 ## Admin › Observabilidade › Retenção do registo de auditoria (t39 L5)
 
-admin-retention-title = Retenção do registo de auditoria
-admin-retention-intro = Durante quanto tempo as entradas de auditoria são mantidas, por categoria. Uma categoria sem valor próprio segue a predefinição; sem predefinição, todas as entradas são mantidas. Uma retenção legal impede a limpeza da sua categoria, e uma retenção na predefinição impede-a para todas. As alterações e as limpezas ficam registadas no registo de auditoria.
-admin-retention-loading = A carregar a política de retenção…
-admin-retention-unavailable = A retenção da auditoria não está disponível neste servidor.
+admin-audit-retention-title = Retenção do registo de auditoria
+admin-audit-retention-intro = Durante quanto tempo as entradas de auditoria são mantidas, por categoria. Uma categoria sem valor próprio segue a predefinição; sem predefinição, todas as entradas são mantidas. Uma retenção legal impede a limpeza da sua categoria, e uma retenção na predefinição impede-a para todas. As alterações e as limpezas ficam registadas no registo de auditoria.
+admin-audit-retention-loading = A carregar a política de retenção…
+admin-audit-retention-unavailable = A retenção da auditoria não está disponível neste servidor.
 admin-retention-col-category = Categoria
 admin-retention-col-kept = Mantido
 admin-retention-col-change = Alterar
@@ -190,7 +190,6 @@ admin-retention-task-disabled = A tarefa de limpeza agendada está desativada; a
 admin-retention-task-next = Próxima limpeza agendada: { $when }.
 admin-retention-task-daily = Limpo diariamente às 03:15 UTC.
 admin-retention-last = Última limpeza que removeu entradas: { $when }.
-admin-retention-never = Ainda não foram limpas entradas.
 admin-retention-prune = Limpar agora
 admin-retention-prune-title = Limpar o registo de auditoria agora?
 admin-retention-prune-body = As entradas mais antigas do que a retenção da sua categoria são eliminadas. As categorias que mantêm todas as entradas ou estão em retenção legal não são alteradas. Esta ação não pode ser anulada.

@@ -202,3 +202,7 @@ admin-retention-pruned = { $count ->
    *[other] { $count } vermeldingen verwijderd.
  }
 admin-auth-attempted = Geprobeerd als { $name }
+admin-audit-retention-title = Bewaartermijn van het auditlogboek
+admin-audit-retention-intro = Hoe lang auditvermeldingen worden bewaard, per categorie. Een categorie zonder eigen waarde volgt de standaard; zonder standaard blijft elke vermelding bewaard. Een juridische blokkade stopt het opschonen voor haar categorie, en een blokkade op de standaard stopt het voor alle. Wijzigingen en opschoningen worden vastgelegd in het auditlogboek.
+admin-audit-retention-loading = Bewaarbeleid laden…
+admin-audit-retention-unavailable = Auditbewaring is niet beschikbaar op deze server.

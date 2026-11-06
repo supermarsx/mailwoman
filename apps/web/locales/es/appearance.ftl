@@ -74,9 +74,6 @@ appearance-theme-hc-dark-desc = Blanco sobre negro con bordes blancos y sin supe
 appearance-family-core = Predeterminado
 appearance-family-bauhaus = Bauhaus
 appearance-family-slate = Pizarra
-appearance-family-ocean = Océano
-appearance-family-plum = Ciruela
-appearance-family-grove = Arboleda
 appearance-family-amoled = AMOLED
 appearance-family-contrast = Alto contraste
 

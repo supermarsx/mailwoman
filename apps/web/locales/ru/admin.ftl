@@ -24,7 +24,6 @@ admin-saved = Сохранено.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = Вход администратора
-admin-login-note = Эта панель работает в отдельном сеансе администратора. Сеанс завершается после 30 минут бездействия и не позднее чем через 12 часов после входа.
 admin-login-session-ended = Сеанс администратора завершён. Войдите снова.
 admin-login-username = Имя администратора
 admin-login-password = Пароль

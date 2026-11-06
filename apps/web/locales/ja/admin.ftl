@@ -23,7 +23,6 @@ admin-saved = 保存しました。
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = 管理者サインイン
-admin-login-note = このパネルは別の管理者セッションで動作します。セッションは操作がないまま 30 分経過すると終了し、遅くともサインインから 12 時間後に終了します。
 admin-login-session-ended = 管理者セッションが終了しました。もう一度サインインしてください。
 admin-login-username = 管理者ユーザー名
 admin-login-password = パスワード
