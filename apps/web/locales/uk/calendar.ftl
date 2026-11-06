@@ -252,3 +252,200 @@ calendar-share-access-for = Доступ для { $principal }
 calendar-share-remove = Вилучити { $principal }
 calendar-share-read = Лише читання
 calendar-share-readwrite = Читання і запис
+
+# -- Machine translation (2026-11): added to match en ---------------------
+calendar-mini = Навігатор датами
+calendar-event-range = { $title }, з { $start } до { $end }
+calendar-busy-free = Відображається як вільний час
+calendar-event-with-status = { $event } ({ $status })
+calendar-more-label = Ще { $count } { $count ->
+    [one] подія
+    [few] події
+    [many] подій
+   *[other] події
+  } — { $date }
+calendar-fb-caption-people = Зайнятий час у день конфлікту за годинами для вас і кожного запрошеного.
+calendar-fb-unknown = Не вдалося отримати відомості про доступність для: { $principal }.
+calendar-fb-loading = Завантаження відомостей про доступність…
+calendar-import-itip-message = Цей файл — відповідь або скасування, надіслані поштою. Відкрийте лист, з яким він надійшов, щоб застосувати його. Нічого не імпортовано.
+calendar-import-skipped = { $count ->
+    [one] { $count } подія вже була в календарі й залишилася без змін.
+    [few] { $count } події вже були в календарі й залишилися без змін.
+    [many] { $count } подій уже були в календарі й залишилися без змін.
+   *[other] { $count } події вже були в календарі й залишилися без змін.
+}
+calendar-invite-title = Запрошення до календаря
+calendar-invite-sender = Від: { $sender }
+calendar-invite-add = Додати до календаря
+calendar-invite-update = Застосувати оновлення події
+calendar-invite-cancel = Застосувати скасування
+calendar-invite-reply = Записати відповідь учасника
+calendar-invite-new = Це запрошення можна додати до вашого календаря.
+calendar-invite-newer = Організатор надіслав оновлену подію.
+calendar-invite-current = У вашому календарі вже є ця версія.
+calendar-invite-stale = Це повідомлення старіше за подію у вашому календарі.
+calendar-invite-cancelled = Організатор скасував цю подію.
+calendar-invite-response = Учасник надіслав відповідь.
+calendar-invite-not-organizer = Відправник не є збереженим організатором. Нічого не буде змінено.
+calendar-invite-not-attendee = Відправник не є відповідним учасником. Нічого не буде змінено.
+calendar-invite-unknown = Це повідомлення стосується події, якої немає у вашому календарі.
+calendar-invite-unsupported = Цю пропозицію не можна застосувати автоматично.
+calendar-invite-no-reply = Це оновлює ваш календар без надсилання відповіді.
+calendar-invite-applied = Ваш календар оновлено.
+calendar-invite-unchanged = Подію не змінено. Перевірте поточний стан запрошення.
+calendar-invite-apply-failed = Не вдалося застосувати запрошення. Спробуйте ще раз.
+calendar-invite-load-failed = Не вдалося перевірити запрошення.
+calendar-invite-retry = Повторити
+calendar-field-time-zone = Часовий пояс події
+calendar-field-time-zone-help = Використовуйте назву IANA, наприклад Europe/Lisbon. Подія зберігає цей пояс під час перегляду деінде.
+calendar-time-invalid = Вкажіть чинний часовий пояс і місцевий час. Деякого місцевого часу не існує під час переведення годинників уперед.
+calendar-mini-prev = Попередній місяць
+calendar-mini-next = Наступний місяць
+calendar-card-region-event = Подія календаря
+calendar-card-kind-request = Запрошення на зустріч
+calendar-card-kind-update = Оновлене запрошення
+calendar-card-kind-cancel = Скасована зустріч
+calendar-card-kind-reply = Відповідь на зустріч
+calendar-card-kind-counter = Запропоновано новий час
+calendar-card-kind-publish = { $count ->
+    [one] Подія календаря
+    [few] { $count } події календаря
+    [many] { $count } подій календаря
+   *[other] { $count } події календаря
+}
+calendar-card-when = Коли
+calendar-card-where = Де
+calendar-card-organizer = Організатор
+calendar-card-attendees = Учасники
+calendar-card-all-day = { $when } (увесь день)
+calendar-card-organizer-time = Час організатора: { $when } ({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [one] Щодня
+    [few] Кожні { $interval } дні
+    [many] Кожні { $interval } днів
+   *[other] Кожні { $interval } дня
+}
+calendar-card-repeat-weekly = { $interval ->
+    [one] Щотижня
+    [few] Кожні { $interval } тижні
+    [many] Кожні { $interval } тижнів
+   *[other] Кожні { $interval } тижня
+}
+calendar-card-repeat-weekly-on = { $interval ->
+    [one] Щотижня: { $days }
+    [few] Кожні { $interval } тижні: { $days }
+    [many] Кожні { $interval } тижнів: { $days }
+   *[other] Кожні { $interval } тижня: { $days }
+}
+calendar-card-repeat-monthly = { $interval ->
+    [one] Щомісяця
+    [few] Кожні { $interval } місяці
+    [many] Кожні { $interval } місяців
+   *[other] Кожні { $interval } місяця
+}
+calendar-card-repeat-monthly-day = { $interval ->
+    [one] Щомісяця, { $day }-го числа
+    [few] Кожні { $interval } місяці, { $day }-го числа
+    [many] Кожні { $interval } місяців, { $day }-го числа
+   *[other] Кожні { $interval } місяця, { $day }-го числа
+}
+calendar-card-repeat-yearly = { $interval ->
+    [one] Щороку
+    [few] Кожні { $interval } роки
+    [many] Кожні { $interval } років
+   *[other] Кожні { $interval } року
+}
+calendar-card-repeat-until = { $rule } до { $date }
+calendar-card-repeat-count = { $rule }, { $count ->
+    [one] один раз
+    [few] { $count } рази
+    [many] { $count } разів
+   *[other] { $count } разу
+}
+calendar-card-repeat-except = { $rule } ({ $count ->
+    [one] пропущено 1 дату
+    [few] пропущено { $count } дати
+    [many] пропущено { $count } дат
+   *[other] пропущено { $count } дати
+})
+calendar-card-repeat-custom = Повторюється за особливим розкладом
+calendar-card-join = Приєднатися: { $provider }
+calendar-card-organizer-is = Організатор: { $who }
+calendar-card-attendee-summary = { $count ->
+    [one] { $count } учасник
+    [few] { $count } учасники
+    [many] { $count } учасників
+   *[other] { $count } учасника
+} · прийняли: { $accepted }, під питанням: { $tentative }, відхилили: { $declined }
+calendar-card-people-all = Показати всіх ({ $count })
+calendar-card-people-fewer = Показати менше
+calendar-card-rsvp-accepted = Прийнято
+calendar-card-rsvp-tentative = Під питанням
+calendar-card-rsvp-declined = Відхилено
+calendar-card-rsvp-none = Відповіді поки немає
+calendar-card-in-calendar = У вашому календарі
+calendar-card-cancelled = Скасовано
+calendar-card-open = Відкрити в календарі
+calendar-card-agenda = Ваш календар на { $day }
+calendar-card-agenda-title = Ваш день
+calendar-card-agenda-this-event = Ця подія
+calendar-card-agenda-unavailable = Не вдалося завантажити ваш календар на цей день.
+calendar-card-conflicts = { $count ->
+    [one] Перетинається з: { $titles }
+    [few] Перетинається з { $count } подіями: { $titles }
+    [many] Перетинається з { $count } подіями: { $titles }
+   *[other] Перетинається з { $count } подіями: { $titles }
+}
+calendar-card-no-conflicts = Перетинів у вашому календарі немає
+calendar-card-invited-as = Вас запросили як { $address }.
+calendar-card-not-invited = У цьому запрошенні не вказано жодної з ваших адрес. Його можна додати до календаря, але відповісти на нього не можна.
+calendar-card-not-invited-short = У цьому запрошенні не вказано жодної з ваших адрес.
+calendar-card-out-of-date = Це запрошення застаріле. Новіша версія вже є у вашому календарі.
+calendar-card-counter = Новий час запропоновано: { $who }. Пропозиції не застосовуються автоматично.
+calendar-card-todos-skipped = { $count ->
+    [one] У файлі також є 1 завдання, його не додано.
+    [few] У файлі також є { $count } завдання, їх не додано.
+    [many] У файлі також є { $count } завдань, їх не додано.
+   *[other] У файлі також є { $count } завдання, їх не додано.
+}
+calendar-card-respond = Відповісти на запрошення
+calendar-card-accept = Прийняти
+calendar-card-tentative = Під питанням
+calendar-card-decline = Відхилити
+calendar-card-propose = Запропонувати інший час
+calendar-card-propose-start = Новий початок
+calendar-card-propose-send = Надіслати пропозицію
+calendar-card-propose-invalid = Вкажіть чинний новий час початку.
+calendar-card-send-response = Надіслати відповідь: { $organizer }
+calendar-card-comment = Коментар (необов’язково)
+calendar-card-calendar = Календар
+calendar-card-events = Події в цьому файлі
+calendar-card-add-one = Додати
+calendar-card-add-all = Додати всі ({ $count })
+calendar-card-added = { $count ->
+    [one] Додано до вашого календаря.
+    [few] До вашого календаря додано { $count } події.
+    [many] До вашого календаря додано { $count } подій.
+   *[other] До вашого календаря додано { $count } події.
+}
+calendar-card-remove = Вилучити з календаря
+calendar-card-removed = Вилучено з вашого календаря.
+calendar-card-record-reply = Оновити статус учасника
+calendar-card-answered-sent = { $answer }. Вашу відповідь надіслано: { $organizer }.
+calendar-card-answered-not-sent = { $answer }. Ваш календар оновлено, але надіслати відповідь не вдалося.
+calendar-card-answered-silently = { $answer }. Відповідь не надсилалася.
+calendar-card-proposal-sent = Вашу пропозицію надіслано: { $organizer }.
+calendar-card-not-sent = Не вдалося надіслати повідомлення.
+calendar-card-more = { $count ->
+    [one] ще 1
+    [few] ще { $count }
+    [many] ще { $count }
+   *[other] ще { $count }
+}
+
+calendar-card-replied = Відповідь від { $who }: { $answer ->
+    [accepted] прийнято.
+    [tentative] прийнято під питанням.
+    [declined] відхилено.
+   *[other] відповіді поки немає.
+}
