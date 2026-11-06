@@ -118,6 +118,8 @@ fn map_email(message: &Message<'_>, raw: &[u8]) -> Email {
             .body_preview(PREVIEW_LEN)
             .map(|p| p.trim().to_string())
             .filter(|p| !p.is_empty()),
+        mailwoman_priority: crate::priority_from_headers(|name| raw_header_value(message, raw, name))
+            .map(str::to_string),
         has_attachment: has_attachment(message),
         size: raw.len() as u64,
         body_values,
@@ -136,6 +138,14 @@ fn map_email(message: &Message<'_>, raw: &[u8]) -> Email {
 /// When the header appears more than once the last instance is the one read
 /// (RFC 8621 §4.1.3). `None` when the header is absent, is not UTF-8, or
 /// [`message_ids`] refuses it.
+fn raw_header_value<'a>(message: &Message<'_>, raw: &'a [u8], name: &str) -> Option<&'a str> {
+    let header = message
+        .headers()
+        .iter()
+        .find(|h| h.name.as_str().eq_ignore_ascii_case(name))?;
+    std::str::from_utf8(raw.get(header.offset_start as usize..header.offset_end as usize)?).ok()
+}
+
 fn message_ids_header(message: &Message<'_>, raw: &[u8], name: &str) -> Option<Vec<String>> {
     let header = message
         .headers()

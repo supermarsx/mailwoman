@@ -14,6 +14,7 @@
 // also lacks one.
 
 import type { Email } from '../api/jmap-types.ts';
+import { highestPriority } from './messagePriority.ts';
 
 export type ThreadRowKind = 'single' | 'head' | 'child';
 
@@ -36,6 +37,8 @@ export interface ThreadVisualRow {
   senderCount: number;
   /** head: any member carries an attachment. */
   hasAttachment: boolean;
+  /** head: the highest priority among the members. */
+  priority?: 'high' | 'normal' | 'low';
 }
 
 /** The group key for a message: its threadId, or its own id when the engine
@@ -101,6 +104,7 @@ export function groupThreads(emails: Email[], expanded: ReadonlySet<string>): Th
       expanded: isExpanded,
       senderCount: senders.size,
       hasAttachment: members.some((m) => m.hasAttachment === true),
+      priority: highestPriority(members),
     });
     if (isExpanded) {
       const chrono = [...members].sort((a, b) => a.receivedAt.localeCompare(b.receivedAt));

@@ -266,7 +266,7 @@ export function Compose(props: {
   let identityTouched = false;
   let autoPicked = false;
   const pickIdentity = (value: string): void => { identityTouched = true; setAutoPick(null); setIdentityId(value); };
-  const [importance,setImportance]=createSignal<'high'|'normal'|'low'>('normal');
+  const [importance,setImportance]=createSignal<'high'|'normal'|'low'>(((v:unknown)=>v==='high'||v==='low'?v:'normal')(settings()['mail.compose.priority.default']?.value));
   const [customFrom, setCustomFrom] = createSignal(false);
   const fromHelpId = createUniqueId();
   // The composer ribbon (t38; shared with the signature editor, t49): the open
@@ -1568,7 +1568,7 @@ export function Compose(props: {
         ...(textBody !== undefined ? {textBody} : {}),
         identity: identity(),
         ...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
-        ...(importance()!=='normal'?{importance:importance()}:{}),
+        ...(importance()!=='normal'&&settings()['mail.compose.priority.enabled']?.value!==false?{importance:importance()}:{}),
         ...(customFrom() ? {fromOverride: fromOverride()} : {}),
         sendAt: sendAtIso,
         // V7 (§18.4): Nextcloud-materialised blob attachments (empty ⇒ omitted).
@@ -2060,7 +2060,7 @@ export function Compose(props: {
                 </RibbonItem></Show>
               </RibbonGroup></Show>
               <RibbonGroup label={t('mail-compose-group-priority')} priority={12} icon="flag" testId="compose-delivery-priority">
-                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem>
+                <Show when={settings()['mail.compose.priority.enabled']?.value!==false}><RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem></Show>
               </RibbonGroup>
               <RibbonGroup label={t('mail-compose-group-receipts')} priority={14} icon="mailCheck" testId="compose-delivery-receipts">
                 <SendOptions

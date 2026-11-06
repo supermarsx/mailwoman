@@ -220,6 +220,9 @@ pub struct Email {
     pub sent_at: Option<String>,
     #[serde(default)]
     pub preview: Option<String>,
+    /// `"high"` or `"low"` from the sender's priority headers; absent for normal.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mailwoman_priority: Option<String>,
     #[serde(default)]
     pub has_attachment: bool,
     #[serde(default)]

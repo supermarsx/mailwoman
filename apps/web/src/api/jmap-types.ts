@@ -138,6 +138,8 @@ export interface Email {
    *  from a server that does not know it. A list row shows a brand logo only
    *  when this says DMARC aligned and DKIM passed for that brand. */
   mailwomanAuth?: ListAuthSummary | null;
+  /** The sender's priority from X-Priority / Importance / Priority / X-MSMail-Priority; absent means normal. */
+  mailwomanPriority?: 'high' | 'low';
 }
 
 /** What a list row needs of the full authentication verdict. */

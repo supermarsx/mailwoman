@@ -24,12 +24,14 @@ import * as renameCss from './renameFolder.css.ts';
 import * as css from './contextMenu.css.ts';
 import * as dndCss from './folderDnd.css.ts';
 import {Icon} from './Icon.tsx';
+import {isPropertiesShortcut,openFolderProperties} from './properties/host.tsx';
+import {folderDialogEnabled} from './properties/policy.ts';
 export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;/** Opens Settings > Retention with a rule started for this folder. */onRetention?:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number;/** Folders picked with the marquee; a menu opened on one of several offers bulk actions. */selection?:()=>ReadonlySet<string>;/** Drag-and-drop binding of the row (the shared folder arrangement). */dnd?:{rowProps:(id:string)=>Record<string,unknown>;dropVars:(id:string)=>Record<string,string>};/** Why the folder cannot be dragged, shown as a tooltip on the row. */lockHint?:()=>string|undefined;/** Opens the Move-to dialog of the folder arrangement; absent when arranging is off. */onArrange?:()=>void}):JSX.Element {
  const [creating,setCreating]=createSignal(false),[cleaning,setCleaning]=createSignal(false);
  const app=useApp();const [empty,setEmpty]=createSignal(false);const [deleting,setDeleting]=createSignal(false);const [deletingTree,setDeletingTree]=createSignal(false),[transfer,setTransfer]=createSignal<'copy'|'move'|null>(null);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
  const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal<'inline'|'dialog'|null>(null);let row:HTMLDivElement|undefined;
  // Ask for the empty-folder and rename abilities now, so the first menu opened already has them.
- onMount(()=>{void loadCatalog('folder-select');void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('retention');void loadCatalog('rename-folder');ability();renameContext();});
+ onMount(()=>{const properties=(event:KeyboardEvent)=>{if(!isPropertiesShortcut(event)||!folderDialogEnabled()||!row?.contains(document.activeElement))return;const box=app.mailboxes().find(value=>value.id===props.box.id);if(!box)return;event.preventDefault();openFolderProperties(box);};row?.addEventListener('keydown',properties);onCleanup(()=>row?.removeEventListener('keydown',properties));void loadCatalog('folder-select');void loadCatalog('folder-tabs');void loadCatalog('empty-folder');void loadCatalog('retention');void loadCatalog('rename-folder');ability();renameContext();});
  // Rename (t65): inline in the list, a modal on phones and in the compact rail.
  function startRename():void {const box=app.mailboxes().find(value=>value.id===props.box.id);if(!box||!canRename(box)||renaming())return;setRenaming(prefersRenameDialog(row)?'dialog':'inline');}
  function endRename():void {setRenaming(null);queueMicrotask(()=>row?.querySelector<HTMLElement>('.sidebar__box')?.focus());}
@@ -69,6 +71,7 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
   if(canEmpty(box))rows.push({id:'cleanup',label:t('folder-cleanup'),icon:ACTION_ICONS.cleanupFolder,separatorBefore:true,run:()=>{setCleaning(true);}});
   // Any real folder (t45): ordinary folders move to Trash, Trash and Junk empty for good.
   if(canEmpty(box))rows.push({id:'empty',label:t('empty-folder-action'),icon:ACTION_ICONS.emptyFolder,run:()=>{if(app.mailboxes().some(value=>value.id===box.id)&&canEmpty(box))setEmpty(true);}});
+  if(folderDialogEnabled())rows.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openFolderProperties(box,{...(canEmpty(box)?{onEmpty:()=>setEmpty(true)}:{}),...(canRename(box)?{onRename:startRename}:{}),...(props.onRetention&&box.mailwomanSearchQuery===undefined?{onRetention:props.onRetention}:{}),onRefresh:()=>void selectThen(()=>{void app.refreshCurrentMailbox();})});}});
   rows.push({id:'settings',label:t('mail-context-folder-settings'),icon:'settings',separatorBefore:true,run:props.onSettings});
   if(props.onRetention&&box.mailwomanSearchQuery===undefined)rows.push({id:'retention',label:t('retention-context-action'),icon:'archive',run:props.onRetention});
   if(box.role!=='inbox')rows.push({id:'hide',label:t('mail-context-hide-folder'),icon:ACTION_ICONS.hideFolder,run:()=>{
