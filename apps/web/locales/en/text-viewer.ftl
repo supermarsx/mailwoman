@@ -1,0 +1,22 @@
+# Plain-text attachment preview (viewers/TextViewer.tsx).
+text-viewer-loading = Loading text…
+text-viewer-empty = This file is empty.
+text-viewer-binary = This file does not look like text, so it is not shown. Download it to open it in another program.
+text-viewer-failed = Couldn't preview this file.
+text-viewer-failed-help = The file may be unavailable or in a format that cannot be shown. You can try again or download it.
+text-viewer-retry = Retry
+text-viewer-download = Download
+text-viewer-truncated = Showing the first { $shown } of { $total }. Download the file to read all of it.
+text-viewer-line-cut = Very long lines were shortened in this preview.
+text-viewer-line-numbers = Line numbers
+text-viewer-wrap = Wrap lines
+text-viewer-copy = Copy
+text-viewer-copied = Copied
+text-viewer-copy-failed = Copy failed
+text-viewer-search = Search in file
+text-viewer-search-next = Next match
+text-viewer-search-prev = Previous match
+text-viewer-search-count = { $current } of { $total }
+text-viewer-search-none = No matches
+text-viewer-lines = { $count } lines
+text-viewer-encoding = { $encoding }

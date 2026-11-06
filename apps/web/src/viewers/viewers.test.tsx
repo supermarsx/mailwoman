@@ -16,6 +16,7 @@ function stubFetch(bytes: Uint8Array, type: string): void {
       ok: true,
       blob: async () => new Blob([bytes.buffer as ArrayBuffer], { type }),
       text: async () => new TextDecoder().decode(bytes),
+      arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength),
     })),
   );
 }
@@ -60,20 +61,18 @@ describe('sandboxed frame attributes (plan §2.4)', () => {
     expect(srcdoc).toContain('img-src data:');
   });
 
-  it('TextViewer renders a sandboxed frame with escaped content', async () => {
+  it('TextViewer shows the content as text, never as markup', async () => {
     stubFetch(new TextEncoder().encode('<script>alert(1)</script>'), 'text/plain');
     const { container } = render(() => (
       <TextViewer part={{ ...part, type: 'text/plain' }} blobUrl="blob:t" mime="text/plain" name="a.txt" />
     ));
-    const frame = await waitFor(() => {
-      const el = container.querySelector('iframe');
-      if (el === null) throw new Error('no iframe yet');
-      return el as HTMLIFrameElement;
+    const pre = await waitFor(() => {
+      const el = container.querySelector('[data-testid="text-content"]');
+      if (el === null) throw new Error('no text yet');
+      return el as HTMLElement;
     });
-    expect(frame.getAttribute('sandbox')).toBe('');
-    const srcdoc = frame.getAttribute('srcdoc') ?? '';
-    expect(srcdoc).toContain('&lt;script&gt;');
-    expect(srcdoc).not.toContain('<script>alert');
+    expect(pre.textContent).toBe('<script>alert(1)</script>');
+    expect(container.querySelector('script')).toBeNull();
   });
 });
 
