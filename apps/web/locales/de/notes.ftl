@@ -61,3 +61,9 @@ notes-link-button = Verknüpfen
 notes-changed-elsewhere = Diese Notiz wurde auf einem anderen Gerät oder in einer anderen Sitzung geändert. Der hier eingegebene Text bleibt erhalten und wird bei Ihrer nächsten Bearbeitung gespeichert.
 notes-deleted-elsewhere = Die geöffnete Notiz wurde auf einem anderen Gerät oder in einer anderen Sitzung gelöscht.
 notes-create-failed = Die Notiz konnte nicht erstellt werden.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = Die Notiz konnte nicht erstellt werden. { $reason }
+notes-toast-pinned = Notiz „{ $target }“ angeheftet
+notes-toast-unpinned = Notiz „{ $target }“ gelöst
+notes-toast-pin-failed = Die Anheftung der Notiz „{ $target }“ konnte nicht geändert werden

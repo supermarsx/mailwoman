@@ -39,3 +39,6 @@ tasks-delete-no = Aufgabe behalten
 tasks-changed-elsewhere = Diese Aufgabe wurde auf einem anderen Gerät oder in einer anderen Sitzung geändert. Ihre Änderungen bleiben erhalten; „Speichern“ übernimmt nur die von Ihnen geänderten Felder.
 tasks-deleted-elsewhere = „{ $title }“ wurde auf einem anderen Gerät oder in einer anderen Sitzung gelöscht, daher wurde das Bearbeitungsformular geschlossen.
 tasks-notice-dismiss = Schließen
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = Die Aufgabe konnte nicht erstellt werden. { $reason }
