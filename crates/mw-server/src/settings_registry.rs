@@ -2825,6 +2825,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "message list ordering"
     ),
     def!(
+        "mail.list.pageSize",
+        int(20, 200),
+        "50",
+        GDU,
+        "mail",
+        "messages fetched per page when the message list is scrolled"
+    ),
+    def!(
         "mail.messageListPreview",
     def!(
         "attachments.bar.clickToToggle",

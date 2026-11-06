@@ -2808,6 +2808,9 @@ or HTML.
 `mail.messageListStyle` is `cards` (default) or `table`; `table` shows Gmail-style rows with column headings. Global/domain/user policy.
 <a id="mail.messageListOrder"></a>
 `mail.messageListOrder` orders the message list: `newest` (default), `oldest`, `sender` or `subject`. Global/domain/user policy.
+
+<a id="mail.list.pageSize"></a>
+`mail.list.pageSize` sets how many messages the message list fetches per page as a user scrolls to the end (default 50, range 20 to 200). Global/domain/user policy; an administrator lock fixes the value.
 <a id="mail.messageListPreview"></a>
 `mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
 <a id="mail.badge.auth"></a>
