@@ -359,8 +359,8 @@ mail-undo-failed = تعذّر التراجع
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = أُضيف التصنيف
 mail-toast-label-removed = أُزيل التصنيف
-mail-toast-pinned = تم التثبيت
-mail-toast-unpinned = أُلغي التثبيت
+mail-toast-pinned = تم تثبيت الرسالة «{ $target }»
+mail-toast-unpinned = أُلغي تثبيت الرسالة «{ $target }»
 mail-toast-snoozed = تم التأجيل
 mail-toast-follow-up-set = تم تعيين المتابعة
 mail-toast-follow-up-cleared = مُسحت المتابعة
@@ -769,3 +769,229 @@ mail-compose-ribbon-message-type = نوع الرسالة
 mail-compose-recall-help = ألغِ الرسائل التي لا تزال محتجزة للتراجع أو المجدولة للتسليم. لا يمكن استدعاء الرسائل التي سُلّمت بالفعل.
 mail-compose-recall-loading = جارٍ فحص الرسائل في قائمة الانتظار…
 mail-compose-recall-empty = لا توجد رسائل في قائمة الانتظار يمكن إلغاؤها.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-compose-recall-failed = تعذّر تأكيد حالة قائمة الانتظار. أغلق هذه اللوحة وأعد فتحها لتحديثها قبل أي إجراء آخر.
+mail-compose-importance = الأهمية
+mail-compose-importance-high = عالية
+mail-compose-importance-normal = عادية
+mail-compose-importance-low = منخفضة
+mail-insert-account-title = إدراج عنصر من الحساب
+mail-insert-account-help = أرفق تصدير تقويم أو بطاقة عمل لجهة اتصال أو رسالة أصلية من هذا الحساب.
+mail-insert-account-close = إغلاق منتقي عناصر الحساب
+mail-insert-account-kind = نوع العنصر
+mail-insert-account-event = فعالية تقويم (.ics)
+mail-insert-account-calendar = تقويم (.ics)
+mail-insert-account-contact = بطاقة عمل لجهة اتصال (.vcf)
+mail-insert-account-message = رسالة أصلية (.eml)
+mail-insert-account-search = تصفية العناصر المعروضة
+mail-insert-account-selection = اختر عنصرًا
+mail-insert-account-scope = تُعرض فقط عناصر الحساب الحالي. تخضع الرسائل الأصلية لسياسة التصدير على الخادم.
+mail-insert-account-limited = يتم عرض ما يصل إلى 100 عنصر. تبحث التصفية في هذه القائمة فقط.
+mail-insert-account-unavailable = لا توجد تصديرات حساب مدعومة متاحة.
+mail-insert-account-empty = لا توجد عناصر مطابقة.
+mail-insert-account-attach = إرفاق العنصر المحدد
+mail-insert-account-loading = جارٍ تحميل عنصر الحساب…
+mail-insert-account-error = تعذّر إرفاق العنصر. تحقق من صلاحيات الوصول وسياسة التصدير ثم حاول مرة أخرى. قد تحتاج التقويمات الكبيرة إلى تصدير كل فعالية على حدة.
+mail-compose-html-source = مصدر HTML
+mail-editor-clear-format = مسح التنسيق
+mail-compose-format-html = HTML
+mail-compose-html-visual = المحرر المرئي
+mail-compose-html-help = حرّر HTML مباشرةً. يُحفظ ويُرسل فقط تنسيق البريد المدعوم؛ وتُزال النصوص البرمجية والصور الخارجية والترميز غير الآمن.
+mail-compose-html-processing = جارٍ إعداد HTML آمن…
+mail-compose-html-failed = تعذّر إعداد HTML. عدّله أو حاول مرة أخرى قبل الحفظ أو الإرسال.
+mail-compose-check-names = التحقق من الأسماء
+mail-compose-check-names-help = حلّ الأسماء المطابقة تمامًا من جهات الاتصال المحمّلة وتحقق من تنسيق العناوين. لا يتحقق هذا من إمكانية التسليم إلى صندوق البريد.
+mail-compose-names-unresolved = اختر عنوان بريد إلكتروني كاملًا لهذه الأسماء غير المحلولة أو الملتبسة: { $names }
+mail-compose-names-checked = تم التحقق من تنسيق المستلمين؛ تم حل { $count } من أسماء جهات الاتصال. لم يتم التحقق من التسليم إلى صندوق البريد.
+mail-compose-ribbon-table = جدول
+mail-compose-group-clipboard = الحافظة
+mail-compose-group-paragraph = الفقرة
+mail-compose-group-editing = التحرير
+mail-compose-group-view = العرض
+mail-compose-dark-background = خلفية داكنة
+mail-compose-dark-background-help = اعرض الرسالة على خلفية داكنة أثناء الكتابة. تتغير شاشتك فقط: تُرسل الرسالة دون لون خلفية.
+mail-compose-group-assist = مساعد الكتابة
+mail-editor-counts = إحصاءات المحرر
+mail-editor-words = { $count ->
+    [zero] لا كلمات
+    [one] كلمة واحدة
+    [two] كلمتان
+    [few] { $count } كلمات
+    [many] { $count } كلمة
+   *[other] { $count } كلمة
+}
+mail-editor-paragraphs = { $count ->
+    [zero] لا فقرات
+    [one] فقرة واحدة
+    [two] فقرتان
+    [few] { $count } فقرات
+    [many] { $count } فقرة
+   *[other] { $count } فقرة
+}
+mail-editor-characters = { $count ->
+    [zero] لا أحرف
+    [one] حرف واحد
+    [two] حرفان
+    [few] { $count } أحرف
+    [many] { $count } حرفًا
+   *[other] { $count } حرف
+}
+mail-editor-selection-required = حدّد نصًا أو خلايا جدول مناسبة قبل استخدام هذا الإجراء.
+mail-editor-clipboard-unavailable = تعذّر الوصول إلى الحافظة. استخدم اختصار النسخ أو القص أو اللصق في المتصفح.
+mail-editor-selection-changed = تغيّر التحديد. حدّد النص المقصود وحاول مرة أخرى.
+mail-editor-clipboard = الحافظة والتنسيق
+mail-editor-copy = نسخ
+mail-editor-cut = قص
+mail-editor-paste = لصق
+mail-editor-copy-format = نسخ التنسيق
+mail-editor-apply-format = تطبيق التنسيق
+mail-editor-style = نمط الفقرة
+mail-editor-text-color = لون الخط
+mail-editor-clear-color = اللون الافتراضي
+mail-editor-highlight = تمييز
+mail-editor-clear-highlight = مسح التمييز
+mail-editor-paragraph = خيارات الفقرة
+mail-editor-alignment = المحاذاة
+mail-editor-line-height = ارتفاع السطر
+mail-editor-space-before = المسافة قبل
+mail-editor-space-after = المسافة بعد
+mail-editor-indent = المسافة البادئة
+mail-editor-shading = تظليل الفقرة
+mail-editor-clear-shading = مسح التظليل
+mail-editor-case = تغيير حالة الأحرف
+mail-editor-sort = فرز الفقرات المحددة
+mail-editor-sort-alpha = أبجديًا
+mail-editor-sort-numeric = ترتيب رقمي
+mail-editor-table-rows = صفوف الجدول
+mail-editor-table-columns = أعمدة الجدول
+mail-editor-table-insert = إدراج جدول
+mail-editor-table-limits = ما يصل إلى 20 صفًا و10 أعمدة و200 خلية لكل جدول؛ وعلى الأكثر 10 جداول. الجداول المتداخلة غير مدعومة.
+mail-editor-table-row-before = صف أعلاه
+mail-editor-table-row-after = صف أسفله
+mail-editor-table-row-delete = حذف الصف
+mail-editor-table-column-before = عمود قبله
+mail-editor-table-column-after = عمود بعده
+mail-editor-table-column-delete = حذف العمود
+mail-editor-table-merge = دمج الخلايا
+mail-editor-table-split = تقسيم الخلية
+mail-editor-table-header = تبديل صف الترويسة
+mail-editor-table-delete = حذف الجدول
+mail-editor-table-shading = تظليل الخلية
+mail-editor-find-replace = بحث واستبدال
+mail-editor-find = البحث عن نص
+mail-editor-replacement = استبدال بـ
+mail-editor-match-case = مطابقة حالة الأحرف
+mail-editor-previous = التطابق السابق
+mail-editor-next = التطابق التالي
+mail-editor-replace = استبدال التطابق المحدد
+mail-editor-replace-all = استبدال كل التطابقات
+mail-editor-matches = { $count } تطابقًا (حتى 1,000)
+mail-editor-select-all = تحديد الكل
+mail-editor-clear-selection = مسح التحديد
+mail-editor-history = سجل التراجع
+mail-editor-undo-groups = التراجع عن آخر { $count } من مجموعات التغييرات
+mail-editor-zoom = تكبير المحرر
+mail-editor-markers = علامات الفقرات
+mail-editor-style-normal = عادي
+mail-editor-style-no-spacing = بلا تباعد
+mail-editor-style-title = عنوان
+mail-editor-style-subtitle = عنوان فرعي
+mail-editor-style-heading1 = عنوان رئيسي 1
+mail-editor-style-heading2 = عنوان رئيسي 2
+mail-editor-style-heading3 = عنوان رئيسي 3
+mail-editor-style-heading4 = عنوان رئيسي 4
+mail-editor-style-heading5 = عنوان رئيسي 5
+mail-editor-style-heading6 = عنوان رئيسي 6
+mail-editor-align-left = يسار
+mail-editor-align-center = وسط
+mail-editor-align-right = يمين
+mail-editor-align-justify = ضبط
+mail-editor-case-lower = أحرف صغيرة
+mail-editor-case-upper = أحرف كبيرة
+mail-editor-case-title = أحرف العناوين
+mail-editor-case-sentence = أحرف الجمل
+mail-editor-action-history = سجل { $action }
+mail-editor-history-empty = لا توجد إجراءات متاحة
+mail-editor-redo-groups = إعادة { $count } من التغييرات
+mail-compose-identities-failed = تعذّر تحميل هويات الإرسال. أغلق هذه المسودة وأعد فتحها للمحاولة مرة أخرى.
+mail-folders-loading = جارٍ تحميل المجلدات…
+mail-initial-sync-error = تعذّرت مزامنة رسائلك حتى الآن.
+mail-initial-sync-error-help = انقطع الاتصال بخادم بريدك. حاول مرة أخرى، أو اطلب من المسؤول فحص سجلات الاتصال إذا استمرت المشكلة.
+mail-links-trusted = نطاق موثوق: يُفتح دون مراجعة
+mail-links-trust-domain = الوثوق بـ { $domain }
+mail-links-trust-failed = تعذّر حفظ النطاق الموثوق. حاول مرة أخرى.
+mail-focus-always-focused = النقل دائمًا إلى «المهم»
+mail-focus-always-other = النقل دائمًا إلى «أخرى»
+mail-focus-moved-focused = ستذهب الرسائل من { $sender } الآن إلى «المهم».
+mail-focus-moved-other = ستذهب الرسائل من { $sender } الآن إلى «أخرى».
+mail-focus-save-failed = تعذّر حفظ اختيار «المهم» لهذا المرسل. حاول مرة أخرى.
+mail-context-search-domain = البحث عن الرسائل من هذا النطاق
+mail-loading-mailbox = جارٍ تحميل { $name }…
+mail-user-folders = مجلدات المستخدم
+mail-context-hide-folder = إخفاء من الشريط الجانبي
+mail-folder-fallback = المجلد
+mail-toast-moving = { $count ->
+    [zero] لا رسائل لنقلها إلى { $folder }…
+    [one] جارٍ نقل رسالة واحدة إلى { $folder }…
+    [two] جارٍ نقل رسالتين إلى { $folder }…
+    [few] جارٍ نقل { $count } رسائل إلى { $folder }…
+    [many] جارٍ نقل { $count } رسالة إلى { $folder }…
+   *[other] جارٍ نقل { $count } رسالة إلى { $folder }…
+    }
+mail-toast-move-queueing = { $count ->
+    [zero] لا رسائل لإضافتها إلى قائمة النقل إلى { $folder }…
+    [one] جارٍ إضافة رسالة واحدة إلى قائمة النقل إلى { $folder }…
+    [two] جارٍ إضافة رسالتين إلى قائمة النقل إلى { $folder }…
+    [few] جارٍ إضافة { $count } رسائل إلى قائمة النقل إلى { $folder }…
+    [many] جارٍ إضافة { $count } رسالة إلى قائمة النقل إلى { $folder }…
+   *[other] جارٍ إضافة { $count } رسالة إلى قائمة النقل إلى { $folder }…
+    }
+mail-toast-move-queued = { $count ->
+    [zero] لا رسائل في قائمة النقل إلى { $folder }
+    [one] أُضيفت رسالة واحدة إلى قائمة النقل إلى { $folder }
+    [two] أُضيفت رسالتان إلى قائمة النقل إلى { $folder }
+    [few] أُضيفت { $count } رسائل إلى قائمة النقل إلى { $folder }
+    [many] أُضيفت { $count } رسالة إلى قائمة النقل إلى { $folder }
+   *[other] أُضيفت { $count } رسالة إلى قائمة النقل إلى { $folder }
+    }
+mail-toast-move-partial = تم نقل { $count } من أصل { $total } رسالة إلى { $folder }؛ وتعذّر نقل { $failed }
+mail-send-copy-folder-unavailable = مجلد نسخة المرسَل المحدد غير متاح. اختر مجلدًا آخر قبل الإرسال.
+mail-send-copy-failed = قُبلت الرسالة، لكن تعذّر حفظ نسخة المرسَل منها. لا تُرسلها مرة أخرى.
+mail-compose-attach-public-key = إرفاق مفتاحي العام أو شهادتي
+mail-compose-include-hashes = تضمين تجزئات SHA-256 للملفات المرفقة
+mail-compose-hashes-pending = جارٍ حساب تجزئات المرفقات. أرسل عند الجاهزية.
+mail-compose-hashes-failed = تعذّر التحقق من بايتات المرفقات. أوقف التجزئات أو أعد المحاولة بتفعيلها مجددًا.
+mail-compose-crypto-pending = يجري تحديث التشفير. يُرجى الانتظار قبل الإرسال.
+mail-compose-public-key-unavailable = لا يوجد مفتاح عام أو شهادة حالية تطابق عنوان الإرسال.
+mail-compose-sent-copy = حفظ الرسالة المرسلة في
+mail-compose-sent-copy-default = الافتراضي للحساب
+folder-create = إنشاء مجلد
+folder-name = اسم المجلد
+folder-parent = المجلد الأصل
+folder-top-level = المستوى الأعلى
+folder-created = تم إنشاء المجلد.
+folder-create-unavailable = إنشاء المجلدات غير متاح لهذا الحساب أو المجلد الأصل.
+folder-create-invalid = اختر اسم مجلد صالحًا وفريدًا دون فواصل تسلسل هرمي أو أحرف تحكم.
+folder-create-failed = تعذّر إنشاء المجلد. حدّث الصفحة وحاول مرة أخرى.
+folder-cleanup = تنظيف المجلد…
+folder-cleanup-title = تنظيف { $name }
+folder-cleanup-help = ابحث عن الرسائل الأقدم من العمر المحدد. راجع العدد قبل الحذف. المجلدات الفرعية مستثناة.
+folder-cleanup-age = أقدم من
+folder-age-days = أيام
+folder-age-weeks = أسابيع
+folder-age-months = أشهر
+folder-age-years = سنوات
+folder-cleanup-preview = معاينة التنظيف
+folder-cleanup-confirm = حذف الرسائل المطابقة
+folder-cleanup-permanent = حذف { $count } رسالة مطابقة نهائيًا. لا يمكن التراجع عن ذلك.
+folder-cleanup-trash = نقل { $count } رسالة مطابقة إلى المهملات.
+folder-cleanup-before = استُلمت قبل { $date }
+folder-cleanup-done = تم تنظيف { $count } رسالة.
+mail-from = المرسل
+mail-subject = الموضوع
+mail-date = التاريخ
+mail-cancel = إلغاء
+mail-bulk-selected = تم تحديد { $count } محادثة
+mail-bulk-select-folder = تحديد الكل في { $folder }
+mail-list-order = ترتيب الرسائل
