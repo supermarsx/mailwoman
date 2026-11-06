@@ -1,7 +1,7 @@
 // Settings > Privacy & data > Your data: file and follow data requests (access,
 // download, correction, erasure, restriction, objection, other). What is offered,
 // the approval steps and the grace period are the administrator's `dsr.*` settings.
-import { createResource, createSignal, For, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createResource, createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { activeLocaleSignal as locale } from '../../i18n/registry.ts';
 import { formatDateTime } from '../../i18n/format.ts';
@@ -9,6 +9,7 @@ import {
   REQUEST_KINDS, cancelRequest, confirmRequest, downloadLink, listRequests, loadOverview, loadRequest, submitRequest,
   type DataRequest, type DataRequestPolicy, type RequestKind, type TrailEntry,
 } from '../../api/dataRequests.ts';
+import { requestedKind } from '../../api/privacyShortcut.ts';
 import * as css from './styles.css.ts';
 
 const when = (seconds: number): string => formatDateTime(seconds * 1000);
@@ -80,6 +81,8 @@ export function DataRequests(): JSX.Element {
   const [overview] = createResource(async () => { try { return (await loadOverview()).policy; } catch { return null; } });
   const [requests, { refetch }] = createResource(async () => { try { return await listRequests(); } catch { return [] as DataRequest[]; } });
   const [kind, setKind] = createSignal<RequestKind>('access');
+  // The Your data shortcuts (download, delete) pre-select a request type here.
+  createEffect(() => { const k = requestedKind(); if (k) setKind(k); });
   const [details, setDetails] = createSignal('');
   const [includeMail, setIncludeMail] = createSignal(false);
   const [sure, setSure] = createSignal(false);
@@ -98,7 +101,7 @@ export function DataRequests(): JSX.Element {
       await refetch();
     } catch (e) { setError(e instanceof Error ? e.message : t('dr-error')); } finally { setBusy(false); }
   }
-  return <section class={css.section} aria-labelledby="data-requests-heading" data-testid="data-requests">
+  return <section id="your-data-requests" class={css.section} aria-labelledby="data-requests-heading" data-testid="data-requests">
     <h3 id="data-requests-heading" class={css.heading}>{t('dr-title')}</h3>
     <Show when={overview()} fallback={<p class={css.meta}>{overview.loading ? t('dr-loading') : t('dr-unavailable')}</p>}>{policy => <>
       <p class={css.prose}>{introText(policy(), locale())}</p>

@@ -13,6 +13,7 @@ import { Login } from './screens/Login.tsx';
 import { ToastRegion } from './components/toast/index.ts';
 import { ConnectionToast } from './realtime/ConnectionToast.tsx';
 import { NewVersionToast } from './state/NewVersionToast.tsx';
+import { RestrictionBanner } from './components/RestrictionBanner.tsx';
 import { AsyncBoundary, LazyRoute } from './components/ErrorBoundary.tsx';
 import { scheduleIdlePrefetch } from './boot/idlePrefetch.ts';
 import { AsyncError, AsyncPending } from './components/AsyncState.tsx';
@@ -321,6 +322,7 @@ export function App(): JSX.Element {
                   when no plugin is approved — so its failure must stay contained
                   and must not take the mailbox down with it. */}
               <LazyRoute load={loadUiPluginTier} failSoft />
+              <RestrictionBanner />
               <NotificationPermissionPrompt />
             </>
           </Match>
