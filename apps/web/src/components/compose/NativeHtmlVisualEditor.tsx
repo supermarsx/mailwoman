@@ -44,7 +44,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  let history:string[]=[];
  const commands=createNativeHtmlCommands({root:()=>editor,change:()=>emit(),selection:()=>setVersion(value=>value+1),replaceNode:(from,to)=>{const original=originals.get(from);if(original)originals.set(to,original);}});
  const format=createNativeFormat(commands);
- const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting');
+ const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting'),supOn=useComposeFeature('format.superscript'),subOn=useComposeFeature('format.subscript');
  const painter=createPainter<NativePaint>({capture:()=>format.capture(),apply:value=>format.applyPaint(value)});
  let finishReady!:()=>void;
  const admitted=new Promise<void>(resolve=>{finishReady=resolve;});
@@ -203,6 +203,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
    if(event.key==='Escape'&&painter.sticky()){painter.cancel();event.preventDefault();return;}
    if(stepOn()&&(isGrowKey(event)||isShrinkKey(event))){event.preventDefault();commands.remember();format.stepFont(isGrowKey(event)?1:-1);return;}
    if(clearOn()&&isClearKey(event)){event.preventDefault();commands.remember();format.clear('all');return;}
+   if((event.ctrlKey||event.metaKey)&&!event.altKey&&(event.key==='='||event.key==='+')){const sup=event.key==='+';if(sup?supOn():subOn()){event.preventDefault();commands.remember();format.toggleEffect(sup?'superscript':'subscript');return;}}
    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&indentOn()&&commands.current()?.closest('li')){event.preventDefault();commands.remember();format.indent(event.shiftKey?-1:1);return;}
    if(!(event.ctrlKey||event.metaKey)||event.altKey)return;if(event.key.toLowerCase()==='z'||event.key.toLowerCase()==='y'){event.preventDefault();moveHistory(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);}};
   const selection=()=>commands.remember();

@@ -2,6 +2,8 @@ import {afterEach,describe,expect,it,vi} from 'vitest';
 import {createNativeHtmlCommands} from './nativeHtmlCommands.ts';
 import {createNativeFormat} from './nativeFormatCommands.ts';
 import {materializeLists,dematerializeLists} from './listMarkers.ts';
+import {DEFAULT_SORT,type SortOptions} from './sortModel.ts';
+const sortOf=(over:Partial<SortOptions>):SortOptions=>({...DEFAULT_SORT,...over});
 
 let host:HTMLElement|undefined;
 afterEach(()=>{host?.remove();host=undefined;});
@@ -134,6 +136,50 @@ describe('native clear formatting',()=>{
   const second=setup('<ul><li>One</li></ul>','One');
   second.format.clear('paragraph');
   expect(host!.innerHTML).toBe('<p>One</p>');
+ });
+});
+
+describe('native font effects',()=>{
+ it('wraps in sup/sub, replaces one with the other, and toggles off',()=>{
+  const {format}=setup('<p>Hello</p>','Hello','Hello');
+  format.toggleEffect('superscript');
+  expect(host!.innerHTML).toBe('<p><sup>Hello</sup></p>');
+  expect(format.effectOn('superscript')).toBe(true);
+  format.toggleEffect('subscript');
+  expect(host!.innerHTML).toBe('<p><sub>Hello</sub></p>');
+  format.toggleEffect('subscript');
+  expect(host!.innerHTML).toBe('<p>Hello</p>');
+ });
+ it('applies caps and spacing as inline CSS and reverses them',()=>{
+  const {format}=setup('<p>Hello</p>','Hello','Hello');
+  format.toggleEffect('allCaps');format.toggleEffect('spacing','expanded');
+  expect(host!.innerHTML).toContain('text-transform: uppercase');expect(host!.innerHTML).toContain('letter-spacing: 0.1em');
+  expect(format.effectOn('allCaps')).toBe(true);
+  format.toggleEffect('allCaps');
+  expect(host!.innerHTML).toContain('text-transform: none');
+  expect(format.effectOn('allCaps')).toBe(false);
+ });
+});
+
+describe('native sort',()=>{
+ it('sorts selected paragraphs, list items and table rows',()=>{
+  let s=setup('<p>pear</p><p>apple</p><p>fig</p>','pear','fig');
+  expect(s.format.sortBlocks(sortOf({}))).toBe(true);
+  expect(host!.innerHTML).toBe('<p>apple</p><p>fig</p><p>pear</p>');
+  s=setup('<ol><li>pear<ul><li>sub</li></ul></li><li>apple</li></ol>','pear');
+  s.format.sortBlocks(sortOf({}));
+  expect(host!.innerHTML).toBe('<ol><li>apple</li><li>pear<ul><li>sub</li></ul></li></ol>');
+  s=setup('<table><tbody><tr><td>Name</td><td>Qty</td></tr><tr><td>b</td><td>10</td></tr><tr><td>a</td><td>9</td></tr></tbody></table>','b');
+  s.format.sortBlocks(sortOf({column:1,type:'number'}));
+  expect(Array.from(host!.querySelectorAll('tr')).map(r=>r.cells[0]!.textContent)).toEqual(['Name','a','b']);
+ });
+ it('removes duplicates and reports the outcome; a single block does nothing',()=>{
+  const seen:unknown[]=[];
+  const s=setup('<p>x</p><p>y</p><p>x</p>','x','x');
+  const range=document.createRange();range.selectNodeContents(host!);s.commands.setRange(range);
+  s.format.sortBlocks(sortOf({mode:'unique'}),o=>seen.push(o));
+  expect(host!.innerHTML).toBe('<p>x</p><p>y</p>');expect(seen).toEqual([{kind:'blocks',count:2,removed:1}]);
+  expect(setup('<p>one</p>','one').format.sortBlocks(sortOf({}))).toBe(false);
  });
 });
 

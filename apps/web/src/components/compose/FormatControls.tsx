@@ -25,6 +25,8 @@ import {
   type PaintSummary,
   type PasteMode,
 } from './formatModel.ts';
+import { EFFECTS, type EffectDef, type EffectKind } from './effects.ts';
+import { DEFAULT_SORT, type SortOptions } from './sortModel.ts';
 import './compose-format.css';
 
 export type PainterStatus = 'idle' | 'copied' | 'sticky';
@@ -83,6 +85,10 @@ export interface FormatAdapter {
   currentDirection: () => string | null;
   paste: (mode: PasteMode) => void;
   painter: Painter;
+  effectOn: (kind: EffectKind, value?: string) => boolean;
+  toggleEffect: (kind: EffectKind, value: string) => void;
+  /** Sort the selection; null when there was nothing to sort. */
+  sort: (options: SortOptions) => { kind: 'rows' | 'items' | 'blocks'; count: number; removed: number } | null;
 }
 
 const STORE = 'mw.compose.list.';
@@ -287,6 +293,8 @@ export function createFormatControls(adapter: FormatAdapter) {
       </Feature>
     ),
     clearFormatting: clearMenu,
+    effects: (): JSX.Element => <EffectsMenu adapter={adapter} ready={ready} />,
+    sortMenu: (): JSX.Element => <Feature id="format.sort"><SortMenu adapter={adapter} ready={ready} /></Feature>,
     pasteLarge: (): JSX.Element => (
       <div class="cfmt-paste">
         {button('mail-editor-paste', 'paste', () => adapter.paste('keep'), { testId: 'rt-paste', large: true, text: true })}
@@ -309,6 +317,94 @@ export function createFormatControls(adapter: FormatAdapter) {
       </span>
     ),
   };
+}
+
+const SUPPORT_KEY = { most: 'cfmt-support-most', some: 'cfmt-support-some' } as const;
+
+/** The Effects dropdown: every font effect, with how widely mail apps draw it. */
+function EffectsMenu(props: { adapter: FormatAdapter; ready: () => boolean }): JSX.Element {
+  const adapter = props.adapter;
+  const entries = EFFECTS.flatMap((def) => (def.values ? def.values.map((value) => ({ def, value })) : [{ def, value: '' }]));
+  const label = (def: EffectDef, value: string): string => {
+    if (def.kind === 'underlineStyle') return t('cfmt-effect-underlineStyle', { style: t(`cfmt-underline-${value}`) });
+    if (def.kind === 'scale') return t('cfmt-effect-scale', { percent: value });
+    if (def.kind === 'spacing') return t(`cfmt-spacing-${value}`);
+    if (def.kind === 'ligatures') return t('cfmt-effect-ligatures');
+    if (def.kind === 'outline') return t('cfmt-effect-outline');
+    return t(`cfmt-effect-${def.kind}`);
+  };
+  return (
+    <MenuButton label={t('cfmt-effects')} icon="textEffects" iconOnly testId="rt-effects" disabled={!props.ready()} buttonClass="compose-rt__btn">
+      {(close) => (
+        <div class="cfmt-effects">
+          <For each={entries}>{({ def, value }) => (
+            <Feature id={def.feature}>
+              <button
+                type="button"
+                role="menuitemcheckbox"
+                aria-checked={adapter.effectOn(def.kind, value)}
+                class="cfmt-menu__row cfmt-effect"
+                data-testid={`effect-${def.kind}${value ? `-${value.replace('#', '')}` : ''}`}
+                data-support={def.support}
+                title={t(SUPPORT_KEY[def.support])}
+                onMouseDown={noFocus}
+                onClick={() => { adapter.toggleEffect(def.kind, value || def.defaultValue || ''); close(); }}
+              >
+                <span class="cfmt-effect__check" aria-hidden="true">{adapter.effectOn(def.kind, value) ? '✓' : ''}</span>
+                <span class="cfmt-effect__label">{label(def, value)}</span>
+                <span class="cfmt-effect__hint">{t(SUPPORT_KEY[def.support])}</span>
+              </button>
+            </Feature>
+          )}</For>
+        </div>
+      )}
+    </MenuButton>
+  );
+}
+
+/** The Sort control: order, type and options for the selected lines, list items or table rows. */
+function SortMenu(props: { adapter: FormatAdapter; ready: () => boolean }): JSX.Element {
+  const [options, setOptions] = createSignal<SortOptions>({ ...DEFAULT_SORT });
+  const [message, setMessage] = createSignal('');
+  const patch = (change: Partial<SortOptions>): void => { setOptions({ ...options(), ...change }); };
+  const run = (mode: SortOptions['mode'], close: () => void): void => {
+    const outcome = props.adapter.sort({ ...options(), mode });
+    setMessage(outcome === null ? t('cfmt-sort-nothing') : outcome.removed > 0 ? t('cfmt-sorted-removed', { count: outcome.count, removed: outcome.removed }) : t('cfmt-sorted', { count: outcome.count }));
+    if (outcome !== null) close();
+  };
+  return (
+    <MenuButton label={t('cfmt-sort')} icon="sort" iconOnly testId="rt-sort" disabled={!props.ready()} buttonClass="compose-rt__btn">
+      {(close) => (
+        <div class="cfmt-sort" role="group" aria-label={t('cfmt-sort')}>
+          <label>{t('cfmt-sort-order')}
+            <select data-testid="sort-order" value={options().order} onChange={(event) => patch({ order: event.currentTarget.value as SortOptions['order'] })}>
+              <option value="asc">{t('cfmt-sort-asc')}</option><option value="desc">{t('cfmt-sort-desc')}</option>
+            </select>
+          </label>
+          <label>{t('cfmt-sort-by')}
+            <select data-testid="sort-type" value={options().type} onChange={(event) => patch({ type: event.currentTarget.value as SortOptions['type'] })}>
+              <option value="text">{t('cfmt-sort-text')}</option><option value="number">{t('cfmt-sort-number')}</option><option value="date">{t('cfmt-sort-date')}</option>
+            </select>
+          </label>
+          <label class="cfmt-check"><input type="checkbox" data-testid="sort-case" checked={options().caseSensitive} onChange={(event) => patch({ caseSensitive: event.currentTarget.checked })} />{t('cfmt-sort-case')}</label>
+          <label class="cfmt-check"><input type="checkbox" data-testid="sort-natural" checked={options().natural} onChange={(event) => patch({ natural: event.currentTarget.checked })} />{t('cfmt-sort-natural')}</label>
+          <label class="cfmt-check"><input type="checkbox" data-testid="sort-articles" checked={options().ignoreArticles} onChange={(event) => patch({ ignoreArticles: event.currentTarget.checked })} />{t('cfmt-sort-articles')}</label>
+          <label class="cfmt-check"><input type="checkbox" data-testid="sort-duplicates" checked={options().removeDuplicates} onChange={(event) => patch({ removeDuplicates: event.currentTarget.checked })} />{t('cfmt-sort-duplicates')}</label>
+          <label class="cfmt-check"><input type="checkbox" data-testid="sort-header" checked={options().header} onChange={(event) => patch({ header: event.currentTarget.checked })} />{t('cfmt-sort-header')}</label>
+          <label>{t('cfmt-sort-column')}
+            <input type="number" min="1" max="10" data-testid="sort-column" placeholder={t('cfmt-sort-column-caret')} value={options().column === null ? '' : options().column! + 1} onInput={(event) => { const v = event.currentTarget.value; patch({ column: /^\d+$/.test(v) && Number(v) >= 1 ? Number(v) - 1 : null }); }} />
+          </label>
+          <div class="cfmt-sort__actions">
+            <button type="button" class="compose-rt__btn" data-testid="sort-run" onMouseDown={noFocus} onClick={() => run('sort', close)}>{t('cfmt-sort-run')}</button>
+            <button type="button" class="compose-rt__btn" data-testid="sort-reverse" onMouseDown={noFocus} onClick={() => run('reverse', close)}>{t('cfmt-sort-reverse')}</button>
+            <button type="button" class="compose-rt__btn" data-testid="sort-shuffle" onMouseDown={noFocus} onClick={() => run('shuffle', close)}>{t('cfmt-sort-shuffle')}</button>
+            <button type="button" class="compose-rt__btn" data-testid="sort-unique" onMouseDown={noFocus} onClick={() => run('unique', close)}>{t('cfmt-sort-unique')}</button>
+          </div>
+          <span class="cfmt-sort__message" aria-live="polite" data-testid="sort-message">{message()}</span>
+        </div>
+      )}
+    </MenuButton>
+  );
 }
 
 function StartValue(props: { disabled: boolean; onSet: (value: number) => void }): JSX.Element {

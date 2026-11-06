@@ -62,7 +62,7 @@ export function materializeLists(root: ParentNode): void {
       const checked = item.getAttribute(CHECKED_ATTRIBUTE) === 'true';
       item.removeAttribute(CHECKED_ATTRIBUTE);
       const span = list.ownerDocument.createElement('span');
-      span.textContent = `${markerText(marker, ordinal, checked, path)} `;
+      span.textContent = `${markerText(marker, ordinal, checked, path)}\u00a0`;
       const host = markerHost(item);
       host.insertBefore(span, host.firstChild);
     });
@@ -90,7 +90,7 @@ function leadingMarker(item: Element): { span: Element; text: string } | null {
   const span = host.firstChild;
   if (!span || span.nodeType !== 1 || (span as Element).tagName !== 'SPAN') return null;
   const text = span.textContent ?? '';
-  return text.endsWith(' ') ? { span: span as Element, text: text.slice(0, -1) } : null;
+  return text.endsWith('\u00a0') ? { span: span as Element, text: text.slice(0, -1) } : null;
 }
 
 function kindOf(text: string): ListMarker | null {

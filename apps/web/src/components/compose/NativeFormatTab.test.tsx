@@ -64,6 +64,21 @@ it('hides switched-off controls and leaves their shortcuts inert',async()=>{
  doc.dispatchEvent(new (doc.defaultView as unknown as typeof globalThis).KeyboardEvent('keydown',{key:' ',ctrlKey:true,bubbles:true,cancelable:true}));
  expect(doc.querySelector('b')).not.toBeNull();
 });
+it('applies a text effect and sorts from the menus, and the app sanitiser keeps the effect styles',async()=>{
+ const {doc,api}=mount('<p>pear</p><p>apple</p>');
+ selectAll(doc);
+ fireEvent.click(screen.getByTestId('rt-effects'));
+ fireEvent.click(await screen.findByTestId('effect-allCaps'));
+ await waitFor(()=>expect(doc.querySelector<HTMLElement>('#mw-native-editor span')?.style.textTransform).toBe('uppercase'));
+ fireEvent.click(screen.getByTestId('rt-sort'));
+ fireEvent.click(await screen.findByTestId('sort-run'));
+ await waitFor(()=>expect(doc.querySelectorAll('#mw-native-editor p')[0]?.textContent).toBe('apple'));
+ const {normalizeHtmlSource}=await import('./htmlSource.ts');
+ const probe='<p><sup>a</sup><sub>b</sub><span style="text-transform: uppercase; font-variant: small-caps; letter-spacing: 0.1em; text-decoration: underline; text-decoration-style: wavy; text-shadow: 1px 1px 2px rgba(0,0,0,0.4); font-stretch: 150%">x</span></p>';
+ const safe=(await normalizeHtmlSource(probe,new Set(),false)).html;
+ for(const kept of ['<sup>','<sub>','text-transform','small-caps','letter-spacing','text-decoration-style','text-shadow','font-stretch'])expect(safe,kept).toContain(kept);
+ expect(await api.capture()).toContain('text-transform');
+});
 it('copies formatting into the chip and clears it with the menu',async()=>{
  const {doc}=mount('<p><b style="color:#336699">Fancy</b></p>');
  selectAll(doc);

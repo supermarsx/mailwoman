@@ -42,3 +42,17 @@
   .cfmt-chip, .cfmt-preview { border-color: CanvasText; }
   .cfmt-preview__row i { background: CanvasText; }
 }
+
+/* Text effects menu and Sort form. */
+.cfmt-effects { display: flex; flex-direction: column; min-inline-size: 16rem; max-block-size: 20rem; overflow-y: auto; gap: 1px; }
+.cfmt-effect { display: grid; grid-template-columns: 1.2rem 1fr auto; align-items: center; }
+.cfmt-effect__check { font-weight: 700; color: var(--accent); }
+.cfmt-effect__hint { font-size: .68rem; color: var(--text-dim); white-space: nowrap; }
+.cfmt-effect[data-support="some"] .cfmt-effect__hint::before { content: "\26A0\FE0E  "; }
+.cfmt-sort { display: flex; flex-direction: column; gap: .4rem; min-inline-size: 16rem; font-size: .8rem; }
+.cfmt-sort label { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
+.cfmt-sort .cfmt-check { justify-content: flex-start; }
+.cfmt-sort select, .cfmt-sort input[type=number] { min-block-size: 1.75rem; color: var(--text); background: var(--bg); border: var(--border-hair) solid var(--border); font: inherit; }
+.cfmt-sort input[type=number] { inline-size: 6rem; }
+.cfmt-sort__actions { display: flex; flex-wrap: wrap; gap: .3rem; }
+.cfmt-sort__message { min-block-size: 1.1rem; color: var(--text-dim); }

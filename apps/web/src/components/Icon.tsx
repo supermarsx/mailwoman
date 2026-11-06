@@ -113,7 +113,7 @@ export type IconName =
   | 'strike'
   | 'bulletList'
   | 'numberList'
-  | 'fontGrow' | 'fontShrink' | 'indentMore' | 'indentLess' | 'brushCopy' | 'brushApply' | 'textLtr' | 'textRtl' | 'lineSpacing' | 'checklist' | 'eraser' | 'alignJustify'
+  | 'fontGrow' | 'fontShrink' | 'indentMore' | 'indentLess' | 'brushCopy' | 'brushApply' | 'textLtr' | 'textRtl' | 'lineSpacing' | 'checklist' | 'eraser' | 'alignJustify' | 'textEffects'
   | 'heading'
   | 'busy'
   | 'tentative'
@@ -601,6 +601,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   lineSpacing: () => <path d="M5 3 H15 M5 8 H15 M5 13 H15 M2 2 V14 M0.5 4 L2 2 L3.5 4 M0.5 12 L2 14 L3.5 12" {...S} />,
   checklist: () => <path d="M1 2 H5 V6 H1 Z M7 4 H15 M1 10 H5 V14 H1 Z M7 12 H15 M1.8 4 L2.6 4.8 L4.2 3" {...S} />,
   eraser: () => <path d="M2 11 L9 3 L14 7 L8 14 H4 Z M5.5 7 L11 11.5 M8 14 H15" {...S} />,
+  textEffects: () => <path d="M1 14 L5.5 3 L10 14 M2.8 10 H8.2 M12 1 V6 M9.5 3.5 H14.5 M12.5 9 L14 10.5 L12.5 12 L11 10.5 Z" {...S} />,
   alignJustify: () => <path d="M1 3 H15 M1 6.5 H15 M1 10 H15 M1 13.5 H15" {...S} />,
   // END action glyphs
 };

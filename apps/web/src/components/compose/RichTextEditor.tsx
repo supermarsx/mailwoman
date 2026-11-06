@@ -2,7 +2,7 @@ import {Portal} from 'solid-js/web';
 import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
 import {Feature,createFormatControls,createPainter,type FormatAdapter} from './FormatControls.tsx';
 import {useComposeFeature} from './composeFeatures.ts';
-import {applyListStyle,applyPaint,canContinueNumbering,canOutdent,capturePaint,changeIndent,clearFormatting,currentListType,blockAttrs,enclosingList,liftItem,setAlignment,setDirection,setLineSpacing,setListStart,setSpacing,sinkItem,stepFontSizeCommand,type PaintedFormat} from './richFormatCommands.ts';
+import {effectActive,currentEffectValue,toggleEffect,sortSelection,applyListStyle,applyPaint,canContinueNumbering,canOutdent,capturePaint,changeIndent,clearFormatting,currentListType,blockAttrs,enclosingList,liftItem,setAlignment,setDirection,setLineSpacing,setListStart,setSpacing,sinkItem,stepFontSizeCommand,type PaintedFormat} from './richFormatCommands.ts';
 import {chainCommands} from 'prosemirror-commands';
 import './compose-lists.css';
 import {RibbonGroup,RibbonItem} from '../bars/index.ts';
@@ -208,7 +208,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
 
   const owned = (): ReadonlySet<string> | undefined => props.inline?.owned();
   // A switched-off Format feature leaves its shortcut inert, not just its button hidden.
-  const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting');
+  const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting'),supOn=useComposeFeature('format.superscript'),subOn=useComposeFeature('format.subscript');
   const gate=(on:()=>boolean,command:Command):Command=>(state,dispatch,v)=>on()?command(state,dispatch,v):false;
   const inList:Command=(state,dispatch,v)=>enclosingList(state)?sinkItem(state,dispatch,v):false;
   const outOfList:Command=(state,dispatch,v)=>enclosingList(state)?liftItem(state,dispatch,v):false;
@@ -313,6 +313,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           'Mod-]': gate(stepOn,stepFontSizeCommand(1,true)),
           'Mod-[': gate(stepOn,stepFontSizeCommand(-1,true)),
           'Mod-Space': gate(clearOn,clearFormatting('all')),
+          'Mod-=': gate(subOn,toggleEffect('subscript')),
+          'Mod-+': gate(supOn,toggleEffect('superscript')),
           'Mod-\\': gate(clearOn,clearFormatting('all')),
           Tab: chainCommands(gate(indentOn,inList),goToNextCell(1)),
           'Shift-Tab': chainCommands(gate(indentOn,outOfList),goToNextCell(-1)),
@@ -465,11 +467,15 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     currentDirection:()=>(attrsOf()['dir'] as string|null)??null,
     paste:mode=>tools.pasteWith(mode),
     painter,
+    effectOn:(kind,value)=>{const s=activeState();return s!==null&&effectActive(s,kind)&&(!value||currentEffectValue(s,kind)===value);},
+    toggleEffect:(kind,value)=>execute(toggleEffect(kind,value)),
+    sort:options=>{let outcome:{kind:'rows'|'items'|'blocks';count:number;removed:number}|null=null;run(sortSelection(options,o=>{outcome=o;}));return outcome;},
   };
   const fmt=createFormatControls(fmtAdapter);
   const markButton=(btn:ToolbarButton):JSX.Element=>{
     const active=()=>{const s=activeState();return s!==null&&btn.activeMark!==undefined?markActive(s,btn.activeMark):false;};
-    return <button type="button" class={`compose-rt__btn ${a11y.focusable}`} classList={{'compose-rt__btn--active':active()}} aria-pressed={active()} aria-label={t(btn.labelKey)} title={t(btn.labelKey)} data-testid={`rt-${btn.id}`} onMouseDown={e=>e.preventDefault()} onClick={()=>run(btn.command)}><Icon name={btn.glyph}/></button>;
+    const button=<button type="button" class={`compose-rt__btn ${a11y.focusable}`} classList={{'compose-rt__btn--active':active()}} aria-pressed={active()} aria-label={t(btn.labelKey)} title={t(btn.labelKey)} data-testid={`rt-${btn.id}`} onMouseDown={e=>e.preventDefault()} onClick={()=>run(btn.command)}><Icon name={btn.glyph}/></button>;
+    return btn.id==='strike'?<Feature id="format.strikethrough">{button}</Feature>:button;
   };
   const row=(...controls:JSX.Element[]):JSX.Element=><div class="compose-rib__row">{controls}</div>;
 
@@ -523,16 +529,16 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         fmt.fontSteps(),
       )}</RibbonItem>
       <RibbonItem>{row(<For each={MARK_BUTTONS}>{markButton}</For>,tools.changeCase(),fmt.clearFormatting())}</RibbonItem>
-      <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight())}</RibbonItem>
+      <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight(),fmt.effects())}</RibbonItem>
     </RibbonGroup></Show>
     <Show when={has('paragraph')}><RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
-      <RibbonItem>{row(fmt.bulletList(),fmt.numberList(),fmt.indentButtons(),tools.sort())}</RibbonItem>
+      <RibbonItem>{row(fmt.bulletList(),fmt.numberList(),fmt.indentButtons(),fmt.sortMenu())}</RibbonItem>
       <RibbonItem>{row(fmt.alignButtons(),fmt.lineSpacing(),fmt.direction())}</RibbonItem>
       <RibbonItem>{row(<For each={BLOCK_BUTTONS}>{markButton}</For>,tools.markers(),tools.paragraphOptions())}</RibbonItem>
     </RibbonGroup></Show>
-    <Show when={has('paragraph')}><RibbonGroup label={t('cfmt-group-styles')} priority={70} icon="heading" testId="rt-group-styles">
+    <Show when={has('paragraph')}><Feature id="format.stylesRibbon"><RibbonGroup label={t('cfmt-group-styles')} priority={70} icon="heading" testId="rt-group-styles">
       <RibbonItem>{tools.style()}</RibbonItem>
-    </RibbonGroup></Show>
+    </RibbonGroup></Feature></Show>
     <Show when={has('editing')}><RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
       <RibbonItem>{tools.findReplace()}</RibbonItem><RibbonItem>{tools.selectAll()}</RibbonItem><RibbonItem>{tools.clearSelection()}</RibbonItem>
     </RibbonGroup></Show>

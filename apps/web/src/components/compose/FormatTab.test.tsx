@@ -134,7 +134,66 @@ describe('Format tab (rich editor)',()=>{
  });
 });
 
+describe('text effects and sort (rich editor)',()=>{
+ it('lists effects with a client support hint and applies them, with Ctrl+= and Ctrl++ for sub and superscript',async()=>{
+  const m=mount('<p>Hello</p>');
+  selectAll();
+  fireEvent.click(screen.getByTestId('rt-effects'));
+  const menu=await screen.findByRole('menu',{name:'Text effects'});
+  const items=within(menu).getAllByRole('menuitemcheckbox');
+  expect(items.length).toBeGreaterThan(15);
+  expect(screen.getByTestId('effect-superscript')).toHaveAttribute('data-support','most');
+  expect(screen.getByTestId('effect-doubleStrike')).toHaveTextContent('Some apps ignore this');
+  expect(screen.getByTestId('effect-superscript')).toHaveTextContent('Works in most mail apps');
+  fireEvent.click(screen.getByTestId('effect-allCaps'));
+  await waitFor(()=>expect(m.html()).toContain('text-transform: uppercase'));
+  fireEvent.keyDown(m.surface(),{key:'=',ctrlKey:true});
+  await waitFor(()=>expect(m.html()).toContain('<sub>'));
+  fireEvent.keyDown(m.surface(),{key:'+',ctrlKey:true});
+  await waitFor(()=>expect(m.html()).toContain('<sup>'));
+  expect(m.html()).not.toContain('<sub>');
+ });
+ it('sorts the selected paragraphs from the Sort form and announces the result',async()=>{
+  const m=mount('<p>pear</p><p>fig</p><p>apple</p>');
+  selectAll();
+  fireEvent.click(screen.getByTestId('rt-sort'));
+  fireEvent.change(await screen.findByTestId('sort-order'),{target:{value:'desc'}});
+  fireEvent.click(screen.getByTestId('sort-run'));
+  await waitFor(()=>expect(m.html()).toBe('<p>pear</p><p>fig</p><p>apple</p>'));
+  fireEvent.click(screen.getByTestId('rt-sort'));
+  fireEvent.change(await screen.findByTestId('sort-order'),{target:{value:'asc'}});
+  fireEvent.click(screen.getByTestId('sort-run'));
+  await waitFor(()=>expect(m.html()).toBe('<p>apple</p><p>fig</p><p>pear</p>'));
+  fireEvent.click(screen.getByTestId('rt-sort'));
+  expect(await screen.findByTestId('sort-message')).toHaveTextContent('3 items sorted.');
+  expect(screen.getByTestId('sort-message')).toHaveAttribute('aria-live','polite');
+ });
+ it('says so when there is nothing to sort',async()=>{
+  mount('<p>one</p>');
+  fireEvent.click(screen.getByTestId('rt-sort'));
+  fireEvent.click(await screen.findByTestId('sort-run'));
+  expect(screen.getByTestId('sort-message')).toHaveTextContent('Nothing to sort');
+ });
+});
+
 describe('Format tab feature flags',()=>{
+ it('hides the effects, the strikethrough button, the sort control and the styles gallery when switched off',()=>{
+  for(const id of ['strikethrough','doubleStrikethrough','superscript','subscript','smallCaps','allCaps','underlineStyle','ligatures','textScale','textOutline','stylesRibbon','sort'])flag(`format.${id}`,false);
+  mount('<p>Hi</p>');
+  expect(screen.queryByTestId('rt-strike')).toBeNull();
+  expect(screen.queryByTestId('rt-sort')).toBeNull();
+  expect(screen.queryByTestId('rt-group-styles')).toBeNull();
+  fireEvent.click(screen.getByTestId('rt-effects'));
+  expect(screen.queryByTestId('effect-allCaps')).toBeNull();
+  expect(screen.queryByTestId('effect-superscript')).toBeNull();
+ });
+ it('leaves Ctrl+= inert when subscript is off',async()=>{
+  flag('format.subscript',false);
+  const m=mount('<p>Hello</p>');
+  selectAll();
+  fireEvent.keyDown(m.surface(),{key:'=',ctrlKey:true});
+  expect(m.html()).toBe('<p>Hello</p>');
+ });
  it('renders nothing for a switched-off feature and makes its shortcut inert',async()=>{
   for(const id of ['fontSizeStep','lists','indent','clearFormatting','painter','lineSpacing','direction','pasteOptions'])flag(`format.${id}`,false);
   const m=mount('<p style="margin-left:40px"><strong>Hello</strong></p>');

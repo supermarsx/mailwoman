@@ -22,6 +22,8 @@ import {
   type PaintSummary,
 } from './formatModel.ts';
 import { CHECKED_ATTRIBUTE, LIST_ATTRIBUTE } from './listMarkers.ts';
+import { effectDef, effectStyle, effectTag, type EffectKind } from './effects.ts';
+import { sortItems, type SortOptions } from './sortModel.ts';
 
 const LEAF = 'p,div,li,blockquote,pre,h1,h2,h3,h4,h5,h6,td,th';
 const LISTS = 'ul,ol';
@@ -559,7 +561,130 @@ export function createNativeFormat(commands: NativeHtmlCommands) {
     return done;
   }
 
+
+  // ---- font effects ------------------------------------------------------
+  const EFFECT_OFF: Record<string, [string, string][]> = {
+    doubleStrike: [['text-decoration', 'none']],
+    smallCaps: [['font-variant', 'normal']],
+    allCaps: [['text-transform', 'none']],
+    underlineStyle: [['text-decoration', 'none']],
+    ligatures: [['font-variant', 'normal']],
+    scale: [['font-stretch', '100%'], ['letter-spacing', 'normal']],
+    spacing: [['letter-spacing', 'normal']],
+    outline: [['text-shadow', 'none']],
+    shadow: [['text-shadow', 'none']],
+  };
+
+  /** Whether the caret's text carries effect `kind` (its declarations on the element or an ancestor). */
+  function effectOn(kind: EffectKind): boolean {
+    const el = commands.current();
+    const root = host();
+    if (!el || !root) return false;
+    const tag = effectTag(kind);
+    if (tag) return !!el.closest(tag) && root.contains(el.closest(tag));
+    const wanted = effectStyle(kind, effectDef(kind)?.defaultValue ?? '');
+    if (wanted.length === 0) return false;
+    // The innermost element that sets the first property decides, as in the cascade.
+    for (let node: Element | null = el; node && node !== root; node = node.parentElement) {
+      const value = (node as HTMLElement).style?.getPropertyValue(wanted[0]![0]);
+      if (value) return wanted.every(([property, expected]) => (node as HTMLElement).style.getPropertyValue(property) === expected);
+    }
+    return false;
+  }
+
+  function toggleEffect(kind: EffectKind, value = ''): boolean {
+    const range = commands.restore();
+    const root = host();
+    if (!range || !root) return false;
+    const tag = effectTag(kind);
+    const on = effectOn(kind);
+    const d = root.ownerDocument;
+    if (tag) {
+      if (on) {
+        const element = commands.current()?.closest(tag);
+        if (element) element.replaceWith(...Array.from(element.childNodes));
+      } else {
+        const opposite = tag === 'sup' ? 'sub' : 'sup';
+        const collapsed = range.collapsed;
+        const runs = collapsed ? [] : commands.selectedText();
+        for (const element of Array.from(root.querySelectorAll(opposite))) if (range.intersectsNode(element)) element.replaceWith(...Array.from(element.childNodes));
+        if (collapsed) {
+          const wrapper = d.createElement(tag);
+          wrapper.setAttribute('data-mw-native-caret', 'true');
+          wrapper.textContent = '​';
+          range.insertNode(wrapper);
+          const next = d.createRange();
+          next.selectNodeContents(wrapper);
+          next.collapse(false);
+          commands.setRange(next);
+        } else {
+          const wrapped: HTMLElement[] = [];
+          for (const { node, from, to } of runs.reverse()) {
+            const piece = d.createRange();
+            piece.setStart(node, from);
+            piece.setEnd(node, to);
+            const wrapper = d.createElement(tag);
+            piece.surroundContents(wrapper);
+            wrapped.unshift(wrapper);
+          }
+          if (wrapped.length) select(wrapped[0], wrapped[wrapped.length - 1]);
+        }
+      }
+      commands.commit();
+      return true;
+    }
+    const declarations = on ? EFFECT_OFF[kind] ?? [] : effectStyle(kind, value);
+    if (declarations.length === 0) return false;
+    const done = styleSelection(Object.fromEntries(declarations));
+    if (done) commands.commit();
+    return done;
+  }
+
+  // ---- sort --------------------------------------------------------------
+  const ownText = (item: Element): string => Array.from(item.childNodes).filter((node) => !isList(node)).map((node) => node.textContent ?? '').join('');
+
+  function sortBlocks(options: SortOptions, onResult?: (outcome: { kind: 'rows' | 'items' | 'blocks'; count: number; removed: number }) => void, random?: () => number): boolean {
+    const range = commands.restore();
+    if (!range) return false;
+    let nodes: HTMLElement[] = [];
+    let textOf: (node: HTMLElement) => string = (node) => node.textContent ?? '';
+    let kind: 'rows' | 'items' | 'blocks' = 'blocks';
+    let keep: HTMLElement[] = [];
+    const cell = commands.current()?.closest('td,th') as HTMLTableCellElement | null | undefined;
+    const li = commands.current()?.closest('li');
+    if (cell && host()?.contains(cell)) {
+      const table = cell.closest('table')!;
+      const rows = Array.from(table.rows) as HTMLElement[];
+      const column = options.column ?? cell.cellIndex;
+      keep = options.header && rows.length > 1 ? rows.slice(0, 1) : [];
+      nodes = rows.slice(keep.length);
+      textOf = (row) => (row as HTMLTableRowElement).cells[column]?.textContent ?? '';
+      kind = 'rows';
+    } else if (li?.parentElement && isList(li.parentElement)) {
+      nodes = Array.from(li.parentElement.children).filter((child): child is HTMLElement => child.tagName === 'LI');
+      textOf = ownText;
+      kind = 'items';
+    } else {
+      const blocks = leafBlocks(range);
+      if (blocks.length < 2 || blocks.some((block) => block.parentElement !== blocks[0]!.parentElement)) return false;
+      nodes = blocks;
+    }
+    if (nodes.length < 2) return false;
+    const result = sortItems(nodes, textOf, options, random);
+    if (!result.changed) { onResult?.({ kind, count: nodes.length, removed: 0 }); return false; }
+    const parent = nodes[0]!.parentElement!;
+    const after = nodes[nodes.length - 1]!.nextSibling;
+    for (const node of nodes) node.remove();
+    for (const node of result.items) parent.insertBefore(node, after);
+    void keep;
+    select(result.items[0], result.items[result.items.length - 1]);
+    commands.commit();
+    onResult?.({ kind, count: result.items.length, removed: result.removed });
+    return true;
+  }
+
   return {
+    toggleEffect, effectOn, sortBlocks,
     stepFont, listType, applyList, listStart, canContinue, toggleChecked, indent, canOutdent,
     setBlock, setDirection, currentBlock, clear, capture, applyPaint, sinkItem, outdentItem, doc,
   };

@@ -35,6 +35,29 @@ export const COMPOSE_FEATURE_GROUPS: readonly ComposeFeatureGroup[] = ['format',
 export const COMPOSE_FEATURES: readonly ComposeFeature[] = [
   // ── format (agent FORMAT appends here) ───────────────────────────────────────
 
+  { id: 'format.fontSizeStep', group: 'format', labelKey: 'cf-format-fontSizeStep', descKey: 'cf-format-fontSizeStep-desc', defaultOn: true },
+  { id: 'format.lists', group: 'format', labelKey: 'cf-format-lists', descKey: 'cf-format-lists-desc', defaultOn: true },
+  { id: 'format.listTypes', group: 'format', labelKey: 'cf-format-listTypes', descKey: 'cf-format-listTypes-desc', defaultOn: true, advanced: true },
+  { id: 'format.indent', group: 'format', labelKey: 'cf-format-indent', descKey: 'cf-format-indent-desc', defaultOn: true },
+  { id: 'format.clearFormatting', group: 'format', labelKey: 'cf-format-clearFormatting', descKey: 'cf-format-clearFormatting-desc', defaultOn: true },
+  { id: 'format.painter', group: 'format', labelKey: 'cf-format-painter', descKey: 'cf-format-painter-desc', defaultOn: true, advanced: true },
+  { id: 'format.lineSpacing', group: 'format', labelKey: 'cf-format-lineSpacing', descKey: 'cf-format-lineSpacing-desc', defaultOn: true, advanced: true },
+  { id: 'format.direction', group: 'format', labelKey: 'cf-format-direction', descKey: 'cf-format-direction-desc', defaultOn: true, advanced: true },
+  { id: 'format.pasteOptions', group: 'format', labelKey: 'cf-format-pasteOptions', descKey: 'cf-format-pasteOptions-desc', defaultOn: true, advanced: true },
+
+  { id: 'format.strikethrough', group: 'format', labelKey: 'cf-format-strikethrough', descKey: 'cf-format-strikethrough-desc', defaultOn: true },
+  { id: 'format.doubleStrikethrough', group: 'format', labelKey: 'cf-format-doubleStrikethrough', descKey: 'cf-format-doubleStrikethrough-desc', defaultOn: true, advanced: true },
+  { id: 'format.superscript', group: 'format', labelKey: 'cf-format-superscript', descKey: 'cf-format-superscript-desc', defaultOn: true, advanced: true },
+  { id: 'format.subscript', group: 'format', labelKey: 'cf-format-subscript', descKey: 'cf-format-subscript-desc', defaultOn: true, advanced: true },
+  { id: 'format.smallCaps', group: 'format', labelKey: 'cf-format-smallCaps', descKey: 'cf-format-smallCaps-desc', defaultOn: true, advanced: true },
+  { id: 'format.allCaps', group: 'format', labelKey: 'cf-format-allCaps', descKey: 'cf-format-allCaps-desc', defaultOn: true, advanced: true },
+  { id: 'format.underlineStyle', group: 'format', labelKey: 'cf-format-underlineStyle', descKey: 'cf-format-underlineStyle-desc', defaultOn: true, advanced: true },
+  { id: 'format.ligatures', group: 'format', labelKey: 'cf-format-ligatures', descKey: 'cf-format-ligatures-desc', defaultOn: true, advanced: true },
+  { id: 'format.textScale', group: 'format', labelKey: 'cf-format-textScale', descKey: 'cf-format-textScale-desc', defaultOn: true, advanced: true },
+  { id: 'format.textOutline', group: 'format', labelKey: 'cf-format-textOutline', descKey: 'cf-format-textOutline-desc', defaultOn: true, advanced: true },
+  { id: 'format.stylesRibbon', group: 'format', labelKey: 'cf-format-stylesRibbon', descKey: 'cf-format-stylesRibbon-desc', defaultOn: true },
+  { id: 'format.sort', group: 'format', labelKey: 'cf-format-sort', descKey: 'cf-format-sort-desc', defaultOn: true, advanced: true },
+
   // ── insert (agent INSERT appends here) ───────────────────────────────────────
   { id: 'insert.attachFile', group: 'insert', labelKey: 'cf-insert-attachFile', descKey: 'cf-insert-attachFile-desc', defaultOn: true },
   { id: 'insert.attachFromMessages', group: 'insert', labelKey: 'cf-insert-attachFromMessages', descKey: 'cf-insert-attachFromMessages-desc', defaultOn: true },

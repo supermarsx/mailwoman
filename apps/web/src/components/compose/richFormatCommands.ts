@@ -5,7 +5,9 @@
 
 import { Selection, TextSelection, type Command, type EditorState, type Transaction } from 'prosemirror-state';
 import { liftListItem, sinkListItem, wrapInList } from 'prosemirror-schema-list';
-import type { Mark, Node as PMNode, NodeType, ResolvedPos } from 'prosemirror-model';
+import { Fragment, type Mark, type Node as PMNode, type NodeType, type ResolvedPos } from 'prosemirror-model';
+import type { EffectKind } from './effects.ts';
+import { sortItems, type SortOptions } from './sortModel.ts';
 import {
   DEFAULT_LIST_STYLE,
   INDENT_MAX,
@@ -481,6 +483,123 @@ export function applyPaint(paint: PaintedFormat): Command {
       tr.setStoredMarks([...keep, ...paint.marks]);
     }
     dispatch?.(tr);
+    return true;
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Font effects
+// ---------------------------------------------------------------------------
+
+/** Whether every text run in the selection (or the pending marks at a caret) carries effect `kind`. */
+export function effectActive(state: EditorState, kind: EffectKind): boolean {
+  const type = state.schema.marks['effect'];
+  if (!type) return false;
+  const has = (marks: readonly Mark[]): boolean => marks.some((mark) => mark.type === type && mark.attrs['kind'] === kind);
+  const { from, to, empty, $from } = state.selection;
+  if (empty) return has(state.storedMarks ?? $from.marks());
+  let any = false;
+  let all = true;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (!node.isText) return true;
+    any = true;
+    if (!has(node.marks)) all = false;
+    return false;
+  });
+  return any && all;
+}
+
+/** Switch effect `kind` on (with `value`) or, when it is already on, off. Super and subscript replace each other. */
+export function toggleEffect(kind: EffectKind, value = ''): Command {
+  return (state, dispatch) => {
+    const type = state.schema.marks['effect'];
+    if (!type) return false;
+    const turnOff = effectActive(state, kind) && (value === '' || currentEffectValue(state, kind) === value);
+    const opposite = kind === 'superscript' ? 'subscript' : kind === 'subscript' ? 'superscript' : null;
+    const isKind = (mark: Mark, name: string): boolean => mark.type === type && mark.attrs['kind'] === name;
+    const { from, to, empty } = state.selection;
+    const tr = state.tr;
+    if (empty) {
+      const base = (state.storedMarks ?? state.selection.$from.marks()).filter((mark) => !isKind(mark, kind) && !(opposite && isKind(mark, opposite)));
+      tr.setStoredMarks(turnOff ? base : [...base, type.create({ kind, value })]);
+    } else {
+      state.doc.nodesBetween(from, to, (node, pos) => {
+        if (!node.isText) return true;
+        const start = Math.max(pos, from);
+        const end = Math.min(pos + node.nodeSize, to);
+        for (const mark of node.marks) if (isKind(mark, kind) || (opposite && isKind(mark, opposite))) tr.removeMark(start, end, mark);
+        return false;
+      });
+      if (!turnOff) tr.addMark(from, to, type.create({ kind, value }));
+    }
+    dispatch?.(tr);
+    return true;
+  };
+}
+
+/** The value effect `kind` has at the selection's start ('' when off or valueless). */
+export function currentEffectValue(state: EditorState, kind: EffectKind): string {
+  const type = state.schema.marks['effect'];
+  const { $from, from, empty } = state.selection;
+  const marks = empty ? (state.storedMarks ?? $from.marks()) : (state.doc.nodeAt(from)?.marks ?? []);
+  const found = marks.find((mark) => mark.type === type && mark.attrs['kind'] === kind);
+  return typeof found?.attrs['value'] === 'string' ? found.attrs['value'] : '';
+}
+
+// ---------------------------------------------------------------------------
+// Sort
+// ---------------------------------------------------------------------------
+
+export interface SortOutcome { kind: 'rows' | 'items' | 'blocks'; count: number; removed: number }
+
+/** What a sort would act on: table rows, list items or sibling blocks, with the item text for each. */
+function sortTarget(state: EditorState, options: SortOptions): { from: number; to: number; nodes: PMNode[]; textOf: (node: PMNode) => string; kind: SortOutcome['kind']; keep: PMNode[] } | null {
+  const { $from, $to } = state.selection;
+  const anchor = anchorPos(state);
+  // A table: the rows the selection touches (all rows when it is inside one).
+  for (let depth = anchor.depth; depth > 0; depth -= 1) {
+    if (anchor.node(depth).type.spec.tableRole !== 'table') continue;
+    const table = anchor.node(depth);
+    const start = anchor.start(depth);
+    const caretRow = anchor.index(depth);
+    const cellDepth = depth + 2;
+    const column = options.column ?? (anchor.depth >= cellDepth ? anchor.index(depth + 1) : 0);
+    const rows: PMNode[] = [];
+    table.forEach((row) => rows.push(row));
+    const headerRows = options.header && rows.length > 1 ? rows.slice(0, 1) : [];
+    const body = rows.slice(headerRows.length);
+    void caretRow;
+    const textOf = (row: PMNode): string => row.maybeChild(column)?.textContent ?? '';
+    const offset = headerRows.reduce((sum, row) => sum + row.nodeSize, 0);
+    return { from: start + offset, to: start + table.content.size, nodes: body, textOf, kind: 'rows', keep: headerRows };
+  }
+  const list = enclosingList(state, anchor);
+  if (list) {
+    const items: PMNode[] = [];
+    list.node.forEach((item) => items.push(item));
+    return { from: list.pos + 1, to: list.pos + list.node.nodeSize - 1, nodes: items, textOf: (item) => item.firstChild?.textContent ?? item.textContent, kind: 'items', keep: [] };
+  }
+  const range = $from.blockRange($to);
+  if (!range) return null;
+  const nodes: PMNode[] = [];
+  for (let i = range.startIndex; i < range.endIndex; i += 1) nodes.push(range.parent.child(i));
+  if (nodes.length < 2 || !nodes.every((node) => node.isTextblock)) return null;
+  return { from: range.start, to: range.end, nodes, textOf: (node) => node.textContent, kind: 'blocks', keep: [] };
+}
+
+/** Sort, reverse, shuffle or de-duplicate the selected blocks, list items or table rows, as one undoable step. */
+export function sortSelection(options: SortOptions, onResult?: (outcome: SortOutcome) => void, random?: () => number): Command {
+  return (state, dispatch) => {
+    const target = sortTarget(state, options);
+    if (!target || target.nodes.length < 2) return false;
+    const result = sortItems(target.nodes, target.textOf, options, random);
+    if (!result.changed) { onResult?.({ kind: target.kind, count: result.items.length, removed: 0 }); return false; }
+    if (dispatch) {
+      const tr = state.tr;
+      tr.replaceWith(target.from, target.to, Fragment.from(result.items));
+      dispatch(tr);
+      onResult?.({ kind: target.kind, count: result.items.length, removed: result.removed });
+    }
     return true;
   };
 }

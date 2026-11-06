@@ -2,6 +2,7 @@ import { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttrib
 export { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttributes.ts';
 import {styledBlock,emailContainer,colorMark,composeTableNodes,boundTableHtml,tightenCells,readListStyle,listDOM,listItemDOM,listAttrs} from './richFormatting.ts';
 import {validPointValue} from './formatModel.ts';
+import {effectStyle,effectTag,readEffect,type EffectKind} from './effects.ts';
 import {materializeLists,dematerializeLists,CHECKED_ATTRIBUTE} from './listMarkers.ts';
 import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 import { imageLookAttrs, imageStyleText, readImageLook, cleanImageLook } from './imageAttrs.ts';
@@ -121,7 +122,27 @@ function textStyle(property:'font-family'|'font-size'):MarkSpec {
  }};
 }
 
+// Font effects: one mark per effect (the kinds coexist), written as a styled span or a sup/sub tag.
+const effect: MarkSpec = {
+  attrs: { kind: { default: 'shadow' }, value: { default: '' } },
+  excludes: '',
+  parseDOM: [
+    { tag: 'sup', getAttrs: () => ({ kind: 'superscript', value: '' }) },
+    { tag: 'sub', getAttrs: () => ({ kind: 'subscript', value: '' }) },
+    { tag: 'span[style]', getAttrs: (dom: HTMLElement) => readEffect(dom) ?? false },
+  ],
+  toDOM(mark) {
+    const kind = mark.attrs['kind'] as EffectKind;
+    const tag = effectTag(kind);
+    if (tag) return [tag, 0];
+    const span = document.createElement('span');
+    for (const [property, value] of effectStyle(kind, mark.attrs['value'] as string)) span.style.setProperty(property, value);
+    return { dom: span, contentDOM: span };
+  },
+};
+
 const marks = basicSchema.spec.marks.update('link', link).append({
+    effect,
     textColor:colorMark('color'),
     highlight:colorMark('background-color'),
     fontFamily:textStyle('font-family'),
