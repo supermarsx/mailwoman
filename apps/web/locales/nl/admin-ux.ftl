@@ -148,3 +148,10 @@ admin-ux-appearance-accent = Accentkleur
 admin-ux-appearance-light = Licht
 admin-ux-appearance-dark = Donker
 admin-ux-appearance-reset = Het webmailthema gebruiken
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = Toevoegen
+admin-ux-list-remove = { $item } verwijderen
+admin-ux-list-none = Nog niets.
+admin-ux-list-duplicate = { $item } staat al in de lijst.
+admin-ux-list-empty-entry = Typ eerst een item.
