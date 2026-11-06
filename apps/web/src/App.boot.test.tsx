@@ -20,6 +20,10 @@ const hooks = vi.hoisted(() => ({
   network: null as null | Set<(up: boolean) => void>,
 }));
 
+// The boot check now waits out an unreachable server on a backoff (state/bootRetry.ts, about
+// a minute in all). These tests are about what is shown once it gives up, so the wait is zero.
+vi.mock('./api/recovery.ts', async (importOriginal) => ({ ...(await importOriginal<typeof import('./api/recovery.ts')>()), backoffDelay: () => 0 }));
+
 vi.mock('./api/transport.ts', () => ({
   createConfiguredClient: () => ({
     login: vi.fn(),
@@ -79,10 +83,11 @@ describe('boot failure is not a login prompt', () => {
 
   it('retry re-runs the boot, and the app recovers when the server answers', async () => {
     let calls = 0;
+    let down = true;
     hooks.me = () => {
       calls += 1;
-      // Down once, then reachable and simply not authenticated.
-      return calls === 1
+      // Down through the whole backoff, then reachable and simply not authenticated.
+      return down
         ? Promise.reject(new NetworkError('down'))
         : Promise.reject(new ApiError(401, 'not authenticated'));
     };
@@ -90,11 +95,14 @@ describe('boot failure is not a login prompt', () => {
     render(() => <App />);
     await waitFor(() => expect(screen.getByTestId('async-retry')).toBeTruthy());
 
+    const attempts = calls;
+    expect(attempts).toBeGreaterThan(1);
+    down = false;
     fireEvent.click(screen.getByTestId('async-retry'));
 
     // Recovered: the failure is gone and the ordinary logged-out screen is up.
     await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
-    expect(calls).toBe(2);
+    expect(calls).toBe(attempts + 1);
   });
 
   it('a 401 is the logged-out ANSWER and still renders login, not an error', async () => {
