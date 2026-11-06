@@ -8,6 +8,10 @@ pub(crate) struct Capacity {
     semaphore: Arc<Semaphore>,
     sizing: Mutex<Sizing>,
     waiting: AtomicUsize,
+    /// High-priority acquisitions queued right now; normal ones yield to them.
+    high_waiting: AtomicUsize,
+    /// Fired whenever a permit comes back or a high-priority wait ends.
+    released: tokio::sync::Notify,
 }
 struct Sizing {
     limit: usize,
@@ -25,6 +29,8 @@ impl Capacity {
             semaphore: Arc::new(Semaphore::new(limit)),
             sizing: Mutex::new(Sizing { limit, retiring: 0 }),
             waiting: AtomicUsize::new(0),
+            high_waiting: AtomicUsize::new(0),
+            released: tokio::sync::Notify::new(),
         })
     }
 
@@ -85,6 +91,44 @@ impl Capacity {
         }
     }
 
+    /// Wait for a permit; a `high` request is served before every normal one that
+    /// is waiting (a normal request takes a permit only while no high-priority
+    /// request is queued, and re-checks each time one is released).
+    pub(crate) async fn acquire_priority(self: &Arc<Self>, high: bool) -> Result<Permit, AcquireError> {
+        if high {
+            struct High<'a>(&'a Capacity);
+            impl Drop for High<'_> {
+                fn drop(&mut self) {
+                    self.0.high_waiting.fetch_sub(1, Ordering::Relaxed);
+                    self.0.released.notify_waiters();
+                }
+            }
+            self.high_waiting.fetch_add(1, Ordering::Relaxed);
+            let _high = High(self);
+            return self.acquire().await;
+        }
+        struct Waiting<'a>(&'a AtomicUsize);
+        impl Drop for Waiting<'_> {
+            fn drop(&mut self) {
+                self.0.fetch_sub(1, Ordering::Relaxed);
+            }
+        }
+        self.waiting.fetch_add(1, Ordering::Relaxed);
+        let _waiting = Waiting(&self.waiting);
+        loop {
+            let notified = self.released.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.high_waiting.load(Ordering::Relaxed) == 0 {
+                if let Ok(permit) = self.try_acquire() {
+                    return Ok(permit);
+                }
+            }
+            // The timeout covers a release that raced the check above.
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(25), notified).await;
+        }
+    }
+
     fn promote(self: &Arc<Self>, permit: OwnedSemaphorePermit) -> Option<Permit> {
         let mut sizing = self.sizing.lock().expect("image capacity lock");
         // Tokio may have reserved a permit for a pending acquisition before a
@@ -104,6 +148,7 @@ impl Capacity {
 
 impl Drop for Permit {
     fn drop(&mut self) {
+        let _wake = Wake(&self.capacity);
         let mut sizing = self.capacity.sizing.lock().expect("image capacity lock");
         if sizing.retiring > 0 {
             if let Some(permit) = self.permit.take() {
@@ -114,6 +159,14 @@ impl Drop for Permit {
         // Keep the sizing lock until returning the permit, so a concurrent
         // shrink cannot miss a permit between debt accounting and release.
         drop(self.permit.take());
+    }
+}
+
+/// Declared before the permit is returned, dropped after: wakes normal waiters.
+struct Wake<'a>(&'a Arc<Capacity>);
+impl Drop for Wake<'_> {
+    fn drop(&mut self) {
+        self.0.released.notify_waiters();
     }
 }
 
@@ -215,5 +268,29 @@ mod tests {
         assert!(capacity.try_acquire().is_err());
         drop(last);
         assert_eq!(capacity.available_permits(), 1);
+    }
+
+    #[tokio::test]
+    async fn a_high_priority_waiter_is_served_before_earlier_normal_waiters() {
+        let capacity = Capacity::new(1);
+        let held = capacity.acquire().await.unwrap();
+        let order = Arc::new(Mutex::new(Vec::new()));
+        let mut tasks = Vec::new();
+        for (name, high) in [("normal-1", false), ("normal-2", false), ("high", true)] {
+            let (capacity, order) = (capacity.clone(), order.clone());
+            tasks.push(tokio::spawn(async move {
+                let permit = capacity.acquire_priority(high).await.unwrap();
+                order.lock().unwrap().push(name);
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                drop(permit);
+            }));
+            tokio::time::sleep(Duration::from_millis(15)).await;
+        }
+        drop(held);
+        for task in tasks {
+            tokio::time::timeout(Duration::from_secs(5), task).await.unwrap().unwrap();
+        }
+        assert_eq!(order.lock().unwrap()[0], "high");
+        assert_eq!(order.lock().unwrap().len(), 3, "normal requests are not starved");
     }
 }

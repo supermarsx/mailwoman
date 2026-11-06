@@ -88,6 +88,21 @@ export function replaceFailedImages(html: string, images: SignedContent['images'
   });
   return { html, imageSources };
 }
+/** How many images, in document order, are treated as the first viewport. */
+export const FIRST_VIEWPORT_IMAGES = 6;
+/**
+ * A reader frame cannot know its fold before layout, so the first few proxied
+ * images get `fetchpriority="high"` and the rest `low`. A browser turns that into
+ * a `Priority` request field, which the image proxy schedules ahead of the
+ * background queue (RFC 9218; the server also honours `x-mw-priority: high`).
+ */
+function markFirstViewportImages(doc: Document): void {
+  let n = 0;
+  for (const image of doc.querySelectorAll('img[src]')) {
+    if (!/\/api\/rc\/i\//.test(image.getAttribute('src') ?? '')) continue;
+    image.setAttribute('fetchpriority', n++ < FIRST_VIEWPORT_IMAGES ? 'high' : 'low');
+  }
+}
 /** Replaces sanitizer placeholders only. Unapproved references remain inert. */
 export function rewriteReaderContent(html: string, signed: SignedContent, policy: RemotePolicy, cidParts: Readonly<Record<string, string>>, origin = remoteServerBase()): string {
   const doc = documentOf(html);
@@ -110,6 +125,7 @@ export function rewriteReaderContent(html: string, signed: SignedContent, policy
       element.setAttribute(attr, value);
     }
   }
+  markFirstViewportImages(doc);
   for(const style of doc.querySelectorAll('style')){
     const source=style.textContent??'';
     const rewritten=mapStyleUrls(source,url=>{

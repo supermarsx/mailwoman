@@ -17,6 +17,13 @@ describe('signed reader content', () => {
     expect(root.querySelector('p')?.getAttribute('style')).toContain('/api/rc/i/token');
     for (const e of root.querySelectorAll('[src],[srcset],[style]')) expect(e.outerHTML).not.toContain('https://cdn.test');
   });
+  it('marks the first viewport images high priority and the rest low', () => {
+    const urls = Array.from({ length: 8 }, (_, i) => `https://cdn.test/${i}.png`);
+    const html = sanitize(urls.map(u => `<img src="${u}">`).join(''));
+    const output = rewriteReaderContent(html, { ...EMPTY_SIGNED, images: urls.map((url, i) => ({ url, src: `/api/rc/i/token${i}.sig` })) }, policy, {});
+    const priorities = [...doc(output).querySelectorAll('img')].map(i => i.getAttribute('fetchpriority'));
+    expect(priorities).toEqual(['high', 'high', 'high', 'high', 'high', 'high', 'low', 'low']);
+  });
   it('keeps refused references inert and does not enable an image merely because another URL was signed', () => {
     const output = rewriteReaderContent(sanitize('<img src="https://cdn.test/a.png">'), { ...EMPTY_SIGNED, images: [{ url: 'https://cdn.test/b.png', src: '/api/rc/i/token.sig' }] }, policy, {});
     expect(doc(output).querySelector('img')?.src).toMatch(/^data:/);

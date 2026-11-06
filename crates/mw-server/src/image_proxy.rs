@@ -817,13 +817,56 @@ pub(super) async fn acquire_bounded_permit(
         latency::Phase::Queue,
         tokio::time::timeout_at(
             tokio::time::Instant::from_std(deadline),
-            semaphore.acquire(),
+            semaphore.acquire_priority(is_high_priority()),
         ),
     )
     .await
     .ok()?
     .ok()?;
     (Instant::now() < deadline).then_some(permit)
+}
+
+tokio::task_local! {
+    static HIGH_PRIORITY: bool;
+}
+static HIGH_SERVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Requests that asked for first-viewport priority, cumulative since start.
+pub(crate) fn high_priority_requests() -> u64 {
+    HIGH_SERVED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Whether the request being served asked to be scheduled first (first-viewport
+/// image of the open message). Tasks that never set it are normal priority.
+pub(crate) fn is_high_priority() -> bool {
+    HIGH_PRIORITY.try_with(|high| *high).unwrap_or(false)
+}
+
+/// `x-mw-priority: high`, `?priority=high` (an `<img>` cannot set headers) or the
+/// RFC 9218 `Priority: u=0|1` field a browser sends for `fetchpriority="high"`.
+pub(crate) fn requested_priority(headers: &HeaderMap, query: Option<&str>) -> bool {
+    let named = headers
+        .get("x-mw-priority")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| v.trim().eq_ignore_ascii_case("high"));
+    let rfc9218 = headers
+        .get("priority")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|v| {
+            v.split(',')
+                .any(|p| matches!(p.trim(), "u=0" | "u=1"))
+        });
+    let queried = query.is_some_and(|q| q.split('&').any(|p| p == "priority=high"));
+    named || rfc9218 || queried
+}
+
+/// Run `work` with the priority the request asked for.
+pub(crate) async fn with_priority<F: std::future::Future>(high: bool, work: F) -> F::Output {
+    if high {
+        HIGH_SERVED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        HIGH_PRIORITY.scope(true, work).await
+    } else {
+        work.await
+    }
 }
 
 /// Wait for a token from the account's bucket, in arrival order, for at most
@@ -1064,8 +1107,10 @@ async fn proxy_image(
     State(state): State<AppState>,
     headers: HeaderMap,
     Query(q): Query<ProxyQuery>,
+    uri: axum::http::Uri,
 ) -> Response {
-    latency::track(proxy_image_inner(state, headers, q)).await
+    let high = requested_priority(&headers, uri.query());
+    with_priority(high, latency::track(proxy_image_inner(state, headers, q))).await
 }
 
 async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -> Response {
@@ -1473,6 +1518,29 @@ fn internal(ctx: &str) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn priority_is_requested_by_header_query_or_rfc9218_field_only() {
+        let mut h = HeaderMap::new();
+        assert!(!requested_priority(&h, None));
+        assert!(!requested_priority(&h, Some("priority=low&x=1")));
+        assert!(requested_priority(&h, Some("a=1&priority=high")));
+        h.insert("x-mw-priority", "High".parse().unwrap());
+        assert!(requested_priority(&h, None));
+        let mut h = HeaderMap::new();
+        h.insert("priority", "u=1, i".parse().unwrap());
+        assert!(requested_priority(&h, None));
+        h.insert("priority", "u=4".parse().unwrap());
+        assert!(!requested_priority(&h, None));
+    }
+
+    #[tokio::test]
+    async fn the_priority_scope_is_visible_only_inside_the_request() {
+        assert!(!is_high_priority());
+        with_priority(true, async { assert!(is_high_priority()) }).await;
+        with_priority(false, async { assert!(!is_high_priority()) }).await;
+        assert!(!is_high_priority());
+    }
 
     #[tokio::test]
     async fn image_queue_wait_longer_than_network_total_preserves_a_real_fetch_budget() {

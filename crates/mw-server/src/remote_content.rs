@@ -669,6 +669,9 @@ pub(crate) async fn resolve(
     if !mw_store::rc_handles::is_handle(token) {
         return verify(key, token, now);
     }
+    if let Some(claims) = handle_cache::get(token, now) {
+        return Ok(claims);
+    }
     let json = state
         .store
         .rc_handle_get(token, now)
@@ -679,7 +682,83 @@ pub(crate) async fn resolve(
     if claims.v != 1 || claims.x < now {
         return Err(());
     }
+    handle_cache::put(token, &claims, now);
     Ok(claims)
+}
+
+/// In-memory LRU of resolved handles. A handle row is immutable once written (the
+/// insert never overwrites), so a resolved claims document stays correct until its
+/// own expiry; the only way a row disappears early is cap eviction, so an entry
+/// is also dropped after [`TTL_SECS`]. Only successful lookups are kept, so an
+/// unknown handle never occupies a slot and a handle written on another replica
+/// is found on its first request.
+pub(crate) mod handle_cache {
+    use super::Claims;
+    use std::collections::{HashMap, VecDeque};
+    use std::sync::Mutex;
+    use std::sync::atomic::{AtomicU64, Ordering::Relaxed};
+
+    pub(crate) const CAPACITY: usize = 4096;
+    const TTL_SECS: i64 = 120;
+    static HITS: AtomicU64 = AtomicU64::new(0);
+    static MISSES: AtomicU64 = AtomicU64::new(0);
+
+    #[derive(Default)]
+    pub(crate) struct Lru {
+        map: HashMap<String, (Claims, i64)>,
+        order: VecDeque<String>,
+    }
+    impl Lru {
+        pub(crate) fn get(&mut self, token: &str, now: i64) -> Option<Claims> {
+            let (claims, cached_at) = self.map.get(token)?;
+            if claims.x < now || now - cached_at > TTL_SECS {
+                self.map.remove(token);
+                self.order.retain(|t| t != token);
+                return None;
+            }
+            let claims = claims.clone();
+            if self.order.back().map(String::as_str) != Some(token) {
+                self.order.retain(|t| t != token);
+                self.order.push_back(token.to_string());
+            }
+            Some(claims)
+        }
+        pub(crate) fn put(&mut self, token: &str, claims: &Claims, now: i64, capacity: usize) {
+            if self.map.insert(token.to_string(), (claims.clone(), now)).is_some() {
+                self.order.retain(|t| t != token);
+            }
+            self.order.push_back(token.to_string());
+            while self.map.len() > capacity {
+                if let Some(oldest) = self.order.pop_front() {
+                    self.map.remove(&oldest);
+                } else {
+                    break;
+                }
+            }
+        }
+        pub(crate) fn len(&self) -> usize {
+            self.map.len()
+        }
+    }
+
+    fn lru() -> &'static Mutex<Lru> {
+        static L: std::sync::OnceLock<Mutex<Lru>> = std::sync::OnceLock::new();
+        L.get_or_init(Default::default)
+    }
+    pub(super) fn get(token: &str, now: i64) -> Option<Claims> {
+        let found = lru().lock().ok()?.get(token, now);
+        (if found.is_some() { &HITS } else { &MISSES }).fetch_add(1, Relaxed);
+        found
+    }
+    pub(super) fn put(token: &str, claims: &Claims, now: i64) {
+        if let Ok(mut l) = lru().lock() {
+            l.put(token, claims, now, CAPACITY);
+        }
+    }
+    /// `(hits, misses)` since start, for the stat panels.
+    pub(crate) fn counters() -> (u64, u64) {
+        (HITS.load(Relaxed), MISSES.load(Relaxed))
+    }
 }
 
 fn now_secs() -> i64 {
@@ -1296,8 +1375,14 @@ pub(crate) async fn image(
     headers: HeaderMap,
     UrlPath(token): UrlPath<String>,
     proof: Option<Extension<DisplayProof>>,
+    uri: axum::http::Uri,
 ) -> Response {
-    super::latency::track(image_inner(state, headers, token, proof)).await
+    let high = super::requested_priority(&headers, uri.query());
+    super::with_priority(
+        high,
+        super::latency::track(image_inner(state, headers, token, proof)),
+    )
+    .await
 }
 
 async fn image_inner(
@@ -2458,6 +2543,21 @@ mod tests {
                 .is_empty(),
             "permanent format refusal must not auto-retry"
         );
+    }
+
+    #[test]
+    fn the_handle_cache_evicts_least_recently_used_and_honours_expiry() {
+        let mut lru = handle_cache::Lru::default();
+        lru.put("a", &claims(1000), 10, 2);
+        lru.put("b", &claims(1000), 10, 2);
+        assert!(lru.get("a", 11).is_some());
+        lru.put("c", &claims(1000), 12, 2);
+        assert_eq!(lru.len(), 2);
+        assert!(lru.get("b", 12).is_none(), "b was least recently used");
+        assert!(lru.get("a", 12).is_some());
+        assert!(lru.get("a", 1001).is_none(), "an expired claim is never served");
+        lru.put("d", &claims(100_000), 10, 2);
+        assert!(lru.get("d", 10 + 500).is_none(), "an entry older than the TTL is re-read");
     }
 
     fn claims(x: i64) -> Claims {

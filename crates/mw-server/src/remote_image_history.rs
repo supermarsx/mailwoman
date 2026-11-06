@@ -65,6 +65,10 @@ pub(crate) struct Sample {
     pub wait_us: u64,
     pub waits: u64,
     pub trackers: u64,
+    pub coalesced: u64,
+    pub handle_hits: u64,
+    pub handle_misses: u64,
+    pub high_priority: u64,
     pub ram_hits: u64,
     pub disk_hits: u64,
     pub misses: u64,
@@ -179,6 +183,17 @@ impl History {
             put("busy429", delta(a.busy_429, b.busy_429));
             put("busy503", delta(a.busy_503, b.busy_503));
             put("trackersReplaced", delta(a.trackers, b.trackers));
+            put("coalescedFetches", delta(a.coalesced, b.coalesced));
+            put("highPriorityRequests", delta(a.high_priority, b.high_priority));
+            put(
+                "handleCacheHitPct",
+                pct(
+                    delta(a.handle_hits, b.handle_hits),
+                    delta(a.handle_hits, b.handle_hits)
+                        .zip(delta(a.handle_misses, b.handle_misses))
+                        .map(|(h, m)| h + m),
+                ),
+            );
             put("rateBurst", Some(b.burst as f64));
             put("rateRefillPerMin", Some(b.per_min as f64));
             put("activeAccounts", Some(b.accounts as f64));
@@ -256,6 +271,10 @@ fn gather() -> Sample {
         wait_us: WAIT_US.load(Relaxed),
         waits: WAITS.load(Relaxed),
         trackers: super::remote_content::trackers_replaced(),
+        coalesced: super::remote_content::image_flight::coalesced(),
+        handle_hits: super::remote_content::handle_cache::counters().0,
+        handle_misses: super::remote_content::handle_cache::counters().1,
+        high_priority: super::high_priority_requests(),
         ram_hits: tier.counters.ram_hits,
         disk_hits: tier.counters.disk_hits,
         misses: tier.counters.misses,

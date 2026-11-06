@@ -9,6 +9,12 @@ use std::{
 };
 use tokio::sync::{Mutex as AsyncMutex, OwnedMutexGuard};
 static WAITING: AtomicUsize = AtomicUsize::new(0);
+static COALESCED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Requests that joined an in-flight fetch of the same URL instead of fetching it
+/// again, cumulative since start.
+pub(crate) fn coalesced() -> u64 {
+    COALESCED.load(Ordering::Relaxed)
+}
 pub(crate) fn waiting() -> usize {
     WAITING.load(Ordering::Relaxed)
 }
@@ -78,6 +84,7 @@ pub(crate) async fn acquire(
         }
     }
     WAITING.fetch_add(1, Ordering::Relaxed);
+    COALESCED.fetch_add(1, Ordering::Relaxed);
     let _waiting = Waiting;
     let guard =
         tokio::time::timeout_at(tokio::time::Instant::from_std(deadline), slot.lock_owned())
