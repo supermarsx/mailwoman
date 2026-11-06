@@ -7,7 +7,7 @@ export function SettingsCard(props: { id: string; title: string; description?: s
   return <section class={props.wide ? `${css.card} ${css.cardWide}` : css.card} id={props.id} aria-labelledby={`${props.id}-title`} data-testid={props.testId}>
     <header class={css.cardHead}>
       <h4 class={css.cardTitle} id={`${props.id}-title`}>{props.title}</h4>
-      {props.description ? <p class={css.cardDesc}>{props.description}</p> : null}
+      {props.description ? <p class={css.cardDesc} id={`${props.id}-desc`}>{props.description}</p> : null}
     </header>
     <div class={css.rows}>{props.children}</div>
   </section>;

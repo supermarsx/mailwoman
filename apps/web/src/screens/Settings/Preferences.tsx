@@ -19,6 +19,8 @@ import {
   type KeyboardPreset,
   type SettingsPrefs,
 } from './prefs.ts';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 export interface PreferencesProps {
@@ -77,23 +79,23 @@ export function Preferences(props: PreferencesProps): JSX.Element {
   return (
     <>
       {/* W14 — keyboard shortcut presets */}
-      <section class={css.section} aria-label={t('settings-kbd-preset-title')}>
-        <h2 class={css.heading}>{t('settings-kbd-preset-title')}</h2>
-        <p class={css.prose}>{t('settings-kbd-intro')}</p>
-        <div class={css.options} role="group" aria-label={t('settings-kbd-preset-title')}>
-          <For each={KEYBOARD_OPTIONS}>
-            {(o) => (
-              <button
-                type="button"
-                class={css.option}
-                aria-pressed={props.prefs().keyboardPreset === o.value}
-                onClick={() => patch({ keyboardPreset: o.value })}
-              >
-                {t(o.label)}
-              </button>
-            )}
-          </For>
-        </div>
+      <SettingsCard id="prefs-card-keyboard" title={t('settings-kbd-preset-title')} description={t('settings-kbd-intro')}>
+        <ControlRow controlId="prefs-keyboard-preset" group stacked label={t('settings-kbd-preset-title')}>{() =>
+          <div class={css.options} role="group" aria-labelledby="prefs-keyboard-preset">
+            <For each={KEYBOARD_OPTIONS}>
+              {(o) => (
+                <button
+                  type="button"
+                  class={css.option}
+                  aria-pressed={props.prefs().keyboardPreset === o.value}
+                  onClick={() => patch({ keyboardPreset: o.value })}
+                >
+                  {t(o.label)}
+                </button>
+              )}
+            </For>
+          </div>
+        }</ControlRow>
         <details><summary>{t('settings-kbd-reference')}</summary><p class={css.meta}>{t('settings-kbd-reference-help')}</p>
         <table class="settings-shortcut-table" data-testid="kbd-preview"><thead><tr><th>{t('settings-shortcuts-action')}</th><th>{t('settings-shortcuts-binding')}</th></tr></thead><tbody>
           <For each={PRESET_BINDINGS[props.prefs().keyboardPreset]}>
@@ -105,45 +107,36 @@ export function Preferences(props: PreferencesProps): JSX.Element {
             )}
           </For>
         </tbody></table></details>
-      </section>
+      </SettingsCard>
 
       {/* W16 — offline cache eviction policy */}
-      <section class={css.section} aria-label={t('settings-offline-title')}>
-        <h2 class={css.heading}>{t('settings-offline-title')}</h2>
-        <p class={css.prose}>{t('settings-offline-intro')}</p>
-        <div class={css.row}>
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-offline-budget-label')}</span>
-            <input
-              class={css.input}
-              type="number"
-              min="0"
-              aria-label={t('settings-offline-budget-label')}
-              aria-describedby={budgetHold.locked() ? 'settings-offline-budget-lock' : undefined}
-              disabled={budgetHold.locked()}
-              value={props.prefs().offlineBudgetMb}
-              onInput={(e) => patch({ offlineBudgetMb: Math.max(0, Number(e.currentTarget.value) || 0) })}
-            />
-            <LockNote id="settings-offline-budget-lock" locked={budgetHold.locked()} />
-          </label>
-          <label class={css.field}>
-            <span class={css.label}>{t('settings-offline-retention-label')}</span>
-            <input
-              class={css.input}
-              type="number"
-              min="0"
-              aria-label={t('settings-offline-retention-label')}
-              aria-describedby={retentionHold.locked() ? 'settings-offline-retention-lock' : undefined}
-              disabled={retentionHold.locked()}
-              value={props.prefs().offlineRetentionDays}
-              onInput={(e) => patch({ offlineRetentionDays: Math.max(0, Number(e.currentTarget.value) || 0) })}
-            />
-            <LockNote id="settings-offline-retention-lock" locked={retentionHold.locked()} />
-          </label>
-        </div>
-        <div class={css.field}>
-          <span class={css.label}>{t('settings-offline-strategy-label')}</span>
-          <div class={css.options} role="group" aria-label={t('settings-offline-strategy-label')}>
+      <SettingsCard id="prefs-card-offline" title={t('settings-offline-title')} description={t('settings-offline-intro')}>
+        <ControlRow controlId="prefs-offline-budget" label={t('settings-offline-budget-label')} note={<LockNote id="settings-offline-budget-lock" locked={budgetHold.locked()} />}>{() =>
+          <input
+            id="prefs-offline-budget"
+            class={css.input}
+            type="number"
+            min="0"
+            aria-describedby={budgetHold.locked() ? 'settings-offline-budget-lock' : undefined}
+            disabled={budgetHold.locked()}
+            value={props.prefs().offlineBudgetMb}
+            onInput={(e) => patch({ offlineBudgetMb: Math.max(0, Number(e.currentTarget.value) || 0) })}
+          />
+        }</ControlRow>
+        <ControlRow controlId="prefs-offline-retention" label={t('settings-offline-retention-label')} note={<LockNote id="settings-offline-retention-lock" locked={retentionHold.locked()} />}>{() =>
+          <input
+            id="prefs-offline-retention"
+            class={css.input}
+            type="number"
+            min="0"
+            aria-describedby={retentionHold.locked() ? 'settings-offline-retention-lock' : undefined}
+            disabled={retentionHold.locked()}
+            value={props.prefs().offlineRetentionDays}
+            onInput={(e) => patch({ offlineRetentionDays: Math.max(0, Number(e.currentTarget.value) || 0) })}
+          />
+        }</ControlRow>
+        <ControlRow controlId="prefs-offline-strategy" group label={t('settings-offline-strategy-label')}>{() =>
+          <div class={css.options} role="group" aria-labelledby="prefs-offline-strategy">
             <For each={EVICTION_OPTIONS}>
               {(o) => (
                 <button
@@ -157,37 +150,37 @@ export function Preferences(props: PreferencesProps): JSX.Element {
               )}
             </For>
           </div>
-        </div>
+        }</ControlRow>
         <div class={css.dangerZone}>
           <button type="button" class={css.danger} onClick={purgeOfflineCache} data-testid="offline-purge">
             {t('settings-offline-purge')}
           </button>
         </div>
-      </section>
+      </SettingsCard>
 
       {/* W20 — interface direction (ships an RTL locale + mirrored layout) */}
-      <section class={css.section} aria-label={t('settings-dir-title')}>
-        <h2 class={css.heading}>{t('settings-dir-title')}</h2>
-        <p class={css.prose}>{t('settings-dir-intro')}</p>
-        <div class={css.options} role="group" aria-label={t('settings-dir-title')}>
-          <For each={DIRECTION_OPTIONS}>
-            {(o) => (
-              <button
-                type="button"
-                class={css.option}
-                aria-pressed={props.prefs().direction === o.value}
-                onClick={() => patch({ direction: o.value })}
-              >
-                {t(o.label)}
-              </button>
-            )}
-          </For>
-        </div>
+      <SettingsCard id="prefs-card-direction" title={t('settings-dir-title')} description={t('settings-dir-intro')}>
+        <ControlRow controlId="prefs-direction" group label={t('settings-dir-title')}>{() =>
+          <div class={css.options} role="group" aria-labelledby="prefs-direction">
+            <For each={DIRECTION_OPTIONS}>
+              {(o) => (
+                <button
+                  type="button"
+                  class={css.option}
+                  aria-pressed={props.prefs().direction === o.value}
+                  onClick={() => patch({ direction: o.value })}
+                >
+                  {t(o.label)}
+                </button>
+              )}
+            </For>
+          </div>
+        }</ControlRow>
         <div class={css.previewFrame} dir={previewDir()} data-testid="dir-preview" data-dir={previewDir()}>
           <span class={css.itemName}>{t('settings-dir-preview-title')}</span>
           <span class={css.meta}>{t('settings-dir-preview-body')}</span>
         </div>
-      </section>
+      </SettingsCard>
     </>
   );
 }

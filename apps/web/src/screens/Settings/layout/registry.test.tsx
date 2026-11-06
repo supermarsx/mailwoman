@@ -9,6 +9,10 @@ import {DraftSavePreferences} from '../DraftSavePreferences.tsx';
 import {CachePreferences} from '../CachePreferences.tsx';
 import {ContactAppearance} from '../ContactAppearance.tsx';
 import {UndoRedoPreferences} from '../UndoRedoPreferences.tsx';
+import {Preferences} from '../Preferences.tsx';
+import {KeyboardShortcuts} from '../KeyboardShortcuts.tsx';
+import {createSettingsNavigation} from '../navigation.tsx';
+import {loadPrefs} from '../prefs.ts';
 import {clearSettings} from '../../../api/settings.ts';
 import {t} from '../../../i18n';
 import {SETTINGS_REGISTRY,searchRegistry} from './registry.ts';
@@ -19,7 +23,7 @@ afterEach(()=>{vi.unstubAllGlobals();clearSettings();});
 
 const SECTIONS:Record<string,()=>unknown>={
  reader:()=><><ReaderAppearanceSettings/><ContactAppearance/><CachePreferences/></>,
- shortcuts:()=><><MailFeaturePreferences/><MailInteractionPreferences/><UndoRedoPreferences/></>,
+ shortcuts:()=><><Preferences prefs={loadPrefs} onChange={()=>undefined}/><KeyboardShortcuts navigation={createSettingsNavigation({section:'shortcuts'})}/><MailFeaturePreferences/><MailInteractionPreferences/><UndoRedoPreferences/></>,
  compose:()=><><ComposePreferences/><DraftSavePreferences/></>,
 };
 // Rows that exist only for some values of another setting.
@@ -36,7 +40,7 @@ for(const [name,body] of Object.entries(SECTIONS)){
    for(const row of card.rows){
     if(CONDITIONAL.has(row.id))continue;
     expect(document.querySelectorAll(`[id="${row.id}"]`),row.id).toHaveLength(1);
-    expect(screen.getAllByText(t(row.label),{selector:'label'}),row.label).toHaveLength(1);
+    expect(screen.getAllByText(t(row.label),{selector:'label, [data-setting-row] > span'}),row.label).toHaveLength(1);
    }
   }
  });
