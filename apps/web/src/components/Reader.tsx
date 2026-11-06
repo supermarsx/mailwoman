@@ -1170,6 +1170,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const unwatch=observePreferenceAccount(()=>{if(!current())controller.abort();});
     setPreparing(true);
     try {
+      // The quote is built from the sanitised body: a reply started while it is
+      // still being prepared waits for it instead of quoting the preview text.
+      for (let waited = 0; (readerBody.loading || currentBody() === undefined) && !controller.signal.aborted && waited < 100; waited += 1) await new Promise<void>((resolve) => setTimeout(resolve, 50));
+      if (controller.signal.aborted) return;
       // The identities decide which addresses a reply-all leaves out.
       if (mode === 'reply-all' && app.identities().length === 0) await app.loadIdentities();
       const initial = await composeFrom(email, mode,{account,signal:controller.signal,current});

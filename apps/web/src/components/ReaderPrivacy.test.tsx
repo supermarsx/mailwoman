@@ -102,7 +102,7 @@ describe('Reader signed privacy pipeline',()=>{
     const app=await open([message('m1',raw),message('m2',raw)]);
     expect(screen.queryByRole('button',{name:'Show Original HTML'})).toBeNull();
     await allowOriginal();const show=await screen.findByRole('button',{name:'Show Original HTML'});
-    expect(frame()?.srcdoc).not.toContain('data-original-layout');
+    await waitFor(()=>expect(frame()).not.toBeNull());expect(frame()?.srcdoc).not.toContain('data-original-layout');
     fireEvent.click(show);await waitFor(()=>expect(frame()?.srcdoc).toContain('data-original-layout="kept"'));
     expect(frame()?.srcdoc).toContain('grid-template-columns:13px 1fr');expect(frame()?.srcdoc).toContain('margin:37px');expect(frame()?.srcdoc).not.toMatch(/<script|<iframe|evil\(/);
     expect(screen.getByTestId('reader-original-html')).toHaveAttribute('data-state','original');
@@ -344,7 +344,7 @@ describe('Reader signed privacy pipeline',()=>{
     await open([message('m1','<script>bad()</script><b>Clean markup</b>')]);
     const mode=async(value:string)=>loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.reader.unsafeHtmlMode':{value,locked:true,source:'global'}}})});
     await mode('strict');await waitFor(()=>expect(screen.queryByRole('button',{name:'Show sanitized HTML'})).not.toBeInTheDocument());
-    expect(frame()?.srcdoc).not.toContain('<b>Clean markup</b>');
+    expect(frame()?.srcdoc??'').not.toContain('<b>Clean markup</b>');
     await mode('sanitized');await waitFor(()=>expect(frame()?.srcdoc).toContain('<b>Clean markup</b>'));
     expect(screen.queryByRole('button',{name:'Show safe text'})).not.toBeInTheDocument();expect(requests).toEqual([]);
     await mode('strict');await waitFor(()=>expect(frame()?.srcdoc).not.toContain('<b>Clean markup</b>'));

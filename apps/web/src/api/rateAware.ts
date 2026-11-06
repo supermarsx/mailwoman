@@ -221,11 +221,20 @@ async function withRetries(req: RateRequest, send: () => Promise<Response>): Pro
   }
 }
 
-const sharing = new Map<string, Promise<Response>>();
+interface Shared { joiners: number; settled: Promise<{ res: Response; bytes?: ArrayBuffer }> }
+const sharing = new Map<string, Shared>();
 
-/** A readable copy for one more caller (a stand-in without `clone` is passed on as is). */
-function copy(res: Response): Response {
-  return typeof res.clone === 'function' ? res.clone() : res;
+/**
+ * One response for one caller. A lone caller gets the response itself, so a
+ * stream it cancels (the header read of a reply) is not held open by a sibling
+ * copy nobody reads. Callers that shared a request each get a copy of the
+ * buffered bytes; a stand-in without a body reader is passed on as is.
+ */
+function answer(done: { res: Response; bytes?: ArrayBuffer }): Response {
+  if (done.bytes === undefined) return done.res;
+  const { status, statusText, headers } = done.res;
+  const empty = done.bytes.byteLength === 0 || status === 204 || status === 205 || status === 304;
+  return new Response(empty ? null : done.bytes.slice(0), { status, statusText, headers });
 }
 
 /**
@@ -236,10 +245,18 @@ export async function rateAwareSend(req: RateRequest, send: () => Promise<Respon
   const signal = req.signal ?? undefined;
   if (share !== undefined && signal === undefined) {
     const running = sharing.get(share);
-    if (running !== undefined) return copy(await running);
-    const work = runOne(req, send).finally(() => { sharing.delete(share); });
-    sharing.set(share, work);
-    return copy(await work);
+    if (running !== undefined) { running.joiners += 1; return answer(await running.settled); }
+    const entry: Shared = { joiners: 0, settled: undefined as unknown as Shared['settled'] };
+    entry.settled = runOne(req, send).then(
+      (res) => {
+        if (sharing.get(share) === entry) sharing.delete(share);
+        if (entry.joiners === 0 || typeof res.arrayBuffer !== 'function') return { res };
+        return res.arrayBuffer().then((bytes) => ({ res, bytes }));
+      },
+      (error: unknown) => { if (sharing.get(share) === entry) sharing.delete(share); throw error; },
+    );
+    sharing.set(share, entry);
+    return answer(await entry.settled);
   }
   return runOne(req, send);
 }

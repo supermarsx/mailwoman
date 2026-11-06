@@ -4,6 +4,7 @@ import { setupI18nForTests } from './i18n.ts';
 import { resetToasts } from '../components/toast/toast.ts';
 import { forgetSession } from '../state/sessionRestore.ts';
 import { WORKSPACE_STORAGE_KEY } from '../realtime/workspaceStorage.ts';
+import { resetRateState } from '../api/rateAware.ts';
 
 // Seed the i18n registry with the `en` catalogs so `t(id)` resolves to English
 // synchronously — keeps literal-text assertions green as strings get wrapped.
@@ -21,3 +22,8 @@ afterEach(() => {
     for (const key of Object.keys(sessionStorage)) if (key.startsWith(`${WORKSPACE_STORAGE_KEY}:`)) sessionStorage.removeItem(key);
   } catch { /* no storage */ }
 });
+
+// The request pacing (api/rateAware) answers identical in-flight GETs once and
+// keeps backoff state at module level: a request one test left pending, or a
+// Retry-After window it opened, must not reach the next test.
+afterEach(() => resetRateState());
