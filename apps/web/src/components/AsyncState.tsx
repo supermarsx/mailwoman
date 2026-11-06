@@ -15,6 +15,7 @@ import { t } from '../i18n/index.ts';
 import { NetworkError } from '../api/client.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as loading from './asyncState.css.ts';
+import { Spinner } from './spinner/Spinner.tsx';
 import {Icon} from './Icon.tsx';
 import { alignPulse, bootSplashActive, releaseBootSplash } from '../shell/bootSplash.ts';
 
@@ -129,7 +130,7 @@ export function AsyncPending(props: {
       fallback={<AsyncError onRetry={props.onRetry} />}
     >
       <div ref={panel} class={`async-state async-state--pending ${loading.pending} ${props.variant==='status'?'':loading.skeletonPanel} ${props.variant==='boot'?loading.boot:''} ${props.variant==='messages'?loading.messagesPanel:''} ${props.variant==='folders'?loading.foldersPanel:''} ${takesOver?loading.takeover:''}`} role="status" aria-live="polite" data-testid="async-pending">
-        <span class={props.quiet ? a11y.srOnly : loading.indicator}>{props.message ?? t('common-loading')}</span>
+        <span class={props.quiet ? a11y.srOnly : loading.indicator}><Show when={!props.quiet}><Spinner /></Show>{props.message ?? t('common-loading')}</span>
         <Show when={props.variant==='messages'}><div aria-hidden="true" class={loading.messageSkeletons} data-skeleton="messages">
           <For each={Array.from({length:props.rows??8},(_,index)=>index)}>{(index)=> <div class={loading.messageSkeleton} style={{'block-size':`${props.rowHeight??72}px`}}>
             <div class={loading.messageSkeletonHead}><span class={loading.messageSkeletonAvatar}/><span class={loading.skeletonLine} style={{'max-inline-size':`${[42,30,48,36][index%4]}%`}}/><span class={loading.messageSkeletonDate}/></div>

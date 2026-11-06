@@ -2,7 +2,6 @@ import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
 
 const appear = keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
-const spin = keyframes({to:{transform:'rotate(360deg)'}});
 
 export const errorCard = style({
   boxSizing:'border-box', display:'grid', gap:vars.space[4], minInlineSize:0,
@@ -38,19 +37,8 @@ export const indicator = style({
   gap: vars.space[2],
   minInlineSize:0,maxInlineSize:'100%',overflowWrap:'anywhere',lineHeight:1.5,
   animation: `${appear} 160ms ease-out 120ms both`,
-  '::before': {
-    content: '""',
-    inlineSize: '1rem',
-    blockSize: '1rem',
-    boxSizing:'border-box',
-    border:`2px solid color-mix(in srgb, ${vars.color.accent} 25%, transparent)`,
-    borderBlockStartColor:vars.color.accent,
-    borderRadius:'50%',
-    animation:`${spin} 900ms linear infinite`,
-    flexShrink: 0,
-  },
   selectors: { ':root[data-reduced-motion] &': { animation: 'none' }, ':root[data-reduced-motion] &::before':{animation:'none'} },
-  '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none',selectors:{'&::before':{animation:'none'}} } },
+  '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } },
 });
 
 // Quiet content-shaped placeholders. One live status announces loading; these

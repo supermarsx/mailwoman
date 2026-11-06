@@ -33,6 +33,7 @@ import {
   type ToastTone,
 } from './toast.ts';
 import * as css from './toast.css.ts';
+import { Spinner } from '../spinner/Spinner.tsx';
 
 const ICON_PATHS: Record<ToastTone, string> = {
   success: 'M3 8.5l3.2 3.2L13 4.8',
@@ -230,7 +231,7 @@ function Toast(props: {
       data-paused={toastsPaused() && props.item.pausable ? 'true' : undefined}
     >
       <Show when={props.item.busy} fallback={<ToneIcon tone={props.item.tone} />}>
-        <span class={`${css.spinner} ${css.iconTone[props.item.tone]}`} data-toast-spinner="" aria-hidden="true" />
+        <Spinner class={css.iconTone[props.item.tone]} attr="" />
       </Show>
       <span class={css.message}>{props.item.message}</span>
       <Show when={props.item.countdown && Number.isFinite(props.item.duration)}>
