@@ -195,9 +195,10 @@ pub(crate) fn domain_of(username: &str) -> &str {
 // ─── counters and the recent list ──────────────────────────────────────────────
 
 /// The classes the page reports, in display order.
-pub(crate) const CLASSES: [&str; 11] = [
+pub(crate) const CLASSES: [&str; 12] = [
     "jmap",
     "jmapUpload",
+    "jmapExport",
     "contactPhoto",
     "attachmentPreview",
     "clientTiming",
@@ -228,7 +229,6 @@ fn class_index(class: &str) -> usize {
         .unwrap_or(CLASSES.len() - 1)
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 /// Outcome names, in the order of [`totals`].
 pub(crate) const OUTCOME_NAMES: [&str; 3] = ["allowed", "queued", "rejected"];
 
@@ -247,6 +247,7 @@ pub(crate) fn totals() -> Vec<[u64; 3]> {
         .collect()
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Outcome {
     Allowed,
     Queued,

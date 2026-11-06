@@ -70,6 +70,7 @@ pub mod erasure_cmd;
 mod dsr_data;
 mod cookie_consent;
 mod consent_ledger;
+mod folder_export;
 mod privacy_overview;
 mod rate_leeway;
 
@@ -1631,6 +1632,7 @@ fn router(
         // (ACL-checked serving of a collection to another principal) + the
         // holiday-feed. Handlers are live. ──
         .route("/dav/calendars/{accountId}/{calendarId}", get(caldav_share))
+        .route("/api/export/folder/{file}", get(folder_export::export_folder))
         .route(
             "/dav/addressbooks/{accountId}/{addressBookId}",
             get(carddav_share),
