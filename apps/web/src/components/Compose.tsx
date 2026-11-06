@@ -8,6 +8,14 @@ import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compo
 import {checkRecipientNames} from './compose/recipientNames.ts';
 import {EditorCounts} from './compose/EditorCounts.tsx';
 import {InsertAccountItem} from './compose/InsertAccountItem.tsx';
+import {InsertGroups,type InsertHost} from './compose/insert/InsertGroups.tsx';
+import {ComposeDropZone,type DropHost} from './compose/insert/ComposeDropZone.tsx';
+import type {LinkInitial} from './compose/insert/LinkDialog.tsx';
+import {useComposeFeature} from './compose/composeFeatures.ts';
+import {loadAttachmentPolicy,attachmentPolicyUrl,type AttachmentPolicy} from '../api/attachmentPolicy.ts';
+import type {ResizePreset} from './compose/insert/imageResize.ts';
+import {transportBase} from '../api/transport.ts';
+import {apiFetch} from '../api/http.ts';
 import {DraftsPopup} from './compose/DraftsPopup.tsx';
 import {SendLaterMenu} from './compose/SendLaterMenu.tsx';
 import {accountDraftApi,draftEditorState,localAccountDraft,type AccountDraftDocument} from '../api/accountDrafts.ts';
@@ -206,6 +214,7 @@ export function Compose(props: {
    *  chunk failing to load at all — so it lives in one place rather than three. */
   const plainBody = (): JSX.Element => (
     <><textarea
+      ref={plainArea}
       aria-label={t('mail-compose-body')}
       rows={compact() ? 4 : 10}
       value={body()}
@@ -1411,6 +1420,111 @@ export function Compose(props: {
     toast.success(t('nextcloud-share-inserted', { name: file.name }));
   }
 
+  // ── Insert tab (Office-style groups, drag and drop): see compose/insert ──
+  const [linkRequest, setLinkRequest] = createSignal<LinkInitial | null>(null);
+  const [attachPolicy, setAttachPolicy] = createSignal<AttachmentPolicy | null>(null);
+  void loadAttachmentPolicy().then(setAttachPolicy).catch(() => undefined);
+  let plainArea: HTMLTextAreaElement | undefined;
+  const insertAt = (text: string): void => {
+    const area = plainArea;
+    const cur = body();
+    const at = area && area.selectionStart !== null ? area.selectionStart : cur.length;
+    const end = area && area.selectionEnd !== null ? area.selectionEnd : at;
+    const next = cur.slice(0, at) + text + cur.slice(end);
+    setBody(next); setBodyHtml(plainToHtml(next));
+  };
+  const insertBlock = (html: string, text: string): void => {
+    const api = editorApi();
+    if (richMode() && api) { if (api.insertHtml) api.insertHtml(html, false); else api.appendHtml(html); return; }
+    insertAt(`${body().trim() === '' ? '' : '\n'}${text}\n`);
+  };
+  const insertInline = (html: string, text: string): void => {
+    const api = editorApi();
+    if (richMode() && api) { if (api.insertHtml) api.insertHtml(html, true); else api.appendHtml(`<p>${html}</p>`); return; }
+    insertAt(text);
+  };
+  const placeImages = async (files: File[], alt?: string): Promise<void> => {
+    if (!richMode() || editorApi() === null) { await onFilesPicked(files); return; }
+    const placed = await uploadInline(files);
+    if (placed.length === 0) return;
+    const esc = (v: string): string => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    insertInline(placed.map((p) => `<img src="cid:${esc(p.cid)}" alt="${esc(alt ?? p.alt)}">`).join(''), '');
+  };
+  const maxInlineMB = (): number => { const v = settings()['compose.insert.maxInlineImageMB']?.value; return typeof v === 'number' && v > 0 ? v : 10; };
+  const resizeDefault = (): ResizePreset => { const v = settings()['compose.insert.imageResizeDefault']?.value; return v === 'original' || v === 'medium' || v === 'large' ? v : 'large'; };
+  const fetchMessagePicture = async (item: {emailId: string; blobId: string; name: string; mime: string}): Promise<File> => {
+    const template = downloadUrl(); const acct = app.accountId();
+    if (template === null || acct === null) throw new Error('unavailable');
+    const url = attachmentPolicyUrl(buildDownloadUrl(template, { accountId: acct, blobId: item.blobId, name: item.name, mime: item.mime }), item.emailId, true);
+    const res = await apiFetch(url, { credentials: 'same-origin' });
+    if (!res.ok) throw new Error('download refused');
+    const blob = await res.blob();
+    return new File([blob], item.name, { type: item.mime });
+  };
+  const captureScreenshot = async (): Promise<File | null> => {
+    try {
+      const stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      try {
+        const video = document.createElement('video'); video.srcObject = stream; video.muted = true;
+        await video.play();
+        const canvas = document.createElement('canvas'); canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+        canvas.getContext('2d')?.drawImage(video, 0, 0);
+        const blob = await new Promise<Blob | null>((ok) => canvas.toBlob(ok, 'image/png'));
+        return blob ? new File([blob], `screenshot-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.png`, { type: 'image/png' }) : null;
+      } finally { stream.getTracks().forEach((track) => track.stop()); }
+    } catch { return null; }
+  };
+  const insertHost: InsertHost = {
+    disabled: () => busy(),
+    insertBlock, insertInline,
+    attachFiles: (files) => onFilesPicked(files),
+    placeImages,
+    identity: () => { const i = identity(); const me = app.me()?.username; return i ? { name: i.name, email: i.email, organization: i.organization ?? null } : (me ? { name: '', email: me } : null); },
+    selectedText: () => (backdropEl?.ownerDocument.getSelection()?.toString() ?? '').slice(0, 300),
+    contacts: () => app.contacts(),
+    loadContacts: () => Promise.resolve(app.loadContacts()).then(() => undefined),
+    calendar: () => app.calendarController(),
+    loadMessagePictures: (position) => app.listAttachmentsPage(position),
+    fetchMessagePicture,
+    richMode,
+    maxBytes: maxUploadSize,
+    maxInlineMB,
+    resizeDefault,
+    linkRequest, setLinkRequest,
+    screenshotSupported: typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function',
+    captureScreenshot,
+    report: (message) => toast.info(message),
+  };
+  const featLink = useComposeFeature('insert.link');
+  const featDropAttach = useComposeFeature('insert.dragDropAttach');
+  const featDropInline = useComposeFeature('insert.dragDropInline');
+  const featDropMessages = useComposeFeature('insert.dropMessages');
+  const featAttachFile = useComposeFeature('insert.attachFile');
+  const insertKeys = (e: KeyboardEvent): void => {
+    if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'k' && featLink() && !busy()) {
+      e.preventDefault();
+      setLinkRequest({ caption: insertHost.selectedText(), href: '', title: '', newTab: false, existing: false });
+    }
+  };
+  const dropHost: DropHost = {
+    root: () => backdropEl,
+    attachAllowed: () => featDropAttach() && featureOn('compose.attachments'),
+    inlineAllowed: () => featDropInline() && richMode(),
+    messagesAllowed: () => featDropMessages() && featDropAttach(),
+    maxBytes: maxUploadSize,
+    policy: attachPolicy,
+    accountId: () => app.accountId(),
+    attachFiles: (files) => onFilesPicked(files),
+    placeImages: (files) => placeImages(files),
+    fetchMessage: async (id, signal) => {
+      const res = await apiFetch(`${transportBase()}/api/export/${encodeURIComponent(id)}?format=eml`, { credentials: 'same-origin', signal });
+      if (!res.ok) throw new Error('export refused');
+      return new File([await res.blob()], `message-${id.slice(0, 8)}.eml`, { type: 'message/rfc822' });
+    },
+    onBody: (target) => target instanceof Element && target.closest('.compose-rt__surface, [data-testid="compose-richtext"]') !== null,
+    report: (message) => toast.info(message),
+  };
+
   async function onSubmit(e: Event): Promise<void> {
     e.preventDefault();
     if(!mailFeature('allowSend')||busy()||uploading()||discardCurrentOpen()||discardCurrentBusy()||checkPrompt()!==null)return;
@@ -1676,9 +1790,10 @@ export function Compose(props: {
       aria-modal={props.embedded ? undefined : "true"}
       aria-label={t('mail-compose-label')}
       ref={backdropEl}
-      onKeyDown={onDialogKeyDown}
+      onKeyDown={(e)=>{insertKeys(e);onDialogKeyDown(e);}}
     >
       <form class="compose" classList={{'compose--compact':compact()}} onSubmit={(e) => void onSubmit(e)}>
+        <ComposeDropZone host={dropHost}/>
         <header class="compose__header">
           <button type="submit" class={`btn btn--primary ${a11y.focusable}`} disabled={!mailFeature('allowSend')||busy()||discardCurrentOpen()||discardCurrentBusy()} title={mailFeature('allowSend')?undefined:mailFeatureOffTitle()}>
             <Icon name="sent"/> {busy() ? t('mail-compose-sending') : sendAt() !== '' ? t('mail-compose-schedule') : t('mail-compose-send')}
@@ -1896,8 +2011,8 @@ export function Compose(props: {
                   shared attachment list. Always available (core compose); the input is
                   disabled until the session's upload contract has loaded. The file
                   input is visually hidden behind the styled label. */}
-              <Show when={featureOn('compose.attachments')}><RibbonGroup label={t('mail-compose-attachments')} priority={55} icon="attachment" testId="compose-attach">
-                <RibbonItem size="large">
+              <InsertGroups host={insertHost} showAttach={featureOn('compose.attachments')} attachItems={()=><>
+                <Show when={featAttachFile()}><RibbonItem size="large">
                   <label class={`btn btn--ghost compose-rib__large ${a11y.focusable}`}>
                     <Icon name="attachment"/><span class="compose-rib__text">{uploading() ? t('mail-compose-uploading') : t('mail-compose-attach-file')}</span>
                     <input
@@ -1915,7 +2030,7 @@ export function Compose(props: {
                       }}
                     />
                   </label>
-                </RibbonItem>
+                </RibbonItem></Show>
                 <RibbonItem><InsertAccountItem onFiles={onFilesPicked} disabled={uploading()||busy()}/></RibbonItem>
                 {/* V7 Nextcloud attach (plan §18.4): only when a Nextcloud account is
                     linked; the picker opens under its button. */}
@@ -1938,7 +2053,7 @@ export function Compose(props: {
                 <Show when={attachError()}>
                   {(message) => <RibbonItem><p class="login__error compose-rib__error" role="alert" data-tooltip={message()}>{message()}</p></RibbonItem>}
                 </Show>
-              </RibbonGroup></Show>
+              </>}/>
             </>,after:()=><>
               <Show when={signatures().length > 0}>
                 <RibbonGroup label={t('mail-compose-signature')} priority={40} icon="edit" testId="compose-group-signature">
@@ -2125,6 +2240,7 @@ export function Compose(props: {
                 <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={replyContext()} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
+                  omitGroups={['insert']}
                   initialHtml={bodyHtml()}
                   externalText={body}
                   ariaLabel={t('mail-compose-body')}

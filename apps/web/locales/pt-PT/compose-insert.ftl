@@ -1,0 +1,196 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Insert tab (compose): groups, dialogs, drag and drop, feature labels.
+ins-cancel = Cancelar
+ins-insert = Inserir
+ins-loading = A carregar…
+ins-preview = Pré-visualização
+ins-alt = Texto alternativo (descrição para leitores de ecrã)
+ins-timezone = Fuso horário
+ins-group-illustrations = Ilustrações
+ins-group-links = Ligações
+ins-group-cards = Cartões e calendário
+ins-group-symbols = Símbolos
+ins-attach-messages = Anexar de mensagens…
+ins-picture-file = Imagem de ficheiro…
+ins-picture-messages = Imagem de mensagens…
+ins-shapes = Formas
+ins-screenshot = Captura de ecrã
+ins-link = Ligação…
+ins-link-title = Inserir ligação
+ins-link-edit-title = Editar ligação
+ins-link-save = Guardar
+ins-link-caption = Texto a apresentar
+ins-link-address = Endereço
+ins-link-tooltip = Dica (opcional)
+ins-link-newtab = Abrir num novo separador
+ins-link-remove = Remover ligação
+ins-link-plain-note = Texto simples: a ligação é escrita como "texto (endereço)".
+ins-link-warn-http = Este endereço não é cifrado (http).
+ins-link-warn-shortener = Esta ligação está encurtada; o destino real está oculto.
+ins-link-warn-idn = O domínio usa carateres internacionais e pode imitar outro site.
+ins-link-warn-lookalike = O domínio parece o de uma marca conhecida, mas não é o endereço dela.
+ins-link-warn-credentials = O endereço contém um nome de utilizador ou palavra-passe.
+ins-link-warn-script = Este tipo de endereço não pode ser inserido.
+ins-business-card = Cartão de visita
+ins-card-mine = O meu cartão
+ins-card-contact = Contacto…
+ins-card-search = Pesquisar contactos
+ins-card-no-contacts = Nenhum contacto encontrado.
+ins-card-field-name = Nome
+ins-card-field-title = Cargo
+ins-card-field-org = Organização
+ins-card-field-phone = Telefone
+ins-card-field-email = E-mail
+ins-card-field-address = Morada
+ins-card-mode = Inserir como
+ins-card-mode-both = Cartão e anexo vCard
+ins-card-mode-card = Apenas o cartão
+ins-card-mode-vcard = Apenas o anexo vCard
+ins-calendar = Calendário
+ins-cal-availability = Disponibilidade
+ins-cal-agenda = Agenda
+ins-cal-snapshot = Resumo do calendário
+ins-cal-from = De
+ins-cal-to = Até
+ins-cal-month = Mês
+ins-cal-work-start = O dia começa (hora)
+ins-cal-work-end = O dia termina (hora)
+ins-cal-availability-note = Só é mostrado o tempo livre; o que ocupa o resto permanece privado.
+ins-cal-calendar = Calendário
+ins-cal-all = Todos os calendários
+ins-cal-visibility = Mostrar
+ins-cal-vis-busy = Apenas ocupado
+ins-cal-vis-titles = Títulos e horas
+ins-cal-day = Dia
+ins-cal-free = Livre
+ins-cal-none = Sem tempo livre
+ins-cal-busy = Ocupado
+ins-cal-allday = Todo o dia
+ins-cal-empty = Nada agendado.
+ins-cal-note = Horas apresentadas em { $tz }
+ins-cal-load-failed = Não foi possível ler o calendário.
+ins-event = Evento
+ins-event-existing = Evento existente…
+ins-event-new = Novo evento…
+ins-event-none = Sem eventos futuros.
+ins-event-title = Título
+ins-event-date = Data
+ins-event-start = Início
+ins-event-end = Fim
+ins-event-where = Local
+ins-event-description = Descrição
+ins-event-attendees = Participantes (endereços de e-mail)
+ins-event-when = Quando
+ins-event-who = Quem
+ins-event-method-request = Enviado como convite; é o organizador e os participantes podem responder.
+ins-event-method-publish = Enviado como evento para adicionar a um calendário (sem convite).
+ins-event-also-create = Criar também no meu calendário
+ins-event-no-calendar = Não há calendário onde criar o evento.
+ins-event-create-failed = Não foi possível criar o evento no seu calendário.
+ins-hr = Linha horizontal
+ins-date = Data e hora
+ins-symbols = Símbolos
+ins-shape-rectangle = Retângulo
+ins-shape-rounded = Retângulo arredondado
+ins-shape-ellipse = Elipse
+ins-shape-line = Linha
+ins-shape-arrow = Seta
+ins-shape-doubleArrow = Seta dupla
+ins-shape-triangle = Triângulo
+ins-shape-star = Estrela
+ins-shape-bubble = Balão de fala
+ins-shape-check = Visto
+ins-shape-cross = Cruz
+ins-shape-heart = Coração
+ins-shape-chevrons = Divisas
+ins-shape-callout = Chamada
+ins-shape-fill = Preenchimento
+ins-shape-outline = Contorno
+ins-shape-none = Sem cor
+ins-shape-outline-width = Espessura do contorno
+ins-shape-width = Largura
+ins-shape-height = Altura
+ins-shape-note = Inserida como imagem PNG, porque muitos programas de correio não mostram SVG.
+ins-shape-failed = Não foi possível desenhar a forma.
+ins-pick-search = Pesquisar por remetente, assunto ou nome de ficheiro
+ins-pick-list = Mensagens com anexos
+ins-pick-none = Nada encontrado.
+ins-pick-more = Carregar mais mensagens
+ins-pick-failed = Não foi possível ler as mensagens.
+ins-pick-count =
+    { $count ->
+        [one] Inserir 1 selecionado
+       *[other] Inserir { $count } selecionados
+    }
+ins-picture-count =
+    { $count ->
+        [one] 1 imagem
+       *[other] { $count } imagens
+    }
+ins-picture-placement = Colocar como
+ins-picture-inline = No corpo da mensagem
+ins-picture-attachment = Como anexos
+ins-picture-size = Tamanho
+ins-picture-preset-small = Pequeno (480 px)
+ins-picture-preset-medium = Médio (1024 px)
+ins-picture-preset-large = Grande (1600 px)
+ins-picture-preset-original = Tamanho original
+ins-picture-exif = Remover dados de localização e da câmara (EXIF)
+ins-picture-too-big = { $name } excede o limite de imagens no corpo.
+ins-picture-failed = Não foi possível preparar as imagens.
+ins-picture-unsupported = { $name } não é um tipo de imagem que possa ser mostrado no corpo.
+ins-drop-title = Largue ficheiros para anexar · mantenha Shift para inserir imagens no corpo
+ins-drop-title-attach = Largue ficheiros para anexar
+ins-drop-files =
+    { $count ->
+        [one] 1 ficheiro
+       *[other] { $count } ficheiros
+    }
+ins-drop-images =
+    { $count ->
+        [one] 1 imagem
+       *[other] { $count } imagens
+    }
+ins-drop-messages = mensagem como .eml
+ins-drop-limit = Até {$max} MB por ficheiro
+ins-drop-inline-on = As imagens vão no corpo
+ins-drop-working = A adicionar…
+ins-drop-warned = Anexado, mas assinalado pela política de anexos: { $names }.
+ins-drop-folder-truncated = A pasta era grande; só foram adicionados os primeiros ficheiros.
+ins-drop-reason-size = maior do que o limite de anexos
+ins-drop-reason-blocked = não permitido pela política de anexos
+ins-drop-reason-empty = ficheiro vazio
+ins-drop-reason-total = demasiado no total
+ins-drop-reason-message = não foi possível obter a mensagem
+cf-insert-attachFile = Anexar ficheiro
+cf-insert-attachFile-desc = Anexar um ficheiro deste dispositivo.
+cf-insert-attachFromMessages = Anexar de mensagens
+cf-insert-attachFromMessages-desc = Escolher anexos de outras mensagens.
+cf-insert-pictureFile = Imagem de ficheiro
+cf-insert-pictureFile-desc = Inserir imagens de ficheiros, com tamanhos predefinidos.
+cf-insert-pictureFromMessages = Imagem de mensagens
+cf-insert-pictureFromMessages-desc = Escolher imagens dos anexos de outras mensagens.
+cf-insert-shapes = Formas
+cf-insert-shapes-desc = Inserir formas desenhadas como imagens.
+cf-insert-screenshot = Captura de ecrã
+cf-insert-screenshot-desc = Capturar o ecrã ou uma janela como imagem.
+cf-insert-businessCard = Cartão de visita
+cf-insert-businessCard-desc = Inserir um cartão de visita e o respetivo vCard.
+cf-insert-calendar = Blocos de calendário
+cf-insert-calendar-desc = Inserir disponibilidade, uma agenda ou um resumo mensal.
+cf-insert-event = Evento
+cf-insert-event-desc = Inserir um evento com convite iCalendar.
+cf-insert-symbols = Símbolos
+cf-insert-symbols-desc = Carateres especiais e emojis.
+cf-insert-horizontalLine = Linha horizontal
+cf-insert-horizontalLine-desc = Inserir uma linha divisória.
+cf-insert-dateStamp = Data e hora
+cf-insert-dateStamp-desc = Inserir a data e a hora atuais.
+cf-insert-link = Diálogo de ligação
+cf-insert-link-desc = Ligações com texto próprio, dica e verificação de segurança (Ctrl+K).
+cf-insert-dragDropAttach = Largar para anexar
+cf-insert-dragDropAttach-desc = Largar ficheiros no editor para os anexar.
+cf-insert-dragDropInline = Largar imagens no corpo
+cf-insert-dragDropInline-desc = Largar imagens no corpo para as colocar no texto.
+cf-insert-dropMessages = Largar mensagens
+cf-insert-dropMessages-desc = Largar uma mensagem da lista para a anexar como .eml.

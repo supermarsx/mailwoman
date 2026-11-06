@@ -1175,9 +1175,10 @@ describe('Compose', () => {
       await structuredComposeEditor();
       await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
-      const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
+      const input = (await screen.findByLabelText('Picture from file…')) as HTMLInputElement;
 
       fireEvent.change(input, { target: { files: [new File(['PNG'], 'chart.png', { type: 'image/png' })] } });
+      fireEvent.click(await screen.findByTestId('insert-picture-dialog-apply'));
       const shown = await waitFor(() => {
         const img = screen.getByTestId('compose-richtext').querySelector('img.compose-rt__img');
         expect(img).not.toBeNull();
@@ -1246,8 +1247,9 @@ describe('Compose', () => {
       await structuredComposeEditor();
       await waitFor(() => expect(screen.queryByTestId('compose-request-receipt')).not.toBeNull());
       fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
-      const input = (await screen.findByLabelText('Insert an image')) as HTMLInputElement;
+      const input = (await screen.findByLabelText('Picture from file…')) as HTMLInputElement;
       fireEvent.change(input, { target: { files: [new File(['<svg/>'], 'x.svg', { type: 'image/svg+xml' })] } });
+      fireEvent.click(await screen.findByTestId('insert-picture-dialog-apply'));
       expect(await screen.findByText(/cannot be placed in the text/)).toBeInTheDocument();
       expect(fetchSpy.mock.calls.filter((c) => String(c[0]).includes('/jmap/upload/'))).toHaveLength(0);
     });
