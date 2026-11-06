@@ -939,7 +939,10 @@ impl Engine {
         // index document, and any it had from before the posture changed is
         // removed. Keywords + attachment filenames back `tag:`/`is:` and
         // `filename:`; pin defaults false on a fresh document.
-        if self.index_allowed(account_id).await {
+        if self.index_paused(account_id).await {
+            // Art.18 restriction: the message is stored, not indexed. The index
+            // is rebuilt for this account when the restriction is lifted.
+        } else if self.index_allowed(account_id).await {
             let keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
             let filenames = search_index::attachment_filenames(&raw.raw);
             let attachment_text = search_index::attachment_text(&raw.raw);
@@ -964,7 +967,15 @@ impl Engine {
 
         // Rules run once, on genuinely new inbox arrivals (never on our own
         // drafts/sent, never on historical re-sync).
-        if !existed && arrival {
+        // Under an Art.18 restriction of `classification` the message is only
+        // stored: no local rules, no spam verdict, no auto-filing.
+        if !existed
+            && arrival
+            && !self
+                .store()
+                .restriction_blocks(account_id, "classification")
+                .await
+        {
             if !self
                 .apply_local_sieve_at_ingest(account_id, mailbox_id, &sid, &email, &raw.raw)
                 .await?
@@ -1140,6 +1151,10 @@ impl Engine {
             let ok = match allowed.get(&doc.account_id) {
                 Some(ok) => *ok,
                 None => {
+                    if self.index_paused(&doc.account_id).await {
+                        allowed.insert(doc.account_id.clone(), false);
+                        continue;
+                    }
                     let ok = self.index_allowed(&doc.account_id).await;
                     if !ok {
                         self.drop_account_from_index(&doc.account_id);
@@ -1163,6 +1178,9 @@ impl Engine {
 
     async fn try_reindex_message(&self, stable_id: &str) -> Result<()> {
         let doc = self.build_index_doc(stable_id).await?;
+        if self.index_paused(&doc.account_id).await {
+            return Ok(());
+        }
         if !self.index_allowed(&doc.account_id).await {
             self.drop_account_from_index(&doc.account_id);
             return Ok(());

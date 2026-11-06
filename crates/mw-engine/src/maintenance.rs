@@ -414,6 +414,10 @@ async fn rebuild_account(engine: &Engine, account_id: &str) -> Result<ReindexSum
         accounts: 1,
         ..Default::default()
     };
+    if engine.index_paused(account_id).await {
+        // Art.18 restriction: nothing is added to or removed from the index.
+        return Ok(summary);
+    }
     if !engine.index_allowed(account_id).await {
         summary.zero_access = 1;
         summary.removed = search.delete_account(account_id).map_err(index_err)? as usize;

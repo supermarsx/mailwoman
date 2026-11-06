@@ -1625,6 +1625,48 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "account_restriction",
+        select: "SELECT id,account_id,address,domain,scopes_json,mail_delivery,reason,source,request_id,created_by,created_at,expires_at,lifted_at,lifted_by,lift_reason FROM account_restriction",
+        insert: "INSERT INTO account_restriction(id,account_id,address,domain,scopes_json,mail_delivery,reason,source,request_id,created_by,created_at,expires_at,lifted_at,lifted_by,lift_reason) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "address"),
+                t(r, "domain"),
+                t(r, "scopes_json"),
+                t(r, "mail_delivery"),
+                t(r, "reason"),
+                t(r, "source"),
+                ot(r, "request_id"),
+                t(r, "created_by"),
+                i(r, "created_at"),
+                oi(r, "expires_at"),
+                oi(r, "lifted_at"),
+                ot(r, "lifted_by"),
+                ot(r, "lift_reason"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "consent_record",
+        select: "SELECT id,account_id,domain,purpose,decision,version,basis,source,created_at FROM consent_record",
+        insert: "INSERT INTO consent_record(id,account_id,domain,purpose,decision,version,basis,source,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "domain"),
+                t(r, "purpose"),
+                t(r, "decision"),
+                i(r, "version"),
+                t(r, "basis"),
+                t(r, "source"),
+                i(r, "created_at"),
+            ]
+        },
+    },
+    TableSpec {
         name: "breach_incident",
         select: "SELECT id,title,domain,status,severity,source,detected_at,aware_at,deadline_at,assignee,created_at,updated_at,rev,body_json FROM breach_incident",
         insert: "INSERT INTO breach_incident(id,title,domain,status,severity,source,detected_at,aware_at,deadline_at,assignee,created_at,updated_at,rev,body_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
@@ -3113,7 +3155,6 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
-];
     TableSpec {
         name: "user_retention_rule",
         select: "SELECT id,account_id,name,enabled,sort_order,template,body_json,created_at,updated_at FROM user_retention_rule",
@@ -3208,3 +3249,4 @@ const TABLES: &[TableSpec] = &[
             ]
         },
     },
+];

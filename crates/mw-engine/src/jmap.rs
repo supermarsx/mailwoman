@@ -934,6 +934,8 @@ impl Engine {
         // for `semantic` is asking for relevance order instead. Paging is applied
         // by the caller AFTER this, so page 1 shows the most similar hits.
         if filter.semantic.or(semantic) == Some(true)
+            && !self.index_paused(account_id).await
+            && !self.store().restriction_blocks(account_id, "assistant").await
             && let Some(provider) = self.embedding_provider()
         {
             // The web pairs `semantic` with `text`; `subject`/`body` are accepted

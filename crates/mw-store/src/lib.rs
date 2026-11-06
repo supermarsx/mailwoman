@@ -38,25 +38,22 @@ pub mod feature_governance;
 pub mod feature_profiles;
 pub mod groups;
 pub mod jobs;
-pub mod personal_settings;
-mod smtp_policy_cache;
 pub mod retention_archive;
 pub mod user_retention;
+pub mod personal_settings;
+mod smtp_policy_cache;
 pub mod client_timing;
 pub mod dsr;
 pub mod data_map;
 pub mod erasure;
 pub mod scrub;
 pub mod breach;
+pub mod compliance;
 pub mod cookies;
+pub mod privacy;
 pub mod rc_handles;
 pub mod request_metrics;
 pub mod signin_admission;
-pub mod data_map;
-pub mod erasure;
-pub mod scrub;
-pub mod breach;
-pub mod compliance;
 pub mod user_directory;
 pub mod user_lifecycle;
 pub use security_center::{RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
@@ -248,11 +245,11 @@ pub enum StoreError {
     Seal(#[from] SealError),
     #[error("upload backend error: {0}")]
     Upload(#[from] upload::UploadError),
-    #[error("session not found")]
     /// Whole-database encryption: missing/wrong key, plaintext file under
     /// `db.encryption=required`, migration failure.
     #[error("{0}")]
     Encryption(#[from] encryption::EncryptionError),
+    #[error("session not found")]
     NotFound,
     #[error("corrupt store data: {0}")]
     Corrupt(String),
@@ -345,7 +342,6 @@ impl Store {
         if path.starts_with("postgres://") || path.starts_with("postgresql://") {
             return Self::open_postgres(path, key).await;
         }
-        let url = if path.starts_with("sqlite:") {
         let cfg = encryption::global()?;
         Self::open_with_encryption(path, key, &cfg).await
     }
@@ -357,15 +353,15 @@ impl Store {
         key: ServerKey,
         cfg: &encryption::EncryptionConfig,
     ) -> Result<Self, StoreError> {
+        let url = if path.starts_with("sqlite:") {
             path.to_string()
         } else {
             format!("sqlite://{path}?mode=rwc")
         };
-        let opts = SqliteConnectOptions::from_str(&url)?
+        let mut opts = SqliteConnectOptions::from_str(&url)?
             .busy_timeout(Duration::from_secs(5))
             .journal_mode(SqliteJournalMode::Wal)
             .synchronous(SqliteSynchronous::Normal);
-        let pool = SqlitePoolOptions::new()
         // Whole-database encryption (SQLCipher): `PRAGMA key` is applied by sqlx as
         // the first statement of every pooled connection, migrations included.
         encryption::init();
@@ -384,6 +380,7 @@ impl Store {
                 }
             }
         }
+        let pool = SqlitePoolOptions::new()
             .max_connections(5)
             .connect_with(opts)
             .await
@@ -396,9 +393,9 @@ impl Store {
 
     /// Open the Postgres backend at `dsn` (`postgres://…`) and migrate.
     pub async fn open_postgres(dsn: &str, key: ServerKey) -> Result<Self, StoreError> {
-        let pool = PgPoolOptions::new().max_connections(5).connect(dsn).await?;
         // MW_DB_REQUIRE_TLS=1 refuses a DSN that does not force TLS.
         encryption_report::enforce_tls_policy(dsn)?;
+        let pool = PgPoolOptions::new().max_connections(5).connect(dsn).await?;
         let store = Self {
             backend: Backend::Postgres(pool),
             key,
@@ -422,7 +419,6 @@ impl Store {
         Ok(store)
     }
 
-    /// Open an in-memory SQLite store (tests).
     /// Close every pooled connection (SQLite checkpoints and removes its WAL).
     /// Needed before the database file is moved, re-keyed or backed up offline.
     pub async fn close(&self) {
@@ -432,6 +428,7 @@ impl Store {
         }
     }
 
+    /// Open an in-memory SQLite store (tests).
     pub async fn open_in_memory(key: ServerKey) -> Result<Self, StoreError> {
         let pool = SqlitePoolOptions::new()
             .max_connections(1)

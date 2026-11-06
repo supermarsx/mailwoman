@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, breach_incident, breach_event, breach_delivery, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2454,6 +2454,18 @@ mod admin_controls_0033 {
         NewTable {name:"cookie_detected",copied:true,cols:&[
             ("id",'T',"!","detected-1"),("kind",'T',"!","localStorage"),("name",'T',"!","vendor.key"),
             ("first_seen",'I',"!",TS),("last_seen",'I',"!",TS),("seen_count",'I',"!","3"),("status",'T',"!","unclassified"),
+        ]},
+        NewTable {name:"account_restriction",copied:true,cols:&[
+            ("id",'T',"!","restriction-1"),("account_id",'T',"!","acct-1"),("address",'T',"!","a@example.test"),
+            ("domain",'T',"!","example.test"),("scopes_json",'T',"!","[\"indexing\"]"),("mail_delivery",'T',"!","keep"),
+            ("reason",'T',"!","art 18"),("source",'T',"!","admin"),("request_id",'T',"~","dsr-1"),
+            ("created_by",'T',"!","admin"),("created_at",'I',"!",TS),("expires_at",'I',"~",TS),
+            ("lifted_at",'I',"~",TS),("lifted_by",'T',"~","admin"),("lift_reason",'T',"~","done"),
+        ]},
+        NewTable {name:"consent_record",copied:true,cols:&[
+            ("id",'T',"!","consent-rec-1"),("account_id",'T',"!","acct-1"),("domain",'T',"!","example.test"),
+            ("purpose",'T',"!","assistant"),("decision",'T',"!","granted"),("version",'I',"!","1"),
+            ("basis",'T',"!","consent"),("source",'T',"!","settings"),("created_at",'I',"!",TS),
         ]},
         NewTable {name:"dsr_request",copied:true,cols:&[
             ("id",'T',"!","dsr-1"),("address",'T',"!","a@example.test"),("domain",'T',"!","example.test"),

@@ -222,6 +222,14 @@ impl Engine {
         self.account_posture_live(account_id).await == AccountPosture::Standard
     }
 
+    /// Whether an Art.18 restriction pauses indexing for `account_id`. Unlike
+    /// [`Self::index_allowed`] this never removes what is already indexed: the
+    /// data stays stored and searchable by hand, and new mail is simply not
+    /// processed into the index until the restriction is lifted.
+    pub(crate) async fn index_paused(&self, account_id: &str) -> bool {
+        self.store().restriction_blocks(account_id, "indexing").await
+    }
+
     /// Whether a cache is currently attached (drives the `mailwoman doctor`
     /// engine-side posture line + tests).
     pub fn cache_attached(&self) -> bool {
