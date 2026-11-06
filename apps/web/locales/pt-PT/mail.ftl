@@ -1229,3 +1229,8 @@ mail-attachments-zip-done = { $count } anexos transferidos num ZIP.
 mail-attachments-zip-capped = O ZIP contém os primeiros { $count } anexos; o limite é de { $max } ficheiros ou { $size }.
 mail-focus-not-found = Mensagem não encontrada em { $folder }
 mail-focus-go-to = Ir para { $folder }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-from = Remetente
+mail-subject = Assunto
+mail-date = Data
