@@ -134,6 +134,9 @@ struct Context {
     /// Trust tier of this request (0 unknown, 1 known, 2 authenticated).
     tier: AtomicU8,
     trust: Arc<crate::trust_tier::Policy>,
+    /// `ratelimit.trustedMultiplier` when the request comes from a source with a
+    /// successful sign-in on record (else 100): scales a signed-in account's allowance.
+    trusted_percent: u32,
     charged: tokio::sync::Mutex<Vec<Charged>>,
     signal: AtomicU8,
 }
@@ -199,6 +202,14 @@ impl Context {
         // Adaptive signal thresholds and active blocks are never relaxed.
         if kind == "client" || kind.starts_with("ua-") {
             policy.rate_limit = self.trust.scale_limit(policy.rate_limit, self.tier());
+        }
+        // A signed-in mailbox used from a source that has signed in before gets
+        // more room (never less, and never for the anonymous or admin budgets).
+        if kind == "account" && self.trusted_percent > 100 && policy.rate_limit > 0 {
+            policy.rate_limit = u32::try_from(
+                (u64::from(policy.rate_limit) * u64::from(self.trusted_percent)).div_ceil(100),
+            )
+            .unwrap_or(u32::MAX);
         }
         let mut charged = self.charged.lock().await;
         if charged
@@ -751,6 +762,11 @@ pub(crate) async fn guard(
     if let Some(proof) = &display_proof {
         request.extensions_mut().insert(proof.clone());
     }
+    let trusted_percent = if source.is_some_and(crate::trust_tier::is_known) {
+        crate::rate_leeway::knobs(&state.store, "").await.trusted_percent
+    } else {
+        100
+    };
     let context = Arc::new(Context {
         state,
         config,
@@ -760,6 +776,7 @@ pub(crate) async fn guard(
         display_subresource: display_proof.is_some(),
         tier: AtomicU8::new(0),
         trust,
+        trusted_percent,
         charged: Default::default(),
         signal: AtomicU8::new(0),
     });

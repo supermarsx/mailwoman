@@ -1,13 +1,34 @@
-//! Conservative process-wide ceilings also bound every individual account.
+//! Concurrency ceilings of the native JMAP endpoints.
+//!
+//! Each signed-in account may run `ratelimit.jmap.perAccountConcurrent` requests
+//! at once (the value the session resource advertises as `maxConcurrentRequests`),
+//! and the process `ratelimit.jmap.globalConcurrent` across every account. A
+//! request over either **waits** up to `ratelimit.queueMs` for a slot and only
+//! then answers `429` with `Retry-After` and the `RateLimit-*` fields (see
+//! `rate_leeway`). Before t106 this was one process-wide gate of four slots taken
+//! with `try_acquire`, which every signed-in user shared and which refused the
+//! fifth request at once.
+//!
 //! Permits cover upstream connection, execution and response construction.
+use crate::{
+    AppState,
+    rate_leeway::{self, Busy, Gate, Held},
+};
 use axum::{
     Json,
     http::{StatusCode, header},
     response::{IntoResponse, Response},
 };
-use tokio::sync::{Semaphore, SemaphorePermit};
-static REQUESTS: Semaphore = Semaphore::const_new(4);
-static UPLOADS: Semaphore = Semaphore::const_new(4);
+use std::sync::OnceLock;
+
+fn requests() -> &'static Gate {
+    static G: OnceLock<Gate> = OnceLock::new();
+    G.get_or_init(|| Gate::new("jmap"))
+}
+fn uploads() -> &'static Gate {
+    static G: OnceLock<Gate> = OnceLock::new();
+    G.get_or_init(|| Gate::new("jmapUpload"))
+}
 pub(crate) fn problem(mut value: serde_json::Value, status: StatusCode) -> Response {
     value["status"] = serde_json::json!(status.as_u16());
     (
@@ -17,34 +38,42 @@ pub(crate) fn problem(mut value: serde_json::Value, status: StatusCode) -> Respo
     )
         .into_response()
 }
-fn acquire(gate: &'static Semaphore, limit: &str) -> Result<SemaphorePermit<'static>, Response> {
-    gate.try_acquire().map_err(|_| {
+fn busy(busy: Busy, limit: &str, class: &'static str) -> Response {
+    rate_leeway::tag(
         problem(
             mw_engine::jmap::core::problem("limit", Some(limit)),
             StatusCode::TOO_MANY_REQUESTS,
+        ),
+        busy.refused(class),
+    )
+}
+/// A slot for one JMAP API request of `username`'s account.
+pub(crate) async fn request(
+    state: &AppState,
+    account_id: &str,
+    username: &str,
+) -> Result<Held, Response> {
+    let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
+    requests()
+        .acquire(account_id, knobs.jmap_per_account, knobs.jmap_global, knobs.queue())
+        .await
+        .map_err(|b| busy(b, "maxConcurrentRequests", "jmap"))
+}
+/// A slot for one blob upload. Uploads are heavier, so an account keeps half the
+/// request allowance, never below the four the session resource advertises.
+pub(crate) async fn upload(
+    state: &AppState,
+    account_id: &str,
+    username: &str,
+) -> Result<Held, Response> {
+    let knobs = rate_leeway::knobs(&state.store, rate_leeway::domain_of(username)).await;
+    uploads()
+        .acquire(
+            account_id,
+            (knobs.jmap_per_account / 2).max(4),
+            (knobs.jmap_global / 2).max(4),
+            knobs.queue(),
         )
-    })
-}
-pub(crate) fn request() -> Result<SemaphorePermit<'static>, Response> {
-    acquire(&REQUESTS, "maxConcurrentRequests")
-}
-pub(crate) fn upload() -> Result<SemaphorePermit<'static>, Response> {
-    acquire(&UPLOADS, "maxConcurrentUpload")
-}
-#[cfg(test)]
-mod tests {
-    use super::*;
-    #[test]
-    fn permits_enforce_the_advertised_ceiling_and_release_on_cancel() {
-        let gate = Box::leak(Box::new(Semaphore::new(4)));
-        let permits: Vec<_> = (0..4)
-            .map(|_| acquire(gate, "maxConcurrentRequests").unwrap())
-            .collect();
-        assert_eq!(
-            acquire(gate, "maxConcurrentRequests").unwrap_err().status(),
-            StatusCode::TOO_MANY_REQUESTS
-        );
-        drop(permits);
-        assert!(acquire(gate, "maxConcurrentRequests").is_ok());
-    }
+        .await
+        .map_err(|b| busy(b, "maxConcurrentUpload", "jmapUpload"))
 }

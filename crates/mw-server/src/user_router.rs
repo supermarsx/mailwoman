@@ -37,6 +37,18 @@ pub(crate) async fn require_key(
     }
 }
 
+/// The restriction scope and consent purpose a feature falls under, for the
+/// features that process the person's data beyond what they explicitly ask for
+/// or send data to another service.
+fn processing_of(feature: &str) -> Option<(&'static str, &'static str)> {
+    match feature {
+        "ai_assistant" | "mcp" => Some(("assistant", "assistant")),
+        "plugins.ui" | "packages" => Some(("thirdParty", "integrations")),
+        f if f.starts_with("integrations.") => Some(("thirdParty", "integrations")),
+        _ => None,
+    }
+}
+
 /// Call after authentication and before any mutation or backend request.
 pub(crate) async fn require_feature(
     state: &AppState,
@@ -50,6 +62,24 @@ pub(crate) async fn require_feature(
         )
             .into_response());
     };
+    // Art.18 restriction and purpose consent, enforced where every feature route
+    // and the JMAP family check pass through.
+    if let Some((scope, purpose)) = processing_of(id) {
+        if state.store.restriction_blocks(&subject.account_id, scope).await {
+            return Err((
+                StatusCode::FORBIDDEN,
+                axum::Json(json!({"code":"processing_restricted","feature":id,"scope":scope})),
+            )
+                .into_response());
+        }
+        if !crate::consent_ledger::allowed(&state.store, &subject.account_id, purpose).await {
+            return Err((
+                StatusCode::FORBIDDEN,
+                axum::Json(json!({"code":"consent_required","feature":id,"purpose":purpose})),
+            )
+                .into_response());
+        }
+    }
     for key in feature.capability_keys {
         match settings_registry::effective_for(&state.store, key, &subject.as_subject()).await {
             Ok(Some(value)) if value.value.as_bool() == Some(true) => {}

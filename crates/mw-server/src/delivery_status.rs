@@ -37,12 +37,19 @@ async fn parse(
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
     static WORKERS: OnceLock<Arc<tokio::sync::Semaphore>> = OnceLock::new();
-    let Ok(permit) = WORKERS
-        .get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)))
-        .clone()
-        .try_acquire_owned()
-    else {
-        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    let workers = WORKERS.get_or_init(|| Arc::new(tokio::sync::Semaphore::new(2)));
+    let wait = crate::rate_leeway::knobs(&state.store, "").await.queue();
+    let permit = match workers.clone().try_acquire_owned() {
+        Ok(permit) => permit,
+        Err(_) => match tokio::time::timeout(wait, workers.clone().acquire_owned()).await {
+            Ok(Ok(permit)) => permit,
+            _ => {
+                return crate::rate_leeway::tag(
+                    StatusCode::TOO_MANY_REQUESTS.into_response(),
+                    crate::rate_leeway::pool_refusal("api", 2),
+                );
+            }
+        },
     };
     let raw = match base64::engine::general_purpose::STANDARD.decode(input.bytes_base64) {
         Ok(raw) if !raw.is_empty() && raw.len() <= MAX_BYTES => raw,

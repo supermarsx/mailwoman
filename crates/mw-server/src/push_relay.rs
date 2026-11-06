@@ -563,10 +563,17 @@ async fn family_subjects(
     Ok(out)
 }
 
+/// Push is processing the person can pause: an Art.18 restriction of `push`, or
+/// a consent decision for the `push` purpose, stops every wake.
+pub(crate) async fn processing_allowed(store: &Store, account: &str) -> bool {
+    !store.restriction_blocks(account, "push").await
+        && crate::consent_ledger::allowed(store, account, "push").await
+}
+
 /// Whether `account`'s policy lets a content-free wake surface now: the same
 /// test the dispatcher applies before it sends one.
 async fn wake_allowed(store: &Store, account: &str) -> bool {
-    if quiet_now(store).await {
+    if quiet_now(store).await || !processing_allowed(store, account).await {
         return false;
     }
     let Ok(Some(subject)) = crate::notification_policy::account_subject(store, account).await
@@ -597,6 +604,9 @@ async fn wake_allowed(store: &Store, account: &str) -> bool {
 /// (cheap, optional) global quiet-hours window (§17.3).
 async fn dispatch_wakes(store: &Store, change: &StateChange) {
     if quiet_now(store).await {
+        return;
+    }
+    if !processing_allowed(store, &change.account_id).await {
         return;
     }
     // Resolve the same canonical account policy used by the settings API.

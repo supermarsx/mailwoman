@@ -115,6 +115,14 @@ async fn enabled(state: &AppState) -> bool {
     availability(state).await.is_ok()
 }
 
+/// Whether tracking of this sender's mail is paused: an Art.18 restriction of
+/// `analytics`, or no consent for the `openTracking` purpose where its basis is
+/// consent (or a withdrawal).
+pub(crate) async fn paused(store: &mw_store::Store, account_id: &str) -> bool {
+    store.restriction_blocks(account_id, "analytics").await
+        || !crate::consent_ledger::allowed(store, account_id, "openTracking").await
+}
+
 /// Per-sender policy, also used for anonymous image loads of an existing token.
 /// A personal subject is captured from verified authentication at mint time,
 /// never recovered from an upstream account id or recipient-controlled header.
@@ -122,6 +130,11 @@ async fn sender_allowed(
     state: &AppState,
     subject: &SettingSubject<'_>,
 ) -> Result<bool, StoreError> {
+    // Tracking is processing the sender can pause (Art.18) or withdraw consent
+    // for; both stop minting, binding and recording at this one gate.
+    if paused(&state.store, subject.account_id).await {
+        return Ok(false);
+    }
     let values = crate::settings_registry::effective_all(&state.store, subject, |def| {
         matches!(def.key, "cap.compose.open_tracking" | "mail.openTracking")
     })

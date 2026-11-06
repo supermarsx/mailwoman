@@ -104,6 +104,8 @@ pub(crate) struct Recorder {
     policy: Mutex<Option<(Instant, Policy)>>,
     limiter: Mutex<KeyedRateLimiter>,
     interaction_limiter: Mutex<KeyedRateLimiter>,
+    /// The `(burst, per minute)` both limiters were last built for.
+    tuned: Mutex<Option<(u32, u32)>>,
 }
 
 /// Which feature set a metric belongs to.
@@ -162,6 +164,7 @@ impl Recorder {
                 INTERACTION_REFILL_PER_SEC,
                 20_000,
             )),
+            tuned: Mutex::new(None),
         });
         let weak = Arc::downgrade(&recorder);
         tokio::spawn(async move {
@@ -237,6 +240,25 @@ impl Recorder {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = Some((Instant::now(), policy));
         policy
     }
+    /// [`Self::allow`] with the configured `ratelimit.session.*` budget: both
+    /// limiters are rebuilt when it changes (a change forgets the spent budgets).
+    fn allow_with(&self, session: &str, interaction: bool, burst: u32, per_minute: u32) -> bool {
+        {
+            let mut tuned = self.tuned.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if *tuned != Some((burst, per_minute)) {
+                let refill = f64::from(per_minute) / 60.0;
+                *self.limiter.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    KeyedRateLimiter::new(f64::from(burst), refill, 20_000);
+                *self
+                    .interaction_limiter
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    KeyedRateLimiter::new(f64::from(burst), refill, 20_000);
+                *tuned = Some((burst, per_minute));
+            }
+        }
+        self.allow(session, interaction)
+    }
     fn allow(&self, session: &str, interaction: bool) -> bool {
         if interaction {
             return self
@@ -264,6 +286,10 @@ struct Beacon {
     #[serde(default)]
     device: Option<String>,
     metrics: Vec<Sample>,
+    /// Read by `ingest` (see [`RateOnly`]); accepted here so the strict parse allows it.
+    #[serde(default)]
+    #[allow(dead_code)]
+    rate: Option<RateReport>,
 }
 
 /// A validated beacon: a static device class and unique known metrics, clamped.
@@ -327,8 +353,31 @@ async fn ingest(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
     }
     let interaction = parse_kinds(&body).is_some_and(|all_interaction| all_interaction);
-    if !recorder.allow(&session.id, interaction) {
-        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "30")]).into_response();
+    let knobs = crate::rate_leeway::knobs(
+        &state.store,
+        crate::rate_leeway::domain_of(&session.username),
+    )
+    .await;
+    if !recorder.allow_with(&session.id, interaction, knobs.session_burst, knobs.session_per_minute) {
+        crate::rate_leeway::note("clientTiming", crate::rate_leeway::Outcome::Rejected);
+        // One token comes back after `60 / perMinute` seconds.
+        let wait = (60 / u64::from(knobs.session_per_minute.max(1))).clamp(1, 60);
+        return crate::rate_leeway::tag(
+            (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, wait.to_string())]).into_response(),
+            crate::rate_leeway::Refused {
+                class: "clientTiming",
+                reason: "sessionBudget",
+                key_type: "session",
+                limit: Some(knobs.session_burst),
+                retry_after_secs: wait,
+            },
+        );
+    }
+    crate::rate_leeway::note("clientTiming", crate::rate_leeway::Outcome::Allowed);
+    if let Ok(report) = serde_json::from_slice::<RateOnly>(&body)
+        && let Some(r) = report.rate
+    {
+        crate::rate_leeway::note_client(r.seen, r.retries, r.exhausted);
     }
     match parse(&body) {
         Ok(mut accepted) => {
@@ -349,6 +398,22 @@ async fn ingest(State(state): State<AppState>, headers: HeaderMap, body: Bytes) 
         }
         Err(_) => StatusCode::BAD_REQUEST.into_response(),
     }
+}
+
+/// What a client says about its own `429`s since its last report.
+#[derive(Deserialize)]
+struct RateReport {
+    #[serde(default)]
+    seen: u32,
+    #[serde(default)]
+    retries: u32,
+    #[serde(default)]
+    exhausted: u32,
+}
+#[derive(Deserialize)]
+struct RateOnly {
+    #[serde(default)]
+    rate: Option<RateReport>,
 }
 
 /// Whether every sample in a body is an interaction metric (`None`: unparsable;
@@ -596,6 +661,7 @@ mod tests {
                 INTERACTION_REFILL_PER_SEC,
                 10,
             )),
+            tuned: Mutex::new(None),
         };
         assert_eq!((0..40).filter(|_| recorder.allow("s", true)).count(), INTERACTION_BURST as usize);
         // Page-load beacons are unaffected by interaction traffic.

@@ -56,9 +56,6 @@ enum Command {
     /// kernel-jail posture (SPEC §7.5). Read-only; wires `mw_cache::posture()` +
     /// `mw_sandbox::probe()`. Reports the degraded mode plainly on non-Linux (t16 S4).
     Doctor(DoctorArgs),
-    /// Erasure tooling: backup with a tombstone watermark, restore with erasure
-    /// replay, tombstone hand-over and log scrubbing. See docs/admin/erasure-coverage.md.
-    Erasure(mw_server::erasure_cmd::ErasureArgs),
     /// Whole-database encryption at rest for the SQLite store: status, encrypt, rekey,
     /// decrypt, verify, backup, restore, rollback. See docs/admin/encryption.md.
     Db(db_cmd::DbArgs),
@@ -518,7 +515,6 @@ async fn main() -> std::process::ExitCode {
         Command::Password(args) => run(password_cmd(args).await),
         Command::Maintenance(args) => run(maintenance_cmd(args).await),
         Command::Doctor(args) => run(doctor_cmd(args).await),
-        Command::Erasure(args) => run(mw_server::erasure_cmd::run(args).await),
         Command::Db(args) => run(db_cmd::run(args).await),
         Command::Erasure(args) => run(mw_server::erasure_cmd::run(args).await),
     };

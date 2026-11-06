@@ -421,10 +421,19 @@ async fn refresh(
 ) -> Response {
     let result = async {
         static SLOTS: std::sync::OnceLock<tokio::sync::Semaphore> = std::sync::OnceLock::new();
-        let _permit = SLOTS
-            .get_or_init(|| tokio::sync::Semaphore::new(1))
-            .try_acquire()
-            .map_err(|_| error(StatusCode::TOO_MANY_REQUESTS, "packageBusy"))?;
+        // One refresh at a time process-wide; a second waits its turn briefly
+        // instead of being refused while another user's refresh finishes.
+        let slots = SLOTS.get_or_init(|| tokio::sync::Semaphore::new(1));
+        let _permit = match slots.try_acquire() {
+            Ok(permit) => permit,
+            Err(_) => {
+                let wait = crate::rate_leeway::knobs(&state.store, "").await.queue();
+                match tokio::time::timeout(wait, slots.acquire()).await {
+                    Ok(Ok(permit)) => permit,
+                    _ => return Err(error(StatusCode::TOO_MANY_REQUESTS, "packageBusy")),
+                }
+            }
+        };
         let session = session(&state, &headers, Some(&body.account_id)).await?;
         let (mut data, revision) = load(&state, &session.account_id).await?;
         if revision.as_deref() != Some(&body.revision) {

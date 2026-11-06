@@ -98,8 +98,16 @@ async fn photo(
     let Some(bytes) = embedded(&line) else {
         return StatusCode::NO_CONTENT.into_response();
     };
-    let Ok(permit) = DECODERS.try_acquire() else {
-        return StatusCode::TOO_MANY_REQUESTS.into_response();
+    // Avatars of a whole list arrive together: wait briefly for a decoder
+    // rather than refusing the ones past the second.
+    let wait = crate::rate_leeway::knobs(&state.store, crate::rate_leeway::domain_of(&session.username))
+        .await
+        .queue();
+    let Some(permit) = crate::rate_leeway::acquire_pool("contactPhoto", &DECODERS, wait).await else {
+        return crate::rate_leeway::tag(
+            StatusCode::TOO_MANY_REQUESTS.into_response(),
+            crate::rate_leeway::pool_refusal("contactPhoto", 2),
+        );
     };
     let result = tokio::task::spawn_blocking(move || {
         let _permit = permit;

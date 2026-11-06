@@ -386,7 +386,19 @@ pub(super) async fn save(
         .compare_and_set_setting(&key(&account), raw.as_deref(), &serialized)
         .await
     {
-        Ok(true) => response(stored.document, &stored.revision),
+        Ok(true) => {
+            // Receipts for the analytics purposes when their state changed.
+            let flags = |raw: Option<&str>| {
+                let v: serde_json::Value = raw.and_then(|r| serde_json::from_str(r).ok()).unwrap_or_default();
+                let p = &v["document"]["preferences"];
+                (p["analyticsConsent"] == true, p["analyticsTagConsent"].as_str().is_some_and(|s| !s.is_empty()))
+            };
+            let (before, after) = (flags(raw.as_deref()), flags(Some(&serialized)));
+            if before != after {
+                crate::consent_ledger::mirror_analytics(&state, &session, before, after).await;
+            }
+            response(stored.document, &stored.revision)
+        }
         Ok(false) => StatusCode::PRECONDITION_FAILED.into_response(),
         Err(_) => StatusCode::INTERNAL_SERVER_ERROR.into_response(),
     }
@@ -441,6 +453,12 @@ mod tests {
             json!({"folderOrder":["a","a"]}),
             json!({"folderCollapsed":["a","a"]}),
             json!({"folderSort":{"a":{"by":"size","dir":"asc"}}}),
+            json!({"folderParent":{"a":"a"}}),
+            json!({"folderParent":{"":"b"}}),
+            json!({"folderStarred":["a","a"]}),
+            json!({"folderNestMode":"always"}),
+            json!({"folderGrabHandles":"never"}),
+            json!({"folderNewPlacement":"random"}),
             json!({"folderSort":{"a":{"by":"name","dir":"up"}}}),
             json!({"folderIcons":{"a":"https://avatar.invalid"}}),
             json!({"keyboardPreset":"arbitrary"}),
@@ -453,20 +471,14 @@ mod tests {
             ));
         }
         assert!(valid(
-            json!({"folderParent":{"a":"a"}}),
-            json!({"folderParent":{"":"b"}}),
-            json!({"folderStarred":["a","a"]}),
-            json!({"folderNestMode":"always"}),
-            json!({"folderGrabHandles":"never"}),
-            json!({"folderNewPlacement":"random"}),
             &serde_json::from_value(
                 json!({"version":1,"preferences":{"folderIcons":{"a":"star"},"markRead":"never","folderSort":{"_top":{"by":"unread","dir":"desc"},"a":{"by":"custom","dir":"asc"}},"folderCollapsed":["a"]}})
             )
             .unwrap()
         ));
-        assert!(valid(&serde_json::from_value(json!({"version":1,"preferences":{"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}}}})).unwrap()));
-    }
-}
         assert!(valid(
             &serde_json::from_value(json!({"version":1,"preferences":{"folderParent":{"a":"_top","b":"c"},"folderStarred":["a"],"folderNestMode":"local","folderReorderEnabled":false,"folderGrabHandles":"always","folderNewPlacement":"alphabetical"}})).unwrap()
         ));
+        assert!(valid(&serde_json::from_value(json!({"version":1,"preferences":{"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}}}})).unwrap()));
+    }
+}

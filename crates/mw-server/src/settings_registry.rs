@@ -4398,6 +4398,71 @@ pub static REGISTRY: &[SettingDef] = &[
         ),
         crate::request_budget::ROUTE,
     ),
+    // ── Leeway for signed-in clients (t106) ─────────────────────────────────────
+    def!(
+        "ratelimit.queueMs",
+        int(0, 30000),
+        "3000",
+        GD,
+        "security",
+        "Longest a request waits for a free slot (JMAP concurrency, image decoders, preview workers) before it is refused with 429 and Retry-After. Zero refuses at once."
+    ),
+    def!(
+        "ratelimit.jmap.perAccountConcurrent",
+        int(4, 64),
+        "8",
+        GD,
+        "security",
+        "JMAP requests one signed-in account may run at once, across its tabs and devices. It never shares this with another account or another user behind the same address. Not below 4, the value the session resource advertises."
+    ),
+    def!(
+        "ratelimit.jmap.globalConcurrent",
+        int(4, 4096),
+        "256",
+        G,
+        "security",
+        "JMAP requests the whole process runs at once, all accounts together. A request over it waits for ratelimit.queueMs."
+    ),
+    def!(
+        "ratelimit.session.burst",
+        int(1, 1000),
+        "60",
+        GD,
+        "security",
+        "Client timing reports one session may send in a row. The report endpoint is keyed by session, never by address."
+    ),
+    def!(
+        "ratelimit.session.perMinute",
+        int(1, 600),
+        "30",
+        GD,
+        "security",
+        "Client timing reports per minute a session regains after its burst."
+    ),
+    def!(
+        "ratelimit.anon.burst",
+        int(1, 1000),
+        "60",
+        G,
+        "security",
+        "Requests one address may make to the anonymous cookie-consent routes in a row. Sized for an office behind one address; sign-in and the request-protection address budget are not affected."
+    ),
+    def!(
+        "ratelimit.anon.perMinute",
+        int(1, 600),
+        "30",
+        G,
+        "security",
+        "Requests per minute an address regains on the anonymous cookie-consent routes."
+    ),
+    def!(
+        "ratelimit.trustedMultiplier",
+        int(100, 1000),
+        "150",
+        G,
+        "security",
+        "Percentage of security.protection.accountRequests a signed-in mailbox gets when the request comes from a source with a successful sign-in on record (security.trust.knownTtlDays). 100 keeps the base allowance. Applies only while request protection enforces the account budget; it never relaxes the anonymous, administrator or user-agent budgets or an active block."
+    ),
     // ── Sign-in (e66, e70b) ──────────────────────────────────────────────────
     dedicated(
         def!(
@@ -6018,6 +6083,310 @@ pub static REGISTRY: &[SettingDef] = &[
         "data request exports in the window that open a draft; 0 is off"
     ),
     def!(
+        "restriction.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "restrictions of processing allowed"
+    ),
+    def!(
+        "restriction.autoApplyOnApproval",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "restriction applied when a restriction request is approved"
+    ),
+    def!(
+        "restriction.mailDelivery",
+        Kind::Enum(&["keep", "queue", "reject"]),
+        "\"keep\"",
+        GD,
+        "privacy",
+        "new mail while restricted"
+    ),
+    def!(
+        "restriction.defaultExpiryDays",
+        int(0, 3650),
+        "0",
+        GD,
+        "privacy",
+        "days until a restriction ends (0 = until lifted)"
+    ),
+    def!(
+        "restriction.notifyUser",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "notice to the person on apply and lift"
+    ),
+    def!(
+        "restriction.scope.indexing",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "indexing paused by default"
+    ),
+    def!(
+        "restriction.scope.assistant",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "assistant paused by default"
+    ),
+    def!(
+        "restriction.scope.analytics",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "analytics paused by default"
+    ),
+    def!(
+        "restriction.scope.classification",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "classification paused by default"
+    ),
+    def!(
+        "restriction.scope.push",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "push paused by default"
+    ),
+    def!(
+        "restriction.scope.thirdParty",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "thirdParty paused by default"
+    ),
+    def!(
+        "consent.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "purpose consent ledger and Your data section"
+    ),
+    def!(
+        "consent.receipts.retentionDays",
+        int(0, 3650),
+        "1825",
+        G,
+        "privacy",
+        "days consent receipts are kept (0 = keep)"
+    ),
+    def!(
+        "consent.art22.notice",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "automated processing notice shown to users"
+    ),
+    def!(
+        "consent.analytics.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"consent\"",
+        GD,
+        "privacy",
+        "legal basis shown for analytics"
+    ),
+    def!(
+        "consent.analytics.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of analytics; raising it asks again"
+    ),
+    def!(
+        "consent.analytics.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of analytics"
+    ),
+    def!(
+        "consent.analyticsTag.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"consent\"",
+        GD,
+        "privacy",
+        "legal basis shown for analyticsTag"
+    ),
+    def!(
+        "consent.analyticsTag.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of analyticsTag; raising it asks again"
+    ),
+    def!(
+        "consent.analyticsTag.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of analyticsTag"
+    ),
+    def!(
+        "consent.assistant.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"contract\"",
+        GD,
+        "privacy",
+        "legal basis shown for assistant"
+    ),
+    def!(
+        "consent.assistant.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of assistant; raising it asks again"
+    ),
+    def!(
+        "consent.assistant.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of assistant"
+    ),
+    def!(
+        "consent.push.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"contract\"",
+        GD,
+        "privacy",
+        "legal basis shown for push"
+    ),
+    def!(
+        "consent.push.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of push; raising it asks again"
+    ),
+    def!(
+        "consent.push.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of push"
+    ),
+    def!(
+        "consent.openTracking.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"contract\"",
+        GD,
+        "privacy",
+        "legal basis shown for openTracking"
+    ),
+    def!(
+        "consent.openTracking.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of openTracking; raising it asks again"
+    ),
+    def!(
+        "consent.openTracking.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of openTracking"
+    ),
+    def!(
+        "consent.remoteContent.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"consent\"",
+        GD,
+        "privacy",
+        "legal basis shown for remoteContent"
+    ),
+    def!(
+        "consent.remoteContent.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of remoteContent; raising it asks again"
+    ),
+    def!(
+        "consent.remoteContent.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of remoteContent"
+    ),
+    def!(
+        "consent.integrations.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"contract\"",
+        GD,
+        "privacy",
+        "legal basis shown for integrations"
+    ),
+    def!(
+        "consent.integrations.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of integrations; raising it asks again"
+    ),
+    def!(
+        "consent.integrations.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of integrations"
+    ),
+    def!(
+        "consent.telemetry.basis",
+        Kind::Enum(&["consent", "legitimateInterest", "contract", "legalObligation"]),
+        "\"legitimateInterest\"",
+        GD,
+        "privacy",
+        "legal basis shown for telemetry"
+    ),
+    def!(
+        "consent.telemetry.version",
+        int(1, 1000000),
+        "1",
+        GD,
+        "privacy",
+        "consent text version of telemetry; raising it asks again"
+    ),
+    def!(
+        "consent.telemetry.text",
+        Kind::LocaleMap { max: 2000 },
+        "{}",
+        GD,
+        "privacy",
+        "consent text of telemetry"
+    ),
+    def!(
         "logs.auth.retentionDays",
         int(1, 90),
         "7",
@@ -6160,6 +6529,215 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "privacy",
         "Whether old IP addresses are cut to a network prefix or replaced by a short keyed hash"
+    ),
+    def!(
+        "retention.user.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Users may set their own retention rules for folders and mail; the rules run on the server as part of the retention sweep family"
+    ),
+    def!(
+        "retention.user.minDays",
+        int(1, 3650),
+        "7",
+        GD,
+        "privacy",
+        "Fewest days a user rule may wait before it moves or deletes mail; a smaller value is refused when the rule is saved and raised when it runs"
+    ),
+    def!(
+        "retention.user.maxDays",
+        int(0, 3650),
+        "0",
+        GD,
+        "privacy",
+        "Most days a user rule may wait; 0 sets no ceiling. A larger value is refused when the rule is saved and lowered when it runs"
+    ),
+    def!(
+        "retention.user.maxRules",
+        int(1, 500),
+        "50",
+        GD,
+        "privacy",
+        "Most retention rules one user may keep"
+    ),
+    def!(
+        "retention.user.allowPermanentDelete",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Whether a user rule may delete mail for good. When off, a delete rule moves mail to Trash and the undo window applies before it is purged"
+    ),
+    def!(
+        "retention.user.undoDays",
+        int(0, 365),
+        "7",
+        GD,
+        "privacy",
+        "Days mail moved to Trash by a retention rule stays there before it is purged; 0 purges at the next run"
+    ),
+    def!(
+        "retention.user.mandatory",
+        Kind::StringList {
+            max_len: 20,
+            max_item: 64
+        },
+        "[]",
+        GD,
+        "privacy",
+        "Rules every account gets, as folder-role:days entries (for example trash:30 or junk:30). Mail in that folder older than the days is purged; the user cannot change or pause these"
+    ),
+    def!(
+        "retention.user.protectedFolders",
+        Kind::StringList {
+            max_len: 30,
+            max_item: 128
+        },
+        "[\"drafts\"]",
+        GD,
+        "privacy",
+        "Folders retention rules never touch, by role (drafts, sent, inbox, archive) or by folder name"
+    ),
+    def!(
+        "retention.user.templates",
+        Kind::StringList {
+            max_len: 30,
+            max_item: 64
+        },
+        "[\"newsletters30\",\"receipts365\",\"notifications14\",\"trash30\",\"junk30\",\"read-archive180\"]",
+        GD,
+        "privacy",
+        "Templates users can adopt in Settings, by id"
+    ),
+    def!(
+        "retention.user.runForRestricted",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Whether user rules also run for accounts under a restriction of processing"
+    ),
+    def!(
+        "retention.user.intervalHours",
+        int(1, 168),
+        "24",
+        G,
+        "privacy",
+        "Hours between runs of the user retention job for one account"
+    ),
+    def!(
+        "retention.user.batchMessages",
+        int(10, 1000),
+        "200",
+        G,
+        "privacy",
+        "Messages one move or delete call handles"
+    ),
+    def!(
+        "retention.user.maxPerRun",
+        int(10, 100000),
+        "5000",
+        G,
+        "privacy",
+        "Most messages the user retention job changes for one account in one run; the rest waits for the next run"
+    ),
+    def!(
+        "retention.user.pauseMs",
+        int(0, 5000),
+        "100",
+        G,
+        "privacy",
+        "Pause between batches, in milliseconds, so a large cleanup does not load the mail server"
+    ),
+    def!(
+        "retention.class.short.days",
+        int(1, 3650),
+        "365",
+        G,
+        "privacy",
+        "Ceiling in days for the short class (sessions, tokens, rate limits, jobs, metrics); applies when retention.class.enforce is on"
+    ),
+    def!(
+        "retention.class.medium.days",
+        int(1, 3650),
+        "1095",
+        G,
+        "privacy",
+        "Ceiling in days for the medium class (sign-in history, request protection, security notices); must not be below the short class"
+    ),
+    def!(
+        "retention.class.long.days",
+        int(0, 3650),
+        "2555",
+        G,
+        "privacy",
+        "Days the long class (security audit, administrator actions, requests, consent, tombstones) is kept, archive included; 0 keeps it forever and the console warns. Must not be below the medium class"
+    ),
+    def!(
+        "retention.class.enforce",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Clamp each store's own limit to its class ceiling, and treat 0 (keep) as the ceiling. Off leaves the per-store limits as set"
+    ),
+    def!(
+        "retention.archive.enabled",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Move aged rows of the long class into sealed archive files instead of deleting them"
+    ),
+    def!(
+        "retention.archive.directory",
+        text(Text::Plain, 500),
+        "\"archive\"",
+        G,
+        "privacy",
+        "Directory for archive files, absolute or relative to the server working directory; no parent-directory segments"
+    ),
+    def!(
+        "retention.archive.batchRows",
+        int(50, 10000),
+        "1000",
+        G,
+        "privacy",
+        "Rows per archive file"
+    ),
+    def!(
+        "retention.archive.maxSegments",
+        int(1, 1000),
+        "10",
+        G,
+        "privacy",
+        "Archive files one run may write per store"
+    ),
+    def!(
+        "retention.archive.keyGeneration",
+        int(1, 1000000),
+        "1",
+        G,
+        "privacy",
+        "Generation of the key that seals new archive files. Raise it to rotate; earlier files still verify with their own generation"
+    ),
+    def!(
+        "retention.archive.verifyDays",
+        int(1, 365),
+        "7",
+        G,
+        "privacy",
+        "Days between integrity checks of the archive"
+    ),
+    def!(
+        "retention.archive.legalHold",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Keep every archive file, whatever the long class limit says"
     ),
     def!(
         "logging.file.enabled",
@@ -6521,215 +7099,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "Description of the functional category per locale"
-    def!(
-        "retention.user.enabled",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "Users may set their own retention rules for folders and mail; the rules run on the server as part of the retention sweep family"
-    ),
-    def!(
-        "retention.user.minDays",
-        int(1, 3650),
-        "7",
-        GD,
-        "privacy",
-        "Fewest days a user rule may wait before it moves or deletes mail; a smaller value is refused when the rule is saved and raised when it runs"
-    ),
-    def!(
-        "retention.user.maxDays",
-        int(0, 3650),
-        "0",
-        GD,
-        "privacy",
-        "Most days a user rule may wait; 0 sets no ceiling. A larger value is refused when the rule is saved and lowered when it runs"
-    ),
-    def!(
-        "retention.user.maxRules",
-        int(1, 500),
-        "50",
-        GD,
-        "privacy",
-        "Most retention rules one user may keep"
-    ),
-    def!(
-        "retention.user.allowPermanentDelete",
-        Kind::Bool,
-        "false",
-        GD,
-        "privacy",
-        "Whether a user rule may delete mail for good. When off, a delete rule moves mail to Trash and the undo window applies before it is purged"
-    ),
-    def!(
-        "retention.user.undoDays",
-        int(0, 365),
-        "7",
-        GD,
-        "privacy",
-        "Days mail moved to Trash by a retention rule stays there before it is purged; 0 purges at the next run"
-    ),
-    def!(
-        "retention.user.mandatory",
-        Kind::StringList {
-            max_len: 20,
-            max_item: 64
-        },
-        "[]",
-        GD,
-        "privacy",
-        "Rules every account gets, as folder-role:days entries (for example trash:30 or junk:30). Mail in that folder older than the days is purged; the user cannot change or pause these"
-    ),
-    def!(
-        "retention.user.protectedFolders",
-        Kind::StringList {
-            max_len: 30,
-            max_item: 128
-        },
-        "[\"drafts\"]",
-        GD,
-        "privacy",
-        "Folders retention rules never touch, by role (drafts, sent, inbox, archive) or by folder name"
-    ),
-    def!(
-        "retention.user.templates",
-        Kind::StringList {
-            max_len: 30,
-            max_item: 64
-        },
-        "[\"newsletters30\",\"receipts365\",\"notifications14\",\"trash30\",\"junk30\",\"read-archive180\"]",
-        GD,
-        "privacy",
-        "Templates users can adopt in Settings, by id"
-    ),
-    def!(
-        "retention.user.runForRestricted",
-        Kind::Bool,
-        "false",
-        G,
-        "privacy",
-        "Whether user rules also run for accounts under a restriction of processing"
-    ),
-    def!(
-        "retention.user.intervalHours",
-        int(1, 168),
-        "24",
-        G,
-        "privacy",
-        "Hours between runs of the user retention job for one account"
-    ),
-    def!(
-        "retention.user.batchMessages",
-        int(10, 1000),
-        "200",
-        G,
-        "privacy",
-        "Messages one move or delete call handles"
-    ),
-    def!(
-        "retention.user.maxPerRun",
-        int(10, 100000),
-        "5000",
-        G,
-        "privacy",
-        "Most messages the user retention job changes for one account in one run; the rest waits for the next run"
-    ),
-    def!(
-        "retention.user.pauseMs",
-        int(0, 5000),
-        "100",
-        G,
-        "privacy",
-        "Pause between batches, in milliseconds, so a large cleanup does not load the mail server"
-    ),
-    def!(
-        "retention.class.short.days",
-        int(1, 3650),
-        "365",
-        G,
-        "privacy",
-        "Ceiling in days for the short class (sessions, tokens, rate limits, jobs, metrics); applies when retention.class.enforce is on"
-    ),
-    def!(
-        "retention.class.medium.days",
-        int(1, 3650),
-        "1095",
-        G,
-        "privacy",
-        "Ceiling in days for the medium class (sign-in history, request protection, security notices); must not be below the short class"
-    ),
-    def!(
-        "retention.class.long.days",
-        int(0, 3650),
-        "2555",
-        G,
-        "privacy",
-        "Days the long class (security audit, administrator actions, requests, consent, tombstones) is kept, archive included; 0 keeps it forever and the console warns. Must not be below the medium class"
-    ),
-    def!(
-        "retention.class.enforce",
-        Kind::Bool,
-        "false",
-        G,
-        "privacy",
-        "Clamp each store's own limit to its class ceiling, and treat 0 (keep) as the ceiling. Off leaves the per-store limits as set"
-    ),
-    def!(
-        "retention.archive.enabled",
-        Kind::Bool,
-        "false",
-        G,
-        "privacy",
-        "Move aged rows of the long class into sealed archive files instead of deleting them"
-    ),
-    def!(
-        "retention.archive.directory",
-        text(Text::Plain, 500),
-        "\"archive\"",
-        G,
-        "privacy",
-        "Directory for archive files, absolute or relative to the server working directory; no parent-directory segments"
-    ),
-    def!(
-        "retention.archive.batchRows",
-        int(50, 10000),
-        "1000",
-        G,
-        "privacy",
-        "Rows per archive file"
-    ),
-    def!(
-        "retention.archive.maxSegments",
-        int(1, 1000),
-        "10",
-        G,
-        "privacy",
-        "Archive files one run may write per store"
-    ),
-    def!(
-        "retention.archive.keyGeneration",
-        int(1, 1000000),
-        "1",
-        G,
-        "privacy",
-        "Generation of the key that seals new archive files. Raise it to rotate; earlier files still verify with their own generation"
-    ),
-    def!(
-        "retention.archive.verifyDays",
-        int(1, 365),
-        "7",
-        G,
-        "privacy",
-        "Days between integrity checks of the archive"
-    ),
-    def!(
-        "retention.archive.legalHold",
-        Kind::Bool,
-        "false",
-        G,
-        "privacy",
-        "Keep every archive file, whatever the long class limit says"
-    ),
     ),
     def!(
         "cookies.label.analytics",
@@ -6763,6 +7132,24 @@ pub static REGISTRY: &[SettingDef] = &[
         "privacy",
         "Description of the marketing category per locale"
     ),
+    // ── Encryption at rest ──────────────────────────────────────────────────────
+    def!(
+        "encryption.rotationDays",
+        int(0, 3650),
+        "365",
+        G,
+        "privacy",
+        "Days after which the database key is reported as due for rotation; 0 sets no due date"
+    ),
+    def!(
+        "encryption.warnings.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "privacy",
+        "Report plaintext stores and overdue key rotation in the security assessment"
+    ),
+
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
         "serverText.*",
@@ -7263,6 +7650,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                         } else if matches!(
                             def.key,
                             "mail.cache.excludedFolders"
+                                | "retention.user.mandatory"
+                                | "retention.user.protectedFolders"
                                 | "security.protection.exemptClients"
                                 | "security.protection.exemptAccounts"
                                 | "security.protection.exemptAdmins"
@@ -7287,6 +7676,10 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                             | "security.adminProbe.allowlist"
                             | "security.health.networks"
                     ) && crate::scope_mw::proxy::Cidr::parse(text).is_none())
+                    || (def.key == "retention.user.mandatory"
+                        && crate::retention_rules::parse_mandatory(&[text.to_string()]).is_empty())
+                    || (def.key == "retention.user.templates"
+                        && crate::retention_rules::template(text).is_none())
                     || (def.key == "security.adminProbe.probePaths"
                         && (!text.starts_with('/') || text == "/" || text.contains("//")))
                     || (def.key == "security.protocol.exemptPrefixes"
@@ -7596,24 +7989,6 @@ pub fn resolve_loaded(
         }
         None => None,
     };
-    // ── Encryption at rest ──────────────────────────────────────────────────────
-    def!(
-        "encryption.rotationDays",
-        int(0, 3650),
-        "365",
-        G,
-        "privacy",
-        "Days after which the database key is reported as due for rotation; 0 sets no due date"
-    ),
-    def!(
-        "encryption.warnings.enabled",
-        Kind::Bool,
-        "true",
-        G,
-        "privacy",
-        "Report plaintext stores and overdue key rotation in the security assessment"
-    ),
-
     let r = resolve(&ResolveInput {
         floor: &floor,
         floor_is_env,
@@ -7641,8 +8016,6 @@ pub async fn effective_for(
 }
 
 /// [`effective_for`] with more value rows than the store holds: the per-user
-                                | "retention.user.mandatory"
-                                | "retention.user.protectedFolders"
 /// values a key keeps elsewhere (the appearance blob, `mdn_policy:<account>`,
 /// the notification rules row), passed in as `user` rows by the caller.
 pub async fn effective_for_with(
@@ -7667,10 +8040,6 @@ pub async fn effective_for_with(
         &values,
         &process_env,
     )))
-                    || (def.key == "retention.user.mandatory"
-                        && crate::retention_rules::parse_mandatory(&[text.to_string()]).is_empty())
-                    || (def.key == "retention.user.templates"
-                        && crate::retention_rules::template(text).is_none())
 }
 
 /// The effective values of every registered (non-family) key that `filter`

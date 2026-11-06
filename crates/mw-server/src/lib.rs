@@ -68,6 +68,22 @@ mod scrub_admin;
 pub mod erasure_cmd;
 mod dsr_data;
 mod cookie_consent;
+mod consent_ledger;
+mod privacy_overview;
+mod rate_leeway;
+
+/// Forget the cached `ratelimit.*` values (tests and tools; they otherwise expire in seconds).
+#[doc(hidden)]
+pub fn forget_rate_knobs() {
+    rate_leeway::forget_knobs();
+}
+mod restriction;
+
+/// The runtime consent question the processing choke points ask (tests and tools).
+#[doc(hidden)]
+pub async fn consent_allowed(store: &mw_store::Store, account_id: &str, purpose: &str) -> bool {
+    consent_ledger::allowed(store, account_id, purpose).await
+}
 mod compliance;
 mod compliance_dpia;
 mod compliance_policy;
@@ -144,6 +160,7 @@ mod admin_rotation;
 pub(crate) mod alerts;
 pub(crate) mod audit;
 mod deployment_security;
+mod encryption_status;
 /// The local country database, managed from the console (t96).
 #[doc(hidden)]
 pub mod geoip;
@@ -157,7 +174,6 @@ mod signin_challenge;
 mod signin_cooldown;
 mod signin_geography;
 mod signin_guard;
-mod encryption_status;
 pub(crate) mod signin_policy;
 mod trust_tier;
 /// Best-effort final save of the known-source table at graceful shutdown.
@@ -193,6 +209,9 @@ mod admin_dashboard;
 pub mod application_logs;
 mod audit_projection;
 mod auth_logs;
+mod retention_rules;
+mod retention_tiers;
+mod user_retention;
 mod diagnostics;
 mod feature_gate;
 mod feature_jmap;
@@ -204,9 +223,6 @@ mod hosting_transport;
 pub mod settings_registry;
 pub mod settings_routes;
 mod ssh_tunnels;
-mod retention_rules;
-mod retention_tiers;
-mod user_retention;
 mod user_router;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
@@ -1109,6 +1125,7 @@ async fn build_app_inner(
     let geoip_dir = geoip::data_dir(&config.db_path);
     let admin_overlay = admin_apply::env_overlay()?;
     let key = server_key::resolve(&config.db_path, config.server_key_hex.as_deref())?;
+    encryption_status::remember_database(&config.db_path);
     let store = Store::open(&config.db_path, key.clone()).await?;
     // Attachment upload store (t15): when `MW_UPLOAD_DIR` is configured, seal + write
     // uploaded blobs to that filesystem backend. Unset → the store keeps its default
@@ -1125,7 +1142,6 @@ async fn build_app_inner(
     // an upgrade — set before any route is built.
     console_path::resolve(&store, &admin_overlay).await?;
     let render_bin = locate_render_bin();
-    encryption_status::remember_database(&config.db_path);
     // DQ4/S6: is a render kernel jail expected here? On Linux (or when
     // `MW_RENDER_JAIL=require`), the hostile-input render must run in the jailed
     // child — the in-process fallbacks then fail closed rather than parse untrusted
@@ -1548,9 +1564,13 @@ fn router(
         .merge(client_policy::router())
         .merge(client_timing::router())
         .merge(dsr::router())
+        .merge(user_retention::router())
         .merge(breach::router())
         .merge(cookie_consent::router())
         .merge(compliance::router())
+        .merge(consent_ledger::router())
+        .merge(privacy_overview::router())
+        .merge(restriction::router())
         .merge(import_routes::import_router())
         .merge(account_drafts::router())
         .merge(linked_accounts::router().layer(Extension(provider_plugins.clone())))
@@ -1559,7 +1579,6 @@ fn router(
         .route("/api/login", post(login).layer(Extension(provider_plugins)))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
-        .merge(user_retention::router())
         .route("/api/session/rotate", post(rotate_session))
         // Unauthenticated + CSRF-exempt + attacker-chosen domain: the SSRF gate
         // bounds where discovery may fetch, this bounds how often (t22-e9).
@@ -1729,6 +1748,7 @@ fn router(
             state.clone(),
             security_headers,
         ))
+        .layer(middleware::from_fn(rate_leeway::observe))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             http_metrics::layer,
@@ -3406,7 +3426,7 @@ async fn jmap_api(
         if let Err(problem) = mw_engine::jmap::core::validate(&request, body.len(), true) {
             return jmap_limits::problem(problem, StatusCode::BAD_REQUEST);
         }
-        match jmap_limits::request() {
+        match jmap_limits::request(&state, &session.account_id, &session.username).await {
             Ok(permit) => Some(permit),
             Err(response) => return response,
         }
@@ -4150,7 +4170,7 @@ async fn jmap_upload(
             .into_response();
     }
     let _native_upload_permit = if state.engine.is_some() {
-        match jmap_limits::upload() {
+        match jmap_limits::upload(&state, &session.account_id, &session.username).await {
             Ok(permit) => Some(permit),
             Err(response) => return response,
         }

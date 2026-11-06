@@ -572,9 +572,9 @@ pub(crate) fn start(state: AppState) {
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/retention", Capability::SettingsRead, snapshot_route);
     r.admin_endpoint(Method::POST, "/retention/run", Capability::SettingsWrite, run_route);
-}
     crate::retention_tiers::register(r);
     crate::user_retention::register(r);
+}
 
 fn no_store(value: Value) -> Response {
     (
@@ -812,7 +812,6 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
-    #[test]
     #[tokio::test]
     async fn archive_and_class_ceilings_change_what_the_sweep_does() {
         use sqlx::sqlite::SqlitePoolOptions;
@@ -894,6 +893,7 @@ mod tests {
         std::fs::remove_dir_all(dir).ok();
     }
 
+    #[test]
     fn retention_and_logging_ranges_validate() {
         use serde_json::json;
         let ok = |k: &str, v: Value| {

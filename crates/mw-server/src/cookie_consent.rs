@@ -100,19 +100,68 @@ fn now() -> i64 {
     chrono::Utc::now().timestamp()
 }
 
-fn limiter() -> &'static Mutex<crate::scope_mw::rate_limit::KeyedRateLimiter> {
-    static L: OnceLock<Mutex<crate::scope_mw::rate_limit::KeyedRateLimiter>> = OnceLock::new();
-    L.get_or_init(|| Mutex::new(crate::scope_mw::rate_limit::KeyedRateLimiter::new(20.0, 0.2, 20_000)))
+/// The per-address budget of the anonymous consent routes and the `(burst, per
+/// minute)` it was built for (`ratelimit.anon.*`; a change starts a fresh one).
+fn limiter() -> &'static Mutex<((u32, u32), crate::scope_mw::rate_limit::KeyedRateLimiter)> {
+    static L: OnceLock<Mutex<((u32, u32), crate::scope_mw::rate_limit::KeyedRateLimiter)>> =
+        OnceLock::new();
+    L.get_or_init(|| {
+        Mutex::new((
+            (0, 0),
+            crate::scope_mw::rate_limit::KeyedRateLimiter::new(1.0, 1.0, 1),
+        ))
+    })
 }
 
-fn allowed(headers: &HeaderMap, ext: &axum::http::Extensions) -> bool {
+/// Anonymous and per address on purpose: this route has no session. The budget is
+/// sized for an office behind one address (a page view is one or two calls), not
+/// for a script; the address comes only from the trusted proxy resolver.
+async fn allowed(state: &AppState, headers: &HeaderMap, ext: &axum::http::Extensions) -> bool {
     let key = crate::scope_mw::proxy::client_ip(headers, ext)
-        .map(|ip| ip.to_string())
+        .map(|ip| ip.to_canonical().to_string())
         .unwrap_or_else(|| "unknown".into());
-    limiter()
+    let knobs = crate::rate_leeway::knobs(&state.store, "").await;
+    let wanted = (knobs.anon_burst, knobs.anon_per_minute);
+    let mut guard = limiter()
         .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-        .check(&key)
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    if guard.0 != wanted {
+        *guard = (
+            wanted,
+            crate::scope_mw::rate_limit::KeyedRateLimiter::new(
+                f64::from(wanted.0),
+                f64::from(wanted.1) / 60.0,
+                20_000,
+            ),
+        );
+    }
+    let ok = guard.1.check(&key);
+    drop(guard);
+    crate::rate_leeway::note(
+        "cookieConsent",
+        if ok {
+            crate::rate_leeway::Outcome::Allowed
+        } else {
+            crate::rate_leeway::Outcome::Rejected
+        },
+    );
+    ok
+}
+
+/// The `429` of a spent consent budget, with the wait until one call is allowed again.
+async fn too_many(state: &AppState) -> Response {
+    let knobs = crate::rate_leeway::knobs(&state.store, "").await;
+    let wait = (60 / u64::from(knobs.anon_per_minute.max(1))).clamp(1, 60);
+    crate::rate_leeway::tag(
+        (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, wait.to_string())]).into_response(),
+        crate::rate_leeway::Refused {
+            class: "cookieConsent",
+            reason: "addressBudget",
+            key_type: "address",
+            limit: Some(knobs.anon_burst),
+            retry_after_secs: wait,
+        },
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -362,8 +411,8 @@ async fn record(
     body: &[u8],
     account_id: Option<String>,
 ) -> Response {
-    if !allowed(headers, ext) {
-        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "10")]).into_response();
+    if !allowed(state, headers, ext).await {
+        return too_many(state).await;
     }
     if body.len() > BODY_CAP {
         return StatusCode::PAYLOAD_TOO_LARGE.into_response();
@@ -527,8 +576,8 @@ async fn report_detected(
     ext: axum::http::Extensions,
     body: Bytes,
 ) -> Response {
-    if !allowed(&headers, &ext) {
-        return (StatusCode::TOO_MANY_REQUESTS, [(header::RETRY_AFTER, "10")]).into_response();
+    if !allowed(&state, &headers, &ext).await {
+        return too_many(&state).await;
     }
     // Only while the control is on: a page that is not offering consent does not
     // need a review list, and an anonymous route should not grow it for nothing.

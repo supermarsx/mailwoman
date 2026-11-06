@@ -180,6 +180,18 @@ async fn invoke(
         Err(resp) => return resp,
     };
     let cap = body.capability;
+    // The person's opt-out of this one feature (Art.22 notice in Settings > Privacy).
+    let feature = serde_json::to_value(cap)
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string))
+        .unwrap_or_default();
+    if !crate::consent_ledger::allowed(&state.store, &session.account_id, &format!("assistant.{feature}")).await {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(json!({"code":"consent_required","purpose":format!("assistant.{feature}")})),
+        )
+            .into_response();
+    }
     // The user's provider profile, if one is assigned (t39 N8).
     let via = match crate::v7_mount::assist_route(&state, &gateway, &session).await {
         Ok(via) => via,

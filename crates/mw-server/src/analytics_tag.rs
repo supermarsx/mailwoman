@@ -888,6 +888,9 @@ pub(crate) async fn active_for(state: &AppState, headers: &HeaderMap) -> Option<
     let owner = crate::prefs_routes::personal_storage::owner(state, &session, headers, false)
         .await
         .ok()?;
+    if state.store.restriction_blocks(&session.account_id, "analytics").await {
+        return None;
+    }
     tag_consent(&state.store, &owner, &key)
         .await
         .then_some((plan, key))

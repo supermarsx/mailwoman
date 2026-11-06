@@ -149,7 +149,8 @@ async fn one_session_cannot_flood_the_aggregate() {
     let server = spawn().await;
     let (c, token) = sign_in(&server).await;
     let mut statuses = Vec::new();
-    for _ in 0..12 {
+    // `ratelimit.session.burst` defaults to 60 reports in a row.
+    for _ in 0..70 {
         statuses.push(
             beacon(&c, &server, Some(&token), OK.into())
                 .send()
@@ -159,7 +160,9 @@ async fn one_session_cannot_flood_the_aggregate() {
                 .as_u16(),
         );
     }
-    assert_eq!(statuses.iter().filter(|s| **s == 204).count(), 6, "{statuses:?}");
+    // The bucket refills at `ratelimit.session.perMinute` while the loop runs, so allow a few extra.
+    let accepted = statuses.iter().filter(|s| **s == 204).count();
+    assert!((60..=65).contains(&accepted), "{statuses:?}");
     assert!(statuses.iter().all(|s| *s == 204 || *s == 429), "{statuses:?}");
 }
 

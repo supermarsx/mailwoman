@@ -79,7 +79,7 @@ async fn user_status(State(state): State<AppState>, headers: HeaderMap) -> Respo
         },
         Err(()) => None,
     };
-    ([("cache-control", "private, no-store")], Json(json!({"enabled":enabled,"consent":analytics_runtime::consent(&state.store,&storage_owner).await,"privacySignal":analytics_runtime::privacy_signal(&headers),"mode":"event-counts","browserTag":browser_tag}))).into_response()
+    ([("cache-control", "private, no-store")], Json(json!({"enabled":enabled,"consent":analytics_runtime::consent(&state.store,&storage_owner).await && !state.store.restriction_blocks(&session.account_id,"analytics").await,"restricted":state.store.restriction_blocks(&session.account_id,"analytics").await,"privacySignal":analytics_runtime::privacy_signal(&headers),"mode":"event-counts","browserTag":browser_tag}))).into_response()
 }
 async fn event(
     State(state): State<AppState>,
@@ -97,6 +97,7 @@ async fn event(
             Err(response) => return response,
         };
     if analytics_runtime::privacy_signal(&headers)
+        || state.store.restriction_blocks(&session.account_id, "analytics").await
         || !analytics_runtime::consent(&state.store, &storage_owner).await
     {
         return StatusCode::NO_CONTENT.into_response();

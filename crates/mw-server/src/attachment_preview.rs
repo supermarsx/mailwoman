@@ -65,11 +65,17 @@ async fn preview(
     let Some(bin) = &state.render_bin else {
         return super::render_unavailable();
     };
-    let Ok(_permit) = WORKERS.try_acquire() else {
+    let wait = crate::rate_leeway::knobs(&state.store, crate::rate_leeway::domain_of(&session.username))
+        .await
+        .queue();
+    let Some(_permit) = crate::rate_leeway::acquire_pool("attachmentPreview", &WORKERS, wait).await else {
         crate::health_probes::render_busy();
-        return error(
-            StatusCode::TOO_MANY_REQUESTS,
-            "attachment preview workers are busy; retry shortly",
+        return crate::rate_leeway::tag(
+            error(
+                StatusCode::TOO_MANY_REQUESTS,
+                "attachment preview workers are busy; retry shortly",
+            ),
+            crate::rate_leeway::pool_refusal("attachmentPreview", 2),
         );
     };
     let result = crate::health_probes::track_render_timeout(

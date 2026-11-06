@@ -12,7 +12,8 @@ A person files a request under **Settings > Privacy & data > Your data**. You wo
 | Download (portability) | The same ZIP; the two are separate types so they can be switched on and approved separately. |
 | Correction | Recorded in the queue for an administrator to handle by hand. The page points the person to the places where they can edit their own details. |
 | Erasure | Deletes the person's data after an approval step and a waiting period the person can cancel during. |
-| Restriction, Objection, Other | Recorded in the queue for an administrator to handle by hand and close with a note. Nothing is restricted automatically. |
+| Restriction | When approved, the person's accounts are restricted straight away (`restriction.autoApplyOnApproval`), or an administrator applies it by hand. The request stays in progress until an administrator closes it with a note. See [restrictions and consent](consent.md). |
+| Objection, Other | Recorded in the queue for an administrator to handle by hand and close with a note. Nothing changes automatically. |
 
 Each type has its own switch (`dsr.type.*`), and `dsr.enabled` turns the whole feature off.
 

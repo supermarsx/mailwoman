@@ -467,9 +467,47 @@ async fn approve(state: &AppState, row: &mut DsrRow, body: &mut Body, policy: &P
         _ => {
             save(state, row, body, "in_progress").await?;
             event(state, &row.id, actor, "approved", json!({"next": "in_progress"})).await;
+            if row.kind == "restriction" {
+                apply_restriction(state, row, body, actor).await;
+            }
         }
     }
     Ok(())
+}
+
+/// An approved Art.18 request restricts the person's accounts straight away when
+/// `restriction.autoApplyOnApproval` is on; otherwise an administrator applies it
+/// from Admin > Compliance > Restrictions. The request stays in progress until an
+/// administrator completes it, so the trail records the outcome.
+async fn apply_restriction(state: &AppState, row: &DsrRow, body: &Body, actor: &str) {
+    let rp = crate::restriction::Policy::load(state, &row.domain, &row.address, &row.account_id).await;
+    if !rp.enabled || !rp.auto_apply {
+        return;
+    }
+    let ids = account_ids_of(state, &row.address, &row.account_id).await;
+    let reason = format!("Data subject request {}", row.id);
+    let result = crate::restriction::apply(
+        state,
+        &rp,
+        crate::restriction::Apply {
+            address: &row.address,
+            domain: &row.domain,
+            account_ids: ids,
+            scopes: None,
+            reason: &reason,
+            source: "dsr",
+            request_id: Some(row.id.clone()),
+            by: actor,
+            expires_in_days: None,
+            mail_delivery: None,
+            locale: &body.locale,
+        },
+    )
+    .await;
+    match result {
+        Ok(rows) => event(state, &row.id, actor, "restriction-applied", json!({"accounts": rows.len(), "scopes": rows.first().map(|r| r.scopes.clone())})).await,
+        Err(e) => event(state, &row.id, actor, "restriction-failed", json!({"reason": e.to_string()})).await,
+    }
 }
 
 struct NewRequest<'a> {

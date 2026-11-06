@@ -1603,6 +1603,14 @@ Global, hot. Default 50,000; range 1,000–100,000. Oldest entries are removed o
 
 Retention limits and log rotation are global settings. They have no domain or user scope because the sweep and the log files belong to the whole server. `docs/admin/retention.md` lists every store, what it holds and who removes it. A limit of 0 keeps rows until they are deleted by hand; the console shows a warning for it. These keys are configurable controls and do not make a deployment compliant with any law.
 
+<a id="encryption.rotationDays"></a>
+### Database key rotation interval (days) (`encryption.rotationDays`)
+Global, hot. Default `365`. Days after the last key change at which the database key is reported as due for rotation. 0 sets no due date. The key itself is never stored in settings.
+
+<a id="encryption.warnings.enabled"></a>
+### Report encryption findings (`encryption.warnings.enabled`)
+Global, hot. Default `true`. Show plaintext stores and an overdue key rotation as a finding in the deployment assessment.
+
 <a id="retention.sweeper.enabled"></a>
 ### Retention sweeper (`retention.sweeper.enabled`)
 Global, hot. Default `true`. Run the daily sweep that deletes rows older than the limits on this page. Turning it off keeps every row until it is turned on again.
@@ -1662,6 +1670,106 @@ Global, hot. Default `90`. After this many days the IP address in authentication
 <a id="retention.ipAddresses.mode"></a>
 ### IP reduction method (`retention.ipAddresses.mode`)
 Global, hot. Default `"truncate"`. Truncate keeps the IPv4 /24 or IPv6 /48 prefix. Hash replaces the address with a short keyed hash that still groups the same address.
+
+<a id="retention.user.enabled"></a>
+### Users may set retention rules (`retention.user.enabled`)
+Global and domain, hot. Default `true`. Users can set their own retention rules for folders and mail. When off, existing user rules stop running; the organisation-wide rules below still run.
+
+<a id="retention.user.minDays"></a>
+### Fewest days before a user rule deletes mail (`retention.user.minDays`)
+Global and domain, hot. Default `7`. A user rule that deletes mail cannot act on mail younger than this. A smaller value is refused when the rule is saved and raised when it runs.
+
+<a id="retention.user.maxDays"></a>
+### Most days a user rule may wait to delete mail (`retention.user.maxDays`)
+Global and domain, hot. Default `0`. A user rule that deletes mail cannot wait longer than this. 0 sets no ceiling. A larger value is refused when the rule is saved and lowered when it runs.
+
+<a id="retention.user.maxRules"></a>
+### Most retention rules per user (`retention.user.maxRules`)
+Global and domain, hot. Default `50`. The most retention rules one user may keep.
+
+<a id="retention.user.allowPermanentDelete"></a>
+### User rules may delete mail permanently (`retention.user.allowPermanentDelete`)
+Global and domain, hot. Default `false`. When off, a delete rule always moves mail to Trash and the undo window applies before it is purged.
+
+<a id="retention.user.undoDays"></a>
+### Undo window for retention rules (days) (`retention.user.undoDays`)
+Global and domain, hot. Default `7`. Days mail moved to Trash by a retention rule stays there before it is purged. A user may choose a shorter window. 0 purges at the next run.
+
+<a id="retention.user.mandatory"></a>
+### Organisation-wide mail rules (`retention.user.mandatory`)
+Global and domain, hot. Default `[]`. Rules every account gets, as folder-role:days entries, for example trash:30 or junk:30. Mail in that folder older than the days is purged. A user cannot change, pause or exclude mail from these. Mail of an account under legal hold is skipped.
+
+<a id="retention.user.protectedFolders"></a>
+### Folders retention rules never touch (`retention.user.protectedFolders`)
+Global and domain, hot. Default `["drafts"]`. Folders no user rule works on, by role (drafts, sent, inbox, archive) or by folder name. A protected folder wins over an organisation-wide rule for the same folder.
+
+<a id="retention.user.templates"></a>
+### Retention templates offered to users (`retention.user.templates`)
+Global and domain, hot. Default `["newsletters30","receipts365","notifications14","trash30","junk30","read-archive180"]`. Templates users can adopt in Settings, by id: newsletters30, receipts365, notifications14, trash30, junk30, read-archive180.
+
+<a id="retention.user.runForRestricted"></a>
+### Run user rules for restricted accounts (`retention.user.runForRestricted`)
+Global, hot. Default `false`. Whether user retention rules also run for accounts under a restriction of processing. Off skips those accounts.
+
+<a id="retention.user.intervalHours"></a>
+### Hours between user retention runs (`retention.user.intervalHours`)
+Global, hot. Default `24`. Hours between scheduled runs of the user retention job for one account.
+
+<a id="retention.user.batchMessages"></a>
+### Messages per retention call (`retention.user.batchMessages`)
+Global, hot. Default `200`. Messages one move or delete call handles. At most 200 are used.
+
+<a id="retention.user.maxPerRun"></a>
+### Most messages changed per account per run (`retention.user.maxPerRun`)
+Global, hot. Default `5000`. Most messages the user retention job changes for one account in one run. The rest waits for the next run.
+
+<a id="retention.user.pauseMs"></a>
+### Pause between retention batches (ms) (`retention.user.pauseMs`)
+Global, hot. Default `100`. Pause between batches, in milliseconds, so a large cleanup does not load the mail server.
+
+<a id="retention.class.short.days"></a>
+### Short class ceiling (days) (`retention.class.short.days`)
+Global, hot. Default `365`. Ceiling for operational data: sessions, tokens, rate limits, job history and metrics. Applies when the class limit is on.
+
+<a id="retention.class.medium.days"></a>
+### Medium class ceiling (days) (`retention.class.medium.days`)
+Global, hot. Default `1095`. Ceiling for sign-in history, request protection history and security notices. Must not be below the short class; a lower value is raised to it.
+
+<a id="retention.class.long.days"></a>
+### Long class retention (days) (`retention.class.long.days`)
+Global, hot. Default `2555`. Days the long class (security audit, administrator actions, requests, consent, tombstones) is kept, archive included. 0 keeps it for ever and the console warns. Must not be below the medium class.
+
+<a id="retention.class.enforce"></a>
+### Hold each store to its class ceiling (`retention.class.enforce`)
+Global, hot. Default `false`. When on, each store's own limit is clamped to its class ceiling and 0 (keep) counts as the ceiling. When off, per-store limits stand.
+
+<a id="retention.archive.enabled"></a>
+### Archive aged rows of the long class (`retention.archive.enabled`)
+Global, hot. Default `false`. Move aged rows of the long class into sealed, compressed archive files instead of deleting them.
+
+<a id="retention.archive.directory"></a>
+### Archive directory (`retention.archive.directory`)
+Global, hot. Default `"archive"`. Directory for archive files, absolute or relative to the server working directory. Parent-directory segments (..) are refused.
+
+<a id="retention.archive.batchRows"></a>
+### Rows per archive file (`retention.archive.batchRows`)
+Global, hot. Default `1000`. Rows written into one archive file.
+
+<a id="retention.archive.maxSegments"></a>
+### Archive files per store per run (`retention.archive.maxSegments`)
+Global, hot. Default `10`. Archive files one run may write for each store. The rest waits for the next run.
+
+<a id="retention.archive.keyGeneration"></a>
+### Archive sealing key generation (`retention.archive.keyGeneration`)
+Global, hot. Default `1`. Generation of the key that seals new archive files. Raise it to rotate the key; earlier files still verify with their own generation.
+
+<a id="retention.archive.verifyDays"></a>
+### Days between archive checks (`retention.archive.verifyDays`)
+Global, hot. Default `7`. Days between integrity checks of the archive files.
+
+<a id="retention.archive.legalHold"></a>
+### Legal hold on the archive (`retention.archive.legalHold`)
+Global, hot. Default `false`. Keep every archive file, whatever the long class limit says.
 
 <a id="logging.file.enabled"></a>
 ### Write log files (`logging.file.enabled`)
@@ -1803,14 +1911,6 @@ The checks are: a recipient address in To, Cc or Bcc that is not a valid mailbox
 
 Global/domain/user. When `autoChipRecipients` is `true` (default), a valid address followed by a space, comma or semicolon (or by Enter or leaving the field) becomes a finished recipient, underlined with the contact's name when one is known, and the separator is added for you. Invalid text stays as typed with a wavy underline. Pasting several addresses splits them. `recipientSeparator` is `comma` (default) or `semicolon` and sets the separator inserted after a finished recipient.
 
-<a id="encryption.rotationDays"></a>
-### Database key rotation interval (days) (`encryption.rotationDays`)
-Global, hot. Default `365`. Days after the last key change at which the database key is reported as due for rotation. 0 sets no due date. The key itself is never stored in settings.
-
-<a id="encryption.warnings.enabled"></a>
-### Report encryption findings (`encryption.warnings.enabled`)
-Global, hot. Default `true`. Show plaintext stores and an overdue key rotation as a finding in the deployment assessment.
-
 <a id="mail.compose.headerCollapse"></a>
 ### `mail.compose.headerCollapse`
 
@@ -1939,106 +2039,6 @@ trusted source IP in a rolling 900-second window. `security.signin.mailboxFailur
 from `signin.retryCooldownSecs` (failed-attempt pacing) and manual global IP bans. Source counters
 are durable across replicas; rejection while locked does not extend expiry. Admin and mailbox
 counters are separate. A successful completed login resets its matching source/surface counter;
-<a id="retention.user.enabled"></a>
-### Users may set retention rules (`retention.user.enabled`)
-Global and domain, hot. Default `true`. Users can set their own retention rules for folders and mail. When off, existing user rules stop running; the organisation-wide rules below still run.
-
-<a id="retention.user.minDays"></a>
-### Fewest days before a user rule deletes mail (`retention.user.minDays`)
-Global and domain, hot. Default `7`. A user rule that deletes mail cannot act on mail younger than this. A smaller value is refused when the rule is saved and raised when it runs.
-
-<a id="retention.user.maxDays"></a>
-### Most days a user rule may wait to delete mail (`retention.user.maxDays`)
-Global and domain, hot. Default `0`. A user rule that deletes mail cannot wait longer than this. 0 sets no ceiling. A larger value is refused when the rule is saved and lowered when it runs.
-
-<a id="retention.user.maxRules"></a>
-### Most retention rules per user (`retention.user.maxRules`)
-Global and domain, hot. Default `50`. The most retention rules one user may keep.
-
-<a id="retention.user.allowPermanentDelete"></a>
-### User rules may delete mail permanently (`retention.user.allowPermanentDelete`)
-Global and domain, hot. Default `false`. When off, a delete rule always moves mail to Trash and the undo window applies before it is purged.
-
-<a id="retention.user.undoDays"></a>
-### Undo window for retention rules (days) (`retention.user.undoDays`)
-Global and domain, hot. Default `7`. Days mail moved to Trash by a retention rule stays there before it is purged. A user may choose a shorter window. 0 purges at the next run.
-
-<a id="retention.user.mandatory"></a>
-### Organisation-wide mail rules (`retention.user.mandatory`)
-Global and domain, hot. Default `[]`. Rules every account gets, as folder-role:days entries, for example trash:30 or junk:30. Mail in that folder older than the days is purged. A user cannot change, pause or exclude mail from these. Mail of an account under legal hold is skipped.
-
-<a id="retention.user.protectedFolders"></a>
-### Folders retention rules never touch (`retention.user.protectedFolders`)
-Global and domain, hot. Default `["drafts"]`. Folders no user rule works on, by role (drafts, sent, inbox, archive) or by folder name. A protected folder wins over an organisation-wide rule for the same folder.
-
-<a id="retention.user.templates"></a>
-### Retention templates offered to users (`retention.user.templates`)
-Global and domain, hot. Default `["newsletters30","receipts365","notifications14","trash30","junk30","read-archive180"]`. Templates users can adopt in Settings, by id: newsletters30, receipts365, notifications14, trash30, junk30, read-archive180.
-
-<a id="retention.user.runForRestricted"></a>
-### Run user rules for restricted accounts (`retention.user.runForRestricted`)
-Global, hot. Default `false`. Whether user retention rules also run for accounts under a restriction of processing. Off skips those accounts.
-
-<a id="retention.user.intervalHours"></a>
-### Hours between user retention runs (`retention.user.intervalHours`)
-Global, hot. Default `24`. Hours between scheduled runs of the user retention job for one account.
-
-<a id="retention.user.batchMessages"></a>
-### Messages per retention call (`retention.user.batchMessages`)
-Global, hot. Default `200`. Messages one move or delete call handles. At most 200 are used.
-
-<a id="retention.user.maxPerRun"></a>
-### Most messages changed per account per run (`retention.user.maxPerRun`)
-Global, hot. Default `5000`. Most messages the user retention job changes for one account in one run. The rest waits for the next run.
-
-<a id="retention.user.pauseMs"></a>
-### Pause between retention batches (ms) (`retention.user.pauseMs`)
-Global, hot. Default `100`. Pause between batches, in milliseconds, so a large cleanup does not load the mail server.
-
-<a id="retention.class.short.days"></a>
-### Short class ceiling (days) (`retention.class.short.days`)
-Global, hot. Default `365`. Ceiling for operational data: sessions, tokens, rate limits, job history and metrics. Applies when the class limit is on.
-
-<a id="retention.class.medium.days"></a>
-### Medium class ceiling (days) (`retention.class.medium.days`)
-Global, hot. Default `1095`. Ceiling for sign-in history, request protection history and security notices. Must not be below the short class; a lower value is raised to it.
-
-<a id="retention.class.long.days"></a>
-### Long class retention (days) (`retention.class.long.days`)
-Global, hot. Default `2555`. Days the long class (security audit, administrator actions, requests, consent, tombstones) is kept, archive included. 0 keeps it for ever and the console warns. Must not be below the medium class.
-
-<a id="retention.class.enforce"></a>
-### Hold each store to its class ceiling (`retention.class.enforce`)
-Global, hot. Default `false`. When on, each store's own limit is clamped to its class ceiling and 0 (keep) counts as the ceiling. When off, per-store limits stand.
-
-<a id="retention.archive.enabled"></a>
-### Archive aged rows of the long class (`retention.archive.enabled`)
-Global, hot. Default `false`. Move aged rows of the long class into sealed, compressed archive files instead of deleting them.
-
-<a id="retention.archive.directory"></a>
-### Archive directory (`retention.archive.directory`)
-Global, hot. Default `"archive"`. Directory for archive files, absolute or relative to the server working directory. Parent-directory segments (..) are refused.
-
-<a id="retention.archive.batchRows"></a>
-### Rows per archive file (`retention.archive.batchRows`)
-Global, hot. Default `1000`. Rows written into one archive file.
-
-<a id="retention.archive.maxSegments"></a>
-### Archive files per store per run (`retention.archive.maxSegments`)
-Global, hot. Default `10`. Archive files one run may write for each store. The rest waits for the next run.
-
-<a id="retention.archive.keyGeneration"></a>
-### Archive sealing key generation (`retention.archive.keyGeneration`)
-Global, hot. Default `1`. Generation of the key that seals new archive files. Raise it to rotate the key; earlier files still verify with their own generation.
-
-<a id="retention.archive.verifyDays"></a>
-### Days between archive checks (`retention.archive.verifyDays`)
-Global, hot. Default `7`. Days between integrity checks of the archive files.
-
-<a id="retention.archive.legalHold"></a>
-### Legal hold on the archive (`retention.archive.legalHold`)
-Global, hot. Default `false`. Keep every archive file, whatever the long class limit says.
-
 issuing an MFA challenge is not success. Typed network, configuration and unknown-challenge errors
 do not count as rejected credentials. Existing permanent bans remain until an operator removes them.
 
@@ -2305,6 +2305,42 @@ These keys are written only through `PUT {console}/rate-limits` (security policy
 <a id="rateLimit.diagnosticsPerMinute"></a>
 
 `rateLimit.diagnosticsPerMinute` (default `10`): Diagnostic runs and backend checks per minute an admin session regains.
+
+## Leeway for signed-in clients (`ratelimit.*`)
+
+Concurrency gates are per signed-in account, with a process ceiling behind them, and they queue for `ratelimit.queueMs` before refusing. A refusal is `429` (or `503` for a saturated image proxy) with `Retry-After` and `RateLimit-Limit`, `RateLimit-Remaining` and `RateLimit-Reset`. Every key is global; the ones marked domain also accept a per-domain value, resolved from the domain of the signed-in address. The values apply within about fifteen seconds. See [Request protection limiters](request-protection.md) for every limiter and what it is keyed by.
+
+<a id="ratelimit.queueMs"></a>
+
+`ratelimit.queueMs` (default `3000`): Longest a request waits for a free slot (JMAP concurrency, image decoders, preview workers, delivery-status parsing) before it is refused with `429`. Zero refuses at once. Global and per domain.
+
+<a id="ratelimit.jmap.perAccountConcurrent"></a>
+
+`ratelimit.jmap.perAccountConcurrent` (default `8`): JMAP requests one signed-in account may run at once, across its tabs and devices; never shared with another account or with other users behind the same address. Not below 4, the value the session resource advertises as `maxConcurrentRequests`. Global and per domain.
+
+<a id="ratelimit.jmap.globalConcurrent"></a>
+
+`ratelimit.jmap.globalConcurrent` (default `256`): JMAP requests the process runs at once, all accounts together. Global only.
+
+<a id="ratelimit.session.burst"></a>
+
+`ratelimit.session.burst` (default `60`): Client timing reports one session may send in a row. Keyed by session, never by address. Global and per domain.
+
+<a id="ratelimit.session.perMinute"></a>
+
+`ratelimit.session.perMinute` (default `30`): Client timing reports per minute a session regains. Global and per domain.
+
+<a id="ratelimit.anon.burst"></a>
+
+`ratelimit.anon.burst` (default `60`): Requests one address may make to the anonymous cookie-consent routes in a row. The sign-in routes and the per-address request-protection budget are not affected. Global only.
+
+<a id="ratelimit.anon.perMinute"></a>
+
+`ratelimit.anon.perMinute` (default `30`): Requests per minute an address regains on those routes. Global only.
+
+<a id="ratelimit.trustedMultiplier"></a>
+
+`ratelimit.trustedMultiplier` (default `150`): Percentage of `security.protection.accountRequests` a signed-in mailbox gets when the request comes from a source with a successful sign-in on record (`security.trust.knownTtlDays`). 100 keeps the base allowance. Applies only while request protection enforces the account budget; it never relaxes the anonymous, administrator or user-agent budgets or an active block. Global only.
 
 ## Aggregate and adaptive request protection
 
@@ -2962,3 +2998,155 @@ Global/domain map of locale to text, up to 120 characters each.
 ### `cookies.description.marketing`
 
 Global/domain map of locale to text, up to 600 characters each.
+
+<a id="restriction.enabled"></a>
+### Restrictions of processing allowed (`restriction.enabled`)
+Global and domain, hot. Default `true`. When off, restrictions can no longer be applied; existing restrictions stay in force until lifted.
+
+<a id="restriction.autoApplyOnApproval"></a>
+### Apply a restriction when its request is approved (`restriction.autoApplyOnApproval`)
+Global and domain, hot. Default `true`. Approving an Art. 18 restriction request applies the restriction at once instead of waiting for an administrator.
+
+<a id="restriction.mailDelivery"></a>
+### New mail while restricted (`restriction.mailDelivery`)
+Global and domain, hot. Default `keep`. `keep` stores new mail normally, `queue` holds it, `reject` refuses it. Stored mail is never deleted by a restriction.
+
+<a id="restriction.defaultExpiryDays"></a>
+### Days until a restriction ends (`restriction.defaultExpiryDays`)
+Global and domain, hot. Default `0`. 0 keeps a restriction until an administrator lifts it.
+
+<a id="restriction.notifyUser"></a>
+### Tell the person when a restriction applies or ends (`restriction.notifyUser`)
+Global and domain, hot. Default `true`.
+
+<a id="restriction.scope.indexing"></a>
+### Restriction pauses search indexing by default (`restriction.scope.indexing`)
+Global and domain, hot. Default `true`. A new restriction includes this scope unless the administrator clears it.
+
+<a id="restriction.scope.assistant"></a>
+### Restriction pauses the assistant by default (`restriction.scope.assistant`)
+Global and domain, hot. Default `true`. A new restriction includes this scope unless the administrator clears it.
+
+<a id="restriction.scope.analytics"></a>
+### Restriction pauses analytics by default (`restriction.scope.analytics`)
+Global and domain, hot. Default `true`. A new restriction includes this scope unless the administrator clears it.
+
+<a id="restriction.scope.classification"></a>
+### Restriction pauses local rules, spam verdicts and auto-filing by default (`restriction.scope.classification`)
+Global and domain, hot. Default `true`. A new restriction includes this scope unless the administrator clears it.
+
+<a id="restriction.scope.push"></a>
+### Restriction pauses push notifications by default (`restriction.scope.push`)
+Global and domain, hot. Default `true`. A new restriction includes this scope unless the administrator clears it.
+
+<a id="restriction.scope.thirdParty"></a>
+### Restriction pauses sharing with third parties by default (`restriction.scope.thirdParty`)
+Global and domain, hot. Default `true`. A new restriction includes this scope unless the administrator clears it.
+
+<a id="consent.enabled"></a>
+### Purpose consent ledger and Your data section (`consent.enabled`)
+Global and domain, hot. Default `true`. Records each person's decisions per purpose and shows them under Settings > Privacy > Your data.
+
+<a id="consent.receipts.retentionDays"></a>
+### Days consent receipts are kept (`consent.receipts.retentionDays`)
+Global, hot. Default `1825`. Older ledger rows are purged. 0 keeps them.
+
+<a id="consent.art22.notice"></a>
+### Automated processing notice (`consent.art22.notice`)
+Global and domain, hot. Default `true`. Shows people a notice about automated processing.
+
+<a id="consent.analytics.basis"></a>
+### Legal basis shown for analytics (`consent.analytics.basis`)
+Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.analytics.version"></a>
+### Consent text version of analytics (`consent.analytics.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.analytics.text"></a>
+### Consent text of analytics (`consent.analytics.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.analyticsTag.basis"></a>
+### Legal basis shown for the analytics tag (`consent.analyticsTag.basis`)
+Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.analyticsTag.version"></a>
+### Consent text version of the analytics tag (`consent.analyticsTag.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.analyticsTag.text"></a>
+### Consent text of the analytics tag (`consent.analyticsTag.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.assistant.basis"></a>
+### Legal basis shown for the assistant (`consent.assistant.basis`)
+Global and domain, hot. Default `contract`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.assistant.version"></a>
+### Consent text version of the assistant (`consent.assistant.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.assistant.text"></a>
+### Consent text of the assistant (`consent.assistant.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.push.basis"></a>
+### Legal basis shown for push notifications (`consent.push.basis`)
+Global and domain, hot. Default `contract`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.push.version"></a>
+### Consent text version of push notifications (`consent.push.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.push.text"></a>
+### Consent text of push notifications (`consent.push.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.openTracking.basis"></a>
+### Legal basis shown for open tracking (`consent.openTracking.basis`)
+Global and domain, hot. Default `contract`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.openTracking.version"></a>
+### Consent text version of open tracking (`consent.openTracking.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.openTracking.text"></a>
+### Consent text of open tracking (`consent.openTracking.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.remoteContent.basis"></a>
+### Legal basis shown for remote content (`consent.remoteContent.basis`)
+Global and domain, hot. Default `consent`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.remoteContent.version"></a>
+### Consent text version of remote content (`consent.remoteContent.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.remoteContent.text"></a>
+### Consent text of remote content (`consent.remoteContent.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.integrations.basis"></a>
+### Legal basis shown for integrations (`consent.integrations.basis`)
+Global and domain, hot. Default `contract`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.integrations.version"></a>
+### Consent text version of integrations (`consent.integrations.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.integrations.text"></a>
+### Consent text of integrations (`consent.integrations.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="consent.telemetry.basis"></a>
+### Legal basis shown for telemetry (`consent.telemetry.basis`)
+Global and domain, hot. Default `legitimateInterest`. One of `consent`, `legitimateInterest`, `contract`, `legalObligation`. Only `consent` makes the purpose wait for a yes; for the others it runs until the person withdraws.
+
+<a id="consent.telemetry.version"></a>
+### Consent text version of telemetry (`consent.telemetry.version`)
+Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for an older version no longer counts.
+
+<a id="consent.telemetry.text"></a>
+### Consent text of telemetry (`consent.telemetry.text`)
+Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.

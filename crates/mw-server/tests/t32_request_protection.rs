@@ -530,8 +530,11 @@ async fn verified_account_budget_is_shared_across_sources_without_double_auth_ch
         ("security.protection.accountRequests", json!(2)),
         ("security.protection.adminRequests", json!(0)),
         ("security.protection.rateWindowSecs", json!(3600)),
+        // Exact budget: a signed-in source would otherwise get the trusted multiplier.
+        ("ratelimit.trustedMultiplier", json!(100)),
     ])
     .await;
+    mw_server::forget_rate_knobs();
     let first = client(2);
     let second = client(3);
     login(&first, &base).await;

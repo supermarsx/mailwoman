@@ -59,6 +59,11 @@ where
     limits.validate()?;
     let connections = Arc::new(Semaphore::new(limits.connections));
     let requests = Arc::new(Semaphore::new(limits.requests));
+    // A push stream (`/jmap/eventsource`) holds its permit for as long as the
+    // client stays connected. Counted with ordinary requests, a few hundred open
+    // tabs would leave no capacity for the requests those tabs make, so streams
+    // have their own pool, as large as the connection limit that already bounds them.
+    let streams = Arc::new(Semaphore::new(limits.connections));
     let graceful = GracefulShutdown::new();
     let mut tasks = JoinSet::new();
     let (_cancel_tx, cancel_rx) = oneshot::channel::<()>();
@@ -94,11 +99,13 @@ where
         };
         let app = router.clone();
         let requests = requests.clone();
+        let streams = streams.clone();
         let watcher = graceful.watcher();
         tasks.spawn(async move {
             let service = service_fn(move |request: Request<Incoming>| {
                 let app = app.clone();
                 let requests = requests.clone();
+                let streams = streams.clone();
                 let first_request = first_request.clone();
                 async move {
                     first_request.store(true, Ordering::Release);
@@ -118,7 +125,12 @@ where
                             version,
                         ));
                     }
-                    let Ok(permit) = requests.try_acquire_owned() else {
+                    let pool = if request.uri().path().ends_with("/jmap/eventsource") {
+                        streams
+                    } else {
+                        requests
+                    };
+                    let Ok(permit) = pool.try_acquire_owned() else {
                         let mut response = refusal(
                             StatusCode::SERVICE_UNAVAILABLE,
                             "Server request capacity reached",
