@@ -15,6 +15,7 @@ import {
   type ActionKind, type Preview, type ReadState, type Rule, type RuleInput,
 } from '../../api/retention.ts';
 import { retentionFolder, setRetentionFolder } from '../../state/retentionFocus.ts';
+import { FolderRetention } from './FolderRetention.tsx';
 import { actionMessage, daysFromNow, isDestructive, joinList, needsDays, ruleProblem, splitList } from './retentionModel.ts';
 import * as css from './styles.css.ts';
 
@@ -265,6 +266,9 @@ export function RetentionRules(props: { folders: () => readonly Mailbox[]; api?:
           </li>}</For>
         </ul>
       </div>
+
+      <FolderRetention folders={props.folders()} defaults={d().folderDefaults} policy={d().policy} busy={busy() || !d().policy.enabled}
+        onSave={(payload) => guarded(async () => { await a.settings({ folderDefaults: payload }); })} />
 
       <Show when={editing()}>{(e) => <Editor
         initial={e().input} folders={props.folders()} policy={d().policy} api={a}

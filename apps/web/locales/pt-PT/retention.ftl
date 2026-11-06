@@ -119,3 +119,13 @@ retention-history-matched = Correspondidas
 retention-history-changed = Alteradas
 retention-history-errors = Erros
 retention-context-action = Retenção…
+
+# Predefinições por pasta (retenção por pasta)
+retention-fd-title = Predefinições por pasta
+retention-fd-help = Defina durante quanto tempo o correio permanece numa pasta antes de ser movido ou eliminado. Uma pasta em "Herdar" não tem predefinição própria; as regras acima e os limites do administrador continuam a aplicar-se. As subpastas seguem a sua pasta.
+retention-fd-inherit = Herdar
+retention-fd-action = O que acontece ao correio em { $folder }
+retention-fd-days = Dias antes de { $folder } ser processada
+retention-fd-mandatory = O administrador mantém esta pasta durante { $days } dias
+retention-fd-protected = Protegida pelo administrador
+retention-fd-save = Guardar predefinições por pasta

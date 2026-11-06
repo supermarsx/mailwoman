@@ -118,3 +118,13 @@ retention-history-matched = Matched
 retention-history-changed = Changed
 retention-history-errors = Errors
 retention-context-action = Retention…
+
+# Folder defaults (per-folder retention)
+retention-fd-title = Folder defaults
+retention-fd-help = Set how long mail stays in a folder before it is moved or deleted. A folder set to "Inherit" has no default of its own; the rules above and the administrator's limits still apply. Subfolders follow their folder.
+retention-fd-inherit = Inherit
+retention-fd-action = What happens to mail in { $folder }
+retention-fd-days = Days before { $folder } is processed
+retention-fd-mandatory = The administrator keeps this folder for { $days } days
+retention-fd-protected = Protected by the administrator
+retention-fd-save = Save folder defaults

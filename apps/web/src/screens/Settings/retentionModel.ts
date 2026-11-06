@@ -1,6 +1,6 @@
 // Pure helpers for Settings > Retention: list parsing, the limits a rule is held
 // to, and the message that describes a rule in one line.
-import type { ActionKind, RetentionPolicy, RuleInput } from '../../api/retention.ts';
+import type { ActionKind, FolderDefault, RetentionPolicy, RuleAction, RuleExclude, RuleInput } from '../../api/retention.ts';
 
 /** `a, b ,c` to `['a', 'b', 'c']`; empty entries dropped, duplicates removed. */
 export function splitList(text: string): string[] {
@@ -37,3 +37,101 @@ export function actionMessage(rule: RuleInput, permanent: boolean): { id: string
 
 /** Whole days between two unix times, for the "next run" line. */
 export const daysFromNow = (unix: number, now: number = Date.now() / 1000): number => Math.max(0, Math.ceil((unix - now) / 86400));
+
+// ─── per-folder defaults ───────────────────────────────────────────────────────
+
+/** What a folder row offers; `inherit` means no default of its own. */
+export const FOLDER_CHOICES = ['inherit', 'keep', 'trash', 'delete', 'archive', 'markRead'] as const;
+export type FolderChoice = (typeof FOLDER_CHOICES)[number];
+
+export interface FolderRow { id: string; name: string; parentId: string | null; sortOrder: number; role: string | null }
+export interface FlatFolder { id: string; name: string; depth: number; role: string | null }
+
+/** Folders in tree order (parents before children, siblings by sort order then name). */
+export function flattenFolders(folders: readonly FolderRow[]): FlatFolder[] {
+  const ids = new Set(folders.map((f) => f.id));
+  const kids = new Map<string | null, FolderRow[]>();
+  for (const f of folders) {
+    const parent = f.parentId !== null && ids.has(f.parentId) ? f.parentId : null;
+    kids.set(parent, [...(kids.get(parent) ?? []), f]);
+  }
+  const out: FlatFolder[] = [];
+  const seen = new Set<string>();
+  const walk = (parent: string | null, depth: number): void => {
+    const list = [...(kids.get(parent) ?? [])].sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name));
+    for (const f of list) {
+      if (seen.has(f.id)) continue;
+      seen.add(f.id);
+      out.push({ id: f.id, name: f.name, depth, role: f.role });
+      walk(f.id, depth + 1);
+    }
+  };
+  walk(null, 0);
+  return out;
+}
+
+export interface FolderSetting { choice: FolderChoice; days: number }
+
+/** The editable state per folder id, from the defaults the server holds. A default
+ *  the list cannot express (a move) is left out and kept as it is on save. */
+export function settingsFromDefaults(defaults: readonly FolderDefault[]): Map<string, FolderSetting> {
+  const out = new Map<string, FolderSetting>();
+  for (const d of defaults) {
+    const folder = d.body.scope.folders[0];
+    const kind = d.body.action.kind;
+    if (!folder || !d.enabled || out.has(folder) || !(FOLDER_CHOICES as readonly string[]).includes(kind)) continue;
+    out.set(folder, { choice: kind as FolderChoice, days: d.body.action.days });
+  }
+  return out;
+}
+
+export interface DefaultsPayload { id?: string; name: string; enabled: boolean; folder: string; action: RuleAction; exclude: RuleExclude }
+
+const SAFE_EXCLUDE: RuleExclude = { flagged: true, unread: false, tags: ['keep'] };
+
+/** The `folderDefaults` array to save: one entry per folder with a choice other than
+ *  `inherit`, keeping ids and exclusions of entries that already exist, and every
+ *  existing entry this list does not manage (moves, disabled, several per folder). */
+export function defaultsPayload(
+  folders: readonly FlatFolder[],
+  settings: ReadonlyMap<string, FolderSetting>,
+  existing: readonly FolderDefault[],
+): DefaultsPayload[] {
+  const managed = new Set<string>();
+  const out: DefaultsPayload[] = [];
+  const kept = new Set<FolderDefault>();
+  for (const f of folders) {
+    const s = settings.get(f.id);
+    if (!s || s.choice === 'inherit') continue;
+    const old = existing.find((d) => d.enabled && d.body.scope.folders[0] === f.id && (FOLDER_CHOICES as readonly string[]).includes(d.body.action.kind));
+    if (old) kept.add(old);
+    managed.add(f.id);
+    out.push({
+      ...(old ? { id: old.id } : {}),
+      name: f.name,
+      enabled: true,
+      folder: f.id,
+      action: { kind: s.choice, days: s.choice === 'keep' ? 0 : s.days, target: null },
+      exclude: old ? old.body.exclude : { ...SAFE_EXCLUDE },
+    });
+  }
+  for (const d of existing) {
+    if (kept.has(d)) continue;
+    const folder = d.body.scope.folders[0] ?? '';
+    const expressible = d.enabled && (FOLDER_CHOICES as readonly string[]).includes(d.body.action.kind) && folders.some((f) => f.id === folder);
+    if (expressible) continue; // the user set it back to inherit
+    out.push({ id: d.id, name: d.name, enabled: d.enabled, folder, action: d.body.action, exclude: d.body.exclude });
+  }
+  return out;
+}
+
+/** A problem with a folder's setting that the page can see before asking the server. */
+export function folderProblem(s: FolderSetting, policy: RetentionPolicy): { id: string; args: Record<string, number> } | null {
+  if (s.choice === 'inherit' || s.choice === 'keep') return null;
+  if (!Number.isInteger(s.days) || s.days < 0 || s.days > 3650) return { id: 'retention-error-days', args: {} };
+  if (isDestructive(s.choice)) {
+    if (s.days < policy.minDays) return { id: 'retention-error-min', args: { days: policy.minDays } };
+    if (policy.maxDays > 0 && s.days > policy.maxDays) return { id: 'retention-error-max', args: { days: policy.maxDays } };
+  }
+  return null;
+}

@@ -167,4 +167,21 @@ describe('Settings > Retention', () => {
     expect(await screen.findByText(/turned off on this server/)).toBeInTheDocument();
     expect(screen.getByTestId('retention-add')).toBeDisabled();
   });
+
+  it('edits per-folder defaults and saves them through the settings call', async () => {
+    const a = api();
+    render(() => <RetentionRules folders={() => folders} api={a} />);
+    const row = await screen.findByTestId('retention-fd-work');
+    expect(screen.getByTestId('retention-fd-limits')).toHaveTextContent('at least 7 days and at most 365 days');
+    expect(screen.getByTestId('retention-fd-inbox')).toBeInTheDocument();
+    const select = within(row).getByLabelText('What happens to mail in Work');
+    fireEvent.change(select, { target: { value: 'trash' } });
+    const days = within(row).getByLabelText('Days before Work is processed');
+    fireEvent.input(days, { target: { value: '3' } });
+    expect(screen.getByTestId('retention-fd-problems')).toHaveTextContent('Work');
+    expect(screen.getByTestId('retention-fd-save')).toBeDisabled();
+    fireEvent.input(days, { target: { value: '45' } });
+    fireEvent.click(screen.getByTestId('retention-fd-save'));
+    await waitFor(() => expect(a.settings).toHaveBeenCalledWith({ folderDefaults: [expect.objectContaining({ folder: 'work', name: 'Work', action: { kind: 'trash', days: 45, target: null } })] }));
+  });
 });
