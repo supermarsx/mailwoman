@@ -1777,6 +1777,26 @@ Global, hot. Default `5000`. Most messages the user retention job changes for on
 ### Pause between retention batches (ms) (`retention.user.pauseMs`)
 Global, hot. Default `100`. Pause between batches, in milliseconds, so a large cleanup does not load the mail server.
 
+<a id="retention.user.allowStripAttachments"></a>
+### Users may remove attachments from old mail (`retention.user.allowStripAttachments`)
+Global and domain, hot. Default `false`. When on, users can create a rule that removes large attachments from old mail and leaves a short note in their place. When off, the action is hidden in the rule editor, a rule that uses it is refused when saved, and rules saved earlier are skipped when the job runs (the run record counts them).
+
+<a id="retention.user.strip.minAgeDays"></a>
+### Fewest days before attachments are removed (`retention.user.strip.minAgeDays`)
+Global and domain, hot. Default `90`. A rule that removes attachments cannot act on mail younger than this. A smaller value is refused when the rule is saved and raised when it runs.
+
+<a id="retention.user.strip.minAttachmentKb"></a>
+### Smallest attachment removed (KB) (`retention.user.strip.minAttachmentKb`)
+Global and domain, hot. Default `100`. Only attachments at least this size are removed. Smaller attachments stay with the message.
+
+<a id="retention.user.strip.keepInlineImages"></a>
+### Keep inline images (`retention.user.strip.keepInlineImages`)
+Global and domain, hot. Default `true`. Images shown inside the message body are kept when attachments are removed.
+
+<a id="retention.user.strip.undoDays"></a>
+### Undo window after attachments are removed (days) (`retention.user.strip.undoDays`)
+Global and domain, hot. Default `-1`. Days the original message stays in Trash after its attachments were removed. -1 follows `retention.user.undoDays`. 0 deletes the original at once.
+
 <a id="retention.class.short.days"></a>
 ### Short class ceiling (days) (`retention.class.short.days`)
 Global, hot. Default `365`. Ceiling for operational data: sessions, tokens, rate limits, job history and metrics. Applies when the class limit is on.

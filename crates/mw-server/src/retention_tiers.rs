@@ -620,7 +620,7 @@ mod tests {
             assert_eq!(per_domain, d.key.starts_with("retention.user.") && !matches!(d.key, "retention.user.runForRestricted" | "retention.user.intervalHours" | "retention.user.batchMessages" | "retention.user.maxPerRun" | "retention.user.pauseMs"), "{}", d.key);
             assert!(!d.scopes.allows(SettingScope::User), "{} must not be a per-user setting", d.key);
         }
-        assert_eq!(found, 25);
+        assert_eq!(found, 30);
         // The defaults keep the cross-check: long >= medium >= short.
         let n = |k: &str| settings_registry::lookup(k).unwrap().default_value().as_i64().unwrap();
         assert!(n("retention.class.long.days") >= n("retention.class.medium.days"));

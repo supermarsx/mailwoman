@@ -6815,6 +6815,46 @@ pub static REGISTRY: &[SettingDef] = &[
         "Pause between batches, in milliseconds, so a large cleanup does not load the mail server"
     ),
     def!(
+        "retention.user.allowStripAttachments",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Whether users may create rules that remove large attachments from old mail. Off by default; while off the action is hidden, a rule using it is refused and stored ones are skipped"
+    ),
+    def!(
+        "retention.user.strip.minAgeDays",
+        int(7, 3650),
+        "90",
+        GD,
+        "privacy",
+        "Fewest days a message must be old before a rule may remove its attachments; a smaller value is refused when the rule is saved and raised when it runs"
+    ),
+    def!(
+        "retention.user.strip.minAttachmentKb",
+        int(1, 102400),
+        "100",
+        GD,
+        "privacy",
+        "Only attachments at least this many KB are removed; smaller ones stay with the message"
+    ),
+    def!(
+        "retention.user.strip.keepInlineImages",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Whether images shown inside the message body are kept when attachments are removed"
+    ),
+    def!(
+        "retention.user.strip.undoDays",
+        int(-1, 365),
+        "-1",
+        GD,
+        "privacy",
+        "Days the original message stays in Trash after its attachments were removed; -1 follows retention.user.undoDays, 0 deletes the original at once"
+    ),
+    def!(
         "retention.class.short.days",
         int(1, 3650),
         "365",

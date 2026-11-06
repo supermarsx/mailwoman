@@ -26,6 +26,11 @@ use std::collections::HashMap;
 pub const DAY: i64 = 86_400;
 /// Prefix of the keyword that records the day a rule moved a message to Trash.
 pub const TRASH_STAMP: &str = "mw-ret-";
+/// Keyword on a message whose attachments a rule removed (set by the engine).
+pub const STRIPPED_KEYWORD: &str = "mw-stripped";
+/// Keyword on a message the strip looked at and left alone (nothing qualified,
+/// or it is signed or encrypted), so a later run does not fetch it again.
+pub const CHECKED_KEYWORD: &str = "mw-strip-checked";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -51,7 +56,9 @@ pub enum ActionKind {
     Trash,
     /// Mark as read.
     MarkRead,
-    /// Remove attachments. Not available yet; rules naming it are refused.
+    /// Remove large attachments from old mail, leaving a note in their place.
+    /// Off unless the administrator turns `retention.user.allowStripAttachments`
+    /// on: while off, a rule naming it is refused at save and skipped at run.
     StripAttachments,
 }
 
@@ -215,6 +222,22 @@ pub struct Policy {
     /// `(folder role, days)`.
     pub mandatory: Vec<(String, i64)>,
     pub protected: Vec<String>,
+    /// `retention.user.allowStripAttachments`.
+    pub allow_strip: bool,
+    /// Fewest days before attachments may be removed.
+    pub strip_min_age_days: i64,
+    /// Only attachments at least this large (KB) are removed.
+    pub strip_min_attachment_kb: i64,
+    pub strip_keep_inline: bool,
+    /// Days the original stays in Trash; negative follows `undo_days`.
+    pub strip_undo_days: i64,
+}
+
+impl Policy {
+    /// The undo window of a strip, in days.
+    pub fn strip_undo(&self) -> i64 {
+        if self.strip_undo_days >= 0 { self.strip_undo_days } else { self.undo_days }
+    }
 }
 
 impl Default for Policy {
@@ -228,6 +251,11 @@ impl Default for Policy {
             undo_days: 7,
             mandatory: Vec::new(),
             protected: vec!["drafts".into()],
+            allow_strip: false,
+            strip_min_age_days: 90,
+            strip_min_attachment_kb: 100,
+            strip_keep_inline: true,
+            strip_undo_days: -1,
         }
     }
 }
@@ -272,6 +300,9 @@ pub enum Outcome {
     /// Only record the Trash day (the message is already in Trash).
     Stamp(String),
     Destroy,
+    /// Rewrite without attachments. The original goes to `hold` (Trash folder
+    /// id and the keyword that dates its purge) or is destroyed when `None`.
+    Strip { hold: Option<(String, String)> },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -407,6 +438,9 @@ fn excluded(ex: &Exclude, m: &Msg) -> bool {
 
 /// The days a rule waits before acting, after the administrator's limits.
 pub fn effective_days(kind: ActionKind, days: i64, p: &Policy) -> i64 {
+    if kind == ActionKind::StripAttachments {
+        return days.max(p.strip_min_age_days).max(1);
+    }
     if !kind.destructive() {
         return days.max(0);
     }
@@ -489,6 +523,9 @@ pub fn plan_message(
         if b.action.kind == ActionKind::Keep {
             return skip(Skip::Kept, &source);
         }
+        if b.action.kind == ActionKind::StripAttachments && !p.allow_strip {
+            continue;
+        }
         if age < effective_days(b.action.kind, b.action.days, p) * DAY {
             continue;
         }
@@ -496,7 +533,32 @@ pub fn plan_message(
             return skip(Skip::Excluded, &source);
         }
         let outcome = match b.action.kind {
-            ActionKind::Keep | ActionKind::StripAttachments => continue,
+            ActionKind::Keep => continue,
+            ActionKind::StripAttachments => {
+                // Mail in Trash is on its way out; mail already stripped, without
+                // an attachment, or smaller than one qualifying attachment stays.
+                if role == "trash"
+                    || !m.has_attachment
+                    || m.has_keyword(STRIPPED_KEYWORD)
+                    || m.has_keyword(CHECKED_KEYWORD)
+                    || m.size < p.strip_min_attachment_kb.max(1) * 1024
+                {
+                    continue;
+                }
+                let undo = p.strip_undo();
+                if undo == 0 {
+                    Outcome::Strip { hold: None }
+                } else {
+                    match tree.by_role("trash") {
+                        // The purge fires `undo_days` after the stamped day, so the
+                        // stamp is shifted to make the window this rule's own.
+                        Some(t) => Outcome::Strip {
+                            hold: Some((t.id.clone(), format!("{TRASH_STAMP}{}", today + undo - p.undo_days))),
+                        },
+                        None => return skip(Skip::NoTarget, &source),
+                    }
+                }
+            }
             ActionKind::MarkRead => {
                 if m.unread() {
                     Outcome::MarkRead
@@ -560,6 +622,9 @@ pub fn folder_horizon(
         for r in rules.iter().chain(folder_defaults).filter(|r| r.enabled) {
             if scope_folder_matches(&r.body.scope, tree, folder_id) {
                 let k = r.body.action.kind;
+                if k == ActionKind::StripAttachments && !p.allow_strip {
+                    continue;
+                }
                 take(if k == ActionKind::Keep { 0 } else { effective_days(k, r.body.action.days, p) });
             }
         }
@@ -588,7 +653,15 @@ pub fn validate(name: &str, b: &Body, p: &Policy, folders: &[Folder]) -> Result<
     }
     let a = &b.action;
     if a.kind == ActionKind::StripAttachments {
-        return bad("unsupportedAction", "Removing attachments is not available on this server.");
+        if !p.allow_strip {
+            return bad("stripDisabled", "Removing attachments is disabled by your administrator.");
+        }
+        if a.days < p.strip_min_age_days {
+            return bad(
+                "belowMinimum",
+                format!("This server removes attachments from mail at least {} days old.", p.strip_min_age_days),
+            );
+        }
     }
     if a.days < 0 || a.days > 3650 {
         return bad("invalidDays", "Days must be between 0 and 3650.");
@@ -963,7 +1036,10 @@ mod tests {
         assert_eq!(code(mk(ActionKind::Delete, 7)), "belowMinimum");
         assert_eq!(code(mk(ActionKind::Trash, 400)), "aboveMaximum");
         assert_eq!(code(mk(ActionKind::Move, 40)), "targetRequired");
-        assert_eq!(code(mk(ActionKind::StripAttachments, 40)), "unsupportedAction");
+        assert_eq!(code(mk(ActionKind::StripAttachments, 400)), "stripDisabled");
+        let on = Policy { allow_strip: true, ..p.clone() };
+        assert_eq!(validate("r", &mk(ActionKind::StripAttachments, 40), &on, &folders()).unwrap_err().code, "belowMinimum");
+        assert!(validate("r", &mk(ActionKind::StripAttachments, 90), &on, &folders()).is_ok());
         assert!(validate("r", &mk(ActionKind::Archive, 1), &p, &folders()).is_ok());
         assert!(validate("r", &mk(ActionKind::Delete, 30), &p, &folders()).is_ok());
         assert_eq!(validate("", &mk(ActionKind::Keep, 0), &p, &folders()).unwrap_err().code, "invalidName");

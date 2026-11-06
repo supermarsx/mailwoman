@@ -66,7 +66,41 @@ pub(crate) trait MailPort: Send + Sync {
     async fn stamp(&self, ids: &[String], keyword: &str) -> Result<usize, String>;
     async fn mark_read(&self, ids: &[String]) -> Result<usize, String>;
     async fn destroy(&self, ids: &[String]) -> Result<usize, String>;
+    /// Replace each message by a copy without its attachments (the copy keeps
+    /// flags, keywords and the received date). With `dry` nothing changes and
+    /// the report says what would. The originals are left for the caller.
+    async fn strip(&self, _ids: &[String], _p: &StripParams, _dry: bool) -> Result<StripReport, String> {
+        Err("removing attachments is not available on this mail port".into())
+    }
 }
+
+/// What a strip needs besides the message ids.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct StripParams {
+    pub min_bytes: u64,
+    pub keep_inline: bool,
+    /// `YYYY-MM-DD`.
+    pub date: String,
+}
+
+/// The mail port's answer to a strip call.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub(crate) struct StripReport {
+    /// `(original id, new id, bytes reclaimed)`; the new id is empty on a dry run.
+    pub replaced: Vec<(String, String, u64)>,
+    /// Messages with nothing to remove or that must not be rewritten (signed,
+    /// encrypted, already stripped).
+    pub checked: Vec<String>,
+    pub failed: u64,
+}
+
+use crate::retention_rules::CHECKED_KEYWORD;
+/// Most messages one run rewrites per account; the rest waits for the next run.
+const STRIP_RUN_CAP: usize = 300;
+/// Messages one strip call carries.
+const STRIP_BATCH: usize = 20;
+/// Messages a preview opens to count exactly what a strip would reclaim.
+const STRIP_VERIFY: usize = 100;
 
 pub(crate) struct JmapPort {
     engine: Arc<mw_engine::Engine>,
@@ -211,6 +245,25 @@ impl MailPort for JmapPort {
         let r = self.set(json!({"destroy": ids})).await?;
         Ok(r["destroyed"].as_array().map_or(0, Vec::len))
     }
+
+    async fn strip(&self, ids: &[String], p: &StripParams, dry: bool) -> Result<StripReport, String> {
+        let r = self
+            .call(
+                "Email/mailwomanStrip",
+                json!({"ids": ids, "minAttachmentBytes": p.min_bytes, "keepInlineImages": p.keep_inline, "date": p.date, "dryRun": dry}),
+            )
+            .await?;
+        let mut out = StripReport::default();
+        if let Some(m) = r["replaced"].as_object() {
+            for (old, v) in m {
+                out.replaced.push((old.clone(), v["newId"].as_str().unwrap_or_default().to_string(), v["reclaimedBytes"].as_u64().unwrap_or(0)));
+            }
+        }
+        out.checked.extend(r["unchanged"].as_array().into_iter().flatten().filter_map(|v| v.as_str().map(str::to_string)));
+        out.checked.extend(r["skipped"].as_object().into_iter().flat_map(|m| m.keys().cloned()));
+        out.failed = r["notReplaced"].as_object().map_or(0, |m| m.len()) as u64;
+        Ok(out)
+    }
 }
 
 // ─── plan and execute ──────────────────────────────────────────────────────────
@@ -233,11 +286,20 @@ pub(crate) struct Plan {
     pub truncated: bool,
     /// Folder reads that failed.
     pub errors: usize,
+    /// How strip outcomes are carried out.
+    pub strip: StripParams,
 }
 
 pub(crate) async fn build_plan(port: &dyn MailPort, folders: &[Folder], i: &Inputs<'_>) -> Plan {
     let tree = rr::Tree::new(folders);
-    let mut plan = Plan::default();
+    let mut plan = Plan {
+        strip: StripParams {
+            min_bytes: (i.policy.strip_min_attachment_kb.max(1) as u64) * 1024,
+            keep_inline: i.policy.strip_keep_inline,
+            date: chrono::DateTime::from_timestamp(i.now, 0).unwrap_or_default().format("%Y-%m-%d").to_string(),
+        },
+        ..Plan::default()
+    };
     for f in folders {
         let Some(horizon) = rr::folder_horizon(&f.id, &tree, i.rules, i.defaults, i.policy, i.acct) else {
             continue;
@@ -283,11 +345,17 @@ pub(crate) struct Counts {
     pub purged: u64,
     pub marked_read: u64,
     pub stamped: u64,
+    /// Messages rewritten without their attachments.
+    pub stripped: u64,
+    /// Bytes those rewrites freed (an estimate in a preview beyond the checked sample).
+    pub reclaimed_bytes: u64,
+    /// Messages a strip looked at and left alone.
+    pub strip_skipped: u64,
 }
 
 impl Counts {
     pub fn total(&self) -> u64 {
-        self.moved + self.trashed + self.purged + self.marked_read + self.stamped
+        self.moved + self.trashed + self.purged + self.marked_read + self.stamped + self.stripped
     }
 }
 
@@ -299,6 +367,7 @@ fn count_of(d: &Decision) -> Counts {
         Outcome::Destroy => c.purged = 1,
         Outcome::MarkRead => c.marked_read = 1,
         Outcome::Stamp(_) => c.stamped = 1,
+        Outcome::Strip { .. } => c.stripped = 1,
         Outcome::Skip(_) => {}
     }
     c
@@ -314,7 +383,15 @@ pub(crate) fn tally(plan: &Plan, cap: usize) -> Counts {
         c.purged += x.purged;
         c.marked_read += x.marked_read;
         c.stamped += x.stamped;
+        c.stripped += x.stripped;
     }
+    c.reclaimed_bytes = plan
+        .entries
+        .iter()
+        .take(cap)
+        .filter(|(_, d)| matches!(d.outcome, Outcome::Strip { .. }))
+        .map(|(m, _)| m.size.max(0) as u64)
+        .sum();
     c
 }
 
@@ -333,6 +410,7 @@ pub(crate) async fn execute(port: &dyn MailPort, plan: &Plan, cap: usize, batch:
         Stamp(String),
         Read,
         Destroy,
+        Strip(Option<(String, String)>),
     }
     let mut groups: BTreeMap<Key, Vec<String>> = BTreeMap::new();
     for (m, d) in plan.entries.iter().take(cap) {
@@ -341,19 +419,36 @@ pub(crate) async fn execute(port: &dyn MailPort, plan: &Plan, cap: usize, batch:
             Outcome::Stamp(s) => Key::Stamp(s.clone()),
             Outcome::MarkRead => Key::Read,
             Outcome::Destroy => Key::Destroy,
+            Outcome::Strip { hold } => Key::Strip(hold.clone()),
             Outcome::Skip(_) => continue,
         };
         groups.entry(key).or_default().push(m.id.clone());
     }
     let mut out = Executed::default();
     let batch = batch.clamp(1, 200);
+    let mut strip_budget = STRIP_RUN_CAP;
     for (key, ids) in groups {
+        if let Key::Strip(hold) = &key {
+            for chunk in ids.chunks(STRIP_BATCH) {
+                if strip_budget == 0 {
+                    break;
+                }
+                let chunk = &chunk[..chunk.len().min(strip_budget)];
+                strip_budget -= chunk.len();
+                strip_chunk(port, &plan.strip, hold.as_ref(), chunk, &mut out).await;
+                if !pause.is_zero() {
+                    tokio::time::sleep(pause).await;
+                }
+            }
+            continue;
+        }
         for chunk in ids.chunks(batch) {
             let r = match &key {
                 Key::Move(to, stamp) => port.move_to(chunk, to, stamp.as_deref()).await,
                 Key::Stamp(s) => port.stamp(chunk, s).await,
                 Key::Read => port.mark_read(chunk).await,
                 Key::Destroy => port.destroy(chunk).await,
+                Key::Strip(_) => unreachable!("strips are carried out above"),
             };
             match r {
                 Ok(n) => {
@@ -364,6 +459,7 @@ pub(crate) async fn execute(port: &dyn MailPort, plan: &Plan, cap: usize, batch:
                         Key::Stamp(_) => out.counts.stamped += n,
                         Key::Read => out.counts.marked_read += n,
                         Key::Destroy => out.counts.purged += n,
+                        Key::Strip(_) => {}
                     }
                     out.errors += (chunk.len() as u64).saturating_sub(n);
                 }
@@ -375,6 +471,39 @@ pub(crate) async fn execute(port: &dyn MailPort, plan: &Plan, cap: usize, batch:
         }
     }
     out
+}
+
+/// Rewrite one chunk without attachments, then put the originals aside (Trash
+/// with the dated keyword) or delete them. A copy is acknowledged before its
+/// original is touched, so a failure leaves a duplicate, never a loss.
+async fn strip_chunk(port: &dyn MailPort, p: &StripParams, hold: Option<&(String, String)>, ids: &[String], out: &mut Executed) {
+    let report = match port.strip(ids, p, false).await {
+        Ok(r) => r,
+        Err(_) => {
+            out.errors += ids.len() as u64;
+            return;
+        }
+    };
+    out.errors += report.failed;
+    if !report.checked.is_empty() {
+        out.counts.strip_skipped += report.checked.len() as u64;
+        if port.stamp(&report.checked, CHECKED_KEYWORD).await.is_err() {
+            out.errors += 1;
+        }
+    }
+    let originals: Vec<String> = report.replaced.iter().map(|r| r.0.clone()).collect();
+    if originals.is_empty() {
+        return;
+    }
+    let settled = match hold {
+        Some((trash, stamp)) => port.move_to(&originals, trash, Some(stamp)).await,
+        None => port.destroy(&originals).await,
+    };
+    let settled = settled.unwrap_or(0);
+    out.counts.stripped += originals.len() as u64;
+    out.counts.reclaimed_bytes += report.replaced.iter().map(|r| r.2).sum::<u64>();
+    // An original that stayed behind is a duplicate the user can remove.
+    out.errors += (originals.len() as u64).saturating_sub(settled as u64);
 }
 
 // ─── settings and rows ─────────────────────────────────────────────────────────
@@ -424,6 +553,11 @@ pub(crate) async fn policy_for(store: &Store, who_account: &str, username: &str)
         undo_days: n(setting(store, "retention.user.undoDays", &who).await, 7),
         mandatory: rr::parse_mandatory(&list_setting(store, "retention.user.mandatory", &who).await),
         protected: list_setting(store, "retention.user.protectedFolders", &who).await,
+        allow_strip: setting(store, "retention.user.allowStripAttachments", &who).await.as_bool().unwrap_or(false),
+        strip_min_age_days: n(setting(store, "retention.user.strip.minAgeDays", &who).await, 90).max(7),
+        strip_min_attachment_kb: n(setting(store, "retention.user.strip.minAttachmentKb", &who).await, 100).max(1),
+        strip_keep_inline: setting(store, "retention.user.strip.keepInlineImages", &who).await.as_bool().unwrap_or(true),
+        strip_undo_days: n(setting(store, "retention.user.strip.undoDays", &who).await, -1),
     }
 }
 
@@ -478,6 +612,11 @@ pub(crate) struct Summary {
     pub truncated: bool,
     pub by_source: BTreeMap<String, u64>,
     pub sample: Vec<Value>,
+    /// Enabled strip rules left unused because the administrator turned the
+    /// action off.
+    pub strip_rules_skipped: u64,
+    /// The preview's reclaimed bytes include a size-based guess.
+    pub strip_estimate: bool,
 }
 
 impl Summary {
@@ -492,6 +631,8 @@ impl Summary {
             "truncated": self.truncated,
             "bySource": self.by_source,
             "sample": self.sample,
+            "stripRulesSkipped": self.strip_rules_skipped,
+            "stripEstimate": self.strip_estimate,
         })
     }
 }
@@ -503,6 +644,7 @@ fn describe(d: &Decision) -> &'static str {
         Outcome::Stamp(_) => "trash",
         Outcome::Destroy => "delete",
         Outcome::MarkRead => "markRead",
+        Outcome::Strip { .. } => "stripAttachments",
         Outcome::Skip(_) => "none",
     }
 }
@@ -581,7 +723,12 @@ pub(crate) async fn run_account(
         .map(|(m, d)| json!({"id": m.id, "folder": m.mailbox_id, "subject": m.subject, "from": m.from, "receivedAt": m.received_at, "action": describe(d), "source": d.source}))
         .collect();
     summary.errors = plan.errors as u64;
+    if !policy.allow_strip {
+        summary.strip_rules_skipped =
+            rules.iter().filter(|r| r.enabled && r.body.action.kind == ActionKind::StripAttachments).count() as u64;
+    }
     if dry {
+        verify_strips(port, &plan, cap, &mut summary).await;
         return Ok(summary);
     }
     let batch = setting(store, "retention.user.batchMessages", &who).await.as_i64().unwrap_or(200).max(1) as usize;
@@ -601,7 +748,7 @@ pub(crate) async fn run_account(
         matched: summary.matched as i64,
         acted: summary.done.total() as i64,
         errors: summary.errors as i64,
-        counts_json: json!({"done": summary.done, "bySource": summary.by_source}).to_string(),
+        counts_json: json!({"done": summary.done, "bySource": summary.by_source, "stripRulesSkipped": summary.strip_rules_skipped}).to_string(),
     };
     store.retention_run_put(&run).await.map_err(|e| e.to_string())?;
     let mut row = row;
@@ -612,6 +759,51 @@ pub(crate) async fn run_account(
         audit(state, &who, trigger, &summary).await;
     }
     Ok(summary)
+}
+
+/// Open the first planned strips (nothing is changed) so the preview reports
+/// the messages that really qualify and the bytes they free. Beyond the sample
+/// the planner's count and the messages' sizes stand in, and `strip_estimate`
+/// says so.
+async fn verify_strips(port: &dyn MailPort, plan: &Plan, cap: usize, summary: &mut Summary) {
+    let planned: Vec<&Msg> = plan
+        .entries
+        .iter()
+        .take(cap)
+        .filter(|(_, d)| matches!(d.outcome, Outcome::Strip { .. }))
+        .map(|(m, _)| m)
+        .collect();
+    if planned.is_empty() {
+        return;
+    }
+    let (mut messages, mut bytes, mut checked_n) = (0u64, 0u64, 0usize);
+    let sample = planned.len().min(STRIP_VERIFY);
+    for chunk in planned[..sample].chunks(STRIP_BATCH) {
+        let ids: Vec<String> = chunk.iter().map(|m| m.id.clone()).collect();
+        match port.strip(&ids, &plan.strip, true).await {
+            Ok(r) => {
+                checked_n += chunk.len();
+                messages += r.replaced.len() as u64;
+                bytes += r.replaced.iter().map(|x| x.2).sum::<u64>();
+            }
+            Err(_) => {
+                summary.strip_estimate = true;
+                summary.errors += 1;
+                // Count the unreadable chunk by its planned size.
+                messages += chunk.len() as u64;
+                bytes += chunk.iter().map(|m| m.size.max(0) as u64).sum::<u64>();
+                checked_n += chunk.len();
+            }
+        }
+    }
+    let rest = &planned[checked_n.min(planned.len())..];
+    if !rest.is_empty() {
+        summary.strip_estimate = true;
+        messages += rest.len() as u64;
+        bytes += rest.iter().map(|m| m.size.max(0) as u64).sum::<u64>();
+    }
+    summary.would.stripped = messages;
+    summary.would.reclaimed_bytes = bytes;
 }
 
 async fn audit(state: &AppState, who: &Who, trigger: &str, s: &Summary) {
@@ -735,6 +927,11 @@ fn policy_json(p: &Policy) -> Value {
         "allowPermanentDelete": p.allow_permanent, "undoDays": p.undo_days,
         "mandatory": p.mandatory.iter().map(|(r, d)| json!({"role": r, "days": d})).collect::<Vec<_>>(),
         "protectedFolders": p.protected,
+        "allowStripAttachments": p.allow_strip,
+        "strip": {
+            "minAgeDays": p.strip_min_age_days, "minAttachmentKb": p.strip_min_attachment_kb,
+            "keepInlineImages": p.strip_keep_inline, "undoDays": p.strip_undo(),
+        },
     })
 }
 
@@ -1023,6 +1220,7 @@ pub(crate) async fn effective_for_account(state: &AppState, account_id: &str, us
             "available": p.enabled, "enabled": acct.enabled, "paused": acct.paused,
             "rules": rules.len(), "trashFirst": acct.trash_first, "undoDays": p.undo_days,
             "allowPermanentDelete": p.allow_permanent, "lastRunAt": row.last_run_at,
+            "allowStripAttachments": p.allow_strip,
         },
         "system": system,
     })
@@ -1063,7 +1261,9 @@ async fn admin_overview(State(state): State<AppState>, ctx: AdminCtx) -> Result<
         "keys": ["retention.user.enabled", "retention.user.minDays", "retention.user.maxDays", "retention.user.maxRules",
                  "retention.user.allowPermanentDelete", "retention.user.undoDays", "retention.user.mandatory",
                  "retention.user.protectedFolders", "retention.user.templates", "retention.user.runForRestricted",
-                 "retention.user.intervalHours", "retention.user.batchMessages", "retention.user.maxPerRun", "retention.user.pauseMs"],
+                 "retention.user.intervalHours", "retention.user.batchMessages", "retention.user.maxPerRun", "retention.user.pauseMs",
+                 "retention.user.allowStripAttachments", "retention.user.strip.minAgeDays", "retention.user.strip.minAttachmentKb",
+                 "retention.user.strip.keepInlineImages", "retention.user.strip.undoDays"],
     }))))
 }
 
@@ -1130,6 +1330,29 @@ mod tests {
         }
         async fn mark_read(&self, ids: &[String]) -> Result<usize, String> {
             self.stamp(ids, "$seen").await
+        }
+        async fn strip(&self, ids: &[String], p: &StripParams, dry: bool) -> Result<StripReport, String> {
+            self.calls.lock().unwrap().push(format!("strip {} dry={dry}", ids.len()));
+            let mut report = StripReport::default();
+            let mut add = Vec::new();
+            for m in self.msgs.lock().unwrap().iter().filter(|m| ids.contains(&m.id)) {
+                if m.has_attachment && m.size as u64 >= p.min_bytes && !m.has_keyword("signed") {
+                    // The copy loses 90% of its size and keeps flags and date.
+                    let mut copy = m.clone();
+                    copy.id = format!("{}-s", m.id);
+                    copy.size = m.size / 10;
+                    copy.has_attachment = false;
+                    copy.keywords.push("mw-stripped".into());
+                    report.replaced.push((m.id.clone(), if dry { String::new() } else { copy.id.clone() }, (m.size - copy.size) as u64));
+                    add.push(copy);
+                } else {
+                    report.checked.push(m.id.clone());
+                }
+            }
+            if !dry {
+                self.msgs.lock().unwrap().extend(add);
+            }
+            Ok(report)
         }
         async fn destroy(&self, ids: &[String]) -> Result<usize, String> {
             self.calls.lock().unwrap().push(format!("destroy {}", ids.len()));
@@ -1289,6 +1512,143 @@ mod tests {
         let done = execute(&port, &plan, 100, 50, Duration::ZERO).await;
         assert_eq!(done.counts.purged, 1);
         assert_eq!((port.in_folder("junk"), port.in_folder("inbox")), (1, 1));
+    }
+
+
+    fn big(id: &str, age: i64, size: i64, kw: &[&str]) -> Msg {
+        Msg { size, has_attachment: true, ..msg(id, "inbox", age, kw) }
+    }
+
+    fn strip_rules() -> Vec<Rule> {
+        vec![Rule {
+            id: "strip".into(),
+            name: "strip".into(),
+            enabled: true,
+            body: Body { scope: Scope::default(), action: Action { kind: ActionKind::StripAttachments, days: 120, target: None }, exclude: Exclude::default() },
+        }]
+    }
+
+    async fn strip_run(port: &Fake, p: &Policy, rules: &[Rule], dry: bool) -> (Plan, Executed) {
+        let acct = Account::default();
+        let inputs = Inputs { now: NOW, rules, defaults: &[], policy: p, acct: &acct };
+        let folders = port.folders().await.unwrap();
+        let plan = build_plan(port, &folders, &inputs).await;
+        let done = if dry { Executed::default() } else { execute(port, &plan, 5000, 50, Duration::ZERO).await };
+        (plan, done)
+    }
+
+    fn strip_mailbox() -> Fake {
+        Fake::new(vec![
+            big("old-big", 200, 2_000_000, &["$seen", "$flagged-not"]),
+            big("old-big2", 300, 5_000_000, &["$seen"]),
+            big("old-signed", 200, 150_000, &["$seen", "signed"]),
+            big("young-big", 30, 3_000_000, &["$seen"]),
+            big("done", 400, 3_000_000, &["$seen", "mw-stripped"]),
+            big("checked", 400, 3_000_000, &["$seen", "mw-strip-checked"]),
+            msg("plain", "inbox", 400, &["$seen"]),
+        ])
+    }
+
+    #[tokio::test]
+    async fn strip_is_inert_while_the_administrator_has_it_off() {
+        let port = strip_mailbox();
+        let (plan, done) = strip_run(&port, &Policy::default(), &strip_rules(), false).await;
+        assert!(plan.entries.is_empty());
+        assert_eq!(done.counts.total(), 0);
+        assert!(port.calls.lock().unwrap().is_empty(), "no mail was opened");
+    }
+
+    #[tokio::test]
+    async fn strip_replaces_big_old_attachments_and_holds_the_originals_in_trash() {
+        let port = strip_mailbox();
+        let p = Policy { allow_strip: true, strip_min_attachment_kb: 100, undo_days: 7, ..Policy::default() };
+        let (plan, done) = strip_run(&port, &p, &strip_rules(), false).await;
+        assert_eq!(plan.entries.len(), 3, "old-big, old-big2 and old-signed are planned; young, done, checked and plain are not");
+        assert_eq!(done.errors, 0);
+        assert_eq!(done.counts.stripped, 2);
+        assert_eq!(done.counts.strip_skipped, 1, "the signed one was looked at and left alone");
+        assert_eq!(done.counts.reclaimed_bytes, (2_000_000 - 200_000) + (5_000_000 - 500_000));
+        let msgs = port.msgs.lock().unwrap();
+        // Copies in the inbox keep their flags and the marker; originals wait in Trash.
+        let copy = msgs.iter().find(|m| m.id == "old-big-s").unwrap();
+        assert_eq!(copy.mailbox_id, "inbox");
+        assert_eq!(copy.received_at, NOW - 200 * DAY);
+        assert!(copy.keywords.iter().any(|k| k == "$seen") && copy.keywords.iter().any(|k| k == "mw-stripped"));
+        let orig = msgs.iter().find(|m| m.id == "old-big").unwrap();
+        assert_eq!(orig.mailbox_id, "trash");
+        assert!(orig.keywords.iter().any(|k| k.starts_with(TRASH_STAMP)));
+        assert!(msgs.iter().find(|m| m.id == "old-signed").unwrap().keywords.iter().any(|k| k == "mw-strip-checked"));
+        drop(msgs);
+        // A second run finds nothing: the copies carry the marker, the small one is checked.
+        let (again, done2) = strip_run(&port, &p, &strip_rules(), false).await;
+        assert!(again.entries.is_empty(), "{:?}", again.entries.iter().map(|(m, _)| &m.id).collect::<Vec<_>>());
+        assert_eq!(done2.counts.total(), 0);
+    }
+
+    #[tokio::test]
+    async fn strip_with_no_undo_window_deletes_the_original_and_the_window_is_its_own() {
+        let port = strip_mailbox();
+        let p = Policy { allow_strip: true, strip_undo_days: 0, ..Policy::default() };
+        let (_, done) = strip_run(&port, &p, &strip_rules(), false).await;
+        assert_eq!(done.counts.stripped, 2);
+        assert_eq!(port.in_folder("trash"), 0);
+        assert!(port.msgs.lock().unwrap().iter().all(|m| m.id != "old-big"));
+
+        // With a 30 day strip window and a 7 day Trash window, the purge date is 30 days out.
+        let port = strip_mailbox();
+        let p = Policy { allow_strip: true, strip_undo_days: 30, undo_days: 7, ..Policy::default() };
+        strip_run(&port, &p, &strip_rules(), false).await;
+        let stamp = port.msgs.lock().unwrap().iter().find(|m| m.id == "old-big").unwrap().trashed_day().unwrap();
+        assert_eq!(stamp + p.undo_days, NOW.div_euclid(DAY) + 30);
+    }
+
+    #[tokio::test]
+    async fn strip_dry_run_counts_messages_and_bytes_without_changing_anything() {
+        let port = strip_mailbox();
+        let p = Policy { allow_strip: true, ..Policy::default() };
+        let (plan, _) = strip_run(&port, &p, &strip_rules(), true).await;
+        let mut s = Summary::default();
+        s.would = tally(&plan, 5000);
+        verify_strips(&port, &plan, 5000, &mut s).await;
+        assert_eq!(s.would.stripped, 2, "the signed message does not qualify once opened");
+        assert_eq!(s.would.reclaimed_bytes, 1_800_000 + 4_500_000);
+        assert!(!s.strip_estimate);
+        assert_eq!(port.msgs.lock().unwrap().len(), 7, "nothing was created");
+        assert_eq!(port.in_folder("trash"), 0);
+    }
+
+    #[tokio::test]
+    async fn policy_reads_the_strip_settings_and_defaults_to_off() {
+        let dir = std::env::temp_dir().join(format!("mw-strip-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let s = Store::open(dir.join("s.sqlite").to_str().unwrap(), mw_store::ServerKey::from_bytes(&[5u8; 32]).unwrap()).await.unwrap();
+        let off = policy_for(&s, "a", "a@example.test").await;
+        assert!(!off.allow_strip, "disabled by default");
+        assert_eq!((off.strip_min_age_days, off.strip_min_attachment_kb, off.strip_keep_inline, off.strip_undo_days), (90, 100, true, -1));
+        assert_eq!(off.strip_undo(), off.undo_days, "-1 follows the retention undo window");
+        for (key, value) in [("retention.user.allowStripAttachments", "true"), ("retention.user.strip.minAgeDays", "120"), ("retention.user.strip.undoDays", "3")] {
+            s.put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                key: key.into(),
+                global_value: Some(value.into()),
+                allow_user_override: false,
+                global_locked: true,
+                updated_by: "test".into(),
+                updated_at: 1,
+            })
+            .await
+            .unwrap();
+        }
+        let on = policy_for(&s, "a", "a@example.test").await;
+        assert!(on.allow_strip);
+        assert_eq!((on.strip_min_age_days, on.strip_undo()), (120, 3));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn strip_days_are_raised_to_the_servers_floor() {
+        let p = Policy { allow_strip: true, strip_min_age_days: 90, ..Policy::default() };
+        assert_eq!(rr::effective_days(ActionKind::StripAttachments, 10, &p), 90);
+        assert_eq!(rr::effective_days(ActionKind::StripAttachments, 400, &p), 400);
     }
 
     #[test]
