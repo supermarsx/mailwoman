@@ -23,6 +23,12 @@ mailing-list-stats = { $count ->
     [one] 1 message from this sender is in the mailbox. Last received { $date }.
    *[other] { $count } messages from this sender are in the mailbox. Last received { $date }.
 }
+mailing-list-list-count = { $count ->
+    [one] 1 message from this list is in your mail. Last received { $date }.
+   *[other] { $count } messages from this list are in your mail. Last received { $date }.
+}
+mailing-list-list-count-none = No messages from this list are in your mail.
+mailing-list-keep-not-saved = Kept on this page only: the choice could not be saved to your settings.
 mailing-list-stats-none = No other messages from this sender are loaded in the mailbox.
 mailing-list-links = List links
 mailing-list-open-new-tab = Open in a new tab

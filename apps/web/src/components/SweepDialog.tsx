@@ -4,7 +4,8 @@ import {wireDialogFocus} from '../modules/contacts/dialogFocus.ts';
 import './sweepDialog.css.ts';
 import { createMemo, createSignal, For, Show, onMount, onCleanup, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
-import { t, isolate } from '../i18n/index.ts';
+import { t, isolate, loadCatalog } from '../i18n/index.ts';
+import { senderKept } from '../state/listSubscription.ts';
 import * as a11y from './mailA11y.css.ts';
 import type { SweepStrategy } from '../state/slices/mail.ts';
 
@@ -26,15 +27,19 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
   const [busy, setBusy] = createSignal(false);
 
   const preview = createMemo(() => app.sweepPreview(props.fromEmail, strategy(), days()));
+  // A sender the user chose to always keep (`mail.list.keep`) is never swept.
+  const kept = (): boolean => senderKept(props.fromEmail);
 
   // Dialog focus management (self-contained per t8-e1): move focus in on open,
   // restore it on close, Escape closes.
   let dialogEl: HTMLDivElement | undefined;
   onMount(() => {
+    void loadCatalog('mailing-list');
     if(dialogEl)onCleanup(wireDialogFocus(dialogEl,props.onClose));
   });
 
   async function run(): Promise<void> {
+    if (kept()) return;
     setBusy(true);
     try {
       await app.executeSweep(props.fromEmail, strategy(), days());
@@ -88,6 +93,7 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
           </Show>
         </fieldset>
 
+        <Show when={kept()}><p class="sweep__count" role="status" data-testid="sweep-kept">{t('mailing-list-kept-note')}</p></Show>
         <p class="sweep__count" aria-live="polite">
           {t('mail-sweep-count', { count: preview().length })}
         </p>
@@ -109,7 +115,7 @@ export function SweepDialog(props: { fromEmail: string; onClose: () => void }): 
           <button
             type="button"
             class={`btn btn--primary ${a11y.focusable}`}
-            disabled={busy() || preview().length === 0}
+            disabled={busy() || kept() || preview().length === 0}
             onClick={() => void run()}
           >
             {busy() ? t('mail-sweeping') : t('mail-sweep-run', { count: preview().length })}

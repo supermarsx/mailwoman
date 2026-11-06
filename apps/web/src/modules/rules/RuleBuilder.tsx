@@ -24,6 +24,7 @@ const CONDITION_TYPES: ReadonlyArray<{ value: MailRuleConditionType; label: stri
   { value: 'from', label: 'rules-cond-from' },
   { value: 'to', label: 'rules-cond-to' },
   { value: 'subject', label: 'rules-cond-subject' },
+  { value: 'listId', label: 'rules-cond-list-id' },
 ];
 
 const OPS: ReadonlyArray<{ value: MailRuleOp; label: string }> = [

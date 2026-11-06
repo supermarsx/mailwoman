@@ -5,6 +5,7 @@ import {hasListHeaders, mailingListId, unsubscribeMethods, safeListHref} from '.
 import {badgeMode, badgeVisible} from '../state/readerBadges.ts';
 import {markUnsubscribed, listKey, stillReceiving, unsubscribedList, senderKept, UNSUBSCRIBE_GRACE_MS} from '../state/listSubscription.ts';
 import {MailingListBadge} from './MailingListBadge.tsx';
+import {takeRuleDraft} from '../state/ruleDraft.ts';
 const oneClick = vi.hoisted(() => vi.fn());
 vi.mock('../api/mailingList.ts', async original => ({...await original<typeof import('../api/mailingList.ts')>(), unsubscribeOneClick: oneClick}));
 
@@ -311,5 +312,73 @@ describe('the clean up this sender wording', () => {
     expect(mail).toMatch(/^mail-sweep-sender = Clean up this sender\r?$/m);
     expect(mail).not.toContain('Review actions for other messages');
     expect(mail).toMatch(/^mail-action-help-sweep = Review the other messages from this sender and choose what to clean up/m);
+  });
+});
+
+describe('list-wide actions', () => {
+  afterEach(() => { takeRuleDraft(); });
+  it('shows how many messages come from this list, by List-Id, beside the sender count', async () => {
+    const listCount = vi.fn(async () => ({count: 17, last: '2026-11-03T09:00:00Z'}));
+    render(() => <MailingListBadge {...props(ONE_CLICK, {listCount})}/>);
+    const dialog = await open();
+    await waitFor(() => expect(within(dialog).getByTestId('reader-list-count').textContent).toContain('17 messages from this list'));
+    expect(listCount).toHaveBeenCalledWith('news.acme.example');
+    expect(within(dialog).getByTestId('reader-list-stats')).toBeInTheDocument();
+  });
+  it('shows the sender count alone when the list count is not available', async () => {
+    const listCount = vi.fn(async () => null);
+    render(() => <MailingListBadge {...props(ONE_CLICK, {listCount})}/>);
+    const dialog = await open();
+    await waitFor(() => expect(listCount).toHaveBeenCalled());
+    expect(within(dialog).queryByTestId('reader-list-count')).toBeNull();
+    expect(within(dialog).getByTestId('reader-list-stats')).toBeInTheDocument();
+  });
+  it('Move future messages opens the Rules editor with a List-Id condition and a move action', async () => {
+    const onOpenRules = vi.fn();
+    render(() => <MailingListBadge {...props(ONE_CLICK, {onOpenRules})}/>);
+    fireEvent.click(within(await open()).getByTestId('reader-list-folder'));
+    expect(onOpenRules).toHaveBeenCalledOnce();
+    const draft = takeRuleDraft()!;
+    expect(draft.conditions).toEqual([{type: 'listId', op: 'is', value: 'news.acme.example'}]);
+    expect(draft.actions).toEqual([{type: 'move', value: ''}]);
+  });
+  it('Create filter opens it with the List-Id condition and the archive action', async () => {
+    const onOpenRules = vi.fn();
+    render(() => <MailingListBadge {...props(ONE_CLICK, {onOpenRules})}/>);
+    fireEvent.click(within(await open()).getByTestId('reader-list-filter'));
+    expect(takeRuleDraft()!.actions).toEqual([{type: 'archive', value: null}]);
+  });
+  it('Mute this list saves a List-Id rule (mark read + archive) instead of silencing the sender', async () => {
+    const onMuteList = vi.fn(async () => true);
+    const onSenderControl = vi.fn(async () => true);
+    render(() => <MailingListBadge {...props(ONE_CLICK, {onMuteList, onSenderControl})}/>);
+    fireEvent.click(within(await open()).getByTestId('reader-list-mute'));
+    await waitFor(() => expect(onMuteList).toHaveBeenCalledWith('news.acme.example'));
+    expect(onSenderControl).not.toHaveBeenCalled();
+  });
+  it('without a List-Id, Mute falls back to silencing the sender', async () => {
+    const onMuteList = vi.fn(async () => true);
+    const onSenderControl = vi.fn(async () => true);
+    render(() => <MailingListBadge {...props('List-Unsubscribe: <mailto:leave@acme.example>', {onMuteList, onSenderControl})}/>);
+    fireEvent.click(within(await open()).getByTestId('reader-list-mute'));
+    await waitFor(() => expect(onSenderControl).toHaveBeenCalledWith('silence'));
+    expect(onMuteList).not.toHaveBeenCalled();
+  });
+  it('Always keep is stored in the user settings (mail.list.keep) as sender and list entries', async () => {
+    const puts: {url: string; body: unknown}[] = [];
+    const fetcher = (async (url: string, init?: RequestInit) => { puts.push({url, body: JSON.parse(String(init?.body ?? 'null'))}); return json({key: 'mail.list.keep', value: ['sender:news@acme.example', 'list:news.acme.example'], source: 'user', locked: false}); }) as Fetcher;
+    const settingsApi = await import('../api/settings.ts');
+    const spy = vi.spyOn(settingsApi, 'writeSetting').mockImplementation(async (key, value) => { puts.push({url: key, body: value}); return json({}) as never; });
+    void fetcher;
+    render(() => <MailingListBadge {...props(ONE_CLICK)}/>);
+    fireEvent.click(within(await open()).getByTestId('reader-list-keep'));
+    await waitFor(() => expect(spy).toHaveBeenCalled());
+    expect(puts[0]).toEqual({url: 'mail.list.keep', body: ['sender:news@acme.example', 'list:news.acme.example']});
+  });
+  it('a kept list is recognised from the settings in any browser', async () => {
+    await load({'mail.list.keep': ['list:news.acme.example']});
+    expect(senderKept('someone-else@acme.example', 'news.acme.example')).toBe(true);
+    expect(senderKept('someone-else@acme.example', 'other.list')).toBe(false);
+    expect(senderKept('x@y.example')).toBe(false);
   });
 });

@@ -1,6 +1,7 @@
 // What this browser knows about a mailing list: "unsubscribed on <date>" (stored per account and List-Id, never
 // sent anywhere) and the senders the user chose to always keep. Both are local conveniences, not server state.
 import {createSignal} from 'solid-js';
+import {settings, writeSetting} from '../api/settings.ts';
 
 export type UnsubscribeMethod = 'one-click' | 'link' | 'mail';
 export interface UnsubscribedList { at: number; method: UnsubscribeMethod }
@@ -28,7 +29,7 @@ function write(key: string, value: Record<string, unknown>): boolean {
   setVersion(v => v + 1);
   return stored;
 }
-const memory = {unsubscribed: new Map<string, UnsubscribedList>(), keep: new Set<string>()};
+const memory = {unsubscribed: new Map<string, UnsubscribedList>(), keep: new Set<string>(), pending: new Map<string, boolean>()};
 
 export const listKey = (accountId: string | null, listId: string): string => `${accountId ?? ''}|${listId.toLowerCase()}`;
 
@@ -53,15 +54,47 @@ export function stillReceiving(entry: UnsubscribedList | null, latestReceivedAt:
   return Number.isFinite(received) && received > entry.at + UNSUBSCRIBE_GRACE_MS;
 }
 
-export function senderKept(address: string): boolean {
+/** The server-side keep list (`mail.list.keep`): `sender:<address>` and `list:<List-Id>` entries. */
+export const KEEP_SETTING = 'mail.list.keep';
+export function keepEntries(): string[] {
+  const value = settings()[KEEP_SETTING]?.value;
+  return Array.isArray(value) ? value.filter((v): v is string => typeof v === 'string') : [];
+}
+const senderEntry = (address: string): string => `sender:${address.trim().toLowerCase()}`;
+const listEntry = (listId: string): string => `list:${listId.trim().replace(/^<|>$/g, '').toLowerCase()}`;
+
+/** Whether the user keeps this sender, or the list the message came from. Browsers that kept the choice locally before it was stored on the server still count. */
+export function senderKept(address: string, listId?: string | null): boolean {
   void version();
   const key = address.toLowerCase();
-  return read<true>(KEEP_KEY)[key] === true || memory.keep.has(key);
+  // A choice being saved shows at once.
+  const pending = memory.pending.get(key);
+  if (pending !== undefined) return pending;
+  const entries = keepEntries();
+  return entries.includes(senderEntry(address)) || (!!listId && entries.includes(listEntry(listId)))
+    || read<true>(KEEP_KEY)[key] === true || memory.keep.has(key);
 }
-export function setSenderKept(address: string, keep: boolean): void {
+/** Keep or stop keeping a sender (and, with `listId`, the list). Saved in the user's settings; the old local entry is dropped. */
+export async function setSenderKept(address: string, keep: boolean, listId?: string | null): Promise<boolean> {
   const key = address.toLowerCase();
   memory.keep.delete(key);
-  const all = read<true>(KEEP_KEY);
-  if (keep) all[key] = true; else delete all[key];
-  if (!write(KEEP_KEY, all) && keep) memory.keep.add(key);
+  memory.pending.set(key, keep);
+  setVersion(v => v + 1);
+  const local = read<true>(KEEP_KEY);
+  if (key in local) { delete local[key]; write(KEEP_KEY, local); }
+  const wanted = [senderEntry(address), ...(listId ? [listEntry(listId)] : [])];
+  const current = keepEntries();
+  const next = keep ? [...current, ...wanted.filter(w => !current.includes(w))] : current.filter(c => !wanted.includes(c));
+  try {
+    await writeSetting(KEEP_SETTING, next);
+    memory.pending.delete(key);
+    setVersion(v => v + 1);
+    return true;
+  } catch {
+    // Not saved (offline, or locked by an administrator): a kept sender stays kept on this page only; a failed un-keep reverts.
+    memory.pending.delete(key);
+    if (keep) memory.keep.add(key);
+    setVersion(v => v + 1);
+    return false;
+  }
 }

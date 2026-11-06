@@ -11,6 +11,7 @@ import { ScriptsPanel } from './ScriptsPanel.tsx';
 import { VacationPanel } from './VacationPanel.tsx';
 import { ForwardingPanel } from './ForwardingPanel.tsx';
 import { vacationApi, vacationSupport, type VacationSupport } from './vacation-api.ts';
+import { pendingRuleDraft, takeRuleDraft } from '../../state/ruleDraft.ts';
 import { sieveApi, type SieveApi, type SieveCapability } from './sieve-api.ts';
 import * as css from './styles.css.ts';
 
@@ -48,6 +49,8 @@ export function RulesSettings(props: RulesSettingsProps): JSX.Element {
     setEditFailure('');
     try { await work(); } catch (error) { setEditFailure(error instanceof Error ? error.message : String(error)); }
   }
+  // A rule started from a message or a mailing list opens in the builder, once.
+  createEffect(() => { if (pendingRuleDraft()) { const draft = takeRuleDraft(); if (draft) { setPane('builder'); setEditing(draft); } } });
   function edit(rule: MailRule): void { setEditing({ ...rule }); }
   return <section class={css.card} id="rules-card" aria-labelledby="rules-heading">
     <h2 id="rules-heading" class={css.heading}>{t('rules-title')}</h2>

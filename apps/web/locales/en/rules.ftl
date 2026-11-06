@@ -36,6 +36,7 @@ rules-save-refused = The rule was not saved: { $reason }
 rules-cond-from = From
 rules-cond-to = To
 rules-cond-subject = Subject
+rules-cond-list-id = Mailing list (List-Id)
 rules-cond-thread-unsupported = Thread { $op } { $value }: thread conditions are not supported, so the rule cannot be saved until this condition is removed.
 rules-op-contains = contains
 rules-op-is = is

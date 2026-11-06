@@ -110,7 +110,7 @@ export interface DlpVerdict {
 // ── Mail rules (§2.1) — the block/silence/ignore surface over rules.rs ────────
 
 /** A mail-rule condition type / operator (frozen §2.1). */
-export type MailRuleConditionType = 'from' | 'to' | 'subject' | 'thread';
+export type MailRuleConditionType = 'from' | 'to' | 'subject' | 'listId' | 'thread';
 export type MailRuleOp = 'is' | 'contains';
 
 /** A mail-rule action type (frozen §2.1). */

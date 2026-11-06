@@ -7,6 +7,7 @@ import { RawEditor } from './RawEditor.tsx';
 import { emptyRuleDraft, type RulesSlice } from '../../state/slices/rules.ts';
 import type { MailRule } from '../../api/crypto-types.ts';
 import { t } from '../../test/i18n.ts';
+import { listRuleDraft, queueRuleDraft, takeRuleDraft } from '../../state/ruleDraft.ts';
 import type { SieveApi } from './sieve-api.ts';
 
 function fakeSlice(initial: MailRule[]): { slice: RulesSlice; saveRule: ReturnType<typeof vi.fn>; deleteRule: ReturnType<typeof vi.fn> } {
@@ -121,7 +122,7 @@ describe('RuleBuilder — thread conditions (t32-h2)', () => {
     ));
     const field = getByLabelText(t('rules-cond-type-label')) as HTMLSelectElement;
     const values = Array.from(field.options).map((o) => o.value);
-    expect(values).toEqual(['from', 'to', 'subject']);
+    expect(values).toEqual(['from', 'to', 'subject', 'listId']);
   });
 
   it('shows a stored thread condition read-only with a note and blocks saving', () => {
@@ -207,5 +208,22 @@ describe('RulesSettings — contained load failures (t32-h6)', () => {
     await waitFor(() => expect(screen.getByText(t('rules-new'))).toBeInTheDocument());
     expect(loadRules).toHaveBeenCalledTimes(2);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+});
+
+describe('a rule started from elsewhere', () => {
+  it('opens in the builder with the queued List-Id condition, once', async () => {
+    const { slice } = fakeSlice([]);
+    queueRuleDraft(listRuleDraft('news.acme.example', 'move'));
+    const first = render(() => <RulesSettings accountId="acct1" slice={slice} />);
+    await waitFor(() => expect(screen.getByDisplayValue('news.acme.example')).toBeInTheDocument());
+    expect(takeRuleDraft()).toBeNull();
+    first.unmount();
+    render(() => <RulesSettings accountId="acct1" slice={slice} />);
+    expect(screen.queryByDisplayValue('news.acme.example')).toBeNull();
+  });
+  it('lists List-Id among the condition fields', () => {
+    render(() => <RuleBuilder initial={emptyRuleDraft()} runsAt="engine" onSave={() => undefined} onCancel={() => undefined} />);
+    expect(screen.getAllByRole('option', { name: t('rules-cond-list-id') }).length).toBeGreaterThan(0);
   });
 });

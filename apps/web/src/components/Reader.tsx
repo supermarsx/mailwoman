@@ -55,6 +55,12 @@ import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
 import { MailingListBadge } from './MailingListBadge.tsx';
+import { listMessageCount } from '../api/listCount.ts';
+import { backfillPriority } from './messagePriority.ts';
+import { isSuperseded } from '../api/sentMessages.ts';
+import { createRulesSlice } from '../state/slices/rules.ts';
+import { mutedListRule } from '../state/ruleDraft.ts';
+import { createClient } from '../api/client.ts';
 import { SweepDialog } from './SweepDialog.tsx';
 import {ReaderToolbar} from './ReaderToolbar.tsx';
 import {createMessageLinkConsent} from './messageLinkConsent.ts';
@@ -812,6 +818,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     return {count:matches.length,last};
   };
   function collectListHeaders(raw:string|null,url:string):void {
+    if(url===messageHeaderUrl()&&raw!==null&&app.openEmail()?.mailwomanPriority===undefined&&app.openEmail()?.id)backfillPriority(app.openEmail()!.id,raw);
     if(url===messageHeaderUrl())setListHeaders(raw===null?null:{scope:receiptDocumentKey(),url,raw});
   }
   // t110: the mailing-list bar sits above the body, and its headers come from a
@@ -1254,6 +1261,18 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     },
   });
 
+  /** Save the rule that mutes a mailing list: matched by List-Id, marks read and archives. */
+  async function muteList(listId: string): Promise<boolean> {
+    const acct = app.accountId();
+    if (acct === null) return false;
+    try {
+      await createRulesSlice({ client: createClient(), showToast: app.showToast }, () => acct).saveRule(mutedListRule(listId));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async function onSenderControl(req: SenderControlRequest): Promise<SenderControlResult> {
     const acct = app.accountId();
     const id = emailId();
@@ -1445,9 +1464,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               </Show>
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore menu={(chips)=><BadgeContextMenu badge="spam">{chips}</BadgeContextMenu>} url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
-              <Show when={app.accountId()&&email().id}><MailingListBadge headers={currentListHeaders()} accountId={app.accountId()} sender={sender()} receivedAt={email().receivedAt} stats={listStats()} {...(props.onCompose?{onCompose:props.onCompose}:{})} onCleanup={()=>setCleanupOpen(true)} onSenderControl={async action=>(await onSenderControl({action,address:sender()})).updated} {...(props.onOpenSettings?{onOpenRules:()=>props.onOpenSettings?.('rules')}:{})}/></Show>
+              <Show when={app.accountId()&&email().id}><MailingListBadge headers={currentListHeaders()} accountId={app.accountId()} sender={sender()} receivedAt={email().receivedAt} stats={listStats()} listCount={id=>listMessageCount(jmapClient,app.accountId()!,id)} onMuteList={muteList} {...(props.onCompose?{onCompose:props.onCompose}:{})} onCleanup={()=>setCleanupOpen(true)} onSenderControl={async action=>(await onSenderControl({action,address:sender()})).updated} {...(props.onOpenSettings?{onOpenRules:()=>props.onOpenSettings?.('rules')}:{})}/></Show>
               <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
-              <HeaderFactsBadges email={email()}/>
+              <HeaderFactsBadges email={email()} messageId={email().messageId?.[0] ?? undefined} supersededLookup={id=>isSuperseded(jmapClient,app.accountId()!,id)}/>
               </div>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>

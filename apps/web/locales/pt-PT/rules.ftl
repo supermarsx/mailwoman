@@ -37,6 +37,7 @@ rules-save-refused = A regra não foi guardada: { $reason }
 rules-cond-from = De
 rules-cond-to = Para
 rules-cond-subject = Assunto
+rules-cond-list-id = Lista de correio (List-Id)
 rules-cond-thread-unsupported = Conversa { $op } { $value }: as condições de conversa não são suportadas, pelo que a regra só pode ser guardada depois de remover esta condição.
 rules-op-contains = contém
 rules-op-is = é

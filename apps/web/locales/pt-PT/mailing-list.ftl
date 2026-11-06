@@ -26,6 +26,12 @@ mailing-list-stats = { $count ->
     [one] Existe 1 mensagem deste remetente na caixa de correio. Última receção: { $date }.
    *[other] Existem { $count } mensagens deste remetente na caixa de correio. Última receção: { $date }.
 }
+mailing-list-list-count = { $count ->
+    [one] Existe 1 mensagem desta lista no seu correio. Última receção: { $date }.
+   *[other] Existem { $count } mensagens desta lista no seu correio. Última receção: { $date }.
+}
+mailing-list-list-count-none = Não há mensagens desta lista no seu correio.
+mailing-list-keep-not-saved = Mantido só nesta página: não foi possível guardar a escolha nas definições.
 mailing-list-stats-none = Não há outras mensagens deste remetente carregadas na caixa de correio.
 mailing-list-links = Ligações da lista
 mailing-list-open-new-tab = Abrir num novo separador

@@ -1,4 +1,4 @@
-import {createMemo, createSignal, createUniqueId, For, onMount, Show, type JSX} from 'solid-js';
+import {createMemo, createResource, createSignal, createUniqueId, For, onMount, Show, type JSX} from 'solid-js';
 import {listMailDraft, mailingListCommands, mailingListId, mailingListName, safeListHref, unsubscribeMethods, unsubscribeOneClick, type ListLink} from '../api/mailingList.ts';
 import {settings} from '../api/settings.ts';
 import {inspectMessageLink, type MessageLink} from '../viewers/messageLinks.ts';
@@ -12,6 +12,8 @@ import {Icon, type IconName} from './Icon.tsx';
 import {LinkReview} from './MessageLinks.tsx';
 import {SecurityPopup} from './SecurityPanel.tsx';
 import {toast} from './toast/toast.ts';
+import {listRuleDraft, queueRuleDraft} from '../state/ruleDraft.ts';
+import type {ListCount} from '../api/listCount.ts';
 import './readerBadges.css';
 
 export type ListSenderAction = 'block' | 'silence' | 'report-junk';
@@ -46,6 +48,10 @@ export function MailingListBadge(props: {
   onCleanup?: (() => void) | undefined;
   onSenderControl?: ((action: ListSenderAction) => Promise<boolean>) | undefined;
   onOpenRules?: (() => void) | undefined;
+  /** Messages from this list by List-Id (the engine's `list:` search); `null` falls back to the sender count. */
+  listCount?: ((listId: string) => Promise<ListCount | null>) | undefined;
+  /** Save the rule that mutes a list: mark read and archive, matched by List-Id. */
+  onMuteList?: ((listId: string) => Promise<boolean>) | undefined;
 }): JSX.Element {
   onMount(() => void loadCatalog('mailing-list'));
   const id = `mw-list-${createUniqueId()}`;
@@ -67,7 +73,8 @@ export function MailingListBadge(props: {
     return times.sort((a, b) => Date.parse(b) - Date.parse(a))[0] ?? null;
   };
   const ignored = (): boolean => stillReceiving(record(), latest());
-  const kept = (): boolean => senderKept(props.sender);
+  const kept = (): boolean => senderKept(props.sender, listId());
+  const [counted] = createResource(() => (open() && listId() && props.listCount ? listId() : null), (id) => props.listCount!(id!));
   const date = (ms: number): string => formatDateTime(new Date(ms).toISOString());
 
   const display = (): string => name() ?? listId() ?? props.sender;
@@ -148,10 +155,21 @@ export function MailingListBadge(props: {
     close();
     props.onCompose?.({...draft, mode: 'new', cc: '', inReplyTo: [], references: [], attachments: [], quotesDecrypted: false});
   }
-  function toRules(): void {
-    toast.info(t('mailing-list-rule-hint', {id: listId() ?? props.sender}));
+  function toRules(action: 'move' | 'archive'): void {
+    // With a List-Id the editor opens with that condition filled in and the chosen action; without one the user starts from scratch.
+    const id = listId();
+    if (id) queueRuleDraft(listRuleDraft(id, action));
+    toast.info(t('mailing-list-rule-hint', {id: id ?? props.sender}));
     close();
     props.onOpenRules?.();
+  }
+  async function mute(): Promise<void> {
+    const id = listId();
+    if (!id || !props.onMuteList) { await senderAction('silence', 'mailing-list-toast-muted'); return; }
+    setBusy(true);
+    const ok = await props.onMuteList(id).catch(() => false);
+    setBusy(false);
+    if (ok) toast.success(t('mailing-list-toast-muted')); else toast.error(t('mailing-list-action-failed'));
   }
 
   return <Show when={visible()}>
@@ -173,6 +191,7 @@ export function MailingListBadge(props: {
                 {rec => <>{t('mailing-list-status-unsubscribed', {date: date(rec().at)})}<Show when={ignored()}><strong class="list-detail__warn">{' '}{t('mailing-list-status-ignored')}</strong></Show>{' '}<button type="button" class="btn btn--ghost list-detail__small" onClick={() => clearUnsubscribed(key())}>{t('mailing-list-forget')}</button></>}
               </Show>
             </p>
+            <Show when={counted()}>{c => <p class="list-detail__stats" data-testid="reader-list-count">{c().count > 0 ? t('mailing-list-list-count', {count: c().count, date: c().last ? formatDateTime(c().last!) : '-'}) : t('mailing-list-list-count-none')}</p>}</Show>
             <Show when={props.stats}>{stats => <p class="list-detail__stats" data-testid="reader-list-stats">{stats().count > 0 ? t('mailing-list-stats', {count: stats().count, date: stats().last ? formatDateTime(stats().last!) : '-'}) : t('mailing-list-stats-none')}</p>}</Show>
             <Show when={links().length > 0}>
               <section aria-label={t('mailing-list-links')}>
@@ -211,11 +230,11 @@ export function MailingListBadge(props: {
             <div class="list-detail__actions" role="group" aria-label={t('mailing-list-title')}>
               <ActionButton testid="reader-list-unsubscribe" icon="disable" label={t('mailing-list-unsubscribe')} disabled={busy() || choice() === null} onClick={() => start(false)}/>
               <ActionButton testid="reader-list-unsubscribe-clean" icon="sweep" label={t('mailing-list-action-unsubscribe-clean')} disabled={busy() || choice() === null || kept() || !props.onCleanup} onClick={() => start(true)}/>
-              <ActionButton testid="reader-list-folder" icon="folder" label={t('mailing-list-action-folder')} disabled={!props.onOpenRules} onClick={toRules}/>
-              <ActionButton testid="reader-list-mute" icon="mute" label={t('mailing-list-action-mute')} disabled={busy() || !props.onSenderControl} onClick={() => void senderAction('silence', 'mailing-list-toast-muted')}/>
-              <ActionButton testid="reader-list-keep" icon={kept() ? 'close' : 'check'} label={kept() ? t('mailing-list-action-unkeep') : t('mailing-list-action-keep')} title={t('mailing-list-keep-help')} onClick={() => { setSenderKept(props.sender, !kept()); toast.success(t(kept() ? 'mailing-list-toast-kept' : 'mailing-list-toast-unkept')); }}/>
+              <ActionButton testid="reader-list-folder" icon="folder" label={t('mailing-list-action-folder')} disabled={!props.onOpenRules} onClick={() => toRules('move')}/>
+              <ActionButton testid="reader-list-mute" icon="mute" label={t('mailing-list-action-mute')} disabled={busy() || (!props.onSenderControl && !(listId() && props.onMuteList))} onClick={() => void mute()}/>
+              <ActionButton testid="reader-list-keep" icon={kept() ? 'close' : 'check'} label={kept() ? t('mailing-list-action-unkeep') : t('mailing-list-action-keep')} title={t('mailing-list-keep-help')} onClick={() => { const keep = !kept(); void setSenderKept(props.sender, keep, listId()).then((saved) => { if (!saved) toast.error(t('mailing-list-keep-not-saved')); }); toast.success(t(keep ? 'mailing-list-toast-kept' : 'mailing-list-toast-unkept')); }}/>
               <ActionButton testid="reader-list-block" icon="block" label={t('mailing-list-action-block')} disabled={busy() || !props.onSenderControl} onClick={() => void senderAction('block', 'mailing-list-toast-blocked')}/>
-              <ActionButton testid="reader-list-filter" icon="filter" label={t('mailing-list-action-filter')} disabled={!props.onOpenRules} onClick={toRules}/>
+              <ActionButton testid="reader-list-filter" icon="filter" label={t('mailing-list-action-filter')} disabled={!props.onOpenRules} onClick={() => toRules('archive')}/>
               <ActionButton testid="reader-list-spam" icon="spam" label={t('mailing-list-action-spam')} disabled={busy() || !props.onSenderControl} onClick={() => void senderAction('report-junk', 'mailing-list-toast-reported')}/>
               <ActionButton testid="reader-list-sweep" icon="sweep" label={t('mailing-list-action-clean')} title={kept() ? t('mailing-list-kept-note') : t('mailing-list-action-clean-help')} disabled={kept() || !props.onCleanup} onClick={() => { close(); props.onCleanup?.(); }}/>
             </div>

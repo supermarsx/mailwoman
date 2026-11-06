@@ -34,6 +34,8 @@ function renderCondition(c: MailRuleCondition): { test: string | null; ext: stri
       return { test: `address ${matchTag(c.op)} "to" ${quote(c.value)}`, ext: [] };
     case 'subject':
       return { test: `header ${matchTag(c.op)} "subject" ${quote(c.value)}`, ext: [] };
+    case 'listId':
+      return { test: `header ${matchTag(c.op)} "list-id" ${quote(c.value)}`, ext: [] };
     case 'thread':
       // No portable Sieve test for a thread id — engine-only (see runsAtFor).
       return { test: null, ext: [] };
@@ -306,6 +308,8 @@ export interface SampleMessage {
   from: string;
   to: string;
   subject: string;
+  /** The sample message’s List-Id, if it has one. */
+  listId?: string;
 }
 
 /** The dry-run outcome for one rule against the sample. */
@@ -327,6 +331,8 @@ function fieldValue(msg: SampleMessage, type: MailRuleCondition['type']): string
       return msg.to;
     case 'subject':
       return msg.subject;
+    case 'listId':
+      return msg.listId ?? '';
     default:
       return ''; // `thread` has no sample field.
   }
