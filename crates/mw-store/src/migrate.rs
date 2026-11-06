@@ -1485,6 +1485,53 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "client_error_group",
+        select: "SELECT id,fingerprint,kind,name,message,boundary,route_template,first_seen,last_seen,count,last_build,status,resolved_build,resolved_at,reopened_count FROM client_error_group",
+        insert: "INSERT INTO client_error_group(id,fingerprint,kind,name,message,boundary,route_template,first_seen,last_seen,count,last_build,status,resolved_build,resolved_at,reopened_count) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "fingerprint"),
+                t(r, "kind"),
+                t(r, "name"),
+                t(r, "message"),
+                t(r, "boundary"),
+                t(r, "route_template"),
+                i(r, "first_seen"),
+                i(r, "last_seen"),
+                i(r, "count"),
+                t(r, "last_build"),
+                t(r, "status"),
+                ot(r, "resolved_build"),
+                oi(r, "resolved_at"),
+                i(r, "reopened_count"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "client_error_event",
+        select: "SELECT id,group_id,time,build,occurrences,visit,stack_raw,stack_symbolicated,ua_family,os_family,viewport,locale,account_hash,extra FROM client_error_event",
+        insert: "INSERT INTO client_error_event(id,group_id,time,build,occurrences,visit,stack_raw,stack_symbolicated,ua_family,os_family,viewport,locale,account_hash,extra) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "group_id"),
+                i(r, "time"),
+                t(r, "build"),
+                i(r, "occurrences"),
+                t(r, "visit"),
+                t(r, "stack_raw"),
+                ot(r, "stack_symbolicated"),
+                t(r, "ua_family"),
+                t(r, "os_family"),
+                t(r, "viewport"),
+                t(r, "locale"),
+                ot(r, "account_hash"),
+                t(r, "extra"),
+            ]
+        },
+    },
+    TableSpec {
         name: "cookie_consent",
         select: "SELECT id,account_id,domain,policy_version,decision,categories_json,region,signal,created_at FROM cookie_consent",
         insert: "INSERT INTO cookie_consent(id,account_id,domain,policy_version,decision,categories_json,region,signal,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",

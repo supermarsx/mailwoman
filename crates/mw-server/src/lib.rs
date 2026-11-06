@@ -60,6 +60,8 @@ mod login_failure;
 mod notification_policy;
 pub mod push;
 pub mod push_relay;
+mod client_errors;
+mod client_errors_symbolicate;
 mod client_timing;
 mod breach;
 mod breach_model;
@@ -1573,6 +1575,7 @@ fn router(
         .merge(client_policy::router())
         .merge(client_timing::router())
         .merge(dsr::router())
+        .merge(client_errors::router())
         .merge(user_retention::router())
         .merge(breach::router())
         .merge(cookie_consent::router())
@@ -5320,6 +5323,11 @@ async fn static_handler(
         return error(error_pages::ErrorKind::BadRequest);
     }
     // The base shim is generated, not bundled: served at every prefix (including
+    // Hidden source maps ride in the asset set for the admin symbolicator only
+    // (client_errors_symbolicate); a browser never gets one.
+    if path.ends_with(".map") {
+        return error(error_pages::ErrorKind::NotFound);
+    }
     // none) so an `index.html` cached from a previously-prefixed deployment never
     // hits a 404 here.
     if path == BASE_SHIM_PATH {

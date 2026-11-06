@@ -5746,6 +5746,94 @@ pub static REGISTRY: &[SettingDef] = &[
         "other requests accepted"
     ),
     def!(
+        "observability.client.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "collect browser error reports (stack traces, scrubbed) for Observability > Client errors"
+    ),
+    def!(
+        "observability.client.sampleRate",
+        Kind::Float { min: 0.0, max: 1.0 },
+        "1",
+        G,
+        "observability",
+        "fraction of browser error reports sent"
+    ),
+    def!(
+        "observability.client.maxPerSession",
+        int(1, 1000),
+        "20",
+        G,
+        "observability",
+        "browser error reports one page load may send"
+    ),
+    def!(
+        "observability.client.includeAccountHash",
+        Kind::Bool,
+        "false",
+        G,
+        "observability",
+        "add a keyed one-way hash of the account to signed-in error reports"
+    ),
+    def!(
+        "observability.client.captureConsole",
+        Kind::Bool,
+        "false",
+        G,
+        "observability",
+        "also report console.error calls, at a throttled rate"
+    ),
+    def!(
+        "observability.client.captureCsp",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "report Content-Security-Policy violations seen by the browser"
+    ),
+    def!(
+        "observability.client.sourceMaps",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "resolve browser stack frames with the build's hidden source maps"
+    ),
+    def!(
+        "observability.client.forward",
+        Kind::Bool,
+        "false",
+        G,
+        "observability",
+        "also send scrubbed browser error reports to the configured error sink (MW_ERROR_FORWARD_URL)"
+    ),
+    def!(
+        "retention.clientErrors.eventDays",
+        int(1, 3650),
+        "30",
+        G,
+        "privacy",
+        "Days of individual browser error occurrences kept"
+    ),
+    def!(
+        "retention.clientErrors.groupDays",
+        int(1, 3650),
+        "180",
+        G,
+        "privacy",
+        "Days a browser error group is kept after it was last seen"
+    ),
+    def!(
+        "privacy.errorReports",
+        Kind::Enum(&["on", "off"]),
+        "\"on\"",
+        GDU,
+        "privacy",
+        "send an error report from this browser when a section fails to load"
+    ),
+    def!(
         "dsr.approval.export",
         Kind::Enum(&["auto", "admin"]),
         "\"auto\"",

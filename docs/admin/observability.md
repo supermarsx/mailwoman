@@ -102,3 +102,36 @@ Set **Browser load times** to off in Admin > Settings > Observability (key
 `observability.clientTiming.enabled`). The server stops recording at once and
 tells browsers on their next policy read. Existing aggregates stay until they
 age out of `metrics.rollupDays`.
+
+## Client errors
+
+When part of the web app fails in a browser, the app can report it to the server so an administrator sees it under **Observability > Client errors**, with a stack trace. This covers the "Something went wrong" panels (error boundaries), uncaught errors, unhandled promise rejections, failed lazy chunks, errors in the sanitizer and crypto workers, Content-Security-Policy violations, and optionally `console.error`.
+
+### What a report contains
+
+* The error class and a scrubbed message (addresses, long tokens, file names, URL queries and hashes removed, 300 characters at most).
+* The JavaScript stack frames of the bundle: paths only, without the origin, query or hash.
+* The boundary or surface (for example `Reader/AttachmentViewer/text`), and the route with ids replaced by `:id`.
+* The build id, the browser family and major version, the OS family, a viewport class (`narrow`, `medium`, `wide`), the language, whether the browser was online, reduced motion, and the theme id.
+* A fingerprint (a hash of the error name, the normalised message, the boundary and the chunk names of the top frames) used to group reports of one defect across builds.
+* A random id for the page load, held in memory only, so the console can estimate how many sessions a defect affects.
+
+It never contains a user id, address, IP address, token, message content, attachment or file name, or a URL with a query. The server scrubs again on arrival. A keyed one-way hash of the account is added only when `observability.client.includeAccountHash` is on and only for signed-in reports. Reports are never audited one by one, and the browser stores nothing for them.
+
+### How reports are sent
+
+`POST /api/observability/client-errors` takes anonymous reports (the sign-in page, and the unload `sendBeacon` fallback). It reads no cookie, so like `/api/cookies/consent` it is exempt from the CSRF token. At most 5 reports of 16 KB each per request, and 4 requests per address with a refill of one every 20 seconds. `POST /api/observability/client-errors/session` takes up to 20 reports from a signed-in session, checks the person's `privacy.errorReports` choice and applies the account hash setting. The browser does not retry a refused batch, opens a circuit breaker after three consecutive failures, sends the same fingerprint once per 60 seconds (repeats are folded into one follow-up with a count) and stops at `observability.client.maxPerSession`. `GET /api/observability/client-errors/policy` tells the browser whether to report.
+
+A group over 20 stored occurrences in an hour keeps counting but stops storing details. A group marked **resolved** reopens when a build that never saw it reports it again.
+
+### Stack traces and source maps
+
+Production stack frames point into minified bundles. Build the web app with `MW_SOURCEMAP=hidden` (the Dockerfile does by default; pass `--build-arg MW_SOURCEMAP=` to turn it off) to write source maps next to the bundles without a `sourceMappingURL` comment. They are embedded with the other assets (or read from `MW_WEB_DIR`), but the static handler answers every `.map` path with 404, so browsers never receive them. The server reads the map of the exact file named in a frame (the file name carries the build's content hash) and stores the resolved stack beside the raw one. With no map the raw frames are shown and the console says so. `observability.client.sourceMaps` turns resolution off.
+
+### Settings
+
+`observability.client.enabled`, `observability.client.sampleRate`, `observability.client.maxPerSession`, `observability.client.includeAccountHash`, `observability.client.captureConsole`, `observability.client.captureCsp`, `observability.client.sourceMaps`, `observability.client.forward`, `retention.clientErrors.eventDays`, `retention.clientErrors.groupDays` (all global) and `privacy.errorReports` (the person's own choice in Settings > Privacy, with an administrator default and lock). See [settings.md](settings.md).
+
+### Logs, metrics and forwarding
+
+Each stored report writes one `info` log line with target `client_error` (fingerprint, name, kind, boundary, build, route). The metrics endpoint exposes `mw_client_errors_total{kind,boundary}` and `mw_client_error_groups_open`. With `observability.client.forward` on and `MW_ERROR_FORWARD_URL` set, each scrubbed report is also posted to that sink. No OpenTelemetry or Sentry exporter is built in.

@@ -43,6 +43,7 @@ pub mod user_retention;
 pub mod user_pim_retention;
 pub mod personal_settings;
 mod smtp_policy_cache;
+pub mod client_errors;
 pub mod client_timing;
 pub mod dsr;
 pub mod metrics_bucket;

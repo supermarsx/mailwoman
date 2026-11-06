@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, metrics_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, user_pim_retention, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, client_error_event, client_error_group, metrics_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, user_pim_retention, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2415,6 +2415,18 @@ mod admin_controls_0033 {
             ("instance_id",'T',"!","replica-one"),("bucket_start",'I',"!","3600"),
             ("metric",'T',"!","timeToUsable"),("device",'T',"!","desktop"),
             ("sample_count",'I',"!","3"),("sum_ms",'I',"!","300"),("histogram_json",'T',"!","[]"),
+        ]},
+        NewTable {name:"client_error_group",copied:true,cols:&[
+            ("id",'T',"!","ceg-1"),("fingerprint",'T',"!","fp-1"),("kind",'T',"!","boundary"),("name",'T',"!","TypeError"),
+            ("message",'T',"!","x is undefined"),("boundary",'T',"=","Reader"),("route_template",'T',"=","/mail/:id"),
+            ("first_seen",'I',"!",TS),("last_seen",'I',"!",TS),("count",'I',"=0","2"),("last_build",'T',"=","26.18"),
+            ("status",'T',"=open","resolved"),("resolved_build",'T',"~","26.17"),("resolved_at",'I',"~",TS),("reopened_count",'I',"=0","1"),
+        ]},
+        NewTable {name:"client_error_event",copied:true,cols:&[
+            ("id",'T',"!","cee-1"),("group_id",'T',"!","ceg-1"),("time",'I',"!",TS),("build",'T',"=","26.18"),
+            ("occurrences",'I',"=1","3"),("visit",'T',"=","v1"),("stack_raw",'T',"=","at a (/assets/a.js:1:2)"),
+            ("stack_symbolicated",'T',"~","at a (src/a.ts:1:2)"),("ua_family",'T',"=","Chrome"),("os_family",'T',"=","Windows"),
+            ("viewport",'T',"=","wide"),("locale",'T',"=","en"),("account_hash",'T',"~","abcd"),("extra",'T',"={}","{\"a\":1}"),
         ]},
         NewTable {name:"metrics_bucket",copied:true,cols:&[
             ("instance_id",'T',"!","replica-one"),("metric",'T',"!","imageProxy.outcome.miss"),

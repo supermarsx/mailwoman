@@ -273,6 +273,10 @@ pub fn csrf_token_exempt(path: &str) -> bool {
         // route, which is CSRF-checked).
         || path == "/api/cookies/consent"
         || path == "/api/cookies/detected"
+        // Browser error reports from an anonymous visitor: the handler reads no
+        // cookie (the signed-in route, `.../session`, is CSRF-checked). sendBeacon
+        // cannot carry a token header.
+        || path == "/api/observability/client-errors"
         // MCP: an API key or OAuth access token in `Authorization` per call;
         // `initialize` and `tools/list` need none.
         || path == "/mcp"
@@ -694,6 +698,7 @@ mod tests {
             "/errors",
             "/api/cookies/consent",
             "/api/cookies/detected",
+            "/api/observability/client-errors",
             "/mcp",
             "/mcp/",
         ] {
@@ -724,6 +729,7 @@ mod tests {
             "/api/sso/logout",
             "/errors/x",
             "/api/cookies/consent/account",
+            "/api/observability/client-errors/session",
             "/mcpx",
             "/jmap/api",
             "/",

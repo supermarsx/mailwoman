@@ -140,7 +140,7 @@ fn is_sensitive_key(key: &str) -> bool {
 /// `Some(cleaned)` when at least one address was found, else `None` (no allocation
 /// on the common no-address path). Deliberately conservative — a hand-rolled scan
 /// (no regex dep) that treats any `word@word.tld`-ish run as an address.
-fn scrub_addresses(s: &str) -> Option<String> {
+pub(crate) fn scrub_addresses(s: &str) -> Option<String> {
     if !s.contains('@') {
         return None;
     }
@@ -180,6 +180,20 @@ fn scrub_addresses(s: &str) -> Option<String> {
         i += ch.len_utf8();
     }
     found.then_some(out)
+}
+
+/// Post an already-scrubbed report to the operator's sink, if one is configured
+/// (used by the structured client error reports, `observability.client.forward`).
+pub(crate) async fn forward_scrubbed(report: Value) {
+    let Some(url) = forward_url() else {
+        return;
+    };
+    let Ok(http) = reqwest::Client::builder().no_proxy().build() else {
+        return;
+    };
+    if let Err(e) = http.post(&url).json(&report).send().await {
+        tracing::warn!("client error forward failed: {e}");
+    }
 }
 
 /// `POST /errors` — accept a browser error report, scrub mail content, and forward

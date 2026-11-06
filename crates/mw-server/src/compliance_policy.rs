@@ -40,7 +40,8 @@ pub(crate) const REQUIRED: [&str; 5] = [
 ];
 
 fn is_policy_key(key: &str) -> bool {
-    PREFIXES.iter().any(|p| key.starts_with(p)) && !NOT_POLICY.contains(&key)
+    // The one browser error report switch describes processing; its tuning keys do not.
+    (PREFIXES.iter().any(|p| key.starts_with(p)) || key == "observability.client.enabled") && !NOT_POLICY.contains(&key)
         && !key.starts_with("privacy.image")
         && !matches!(key, "privacy.maxBytes" | "privacy.cacheBytes" | "privacy.ratePerMin" | "privacy.rateBurst")
         && !key.starts_with("cookies.text.")
@@ -184,6 +185,7 @@ fn retention_label(lang: &str, id: &str) -> String {
         "auditLogIp" => ("IP addresses in the admin audit log", "Endereços IP no registo de auditoria"),
         "authHistory" => ("Sign-in history", "Histórico de início de sessão"),
         "requestMetrics" => ("Request statistics", "Estatísticas de pedidos"),
+        "clientErrors" => ("Browser error reports", "Relatórios de erros do navegador"),
         "dsrRequests" => ("Completed data requests", "Pedidos de dados concluídos"),
         "openTracking" => ("Open tracking events", "Eventos de rastreio de abertura"),
         "diagnostics" => ("Diagnostic runs", "Execuções de diagnóstico"),
@@ -196,10 +198,10 @@ fn retention_label(lang: &str, id: &str) -> String {
 }
 
 /// Stores the retention section lists (others are internal bookkeeping).
-const RETENTION_LISTED: [&str; 20] = [
+const RETENTION_LISTED: [&str; 21] = [
     "sessions", "nativeSessions", "rememberedDevices", "authHistory", "authHistoryIp", "auditLogIp", "passwordChangeAudit",
     "ssoLoginAudit", "dlpAudit", "assistAudit", "alertEvents", "jobRuns", "outbox", "requestMetrics", "dsrRequests",
-    "openTracking", "diagnostics", "logFiles", "accountGeo", "uploads",
+    "openTracking", "diagnostics", "logFiles", "accountGeo", "uploads", "clientErrors",
 ];
 
 fn body(f: &Snapshot, lang: &str, id: &str) -> (String, Vec<&'static str>) {
@@ -229,6 +231,9 @@ fn body(f: &Snapshot, lang: &str, id: &str) -> (String, Vec<&'static str>) {
             ];
             if b(f, "cookies.logConsent") {
                 items.push(l(lang, "Your cookie choices, kept as a consent record.", "As suas escolhas de cookies, guardadas como registo de consentimento.").to_owned());
+            }
+            if b(f, "observability.client.enabled") {
+                items.push(l(lang, "Technical error reports: when part of the app fails, your browser can send the error type, where in the app it happened, the app version and the browser type, without message content or addresses. You can turn this off in Settings > Privacy.", "Relatórios técnicos de erros: quando uma parte da aplicação falha, o navegador pode enviar o tipo de erro, onde na aplicação ocorreu, a versão da aplicação e o tipo de navegador, sem conteúdo de mensagens nem endereços. Pode desativar isto em Definições > Privacidade.").to_owned());
             }
             if b(f, "assistant.enabled") {
                 items.push(l(lang, "Text you send to the assistant, when you use it.", "O texto que envia ao assistente, quando o usa.").to_owned());

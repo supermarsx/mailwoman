@@ -702,6 +702,61 @@ Measure how long a folder takes to show its message list, split by whether it ca
 
 Measure how long a message takes to show its headers and sanitised body, split by whether it was cached or prefetched, or came from the network. On by default; same scopes and behaviour as folder load times.
 
+<a id="observability.client.enabled"></a>
+### Browser error reports (`observability.client.enabled`)
+
+Collect error reports from the web app (error boundaries, uncaught errors, failed chunks, worker errors, CSP violations) with scrubbed stack traces, shown under Observability > Client errors. On by default. Reports hold no message content, addresses, tokens, attachment names or URL queries. Turn off to stop collection; existing reports expire with their retention.
+
+<a id="observability.client.sampleRate"></a>
+### Error report sample rate (`observability.client.sampleRate`)
+
+Fraction of error reports a browser sends, from 0 to 1. Default 1 (all). Each page load still stops at the per-session limit.
+
+<a id="observability.client.maxPerSession"></a>
+### Error reports per page load (`observability.client.maxPerSession`)
+
+Most error reports one page load may send (1 to 1000). Repeats of the same error within 60 seconds count once. Default 20.
+
+<a id="observability.client.includeAccountHash"></a>
+### Add account hash to error reports (`observability.client.includeAccountHash`)
+
+Add a keyed one-way hash of the account to reports sent from a signed-in session, so reports from one account can be told apart without naming it. Off by default. The hash changes when the privacy key rotates.
+
+<a id="observability.client.captureConsole"></a>
+### Report console errors (`observability.client.captureConsole`)
+
+Also report console.error calls, at most five a minute per page. Off by default because libraries log expected conditions.
+
+<a id="observability.client.captureCsp"></a>
+### Report CSP violations (`observability.client.captureCsp`)
+
+Report Content-Security-Policy violations the browser detects, with the blocked directive and origin only. On by default.
+
+<a id="observability.client.sourceMaps"></a>
+### Resolve stack traces with source maps (`observability.client.sourceMaps`)
+
+Resolve bundle positions in stack traces to source files when the build shipped hidden source maps (built with MW_SOURCEMAP=hidden). Maps are read only by the server and never served to browsers. On by default; without maps the raw frames are shown.
+
+<a id="observability.client.forward"></a>
+### Forward error reports (`observability.client.forward`)
+
+Also send each scrubbed report to the error sink configured with MW_ERROR_FORWARD_URL. Off by default. Without a sink configured nothing is sent.
+
+<a id="retention.clientErrors.eventDays"></a>
+### Error occurrences kept (days) (`retention.clientErrors.eventDays`)
+
+Days an individual browser error occurrence (its stack trace and browser class) is kept. Default 30. A group is kept longer, see the next setting.
+
+<a id="retention.clientErrors.groupDays"></a>
+### Error groups kept (days) (`retention.clientErrors.groupDays`)
+
+Days a browser error group (name, message, counts) is kept after it was last seen. Default 180. Never shorter than the occurrence retention.
+
+<a id="privacy.errorReports"></a>
+### Send error reports (`privacy.errorReports`)
+
+Whether a browser sends an error report when part of the app fails. On by default. Global, domain and user scope: set the default here or lock it; people can switch it off for themselves in Settings > Privacy unless it is locked.
+
 <a id="diagnostics.retentionDays"></a>
 ### Diagnostics history (`diagnostics.retentionDays`)
 
