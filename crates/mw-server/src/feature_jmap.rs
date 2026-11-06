@@ -8,6 +8,10 @@ use std::collections::BTreeSet;
 #[path = "receipt_proxy.rs"]
 pub(crate) mod receipt_proxy;
 
+/// A folder delete is refused under a legal hold or a processing restriction.
+#[path = "folder_delete_guard.rs"]
+pub(crate) mod folder_delete_guard;
+
 fn required_features(request: &Value) -> BTreeSet<&'static str> {
     let mut required = BTreeSet::new();
     for call in request
@@ -128,6 +132,7 @@ pub(crate) async fn admit(
     request: &Value,
 ) -> Result<(), Response> {
     refuse_foreign_account(state, session, request)?;
+    folder_delete_guard::admit(state, session, request).await?;
     if state.engine.is_none() && requests_exact_sender_domain(request) {
         return Err((
             axum::http::StatusCode::BAD_REQUEST,
