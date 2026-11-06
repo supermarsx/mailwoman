@@ -18,7 +18,7 @@ it('honors administrative locks and offers inherited defaults',()=>{
  render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
  expect(screen.getByLabelText('Display time zone')).toBeDisabled();
  const comparison=screen.getByLabelText('Comparison time zone').closest('form')!;
- fireEvent.click(comparison.querySelector('button[type="button"]')!);
+ fireEvent.click(comparison.querySelector('button[type="button"]:not([aria-controls])')!);
  expect(data.reset).toHaveBeenCalledWith('time.comparisonZone');
 });
 it('asks to discard in the in-app dialog, never window.confirm, and a bulk close that already chose discard does not ask again (t67)',async()=>{

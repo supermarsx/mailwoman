@@ -1,5 +1,6 @@
 import { Icon } from '../../components/Icon.tsx';
 import { EventTimeComparison } from '../../components/TimeHelpers.tsx';
+import { TimeZoneCombobox } from '../../components/TimeZoneCombobox.tsx';
 import { localTimeZone, validTimeZone, wallTimeCandidates } from '../../i18n/timezones.ts';
 // Event create/edit dialog (plan §3 e4): title / calendar / start / duration /
 // all-day / location / description, a recurrence editor (common set), reminders
@@ -412,7 +413,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
         </div>
 
         <Show when={!allDay()}>
-          <div class={css.field}><label class={css.label} for="ev-time-zone">{t('calendar-field-time-zone')}</label><input id="ev-time-zone" class={css.input} value={timeZone()} maxlength={64} onInput={event=>setTimeZone(event.currentTarget.value.trim())} aria-describedby="event-time-zone-help"/><p id="event-time-zone-help">{t('calendar-field-time-zone-help')}</p></div>
+          <div class={css.field}><TimeZoneCombobox id="ev-time-zone" label={t('calendar-field-time-zone')} value={timeZone()} browserValue={localTimeZone()} freeText onChange={value=>setTimeZone(value.trim())} describedBy="event-time-zone-help"/><p id="event-time-zone-help">{t('calendar-field-time-zone-help')}</p></div>
         </Show>
         <div class={css.row}>
           <div class={`${css.field} ${css.grow}`}>

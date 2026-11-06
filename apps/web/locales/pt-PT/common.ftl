@@ -184,3 +184,9 @@ multiselect-count = { $count ->
     [one] 1 selecionado
    *[other] { $count } selecionados
 }
+
+# Combobox pesquisável e seletor de fuso horário
+combobox-toggle = Mostrar opções de { $label }
+combobox-empty = Sem resultados
+timezone-use-browser = Usar o fuso horário do navegador ({ $zone })
+timezone-group-other = Outros

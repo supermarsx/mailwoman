@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createSignal, For, Show, type JSX } from 'solid-js';
-import { validTimeZone, supportedTimeZones } from '../../i18n/timezones.ts';
-import {SearchableSelect} from '../../components/SearchableSelect.tsx';
+import { validTimeZone } from '../../i18n/timezones.ts';
+import {TimeZoneCombobox} from '../../components/TimeZoneCombobox.tsx';
 import { t } from '../../i18n';
 import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
@@ -16,7 +16,7 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
   const [draft,setDraft]=createSignal(setting.value());const [error,setError]=createSignal('');
   const saved=createMemo(()=>setting.value());createEffect(()=>setDraft(saved()));
   const disabled=()=>!setting.entry()||setting.locked()||setting.saving();
-  const options=[{value:props.kind==='displayZone'?'local':'',label:t(props.kind==='displayZone'?'settings-time-local':'settings-time-none')},...supportedTimeZones().map(value=>({value,label:value.replaceAll('_',' ')}))];
+  const extra=props.kind==='comparisonZone'?[{value:'',label:t('settings-time-none')}]:[];
   const LeaveDialog=useLeaveConfirm(props.navigation,()=>draft()!==setting.value(),()=>t('settings-time-discard'));
   async function save(event:SubmitEvent):Promise<void> {
     event.preventDefault();const value=draft().trim();
@@ -24,7 +24,7 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
     setError('');if(await setting.set(value))setDraft(value);
   }
   return <form class={`${kit.row} ${kit.rowStacked}`} data-setting-row onSubmit={event=>void save(event)}>
-    <SearchableSelect label={t(`settings-time-${props.kind}`)} value={draft()} options={options} disabled={disabled()} onChange={setDraft} describedBy={`time-${props.kind}-help`}/>
+    <TimeZoneCombobox id={`time-${props.kind}`} label={t(`settings-time-${props.kind}`)} value={draft()} browserValue={props.kind==='displayZone'?'local':undefined} extra={extra} freeText disabled={disabled()} onChange={setDraft} describedBy={`time-${props.kind}-help`}/>
     <p id={`time-${props.kind}-help`} class={css.meta}>{t(`settings-time-${props.kind}-help`)}</p><LockNote locked={setting.locked()}/>
     <Show when={error()||setting.error()}><p role="alert">{error()||setting.error()}</p></Show>
     <div class={css.actions}><button type="submit" class={css.button} disabled={disabled()||draft()===setting.value()}>{t('settings-time-save')}</button><button type="button" class={css.ghost} disabled={disabled()} onClick={()=>void setting.reset()}>{t('reader-inherit')}</button></div>

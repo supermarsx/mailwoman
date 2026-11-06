@@ -39,3 +39,38 @@ export function wallTimeCandidates(value: string, zone: string): Date[] {
     .filter(instant=>parts(instant).every((part,index)=>part===wanted[index]))
     .sort((a,b)=>a-b).map(instant=>new Date(instant));
 }
+
+/** Zones offered when the runtime has no `Intl.supportedValuesOf` (older engines). */
+export const FALLBACK_TIME_ZONES: readonly string[] = [
+  'UTC', 'Africa/Cairo', 'Africa/Johannesburg', 'Africa/Lagos', 'Africa/Nairobi', 'America/Anchorage', 'America/Argentina/Buenos_Aires',
+  'America/Bogota', 'America/Chicago', 'America/Denver', 'America/Halifax', 'America/Los_Angeles', 'America/Mexico_City', 'America/New_York',
+  'America/Sao_Paulo', 'America/Toronto', 'Asia/Bangkok', 'Asia/Dhaka', 'Asia/Dubai', 'Asia/Hong_Kong', 'Asia/Jakarta', 'Asia/Karachi',
+  'Asia/Kolkata', 'Asia/Seoul', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Tokyo', 'Atlantic/Azores', 'Atlantic/Reykjavik', 'Australia/Perth',
+  'Australia/Sydney', 'Europe/Amsterdam', 'Europe/Athens', 'Europe/Berlin', 'Europe/Dublin', 'Europe/Istanbul', 'Europe/Lisbon', 'Europe/London',
+  'Europe/Madrid', 'Europe/Moscow', 'Europe/Paris', 'Europe/Rome', 'Pacific/Auckland', 'Pacific/Honolulu',
+];
+/** The zone list for a picker: the runtime database, or the short fallback list. */
+export function pickerTimeZones(): string[] {
+  const api=Intl as typeof Intl & {supportedValuesOf?:(key:string)=>string[]};
+  let known:string[]=[];
+  try { known=api.supportedValuesOf?.('timeZone')??[]; } catch { known=[]; }
+  return [...new Set(['UTC',localTimeZone(),...(known.length?known:FALLBACK_TIME_ZONES)])].filter(validTimeZone).sort();
+}
+/** Offset from UTC in minutes for `zone` at `at` (DST aware), or null for an unknown zone. */
+export function zoneOffsetMinutes(zone: string, at: Date = new Date()): number | null {
+  try {
+    const parts=Object.fromEntries(new Intl.DateTimeFormat('en-US-u-ca-gregory-nu-latn',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).formatToParts(at).map(part=>[part.type,part.value]));
+    const asUtc=Date.UTC(Number(parts.year),Number(parts.month)-1,Number(parts.day),Number(parts.hour),Number(parts.minute),Number(parts.second));
+    return Math.round((asUtc-Math.floor(at.getTime()/1000)*1000)/60000);
+  } catch { return null; }
+}
+/** `UTC+01:00`, `UTC-03:30`, `UTC` for zero. */
+export function formatUtcOffset(minutes: number): string {
+  if (minutes===0) return 'UTC';
+  const abs=Math.abs(minutes);
+  return `UTC${minutes<0?'-':'+'}${String(Math.floor(abs/60)).padStart(2,'0')}:${String(abs%60).padStart(2,'0')}`;
+}
+/** The wall-clock time in `zone` at `at`, 24-hour `HH:MM`. */
+export function zoneClock(zone: string, at: Date = new Date()): string {
+  try { return new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at); } catch { return ''; }
+}

@@ -26,7 +26,7 @@ export const option = style({
   '@media': { '(forced-colors: active)': { selectors: { '&:focus-visible': { outlineColor: 'CanvasText' } } } },
 });
 globalStyle(`${option}[aria-selected="true"]`, {
-  background: vars.color.bgAlt, boxShadow: `inset 3px 0 ${vars.color.accent}`,
+  background: vars.color.bgAlt, color: vars.color.text, boxShadow: `inset 3px 0 ${vars.color.accent}`,
 });
 globalStyle(`${option}[aria-selected="true"]`, {
   '@media': { '(forced-colors: active)': { background: 'Highlight', color: 'HighlightText', forcedColorAdjust: 'none' } },

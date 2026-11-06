@@ -24,6 +24,22 @@ globalStyle(':where(select option, select optgroup)', {
   color: vars.color.text,
   padding: vars.space[2],
 });
+// Native select popups are painted by the UA: `color-scheme` follows the active theme's
+// light/dark nature (shell/rootAttributes.ts sets data-appearance) so the popup, scrollbar
+// and arrow match, and option/optgroup/disabled/focus are themed with tokens where the
+// engine allows it. Custom listboxes (Combobox) cover the rest.
+globalStyle(':root[data-appearance="light"]', { colorScheme: 'light' });
+globalStyle(':root[data-appearance="dark"]', { colorScheme: 'dark' });
+globalStyle(':where(select:focus-visible)', { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' });
+globalStyle(':where(select optgroup)', { fontWeight: vars.weight.bold, color: vars.color.textDim });
+globalStyle(':where(select option:disabled, select optgroup:disabled)', { color: vars.color.textDim });
+globalStyle(':where(select option:hover)', { backgroundColor: vars.color.bgAlt, color: vars.color.text });
+globalStyle(':where(select)', {
+  '@media': { '(forced-colors: active)': { backgroundColor: 'Canvas', color: 'CanvasText', borderColor: 'CanvasText' } },
+});
+globalStyle(':where(select option, select optgroup)', {
+  '@media': { '(forced-colors: active)': { backgroundColor: 'Canvas', color: 'CanvasText' } },
+});
 globalStyle(':where(select option:checked)', {
   backgroundColor: vars.color.accent,
   color: vars.color.accentText,

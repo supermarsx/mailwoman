@@ -197,3 +197,9 @@ multiselect-count = { $count ->
     [one] 1 selected
    *[other] { $count } selected
 }
+
+# Searchable combobox and time-zone picker
+combobox-toggle = Show options for { $label }
+combobox-empty = No matches
+timezone-use-browser = Use browser time zone ({ $zone })
+timezone-group-other = Other
