@@ -22,8 +22,8 @@ const TREE:Mailbox[]=[...MAILBOXES,
 const apply=(values:Record<string,boolean>)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'user',locked:false}]))}),{headers:{'content-type':'application/json'}})});
 beforeEach(async()=>{suspendAccountPreferences();clearSettings();localStorage.removeItem(WORKSPACE_STORAGE_KEY);history.replaceState(null,'','#/mail');await new Promise(resolve=>setTimeout(resolve,0));});
 afterEach(()=>{cleanup();clearSettings();});
-async function mount(values:Record<string,boolean>={}){
- const app=createAppState(makeClient({emails:[mkEmail('a')],mailboxes:TREE}));const realtime=createRealtimeController();
+async function mount(values:Record<string,boolean>={},boxes:Mailbox[]=TREE){
+ const app=createAppState(makeClient({emails:[mkEmail('a')],mailboxes:boxes}));const realtime=createRealtimeController();
  await apply(values);await app.login({username:'me@example.org',password:'p'});
  render(()=><AppContext.Provider value={app}><RealtimeContext.Provider value={realtime}><MailboxScreen/></RealtimeContext.Provider></AppContext.Provider>);
  await screen.findByText('Subject a',{selector:'.list__subject'});
@@ -83,3 +83,20 @@ describe('nested folder tree in the sidebar',()=>{
  });
 });
 void vi;
+
+describe('secondary divider before views and queues',()=>{
+ const divider=()=>sidebar().querySelector('[role=separator].sidebar__divider-secondary');
+ it('sits between the user folders and the Attachments/Outbox group, named for screen readers',async()=>{
+  await mount();
+  await waitFor(()=>expect(divider()).not.toBeNull());
+  expect(divider()).toHaveAttribute('aria-label','Views and queues');
+  const outbox=sidebar().querySelector('[aria-label="Outbox"]')!;
+  expect(divider()!.compareDocumentPosition(outbox)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  expect(sidebar().querySelector('[data-folder-id="work"]')!.compareDocumentPosition(divider()!)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+ });
+ it('is absent when there are no user folders',async()=>{
+  await mount({},MAILBOXES);
+  expect(sidebar().querySelector('[aria-label="Outbox"]')).not.toBeNull();
+  expect(divider()).toBeNull();
+ });
+});

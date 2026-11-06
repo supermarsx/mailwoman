@@ -1234,3 +1234,4 @@ mail-focus-go-to = Ir para { $folder }
 mail-from = Remetente
 mail-subject = Assunto
 mail-date = Data
+mail-nav-views-queues = Vistas e filas

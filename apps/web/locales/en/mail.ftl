@@ -1245,3 +1245,4 @@ mail-attachments-zip-done = Downloaded { $count } attachments as a ZIP.
 mail-attachments-zip-capped = The ZIP holds the first { $count } attachments; the limit is { $max } files or { $size }.
 mail-focus-not-found = Message not found in { $folder }
 mail-focus-go-to = Go to { $folder }
+mail-nav-views-queues = Views and queues

@@ -923,6 +923,7 @@ export function MailboxScreen(): JSX.Element {
           </For>
           </Show></div></>}</For>
           </div>
+          <Show when={sectionRows(true).length>0}><div role="separator" class="sidebar__divider-secondary" data-testid="sidebar-secondary-divider" aria-label={t('mail-nav-views-queues')}/></Show>
           <Show when={featureOn('views.attachments')}><button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}

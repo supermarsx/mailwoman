@@ -1052,3 +1052,7 @@ table.settings-package-table { min-inline-size:38rem; }
 /* Keep the user-folder disclosure smaller than a mailbox row. */
 .sidebar__box[data-folder-disclosure] { min-height: 24px; padding-block: 2px; font-size: .75rem; gap: 4px; }
 .sidebar__box[data-folder-disclosure] > svg { width: 12px; height: 12px; }
+
+/* Secondary divider: user folders | views and queues. Inset and fainter than a full-width rule. */
+.sidebar__divider-secondary { block-size:0; margin:.35rem .75rem; border:0; border-block-start:1px solid color-mix(in srgb, var(--border-strong, currentColor) 55%, transparent); }
+@media (forced-colors: active) { .sidebar__divider-secondary { border-block-start-color:GrayText; } }
