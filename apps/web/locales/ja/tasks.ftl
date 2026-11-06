@@ -39,3 +39,6 @@ tasks-delete-no = タスクを残す
 tasks-changed-elsewhere = このタスクは別のデバイスまたはセッションで変更されました。あなたの編集内容は保持されます。保存すると、変更したフィールドのみが適用されます。
 tasks-deleted-elsewhere = 「{ $title }」は別のデバイスまたはセッションで削除されたため、編集フォームを閉じました。
 tasks-notice-dismiss = 閉じる
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = タスクを作成できませんでした。{ $reason }

@@ -61,3 +61,9 @@ notes-link-button = リンク
 notes-changed-elsewhere = このメモは別のデバイスまたはセッションで変更されました。ここで入力したテキストは保持され、次の編集時に保存されます。
 notes-deleted-elsewhere = 開いていたメモは別のデバイスまたはセッションで削除されました。
 notes-create-failed = メモを作成できませんでした。
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = メモを作成できませんでした。{ $reason }
+notes-toast-pinned = メモ「{ $target }」をピン留めしました
+notes-toast-unpinned = メモ「{ $target }」のピン留めを解除しました
+notes-toast-pin-failed = メモ「{ $target }」のピン留めを変更できませんでした
