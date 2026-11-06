@@ -448,8 +448,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const value=readCache.peek(owner,messageCacheKey(id),'message')?.value;
     return value?.kind==='message'?value:undefined;
   }
-  async function fetchFullMessage(account:string,id:Id,signal:AbortSignal):Promise<CachedMailRead> {
-    const response=await jmapCall(emailGetFull(account,id),{signal});
+  async function fetchFullMessage(account:string,id:Id,signal:AbortSignal,background=false):Promise<CachedMailRead> {
+    const response=await jmapCall(emailGetFull(account,id),background?{signal,pace:'background'}:{signal});
     const email=responseFor<EmailGetResponse>(response,'g').list[0]??null;
     const body=email?extractHtmlBody(email):'';
     // The reader's own mode, warmed at low priority so opening the message finds it cached.
@@ -467,14 +467,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const owner=cacheOwner(),account=accountId(),box=mailboxes().find(value=>value.id===id);
     if(!owner||!account||!box||id===EVENTS_VIEW_ID)return ()=>undefined;
     const request=pageRequest(account,{kind:'mailbox',mailboxId:id},0,PAGE_SIZE,true);
-    return readCache.prefetch(owner,JSON.stringify(request),'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal})}),
+    return readCache.prefetch(owner,JSON.stringify(request),'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal,pace:'background'})}),
       {trigger,folderId:id,...(box.role?{folderRole:box.role}:{})});
   }
   function prefetchMessage(id:Id,trigger:PrefetchTrigger):()=>void {
     const owner=cacheOwner(),account=accountId(),email=messages().find(value=>value.id===id);
     if(!owner||!account||!email)return ()=>undefined;
     const box=mailboxes().find(value=>value.id===selectedMailboxId());
-    return readCache.prefetch(owner,messageCacheKey(id),'message',signal=>fetchFullMessage(account,id,signal),
+    return readCache.prefetch(owner,messageCacheKey(id),'message',signal=>fetchFullMessage(account,id,signal,true),
       {trigger,...(box?{folderId:box.id,...(box.role?{folderRole:box.role}:{})}:{})});
   }
   function setActiveReader(view: MessageView | null): void {

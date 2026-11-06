@@ -257,6 +257,8 @@ export interface JmapCallOptions {
   idempotencyKey?: string | false;
   /** t91: told when recovery runs long ("Retrying…"). */
   onSlow?: RecoveryOptions['onSlow'];
+  /** t106: `background` for prefetch; it yields to user-initiated requests and pauses while the server asks for time (`rateAware.ts`). */
+  pace?: 'foreground' | 'background';
 }
 
 /**
@@ -499,6 +501,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
             body: text,
             ...(opts?.signal !== undefined ? { signal: opts.signal } : {}),
             ...(keepalive ? { keepalive: true } : {}),
+            ...(opts?.pace === 'background' ? { pace: 'background' as const } : {}),
             ...(key !== undefined ? keyedWrite(key, opts?.onSlow ? { onSlow: opts.onSlow } : {}) : {}),
           });
           let res = await send();

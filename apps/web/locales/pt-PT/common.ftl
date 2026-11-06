@@ -61,6 +61,7 @@ common-conn-reconnected = Ligação restabelecida
 
 # -- New-version notice (state/NewVersionToast.tsx). -------------------------
 common-new-version = Está disponível uma nova versão do Mailwoman. Se fechar este aviso, voltamos a lembrá-lo daqui a uma hora.
+common-rate-limited = O servidor está ocupado. Aguarde alguns segundos e tente novamente.
 common-new-version-reload = Recarregar agora
 
 # -- Toasts (components/toast/ToastRegion.tsx), in the webmail and the admin

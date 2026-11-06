@@ -6,6 +6,7 @@ import { bootConsent } from './cookies/runtime.ts';
 import { LocaleProvider } from './i18n/index.ts';
 import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
 import { installBundleRecovery } from './sw/bundleRecovery.ts';
+import { installRateLimitNotice } from './state/rateLimitNotice.ts';
 import { bootLocale } from './screens/Settings/language.ts';
 import './styles/app.css';
 // After app.css: one size and accent for every checkbox and radio (t32-h12).
@@ -30,6 +31,9 @@ if (root === null) {
 // Cookie consent: load the configuration and apply the stored decision (block and
 // purge) as early as the server answers; the control itself is `ConsentLayer`.
 void bootConsent();
+
+// One quiet toast when the server stays busy past the client's retries (`api/rateAware.ts`).
+installRateLimitNotice();
 
 // LocaleProvider (i18n foundation, plan §6 e0): negotiates the active locale,
 // loads the critical `en` catalog, drives `<html lang/dir>` + reduced-motion.

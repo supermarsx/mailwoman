@@ -42,12 +42,15 @@ import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferen
 import {activeLinkedMailbox,linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
 import {linkedRoute,linkedUnsignedResource} from './linkedAccountRouting.ts';
 import { recoverRequest, type RecoveryOptions } from './recovery.ts';
+import { rateAwareSend, type PaceClass } from './rateAware.ts';
 
 export interface ApiRequestInit extends RequestInit {
   /** Explicit effective-Me/discovery probe. Never sent as a fetch option. */
   mailboxContext?:string|null;
   /** t82: retry/recover this request (see `recovery.ts`). Never sent as a fetch option. */
   recovery?:RecoveryOptions;
+  /** t106: `background` pacing for prefetch and other work nobody is waiting for (see `rateAware.ts`). Never sent as a fetch option. */
+  pace?:PaceClass;
 }
 
 /** The readable cookie holding the token (`hardening::CSRF_COOKIE`). */
@@ -247,12 +250,22 @@ function refreshToken(source: string): Promise<string | null> {
  *
  * `X-Mailwoman-Client` is added where `setClientHeader` says so.
  */
-async function rawApiFetch(input: string, given: RequestInit|undefined, assertAuthority:()=>void): Promise<Response> {
+async function rawApiFetch(input: string, given: RequestInit|undefined, assertAuthority:()=>void, pace?: PaceClass): Promise<Response> {
   const epoch=adminSessionGeneration();
   assertAuthority();
-  const response=await sendApiFetch(input,given,assertAuthority);
+  const method=(given?.method??'GET').toUpperCase();
+  // t106: a 429/503 is waited out and a safe request sent again; background work
+  // yields to the user; an identical GET in flight is answered once.
+  const response=await rateAwareSend({method,path:requestPath(input),body:given?.body,pace,signal:given?.signal},
+    ()=>sendApiFetch(input,given,assertAuthority),shareKey(input,method,given));
   observeAdminResponse(input,response.status,epoch);
   return response;
+}
+/** A key for GETs that may share one in-flight request: no body, no abort signal, same headers. */
+function shareKey(input: string, method: string, init: RequestInit|undefined): string|undefined {
+  if(method!=='GET'||init?.body!=null||init?.signal!=null||init?.keepalive===true)return undefined;
+  const headers=[...new Headers(init?.headers).entries()].sort(([a],[b])=>a<b?-1:a>b?1:0);
+  return JSON.stringify([input,init?.credentials??'',headers]);
 }
 async function sendApiFetch(input: string, given: RequestInit|undefined, assertAuthority:()=>void): Promise<Response> {
   const init = withClientHeader(input, given);
@@ -280,8 +293,8 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
     return recoverRequest(input, rest, (init) => apiFetch(input, init as ApiRequestInit | undefined), { ...recovery, authority });
   }
   const contextEpoch=linkedMailboxEpoch();
-  const {mailboxContext,...ordinary}=options??{};
-  let given:RequestInit|undefined=mailboxContext===undefined?options:ordinary;
+  const {mailboxContext,pace,...ordinary}=options??{};
+  let given:RequestInit|undefined=mailboxContext===undefined&&pace===undefined?options:ordinary;
   const adminEpoch=adminSessionGeneration();
   const routePath=requestPath(input);
   const admin=routePath.startsWith(`${consolePath()}/`);
@@ -312,7 +325,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();
   assertAuthority();
-  const response = await rawApiFetch(input, given,assertAuthority);
+  const response = await rawApiFetch(input, given,assertAuthority,pace);
   if(!admin)assertAuthority();
   if (response.status !== 403 || typeof response.clone !== 'function' || typeof document === 'undefined'
     || new Headers(given?.headers).has('authorization') || given?.credentials === 'omit'
@@ -342,7 +355,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   if (!(await confirmation) || given?.signal?.aborted) return response;
   if (native !== originalNative || (originalNative !== null && await originalNative.token() !== originalToken)) return response;
   assertAuthority();
-  const retried=await rawApiFetch(input, given,assertAuthority);
+  const retried=await rawApiFetch(input, given,assertAuthority,pace);
   if(!admin)assertAuthority();
   return retried;
 }

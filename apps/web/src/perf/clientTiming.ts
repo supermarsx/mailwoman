@@ -30,6 +30,7 @@ import { apiFetch } from '../api/http.ts';
 import { withBase } from '../api/basePath.ts';
 import { loadClientPolicy, clientPolicy } from '../api/policy.ts';
 import { settings } from '../api/settings.ts';
+import { takeRateReport } from '../api/rateAware.ts';
 
 export type TimingMetric =
   | 'timeToUsable' | 'ttfb' | 'dcl' | 'load' | 'fcp' | 'lcp' | 'folderOpen'
@@ -137,10 +138,12 @@ export function browserDeps(): Deps {
       return clientPolicy().clientTiming ?? { enabled: false, sampleRatePercent: 0 };
     },
     send: async (payload) => {
+      const rate = takeRateReport();
       await apiFetch(withBase(ENDPOINT), {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
+        // t106: how many 429s this page saw, retried and gave up on since the last report (counts only).
+        body: JSON.stringify({ ...payload, ...(rate !== null ? { rate } : {}) }),
         keepalive: true,
       });
     },

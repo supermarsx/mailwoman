@@ -75,6 +75,7 @@ common-conn-reconnected = Reconnected
 # -- New-version notice (state/NewVersionToast.tsx). -------------------------
 common-new-version = A new version of Mailwoman is available. Closing this reminds you again in an hour.
 common-new-version-reload = Reload now
+common-rate-limited = The server is busy. Wait a few seconds and try again.
 
 # -- Toasts (components/toast/ToastRegion.tsx), in the webmail and the admin
 #    console. The seconds are the time left on an undo window. -----------------
