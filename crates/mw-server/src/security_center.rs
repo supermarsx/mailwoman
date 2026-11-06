@@ -974,6 +974,7 @@ mod session_scope_tests {
             last_seen: String::new(),
             last_activity: String::new(),
             device: SessionDevice::default(),
+            linked: None,
         };
         assert!(matches_session(&ctx, &SessionFilter::default(), &row));
         row.username = "user@other.org".into();
