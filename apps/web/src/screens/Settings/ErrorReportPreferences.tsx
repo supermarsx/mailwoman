@@ -6,6 +6,7 @@
 
 import { onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../i18n';
+import { cacheErrorReports } from '../../observability/clientErrors.ts';
 import { useSetting } from './useSetting.ts';
 import { SettingRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
@@ -17,7 +18,7 @@ export function ErrorReportPreferences(): JSX.Element {
     <SettingRow controlId="error-reports-control" label={t('privacy-error-reports-send')} help={t('privacy-error-reports-send-help')} handle={setting} resetLabel={t('privacy-inherit')}>{describedBy =>
       <input id="error-reports-control" type="checkbox" data-testid="error-reports" aria-describedby={describedBy()}
         checked={setting.value() !== 'off'} disabled={!setting.entry() || setting.locked() || setting.saving()}
-        onChange={event => void setting.set(event.currentTarget.checked ? 'on' : 'off')} />
+        onChange={event => { const next = event.currentTarget.checked ? 'on' : 'off'; cacheErrorReports(next); void setting.set(next); }} />
     }</SettingRow>
   </SettingsCard>;
 }

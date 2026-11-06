@@ -17,3 +17,15 @@ export function safePdfLink(value: unknown): string|null {
     return ['https:', 'http:', 'mailto:', 'tel:'].includes(url.protocol) && !url.username && !url.password ? url.href : null;
   } catch { return null; }
 }
+/** The error a sandboxed PDF frame reports through its `error` message (bounded; the host scrubs it again). */
+export function pdfFrameError(data: unknown): Error {
+  const d = (data !== null && typeof data === 'object' ? data : {}) as Record<string, unknown>;
+  const text = (v: unknown, max: number): string => (typeof v === 'string' ? v.slice(0, max) : '');
+  const error = new Error(text(d['message'], 300) || 'PDF viewer failed');
+  error.name = text(d['name'], 80).replace(/[^\w.$-]/g, '') || 'PdfViewerError';
+  const stack = text(d['stack'], 2000);
+  error.stack = stack !== '' ? stack : `${error.name}: ${error.message}`;
+  return error;
+}
+/** The boundary name the PDF bridge reports under. */
+export const PDF_ERROR_BOUNDARY = 'Reader/AttachmentViewer/pdf';

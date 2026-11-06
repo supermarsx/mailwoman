@@ -6,13 +6,14 @@ import { render, waitFor, cleanup } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
 import PdfViewer from './PdfViewer.tsx';
 import { PDF_CHANNEL } from './pdfBridge.ts';
+import { Reporter, setReporterForTests } from '../observability/clientErrors.ts';
 
 vi.mock('../screens/Admin/shell/ConfirmDialog.tsx', () => ({ ConfirmDialog: () => null }));
 const part = { partId: '1', blobId: 'b', size: 1, type: 'application/pdf' };
 function message(frame: HTMLIFrameElement, data: Record<string, unknown>, source: Window|null = frame.contentWindow, origin = 'null'): void {
   window.dispatchEvent(new MessageEvent('message', { source, origin, data: { channel: PDF_CHANNEL, instance: 'frame-one', ...data } }));
 }
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { setReporterForTests(null); cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('full PDF viewer authorized byte bridge', () => {
   it('transfers bytes once to its own ready frame, checks nonce, and closes on unmount', async () => {
@@ -76,6 +77,32 @@ describe('full PDF viewer authorized byte bridge', () => {
     expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('loading');
     message(frame, { type: 'loaded', nonce: second.nonce, instance: 'frame-two' });
     expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('ready');
+  });
+  it('files a frame error and a failed byte fetch with the client error reporter under the pdf boundary', async () => {
+    const report = vi.fn(() => null);
+    setReporterForTests({ report } as unknown as Reporter);
+    const fetch = vi.fn(async (_url: string, _options: RequestInit) => new Response(new Uint8Array([37, 80, 68, 70])));
+    vi.stubGlobal('fetch', fetch);
+    const view = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/frame-error`} mime="application/pdf" name="test.pdf"/>);
+    const frame = view.container.querySelector('iframe')!;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    message(frame, { type: 'ready' });
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const nonce = (post.mock.calls[0]![0] as { nonce: string }).nonce;
+    message(frame, { type: 'error', nonce, name: 'InvalidPDFException', message: 'Invalid PDF structure', stack: 'InvalidPDFException: Invalid PDF structure\n    at a (pdf.mjs:1:1)' });
+    expect(view.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('error');
+    expect(report).toHaveBeenCalledTimes(1);
+    const [error, kind, boundary] = report.mock.calls[0] as unknown as [Error, string, string];
+    expect(error.name).toBe('InvalidPDFException');
+    expect(error.message).toBe('Invalid PDF structure');
+    expect(kind).toBe('boundary');
+    expect(boundary).toBe('Reader/AttachmentViewer/pdf');
+    view.unmount();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403 })));
+    const second = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/refused-report`} mime="application/pdf" name="test.pdf"/>);
+    await waitFor(() => expect(second.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('error'));
+    expect(report).toHaveBeenCalledTimes(2);
+    expect((report.mock.calls[1] as unknown as [Error])[0].message).toBe('PDF unavailable');
   });
   it('shows fetch failures without handing an attachment URL to PDF.js', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403 })));

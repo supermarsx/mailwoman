@@ -19,7 +19,8 @@ import { shellBase } from '../api/basePath.ts';
 import { apiFetch } from '../api/http.ts';
 import { t } from '../i18n/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
-import { authorizedPdfBlob, PDF_CHANNEL, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX, safePdfLink, validPdfMessage } from './pdfBridge.ts';
+import { reportBoundaryError } from '../observability/clientErrors.ts';
+import { authorizedPdfBlob, pdfFrameError, PDF_CHANNEL, PDF_ERROR_BOUNDARY, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX, safePdfLink, validPdfMessage } from './pdfBridge.ts';
 
 export { PDF_WORKER_SRC, isSelfHosted } from './pdfWorkerSrc.ts';
 
@@ -44,9 +45,10 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
   let nonce = crypto.randomUUID();
   const [status, setStatus] = createSignal<'loading'|'ready'|'error'>('loading');
   const [link, setLink] = createSignal<string>();
-  function fail(): void {
+  function fail(reason?: unknown): void {
     if (disposed || failed) return;
     failed = true;
+    reportBoundaryError(reason ?? new Error('PDF viewer failed'), PDF_ERROR_BOUNDARY);
     abort.abort();
     bytes = undefined;
     setStatus('error');
@@ -74,9 +76,9 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     if (event.data.type === 'ready' && typeof event.data.instance === 'string' && event.data.instance.length <= 100) {
       if (event.data.instance === instance || (failed && instance === undefined)) return;
       if (instance !== undefined) {
-        if (++reloads > 5) { fail(); return; }
+        if (++reloads > 5) { fail(new Error('PDF viewer reloaded too many times')); return; }
         abort.abort(); abort = new AbortController(); nonce = crypto.randomUUID(); sent = false; bytes = undefined; failed = false;
-        clearTimeout(deadline); deadline = setTimeout(fail, 45_000); setStatus('loading'); setLink(undefined);
+        clearTimeout(deadline); deadline = setTimeout(() => fail(new Error('PDF viewer timed out')), 45_000); setStatus('loading'); setLink(undefined);
         fetchBytes();
       }
       instance = event.data.instance;
@@ -84,20 +86,20 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     }
     if (failed || event.data.instance !== instance || event.data.nonce !== nonce || !sent) return;
     if (event.data.type === 'loaded' || event.data.type === 'password') { clearTimeout(deadline); setStatus('ready'); }
-    else if (event.data.type === 'error') fail();
+    else if (event.data.type === 'error') fail(pdfFrameError(event.data));
     else if (event.data.type === 'link') {
       const url = safePdfLink(event.data.url);
       if (url) setLink(url);
     }
   }
   function fetchBytes(): void {
-    if (!authorizedPdfBlob(props.url, host.location.origin)) { fail(); return; }
+    if (!authorizedPdfBlob(props.url, host.location.origin)) { fail(new Error('PDF attachment URL not authorized')); return; }
     const request = abort;
     void apiFetch(props.url, { signal: request.signal }).then(async response => {
       if (!response.ok) throw new Error('PDF unavailable');
       const result = await response.arrayBuffer();
       if (!disposed && !failed && request === abort) { bytes = result; open(); }
-    }).catch(() => { if (request === abort) fail(); });
+    }).catch((error: unknown) => { if (request === abort) fail(error); });
   }
   function bindHost(): void {
     host.removeEventListener('message', receive);
@@ -109,7 +111,7 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
   }
   onMount(() => {
     bindHost();
-    deadline = setTimeout(fail, 45_000);
+    deadline = setTimeout(() => fail(new Error('PDF viewer timed out')), 45_000);
     fetchBytes();
   });
   onCleanup(() => {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { authorizedPdfBlob, safePdfLink, validPdfMessage, PDF_CHANNEL, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX } from './pdfBridge.ts';
+import { authorizedPdfBlob, pdfFrameError, PDF_ERROR_BOUNDARY, safePdfLink, validPdfMessage, PDF_CHANNEL, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX } from './pdfBridge.ts';
 describe('PDF link and frame boundary', () => {
   it('only reads attachment blobs created by the current origin', () => {
     expect(authorizedPdfBlob(`blob:${location.origin}/authorized`)).toBe(true);
@@ -48,5 +48,16 @@ describe('PDF frame bootstrap contract (opaque origin)', () => {
   it('hands the worker and its data files to PDF.js as absolute URLs', () => {
     for (const key of ['cMapUrl', 'standardFontDataUrl', 'wasmUrl', 'iccUrl', 'workerSrc']) expect(source).toContain(key);
     expect(source).toContain("new URL('./web/', import.meta.url)");
+  });
+});
+describe('PDF frame errors', () => {
+  it('turns the frame error message into a bounded Error for the reporter', () => {
+    const e = pdfFrameError({ name: 'InvalidPDFException', message: 'x'.repeat(1000), stack: 'InvalidPDFException: bad\n    at a (pdf.mjs:1:1)' });
+    expect(e.name).toBe('InvalidPDFException');
+    expect(e.message.length).toBe(300);
+    expect(e.stack).toContain('pdf.mjs');
+    const bare = pdfFrameError(null);
+    expect(bare.message).toBe('PDF viewer failed');
+    expect(PDF_ERROR_BOUNDARY).toBe('Reader/AttachmentViewer/pdf');
   });
 });

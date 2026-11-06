@@ -603,9 +603,28 @@ function pageContext(): Context {
 }
 
 const ANON = '/api/observability/client-errors';
+const OPT_KEY = 'mw.errorReports';
+
+/**
+ * The person's last known `privacy.errorReports` choice, cached in this browser.
+ * The anonymous route cannot know a signed-out visitor's opt-out, so it is only
+ * used while the cache does not say 'off'. The signed-in route answers
+ * `reporting` on every post and Settings writes the choice here when it changes.
+ */
+export function cachedErrorReports(): 'on' | 'off' | null {
+  try {
+    const v = localStorage.getItem(OPT_KEY);
+    return v === 'on' || v === 'off' ? v : null;
+  } catch {
+    return null;
+  }
+}
+export function cacheErrorReports(value: 'on' | 'off'): void {
+  try { localStorage.setItem(OPT_KEY, value); } catch { /* storage unavailable */ }
+}
 const SESSION = `${ANON}/session`;
 
-function browserTransport(): Transport {
+export function browserTransport(): Transport {
   // 'in' once the session route answered, 'out' after a 401; the anonymous route
   // (and `sendBeacon`) carry reports from the sign-in page and from an unload.
   let mode: 'unknown' | 'in' | 'out' = 'unknown';
@@ -645,11 +664,15 @@ function browserTransport(): Transport {
             if (res.status === 429) return { ok: false, status: 429, retryAfter: Number(res.headers.get('Retry-After') ?? 30) };
             if (!res.ok) return { ok: false, status: res.status };
             const info = (await res.json().catch(() => ({}))) as { reporting?: string };
+            if (info.reporting === 'off' || info.reporting === 'on') cacheErrorReports(info.reporting);
             return info.reporting === 'off' ? { ok: false, status: 200, off: true } : { ok: true, status: res.status };
           }
           mode = 'out';
           outAt = Date.now();
         }
+        // A person who opted out while signed in must not be reported on the
+        // anonymous route (or by the unload beacon) after the session ends.
+        if (cachedErrorReports() === 'off') return { ok: false, status: 200, off: true };
         const anon = reports.slice(0, 5);
         const anonPayload = body(anon);
         if (unloading && typeof navigator.sendBeacon === 'function') {

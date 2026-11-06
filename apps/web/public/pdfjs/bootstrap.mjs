@@ -216,5 +216,15 @@ async function start() {
   opened = true;
   send('loaded', { pages: application.pdfDocument.numPages });
 }
-start().catch(() => send('error'));
-window.addEventListener('unhandledrejection', () => { if (!opened) send('error'); });
+// The error detail is what the host files with the client error reporter; it is
+// bounded here and scrubbed again by the host (no document text is ever included).
+function errorDetail(reason) {
+  const e = reason instanceof Error ? reason : null;
+  return {
+    name: String(e?.name ?? 'PdfViewerError').slice(0, 80),
+    message: String(e?.message ?? (typeof reason === 'string' ? reason : 'PDF viewer failed')).slice(0, 300),
+    stack: String(e?.stack ?? '').slice(0, 2000),
+  };
+}
+start().catch(reason => send('error', errorDetail(reason)));
+window.addEventListener('unhandledrejection', event => { if (!opened) send('error', errorDetail(event.reason)); });

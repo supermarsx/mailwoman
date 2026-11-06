@@ -6,6 +6,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import {
   LIMITS,
+  browserTransport,
+  cacheErrorReports,
+  cachedErrorReports,
   Reporter,
   fingerprintOf,
   normalise,
@@ -321,5 +324,38 @@ describe('failure panel', () => {
     render(() => <AsyncBoundary><Thrower /></AsyncBoundary>);
     expect(screen.getByRole('alert').textContent).toContain('Something went wrong');
     expect(screen.queryByTestId('error-reference')).toBeNull();
+  });
+});
+
+describe('browser transport and the cached opt-out', () => {
+  const report = normalise(new Error('boom'), 'boundary', 'Test', ctx);
+  afterEach(() => { vi.unstubAllGlobals(); try { localStorage.removeItem('mw.errorReports'); } catch { /* none */ } });
+
+  it('does not use the anonymous route or the unload beacon once the cached choice is off', async () => {
+    cacheErrorReports('off');
+    const fetchMock = vi.fn(async (url: string) => new Response('', { status: String(url).endsWith('/session') ? 401 : 204 }));
+    const beacon = vi.fn(() => true);
+    vi.stubGlobal('fetch', fetchMock);
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { sendBeacon: beacon }));
+    const result = await browserTransport().send([report], { unloading: true });
+    expect(result).toMatchObject({ ok: false, off: true });
+    expect(beacon).not.toHaveBeenCalled();
+    expect(fetchMock.mock.calls.every(([u]) => String(u).endsWith('/session'))).toBe(true);
+  });
+
+  it('still falls back to the beacon when the choice is on or unknown', async () => {
+    expect(cachedErrorReports()).toBeNull();
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 401 })));
+    const beacon = vi.fn(() => true);
+    vi.stubGlobal('navigator', Object.assign(Object.create(navigator), { sendBeacon: beacon }));
+    const result = await browserTransport().send([report], { unloading: true });
+    expect(result.ok).toBe(true);
+    expect(beacon).toHaveBeenCalledTimes(1);
+  });
+
+  it('remembers the answer of the signed-in route', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ reporting: 'off' }), { status: 200 })));
+    await browserTransport().send([report], { unloading: false });
+    expect(cachedErrorReports()).toBe('off');
   });
 });
