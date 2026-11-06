@@ -1,5 +1,6 @@
 export type BrandCategory = 'identity' | 'mail' | 'app' | 'storage' | 'cloud' | 'analytics' | 'push' | 'security' | 'ai'
-  | 'social' | 'shopping' | 'productivity' | 'gaming' | 'media' | 'finance' | 'logistics' | 'travel' | 'utility';
+  | 'social' | 'shopping' | 'productivity' | 'gaming' | 'media' | 'finance' | 'logistics' | 'travel' | 'utility'
+  | 'tech' | 'channel' | 'professional' | 'pharma' | 'news' | 'fashion' | 'food' | 'auto' | 'dating' | 'payments' | 'health' | 'industry' | 'telecom';
 
 export interface BrandEntry {
   readonly id: string;

@@ -46,11 +46,52 @@ import {BrandLogo, BrandLabel, BrandCell, HostBrandCell} from '../brands/BrandLo
 
 In the reader, the logo of a recognised brand is shown beside the sender only when the message passed an aligned DMARC check and DKIM passed for a domain of the same brand (`brandAvatarFor`, `SenderBrandMark`). Brands without a bundled mark show nothing there. The setting `mail.brandAvatars` (user, domain and global scope, default on) turns it off. The message list carries no check result, so it keeps the normal avatar. The separate older `contacts.senderIcons` setting still shows bundled sender-domain icons in lists as appearance hints; it is documented as not being authentication evidence.
 
+## Interpretation of ambiguous names
+
+Names in the product lists that were typos or ambiguous were resolved as follows. The misspelling is kept as an alias so it still resolves.
+
+| Written | Read as | Note |
+| --- | --- | --- |
+| abibaba | Alibaba | `alibaba.com`, `alibabacloud.com`, `aliyun.com` |
+| gogcom | GOG.com | |
+| gleam | Gleam (programming language, `gleam.run`) | The dataset only has the language. `gleam.io` (the giveaway service) is a separate entry with a monogram, so its mails never show the language's logo |
+| paxb | Pax8 | |
+| vvalley | V-Valley | |
+| arrows ecs | Arrow ECS | `arrowecs.com` only, not `arrow.com` (Arrow Electronics) |
+| teasmpeak | TeamSpeak | |
+| theter ush | Tether | |
+| blockahincom | Blockchain.com | |
+| weromexico | Aeroméxico | |
+| also | ALSO Group | `also.com` |
+| commerbank | Commerzbank | |
+| opencode | OpenCode (`opencode.ai`) | |
+| ring | Ring (`ring.com`) | |
+| z.ai | Z.ai (`z.ai`) | |
+| cuf | CUF (`cuf.pt`) | |
+| dinesplus, seezer | Disney+, Deezer | |
+| Grok (xAI) | Grok, `x.ai` and `grok.com` | |
+| Dell EMC | separate from Dell | `dellemc.com`, `emc.com` |
+| PlayStation Network (PSN) | separate from Sony | `playstation.com`, `sonyentertainmentnetwork.com` |
+| Square/Block | Block | `block.xyz`, `squareup.com` |
+| Merck, MSD | two entries | Merck KGaA (`merckgroup.com`, `emdgroup.com`) and MSD (`msd.com`, `merck.com`) |
+| mo, mta(uk) | not added | Not unambiguous |
+| vig consulting | not added | "big consulting" is not a single identifiable firm |
+
+Not added because a sender domain could not be confirmed (no guesses): Banco Português de Gestão, SAMS, Grupo Trofa Saúde, HPA Saúde, CLIP, Gesaúde, 7Seasons, AMA, Clínica Sagres. Several Portuguese companies share a group domain with a parent and resolve through it.
+
+## Size cap
+
+Path data for one brand is limited to 8,000 characters. Very detailed crests (Porsche, Ferrari, Ritz-Carlton, Peugeot, Wipro, MSI) exceed it and show the monogram tile, which keeps the total of all category chunks near 195 KB gzip.
+
+## Provider labels
+
+Names typed by an operator (sign-in provider names, AI profile labels) only resolve to brands in provider-type categories (`PROVIDER_CATEGORIES`), so a provider called "Delta" or "Target" does not get an airline or retailer logo. Hosts and ids resolve in every category.
+
 ## Coverage
 
-184 real marks, 74 monograms, 258 brands. Brands shown as a monogram are the candidates for a supplied official SVG:
+380 real marks, 284 monograms, 664 brands. Brands shown as a monogram are the candidates for a supplied official SVG:
 
-Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, Amazon Business, Temu, Shein, OLX, Worten, Pingo Doce, Decathlon, Microsoft 365, Google Workspace, Monday.com, Gameforge, Kakao Games, Bandai Namco, ZeniMax, LEGO, Disney+, Santander, Caixa Geral de Depósitos, MB WAY, ActivoBank, Banco BPI, Banco CTT, Novo Banco, Trade Republic, Kraken, Skrill, Monese, Starling Bank, Chime, eToro, Millennium bcp, Montepio, Crédito Agrícola, Bankinter, ING, BNP Paribas, Lloyds Bank, Citi, CTT, GLS, TNT, Royal Mail, InPost, MRW, SEUR, Chronopost, Correos, Evri, Geopost, Maersk, TAP Air Portugal, FlixBus, Trainline, CP Comboios de Portugal, BlaBlaCar, Via Verde, Brisa, Galp, Endesa, Águas de Portugal, EPAL, ePortugal, IRN, República Portuguesa, DECO PROTESTE.
+Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, Amazon Business, Temu, Shein, OLX, Worten, Pingo Doce, Decathlon, Microsoft 365, Google Workspace, Monday.com, Gameforge, Kakao Games, Bandai Namco, ZeniMax, LEGO, Disney+, Santander, Caixa Geral de Depósitos, MB WAY, ActivoBank, Banco BPI, Banco CTT, Novo Banco, Trade Republic, Kraken, Skrill, Monese, Chime, eToro, Millennium bcp, Montepio, Crédito Agrícola, Bankinter, ING, BNP Paribas, Lloyds Bank, Citi, CTT, GLS, TNT, Royal Mail, InPost, MRW, SEUR, Chronopost, Correos, Evri, Geopost, Maersk, TAP Air Portugal, FlixBus, Trainline, CP Comboios de Portugal, BlaBlaCar, Via Verde, Brisa, Galp, Endesa, Águas de Portugal, EPAL, ePortugal, IRN, República Portuguesa, DECO PROTESTE, HPE, Aruba, Dell EMC, MSI, Arista Networks, SolarWinds, Equinix, Hurricane Electric, Grok, Gleam.io, Databox, Kalshi, Polymarket, TD SYNNEX, Ingram Micro, ALSO Group, Esprinet, V-Valley, Arrow ECS, Westcon-Comstor, Pax8, Sherweb, Infortisa, PwC, Mazars, Deloitte, EY, KPMG, McKinsey & Company, BCG, Bain & Company, Capgemini, Wipro, Booz Allen, Roland Berger, Oliver Wyman, Mercer, Aon, Willis Towers Watson, MSD, Pfizer, Novartis, Roche, Sanofi, AstraZeneca, Bayer, Novo Nordisk, The New York Times, BBC, Reuters, Bloomberg, Financial Times, Wall Street Journal, Le Monde, El País, Corriere della Sera, Público, Observador, Expresso, Diário de Notícias, Jornal de Notícias, Correio da Manhã, SIC, TVI, RTP, SAPO, Notícias ao Minuto, Eurosport, Euronews, The Economist, Le Figaro, El Mundo, la Repubblica, Die Zeit, Bild, Jornal de Negócios, Record, A Bola, Sonae, Primark, C&A, Mango, Pull&Bear, Bershka, Lacoste, Levi's, Gucci, Louis Vuitton, Chanel, Prada, Burberry, Versace, Balenciaga, Cartier, Rolex, Ralph Lauren, Tommy Hilfiger, Calvin Klein, Hugo Boss, Armani, Valentino, Fendi, Domino's, Pizza Hut, Subway, Bolt, Bolt Food, Porsche, Ferrari, Peugeot, Lexus, BYD, Rivian, Bumble, Hinge, Grindr, Match, Feeld, eHarmony, Plenty of Fish, Happn, Meetic, Aeroméxico, Vueling, SWISS, Ritz-Carlton, Hyatt, Accor, IHG, Julius Baer, UBS, Credit Suisse, Pictet, Lombard Odier, J.P. Morgan, Morgan Stanley, Coutts, Banco Santander Totta, Banco Carregosa, Banco Invest, Banco BiG, Worldpay, Checkout.com, Authorize.net, Mollie, PayU, Nuvei, Rapyd, Ifthenpay, EuPago, SIBS, Easypay, Pagar.me, UnionPay, CUF, Luz Saúde, Lusíadas Saúde, Medicare, Synlab, Unilabs, Joaquim Chaves Saúde, Affidea, Mota-Engil, Teixeira Duarte, Casais, Somague, Alves Ribeiro, Ferrovial, Sacyr, Acciona, Vinci, Bouygues, Skanska, Grupo Soares da Costa, Cimpor, Secil, Navigator, EDP, REN, Altri, Corticeira Amorim, Jerónimo Martins, NOS, MEO, NOWO, Altice, Comcast, Iberdrola, Repsol, BP, TotalEnergies, Engie, Enel, Costco, Best Buy, The Home Depot, Mercado Libre, idealista, Imovirtual, KuantoKusta, Autoridade Tributária e Aduaneira, Segurança Social, Serviço Nacional de Saúde, Rabobank, ABN AMRO, BBVA, UniCredit, Intesa Sanpaolo, Itaú, Bradesco, NatWest.
 
 ### ai
 
@@ -62,6 +103,11 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Mistral AI | `mistral` | real mark | mistral.ai |
 | Ollama | `ollama` | real mark | ollama.com, ollama.ai |
 | Perplexity | `perplexity` | real mark | perplexity.ai |
+| Hugging Face | `huggingface` | real mark | huggingface.co |
+| OpenCode | `opencode` | real mark | opencode.ai |
+| Grok | `grok` | monogram | x.ai, grok.com |
+| Z.ai | `zai` | real mark | z.ai, zhipuai.cn |
+| ElevenLabs | `elevenlabs` | real mark | elevenlabs.io |
 
 ### analytics
 
@@ -89,6 +135,59 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Notion | `notion` | real mark | notion.so, notion.com |
 | Trello | `trello` | real mark | trello.com |
 
+### auto
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Tesla | `tesla` | real mark | tesla.com |
+| Mercedes-Benz | `mercedes` | real mark | mercedes-benz.com, mercedes-benz.pt |
+| BMW | `bmw` | real mark | bmw.com |
+| Audi | `audi` | real mark | audi.com |
+| Volkswagen | `volkswagen` | real mark | volkswagen.com, vw.com |
+| Porsche | `porsche` | monogram | porsche.com |
+| Ferrari | `ferrari` | monogram | ferrari.com |
+| Fiat | `fiat` | real mark | fiat.com |
+| Toyota | `toyota` | real mark | toyota.com, toyota.eu |
+| Honda | `honda` | real mark | honda.com |
+| Nissan | `nissan` | real mark | nissan.com, nissan-global.com |
+| Ford | `ford` | real mark | ford.com |
+| Renault | `renault` | real mark | renault.com |
+| Peugeot | `peugeot` | monogram | peugeot.com |
+| Citroën | `citroen` | real mark | citroen.com |
+| Volvo | `volvo` | real mark | volvocars.com |
+| Kia | `kia` | real mark | kia.com |
+| Hyundai | `hyundai` | real mark | hyundai.com |
+| SEAT | `seat` | real mark | seat.com |
+| Škoda | `skoda` | real mark | skoda-auto.com |
+| Mini | `mini` | real mark | mini.com |
+| Opel | `opel` | real mark | opel.com |
+| Mazda | `mazda` | real mark | mazda.com |
+| Subaru | `subaru` | real mark | subaru.com |
+| Lexus | `lexus` | monogram | lexus.com |
+| Jaguar | `jaguar` | real mark | jaguar.com |
+| Land Rover | `landrover` | real mark | landrover.com |
+| Alfa Romeo | `alfaromeo` | real mark | alfaromeo.com |
+| Lamborghini | `lamborghini` | real mark | lamborghini.com |
+| BYD | `byd` | monogram | byd.com |
+| Rivian | `rivian` | monogram | rivian.com |
+| John Deere | `johndeere` | real mark | deere.com |
+| AutoZone | `autozone` | real mark | autozone.com |
+
+### channel
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| TD SYNNEX | `tdsynnex` | monogram | tdsynnex.com, synnex.com |
+| Ingram Micro | `ingrammicro` | monogram | ingrammicro.com |
+| ALSO Group | `also` | monogram | also.com |
+| Esprinet | `esprinet` | monogram | esprinet.com |
+| V-Valley | `vvalley` | monogram | v-valley.com |
+| Arrow ECS | `arrowecs` | monogram | arrowecs.com |
+| Westcon-Comstor | `comstor` | monogram | westcon.com, comstor.com |
+| Pax8 | `pax8` | monogram | pax8.com |
+| Sherweb | `sherweb` | monogram | sherweb.com |
+| Infortisa | `infortisa` | monogram | infortisa.com |
+
 ### cloud
 
 | Brand | Id | Logo | Sender domains |
@@ -111,6 +210,71 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | JetBrains | `jetbrains` | real mark | jetbrains.com |
 | Docker | `docker` | real mark | docker.com |
 | npm | `npm` | real mark | npmjs.com, npmjs.org |
+| Platform.sh | `platformsh` | real mark | platform.sh |
+| Codeberg | `codeberg` | real mark | codeberg.org |
+| Gitea | `gitea` | real mark | gitea.com, gitea.io |
+| PyPI | `pypi` | real mark | pypi.org, python.org |
+| Let's Encrypt | `letsencrypt` | real mark | letsencrypt.org |
+| Spaceship | `spaceship` | real mark | spaceship.com |
+| Namecheap | `namecheap` | real mark | namecheap.com |
+| Heroku | `heroku` | real mark | heroku.com |
+
+### dating
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Tinder | `tinder` | real mark | tinder.com, gotinder.com |
+| Bumble | `bumble` | monogram | bumble.com |
+| Badoo | `badoo` | real mark | badoo.com |
+| Hinge | `hinge` | monogram | hinge.co |
+| Grindr | `grindr` | monogram | grindr.com |
+| OkCupid | `okcupid` | real mark | okcupid.com |
+| Match | `match` | monogram | match.com, mtch.com |
+| Feeld | `feeld` | monogram | feeld.co |
+| eHarmony | `eharmony` | monogram | eharmony.com |
+| Plenty of Fish | `pof` | monogram | pof.com, plentyoffish.com |
+| Happn | `happn` | monogram | happn.com, happn.fr |
+| Meetic | `meetic` | monogram | meetic.com, meetic.fr |
+
+### fashion
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Nike | `nike` | real mark | nike.com |
+| Adidas | `adidas` | real mark | adidas.com |
+| Puma | `puma` | real mark | puma.com |
+| Uniqlo | `uniqlo` | real mark | uniqlo.com |
+| H&M | `hm` | real mark | hm.com |
+| Zara | `zara` | real mark | zara.com, inditex.com |
+| Primark | `primark` | monogram | primark.com |
+| C&A | `ca` | monogram | c-and-a.com |
+| Mango | `mango` | monogram | mango.com |
+| Pull&Bear | `pullandbear` | monogram | pullandbear.com |
+| Bershka | `bershka` | monogram | bershka.com |
+| Lacoste | `lacoste` | monogram | lacoste.com |
+| Levi's | `levis` | monogram | levi.com, levistrauss.com |
+| Under Armour | `underarmour` | real mark | underarmour.com |
+| New Balance | `newbalance` | real mark | newbalance.com |
+| Reebok | `reebok` | real mark | reebok.com |
+| The North Face | `thenorthface` | real mark | thenorthface.com |
+| Gucci | `gucci` | monogram | gucci.com |
+| Louis Vuitton | `louisvuitton` | monogram | louisvuitton.com |
+| Chanel | `chanel` | monogram | chanel.com |
+| Prada | `prada` | monogram | prada.com |
+| Hermès | `hermes` | real mark | hermes.com |
+| Dior | `dior` | real mark | dior.com |
+| Burberry | `burberry` | monogram | burberry.com |
+| Versace | `versace` | monogram | versace.com |
+| Balenciaga | `balenciaga` | monogram | balenciaga.com |
+| Cartier | `cartier` | monogram | cartier.com |
+| Rolex | `rolex` | monogram | rolex.com |
+| Ralph Lauren | `ralphlauren` | monogram | ralphlauren.com |
+| Tommy Hilfiger | `tommyhilfiger` | monogram | tommy.com, tommyhilfiger.com |
+| Calvin Klein | `calvinklein` | monogram | calvinklein.com |
+| Hugo Boss | `hugoboss` | monogram | hugoboss.com |
+| Armani | `armani` | monogram | armani.com |
+| Valentino | `valentino` | monogram | valentino.com |
+| Fendi | `fendi` | monogram | fendi.com |
 
 ### finance
 
@@ -124,7 +288,7 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Stripe | `stripe` | real mark | stripe.com |
 | American Express | `amex` | real mark | americanexpress.com, aexp.com |
 | Monzo | `monzo` | real mark | monzo.com |
-| Santander | `santander` | monogram | santander.pt, santander.com, santander.es, santander.co.uk, ... |
+| Santander | `santander` | monogram | santander.pt, santander.com, santander.es, santander.co.uk |
 | Caixa Geral de Depósitos | `cgd` | monogram | cgd.pt, caixa.pt |
 | MB WAY | `mbway` | monogram | mbway.pt, mbway.com |
 | ActivoBank | `activobank` | monogram | activobank.pt, activobanco.pt |
@@ -136,7 +300,7 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Klarna | `klarna` | real mark | klarna.com |
 | N26 | `n26` | real mark | n26.com |
 | Nubank | `nubank` | real mark | nubank.com.br, nu.com.mx |
-| Cash App | `cashapp` | real mark | cash.app, square.com, squareup.com |
+| Cash App | `cashapp` | real mark | cash.app |
 | Venmo | `venmo` | real mark | venmo.com |
 | Coinbase | `coinbase` | real mark | coinbase.com |
 | Binance | `binance` | real mark | binance.com |
@@ -145,7 +309,7 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Skrill | `skrill` | monogram | skrill.com |
 | Monese | `monese` | monogram | monese.com |
 | bunq | `bunq` | real mark | bunq.com |
-| Starling Bank | `starling` | monogram | starlingbank.com |
+| Starling Bank | `starling` | real mark | starlingbank.com |
 | Chime | `chime` | monogram | chime.com |
 | Robinhood | `robinhood` | real mark | robinhood.com |
 | eToro | `etoro` | monogram | etoro.com |
@@ -162,9 +326,52 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Commerzbank | `commerzbank` | real mark | commerzbank.de, commerzbank.com |
 | Sparkasse | `sparkasse` | real mark | sparkasse.de, s-sparkasse.de |
 | Wells Fargo | `wellsfargo` | real mark | wellsfargo.com |
-| Chase | `chase` | real mark | chase.com, jpmorgan.com, jpmorganchase.com |
+| Chase | `chase` | real mark | chase.com |
 | Citi | `citi` | monogram | citi.com, citibank.com |
 | Bank of America | `bankofamerica` | real mark | bankofamerica.com, bofa.com |
+| Trezor | `trezor` | real mark | trezor.io |
+| Tether | `tether` | real mark | tether.to, tether.io |
+| Blockchain.com | `blockchaincom` | real mark | blockchain.com |
+| Kalshi | `kalshi` | monogram | kalshi.com |
+| Polymarket | `polymarket` | monogram | polymarket.com |
+| WebMoney | `webmoney` | real mark | webmoney.ru, wmtransfer.com |
+| Julius Baer | `juliusbaer` | monogram | juliusbaer.com |
+| UBS | `ubs` | monogram | ubs.com |
+| Credit Suisse | `creditsuisse` | monogram | credit-suisse.com |
+| Pictet | `pictet` | monogram | pictet.com |
+| Lombard Odier | `lombardodier` | monogram | lombardodier.com |
+| J.P. Morgan | `jpmorgan` | monogram | jpmorgan.com, jpmorganchase.com |
+| Goldman Sachs | `goldmansachs` | real mark | goldmansachs.com, gs.com |
+| Morgan Stanley | `morganstanley` | monogram | morganstanley.com |
+| Coutts | `coutts` | monogram | coutts.com |
+| Banco Santander Totta | `santandertotta` | monogram | santandertotta.pt |
+| Banco Carregosa | `bancocarregosa` | monogram | bancocarregosa.com, bancocarregosa.pt |
+| Banco Invest | `bancoinvest` | monogram | bancoinvest.pt |
+| Banco BiG | `bancobig` | monogram | bancobig.pt |
+| Rabobank | `rabobank` | monogram | rabobank.com, rabobank.nl |
+| ABN AMRO | `abnamro` | monogram | abnamro.nl, abnamro.com |
+| BBVA | `bbva` | monogram | bbva.com, bbva.es |
+| CaixaBank | `caixabank` | real mark | caixabank.com, caixabank.es |
+| UniCredit | `unicredit` | monogram | unicredit.it, unicreditgroup.eu |
+| Intesa Sanpaolo | `intesasanpaolo` | monogram | intesasanpaolo.com |
+| Itaú | `itau` | monogram | itau.com.br |
+| Bradesco | `bradesco` | monogram | bradesco.com.br |
+| NatWest | `natwest` | monogram | natwest.com |
+
+### food
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Taco Bell | `tacobell` | real mark | tacobell.com |
+| McDonald's | `mcdonalds` | real mark | mcdonalds.com |
+| Burger King | `burgerking` | real mark | burgerking.com, bk.com |
+| KFC | `kfc` | real mark | kfc.com |
+| Starbucks | `starbucks` | real mark | starbucks.com |
+| Domino's | `dominos` | monogram | dominos.com |
+| Pizza Hut | `pizzahut` | monogram | pizzahut.com |
+| Subway | `subway` | monogram | subway.com |
+| Deliveroo | `deliveroo` | real mark | deliveroo.com, deliveroo.co.uk |
+| Just Eat | `justeat` | real mark | just-eat.com, justeat.com, just-eat.co.uk |
 
 ### gaming
 
@@ -178,12 +385,29 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Activision Blizzard | `activisionblizzard` | real mark | activision.com, blizzard.com, battle.net |
 | Kakao Games | `kakaogames` | monogram | kakaogames.com |
 | Bandai Namco | `bandainamco` | monogram | bandainamcoent.com, bandainamco.com |
-| Sony | `sony` | real mark | sony.com, playstation.com, sonyentertainmentnetwork.com |
+| Sony | `sony` | real mark | sony.com |
 | Riot Games | `riotgames` | real mark | riotgames.com |
 | ZeniMax | `zenimax` | monogram | zenimax.com, bethesda.net |
 | Epic Games | `epicgames` | real mark | epicgames.com |
 | Nintendo | `nintendo` | real mark | nintendo.com, nintendo.net |
 | LEGO | `lego` | monogram | lego.com |
+| TeamSpeak | `teamspeak` | real mark | teamspeak.com |
+| Supercell | `supercell` | real mark | supercell.com |
+| GOG.com | `gog` | real mark | gog.com |
+| PlayStation Network | `playstation` | real mark | playstation.com, sonyentertainmentnetwork.com |
+
+### health
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| CUF | `cuf` | monogram | cuf.pt |
+| Luz Saúde | `luzsaude` | monogram | luzsaude.pt |
+| Lusíadas Saúde | `lusiadas` | monogram | lusiadas.pt |
+| Medicare | `medicare` | monogram | medicare.pt |
+| Synlab | `synlab` | monogram | synlab.pt, synlab.com |
+| Unilabs | `unilabs` | monogram | unilabs.pt, unilabs.com |
+| Joaquim Chaves Saúde | `jcs` | monogram | jcs.pt |
+| Affidea | `affidea` | monogram | affidea.pt, affidea.com |
 
 ### identity
 
@@ -198,6 +422,28 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | authentik | `authentik` | real mark |  |
 | GitHub | `github` | real mark | github.com, githubusercontent.com |
 | GitLab | `gitlab` | real mark | gitlab.com |
+
+### industry
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Mota-Engil | `motaengil` | monogram | mota-engil.pt, mota-engil.com |
+| Teixeira Duarte | `teixeiraduarte` | monogram | teixeiraduarte.pt, teixeiraduarte.com |
+| Casais | `casais` | monogram | casais.pt |
+| Somague | `somague` | monogram | somague.pt |
+| Alves Ribeiro | `alvesribeiro` | monogram | alvesribeiro.pt |
+| Ferrovial | `ferrovial` | monogram | ferrovial.com |
+| Sacyr | `sacyr` | monogram | sacyr.com |
+| Acciona | `acciona` | monogram | acciona.com |
+| Vinci | `vinci` | monogram | vinci.com |
+| Bouygues | `bouygues` | monogram | bouygues.com |
+| Skanska | `skanska` | monogram | skanska.com |
+| Grupo Soares da Costa | `soaresdacosta` | monogram | soaresdacosta.pt |
+| Cimpor | `cimpor` | monogram | cimpor.com |
+| Secil | `secil` | monogram | secil.pt |
+| Navigator | `navigator` | monogram | thenavigatorcompany.com |
+| Altri | `altri` | monogram | altri.pt |
+| Corticeira Amorim | `amorim` | monogram | amorim.com, corticeiraamorim.com |
 
 ### logistics
 
@@ -254,6 +500,102 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Deezer | `deezer` | real mark | deezer.com |
 | Audible | `audible` | real mark | audible.com, audible.es, audible.de, audible.co.uk, ... |
 | YouTube | `youtube` | real mark | youtube.com, youtu.be |
+| Packt | `packt` | real mark | packtpub.com, packt.com |
+| IMDb | `imdb` | real mark | imdb.com |
+| HBO | `hbo` | real mark | hbo.com |
+| Paramount+ | `paramountplus` | real mark | paramountplus.com, paramount.com |
+| Stremio | `stremio` | real mark | stremio.com |
+| 9GAG | `9gag` | real mark | 9gag.com |
+| Yelp | `yelp` | real mark | yelp.com |
+| Alamy | `alamy` | real mark | alamy.com |
+| Udemy | `udemy` | real mark | udemy.com |
+| Medium | `medium` | real mark | medium.com |
+
+### news
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| The New York Times | `nytimes` | monogram | nytimes.com |
+| BuzzFeed | `buzzfeed` | real mark | buzzfeed.com |
+| Der Spiegel | `spiegel` | real mark | spiegel.de |
+| CNN | `cnn` | real mark | cnn.com |
+| BBC | `bbc` | monogram | bbc.com, bbc.co.uk |
+| The Guardian | `guardian` | real mark | theguardian.com, guardian.co.uk, guardiannews.com |
+| Reuters | `reuters` | monogram | reuters.com, thomsonreuters.com |
+| Bloomberg | `bloomberg` | monogram | bloomberg.com, bloomberg.net |
+| Financial Times | `ft` | monogram | ft.com |
+| Wall Street Journal | `wsj` | monogram | wsj.com |
+| Washington Post | `washingtonpost` | real mark | washingtonpost.com |
+| Le Monde | `lemonde` | monogram | lemonde.fr |
+| El País | `elpais` | monogram | elpais.com |
+| Corriere della Sera | `corriere` | monogram | corriere.it |
+| Público | `publico` | monogram | publico.pt |
+| Observador | `observador` | monogram | observador.pt |
+| Expresso | `expresso` | monogram | expresso.pt |
+| Diário de Notícias | `dn` | monogram | dn.pt |
+| Jornal de Notícias | `jn` | monogram | jn.pt |
+| Correio da Manhã | `cm` | monogram | cmjornal.pt |
+| SIC | `sic` | monogram | sic.pt, sicnoticias.pt |
+| TVI | `tvi` | monogram | tvi.iol.pt, iol.pt |
+| RTP | `rtp` | monogram | rtp.pt |
+| SAPO | `sapo` | monogram | sapo.pt |
+| Notícias ao Minuto | `noticiasaominuto` | monogram | noticiasaominuto.com |
+| Eurosport | `eurosport` | monogram | eurosport.com, eurosport.pt |
+| Euronews | `euronews` | monogram | euronews.com |
+| The Economist | `economist` | monogram | economist.com |
+| Le Figaro | `lefigaro` | monogram | lefigaro.fr |
+| El Mundo | `elmundo` | monogram | elmundo.es |
+| la Repubblica | `repubblica` | monogram | repubblica.it |
+| Deutsche Welle | `dw` | real mark | dw.com |
+| Die Zeit | `zeit` | monogram | zeit.de |
+| Bild | `bild` | monogram | bild.de |
+| Jornal de Negócios | `jornaldenegocios` | monogram | jornaldenegocios.pt |
+| Record | `record` | monogram | record.pt |
+| A Bola | `abola` | monogram | abola.pt |
+
+### payments
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Adyen | `adyen` | real mark | adyen.com |
+| Worldpay | `worldpay` | monogram | worldpay.com |
+| Checkout.com | `checkoutcom` | monogram | checkout.com |
+| Block | `block` | real mark | block.xyz, squareup.com |
+| Braintree | `braintree` | real mark | braintreepayments.com, braintreegateway.com |
+| Authorize.net | `authorizenet` | monogram | authorize.net |
+| Mollie | `mollie` | monogram | mollie.com |
+| SumUp | `sumup` | real mark | sumup.com |
+| PayU | `payu` | monogram | payu.com, payu.in, payu.pl |
+| Paysafe | `paysafe` | real mark | paysafe.com, paysafecard.com |
+| Nuvei | `nuvei` | monogram | nuvei.com |
+| Rapyd | `rapyd` | monogram | rapyd.net |
+| Ifthenpay | `ifthenpay` | monogram | ifthenpay.com |
+| EuPago | `eupago` | monogram | eupago.pt |
+| SIBS | `sibs` | monogram | sibs.com, sibs.pt |
+| Easypay | `easypay` | monogram | easypay.pt |
+| Pagar.me | `pagarme` | monogram | pagar.me |
+| Razorpay | `razorpay` | real mark | razorpay.com |
+| Alipay | `alipay` | real mark | alipay.com |
+| WeChat Pay | `wechatpay` | real mark | wechat.com, weixin.qq.com |
+| UnionPay | `unionpay` | monogram | unionpay.com |
+| Apple Pay | `applepay` | real mark |  |
+| Google Pay | `googlepay` | real mark | pay.google.com |
+| Samsung Pay | `samsungpay` | real mark |  |
+
+### pharma
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Merck | `merck` | real mark | merckgroup.com, emdgroup.com |
+| MSD | `msd` | monogram | msd.com, merck.com |
+| Pfizer | `pfizer` | monogram | pfizer.com |
+| Novartis | `novartis` | monogram | novartis.com |
+| Roche | `roche` | monogram | roche.com |
+| Sanofi | `sanofi` | monogram | sanofi.com |
+| AstraZeneca | `astrazeneca` | monogram | astrazeneca.com |
+| Bayer | `bayer` | monogram | bayer.com |
+| GSK | `gsk` | real mark | gsk.com |
+| Novo Nordisk | `novonordisk` | monogram | novonordisk.com |
 
 ### productivity
 
@@ -279,6 +621,47 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Atlassian | `atlassian` | real mark | atlassian.com |
 | Bitbucket | `bitbucket` | real mark | bitbucket.org |
 | Substack | `substack` | real mark | substack.com |
+| Google Docs | `googledocs` | real mark | docs.google.com |
+| Google Meet | `googlemeet` | real mark | meet.google.com |
+| Google Play | `googleplay` | real mark | play.google.com |
+| Airtable | `airtable` | real mark | airtable.com |
+| Baserow | `baserow` | real mark | baserow.io |
+| Ghost | `ghost` | real mark | ghost.org, ghost.io |
+| Bitly | `bitly` | real mark | bitly.com, bit.ly |
+| Gleam.io | `gleamio` | monogram | gleam.io |
+| Databox | `databox` | monogram | databox.com |
+| Prezi | `prezi` | real mark | prezi.com |
+| Wix | `wix` | real mark | wix.com |
+| Squarespace | `squarespace` | real mark | squarespace.com |
+| Twilio SendGrid | `sendgrid` | real mark | sendgrid.com, sendgrid.net |
+| Zoom | `zoom` | real mark | zoom.us, zoom.com |
+| Skype | `skype` | real mark | skype.com |
+| Grammarly | `grammarly` | real mark | grammarly.com |
+
+### professional
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Accenture | `accenture` | real mark | accenture.com |
+| PwC | `pwc` | monogram | pwc.com |
+| Mazars | `mazars` | monogram | mazars.com, forvismazars.com |
+| Deloitte | `deloitte` | monogram | deloitte.com |
+| EY | `ey` | monogram | ey.com |
+| KPMG | `kpmg` | monogram | kpmg.com |
+| McKinsey & Company | `mckinsey` | monogram | mckinsey.com |
+| BCG | `bcg` | monogram | bcg.com |
+| Bain & Company | `bain` | monogram | bain.com |
+| Capgemini | `capgemini` | monogram | capgemini.com |
+| Cognizant | `cognizant` | real mark | cognizant.com |
+| Infosys | `infosys` | real mark | infosys.com |
+| Tata Consultancy Services | `tcs` | real mark | tcs.com |
+| Wipro | `wipro` | monogram | wipro.com |
+| Booz Allen | `boozallen` | monogram | boozallen.com |
+| Roland Berger | `rolandberger` | monogram | rolandberger.com |
+| Oliver Wyman | `oliverwyman` | monogram | oliverwyman.com |
+| Mercer | `mercer` | monogram | mercer.com |
+| Aon | `aon` | monogram | aon.com |
+| Willis Towers Watson | `wtw` | monogram | wtwco.com, willistowerswatson.com |
 
 ### push
 
@@ -294,6 +677,12 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | reCAPTCHA | `recaptcha` | monogram | recaptcha.net |
 | hCaptcha | `hcaptcha` | monogram | hcaptcha.com |
 | Twilio | `twilio` | real mark | twilio.com |
+| 1Password | `onepassword` | real mark | 1password.com |
+| LastPass | `lastpass` | real mark | lastpass.com |
+| Bitwarden | `bitwarden` | real mark | bitwarden.com |
+| NordVPN | `nordvpn` | real mark | nordvpn.com, nordaccount.com |
+| ExpressVPN | `expressvpn` | real mark | expressvpn.com |
+| Dashlane | `dashlane` | real mark | dashlane.com |
 
 ### shopping
 
@@ -318,6 +707,23 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Pingo Doce | `pingodoce` | monogram | pingodoce.pt |
 | Decathlon | `decathlon` | monogram | decathlon.pt, decathlon.com, decathlon.es, decathlon.fr |
 | Leroy Merlin | `leroymerlin` | real mark | leroymerlin.pt, leroymerlin.es, leroymerlin.fr |
+| Intermarché | `intermarche` | real mark | intermarche.com, intermarche.pt |
+| MediaMarkt | `mediamarkt` | real mark | mediamarkt.com, mediamarkt.pt, mediamarkt.de, mediamarkt.es |
+| Continente | `continente` | real mark | continente.pt |
+| Sonae | `sonae` | monogram | sonae.pt, sonae.com |
+| Gumtree | `gumtree` | real mark | gumtree.com |
+| Jerónimo Martins | `jeronimomartins` | monogram | jeronimomartins.com, jeronimomartins.pt |
+| Target | `target` | real mark | target.com |
+| Costco | `costco` | monogram | costco.com |
+| Best Buy | `bestbuy` | monogram | bestbuy.com |
+| The Home Depot | `homedepot` | monogram | homedepot.com |
+| AliExpress | `aliexpress` | real mark | aliexpress.com |
+| Mercado Libre | `mercadolibre` | monogram | mercadolibre.com, mercadolivre.com.br |
+| idealista | `idealista` | monogram | idealista.pt, idealista.com |
+| Imovirtual | `imovirtual` | monogram | imovirtual.com |
+| KuantoKusta | `kuantokusta` | monogram | kuantokusta.pt |
+| Carrefour | `carrefour` | real mark | carrefour.com, carrefour.fr, carrefour.es |
+| Tesco | `tesco` | real mark | tesco.com |
 
 ### social
 
@@ -362,6 +768,70 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Wasabi | `wasabi` | real mark | wasabisys.com |
 | MinIO | `minio` | real mark | min.io |
 
+### tech
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| ABB | `abb` | real mark | abb.com |
+| Datadog | `datadog` | real mark | datadoghq.com, datadoghq.eu |
+| Lenovo | `lenovo` | real mark | lenovo.com |
+| HP | `hp` | real mark | hp.com |
+| HPE | `hpe` | monogram | hpe.com |
+| Aruba | `aruba` | monogram | arubanetworks.com |
+| IBM | `ibm` | real mark | ibm.com |
+| Schneider Electric | `schneiderelectric` | real mark | se.com, schneider-electric.com |
+| Corsair | `corsair` | real mark | corsair.com |
+| Kingston Technology | `kingston` | real mark | kingston.com |
+| Bose | `bose` | real mark | bose.com |
+| Yamaha | `yamaha` | real mark | yamaha.com |
+| Kyocera | `kyocera` | real mark | kyocera.com |
+| Hitachi | `hitachi` | real mark | hitachi.com |
+| LG | `lg` | real mark | lg.com |
+| Dell | `dell` | real mark | dell.com |
+| Dell EMC | `dellemc` | monogram | dellemc.com, emc.com, delltechnologies.com |
+| ASUS | `asus` | real mark | asus.com |
+| Fujitsu | `fujitsu` | real mark | fujitsu.com |
+| MSI | `msi` | monogram | msi.com |
+| Intel | `intel` | real mark | intel.com |
+| Cisco | `cisco` | real mark | cisco.com, webex.com |
+| Arista Networks | `arista` | monogram | arista.com |
+| Juniper Networks | `juniper` | real mark | juniper.net |
+| SolarWinds | `solarwinds` | monogram | solarwinds.com |
+| F5 | `f5` | real mark | f5.com |
+| MikroTik | `mikrotik` | real mark | mikrotik.com |
+| Equinix | `equinix` | monogram | equinix.com |
+| General Electric | `generalelectric` | real mark | ge.com |
+| Hurricane Electric | `hurricaneelectric` | monogram | he.net |
+| Veritas | `veritas` | real mark | veritas.com |
+| Sentry | `sentry` | real mark | sentry.io |
+| Wolfram | `wolfram` | real mark | wolfram.com, wolframalpha.com |
+| Palantir | `palantir` | real mark | palantir.com |
+| Alibaba | `alibaba` | real mark | alibaba.com, alibabacloud.com, aliyun.com |
+| AnyDesk | `anydesk` | real mark | anydesk.com |
+| TeamViewer | `teamviewer` | real mark | teamviewer.com |
+| Gleam | `gleam` | real mark | gleam.run |
+| SpaceX | `spacex` | real mark | spacex.com, starlink.com |
+| Ring | `ring` | real mark | ring.com |
+
+### telecom
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| NOS | `nos` | monogram | nos.pt |
+| MEO | `meo` | monogram | meo.pt |
+| Vodafone | `vodafone` | real mark | vodafone.pt, vodafone.com, vodafone.es, vodafone.de, ... |
+| NOWO | `nowo` | monogram | nowo.pt |
+| Altice | `altice` | monogram | altice.pt, alticeusa.com |
+| Telefónica | `telefonica` | real mark | telefonica.com, movistar.es |
+| Orange | `orange` | real mark | orange.com, orange.fr, orange.es |
+| Deutsche Telekom | `telekom` | real mark | telekom.de, telekom.com, t-online.de |
+| T-Mobile | `tmobile` | real mark | t-mobile.com |
+| Verizon | `verizon` | real mark | verizon.com, verizon.net |
+| AT&T | `att` | real mark | att.com, att.net |
+| Sky | `sky` | real mark | sky.com, sky.it, sky.de |
+| BT | `bt` | real mark | bt.com, btinternet.com |
+| Comcast | `comcast` | monogram | comcast.com, comcast.net, xfinity.com |
+
 ### travel
 
 | Brand | Id | Logo | Sender domains |
@@ -386,6 +856,35 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | BlaBlaCar | `blablacar` | monogram | blablacar.com, blablacar.pt, blablacar.es, blablacar.fr |
 | Via Verde | `viaverde` | monogram | viaverde.pt, via-verde.pt |
 | Brisa | `brisa` | monogram | brisa.pt |
+| Bolt | `bolt` | monogram | bolt.eu |
+| Bolt Food | `boltfood` | monogram | food.bolt.eu |
+| Glovo | `glovo` | real mark | glovoapp.com |
+| Waze | `waze` | real mark | waze.com |
+| KLM | `klm` | real mark | klm.com |
+| Japan Airlines | `jal` | real mark | jal.com, jal.co.jp |
+| Air Canada | `aircanada` | real mark | aircanada.com |
+| Southwest Airlines | `southwest` | real mark | southwest.com, iflyswa.com |
+| Delta Air Lines | `delta` | real mark | delta.com |
+| American Airlines | `americanairlines` | real mark | aa.com, americanairlines.com |
+| United Airlines | `united` | real mark | united.com, unitedairlines.com |
+| China Southern Airlines | `chinasouthern` | real mark | csair.com |
+| Aeroméxico | `aeromexico` | monogram | aeromexico.com |
+| British Airways | `britishairways` | real mark | ba.com, britishairways.com |
+| Iberia | `iberia` | real mark | iberia.com |
+| Vueling | `vueling` | monogram | vueling.com |
+| Wizz Air | `wizzair` | real mark | wizzair.com |
+| Turkish Airlines | `turkishairlines` | real mark | turkishairlines.com, thy.com |
+| Singapore Airlines | `singaporeair` | real mark | singaporeair.com |
+| ANA | `ana` | real mark | ana.co.jp |
+| SWISS | `swiss` | monogram | swiss.com |
+| Ritz-Carlton | `ritzcarlton` | monogram | ritzcarlton.com |
+| Marriott | `marriott` | real mark | marriott.com |
+| Hilton | `hilton` | real mark | hilton.com |
+| Hyatt | `hyatt` | monogram | hyatt.com |
+| Accor | `accor` | monogram | accor.com, accorhotels.com, all.accor.com |
+| IHG | `ihg` | monogram | ihg.com |
+| Ticketmaster | `ticketmaster` | real mark | ticketmaster.com, ticketmaster.co.uk |
+| Eventbrite | `eventbrite` | real mark | eventbrite.com |
 
 ### utility
 
@@ -399,4 +898,17 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | IRN | `irn` | monogram | irn.mj.pt, irn.justica.gov.pt |
 | República Portuguesa | `govpt` | monogram | gov.pt |
 | DECO PROTESTE | `deco` | monogram | deco.proteste.pt, deco.pt, proteste.pt |
+| Rotary International | `rotary` | real mark | rotary.org |
+| EDP | `edp` | monogram | edp.com, edp.pt |
+| REN | `ren` | monogram | ren.pt |
+| Iberdrola | `iberdrola` | monogram | iberdrola.com, iberdrola.es |
+| Repsol | `repsol` | monogram | repsol.com |
+| Shell | `shell` | real mark | shell.com |
+| BP | `bp` | monogram | bp.com |
+| TotalEnergies | `totalenergies` | monogram | totalenergies.com |
+| Engie | `engie` | monogram | engie.com, engie.fr |
+| Enel | `enel` | monogram | enel.com, enel.it |
+| Autoridade Tributária e Aduaneira | `autoridadetributaria` | monogram | at.gov.pt, portaldasfinancas.gov.pt |
+| Segurança Social | `segurancasocial` | monogram | seg-social.pt |
+| Serviço Nacional de Saúde | `sns` | monogram | sns.gov.pt, sns24.gov.pt |
 

@@ -1,7 +1,7 @@
 import {describe, expect, it} from 'vitest';
 import {render, screen, waitFor} from '@solidjs/testing-library';
 import {existsSync, readdirSync, readFileSync} from 'node:fs';
-import {BRANDS, brandFor, brandForHost, brandInText, loadBrandPath} from './registry.ts';
+import {BRANDS, PROVIDER_CATEGORIES, brandFor, brandForHost, brandInText, loadBrandPath} from './registry.ts';
 import {LOADERS} from './loaders.generated.ts';
 import {sanitizeSvg} from '../../scripts/brands/sanitize.mjs';
 import {BrandLogo, monogramHue, monogramLetter} from './BrandLogo.tsx';
@@ -174,5 +174,49 @@ describe('custom official logos', () => {
       expect(String(manifest[id]?.licence ?? '').trim(), id).not.toBe('');
       expect(() => sanitizeSvg(readFileSync(new URL(file, dir), 'utf8')), id).not.toThrow();
     }
+  });
+});
+
+describe('third batch: interpretations, domains and lookalikes', () => {
+  it('resolves the typo-corrected names the product list used', () => {
+    const cases: Record<string, string> = {
+      abibaba: 'alibaba', Alibaba: 'alibaba', gogcom: 'gog', 'GOG.com': 'gog', Gleam: 'gleam', 'gleam.io': 'gleamio', paxb: 'pax8', Pax8: 'pax8',
+      vvalley: 'vvalley', 'V-Valley': 'vvalley', 'arrows ecs': 'arrowecs', 'Arrow ECS': 'arrowecs', teasmpeak: 'teamspeak', 'theter ush': 'tether',
+      blockahincom: 'blockchaincom', 'Blockchain.com': 'blockchaincom', weromexico: 'aeromexico', 'Aeroméxico': 'aeromexico', also: 'also',
+      commerbank: 'commerzbank', Commerzbank: 'commerzbank', opencode: 'opencode', ring: 'ring', 'Z.ai': 'zai', cuf: 'cuf', CUF: 'cuf',
+      psn: 'playstation', 'Westcom': 'comstor', 'Dell EMC': 'dellemc', 'Let\'s Encrypt': 'letsencrypt', 'Willis Towers Watson': 'wtw', HBO: 'hbo',
+    };
+    for (const [name, id] of Object.entries(cases)) {
+      expect(brandFor(name)?.id, name).toBe(id);
+    }
+    // Left out on purpose: names that cannot be resolved without guessing.
+    for (const name of ['mo', 'mta(uk)', 'vig consulting']) expect(brandFor(name), name).toBeUndefined();
+  });
+
+  it('matches the added sender domains by whole suffix, preferring the most specific host', () => {
+    const cases: Record<string, string> = {
+      'meet.google.com': 'googlemeet', 'docs.google.com': 'googledocs', 'play.google.com': 'googleplay', 'mail.google.com': 'google',
+      'food.bolt.eu': 'boltfood', 'bolt.eu': 'bolt', 'mail.nytimes.com': 'nytimes', 'cmjornal.pt': 'cm', 'tvi.iol.pt': 'tvi', 'mota-engil.pt': 'motaengil',
+      'edp.pt': 'edp', 'nos.pt': 'nos', 'meo.pt': 'meo', 'santandertotta.pt': 'santandertotta', 'santander.pt': 'santander', 'squareup.com': 'block',
+      'cash.app': 'cashapp', 'msd.com': 'msd', 'merckgroup.com': 'merck', 'luzsaude.pt': 'luzsaude', 'cuf.pt': 'cuf', 'at.gov.pt': 'autoridadetributaria',
+      'seg-social.pt': 'segurancasocial', 'eportugal.gov.pt': 'eportugal', 'other.gov.pt': 'govpt', 'playstation.com': 'playstation', 'sony.com': 'sony',
+      'jpmorgan.com': 'jpmorgan', 'chase.com': 'chase', 'tdsynnex.com': 'tdsynnex', 'vodafone.pt': 'vodafone', 'hbo.com': 'hbo', 'hbomax.com': 'hbomax',
+    };
+    for (const [host, id] of Object.entries(cases)) expect(brandForHost(host)?.id, host).toBe(id);
+  });
+
+  it('never matches lookalikes of the added domains', () => {
+    for (const host of ['nytimes.com.evil.io', 'evilnytimes.com', 'cuf.pt.example.org', 'mycuf.pt', 'edp.pt.phish.net', 'nos.pt.evil.io', 'xmeo.pt',
+      'meet.google.com.evil.io', 'bolt.eu.evil.io', 'ubs.com.evil.io', 'notubs.com', 'adyen.com-pay.net', 'x.com.evil.io', 'fakex.com']) {
+      expect(brandForHost(host), host).toBeUndefined();
+    }
+  });
+
+  it('keeps ordinary words out of operator-chosen provider labels', () => {
+    expect(brandInText('Delta', PROVIDER_CATEGORIES)).toBeUndefined();
+    expect(brandInText('Target', PROVIDER_CATEGORIES)).toBeUndefined();
+    expect(brandFor('Delta')?.id).toBe('delta');
+    expect(brandInText('Okta', PROVIDER_CATEGORIES)?.id).toBe('okta');
+    expect(brandInText('Google', PROVIDER_CATEGORIES)?.id).toBe('google');
   });
 });

@@ -24,7 +24,7 @@ import { ShellContext } from '../shell/context.ts';
 import { AdminPage, PageState } from '../shell/templates/PageFrame.tsx';
 import { Icon } from '../shell/icons.tsx';
 import { BrandCell } from '../../../brands/BrandLogo.tsx';
-import { brandForHost, brandInText } from '../../../brands/registry.ts';
+import { PROVIDER_CATEGORIES, brandForHost, brandInText } from '../../../brands/registry.ts';
 import * as ux from '../shell/ux.css.ts';
 import { ConfirmDialog } from '../shell/ConfirmDialog.tsx';
 import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
@@ -144,7 +144,7 @@ export function AdminSso(props: AdminSsoProps): JSX.Element {
       header: t('admin-sso-col-name'),
       cell: (r) => (
         <>
-          <BrandCell brand={brandInText(r.displayName)?.id ?? brandForHost(r.config?.kind === 'oidc' ? r.config.issuerUrl : '')?.id ?? r.displayName}>
+          <BrandCell categories={PROVIDER_CATEGORIES} brand={brandInText(r.displayName, PROVIDER_CATEGORIES)?.id ?? brandForHost(r.config?.kind === 'oidc' ? r.config.issuerUrl : '')?.id ?? r.displayName}>
             <span dir="auto">{r.displayName}</span> <span class={css.mono}>{r.id}</span>
           </BrandCell>
         </>

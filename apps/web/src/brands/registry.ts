@@ -4,7 +4,7 @@
 // a favicon service, so lookups never leak which providers an operator uses.
 import {BRANDS} from './registry.generated.ts';
 import {LOADERS} from './loaders.generated.ts';
-import type {BrandEntry} from './types.ts';
+import type {BrandCategory, BrandEntry} from './types.ts';
 
 export type {BrandEntry, BrandCategory} from './types.ts';
 export {BRANDS};
@@ -21,11 +21,18 @@ for (const entry of BRANDS) for (const alias of entry.aliases) if (!byKey.has(no
 for (const entry of BRANDS) for (const host of entry.hosts) hostIndex.set(host, entry);
 
 /** Resolve by id, display name, alias, or a bare domain/host (`gmail.com`). */
-export function brandFor(key: string | undefined | null): BrandEntry | undefined {
+export function brandFor(key: string | undefined | null, categories?: readonly BrandCategory[]): BrandEntry | undefined {
   if (!key) return undefined;
   const k = norm(key);
-  return byKey.get(k) ?? brandForHost(k);
+  const hit = byKey.get(k) ?? brandForHost(k);
+  return hit && (!categories || categories.includes(hit.category)) ? hit : undefined;
 }
+
+/**
+ * Categories for operator-chosen provider labels (single sign-on, AI profiles): names such as
+ * "Delta" or "Target" are real brands, but never what a sign-in provider called that means.
+ */
+export const PROVIDER_CATEGORIES: readonly BrandCategory[] = ['identity', 'mail', 'productivity', 'tech', 'cloud', 'storage', 'app', 'security', 'ai', 'analytics', 'push', 'social'];
 
 /**
  * Resolve a host name, URL or e-mail address to a brand by domain suffix:
@@ -67,13 +74,13 @@ const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
  * names and aliases of four or more characters (minus a few common words), longest first, so short
  * words ("box", "live") never match by accident. Exact keys and hosts win first.
  */
-export function brandInText(text: string | undefined | null): BrandEntry | undefined {
+export function brandInText(text: string | undefined | null, categories?: readonly BrandCategory[]): BrandEntry | undefined {
   if (!text) return undefined;
-  const exact = brandFor(text);
+  const exact = brandFor(text, categories);
   if (exact) return exact;
   phrases ??= BRANDS.flatMap(entry => [entry.name, ...entry.aliases].map(norm).filter(p => p.length >= 4 && !AMBIGUOUS.has(p)).map(p => ({entry, p})))
     .sort((a, b) => b.p.length - a.p.length)
     .map(({entry, p}) => ({entry, re: new RegExp(String.raw`(^|[^\p{L}\p{N}])` + escapeRe(p) + String.raw`($|[^\p{L}\p{N}])`, 'u')}));
   const hay = norm(text);
-  return phrases.find(({re}) => re.test(hay))?.entry;
+  return phrases.find(({entry, re}) => (!categories || categories.includes(entry.category)) && re.test(hay))?.entry;
 }

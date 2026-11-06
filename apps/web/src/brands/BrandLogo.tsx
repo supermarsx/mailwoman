@@ -1,5 +1,5 @@
 import {createResource, Show, type JSX} from 'solid-js';
-import {brandFor, brandForHost, loadBrandPath, type BrandEntry} from './registry.ts';
+import {brandFor, brandForHost, loadBrandPath, type BrandCategory, type BrandEntry} from './registry.ts';
 import * as css from './brandLogo.css.ts';
 
 export type BrandLogoSize = 16 | 20 | 24 | 32;
@@ -12,6 +12,8 @@ export interface BrandLogoProps {
   title?: string;
   /** True when the name is shown next to the logo: hides it from assistive technology. */
   decorative?: boolean;
+  /** Restrict resolution to these categories (use for operator-chosen labels); other names get a monogram. */
+  categories?: readonly BrandCategory[] | undefined;
   /** Draw in currentColor instead of the brand colour. */
   mono?: boolean | undefined;
 }
@@ -42,7 +44,7 @@ function Monogram(props: {name: string}): JSX.Element {
  * surfaces; `mono` forces the text colour. Unknown brands render a themed monogram tile.
  */
 export function BrandLogo(props: BrandLogoProps): JSX.Element {
-  const entry = (): BrandEntry | undefined => brandFor(props.brand);
+  const entry = (): BrandEntry | undefined => brandFor(props.brand, props.categories);
   const [path] = createResource(() => (entry()?.noMark ? undefined : entry()?.id), id => loadBrandPath(id));
   const label = (): string => props.title ?? entry()?.name ?? props.brand;
   const fill = (): string => (props.mono ? 'currentColor' : entry()?.color ?? 'currentColor');
@@ -60,20 +62,20 @@ export function BrandLogo(props: BrandLogoProps): JSX.Element {
 }
 
 /** Logo + name in one aligned row; the logo is decorative because the name is visible. */
-export function BrandLabel(props: {brand: string; label?: string; size?: BrandLogoSize; mono?: boolean | undefined}): JSX.Element {
+export function BrandLabel(props: {brand: string; categories?: readonly BrandCategory[] | undefined; label?: string; size?: BrandLogoSize; mono?: boolean | undefined}): JSX.Element {
   return (
     <span class={css.label}>
-      <BrandLogo brand={props.brand} size={props.size ?? 16} decorative mono={props.mono} />
-      <span>{props.label ?? brandFor(props.brand)?.name ?? props.brand}</span>
+      <BrandLogo brand={props.brand} categories={props.categories} size={props.size ?? 16} decorative mono={props.mono} />
+      <span>{props.label ?? brandFor(props.brand, props.categories)?.name ?? props.brand}</span>
     </span>
   );
 }
 
 /** A fixed logo column beside arbitrary content (table cells, list rows) so names stay aligned. */
-export function BrandCell(props: {brand: string; size?: BrandLogoSize; mono?: boolean | undefined; children: JSX.Element}): JSX.Element {
+export function BrandCell(props: {brand: string; categories?: readonly BrandCategory[] | undefined; size?: BrandLogoSize; mono?: boolean | undefined; children: JSX.Element}): JSX.Element {
   return (
     <span class={css.cell}>
-      <BrandLogo brand={props.brand} size={props.size ?? 20} decorative mono={props.mono} />
+      <BrandLogo brand={props.brand} categories={props.categories} size={props.size ?? 20} decorative mono={props.mono} />
       <span class={css.cellText}>{props.children}</span>
     </span>
   );
