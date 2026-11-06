@@ -2408,6 +2408,13 @@ impl Engine {
                         .await
                         .map(|()| Value::Null)
                         .map_err(|e| submission_update_error(&e)),
+                    (Ok(SubmissionUpdate::Reschedule { .. }), Ok(Some(_))) => Err(json!({
+                        "type": "invalidArguments",
+                        "description": "onSuccessUpdateEmail / onSuccessDestroyEmail cannot be given for a reschedule",
+                    })),
+                    (Ok(SubmissionUpdate::Reschedule { send_at, if_send_at }), Ok(None)) => self
+                        .reschedule_submission(account_id, id, &send_at, if_send_at.as_deref())
+                        .await,
                     (Ok(SubmissionUpdate::Release), Ok(on_success)) => {
                         match self
                             .release_submission(account_id, id, on_success.as_ref())
@@ -2867,6 +2874,93 @@ impl Engine {
     /// error of the release: the row stays `pending` with a retry scheduled, or
     /// becomes `failed`, exactly as it would from the dispatcher, and the
     /// returned properties say which.
+    /// Move a scheduled submission to a new `sendAt` (Outbox "Edit send time").
+    /// Refused with a SetError when the time is not a time, is in the past, is
+    /// beyond the administrator's horizon, the row is held, no longer pending,
+    /// or no longer at `if_send_at`.
+    async fn reschedule_submission(
+        &self,
+        account_id: &str,
+        id: &str,
+        send_at: &str,
+        if_send_at: Option<&str>,
+    ) -> std::result::Result<Value, Value> {
+        let checked = checked_send_at(&json!({ "sendAt": send_at }), chrono::Utc::now())?
+            .expect("a string sendAt");
+        let at = chrono::DateTime::parse_from_rfc3339(&checked)
+            .map(|d| d.with_timezone(&chrono::Utc))
+            .expect("checked");
+        if let Err(why) = self
+            .send_limits(account_id)
+            .await
+            .check_send_at(at, chrono::Utc::now())
+        {
+            return Err(json!({
+                "type": "invalidProperties",
+                "properties": ["sendAt"],
+                "description": format!("sendAt: {why}"),
+            }));
+        }
+        let row = self
+            .owned_submission(account_id, id)
+            .await
+            .map_err(|e| submission_update_error(&e))?;
+        if row.undo_status != SUBMISSION_PENDING {
+            return Err(json!({
+                "type": "invalidArguments",
+                "description": format!(
+                    "submission {id} is {} and cannot be rescheduled",
+                    public_undo_status(&row.undo_status)
+                ),
+            }));
+        }
+        let held = self
+            .store()
+            .get_submission_hold(id)
+            .await
+            .map_err(|e| set_error(&e.into()))?
+            .and_then(|h| h.hold);
+        if held.is_some() {
+            return Err(json!({
+                "type": "invalidProperties",
+                "properties": ["sendAt"],
+                "description": "a held submission is released by its owner; it has no send time to change",
+            }));
+        }
+        let changed = self
+            .store()
+            .reschedule_submission(id, &checked, if_send_at)
+            .await
+            .map_err(|e| set_error(&e.into()))?;
+        if !changed {
+            // Lost a race: report what is true now.
+            let now = self.store().get_submission(id).await.ok().flatten();
+            return Err(match now {
+                Some(r) if r.undo_status == SUBMISSION_PENDING => json!({
+                    "type": "stateMismatch",
+                    "description": "the send time changed since it was read",
+                    "sendAt": r.send_at,
+                }),
+                Some(r) => json!({
+                    "type": "invalidArguments",
+                    "description": format!(
+                        "submission {id} is {} and cannot be rescheduled",
+                        public_undo_status(&r.undo_status)
+                    ),
+                }),
+                None => json!({ "type": "notFound" }),
+            });
+        }
+        self.record_change(account_id, ChangeType::EmailSubmission, id, ChangeOp::Updated)
+            .await
+            .map_err(|e| set_error(&e))?;
+        Ok(json!({
+            "sendAt": checked,
+            "mailwomanHoldSeconds": 0,
+            "mailwomanDueAt": checked,
+        }))
+    }
+
     async fn release_submission(
         &self,
         account_id: &str,
@@ -5161,7 +5255,10 @@ const SERVER_FAIL_TEXT: &str = "the server could not complete this request";
 /// other failure keeps the generic [`set_error`] mapping.
 fn submission_update_error(e: &EngineError) -> Value {
     if let EngineError::Protocol(m) = e {
-        if m.ends_with("and cannot be canceled") || m.ends_with("and cannot be released") {
+        if m.ends_with("and cannot be canceled")
+            || m.ends_with("and cannot be released")
+            || m.ends_with("and cannot be rescheduled")
+        {
             return json!({ "type": "invalidArguments", "description": m });
         }
     }
@@ -5510,8 +5607,14 @@ fn checked_hold(spec: &Value) -> std::result::Result<Option<&'static str>, Value
 }
 
 /// What an `EmailSubmission/set` update asks for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum SubmissionUpdate {
+    /// `{sendAt: "<time>", mailwomanIfSendAt?: "<time>"}`: move a scheduled
+    /// submission to a new time, only if it is still at `mailwomanIfSendAt`.
+    Reschedule {
+        send_at: String,
+        if_send_at: Option<String>,
+    },
     /// `{undoStatus: "canceled"}`.
     Cancel,
     /// `{sendAt: null, mailwomanHoldSeconds: 0}` and/or `{mailwomanHold: null}`.
@@ -5546,7 +5649,11 @@ fn submission_update_action(patch: &Value) -> std::result::Result<SubmissionUpda
         .filter(|k| {
             !matches!(
                 *k,
-                "undoStatus" | "sendAt" | "mailwomanHoldSeconds" | "mailwomanHold"
+                "undoStatus"
+                    | "sendAt"
+                    | "mailwomanHoldSeconds"
+                    | "mailwomanHold"
+                    | "mailwomanIfSendAt"
             )
         })
         .collect();
@@ -5564,6 +5671,31 @@ fn submission_update_action(patch: &Value) -> std::result::Result<SubmissionUpda
             vec!["undoStatus"],
             "the only undoStatus an update can set is \"canceled\", and a cancel changes nothing else",
         ));
+    }
+    if let Some(Value::String(send_at)) = fields.get("sendAt") {
+        let only_guard = fields
+            .keys()
+            .all(|k| k == "sendAt" || k == "mailwomanIfSendAt");
+        if !only_guard {
+            return Err(invalid(
+                fields.keys().map(String::as_str).collect(),
+                "a reschedule names only sendAt (and optionally mailwomanIfSendAt)",
+            ));
+        }
+        let if_send_at = match fields.get("mailwomanIfSendAt") {
+            None => None,
+            Some(Value::String(s)) => Some(s.clone()),
+            Some(_) => {
+                return Err(invalid(
+                    vec!["mailwomanIfSendAt"],
+                    "mailwomanIfSendAt must be the sendAt the client saw, as a string",
+                ));
+            }
+        };
+        return Ok(SubmissionUpdate::Reschedule {
+            send_at: send_at.clone(),
+            if_send_at,
+        });
     }
     let not_a_release: Vec<&str> = fields
         .iter()

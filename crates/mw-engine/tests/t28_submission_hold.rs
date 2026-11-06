@@ -1195,3 +1195,72 @@ async fn the_queue_limit_refuses_the_next_send_and_drops_nothing() {
     assert!(result(&resp, "s")["created"]["send"]["id"].is_string(), "{resp}");
     assert_eq!(h.submitter.delivered(), 1);
 }
+
+// ---- edit the send time (Outbox "Edit send time") --------------------------
+
+/// A scheduled submission moves to a new time with a compare-and-set on the
+/// time the client saw; a stale guess, a past time, a time past the
+/// administrator's horizon, a held row and a row already sent are all refused
+/// and leave the row as it was.
+#[tokio::test]
+async fn a_scheduled_send_time_can_be_edited_with_compare_and_set() {
+    let h = setup(Smtp::Deliver).await;
+    let draft = create_draft(&h).await;
+    let first = (Utc::now() + chrono::Duration::days(2)).to_rfc3339();
+    let created = create_submission(&h, json!({ "emailId": draft, "sendAt": first })).await;
+    let sub_id = created["id"].as_str().unwrap();
+
+    let second = (Utc::now() + chrono::Duration::days(3)).to_rfc3339();
+    let resp = submission_set(
+        &h,
+        json!({ "update": { sub_id: { "sendAt": second, "mailwomanIfSendAt": first } } }),
+    )
+    .await;
+    assert_eq!(result(&resp, "s")["updated"][sub_id]["sendAt"], second, "{resp}");
+    let row = submission(&h, sub_id).await;
+    assert_eq!(row["sendAt"], second);
+    assert_eq!(row["undoStatus"], "pending");
+    assert_eq!(row["mailwomanDueAt"], second);
+
+    // Stale guess: the row is at `second`, not `first`.
+    let third = (Utc::now() + chrono::Duration::days(4)).to_rfc3339();
+    let resp = submission_set(
+        &h,
+        json!({ "update": { sub_id: { "sendAt": third, "mailwomanIfSendAt": first } } }),
+    )
+    .await;
+    assert_not_updated(&resp, sub_id, "stateMismatch");
+    assert_eq!(submission(&h, sub_id).await["sendAt"], second);
+
+    // Past, malformed, and beyond the horizon.
+    let past = (Utc::now() - chrono::Duration::hours(1)).to_rfc3339();
+    let far = (Utc::now() + chrono::Duration::days(4000)).to_rfc3339();
+    for bad in [past, "tomorrow".to_string(), far] {
+        let resp = submission_set(&h, json!({ "update": { sub_id: { "sendAt": bad } } })).await;
+        assert_not_updated(&resp, sub_id, "invalidProperties");
+        assert_eq!(submission(&h, sub_id).await["sendAt"], second, "after {bad}");
+    }
+
+    // The moved time is the one the dispatcher honours: not sent before it.
+    h.engine.dispatch_tick().await.unwrap();
+    assert_eq!(h.submitter.calls(), 0);
+    tick_long_after(&h).await;
+    assert_eq!(h.submitter.calls(), 1);
+
+    // Already sent.
+    let resp = submission_set(&h, json!({ "update": { sub_id: { "sendAt": third } } })).await;
+    assert_not_updated(&resp, sub_id, "invalidArguments");
+}
+
+#[tokio::test]
+async fn a_held_submission_has_no_send_time_to_edit() {
+    let h = setup(Smtp::Deliver).await;
+    let draft = create_draft(&h).await;
+    let created =
+        create_submission(&h, json!({ "emailId": draft, "mailwomanHold": "manual" })).await;
+    let sub_id = created["id"].as_str().unwrap();
+    let later = (Utc::now() + chrono::Duration::days(1)).to_rfc3339();
+    let resp = submission_set(&h, json!({ "update": { sub_id: { "sendAt": later } } })).await;
+    assert_not_updated(&resp, sub_id, "invalidProperties");
+    assert_eq!(submission(&h, sub_id).await["mailwomanHold"], "manual");
+}

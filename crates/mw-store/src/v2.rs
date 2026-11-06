@@ -438,6 +438,40 @@ impl Store {
         Ok(affected == 1)
     }
 
+    /// Move a pending, not manually held submission to a new `send_at`,
+    /// dropping its undo window and any retry backoff. When `expected` is
+    /// given the row's current `send_at` must equal it (compare-and-set, so
+    /// two editors cannot overwrite each other). Returns `true` iff a row was
+    /// changed.
+    pub async fn reschedule_submission(
+        &self,
+        id: &str,
+        send_at: &str,
+        expected: Option<&str>,
+    ) -> Result<bool, StoreError> {
+        let affected = if let Some(expected) = expected {
+            q("UPDATE submissions
+             SET send_at = ?2, hold_seconds = 0, next_attempt_at = NULL
+             WHERE id = ?1 AND undo_status = 'pending'
+               AND (hold IS NULL OR hold <> 'manual') AND send_at = ?3")
+            .bind(id)
+            .bind(send_at)
+            .bind(expected)
+            .execute(&self.backend)
+            .await?
+        } else {
+            q("UPDATE submissions
+             SET send_at = ?2, hold_seconds = 0, next_attempt_at = NULL
+             WHERE id = ?1 AND undo_status = 'pending'
+               AND (hold IS NULL OR hold <> 'manual')")
+            .bind(id)
+            .bind(send_at)
+            .execute(&self.backend)
+            .await?
+        };
+        Ok(affected == 1)
+    }
+
     /// Replace a submission's `onSuccess*` instructions (`None` clears them).
     pub async fn set_submission_on_success(
         &self,
