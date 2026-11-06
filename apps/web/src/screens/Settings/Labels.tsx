@@ -8,6 +8,8 @@ import {ColorField} from '../../components/color/ColorPicker.tsx';
 import {createConfirm,useLeaveConfirm} from '../../components/confirm.tsx';
 import {loadCatalog,t} from '../../i18n';
 import type {SettingsNavigation} from './navigation.tsx';
+import {ControlRow} from './layout/SettingRow.tsx';
+import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 function LabelEditor(props:{value?:Tag;navigation:SettingsNavigation}):JSX.Element {
@@ -23,21 +25,21 @@ function LabelEditor(props:{value?:Tag;navigation:SettingsNavigation}):JSX.Eleme
     if(!id||id.length>255||(!props.value&&(app.tagByKeyword(id)||app.tags().length>=100))){setError(t('labels-invalid'));return;}
     if(props.value)app.updateTag(id,value);else app.addTag(value.name,value.color,value.icon);setPending(true);
   }
-  return <form class={css.section} onSubmit={submit}><h3>{t(props.value?'labels-edit':'labels-new')}</h3>
+  return <form onSubmit={submit}><SettingsCard id="labels-card-editor" title={t(props.value?'labels-edit':'labels-new')}>
     <Show when={error()}><p role="alert">{error()}</p></Show>
-    <label class={css.field}><span>{t('labels-name')}</span><input class={css.input} required maxLength={128} value={draft().name} disabled={pending()} onInput={event=>setDraft(value=>({...value,name:event.currentTarget.value}))}/></label>
-    <div class={css.field}><span aria-hidden="true">{t('labels-color')}</span><ColorField label={t('labels-color')} testId="label-color" value={draft().color} disabled={pending()} contrast={{against:'surface',use:'non-text'}} onChange={color=>{if(color)setDraft(value=>({...value,color}));}}/></div>
-    <label class={css.field}><span>{t('labels-icon')}</span><select class={css.input} aria-label={t('labels-icon')} value={draft().icon} disabled={pending()} onChange={event=>setDraft(value=>({...value,icon:event.currentTarget.value}))}><For each={FOLDER_ICONS}>{icon=><option value={icon}>{t(`settings-folder-icon-${icon}`)}</option>}</For></select></label>
+    <ControlRow controlId="label-name" label={t('labels-name')}>{()=><input id="label-name" class={css.input} required maxLength={128} value={draft().name} disabled={pending()} onInput={event=>setDraft(value=>({...value,name:event.currentTarget.value}))}/>}</ControlRow>
+    <ControlRow controlId="label-color-row" group label={t('labels-color')}>{()=><ColorField label={t('labels-color')} testId="label-color" value={draft().color} disabled={pending()} contrast={{against:'surface',use:'non-text'}} onChange={color=>{if(color)setDraft(value=>({...value,color}));}}/>}</ControlRow>
+    <ControlRow controlId="label-icon" label={t('labels-icon')}>{()=><select id="label-icon" class={css.input} value={draft().icon} disabled={pending()} onChange={event=>setDraft(value=>({...value,icon:event.currentTarget.value}))}><For each={FOLDER_ICONS}>{icon=><option value={icon}>{t(`settings-folder-icon-${icon}`)}</option>}</For></select>}</ControlRow>
     <p class={css.meta}>{t('labels-keyword',{keyword:props.value?.id??keywordFor(draft().name)})}</p>
     <div class={css.actions}><button class={css.button} disabled={!changed()||pending()} type="submit">{t('labels-save')}</button><button class={css.ghost} type="button" onClick={()=>void props.navigation.navigate({section:'labels'})}>{t('labels-back')}</button></div>
     <LeaveDialog/>
-  </form>;
+  </SettingsCard></form>;
 }
 export function Labels(props:{navigation:SettingsNavigation}):JSX.Element {
   const app=useApp();onMount(()=>{void loadCatalog('labels');void loadCatalog('settings');});
   const remove=createConfirm();
   const route=()=>props.navigation.route().editor;const selected=()=>app.tags().find(tag=>tag.id===route()?.id);
-  return <section class={css.section} aria-label={t('labels-title')}><h2>{t('labels-title')}</h2><p class={css.prose}>{t('labels-help')}</p>
+  return <SettingsCard id="labels-card" wide title={t('labels-title')} description={t('labels-help')}>
     <Show when={accountUiPreferenceStatus()==='saving'}><p role="status">{t('labels-saving')}</p></Show>
     <Show when={accountUiPreferenceStatus()==='error'}><p role="alert">{t('labels-sync-error')}</p><button class={css.ghost} onClick={()=>void retryAccountUiPreferences()}>{t('labels-retry')}</button></Show>
     <Show when={route()} keyed fallback={<><div class={css.actions}><button class={css.button} disabled={app.tags().length>=100} onClick={()=>void props.navigation.navigate({section:'labels',editor:{kind:'new'}})}><Icon name="plus"/>{t('labels-new')}</button></div>
@@ -45,5 +47,5 @@ export function Labels(props:{navigation:SettingsNavigation}):JSX.Element {
       {editor=><Show when={editor.kind==='new'||selected()}><LabelEditor {...(selected()?{value:selected()!}:{})} navigation={props.navigation}/></Show>}
     </Show>
     <remove.Dialog/>
-  </section>;
+  </SettingsCard>;
 }

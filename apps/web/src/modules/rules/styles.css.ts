@@ -92,16 +92,16 @@ export const tab = style({
   },
 });
 
-export const list = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2], listStyle: 'none', margin: 0, padding: 0 });
+export const list = style({ display: 'flex', flexDirection: 'column', gap: 0, listStyle: 'none', margin: 0, padding: 0 });
 
 export const ruleRow = style({
   display: 'flex',
   gap: vars.space[3],
   alignItems: 'center',
-  padding: vars.space[3],
-  borderRadius: vars.radius.md,
-  border: `${vars.border.hair} solid ${vars.color.border}`,
-  background: vars.color.surface,
+  paddingBlock: vars.space[2],
+  paddingInline: 0,
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+  background: 'transparent',
   flexWrap: 'wrap',
 });
 

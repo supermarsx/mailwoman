@@ -6,6 +6,9 @@ import { useSetting } from './useSetting.ts';
 import { LockNote } from './LockNote.tsx';
 import { useLeaveConfirm } from '../../components/confirm.tsx';
 import type { SettingsNavigation } from './navigation.tsx';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
+import * as kit from './layout/layout.css.ts';
 import * as css from './styles.css.ts';
 
 function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:SettingsNavigation}):JSX.Element {
@@ -20,7 +23,7 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
     if(!validTimeZone(value)&&!(props.kind==='displayZone'&&value==='local')&&!(props.kind==='comparisonZone'&&value==='')){setError(t('settings-time-invalid'));return;}
     setError('');if(await setting.set(value))setDraft(value);
   }
-  return <form class={css.section} onSubmit={event=>void save(event)}>
+  return <form class={`${kit.row} ${kit.rowStacked}`} data-setting-row onSubmit={event=>void save(event)}>
     <SearchableSelect label={t(`settings-time-${props.kind}`)} value={draft()} options={options} disabled={disabled()} onChange={setDraft} describedBy={`time-${props.kind}-help`}/>
     <p id={`time-${props.kind}-help`} class={css.meta}>{t(`settings-time-${props.kind}-help`)}</p><LockNote locked={setting.locked()}/>
     <Show when={error()||setting.error()}><p role="alert">{error()||setting.error()}</p></Show>
@@ -30,9 +33,11 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
 }
 export function TimeZones(props:{navigation:SettingsNavigation}):JSX.Element {
   const helpers=useSetting<boolean>('time.showHelpers',true);
-  return <section class={css.section} aria-label={t('settings-time-title')}><h3 class={css.heading}>{t('settings-time-title')}</h3><p class={css.meta}>{t('settings-time-help')}</p>
-    <label class={css.check}><input class={css.checkbox} type="checkbox" checked={helpers.value()} disabled={!helpers.entry()||helpers.locked()||helpers.saving()} onChange={event=>void helpers.set(event.currentTarget.checked)}/>{t('settings-time-helpers')}</label><LockNote locked={helpers.locked()}/>
-    <Show when={helpers.error()}><p role="alert">{helpers.error()}</p></Show>
+  return <SettingsCard id="time-card" wide title={t('settings-time-title')} description={t('settings-time-help')}>
+    <ControlRow controlId="time-helpers" label={t('settings-time-helpers')} note={<><LockNote locked={helpers.locked()}/>
+    <Show when={helpers.error()}><p role="alert">{helpers.error()}</p></Show></>}>{()=>
+      <input id="time-helpers" type="checkbox" checked={helpers.value()} disabled={!helpers.entry()||helpers.locked()||helpers.saving()} onChange={event=>void helpers.set(event.currentTarget.checked)}/>
+    }</ControlRow>
     <For each={['displayZone','comparisonZone'] as const}>{kind=><ZoneField kind={kind} navigation={props.navigation}/>}</For>
-  </section>;
+  </SettingsCard>;
 }

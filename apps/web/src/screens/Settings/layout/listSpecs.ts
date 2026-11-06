@@ -71,3 +71,9 @@ export const COMPOSE_EXTRA_CARDS: readonly CardSpec[] = [
   { id: 'compose-card-send-delay', section: 'compose', title: 'send-delay-title', help: 'send-delay-help', rows: [{ id: 'send-delay-select', label: 'send-delay-label' }] },
   { id: 'compose-card-templates', section: 'compose', title: 'response-templates-title', rows: [{ id: 'response-templates-enabled', label: 'response-templates-enable' }] },
 ];
+
+/** Time zones, labels and other list or form sections of the Mail and Interface groups. */
+export const MISC_SECTION_CARDS: readonly CardSpec[] = [
+  { id: 'time-card', section: 'time', title: 'settings-time-title', help: 'settings-time-help', rows: [{ id: 'time-helpers', label: 'settings-time-helpers' }] },
+  { id: 'labels-card', section: 'labels', title: 'labels-title', help: 'labels-help', rows: [] },
+];
