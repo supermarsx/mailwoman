@@ -15,6 +15,7 @@
 // mw-sanitize wasm surface + the in-worker sanitize of decrypted HTML.
 
 import type { CryptoWorkerApi } from '../contracts/crypto.ts';
+import { reportWorkerError } from '../observability/clientErrors.ts';
 
 /** One RPC call posted to the crypto Worker (`{id, method, args}`). */
 export interface CryptoWorkerRequest {
@@ -61,6 +62,7 @@ export function spawnCryptoWorker(): CryptoWorkerApi {
     else p.reject(new Error(error ?? 'crypto worker error'));
   };
   worker.onerror = (ev: ErrorEvent): void => {
+    reportWorkerError('crypto', ev);
     const err = new Error(ev.message !== '' ? ev.message : 'crypto worker crashed');
     for (const p of pending.values()) p.reject(err);
     pending.clear();

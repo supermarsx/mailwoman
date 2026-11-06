@@ -140,6 +140,7 @@ admin-obs-ban-add-error = Could not add the ban
 admin-obs-unban-error = Could not remove the ban
 admin-obs-telemetry-note = Operational telemetry is off by default. Configure its collector, signals and limits on the dedicated telemetry page. MW_OTLP_ENDPOINT and MW_METRICS_TOKEN remain deployment overrides; changes require a server restart. MW_LOG controls the startup log filter.
 admin-obs-telemetry-open = Configure operational telemetry
+admin-obs-client-errors = Client errors
 admin-obs-audit = Audit log
 admin-obs-export = Export JSONL
 admin-obs-audit-empty = No audit entries.

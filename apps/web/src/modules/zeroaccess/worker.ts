@@ -8,6 +8,7 @@
 // fold these `za*` methods into the shared crypto worker; functionally this is complete.
 
 import type { ZeroAccessCrypto } from './crypto.ts';
+import { reportWorkerError } from '../../observability/clientErrors.ts';
 
 /** One RPC call posted to the worker (`{id, method, args}`). */
 export interface ZaWorkerRequest {
@@ -49,6 +50,7 @@ export function spawnZeroAccessWorker(): ZeroAccessCrypto {
     else p.reject(new Error(error ?? 'zero-access worker error'));
   };
   worker.onerror = (ev: ErrorEvent): void => {
+    reportWorkerError('zeroaccess', ev);
     const err = new Error(ev.message !== '' ? ev.message : 'zero-access worker crashed');
     for (const p of pending.values()) p.reject(err);
     pending.clear();

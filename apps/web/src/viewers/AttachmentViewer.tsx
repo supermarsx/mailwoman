@@ -10,6 +10,8 @@ import { viewerKindFor, type ViewerProps } from '../contracts/viewer.ts';
 import { t } from '../i18n/index.ts';
 import { mailFeature } from '../state/mailFeatures.ts';
 import { loadCatalog } from '../i18n/catalog.ts';
+import { ErrorReference } from '../components/ErrorReference.tsx';
+import { reportBoundaryError } from '../observability/clientErrors.ts';
 import './text-viewer.css';
 
 const MessageAttachmentViewer = lazy(() => import('./MessageAttachmentViewer.tsx'));
@@ -28,6 +30,7 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
     <div class="mw-viewer" data-viewer-kind={kind()}>
       {/* A viewer that throws stays in its own panel: Retry re-renders only the preview. */}
       <ErrorBoundary fallback={(error: unknown, reset: () => void) => {
+        const report = reportBoundaryError(error, `Reader/AttachmentViewer/${kind()}`);
         console.warn('[viewer] preview failed', { type: props.mime, kind: kind(), error: error instanceof Error ? error.name : typeof error });
         return (
           <div class="mw-text__state" role="alert" data-viewer-failed="">
@@ -37,6 +40,7 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
               <button type="button" class="btn" onClick={reset}>{t('text-viewer-retry')}</button>
               <Show when={mailFeature('allowDownload')}><a class="btn" href={props.blobUrl} download={props.name.replace(/[\\/]/g, '_')}>{t('text-viewer-download')}</a></Show>
             </div>
+            <ErrorReference report={report} />
           </div>
         );
       }}>

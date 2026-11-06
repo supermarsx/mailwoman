@@ -18,6 +18,8 @@ import * as loading from './asyncState.css.ts';
 import { Spinner } from './spinner/Spinner.tsx';
 import {Icon} from './Icon.tsx';
 import { alignPulse, bootSplashActive, releaseBootSplash } from '../shell/bootSplash.ts';
+import { ErrorReference } from './ErrorReference.tsx';
+import type { ReportHandle } from '../observability/clientErrors.ts';
 
 /**
  * How long any single loading state may claim to be loading.
@@ -59,6 +61,8 @@ export function AsyncError(props: {
   message?: string;
   detail?: string;
   onReload?: (() => void) | undefined;
+  /** The automatic report of this failure (reference id, state, copy details). */
+  report?: ReportHandle | null | undefined;
 }): JSX.Element {
   // A failure must never sit unseen under the boot splash (t52).
   onMount(releaseBootSplash);
@@ -77,6 +81,7 @@ export function AsyncError(props: {
         </button>
       </Show>
       <Show when={props.onReload}><button type="button" class={`${loading.retry} ${a11y.focusable}`} onClick={()=>props.onReload?.()}><Icon name="refresh"/>{t('common-reload-app')}</button></Show>
+      <ErrorReference report={props.report} />
     </div>
   );
 }

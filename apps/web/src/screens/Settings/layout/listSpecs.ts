@@ -53,6 +53,9 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
   { id: 'privacy-card-load-time', section: 'privacy', title: 'privacy-load-time-title', help: 'privacy-load-time-help', rows: [
     { id: 'load-time-folder-control', label: 'privacy-load-time-folder', help: 'privacy-load-time-folder-help' }, { id: 'load-time-message-control', label: 'privacy-load-time-message', help: 'privacy-load-time-message-help' },
   ] },
+  { id: 'privacy-card-error-reports', section: 'privacy', title: 'privacy-error-reports-title', help: 'privacy-error-reports-help', rows: [
+    { id: 'error-reports-control', label: 'privacy-error-reports-send', help: 'privacy-error-reports-send-help' },
+  ] },
   { id: 'privacy-card-cookies', section: 'privacy', title: 'cookies-settings-title', help: 'cookies-settings-help', rows: [] },
   { id: 'your-data-card-overview', section: 'privacy', title: 'yd-title', rows: [] },
   { id: 'your-data-card-consents', section: 'privacy', title: 'yd-consents-title', help: 'yd-consents-help', rows: [] },

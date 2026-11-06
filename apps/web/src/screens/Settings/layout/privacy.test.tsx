@@ -3,6 +3,7 @@ import {cleanup,render,screen,waitFor} from '@solidjs/testing-library';
 import {Privacy} from '../Privacy.tsx';
 import {AnalyticsConsent} from '../AnalyticsConsent.tsx';
 import {LoadTimePreferences} from '../LoadTimePreferences.tsx';
+import {ErrorReportPreferences} from '../ErrorReportPreferences.tsx';
 import {YourData} from '../YourData.tsx';
 import {DataRequests} from '../DataRequests.tsx';
 import {clearSettings} from '../../../api/settings.ts';
@@ -34,7 +35,7 @@ afterEach(()=>{cleanup();vi.unstubAllGlobals();clearSettings();});
 const CONDITIONAL=new Set(['privacy-strip-mailer-headers','dr-include-mail','dr-erasure-sure']);
 
 it('Privacy and data: every card renders once, is registered, and every row label appears once',async()=>{
- render(()=><><Privacy/><AnalyticsConsent loadTag={async()=>null}/><LoadTimePreferences/><YourData load={async()=>overview()}/><DataRequests/></>);
+ render(()=><><Privacy/><AnalyticsConsent loadTag={async()=>null}/><LoadTimePreferences/><ErrorReportPreferences/><YourData load={async()=>overview()}/><DataRequests/></>);
  await screen.findByLabelText(t('privacy-remote-mode'));
  await screen.findByTestId('yd-categories');
  await screen.findByLabelText(t('dr-kind'));

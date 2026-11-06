@@ -6,6 +6,7 @@ import { bootConsent } from './cookies/runtime.ts';
 import { LocaleProvider } from './i18n/index.ts';
 import { installTrustedTypesPolicy } from './security/trustedTypes.ts';
 import { installBundleRecovery } from './sw/bundleRecovery.ts';
+import { installClientErrors } from './observability/clientErrors.ts';
 import { installRateLimitNotice } from './state/rateLimitNotice.ts';
 import { bootLocale } from './screens/Settings/language.ts';
 import './styles/app.css';
@@ -22,6 +23,9 @@ installTrustedTypesPolicy();
 // t102: a tab left open across a deploy reloads into the new build when one of
 // its old chunks cannot be loaded (guarded against loops and unsaved work).
 installBundleRecovery();
+// Errors that reach no boundary (window.onerror, rejections, CSP) are reported to
+// the server's observability, scrubbed (docs/admin/observability.md).
+installClientErrors();
 
 const root = document.getElementById('root');
 if (root === null) {

@@ -29,6 +29,7 @@ import { AsyncError, AsyncPending } from './AsyncState.tsx';
 import {confirmShellNavigation} from '../shell/navigationGuard.ts';
 import {t} from '../i18n';
 import {isChunkLoadError, recoverFromChunkError} from '../sw/bundleRecovery.ts';
+import {reportBoundaryError} from '../observability/clientErrors.ts';
 
 /**
  * Catch anything thrown while rendering `children` and offer a way back.
@@ -40,6 +41,8 @@ import {isChunkLoadError, recoverFromChunkError} from '../sw/bundleRecovery.ts';
  */
 export function AsyncBoundary(props: {
   children: JSX.Element;
+  /** Where this boundary sits, e.g. `Reader/AttachmentViewer/TextViewer`; shown in Admin > Observability > Client errors. */
+  name?: string | undefined;
   onRetry?: (() => void) | undefined;
   /**
    * Renders the caught failure. Defaults to an error message plus a retry.
@@ -53,6 +56,8 @@ export function AsyncBoundary(props: {
       fallback={(error: unknown, reset: () => void) => {
         // t102: a lazy component (an admin section, a module) of an older build.
         if (isModuleDownloadFailure(error)) void recoverFromChunkError(error);
+        // Never throws: a failure panel must be able to draw itself.
+        const report = reportBoundaryError(error, props.name ?? 'AsyncBoundary');
         const retry = (): void => {
           props.onRetry?.();
           reset();
@@ -60,7 +65,7 @@ export function AsyncBoundary(props: {
         return props.fallback !== undefined ? (
           props.fallback(error, retry)
         ) : (
-          <AsyncError error={error} onRetry={retry} />
+          <AsyncError error={error} onRetry={retry} report={report} />
         );
       }}
     >
@@ -94,6 +99,8 @@ function isModuleDownloadFailure(error: unknown): boolean {
  */
 export function LazyRoute(props: {
   load: () => Promise<RouteModule>;
+  /** Boundary name for error reports. */
+  name?: string;
   /** Shown while the chunk is in flight; bounded like every pending state. */
   message?: string;
   timeoutMs?: number;
@@ -123,14 +130,16 @@ export function LazyRoute(props: {
         // t102: a chunk of an older build -> reload once into the server's
         // newer build (guarded); the error view below stays until it does.
         if (isModuleDownloadFailure(error)) void recoverFromChunkError(error);
+        const report = reportBoundaryError(error, props.name ?? 'LazyRoute');
         if (props.failSoft === true) return { default: () => null };
-        return { default: () => <AsyncError error={error} message={t('common-error-page')} detail={t('common-error-page-help')} onRetry={retry} onReload={attempt()>0||isModuleDownloadFailure(error)?()=>void reload():undefined} /> };
+        return { default: () => <AsyncError report={report} error={error} message={t('common-error-page')} detail={t('common-error-page-help')} onRetry={retry} onReload={attempt()>0||isModuleDownloadFailure(error)?()=>void reload():undefined} /> };
       }
     });
   });
 
   return (
     <AsyncBoundary
+      name={props.name ?? 'LazyRoute'}
       onRetry={retry}
       {...(props.failSoft === true ? { fallback: () => null } : {})}
     >

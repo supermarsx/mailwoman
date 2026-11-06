@@ -22,6 +22,7 @@ import { AuditRetention } from './Logs/AuditRetention.tsx';
 import * as css from './admin.css.ts';
 
 const Telemetry = lazy(() => import('./Telemetry.tsx').then(module => ({ default: module.Telemetry })));
+const ClientErrors = lazy(() => import('./ClientErrors.tsx').then(module => ({ default: module.ClientErrors })));
 export function Observability(): JSX.Element {
   const shell = useContext(ShellContext);
   const canStats=()=>shell?.can.can('observability.read')===true;
@@ -32,10 +33,11 @@ export function Observability(): JSX.Element {
     if((tab==='overview'||tab==='statistics')&&canStats())return 'overview';
     if(tab==='audit'&&canAudit())return 'audit';
     if(tab==='telemetry'&&canStats())return 'telemetry';
+    if(tab==='client-errors'&&canStats())return 'client-errors';
     return canStats()?'overview':'audit';
   };
-  const tabs=()=>[...(canStats()?[['overview','admin-obs-overview']]:[]),...(canAudit()?[['audit','admin-obs-audit']]:[]),...(canStats()?[['telemetry','admin-obs-telemetry-open']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='overview'?[]:[id!])}));
-  return <section aria-label={t('admin-obs-title')}><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><AdminSubtabPanel><Show when={selected()==='overview' && canStats()} fallback={<Show when={selected()==='telemetry' && canStats()} fallback={<Show when={selected()==='audit' && canAudit()}><ObservabilityAudit/></Show>}><Telemetry/></Show>}><ObservabilityStats title={t('admin-obs-overview')}/></Show></AdminSubtabPanel></section>;
+  const tabs=()=>[...(canStats()?[['overview','admin-obs-overview']]:[]),...(canAudit()?[['audit','admin-obs-audit']]:[]),...(canStats()?[['telemetry','admin-obs-telemetry-open']]:[]),...(canStats()?[['client-errors','admin-obs-client-errors']]:[])].map(([id,label])=>({id:id!,label:t(label!),path:sectionPath('observability',id==='overview'?[]:[id!])}));
+  return <section aria-label={t('admin-obs-title')}><SectionTabs label={t('admin-obs-title')} items={tabs()} selected={selected()} navigate={path=>void shell?.router.navigate(path)}/><AdminSubtabPanel><Show when={selected()==='overview' && canStats()} fallback={<Show when={selected()==='client-errors' && canStats()} fallback={<Show when={selected()==='telemetry' && canStats()} fallback={<Show when={selected()==='audit' && canAudit()}><ObservabilityAudit/></Show>}><Telemetry/></Show>}><ClientErrors/></Show>}><ObservabilityStats title={t('admin-obs-overview')}/></Show></AdminSubtabPanel></section>;
 }
 function ObservabilityAudit(): JSX.Element {
   const shell = useContext(ShellContext);

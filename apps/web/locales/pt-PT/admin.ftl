@@ -139,6 +139,7 @@ admin-obs-ban-add-error = Não foi possível adicionar o banimento
 admin-obs-unban-error = Não foi possível remover o banimento
 admin-obs-telemetry-note = A telemetria operacional está desativada por predefinição. Configure o coletor, os sinais e os limites na página dedicada à telemetria. MW_OTLP_ENDPOINT e MW_METRICS_TOKEN continuam a ser substituições da implementação; as alterações exigem o reinício do servidor. MW_LOG controla o filtro do registo de arranque.
 admin-obs-telemetry-open = Configurar telemetria operacional
+admin-obs-client-errors = Erros do navegador
 admin-obs-audit = Registo de auditoria
 admin-obs-export = Exportar JSONL
 admin-obs-audit-empty = Sem entradas de auditoria.

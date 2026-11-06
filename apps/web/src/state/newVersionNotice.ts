@@ -13,6 +13,8 @@
 // second check never stacks one). Closing the toast is "Later": the notice for
 // that build is silenced for an hour, remembered per tab in sessionStorage.
 
+import { setReportBuild } from '../observability/clientErrors.ts';
+
 export const SNOOZE_MS = 60 * 60_000;
 export const POLL_MS = 10 * 60_000;
 /** Focus and visibility events can fire in bursts; one check per this long. */
@@ -91,6 +93,8 @@ export function createNewVersionNotice(deps: NewVersionDeps): NewVersionNotice {
     if (mine !== seq || id === null || !deps.active()) return;
     if (bootId === null) {
       bootId = id;
+      // Error reports name the build they came from (observability/clientErrors.ts).
+      setReportBuild(id);
       return;
     }
     if (id === bootId) {

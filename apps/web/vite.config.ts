@@ -77,6 +77,9 @@ export function assetIntegrity(): Plugin {
       for (const file of walk(assets)) {
         const rel = `/assets/${relative(assets, file).split(sep).join('/')}`;
         if (rel.startsWith('/assets/analytics/')) continue;
+        // Hidden source maps (MW_SOURCEMAP=hidden) are for the server's stack
+        // symbolicator only: never served, never precached.
+        if (rel.endsWith('.map')) continue;
         digests[rel] = createHash('sha256').update(readFileSync(file)).digest('hex');
       }
       const htmlPath = join(outDir, 'index.html');
@@ -140,7 +143,11 @@ export default defineConfig({
   },
   build: {
     target: 'es2022',
-    sourcemap: false,
+    // `MW_SOURCEMAP=hidden` writes source maps next to the bundles WITHOUT a
+    // `sourceMappingURL` comment. The server embeds them but refuses to serve any
+    // `.map` and uses them to resolve browser error stack traces
+    // (docs/admin/observability.md, Client errors).
+    sourcemap: process.env['MW_SOURCEMAP'] === 'hidden' ? 'hidden' : false,
     // Small font subsets must remain same-origin files: the shell deliberately
     // permits font-src 'self', never data: font payloads in generated CSS.
     assetsInlineLimit: (filePath) => /\.(?:woff2?|ttf|otf)(?:\?|$)/i.test(filePath) ? false : undefined,

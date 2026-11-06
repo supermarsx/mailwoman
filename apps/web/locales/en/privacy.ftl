@@ -220,3 +220,7 @@ privacy-image-group-cache = Cache
 privacy-image-group-ram = Memory tier
 privacy-image-group-disk = Disk tier
 privacy-image-group-tiering = Tiering and upkeep
+privacy-error-reports-title = Error reports
+privacy-error-reports-help = When part of Mailwoman fails, the browser can send your administrator a short technical report so it can be fixed. It holds the error type, where in the app it happened, the app version and the browser type. It never holds message content, addresses, attachment names or what you typed.
+privacy-error-reports-send = Send error reports from this browser
+privacy-error-reports-send-help = On by default. Turn off to keep these reports on your device. The error panel still shows a reference you can copy.

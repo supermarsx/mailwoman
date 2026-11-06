@@ -12,6 +12,7 @@
 
 import { getCryptoWorker } from '../crypto/index.ts';
 import { observePreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
+import { reportWorkerError } from '../observability/clientErrors.ts';
 import { SanitizeCache, cacheKey } from './cache.ts';
 import { SanitizerPool, poolSize, type Priority, type WorkerLike } from './pool.ts';
 import type { SanitizeRequest } from './protocol.ts';
@@ -59,7 +60,11 @@ function createPool(): SanitizerPool {
     size: poolSize(typeof navigator === 'undefined' ? undefined : navigator.hardwareConcurrency),
     // The inline `new Worker(new URL(...), { type: 'module' })` form is what Vite detects to
     // bundle the worker and its wasm as a separate chunk (same as crypto/worker.ts).
-    createWorker: () => new Worker(new URL('./worker.entry.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike,
+    createWorker: () => {
+      const worker = new Worker(new URL('./worker.entry.ts', import.meta.url), { type: 'module' });
+      worker.addEventListener('error', (ev) => reportWorkerError('sanitizer', ev));
+      return worker as unknown as WorkerLike;
+    },
     loadModule: async () => {
       // A static build asset, not an API request: there is no session or CSRF token to send.
       // eslint-disable-next-line mw/no-global-fetch

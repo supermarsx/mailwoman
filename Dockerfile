@@ -27,7 +27,9 @@ COPY apps/web/package.json apps/web/pnpm-lock.yaml apps/web/pnpm-workspace.yaml 
 RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
     pnpm install --frozen-lockfile
 COPY apps/web/ ./
-RUN pnpm build
+# Hidden source maps: embedded for the server's stack-trace resolver, never served.
+ARG MW_SOURCEMAP=hidden
+RUN MW_SOURCEMAP=$MW_SOURCEMAP pnpm build
 # -> /web/dist
 
 # ---------------------------------------------------------------------------

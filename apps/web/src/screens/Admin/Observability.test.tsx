@@ -48,7 +48,7 @@ describe('Admin › Observability', () => {
     expect(tiles.compareDocumentPosition(charts)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(charts.compareDocumentPosition(tables)&Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     const tabs=screen.getByRole('navigation',{name:'Observability'});
-    expect(within(tabs).getAllByRole('link').map(link=>link.textContent)).toEqual(['Overview','Audit log','Configure operational telemetry']);
+    expect(within(tabs).getAllByRole('link').map(link=>link.textContent)).toEqual(['Overview','Audit log','Configure operational telemetry','Client errors']);
     expect(within(tabs).getByRole('link',{name:'Overview'})).toHaveAttribute('aria-current','page');
     expect(within(tabs).getByRole('link',{name:'Overview'})).toHaveAttribute('href','/admin#/observability');
     expect(api.listAudit).not.toHaveBeenCalled();

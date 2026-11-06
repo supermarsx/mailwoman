@@ -111,3 +111,12 @@ export const syncProgress = style({
 // (Only the appear animations go; the shapes keep their pulse.)
 export const takeover = style({});
 globalStyle(`${takeover} > [data-skeleton], ${takeover} > span`, {animation:'none'});
+
+// The error reference line under a failure message (components/ErrorReference).
+export const errorReference = style({display:'flex',flexWrap:'wrap',alignItems:'center',gap:vars.space[3],minInlineSize:0});
+export const errorReferenceLine = style({margin:0,display:'flex',flexWrap:'wrap',gap:vars.space[2],alignItems:'baseline',color:vars.color.textDim,fontSize:'0.875rem'});
+export const errorReferenceState = style({marginInlineStart:vars.space[2]});
+export const errorReferenceCopy = style({
+  minBlockSize:'44px',padding:`${vars.space[1]} ${vars.space[3]}`,border:`2px solid ${vars.color.borderStrong}`,borderRadius:0,
+  background:'transparent',color:vars.color.text,font:'inherit',cursor:'pointer',
+});
