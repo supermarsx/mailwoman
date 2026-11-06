@@ -254,3 +254,231 @@ calendar-share-access-for = صلاحية { $principal }
 calendar-share-remove = إزالة { $principal }
 calendar-share-read = قراءة فقط
 calendar-share-readwrite = قراءة وكتابة
+
+# -- Machine translation (2026-11): added to match en ---------------------
+calendar-mini = متنقل التاريخ
+calendar-event-range = { $title }، من { $start } إلى { $end }
+calendar-busy-free = يظهر كوقت متاح
+calendar-event-with-status = { $event } ({ $status })
+calendar-more-label = { $count ->
+    [zero] لا أحداث إضافية في { $date }
+    [one] حدث إضافي واحد في { $date }
+    [two] حدثان إضافيان في { $date }
+    [few] { $count } أحداث إضافية في { $date }
+    [many] { $count } حدثًا إضافيًا في { $date }
+   *[other] { $count } حدث إضافي في { $date }
+}
+calendar-fb-caption-people = أوقات الانشغال في يوم التعارض، بحسب الساعة، لك ولكل شخص مدعو.
+calendar-fb-unknown = تعذّر جلب التوفر الخاص بـ { $principal }.
+calendar-fb-loading = جارٍ تحميل التوفر…
+calendar-import-itip-message = هذا الملف ردّ أو إلغاء أُرسل بالبريد الإلكتروني. افتح الرسالة المرفقة به لتطبيقه. لم يُستورد أي شيء.
+calendar-import-skipped = { $count ->
+    [zero] لا أحداث كانت موجودة في التقويم مسبقًا.
+    [one] كان حدث واحد موجودًا في التقويم مسبقًا وتُرك كما هو.
+    [two] كان حدثان موجودين في التقويم مسبقًا وتُركا كما هما.
+    [few] كانت { $count } أحداث موجودة في التقويم مسبقًا وتُركت كما هي.
+    [many] كان { $count } حدثًا موجودًا في التقويم مسبقًا وتُركت كما هي.
+   *[other] كان { $count } حدث موجودًا في التقويم مسبقًا وتُركت كما هي.
+}
+calendar-invite-title = دعوة تقويم
+calendar-invite-sender = من { $sender }
+calendar-invite-add = إضافة إلى التقويم
+calendar-invite-update = تطبيق تحديث الحدث
+calendar-invite-cancel = تطبيق الإلغاء
+calendar-invite-reply = تسجيل ردّ الحاضر
+calendar-invite-new = يمكن إضافة هذه الدعوة إلى تقويمك.
+calendar-invite-newer = أرسل المنظّم حدثًا محدّثًا.
+calendar-invite-current = تقويمك يحتوي على هذه النسخة بالفعل.
+calendar-invite-stale = هذه الرسالة أقدم من الحدث الموجود في تقويمك.
+calendar-invite-cancelled = ألغى المنظّم هذا الحدث.
+calendar-invite-response = أرسل أحد الحاضرين ردًّا.
+calendar-invite-not-organizer = المرسل ليس المنظّم المخزَّن. لن يتغير شيء.
+calendar-invite-not-attendee = المرسل ليس حاضرًا مطابقًا. لن يتغير شيء.
+calendar-invite-unknown = تشير هذه الرسالة إلى حدث غير موجود في تقويمك.
+calendar-invite-unsupported = لا يمكن تطبيق هذا الاقتراح تلقائيًا.
+calendar-invite-no-reply = يحدّث هذا تقويمك دون إرسال ردّ.
+calendar-invite-applied = تم تحديث تقويمك.
+calendar-invite-unchanged = لم يتغير الحدث. راجع الحالة الحالية للدعوة.
+calendar-invite-apply-failed = تعذّر تطبيق الدعوة. حاول مرة أخرى.
+calendar-invite-load-failed = تعذّر فحص الدعوة.
+calendar-invite-retry = إعادة المحاولة
+calendar-field-time-zone = المنطقة الزمنية للحدث
+calendar-field-time-zone-help = استخدم اسم IANA مثل Europe/Lisbon. يحتفظ الحدث بهذه المنطقة عند عرضه في مكان آخر.
+calendar-time-invalid = أدخل منطقة زمنية ووقتًا محليًا صالحين. بعض الأوقات المحلية غير موجودة عند تقديم الساعة.
+calendar-mini-prev = الشهر السابق
+calendar-mini-next = الشهر التالي
+calendar-card-region-event = حدث في التقويم
+calendar-card-kind-request = دعوة إلى اجتماع
+calendar-card-kind-update = دعوة محدّثة
+calendar-card-kind-cancel = اجتماع ملغى
+calendar-card-kind-reply = ردّ على اجتماع
+calendar-card-kind-counter = اقتراح موعد جديد
+calendar-card-kind-publish = { $count ->
+    [zero] لا أحداث تقويم
+    [one] حدث تقويم
+    [two] حدثا تقويم
+    [few] { $count } أحداث تقويم
+    [many] { $count } حدث تقويم
+   *[other] { $count } حدث تقويم
+}
+calendar-card-when = الوقت
+calendar-card-where = المكان
+calendar-card-organizer = المنظّم
+calendar-card-attendees = الحاضرون
+calendar-card-all-day = { $when } (طوال اليوم)
+calendar-card-organizer-time = وقت المنظّم: { $when } ({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [zero] كل { $interval } يوم
+    [one] كل يوم
+    [two] كل يومين
+    [few] كل { $interval } أيام
+    [many] كل { $interval } يومًا
+   *[other] كل { $interval } يوم
+}
+calendar-card-repeat-weekly = { $interval ->
+    [zero] كل { $interval } أسبوع
+    [one] كل أسبوع
+    [two] كل أسبوعين
+    [few] كل { $interval } أسابيع
+    [many] كل { $interval } أسبوعًا
+   *[other] كل { $interval } أسبوع
+}
+calendar-card-repeat-weekly-on = { $interval ->
+    [zero] كل { $interval } أسبوع، أيام { $days }
+    [one] كل { $days }
+    [two] كل أسبوعين، أيام { $days }
+    [few] كل { $interval } أسابيع، أيام { $days }
+    [many] كل { $interval } أسبوعًا، أيام { $days }
+   *[other] كل { $interval } أسبوع، أيام { $days }
+}
+calendar-card-repeat-monthly = { $interval ->
+    [zero] كل { $interval } شهر
+    [one] كل شهر
+    [two] كل شهرين
+    [few] كل { $interval } أشهر
+    [many] كل { $interval } شهرًا
+   *[other] كل { $interval } شهر
+}
+calendar-card-repeat-monthly-day = { $interval ->
+    [zero] كل { $interval } شهر في اليوم { $day }
+    [one] كل شهر في اليوم { $day }
+    [two] كل شهرين في اليوم { $day }
+    [few] كل { $interval } أشهر في اليوم { $day }
+    [many] كل { $interval } شهرًا في اليوم { $day }
+   *[other] كل { $interval } شهر في اليوم { $day }
+}
+calendar-card-repeat-yearly = { $interval ->
+    [zero] كل { $interval } سنة
+    [one] كل سنة
+    [two] كل سنتين
+    [few] كل { $interval } سنوات
+    [many] كل { $interval } سنة
+   *[other] كل { $interval } سنة
+}
+calendar-card-repeat-until = { $rule } حتى { $date }
+calendar-card-repeat-count = { $count ->
+    [zero] { $rule }، دون تكرار
+    [one] { $rule }، مرة واحدة
+    [two] { $rule }، مرتان
+    [few] { $rule }، { $count } مرات
+    [many] { $rule }، { $count } مرة
+   *[other] { $rule }، { $count } مرة
+}
+calendar-card-repeat-except = { $count ->
+    [zero] { $rule }
+    [one] { $rule } (تخطي تاريخ واحد)
+    [two] { $rule } (تخطي تاريخين)
+    [few] { $rule } (تخطي { $count } تواريخ)
+    [many] { $rule } (تخطي { $count } تاريخًا)
+   *[other] { $rule } (تخطي { $count } تاريخ)
+}
+calendar-card-repeat-custom = يتكرر وفق جدول مخصص
+calendar-card-join = الانضمام عبر { $provider }
+calendar-card-organizer-is = نظّمه { $who }
+calendar-card-people-all = عرض الكل ({ $count })
+calendar-card-people-fewer = عرض أقل
+calendar-card-rsvp-accepted = قُبلت
+calendar-card-rsvp-tentative = مبدئيًا
+calendar-card-rsvp-declined = رُفضت
+calendar-card-rsvp-none = لم يرد بعد
+calendar-card-in-calendar = في تقويمك
+calendar-card-cancelled = ملغى
+calendar-card-open = فتح في التقويم
+calendar-card-agenda = تقويمك في { $day }
+calendar-card-agenda-title = يومك
+calendar-card-agenda-this-event = هذا الحدث
+calendar-card-agenda-unavailable = تعذّر تحميل تقويمك لهذا اليوم.
+calendar-card-conflicts = { $count ->
+    [zero] لا تعارض مع { $titles }
+    [one] يتعارض مع { $titles }
+    [two] يتعارض مع حدثين: { $titles }
+    [few] يتعارض مع { $count } أحداث: { $titles }
+    [many] يتعارض مع { $count } حدثًا: { $titles }
+   *[other] يتعارض مع { $count } حدث: { $titles }
+}
+calendar-card-no-conflicts = لا تعارضات في تقويمك
+calendar-card-invited-as = دُعيت بالعنوان { $address }.
+calendar-card-not-invited = لا تذكر هذه الدعوة أيًّا من عناوينك. يمكنك إضافتها إلى تقويمك، لكن لا يمكنك الرد عليها.
+calendar-card-not-invited-short = لا تذكر هذه الدعوة أيًّا من عناوينك.
+calendar-card-out-of-date = هذه الدعوة قديمة. توجد نسخة أحدث منها في تقويمك.
+calendar-card-counter = اقترح { $who } موعدًا جديدًا. لا تُطبَّق الاقتراحات تلقائيًا.
+calendar-card-todos-skipped = { $count ->
+    [zero] لا مهام أخرى في الملف.
+    [one] يحتوي الملف أيضًا على مهمة واحدة لم تُضف.
+    [two] يحتوي الملف أيضًا على مهمتين لم تُضافا.
+    [few] يحتوي الملف أيضًا على { $count } مهام لم تُضف.
+    [many] يحتوي الملف أيضًا على { $count } مهمة لم تُضف.
+   *[other] يحتوي الملف أيضًا على { $count } مهمة لم تُضف.
+}
+calendar-card-respond = الرد على الدعوة
+calendar-card-accept = قبول
+calendar-card-tentative = مبدئيًا
+calendar-card-decline = رفض
+calendar-card-propose = اقتراح موعد جديد
+calendar-card-propose-start = بداية جديدة
+calendar-card-propose-send = إرسال الاقتراح
+calendar-card-propose-invalid = أدخل وقت بداية جديدًا صالحًا.
+calendar-card-send-response = إرسال ردّ إلى { $organizer }
+calendar-card-comment = تعليق (اختياري)
+calendar-card-calendar = التقويم
+calendar-card-events = الأحداث في هذا الملف
+calendar-card-add-one = إضافة
+calendar-card-add-all = إضافة الكل ({ $count })
+calendar-card-added = { $count ->
+    [zero] لم تُضف أحداث إلى تقويمك.
+    [one] أُضيف إلى تقويمك.
+    [two] أُضيف حدثان إلى تقويمك.
+    [few] أُضيفت { $count } أحداث إلى تقويمك.
+    [many] أُضيف { $count } حدثًا إلى تقويمك.
+   *[other] أُضيف { $count } حدث إلى تقويمك.
+}
+calendar-card-remove = إزالة من التقويم
+calendar-card-removed = أُزيل من تقويمك.
+calendar-card-record-reply = تحديث حالة الحاضر
+calendar-card-answered-sent = { $answer }. أُرسل ردّك إلى { $organizer }.
+calendar-card-answered-not-sent = { $answer }. تم تحديث تقويمك، لكن تعذّر إرسال الرد.
+calendar-card-answered-silently = { $answer }. لم يُرسل أي ردّ.
+calendar-card-proposal-sent = أُرسل اقتراحك إلى { $organizer }.
+calendar-card-not-sent = تعذّر إرسال الرسالة.
+calendar-card-more = { $count ->
+    [zero] لا شيء آخر
+    [one] واحد آخر
+    [two] اثنان آخران
+    [few] { $count } آخرون
+    [many] { $count } آخر
+   *[other] { $count } آخر
+}
+calendar-card-attendee-summary = { $count ->
+    [zero] لا حاضرين · قبل { $accepted }، مبدئيًا { $tentative }، رفض { $declined }
+    [one] حاضر واحد · قبل { $accepted }، مبدئيًا { $tentative }، رفض { $declined }
+    [two] حاضران · قبل { $accepted }، مبدئيًا { $tentative }، رفض { $declined }
+    [few] { $count } حاضرين · قبل { $accepted }، مبدئيًا { $tentative }، رفض { $declined }
+    [many] { $count } حاضرًا · قبل { $accepted }، مبدئيًا { $tentative }، رفض { $declined }
+   *[other] { $count } حاضر · قبل { $accepted }، مبدئيًا { $tentative }، رفض { $declined }
+}
+calendar-card-replied = { $who } { $answer ->
+    [accepted] قبل الدعوة.
+    [tentative] قبل الدعوة مبدئيًا.
+    [declined] رفض الدعوة.
+   *[other] لم يرد بعد.
+}
