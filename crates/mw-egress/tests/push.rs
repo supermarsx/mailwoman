@@ -58,6 +58,7 @@ async fn typed_push_headers_cross_only_the_origin_exchange() {
         authorized_dav: None,
         response_limit: 8192,
         download: None,
+        conditional: None,
         accept: "*/*",
         user_agent: "Mailwoman",
         body: Some(OutBody {
@@ -170,6 +171,7 @@ async fn web_push_redirect_is_returned_without_following_or_reposting() {
         authorized_dav: None,
         response_limit: 8192,
         download: None,
+        conditional: None,
         accept: "*/*",
         user_agent: "Mailwoman",
         body: Some(OutBody {

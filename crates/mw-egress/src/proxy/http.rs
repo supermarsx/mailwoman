@@ -72,6 +72,7 @@ where
             body: None,
             response_limit: MAX_IMAGE_BYTES,
             download: None,
+            conditional: None,
         },
     )
     .await
@@ -349,6 +350,7 @@ mod tests {
             user_agent: "Mailwoman",
             body: None,
             download: None,
+            conditional: None,
         };
         let destination = url("https://approved.test/token");
         let watch = async {
@@ -430,6 +432,7 @@ mod tests {
             user_agent: PROXY_UA,
             body: None,
             download: None,
+            conditional: None,
         };
         assert!(matches!(
             exchange_with(
@@ -484,6 +487,7 @@ mod tests {
                     body: None,
                     response_limit: 4,
                     download: None,
+                    conditional: None,
                 },
             )
             .await;

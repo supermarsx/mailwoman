@@ -267,6 +267,7 @@ pub struct Request<'a> {
     timeouts: Option<FetchTimeouts>,
     timeout_report: Option<&'a TimeoutReport>,
     download: Option<crate::Download<'a>>,
+    conditional: Option<crate::Conditional<'a>>,
 }
 
 impl<'a> Request<'a> {
@@ -288,6 +289,7 @@ impl<'a> Request<'a> {
             timeouts: None,
             timeout_report: None,
             download: None,
+            conditional: None,
         }
     }
 
@@ -396,6 +398,13 @@ impl<'a> Request<'a> {
         self
     }
 
+    /// Make this `GET` conditional on a copy the caller holds; a `304` is
+    /// [`Refusal::Status`]`(304)`.
+    pub fn conditional(mut self, etag: Option<&'a str>, last_modified: Option<&'a str>) -> Request<'a> {
+        self.conditional = Some(crate::Conditional { etag, last_modified });
+        self
+    }
+
     /// The `Accept` header.
     pub fn accept(mut self, accept: &'a str) -> Request<'a> {
         self.accept = accept;
@@ -460,6 +469,7 @@ impl<'a> Request<'a> {
             body: self.body,
             response_limit: self.response_limit,
             download: self.download,
+            conditional: self.conditional,
         }
     }
 }

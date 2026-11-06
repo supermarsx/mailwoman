@@ -56,7 +56,7 @@ mod plugin_http;
 pub use api::{ApiMethod, AuthorizedApi};
 pub use plugin_http::PluginHttp;
 mod response_metadata;
-pub use response_metadata::{ResponseHead, ResponseMetadata, ResponseProgress};
+pub use response_metadata::{CacheHeaders, ResponseHead, ResponseMetadata, ResponseProgress};
 pub mod proxy;
 
 /// Traffic classes (t32 e31b): what an outbound request is for, which decides the
@@ -617,6 +617,7 @@ pub async fn fetch_hop_as(target: &Target, accept: &str, user_agent: &str) -> Re
             body: None,
             response_limit: MAX_IMAGE_BYTES,
             download: None,
+            conditional: None,
         },
     )
     .await
@@ -648,6 +649,26 @@ pub struct Outgoing<'a> {
     /// A bulk file download (t96): its own size ceiling, redirect hosts and origin
     /// roots. `None` for every other request.
     pub download: Option<Download<'a>>,
+    /// Validators of a copy the caller already holds, sent as `If-None-Match` and
+    /// `If-Modified-Since` on a `GET`. A `304` then comes back as
+    /// [`Refusal::Status`]`(304)` instead of the redirect refusal it would be
+    /// otherwise. Only the direct path sends them; a proxied route answers in full.
+    pub conditional: Option<Conditional<'a>>,
+}
+
+/// Validators for a conditional `GET`; see [`Outgoing::conditional`].
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Conditional<'a> {
+    pub etag: Option<&'a str>,
+    pub last_modified: Option<&'a str>,
+}
+
+impl Conditional<'_> {
+    /// Header values are printable ASCII and bounded, so a validator an origin sent
+    /// cannot inject a header line into the next request.
+    fn safe(value: &str) -> bool {
+        value.len() <= 512 && value.bytes().all(|b| (0x20..0x7f).contains(&b))
+    }
 }
 
 impl Outgoing<'_> {
@@ -1046,6 +1067,15 @@ pub(crate) async fn send_hop_timed(
     } else {
         request
     };
+    let mut request = request;
+    if let Some(conditional) = out.conditional.filter(|_| out.body.is_none()) {
+        if let Some(tag) = conditional.etag.filter(|v| Conditional::safe(v)) {
+            request = request.header(header::IF_NONE_MATCH, tag);
+        }
+        if let Some(since) = conditional.last_modified.filter(|v| Conditional::safe(v)) {
+            request = request.header(header::IF_MODIFIED_SINCE, since);
+        }
+    }
     let sending = request
         .header(header::USER_AGENT, out.user_agent)
         .header(header::ACCEPT, out.accept)
@@ -1075,6 +1105,14 @@ pub(crate) async fn send_hop_timed(
                 .get(reqwest::header::ETAG)
                 .and_then(|v| v.to_str().ok()),
         );
+        let text = |name| resp.headers().get(name).and_then(|v| v.to_str().ok());
+        metadata.record_cache_headers(
+            text(header::LAST_MODIFIED),
+            text(header::CACHE_CONTROL),
+        );
+    }
+    if status == reqwest::StatusCode::NOT_MODIFIED && out.conditional.is_some() {
+        return Err(Refusal::Status(304));
     }
     if status.is_redirection() && out.authorized_plugin.is_none() {
         let loc = resp
@@ -1406,6 +1444,7 @@ mod tests {
             user_agent: PROXY_UA,
             body: None,
             download: None,
+            conditional: None,
         };
         assert!(out.redirect_permitted(&start, &u("https://evil.example/db")));
         assert_eq!(out.body_cap(), MAX_IMAGE_BYTES);

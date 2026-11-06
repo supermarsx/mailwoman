@@ -623,6 +623,7 @@ pub async fn tunnel_fetch_hop(target: &Target, route: &ProxyRoute, accept: &str)
             body: None,
             response_limit: crate::MAX_IMAGE_BYTES,
             download: None,
+            conditional: None,
         },
     )
     .await
@@ -729,6 +730,7 @@ pub async fn fetch_via_proxy(start: reqwest::Url, route: &ProxyRoute, accept: &s
             body: None,
             response_limit: crate::MAX_IMAGE_BYTES,
             download: None,
+            conditional: None,
         },
     )
     .await

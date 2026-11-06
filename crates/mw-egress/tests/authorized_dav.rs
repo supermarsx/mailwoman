@@ -124,6 +124,7 @@ async fn cancelled_dav_exchange_closes_connection_pump() {
             web_push: None,
             response_limit: 1024,
             download: None,
+            conditional: None,
             accept: "application/xml",
             user_agent: "Mailwoman",
             body: None,

@@ -8,6 +8,16 @@ use std::sync::Mutex;
 pub struct ResponseMetadata {
     value: Mutex<Option<ResponseHead>>,
     progress: Mutex<Option<ResponseProgress>>,
+    cache: Mutex<Option<CacheHeaders>>,
+}
+
+/// The two caching headers a revalidating cache needs, retained alongside the
+/// `ETag`: `Last-Modified` and `Cache-Control`. Each is bounded and printable
+/// ASCII; nothing else from the response is kept.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct CacheHeaders {
+    pub last_modified: Option<String>,
+    pub cache_control: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +43,21 @@ impl ResponseMetadata {
             *progress = Some(ResponseProgress {
                 received_bytes,
                 total_bytes,
+            });
+        }
+    }
+
+    /// The caching headers of the last response, if any were captured.
+    pub fn cache_headers(&self) -> Option<CacheHeaders> {
+        self.cache.lock().ok()?.clone()
+    }
+
+    pub(crate) fn record_cache_headers(&self, last_modified: Option<&str>, cache_control: Option<&str>) {
+        let keep = |v: &str| v.len() <= 512 && v.bytes().all(|b| (0x20..0x7f).contains(&b));
+        if let Ok(mut value) = self.cache.lock() {
+            *value = Some(CacheHeaders {
+                last_modified: last_modified.filter(|v| keep(v)).map(str::to_owned),
+                cache_control: cache_control.filter(|v| keep(v)).map(str::to_owned),
             });
         }
     }
