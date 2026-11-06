@@ -26,6 +26,7 @@ import { SettingsService } from './screens/Settings/service.ts';
 import { shouldNotify } from './api/notificationPolicy.ts';
 import {NotificationPermissionPrompt} from './components/NotificationPermissionPrompt.tsx';
 import { releaseBootSplash, rememberBootGeometry, rememberBootSession } from './shell/bootSplash.ts';
+import { bootReconnecting } from './state/bootRetry.ts';
 
 // Every route below is a DYNAMIC IMPORT, and each now loads through `LazyRoute`
 // rather than a bare `<Suspense fallback="Loading…">`. A chunk that fails to
@@ -288,7 +289,7 @@ export function App(): JSX.Element {
     <AppContext.Provider value={app}>
       <Show
         when={app.authChecked()}
-        fallback={<AsyncPending variant="boot" onRetry={boot} />}
+        fallback={<AsyncPending variant="boot" onRetry={boot} bounded={!bootReconnecting()} message={t(bootReconnecting() ? 'common-conn-reconnecting' : 'common-loading')} />}
       >
         <Switch>
           {/* Ordered before the logged-out branch: a boot FAILURE and a

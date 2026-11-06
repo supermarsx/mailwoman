@@ -760,7 +760,12 @@ async fn serve(args: ServeArgs) -> anyhow::Result<()> {
         None
     };
 
-    let http_limits = mw_server::inbound_http::HttpLimits::from_env()?;
+    let mut http_limits = mw_server::inbound_http::HttpLimits::from_env()?;
+    if std::env::var_os("MW_HTTP_SHUTDOWN_TIMEOUT_MS").is_none()
+        && let Some(grace) = mw_server::shutdown_grace()
+    {
+        http_limits.shutdown_timeout = grace;
+    }
     match tls {
         None => {
             let tcp = tokio::net::TcpListener::bind(&args.bind).await?;
@@ -837,7 +842,7 @@ async fn fonts_cmd(args: FontsArgs) -> anyhow::Result<()> {
 }
 
 async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
+    mw_server::termination_signal().await;
     tracing::info!("shutdown signal received");
 }
 

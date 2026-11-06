@@ -277,7 +277,10 @@ export function createPushClient(opts: PushClientOptions = {}): PushClientImpl {
 
   function backoffFor(attempt: number): number {
     const i = Math.min(Math.max(attempt - 1, 0), backoff.length - 1);
-    return backoff[i] ?? 0;
+    const base = backoff[i] ?? 0;
+    // Jitter only on the default schedule, so many tabs and clients do not all
+    // reconnect to a restarting server in the same instant.
+    return opts.backoff === undefined ? Math.round(base * (0.75 + Math.random() * 0.5)) : base;
   }
 
   /** The server ended the session: stop, and do not reconnect. */

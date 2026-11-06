@@ -47,6 +47,10 @@ export function createRealtimeController(
   const subTabs = createSubTabs(opts.subTabs);
   const reconciler = createChangeReconciler(opts.onChanged ?? (() => undefined));
 
+  // The stream dropped and came back (a server restart, a network gap): nothing
+  // was pushed while it was down, so re-read once instead of waiting for the next
+  // change to arrive.
+  let wasDown = false;
   const push =
     opts.pushClient ??
     createPushClient({
@@ -54,6 +58,11 @@ export function createRealtimeController(
       onStatus: (status, transport) => {
         connection.report(status, transport);
         opts.push?.onStatus?.(status, transport);
+        if (status === 'reconnecting') wasDown = true;
+        else if (status === 'open' && wasDown) {
+          wasDown = false;
+          reconciler.resync();
+        } else if (status === 'closed' || status === 'unauthorized') wasDown = false;
       },
     });
 

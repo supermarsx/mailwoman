@@ -60,6 +60,7 @@ pub mod user_lifecycle;
 pub use security_center::{RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
 mod admin_accounts;
 mod admin_passkeys;
+pub mod ephemeral;
 pub use admin_passkeys::{AdminPasskey, AdminSessionFactor};
 pub mod account_drafts;
 pub mod contact_photos;

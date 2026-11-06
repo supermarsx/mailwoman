@@ -181,10 +181,11 @@ mod trust_tier;
 pub async fn flush_trust_tiers() {
     trust_tier::flush_on_shutdown().await;
 }
+pub use session_persistence::{shutdown_grace, termination_signal};
 mod sec_cfg;
 mod security_alerts;
 mod session_binding;
-    metrics_persist::flush_on_shutdown().await;
+mod session_persistence;
 mod session_theft;
 mod session_watch;
 mod signin_spike;
@@ -1150,6 +1151,7 @@ async fn build_app_inner(
     // DQ4/S6: is a render kernel jail expected here? On Linux (or when
     // `MW_RENDER_JAIL=require`), the hostile-input render must run in the jailed
     // child — the in-process fallbacks then fail closed rather than parse untrusted
+    session_persistence::apply_at_startup(&store).await;
     // input in this trusted process. On non-Linux this is the documented degraded
     // mode (process-split only) and the fallbacks are permitted.
     let render_jail_required = mw_sandbox::jail_expected();
@@ -6050,7 +6052,10 @@ async fn authed_cookie(
         return Err(session_expired());
     }
     security_center::enforce_session_clock(state, &session).await?;
-    let _ = state.store.touch_session(&id).await;
+    let _ = state
+        .store
+        .touch_session_throttled(&id, session_persistence::flush_seconds())
+        .await;
     Ok(session)
 }
 
@@ -6077,7 +6082,10 @@ async fn authed_native(state: &AppState, token: &str) -> Result<mw_store::Sessio
         return Err(session_expired());
     }
     security_center::enforce_session_clock(state, &session).await?;
-    let _ = state.store.touch_session(token).await;
+    let _ = state
+        .store
+        .touch_session_throttled(token, session_persistence::flush_seconds())
+        .await;
     Ok(session)
 }
 

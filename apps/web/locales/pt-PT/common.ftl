@@ -57,6 +57,7 @@ common-conn-offline = Está sem ligação — as alterações são sincronizadas
 common-conn-auth-expired = A sua sessão expirou — inicie sessão novamente
 common-conn-reconnect = Voltar a ligar
 common-conn-sign-in-again = Iniciar sessão novamente
+common-conn-reconnecting = A restabelecer a ligação…
 common-conn-reconnected = Ligação restabelecida
 
 # -- New-version notice (state/NewVersionToast.tsx). -------------------------

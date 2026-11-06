@@ -45,6 +45,12 @@ export interface ChangeReconciler {
   seed(accountId: Id, states: TypeStates): void;
   /** Forget all remembered state (on logout / account switch). */
   reset(): void;
+  /**
+   * Treat every datatype of every known account as moved. Called when the push
+   * stream comes back after a drop (a server restart, a network gap): changes
+   * made while it was down produced no frame, so the lists are re-read once.
+   */
+  resync(): void;
 }
 
 /**
@@ -74,6 +80,9 @@ export function createChangeReconciler(onChanged: ReconcileHandler): ChangeRecon
     },
     reset(): void {
       known.clear();
+    },
+    resync(): void {
+      for (const accountId of known.keys()) onChanged(accountId, [...ALL_TYPES]);
     },
   };
 }

@@ -58,7 +58,22 @@ export interface SecurityAuditEvent {
 }
 export interface AuditTile { recent: SecurityAuditEvent[] }
 export type CheckStatus = 'pass' | 'warning' | 'info' | null;
+/** Whether sessions outlast a server restart, and what is persisted (sessions.md). */
+export interface SessionPersistence {
+  survive: boolean;
+  reason: 'persisted' | 'setting-off' | 'server-key-ephemeral' | 'server-key-changed';
+  persistAcrossRestarts: boolean;
+  serverKeyPersistent: boolean;
+  mailbox: number;
+  native: number;
+  admin: number;
+  sessionsChecked: number;
+  sessionsUnopenable: number;
+  endedAtStart: number;
+  lastActivityFlushSeconds: number;
+}
 export interface PostureTile {
+  sessions?: SessionPersistence;
   checks: number;
   warnings: number;
   https: CheckStatus;

@@ -70,6 +70,7 @@ common-conn-offline = You are offline — changes sync when you reconnect
 common-conn-auth-expired = Your session expired — please sign in again
 common-conn-reconnect = Reconnect
 common-conn-sign-in-again = Sign in again
+common-conn-reconnecting = Reconnecting…
 common-conn-reconnected = Reconnected
 
 # -- New-version notice (state/NewVersionToast.tsx). -------------------------

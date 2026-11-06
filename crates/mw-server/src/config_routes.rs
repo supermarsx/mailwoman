@@ -28,6 +28,14 @@ impl BootConfigSnapshot {
     }
 }
 
+impl BootConfigSnapshot {
+    /// Whether the server key outlives a restart (explicit key, key file, or a
+    /// SQLite sidecar beside a file database).
+    pub(crate) fn key_is_persistent(&self) -> bool {
+        self.persistent_key
+    }
+}
+
 pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(
         Method::GET,

@@ -171,6 +171,21 @@ export function SecurityDashboardView(props: { load?: () => Promise<SecurityDash
             </section>
           )}</Show>
 
+          <Show when={d().posture?.sessions}>{(s) => (
+            <section class={css.panel} data-testid="secdash-sessions-panel" aria-labelledby="secdash-sessions-h">
+              <h3 id="secdash-sessions-h" class={css.panelTitle}>{t('admin-secdash-sessions')}</h3>
+              <p class={s().survive ? css.note : css.warn} data-testid="secdash-sessions-survive">
+                <Show when={!s().survive}><Icon name="alert" /></Show>
+                {t(s().survive ? 'admin-secdash-sessions-survive-yes' : 'admin-secdash-sessions-survive-no', { reason: t(`admin-secdash-sessions-reason-${s().reason}`) })}
+              </p>
+              <ul class={css.facts}>
+                <li><span>{t('admin-secdash-sessions-mailbox')}</span><strong>{formatNumber(s().mailbox)}</strong></li>
+                <li><span>{t('admin-secdash-sessions-native')}</span><strong>{formatNumber(s().native)}</strong></li>
+                <li><span>{t('admin-secdash-sessions-admin')}</span><strong>{formatNumber(s().admin)}</strong></li>
+              </ul>
+            </section>
+          )}</Show>
+
           <Show when={d().signins}>{(s) => (
             <section class={css.panel} data-testid="secdash-signins-panel" aria-labelledby="secdash-signins-h">
               <h3 id="secdash-signins-h" class={css.panelTitle}>{t('admin-secdash-signins')}</h3>

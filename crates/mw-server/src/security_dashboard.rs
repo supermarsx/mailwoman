@@ -420,6 +420,11 @@ async fn posture(
         "geoipReady": geo_ready,
         "analyticsTag": analytics,
     });
+    out["sessions"] = crate::session_persistence::posture(
+        &state.store,
+        state.config_snapshot.key_is_persistent(),
+    )
+    .await;
     if tiles.console {
         out["consoleDefaultPath"] = json!(
             mw_admin::config::admin_path()
