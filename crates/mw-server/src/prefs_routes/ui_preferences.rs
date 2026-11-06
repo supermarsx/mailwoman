@@ -91,9 +91,56 @@ struct Tag {
     icon: String,
 }
 
+/// Per-folder notes and overrides of the user's own settings (the folder
+/// Properties dialog). Which overrides apply is bounded by the administrator's
+/// `properties.folder.overrides.allowed`, enforced where they are read.
+#[derive(Default, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct FolderProps {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notes: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    counters: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    badge_colour: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    compact_badge: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notifications: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    threading: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    preview_lines: Option<u8>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    mark_read_delay_ms: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reply_identity: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    unified_inbox: Option<bool>,
+}
+
+fn valid_folder_props(props: &FolderProps) -> bool {
+    props.notes.as_ref().is_none_or(|n| {
+        n.chars().count() <= 2000 && !n.chars().any(|c| c.is_control() && !matches!(c, '\n' | '\t'))
+    }) && choices(&props.counters, &["none", "unread", "total", "both"])
+        && props.badge_colour.as_ref().is_none_or(|c| {
+            c.len() == 7 && c.starts_with('#') && c[1..].bytes().all(|b| b.is_ascii_hexdigit())
+        })
+        && choices(&props.notifications, &["on", "off", "vips"])
+        && choices(&props.sort, &["date", "from", "subject", "size"])
+        && props.preview_lines.is_none_or(|n| n <= 5)
+        && props.mark_read_delay_ms.is_none_or(|v| v <= 60_000)
+        && props.reply_identity.as_ref().is_none_or(|id| valid_id(id))
+}
+
 #[derive(Default, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(super) struct Preferences {
+    /// Folder id -> notes and per-folder overrides.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_props: Option<BTreeMap<String, FolderProps>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     analytics_consent: Option<bool>,
     /// t63: consent to one browser analytics tag, `<provider>:<loader sha256>`,
@@ -248,6 +295,9 @@ fn valid(document: &Document) -> bool {
         && choices(&p.folder_nest_mode, &["ask", "server", "local"])
         && choices(&p.folder_grab_handles, &["hover", "always"])
         && choices(&p.folder_new_placement, &["end", "alphabetical"])
+        && p.folder_props.as_ref().is_none_or(|all| {
+            all.len() <= 200 && all.iter().all(|(id, props)| valid_id(id) && valid_folder_props(props))
+        })
         && p.folder_parent.as_ref().is_none_or(|parents| {
             parents.len() <= 500
                 && parents
@@ -426,6 +476,20 @@ mod tests {
         )
         .unwrap();
         assert!(!super::valid(&document));
+    }
+    #[test]
+    fn folder_props_accept_overrides_and_notes_and_refuse_bad_values() {
+        let ok = |v: serde_json::Value| {
+            serde_json::from_value::<super::Document>(serde_json::json!({"version":1,"preferences":{"folderProps":v}}))
+                .is_ok_and(|d| super::valid(&d))
+        };
+        assert!(ok(serde_json::json!({"a":{"notes":"Quarterly invoices","counters":"both","badgeColour":"#aabbcc","compactBadge":false,"notifications":"vips","sort":"size","threading":true,"previewLines":2,"markReadDelayMs":1500,"replyIdentity":"id1","unifiedInbox":false}})));
+        assert!(!ok(serde_json::json!({"a":{"notes":"x".repeat(2001)}})));
+        assert!(!ok(serde_json::json!({"a":{"counters":"everything"}})));
+        assert!(!ok(serde_json::json!({"a":{"badgeColour":"red"}})));
+        assert!(!ok(serde_json::json!({"a":{"previewLines":9}})));
+        assert!(!ok(serde_json::json!({"a":{"other":1}})));
+        assert!(!ok(serde_json::json!({"":{"notes":"x"}})));
     }
     #[test]
     fn all_seventy_five_native_icons_are_valid_account_preferences() {
