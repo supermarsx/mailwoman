@@ -48,7 +48,7 @@ reader-attachments-summary = { $count ->
     [few] { $count } załączniki
     [many] { $count } załączników
    *[other] { $count } załącznika
-  }
+  } · { $size }
 reader-attachments-show = Pokaż załączniki
 reader-attachments-hide = Ukryj załączniki
 reader-attachmentsDensity = Gęstość załączników

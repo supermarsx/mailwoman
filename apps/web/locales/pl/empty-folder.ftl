@@ -10,25 +10,25 @@ empty-folder-body-trash = { $count ->
     [few] Wszystkie wiadomości ({ $count }) z folderu { $name } zostaną przeniesione do Kosza, skąd można je przywrócić.
     [many] Wszystkie wiadomości ({ $count }) z folderu { $name } zostaną przeniesione do Kosza, skąd można je przywrócić.
    *[other] Wszystkie wiadomości ({ $count }) z folderu { $name } zostaną przeniesione do Kosza, skąd można je przywrócić.
-  }
+  } Podfoldery i zawarte w nich wiadomości nie są zmieniane.
 empty-folder-body-destroy-trash = { $count ->
     [one] Wiadomość w Koszu zostanie trwale usunięta. Tej operacji nie można cofnąć.
     [few] Wszystkie wiadomości ({ $count }) w Koszu zostaną trwale usunięte. Tej operacji nie można cofnąć.
     [many] Wszystkie wiadomości ({ $count }) w Koszu zostaną trwale usunięte. Tej operacji nie można cofnąć.
    *[other] Wszystkie wiadomości ({ $count }) w Koszu zostaną trwale usunięte. Tej operacji nie można cofnąć.
-  }
+  } Podfoldery i zawarte w nich wiadomości nie są zmieniane.
 empty-folder-body-destroy-junk = { $count ->
     [one] Wiadomość z folderu { $name } zostanie trwale usunięta. Tej operacji nie można cofnąć.
     [few] Wszystkie wiadomości ({ $count }) z folderu { $name } zostaną trwale usunięte. Tej operacji nie można cofnąć.
     [many] Wszystkie wiadomości ({ $count }) z folderu { $name } zostaną trwale usunięte. Tej operacji nie można cofnąć.
    *[other] Wszystkie wiadomości ({ $count }) z folderu { $name } zostaną trwale usunięte. Tej operacji nie można cofnąć.
-  }
+  } Podfoldery i zawarte w nich wiadomości nie są zmieniane.
 empty-folder-body-destroy-no-trash = To konto nie ma folderu Kosz, dlatego { $count ->
     [one] wiadomość z folderu { $name } zostanie trwale usunięta.
     [few] wszystkie wiadomości ({ $count }) z folderu { $name } zostaną trwale usunięte.
     [many] wszystkie wiadomości ({ $count }) z folderu { $name } zostaną trwale usunięte.
    *[other] wszystkie wiadomości ({ $count }) z folderu { $name } zostaną trwale usunięte.
-  }
+  } Tej operacji nie można cofnąć. Podfoldery i zawarte w nich wiadomości nie są zmieniane.
 empty-folder-confirm-trash = Przenieś do Kosza
 empty-folder-confirm-destroy = Usuń trwale
 empty-folder-cancel = Anuluj

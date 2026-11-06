@@ -354,8 +354,8 @@ mail-undo-failed = Nie udało się cofnąć
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Dodano etykietę
 mail-toast-label-removed = Usunięto etykietę
-mail-toast-pinned = Przypięto
-mail-toast-unpinned = Odpięto
+mail-toast-pinned = Przypięto wiadomość „{ $target }”
+mail-toast-unpinned = Odpięto wiadomość „{ $target }”
 mail-toast-snoozed = Odłożono
 mail-toast-follow-up-set = Oznaczono do wykonania
 mail-toast-follow-up-cleared = Usunięto oznaczenie do wykonania
