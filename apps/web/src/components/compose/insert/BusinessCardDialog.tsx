@@ -6,6 +6,9 @@ import type { ContactCard } from '../../../api/pim-types.ts';
 import { t } from '../../../i18n/index.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import { businessCardHtml, businessCardText, businessCardVcf, fieldsFromContact, fieldsFromIdentity, type CardFields, type CardMode } from './businessCard.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export type CardSource = { kind: 'self' } | { kind: 'contact' };
 

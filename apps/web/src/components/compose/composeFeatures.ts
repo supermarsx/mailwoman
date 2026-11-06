@@ -9,6 +9,9 @@
 // options / delivery). Do not reorder the sections.
 
 import { loadSettings, settings } from '../../api/settings.ts';
+import { loadCatalog } from '../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-features');
 
 export type ComposeFeatureGroup = 'format' | 'insert' | 'layout' | 'options' | 'delivery';
 

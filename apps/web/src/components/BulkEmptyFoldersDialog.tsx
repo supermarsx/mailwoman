@@ -10,6 +10,8 @@ import {toast} from './toast/toast.ts';
 import {recordUndoable,undoOnly,UndoUnavailable} from '../state/undoHistory.ts';
 import {permanentDeletePolicy} from './properties/policy.ts';
 import * as css from '../screens/Settings/styles.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('undo');
 /**
  * Empty several folders. The dialog counts each folder first and says, per folder, whether its mail goes to Trash or is
  * deleted for good (Trash, Junk and accounts without Trash are always permanent, so a permanent line is only ever shown

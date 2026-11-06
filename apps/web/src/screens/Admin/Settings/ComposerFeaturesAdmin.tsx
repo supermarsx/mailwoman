@@ -11,6 +11,8 @@ import { deleteDomainValue, deleteGlobal, listScopedValues, putDomainValue, putG
 import { loadCatalog, t } from '../../../i18n';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from './composerFeaturesAdmin.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-features');
 
 export interface ComposerFeaturesAdminProps {
   /** The settings list (family members with a stored value are in it). */

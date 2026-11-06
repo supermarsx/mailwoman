@@ -41,6 +41,9 @@ import {messageDialogEnabled} from './properties/policy.ts';
 import {colorRowAction,type ReaderColorProps} from './ReaderColorMenu.tsx';
 import {RawMessageHeaders} from './RawMessageHeaders.tsx';
 import {ACTION_ICONS} from '../actionIcons.ts';
+import { loadCatalog } from '../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('properties'); void loadCatalog('search');
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {

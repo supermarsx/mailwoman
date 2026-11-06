@@ -5,6 +5,9 @@
 import { formatLanguageName, formatNumber, t } from '../../../i18n';
 import type { SettingKind } from '../../../api/admin/settings.ts';
 import {validResponseTemplates} from '../../../components/compose/responseTemplateModel.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-settings'); void loadCatalog('response-templates');
 
 /** What an editor holds: text for most kinds, a boolean for `bool`. */
 export type Draft = string | boolean;

@@ -9,6 +9,9 @@ import { expandEvent } from '../../../modules/calendar/recurrence.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import { buildEventIcs, eventSummaryHtml, localToInstant, type EventDraft } from './calendarInsert.ts';
 import { TimeZoneInput, browserTimeZone } from './TimeZoneInput.tsx';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 const pad = (n: number): string => String(n).padStart(2, '0');
 const dateOf = (d: Date): string => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;

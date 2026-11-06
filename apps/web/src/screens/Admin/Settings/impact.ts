@@ -1,6 +1,9 @@
 // Labels of the consequences a settings lock reports in its dry run (worker f01).
 
 import { t } from '../../../i18n';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-settings');
 
 /** `{domainValues, userValues, adminUserValues, profileValues, groupValues}` → text with the count. */
 export function impactLabels(): Record<string, (count: number) => string> {

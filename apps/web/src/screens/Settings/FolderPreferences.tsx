@@ -39,6 +39,8 @@ import {ControlRow} from './layout/SettingRow.tsx';
 import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 import * as folderCss from './FolderPreferences.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('properties');
 export interface FolderPreferencesProps {
  folders: Accessor<readonly PreferenceFolder[]>;
  preferences?: Accessor<AccountUiPreferences>;

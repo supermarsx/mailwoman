@@ -12,6 +12,9 @@ import { peekMessageDrag, takeMessageDrag } from '../../messageDrag.ts';
 import { readAttachmentDrag, type AttachmentDragToken } from '../../attachmentDrag.ts';
 import { dragCarriesContent, flattenEntries, planFiles, summarizeDrag, type DropPlan, type DropSummary, type FsEntry } from './dropPolicy.ts';
 import { dropCard, dropOverlay } from './insertDialog.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export interface DropHost {
   /** The element whose window is the drop target (the composer). */

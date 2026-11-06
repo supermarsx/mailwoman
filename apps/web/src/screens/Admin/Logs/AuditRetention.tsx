@@ -17,6 +17,8 @@ import { ShellContext } from '../shell/context.ts';
 import * as css from '../admin.css.ts';
 import * as shellCss from '../shell/shell.css.ts';
 import * as ux from '../shell/ux.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-retention');
 
 export interface RetentionRow {
   category: string;

@@ -37,6 +37,9 @@ import { settingAnchorId } from './keys.ts';
 import { displayValue, parseDraft, toDraft, type Draft } from './value.ts';
 import * as ux from '../shell/ux.css.ts';
 import * as css from './settings.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-settings');
 
 const AREA = 'settings';
 

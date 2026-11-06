@@ -15,6 +15,8 @@ import {Icon} from './Icon.tsx';
 import {toast} from './toast/toast.ts';
 import {clearSelectedFolders} from './folderSelection.ts';
 import * as css from './folderSelectionBar.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('settings');
 /**
  * The floating bar over the sidebar's folder list while folders are selected: Delete, Empty, Mark all read, Move to,
  * Pin, Star, Subscribe and Unsubscribe for the whole set. What the account or the administrator does not allow is

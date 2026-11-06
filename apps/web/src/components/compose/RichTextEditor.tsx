@@ -55,6 +55,9 @@ import { t } from '../../i18n/index.ts';
 import * as a11y from '../mailA11y.css.ts';
 import './richtext.css';
 import './compose-extras.css';
+import { loadCatalog } from '../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-format');
 
 /** Assert a schema mark/node exists (the composer schema always defines these). */
 function need<T>(value: T | undefined, name: string): T {

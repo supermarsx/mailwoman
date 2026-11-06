@@ -16,6 +16,9 @@ import {queueRuleDraft,senderRuleDraft} from '../state/ruleDraft.ts';
 import {requestSettings} from '../state/settingsRequest.ts';
 import type {MessageDialogActions} from './properties/MessageProperties.tsx';
 import {moveActions} from './ReaderMoveMenu.tsx';
+import { loadCatalog } from '../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('properties');
 
 type App=ReturnType<typeof useApp>;
 

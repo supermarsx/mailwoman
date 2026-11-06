@@ -22,6 +22,9 @@ import type { AdminApi } from '../../../state/slices/admin.ts';
 import type { Capability, Can } from './can.ts';
 import type { IconName } from './icons.tsx';
 import type { AdminRoute } from './router.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-compliance');
 
 export type GroupId = 'overview' | 'people' | 'security' | 'configuration' | 'operations' | 'personal';
 

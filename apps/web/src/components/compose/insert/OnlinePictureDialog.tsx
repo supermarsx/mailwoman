@@ -9,6 +9,9 @@ import { imageProxyUrl } from '../../../api/remote-images.ts';
 import { t } from '../../../i18n/index.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import { INLINE_IMAGE_TYPES } from '../inlineImages.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 /** The address, or null when it is not a plain http(s) URL. */
 export function onlinePictureUrl(raw: string): URL | null {

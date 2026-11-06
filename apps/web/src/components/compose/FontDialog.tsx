@@ -11,6 +11,8 @@ import { FONT_RAMP, pointText } from './formatModel.ts';
 import { effectStyle, type EffectKind } from './effects.ts';
 import { writeSetting } from '../../api/settings.ts';
 import { encodeFont } from './layout/LayoutGroups.tsx';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-format');
 
 /** What the dialog shows and writes. A field the user did not touch stays out of `changes`. */
 export interface FontSpec {

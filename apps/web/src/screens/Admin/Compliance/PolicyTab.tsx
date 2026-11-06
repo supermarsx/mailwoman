@@ -15,6 +15,9 @@ import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
 import * as ccss from './compliance.css.ts';
 import { useSettingRows } from './useSettingRows.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-compliance');
 
 export const POLICY_KEYS = [
   'policy.controller.name', 'policy.controller.address', 'policy.legalBases', 'policy.hosting.provider',

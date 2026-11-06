@@ -5,6 +5,9 @@ import {t} from '../i18n/index.ts';
 import {Icon} from './Icon.tsx';
 import {openBulkProperties} from './properties/host.tsx';
 import {messageDialogEnabled} from './properties/policy.ts';
+import { loadCatalog } from '../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('properties'); void loadCatalog('selection-bar');
 export function BulkSelectionSummary(props:{onCancel:()=>void}) {
  const app=useApp();const ids=()=>[...app.selectedIds()];
  const [busy,setBusy]=createSignal(false);let cancelled=false;onCleanup(()=>{cancelled=true;});

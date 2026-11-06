@@ -26,6 +26,9 @@ import { PictureFileDialog } from './PictureFileDialog.tsx';
 import { SPECIAL_CHARACTERS } from './symbols.ts';
 import { pictureLabel, symbolGrid } from './insertDialog.css.ts';
 import type { ResizePreset } from './imageResize.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 /** What the Insert tab needs from the composer. */
 export interface InsertHost {

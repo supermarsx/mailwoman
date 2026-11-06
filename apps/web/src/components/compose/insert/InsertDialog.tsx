@@ -6,6 +6,9 @@ import { Portal } from 'solid-js/web';
 import { t } from '../../../i18n/index.ts';
 import * as css from '../insertAccountItem.css.ts';
 import { dialogForm } from './insertDialog.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export interface InsertDialogProps {
   title: string;

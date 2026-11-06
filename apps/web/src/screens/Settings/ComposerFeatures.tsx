@@ -14,6 +14,8 @@ import { ControlRow, SettingRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-features');
 
 export const rowId = (id: string): string => `cf-${id.replace(/\./g, '-')}`;
 

@@ -14,6 +14,8 @@ import {Feature,createFormatControls,type FormatAdapter,type Painter} from './Fo
 import {pointText,validPointValue,type PasteMode} from './formatModel.ts';
 import {DIALOG_EFFECTS,type FontSpec} from './FontDialog.tsx';
 import * as a11y from '../mailA11y.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-format');
 
 const SIZES=[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72];
 const tableActions:[NativeTableAction,IconName][]=[['row-before','tableRowBefore'],['row-after','tableRowAfter'],['row-delete','tableRowDelete'],['column-before','tableColumnBefore'],['column-after','tableColumnAfter'],['column-delete','tableColumnDelete'],['merge','tableMerge'],['split','tableSplit'],['header','tableHeader'],['delete','delete']];

@@ -49,6 +49,9 @@ export const ID_SHAPE = /^[a-z][a-z0-9]*(?:-[a-z0-9]+){2,}$/;
 /** Property names whose string value is a message id passed to t() later. */
 const ID_PROPERTY = /^(?:[a-zA-Z]*(?:Id|Key)|label|title|description|help|hint|placeholder|tooltip|message|text|caption|summary)$/;
 
+/** Property names whose value names a thing (a card, a theme, a family), never a string to translate. */
+const NOT_MESSAGE_PROPERTY = /^(?:id|family|group|section|kind|type|name|route|path|slug)$/;
+
 const LOAD_FNS = new Set(['loadCatalog', 'useCatalog']);
 
 /** Map `module -> Set<id>` from the en catalog directory. */
@@ -216,6 +219,8 @@ export function tableCandidates(ts, literals, enIds) {
     if (p && ts.isPropertyAssignment(p) && p.initializer === l.node) { holder = p; p = p.parent; }
     if (!p || !(ts.isObjectLiteralExpression(p) || ts.isArrayLiteralExpression(p))) continue;
     if (holder !== l.node && ts.isPropertyAssignment(holder) && holder.name === l.node) continue;
+    // A value under a name that identifies a thing (`id: 'settings-card-x'`, `family: 'x-y-z'`) is not a message id.
+    if (holder !== l.node && ts.isPropertyAssignment(holder) && ts.isIdentifier(holder.name) && NOT_MESSAGE_PROPERTY.test(holder.name.text)) continue;
     if (!byParent.has(p)) byParent.set(p, []);
     byParent.get(p).push(l);
   }

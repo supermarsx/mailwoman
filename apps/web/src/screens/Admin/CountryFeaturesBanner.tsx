@@ -7,6 +7,9 @@ import { formatDateTime, t } from '../../i18n';
 import { ShellContext } from './shell/context.ts';
 import { sectionPath } from './shell/router.ts';
 import * as css from '../Settings/styles.css.ts';
+import { loadCatalog } from '../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-geoip');
 
 export function CountryFeaturesBanner(props: { api?: GeoipApi; showStatus?: boolean }): JSX.Element {
   const shell = useContext(ShellContext);

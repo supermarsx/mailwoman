@@ -6,6 +6,9 @@
 import { Show, type JSX } from 'solid-js';
 import { t } from '../../i18n';
 import * as css from './settingsPolicy.css.ts';
+import { loadCatalog } from '../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('settings-policy');
 
 export interface LockNoteProps {
   /** Whether the control is held. */

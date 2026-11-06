@@ -3,6 +3,9 @@ import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
 import {isolate,t} from '../i18n';
 import * as css from './folderDnd.css.ts';
 import type {FolderArranger} from './folderArrange.ts';
+import { loadCatalog } from '../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('folder-dnd');
 /**
  * Asked once when a drop would change a folder's parent: change it on the server (everywhere), or only arrange it in this
  * app (a view stored in the user's preferences). "Remember my choice" saves `folderNestMode`.

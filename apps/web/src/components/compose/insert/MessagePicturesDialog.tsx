@@ -6,6 +6,9 @@ import { createEffect, createSignal, For, onCleanup, Show, type JSX } from 'soli
 import { t } from '../../../i18n/index.ts';
 import type { AttachmentItem, AttachmentPage } from '../../../viewers/attachments.ts';
 import { InsertDialog } from './InsertDialog.tsx';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 const IMAGE = /^image\/(png|jpe?g|gif|webp)$/i;
 

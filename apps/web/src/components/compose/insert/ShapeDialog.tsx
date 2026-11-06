@@ -6,6 +6,9 @@ import { t } from '../../../i18n/index.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import { shapeGallery } from './insertDialog.css.ts';
 import { rasteriseShape, shapeSvg, SHAPE_IDS, type ShapeId, type ShapeSpec } from './shapes.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 const SWATCHES = ['#1a56b0', '#2e7d32', '#c62828', '#ef6c00', '#6a1b9a', '#212121', '#ffffff', 'none'] as const;
 const KEY = 'mw.insert.shape';

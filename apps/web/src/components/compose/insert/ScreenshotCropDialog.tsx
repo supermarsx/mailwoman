@@ -5,6 +5,9 @@ import { createMemo, createSignal, onCleanup, type JSX } from 'solid-js';
 import { t } from '../../../i18n/index.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import { cropDialogBox } from './insertDialog.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export interface CropRect { x: number; y: number; w: number; h: number }
 

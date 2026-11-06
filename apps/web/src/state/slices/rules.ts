@@ -18,6 +18,9 @@ import { responseFor } from '../../api/jmap.ts';
 import { CAP_SECURITY, type MailRule } from '../../api/crypto-types.ts';
 import { t } from '../../i18n';
 import type { SliceContext } from './context.ts';
+import { loadCatalog } from '../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('rules');
 
 const RULES_USING = [CAP_CORE, CAP_SECURITY];
 

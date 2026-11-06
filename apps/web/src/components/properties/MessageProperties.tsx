@@ -29,6 +29,8 @@ import {trackerCountFor,trainingState} from './scoringExtras.ts';
 import {filterHeaders,headerList,headersOnly,hopBars,hopDelayText,spamVerdict} from './messageProps.ts';
 import {messageDownloadEnabled,messageSections,permanentDeletePolicy,remoteForDisplay,remoteVisibility,type MessageSection} from './policy.ts';
 import * as css from './properties.css.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('security');
 
 /** What the dialog can ask the message menu to do; an action not supplied is not offered. */
 export interface MessageDialogActions {

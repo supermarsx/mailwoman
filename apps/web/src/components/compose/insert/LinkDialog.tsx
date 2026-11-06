@@ -6,6 +6,9 @@ import { t } from '../../../i18n/index.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import type { LinkSpecEdit } from './linkEdit.ts';
 import { checkLink, linkHtml, linkText, normalizeHref, urlFromClipboard } from './links.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export interface LinkInitial {
   caption: string;

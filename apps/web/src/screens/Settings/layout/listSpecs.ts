@@ -1,6 +1,9 @@
 // Search-index entries for list-style cards (identities, signatures): their
 // content is data rows, so only the card itself is searchable.
 import type { CardSpec } from './rows.tsx';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('cookies'); void loadCatalog('data-requests'); void loadCatalog('response-templates'); void loadCatalog('send-delay'); void loadCatalog('your-data');
 
 export const LIST_CARDS: readonly CardSpec[] = [
   { id: 'identities-card', section: 'identities', title: 'settings-ident-title', help: 'settings-ident-intro', rows: [] },

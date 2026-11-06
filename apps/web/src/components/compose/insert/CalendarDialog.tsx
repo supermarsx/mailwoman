@@ -8,6 +8,9 @@ import { expandEvent } from '../../../modules/calendar/recurrence.ts';
 import { InsertDialog } from './InsertDialog.tsx';
 import { agendaHtml, availabilityHtml, snapshotHtml, zonedToUtc, type AgendaEvent, type Interval, type Visibility } from './calendarInsert.ts';
 import { TimeZoneInput, browserTimeZone } from './TimeZoneInput.tsx';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export type CalendarKind = 'availability' | 'agenda' | 'snapshot';
 

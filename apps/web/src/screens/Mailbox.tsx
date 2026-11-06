@@ -105,6 +105,8 @@ import { setRetentionFolder } from '../state/retentionFocus.ts';
 import { AssistPanel } from '../modules/assist/index.ts';
 // t88: the search input, its icon buttons and the filter chips.
 import { SearchBox } from '../components/search/SearchBox.tsx';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('folder-dnd');
 
 // The nav-rail app modules: the four V3 PIM modules + the V4 key-management
 // module (plan §2.5, e8 mount). Keys is reachable at `#/keys` beside them.

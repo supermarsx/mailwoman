@@ -10,6 +10,9 @@ import { AdminSubsection } from '../AdminSubsection.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
 import * as ccss from './compliance.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-compliance');
 
 export const ACTIVITY_FIELDS = ['purpose', 'legalBasis', 'subjects', 'categories', 'recipients', 'transfers', 'retention', 'security'] as const;
 export const PROCESSOR_FIELDS = ['purpose', 'location', 'safeguards', 'url', 'notes'] as const;

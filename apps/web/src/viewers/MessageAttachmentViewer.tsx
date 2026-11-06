@@ -7,6 +7,9 @@ import { formatNumber, t } from '../i18n';
 import { mailFeature } from '../state/mailFeatures.ts';
 import { displayText, leetspeakEnabled } from '../i18n/presentation.ts';
 import { leetspeakHtml } from './leetspeak.ts';
+import { loadCatalog } from '../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('privacy');
 
 interface ExtractedFile { name: string; mime: string; size: number; dataBase64: string; kind: 'file' | 'message' }
 interface Preview { format: 'eml' | 'tnef'; subject?: string; from?: string; to?: string; date?: string; text?: string; html?: string; attachments: ExtractedFile[]; warnings: string[] }

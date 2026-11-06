@@ -10,6 +10,9 @@ import { AdminSubsection } from '../AdminSubsection.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
 import * as ccss from './compliance.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-compliance');
 
 export const STATUSES: readonly DpiaStatus[] = ['draft', 'review', 'approved', 'needs-prior-consultation'];
 export const TEMPLATES = ['generic', 'assistant', 'email-tracking', 'large-scale-monitoring', 'new-processor'] as const;

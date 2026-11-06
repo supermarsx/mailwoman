@@ -10,6 +10,9 @@ import { t } from '../../../i18n';
 import type { ComplianceSummary } from '../../../api/admin/compliance.ts';
 import type { Can, Capability } from '../shell/can.ts';
 import type { IconName } from '../shell/icons.tsx';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-compliance');
 
 export interface ComplianceStatus {
   state: 'ok' | 'attention' | 'unknown';

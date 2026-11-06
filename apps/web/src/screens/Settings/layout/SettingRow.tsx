@@ -2,6 +2,9 @@ import { Show, untrack, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { LockNote } from '../LockNote.tsx';
 import * as css from './layout.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('reader');
 
 /** The slice of a useSetting handle a row needs. */
 export interface RowHandle {

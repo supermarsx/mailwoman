@@ -5,6 +5,9 @@ import type {IconName} from '../../components/Icon.tsx';
 import {formatBytes,formatNumber,t} from '../../i18n/index.ts';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
 import * as layout from './privacyLayout.css.ts';
+import { loadCatalog } from '../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-settings');
 
 export const IMAGE_CONCURRENCY_KEY='privacy.imageConcurrencyMode';
 export const IMAGE_CONCURRENCY_MODES=['auto','conservative','balanced','throughput','manual'] as const;

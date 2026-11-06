@@ -1,5 +1,8 @@
 import { For, createUniqueId, type JSX } from 'solid-js';
 import { t } from '../../../i18n/index.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert');
 
 export const browserTimeZone = (): string => {
   try { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; } catch { return 'UTC'; }

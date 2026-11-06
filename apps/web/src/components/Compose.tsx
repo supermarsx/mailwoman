@@ -134,6 +134,8 @@ import { NextcloudAttach, ShareLinkComposer, type AttachedFile, type ShareLink }
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
 import { featureOn } from '../state/features.ts';
 import { mailFeature, mailFeatureOffTitle } from '../state/mailFeatures.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('compose-insert'); void loadCatalog('response-templates');
 
 // Advertised in the session only by this server's own engine (mw-engine
 // `session_json`), which is what turns `mailwomanRequestReadReceipt` into a

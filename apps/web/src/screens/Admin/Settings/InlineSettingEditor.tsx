@@ -33,6 +33,9 @@ import { sourceOf } from './SettingDetail.tsx';
 import { displayValue, parseDraft, toDraft, type Draft } from './value.ts';
 import * as ux from '../shell/ux.css.ts';
 import * as css from './settings.css.ts';
+import { loadCatalog } from '../../../i18n/catalog.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('admin-settings');
 
 /** What a caller's own value editor receives. */
 export interface InlineEditorContext {

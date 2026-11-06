@@ -21,6 +21,8 @@ import { policyLinks } from '../cookies/policyLinks.ts';
 import { consentConfig } from '../cookies/runtime.ts';
 import { applyBranding, brandAssetUrl } from '../branding.ts';
 import { passwordlessAvailable, signInWithPasskey } from '../api/passwordless.ts';
+// i18n: the ids this file shows live in these catalogs, which load with it.
+void loadCatalog('cookies');
 
 /**
  * Did the browser land back here from a failed SSO round-trip? The IdP
