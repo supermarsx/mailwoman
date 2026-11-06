@@ -8,19 +8,19 @@ empty-folder-title = “{ $name }” legen?
 empty-folder-body-trash = { $count ->
     [one] Het bericht in { $name } wordt naar de prullenbak verplaatst, waar u het kunt herstellen.
    *[other] Alle { $count } berichten in { $name } worden naar de prullenbak verplaatst, waar u ze kunt herstellen.
- }
+ } Submappen en de berichten daarin blijven ongewijzigd.
 empty-folder-body-destroy-trash = { $count ->
     [one] Het bericht in de prullenbak wordt definitief verwijderd. Dit kan niet ongedaan worden gemaakt.
    *[other] Alle { $count } berichten in de prullenbak worden definitief verwijderd. Dit kan niet ongedaan worden gemaakt.
- }
+ } Submappen en de berichten daarin blijven ongewijzigd.
 empty-folder-body-destroy-junk = { $count ->
     [one] Het bericht in { $name } wordt definitief verwijderd. Dit kan niet ongedaan worden gemaakt.
    *[other] Alle { $count } berichten in { $name } worden definitief verwijderd. Dit kan niet ongedaan worden gemaakt.
- }
+ } Submappen en de berichten daarin blijven ongewijzigd.
 empty-folder-body-destroy-no-trash = Dit account heeft geen prullenbak, dus { $count ->
     [one] het bericht in { $name } wordt definitief verwijderd.
    *[other] alle { $count } berichten in { $name } worden definitief verwijderd.
- }
+ } Dit kan niet ongedaan worden gemaakt. Submappen en de berichten daarin blijven ongewijzigd.
 empty-folder-confirm-trash = Naar prullenbak verplaatsen
 empty-folder-confirm-destroy = Definitief verwijderen
 empty-folder-cancel = Annuleren

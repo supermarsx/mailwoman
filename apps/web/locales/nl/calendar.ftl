@@ -340,7 +340,7 @@ calendar-card-organizer-is = Georganiseerd door { $who }
 calendar-card-attendee-summary = { $count ->
     [one] 1 deelnemer
    *[other] { $count } deelnemers
- }
+ } · { $accepted } geaccepteerd, { $tentative } voorlopig, { $declined } afgewezen
 calendar-card-people-all = Alle { $count } tonen
 calendar-card-people-fewer = Minder tonen
 calendar-card-rsvp-accepted = Geaccepteerd

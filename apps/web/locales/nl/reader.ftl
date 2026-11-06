@@ -46,7 +46,7 @@ reader-zoom-help = De grootte waarmee berichten worden geopend, van 50% tot 200%
 reader-attachments-summary = { $count ->
     [one] 1 bijlage
    *[other] { $count } bijlagen
- }
+ } · { $size }
 reader-attachments-show = Bijlagen tonen
 reader-attachments-hide = Bijlagen verbergen
 reader-attachmentsDensity = Dichtheid van bijlagen

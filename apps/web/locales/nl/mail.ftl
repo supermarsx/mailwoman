@@ -338,8 +338,8 @@ mail-undo-failed = Kan niet ongedaan maken
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Label toegevoegd
 mail-toast-label-removed = Label verwijderd
-mail-toast-pinned = Vastgezet
-mail-toast-unpinned = Losgemaakt
+mail-toast-pinned = Bericht “{ $target }” vastgezet
+mail-toast-unpinned = Bericht “{ $target }” losgemaakt
 mail-toast-snoozed = Uitgesteld
 mail-toast-follow-up-set = Opvolging ingesteld
 mail-toast-follow-up-cleared = Opvolging gewist
