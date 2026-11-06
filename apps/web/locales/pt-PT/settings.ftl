@@ -670,6 +670,10 @@ settings-reply-from-default = Sempre a minha identidade predefinida
 settings-reply-from-ask = Perguntar quando várias identidades correspondem
 settings-reply-from-keep = Manter a identidade já selecionada
 settings-reply-from-help = Ao responder ou reencaminhar, escolha que identidade é usada. Se nenhuma identidade corresponder ao endereço para o qual a mensagem foi enviada, é usada a identidade predefinida. Endereços com mais, como nome+etiqueta@exemplo.org, correspondem a nome@exemplo.org.
+settings-reply-from-headers = Cabeçalhos que escolhem a identidade
+settings-reply-from-headers-help = Um nome de cabeçalho por linha, tentados por esta ordem: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc. Um cabeçalho que não esteja na lista não é lido.
+settings-reply-from-headers-invalid = Use apenas estes nomes, um por linha: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc.
+settings-reply-from-headers-save = Guardar ordem dos cabeçalhos
 
 # Identidades: remetente predefinido e variantes
 settings-ident-default-badge = Predefinida

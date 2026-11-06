@@ -674,6 +674,10 @@ settings-reply-from-default = Always my default identity
 settings-reply-from-ask = Ask me when several identities match
 settings-reply-from-keep = Keep the identity already selected
 settings-reply-from-help = When you reply or forward, choose which identity is used. If no identity matches the address the message was sent to, your default identity is used. Plus addresses such as name+tag@example.org match name@example.org.
+settings-reply-from-headers = Headers that choose the identity
+settings-reply-from-headers-help = One header name per line, tried in this order: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc. A header left out is not read.
+settings-reply-from-headers-invalid = Use only these names, one per line: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc.
+settings-reply-from-headers-save = Save header order
 
 # Identities: default sender and variants
 settings-ident-default-badge = Default

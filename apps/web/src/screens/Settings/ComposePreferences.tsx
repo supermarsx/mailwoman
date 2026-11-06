@@ -3,7 +3,7 @@ import { normalizeTrustedDomain } from '../../components/compose/recipientTrust.
 import { isReplyImagePolicy, type ReplyImagePolicy } from '../../components/compose/replyImagePolicy.ts';
 import { isCheckPolicy, type CheckPolicy } from '../../components/compose/sendChecks.ts';
 import { isRecipientSeparator, type RecipientSeparator } from '../../components/compose/recipientChips.ts';
-import { isReplyFromMode, type ReplyFromMode } from '../../components/compose/replyIdentity.ts';
+import { DEFAULT_HEADER_PRIORITY, HEADER_LABELS, HEADER_SOURCES, isReplyFromMode, parseHeaderPriority, type ReplyFromMode } from '../../components/compose/replyIdentity.ts';
 import { HEADER_COLLAPSE_DEFAULT, HEADER_COLLAPSE_MODES, isHeaderCollapseMode, type HeaderCollapseMode } from '../../components/compose/headerCollapse.ts';
 import { useSetting } from './useSetting.ts';
 import { SelectRow, type CardSpec, ToggleRow } from './layout/rows.tsx';
@@ -53,6 +53,18 @@ export function ComposePreferences(): JSX.Element {
   const quote = useSetting<'classic'|'outlook'>('mail.quoteStyle', 'classic', (v): v is 'classic'|'outlook' => v === 'classic' || v === 'outlook');
   const showFrom = useSetting<boolean>('mail.showFrom', false);
   const replyFrom = useSetting<ReplyFromMode>('mail.replyFromMode', 'match', isReplyFromMode);
+  const headerOrder = useSetting<string[]>('mail.replyFrom.headerPriority', DEFAULT_HEADER_PRIORITY.map(source => HEADER_LABELS[source]), (v): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string'));
+  const [headerText, setHeaderText] = createSignal('');
+  const [headerError, setHeaderError] = createSignal('');
+  createEffect(() => setHeaderText(parseHeaderPriority(headerOrder.value()).map(source => HEADER_LABELS[source]).join('\n')));
+  const headerDisabled = () => !headerOrder.entry() || headerOrder.locked() || headerOrder.saving();
+  async function saveHeaders(): Promise<void> {
+    const entries = headerText().split(/[\n,;]+/).map(value => value.trim()).filter(Boolean);
+    const known = entries.map(value => HEADER_SOURCES.find(source => HEADER_LABELS[source].toLowerCase() === value.toLowerCase()));
+    if (entries.length === 0 || entries.length > HEADER_SOURCES.length || known.some(value => value === undefined)) { setHeaderError(t('settings-reply-from-headers-invalid')); return; }
+    setHeaderError('');
+    await headerOrder.set([...new Set(known as typeof HEADER_SOURCES[number][])].map(source => HEADER_LABELS[source]));
+  }
   const quick = useSetting<boolean>('mail.quickReply', false);
   const autoChip = useSetting<boolean>('mail.compose.autoChipRecipients', true);
   const separator = useSetting<RecipientSeparator>('mail.compose.recipientSeparator', 'comma', isRecipientSeparator);
@@ -91,6 +103,11 @@ export function ComposePreferences(): JSX.Element {
     <SettingsCard id="compose-card-addressing" title={t('settings-compose-card-addressing')} description={t('settings-compose-card-addressing-help')}>
       <ToggleRow id="show-from" label={t('settings-show-from')} help={t('settings-show-from-help')} handle={showFrom} />
       <SelectRow id="reply-from-mode" label={t('settings-reply-from')} help={t('settings-reply-from-help')} handle={replyFrom} accept={isReplyFromMode} options={(['match', 'default', 'ask', 'keep'] as const).map(v => ({ value: v, label: t(`settings-reply-from-${v}`) }))} />
+      <SettingRow stacked controlId="reply-from-headers" label={t('settings-reply-from-headers')} help={t('settings-reply-from-headers-help')} handle={headerOrder} onReset={() => void headerOrder.reset()} resetDisabled={headerDisabled()}>{describedBy => <>
+        <textarea id="reply-from-headers" class={css.textarea} value={headerText()} disabled={headerDisabled()} onInput={event => setHeaderText(event.currentTarget.value)} aria-describedby={describedBy()} />
+        <Show when={headerError() || headerOrder.error()}><p role="alert">{headerError() || headerOrder.error()}</p></Show>
+        <button type="button" class={css.button} disabled={headerDisabled()} onClick={() => void saveHeaders()}>{t('settings-reply-from-headers-save')}</button>
+      </>}</SettingRow>
       <ToggleRow id="quick-reply" label={t('mail-quick-reply')} help={t('mail-quick-reply-help')} handle={quick} />
       <ToggleRow id="auto-chip" label={t('settings-auto-chip')} help={t('settings-auto-chip-help')} handle={autoChip} />
       <SelectRow id="recipient-separator" label={t('settings-recipient-separator')} handle={separator} accept={isRecipientSeparator} options={(['comma', 'semicolon'] as const).map(v => ({ value: v, label: t(`settings-recipient-separator-${v}`) }))} />

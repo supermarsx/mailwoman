@@ -93,7 +93,7 @@ import {
 } from '../modules/contacts/autocomplete.ts';
 import { ComposeCrypto, cryptoDraftSource, type ComposeCryptoState } from './compose-crypto.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
-import { chooseReplyIdentity, isReplyFromMode, type ReplyFromMode, type ReplyIdentityChoice } from './compose/replyIdentity.ts';
+import { chooseReplyIdentity, HEADER_LABELS, isReplyFromMode, parseHeaderPriority, type ReplyFromMode, type ReplyIdentityChoice } from './compose/replyIdentity.ts';
 import {
   assertSigningKeyOwner,
   clearSignBody,
@@ -612,7 +612,7 @@ export function Compose(props: {
     const configured = settings()['mail.replyFromMode']?.value;
     const mode: ReplyFromMode = isReplyFromMode(configured) ? configured : 'match';
     autoPicked = true;
-    const choice = chooseReplyIdentity(list, received, mode);
+    const choice = chooseReplyIdentity(list, received, mode, parseHeaderPriority(settings()['mail.replyFrom.headerPriority']?.value));
     if (choice.identityId === null) return;
     setIdentityId(choice.identityId);
     setAutoPick(choice);
@@ -1648,7 +1648,9 @@ export function Compose(props: {
     const choice=autoPick();
     if(choice){
       const address=isolate(choice.address??'');const who=isolate(identity()?.email??'');
-      items.push({id:'identity',severity:'neutral',icon:'mail',label:t(`mail-status-from-${choice.reason}`,{identity:who}),detail:t(`mail-compose-from-why-${choice.reason}`,{address,identity:who}),testId:'compose-from-hint',actionLabel:t('mail-compose-from-change'),onAction:()=>{setFromVisibleOverride(true);setFromChipOpen(true);revealHeader();}});
+      // A match names the header it came from: "Replying from X because it matched Delivered-To".
+      const header=choice.source?HEADER_LABELS[choice.source]:'';const via=header!==''&&choice.reason.startsWith('match');
+      items.push({id:'identity',severity:'neutral',icon:'mail',label:via?t('mail-status-from-via',{identity:who,header}):t(`mail-status-from-${choice.reason}`,{identity:who}),detail:t(`mail-compose-from-why-${choice.reason}`,{address,identity:who})+(via?` ${t('mail-compose-from-via',{header})}`:''),testId:'compose-from-hint',actionLabel:t('mail-compose-from-change'),onAction:()=>{setFromVisibleOverride(true);setFromChipOpen(true);revealHeader();}});
     }
     if(uploading())items.push({id:'upload',severity:'busy',icon:'attachment',label:t('mail-compose-uploading')});
     if(sendAt()!==''){const when=new Date(sendAt());if(!Number.isNaN(when.getTime()))items.push({id:'scheduled',severity:'neutral',icon:'clock',label:t('mail-compose-recall-scheduled',{when:when.toLocaleString()})});}

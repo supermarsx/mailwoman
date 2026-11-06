@@ -146,6 +146,13 @@ fn scripted_mail() -> HashMap<String, Vec<Vec<u8>>> {
             &ask,
         ),
         report_asking_for_a_receipt(),
+        // Delivery headers a mail server adds: the address the mail reached.
+        received(
+            "delivered via alias",
+            Some(ANN),
+            "list@example.net",
+            "Delivered-To: sales@example.org\r\nX-Original-To: sales+promo@example.org\r\n",
+        ),
     ];
     HashMap::from([
         ("INBOX".to_string(), inbox),
@@ -2242,4 +2249,37 @@ async fn saved_profile_does_not_authorize_native_or_standard_receipt_sender() {
         "a saved profile must never grant MDN sender authority"
     );
     assert_eq!(email(&h, &id).await["mailwomanMdn"]["sent"], false);
+}
+
+/// `header:<Name>:asAddresses` reads the delivery headers from the stored
+/// message, only when named, and only for the headers a reply cares about.
+#[tokio::test]
+async fn delivery_headers_are_returned_as_address_lists_when_named() {
+    let h = setup().await;
+    let id = find(&h, "delivered via alias").await;
+    let resp = jmap(
+        &h,
+        json!([["Email/get", {
+            "ids": [id],
+            "properties": [
+                "subject",
+                "header:Delivered-To:asAddresses",
+                "header:X-Original-To:asAddresses:all",
+                "header:Envelope-To:asAddresses",
+                "header:Received:asAddresses",
+                "header:Subject:asText"
+            ]
+        }, "g"]]),
+    )
+    .await;
+    let got = &result(&resp, "g")["list"][0];
+    assert_eq!(got["header:Delivered-To:asAddresses"][0]["email"], "sales@example.org", "{got}");
+    assert_eq!(got["header:X-Original-To:asAddresses:all"][0][0]["email"], "sales+promo@example.org", "{got}");
+    assert_eq!(got["header:Envelope-To:asAddresses"], Value::Null, "{got}");
+    assert!(got.get("header:Received:asAddresses").is_none(), "{got}");
+    assert!(got.get("header:Subject:asText").is_none(), "{got}");
+
+    // Not asked for: not there, and no body read for it.
+    let plain = jmap(&h, json!([["Email/get", { "ids": [id], "properties": ["subject"] }, "g"]])).await;
+    assert!(result(&plain, "g")["list"][0].get("header:Delivered-To:asAddresses").is_none());
 }

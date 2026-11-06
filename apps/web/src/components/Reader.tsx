@@ -110,6 +110,7 @@ import { isNativeAuth } from '../api/serverAddress.ts';
 import {
   formatAddressList,
   forwardSubject,
+  receivedOf,
   replyRecipients,
   replySubject,
   replyThreading,
@@ -1121,7 +1122,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         ...(imageOffer?{imageOffer}:{}),
         quotesDecrypted: shown.decrypted && quote.html !== '',
         source: { emailId: email.id, keyword: '$forwarded' },
-        received: { to: (email.to ?? []).map((a) => a.email), cc: (email.cc ?? []).map((a) => a.email) },
+        received: receivedOf(email),
       };
     }
 
@@ -1150,7 +1151,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       ...(imageOffer?{imageOffer}:{}),
       quotesDecrypted: shown.decrypted && quote.html !== '',
       source: { emailId: email.id, keyword: '$answered' },
-      received: { to: (email.to ?? []).map((a) => a.email), cc: (email.cc ?? []).map((a) => a.email) },
+      received: receivedOf(email),
       ...(app.selectedMailboxId() ? {sourceMailboxId: app.selectedMailboxId()!} : {}),
       sourceMailboxIds: Object.keys(email.mailboxIds),
     };

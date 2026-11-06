@@ -1046,6 +1046,9 @@ mail-reply-images-retry = Load again
 mail-image-cancel = Cancel
 mail-compose-from-why-match = Sending from { $identity } because the message was sent to { $address }.
 mail-compose-from-why-match-plus = Sending from { $identity } because the message was sent to { $address }, a plus address of it.
+mail-compose-from-why-match-pattern = Sending from { $identity } because the message was sent to { $address }, which fits that identity's address pattern.
+mail-compose-from-why-match-domain = Sending from { $identity } because the message was delivered to { $address }, an address at the same domain.
+mail-compose-from-via = It matched the { $header } header.
 mail-compose-from-why-ambiguous = Several identities match { $address }. Sending from { $identity }; pick another:
 mail-compose-from-why-default = Sending from your default identity, { $identity }, because none matches the original recipients.
 mail-compose-from-why-forced-default = Sending from your default identity, { $identity }, as set in your settings.
@@ -1150,6 +1153,9 @@ mail-status-external-reviewed = External recipients reviewed
 mail-status-external-review = Mark reviewed
 mail-status-from-match = From { $identity }
 mail-status-from-match-plus = From { $identity }
+mail-status-from-match-pattern = From { $identity }
+mail-status-from-match-domain = From { $identity }
+mail-status-from-via = Replying from { $identity } because it matched { $header }
 mail-status-from-ambiguous = From { $identity } (several match)
 mail-status-from-default = From default identity
 mail-status-from-forced-default = From default identity
@@ -1283,3 +1289,39 @@ mail-color-confirm-title = Change your default message colors?
 mail-color-confirm-body = Every message will use "{ $mode }" unless you change it for one message.
 mail-color-confirm = Make default
 mail-color-default-failed = Could not save your default message colors.
+
+## Attachments of several messages, hand-set answered / forwarded marks
+mail-bulk-download-attachments = Download attachments as ZIP
+mail-context-download-selected-attachments = { $count ->
+    [one] Download attachments of the selected message as ZIP
+   *[other] Download attachments of { $count } selected messages as ZIP
+}
+mail-context-download-thread-attachments = Download all { $count } attachments of the conversation as ZIP
+mail-attachments-zip-gathering = Collecting the attachments of { $count } messages…
+mail-attachments-zip-unreadable = The attachments of { $count } messages could not be read and were left out.
+mail-attachments-none = The selected messages have no attachments to download.
+mail-attachments-zip-skipped = { $skipped ->
+    [one] 1 file blocked by the attachment policy was left out.
+   *[other] { $skipped } files blocked by the attachment policy were left out.
+}
+mail-attachments-zip-all-blocked = Nothing was downloaded: the attachment policy blocks all { $skipped } files.
+mail-mark-answered = Mark as answered
+mail-mark-unanswered = Mark as unanswered
+mail-mark-forwarded = Mark as forwarded
+mail-mark-not-forwarded = Mark as not forwarded
+mail-toast-marked-answered = { $count ->
+    [one] 1 message marked as answered
+   *[other] { $count } messages marked as answered
+}
+mail-toast-marked-unanswered = { $count ->
+    [one] 1 message marked as unanswered
+   *[other] { $count } messages marked as unanswered
+}
+mail-toast-marked-forwarded = { $count ->
+    [one] 1 message marked as forwarded
+   *[other] { $count } messages marked as forwarded
+}
+mail-toast-marked-not-forwarded = { $count ->
+    [one] 1 message marked as not forwarded
+   *[other] { $count } messages marked as not forwarded
+}

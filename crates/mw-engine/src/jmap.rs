@@ -1310,6 +1310,7 @@ impl Engine {
             threading: wants_threading,
             raw_derived: wants_raw_derived,
             calendar: wants_calendar,
+            headers: wanted_header_properties(args),
         };
         let mut assembled = match self.build_emails(&requested, fill).await {
             Ok(v) => v,
@@ -1321,6 +1322,19 @@ impl Engine {
             .and_then(Value::as_array)
             .is_some_and(|named| named.iter().any(|p| p == crate::focus::FOCUS_PROPERTY));
         if wants_focus && let Err(e) = self.fill_focus(account_id, &mut assembled).await {
+            return server_fail(&e);
+        }
+        // The cached authentication summary a list row needs for a brand logo;
+        // only when the request names it, and never computed here.
+        let wants_auth = args
+            .get("properties")
+            .and_then(Value::as_array)
+            .is_some_and(|named| {
+                named
+                    .iter()
+                    .any(|p| p == crate::security::list_auth::AUTH_PROPERTY)
+            });
+        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled).await {
             return server_fail(&e);
         }
 
@@ -1462,6 +1476,14 @@ impl Engine {
                 email["mailwomanMdnReport"] = report;
                 email["mailwomanDsnReport"] = dsn_report_json(&raw);
                 email["mailwomanInlineParts"] = inline_parts_json(&raw, id);
+            }
+            if !fill.headers.is_empty()
+                && let Some(blob) = &msg.blob_ref
+                && let Some(raw) = self.cached_body(&msg.account_id, id, blob).await?
+            {
+                for (property, value) in header_properties_json(&raw, &fill.headers) {
+                    email[property] = value;
+                }
             }
             if fill.calendar {
                 // t78: read from the message's index document, where ingest put
@@ -5350,14 +5372,171 @@ const RAW_DERIVED_PROPERTIES: [&str; 4] = [
     "mailwomanInlineParts",
 ];
 
+/// Headers `Email/get` can return as `header:<Name>:asAddresses[:all]`
+/// (RFC 8621 §4.1.3): the ones a mail server writes to say which address a
+/// message was delivered to, so a reply can be sent from that address. Any
+/// other header name in a `header:` property is not answered.
+const READABLE_ADDRESS_HEADERS: [&str; 6] = [
+    "delivered-to",
+    "x-original-to",
+    "envelope-to",
+    "x-envelope-to",
+    "x-forwarded-to",
+    "resent-to",
+];
+
+/// One `header:` property of an `Email/get` request that will be answered.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct WantedHeader {
+    /// The property as the client wrote it; the answer uses the same key.
+    property: String,
+    /// The header name, lower-case.
+    name: String,
+    /// `:all`: every instance, as an array of address lists.
+    all: bool,
+}
+
+/// The answerable `header:<Name>:asAddresses[:all]` properties of a request.
+fn wanted_header_properties(args: &Value) -> Vec<WantedHeader> {
+    let mut wanted: Vec<WantedHeader> = Vec::new();
+    for property in args
+        .get("properties")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        let Some(rest) = property.strip_prefix("header:") else {
+            continue;
+        };
+        let mut parts = rest.split(':');
+        let (Some(name), Some("asAddresses")) = (parts.next(), parts.next()) else {
+            continue;
+        };
+        let all = match parts.next() {
+            None => false,
+            Some("all") => true,
+            Some(_) => continue,
+        };
+        if parts.next().is_some() {
+            continue;
+        }
+        let name = name.to_ascii_lowercase();
+        if READABLE_ADDRESS_HEADERS.contains(&name.as_str())
+            && !wanted.iter().any(|w| w.property == property)
+        {
+            wanted.push(WantedHeader {
+                property: property.to_string(),
+                name,
+                all,
+            });
+        }
+    }
+    wanted
+}
+
+/// Split an address-list header value into `{name, email}` objects: commas
+/// inside quotes or angle brackets do not separate entries, and an entry with
+/// no `@` is dropped.
+fn parse_address_list(value: &str) -> Vec<Value> {
+    let mut entries = Vec::new();
+    let mut current = String::new();
+    let (mut quoted, mut angle) = (false, false);
+    for c in value.chars() {
+        match c {
+            '"' => {
+                quoted = !quoted;
+                current.push(c);
+            }
+            '<' if !quoted => {
+                angle = true;
+                current.push(c);
+            }
+            '>' if !quoted => {
+                angle = false;
+                current.push(c);
+            }
+            ',' | ';' if !quoted && !angle => entries.push(std::mem::take(&mut current)),
+            _ => current.push(c),
+        }
+    }
+    entries.push(current);
+    entries
+        .iter()
+        .filter_map(|entry| {
+            let entry = entry.trim();
+            let (name, email) = match (entry.rfind('<'), entry.rfind('>')) {
+                (Some(open), Some(close)) if open < close => (
+                    entry[..open].trim().trim_matches('"').trim(),
+                    entry[open + 1..close].trim(),
+                ),
+                _ => ("", entry),
+            };
+            email.contains('@').then(|| {
+                json!({
+                    "name": if name.is_empty() { Value::Null } else { json!(name) },
+                    "email": email,
+                })
+            })
+        })
+        .collect()
+}
+
+/// The header block of `raw`, unfolded, as `(lower-case name, value)` pairs in
+/// message order.
+fn header_pairs(raw: &[u8]) -> Vec<(String, String)> {
+    let text = String::from_utf8_lossy(raw);
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.is_empty() {
+            break;
+        }
+        if line.starts_with([' ', '\t']) {
+            if let Some((_, value)) = pairs.last_mut() {
+                value.push(' ');
+                value.push_str(line.trim());
+            }
+        } else if let Some((name, value)) = line.split_once(':') {
+            pairs.push((name.trim().to_ascii_lowercase(), value.trim().to_string()));
+        }
+    }
+    pairs
+}
+
+/// The answers to [`WantedHeader`]s for one message. A header the message does
+/// not have is `null`; with `:all` it is an empty list.
+fn header_properties_json(raw: &[u8], wanted: &[WantedHeader]) -> Vec<(String, Value)> {
+    let pairs = header_pairs(raw);
+    wanted
+        .iter()
+        .map(|w| {
+            let instances: Vec<Vec<Value>> = pairs
+                .iter()
+                .filter(|(name, _)| *name == w.name)
+                .map(|(_, value)| parse_address_list(value))
+                .collect();
+            let value = if w.all {
+                json!(instances)
+            } else {
+                instances.last().map_or(Value::Null, |last| json!(last))
+            };
+            (w.property.clone(), value)
+        })
+        .collect()
+}
+
 /// The `Email/get` property with a message's calendar summary (t78), read
 /// from its search-index document (`mw_search::CalendarHint`), filled only
 /// when the request names it.
 const CALENDAR_PROPERTY: &str = "mailwomanCalendar";
 
 /// What [`Engine::build_emails`] adds to the stored envelope.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct EmailFill {
+    /// The `header:Name:asAddresses[:all]` properties the request names, for
+    /// the delivery headers in [`READABLE_ADDRESS_HEADERS`].
+    headers: Vec<WantedHeader>,
     /// Complete the threading properties of a row stored before they existed.
     threading: bool,
     /// Add [`RAW_DERIVED_PROPERTIES`].
@@ -7573,5 +7752,64 @@ mod email_get_batch_tests {
         // The enveloped neighbours are untouched by it.
         assert_eq!(list[0]["subject"].as_str(), Some("Subject 1"));
         assert_eq!(list[2]["subject"].as_str(), Some("Subject 2"));
+    }
+}
+
+#[cfg(test)]
+mod delivery_header_tests {
+    //! `Email/get` `header:<Name>:asAddresses[:all]` for the delivery headers.
+    use super::*;
+
+    fn wanted(props: &[&str]) -> Vec<WantedHeader> {
+        wanted_header_properties(&json!({ "properties": props }))
+    }
+
+    #[test]
+    fn only_the_readable_delivery_headers_in_an_address_form_are_answered() {
+        let got = wanted(&[
+            "header:Delivered-To:asAddresses",
+            "header:X-Original-To:asAddresses:all",
+            "header:Resent-To:asAddresses",
+            "header:Subject:asAddresses",
+            "header:Delivered-To:asText",
+            "header:Delivered-To:asAddresses:first",
+            "header:Received:asAddresses",
+            "subject",
+        ]);
+        let names: Vec<(&str, bool)> = got.iter().map(|w| (w.name.as_str(), w.all)).collect();
+        assert_eq!(
+            names,
+            vec![("delivered-to", false), ("x-original-to", true), ("resent-to", false)]
+        );
+        assert_eq!(got[0].property, "header:Delivered-To:asAddresses");
+    }
+
+    #[test]
+    fn address_lists_split_outside_quotes_and_angles() {
+        let list = parse_address_list("\"Doe, Jane\" <jane@example.org>, bob@example.net; <c@example.com>, nonsense");
+        let emails: Vec<&str> = list.iter().map(|a| a["email"].as_str().unwrap()).collect();
+        assert_eq!(emails, vec!["jane@example.org", "bob@example.net", "c@example.com"]);
+        assert_eq!(list[0]["name"], "Doe, Jane");
+        assert_eq!(list[1]["name"], Value::Null);
+    }
+
+    #[test]
+    fn headers_unfold_stop_at_the_body_and_ignore_body_lookalikes() {
+        let raw = b"Delivered-To: first@example.org\r\nReceived: from a\r\n by b\r\nDelivered-To: Second <second@example.org>,\r\n\tthird@example.org\r\nSubject: x\r\n\r\nDelivered-To: not-a-header@example.org\r\n";
+        let all = header_properties_json(raw, &wanted(&["header:Delivered-To:asAddresses:all"]));
+        assert_eq!(
+            all[0].1,
+            json!([
+                [{ "name": null, "email": "first@example.org" }],
+                [{ "name": "Second", "email": "second@example.org" }, { "name": null, "email": "third@example.org" }]
+            ])
+        );
+        // Without `:all` it is the last instance, as RFC 8621 says.
+        let last = header_properties_json(raw, &wanted(&["header:Delivered-To:asAddresses"]));
+        assert_eq!(last[0].1.as_array().unwrap().len(), 2);
+        // An absent header is null, or an empty list with :all.
+        let absent = header_properties_json(raw, &wanted(&["header:Envelope-To:asAddresses", "header:Envelope-To:asAddresses:all"]));
+        assert_eq!(absent[0].1, Value::Null);
+        assert_eq!(absent[1].1, json!([]));
     }
 }

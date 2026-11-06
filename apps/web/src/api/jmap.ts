@@ -210,6 +210,19 @@ export function searchEmails(
   ]);
 }
 
+/**
+ * The headers a mail server writes to say which address a message reached
+ * (RFC 8621 §4.1.3 `header:<Name>:asAddresses`). Opening a message for a reply
+ * reads them so the reply can be sent from the matching identity.
+ */
+export const DELIVERY_HEADER_PROPERTIES = [
+  'header:Delivered-To:asAddresses:all',
+  'header:X-Original-To:asAddresses:all',
+  'header:Envelope-To:asAddresses:all',
+  'header:X-Forwarded-To:asAddresses:all',
+  'header:Resent-To:asAddresses:all',
+] as const;
+
 export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_000): JmapRequest {
   return request(MAIL_USING, [
     [
@@ -217,7 +230,7 @@ export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_00
       {
         accountId,
         ids: [id],
-        properties: [...BODY_PROPERTIES],
+        properties: [...BODY_PROPERTIES, ...DELIVERY_HEADER_PROPERTIES],
         fetchHTMLBodyValues: true,
         fetchTextBodyValues: true,
         maxBodyValueBytes,

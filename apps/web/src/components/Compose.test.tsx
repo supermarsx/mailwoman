@@ -16,7 +16,7 @@ import { createAppState } from '../state/store.ts';
 import { AppContext } from '../state/context.ts';
 import { AssistService } from '../modules/assist/index.ts';
 import {setAdminLeetspeak} from '../i18n/presentation.ts';
-import { isolate, t } from '../i18n/index.ts';
+import { isolate, stripIsolates, t } from '../i18n/index.ts';
 import type { Identity, JmapRequest } from '../api/jmap-types.ts';
 import { resetClientPolicy } from '../api/policy.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
@@ -148,7 +148,18 @@ describe('Compose', () => {
     await app.loadIdentities();
     const hint = await screen.findByTestId('compose-from-hint');
     expect(hint).toHaveTextContent('work@corp.example');
-    fireEvent.click(within(hint).getByRole('button', { name: /From/ }));
+    expect(hint).toHaveTextContent('because it matched To');
+    fireEvent.click(within(hint).getByRole('button', { name: /from/i }));
+    fireEvent.click(within(screen.getByTestId('compose-status-detail')).getByRole('button', { name: 'Change' }));
+    expect(await screen.findByLabelText('From')).toHaveValue('id2');
+  });
+  it('names the Delivered-To header when it chose the identity, ahead of what To says', async () => {
+    const initial = { mode: 'reply' as const, to: 'alice@outside.test', cc: '', subject: 'Re: Plans', bodyText: 'Q', bodyHtml: '<p>Q</p>', inReplyTo: [], references: [], attachments: [], quotesDecrypted: false, received: { to: ['me@example.org'], cc: [], headers: { 'delivered-to': ['work+invoices@corp.example'] } } };
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} initial={initial} />, { identities: IDENTITIES });
+    await app.loadIdentities();
+    const hint = await screen.findByTestId('compose-from-hint');
+    expect(stripIsolates(hint.textContent ?? '')).toContain('Replying from work@corp.example because it matched Delivered-To');
+    fireEvent.click(within(hint).getByRole('button', { name: /from/i }));
     fireEvent.click(within(screen.getByTestId('compose-status-detail')).getByRole('button', { name: 'Change' }));
     expect(await screen.findByLabelText('From')).toHaveValue('id2');
   });

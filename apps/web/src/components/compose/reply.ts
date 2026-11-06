@@ -4,6 +4,7 @@
 // The quoted body is built separately, in `quote.ts`.
 
 import type { Email, EmailAddress } from '../../api/jmap-types.ts';
+import type { HeaderSource } from './replyIdentity.ts';
 import type { ThreadingHeaders } from '../../api/jmap.ts';
 import type {StoredInlineImage} from './drafts-store.ts';
 
@@ -58,9 +59,32 @@ export interface ComposeInitial {
    *  the send has been accepted (`$answered` / `$forwarded`, RFC 8621 §4.1.1). */
   source?: { emailId: string; keyword: '$answered' | '$forwarded' };
   /** The original's recipients, used to pick the identity a reply is sent from. */
-  received?: { to: string[]; cc: string[] };
+  received?: { to: string[]; cc: string[]; headers?: Partial<Record<HeaderSource, string[]>> };
   /** Originals attached by a bulk forward. Mark only after accepted submission. */
   sources?: { emailId: string; keyword: '$answered' | '$forwarded' }[];
+}
+
+const DELIVERY_PROPERTIES: readonly (readonly [HeaderSource, keyof Email])[] = [
+  ['delivered-to', 'header:Delivered-To:asAddresses:all'],
+  ['x-original-to', 'header:X-Original-To:asAddresses:all'],
+  ['envelope-to', 'header:Envelope-To:asAddresses:all'],
+  ['x-forwarded-to', 'header:X-Forwarded-To:asAddresses:all'],
+  ['resent-to', 'header:Resent-To:asAddresses:all'],
+];
+
+/** What the identity picker needs from the original: To, Cc and the delivery headers (each instance, newest first). */
+export function receivedOf(email: Email): NonNullable<ComposeInitial['received']> {
+  const headers: Partial<Record<HeaderSource, string[]>> = {};
+  for (const [source, property] of DELIVERY_PROPERTIES) {
+    const value = email[property] as EmailAddress[][] | null | undefined;
+    const addresses = (value ?? []).flat().map((a) => a.email).filter((a) => a !== '');
+    if (addresses.length > 0) headers[source] = addresses;
+  }
+  return {
+    to: (email.to ?? []).map((a) => a.email),
+    cc: (email.cc ?? []).map((a) => a.email),
+    ...(Object.keys(headers).length > 0 ? { headers } : {}),
+  };
 }
 
 /** The addresses that are the user's own, for leaving them out of a reply-all. */

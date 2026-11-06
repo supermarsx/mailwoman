@@ -4,6 +4,7 @@ import {
   formatAddressList,
   forwardSubject,
   isOwnAddress,
+  receivedOf,
   replyRecipients,
   replySubject,
   replyThreading,
@@ -146,5 +147,26 @@ describe('reply threading', () => {
   it('carries nothing when the original id is unknown', () => {
     expect(replyThreading(null)).toEqual({ inReplyTo: [], references: [] });
     expect(replyThreading({ messageId: null, references: ['a@x'] })).toEqual({ inReplyTo: [], references: [] });
+  });
+});
+
+describe('receivedOf', () => {
+  const base = { id: 'e', mailboxIds: {}, from: null, to: [{ name: null, email: 'list@x.test' }], cc: [{ name: null, email: 'c@x.test' }], subject: null, receivedAt: '2026-01-01T00:00:00Z', preview: null } as Email;
+  it('carries To, Cc and each delivery header, instances flattened newest first', () => {
+    const got = receivedOf({
+      ...base,
+      'header:Delivered-To:asAddresses:all': [[{ name: null, email: 'a@x.test' }], [{ name: null, email: 'b@x.test' }, { name: null, email: 'c@x.test' }]],
+      'header:X-Original-To:asAddresses:all': [[{ name: null, email: 'orig+t@x.test' }]],
+      'header:Envelope-To:asAddresses:all': [],
+      'header:Resent-To:asAddresses:all': null,
+    });
+    expect(got).toEqual({
+      to: ['list@x.test'],
+      cc: ['c@x.test'],
+      headers: { 'delivered-to': ['a@x.test', 'b@x.test', 'c@x.test'], 'x-original-to': ['orig+t@x.test'] },
+    });
+  });
+  it('has no headers key when the message has none', () => {
+    expect(receivedOf(base)).toEqual({ to: ['list@x.test'], cc: ['c@x.test'] });
   });
 });

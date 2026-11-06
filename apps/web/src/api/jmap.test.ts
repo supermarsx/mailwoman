@@ -57,6 +57,16 @@ describe('emailGetFull', () => {
     expect(get[1]['properties']).toContain('bodyValues');
     expect(typeof get[1]['maxBodyValueBytes']).toBe('number');
   });
+  it('also reads the delivery headers, every instance, for choosing the reply identity', () => {
+    const [get] = emailGetFull('acct1', 'e5').methodCalls as [Invocation];
+    expect(get[1]['properties']).toEqual(expect.arrayContaining([
+      'header:Delivered-To:asAddresses:all',
+      'header:X-Original-To:asAddresses:all',
+      'header:Envelope-To:asAddresses:all',
+      'header:X-Forwarded-To:asAddresses:all',
+      'header:Resent-To:asAddresses:all',
+    ]));
+  });
 });
 
 describe('parseRecipients', () => {
