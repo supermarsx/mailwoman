@@ -1494,7 +1494,9 @@ mod tests {
     #[test]
     fn strips_script_tags_and_content() {
         let out = clean(r#"<p>hi</p><script>window.__pwned=1</script>"#);
-        assert!(!out.contains("script"));
+        // Past the nesting limit the body is shown as escaped text in a <pre>, never as markup.
+        assert!(!out.contains("<script"), "{}", &out[..out.len().min(400)]);
+        assert!(out.contains("data-mw-body-truncated"));
         assert!(!out.contains("__pwned"));
         assert!(out.contains("<p>hi</p>"));
     }
@@ -1605,7 +1607,9 @@ mod tests {
     fn survives_malformed_soup() {
         let bomb = "<div>".repeat(2000) + "<script>1</script>" + &"</div>".repeat(1999);
         let out = clean(&bomb);
-        assert!(!out.contains("script"));
+        // Past the nesting limit the body is shown as escaped text in a <pre>, never as markup.
+        assert!(!out.contains("<script"), "{}", &out[..out.len().min(400)]);
+        assert!(out.contains("data-mw-body-truncated"));
     }
 
     // ── CSS rewrite (SPEC §7.2 item 3) ───────────────────────────────────────

@@ -202,6 +202,8 @@ fn classify(where_: &str, src: &str, is_test_file: bool, scan: &mut Scan) {
 fn is_test_path(p: &Path) -> bool {
     p.components().any(|c| c.as_os_str() == "tests")
         || p.file_name().is_some_and(|n| n == "tests.rs")
+        // A `#[path = "service_tests.rs"] mod tests;` companion is test code too.
+        || p.file_name().is_some_and(|n| n.to_string_lossy().ends_with("_tests.rs"))
 }
 
 fn walk(dir: &Path, out: &mut Vec<PathBuf>) {

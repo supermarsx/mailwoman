@@ -686,13 +686,21 @@ async fn a_client_cannot_choose_the_receipt_address() {
         "a refused create stores nothing"
     );
 
-    // Properties a client might hope are written as headers are not.
+    // The header: property for this name is refused outright (it is not an optional header).
+    let set = create(
+        &h,
+        json!({ "mailwomanRequestReadReceipt": true, "header:Disposition-Notification-To": "victim@example.org" }),
+    )
+    .await;
+    assert_invalid(&set, "header");
+    assert!(h.backend.appended.lock().unwrap().is_empty(), "a refused create stores nothing");
+
+    // Other properties a client might hope are written as headers are not.
     let set = create(
         &h,
         json!({
             "mailwomanRequestReadReceipt": true,
             "headers": [{ "name": "Disposition-Notification-To", "value": "victim@example.org" }],
-            "header:Disposition-Notification-To": "victim@example.org",
             "mailwomanReceiptTo": "victim@example.org",
             "replyTo": [{ "email": "elsewhere@example.org" }]
         }),
