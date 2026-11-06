@@ -1,0 +1,65 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pl · Module: search. Source: ../en/search.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+search-submit-help = Szukaj (Enter)
+search-clear-help = Wyczyść wyszukiwanie (Esc)
+search-filters-label = Filtry wyszukiwania
+search-guided-button = Filtry
+search-guided-title = Wyszukiwanie z podpowiedziami
+search-guided-help = Wybierz, kogo, co lub kiedy znaleźć. Dodaj filtry, aby zawęzić wyniki.
+search-include-trash = Uwzględnij Kosz
+search-add-filter = Dodaj filtr
+search-chip-edit = Edytuj filtr: { $label }
+search-chip-switch = Przełącz filtr: { $label }
+search-chip-remove = Usuń filtr: { $label }
+search-chip-negated = nie { $value }
+search-field-from = Od
+search-field-to = Do
+search-field-cc = Dw
+search-field-subject = Temat
+search-field-body = Treść
+search-field-text = Tekst
+search-field-filename = Nazwa pliku
+search-field-tag = Etykieta
+search-field-date = Data
+search-field-size = Rozmiar
+search-field-scope = Folder
+search-field-expression = Wyrażenie
+search-field-other = Filtr
+search-chip-attachment = Z załącznikiem
+search-chip-no-attachment = Bez załącznika
+search-chip-event = Z wydarzeniem
+search-chip-no-event = Bez wydarzenia
+search-chip-unread = Nieprzeczytane
+search-chip-read = Przeczytane
+search-chip-flagged = Oflagowane
+search-chip-unflagged = Nieoflagowane
+search-chip-pinned = Przypięte
+search-chip-unpinned = Nieprzypięte
+search-date-after = Po
+search-date-before = Przed
+search-date-between = { $after } – { $before }
+search-date-since = od { $date }
+search-date-until = przed { $date }
+search-date-invalid = Wpisz daty w formacie RRRR-MM-DD.
+search-size-larger = Większe niż
+search-size-smaller = Mniejsze niż
+search-size-hint = Na przykład 500k lub 2m
+search-size-between = { $larger } – { $smaller }
+search-size-over = ponad { $size }
+search-size-under = poniżej { $size }
+search-size-invalid = Wpisz rozmiar, na przykład 500k, 2m lub 1g.
+search-scope-all = Wszystkie foldery
+search-scope-current = Bieżący folder ({ $name })
+search-exclude = Wyklucz dopasowania
+search-apply = Zastosuj
+search-cancel = Anuluj
+search-remove = Usuń
+search-refine-menu = Szukaj powiązanych wiadomości
+search-refine-sender = Szukaj wiadomości od tego nadawcy
+search-refine-subject = Szukaj wiadomości z tym tematem
+search-refine-folder = Szukaj w tym folderze
+search-refine-domain = Szukaj wiadomości z tej domeny
+search-include-trash-scoped = Opcja Uwzględnij Kosz działa podczas przeszukiwania wszystkich folderów. Wybrany folder jest przeszukiwany bezpośrednio.
