@@ -166,6 +166,3 @@ compliance-dpia-export-json = Export JSON
 compliance-card-breaches = Record personal data breaches, track the notice deadline and prepare the authority notice and the message to people affected.
 admin-nav-breaches = Breach register
 compliance-card-encryption = What is encrypted at rest, how that was checked, the database key and a check you can run.
-
-compliance-card-breaches = Record personal data breaches, track the notice deadline and prepare the authority notice and the message to people affected.
-admin-nav-breaches = Breach register

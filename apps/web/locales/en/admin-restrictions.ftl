@@ -1,0 +1,35 @@
+## Admin > Compliance > Restrictions
+admin-restrictions-title = Restrictions of processing
+admin-restrictions-intro = A restriction pauses chosen kinds of processing for one person while their data stays stored. Mail still arrives and the person can read and delete. Paused kinds are enforced where the data is processed, not only shown here.
+admin-restrictions-apply = Restrict a person
+admin-restrictions-address = Address
+admin-restrictions-scopes = Pause
+admin-restrictions-reason = Reason
+admin-restrictions-days = Ends after (days, empty or 0 = until lifted)
+admin-restrictions-apply-button = Apply restriction
+admin-restrictions-applied = The restriction was applied.
+admin-restrictions-list = Restricted people
+admin-restrictions-show-history = Include lifted and expired
+admin-restrictions-none = Nobody is restricted.
+admin-restrictions-col-person = Person
+admin-restrictions-col-scopes = Paused
+admin-restrictions-col-since = Since
+admin-restrictions-col-until = Until
+admin-restrictions-col-source = Applied by
+admin-restrictions-col-reason = Reason
+admin-restrictions-col-actions = Actions
+admin-restrictions-until-lifted = until lifted
+admin-restrictions-lifted = lifted { $date }: { $reason }
+admin-restrictions-lift = Lift
+admin-restrictions-lift-reason = Reason for lifting the restriction
+admin-restrictions-lifted-done = The restriction was lifted and the person was told.
+admin-restrictions-source-admin = administrator
+admin-restrictions-source-dsr = data request
+admin-restrictions-scope-indexing = Search indexing and embeddings
+admin-restrictions-scope-assistant = Assistant
+admin-restrictions-scope-analytics = Analytics and open tracking
+admin-restrictions-scope-classification = Rules and automatic filing
+admin-restrictions-scope-push = Push notifications
+admin-restrictions-scope-thirdParty = Connected services and plugins
+admin-restrictions-settings = Settings
+admin-restrictions-settings-help = Defaults for new restrictions. Domain values apply to the people of that domain.

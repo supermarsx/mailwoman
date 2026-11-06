@@ -167,6 +167,3 @@ compliance-dpia-export-json = Exportar JSON
 compliance-card-breaches = Registe violações de dados pessoais, acompanhe o prazo de notificação e prepare a notificação à autoridade e a mensagem às pessoas afetadas.
 admin-nav-breaches = Registo de violações
 compliance-card-encryption = O que está cifrado em repouso, como foi verificado, a chave da base de dados e uma verificação que pode executar.
-
-compliance-card-breaches = Registe violações de dados pessoais, acompanhe o prazo de notificação e prepare a notificação à autoridade e a mensagem às pessoas afetadas.
-admin-nav-breaches = Registo de violações

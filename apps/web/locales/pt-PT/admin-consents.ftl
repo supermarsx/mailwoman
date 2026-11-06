@@ -1,0 +1,30 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+## Admin > Conformidade > Consentimentos
+admin-consents-title = Consentimentos por finalidade
+admin-consents-intro = Cada finalidade tem um fundamento jurídico definido por si, uma versão do texto e, quando o fundamento é o consentimento, um interruptor que fica desligado até a pessoa o ligar. Retirar o consentimento pára o tratamento na utilização seguinte. As contagens são pessoas com uma decisão atual.
+admin-consents-overview = Resumo
+admin-consents-range = Intervalo
+admin-consents-range-days = { $days } dias
+admin-consents-refresh = Atualizar
+admin-consents-export = Exportar registo (CSV)
+admin-consents-none = Ainda não há decisões de consentimento.
+admin-consents-col-purpose = Finalidade
+admin-consents-col-granted = Sim atualmente
+admin-consents-col-withdrawn = Retirado atualmente
+admin-consents-col-rate = Taxa de retirada
+admin-consents-col-day = Dia
+admin-consents-charts = Gráficos
+admin-consents-chart-rate = Taxa de retirada por finalidade
+admin-consents-chart-daily = Decisões por dia
+admin-consents-chart-daily-unit = decisões
+admin-consents-chart-daily-summary = { $granted } dadas e { $withdrawn } retiradas no intervalo.
+admin-consents-settings = Definições
+admin-consents-settings-help = Fundamento jurídico, versão do texto e texto próprio de cada finalidade. Aumentar uma versão volta a perguntar às pessoas.
+admin-consents-purpose-analytics = Contagens de utilização
+admin-consents-purpose-analyticsTag = Script do fornecedor de análise
+admin-consents-purpose-assistant = Assistente
+admin-consents-purpose-push = Notificações push
+admin-consents-purpose-openTracking = Registo de abertura
+admin-consents-purpose-remoteContent = Imagens remotas
+admin-consents-purpose-integrations = Serviços ligados
+admin-consents-purpose-telemetry = Medições de tempo de carregamento

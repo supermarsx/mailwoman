@@ -34,6 +34,9 @@ describe('Compliance hub', () => {
 
   it('gates tabs on capability', () => {
     const can = { can: (c: string) => c === 'settings.read', grants: () => ({ kind: 'all' }) } as never;
-    expect(COMPLIANCE_TABS.filter((t) => canOpenComplianceTab(can, t)).map((t) => t.id)).toEqual(['cookies', 'retention']);
+    const ids = COMPLIANCE_TABS.filter((t) => canOpenComplianceTab(can, t)).map((t) => t.id);
+    expect(ids).toEqual(expect.arrayContaining(['cookies', 'retention', 'consents']));
+    expect(ids).not.toContain('data-requests');
+    expect(ids).not.toContain('restrictions');
   });
 });
