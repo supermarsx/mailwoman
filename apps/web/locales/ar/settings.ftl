@@ -379,3 +379,167 @@ settings-folders-leave-pending = ما زالت هذه التغييرات في ق
 settings-folders-retry = إعادة محاولة الحفظ
 settings-folder-role-title = المجلدات الخاصة
 settings-folder-role-help = اختر المجلد الفعلي المستخدم لكل دور بريدي. يستخدم "تلقائي" اكتشاف الخادم. يزيل "استخدام الإعداد الافتراضي للمسؤول" تجاوزك. تؤدي الوجهات المتعارضة أو المفقودة إلى تعطيل ذلك الدور بدلًا من اختيار مجلد آخر.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+cache-clear = مسح البريد المخزَّن مؤقتًا الآن
+settings-compose-window = فتح الرسائل الجديدة في
+settings-compose-window-tab = علامة تبويب في مساحة العمل
+settings-compose-window-new = نافذة جديدة
+settings-compose-window-help = إذا حظر متصفحك النافذة الجديدة، تُفتح نافذة الكتابة في علامة تبويب بمساحة العمل.
+settings-compose-read-receipt = طلب إشعارات القراءة دائمًا
+settings-compose-delivery-receipt = طلب إشعارات التسليم دائمًا
+settings-compose-reply-copy = حفظ نسخة من الردود في المجلد الأصلي
+settings-compose-receipts-help = الإشعارات مجرد طلبات. قد يرفضها المستلم أو خادم بريده أو يتجاهلها.
+settings-compose-forward = صيغة إعادة التوجيه الافتراضية
+settings-compose-forward-inline = نص الرسالة مضمَّنًا
+settings-compose-forward-attachment = الرسالة الأصلية كمرفق بصيغة ‎.eml
+settings-compose-saving = جارٍ حفظ تفضيل الكتابة…
+settings-compose-saved = تم حفظ تفضيل الكتابة
+settings-ident-organization = المؤسسة
+settings-ident-auto-bcc = نسخة مخفية تلقائية
+settings-ident-auto-bcc-help = أضف حتى 20 عنوانًا إلى النسخة المخفية عند الإرسال من هذه الهوية. افصل بين العناوين بفواصل.
+settings-ident-pgp-key = مفتاح OpenPGP
+settings-ident-pgp-none = استخدام المفتاح الافتراضي
+settings-ident-pgp-unavailable = المفتاح المحفوظ غير متاح — اختر مفتاحًا آخر
+settings-ident-pgp-help = اختر أحد مفاتيح التوقيع OpenPGP الموجودة لديك. تبقى مادة المفتاح الخاص في خزنة مفاتيحك.
+settings-ident-error-optional = تحقق من عناوين الرد والنسخة المخفية التلقائية والمؤسسة والمفتاح المحدد.
+settings-compose-open-tracking = تسجيل فتح الرسائل افتراضيًا
+settings-compose-open-tracking-help = يضيف صورة تتبع إلى الرسائل المنسَّقة المؤهلة. يعتمد تسجيل الفتح على تحميل المستلم للصور ولا يثبت أن الرسالة قُرئت. يمكن للمسؤول تعطيل التتبع أو قفل هذا الإعداد الافتراضي.
+settings-compose-open-tracking-inherit = استخدام إعداد التتبع الافتراضي الموروث
+settings-reply-images = الصور في الردود وإعادة التوجيه
+settings-reply-images-ask = السؤال في كل مرة
+settings-reply-images-allow = التضمين دائمًا
+settings-reply-images-trusted = التضمين لنطاقات المرسلين الموثوقة، والسؤال في غيرها
+settings-reply-images-deny = عدم التضمين أبدًا
+settings-reply-images-help = اختر هل يحمل الرد أو إعادة التوجيه صور الرسالة الأصلية. تُنسخ الصور المضمَّنة إلى المسودة كمرفقات.
+settings-reply-image-domains = نطاقات مرسلي الصور الموثوقة
+settings-reply-image-domains-help = أدخل حتى 200 نطاق مرسل مطابق تمامًا، واحدًا في كل سطر. يُستخدم عندما يكون الاختيار أعلاه هو النطاقات الموثوقة.
+settings-reply-image-domains-save = حفظ نطاقات الصور الموثوقة
+settings-ident-group-basics = الأساسيات
+settings-ident-group-replies = معالجة الردود
+settings-ident-group-signature = التوقيع
+settings-ident-group-sending = خيارات الإرسال
+settings-ident-name-required = أدخل اسم عرض.
+settings-ident-email-invalid = أدخل عنوان بريد إلكتروني صالحًا، مثل name@example.org.
+settings-ident-email-duplicate = لديك هوية بهذا العنوان بالفعل.
+settings-ident-replyto-invalid = أدخل عنوان بريد إلكتروني صالحًا أو اترك الحقل فارغًا.
+settings-ident-replyto-help = تذهب الردود على الرسائل المرسلة من هذه الهوية إلى هذا العنوان بدلًا من عنوان المرسل.
+settings-ident-bcc-invalid = تحقق من قائمة النسخة المخفية: استخدم عناوين صالحة مفصولة بفواصل، بحد أقصى 20.
+settings-ident-delete-title = حذف الهوية { $email }؟
+settings-ident-delete-body = لن تتمكن بعد الآن من الإرسال من هذه الهوية. لا تتأثر المسودات والرسائل المرسلة.
+settings-ident-empty = ليس لديك أي هويات بعد. أضف واحدة لاختيار اسمها وعنوانها وتوقيعها عند الكتابة.
+settings-sig-delete-title = حذف التوقيع { $name }؟
+settings-sig-delete-body = تعود الهويات التي تستخدمه إلى توقيع الحساب. لا تتأثر الرسائل المرسلة بالفعل.
+settings-sig-deleted = تم حذف التوقيع.
+settings-reply-from = الرد من
+settings-reply-from-match = العنوان الذي أُرسلت إليه الرسالة
+settings-reply-from-default = هويتي الافتراضية دائمًا
+settings-reply-from-ask = اسألني عند تطابق عدة هويات
+settings-reply-from-keep = إبقاء الهوية المحددة بالفعل
+settings-reply-from-help = عند الرد أو إعادة التوجيه، اختر الهوية المستخدمة. إذا لم تطابق أي هوية العنوان الذي أُرسلت إليه الرسالة، تُستخدم هويتك الافتراضية. العناوين ذات علامة الزائد مثل name+tag@example.org تطابق name@example.org.
+settings-ident-default-badge = افتراضية
+settings-ident-make-default = جعلها افتراضية
+settings-ident-default-set = أصبحت { $email } هويتك الافتراضية.
+settings-ident-create-variant = إنشاء صيغة
+settings-ident-variant-count = { $count ->
+        [zero] لا صيغ
+        [one] صيغة واحدة
+        [two] صيغتان
+        [few] { $count } صيغ
+        [many] { $count } صيغة
+       *[other] { $count } صيغة
+    }
+settings-ident-inherits = تستخدم { $base } في: { $fields }
+settings-ident-field-replyTo = عنوان الرد
+settings-ident-field-autoBcc = النسخة المخفية التلقائية
+settings-ident-field-organization = المؤسسة
+settings-ident-field-pgpKeyId = مفتاح OpenPGP
+settings-ident-field-signatureName = التوقيع
+settings-ident-delete-default-body = هذه هي هويتك الافتراضية. ستصبح أقدم هوية متبقية هي الافتراضية. لن تتمكن بعد الآن من الإرسال من هذه الهوية. لا تتأثر المسودات والرسائل المرسلة.
+settings-ident-variants-choice-title = حذف { $email }؟
+settings-ident-variants-choice-body = لهذه الهوية { $count ->
+        [zero] لا صيغ
+        [one] صيغة واحدة
+        [two] صيغتان
+        [few] { $count } صيغ
+        [many] { $count } صيغة
+       *[other] { $count } صيغة
+    }. احذف { $count ->
+        [zero] لا شيء
+        [one] الصيغة
+        [two] الصيغتين
+        [few] الصيغ
+        [many] الصيغ
+       *[other] الصيغ
+    } معها، أو أبقِ { $count ->
+        [zero] لا شيء
+        [one] الصيغة
+        [two] الصيغتين
+        [few] الصيغ
+        [many] الصيغ
+       *[other] الصيغ
+    } كهويات منفصلة. تنسخ الصيغة المحفوظة الإعدادات التي ورثتها من هذه الهوية.
+settings-ident-delete-with-variants = حذف الهوية والصيغ
+settings-ident-delete-keep-variants = حذف الهوية وإبقاء الصيغ
+settings-ident-new-variant = صيغة جديدة
+settings-ident-edit-variant-title = تعديل الصيغة
+settings-ident-variant-intro = صيغة من { $base }. اترك الحقل فارغًا لاستخدام القيمة من تلك الهوية.
+settings-ident-label-label = تسمية الصيغة
+settings-ident-label-required = أدخل تسمية لهذه الصيغة، مثل النشرات الإخبارية.
+settings-ident-inherit-hint = فارغ: يستخدم { $value } من الهوية الأساسية.
+settings-ident-inherit-none = لا شيء
+settings-check-policy-allow = الإرسال دون سؤال
+settings-check-policy-warn = السؤال في كل مرة
+settings-check-policy-warn-remember = السؤال، مع إتاحة التوقف عن السؤال
+settings-check-policy-deny = حظر الإرسال
+settings-check-invalid = عناوين مستلمين غير صالحة
+settings-check-attachment = ذُكر مرفق لكنه غير موجود
+settings-check-subject = موضوع فارغ
+settings-check-help = ما يُفعل عندما يجد الفحص مشكلة. يعرض السؤال دائمًا خيار الإرسال على أي حال؛ ولا يوقف الرسالة إلا حظر الإرسال.
+settings-external-warn-remember = السؤال، مع إتاحة التوقف عن السؤال
+settings-external-deny = حظر الإرسال
+settings-auto-chip = إنهاء المستلم عند كتابة مسافة أو فاصلة أو فاصلة منقوطة
+settings-auto-chip-help = يتحول العنوان الصالح إلى مستلم مكتمل ويُضاف الفاصل نيابةً عنك.
+settings-recipient-separator = فاصل المستلمين
+settings-recipient-separator-comma = فاصلة
+settings-recipient-separator-semicolon = فاصلة منقوطة
+settings-header-collapse = ترويسة الرسالة (إلى، نسخة، الموضوع)
+settings-header-collapse-expanded = إظهار دائمًا
+settings-header-collapse-collapsed = طيّ إلى سطر ملخص
+settings-header-collapse-auto = الطيّ أثناء كتابة النص
+settings-header-collapse-help = عند الطيّ، تعرض الترويسة سطرًا واحدًا مثل إلى: Ana +2 وتُفتح عند النقر عليها أو عندما يحتاج حقل إلى انتباه.
+settings-retention-title = الاحتفاظ
+settings-folder-icon-camera = كاميرا
+settings-folder-icon-music = موسيقى
+settings-folder-icon-film = فيلم
+settings-folder-icon-lightbulb = فكرة
+settings-folder-icon-rocket = صاروخ
+settings-folder-icon-trophy = كأس
+settings-folder-icon-leaf = ورقة شجر
+settings-folder-icon-globe = كرة أرضية
+settings-folder-icon-cloud = سحابة
+settings-folder-icon-bookmark = إشارة مرجعية
+settings-folder-icon-wallet = محفظة
+settings-folder-icon-medical = طبي
+settings-folder-icon-bell = جرس
+settings-folder-icon-key = مفتاح
+settings-folder-icon-receipt = إيصال
+settings-folder-icon-cart = عربة تسوق
+settings-folder-icon-package = طرد
+settings-folder-icon-wrench = أدوات
+settings-folder-icon-chart = مخطط
+settings-folder-icon-team = فريق
+settings-folder-icon-store = متجر
+settings-folder-icon-office = مكتب
+settings-folder-icon-laptop = حاسوب محمول
+settings-folder-icon-crown = تاج
+settings-folder-icon-family = عائلة
+settings-folder-icon-group-general = عام
+settings-folder-icon-group-mail = البريد
+settings-folder-icon-group-work = العمل
+settings-folder-icon-group-finance = المال والتسوق
+settings-folder-icon-group-travel = السفر والمنزل
+settings-folder-icon-group-personal = شخصي وترفيه
+settings-folder-icon-group-tech = التقنية والأدوات
+settings-folder-icon-search-label = البحث في الأيقونات
+settings-folder-icon-no-match = لا أيقونات مطابقة
