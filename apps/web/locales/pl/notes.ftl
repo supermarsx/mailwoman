@@ -61,3 +61,9 @@ notes-link-button = Powiąż
 notes-changed-elsewhere = Ta notatka została zmieniona na innym urządzeniu lub w innej sesji. Tekst wpisany tutaj zostaje zachowany i zostanie zapisany przy następnej edycji.
 notes-deleted-elsewhere = Otwarta notatka została usunięta na innym urządzeniu lub w innej sesji.
 notes-create-failed = Nie udało się utworzyć notatki.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = Nie udało się utworzyć notatki. { $reason }
+notes-toast-pinned = Przypięto notatkę „{ $target }”
+notes-toast-unpinned = Odpięto notatkę „{ $target }”
+notes-toast-pin-failed = Nie udało się zmienić przypięcia notatki „{ $target }”

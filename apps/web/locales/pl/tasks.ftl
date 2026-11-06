@@ -39,3 +39,6 @@ tasks-delete-no = Zachowaj zadanie
 tasks-changed-elsewhere = To zadanie zostało zmienione na innym urządzeniu lub w innej sesji. Twoje zmiany zostały zachowane; „Zapisz” stosuje tylko zmienione pola.
 tasks-deleted-elsewhere = Zadanie „{ $title }” zostało usunięte na innym urządzeniu lub w innej sesji, więc jego formularz edycji został zamknięty.
 tasks-notice-dismiss = Zamknij
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = Nie udało się utworzyć zadania. { $reason }

@@ -50,3 +50,7 @@ sharing-right-e-label = Trwałe usuwanie
 sharing-right-e-desc = Trwałe usuwanie wiadomości oznaczonych jako usunięte.
 sharing-right-a-label = Administrowanie
 sharing-right-a-desc = Zmiana tego, kto ma dostęp do tego folderu.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Ten serwer poczty nie obsługuje udostępniania folderów.
+sharing-forbidden = Brak uprawnień do zarządzania udostępnianiem tego folderu. Skontaktuj się z jego właścicielem lub administratorem.

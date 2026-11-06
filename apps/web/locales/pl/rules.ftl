@@ -96,3 +96,9 @@ rules-forward-title = Przekazywanie
 rules-forward-address = Przekazuj do
 rules-forward-copy = Zachowaj kopię na tym koncie
 rules-forward-refused = Administrator nie zezwala na przekazywanie do tej domeny.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = Zapisano. Odpowiedzi automatyczne są wyłączone.
+rules-vacation-runs-server = Tę odpowiedź wysyła serwer poczty po nadejściu wiadomości.
+rules-vacation-runs-engine = Mailwoman wysyła tę odpowiedź podczas synchronizacji nowej poczty w skrzynce odbiorczej, więc może ona poczekać do następnej synchronizacji.
+rules-vacation-unavailable = Odpowiedzi urlopowe nie są dostępne dla tego konta: serwer poczty ich nie obsługuje albo administrator je wyłączył.
