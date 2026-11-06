@@ -38,6 +38,8 @@ import {focusRequest,clearFocusRequest,focusMessageInFolder} from './messageFocu
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings,writeSetting} from '../api/settings.ts';
+import {PriorityMark} from './PriorityMark.tsx';
+import {priorityOf} from './messagePriority.ts';
 import {mailFeature} from '../state/mailFeatures.ts';
 import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
 import { noteFolderSelected, noteMailboxList } from '../perf/clientTiming.ts';
@@ -235,6 +237,7 @@ function MessageRow(props: {
           <Show when={email().pinned === true}>
             <span class="list__pin" aria-label={t('mail-pinned')}><Icon name="pin" /></span>
           </Show>
+          <PriorityMark priority={priorityOf(email())}/>
           <Show when={email().hasAttachment === true}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
@@ -376,6 +379,7 @@ function ThreadHeadRow(props: {
           <span class={thread.count} aria-label={t('mail-thread-count', { count: props.row.count })}>
             {props.row.count}
           </span>
+          <PriorityMark priority={props.row.priority ?? priorityOf(rep())}/>
           <Show when={props.row.hasAttachment}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
@@ -468,7 +472,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // tail. This is what makes the scrollbar and `aria-setsize` describe the FOLDER
   // rather than the page — before paging they described `rows().length`, so a
   // 20 000-message folder announced "1 of 50" behind a 3 600px scrollbar.
-  const spanRows = createMemo(() => projectedRowCount(rows().length, app.total(), app.loadedRange().end));
+  const spanRows = createMemo(() => app.loadMoreFailed?.() === true ? rows().length : projectedRowCount(rows().length, app.total(), app.loadedRange().end));
   // An unknown query total stays unknown. Reserve only one viewport of
   // decorative loading space while its next page is actually in flight.
   const loadingTail=()=>app.total()===null&&app.loadingMore()?Math.ceil(viewportH()/rowHeight()):0;
@@ -651,9 +655,19 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
    * two copies of the same rule is how they drift apart.
    */
   function maybeLoadMore(): void {
-    if (!app.hasMore() || app.loadingMore() || app.listLoading()) return;
+    if (!app.hasMore() || app.loadingMore() || app.listLoading() || app.loadMoreFailed?.() === true) return;
     if (win().endIndex >= rows().length - LOAD_MORE_SLACK) void app.loadMore();
   }
+
+  // Re-evaluate after every state change that can leave the viewport at the
+  // end with nothing in flight (a page landed, a refresh superseded the append,
+  // the window grew). Scroll events alone miss those, which left the skeleton
+  // tail up with no request behind it.
+  createEffect(() => {
+    rows().length; win().endIndex; app.loadingMore(); app.listLoading(); app.loadMoreFailed?.();
+    if (app.loadMoreFailed?.() === true) return;
+    queueMicrotask(maybeLoadMore);
+  });
 
   function onScroll(): void {
     if (scroller !== undefined) {
@@ -980,6 +994,12 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                 }}
               </For>
             </ul>
+            <Show when={app.loadMoreFailed?.() === true}>
+              <div class="list__load-failed" role="alert" data-testid="load-more-failed" style={{position:'sticky',bottom:'0',padding:'8px 12px',display:'flex','align-items':'center',gap:'8px'}}>
+                <span>{t('mail-toast-load-more-failed')}</span>
+                <button type="button" onClick={()=>void app.loadMore()}>{t('common-retry')}</button>
+              </div>
+            </Show>
           </div>
         </Show>
       {/* The floating selection bar (t58): over the list, after it in tab order.

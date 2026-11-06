@@ -276,6 +276,8 @@ export interface MailSlice {
    * when a fetch is already in flight or the query is exhausted.
    */
   loadMore(): Promise<void>;
+  /** True when the last older-messages page failed (after one automatic retry); the list shows a Retry row. */
+  loadMoreFailed: Accessor<boolean>;
 
   /** Load every attachment across the account for the Attachments module. */
   listAttachments(): Promise<AttachmentItem[]>;
@@ -520,6 +522,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const [total, setTotal] = createSignal<number | null>(null);
   const [loadedStart, setLoadedStart] = createSignal(0);
   const [loadingMore, setLoadingMore] = createSignal(false);
+  const [loadMoreFailed, setLoadMoreFailed] = createSignal(false);
+  let loadMoreAutoRetried = false;
+  let loadMoreRetryTimer: ReturnType<typeof setTimeout> | undefined;
   /** Set once a page comes back short: the query has no more rows to give. */
   const [exhausted, setExhausted] = createSignal(true);
   /** The query `loadMore` repeats. `null` before the first list load. */
@@ -1672,9 +1677,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // cannot page costs nothing and rebuilds nothing.
     if (acct === null || src === null) return;
     if (listLoading() || loadingMore() || !hasMore()) return;
+    clearTimeout(loadMoreRetryTimer);
     const position = [...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end,nextServerPosition):loadedRange().end;
     const req = beginListRequest();
     setLoadingMore(true);
+    setLoadMoreFailed(false);
+    // Watchdog: a page request that never settles must not leave the skeleton up forever.
+    const watchdog = setTimeout(() => { if (isCurrent(req)) inFlight?.abort(); }, 15_000);
     try {
       const res = await jmapCall(pageRequest(acct, src, position, PAGE_SIZE, false), { signal: req.signal });
       if (!isCurrent(req)) return;
@@ -1705,12 +1714,28 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // while leaving the visible row count unchanged, so a rows-based test ends
       // the query on a folder that is one large thread. That is a worse bug than
       // the loop this guards, and it is the version written first.
-      setExhausted(raw.length < PAGE_SIZE || (next === before&&page.length===raw.length));
+      const done = raw.length < PAGE_SIZE || (next === before&&page.length===raw.length);
+      setExhausted(done);
+      // The query ended short of the reported total (server clamped the page,
+      // rows hidden or moved): drop the unfetched tail, or its skeleton rows
+      // would stay on screen with no request behind them.
+      if (done) setTotal(loadedRange().end);
+      loadMoreAutoRetried = false;
     } catch {
-      // A failed page leaves the query un-exhausted, so the next scroll retries.
-      // It must not throw: this runs from a scroll handler.
-      if (isCurrent(req)) showToast('error', t('mail-toast-load-more-failed'));
+      // It must not throw: this runs from a scroll handler. One automatic retry
+      // after a short backoff, then a Retry row (`loadMoreFailed`).
+      if (isCurrent(req)) {
+        if (!loadMoreAutoRetried) {
+          loadMoreAutoRetried = true;
+          loadMoreRetryTimer = setTimeout(() => void loadMore(), 2000);
+        } else {
+          loadMoreAutoRetried = false;
+          setLoadMoreFailed(true);
+          showToast('error', t('mail-toast-load-more-failed'));
+        }
+      }
     } finally {
+      clearTimeout(watchdog);
       if (isCurrent(req)) setLoadingMore(false);
       endListRequest(req);
     }
@@ -2410,6 +2435,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     hasMore,
     loadingMore,
     loadMore,
+    loadMoreFailed,
 
     listAttachments,
     listAttachmentsPage,

@@ -280,6 +280,35 @@ describe('paging — reaching past the first page', () => {
     });
   });
 
+  it('a short page below the reported total ends the query and drops the skeleton tail', async () => {
+    // Server reports total 120 but only ever returns 70 rows (clamped / hidden):
+    // the unfetched tail would render skeleton rows with no request behind them.
+    const all = corpus('inbox', 120);
+    const server = makeServer({ inbox: all });
+    const clamped: Client = {
+      ...server.client,
+      jmap: vi.fn(async (body: JmapRequest, o?: { signal?: AbortSignal }) => {
+        const res = await server.client.jmap(body, o);
+        const q = body.methodCalls.find((c) => c[0] === 'Email/query');
+        const pos = (q?.[1] as { position?: number } | undefined)?.position ?? 0;
+        if (q === undefined || pos < 50) return res;
+        const g = res.methodResponses.find((r) => r[0] === 'Email/get');
+        if (g !== undefined) (g[1] as { list: Email[] }).list = (g[1] as { list: Email[] }).list.slice(0, 20);
+        return res;
+      }),
+    };
+    await createRoot(async (dispose) => {
+      const mail = createMailSlice({ client: clamped, showToast: vi.fn() });
+      await mail.login({ username: 'me@example.org', password: 'p' });
+      expect(mail.total()).toBe(120);
+      await mail.loadMore();
+      expect(mail.messages()).toHaveLength(70);
+      expect(mail.hasMore()).toBe(false);
+      expect(mail.total()).toBe(70);
+      dispose();
+    });
+  });
+
   it('a short page still ends the query, and a full one that DOES add rows does not', async () => {
     // The control for the pair above: ending on "added nothing" must not end a
     // query that is merely mid-way through.
@@ -534,11 +563,18 @@ describe('paging — appending is not loading', () => {
       // Must not throw: this runs from a scroll handler, where a rejection is an
       // unhandled promise rather than a visible error.
       await expect(mail.loadMore()).resolves.toBeUndefined();
+      // First failure: silent, one automatic retry is scheduled.
+      expect(mail.loadMoreFailed()).toBe(false);
+      expect(mail.loadingMore()).toBe(false);
+      // Second failure: the Retry row state and the toast.
+      await expect(mail.loadMore()).resolves.toBeUndefined();
+      expect(mail.loadMoreFailed()).toBe(true);
       expect(toast).toHaveBeenCalledWith('error', 'Could not load more messages');
       expect(mail.loadingMore()).toBe(false);
       expect(mail.hasMore()).toBe(true);
       fail = false;
       await mail.loadMore();
+      expect(mail.loadMoreFailed()).toBe(false);
       expect(mail.messages()).toHaveLength(100);
       dispose();
     });
