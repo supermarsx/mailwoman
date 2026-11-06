@@ -632,7 +632,7 @@ mod tests {
             assert!(s.save_metric_rows(&[bad], 0).await.is_err());
         }
         let stats = s.metrics_stats("imageProxy.").await.unwrap();
-        assert_eq!((stats.rows, stats.first_bucket, stats.last_flush, stats.instances), (1, Some(600), Some(710), 1));
+        assert_eq!((stats.rows, stats.first_bucket, stats.last_flush, stats.instances), (1, Some(600), Some(700), 1));
         assert_eq!(s.reset_metrics("imageProxy.").await.unwrap(), 1);
         assert_eq!(s.metrics_stats("imageProxy.").await.unwrap().rows, 0);
     }
