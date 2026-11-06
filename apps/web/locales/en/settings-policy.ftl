@@ -35,3 +35,13 @@ settings-kit-collapse-all = Collapse all
 settings-kit-expand-all = Expand all
 settings-kit-jump = Jump to a group
 settings-kit-no-results = No settings here match your search. Try:
+
+# Compose cards.
+settings-compose-card-addressing = Addressing and replies
+settings-compose-card-addressing-help = Who you send as, how recipients are entered and how replies are quoted.
+settings-compose-card-checks = Checks before sending
+settings-compose-card-checks-help = Catch mistakes and risky recipients before a message leaves.
+settings-compose-card-images = Images in replies
+settings-compose-card-images-help = Whether images from the original message are kept in your reply.
+settings-compose-card-defaults = Defaults for new messages
+settings-kit-other-sections = Matches in other sections

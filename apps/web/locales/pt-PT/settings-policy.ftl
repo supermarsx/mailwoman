@@ -35,3 +35,13 @@ settings-kit-collapse-all = Recolher tudo
 settings-kit-expand-all = Expandir tudo
 settings-kit-jump = Ir para um grupo
 settings-kit-no-results = Nenhuma definição aqui corresponde à pesquisa. Experimente:
+
+# Compose cards.
+settings-compose-card-addressing = Endereçamento e respostas
+settings-compose-card-addressing-help = Em nome de quem envia, como os destinatários são introduzidos e como as respostas são citadas.
+settings-compose-card-checks = Verificações antes de enviar
+settings-compose-card-checks-help = Detete erros e destinatários de risco antes de a mensagem sair.
+settings-compose-card-images = Imagens nas respostas
+settings-compose-card-images-help = Se as imagens da mensagem original são mantidas na sua resposta.
+settings-compose-card-defaults = Predefinições para novas mensagens
+settings-kit-other-sections = Correspondências noutras secções

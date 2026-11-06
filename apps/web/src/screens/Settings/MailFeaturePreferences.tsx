@@ -2,12 +2,17 @@ import {For,type JSX} from 'solid-js';
 import {useSetting} from './useSetting.ts';
 import {SettingRow} from './layout/SettingRow.tsx';
 import {SettingsCard} from './layout/SettingsCard.tsx';
+import type {CardSpec} from './layout/rows.tsx';
 import {isRowActionsMode,MAIL_FEATURE_DEFAULTS,mailFeatureKey,ROW_ACTIONS_MODE_DEFAULT,ROW_ACTIONS_MODE_KEY,ROW_ACTIONS_MODES,type MailFeature,type RowActionsMode} from '../../state/mailFeatures.ts';
 import {t} from '../../i18n';
 import * as css from './styles.css.ts';
 // The mail feature switches (`mail.allowSend` ... `mail.closeOnDelete`): each is
 // a global/domain/user boolean, so an administrator can set the default or lock it.
 const FEATURES=Object.keys(MAIL_FEATURE_DEFAULTS) as MailFeature[];
+export const MAIL_CARD_SPECS:readonly CardSpec[]=[
+ {id:'settings-card-mail-features',section:'shortcuts',title:'settings-mail-features',help:'settings-mail-card-list-help',rows:[{id:'row-actions-mode',label:'settings-row-actions-mode',help:'settings-row-actions-mode-help'},...FEATURES.map(f=>({id:mailFeatureKey(f),label:`settings-mail-feature-${f}`,help:`settings-mail-feature-${f}-help`}))]},
+ {id:'settings-card-mail-interactions',section:'shortcuts',title:'settings-mail-interactions',rows:[{id:'mail.resumeTabs',label:'settings-mail-resume-tabs',help:'settings-mail-resume-tabs-help'},{id:'mail.modifierSelection',label:'settings-mail-modifier-selection',help:'settings-mail-modifier-selection-help'},{id:'mail.dragToFolder',label:'settings-mail-drag-folder',help:'settings-mail-drag-folder-help'}]},
+];
 export function MailFeaturePreferences():JSX.Element {
  const choices=FEATURES.map(feature=>({feature,key:mailFeatureKey(feature),handle:useSetting<boolean>(mailFeatureKey(feature),MAIL_FEATURE_DEFAULTS[feature])}));
  const rowActions=useSetting<RowActionsMode>(ROW_ACTIONS_MODE_KEY,ROW_ACTIONS_MODE_DEFAULT,isRowActionsMode);

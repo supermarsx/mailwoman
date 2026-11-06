@@ -1,9 +1,8 @@
 // Settings layout kit: card grid, compact rows, sticky sub-navigation and the
 // collapse / search states the SettingsToolbar drives through data attributes.
 // Tokens only (vars.*), logical properties, forced-colours safe.
-import { globalStyle, style } from '@vanilla-extract/css';
+import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
-import { actions as legacyActions, field as legacyField, ghost as legacyGhost } from '../styles.css.ts';
 
 const ring = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' } as const;
 
@@ -99,8 +98,22 @@ globalStyle('[data-kit-searching] [data-kit-collapsed="true"] > :not([data-kit-h
 globalStyle('[data-kit-hidden]', { display: 'none !important' });
 globalStyle('[data-kit-match]', { boxShadow: `inset 3px 0 0 ${vars.color.accent}` });
 
-// Existing (not yet row-migrated) fields inside a card: the trailing "Use
-// administrator default" reset reads as a quiet link, not a full-height button.
-globalStyle(`[data-kit-card] .${legacyField} > .${legacyGhost}:last-child:not(:only-child), [data-kit-card] .${legacyField} > .${legacyActions} > .${legacyGhost}:only-child`, {
-  minBlockSize: 'auto', padding: '2px 6px', fontSize: '0.75rem', borderColor: 'transparent', color: vars.color.textDim, textDecoration: 'underline', alignSelf: 'flex-start',
+// A row whose control needs the full width under its label.
+export const rowStacked = style({
+  gridTemplateColumns: 'minmax(0,1fr)',
 });
+globalStyle(`${rowStacked} > ${rowControl}`, { gridColumn: 1, gridRow: 'auto', alignItems: 'stretch' });
+globalStyle(`${rowStacked} > ${rowControl} textarea`, { inlineSize: '100%', maxInlineSize: 'none' });
+
+// Cross-section search results.
+export const remote = style({ flex: '1 1 100%', order: 4, display: 'flex', flexWrap: 'wrap', gap: vars.space[4], padding: `${vars.space[2]} 0` });
+export const remoteHead = style({ margin: 0, fontSize: '0.75rem', fontWeight: vars.weight.bold, color: vars.color.textDim, textTransform: 'uppercase', letterSpacing: vars.tracking.label });
+export const remoteList = style({ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column' });
+export const remoteHit = style({
+  font: 'inherit', fontSize: '0.85rem', textAlign: 'start', cursor: 'pointer', background: 'transparent', color: vars.color.text, border: 0, padding: `${vars.space[1]} 0`,
+  display: 'flex', gap: vars.space[2], alignItems: 'baseline',
+  selectors: { '&:hover': { textDecoration: 'underline' }, '&:focus-visible': ring },
+});
+export const remoteCard = style({ fontSize: '0.75rem', color: vars.color.textDim });
+const flash = keyframes({ '0%': { boxShadow: `0 0 0 3px ${vars.color.accent}` }, '100%': { boxShadow: '0 0 0 3px transparent' } });
+globalStyle('[data-kit-flash]', { animation: `${flash} 1.6s ease-out`, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none', outline: `2px solid ${vars.color.accent}` } } });

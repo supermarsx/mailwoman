@@ -1,6 +1,6 @@
 import { createContext, createSignal, useContext, type Accessor } from 'solid-js';
 
-export interface SettingsRoute { section: string; editor?: { kind: 'new' | 'edit'; id?: string } }
+export interface SettingsRoute { section: string; /** Card id to scroll to once the section has rendered. */ card?: string; editor?: { kind: 'new' | 'edit'; id?: string } }
 export interface SettingsNavigation {
   route: Accessor<SettingsRoute>;
   navigate(route: SettingsRoute): Promise<boolean>;

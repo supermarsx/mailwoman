@@ -15,19 +15,27 @@ export interface RowHandle {
 /** One compact row: label (and muted hint) at the start, control at the end,
  * then the administrator lock note and any error. `controlId` is the id the
  * control must carry; `children` receives `aria-describedby` for it. */
-export function SettingRow(props: { controlId: string; label: string; help?: string; handle: RowHandle; children: (describedBy: () => string) => JSX.Element }): JSX.Element {
+export function SettingRow(props: {
+  controlId: string; label: string; help?: string; handle: RowHandle; children: (describedBy: () => string) => JSX.Element;
+  /** Control sits under the label at full width (textareas, long lists). */
+  stacked?: boolean;
+  /** Replace the default reset (handle.reset) and its text/enabled state. */
+  onReset?: () => void; resetLabel?: string; resetDisabled?: boolean;
+  /** Show the administrator lock note even when the handle itself is free. */
+  lockNote?: boolean;
+}): JSX.Element {
   const helpId = (): string => `${props.controlId}-help`;
   const lockId = (): string => `${props.controlId}-lock`;
-  const disabled = (): boolean => !props.handle.entry() || props.handle.locked() || props.handle.saving();
-  return <div class={css.row} data-setting-row>
+  const disabled = (): boolean => props.resetDisabled ?? (!props.handle.entry() || props.handle.locked() || props.handle.saving());
+  return <div class={props.stacked ? `${css.row} ${css.rowStacked}` : css.row} data-setting-row>
     <label class={css.rowLabel} for={props.controlId}>{props.label}</label>
     <Show when={props.help}><p id={helpId()} class={css.rowHelp}>{props.help}</p></Show>
     <div class={css.rowControl}>
-      {untrack(() => props.children(() => `${props.help ? helpId() : ''} ${props.handle.locked() ? lockId() : ''}`.trim()))}
-      <button type="button" class={css.rowReset} disabled={disabled()} onClick={() => void props.handle.reset()}>{t('reader-inherit')}</button>
+      {untrack(() => props.children(() => `${props.help ? helpId() : ''} ${(props.lockNote ?? props.handle.locked()) ? lockId() : ''}`.trim()))}
+      <button type="button" class={css.rowReset} disabled={disabled()} onClick={() => (props.onReset ? props.onReset() : void props.handle.reset())}>{props.resetLabel ?? t('reader-inherit')}</button>
     </div>
     <div class={css.rowNote}>
-      <LockNote id={lockId()} locked={props.handle.locked()} />
+      <LockNote id={lockId()} locked={props.lockNote ?? props.handle.locked()} />
       <Show when={props.handle.error()}><p role="alert">{props.handle.error()}</p></Show>
     </div>
   </div>;

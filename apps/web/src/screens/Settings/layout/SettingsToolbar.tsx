@@ -1,4 +1,4 @@
-import { createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import { createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { preferenceAccount } from '../../../api/accountPreferenceLifecycle.ts';
 import { useSettingsNavigation } from '../navigation.tsx';
@@ -6,6 +6,7 @@ import { SETTINGS_CATEGORIES } from '../settingsCategories.ts';
 import { field as legacyField } from '../styles.css.ts';
 import * as css from './layout.css.ts';
 import { cardMatches, normalise, tokens } from './searchModel.ts';
+import { searchRegistry } from './registry.ts';
 
 interface CardRef { id: string; title: string }
 
@@ -143,6 +144,28 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     setNoResults(!any);
   }
   const onQuery = (value: string): void => { setQuery(value); applyFilter(); };
+  // Rows of other (possibly never opened) sections, from the static registry.
+  const remote = createMemo(() => searchRegistry(query(), props.name));
+  const remoteGroups = (): { section: string; label: string; hits: ReturnType<typeof searchRegistry> }[] => {
+    const by = new Map<string, ReturnType<typeof searchRegistry>>();
+    for (const hit of remote()) by.set(hit.section, [...(by.get(hit.section) ?? []), hit]);
+    const entries = SETTINGS_CATEGORIES.flatMap(c => c.sections);
+    return [...by].map(([section, hits]) => ({ section, label: t(entries.find(e => e.id === section)?.label ?? section), hits }));
+  };
+  const open = (section: string, card: string): void => { onQuery(''); void nav?.navigate({ section, card }); };
+  // Deep link: the route names a card of this section.
+  let jumped = '';
+  createEffect(() => {
+    const want = nav?.route().card;
+    const have = cards();
+    if (!want || jumped === `${props.name}/${want}` || !have.some(c => c.id === want)) return;
+    jumped = `${props.name}/${want}`;
+    queueMicrotask(() => {
+      jump(want);
+      const el = document.getElementById(want);
+      if (el) { el.dataset.kitFlash = ''; setTimeout(() => delete el.dataset.kitFlash, 1600); }
+    });
+  });
   const suggestions = (): { id: string; label: string }[] => {
     const words = tokens(query());
     return SETTINGS_CATEGORIES.flatMap(c => c.sections).filter(s => s.id !== props.name && cardMatches(`${t(s.label)} ${s.terms ?? ''}`, words)).map(s => ({ id: s.id, label: t(s.label) }));
@@ -179,7 +202,14 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
         <For each={cards()}>{card => <li><button type="button" class={css.chip} aria-current={active() === card.id ? 'true' : undefined} onClick={() => jump(card.id)}>{card.title}</button></li>}</For>
       </ul>
     </Show>
-    <Show when={noResults()}>
+    <Show when={remote().length > 0}>
+      <div class={css.remote} role="region" aria-label={t('settings-kit-other-sections')}>
+        <For each={remoteGroups()}>{group => <section><h3 class={css.remoteHead}>{group.label}</h3><ul class={css.remoteList}>
+          <For each={group.hits}>{hit => <li><button type="button" class={css.remoteHit} onClick={() => open(hit.section, hit.card)}>{hit.label}<span class={css.remoteCard}>{hit.cardTitle}</span></button></li>}</For>
+        </ul></section>}</For>
+      </div>
+    </Show>
+    <Show when={noResults() && remote().length === 0}>
       <p class={css.empty} role="status">{t('settings-kit-no-results')}
         <For each={suggestions()}>{s => <button type="button" class={css.chip} onClick={() => { onQuery(''); void nav?.navigate({ section: s.id }); }}>{s.label}</button>}</For>
       </p>
