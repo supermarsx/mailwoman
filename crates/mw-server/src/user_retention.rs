@@ -44,6 +44,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{collections::BTreeMap, sync::Arc, time::Duration};
 
+mod pim;
+
 pub(crate) const JOB_KIND: &str = "user_retention";
 /// Messages one folder scan reads at most; the rest waits for the next run.
 const SCAN_CAP: usize = 20_000;
@@ -856,8 +858,19 @@ pub(crate) async fn run_job(ctx: JobCtx) -> Result<JobOutput, String> {
                 tracing::debug!("user retention for {} not run: {e}", a.id);
             }
         }
+        // Calendar events and notes, for people who opted in.
+        match pim::run_pim(state, &a.id, &a.username, false, &ctx.triggered_by).await {
+            Ok(s) if s.skipped.is_none() => {
+                changed += s.changed();
+                errors += s.errors;
+            }
+            Ok(_) => {}
+            Err(e) => tracing::debug!("pim retention for {} not run: {e}", a.id),
+        }
     }
     let _ = store.retention_runs_prune(now - HISTORY_DAYS * rr::DAY).await;
+    // Notes whose undo window has ended are gone for good.
+    let _ = store.note_holds_purge(now).await;
     let _ = store
         .set_setting(
             "retention.user.lastJob",
@@ -881,6 +894,7 @@ pub(crate) fn router() -> Router<AppState> {
         .route("/api/retention/run", post(run_now))
         .route("/api/retention/templates/{id}/adopt", post(adopt_template))
         .route("/api/retention/effective", get(effective))
+        .merge(pim::router())
 }
 
 struct Me {
@@ -1263,7 +1277,9 @@ async fn admin_overview(State(state): State<AppState>, ctx: AdminCtx) -> Result<
                  "retention.user.protectedFolders", "retention.user.templates", "retention.user.runForRestricted",
                  "retention.user.intervalHours", "retention.user.batchMessages", "retention.user.maxPerRun", "retention.user.pauseMs",
                  "retention.user.allowStripAttachments", "retention.user.strip.minAgeDays", "retention.user.strip.minAttachmentKb",
-                 "retention.user.strip.keepInlineImages", "retention.user.strip.undoDays"],
+                 "retention.user.strip.keepInlineImages", "retention.user.strip.undoDays",
+                 "retention.user.calendar.enabled", "retention.user.calendar.minDays", "retention.user.calendar.maxDays",
+                 "retention.user.notes.enabled", "retention.user.notes.minDays", "retention.user.notes.maxDays"],
     }))))
 }
 

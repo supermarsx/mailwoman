@@ -150,6 +150,23 @@ When it is on, a person can create a rule with the action. The rule's days must 
 
 At most 300 messages are rewritten per account per run; the rest waits. The **preview** opens up to 100 of the matching messages (nothing is changed) and reports how many would lose attachments and how many bytes that frees; beyond those it counts by the messages' sizes and says the figure is an estimate. The run record and the audit entry carry counts only (messages rewritten, bytes freed, messages left alone); no subject, sender, file name or address is stored.
 
+### Calendar events and notes
+
+Two more opt-in kinds of retention run in the same job (`user_retention`), both **off by default**. A person sets them in **Settings > Retention**; the choice is stored in `user_pim_retention`.
+
+| Setting | Scope | Default | What it controls |
+| --- | --- | --- | --- |
+| `retention.user.calendar.enabled` | global, domain | off | Whether people may delete ended events from calendars they choose. |
+| `retention.user.calendar.minDays`, `retention.user.calendar.maxDays` | global, domain | 30, 3650 | Fewest and most days after an event ended. Refused on save, clamped when it runs. |
+| `retention.user.notes.enabled` | global, domain | off | Whether people may remove notes they have not changed for a set time. |
+| `retention.user.notes.minDays`, `retention.user.notes.maxDays` | global, domain | 30, 3650 | Fewest and most days since a note was last changed. |
+
+- **Calendar.** The person picks calendars (only those are touched) and a number of days. Events in them that ended more than that many days ago are deleted through the mail engine (`CalendarEvent/set`), so a CalDAV calendar is told too. Recurring events have no end and are never touched. There is no archive calendar: events are deleted.
+- **Notes.** Notes not changed for the chosen days are removed through the engine (`Note/set`). Pinned notes are never removed. The notes have no Trash, so before removal a copy of the whole note is sealed into `user_pim_retention` (kind `noteHold`) and kept for `retention.user.undoDays` days; the person restores it from **Removed notes you can restore** (`POST /api/retention/pim/notes/{id}/restore`) and the job purges it when the window ends. With an undo window of 0 the note is removed at once. A restored note is back in the database immediately; an open client shows it after its next refresh.
+- **Off at the administrator.** While a switch is off the card shows only that it is turned off, saving an opt-in is refused (`pimDisabled`), and a choice saved earlier is not run; the run reports how many choices it skipped (`disabledSkipped`).
+- **Safeguards.** Accounts under a legal hold, and restricted accounts (unless `retention.user.runForRestricted`), are skipped. At most 500 events and 500 notes are handled per account per run. **Preview** (`POST /api/retention/pim/preview`) reports the counts without changing anything. The run record and the audit entry (`user-pim-retention-run`) carry counts only; no title, name or address.
+- **Contacts.** Mailwoman stores no interaction history or last-contacted log, so there is nothing to prune and no setting exists for it. Contacts themselves are never deleted by retention.
+
 Because the keys have domain scope, the usual lock and default controls apply: an administrator can lock a value for the whole server or for a domain.
 
 **What applies to a person.** `GET /api/retention/effective` (signed-in user) returns the retention that applies to the caller: the organisation-wide mail rules, the person's own rules with the days after the administrator's limits, and for each store that holds the person's data its class, days, whether it is kept for ever and whether the archive holds it afterwards. The same data comes from the function `user_retention::effective_for_account`, which other server code can call.

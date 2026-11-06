@@ -7131,6 +7131,54 @@ pub static REGISTRY: &[SettingDef] = &[
         "Days the original message stays in Trash after its attachments were removed; -1 follows retention.user.undoDays, 0 deletes the original at once"
     ),
     def!(
+        "retention.user.calendar.enabled",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Whether users may opt calendars in to deleting events that ended a set number of days ago. Off by default; while off the option is hidden and saved choices are not run"
+    ),
+    def!(
+        "retention.user.calendar.minDays",
+        int(1, 3650),
+        "30",
+        GD,
+        "privacy",
+        "Fewest days after an event ended before a user rule may delete it; a smaller value is refused when saved and raised when it runs"
+    ),
+    def!(
+        "retention.user.calendar.maxDays",
+        int(1, 3650),
+        "3650",
+        GD,
+        "privacy",
+        "Most days a user may wait before ended events are deleted; a larger value is refused when saved and lowered when it runs"
+    ),
+    def!(
+        "retention.user.notes.enabled",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Whether users may opt in to removing notes not changed for a set number of days. Off by default; removed notes stay restorable for retention.user.undoDays"
+    ),
+    def!(
+        "retention.user.notes.minDays",
+        int(1, 3650),
+        "30",
+        GD,
+        "privacy",
+        "Fewest days a note must be untouched before a user rule may remove it; a smaller value is refused when saved and raised when it runs"
+    ),
+    def!(
+        "retention.user.notes.maxDays",
+        int(1, 3650),
+        "3650",
+        GD,
+        "privacy",
+        "Most days a user may wait before untouched notes are removed; a larger value is refused when saved and lowered when it runs"
+    ),
+    def!(
         "retention.class.short.days",
         int(1, 3650),
         "365",

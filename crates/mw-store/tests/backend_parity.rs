@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, metrics_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, metrics_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, user_pim_retention, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2438,6 +2438,10 @@ mod admin_controls_0033 {
             ("id",'T',"!","run-1"),("account_id",'T',"!","acct-1"),("started_at",'I',"!",TS),("finished_at",'I',"!",TS),
             ("dry_run",'I',"!","0"),("triggered_by",'T',"!","scheduler"),("matched",'I',"!","10"),("acted",'I',"!","8"),
             ("errors",'I',"!","0"),("counts_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"user_pim_retention",copied:true,cols:&[
+            ("id",'T',"!","upr-1"),("account_id",'T',"!","acct-1"),("kind",'T',"!","noteHold"),("item_ref",'T',"=","note-1"),
+            ("config_json",'T',"={}","{}"),("payload",'B',"!","sealed-bytes"),("due_at",'I',"=0","1900000000"),("updated_at",'I',"!",TS),
         ]},
         NewTable {name:"retention_archive_segment",copied:true,cols:&[
             ("id",'T',"!","seg-1"),("store_id",'T',"!","assistAudit"),("seq",'I',"!","1"),("row_count",'I',"!","3"),

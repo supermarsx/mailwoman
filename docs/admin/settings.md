@@ -1797,6 +1797,30 @@ Global and domain, hot. Default `true`. Images shown inside the message body are
 ### Undo window after attachments are removed (days) (`retention.user.strip.undoDays`)
 Global and domain, hot. Default `-1`. Days the original message stays in Trash after its attachments were removed. -1 follows `retention.user.undoDays`. 0 deletes the original at once.
 
+<a id="retention.user.calendar.enabled"></a>
+### Users may delete ended calendar events (`retention.user.calendar.enabled`)
+Global and domain, hot. Default `false`. When on, a person can choose calendars whose events are deleted a set number of days after they ended. Recurring events are never touched. When off, the option is hidden in Settings, saving a choice is refused and saved choices are not run (the run reports that they were skipped).
+
+<a id="retention.user.calendar.minDays"></a>
+### Fewest days before ended events are deleted (`retention.user.calendar.minDays`)
+Global and domain, hot. Default `30`. A smaller value is refused when the choice is saved and raised when it runs.
+
+<a id="retention.user.calendar.maxDays"></a>
+### Most days before ended events are deleted (`retention.user.calendar.maxDays`)
+Global and domain, hot. Default `3650`. A larger value is refused when saved and lowered when it runs.
+
+<a id="retention.user.notes.enabled"></a>
+### Users may remove untouched notes (`retention.user.notes.enabled`)
+Global and domain, hot. Default `false`. When on, a person can choose to remove notes not changed for a set number of days (pinned notes are never removed). A removed note is kept sealed for `retention.user.undoDays` days and can be restored in Settings > Retention. When off, the option is hidden and saved choices are not run.
+
+<a id="retention.user.notes.minDays"></a>
+### Fewest days before untouched notes are removed (`retention.user.notes.minDays`)
+Global and domain, hot. Default `30`. A smaller value is refused when saved and raised when it runs.
+
+<a id="retention.user.notes.maxDays"></a>
+### Most days before untouched notes are removed (`retention.user.notes.maxDays`)
+Global and domain, hot. Default `3650`. A larger value is refused when saved and lowered when it runs.
+
 <a id="retention.class.short.days"></a>
 ### Short class ceiling (days) (`retention.class.short.days`)
 Global, hot. Default `365`. Ceiling for operational data: sessions, tokens, rate limits, job history and metrics. Applies when the class limit is on.

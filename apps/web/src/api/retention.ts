@@ -165,6 +165,26 @@ export const saveSettings = (input: {
 /** Evaluate one rule being edited (`rule`), or every rule of the account. Nothing changes. */
 export const previewRules = (rule?: RuleInput): Promise<Preview> => call('/preview', { method: 'POST', body: rule ? { rule } : {} });
 export const runRules = (): Promise<Preview> => call('/run', { method: 'POST', body: {} });
+export interface PimLimits { allowed: boolean; minDays: number; maxDays: number }
+export interface PimOverview {
+  policy: { calendar: PimLimits; notes: PimLimits; undoDays: number };
+  calendar: { enabled: boolean; days: number; calendars: string[] };
+  notes: { enabled: boolean; days: number };
+  calendars: { id: string; name: string }[];
+  held: { noteId: string; title: string; heldAt: number; dueAt: number }[];
+}
+export interface PimSummary {
+  skipped: string | null;
+  eventsMatched: number; eventsDeleted: number; notesMatched: number; notesRemoved: number;
+  /** Choices the person made that the administrator has since turned off. */
+  disabledSkipped: number; errors: number;
+}
+export const loadPim = (): Promise<PimOverview> => call('/pim');
+export const savePim = (input: { calendar?: PimOverview['calendar']; notes?: PimOverview['notes'] }): Promise<PimOverview> => call('/pim', { method: 'PUT', body: input });
+export const previewPim = (): Promise<PimSummary> => call('/pim/preview', { method: 'POST', body: {} });
+export const runPim = (): Promise<PimSummary> => call('/pim/run', { method: 'POST', body: {} });
+export const restoreNote = (id: string): Promise<{ restored: boolean }> => call(`/pim/notes/${encodeURIComponent(id)}/restore`, { method: 'POST', body: {} });
+
 export const loadEffective = (): Promise<EffectiveRetention> => call('/effective');
 
 export const emptyScope = (): RuleScope => ({

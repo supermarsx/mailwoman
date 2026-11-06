@@ -16,6 +16,7 @@ import {
 } from '../../api/retention.ts';
 import { retentionFolder, setRetentionFolder } from '../../state/retentionFocus.ts';
 import { FolderRetention } from './FolderRetention.tsx';
+import { PimRetention, livePim, type PimApi } from './PimRetention.tsx';
 import { actionMessage, availableActions, daysFromNow, formatBytes, isDestructive, joinList, needsDays, ruleProblem, splitList } from './retentionModel.ts';
 import * as css from './styles.css.ts';
 
@@ -28,11 +29,13 @@ export interface RetentionApi {
   settings: typeof api.saveSettings;
   preview: typeof api.previewRules;
   run: typeof api.runRules;
+  /** Calendar and notes retention; the cards appear only when given. */
+  pim?: PimApi;
 }
 
 const live: RetentionApi = {
   load: api.loadRetention, create: api.createRule, update: api.updateRule, remove: api.deleteRule,
-  adopt: api.adoptTemplate, settings: api.saveSettings, preview: api.previewRules, run: api.runRules,
+  adopt: api.adoptTemplate, settings: api.saveSettings, preview: api.previewRules, run: api.runRules, pim: livePim,
 };
 
 const when = (seconds: number): string => (seconds > 0 ? formatDateTime(seconds * 1000) : t('retention-never'));
@@ -280,6 +283,8 @@ export function RetentionRules(props: { folders: () => readonly Mailbox[]; api?:
         onSave={async (rule) => { if (e().id) await a.update(e().id as string, rule); else await a.create(rule); setEditing(null); await refetch(); }}
         onCancel={() => setEditing(null)}
       />}</Show>
+
+      <Show when={a.pim}>{(p) => <PimRetention api={p()} />}</Show>
 
       <Show when={d().templates.length > 0}>
         <div class={css.section} data-testid="retention-templates">

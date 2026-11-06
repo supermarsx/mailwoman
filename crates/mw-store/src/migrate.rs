@@ -3215,6 +3215,23 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "user_pim_retention",
+        select: "SELECT id,account_id,kind,item_ref,config_json,payload,due_at,updated_at FROM user_pim_retention",
+        insert: "INSERT INTO user_pim_retention(id,account_id,kind,item_ref,config_json,payload,due_at,updated_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "account_id"),
+                t(r, "kind"),
+                t(r, "item_ref"),
+                t(r, "config_json"),
+                b(r, "payload"),
+                i(r, "due_at"),
+                i(r, "updated_at"),
+            ]
+        },
+    },
+    TableSpec {
         name: "user_retention_run",
         select: "SELECT id,account_id,started_at,finished_at,dry_run,triggered_by,matched,acted,errors,counts_json FROM user_retention_run",
         insert: "INSERT INTO user_retention_run(id,account_id,started_at,finished_at,dry_run,triggered_by,matched,acted,errors,counts_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",

@@ -311,6 +311,7 @@ index of a restored install, which is rebuilt from the restored cache.
 | `user_activity` | `account_id=id` | deleted | `usage` | - |
 | `user_group` | - | kept: group definitions belong to the directory, not to one member | - | - |
 | `user_group_member` | `account_id=id` | deleted | `delegation` | - |
+| `user_pim_retention` | `account_id=id` | deleted | `records` | - |
 | `user_retention_account` | `account_id=id` | deleted | `records` | - |
 | `user_retention_rule` | `account_id=id` | deleted | `records` | - |
 | `user_retention_run` | `account_id=id` | deleted | `records` | - |
