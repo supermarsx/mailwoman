@@ -35,6 +35,7 @@ pub mod security;
 pub mod sieve_jmap;
 mod sieve_scripts;
 pub mod state;
+pub mod strip;
 pub mod submission;
 pub mod sync_health;
 pub mod thread;

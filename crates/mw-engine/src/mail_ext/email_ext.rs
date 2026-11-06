@@ -190,6 +190,118 @@ impl Engine {
         resp
     }
 
+    /// `Email/mailwomanStrip` (retention): for each id, rewrite the message
+    /// without its large attachments and import the copy into the same mailbox
+    /// with the same keywords and received date, plus the `mw-stripped`
+    /// keyword. The original is left in place; the caller moves it to Trash
+    /// (undo window) or destroys it once the copy is acknowledged, so a crash
+    /// between the two steps leaves a duplicate, never a loss.
+    ///
+    /// Arguments: `ids`, `minAttachmentBytes`, `keepInlineImages` (default
+    /// true), `date` (`YYYY-MM-DD`), `dryRun`. Messages that are signed,
+    /// encrypted, already stripped or without a qualifying part are reported,
+    /// not changed.
+    pub(crate) async fn email_strip(&self, account_id: &str, args: &Value) -> Value {
+        let Some(ids) = args.get("ids").and_then(Value::as_array) else {
+            return json!({"type":"invalidArguments","description":"ids must be an array"});
+        };
+        if ids.len() > 200 {
+            return json!({"type":"requestTooLarge"});
+        }
+        let dry = args.get("dryRun").and_then(Value::as_bool).unwrap_or(false);
+        let opts = crate::strip::StripOptions {
+            min_bytes: args.get("minAttachmentBytes").and_then(Value::as_u64).unwrap_or(100 * 1024),
+            keep_inline_images: args.get("keepInlineImages").and_then(Value::as_bool).unwrap_or(true),
+            date: args
+                .get("date")
+                .and_then(Value::as_str)
+                .map(String::from)
+                .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string()),
+        };
+        if opts.date.len() != 10 || !opts.date.bytes().all(|b| b.is_ascii_digit() || b == b'-') {
+            return json!({"type":"invalidArguments","description":"date must be YYYY-MM-DD"});
+        }
+        let mut replaced = Map::new();
+        let mut unchanged = Vec::new();
+        let mut skipped = Map::new();
+        let mut failed = Map::new();
+        for id in ids.iter().filter_map(Value::as_str) {
+            match self.strip_one(account_id, id, &opts, dry).await {
+                Ok(StripResult::Unchanged) => unchanged.push(json!(id)),
+                Ok(StripResult::Skipped(r)) => {
+                    skipped.insert(id.to_string(), json!(r.as_str()));
+                }
+                Ok(StripResult::Done(v)) => {
+                    replaced.insert(id.to_string(), v);
+                }
+                Err(e) => {
+                    failed.insert(id.to_string(), import_error(&e));
+                }
+            }
+        }
+        if !dry && !replaced.is_empty() && self.resync(account_id).await.is_err() {
+            tracing::warn!("strip completed; mailbox refresh deferred");
+        }
+        json!({
+            "accountId": account_id,
+            "dryRun": dry,
+            "replaced": Value::Object(replaced),
+            "unchanged": unchanged,
+            "skipped": Value::Object(skipped),
+            "notReplaced": Value::Object(failed),
+        })
+    }
+
+    async fn strip_one(
+        &self,
+        account_id: &str,
+        id: &str,
+        opts: &crate::strip::StripOptions,
+        dry: bool,
+    ) -> Result<StripResult> {
+        use crate::strip::{StripOutcome, strip_attachments};
+        let msg = self.store().get_message(id).await.map_err(EngineError::Store)?;
+        if msg.account_id != account_id {
+            return Err(EngineError::Store(mw_store::StoreError::NotFound));
+        }
+        let blob = self
+            .fetch_blob(account_id, id)
+            .await?
+            .ok_or(EngineError::Store(mw_store::StoreError::NotFound))?;
+        let (raw, removed) = match strip_attachments(&blob.bytes, opts) {
+            StripOutcome::Unchanged => return Ok(StripResult::Unchanged),
+            StripOutcome::Skipped(r) => return Ok(StripResult::Skipped(r)),
+            StripOutcome::Stripped { raw, removed } => (raw, removed),
+        };
+        let reclaimed = (blob.bytes.len() as u64).saturating_sub(raw.len() as u64);
+        let mut summary = json!({
+            "parts": removed.len(),
+            "reclaimedBytes": reclaimed,
+            "removed": removed.iter().map(|r| json!({"path": r.path, "name": r.name, "type": r.content_type, "bytes": r.bytes})).collect::<Vec<_>>(),
+        });
+        if dry {
+            return Ok(StripResult::Done(summary));
+        }
+        let mailbox = self.owned_import_mailbox(account_id, &msg.mailbox_id).await?;
+        let mut keywords = Map::new();
+        for (k, v) in crate::mapping::flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json)) {
+            if v && !k.eq_ignore_ascii_case("$recent") && !k.eq_ignore_ascii_case("$deleted") {
+                keywords.insert(k, Value::Bool(true));
+            }
+        }
+        keywords.insert(crate::strip::MARKER_KEYWORD.into(), Value::Bool(true));
+        let received = msg
+            .internaldate
+            .as_deref()
+            .and_then(|d| chrono::DateTime::parse_from_rfc3339(d).ok())
+            .map(|d| d.with_timezone(&chrono::Utc).to_rfc3339_opts(chrono::SecondsFormat::Secs, true))
+            .ok_or_else(|| EngineError::Protocol("invalid receivedAt".into()))?;
+        let spec = json!({"keywords": Value::Object(keywords), "receivedAt": received});
+        let sid = self.append_import(account_id, &mailbox, raw, &spec).await?;
+        summary["newId"] = json!(sid);
+        Ok(StripResult::Done(summary))
+    }
+
     // ---- shared create paths -------------------------------------------
 
     async fn import_one(&self, account_id: &str, spec: &Value) -> Result<Value> {
@@ -418,6 +530,12 @@ impl Engine {
             "size": msg.size,
         }))
     }
+}
+
+enum StripResult {
+    Unchanged,
+    Skipped(crate::strip::SkipReason),
+    Done(Value),
 }
 
 /// The single `mailboxIds` target of a copy/import create spec.

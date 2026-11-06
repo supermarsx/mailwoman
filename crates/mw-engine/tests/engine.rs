@@ -1943,3 +1943,58 @@ async fn account_draft_zero_access_never_appends_plaintext() {
     assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
     assert_eq!(h.submitter.calls.load(Ordering::SeqCst), 0);
 }
+
+fn strip_fixture() -> Vec<u8> {
+    let body: String = (0..40_000).map(|i| (b'A' + (i % 26) as u8) as char).collect::<String>().as_bytes().chunks(76).map(|c| String::from_utf8_lossy(c).into_owned()).collect::<Vec<_>>().join("\r\n");
+    format!("From: Ann <ann@example.org>\r\nTo: me@example.org\r\nSubject: Quarterly\r\nMessage-ID: <strip-1@example.org>\r\nDate: Mon, 1 Jun 2026 10:00:00 +0000\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=\"B1\"\r\n\r\n--B1\r\nContent-Type: text/plain\r\n\r\nSee the deck.\r\n--B1\r\nContent-Type: application/pdf; name=\"deck.pdf\"\r\nContent-Disposition: attachment; filename=\"deck.pdf\"\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}\r\n--B1--\r\n").into_bytes()
+}
+
+#[tokio::test]
+async fn strip_attachments_imports_a_stripped_copy_with_flags_and_date() {
+    let backend = Arc::new(FakeBackend::with_inbox(vec![(
+        1,
+        strip_fixture(),
+        vec![Flag::Seen, Flag::Flagged],
+        "2026-01-05T09:00:00Z".into(),
+    )]));
+    let h = setup_with(backend).await;
+    h.engine.resync(&h.account_id).await.unwrap();
+    let boxes = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let inbox = mailbox_id(&boxes, "inbox");
+    let q = jmap(&h, json!([["Email/query", {"filter":{"inMailbox":inbox}}, "q"]])).await;
+    let id = method_result(&q, "q")["ids"][0].as_str().unwrap().to_string();
+
+    // A dry run reports and changes nothing upstream.
+    let dry = jmap(&h, json!([["Email/mailwomanStrip", {"ids":[id], "minAttachmentBytes": 1000, "date":"2026-11-06", "dryRun": true}, "s"]])).await;
+    let dry = method_result(&dry, "s");
+    assert_eq!(dry["replaced"][&id]["parts"], 1);
+    assert!(dry["replaced"][&id]["reclaimedBytes"].as_u64().unwrap() > 30_000);
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 0);
+
+    let res = jmap(&h, json!([["Email/mailwomanStrip", {"ids":[id], "minAttachmentBytes": 1000, "date":"2026-11-06"}, "s"]])).await;
+    let res = method_result(&res, "s");
+    let new_id = res["replaced"][&id]["newId"].as_str().expect("replaced").to_string();
+    assert_ne!(new_id, id);
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+    let server = h.backend.state.lock().unwrap().messages["INBOX"].clone();
+    let appended = server.last().unwrap();
+    assert_eq!(appended.3, "2026-01-05T09:00:00Z");
+    assert!(appended.2.contains(&Flag::Seen) && appended.2.contains(&Flag::Flagged));
+    let text = String::from_utf8(appended.1.clone()).unwrap();
+    assert!(text.contains("Message-ID: <strip-1@example.org>"));
+    assert!(text.contains("X-Mailwoman-Stripped: 2026-11-06; part=2;"));
+    assert!(text.contains("Attachment removed by retention rule on 2026-11-06: deck.pdf"));
+    assert!(text.len() < 2000);
+    let stored = h.engine.store().get_message(&new_id).await.unwrap();
+    assert_eq!(stored.internaldate.as_deref(), Some("2026-01-05T09:00:00Z"));
+
+    // The copy carries the marker keyword; running again skips it.
+    let got = jmap(&h, json!([["Email/get", {"ids":[new_id], "properties":["keywords","hasAttachment"]}, "g"]])).await;
+    let e = &method_result(&got, "g")["list"][0];
+    assert_eq!(e["keywords"]["mw-stripped"], true);
+    assert_eq!(e["keywords"]["$seen"], true);
+    assert_eq!(e["hasAttachment"], false);
+    let again = jmap(&h, json!([["Email/mailwomanStrip", {"ids":[new_id], "minAttachmentBytes": 0}, "s"]])).await;
+    assert_eq!(method_result(&again, "s")["skipped"][&new_id], "alreadyStripped");
+    assert_eq!(h.backend.append_calls.load(Ordering::SeqCst), 1);
+}

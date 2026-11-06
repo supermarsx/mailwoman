@@ -20,7 +20,12 @@ const MAIL_EXT_FAMILIES: &[&str] = &[
 /// The individual `Email/*` methods the mail-ext surface adds (the rest of the
 /// `Email/` family is handled explicitly in the core dispatch and must NOT route
 /// here).
-const EMAIL_EXT_METHODS: &[&str] = &["Email/copy", "Email/import", "Email/parse"];
+const EMAIL_EXT_METHODS: &[&str] = &[
+    "Email/copy",
+    "Email/import",
+    "Email/parse",
+    "Email/mailwomanStrip",
+];
 
 /// Whether `method` is answered by the mail-ext dispatch.
 pub fn is_mail_ext_method(method: &str) -> bool {
@@ -52,6 +57,8 @@ impl Engine {
             "Email/copy" => self.email_copy(account_id, args).await,
             "Email/import" => self.email_import(account_id, args).await,
             "Email/parse" => self.email_parse(account_id, args).await,
+            // ── Retention: rewrite without attachments (see `strip.rs`) ──
+            "Email/mailwomanStrip" => self.email_strip(account_id, args).await,
             // ── Read receipts (RFC 8098; rules in `mdn.rs`) ──
             "MDN/send" => self.mdn_send(account_id, args).await,
             other => json!({
