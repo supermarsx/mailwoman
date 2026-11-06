@@ -388,7 +388,7 @@ function ThemeMode(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
     <>
-      <ControlRow controlId="appearance-mode" group label={t('appearance-mode')} help={t(MODE_HINTS[app.themeMode()])}>{(describedBy) =>
+      <ControlRow controlId="appearance-mode" group stacked label={t('appearance-mode')} help={t(MODE_HINTS[app.themeMode()])}>{(describedBy) =>
         <div
           class={css.options}
           role="group"

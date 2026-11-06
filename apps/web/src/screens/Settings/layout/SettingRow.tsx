@@ -51,7 +51,9 @@ export function ControlRow(props: {
   children: (describedBy: () => string) => JSX.Element;
 }): JSX.Element {
   const helpId = (): string => `${props.controlId}-help`;
-  return <div class={props.stacked ? `${css.row} ${css.rowStacked}` : css.row} data-setting-row>
+  // Button groups are as wide as their labels: they sit under the row label rather than squeezing it.
+  const stacked = (): boolean => props.stacked ?? props.group === true;
+  return <div class={stacked() ? `${css.row} ${css.rowStacked}` : css.row} data-setting-row>
     {props.group
       ? <span class={css.rowLabel} id={props.controlId}>{props.label}</span>
       : <label class={css.rowLabel} for={props.controlId}>{props.label}</label>}
