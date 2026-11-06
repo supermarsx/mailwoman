@@ -48,7 +48,7 @@ reader-attachments-summary = { $count ->
     [few] { $count } вложения
     [many] { $count } вложений
    *[other] { $count } вложения
-  }
+  } · { $size }
 reader-attachments-show = Показать вложения
 reader-attachments-hide = Скрыть вложения
 reader-attachmentsDensity = Плотность вложений

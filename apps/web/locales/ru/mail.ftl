@@ -354,8 +354,8 @@ mail-undo-failed = Не удалось отменить
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Метка добавлена
 mail-toast-label-removed = Метка удалена
-mail-toast-pinned = Закреплено
-mail-toast-unpinned = Откреплено
+mail-toast-pinned = Сообщение «{ $target }» закреплено
+mail-toast-unpinned = Сообщение «{ $target }» откреплено
 mail-toast-snoozed = Отложено
 mail-toast-follow-up-set = Отслеживание установлено
 mail-toast-follow-up-cleared = Отслеживание снято
