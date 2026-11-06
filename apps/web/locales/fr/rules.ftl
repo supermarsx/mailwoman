@@ -89,3 +89,9 @@ rules-forward-title = Transfert
 rules-forward-address = Transférer à
 rules-forward-copy = Conserver une copie dans ce compte
 rules-forward-refused = Le transfert vers ce domaine est interdit par votre administrateur.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = Enregistré. Les réponses automatiques sont désactivées.
+rules-vacation-runs-server = Votre serveur de messagerie envoie cette réponse à l’arrivée des messages.
+rules-vacation-runs-engine = Mailwoman envoie cette réponse lorsqu’il synchronise les nouveaux messages de la boîte de réception ; une réponse peut donc attendre la prochaine synchronisation.
+rules-vacation-unavailable = Les réponses d’absence ne sont pas disponibles pour ce compte : son serveur de messagerie ne les propose pas, ou votre administrateur les a désactivées.

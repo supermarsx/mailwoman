@@ -50,3 +50,7 @@ sharing-right-e-label = Purger
 sharing-right-e-desc = Effacer définitivement les messages marqués comme supprimés.
 sharing-right-a-label = Administrer
 sharing-right-a-desc = Modifier qui a accès à ce dossier.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Ce serveur de messagerie ne prend pas en charge le partage de dossiers.
+sharing-forbidden = Vous n’êtes pas autorisé à gérer le partage de ce dossier. Adressez-vous à son propriétaire ou à votre administrateur.
