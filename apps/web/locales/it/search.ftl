@@ -1,0 +1,65 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: it · Module: search. Source: ../en/search.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+search-submit-help = Cerca (Invio)
+search-clear-help = Cancella ricerca (Esc)
+search-filters-label = Filtri di ricerca
+search-guided-button = Filtri
+search-guided-title = Ricerca guidata
+search-guided-help = Scegli chi, cosa o quando cercare. Aggiungi filtri per restringere i risultati.
+search-include-trash = Includi Cestino
+search-add-filter = Aggiungi filtro
+search-chip-edit = Modifica filtro: { $label }
+search-chip-switch = Cambia filtro: { $label }
+search-chip-remove = Rimuovi filtro: { $label }
+search-chip-negated = non { $value }
+search-field-from = Da
+search-field-to = A
+search-field-cc = Cc
+search-field-subject = Oggetto
+search-field-body = Corpo
+search-field-text = Testo
+search-field-filename = Nome file
+search-field-tag = Etichetta
+search-field-date = Data
+search-field-size = Dimensione
+search-field-scope = Cartella
+search-field-expression = Espressione
+search-field-other = Filtro
+search-chip-attachment = Con allegato
+search-chip-no-attachment = Senza allegato
+search-chip-event = Con evento
+search-chip-no-event = Senza evento
+search-chip-unread = Non letti
+search-chip-read = Letti
+search-chip-flagged = Contrassegnati
+search-chip-unflagged = Non contrassegnati
+search-chip-pinned = Fissati
+search-chip-unpinned = Non fissati
+search-date-after = Dopo
+search-date-before = Prima di
+search-date-between = da { $after } a { $before }
+search-date-since = dal { $date }
+search-date-until = prima del { $date }
+search-date-invalid = Inserisci le date nel formato AAAA-MM-GG.
+search-size-larger = Maggiore di
+search-size-smaller = Minore di
+search-size-hint = Ad esempio 500k o 2m
+search-size-between = da { $larger } a { $smaller }
+search-size-over = oltre { $size }
+search-size-under = sotto { $size }
+search-size-invalid = Inserisci una dimensione come 500k, 2m o 1g.
+search-scope-all = Tutte le cartelle
+search-scope-current = Cartella corrente ({ $name })
+search-exclude = Escludi corrispondenze
+search-apply = Applica
+search-cancel = Annulla
+search-remove = Rimuovi
+search-refine-menu = Cerca messaggi correlati
+search-refine-sender = Cerca messaggi di questo mittente
+search-refine-subject = Cerca messaggi con questo oggetto
+search-refine-folder = Cerca in questa cartella
+search-refine-domain = Cerca messaggi da questo dominio
+search-include-trash-scoped = Includi Cestino si applica quando si cerca in tutte le cartelle. La cartella selezionata viene cercata direttamente.
