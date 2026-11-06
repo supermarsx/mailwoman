@@ -79,6 +79,23 @@ Names in the product lists that were typos or ambiguous were resolved as follows
 
 Not added because a sender domain could not be confirmed (no guesses): Banco Português de Gestão, SAMS, Grupo Trofa Saúde, HPA Saúde, CLIP, Gesaúde, 7Seasons, AMA, Clínica Sagres. Several Portuguese companies share a group domain with a parent and resolve through it.
 
+Insurance and eyewear batch:
+
+| Written | Read as | Note |
+| --- | --- | --- |
+| logo segurso | Logo Seguro (`logo.pt`) | "Logo" alone also resolves |
+| OK Seguros, ok-seguros | OK! Teleseguros (`okteleseguros.pt`) | |
+| Anthem / Elevance | one entry, Elevance Health | `elevancehealth.com`, `anthem.com` |
+| Prudential | two entries | Prudential Financial (US, `prudential.com`) and Prudential plc (UK, `prudentialplc.com`) |
+| Zurich | two entries | Zurich Insurance (`zurich.com`, `zurich.co.uk`) and Zurich Portugal (`zurich.pt`) |
+| Allianz | three entries | Allianz, Allianz Care, Allianz Portugal |
+| Nationwide | US insurer only (`nationwide.com`) | The UK building society is not included |
+| Tom Ford eyewear | Tom Ford (`tomford.com`) | The brand domain, not an eyewear-only one |
+| Pearle, Pearle Vision | Pearle Vision | |
+| Persol, Oakley | listed twice in the request | one entry each |
+
+Not added in this batch, because a sender domain could not be confirmed (no guesses): Sabadell Seguros, Ocidental, Real Vida, Police, Lensway, Matsuda, Face a Face, Oticas Plus, and the "etc." in the insurance list. The Simple Icons dataset has none of the insurers, Moey! or eyewear brands, so all of them use the tile.
+
 ## Size cap
 
 Path data for one brand is limited to 8,000 characters. Very detailed crests (Porsche, Ferrari, Ritz-Carlton, Peugeot, Wipro, MSI) exceed it and show the monogram tile, which keeps the total of all category chunks near 195 KB gzip.
@@ -89,9 +106,9 @@ Names typed by an operator (sign-in provider names, AI profile labels) only reso
 
 ## Coverage
 
-380 real marks, 284 monograms, 664 brands. Brands shown as a monogram are the candidates for a supplied official SVG:
+380 real marks, 432 monograms, 812 brands. Brands shown as a monogram are the candidates for a supplied official SVG:
 
-Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, Amazon Business, Temu, Shein, OLX, Worten, Pingo Doce, Decathlon, Microsoft 365, Google Workspace, Monday.com, Gameforge, Kakao Games, Bandai Namco, ZeniMax, LEGO, Disney+, Santander, Caixa Geral de Depósitos, MB WAY, ActivoBank, Banco BPI, Banco CTT, Novo Banco, Trade Republic, Kraken, Skrill, Monese, Chime, eToro, Millennium bcp, Montepio, Crédito Agrícola, Bankinter, ING, BNP Paribas, Lloyds Bank, Citi, CTT, GLS, TNT, Royal Mail, InPost, MRW, SEUR, Chronopost, Correos, Evri, Geopost, Maersk, TAP Air Portugal, FlixBus, Trainline, CP Comboios de Portugal, BlaBlaCar, Via Verde, Brisa, Galp, Endesa, Águas de Portugal, EPAL, ePortugal, IRN, República Portuguesa, DECO PROTESTE, HPE, Aruba, Dell EMC, MSI, Arista Networks, SolarWinds, Equinix, Hurricane Electric, Grok, Gleam.io, Databox, Kalshi, Polymarket, TD SYNNEX, Ingram Micro, ALSO Group, Esprinet, V-Valley, Arrow ECS, Westcon-Comstor, Pax8, Sherweb, Infortisa, PwC, Mazars, Deloitte, EY, KPMG, McKinsey & Company, BCG, Bain & Company, Capgemini, Wipro, Booz Allen, Roland Berger, Oliver Wyman, Mercer, Aon, Willis Towers Watson, MSD, Pfizer, Novartis, Roche, Sanofi, AstraZeneca, Bayer, Novo Nordisk, The New York Times, BBC, Reuters, Bloomberg, Financial Times, Wall Street Journal, Le Monde, El País, Corriere della Sera, Público, Observador, Expresso, Diário de Notícias, Jornal de Notícias, Correio da Manhã, SIC, TVI, RTP, SAPO, Notícias ao Minuto, Eurosport, Euronews, The Economist, Le Figaro, El Mundo, la Repubblica, Die Zeit, Bild, Jornal de Negócios, Record, A Bola, Sonae, Primark, C&A, Mango, Pull&Bear, Bershka, Lacoste, Levi's, Gucci, Louis Vuitton, Chanel, Prada, Burberry, Versace, Balenciaga, Cartier, Rolex, Ralph Lauren, Tommy Hilfiger, Calvin Klein, Hugo Boss, Armani, Valentino, Fendi, Domino's, Pizza Hut, Subway, Bolt, Bolt Food, Porsche, Ferrari, Peugeot, Lexus, BYD, Rivian, Bumble, Hinge, Grindr, Match, Feeld, eHarmony, Plenty of Fish, Happn, Meetic, Aeroméxico, Vueling, SWISS, Ritz-Carlton, Hyatt, Accor, IHG, Julius Baer, UBS, Credit Suisse, Pictet, Lombard Odier, J.P. Morgan, Morgan Stanley, Coutts, Banco Santander Totta, Banco Carregosa, Banco Invest, Banco BiG, Worldpay, Checkout.com, Authorize.net, Mollie, PayU, Nuvei, Rapyd, Ifthenpay, EuPago, SIBS, Easypay, Pagar.me, UnionPay, CUF, Luz Saúde, Lusíadas Saúde, Medicare, Synlab, Unilabs, Joaquim Chaves Saúde, Affidea, Mota-Engil, Teixeira Duarte, Casais, Somague, Alves Ribeiro, Ferrovial, Sacyr, Acciona, Vinci, Bouygues, Skanska, Grupo Soares da Costa, Cimpor, Secil, Navigator, EDP, REN, Altri, Corticeira Amorim, Jerónimo Martins, NOS, MEO, NOWO, Altice, Comcast, Iberdrola, Repsol, BP, TotalEnergies, Engie, Enel, Costco, Best Buy, The Home Depot, Mercado Libre, idealista, Imovirtual, KuantoKusta, Autoridade Tributária e Aduaneira, Segurança Social, Serviço Nacional de Saúde, Rabobank, ABN AMRO, BBVA, UniCredit, Intesa Sanpaolo, Itaú, Bradesco, NatWest.
+Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, Amazon Business, Temu, Shein, OLX, Worten, Pingo Doce, Decathlon, Microsoft 365, Google Workspace, Monday.com, Gameforge, Kakao Games, Bandai Namco, ZeniMax, LEGO, Disney+, Santander, Caixa Geral de Depósitos, MB WAY, ActivoBank, Banco BPI, Banco CTT, Novo Banco, Trade Republic, Kraken, Skrill, Monese, Chime, eToro, Millennium bcp, Montepio, Crédito Agrícola, Bankinter, ING, BNP Paribas, Lloyds Bank, Citi, CTT, GLS, TNT, Royal Mail, InPost, MRW, SEUR, Chronopost, Correos, Evri, Geopost, Maersk, TAP Air Portugal, FlixBus, Trainline, CP Comboios de Portugal, BlaBlaCar, Via Verde, Brisa, Galp, Endesa, Águas de Portugal, EPAL, ePortugal, IRN, República Portuguesa, DECO PROTESTE, HPE, Aruba, Dell EMC, MSI, Arista Networks, SolarWinds, Equinix, Hurricane Electric, Grok, Gleam.io, Databox, Kalshi, Polymarket, TD SYNNEX, Ingram Micro, ALSO Group, Esprinet, V-Valley, Arrow ECS, Westcon-Comstor, Pax8, Sherweb, Infortisa, PwC, Mazars, Deloitte, EY, KPMG, McKinsey & Company, BCG, Bain & Company, Capgemini, Wipro, Booz Allen, Roland Berger, Oliver Wyman, Mercer, Aon, Willis Towers Watson, MSD, Pfizer, Novartis, Roche, Sanofi, AstraZeneca, Bayer, Novo Nordisk, The New York Times, BBC, Reuters, Bloomberg, Financial Times, Wall Street Journal, Le Monde, El País, Corriere della Sera, Público, Observador, Expresso, Diário de Notícias, Jornal de Notícias, Correio da Manhã, SIC, TVI, RTP, SAPO, Notícias ao Minuto, Eurosport, Euronews, The Economist, Le Figaro, El Mundo, la Repubblica, Die Zeit, Bild, Jornal de Negócios, Record, A Bola, Sonae, Primark, C&A, Mango, Pull&Bear, Bershka, Lacoste, Levi's, Gucci, Louis Vuitton, Chanel, Prada, Burberry, Versace, Balenciaga, Cartier, Rolex, Ralph Lauren, Tommy Hilfiger, Calvin Klein, Hugo Boss, Armani, Valentino, Fendi, Domino's, Pizza Hut, Subway, Bolt, Bolt Food, Porsche, Ferrari, Peugeot, Lexus, BYD, Rivian, Bumble, Hinge, Grindr, Match, Feeld, eHarmony, Plenty of Fish, Happn, Meetic, Aeroméxico, Vueling, SWISS, Ritz-Carlton, Hyatt, Accor, IHG, Julius Baer, UBS, Credit Suisse, Pictet, Lombard Odier, J.P. Morgan, Morgan Stanley, Coutts, Banco Santander Totta, Banco Carregosa, Banco Invest, Banco BiG, Worldpay, Checkout.com, Authorize.net, Mollie, PayU, Nuvei, Rapyd, Ifthenpay, EuPago, SIBS, Easypay, Pagar.me, UnionPay, CUF, Luz Saúde, Lusíadas Saúde, Medicare, Synlab, Unilabs, Joaquim Chaves Saúde, Affidea, Mota-Engil, Teixeira Duarte, Casais, Somague, Alves Ribeiro, Ferrovial, Sacyr, Acciona, Vinci, Bouygues, Skanska, Grupo Soares da Costa, Cimpor, Secil, Navigator, EDP, REN, Altri, Corticeira Amorim, Jerónimo Martins, NOS, MEO, NOWO, Altice, Comcast, Iberdrola, Repsol, BP, TotalEnergies, Engie, Enel, Costco, Best Buy, The Home Depot, Mercado Libre, idealista, Imovirtual, KuantoKusta, Autoridade Tributária e Aduaneira, Segurança Social, Serviço Nacional de Saúde, Rabobank, ABN AMRO, BBVA, UniCredit, Intesa Sanpaolo, Itaú, Bradesco, NatWest, Moey!, Fidelidade, Ageas, MetLife, Logo Seguro, AdvanceCare, Multicare, OK! Teleseguros, Liberty Seguros, Tranquilidade, UNA Seguros, Médis, Zurich Portugal, Allianz Portugal, Lusitania Seguros, Victoria Seguros, Allianz, Allianz Care, AXA, Generali, Zurich Insurance, Aviva, Prudential Financial, Prudential plc, Chubb, AIG, Munich Re, Swiss Re, Hannover Re, SCOR, Mapfre, Cigna, Aetna, UnitedHealthcare, Elevance Health, Humana, Kaiser Permanente, Blue Cross Blue Shield, Bupa, Vitality, Direct Line, Admiral, LV=, Legal & General, Aegon, NN Group, Achmea, Talanx, ERGO, HDI, Covéa, Groupama, MAIF, MACIF, Crédit Agricole Assurances, CNP Assurances, Sampo, If P&C Insurance, Tryg, Folksam, Gjensidige, Mutua Madrileña, Caser, Berkshire Hathaway, State Farm, GEICO, Progressive, Allstate, Liberty Mutual, Nationwide, USAA, Travelers, Farmers Insurance, Lemonade, Porto Seguro, Bradesco Seguros, SulAmérica, ICBC, Ping An, China Life, Tokio Marine, Sompo, MS&AD, Dai-ichi Life, Manulife, Sun Life, Great-West Lifeco, Linda Farrow, Ray-Ban, Oakley, Luxottica, EssilorLuxottica, Essilor, Safilo, Marcolin, De Rigo, Kering Eyewear, Maui Jim, Persol, Warby Parker, Silhouette, Mykita, Oliver Peoples, Carrera, Costa Del Mar, Smith Optics, Tom Ford, Cutler and Gross, Barton Perreira, Garrett Leight, Moscot, Lindberg, ic! berlin, ZEISS, Hoya, Rodenstock, Varilux, Transitions, GrandVision, Vision Express, Specsavers, Multiopticas, LensCrafters, Pearle Vision, Fielmann, Apollo-Optik, Zenni Optical, GlassesUSA, EyeBuyDirect, Mister Spex, Afflelou, Optical Center, Alain Mikli, Gentle Monster, Vuarnet, Bollé, Julbo, Spy Optic, VonZipper, TAG Heuer, DITA, Etnia Barcelona, Ørgreen, Kuboraum, EYEVAN, Jacques Marie Mage, Cazal, Lafont.
 
 ### ai
 
@@ -236,6 +253,72 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Happn | `happn` | monogram | happn.com, happn.fr |
 | Meetic | `meetic` | monogram | meetic.com, meetic.fr |
 
+### eyewear
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Linda Farrow | `lindafarrow` | monogram | lindafarrow.com |
+| Ray-Ban | `rayban` | monogram | ray-ban.com |
+| Oakley | `oakley` | monogram | oakley.com |
+| Luxottica | `luxottica` | monogram | luxottica.com |
+| EssilorLuxottica | `essilorluxottica` | monogram | essilorluxottica.com |
+| Essilor | `essilor` | monogram | essilor.com |
+| Safilo | `safilo` | monogram | safilo.com |
+| Marcolin | `marcolin` | monogram | marcolin.com |
+| De Rigo | `derigo` | monogram | derigo.com |
+| Kering Eyewear | `keringeyewear` | monogram | keringeyewear.com |
+| Maui Jim | `mauijim` | monogram | mauijim.com |
+| Persol | `persol` | monogram | persol.com |
+| Warby Parker | `warbyparker` | monogram | warbyparker.com |
+| Silhouette | `silhouette` | monogram | silhouette.com |
+| Mykita | `mykita` | monogram | mykita.com |
+| Oliver Peoples | `oliverpeoples` | monogram | oliverpeoples.com |
+| Carrera | `carrera` | monogram | carreraworld.com |
+| Costa Del Mar | `costadelmar` | monogram | costadelmar.com |
+| Smith Optics | `smithoptics` | monogram | smithoptics.com |
+| Tom Ford | `tomford` | monogram | tomford.com, tomfordfashion.com |
+| Cutler and Gross | `cutlerandgross` | monogram | cutlerandgross.com |
+| Barton Perreira | `bartonperreira` | monogram | bartonperreira.com |
+| Garrett Leight | `garrettleight` | monogram | garrettleight.com |
+| Moscot | `moscot` | monogram | moscot.com |
+| Lindberg | `lindberg` | monogram | lindberg.com |
+| ic! berlin | `icberlin` | monogram | ic-berlin.de, ic-berlin.com |
+| ZEISS | `zeiss` | monogram | zeiss.com |
+| Hoya | `hoya` | monogram | hoya.com |
+| Rodenstock | `rodenstock` | monogram | rodenstock.com |
+| Varilux | `varilux` | monogram | varilux.com |
+| Transitions | `transitions` | monogram | transitions.com |
+| GrandVision | `grandvision` | monogram | grandvision.com |
+| Vision Express | `visionexpress` | monogram | visionexpress.com |
+| Specsavers | `specsavers` | monogram | specsavers.com, specsavers.co.uk |
+| Multiopticas | `multiopticas` | monogram | multiopticas.pt |
+| LensCrafters | `lenscrafters` | monogram | lenscrafters.com |
+| Pearle Vision | `pearlevision` | monogram | pearlevision.com |
+| Fielmann | `fielmann` | monogram | fielmann.com, fielmann.de |
+| Apollo-Optik | `apollooptik` | monogram | apollo.de |
+| Zenni Optical | `zenni` | monogram | zennioptical.com |
+| GlassesUSA | `glassesusa` | monogram | glassesusa.com |
+| EyeBuyDirect | `eyebuydirect` | monogram | eyebuydirect.com |
+| Mister Spex | `misterspex` | monogram | misterspex.de, misterspex.com |
+| Afflelou | `afflelou` | monogram | afflelou.com, alainafflelou.com |
+| Optical Center | `opticalcenter` | monogram | optical-center.fr |
+| Alain Mikli | `alainmikli` | monogram | mikli.com |
+| Gentle Monster | `gentlemonster` | monogram | gentlemonster.com |
+| Vuarnet | `vuarnet` | monogram | vuarnet.com |
+| Bollé | `bolle` | monogram | bolle.com, bolle-brands.com |
+| Julbo | `julbo` | monogram | julbo.com |
+| Spy Optic | `spyoptic` | monogram | spyoptic.com |
+| VonZipper | `vonzipper` | monogram | vonzipper.com |
+| TAG Heuer | `tagheuer` | monogram | tagheuer.com |
+| DITA | `dita` | monogram | dita.com |
+| Etnia Barcelona | `etniabarcelona` | monogram | etniabarcelona.com |
+| Ørgreen | `orgreen` | monogram | orgreen.com |
+| Kuboraum | `kuboraum` | monogram | kuboraum.com |
+| EYEVAN | `eyevan` | monogram | eyevan.com, eyevan7285.com |
+| Jacques Marie Mage | `jacquesmariemage` | monogram | jacquesmariemage.com |
+| Cazal | `cazal` | monogram | cazal.com |
+| Lafont | `lafont` | monogram | lafont.com |
+
 ### fashion
 
 | Brand | Id | Logo | Sender domains |
@@ -357,6 +440,7 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Itaú | `itau` | monogram | itau.com.br |
 | Bradesco | `bradesco` | monogram | bradesco.com.br |
 | NatWest | `natwest` | monogram | natwest.com |
+| Moey! | `moey` | monogram | moey.pt |
 
 ### food
 
@@ -444,6 +528,97 @@ Yahoo, Fastmail, Yandex, Linode, UnifiedPush, reCAPTCHA, hCaptcha, MSN, Globo, A
 | Navigator | `navigator` | monogram | thenavigatorcompany.com |
 | Altri | `altri` | monogram | altri.pt |
 | Corticeira Amorim | `amorim` | monogram | amorim.com, corticeiraamorim.com |
+
+### insurance
+
+| Brand | Id | Logo | Sender domains |
+| --- | --- | --- | --- |
+| Fidelidade | `fidelidade` | monogram | fidelidade.pt |
+| Ageas | `ageas` | monogram | ageas.pt, ageas.com |
+| MetLife | `metlife` | monogram | metlife.com, metlife.pt |
+| Logo Seguro | `logoseguro` | monogram | logo.pt |
+| AdvanceCare | `advancecare` | monogram | advancecare.pt |
+| Multicare | `multicare` | monogram | multicare.pt |
+| OK! Teleseguros | `okseguros` | monogram | okteleseguros.pt |
+| Liberty Seguros | `liberty` | monogram | libertyseguros.pt, libertyseguros.es |
+| Tranquilidade | `tranquilidade` | monogram | tranquilidade.pt |
+| UNA Seguros | `unaseguros` | monogram | unaseguros.pt |
+| Médis | `medis` | monogram | medis.pt |
+| Zurich Portugal | `zurichportugal` | monogram | zurich.pt |
+| Allianz Portugal | `allianzportugal` | monogram | allianz.pt |
+| Lusitania Seguros | `lusitania` | monogram | lusitania.pt |
+| Victoria Seguros | `victoria` | monogram | victoria-seguros.pt |
+| Allianz | `allianz` | monogram | allianz.com, allianz.de, allianz.es, allianz.fr, ... |
+| Allianz Care | `allianzcare` | monogram | allianzcare.com |
+| AXA | `axa` | monogram | axa.com, axa.fr, axa.de, axa.es, ... |
+| Generali | `generali` | monogram | generali.com, generali.it, generali.de, generali.fr |
+| Zurich Insurance | `zurich` | monogram | zurich.com, zurich.co.uk |
+| Aviva | `aviva` | monogram | aviva.com, aviva.co.uk |
+| Prudential Financial | `prudential` | monogram | prudential.com |
+| Prudential plc | `prudentialplc` | monogram | prudentialplc.com |
+| Chubb | `chubb` | monogram | chubb.com |
+| AIG | `aig` | monogram | aig.com |
+| Munich Re | `munichre` | monogram | munichre.com |
+| Swiss Re | `swissre` | monogram | swissre.com |
+| Hannover Re | `hannoverre` | monogram | hannover-re.com |
+| SCOR | `scor` | monogram | scor.com |
+| Mapfre | `mapfre` | monogram | mapfre.com, mapfre.pt, mapfre.es |
+| Cigna | `cigna` | monogram | cigna.com |
+| Aetna | `aetna` | monogram | aetna.com |
+| UnitedHealthcare | `unitedhealthcare` | monogram | uhc.com, unitedhealthcare.com, unitedhealthgroup.com |
+| Elevance Health | `elevance` | monogram | elevancehealth.com, anthem.com |
+| Humana | `humana` | monogram | humana.com |
+| Kaiser Permanente | `kaiser` | monogram | kaiserpermanente.org, kp.org |
+| Blue Cross Blue Shield | `bcbs` | monogram | bcbs.com |
+| Bupa | `bupa` | monogram | bupa.com, bupa.co.uk |
+| Vitality | `vitality` | monogram | vitality.co.uk, vitalityhealth.co.uk |
+| Direct Line | `directline` | monogram | directline.com |
+| Admiral | `admiral` | monogram | admiral.com, admiralgroup.co.uk |
+| LV= | `lv` | monogram | lv.com |
+| Legal & General | `legalandgeneral` | monogram | legalandgeneral.com, landg.com |
+| Aegon | `aegon` | monogram | aegon.com, aegon.nl |
+| NN Group | `nngroup` | monogram | nn-group.com, nn.nl |
+| Achmea | `achmea` | monogram | achmea.nl |
+| Talanx | `talanx` | monogram | talanx.com |
+| ERGO | `ergo` | monogram | ergo.com, ergo.de |
+| HDI | `hdi` | monogram | hdi.global, hdi.de |
+| Covéa | `covea` | monogram | covea.eu, covea.fr |
+| Groupama | `groupama` | monogram | groupama.com, groupama.fr |
+| MAIF | `maif` | monogram | maif.fr |
+| MACIF | `macif` | monogram | macif.fr |
+| Crédit Agricole Assurances | `caassurances` | monogram | ca-assurances.com |
+| CNP Assurances | `cnp` | monogram | cnp.fr |
+| Sampo | `sampo` | monogram | sampo.com |
+| If P&C Insurance | `ifinsurance` | monogram | if.se, if.fi, if.dk, if.no |
+| Tryg | `tryg` | monogram | tryg.dk, tryg.com |
+| Folksam | `folksam` | monogram | folksam.se |
+| Gjensidige | `gjensidige` | monogram | gjensidige.no, gjensidige.com |
+| Mutua Madrileña | `mutuamadrilena` | monogram | mutua.es |
+| Caser | `caser` | monogram | caser.es |
+| Berkshire Hathaway | `berkshirehathaway` | monogram | berkshirehathaway.com |
+| State Farm | `statefarm` | monogram | statefarm.com |
+| GEICO | `geico` | monogram | geico.com |
+| Progressive | `progressive` | monogram | progressive.com |
+| Allstate | `allstate` | monogram | allstate.com |
+| Liberty Mutual | `libertymutual` | monogram | libertymutual.com |
+| Nationwide | `nationwide` | monogram | nationwide.com |
+| USAA | `usaa` | monogram | usaa.com |
+| Travelers | `travelers` | monogram | travelers.com |
+| Farmers Insurance | `farmers` | monogram | farmers.com |
+| Lemonade | `lemonade` | monogram | lemonade.com |
+| Porto Seguro | `portoseguro` | monogram | portoseguro.com.br |
+| Bradesco Seguros | `bradescoseguros` | monogram | bradescoseguros.com.br |
+| SulAmérica | `sulamerica` | monogram | sulamerica.com.br |
+| ICBC | `icbc` | monogram | icbc.com.cn |
+| Ping An | `pingan` | monogram | pingan.com |
+| China Life | `chinalife` | monogram | chinalife.com.cn |
+| Tokio Marine | `tokiomarine` | monogram | tokiomarine.com, tokiomarinehd.com |
+| Sompo | `sompo` | monogram | sompo-hd.com |
+| MS&AD | `msad` | monogram | ms-ad-hd.com |
+| Dai-ichi Life | `daiichilife` | monogram | dai-ichi-life.co.jp |
+| Manulife | `manulife` | monogram | manulife.com |
+| Sun Life | `sunlife` | monogram | sunlife.com |
+| Great-West Lifeco | `greatwestlifeco` | monogram | greatwestlifeco.com |
 
 ### logistics
 

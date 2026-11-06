@@ -220,3 +220,33 @@ describe('third batch: interpretations, domains and lookalikes', () => {
     expect(brandInText('Google', PROVIDER_CATEGORIES)?.id).toBe('google');
   });
 });
+
+describe('fourth batch: insurers, Moey and eyewear', () => {
+  it('resolves names, typos and domains', () => {
+    const names: Record<string, string> = {
+      'logo segurso': 'logoseguro', Logo: 'logoseguro', 'OK! Teleseguros': 'okseguros', 'OK Seguros': 'okseguros', 'ok-seguros': 'okseguros',
+      'Ageas Portugal': 'ageas', 'Generali Tranquilidade': 'tranquilidade', 'LV=': 'lv', 'Legal & General': 'legalandgeneral', Anthem: 'elevance',
+      'Blue Cross Blue Shield': 'bcbs', 'MS&AD': 'msad', 'Moey!': 'moey', 'Ray-Ban': 'rayban', 'ic! berlin': 'icberlin', Persol: 'persol', Pearle: 'pearlevision',
+    };
+    for (const [name, id] of Object.entries(names)) expect(brandFor(name)?.id, name).toBe(id);
+    const hosts: Record<string, string> = {
+      'fidelidade.pt': 'fidelidade', 'mail.ageas.pt': 'ageas', 'logo.pt': 'logoseguro', 'okteleseguros.pt': 'okseguros', 'zurich.pt': 'zurichportugal',
+      'zurich.com': 'zurich', 'allianz.pt': 'allianzportugal', 'allianz.com': 'allianz', 'prudential.com': 'prudential', 'prudentialplc.com': 'prudentialplc',
+      'moey.pt': 'moey', 'creditoagricola.pt': 'creditoagricola', 'ray-ban.com': 'rayban', 'luxottica.com': 'luxottica', 'essilor.com': 'essilor',
+      'essilorluxottica.com': 'essilorluxottica', 'specsavers.co.uk': 'specsavers', 'ic-berlin.de': 'icberlin', 'multiopticas.pt': 'multiopticas', 'kp.org': 'kaiser',
+    };
+    for (const [host, id] of Object.entries(hosts)) expect(brandForHost(host)?.id, host).toBe(id);
+  });
+
+  it('rejects lookalikes of the new domains', () => {
+    for (const host of ['fidelidade.pt.evil.io', 'myfidelidade.pt', 'allianz.com.phish.net', 'axa.com-login.net', 'notaxa.fr', 'moey.pt.evil.io', 'ray-ban.com.evil.io',
+      'luxottica.com.evil.io', 'xlogo.pt', 'logo.pt.example.org', 'kp.org.evil.io', 'bupa.com.evil.io']) {
+      expect(brandForHost(host), host).toBeUndefined();
+    }
+  });
+
+  it('keeps insurers and eyewear out of provider labels, and gives every one a tile or mark', () => {
+    for (const name of ['Allianz', 'Logo', 'Oakley', 'Admiral', 'Progressive']) expect(brandInText(name, PROVIDER_CATEGORIES), name).toBeUndefined();
+    for (const b of BRANDS.filter(x => x.category === 'insurance' || x.category === 'eyewear')) expect(PROVIDER_CATEGORIES).not.toContain(b.category);
+  });
+});

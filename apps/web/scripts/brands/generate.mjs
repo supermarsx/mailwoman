@@ -9,6 +9,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync
 import { BRANDS as BASE } from './brands.mjs';
 import { EXTRA } from './brands.extra.mjs';
 import { MORE } from './brands.more.mjs';
+import { BATCH4 } from './brands.batch4.mjs';
 import { sanitizeSvg } from './sanitize.mjs';
 
 // Primary release still carries Microsoft/AWS/Slack marks; newer additions come from later releases.
@@ -16,7 +17,7 @@ const VERSIONS = ['11.15.0', '15.22.0', '16.3.0', '90646e4bf7f3b89df6c37e65baf3e
 const base = (v) => `https://raw.githubusercontent.com/simple-icons/simple-icons/${v}`;
 const out = (name) => new URL(`../../src/brands/${name}`, import.meta.url);
 
-const BRANDS = [...BASE, ...EXTRA, ...MORE];
+const BRANDS = [...BASE, ...EXTRA, ...MORE, ...BATCH4];
 const seen = new Set();
 for (const [id] of BRANDS) {
   if (seen.has(id)) throw new Error(`duplicate brand id ${id}`);
