@@ -210,3 +210,42 @@ props-delete-confirm2-title = Really delete it for good?
 props-delete-confirm2-body = Last chance: the message will be gone for good.
 props-delete-done = Message deleted permanently
 props-delete-failed = The message could not be deleted.
+props-privacy = Privacy and filtering
+props-trackers = Trackers blocked
+props-training = Spam filter training
+props-training-spam = Marked as spam
+props-training-ham = Marked as not spam
+props-training-untrained = Not used for training
+props-dlp-note = Data-loss prevention checks run on messages you send, so received messages carry no DLP flags.
+props-bulk-title = { $count ->
+    [one] Properties of 1 message
+   *[other] Properties of { $count } messages
+}
+props-bulk-count = Messages
+props-bulk-size = Total size
+props-bulk-dates = Received
+props-bulk-unread = Unread
+props-bulk-attachments = With attachments
+props-bulk-senders = Senders
+props-bulk-senders-count = { $count ->
+    [one] 1 sender
+   *[other] { $count } senders
+}
+props-bulk-senders-more = and { $count } more
+props-bulk-folders = Folders
+props-bulk-loaded-note = These figures cover the messages loaded in the list.
+props-bulk-zip = Download as ZIP
+props-bulk-zip-progress = Fetching { $done } of { $total }
+props-bulk-zip-limit = The ZIP holds the first { $max } messages.
+props-bulk-zip-done = Downloaded { $count } messages
+props-bulk-delete = Delete permanently
+props-bulk-delete-confirm-title = { $count ->
+    [one] Delete 1 message for good?
+   *[other] Delete { $count } messages for good?
+}
+props-bulk-delete-confirm-body = The messages are removed from the server and cannot be restored.
+props-bulk-delete-done = { $count ->
+    [one] 1 message deleted permanently
+   *[other] { $count } messages deleted permanently
+}
+props-bulk-delete-partial = { $done } deleted, { $failed } could not be deleted.

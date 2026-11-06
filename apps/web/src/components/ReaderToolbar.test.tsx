@@ -116,11 +116,11 @@ describe('reader action row: overflow into More',()=>{
   const order=Object.entries(PRIORITY).sort((a,b)=>a[1]-b[1]).map(([id])=>id);
   expect(order.slice(0,9)).toEqual(['reply','reply-all','forward','open-draft','delete','archive','move','conversation','links']);
  });
- it('shows no More button when everything fits',async()=>{
+ it('folds nothing when everything fits, and More stays because it holds the message-only actions',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));
   const resize=layout(4000);toolbar();resize();await Promise.resolve();
   expect(screen.getByRole('toolbar').querySelectorAll('[data-reader-item][hidden]')).toHaveLength(0);
-  expect(screen.getByTestId('reader-more')).toHaveAttribute('tabindex','-1');expect(screen.getByTestId('reader-more')).toHaveAttribute('aria-hidden','true');
+  expect(screen.getByTestId('reader-more')).not.toHaveAttribute('aria-hidden','true');
  });
  it('keeps the header dialog reachable from More on narrow readers',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));vi.mocked(fetchMailHeaders).mockResolvedValue('Subject: Narrow');

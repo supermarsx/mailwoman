@@ -36,6 +36,7 @@ import {t} from '../i18n/index.ts';
 import {zoomRowAction} from './ReaderZoom.tsx';
 import {focusActions} from './MessageContextMenu.tsx';
 import {openMessageProperties} from './properties/host.tsx';
+import {dialogActionsFor,messageActionRows} from './messageMenuActions.ts';
 import {messageDialogEnabled} from './properties/policy.ts';
 import {colorRowAction,type ReaderColorProps} from './ReaderColorMenu.tsx';
 import {RawMessageHeaders} from './RawMessageHeaders.tsx';
@@ -117,7 +118,7 @@ export function ReaderToolbar(props:{
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
   export:plain({id:'export',icon:icon(ACTION_ICONS.export),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>void app.exportMessage()}),
-  properties:plain({id:'properties',icon:icon('info'),label:()=>t('props-menu-properties'),help:()=>t('props-menu-properties'),testId:'reader-properties',run:()=>{openMessageProperties(props.email);}}),
+  properties:plain({id:'properties',icon:icon('info'),label:()=>t('props-menu-properties'),help:()=>t('props-menu-properties'),testId:'reader-properties',run:()=>{openMessageProperties(props.email,dialogActionsFor(app,props.email));}}),
   print:plain({id:'print',icon:icon('print'),label:()=>t('mail-print'),help:()=>t('mail-print-help'),run:()=>props.onPrint()}),
   // t59: zoom out / level (reset) / zoom in; folds as three More entries.
   zoom:zoomRowAction(),
@@ -135,7 +136,7 @@ export function ReaderToolbar(props:{
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
  const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
- const menuOnly=():ContextAction[]=>focusActions(app,props.email);
+ const menuOnly=():ContextAction[]=>[...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))];
 
  // ── Fitting ────────────────────────────────────────────────────────────────
  const [folded,setFolded]=createSignal<ReadonlySet<string>>(new Set(),{equals:(a,b)=>a.size===b.size&&[...a].every(value=>b.has(value))});

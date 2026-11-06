@@ -210,4 +210,43 @@ props-delete-continue = Continuar
 props-delete-confirm2-title = Eliminar mesmo definitivamente?
 props-delete-confirm2-body = Última oportunidade: a mensagem desaparece definitivamente.
 props-delete-done = Mensagem eliminada definitivamente
+props-privacy = Privacidade e filtragem
+props-trackers = Rastreadores bloqueados
+props-training = Treino do filtro de spam
+props-training-spam = Marcada como spam
+props-training-ham = Marcada como não spam
+props-training-untrained = Não usada para treino
+props-dlp-note = As verificações de prevenção de perda de dados aplicam-se às mensagens que envia, por isso as mensagens recebidas não têm indicadores de DLP.
+props-bulk-title = { $count ->
+    [one] Propriedades de 1 mensagem
+   *[other] Propriedades de { $count } mensagens
+}
+props-bulk-count = Mensagens
+props-bulk-size = Tamanho total
+props-bulk-dates = Receção
+props-bulk-unread = Não lidas
+props-bulk-attachments = Com anexos
+props-bulk-senders = Remetentes
+props-bulk-senders-count = { $count ->
+    [one] 1 remetente
+   *[other] { $count } remetentes
+}
+props-bulk-senders-more = e mais { $count }
+props-bulk-folders = Pastas
+props-bulk-loaded-note = Estes valores abrangem as mensagens carregadas na lista.
+props-bulk-zip = Transferir como ZIP
+props-bulk-zip-progress = A obter { $done } de { $total }
+props-bulk-zip-limit = O ZIP contém as primeiras { $max } mensagens.
+props-bulk-zip-done = { $count } mensagens transferidas
+props-bulk-delete = Eliminar definitivamente
+props-bulk-delete-confirm-title = { $count ->
+    [one] Eliminar 1 mensagem definitivamente?
+   *[other] Eliminar { $count } mensagens definitivamente?
+}
+props-bulk-delete-confirm-body = As mensagens são removidas do servidor e não podem ser restauradas.
+props-bulk-delete-done = { $count ->
+    [one] 1 mensagem eliminada definitivamente
+   *[other] { $count } mensagens eliminadas definitivamente
+}
+props-bulk-delete-partial = { $done } eliminadas, { $failed } não puderam ser eliminadas.
 props-delete-failed = Não foi possível eliminar a mensagem.

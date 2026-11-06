@@ -165,13 +165,15 @@ describe('folder Properties dialog',()=>{
  it('clears the offline cache only after a confirmation',async()=>{
   await policy({});
   const {app}=await open();
-  const clear=vi.spyOn(app,'clearMailCache');
+  const clear=vi.spyOn(app,'clearFolderCache');const whole=vi.spyOn(app,'clearMailCache');
   fireEvent.click(tab('Offline cache'));
   fireEvent.click(await screen.findByTestId('props-clear-cache'));
   const confirm=await screen.findByRole('alertdialog');
   expect(clear).not.toHaveBeenCalled();
   fireEvent.click(within(confirm).getByRole('button',{name:'Clear offline cache'}));
   await waitFor(()=>expect(clear).toHaveBeenCalledOnce());
+  expect(clear).toHaveBeenCalledWith(MAILBOXES[1]!.id);
+  expect(whole).not.toHaveBeenCalled();
  });
  it('hides the clear button when the administrator turned it off',async()=>{
   await policy({'properties.offlineClear.enabled':{value:false,source:'global'}});

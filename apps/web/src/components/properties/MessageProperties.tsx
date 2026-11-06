@@ -25,6 +25,7 @@ import {buildDownloadUrl} from '../../viewers/attachments.ts';
 import {AUTH_RESULT_LABEL,ANOMALY_LABEL} from '../security/model.ts';
 import {spamBand} from '../security/spamScore.ts';
 import {formatBytes} from './folderStats.ts';
+import {trackerCountFor,trainingState} from './scoringExtras.ts';
 import {filterHeaders,headerList,headersOnly,hopBars,hopDelayText,spamVerdict} from './messageProps.ts';
 import {messageDownloadEnabled,messageSections,permanentDeletePolicy,remoteForDisplay,remoteVisibility,type MessageSection} from './policy.ts';
 import * as css from './properties.css.ts';
@@ -76,6 +77,7 @@ export function MessageDialogs(props:{email:Email;actions?:MessageDialogActions;
   const abort=new AbortController(),timer=setTimeout(()=>abort.abort(),10000);
   try{return await fetchMailHeaders(key.url,abort.signal);}catch{return null;}finally{clearTimeout(timer);}
  });
+ const [trackers]=createResource(()=>sections().includes('scoring')&&active()==='scoring'?{account:accountId(),id:props.email.id}:undefined,async key=>key.account?trackerCountFor(client,key.account,key.id):null);
  const tabRefs:HTMLButtonElement[]=[];
  function onTabKey(event:KeyboardEvent):void {
   const list=sections(),at=list.indexOf(active());
@@ -89,7 +91,7 @@ export function MessageDialogs(props:{email:Email;actions?:MessageDialogActions;
    </div>
    <div class={css.panel} role="tabpanel" id={`${titleId}-panel`} aria-labelledby={`${titleId}-tab-${active()}`} tabindex="0">
     <Show when={active()==='summary'}><Summary email={email()} location={location.latest??null} onClose={props.onClose}/></Show>
-    <Show when={active()==='scoring'}><Scoring verdict={verdict.latest??null} loading={verdict.loading} raw={rawHeaders.latest??null}/></Show>
+    <Show when={active()==='scoring'}><Scoring verdict={verdict.latest??null} loading={verdict.loading} raw={rawHeaders.latest??null} email={email()} trackers={trackers.latest}/></Show>
     <Show when={active()==='headers'}><Headers raw={rawHeaders.latest??null} loading={rawHeaders.loading} hops={verdict.latest?.received??[]}/></Show>
     <Show when={active()==='attachments'}><Attachments email={email()} verdict={verdict.latest??null}/></Show>
     <Show when={active()==='actions'}><MessageActionsPane email={email()} url={messageUrl()} raw={rawHeaders.latest??null} actions={props.actions} onClose={props.onClose}/></Show>
@@ -134,10 +136,16 @@ function Summary(props:{email:Email;location:Location|null;onClose:()=>void}):JS
  </dl>;
 }
 
-function Scoring(props:{verdict:SecurityVerdict|null;loading:boolean;raw:string|null}):JSX.Element {
+function Scoring(props:{verdict:SecurityVerdict|null;loading:boolean;raw:string|null;email:Email;trackers:number|null|undefined}):JSX.Element {
  const spam=()=>props.raw?spamVerdict(props.raw):null;
  const v=()=>props.verdict;
  return <div data-testid="props-scoring" aria-busy={props.loading}>
+  <section aria-labelledby="props-privacy-title"><h4 id="props-privacy-title">{t('props-privacy')}</h4>
+   <dl class={css.grid}>
+    <Pair label={t('props-trackers')}><span data-testid="props-trackers">{props.trackers===undefined?t('props-loading'):props.trackers===null?t('props-unknown'):String(props.trackers)}</span></Pair>
+    <Pair label={t('props-training')}><span data-testid="props-training">{t(`props-training-${trainingState(props.email,spam()?.status??null)}`)}</span></Pair>
+   </dl>
+   <p class={css.note}>{t('props-dlp-note')}</p></section>
   <Show when={spam()}>{s=><section aria-labelledby="props-spam-title"><h4 id="props-spam-title">{t('props-spam')}</h4>
    <Show when={s().score.length||s().status} fallback={<p class={css.note}>{t('props-spam-none')}</p>}>
     <dl class={css.grid}>
@@ -216,7 +224,7 @@ function MessageActionsPane(props:{email:Email;url:string|null;raw:string|null;a
  function saveText(blob:Blob,name:string):void {const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10_000);}
  async function destroy():Promise<void> {
   const account=app.accountId();if(!account)return;
-  const response=await client.jmap(destroyEmails(account,[props.email.id]));
+  const response=await client.jmap(destroyEmails(account,[props.email.id],true));
   const result=responseFor<{destroyed?:string[];notDestroyed?:Record<string,{type?:string;description?:string}>}>(response,'set');
   if(!result.destroyed?.includes(props.email.id))throw new Error(result.notDestroyed?.[props.email.id]?.description??result.notDestroyed?.[props.email.id]?.type??'refused');
   setStep(0);props.onClose();void app.refreshCurrentMailbox();toast.success(t('props-delete-done'));

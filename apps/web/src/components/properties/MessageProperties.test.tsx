@@ -83,6 +83,16 @@ describe('message Properties dialog',()=>{
   expect(panel).toHaveTextContent('Reply-To address differs from the sender');
   expect(panel).toHaveTextContent('X-Spam-Status');
  });
+ it('adds the tracker count, the spam training state and the DLP note to the Scoring tab',async()=>{
+  await policy({});
+  await open();
+  fireEvent.click(tab('Scoring and security'));
+  const panel=await screen.findByTestId('props-scoring');
+  expect(within(panel).getByTestId('props-training')).toHaveTextContent('Not used for training');
+  await waitFor(()=>expect(within(panel).getByTestId('props-trackers')).not.toHaveTextContent('Loading'));
+  expect(panel).toHaveTextContent('Trackers blocked');
+  expect(panel).toHaveTextContent('received messages carry no DLP flags');
+ });
  it('lists the headers, filters them and shows the Received chain with hop delays',async()=>{
   await policy({});
   await open();

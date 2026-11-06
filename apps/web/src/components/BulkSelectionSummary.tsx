@@ -1,8 +1,10 @@
-import {createSignal,For,onCleanup} from 'solid-js';
+import {createSignal,For,Show,onCleanup} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {t} from '../i18n/index.ts';
 import {Icon} from './Icon.tsx';
+import {openBulkProperties} from './properties/host.tsx';
+import {messageDialogEnabled} from './properties/policy.ts';
 export function BulkSelectionSummary(props:{onCancel:()=>void}) {
  const app=useApp();const ids=()=>[...app.selectedIds()];
  const [busy,setBusy]=createSignal(false);let cancelled=false;onCleanup(()=>{cancelled=true;});
@@ -35,6 +37,7 @@ export function BulkSelectionSummary(props:{onCancel:()=>void}) {
     <option value="">{t('selection-bar-move')}</option><For each={app.mailboxes().filter(box=>box.id!==app.selectedMailboxId()&&!box.mailwomanSearchQuery)}>{box=><option value={box.id}>{box.name}</option>}</For>
    </select>
   </fieldset>
+  <Show when={messageDialogEnabled()}><button class="btn btn--ghost" data-testid="bulk-properties-open" onClick={()=>{const chosen=new Set(ids());openBulkProperties(app.messages().filter(message=>chosen.has(message.id)));}}><Icon name="info"/>{t('props-menu-properties')}</button></Show>
   <button class="btn btn--ghost" onClick={()=>{cancelled=true;app.clearSelection();props.onCancel();}}>{t('mail-cancel')}</button>
  </div>;
 }

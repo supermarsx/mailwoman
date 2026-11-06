@@ -123,6 +123,14 @@ describe('chips', () => {
     expect(serializeQuery(q)).toBe('is:answered is:unforwarded is:answered is:forwarded');
   });
 
+  it('high and low priority are chips, negation is a minus, spellings are canonical', () => {
+    const q = parseQuery('is:high-priority -is:low-priority is:important');
+    expect(chipsOf(q).map((c) => c.kind)).toEqual(['priority', 'priority', 'priority']);
+    expect(serializeQuery(q)).toBe('is:high-priority -is:low-priority is:high-priority');
+    expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'high-priority'))] })).toBe('-is:high-priority');
+    expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'low-priority', true))] })).toBe('is:low-priority');
+  });
+
   it('toggles two-state chips', () => {
     expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'answered'))] })).toBe('is:unanswered');
     expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'unanswered'))] })).toBe('is:answered');

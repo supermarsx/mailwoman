@@ -151,7 +151,7 @@ function Offline(props:{box:Mailbox;onRefresh?:(()=>void)|undefined}):JSX.Elemen
    <Show when={offlineClearEnabled()}><button type="button" class="btn btn--danger" data-testid="props-clear-cache" onClick={()=>setConfirming(true)}><Icon name="delete"/>{t('props-offline-clear')}</button></Show>
    <Show when={props.onRefresh}><button type="button" class="btn btn--ghost" onClick={()=>props.onRefresh!()}><Icon name="sync"/>{t('props-offline-prefetch')}</button></Show>
   </div>
-  <ConfirmDialog open={confirming()} title={t('props-offline-clear-title',{name:isolate(props.box.name)})} body={t('props-offline-clear-body')} confirmLabel={t('props-offline-clear')} onCancel={()=>setConfirming(false)} onConfirm={()=>{app.clearMailCache();forgetFolderStats(props.box.id);setConfirming(false);toast.success(t('props-offline-cleared'));}} testId="props-clear-confirm"/>
+  <ConfirmDialog open={confirming()} title={t('props-offline-clear-title',{name:isolate(props.box.name)})} body={t('props-offline-clear-body')} confirmLabel={t('props-offline-clear')} onCancel={()=>setConfirming(false)} onConfirm={()=>{app.clearFolderCache(props.box.id);forgetFolderStats(props.box.id);setConfirming(false);toast.success(t('props-offline-cleared'));}} testId="props-clear-confirm"/>
  </div>;
 }
 

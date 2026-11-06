@@ -55,6 +55,8 @@ export function canonicalValue(op: Operator, value: string): string {
     if (lower === 'replied') return 'answered';
     if (lower === 'unreplied' || lower === 'notanswered') return 'unanswered';
     if (lower === 'notforwarded') return 'unforwarded';
+    if (lower === 'highpriority' || lower === 'important') return 'high-priority';
+    if (lower === 'lowpriority') return 'low-priority';
     return lower;
   }
   if (op === 'include') return lower;
@@ -303,7 +305,7 @@ export function setOptionalField(query: SearchQuery, op: Operator, value: string
 
 export type ChipKind =
   | 'from' | 'to' | 'cc' | 'subject' | 'body' | 'text' | 'filename' | 'tag'
-  | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned' | 'answered' | 'forwarded'
+  | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned' | 'answered' | 'forwarded' | 'priority'
   | 'date' | 'size' | 'scope' | 'other' | 'expr';
 
 export interface Chip {
@@ -344,6 +346,7 @@ export function chipsOf(query: SearchQuery): Chip[] {
         if (term.value === 'pinned') return one('pinned');
         if (term.value === 'answered' || term.value === 'unanswered') return one('answered');
         if (term.value === 'forwarded' || term.value === 'unforwarded') return one('forwarded');
+        if (term.value === 'high-priority' || term.value === 'low-priority') return one('priority');
         return one('other');
       case 'pinned':
         return one('pinned');
