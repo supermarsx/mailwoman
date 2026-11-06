@@ -1322,6 +1322,6 @@ async fn stripped_copy_append_keeps_flags_keyword_and_internaldate() {
     assert!(matches!(result, MessageRef::Imap { uid: 12, uidvalidity: 55, .. }));
     let log = log.lock().unwrap();
     let line = log.iter().find(|l| l.contains("APPEND")).expect("APPEND sent");
-    assert!(line.contains("\Seen") && line.contains("\Flagged") && line.contains("mw-stripped"), "{line}");
+    assert!(line.contains(r"\Seen") && line.contains(r"\Flagged") && line.contains("mw-stripped"), "{line}");
     assert!(line.contains("\"05-Jan-2026 09:00:00 +0000\""), "{line}");
 }
