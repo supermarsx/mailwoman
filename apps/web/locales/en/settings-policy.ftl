@@ -26,3 +26,12 @@ settings-policy-reference = Reference: { $id }
 
 settings-policy-error-feature-disabled = Your administrator has disabled this feature for your account.
 settings-policy-error-sender-forbidden = This sending address is not authorized for this account. Choose an address allowed by your mail provider or administrator.
+
+# Settings layout kit: search, jump bar and collapsible cards.
+settings-kit-toolbar = Settings tools
+settings-kit-search = Search these settings
+settings-kit-search-placeholder = Search settings (press /)
+settings-kit-collapse-all = Collapse all
+settings-kit-expand-all = Expand all
+settings-kit-jump = Jump to a group
+settings-kit-no-results = No settings here match your search. Try:

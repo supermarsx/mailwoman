@@ -56,3 +56,12 @@ reader-attachmentsDensity-help = O modo compacto mostra pequenos botões de fich
 reader-option-compact = Compacto
 reader-attachmentsCollapsed = Recolher anexos por predefinição
 reader-attachmentsCollapsed-help = Iniciar cada mensagem com um resumo compacto dos anexos. Pode expandir essa mensagem sem alterar a predefinição.
+
+reader-card-text = Texto e cores
+reader-card-text-help = Tamanho, espaçamento, largura e cores do texto das mensagens.
+reader-card-actions = Ações e anexos
+reader-card-actions-help = A barra de ações da mensagem e como os anexos começam.
+reader-card-loading = A carregar
+reader-card-loading-help = O que vê enquanto uma mensagem abre.
+settings-mail-card-list = Lista de mensagens
+settings-mail-card-list-help = Ações das linhas e o que a lista faz quando age sobre uma mensagem.

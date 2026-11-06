@@ -26,3 +26,12 @@ settings-policy-reference = Referência: { $id }
 
 settings-policy-error-feature-disabled = O administrador desativou esta funcionalidade para a sua conta.
 settings-policy-error-sender-forbidden = Este endereço de envio não está autorizado para esta conta. Escolha um endereço permitido pelo fornecedor de correio ou pelo administrador.
+
+# Settings layout kit: search, jump bar and collapsible cards.
+settings-kit-toolbar = Ferramentas das definições
+settings-kit-search = Pesquisar nestas definições
+settings-kit-search-placeholder = Pesquisar definições (prima /)
+settings-kit-collapse-all = Recolher tudo
+settings-kit-expand-all = Expandir tudo
+settings-kit-jump = Ir para um grupo
+settings-kit-no-results = Nenhuma definição aqui corresponde à pesquisa. Experimente:

@@ -53,3 +53,12 @@ reader-attachmentsDensity-help = Compact shows small file buttons; comfortable s
 reader-option-compact = Compact
 reader-attachmentsCollapsed = Collapse attachments by default
 reader-attachmentsCollapsed-help = Start each message with a compact attachment summary. You can expand that message without changing this default.
+
+reader-card-text = Text and colors
+reader-card-text-help = Size, spacing, width and colors of message text.
+reader-card-actions = Actions and attachments
+reader-card-actions-help = The message action ribbon and how attachments start.
+reader-card-loading = Loading
+reader-card-loading-help = What you see while a message opens.
+settings-mail-card-list = Message list
+settings-mail-card-list-help = Row actions and what the list does when you act on a message.
