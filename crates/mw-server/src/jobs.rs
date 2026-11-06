@@ -191,6 +191,18 @@ fn builtin(r: &mut Registry) {
             .schedule(crate::auth_logs::sweeper::default_schedule())
             .lease(Duration::from_secs(600)),
     );
+    r.register(
+        crate::user_retention::JOB_KIND,
+        JobSpec::new(|ctx| Box::pin(crate::user_retention::run_job(ctx)))
+            .schedule(crate::user_retention::default_schedule())
+            .lease(Duration::from_secs(1800)),
+    );
+    r.register(
+        crate::retention_tiers::JOB_KIND,
+        JobSpec::new(|ctx| Box::pin(crate::retention_tiers::archive_job(ctx)))
+            .schedule(crate::retention_tiers::default_schedule())
+            .lease(Duration::from_secs(900)),
+    );
 }
 
 fn valid_kind(kind: &str) -> bool {

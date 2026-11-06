@@ -202,6 +202,9 @@ mod hosting_transport;
 pub mod settings_registry;
 pub mod settings_routes;
 mod ssh_tunnels;
+mod retention_rules;
+mod retention_tiers;
+mod user_retention;
 mod user_router;
 // t16 (26.16, e10) A9: a runtime ManageSieve caller — compile the account's rules to
 // a Sieve script and upload+activate it on the user's ManageSieve server.
@@ -1554,6 +1557,7 @@ fn router(
         .route("/api/login", post(login).layer(Extension(provider_plugins)))
         .route("/api/logout", post(logout))
         .route("/api/me", get(me))
+        .merge(user_retention::router())
         .route("/api/session/rotate", post(rotate_session))
         // Unauthenticated + CSRF-exempt + attacker-chosen domain: the SSRF gate
         // bounds where discovery may fetch, this bounds how often (t22-e9).

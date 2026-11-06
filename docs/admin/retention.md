@@ -125,7 +125,7 @@ Each person can set rules for their own mail in **Settings > Retention**, and st
 | `retention.user.undoDays` | global, domain | 7 | Days in Trash before a rule's purge. |
 | `retention.user.mandatory` | global, domain | none | Organisation-wide rules, as `role:days` (for example `trash:30`, `junk:30`). They purge that folder, ignore a person's exclusions and pause switch, and cannot be changed by the person. Mail under a legal hold is skipped. |
 | `retention.user.protectedFolders` | global, domain | `drafts` | Folders no rule touches, by role or name. A protected folder wins over an organisation-wide rule for the same folder. |
-| `retention.user.templates` | global, domain | all six | Templates offered: `newsletters30`, `receipts365`, `notifications14`, `trash30`, `junk30`, `readArchive180`. They use the labels `newsletter`, `receipt` and `notification` and ask the person to check them. |
+| `retention.user.templates` | global, domain | all six | Templates offered: `newsletters30`, `receipts365`, `notifications14`, `trash30`, `junk30`, `read-archive180`. They use the labels `newsletter`, `receipt` and `notification` and ask the person to check them. |
 | `retention.user.runForRestricted` | global | off | Run for accounts under a restriction of processing. |
 | `retention.user.intervalHours` | global | 24 | Hours between scheduled runs of one account. |
 | `retention.user.batchMessages`, `retention.user.maxPerRun`, `retention.user.pauseMs` | global | 200, 5000, 100 | Batch size, changes per account per run, pause between calls. |

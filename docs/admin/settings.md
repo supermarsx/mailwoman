@@ -1893,7 +1893,7 @@ Global and domain, hot. Default `["drafts"]`. Folders no user rule works on, by 
 
 <a id="retention.user.templates"></a>
 ### Retention templates offered to users (`retention.user.templates`)
-Global and domain, hot. Default `["newsletters30","receipts365","notifications14","trash30","junk30","readArchive180"]`. Templates users can adopt in Settings, by id: newsletters30, receipts365, notifications14, trash30, junk30, readArchive180.
+Global and domain, hot. Default `["newsletters30","receipts365","notifications14","trash30","junk30","read-archive180"]`. Templates users can adopt in Settings, by id: newsletters30, receipts365, notifications14, trash30, junk30, read-archive180.
 
 <a id="retention.user.runForRestricted"></a>
 ### Run user rules for restricted accounts (`retention.user.runForRestricted`)

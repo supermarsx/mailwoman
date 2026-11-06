@@ -6379,6 +6379,215 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "Description of the functional category per locale"
+    def!(
+        "retention.user.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "Users may set their own retention rules for folders and mail; the rules run on the server as part of the retention sweep family"
+    ),
+    def!(
+        "retention.user.minDays",
+        int(1, 3650),
+        "7",
+        GD,
+        "privacy",
+        "Fewest days a user rule may wait before it moves or deletes mail; a smaller value is refused when the rule is saved and raised when it runs"
+    ),
+    def!(
+        "retention.user.maxDays",
+        int(0, 3650),
+        "0",
+        GD,
+        "privacy",
+        "Most days a user rule may wait; 0 sets no ceiling. A larger value is refused when the rule is saved and lowered when it runs"
+    ),
+    def!(
+        "retention.user.maxRules",
+        int(1, 500),
+        "50",
+        GD,
+        "privacy",
+        "Most retention rules one user may keep"
+    ),
+    def!(
+        "retention.user.allowPermanentDelete",
+        Kind::Bool,
+        "false",
+        GD,
+        "privacy",
+        "Whether a user rule may delete mail for good. When off, a delete rule moves mail to Trash and the undo window applies before it is purged"
+    ),
+    def!(
+        "retention.user.undoDays",
+        int(0, 365),
+        "7",
+        GD,
+        "privacy",
+        "Days mail moved to Trash by a retention rule stays there before it is purged; 0 purges at the next run"
+    ),
+    def!(
+        "retention.user.mandatory",
+        Kind::StringList {
+            max_len: 20,
+            max_item: 64
+        },
+        "[]",
+        GD,
+        "privacy",
+        "Rules every account gets, as folder-role:days entries (for example trash:30 or junk:30). Mail in that folder older than the days is purged; the user cannot change or pause these"
+    ),
+    def!(
+        "retention.user.protectedFolders",
+        Kind::StringList {
+            max_len: 30,
+            max_item: 128
+        },
+        "[\"drafts\"]",
+        GD,
+        "privacy",
+        "Folders retention rules never touch, by role (drafts, sent, inbox, archive) or by folder name"
+    ),
+    def!(
+        "retention.user.templates",
+        Kind::StringList {
+            max_len: 30,
+            max_item: 64
+        },
+        "[\"newsletters30\",\"receipts365\",\"notifications14\",\"trash30\",\"junk30\",\"read-archive180\"]",
+        GD,
+        "privacy",
+        "Templates users can adopt in Settings, by id"
+    ),
+    def!(
+        "retention.user.runForRestricted",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Whether user rules also run for accounts under a restriction of processing"
+    ),
+    def!(
+        "retention.user.intervalHours",
+        int(1, 168),
+        "24",
+        G,
+        "privacy",
+        "Hours between runs of the user retention job for one account"
+    ),
+    def!(
+        "retention.user.batchMessages",
+        int(10, 1000),
+        "200",
+        G,
+        "privacy",
+        "Messages one move or delete call handles"
+    ),
+    def!(
+        "retention.user.maxPerRun",
+        int(10, 100000),
+        "5000",
+        G,
+        "privacy",
+        "Most messages the user retention job changes for one account in one run; the rest waits for the next run"
+    ),
+    def!(
+        "retention.user.pauseMs",
+        int(0, 5000),
+        "100",
+        G,
+        "privacy",
+        "Pause between batches, in milliseconds, so a large cleanup does not load the mail server"
+    ),
+    def!(
+        "retention.class.short.days",
+        int(1, 3650),
+        "365",
+        G,
+        "privacy",
+        "Ceiling in days for the short class (sessions, tokens, rate limits, jobs, metrics); applies when retention.class.enforce is on"
+    ),
+    def!(
+        "retention.class.medium.days",
+        int(1, 3650),
+        "1095",
+        G,
+        "privacy",
+        "Ceiling in days for the medium class (sign-in history, request protection, security notices); must not be below the short class"
+    ),
+    def!(
+        "retention.class.long.days",
+        int(0, 3650),
+        "2555",
+        G,
+        "privacy",
+        "Days the long class (security audit, administrator actions, requests, consent, tombstones) is kept, archive included; 0 keeps it forever and the console warns. Must not be below the medium class"
+    ),
+    def!(
+        "retention.class.enforce",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Clamp each store's own limit to its class ceiling, and treat 0 (keep) as the ceiling. Off leaves the per-store limits as set"
+    ),
+    def!(
+        "retention.archive.enabled",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Move aged rows of the long class into sealed archive files instead of deleting them"
+    ),
+    def!(
+        "retention.archive.directory",
+        text(Text::Plain, 500),
+        "\"archive\"",
+        G,
+        "privacy",
+        "Directory for archive files, absolute or relative to the server working directory; no parent-directory segments"
+    ),
+    def!(
+        "retention.archive.batchRows",
+        int(50, 10000),
+        "1000",
+        G,
+        "privacy",
+        "Rows per archive file"
+    ),
+    def!(
+        "retention.archive.maxSegments",
+        int(1, 1000),
+        "10",
+        G,
+        "privacy",
+        "Archive files one run may write per store"
+    ),
+    def!(
+        "retention.archive.keyGeneration",
+        int(1, 1000000),
+        "1",
+        G,
+        "privacy",
+        "Generation of the key that seals new archive files. Raise it to rotate; earlier files still verify with their own generation"
+    ),
+    def!(
+        "retention.archive.verifyDays",
+        int(1, 365),
+        "7",
+        G,
+        "privacy",
+        "Days between integrity checks of the archive"
+    ),
+    def!(
+        "retention.archive.legalHold",
+        Kind::Bool,
+        "false",
+        G,
+        "privacy",
+        "Keep every archive file, whatever the long class limit says"
+    ),
     ),
     def!(
         "cookies.label.analytics",
@@ -7290,6 +7499,8 @@ pub async fn effective_for(
 }
 
 /// [`effective_for`] with more value rows than the store holds: the per-user
+                                | "retention.user.mandatory"
+                                | "retention.user.protectedFolders"
 /// values a key keeps elsewhere (the appearance blob, `mdn_policy:<account>`,
 /// the notification rules row), passed in as `user` rows by the caller.
 pub async fn effective_for_with(
@@ -7314,6 +7525,10 @@ pub async fn effective_for_with(
         &values,
         &process_env,
     )))
+                    || (def.key == "retention.user.mandatory"
+                        && crate::retention_rules::parse_mandatory(&[text.to_string()]).is_empty())
+                    || (def.key == "retention.user.templates"
+                        && crate::retention_rules::template(text).is_none())
 }
 
 /// The effective values of every registered (non-family) key that `filter`

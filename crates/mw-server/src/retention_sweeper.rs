@@ -226,6 +226,16 @@ async fn text(store: &Store, key: &str) -> String {
     value(store, key).await.as_str().unwrap_or_default().to_string()
 }
 
+/// A text setting, for the archive and class code that shares this reader.
+pub(crate) async fn text_value(store: &Store, key: &str) -> String {
+    text(store, key).await
+}
+
+/// A boolean setting, for the archive and class code that shares this reader.
+pub(crate) async fn num_bool(store: &Store, key: &str) -> bool {
+    flag(store, key).await
+}
+
 async fn flag(store: &Store, key: &str) -> bool {
     value(store, key).await.as_bool().unwrap_or(false)
 }
@@ -240,6 +250,8 @@ pub(crate) struct StoreReport {
     pub more: bool,
     pub skipped: Option<&'static str>,
     pub error: Option<String>,
+    /// The rows went to the archive tier instead of being deleted.
+    pub archived: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -262,7 +274,7 @@ impl Report {
             "vacuumed": self.vacuumed,
             "stores": self.stores.iter().map(|s| json!({
                 "id": s.id, "rows": s.rows, "more": s.more,
-                "skipped": s.skipped, "error": s.error,
+                "skipped": s.skipped, "error": s.error, "archived": s.archived,
             })).collect::<Vec<_>>(),
         })
     }
@@ -301,6 +313,8 @@ pub(crate) async fn run_store(store: &Store, now: i64, dry_run: bool) -> Report 
         "hash" => IpMode::Hash,
         _ => IpMode::Truncate,
     };
+    let (classes, enforce) = crate::retention_tiers::class_days(store).await;
+    let archive = crate::retention_tiers::archive_cfg(store).await;
     let mut report = Report {
         dry_run,
         held_accounts: held.len(),
@@ -308,8 +322,10 @@ pub(crate) async fn run_store(store: &Store, now: i64, dry_run: bool) -> Report 
     };
     for e in ENTRIES.iter().filter(|e| e.owner == Owner::Sweeper) {
         let Some(key) = e.key else { continue };
-        let days = threshold_days(e.unit, num(store, key).await);
-        let mut r = StoreReport { id: e.id, rows: 0, more: false, skipped: None, error: None };
+        let own = num(store, key).await;
+        let class = crate::retention_tiers::class_of(e.id);
+        let days = threshold_days(e.unit, crate::retention_tiers::clamp(e.unit, class, own, &classes, enforce));
+        let mut r = StoreReport { id: e.id, rows: 0, more: false, skipped: None, error: None, archived: false };
         let Some(days) = days else {
             r.skipped = Some("keep");
             report.stores.push(r);
@@ -320,6 +336,22 @@ pub(crate) async fn run_store(store: &Store, now: i64, dry_run: bool) -> Report 
             let salt = ip_salt(store).await;
             store
                 .retention_reduce_ips(table, cutoff, mode, &salt, batch, max_batches, dry_run)
+                .await
+                .map(|x| (x.rows, x.more))
+        } else if let (true, Some(a)) = (archive.enabled, mw_store::retention_archive::archive_table(e.id)) {
+            r.archived = true;
+            store
+                .archive_move(
+                    a,
+                    cutoff,
+                    archive.batch_rows,
+                    archive.max_segments,
+                    &archive.dir,
+                    archive.key_gen,
+                    now,
+                    &held,
+                    dry_run,
+                )
                 .await
                 .map(|x| (x.rows, x.more))
         } else if let Some(t) = e.target.and_then(store_retention::target) {
@@ -540,6 +572,8 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::GET, "/retention", Capability::SettingsRead, snapshot_route);
     r.admin_endpoint(Method::POST, "/retention/run", Capability::SettingsWrite, run_route);
 }
+    crate::retention_tiers::register(r);
+    crate::user_retention::register(r);
 
 fn no_store(value: Value) -> Response {
     (
@@ -778,6 +812,87 @@ mod tests {
     }
 
     #[test]
+    #[tokio::test]
+    async fn archive_and_class_ceilings_change_what_the_sweep_does() {
+        use sqlx::sqlite::SqlitePoolOptions;
+        let dir = std::env::temp_dir().join(format!("mw-retention-arch-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("s.sqlite");
+        let store = Store::open(path.to_str().unwrap(), mw_store::ServerKey::from_bytes(&[5u8; 32]).unwrap())
+            .await
+            .unwrap();
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect(&format!("sqlite://{}", path.display()))
+            .await
+            .unwrap();
+        let set = |key: &'static str, value: String| {
+            let store = store.clone();
+            async move {
+                store
+                    .put_setting_policy(&mw_store::settings_policy::SettingPolicyRow {
+                        key: key.into(),
+                        global_value: Some(value),
+                        allow_user_override: false,
+                        global_locked: false,
+                        updated_by: "test".into(),
+                        updated_at: 1,
+                    })
+                    .await
+                    .unwrap();
+            }
+        };
+        let now = 1_800_000_000i64;
+        sqlx::query("INSERT INTO assist_audit(id,ts,actor,capability,scope_summary,endpoint_host) VALUES('old','2010-01-01T00:00:00Z','a','c','s','h')")
+            .execute(&pool).await.unwrap();
+        let add_event = |id: &'static str, fired: i64| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query("INSERT INTO alert_event(id,rule_id,fired_at,summary,delivered_json) VALUES(?,?,?,?,?)")
+                    .bind(id).bind("r").bind(fired).bind("s").bind("[]")
+                    .execute(&pool).await.unwrap();
+            }
+        };
+        add_event("fresh", now - DAY).await;
+        let row = |r: &Report, id: &str| r.stores.iter().find(|s| s.id == id).cloned().unwrap();
+        let hot = |table: &'static str| {
+            let pool = pool.clone();
+            async move {
+                sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM {table}")).fetch_one(&pool).await.unwrap()
+            }
+        };
+
+        // Archive off: the old audit row is deleted as before.
+        assert_eq!(row(&run_store(&store, now, true).await, "assistAudit").archived, false);
+
+        // Archive on: the same row moves into a sealed file, and a dry run counts without writing.
+        let arch = dir.join("arch");
+        set("retention.archive.enabled", "true".into()).await;
+        set("retention.archive.directory", serde_json::to_string(arch.to_str().unwrap()).unwrap()).await;
+        let dry = run_store(&store, now, true).await;
+        assert_eq!((row(&dry, "assistAudit").rows, row(&dry, "assistAudit").archived), (1, true));
+        assert_eq!(hot("assist_audit").await, 1);
+        assert!(!arch.exists(), "a dry run writes no file");
+        let real = run_store(&store, now, false).await;
+        assert_eq!((row(&real, "assistAudit").rows, row(&real, "assistAudit").error.clone()), (1, None));
+        assert_eq!(hot("assist_audit").await, 0);
+        let totals = store.archive_totals().await.unwrap();
+        assert_eq!((totals.segments, totals.rows), (1, 1));
+        assert_eq!(row(&run_store(&store, now, false).await, "assistAudit").rows, 0, "idempotent");
+        assert_eq!(store.archive_verify_all(None, &arch, now).await.unwrap().ok, 1);
+
+        // Class ceilings: a store kept for ever (0) is held to its class only when enforced.
+        set("retention.alertEvents.days", "0".into()).await;
+        assert_eq!(row(&run_store(&store, now, false).await, "alertEvents").skipped, Some("keep"));
+        add_event("stale", now - 500 * DAY).await;
+        set("retention.class.enforce", "true".into()).await;
+        set("retention.class.short.days", "365".into()).await;
+        let clamped = run_store(&store, now, false).await;
+        assert_eq!(row(&clamped, "alertEvents").rows, 1, "the 500-day-old event goes, the fresh one stays: {:?}", row(&clamped, "alertEvents"));
+        assert_eq!(hot("alert_event").await, 1);
+        std::fs::remove_dir_all(dir).ok();
+    }
+
     fn retention_and_logging_ranges_validate() {
         use serde_json::json;
         let ok = |k: &str, v: Value| {
