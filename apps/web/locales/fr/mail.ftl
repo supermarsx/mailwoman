@@ -750,3 +750,467 @@ mail-editor-selection-changed = La sélection a changé. Sélectionnez le texte 
 mail-editor-clipboard = Presse-papiers et mise en forme
 mail-editor-copy = Copier
 mail-editor-cut = Couper
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-privacy-images-failed = { $loaded }/{ $total } images affichées · { $failed } en échec
+mail-privacy-images-loaded = { $loaded }/{ $total } images affichées
+mail-privacy-images-loading-failed = { $loaded }/{ $total } images affichées · { $pending } en cours de chargement · { $failed } en échec
+mail-reader-folder-title = Dossier : { $folder }
+mail-reader-move-to = Déplacer vers…
+mail-action-help-move = Déplacer ce message vers un autre dossier.
+folder-ops-new-subfolder = Nouveau sous-dossier
+folder-ops-mark-read = Tout marquer comme lu
+folder-ops-this-folder = Ce dossier
+folder-ops-with-subfolders = Inclure les sous-dossiers
+folder-ops-no-unread = Aucun message non lu.
+folder-ops-read-unavailable = Vous ne pouvez pas modifier les messages de ce dossier.
+folder-ops-more = Plus
+folder-ops-system-folder = Un dossier système ne peut pas être modifié ainsi.
+folder-ops-sort-subfolders = Trier les sous-dossiers par
+folder-ops-sort-folders = Trier les dossiers par
+folder-ops-sort-name = Nom
+folder-ops-sort-unread = Nombre de non lus
+folder-ops-sort-total = Nombre total
+folder-ops-sort-date = Dernière activité
+folder-ops-sort-custom = Ordre personnalisé
+folder-ops-sort-asc = Croissant
+folder-ops-sort-desc = Décroissant
+folder-ops-delete-with-subfolders = Supprimer le dossier et ses sous-dossiers
+folder-ops-delete-unavailable = Ce dossier ne peut pas être supprimé.
+folder-ops-delete-tree-body = Cela supprime définitivement { $folders } dossiers et les { $count } messages qu’ils contiennent. Cette action est irréversible.
+folder-ops-copy-all-menu = Copier tous les éléments vers…
+folder-ops-move-all-menu = Déplacer tous les éléments vers…
+folder-ops-move-folder-menu = Déplacer le dossier vers…
+folder-ops-move-up = Monter
+folder-ops-move-down = Descendre
+folder-ops-move-unavailable = Vous ne pouvez pas déplacer ce dossier ni ses éléments.
+folder-ops-move-duplicate = La destination contient déjà un dossier portant ce nom.
+folder-ops-move-folder-title = Déplacer { $name }
+folder-ops-move-folder-body = Le dossier est déplacé avec ses sous-dossiers et ses messages. Choisissez le dossier qui le contiendra, ou le niveau supérieur.
+folder-ops-move-here = Déplacer ici
+folder-ops-moved-folder = { $name } déplacé.
+folder-ops-choose-folder = Choisissez un dossier de destination.
+folder-ops-destination = Dossier de destination
+folder-ops-include-subfolders = Inclure les messages de { $count } sous-dossiers
+folder-ops-copy-all-title = Copier tous les éléments de { $name }
+folder-ops-move-all-title = Déplacer tous les éléments de { $name }
+folder-ops-copy-all-body = Ajoute { $count } messages au dossier de destination. Ils restent à leur place.
+folder-ops-move-all-body = Déplace { $count } messages vers le dossier de destination. Vous pourrez l’annuler ensuite.
+folder-ops-copy-all = Copier les éléments
+folder-ops-move-all = Déplacer les éléments
+folder-ops-undo = Annuler
+folder-ops-stop = Arrêter
+folder-ops-marking = Marquage de { $name } comme lu…
+folder-ops-marking-progress = Marquage de { $name } comme lu : { $done } sur { $total }
+folder-ops-marked = { $count } messages de { $name } marqués comme lus.
+folder-ops-copying = Copie de { $name }…
+folder-ops-copying-progress = Copie de { $name } : { $done } sur { $total }
+folder-ops-copied = { $count } messages copiés depuis { $name }.
+folder-ops-moving = Déplacement de { $name }…
+folder-ops-moving-progress = Déplacement de { $name } : { $done } sur { $total }
+folder-ops-moved = { $count } messages déplacés depuis { $name }.
+folder-ops-stopped = { $name } arrêté après { $count } messages sur { $total }.
+folder-ops-partial = { $count } messages sur { $total } dans { $name } ont été traités ; { $refused } ont été refusés.
+folder-ops-failed = { $name } n’a pas pu être terminé. Actualisez et réessayez.
+folder-ops-error-forbidden = Vous n’avez pas les droits nécessaires pour cette modification.
+folder-ops-error-exists = Un dossier portant ce nom existe déjà à cet endroit.
+folder-ops-error-mailboxHasEmail = Le dossier contient encore des messages.
+folder-ops-error-notFound = Le dossier n’existe plus.
+folder-ops-error-failed = La modification n’a pas pu être effectuée. Actualisez et réessayez.
+folder-ops-expand = Afficher les sous-dossiers de { $name }
+folder-ops-collapse = Masquer les sous-dossiers de { $name }
+mail-context-reply = Répondre
+mail-context-reply-all = Répondre à tous
+mail-context-forward = Transférer
+mail-context-quick-print = Impression rapide
+mail-context-copy = Copier
+mail-context-copy-to-folder = Copier le message vers un dossier…
+mail-context-copy-sender = Copier l’adresse de l’expéditeur
+mail-context-copy-subject = Copier l’objet
+mail-context-copy-link = Copier le lien du message
+mail-context-copied = Copié.
+mail-context-copy-failed = Copie dans le presse-papiers impossible.
+mail-context-print-failed = Le message n’a pas pu être imprimé.
+mail-reply-images-title = Images du message d’origine
+mail-reply-images-ask = Inclure les images du message d’origine dans cette réponse ?
+mail-reply-images-include = Inclure les images
+mail-reply-images-not-now = Pas maintenant
+mail-reply-images-trust = Toujours faire confiance à { $domain }
+mail-reply-images-loading = Ajout des images…
+mail-reply-images-cancelled = Chargement annulé. Les images n’ont pas été ajoutées.
+mail-reply-images-failed = Les images n’ont pas pu être ajoutées.
+mail-reply-images-retry = Recharger
+mail-image-cancel = Annuler
+mail-compose-from-why-match = Envoi depuis { $identity } car le message a été envoyé à { $address }.
+mail-compose-from-why-match-plus = Envoi depuis { $identity } car le message a été envoyé à { $address }, une adresse plus de celle-ci.
+mail-compose-from-why-ambiguous = Plusieurs identités correspondent à { $address }. Envoi depuis { $identity } ; choisissez-en une autre :
+mail-compose-from-why-default = Envoi depuis votre identité par défaut, { $identity }, car aucune ne correspond aux destinataires d’origine.
+mail-compose-from-why-forced-default = Envoi depuis votre identité par défaut, { $identity }, comme défini dans vos paramètres.
+mail-compose-from-why-keep = Envoi depuis { $identity }.
+mail-compose-from-change = Modifier
+reader-attachments-reason-encrypted = Ce message est chiffré. Ses pièces jointes apparaissent après son déverrouillage.
+reader-attachments-reason-list-missing = La liste des pièces jointes de ce message n’a pas pu être chargée ; la barre des pièces jointes est donc masquée.
+reader-attachments-reason-inline-only = Les pièces jointes de ce message ({ $count }) sont des images intégrées affichées dans le message lui-même.
+reader-attachments-reason-unavailable-parts = { $count ->
+    [one] Une pièce jointe de ce message n’a aucun contenu téléchargeable ; la barre des pièces jointes est donc masquée.
+   *[other] { $count } pièces jointes de ce message n’ont aucun contenu téléchargeable ; la barre des pièces jointes est donc masquée.
+  }
+reader-attachments-reason-policy-blocked = Votre politique de pièces jointes bloque le téléchargement { $count ->
+    [one] de cette pièce jointe.
+   *[other] de ces pièces jointes.
+  }
+reader-attachments-reason-policy-unavailable = La politique des pièces jointes n’a pas pu être vérifiée ; les pièces jointes ne peuvent donc pas encore être ouvertes.
+mail-drafts-popup-count = { $count ->
+    [one] 1 brouillon
+   *[other] { $count } brouillons
+  }
+mail-drafts-popup-search = Rechercher par objet ou destinataire
+mail-drafts-popup-tab-local = Brouillons locaux
+mail-drafts-popup-local-hint = Les brouillons locaux sont conservés uniquement dans ce navigateur.
+mail-drafts-popup-badge-account = Compte
+mail-drafts-popup-badge-local = Local
+mail-drafts-popup-current = Ouvert actuellement
+mail-drafts-popup-select = Sélectionner
+mail-drafts-popup-select-all = Tout sélectionner
+mail-drafts-popup-clear = Effacer
+mail-drafts-popup-done = Terminé
+mail-drafts-popup-selected = { $count } sélectionnés
+mail-drafts-popup-select-row = Sélectionner { $subject }
+mail-drafts-popup-open = Ouvrir
+mail-drafts-popup-discard = Abandonner
+mail-drafts-popup-discard-selected = Abandonner la sélection
+mail-drafts-popup-more = Plus d’actions pour { $subject }
+mail-drafts-popup-retry = Réessayer
+mail-drafts-popup-load-failed = Les brouillons du compte n’ont pas pu être chargés.
+mail-drafts-popup-empty-account = Aucun brouillon de compte
+mail-drafts-popup-no-match = Aucun brouillon ne correspond à « { $query } »
+mail-drafts-popup-discarding = Suppression…
+mail-drafts-popup-row-failed = Suppression impossible. Sa copie dans le compte demeure.
+mail-drafts-popup-confirm-title = { $count ->
+    [one] Abandonner ce brouillon ?
+   *[other] Abandonner { $count } brouillons ?
+  }
+mail-drafts-popup-confirm-account = Les brouillons du compte sont d’abord supprimés du dossier Brouillons de votre compte, et leur emplacement n’est libéré qu’une fois cette suppression confirmée.
+mail-drafts-popup-confirm-local = Les brouillons locaux sont supprimés de ce navigateur.
+mail-drafts-popup-announce-done = { $count ->
+    [one] 1 brouillon abandonné
+   *[other] { $count } brouillons abandonnés
+  }
+mail-drafts-popup-announce-failed = { $done } abandonnés, { $failed } n’ont pas pu l’être
+mail-check-title = Vérifier avant l’envoi
+mail-check-intro = Ces points méritent peut-être un second regard :
+mail-check-invalid = Certaines adresses de destinataires semblent invalides : { $list }
+mail-check-subject = L’objet est vide.
+mail-check-attachment = Le message mentionne une pièce jointe, mais rien n’est joint.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-editor-paste = Coller
+mail-editor-copy-format = Copier la mise en forme
+mail-editor-apply-format = Appliquer la mise en forme
+mail-editor-style = Style de paragraphe
+mail-editor-text-color = Couleur de police
+mail-editor-clear-color = Couleur par défaut
+mail-editor-highlight = Surlignage
+mail-editor-clear-highlight = Supprimer le surlignage
+mail-editor-paragraph = Options de paragraphe
+mail-editor-alignment = Alignement
+mail-editor-line-height = Hauteur de ligne
+mail-editor-space-before = Espacement avant
+mail-editor-space-after = Espacement après
+mail-editor-indent = Retrait
+mail-editor-shading = Trame du paragraphe
+mail-editor-clear-shading = Supprimer la trame
+mail-editor-case = Changer la casse
+mail-editor-sort = Trier les paragraphes sélectionnés
+mail-editor-sort-alpha = Alphabétique
+mail-editor-sort-numeric = Ordre numérique
+mail-editor-table-rows = Lignes du tableau
+mail-editor-table-columns = Colonnes du tableau
+mail-editor-table-insert = Insérer un tableau
+mail-editor-table-limits = Jusqu’à 20 lignes, 10 colonnes et 200 cellules par tableau ; 10 tableaux au plus. Les tableaux imbriqués ne sont pas pris en charge.
+mail-editor-table-row-before = Ligne au-dessus
+mail-editor-table-row-after = Ligne en dessous
+mail-editor-table-row-delete = Supprimer la ligne
+mail-editor-table-column-before = Colonne avant
+mail-editor-table-column-after = Colonne après
+mail-editor-table-column-delete = Supprimer la colonne
+mail-editor-table-merge = Fusionner les cellules
+mail-editor-table-split = Fractionner la cellule
+mail-editor-table-header = Activer/désactiver la ligne d’en-tête
+mail-editor-table-delete = Supprimer le tableau
+mail-editor-table-shading = Trame de cellule
+mail-editor-find-replace = Rechercher et remplacer
+mail-editor-find = Rechercher du texte
+mail-editor-replacement = Remplacer par
+mail-editor-match-case = Respecter la casse
+mail-editor-previous = Occurrence précédente
+mail-editor-next = Occurrence suivante
+mail-editor-replace = Remplacer l’occurrence sélectionnée
+mail-editor-replace-all = Remplacer toutes les occurrences
+mail-editor-matches = { $count } occurrences (jusqu’à 1 000)
+mail-editor-select-all = Tout sélectionner
+mail-editor-clear-selection = Effacer la sélection
+mail-editor-history = Historique des annulations
+mail-editor-undo-groups = Annuler les { $count } derniers groupes de modifications
+mail-editor-zoom = Zoom de l’éditeur
+mail-editor-markers = Marques de paragraphe
+mail-editor-style-normal = Normal
+mail-editor-style-no-spacing = Sans espacement
+mail-editor-style-title = Titre
+mail-editor-style-subtitle = Sous-titre
+mail-editor-style-heading1 = Titre 1
+mail-editor-style-heading2 = Titre 2
+mail-editor-style-heading3 = Titre 3
+mail-editor-style-heading4 = Titre 4
+mail-editor-style-heading5 = Titre 5
+mail-editor-style-heading6 = Titre 6
+mail-editor-align-left = Gauche
+mail-editor-align-center = Centré
+mail-editor-align-right = Droite
+mail-editor-align-justify = Justifié
+mail-editor-case-lower = minuscules
+mail-editor-case-upper = MAJUSCULES
+mail-editor-case-title = Initiales En Majuscules
+mail-editor-case-sentence = Majuscule en début de phrase
+mail-editor-action-history = Historique : { $action }
+mail-editor-history-empty = Aucune action disponible
+mail-editor-redo-groups = Rétablir { $count } modifications
+mail-compose-identities-failed = Les identités d’envoi n’ont pas pu être chargées. Fermez et rouvrez ce brouillon pour réessayer.
+mail-folders-loading = Chargement des dossiers…
+mail-initial-sync-error = Vos messages n’ont pas encore pu être synchronisés.
+mail-initial-sync-error-help = La connexion à votre serveur de messagerie a été interrompue. Réessayez, ou demandez à votre administrateur de vérifier les journaux de connexion si cela se reproduit.
+mail-links-trusted = Domaine de confiance : s’ouvre sans vérification
+mail-links-trust-domain = Faire confiance à { $domain }
+mail-links-trust-failed = Le domaine de confiance n’a pas pu être enregistré. Réessayez.
+mail-focus-always-focused = Toujours déplacer vers Prioritaire
+mail-focus-always-other = Toujours déplacer vers Autres
+mail-focus-moved-focused = Les messages de { $sender } vont désormais dans Prioritaire.
+mail-focus-moved-other = Les messages de { $sender } vont désormais dans Autres.
+mail-focus-save-failed = Le choix de boîte de réception Prioritaire pour cet expéditeur n’a pas pu être enregistré. Réessayez.
+mail-context-search-domain = Rechercher les messages de ce domaine
+mail-loading-mailbox = Chargement de { $name }…
+mail-user-folders = Dossiers de l’utilisateur
+mail-context-hide-folder = Masquer de la barre latérale
+mail-folder-fallback = dossier
+mail-toast-moving = { $count ->
+    [one] Déplacement d’un message vers { $folder }…
+   *[other] Déplacement de { $count } messages vers { $folder }…
+    }
+mail-toast-move-queueing = { $count ->
+    [one] Mise en file d’attente d’un message à déplacer vers { $folder }…
+   *[other] Mise en file d’attente de { $count } messages à déplacer vers { $folder }…
+    }
+mail-toast-move-queued = { $count ->
+    [one] Un message en file d’attente pour déplacement vers { $folder }
+   *[other] { $count } messages en file d’attente pour déplacement vers { $folder }
+    }
+mail-toast-move-partial = { $count } messages sur { $total } déplacés vers { $folder } ; { $failed } n’ont pas pu être déplacés
+mail-send-copy-folder-unavailable = Le dossier sélectionné pour la copie des messages envoyés est indisponible. Choisissez un autre dossier avant d’envoyer.
+mail-send-copy-failed = Le message a été accepté, mais sa copie envoyée n’a pas pu être classée. Ne l’envoyez pas à nouveau.
+mail-compose-attach-public-key = Joindre ma clé publique ou mon certificat
+mail-compose-include-hashes = Inclure les empreintes SHA-256 des fichiers joints
+mail-compose-hashes-pending = Calcul des empreintes des pièces jointes. Envoyez quand c’est prêt.
+mail-compose-hashes-failed = Les octets des pièces jointes n’ont pas pu être vérifiés. Désactivez les empreintes ou réessayez en les réactivant.
+mail-compose-crypto-pending = Le chiffrement est en cours de mise à jour. Patientez avant d’envoyer.
+mail-compose-public-key-unavailable = Aucune clé publique ou certificat actuel ne correspond à l’adresse d’envoi.
+mail-compose-sent-copy = Enregistrer le message envoyé dans
+mail-compose-sent-copy-default = Valeur par défaut du compte
+folder-create = Créer un dossier
+folder-name = Nom du dossier
+folder-parent = Dossier parent
+folder-top-level = Niveau supérieur
+folder-created = Dossier créé.
+folder-create-unavailable = La création de dossier est indisponible pour ce compte ou ce dossier parent.
+folder-create-invalid = Choisissez un nom de dossier valide et unique, sans séparateurs de hiérarchie ni caractères de contrôle.
+folder-create-failed = Le dossier n’a pas pu être créé. Actualisez et réessayez.
+folder-cleanup = Nettoyer le dossier…
+folder-cleanup-title = Nettoyer { $name }
+folder-cleanup-help = Rechercher les messages plus anciens que l’âge choisi. Vérifiez le nombre avant de supprimer. Les sous-dossiers sont exclus.
+folder-cleanup-age = Plus ancien que
+folder-age-days = Jours
+folder-age-weeks = Semaines
+folder-age-months = Mois
+folder-age-years = Ans
+folder-cleanup-preview = Aperçu du nettoyage
+folder-cleanup-confirm = Supprimer les messages correspondants
+folder-cleanup-permanent = Supprimer définitivement { $count } messages correspondants. Cette action est irréversible.
+folder-cleanup-trash = Déplacer { $count } messages correspondants vers la corbeille.
+folder-cleanup-before = Reçu avant le { $date }
+folder-cleanup-done = { $count } messages nettoyés.
+mail-from = Expéditeur
+mail-subject = Objet
+mail-date = Date
+mail-cancel = Annuler
+mail-bulk-selected = { $count } conversations sélectionnées
+mail-bulk-select-folder = Tout sélectionner dans { $folder }
+mail-list-order = Ordre des messages
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-list-order-newest = Plus récents d’abord
+mail-list-order-oldest = Plus anciens d’abord
+mail-list-order-sender = Expéditeur
+mail-list-order-subject = Objet
+mail-list-order-error = L’ordre des messages n’a pas pu être enregistré.
+mail-bulk-selection-load-failed = Le dossier entier n’a pas pu être sélectionné. Vérifiez votre connexion et réessayez.
+mail-privacy-bar = Confidentialité du message
+mail-privacy-trackers-allow = Autoriser les traceurs pour ce message
+mail-privacy-trackers-block = Bloquer de nouveau les traceurs
+mail-privacy-images-loading = { $loaded }/{ $total } images affichées · { $pending } en cours de chargement
+mail-check-external = Destinataires hors des domaines de confiance : { $list }
+mail-check-send-anyway = Envoyer quand même
+mail-check-review = Vérifier
+mail-check-remember = Ne plus demander pour ceux-ci
+mail-check-denied-invalid = L’envoi est bloqué par vos paramètres. Corrigez les adresses de destinataires invalides : { $list }
+mail-check-denied-subject = L’envoi est bloqué par vos paramètres. Ajoutez un objet.
+mail-check-denied-attachment = L’envoi est bloqué par vos paramètres. Joignez le fichier mentionné ou reformulez le message.
+mail-check-denied-external = L’envoi est bloqué par vos paramètres. Hors des domaines de confiance : { $list }
+mail-alerts-label = Problèmes du message
+mail-alert-invalid = Adresse invalide : { $address }
+mail-alert-subject = Aucun objet
+mail-recipient-chip-remove = Retirer { $address }
+mail-recipient-chips = Destinataires dans { $field }
+mail-recipient-invalid-title = Adresse e-mail invalide
+mail-recipient-chip-name = { $name }, { $address }. Entrée pour les détails du contact, Retour arrière ou F2 pour modifier, Suppr pour retirer
+mail-recipient-chip-name-invalid = { $address }, adresse invalide. Entrée pour modifier, Suppr pour retirer
+mail-recipient-added = { $name } ajouté
+mail-recipient-removed = { $name } retiré
+mail-recipient-removed-many = { $count ->
+    [one] { $count } destinataire retiré
+   *[other] { $count } destinataires retirés
+}
+mail-recipient-editing = Modification de { $name }
+mail-recipient-all-selected = { $count ->
+    [one] { $count } destinataire sélectionné
+   *[other] { $count } destinataires sélectionnés
+}
+mail-external-line = { $count } hors des domaines de confiance : { $domains }
+mail-external-dismiss = Ignorer
+mail-status-label = État de l’éditeur
+mail-status-more = { $count } autres avis
+mail-status-more-label = Autres avis
+mail-status-no-recipients = Aucun destinataire
+mail-status-no-attachment = Aucune pièce jointe
+mail-status-external = Externes : { $count }
+mail-status-external-reviewed = Destinataires externes vérifiés
+mail-status-external-review = Marquer comme vérifié
+mail-status-from-match = De { $identity }
+mail-status-from-match-plus = De { $identity }
+mail-status-from-ambiguous = De { $identity } (plusieurs correspondent)
+mail-status-from-default = De l’identité par défaut
+mail-status-from-forced-default = De l’identité par défaut
+mail-status-from-keep = De { $identity }
+mail-status-held = { $count } en file d’attente
+mail-status-storage = Pas de récupération locale
+mail-status-protected = Non enregistré en clair
+mail-status-saving = Enregistrement…
+mail-status-saved = Enregistré { $time }
+mail-status-saved-full = Enregistré dans les brouillons du compte · { $time }
+mail-status-not-saved = Brouillon non enregistré
+mail-status-retry = Réessayer
+mail-status-conflict = Modifié sur un autre appareil
+mail-status-uncertain = Enregistrement non confirmé
+mail-status-close-recovery = Fermer, garder la récupération
+mail-status-unsupported = Enregistrement du brouillon non confirmé
+mail-compose-header = En-tête du message
+mail-header-label = En-tête du message
+mail-header-collapse = Réduire l’en-tête du message
+mail-header-expand = Développer l’en-tête du message : { $summary }
+mail-header-from-chip = De { $address }. Changer l’expéditeur
+mail-compose-group-timing = Moment d’envoi
+mail-compose-group-priority = Priorité
+mail-compose-group-receipts = Accusés et suivi
+mail-compose-group-keys-files = Clés et fichiers
+mail-compose-group-sent-copy = Copie envoyée
+mail-editor-style-quote = Citation
+mail-editor-style-code = Code
+mail-compose-ribbon-table-layout = Disposition du tableau
+mail-compose-ribbon-picture = Image
+mail-editor-table-group-rows = Lignes
+mail-editor-table-group-columns = Colonnes
+mail-editor-table-group-cells = Cellules
+mail-editor-table-row-height = Hauteur de ligne
+mail-editor-table-column-width = Largeur de colonne
+mail-editor-table-size-auto = Auto
+mail-editor-table-padding = Marge interne des cellules
+mail-editor-table-padding-compact = Compacte
+mail-editor-table-padding-normal = Normale
+mail-editor-table-padding-roomy = Aérée
+mail-editor-table-align-left = Aligner la cellule à gauche
+mail-editor-table-align-center = Centrer la cellule
+mail-editor-table-align-right = Aligner la cellule à droite
+mail-picture-group-size = Taille
+mail-picture-group-arrange = Organiser
+mail-picture-group-text = Texte
+mail-picture-group-style = Style
+mail-picture-group-edit = Modifier
+mail-picture-width = Largeur
+mail-picture-height = Hauteur
+mail-picture-lock = Conserver les proportions
+mail-picture-reset-size = Taille d’origine
+mail-picture-align-inline = Dans le texte
+mail-picture-align-left = Aligner à gauche
+mail-picture-align-center = Centrer
+mail-picture-align-right = Aligner à droite
+mail-picture-alt = Texte alternatif
+mail-picture-title = Titre
+mail-picture-border = Bordure
+mail-picture-radius = Coins
+mail-picture-none = Aucun
+mail-picture-round = Arrondis
+mail-picture-rotate-ccw = Pivoter à gauche
+mail-picture-rotate-cw = Pivoter à droite
+mail-picture-flip-h = Retourner horizontalement
+mail-picture-flip-v = Retourner verticalement
+mail-picture-crop = Rogner
+mail-picture-crop-left = Gauche (%)
+mail-picture-crop-top = Haut (%)
+mail-picture-crop-right = Droite (%)
+mail-picture-crop-bottom = Bas (%)
+mail-picture-crop-apply = Rogner
+mail-picture-replace = Remplacer
+mail-picture-remove = Retirer
+mail-picture-failed-no-image = Sélectionnez d’abord une image.
+mail-picture-failed-no-source = Cette image n’a pas de copie locale à modifier. Remplacez-la plutôt.
+mail-picture-failed-failed = L’image n’a pas pu être modifiée.
+mail-context-download-attachments = Télécharger les pièces jointes
+mail-context-download-named = Télécharger { $name }
+mail-context-download-all = Tout télécharger en ZIP
+mail-context-loading-attachments = Chargement des pièces jointes…
+mail-context-attachments-failed = Les pièces jointes n’ont pas pu être chargées.
+mail-context-searching = Recherche du message…
+mail-context-go-reply = Aller à la réponse
+mail-context-go-forward = Aller au transfert
+mail-context-reply-not-found = Réponse introuvable
+mail-context-forward-not-found = Transfert introuvable
+mail-no-recipients = (aucun destinataire)
+mail-attachment-downloaded = { $name } téléchargé
+mail-attachment-download-failed = Le téléchargement a échoué.
+mail-attachments-zip-done = { $count } pièces jointes téléchargées en ZIP.
+mail-attachments-zip-capped = Le ZIP contient les { $count } premières pièces jointes ; la limite est de { $max } fichiers ou { $size }.
+mail-focus-not-found = Message introuvable dans { $folder }
+mail-focus-go-to = Aller à { $folder }
+mail-nav-views-queues = Vues et files d’attente
+mail-badge-unread = { $unread ->
+    [one] { $unread } message non lu
+   *[other] { $unread } messages non lus
+  }
+mail-badge-total = { $total ->
+    [one] { $total } message dans ce dossier
+   *[other] { $total } messages dans ce dossier
+  }
+mail-badge-both = { $unread ->
+    [one] { $unread } message non lu
+   *[other] { $unread } messages non lus
+  } sur { $total ->
+    [one] { $total } dans ce dossier
+   *[other] { $total } dans ce dossier
+  }
+mail-badge-drafts = { $total ->
+    [one] Brouillons : { $total } message
+   *[other] Brouillons : { $total } messages
+  }
+mail-badge-compact-hint = Les dossiers autres que la boîte de réception utilisent un badge plus petit. Modifiez cela dans Paramètres, Dossiers et barre latérale.
+mail-badge-outbox = { $count ->
+    [one] Boîte d’envoi : { $count } message en attente d’envoi
+   *[other] Boîte d’envoi : { $count } messages en attente d’envoi
+  }
