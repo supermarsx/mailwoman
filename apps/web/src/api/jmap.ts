@@ -37,6 +37,8 @@ export const HEADER_PROPERTIES = [
   'size',
   // t94: the server's Focused / Other decision, read from the index (no body).
   'mailwomanFocus',
+  // The cached authentication summary the list needs for a brand logo (never computed per row).
+  'mailwomanAuth',
 ] as const;
 
 export const BODY_PROPERTIES = [

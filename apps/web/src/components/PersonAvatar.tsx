@@ -6,6 +6,8 @@ import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} f
 import {loadCatalog,t} from '../i18n';
 import {avatarPresentation} from './avatarPresentation.ts';
 import {senderDomainIcon} from './senderIcons/match.ts';
+import {senderIconProven} from '../brands/senderBrand.ts';
+import type {ListAuthSummary} from '../api/jmap-types.ts';
 import './person-avatar.css';
 import './senderIcons/palette.css';
 import './senderIcons/brands.css';
@@ -13,12 +15,14 @@ import './senderIcons/brands.css';
 export {avatarPresentation};
 /** Generated locally by default. Contact mode asks only our authenticated server;
  * it never requests a sender-provided URL or an external avatar service. */
-export function PersonAvatar(props:{name?:string|undefined;address?:string|undefined}):JSX.Element {
+export function PersonAvatar(props:{name?:string|undefined;address?:string|undefined;
+ /** A message's sender: a bundled brand icon is then shown only when `auth` proves the message (DMARC aligned, DKIM for that brand), else the initials. Contacts and other non-message uses leave it off. */
+ messageSender?:boolean|undefined;auth?:ListAuthSummary|null|undefined}):JSX.Element {
  onMount(()=>void loadCatalog('avatars'));
  const [currentOwner,setCurrentOwner]=createSignal(preferenceAccount());onCleanup(observePreferenceAccount(setCurrentOwner));
  const mode=()=>settings()['contacts.avatarMode']?.value??'initials';
  const appearance=()=>avatarPresentation(props.name??'',props.address??'');const [photo,setPhoto]=createSignal('');
- const brand=()=>settings()['contacts.senderIcons']?.value===false?undefined:senderDomainIcon(props.address??'');
+ const brand=()=>{if(settings()['contacts.senderIcons']?.value===false)return undefined;const icon=senderDomainIcon(props.address??'');return icon&&(!props.messageSender||senderIconProven(props.address,icon,props.auth,senderDomainIcon))?icon:undefined;};
  createEffect(()=>{
   const address=props.address;const owner=currentOwner();const selected=mode();setPhoto('');
   if(selected!=='contacts'||!address||!owner)return;

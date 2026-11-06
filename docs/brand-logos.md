@@ -44,7 +44,19 @@ import {BrandLogo, BrandLabel, BrandCell, HostBrandCell} from '../brands/BrandLo
 
 ## Brand logos beside verified senders
 
-In the reader, the logo of a recognised brand is shown beside the sender only when the message passed an aligned DMARC check and DKIM passed for a domain of the same brand (`brandAvatarFor`, `SenderBrandMark`). Brands without a bundled mark show nothing there. The setting `mail.brandAvatars` (user, domain and global scope, default on) turns it off. The message list carries no check result, so it keeps the normal avatar. The separate older `contacts.senderIcons` setting still shows bundled sender-domain icons in lists as appearance hints; it is documented as not being authentication evidence.
+In the reader, the logo of a recognised brand is shown beside the sender only when the message passed an aligned DMARC check and DKIM passed for a domain of the same brand (`brandAvatarFor`, `SenderBrandMark`). Brands without a bundled mark show nothing there. The setting `mail.brandAvatars` (user, domain and global scope, default on) turns it off. The message list follows the same rule (see below). The setting `contacts.senderIcons` turns the bundled sender-domain icons off entirely.
+
+### The message list
+
+A message list row applies the same rule. A brand logo on a row needs proof for that message; the sender domain alone is never enough, because a spoofed From on a brand's domain would otherwise show the brand's logo.
+
+- `Email/get` accepts the property `mailwomanAuth` (the web list asks for it with the other list properties). Its value is `{dkim: {result, domain}, dmarc: {result, aligned}}`, or `null`. The engine reads it from the verdict cache (`security_verdicts`) for the whole page in one query and never computes it for a list: the full verdict needs DNS lookups and is computed when a message is opened in the security panel. A server that does not know the property (a proxied upstream) leaves it out.
+- `PersonAvatar` with `messageSender` shows a bundled sender icon only if `senderIconProven` accepts it. A brand in the logo registry needs `brandAvatarFor` to accept the summary (aligned DMARC pass, DKIM pass for a domain of the same brand). A bundled icon that is not in the registry needs the same two checks, with DKIM passing for a domain of that same icon. The generic public-body glyph (`government`) is not a brand and needs no proof.
+- A message with no verdict (not opened yet, or a server without the property) and a message whose check failed show the normal initials avatar. After a message has been opened once, its verdict is cached and later list loads show the logo.
+- The summary is read by message id without comparing the raw-message hash. A stored message does not change, and a changed one is recomputed, and the row replaced, the next time it is opened.
+- The reader's contact card for a sender (`AddressContactCard`) is a message address too and follows the same rule. The Contacts module, which lists the user's own address book rather than received messages, is unchanged.
+
+`contacts.senderIcons` (user and admin setting) still turns the bundled sender icons off entirely, and it still shows them without any proof for senders that are not messages (Contacts). Domain matching is an appearance hint, not authentication evidence.
 
 ## Interpretation of ambiguous names
 

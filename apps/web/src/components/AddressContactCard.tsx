@@ -157,7 +157,7 @@ function AddressContactCard(props: { target: Target; onClose: () => void; onComp
   }
   return <Portal mount={props.target.document.body}><div class="address-card-backdrop" on:pointerdown={event => { if (event.target === event.currentTarget) props.onClose(); }}>
     <section ref={setElement} class="address-card" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} style={{ left: `${position().left}px`, top: `${position().top}px`, 'max-height': `${position().maxHeight}px` }}>
-      <header class="address-card__header"><PersonAvatar address={props.target.address} name={fullName()}/><div><h2 id={titleId}>{fullName()}</h2><bdi class="address-card__address">{props.target.address}</bdi></div><button type="button" class="btn btn--ghost" aria-label={t('common-close')} on:click={props.onClose}><Icon name="close"/></button></header>
+      <header class="address-card__header"><PersonAvatar address={props.target.address} name={fullName()} messageSender/><div><h2 id={titleId}>{fullName()}</h2><bdi class="address-card__address">{props.target.address}</bdi></div><button type="button" class="btn btn--ghost" aria-label={t('common-close')} on:click={props.onClose}><Icon name="close"/></button></header>
       <Show when={lookup.loading}><p role="status">{t('contacts-address-loading')}</p></Show>
       <Show when={lookup.error || (lookup.state === 'ready' && !result())}><p role="status">{t('contacts-address-lookup-failed')}</p><button type="button" class="btn btn--ghost" on:click={() => void refetch()}>{t('common-retry')}</button></Show>
       <Show when={contact()}>{card => <div class="address-card__information">

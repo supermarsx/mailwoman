@@ -215,7 +215,7 @@ function MessageRow(props: {
           <SelectedMark selected={props.selected} />
           {/* isolate the sender: it shares a line with the date, so a spoofed
               display name must not reorder surrounding UI (SPEC §24). */}
-          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={email().from?.[0]?.name??undefined} address={email().from?.[0]?.email}/>{isolate(displayText(senderLabel(email().from)))}</span>
+          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={email().from?.[0]?.name??undefined} address={email().from?.[0]?.email} messageSender auth={email().mailwomanAuth}/>{isolate(displayText(senderLabel(email().from)))}</span>
           <Show when={email().keywords?.['$flagged'] === true}>
             <span class={`list__flag ${bulk.flagMark}`} data-testid="row-flagged" role="img" aria-label={t('mail-flagged')}>
               <Icon name="flag" />
@@ -361,7 +361,7 @@ function ThreadHeadRow(props: {
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
         <span class={`list__line1 ${rowCss.line1}`}>
           <SelectedMark selected={props.selected} />
-          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={rep().from?.[0]?.name??undefined} address={rep().from?.[0]?.email}/>{isolate(displayText(senderLabel(rep().from)))}</span>
+          <span class={`list__sender ${rowCss.sender}`}><PersonAvatar name={rep().from?.[0]?.name??undefined} address={rep().from?.[0]?.email} messageSender auth={rep().mailwomanAuth}/>{isolate(displayText(senderLabel(rep().from)))}</span>
           <span class={thread.count} aria-label={t('mail-thread-count', { count: props.row.count })}>
             {props.row.count}
           </span>

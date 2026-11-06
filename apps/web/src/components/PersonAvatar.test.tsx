@@ -25,6 +25,28 @@ it('uses a bundled SVG for recognised senders without any photo requests',()=>{
  expect(view.container.querySelector('[data-sender-icon="github"] svg path')).not.toBeNull();
  expect(state.fetch).not.toHaveBeenCalled();
 });
+const proven={dkim:{result:'pass',domain:'github.com'},dmarc:{result:'pass',aligned:true}};
+it('a message row shows a brand icon only when the message authenticated for that brand',()=>{
+ const row=(auth?:unknown)=>render(()=><PersonAvatar name="GitHub" address="notifications@github.com" messageSender auth={auth as never}/>).container;
+ // Pass: aligned DMARC and DKIM for a domain of the same brand.
+ expect(row(proven).querySelector('[data-sender-icon="github"]')).not.toBeNull();
+ // Fail, misaligned, DKIM for another domain: the initials, never the logo.
+ for(const auth of [{...proven,dmarc:{result:'fail',aligned:true}},{...proven,dmarc:{result:'pass',aligned:false}},{...proven,dkim:{result:'fail',domain:'github.com'}},{...proven,dkim:{result:'pass',domain:'evil.example'}},{...proven,dkim:{result:'pass',domain:null}}]){
+  const view=row(auth);expect(view.querySelector('[data-sender-icon]')).toBeNull();expect(view).toHaveTextContent('G');
+ }
+ // Unknown (no verdict yet, or a server that sends none): the initials.
+ for(const auth of [null,undefined]){const view=row(auth);expect(view.querySelector('[data-sender-icon]')).toBeNull();expect(view).toHaveTextContent('G');}
+});
+it('a message row needs no verdict for a generic public-body glyph, and a contact needs none at all',()=>{
+ expect(render(()=><PersonAvatar name="Finanças" address="aviso@portaldasfinancas.gov.pt" messageSender/>).container.querySelector('[data-sender-icon="government"]')).not.toBeNull();
+ expect(render(()=><PersonAvatar name="GitHub" address="notifications@github.com"/>).container.querySelector('[data-sender-icon="github"]')).not.toBeNull();
+});
+it('a sender icon outside the logo registry is proven against DKIM for a domain of the same icon',()=>{
+ const view=(auth:unknown)=>render(()=><PersonAvatar name="Bluesky" address="noreply@bsky.app" messageSender auth={auth as never}/>).container;
+ expect(view({dkim:{result:'pass',domain:'bsky.social'},dmarc:{result:'pass',aligned:true}}).querySelector('[data-sender-icon]')).not.toBeNull();
+ expect(view({dkim:{result:'pass',domain:'github.com'},dmarc:{result:'pass',aligned:true}}).querySelector('[data-sender-icon]')).toBeNull();
+ expect(view(null).querySelector('[data-sender-icon]')).toBeNull();
+});
 it('allows user or admin policy to disable sender icons',()=>{
  state.icons=false;
  const view=render(()=><PersonAvatar name="GitHub" address="notifications@github.com"/>);
