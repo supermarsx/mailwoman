@@ -347,6 +347,7 @@ export function Compose(props: {
   // The sent-copy choice: per message first, then the administrator/user rule (compose.sentFolder.*), then the reply-copy habit.
   const NO_SENT_COPY='__none';
   const featSentFolder=useComposeFeature('options.sentFolder');
+  const featImportance=useComposeFeature('options.importance');
   const sentPolicy=createMemo(()=>{const s=settings();return parseSentFolderPolicy({mode:s['compose.sentFolder.mode']?.value,fixedId:s['compose.sentFolder.fixedId']?.value,perIdentity:s['compose.sentFolder.perIdentity']?.value,rules:s['compose.sentFolder.rules']?.value,skipCopy:s['compose.sentFolder.skipCopy']?.value});});
   const sentResolution=createMemo(()=>{
     if(!featSentFolder())return null;
@@ -1764,7 +1765,7 @@ export function Compose(props: {
         ...(msgOpts().remindIfNoReply===true&&msgOpts().replyBy&&msgOpts().replyBy!.getTime()>Date.now()&&!skipSentCopy()?{followUpAt:msgOpts().replyBy!.toISOString()}:{}),
         ...(builtHeaders().headers.length>0?{headers:builtHeaders().headers}:{}),
         ...(featReplyTo()&&replyToValue()!==undefined?{replyTo:replyToValue()!}:{}),
-        ...(importance()!=='normal'&&settings()['mail.compose.priority.enabled']?.value!==false?{importance:importance()}:{}),
+        ...(importance()!=='normal'&&featImportance()&&settings()['mail.compose.priority.enabled']?.value!==false?{importance:importance()}:{}),
         ...(customFrom() ? {fromOverride: fromOverride()} : {}),
         sendAt: sendAtIso,
         // V7 (§18.4): Nextcloud-materialised blob attachments (empty ⇒ omitted).
@@ -2307,7 +2308,7 @@ export function Compose(props: {
                 </RibbonItem></Show>
               </RibbonGroup></Show>
               <RibbonGroup label={t('mail-compose-group-priority')} priority={12} icon="flag" testId="compose-delivery-priority">
-                <Show when={settings()['mail.compose.priority.enabled']?.value!==false}><RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem></Show>
+                <Show when={settings()['mail.compose.priority.enabled']?.value!==false&&featImportance()}><RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-importance')}</span><select value={importance()} onChange={event=>setImportance(event.currentTarget.value as 'high'|'normal'|'low')}><For each={['high','normal','low'] as const}>{value=><option value={value}>{t(`mail-compose-importance-${value}`)}</option>}</For></select></label></RibbonItem></Show>
               </RibbonGroup>
               <RibbonGroup label={t('mail-compose-group-receipts')} priority={14} icon="mailCheck" testId="compose-delivery-receipts">
                 <SendOptions

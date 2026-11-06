@@ -194,6 +194,8 @@ index of a restored install, which is rebuilt from the restored cache.
 | `calendars` | `account_id=id` | deleted | `calendars` (built by code) | - |
 | `changes` | `account_id=id` | deleted | - | - |
 | `child_account` | `owner_account_id=id` | deleted | `integrations` | - |
+| `client_error_event` | - | kept: pseudonymous diagnostics: scrubbed stack frames and a coarse browser, OS and viewport class per occurrence; account_hash is a salted one-way hash, empty unless the administrator enabled it, and events expire with retention.clientErrors.eventDays | - | - |
+| `client_error_group` | - | kept: browser error groups: a scrubbed error name, message, boundary and route template with counts; no person identifiers | - | - |
 | `consent_record` | `account_id=id` | deleted | `records` | - |
 | `contact_groups` | `address_book_id IN (SELECT id FROM address_books WHERE account_id=id)` | removed with its parent row | - | - |
 | `contacts` | `address_book_id IN (SELECT id FROM address_books WHERE account_id=id)` | removed with its parent row | `contacts` (built by code) | - |
@@ -240,6 +242,7 @@ index of a restored install, which is rebuilt from the restored cache.
 | `message_embeddings` | `account_id=id` | deleted | - | - |
 | `message_meta` | `stable_id IN (SELECT stable_id FROM messages WHERE account_id=id)` | removed with its parent row | `mailstate` | - |
 | `messages` | `account_id=id` | removed with its parent row | `mail` (built by code) | - |
+| `metrics_bucket` | - | kept: aggregate metrics, no person identifiers: counts and quantile sketches per instance, metric and time bucket, with fixed role-class dimensions only | - | - |
 | `native_sessions` | `account_id=id` | deleted | `sessions` (built by code) | - |
 | `nextcloud_account_link` | `account_id=id` | deleted | `integrations` (marker: present, not exported) | - |
 | `nextcloud_pim_binding` | `account_id=id` | deleted | - | - |
