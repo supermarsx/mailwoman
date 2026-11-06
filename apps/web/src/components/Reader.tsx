@@ -104,6 +104,8 @@ import { MessageLoading } from './MessageLoading.tsx';
 import { Icon } from './Icon.tsx';
 import { RemoteChangeNotice } from './RemoteChangeNotice.tsx';
 import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
+import { isReaderColorChoice, messageColorOverride, readerColorKey, resolveReaderColorMode, setMessageColorOverride, type ReaderColorChoice } from '../viewers/readerColorMode.ts';
+import { createConfirm } from './confirm.tsx';
 import { isNativeAuth } from '../api/serverAddress.ts';
 import {
   formatAddressList,
@@ -875,10 +877,21 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // A quarantine verdict remains visible in the notice after safe HTML is restored.
   // Only unresolved quarantine suppresses the normal image and link controls.
   const bodyAllowsContent=():boolean=>{const body=currentBody();return !!body&&(body.original||!body.blocked||body.restored);};
+  // The saved setting, and the choice made for this message alone (ignored while an administrator locks the setting).
+  const colorSetting = (): ReaderColorChoice => { const value = settings()['reader.colorMode']?.value; return isReaderColorChoice(value) ? value : 'auto'; };
+  const colorLocked = (): boolean => settings()['reader.colorMode']?.locked === true;
+  const colorKey = (): string => readerColorKey((app.accountId() ?? ''), emailId() ?? '');
+  const colorChoice = (): ReaderColorChoice => (colorLocked() ? undefined : messageColorOverride(colorKey())) ?? colorSetting();
+  const colorConfirm = createConfirm();
+  async function makeColorDefault(choice: ReaderColorChoice): Promise<void> {
+    if (colorLocked()) return;
+    const yes = await colorConfirm.ask({ title: t('mail-color-confirm-title'), body: t('mail-color-confirm-body', { mode: t(`reader-option-${choice}`) }), confirmLabel: t('mail-color-confirm'), danger: false });
+    if (!yes) return;
+    try { await writeSetting('reader.colorMode', choice); setMessageColorOverride(colorKey(), null); } catch { app.showToast('error', t('mail-color-default-failed')); }
+  }
   const readerAppearance = (): ReaderAppearance => {
     const values = settings();
-    const mode = values['reader.colorMode']?.value;
-    const colorMode = mode === 'original' || mode === 'adaptive' || mode === 'invert' ? mode : app.appearance() === 'dark' ? 'adaptive' : 'original';
+    const colorMode = resolveReaderColorMode(colorChoice(), app.appearance());
     const width = values['reader.contentWidth']?.value;
     return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'wide' ? width : 'full' };
   };
@@ -1374,7 +1387,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               {/* One action row (t57): reply group, View conversation (threads of more
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
-              <ReaderToolbar email={email()} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />
+              <ReaderToolbar email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply')}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />

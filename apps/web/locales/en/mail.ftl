@@ -1272,3 +1272,14 @@ mail-badge-outbox = { $count ->
     [one] Outbox: { $count } message waiting to send
    *[other] Outbox: { $count } messages waiting to send
   }
+
+# Per-message colour mode in the reader action row.
+mail-color-menu = Message colors
+mail-color-button = Message colors: { $mode }
+mail-color-use-default = Use my default ({ $mode })
+mail-color-make-default = Make this my default
+mail-color-locked = Locked by your administrator
+mail-color-confirm-title = Change your default message colors?
+mail-color-confirm-body = Every message will use "{ $mode }" unless you change it for one message.
+mail-color-confirm = Make default
+mail-color-default-failed = Could not save your default message colors.

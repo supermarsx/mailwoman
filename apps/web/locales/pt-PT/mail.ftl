@@ -1261,3 +1261,14 @@ mail-badge-outbox = { $count ->
     [one] Caixa de saída: { $count } mensagem à espera de envio
    *[other] Caixa de saída: { $count } mensagens à espera de envio
   }
+
+# Cor por mensagem na barra de ações do leitor.
+mail-color-menu = Cores da mensagem
+mail-color-button = Cores da mensagem: { $mode }
+mail-color-use-default = Usar a minha predefinição ({ $mode })
+mail-color-make-default = Tornar esta a minha predefinição
+mail-color-locked = Bloqueado pelo administrador
+mail-color-confirm-title = Alterar as cores predefinidas das mensagens?
+mail-color-confirm-body = Todas as mensagens passam a usar «{ $mode }», a menos que altere para uma mensagem.
+mail-color-confirm = Tornar predefinição
+mail-color-default-failed = Não foi possível guardar as cores predefinidas das mensagens.

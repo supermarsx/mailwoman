@@ -350,6 +350,8 @@ function withoutBodyMedia(html: string): string {
   return doc.body.innerHTML;
 }
 
+/** The colour mode, theme variables and tooltip theme live in a second, url-free `<style>` so a colour-mode change
+ *  is one text patch of that element (the first holds data: URLs, which the patch channel refuses). */
 /** Build the message-body `srcdoc` for a mode. In `plain-text` the content is
  *  rendered as escaped text (no HTML); otherwise the (already-sanitized) HTML is
  *  inlined. Either way a per-document CSP `<meta>` pins the frame. */
@@ -370,7 +372,7 @@ export function bodyFrameDoc(
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${bodyCsp(mode, opts.direct === true, opts.serverBase)}">` +
-    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${mode === 'plain-text' ? '' : BLOCKED_IMAGE_STYLE}${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}${tip.css}</style></head><body${tip.bodyAttrs}>${inner}</body></html>`
+    `<style>${BODY_STYLE}${mode === 'full-sanitized' ? BROKEN_IMAGE_STYLE + IMAGE_LOADING_STYLE : ''}${mode === 'plain-text' ? '' : BLOCKED_IMAGE_STYLE}</style><style>${styleVars}${opts.appearance ? readerAppearanceCss(opts.appearance) : ''}${tip.css}</style></head><body${tip.bodyAttrs}>${inner}</body></html>`
   );
 }
 

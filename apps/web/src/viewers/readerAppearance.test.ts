@@ -53,7 +53,7 @@ describe('reader body zoom (t59, t79)', () => {
     const doc = bodyFrameDoc('full-sanitized', { html: '<p style="color:black">Hi</p><img src="data:image/png;base64,AA==">' }, { themeVars: themeCssVars('dark'), appearance });
     expect(doc).not.toContain('zoom');
     const parsed = new DOMParser().parseFromString(doc, 'text/html');
-    expect(parsed.querySelector('style')?.textContent ?? '').toContain('background:var(--mw-color-bg)!important');
+    expect(Array.from(parsed.querySelectorAll('style')).map(style => style.textContent).join('')).toContain('background:var(--mw-color-bg)!important');
     expect(parsed.querySelector('meta[http-equiv]')?.getAttribute('content')).toContain("default-src 'none'");
     expect(parsed.querySelector('script')).toBeNull();
   });
