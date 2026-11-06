@@ -4,6 +4,11 @@ import {onMessagesTrashed} from '../state/trashEvents.ts';
 import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../components/RenameFolder.tsx';
 import {treeRows,rolledUnread} from '../components/folderTree.ts';
+import {createFolderLayout} from '../components/folderLayout.ts';
+import {FolderNestDialog} from '../components/FolderNestDialog.tsx';
+import {canMoveFolder,moveFolderTo} from '../api/folderStructure.ts';
+import {srOnly as folderSrOnly} from '../components/mailA11y.css.ts';
+import type {DndRow} from '../components/folderDnd.ts';
 import {folderActivity} from '../components/folderActivity.ts';
 import {mailPrefetchEvents} from '../components/mailPrefetchEvents.ts';
 import {readMailCachePolicy} from '../state/mailCachePolicy.ts';
@@ -46,7 +51,7 @@ import {BulkSelectionSummary} from '../components/BulkSelectionSummary.tsx';
 import { readingPane } from '../components/readingPane.ts';
 import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
-import { orderedFolders, folderIcon, folderIsHidden, type PreferenceFolder } from './Settings/folderPreferenceModel.ts';
+import { folderIcon, folderIsHidden, type PreferenceFolder } from './Settings/folderPreferenceModel.ts';
 import { mailFeature, spamFolderHidden, viewsClosedByDelete, vanishedIds, type ListSnapshot } from '../state/mailFeatures.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
 import { createSettingsNavigation, type SettingsNavigation } from './Settings/navigation.tsx';
@@ -618,7 +623,20 @@ export function MailboxScreen(): JSX.Element {
   let sidebarEl: HTMLElement | undefined;
   // `mail.showSpam` off hides the Junk folder from navigation like a hidden folder; nothing is deleted.
   const navHidden=(box:PreferenceFolder)=>folderIsHidden(box,app.mailboxes(),accountUiPreferences())||spamFolderHidden(box);
-  const navigationFolders=createMemo(()=>orderedFolders(app.mailboxes(),accountUiPreferences()).filter(box=>!navHidden(box)));
+  // The arrangement (order, visual parents, pins) is shared with the Settings folder list: components/folderLayout.ts.
+  const moveAbility=useRenameContext(),moveClient=createConfiguredClient();
+  const folderLayout=createFolderLayout({
+    folders:()=>app.mailboxes(),prefs:accountUiPreferences,update:setAccountUiPreferences,accountId:()=>app.accountId()??null,
+    serverAvailable:()=>moveAbility()?.manages===true,
+    moveOnServer:async(id,parent)=>{
+      const owner=preferenceAccount();if(!owner||!preferenceAccountIsCurrent(owner))return false;
+      const box=app.mailboxes().find(value=>value.id===id);if(!box||!canMoveFolder(box,app.mailboxes(),moveAbility(),parent))return false;
+      const result=await moveFolderTo(moveClient,owner.id,id,parent,{current:()=>preferenceAccountIsCurrent(owner)});
+      await app.refreshFolders().catch(()=>{});
+      return result.ok;
+    },
+  });
+  const navigationFolders=createMemo(()=>folderLayout.arranger.visual().filter(box=>!navHidden(box)));
   /** The folder tree, depth-first: system folders (with any subfolders), then the user's own folders; collapsed folders list no children. */
   const folderTreeRows=createMemo(()=>{
     const preferences=accountUiPreferences();
@@ -627,6 +645,9 @@ export function MailboxScreen(): JSX.Element {
     return {system:split<0?rows:rows.slice(0,split),custom:split<0?[]:rows.slice(split)};
   });
   const sectionRows=(custom:boolean)=>custom?folderTreeRows().custom:folderTreeRows().system;
+  const dndRows=createMemo<DndRow[]>(()=>[...sectionRows(false),...sectionRows(true)].map(row=>({id:row.box.id,depth:row.depth,hasChildren:row.hasChildren,expanded:row.expanded})));
+  const folderDnd=folderLayout.dnd({rows:dndRows,selected:selectedFolderIds,scroller:()=>sidebarEl?.querySelector<HTMLElement>('.sidebar__scroll')??undefined,indent:()=>(parseFloat(getComputedStyle(document.documentElement).fontSize)||16)*0.9,onExpand:id=>toggleFolder(id,true)});
+  const folderLockHint=(id:string):string|undefined=>{const reason=folderLayout.lockReason(id);return reason==='locked'?t('folder-dnd-locked-hint'):reason==='forced'?t('folder-dnd-forced-hint'):undefined;};
   const folderMarquee=useFolderMarquee(()=>sectionRows(false).concat(sectionRows(true)).map(row=>row.box.id));
   function toggleFolder(id:string,expand:boolean):void {
     const collapsed=new Set(accountUiPreferences().folderCollapsed??[]);
@@ -635,6 +656,7 @@ export function MailboxScreen(): JSX.Element {
   }
   /** Arrow keys walk the folder list; Right/Left open and close a folder with subfolders (ARIA tree behaviour). */
   function onFolderKey(event:KeyboardEvent,id:string):void {
+    if(folderDnd.key(event,id))return;
     const target=event.currentTarget as HTMLElement,rtl=getComputedStyle(target).direction==='rtl';
     const row=folderTreeRows().system.concat(folderTreeRows().custom).find(value=>value.box.id===id);
     if(event.key===(rtl?'ArrowLeft':'ArrowRight')&&row?.hasChildren&&!row.expanded){event.preventDefault();toggleFolder(id,true);return;}
@@ -890,6 +912,8 @@ export function MailboxScreen(): JSX.Element {
           </div>
         </Show>
         <Show when={creatingFolder()}><CreateFolderDialog onClose={()=>setCreatingFolder(false)}/></Show>
+        <FolderNestDialog arranger={folderLayout.arranger} nameOf={id=>app.mailboxes().find(value=>value.id===id)?.name??''}/>
+        <p class={folderSrOnly} role="status" aria-live="polite" data-testid="folder-dnd-status">{folderDnd.announcement()}</p>
         <div class="sidebar__scroll" ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
         <FolderCreationControl><nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region>
@@ -900,7 +924,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
           <For each={sectionRows(custom).map(row=>row.box.id)}>
             {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
-              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} dnd={folderDnd} lockHint={()=>folderLockHint(id)} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 {...prefetch}

@@ -117,6 +117,13 @@ export function placementFor(rows:readonly DndRow[],folders:readonly DndFolder[]
  // The row after the anchor's subtree is its next sibling only when it sits at the same depth.
  return {parentId:parentOf(anchor.id),beforeId:next&&next.depth===depth?next.id:null};
 }
+/** The depths an 'after' drop on this row may ask for, by moving the pointer left or right. */
+export function afterDepthRange(rows:readonly DndRow[],id:string):{min:number;max:number} {
+ const index=rows.findIndex(r=>r.id===id),row=rows[index],next=rows[index+1];
+ if(!row)return {min:0,max:0};
+ if(row.hasChildren&&row.expanded&&next&&next.depth>row.depth)return {min:row.depth+1,max:row.depth+1};
+ return {min:next?Math.min(next.depth,row.depth):0,max:row.depth};
+}
 export function resolveDrop(rows:readonly DndRow[],folders:readonly DndFolder[],moving:readonly string[],intent:DropIntent,policy:DndPolicy):DropResult {
  if(moving.includes(intent.targetId))return {ok:false,problem:'self'};
  const target=folders.find(f=>f.id===intent.targetId);

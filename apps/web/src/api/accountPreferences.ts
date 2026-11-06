@@ -40,6 +40,15 @@ export interface AccountUiPreferences {
   folderSort?: Record<string,{by:'name'|'unread'|'total'|'date'|'custom';dir:'asc'|'desc'}>;
   /** Folders whose subfolders are collapsed in the sidebar tree. */
   folderCollapsed?: string[];
+  /** Visual parent per folder id (a parent id, or `_top`): the arrangement made by drag and drop, never sent to the server. */
+  folderParent?: Record<string,string>;
+  /** Folders marked with a star (a marker only; pins are separate). */
+  folderStarred?: string[];
+  /** What dragging a folder under another one does: ask, change the server, or only arrange it in this app. */
+  folderNestMode?: 'ask'|'server'|'local';
+  folderReorderEnabled?: boolean;
+  folderGrabHandles?: 'hover'|'always';
+  folderNewPlacement?: 'end'|'alphabetical';
 }
 interface Snapshot { preferences: AccountUiPreferences; etag: string }
 export interface AccountPreferencesApi {
