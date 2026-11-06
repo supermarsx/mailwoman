@@ -363,6 +363,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'privacy.remoteContent',
   'privacy.remoteImageDownloads',
   'privacy.remoteImagesToast',
+  'privacy.sessions.showLinkedOrigin',
   'privacy.stripMailerHeaders',
   'privacy.trackers',
   'privacy.trackerOverrideAllowed',

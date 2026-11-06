@@ -2772,6 +2772,11 @@ Global/domain/user boolean, default false. Allows an explicit image download thr
 
 Global/domain/user boolean, default true, with administrator locks. When a message's remote images load through the privacy proxy (after Show images, an existing sender or domain grant, or the `proxy` mode), the reader shows one notification for that message: "Loading images…", replaced in place by "Images loaded" or by the number of images that could not load with a Retry action. A load that is displayed within about 300 ms shows nothing. Switching message closes it. It is presentation only: which images load, and through what path, is still decided by `privacy.remoteContent` and the image grants. Users can turn it off in Settings › Privacy unless an administrator locks it.
 
+<a id="privacy.sessions.showLinkedOrigin"></a>
+### Linked mailbox origin in sessions (`privacy.sessions.showLinkedOrigin`)
+
+Global/domain/user choice, default `"full"`, with administrator locks. A session created by linking a mailbox is listed in Settings > Security > Sessions as "Linked mailbox access". With `full` the row adds "from" and the sign-in name of the account that owns the link; `masked-local-part` keeps the first character and the domain (`a***@example.com`); `hidden` shows only that the session is linked. The linked mailbox address, the link type, the link creation time and a Revoke link access action are in the row's Link details. If the owning account no longer exists the row says "Unknown (removed account)". The origin is returned only in the signed-in user's own session list and the account id of the origin is never returned; the administrator sessions list does not include it. An unreadable setting is treated as `hidden`. The sessions search also matches the origin and mailbox addresses.
+
 <a id="mail.resumeTabs"></a>
 ### Resume workspace tabs
 

@@ -59,7 +59,7 @@ pub mod request_metrics;
 pub mod signin_admission;
 pub mod user_directory;
 pub mod user_lifecycle;
-pub use security_center::{RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
+pub use security_center::{LinkedOrigin, RememberedDevice, SecuritySession, SessionDevice, SigninEvent};
 mod admin_accounts;
 mod admin_passkeys;
 pub mod ephemeral;

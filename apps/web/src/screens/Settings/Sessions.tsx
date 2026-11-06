@@ -18,6 +18,10 @@ import * as table from './sessions.css.ts';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as kit from './layout/layout.css.ts';
 import * as css from './styles.css.ts';
+import { BrandLogo } from '../../brands/BrandLogo.tsx';
+import { useSetting } from './useSetting.ts';
+import { SettingRow } from './layout/SettingRow.tsx';
+import { linkedOriginView, sessionSearchValues, type LinkedOriginView } from './sessionOrigin.ts';
 
 
 export interface SessionsProps {
@@ -30,6 +34,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
 
   const [authority,setAuthority]=createSignal(0);let alive=true;
   const [sessions, { refetch }] = createResource(authority,() => service.sessions());
+  const originMode = useSetting<string>('privacy.sessions.showLinkedOrigin', 'full', (v): v is string => typeof v === 'string' && ['full', 'masked-local-part', 'hidden'].includes(v));
   const [query, setQuery] = createSignal('');
   const [busy, setBusy] = createSignal(false);
   const [selected,setSelected]=createSignal(new Set<string>());
@@ -70,7 +75,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
 
   const loaded = (): SessionMeta[] => sessions.error ? [] : sessions.latest ?? [];
   const others = (): number => loaded().filter((s) => !s.current).length;
-  const shown=():SessionMeta[]=>loaded().filter(row=>[row.username,row.ip,row.deviceLabel,row.userAgent].some(value=>value?.toLowerCase().includes(query().trim().toLowerCase())));
+  const shown=():SessionMeta[]=>loaded().filter(row=>sessionSearchValues(row).some(value=>value?.toLowerCase().includes(query().trim().toLowerCase())));
   const eligible=():SessionMeta[]=>shown().filter(row=>!row.current);
   const chosen=():SessionMeta[]=>eligible().filter(row=>selected().has(row.handle));
   async function revokeSelected():Promise<void>{
@@ -84,8 +89,41 @@ export function Sessions(props: SessionsProps): JSX.Element {
     }finally{if(current())setBusy(false);}
   }
 
+  function when(seconds?: number): string {
+    if (seconds === undefined) return '—';
+    try { return new Date(seconds * 1000).toLocaleString(); } catch { return String(seconds); }
+  }
+  function originName(view: LinkedOriginView): string | undefined {
+    return view.removed ? t('settings-sessions-linked-removed') : view.origin;
+  }
+  function linkedBlock(s: SessionMeta, view: LinkedOriginView): JSX.Element {
+    const origin = originName(view);
+    const line = origin ? t('settings-sessions-linked-line', { origin: isolate(origin) }) : t('settings-sessions-linked-line-hidden');
+    return <div data-testid="linked-origin">
+      <p class={table.originLine} title={line}>
+        <Show when={view.brandHost && !view.removed}><BrandLogo brand={view.brandHost!} size={16} decorative /></Show>
+        <span>{line}</span>
+      </p>
+      <details><summary>{t('settings-sessions-linked-details')}</summary>
+        <dl class={table.originDetails}>
+          <Show when={origin}><dt>{t('settings-sessions-linked-origin')}</dt><dd>{isolate(origin!)}</dd></Show>
+          <Show when={s.targetEmail}><dt>{t('settings-sessions-linked-target')}</dt><dd>{isolate(s.targetEmail!)}</dd></Show>
+          <dt>{t('settings-sessions-linked-kind')}</dt><dd>{t('settings-sessions-linked-kind-linked')}</dd>
+          <Show when={s.linkCreatedAt !== undefined}><dt>{t('settings-sessions-linked-created')}</dt><dd>{when(s.linkCreatedAt)}</dd></Show>
+          <dt>{t('settings-sessions-linked-last-used')}</dt><dd>{s.lastActivity ?? s.lastSeen}</dd>
+        </dl>
+        <button type="button" class={css.danger} disabled={busy() || s.current} aria-label={t('settings-sessions-linked-revoke-label', { mailbox: s.targetEmail ?? s.username })} onClick={() => void revoke(s.handle)}>{t('settings-sessions-linked-revoke')}</button>
+      </details>
+    </div>;
+  }
+
   return (
     <SettingsCard id="sessions-card" wide title={t('settings-sessions-title')} description={t('settings-sessions-intro')}>
+      <SettingRow controlId="sessions-origin-mode" label={t('settings-sessions-origin-setting')} help={t('settings-sessions-origin-help')} handle={originMode}>{describedBy =>
+        <select id="sessions-origin-mode" class={css.select} aria-describedby={describedBy()} value={originMode.value()} disabled={!originMode.entry() || originMode.locked() || originMode.saving()} onChange={e => void originMode.set(e.currentTarget.value).then(ok => { if (ok) setAuthority(value => value + 1); })}>
+          <For each={['full', 'masked-local-part', 'hidden']}>{value => <option value={value}>{t(`settings-sessions-origin-${value}`)}</option>}</For>
+        </select>
+      }</SettingRow>
       <div class={kit.toolRow}>
       <label class={kit.inlineField}>{t('settings-sessions-search')}<input class={css.input} type="search" value={query()} onInput={(event) => {setQuery(event.currentTarget.value);setSelected(new Set<string>());}} /></label>
       <label><input type="checkbox" aria-label={t('settings-sessions-select-visible')} checked={eligible().length>0&&chosen().length===eligible().length} disabled={busy()||eligible().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(eligible().map(row=>row.handle)):new Set<string>())}/>{t('settings-sessions-select-visible')}</label><button class={css.danger} disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('settings-sessions-selected-title',{count:chosen().length})}</button></div>
@@ -98,7 +136,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
           <thead><tr><th aria-label={t('settings-sessions-select')}/><th>{t('settings-sessions-account')}</th><th>{t('settings-sessions-device')}</th><th>{t('settings-sessions-location')}</th><th>{t('settings-sessions-activity')}</th><th>{t('settings-sessions-actions')}</th></tr></thead>
           <tbody><For each={shown()}>{(s) => <tr>
             <td><input type="checkbox" aria-label={t('settings-sessions-select-device',{device:s.deviceLabel||s.clientType||s.username})} checked={selected().has(s.handle)} disabled={busy()||s.current} onChange={event=>setSelected(previous=>{const next=new Set(previous);if(event.currentTarget.checked)next.add(s.handle);else next.delete(s.handle);return next;})}/></td>
-            <td>{isolate(s.username)}</td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<Show when={s.userAgent}><details><summary>{t('settings-sessions-client-details')}</summary><p class={css.meta}>{s.userAgent}</p></details></Show></td>
+            <td>{isolate(s.username)}<Show when={linkedOriginView(s)}>{view=>linkedBlock(s,view())}</Show></td><td>{s.deviceLabel || s.clientType || '—'} {s.clientVersion}<Show when={s.userAgent}><details><summary>{t('settings-sessions-client-details')}</summary><p class={css.meta}>{s.userAgent}</p></details></Show></td>
             <td>{s.ip || '—'}<p class={css.meta}>{s.country || t('settings-sessions-location-unavailable')}</p></td>
             <td>{t('settings-sessions-last-seen', { when: s.lastActivity ?? s.lastSeen })}<p class={css.meta}>{t('security-center-first-seen', { when: s.createdAt })}</p></td>
             <td><Show when={s.current} fallback={<button type="button" class={css.danger} disabled={busy()} aria-label={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} title={t('settings-sessions-revoke-device', { device: s.deviceLabel || s.clientType || s.username })} onClick={() => void revoke(s.handle)}><Icon name="close" /></button>}><span class={css.badge}>{t('settings-sessions-current')}</span></Show></td>

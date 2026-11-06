@@ -1935,6 +1935,49 @@ async fn recovery_regenerate_route(State(state): State<AppState>, headers: Heade
 
 // ── session management (S11) ─────────────────────────────────────────────────
 
+/// `a***@example.com`: keeps the first character and the domain.
+fn mask_local_part(email: &str) -> String {
+    match email.rsplit_once('@') {
+        Some((local, domain)) => {
+            let first: String = local.chars().take(1).collect();
+            format!("{first}***@{domain}")
+        }
+        None => email.chars().take(1).collect::<String>() + "***",
+    }
+}
+
+/// One row of `GET /api/account/sessions`. The origin of a linked-mailbox
+/// session is only ever placed in the caller's own listing, shaped by
+/// `privacy.sessions.showLinkedOrigin` (`full` | `masked-local-part` | `hidden`).
+/// The origin account id never leaves the server.
+fn session_view(m: &mw_store::SecuritySession, current: &str, origin_mode: &str) -> serde_json::Value {
+    let mut row = json!({
+        "handle": m.handle,
+        "username": m.username,
+        "createdAt": m.created_at,
+        "lastSeen": m.last_seen,
+        "lastActivity": m.last_activity,
+        "current": m.handle == current,
+        "country": m.device.ip.parse().ok().and_then(mw_engine::security::country_for_ip),
+        "userAgent":m.device.user_agent,"ip":m.device.ip,"clientType":m.device.client_type,"clientVersion":m.device.client_version,"deviceLabel":m.device.device_label,
+    });
+    if let (Some(linked), Some(object)) = (&m.linked, row.as_object_mut()) {
+        object.insert("linkKind".into(), json!("linked"));
+        if origin_mode != "hidden" {
+            object.insert("targetEmail".into(), json!(m.username));
+            object.insert("originRemoved".into(), json!(linked.origin_email.is_none()));
+            if let Some(email) = &linked.origin_email {
+                let shown = if origin_mode == "masked-local-part" { mask_local_part(email) } else { email.clone() };
+                object.insert("originEmail".into(), json!(shown));
+            }
+            if let Some(created) = linked.link_created_at {
+                object.insert("linkCreatedAt".into(), json!(created));
+            }
+        }
+    }
+    row
+}
+
 /// `GET /api/account/sessions` — the caller's active sessions (metadata only; the
 /// current one flagged). The raw session id is never returned.
 async fn sessions_list_route(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -1951,20 +1994,20 @@ async fn sessions_list_route(State(state): State<AppState>, headers: HeaderMap) 
         Ok(m) => m,
         Err(e) => return server_error("list sessions", e),
     };
+    // Fail closed: an unreadable setting hides the origin rather than showing it.
+    let origin_mode = match crate::settings_routes::effective_for_session(
+        &state,
+        &session,
+        "privacy.sessions.showLinkedOrigin",
+    )
+    .await
+    {
+        Ok(Some(v)) => v.value.as_str().unwrap_or("hidden").to_owned(),
+        _ => "hidden".to_owned(),
+    };
     let out: Vec<_> = metas
         .iter()
-        .map(|m| {
-            json!({
-                "handle": m.handle,
-                "username": m.username,
-                "createdAt": m.created_at,
-                "lastSeen": m.last_seen,
-                "lastActivity": m.last_activity,
-                "current": m.handle == current,
-                "country": m.device.ip.parse().ok().and_then(mw_engine::security::country_for_ip),
-                "userAgent":m.device.user_agent,"ip":m.device.ip,"clientType":m.device.client_type,"clientVersion":m.device.client_version,"deviceLabel":m.device.device_label,
-            })
-        })
+        .map(|m| session_view(m, &current, &origin_mode))
         .collect();
     Json(json!({ "sessions": out })).into_response()
 }
@@ -2590,6 +2633,55 @@ fn server_error(what: &str, e: mw_store::StoreError) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn linked_row(origin: Option<&str>) -> mw_store::SecuritySession {
+        mw_store::SecuritySession {
+            handle: "h1".into(),
+            account_id: "acct-bob".into(),
+            username: "bob@other.test".into(),
+            created_at: String::new(),
+            last_seen: String::new(),
+            last_activity: String::new(),
+            device: mw_store::SessionDevice::default(),
+            linked: Some(mw_store::LinkedOrigin {
+                origin_email: origin.map(str::to_owned),
+                link_created_at: Some(1_700_000_000),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_linked_session_row_shows_origin_and_target_per_setting() {
+        let row = linked_row(Some("alice@example.test"));
+        let full = session_view(&row, "x", "full");
+        assert_eq!(full["linkKind"], "linked");
+        assert_eq!(full["originEmail"], "alice@example.test");
+        assert_eq!(full["targetEmail"], "bob@other.test");
+        assert_eq!(full["originRemoved"], false);
+        assert_eq!(full["linkCreatedAt"], 1_700_000_000);
+        assert!(full.get("originAccountId").is_none());
+        let masked = session_view(&row, "x", "masked-local-part");
+        assert_eq!(masked["originEmail"], "a***@example.test");
+        let hidden = session_view(&row, "x", "hidden");
+        assert_eq!(hidden["linkKind"], "linked");
+        for field in ["originEmail", "targetEmail", "originRemoved", "linkCreatedAt"] {
+            assert!(hidden.get(field).is_none(), "{field}");
+        }
+    }
+
+    #[test]
+    fn a_removed_origin_is_flagged_and_a_plain_session_carries_no_link_fields() {
+        let removed = session_view(&linked_row(None), "x", "full");
+        assert_eq!(removed["originRemoved"], true);
+        assert!(removed.get("originEmail").is_none());
+        let mut plain = linked_row(None);
+        plain.linked = None;
+        let plain = session_view(&plain, "h1", "full");
+        assert_eq!(plain["current"], true);
+        for field in ["linkKind", "originEmail", "targetEmail", "originRemoved"] {
+            assert!(plain.get(field).is_none(), "{field}");
+        }
+    }
 
     #[test]
     fn passkey_user_handle_is_account_bound_and_required_for_discovery() {

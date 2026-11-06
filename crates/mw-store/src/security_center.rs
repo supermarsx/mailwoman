@@ -27,6 +27,19 @@ pub struct SecuritySession {
     pub last_activity: String,
     #[serde(flatten)]
     pub device: SessionDevice,
+    /// Set for a `Linked mailbox access` session. Never serialized with the row:
+    /// each route decides who may see the origin.
+    #[serde(skip)]
+    pub linked: Option<LinkedOrigin>,
+}
+/// Where a linked-mailbox session came from: the account that owns the link.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LinkedOrigin {
+    /// The owning account's sign-in name; `None` once that account is gone
+    /// (no live primary session for its principal, or the principal retired).
+    pub origin_email: Option<String>,
+    /// When the link was created (unix seconds); `None` if the link is gone.
+    pub link_created_at: Option<i64>,
 }
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -281,11 +294,20 @@ impl Store {
         account: Option<&str>,
         limit: u32,
     ) -> Result<Vec<SecuritySession>, StoreError> {
-        let rows=q("SELECT id,account_id,username,created_at,last_seen,COALESCE(activity_at,created_at) AS last_activity,user_agent,ip,client_type,device_label,client_version FROM sessions WHERE linked_internal<>2 AND (?1 IS NULL OR account_id=?1) ORDER BY last_seen DESC,id LIMIT ?2")
+        let rows=q("SELECT id,account_id,username,created_at,last_seen,COALESCE(activity_at,created_at) AS last_activity,user_agent,ip,client_type,device_label,client_version,CAST(linked_internal AS BIGINT) AS linked_internal FROM sessions WHERE linked_internal<>2 AND (?1 IS NULL OR account_id=?1) ORDER BY last_seen DESC,id LIMIT ?2")
             .bind(account).bind(i64::from(limit.clamp(1,1000))).fetch_all(&self.backend).await?;
-        Ok(rows
-            .iter()
-            .map(|r| SecuritySession {
+        let mut out = Vec::with_capacity(rows.len());
+        for r in &rows {
+            let linked = if r.get_i64("linked_internal") == 1 {
+                Some(
+                    self.linked_origin(&r.get_string("id"), &r.get_string("account_id"))
+                        .await?,
+                )
+            } else {
+                None
+            };
+            out.push(SecuritySession {
+                linked,
                 handle: crate::session_handle(&r.get_string("id")),
                 account_id: r.get_string("account_id"),
                 username: r.get_string("username"),
@@ -302,8 +324,34 @@ impl Store {
                     client_version: r.get_opt_string("client_version").unwrap_or_default(),
                     recognition_hash: None,
                 },
-            })
-            .collect())
+            });
+        }
+        Ok(out)
+    }
+    /// Resolve the link behind a private linked session. The link keeps the
+    /// session id sealed, bound to owner+link+subject, so the candidates (links
+    /// to this account) are opened and compared rather than joined.
+    async fn linked_origin(&self, session: &str, account: &str) -> Result<LinkedOrigin, StoreError> {
+        let links = q("SELECT id,owner_principal_id,child_subject,sealed_session,created_at FROM linked_account WHERE account_id=?1 ORDER BY created_at,id")
+            .bind(account).fetch_all(&self.backend).await?;
+        for link in &links {
+            let owner = link.get_string("owner_principal_id");
+            let opened = self.key.open_bound(
+                &link.get_blob("sealed_session"),
+                "linked-source-v1",
+                &[&owner, &link.get_string("id"), &link.get_string("child_subject")],
+            );
+            if opened.ok().as_deref() != Some(session.as_bytes()) {
+                continue;
+            }
+            let email = q("SELECT s.username FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id WHERE sp.principal_id=?1 AND s.linked_internal=0 AND p.state='active' ORDER BY s.last_seen DESC LIMIT 1")
+                .bind(&owner).fetch_optional(&self.backend).await?;
+            return Ok(LinkedOrigin {
+                origin_email: email.map(|r| r.get_string("username")),
+                link_created_at: Some(link.get_i64("created_at")),
+            });
+        }
+        Ok(LinkedOrigin { origin_email: None, link_created_at: None })
     }
     pub async fn record_signin_event(&self, event: &SigninEvent) -> Result<(), StoreError> {
         self.record_auth_event(
@@ -872,6 +920,49 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod linked_origin_tests {
+    use super::*;
+    use crate::{Credentials, ServerKey};
+    async fn sql(store: &Store, query: &'static str, binds: &[&str]) {
+        let mut statement = q(query);
+        for value in binds {
+            statement = statement.bind(*value);
+        }
+        statement.execute(&store.backend).await.unwrap();
+    }
+    #[tokio::test]
+    async fn a_linked_session_names_the_account_that_owns_the_link() {
+        let store = Store::open_in_memory(ServerKey::generate()).await.unwrap();
+        let creds = Credentials { username: "x".into(), password: "synthetic".into() };
+        let owner = store.create_session("acct-alice", "alice@example.test", "j", "a", &creds).await.unwrap();
+        let child = store.create_session("acct-bob", "bob@other.test", "j", "a", &creds).await.unwrap();
+        let plain = store.create_session("acct-bob", "bob@other.test", "j", "a", &creds).await.unwrap();
+        sql(&store, "INSERT INTO identity_principal(id,state,created_at) VALUES('p-alice','active',1)", &[]).await;
+        sql(&store, "INSERT INTO identity_binding(id,principal_id,kind,authority,subject,created_at) VALUES('b-alice','p-alice','k','a','alice',1)", &[]).await;
+        sql(&store, "INSERT INTO session_principal(session_id,principal_id,binding_id,primary_account_id,auth_time,authentication_method) VALUES(?1,'p-alice','b-alice','acct-alice',1,'password')", &[&owner]).await;
+        sql(&store, "UPDATE sessions SET linked_internal=1,client_type='linked',device_label='Linked mailbox access' WHERE id=?1", &[&child]).await;
+        let sealed = store.key.seal_bound(child.as_bytes(), "linked-source-v1", &["p-alice", "link-1", "bob-subject"]).unwrap();
+        q("INSERT INTO linked_account(id,owner_principal_id,child_principal_id,child_subject,account_id,display_name,sealed_session,revision,created_at) VALUES('link-1','p-alice','p-alice','bob-subject','acct-bob','Bob',?1,'r',1700000000)")
+            .bind(sealed).execute(&store.backend).await.unwrap();
+        let rows = store.list_security_sessions(Some("acct-bob"), 10).await.unwrap();
+        let linked: Vec<_> = rows.iter().filter(|r| r.linked.is_some()).collect();
+        assert_eq!(linked.len(), 1, "only the private linked session is marked");
+        let origin = linked[0].linked.as_ref().unwrap();
+        assert_eq!(origin.origin_email.as_deref(), Some("alice@example.test"));
+        assert_eq!(origin.link_created_at, Some(1_700_000_000));
+        assert!(rows.iter().any(|r| r.handle == crate::session_handle(&plain) && r.linked.is_none()));
+        // The origin account listing never carries the child's link rows.
+        assert!(store.list_security_sessions(Some("acct-alice"), 10).await.unwrap().iter().all(|r| r.linked.is_none()));
+        // The origin account goes away: unknown, not an error.
+        store.delete_session(&owner).await.ok();
+        sql(&store, "DELETE FROM session_principal WHERE session_id=?1", &[&owner]).await;
+        let rows = store.list_security_sessions(Some("acct-bob"), 10).await.unwrap();
+        let origin = rows.iter().find_map(|r| r.linked.as_ref()).unwrap();
+        assert_eq!(origin.origin_email, None);
+        assert_eq!(origin.link_created_at, Some(1_700_000_000));
+    }
+}
 #[cfg(test)]
 mod browser_recognition_tests {
     use super::*;
