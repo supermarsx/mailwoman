@@ -63,11 +63,12 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
       el.dataset.kitCard = '';
       const head = (heading.parentElement?.tagName === 'HEADER' && heading.parentElement.parentElement === el ? heading.parentElement : heading) as HTMLElement;
       head.dataset.kitHead = '';
-      if (!heading.querySelector(':scope > [data-kit-toggle]')) {
+      if (!head.querySelector(':scope > [data-kit-toggle]')) {
+        if (!heading.id) heading.id = `${el.id}-title`;
         const button = document.createElement('button');
         button.type = 'button'; button.dataset.kitToggle = '';
-        while (heading.firstChild) button.appendChild(heading.firstChild);
-        heading.appendChild(button);
+        button.setAttribute('aria-labelledby', heading.id);
+        head.appendChild(button);
         button.addEventListener('click', () => toggle(el));
         setCollapsed(el, collapsed.has(`${props.name}/${el.id}`));
       }
@@ -158,7 +159,7 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     const r = root(); if (!r) return;
     scan();
     observer = new MutationObserver(schedule);
-    observer.observe(r, { childList: true, subtree: true });
+    observer.observe(r, { childList: true, subtree: true, characterData: true });
     document.addEventListener('keydown', onKey);
   });
   onCleanup(() => {

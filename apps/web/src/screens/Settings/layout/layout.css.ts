@@ -3,6 +3,7 @@
 // Tokens only (vars.*), logical properties, forced-colours safe.
 import { globalStyle, style } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
+import { actions as legacyActions, field as legacyField, ghost as legacyGhost } from '../styles.css.ts';
 
 const ring = { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' } as const;
 
@@ -63,8 +64,8 @@ export const row = style({
 export const rowLabel = style({ fontSize: '0.9rem', fontWeight: vars.weight.medium, cursor: 'pointer', gridColumn: 1 });
 export const rowHelp = style({ fontSize: '0.78rem', color: vars.color.textDim, margin: 0, gridColumn: 1, gridRow: 2 });
 export const rowControl = style({
-  gridColumn: 2, gridRow: '1 / span 2', display: 'flex', alignItems: 'center', justifyContent: 'flex-end', gap: vars.space[2], flexWrap: 'wrap',
-  '@container': { '(max-width: 22rem)': { gridColumn: 1, gridRow: 'auto', justifyContent: 'flex-start' } },
+  gridColumn: 2, gridRow: '1 / span 2', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '2px',
+  '@container': { '(max-width: 22rem)': { gridColumn: 1, gridRow: 'auto', alignItems: 'flex-start' } },
 });
 export const rowReset = style({
   font: 'inherit', fontSize: '0.75rem', cursor: 'pointer', background: 'transparent', color: vars.color.textDim, border: 0, textDecoration: 'underline', padding: vars.space[1],
@@ -75,22 +76,31 @@ globalStyle(`${rowControl} select, ${rowControl} input:not([type="checkbox"])`, 
 globalStyle(`${rowControl} input[type="checkbox"]`, { inlineSize: '1.25rem', blockSize: '1.25rem', accentColor: vars.color.accent, cursor: 'pointer' });
 
 // ---- DOM-driven states (set by SettingsToolbar on any section's cards) ----
-globalStyle('[data-kit-grid]', {
+// Doubled attribute: must out-rank the section container's flex column rule.
+globalStyle('[data-kit-grid][data-kit-grid]:not([hidden])', {
   display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(22rem, 100%), 1fr))', gap: vars.space[4], alignItems: 'start',
 });
 globalStyle('[data-kit-grid] > :not([data-kit-card])', { gridColumn: '1 / -1' });
 globalStyle('[data-kit-card]', { scrollMarginBlockStart: '7rem', minInlineSize: 0 });
+// The heading row is the toggle: an invisible button laid over it, so the
+// heading's own text nodes stay where their reactive bindings expect them.
+globalStyle('[data-kit-head]', { position: 'relative', paddingInlineEnd: '1.5rem' });
 globalStyle('[data-kit-toggle]', {
-  display: 'flex', inlineSize: '100%', alignItems: 'center', justifyContent: 'space-between', gap: vars.space[2],
-  font: 'inherit', color: 'inherit', background: 'transparent', border: 0, padding: 0, margin: 0, textAlign: 'start', cursor: 'pointer',
+  position: 'absolute', inset: 0, inlineSize: '100%', blockSize: '100%', maxInlineSize: 'none', background: 'transparent', border: 0, padding: 0, margin: 0, cursor: 'pointer', color: 'inherit',
 });
 globalStyle('[data-kit-toggle]:focus-visible', ring);
 globalStyle('[data-kit-toggle]::after', {
-  content: '""', flex: '0 0 auto', inlineSize: '0.5rem', blockSize: '0.5rem', borderInlineEnd: '2px solid currentColor', borderBlockEnd: '2px solid currentColor',
-  transform: 'rotate(45deg)', marginInlineEnd: '0.25rem', transition: 'transform 120ms',
+  content: '""', position: 'absolute', insetInlineEnd: '0.25rem', insetBlockStart: '0.55rem', inlineSize: '0.5rem', blockSize: '0.5rem',
+  borderInlineEnd: '2px solid currentColor', borderBlockEnd: '2px solid currentColor', transform: 'rotate(45deg)', transition: 'transform 120ms',
 });
 globalStyle('[data-kit-collapsed="true"] [data-kit-toggle]::after', { transform: 'rotate(-45deg)' });
 globalStyle('[data-kit-collapsed="true"] > :not([data-kit-head])', { display: 'none' });
 globalStyle('[data-kit-searching] [data-kit-collapsed="true"] > :not([data-kit-head])', { display: 'revert' });
 globalStyle('[data-kit-hidden]', { display: 'none !important' });
 globalStyle('[data-kit-match]', { boxShadow: `inset 3px 0 0 ${vars.color.accent}` });
+
+// Existing (not yet row-migrated) fields inside a card: the trailing "Use
+// administrator default" reset reads as a quiet link, not a full-height button.
+globalStyle(`[data-kit-card] .${legacyField} > .${legacyGhost}:last-child:not(:only-child), [data-kit-card] .${legacyField} > .${legacyActions} > .${legacyGhost}:only-child`, {
+  minBlockSize: 'auto', padding: '2px 6px', fontSize: '0.75rem', borderColor: 'transparent', color: vars.color.textDim, textDecoration: 'underline', alignSelf: 'flex-start',
+});

@@ -14,7 +14,7 @@ beforeEach(()=>{
 });
 afterEach(()=>{vi.unstubAllGlobals();clearSettings();});
 const mount=()=>render(()=><RetainedSettingsSection name="reader" active accountBound={false}>{()=><><ReaderAppearanceSettings/></>}</RetainedSettingsSection>);
-const cardToggle=async()=>(await screen.findByRole('heading',{name:t('reader-card-loading')})).querySelector('button')!;
+const cardToggle=async()=>(await screen.findByRole('heading',{name:t('reader-card-loading')})).closest('header')!.querySelector<HTMLElement>('[data-kit-toggle]')!;
 const ALL_KEYS=['colorMode','fontSize','lineHeight','contentWidth','zoom','actionStyle','attachmentsDensity','attachmentsCollapsed','loading','loadingDelayMs'];
 
 it('shows every message display setting exactly once, grouped into cards',async()=>{
