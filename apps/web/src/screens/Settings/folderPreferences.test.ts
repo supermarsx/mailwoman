@@ -1,8 +1,8 @@
 import {expect,it} from 'vitest';
 import {FOLDER_ICONS} from '../../api/accountPreferences.ts';
 import {folderIcon,folderIsHidden,shownFolderIds,folderPathLabel,moveFolder,orderedFolders} from './folderPreferenceModel.ts';
-it('offers fifty native custom icons and role-specific defaults',()=>{
- expect(new Set(FOLDER_ICONS).size).toBe(50);
+it('offers seventy-five native custom icons and role-specific defaults',()=>{
+ expect(new Set(FOLDER_ICONS).size).toBe(75);
  expect(folderIcon({id:'a',name:'Inbox',role:'inbox'},{})).toBe('inbox');
  expect(folderIcon({id:'b',name:'Sent',role:'sent'},{})).toBe('sent');
  expect(folderIcon({id:'b',name:'Sent',role:'sent'},{folderIcons:{b:'star'}})).toBe('star');
@@ -31,4 +31,16 @@ it('hides descendants by parent IDs, protects Inbox and terminates cyclic folder
  const prefs={folderHidden:['a','i'],folderPinned:['b']};
  expect(folders.map(folder=>folderIsHidden(folder,folders,prefs))).toEqual([false,true,true,true,false,false]);
  expect(shownFolderIds(folders[3]!,folders,['a','b','c','x'])).toEqual(['x']);
+});
+import {FOLDER_ICON_GROUPS} from './folderPreferenceModel.ts';
+import {ICON_NAMES} from '../../components/Icon.tsx';
+const NEW_ICONS=['camera','music','film','lightbulb','rocket','trophy','leaf','globe','cloud','bookmark','wallet','medical','bell','key','receipt','cart','package','wrench','chart','team','store','office','laptop','crown','family'];
+it('adds 25 new icons, each drawn, grouped exactly once, and unknown stored ids fall back',()=>{
+ expect(NEW_ICONS).toHaveLength(25);
+ for(const id of NEW_ICONS){expect(FOLDER_ICONS as readonly string[]).toContain(id);}
+ for(const id of FOLDER_ICONS)expect(ICON_NAMES).toContain(id);
+ const grouped=FOLDER_ICON_GROUPS.flatMap(group=>group.icons);
+ expect([...grouped].sort()).toEqual([...FOLDER_ICONS].sort());
+ expect(folderIcon({id:'a',name:'A'},{folderIcons:{a:'nope' as never}})).toBe('folder');
+ expect(folderIcon({id:'a',name:'A',role:'trash'},{folderIcons:{a:'rocket'}})).toBe('rocket');
 });

@@ -54,6 +54,31 @@ const FOLDER_ICONS: &[&str] = &[
     "gift",
     "bank",
     "book",
+    "camera",
+    "music",
+    "film",
+    "lightbulb",
+    "rocket",
+    "trophy",
+    "leaf",
+    "globe",
+    "cloud",
+    "bookmark",
+    "wallet",
+    "medical",
+    "bell",
+    "key",
+    "receipt",
+    "cart",
+    "package",
+    "wrench",
+    "chart",
+    "team",
+    "store",
+    "office",
+    "laptop",
+    "crown",
+    "family",
 ];
 
 const MAX_BYTES: usize = 65_536;
@@ -368,8 +393,8 @@ mod tests {
         assert!(!super::valid(&document));
     }
     #[test]
-    fn all_fifty_native_icons_are_valid_account_preferences() {
-        assert_eq!(super::FOLDER_ICONS.len(), 50);
+    fn all_seventy_five_native_icons_are_valid_account_preferences() {
+        assert_eq!(super::FOLDER_ICONS.len(), 75);
         for icon in super::FOLDER_ICONS {
             let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"folderIcons":{"inbox":icon},"tags":{"work":{"name":"Work","color":"#112233","icon":icon}}}})).unwrap();
             assert!(super::valid(&document), "{icon}");

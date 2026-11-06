@@ -1,5 +1,5 @@
 import type { IconName } from '../../components/Icon.tsx';
-import { FOLDER_ICONS, type AccountUiPreferences } from '../../api/accountPreferences.ts';
+import { FOLDER_ICONS, type AccountUiPreferences, type FolderIcon } from '../../api/accountPreferences.ts';
 export interface PreferenceFolder { parentId?: string | null; mailwomanUpstreamName?: string; mailwomanPath?: string; id: string; name: string; role?: string | null; mailwomanSearchQuery?: string }
 /** Hiding a parent hides its descendants from navigation, never from management.
  * Inbox remains reachable even if stale preferences mention it. Cycles terminate. */
@@ -43,3 +43,14 @@ export function moveFolder(ids: readonly string[], id: string, target: string): 
   next.splice(ids.indexOf(target), 0, id);
   return next;
 }
+
+/** Picker sections; every FOLDER_ICONS id sits in exactly one (tested). */
+export const FOLDER_ICON_GROUPS: ReadonlyArray<{id:string;icons:readonly FolderIcon[]}> = [
+  {id:'general',icons:['folder','star','flag','tag','clock','calendar','file','image','lock','unlock','pin','link','shield','check','alert','attachment','search','bookmark','globe','cloud']},
+  {id:'mail',icons:['mail','inbox','sent','edit','delete','spam','archive','print','download','bell']},
+  {id:'work',icons:['briefcase','users','team','office','laptop','store','analytics','chart','dashboard','logs','preferences','crown','trophy','rocket','lightbulb','fileAudio','fileVideo','filePdf','fileCode']},
+  {id:'finance',icons:['bank','wallet','receipt','cart','shopping','package','twofactor','key']},
+  {id:'travel',icons:['travel','home','coffee','leaf']},
+  {id:'personal',icons:['heart','gift','book','education','family','music','film','camera','medical']},
+  {id:'tech',icons:['wrench','nextcloud','domains','assistant','integrations']},
+];

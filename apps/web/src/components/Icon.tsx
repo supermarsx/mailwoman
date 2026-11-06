@@ -18,6 +18,7 @@ export type IconName =
   | 'mailboxes' | 'signature' | 'compose' | 'mailCheck' | 'transfer' | 'palette' | 'keyboard' | 'bell' | 'package' | 'key'
   | 'office' | 'laptop' | 'team' | 'store' | 'chart' | 'heartHome' | 'person' | 'smile' | 'gear' | 'crown' | 'wrench' | 'bolt' | 'receipt' | 'cart' | 'family'
   | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
+  | 'camera' | 'music' | 'film' | 'lightbulb' | 'rocket' | 'trophy' | 'leaf' | 'globe' | 'cloud' | 'bookmark' | 'wallet' | 'medical'
   | 'identityProvider'
   | 'shield'
   | 'fileAudio' | 'fileVideo' | 'filePdf' | 'fileCode'
@@ -454,6 +455,19 @@ const PATHS: Record<IconName, () => JSX.Element> = {
       <path d="M2.5 9 H13.5 Q12.5 13 8 14.5 Q3.5 13 2.5 9 Z" {...F} />
     </>
   ),
+  // Folder appearance glyphs (16 px grid, 2 px stroke, currentColor).
+  camera: () => <><path d="M1.5 5 H4 L5.5 3 H10.5 L12 5 H14.5 V13 H1.5 Z" {...S} /><circle cx="8" cy="9" r="2.5" {...S} /></>,
+  music: () => <><path d="M6 12 V3 L13 1.5 V10.5" {...S} /><circle cx="4" cy="12" r="2" {...F} /><circle cx="11" cy="10.5" r="2" {...F} /></>,
+  film: () => <path d="M1.5 2.5 H14.5 V13.5 H1.5 Z M5 2.5 V13.5 M11 2.5 V13.5 M1.5 6 H5 M1.5 10 H5 M11 6 H14.5 M11 10 H14.5" {...S} />,
+  lightbulb: () => <path d="M5.5 11 Q2 8 4 4 Q8 0 12 4 Q14 8 10.5 11 Z M6 13.5 H10 M7 15 H9" {...S} />,
+  rocket: () => <path d="M8 1 Q12 4 11 10 H5 Q4 4 8 1 Z M5 8 L2.5 11 H5 M11 8 L13.5 11 H11 M7 13 L8 15 L9 13" {...S} />,
+  trophy: () => <path d="M4 2 H12 V6 A4 4 0 0 1 4 6 Z M4 3.5 H1.5 Q1.5 7 4 7 M12 3.5 H14.5 Q14.5 7 12 7 M8 10 V13 M5 14.5 H11" {...S} />,
+  leaf: () => <path d="M2 14 Q2 3 14 2 Q15 13 4 14 Z M2 14 L9 7" {...S} />,
+  globe: () => <><circle cx="8" cy="8" r="6.5" {...S} /><path d="M1.5 8 H14.5 M8 1.5 Q4 8 8 14.5 M8 1.5 Q12 8 8 14.5" {...S} /></>,
+  cloud: () => <path d="M4.5 13 A3 3 0 0 1 4 7 A4.5 4.5 0 0 1 12.5 6.5 A3.25 3.25 0 0 1 12 13 Z" {...S} />,
+  bookmark: () => <path d="M3.5 1.5 H12.5 V14.5 L8 11 L3.5 14.5 Z" {...S} />,
+  wallet: () => <><path d="M1.5 4 Q1.5 2.5 3 2.5 H12 V5 M1.5 4 V13 H14.5 V5 H3 Q1.5 5 1.5 4" {...S} /><circle cx="11.5" cy="9" r="1" {...F} /></>,
+  medical: () => <path d="M5.5 1.5 H10.5 V5.5 H14.5 V10.5 H10.5 V14.5 H5.5 V10.5 H1.5 V5.5 H5.5 Z" {...S} />,
   // A key: a filled bow and a stroked shaft with two teeth, for registered clients.
   oauthClients: () => (
     <>

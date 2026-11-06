@@ -17,12 +17,12 @@ it('keeps hidden folders manageable and restores their hidden ancestors without 
  fireEvent.click(screen.getByRole('checkbox',{name:'Collapse user folders in the sidebar'}));
  expect(update).toHaveBeenLastCalledWith({userFoldersCollapsed:false});
 });
-it('offers fifty native icons plus automatic and saves only the changed folder preference',async()=>{
+it('offers seventy-five native icons plus automatic and saves only the changed folder preference',async()=>{
  const [prefs,setPrefs]=createSignal<AccountUiPreferences>({});const update=vi.fn((patch:AccountUiPreferences)=>setPrefs(value=>({...value,...patch})));
  render(()=><FolderPreferences folders={()=>[{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]} preferences={prefs} onChange={update}/>);
  expect(screen.queryByRole('combobox')).toBeNull();
  fireEvent.click(await screen.findByRole('button',{name:'Edit Projects appearance'}));
- const select=await screen.findByRole('radiogroup',{name:'Icon for Projects'});expect(select.querySelectorAll('[role=radio]')).toHaveLength(51);expect(select.querySelectorAll('svg')).toHaveLength(51);
+ const select=await screen.findByRole('radiogroup',{name:'Icon for Projects'});expect(select.querySelectorAll('[role=radio]')).toHaveLength(76);expect(select.querySelectorAll('svg')).toHaveLength(76);
  fireEvent.click(screen.getByRole('radio',{name:'Star'}));expect(update).not.toHaveBeenCalled();
  fireEvent.click(screen.getByRole('button',{name:'Save folder appearance'}));expect(update).toHaveBeenLastCalledWith({folderIcons:{a:'star'}});
  await waitFor(()=>expect(screen.getByRole('table')).toBeVisible());

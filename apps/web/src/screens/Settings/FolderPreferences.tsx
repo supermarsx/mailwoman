@@ -1,6 +1,7 @@
 import {createEffect, createMemo, createSignal, For, onCleanup, onMount, Show, useContext, type Accessor, type JSX} from 'solid-js';
 import {AppContext} from '../../state/context.ts';
 import {QuotaDetails} from '../../components/QuotaMeter.tsx';
+import {FolderIconPicker} from './FolderIconPicker.tsx';
 import {FolderRoles} from './FolderRoles.tsx';
 import {FolderCountPreferences} from './FolderCountPreferences.tsx';
 import {FocusedInboxPreference} from './FocusedInboxPreference.tsx';
@@ -11,7 +12,7 @@ import {CreateFolderDialog} from '../../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../../components/RenameFolder.tsx';
 import {createContextMenu, type ContextAction} from '../../components/ContextMenu.tsx';
 import type {Tag} from '../../state/slices/tags.ts';
-import {accountUiPreferences, accountUiPreferenceStatus, FOLDER_ICONS, retryAccountUiPreferences, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
+import {accountUiPreferences, accountUiPreferenceStatus, retryAccountUiPreferences, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
 import {observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
@@ -45,7 +46,7 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
   <h3 class={css.heading}>{t('settings-folders-edit',{name:props.folder.name})}</h3>
   <p class={css.meta}>{t('settings-folders-icon-help')}</p>
   <div class={css.field}><span>{t('settings-folders-icon',{name:props.folder.name})}</span>
-   <div role="radiogroup" aria-label={t('settings-folders-icon',{name:props.folder.name})} class={folderCss.iconGrid}><For each={['',...FOLDER_ICONS] as const}>{id=><button type="button" role="radio" aria-checked={draft()===id} disabled={pending()} class={css.ghost} title={id?t(`settings-folder-icon-${id}`):t('settings-folders-automatic')} aria-label={id?t(`settings-folder-icon-${id}`):t('settings-folders-automatic')} tabIndex={draft()===id?0:-1} onKeyDown={event=>{const buttons=Array.from(event.currentTarget.parentElement!.querySelectorAll<HTMLButtonElement>('[role=radio]'));const at=buttons.indexOf(event.currentTarget);const next=event.key==='ArrowRight'||event.key==='ArrowDown'?(at+1)%buttons.length:event.key==='ArrowLeft'||event.key==='ArrowUp'?(at+buttons.length-1)%buttons.length:event.key==='Home'?0:event.key==='End'?buttons.length-1:null;if(next!==null){event.preventDefault();buttons[next]?.click();buttons[next]?.focus({preventScroll:true});}}} onClick={()=>setDraft(id)}><Icon name={id||folderIcon(props.folder,{})}/></button>}</For></div>
+   <FolderIconPicker label={t('settings-folders-icon',{name:props.folder.name})} value={draft()} disabled={pending()} automaticIcon={folderIcon(props.folder,{})} onChange={setDraft}/>
   </div>
   <p><Icon name={draft()||folderIcon(props.folder,{})}/> {props.folder.name}</p>
   <Show when={choices().length}><fieldset class={css.section}><legend>{t('settings-folder-labels')}</legend><p class={css.meta}>{t('settings-folder-labels-help')}</p><For each={choices()}>{id=><label class={css.check}><input class={css.checkbox} type="checkbox" checked={labels().includes(id)} disabled={pending()||(!labels().includes(id)&&labels().length>=32)} onChange={event=>setLabels(value=>event.currentTarget.checked?[...value,id]:value.filter(label=>label!==id))}/>{props.tags().find(tag=>tag.id===id)?.name??id}</label>}</For></fieldset></Show>
