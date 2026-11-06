@@ -107,3 +107,86 @@ contacts-merge-confirm = دمج جهات الاتصال
 contacts-no-duplicates = لم يُعثر على تكرارات.
 contacts-possible-duplicates = تكرارات محتملة: { $count }
 contacts-review-merge = مراجعة الدمج
+
+# -- Machine translation (2026-11): added to match en ---------------------
+contacts-address-card = تفاصيل جهة الاتصال
+contacts-address-recipients = إظهار المستلمين
+contacts-address-save = حفظ جهة الاتصال
+contacts-address-compose = إرسال بريد إلكتروني
+contacts-address-unsaved = هذا العنوان غير محفوظ في جهات اتصالك.
+contacts-address-book = دفتر العناوين
+contacts-address-lookup-failed = تعذّر تحميل معلومات جهة الاتصال. أعد المحاولة.
+contacts-address-save-failed = تعذّر حفظ جهة الاتصال. أعد المحاولة.
+contacts-address-saved = تم حفظ جهة الاتصال.
+contacts-address-loading = جارٍ تحميل جهة الاتصال…
+contacts-editor-person = الاسم والعمل
+contacts-editor-reach = البريد والهاتف
+contacts-editor-other = الملاحظات والتفضيلات
+contacts-editor-save-error = تعذّر حفظ جهة الاتصال. ما زالت تغييراتك هنا. أعد المحاولة.
+contacts-group-editor-help = أنشئ مجموعة في دفتر عناوين، ثم أضف الأعضاء من بطاقات جهات الاتصال.
+contacts-group-details = تفاصيل المجموعة
+contacts-group-save-error = تعذّر حفظ المجموعة. ما زالت تغييراتك هنا. أعد المحاولة.
+contacts-edit-group = تحرير مجموعة جهات الاتصال
+contacts-edit-named-group = تحرير المجموعة { $name }
+contacts-group-name = اسم المجموعة
+contacts-group-edit-help = حدّث اسم هذه المجموعة. يبقى دفتر العناوين والأعضاء كما هما.
+contacts-back-to-list = العودة إلى جهات الاتصال
+contacts-membership-title = أعضاء المجموعة
+contacts-membership-help = اختر مجموعة، ثم أضف أعضاءها أو أزلهم. تُحفظ التغييرات فور إجرائها.
+contacts-membership-no-groups = لا توجد مجموعات بعد. أنشئ مجموعة لبدء إضافة الأعضاء.
+contacts-membership-pick = اختر مجموعة لعرض أعضائها.
+contacts-membership-of = أعضاء { $name }
+contacts-membership-members = الأعضاء
+contacts-membership-add = اكتب اسمًا أو عنوانًا لإضافة عضو
+contacts-membership-add-group = اكتب اسم مجموعة لإضافة جهة الاتصال هذه
+contacts-membership-failed = تعذّر حفظ بعض تغييرات الأعضاء. تعرض القائمة ما هو محفوظ.
+contacts-membership-manage = إدارة أعضاء المجموعة
+contacts-import-source = المصدر
+contacts-import-book = دفتر العناوين
+contacts-import-review = مراجعة
+contacts-import-empty = اختر ملفًا أو الصق نص vCard أو CSV، ثم اختر «معاينة». تُدرج جهات الاتصال التي عُثر عليها هنا، ويمكنك استبعاد أي منها.
+contacts-merge-sets = تكرارات محتملة
+contacts-merge-set = نسخ مكررة من { $name }
+contacts-merge-keep = البطاقة المراد إبقاؤها
+contacts-merge-done = تم الدمج في { $name }.
+contacts-address-actions = إجراءات جهة الاتصال
+contacts-address-save-to = حفظ في جهات الاتصال
+contacts-address-goto = الانتقال إلى جهة الاتصال
+contacts-address-copy = نسخ معلومات جهة الاتصال
+contacts-address-copied = تم نسخ معلومات جهة الاتصال.
+contacts-address-copy-failed = تعذّر نسخ معلومات جهة الاتصال.
+contacts-share = مشاركة جهة الاتصال
+contacts-share-email = إرسال جهة الاتصال بالبريد
+contacts-share-copy = نسخ بصيغة vCard
+contacts-share-download = تنزيل .vcf
+contacts-share-native = مشاركة…
+contacts-share-copied = تم نسخ vCard.
+contacts-share-copy-failed = تعذّر نسخ vCard.
+contacts-share-downloaded = تم تنزيل vCard.
+contacts-share-failed = تعذّرت مشاركة جهة الاتصال.
+contacts-share-attach-failed = تعذّر إرفاق ملف .vcf، لذا جاءت vCard ضمن نص الرسالة.
+contacts-address-saved-favorite = تم حفظ جهة الاتصال وإضافتها إلى المفضلة.
+contacts-favorite-add = إضافة إلى المفضلة
+contacts-favorite-remove = إزالة من المفضلة
+contacts-favorite-save = حفظ وإضافة إلى المفضلة
+contacts-favorite-added = تمت إضافة { $name } إلى المفضلة.
+contacts-favorite-removed = تمت إزالة { $name } من المفضلة.
+contacts-favorite-failed = تعذّر تحديث المفضلة.
+contacts-select-row = تحديد { $name }
+contacts-selected-count = تم تحديد { $count }
+contacts-select-clear = مسح التحديد
+contacts-bulk-actions = إجراءات جهات الاتصال المحددة
+contacts-bulk-favorites-added = تمت إضافة { $count } إلى المفضلة.
+contacts-bulk-favorites-removed = تمت إزالة { $count } من المفضلة.
+contacts-row-menu = إجراءات { $name }
+contacts-favorites-empty = لا توجد مفضلة بعد. استخدم النجمة على جهة اتصال لإضافتها.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+contacts-membership-count = { $count ->
+    [zero] لا أعضاء
+    [one] عضو واحد
+    [two] عضوان
+    [few] { $count } أعضاء
+    [many] { $count } عضوًا
+   *[other] { $count } عضو
+}

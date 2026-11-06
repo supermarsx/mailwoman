@@ -95,3 +95,77 @@ common-viewer-no-preview = لا تتوفر معاينة مضمّنة لهذا ا
 common-viewer-unknown-type = نوع غير معروف
 common-viewer-download = تنزيل
 common-viewer-attachments = المرفقات
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-retrying = جارٍ إعادة المحاولة…
+common-waiting-online = في انتظار الاتصال…
+common-failure-offline = أنت غير متصل. أعد الاتصال ثم أعد المحاولة.
+common-failure-network = تعذّر الوصول إلى الخادم.
+common-failure-server = لم يستجب الخادم في الوقت المناسب.
+common-failure-rate = طلبات كثيرة جدًا في وقت قصير. انتظر قليلًا ثم أعد المحاولة.
+common-failure-conflict = تغيّر هذا في مكان آخر في الوقت نفسه. أعد التحميل ثم أعد المحاولة.
+common-failure-account = تغيّر الحساب الذي سجّلت الدخول به. أعد تحميل الصفحة.
+common-failure-linked = هذا غير متاح أثناء فتح صندوق بريد مرتبط.
+common-failure-refused = رفض الخادم التغيير.
+common-new-version = يتوفر إصدار جديد من Mailwoman. سيذكّرك إغلاق هذا التنبيه مرة أخرى بعد ساعة.
+common-new-version-reload = إعادة التحميل الآن
+common-toast-close = إغلاق الإشعار
+common-toast-seconds = { $seconds } ث
+common-attach-refresh = تحديث المرفقات
+common-attach-open-message = فتح الرسالة التي تحتوي على هذا المرفق
+common-attach-page-filter-note = تنطبق عوامل التصفية على هذه الصفحة. استخدم «التالي» لتصفح الرسائل الأقدم التي تحتوي على مرفقات.
+common-attach-pages = صفحات المرفقات
+common-attach-previous = السابق
+common-attach-next = التالي
+common-attach-page = الصفحة { $page }
+common-attach-column-name = الملف
+common-attach-column-type = النوع
+common-attach-column-size = الحجم
+common-attach-column-sender = المرسِل
+common-attach-column-subject = الموضوع
+common-attach-column-date = تاريخ الاستلام
+common-pdf-preview = معاينة PDF
+common-pdf-link-title = فتح الرابط من ملف PDF هذا؟
+common-pdf-link-help = سيفتح هذا الوجهة في علامة تبويب جديدة خارج Mailwoman.
+common-pdf-link-open = فتح الرابط
+common-open-event = فتح الحدث
+common-message-preview-too-large = معاينة مرفقات الرسائل محدودة بـ 4 MiB. ما زال بإمكانك تنزيل المرفق الأصلي.
+common-message-preview-failed = تعذّرت معاينة مرفق الرسالة هذا. قد يكون الملف غير مدعوم أو تالفًا، أو قد تكون خدمة المعاينة غير متاحة. ما زال بإمكانك تنزيل الملف الأصلي.
+common-message-preview-attachments = الملفات داخل هذه الرسالة
+common-message-preview-download = تنزيل الملف
+common-message-preview-size-bytes = { $count } بايت
+common-attach-cat-message = الرسائل / مرفقات Outlook
+common-error-retry-help = هذا القسم غير متاح مؤقتًا. أعد المحاولة لإعادة تحميله.
+common-error-network-help = تحقق من اتصالك ثم أعد المحاولة. قد يكون الخادم غير متاح مؤقتًا.
+common-error-page = تعذّر تحميل هذه الصفحة
+common-error-page-help = تعذّر تنزيل أحد موارد الصفحة. أعد المحاولة. إذا استمرت المشكلة فأعد تحميل التطبيق للحصول على أحدث إصدار.
+common-reload-app = إعادة تحميل التطبيق
+common-new-version-reloading = يتوفر إصدار جديد، جارٍ إعادة التحميل…
+common-attach-account-changed = تغيّر الحساب أثناء تحميل المرفقات. أعد فتح المرفقات للحساب الحالي.
+common-attach-search-account = البحث في الحساب بأكمله
+common-attach-scanning = جارٍ البحث… تم فحص { $pages } من صفحات الرسائل · عُثر على { $count } من الملفات
+common-attach-scan-cancelled = أُلغي البحث · عُثر على { $count } من الملفات في { $pages } من الصفحات. النتائج غير مكتملة.
+common-attach-scan-incomplete = انقطع البحث · عُثر على { $count } من الملفات. أعد المحاولة للبحث في الحساب بأكمله.
+common-attach-scan-limited = تُعرض أول 1,000 ملف مطابق. ضيّق عوامل التصفية للعثور على ملفات أكثر تحديدًا.
+common-attach-scan-complete = اكتمل البحث · عُثر على { $count } من الملفات عبر { $pages } من صفحات الرسائل
+common-attach-browse-pages = تصفح الصفحات
+common-attach-cancel-search = إلغاء البحث
+multiselect-selected = المحدد: { $label }
+multiselect-remove = إزالة { $label }
+multiselect-no-match = لا توجد خيارات مطابقة
+common-notification-permission-title = السماح بالإشعارات؟
+common-notification-permission-help = احصل على إشعارات بالرسائل الجديدة على هذا الجهاز. يمكنك تغيير ذلك من الإعدادات.
+common-notification-permission-allow = السماح بالإشعارات
+common-notification-permission-later = ليس الآن
+common-notification-permission-error = تعذّر تفعيل الإشعارات. تحقق من إعدادات الإذن والإشعارات ثم أعد المحاولة.
+common-notifications-enabled = تم تفعيل الإشعارات على هذا الجهاز.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+multiselect-count = { $count ->
+    [zero] لا شيء محدد
+    [one] تحديد واحد
+    [two] تحديدان
+    [few] { $count } تحديدات
+    [many] { $count } تحديدًا
+   *[other] { $count } تحديد
+}
