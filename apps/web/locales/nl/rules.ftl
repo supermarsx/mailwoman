@@ -96,3 +96,9 @@ rules-forward-title = Doorsturen
 rules-forward-address = Doorsturen naar
 rules-forward-copy = Een kopie in dit account bewaren
 rules-forward-refused = Uw beheerder staat doorsturen naar dit domein niet toe.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = Opgeslagen. Automatische antwoorden staan uit.
+rules-vacation-runs-server = Uw mailserver verstuurt dit antwoord wanneer er e-mail binnenkomt.
+rules-vacation-runs-engine = Mailwoman verstuurt dit antwoord wanneer nieuwe inbox-e-mail wordt gesynchroniseerd, dus een antwoord kan tot de volgende synchronisatie wachten.
+rules-vacation-unavailable = Afwezigheidsantwoorden zijn niet beschikbaar voor dit account: de mailserver biedt ze niet aan of uw beheerder heeft ze uitgeschakeld.

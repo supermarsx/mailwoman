@@ -50,3 +50,7 @@ sharing-right-e-label = Definitief wissen
 sharing-right-e-desc = Berichten die als verwijderd zijn gemarkeerd definitief verwijderen.
 sharing-right-a-label = Beheren
 sharing-right-a-desc = Wijzigen wie toegang heeft tot deze map.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Deze mailserver ondersteunt het delen van mappen niet.
+sharing-forbidden = U mag het delen van deze map niet beheren. Vraag het de eigenaar of beheerder.
