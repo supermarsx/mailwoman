@@ -1,0 +1,65 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: pt-BR · Module: search. Source: ../en/search.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+search-submit-help = Pesquisar (Enter)
+search-clear-help = Limpar pesquisa (Esc)
+search-filters-label = Filtros de pesquisa
+search-guided-button = Filtros
+search-guided-title = Pesquisa guiada
+search-guided-help = Escolha quem, o quê ou quando procurar. Adicione filtros para refinar os resultados.
+search-include-trash = Incluir Lixeira
+search-add-filter = Adicionar filtro
+search-chip-edit = Editar filtro: { $label }
+search-chip-switch = Alternar filtro: { $label }
+search-chip-remove = Remover filtro: { $label }
+search-chip-negated = não { $value }
+search-field-from = De
+search-field-to = Para
+search-field-cc = Cc
+search-field-subject = Assunto
+search-field-body = Corpo
+search-field-text = Texto
+search-field-filename = Nome do arquivo
+search-field-tag = Marcador
+search-field-date = Data
+search-field-size = Tamanho
+search-field-scope = Pasta
+search-field-expression = Expressão
+search-field-other = Filtro
+search-chip-attachment = Com anexo
+search-chip-no-attachment = Sem anexo
+search-chip-event = Com evento
+search-chip-no-event = Sem evento
+search-chip-unread = Não lidas
+search-chip-read = Lidas
+search-chip-flagged = Sinalizadas
+search-chip-unflagged = Não sinalizadas
+search-chip-pinned = Fixadas
+search-chip-unpinned = Não fixadas
+search-date-after = Depois de
+search-date-before = Antes de
+search-date-between = de { $after } a { $before }
+search-date-since = desde { $date }
+search-date-until = antes de { $date }
+search-date-invalid = Digite as datas no formato AAAA-MM-DD.
+search-size-larger = Maior que
+search-size-smaller = Menor que
+search-size-hint = Por exemplo, 500k ou 2m
+search-size-between = de { $larger } a { $smaller }
+search-size-over = acima de { $size }
+search-size-under = abaixo de { $size }
+search-size-invalid = Digite um tamanho como 500k, 2m ou 1g.
+search-scope-all = Todas as pastas
+search-scope-current = Pasta atual ({ $name })
+search-exclude = Excluir correspondências
+search-apply = Aplicar
+search-cancel = Cancelar
+search-remove = Remover
+search-refine-menu = Pesquisar mensagens relacionadas
+search-refine-sender = Pesquisar mensagens deste remetente
+search-refine-subject = Pesquisar mensagens com este assunto
+search-refine-folder = Pesquisar nesta pasta
+search-refine-domain = Pesquisar mensagens deste domínio
+search-include-trash-scoped = Incluir Lixeira se aplica ao pesquisar em todas as pastas. A pasta selecionada é pesquisada diretamente.
