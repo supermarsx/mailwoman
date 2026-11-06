@@ -11,9 +11,10 @@ const runtime:ImageConcurrencyRuntime={mode:'auto',adaptive:true,cpuCores:4,memo
 const stats:PrivacyStats={cacheEntries:3,cacheBytes:1024,trackersReplaced:0,traffic:[],imageConcurrency:runtime};
 const imageProxyRoute:NonNullable<Parameters<typeof renderInShell>[1]>['route']=()=>({section:'privacy',rest:['image-proxy']});
 const api=(rows:AdminSetting[]=[setting])=>({settings:vi.fn(async()=>({kind:'ok' as const,data:rows,etag:null})),stats:vi.fn(async()=>stats),saveMode:vi.fn(async(mode:string,_etag:string):Promise<AdminSetting>=>({...setting,globalValue:mode,effective:{value:mode,source:'global'},etag:'"mode2"'}))});
-it('shows fractional container CPU capacity without treating it as unavailable',async()=>{
+it('shows fractional container CPU capacity without treating it as unavailable',{timeout:20000},async()=>{
  const service=api();service.stats.mockResolvedValue({...stats,imageConcurrency:{...runtime,cpuCores:1.5}});renderInShell(()=><AdminPrivacy service={service}/>,{route:imageProxyRoute});
- expect(await screen.findByTestId('image-concurrency-runtime')).toHaveTextContent('CPU cores: 1.5');
+ // The first render of the file also loads the screen's lazy chunks; allow for a loaded machine.
+ expect(await screen.findByTestId('image-concurrency-runtime',{},{timeout:10000})).toHaveTextContent('CPU cores: 1.5');
 });
 it('saves a themed preset with one enum write and shows real effective capacity separately from ceilings',async()=>{
  const service=api();renderInShell(()=><AdminPrivacy service={service}/>,{route:imageProxyRoute});
