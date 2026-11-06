@@ -27,6 +27,13 @@ pub(crate) const SECTIONS: &[&str] = &[
     "calendars",
     "notes",
     "rules",
+    "mailstate",
+    "tasks",
+    "security",
+    "integrations",
+    "delegation",
+    "usage",
+    "records",
     "sessions",
     "consent",
     "audit",
@@ -277,6 +284,14 @@ pub(crate) async fn build_section(
             files.push(("audit.json".into(), pretty(&json!(rows))));
             with_csv(&mut files, opts, "audit", &rows, &["id", "ts", "actor", "actorKind", "action", "target"]);
         }
+        "mailstate" | "tasks" | "security" | "integrations" | "delegation" | "usage" | "records" => {
+            // Table-driven sections come from the data map. Sealed secrets are
+            // listed as "present, not exported" markers, never their content.
+            let p = person_ids(state, s).await.map_err(err)?;
+            let rows = store.dsr_export_table_section(name, &p).await.map_err(err)?;
+            count = rows.len();
+            files.push((format!("{name}.json"), pretty(&json!(rows))));
+        }
         "requests" => {
             count = requests.len();
             files.push(("data-requests.json".into(), pretty(&json!(requests))));
@@ -477,8 +492,31 @@ pub(crate) struct Erased {
     pub remaining: u64,
 }
 
+/// The identifiers of a subject, with the principals resolved.
+pub(crate) async fn person_ids(
+    state: &AppState,
+    s: &Subj,
+) -> Result<mw_store::erasure::PersonIds, mw_store::StoreError> {
+    let principals = state
+        .store
+        .dsr_resolve_principals(&s.account_ids, &s.address)
+        .await?;
+    Ok(mw_store::erasure::PersonIds {
+        address: s.address.clone(),
+        account_ids: s.account_ids.clone(),
+        owners: s.owners.clone(),
+        principals,
+    })
+}
+
 /// Delete one person's data from every store this server holds.
-pub(crate) async fn erase(state: &AppState, s: &Subj) -> Erased {
+///
+/// The rows are found through the data map (`mw_store::data_map`); the verify
+/// pass counts the same registry, so a table that is only mapped is checked too.
+/// A tombstone (a keyed hash of the address) is written when the erasure is clean,
+/// and the person's identifiers are scrubbed from audit and log history when
+/// `scrub.autoRunOnErasure` is on.
+pub(crate) async fn erase(state: &AppState, s: &Subj, request_id: Option<&str>) -> Erased {
     let store = &state.store;
     let mut out = Erased::default();
     let add = |out: &mut Erased, k: &str, n: u64| {
@@ -486,45 +524,37 @@ pub(crate) async fn erase(state: &AppState, s: &Subj) -> Erased {
             *out.counts.entry(k.into()).or_insert(0) += n;
         }
     };
+    let people = match person_ids(state, s).await {
+        Ok(p) => p,
+        Err(e) => {
+            out.errors.push(format!("principals: {e}"));
+            return out;
+        }
+    };
     // Search index and embeddings first: they key on the account ids.
     for id in &s.account_ids {
         if let Some(engine) = &state.engine {
             add(&mut out, "search_index_documents", engine.erase_account_index(id));
         }
-        match store.delete_account_message_embeddings(id).await {
-            Ok(n) => add(&mut out, "message_embeddings", n as u64),
-            Err(e) => out.errors.push(format!("message_embeddings: {e}")),
-        }
-        match store.dsr_delete_consent(id).await {
-            Ok(n) => add(&mut out, "cookie_consent", n),
-            Err(e) => out.errors.push(format!("cookie_consent: {e}")),
-        }
-    }
-    let (counts, errors) = store
-        .dsr_purge_personal(&s.account_ids, &s.owners, &s.address)
-        .await;
-    for (k, n) in counts {
-        add(&mut out, &k, n);
-    }
-    out.errors.extend(errors);
-    // Sessions, then the native account rows (their cascade removes the local
-    // mail cache and PIM rows), then the directory entry is closed.
-    for id in &s.account_ids {
+        // In-memory sessions are dropped before the rows that name them go.
         match store.sessions_by_account(id).await {
             Ok(sessions) => {
                 for sess in sessions {
-                    let _ = store.delete_session(&sess.id).await;
                     state.sessions.forget(&sess.id);
-                    add(&mut out, "sessions", 1);
                 }
             }
             Err(e) => out.errors.push(format!("sessions: {e}")),
         }
-        match store.dsr_delete_native_account(id).await {
-            Ok(n) => add(&mut out, "accounts", n),
-            Err(e) => out.errors.push(format!("accounts: {e}")),
+        match store.delete_account_message_embeddings(id).await {
+            Ok(n) => add(&mut out, "message_embeddings", n as u64),
+            Err(e) => out.errors.push(format!("message_embeddings: {e}")),
         }
     }
+    let (counts, errors) = store.dsr_purge_person(&people).await;
+    for (k, n) in counts {
+        add(&mut out, &k, n);
+    }
+    out.errors.extend(errors);
     match store.user_lifecycle(&s.address).await {
         Ok(Some(l)) if l.status != "deleted" => {
             let now = chrono::Utc::now().timestamp();
@@ -542,11 +572,29 @@ pub(crate) async fn erase(state: &AppState, s: &Subj) -> Erased {
         Ok(_) => {}
         Err(e) => out.errors.push(format!("directory: {e}")),
     }
-    // Verify: a second pass over the same tables must find nothing.
-    let (again, _) = store
-        .dsr_purge_personal(&s.account_ids, &s.owners, &s.address)
-        .await;
-    out.remaining = again.values().sum();
+    // Verify: the registry's count of every rule must find nothing.
+    let (left, verify_errors) = store.dsr_verify_checked(&people).await;
+    out.errors.extend(verify_errors);
+    out.remaining = left.values().sum();
+    if out.errors.is_empty() && out.remaining == 0 {
+        let now = chrono::Utc::now().timestamp();
+        match store.erasure_record(&s.address, "erasure", request_id, now).await {
+            Ok(_) => add(&mut out, "erasure_tombstone", 1),
+            Err(e) => out.errors.push(format!("tombstone: {e}")),
+        }
+        let cfg = crate::scrub_admin::ScrubConfig::load(state).await;
+        if cfg.enabled && cfg.auto_on_erasure {
+            match crate::scrub_admin::scrub_subject(state, s, &cfg, false, request_id).await {
+                Ok(r) => {
+                    for (k, n) in r.counts {
+                        add(&mut out, &format!("scrubbed:{k}"), n);
+                    }
+                    out.errors.extend(r.errors);
+                }
+                Err(e) => out.errors.push(format!("scrub: {e}")),
+            }
+        }
+    }
     out
 }
 

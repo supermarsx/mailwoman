@@ -382,6 +382,7 @@ pub(crate) async fn run(state: &AppState, dry_run: bool, by: &str) -> Report {
     if dry_run {
         return report;
     }
+    crate::scrub_admin::housekeeping(state).await;
     let total = report.total();
     let threshold = num(&state.store, "retention.sweeper.vacuumAfterRows").await;
     if threshold > 0 && total >= threshold as u64 {

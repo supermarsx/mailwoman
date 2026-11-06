@@ -894,6 +894,14 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="dsr.onbehalf.allowed"></a>`dsr.onBehalf.allowed` | privacy | global+domain | true | plain |  | yes | admins may file a request for a user |
 | <a id="dsr.ratelimit.perday"></a>`dsr.rateLimit.perDay` | privacy | global+domain | 5 | plain |  | yes | requests one person may file per day |
 | <a id="dsr.legalhold.subjects"></a>`dsr.legalHold.subjects` | privacy | global | [] | plain |  | yes | addresses and @domains under legal hold |
+| <a id="backup.retentioncount"></a>`backup.retentionCount` | backups | global | 7 | plain |  | yes | SQLite backups kept |
+| <a id="scrub.enabled"></a>`scrub.enabled` | privacy | global | true | plain |  | yes | the Scrub person action and the erasure-time scrub may run |
+| <a id="scrub.pseudonymalgorithm"></a>`scrub.pseudonymAlgorithm` | privacy | global | "hmac-sha256-16" | plain |  | yes | keyed pseudonym used to replace identifiers: HMAC-SHA256 truncated to 16 or 32 hex characters |
+| <a id="scrub.includelogs"></a>`scrub.includeLogs` | privacy | global | true | plain |  | yes | a scrub also rewrites the rotated log files (mailwoman.log and its .gz rotations) |
+| <a id="scrub.autorunonerasure"></a>`scrub.autoRunOnErasure` | privacy | global | false | plain |  | yes | a completed erasure also scrubs the person's identifiers from audit history and logs |
+| <a id="scrub.keyretentiondays"></a>`scrub.keyRetentionDays` | privacy | global | 0 | plain |  | yes | days a retired pseudonym key is kept after rotation; 0 keeps it, after deletion old pseudonyms can no longer be recomputed |
+| <a id="backup.propagateerasure"></a>`backup.propagateErasure` | privacy | global | true | plain |  | yes | a restore replays the erasure tombstones newer than the backup, so erased people are removed again |
+| <a id="backup.tombstoneretentiondays"></a>`backup.tombstoneRetentionDays` | privacy | global | 3650 | plain |  | yes | days an erasure tombstone is kept; 0 keeps them forever |
 | <a id="dsr.text.intro"></a>`dsr.text.intro` | privacy | global+domain | {} | plain |  | yes | intro text |
 | <a id="dsr.text.confirmation"></a>`dsr.text.confirmation` | privacy | global+domain | {} | plain |  | yes | confirmation text |
 | <a id="dsr.text.completion"></a>`dsr.text.completion` | privacy | global+domain | {} | plain |  | yes | completion text |

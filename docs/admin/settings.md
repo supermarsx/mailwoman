@@ -907,6 +907,41 @@ The most requests one person can file in 24 hours.
 
 Addresses, or @domain entries, whose erasure is blocked. An erasure request for them is kept in the queue as blocked until the entry is removed.
 
+<a id="scrub.enabled"></a>
+### Person scrub (`scrub.enabled`)
+
+Allows the Scrub person action and the scrub that can follow an erasure. Switched off, neither runs.
+
+<a id="scrub.pseudonymAlgorithm"></a>
+### Pseudonym length (`scrub.pseudonymAlgorithm`)
+
+How the keyed pseudonym that replaces an identifier is made: HMAC-SHA256 under the current key generation, cut to 16 or 32 hex characters. The same person always gets the same pseudonym under one generation, so history can still be correlated; the address cannot be recovered without the key.
+
+<a id="scrub.includeLogs"></a>
+### Scrub log files (`scrub.includeLogs`)
+
+A scrub also rewrites the identifier in `mailwoman.log` and its rotations, compressed ones included.
+
+<a id="scrub.autoRunOnErasure"></a>
+### Scrub after erasure (`scrub.autoRunOnErasure`)
+
+A completed erasure also replaces the person's identifiers in audit history and logs with the pseudonym. Off by default: without it, audit entries are kept as written for the audit retention period.
+
+<a id="scrub.keyRetentionDays"></a>
+### Pseudonym key retention (`scrub.keyRetentionDays`)
+
+Days a pseudonym key is kept after it is rotated out. 0 keeps it. Once a key is deleted, pseudonyms made with it can no longer be recomputed, and erasure tombstones made with it can no longer be replayed after a restore.
+
+<a id="backup.propagateErasure"></a>
+### Replay erasures on restore (`backup.propagateErasure`)
+
+A restore replays the erasure tombstones that are newer than the backup, so people erased since the backup was taken are removed again.
+
+<a id="backup.tombstoneRetentionDays"></a>
+### Erasure tombstone retention (`backup.tombstoneRetentionDays`)
+
+Days an erasure tombstone is kept. 0 keeps them forever. A backup older than this retention may contain people whose tombstone has been removed.
+
 <a id="dsr.text.intro"></a>
 ### Data requests introduction (`dsr.text.intro`)
 

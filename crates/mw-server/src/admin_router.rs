@@ -120,6 +120,7 @@ fn endpoints(r: &mut impl AdminRegistrar) {
     crate::domain_probe::register(r);
     crate::user_lifecycle::register(r);
     crate::dsr::register(r);
+    crate::scrub_admin::register(r);
     crate::breach::register(r);
     crate::scrub_admin::register(r);
     crate::encryption_status::register(r);

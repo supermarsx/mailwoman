@@ -534,7 +534,7 @@ async fn create(state: &AppState, policy: &Policy, n: NewRequest<'_>) -> Result<
 
 // ─── subject resolution ───────────────────────────────────────────────────────
 
-async fn account_ids_of(state: &AppState, address: &str, primary: &str) -> Vec<String> {
+pub(crate) async fn account_ids_of(state: &AppState, address: &str, primary: &str) -> Vec<String> {
     let mut ids = vec![primary.to_string()];
     if let Ok(bound) = state.store.lifecycle_account_bindings(address).await {
         ids.extend(bound);
@@ -545,7 +545,7 @@ async fn account_ids_of(state: &AppState, address: &str, primary: &str) -> Vec<S
     ids
 }
 
-async fn owners_of(state: &AppState, account_ids: &[String], stored: &[String]) -> Vec<String> {
+pub(crate) async fn owners_of(state: &AppState, account_ids: &[String], stored: &[String]) -> Vec<String> {
     let mut owners: Vec<String> = stored.to_vec();
     for id in account_ids {
         if let Ok(Some(o)) = state.store.native_personal_subject(id).await {
@@ -1484,7 +1484,7 @@ async fn run_erasure(state: &AppState, row: &mut DsrRow, body: &mut Body, policy
     notice(state, row, body, policy, "Your account data is being erased", "Your erasure request is being carried out. Mail kept on your mail provider's server is not deleted by this server.", false, policy.text("dsr.text.completion", &body.locale));
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     let subj = subj_of(state, row, body).await;
-    let erased = dsr_data::erase(state, &subj).await;
+    let erased = dsr_data::erase(state, &subj, Some(&row.id)).await;
     // Earlier exports of this person hold the same data; remove them too.
     let mut export_parts = 0u64;
     for other in state.store.dsr_list(Some(&row.address)).await? {

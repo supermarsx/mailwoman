@@ -64,6 +64,8 @@ mod client_timing;
 mod breach;
 mod breach_model;
 mod dsr;
+mod scrub_admin;
+pub mod erasure_cmd;
 mod dsr_data;
 mod cookie_consent;
 mod compliance;

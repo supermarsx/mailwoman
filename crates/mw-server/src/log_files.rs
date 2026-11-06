@@ -398,6 +398,12 @@ fn sink_cell() -> &'static Mutex<Option<FileSink>> {
     S.get_or_init(|| Mutex::new(None))
 }
 
+/// Close the live file so the next write reopens it. Used before the file is
+/// rewritten (the per-person scrub), so no handle points at the replaced file.
+pub fn release_current() {
+    *sink_cell().lock().unwrap_or_else(|e| e.into_inner()) = None;
+}
+
 /// The policy in force.
 pub fn policy() -> Policy {
     policy_cell()
