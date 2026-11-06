@@ -9,6 +9,7 @@ import type { AttachmentPolicy } from '../../../api/attachmentPolicy.ts';
 import { t } from '../../../i18n/index.ts';
 import { Spinner } from '../../spinner/Spinner.tsx';
 import { peekMessageDrag, takeMessageDrag } from '../../messageDrag.ts';
+import { readAttachmentDrag, type AttachmentDragToken } from '../../attachmentDrag.ts';
 import { dragCarriesContent, flattenEntries, planFiles, summarizeDrag, type DropPlan, type DropSummary, type FsEntry } from './dropPolicy.ts';
 import { dropCard, dropOverlay } from './insertDialog.css.ts';
 
@@ -22,7 +23,12 @@ export interface DropHost {
   policy: Accessor<AttachmentPolicy | null>;
   accountId: Accessor<string | null>;
   attachFiles(files: File[]): Promise<void>;
-  placeImages(files: File[]): Promise<void>;
+  /** `at` is an editor position computed from the drop point, when there is one. */
+  placeImages(files: File[], at?: number | null): Promise<void>;
+  /** The editor position under a screen point (rich editor), or null. */
+  dropPoint?(x: number, y: number): number | null;
+  /** A reader attachment dragged in, fetched through the policy-checked download. */
+  fetchAttachment(token: AttachmentDragToken, signal: AbortSignal): Promise<File>;
   /** A message as `.eml`, by id. */
   fetchMessage(id: string, signal: AbortSignal): Promise<File>;
   /** The drop landed on the body surface (images go inline). */
@@ -69,6 +75,9 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
 
   async function onDrop(event: DragEvent): Promise<void> {
     const wantsInline = event.shiftKey || host.onBody(event.target);
+    // Read everything that vanishes with the event now: the drop point and the tokens.
+    const point = host.dropPoint?.(event.clientX, event.clientY) ?? null;
+    const token = host.attachAllowed() ? readAttachmentDrag(event.dataTransfer) : null;
     const messageIds = host.messagesAllowed() ? takeMessageDrag(event, host.accountId()) : null;
     const files = await collect(event);
     setBusy(true);
@@ -80,8 +89,20 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
         const plan: DropPlan = planFiles(files, { maxBytes: host.maxBytes(), policy: host.policy(), inlineImages: host.inlineAllowed() && wantsInline, attachAllowed: host.attachAllowed() });
         for (const r of plan.refused) bad.push({ name: r.name, reason: reason(r.reason) });
         if (plan.warned.length > 0) host.report(t('ins-drop-warned', { names: plan.warned.join(', ') }));
-        if (plan.inline.length > 0) await host.placeImages(plan.inline);
+        setSummary({ files: plan.attach.length + plan.inline.length, images: plan.inline.length, folders: 0, messages: messageIds?.length ?? 0, bytes: 0 });
+        if (plan.inline.length > 0) await host.placeImages(plan.inline, point);
         if (plan.attach.length > 0) await host.attachFiles(plan.attach);
+      }
+      if (token !== null) {
+        if (token.accountId !== host.accountId()) bad.push({ name: token.name, reason: reason('account') });
+        else {
+          try {
+            const file = await host.fetchAttachment(token, controller.signal);
+            const plan = planFiles([file], { maxBytes: host.maxBytes(), policy: host.policy(), inlineImages: false, attachAllowed: host.attachAllowed() });
+            for (const x of plan.refused) bad.push({ name: x.name, reason: reason(x.reason) });
+            if (plan.attach.length > 0) await host.attachFiles(plan.attach);
+          } catch { if (!controller.signal.aborted) bad.push({ name: token.name, reason: reason('message') }); }
+        }
       }
       for (const id of messageIds ?? []) {
         if (controller.signal.aborted) break;

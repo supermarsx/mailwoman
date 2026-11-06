@@ -18,6 +18,9 @@ import { BusinessCardDialog, type CardSource } from './BusinessCardDialog.tsx';
 import { CalendarDialog, type CalendarKind } from './CalendarDialog.tsx';
 import { EventDialog } from './EventDialog.tsx';
 import { ShapeDialog } from './ShapeDialog.tsx';
+import { ScreenshotCropDialog } from './ScreenshotCropDialog.tsx';
+import { OnlinePictureDialog } from './OnlinePictureDialog.tsx';
+import type { ShapeSpec } from './shapes.ts';
 import { MessagePicturesDialog } from './MessagePicturesDialog.tsx';
 import { PictureFileDialog } from './PictureFileDialog.tsx';
 import { SPECIAL_CHARACTERS } from './symbols.ts';
@@ -53,6 +56,10 @@ export interface InsertHost {
   setLinkRequest(value: LinkInitial | null): void;
   screenshotSupported: boolean;
   captureScreenshot(): Promise<File | null>;
+  /** The shape of the selected picture in the body (a rich-editor selection), for Edit shape. */
+  selectedShape: Accessor<{ spec: ShapeSpec; alt: string } | null>;
+  /** Place a shape picture; `replace` swaps the selected shape picture for it. */
+  placeShape(file: File, alt: string, spec: ShapeSpec, replace: boolean): Promise<void>;
   report(message: string): void;
 }
 
@@ -60,7 +67,9 @@ type Dialog =
   | { kind: 'card'; source: CardSource }
   | { kind: 'calendar'; mode: CalendarKind }
   | { kind: 'event'; existing: boolean }
-  | { kind: 'shape' }
+  | { kind: 'shape'; edit?: { spec: ShapeSpec; alt: string } }
+  | { kind: 'crop'; file: File }
+  | { kind: 'online' }
   | { kind: 'messagePictures'; as: 'inline' | 'attach' }
   | { kind: 'pictureFile'; files: File[] };
 
@@ -80,6 +89,7 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
     pictureFromMessages: useComposeFeature('insert.pictureFromMessages'),
     shapes: useComposeFeature('insert.shapes'),
     screenshot: useComposeFeature('insert.screenshot'),
+    onlinePicture: useComposeFeature('insert.onlinePicture'),
     businessCard: useComposeFeature('insert.businessCard'),
     calendar: useComposeFeature('insert.calendar'),
     event: useComposeFeature('insert.event'),
@@ -111,7 +121,7 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
         </Show>
       </RibbonGroup></Show>
 
-      <Show when={on.pictureFile() || on.pictureFromMessages() || on.shapes() || on.screenshot()}>
+      <Show when={on.pictureFile() || on.pictureFromMessages() || on.shapes() || on.screenshot() || on.onlinePicture()}>
         <RibbonGroup label={t('ins-group-illustrations')} priority={56} icon="image" testId="insert-group-illustrations">
           <Show when={on.pictureFile()}>
             <RibbonItem>
@@ -128,8 +138,14 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
           <Show when={on.shapes()}>
             <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-shapes" disabled={host.disabled()} onClick={(event) => open({ kind: 'shape' }, event)}><Icon name="shapes" /><span class="compose-rib__text">{t('ins-shapes')}</span></button></RibbonItem>
           </Show>
+          <Show when={on.shapes() && host.selectedShape() !== null}>
+            <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-shape-edit" disabled={host.disabled()} onClick={(event) => { const edit = host.selectedShape(); if (edit) open({ kind: 'shape', edit }, event); }}><Icon name="shapes" /><span class="compose-rib__text">{t('ins-shape-edit')}</span></button></RibbonItem>
+          </Show>
+          <Show when={on.onlinePicture()}>
+            <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-online" disabled={host.disabled()} onClick={(event) => open({ kind: 'online' }, event)}><Icon name="link" /><span class="compose-rib__text">{t('ins-online')}</span></button></RibbonItem>
+          </Show>
           <Show when={on.screenshot() && host.screenshotSupported}>
-            <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-screenshot" disabled={host.disabled()} onClick={() => void host.captureScreenshot().then((file) => { if (file) setDialog({ kind: 'pictureFile', files: [file] }); })}><Icon name="screenshot" /><span class="compose-rib__text">{t('ins-screenshot')}</span></button></RibbonItem>
+            <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-screenshot" disabled={host.disabled()} onClick={() => void host.captureScreenshot().then((file) => { if (file) setDialog({ kind: 'crop', file }); })}><Icon name="screenshot" /><span class="compose-rib__text">{t('ins-screenshot')}</span></button></RibbonItem>
           </Show>
         </RibbonGroup>
       </Show>
@@ -199,7 +215,11 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
             case 'event':
               return <EventDialog existing={current.existing} controller={host.calendar()} identity={host.identity()} returnTo={anchor} onClose={close} onInsert={(html, text, ics) => { close(); host.insertBlock(html, text); void host.attachFiles([new File([ics.text], 'invite.ics', { type: `text/calendar; method=${ics.method}` })]); }} />;
             case 'shape':
-              return <ShapeDialog returnTo={anchor} onClose={close} onInsert={(file, alt) => { close(); void host.placeImages([file], alt); }} />;
+              return <ShapeDialog returnTo={anchor} {...(current.edit ? { initial: current.edit.spec, initialAlt: current.edit.alt } : {})} onClose={close} onInsert={(file, alt, spec) => { close(); void host.placeShape(file, alt, spec, current.edit !== undefined); }} />;
+            case 'crop':
+              return <ScreenshotCropDialog file={current.file} returnTo={anchor} onClose={close} onDone={(file) => setDialog({ kind: 'pictureFile', files: [file] })} />;
+            case 'online':
+              return <OnlinePictureDialog returnTo={anchor} maxBytes={host.maxInlineMB() * 1024 * 1024} onClose={close} onPicked={(file) => setDialog({ kind: 'pictureFile', files: [file] })} />;
             case 'messagePictures':
               return <MessagePicturesDialog as={current.as} loadPage={host.loadMessagePictures} fetchPicture={host.fetchMessagePicture} returnTo={anchor} onClose={close} onPick={(files) => { close(); if (current.as === 'inline') void host.placeImages(files); else void host.attachFiles(files); }} />;
             case 'pictureFile':

@@ -32,9 +32,11 @@ import { Icon, type IconName } from '../Icon.tsx';
 // mutations (Assist rewrite, dictation) back into the document.
 
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, useContext, For, Show, type JSX } from 'solid-js';
-import { EditorState, type Command } from 'prosemirror-state';
+import { EditorState, Selection, type Command } from 'prosemirror-state';
+import type { LinkEdit } from './insert/linkEdit.ts';
+import { parseShapeAttr, type ShapeSpec } from './insert/shapes.ts';
 import { EditorView, type NodeView } from 'prosemirror-view';
-import { Slice, type MarkType, type Node as PMNode } from 'prosemirror-model';
+import { Slice, type Mark, type MarkType, type Node as PMNode } from 'prosemirror-model';
 import { baseKeymap, toggleMark, wrapIn } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo, undoDepth, redoDepth, closeHistory } from 'prosemirror-history';
@@ -58,6 +60,24 @@ const mEm: MarkType = need(richSchema.marks.em, 'em');
 const mUnderline: MarkType = need(richSchema.marks.underline, 'underline');
 const mStrike: MarkType = need(richSchema.marks.strikethrough, 'strikethrough');
 const mLink: MarkType = need(richSchema.marks.link, 'link');
+
+/** The run of text carrying the same link mark around `pos`, and the mark. */
+export function linkAt(state: EditorState, pos: number): { from: number; to: number; mark: Mark } | null {
+  const $pos = state.doc.resolve(pos);
+  const mark = $pos.marks().find((m) => m.type === mLink) ?? $pos.nodeAfter?.marks.find((m) => m.type === mLink);
+  if (!mark) return null;
+  const start = $pos.start();
+  let runFrom = -1;
+  let found: { from: number; to: number } | null = null;
+  $pos.parent.forEach((child, offset) => {
+    const from = start + offset, to = from + child.nodeSize;
+    if (mark.isInSet(child.marks)) {
+      if (runFrom < 0) runFrom = from;
+      if (pos >= runFrom && pos <= to) found = { from: runFrom, to };
+    } else runFrom = -1;
+  });
+  return found ? { ...(found as { from: number; to: number }), mark } : null;
+}
 const nBullet: NodeType = need(richSchema.nodes.bullet_list, 'bullet_list');
 const nOrdered: NodeType = need(richSchema.nodes.ordered_list, 'ordered_list');
 const nQuote: NodeType = need(richSchema.nodes.blockquote, 'blockquote');
@@ -103,7 +123,11 @@ export interface RichTextApi {
   /** Append parsed HTML as new blocks at the end of the document. */
   appendHtml: (html: string) => void;
   /** Insert parsed HTML at the caret (replacing the selection); `inline` merges into the current paragraph. */
-  insertHtml?: (html: string, inline: boolean) => void;
+  insertHtml?: (html: string, inline: boolean, at?: number | null) => void;
+  /** The document position under a screen point, or null. */
+  posAtCoords?: (x: number, y: number) => number | null;
+  /** The shape settings of the selected picture, when it was made from the Shapes gallery. */
+  selectedShape?: () => { spec: ShapeSpec; alt: string } | null;
   /** Replace the whole document with parsed HTML. */
   setHtml: (html: string) => void;
   /** Explicit user replacement that remains undoable. */
@@ -165,6 +189,8 @@ export interface RichTextEditorProps {
   onReady?: (api: RichTextApi) => void;
   /** Reports what the selection is on, for contextual ribbon tabs: an image, or a table cell. */
   onContext?: (context: EditorContext) => void;
+  /** A click on a link: the host may open its link dialog with `edit`. */
+  onLinkClick?: (edit: LinkEdit) => void;
   /** Inline images; absent = the editor offers none and keeps none. */
   inline?: InlineImageSupport;
   /** Embedded images instead of inline ones (the signature editor). */
@@ -349,6 +375,29 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         void placeImages(files);
         return true;
       },
+      handleClick(v, pos, event) {
+        if (props.onLinkClick === undefined || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) return false;
+        if (!(event.target instanceof Element) || event.target.closest('a') === null) return false;
+        const info = linkAt(v.state, pos);
+        if (!info) return false;
+        const { from, to, mark } = info;
+        const caption = v.state.doc.textBetween(from, to);
+        props.onLinkClick({
+          caption, href: String(mark.attrs['href'] ?? ''), title: String(mark.attrs['title'] ?? ''), newTab: mark.attrs['newTab'] === true,
+          apply(next) {
+            const made = mLink.create({ href: next.href, title: next.title === '' ? null : next.title, newTab: next.newTab });
+            let tr = v.state.tr.removeMark(from, to, mLink);
+            if (next.caption !== caption && next.caption !== '') {
+              const kept = (v.state.doc.nodeAt(from)?.marks ?? []).filter((m) => m.type !== mLink);
+              tr = tr.replaceWith(from, to, richSchema.text(next.caption, [...kept, made]));
+            } else tr = tr.addMark(from, to, made);
+            v.dispatch(tr);
+            v.focus();
+          },
+          remove() { v.dispatch(v.state.tr.removeMark(from, to, mLink)); v.focus(); },
+        });
+        return true;
+      },
       handleDrop(v, event) {
         const files = props.inline !== undefined || embedded() ? imageFiles(event.dataTransfer) : [];
         if (files.length === 0) return false;
@@ -376,14 +425,25 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         emit(next);
         view.focus();
       },
-      insertHtml(html: string, inline: boolean): void {
+      insertHtml(html: string, inline: boolean, at?: number | null): void {
         if (view === undefined) return;
         const frag = docFromHtml(html, owned(), embedded()).content;
         const slice = inline && frag.childCount === 1 && frag.firstChild?.isTextblock ? new Slice(frag, 1, 1) : new Slice(frag, 0, 0);
-        const next = view.state.apply(view.state.tr.replaceSelection(slice).scrollIntoView());
+        let tr = view.state.tr;
+        if (typeof at === 'number') tr = tr.setSelection(Selection.near(tr.doc.resolve(Math.max(0, Math.min(at, tr.doc.content.size)))));
+        const next = view.state.apply(tr.replaceSelection(slice).scrollIntoView());
         view.updateState(next);
         emit(next);
         view.focus();
+      },
+      posAtCoords(x: number, y: number): number | null {
+        return view?.posAtCoords({ left: x, top: y })?.pos ?? null;
+      },
+      selectedShape(): { spec: ShapeSpec; alt: string } | null {
+        const found = view ? selectedImage(view.state) : null;
+        const raw = found?.node.attrs['shape'];
+        const spec = parseShapeAttr(typeof raw === 'string' ? raw : null);
+        return found && spec ? { spec, alt: String(found.node.attrs['alt'] ?? '') } : null;
       },
       replaceHtml(html:string):void {
         if(view===undefined)return;

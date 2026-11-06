@@ -4,6 +4,7 @@
 import { createMemo, createSignal, For, Show, type JSX } from 'solid-js';
 import { t } from '../../../i18n/index.ts';
 import { InsertDialog } from './InsertDialog.tsx';
+import type { LinkSpecEdit } from './linkEdit.ts';
 import { checkLink, linkHtml, linkText, normalizeHref, urlFromClipboard } from './links.ts';
 
 export interface LinkInitial {
@@ -15,7 +16,7 @@ export interface LinkInitial {
   /** Called when the user chooses "Remove link" on an existing link. */
   onRemove?: () => void;
   /** Called instead of inserting, when the host edits the link in place. */
-  onApply?: (html: string) => void;
+  onApply?: (spec: LinkSpecEdit) => void;
 }
 
 export function LinkDialog(props: { initial: LinkInitial; richMode: boolean; returnTo: HTMLElement | null; onClose: () => void; onInsert: (html: string, text: string) => void }): JSX.Element {
@@ -39,7 +40,7 @@ export function LinkDialog(props: { initial: LinkInitial; richMode: boolean; ret
     const s = spec();
     if (s.href === '' || blocked()) return;
     const html = linkHtml({ caption: s.caption, href: s.href, ...(s.title ? { title: s.title } : {}), newTab: s.newTab });
-    if (props.initial.onApply) { props.initial.onApply(html); props.onClose(); return; }
+    if (props.initial.onApply) { props.initial.onApply({ caption: s.caption.trim() === '' ? s.href : s.caption, href: s.href, title: s.title, newTab: s.newTab }); props.onClose(); return; }
     props.onInsert(html, linkText({ caption: s.caption, href: s.href }));
   };
   return (

@@ -347,6 +347,7 @@ fn sanitize_core(
     schemes.insert("http");
     schemes.insert("https");
     schemes.insert("mailto");
+    schemes.insert("tel");
     schemes.insert("cid");
     // Signatures: `data:` passes the scheme check so the filter below can keep
     // the embedded `<img src>` and drop every other `data:` value.

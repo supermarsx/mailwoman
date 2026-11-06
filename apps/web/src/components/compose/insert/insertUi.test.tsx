@@ -56,7 +56,7 @@ describe('link dialog', () => {
     render(() => <LinkDialog initial={{ caption: 'Old', href: 'https://a.org/', title: '', newTab: false, existing: true, onApply, onRemove }} richMode returnTo={null} onClose={onClose} onInsert={noop} />);
     fireEvent.input(screen.getByTestId('insert-link-caption'), { target: { value: 'New' } });
     fireEvent.click(screen.getByTestId('insert-link-dialog-apply'));
-    expect(onApply).toHaveBeenCalledWith(expect.stringContaining('>New</a>'));
+    expect(onApply).toHaveBeenCalledWith({ caption: 'New', href: 'https://a.org/', title: '', newTab: false });
     fireEvent.click(screen.getByTestId('insert-link-remove'));
     expect(onRemove).toHaveBeenCalled();
   });
@@ -256,7 +256,7 @@ function dropHost(over: Partial<DropHost> = {}): DropHost {
   document.body.append(root);
   return {
     root: () => root, attachAllowed: () => true, inlineAllowed: () => true, messagesAllowed: () => true, maxBytes: () => 1000, policy: () => null, accountId: () => 'a',
-    attachFiles: vi.fn(async () => undefined), placeImages: vi.fn(async () => undefined), fetchMessage: vi.fn(async () => new File(['eml'], 'm.eml', { type: 'message/rfc822' })),
+    attachFiles: vi.fn(async () => undefined), placeImages: vi.fn(async () => undefined), fetchAttachment: vi.fn(async () => new File(['x'], 'a.pdf', { type: 'application/pdf' })), fetchMessage: vi.fn(async () => new File(['eml'], 'm.eml', { type: 'message/rfc822' })),
     onBody: () => false, report: vi.fn(), ...over,
   };
 }
@@ -331,7 +331,7 @@ function insertHost(over: Partial<InsertHost> = {}): InsertHost {
     identity: () => ({ name: 'Me', email: 'me@x.org' }), selectedText: () => '', contacts: () => [], loadContacts: async () => undefined, calendar: () => controller(),
     loadMessagePictures: async () => ({ items: [], position: 0, nextPosition: null }), fetchMessagePicture: async () => new File([], 'x'), richMode: () => true,
     maxBytes: () => 1e6, maxInlineMB: () => 10, resizeDefault: () => 'large', linkRequest: link, setLinkRequest: setLink, screenshotSupported: true,
-    captureScreenshot: async () => null, report: vi.fn(), ...over,
+    captureScreenshot: async () => null, selectedShape: () => null, placeShape: vi.fn(async () => undefined), report: vi.fn(), ...over,
   };
 }
 

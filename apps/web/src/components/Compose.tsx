@@ -11,6 +11,9 @@ import {InsertAccountItem} from './compose/InsertAccountItem.tsx';
 import {InsertGroups,type InsertHost} from './compose/insert/InsertGroups.tsx';
 import {ComposeDropZone,type DropHost} from './compose/insert/ComposeDropZone.tsx';
 import type {LinkInitial} from './compose/insert/LinkDialog.tsx';
+import type {LinkEdit} from './compose/insert/linkEdit.ts';
+import {shapeAttrValue,type ShapeSpec} from './compose/insert/shapes.ts';
+import {planFiles} from './compose/insert/dropPolicy.ts';
 import {useComposeFeature} from './compose/composeFeatures.ts';
 import {loadAttachmentPolicy,attachmentPolicyUrl,type AttachmentPolicy} from '../api/attachmentPolicy.ts';
 import type {ResizePreset} from './compose/insert/imageResize.ts';
@@ -1364,7 +1367,13 @@ export function Compose(props: {
     }
     setAttachError(null);
     const max = maxUploadSize();
-    const files = Array.from(fileList);
+    // The same policy as a drop: blocked types and empty files are refused, flagged types are reported.
+    const policy = attachPolicy() ?? await loadAttachmentPolicy().then((loaded) => { setAttachPolicy(loaded); return loaded; }).catch(() => null);
+    const plan = planFiles(Array.from(fileList), { maxBytes: Number.MAX_SAFE_INTEGER, policy, inlineImages: false, attachAllowed: true });
+    for (const refused of plan.refused) setAttachError(t(`ins-drop-reason-${refused.reason}`) + ': ' + isolate(refused.name));
+    if (plan.warned.length > 0) toast.info(t('ins-drop-warned', { names: plan.warned.join(', ') }));
+    const files = plan.attach;
+    if (files.length === 0) return;
     setUploading(true);
     try {
       for (const file of files) {
@@ -1438,17 +1447,25 @@ export function Compose(props: {
     if (richMode() && api) { if (api.insertHtml) api.insertHtml(html, false); else api.appendHtml(html); return; }
     insertAt(`${body().trim() === '' ? '' : '\n'}${text}\n`);
   };
-  const insertInline = (html: string, text: string): void => {
+  const insertInline = (html: string, text: string, at?: number | null): void => {
     const api = editorApi();
-    if (richMode() && api) { if (api.insertHtml) api.insertHtml(html, true); else api.appendHtml(`<p>${html}</p>`); return; }
+    if (richMode() && api) { if (api.insertHtml) api.insertHtml(html, true, at); else api.appendHtml(`<p>${html}</p>`); return; }
     insertAt(text);
   };
-  const placeImages = async (files: File[], alt?: string): Promise<void> => {
+  const placeImages = async (files: File[], alt?: string, at?: number | null): Promise<void> => {
     if (!richMode() || editorApi() === null) { await onFilesPicked(files); return; }
     const placed = await uploadInline(files);
     if (placed.length === 0) return;
     const esc = (v: string): string => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
-    insertInline(placed.map((p) => `<img src="cid:${esc(p.cid)}" alt="${esc(alt ?? p.alt)}">`).join(''), '');
+    insertInline(placed.map((p) => `<img src="cid:${esc(p.cid)}" alt="${esc(alt ?? p.alt)}">`).join(''), '', at);
+  };
+  const placeShape = async (file: File, alt: string, shape: ShapeSpec, replace: boolean): Promise<void> => {
+    if (!richMode() || editorApi() === null) { await onFilesPicked([file]); return; }
+    const placed = await uploadInline([file]);
+    if (placed.length === 0) return;
+    const esc = (v: string): string => v.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    void replace;
+    insertInline(`<img src="cid:${esc(placed[0]!.cid)}" alt="${esc(alt)}" data-mw-shape="${esc(shapeAttrValue(shape))}">`, '');
   };
   const maxInlineMB = (): number => { const v = settings()['compose.insert.maxInlineImageMB']?.value; return typeof v === 'number' && v > 0 ? v : 10; };
   const resizeDefault = (): ResizePreset => { const v = settings()['compose.insert.imageResizeDefault']?.value; return v === 'original' || v === 'medium' || v === 'large' ? v : 'large'; };
@@ -1493,9 +1510,15 @@ export function Compose(props: {
     linkRequest, setLinkRequest,
     screenshotSupported: typeof navigator !== 'undefined' && typeof navigator.mediaDevices?.getDisplayMedia === 'function',
     captureScreenshot,
+    selectedShape: () => { void editorContext().image; return editorApi()?.selectedShape?.() ?? null; },
+    placeShape,
     report: (message) => toast.info(message),
   };
   const featLink = useComposeFeature('insert.link');
+  const openLinkEdit = (edit: LinkEdit): void => {
+    if (!featLink()) return;
+    setLinkRequest({ caption: edit.caption, href: edit.href, title: edit.title, newTab: edit.newTab, existing: true, onApply: edit.apply, onRemove: edit.remove });
+  };
   const featDropAttach = useComposeFeature('insert.dragDropAttach');
   const featDropInline = useComposeFeature('insert.dragDropInline');
   const featDropMessages = useComposeFeature('insert.dropMessages');
@@ -1515,7 +1538,9 @@ export function Compose(props: {
     policy: attachPolicy,
     accountId: () => app.accountId(),
     attachFiles: (files) => onFilesPicked(files),
-    placeImages: (files) => placeImages(files),
+    placeImages: (files, at) => placeImages(files, undefined, at),
+    dropPoint: (x, y) => editorApi()?.posAtCoords?.(x, y) ?? null,
+    fetchAttachment: (token) => fetchMessagePicture(token),
     fetchMessage: async (id, signal) => {
       const res = await apiFetch(`${transportBase()}/api/export/${encodeURIComponent(id)}?format=eml`, { credentials: 'same-origin', signal });
       if (!res.ok) throw new Error('export refused');
@@ -1645,7 +1670,7 @@ export function Compose(props: {
           if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
           else textBody += `\n\n-- \n${await signaturePlain(sig)}`;
         }
-        if (rich) htmlBody = htmlMessageDocument(htmlBody);
+        if (rich) htmlBody = htmlMessageDocument(htmlBody.replace(/\sdata-mw-shape="[^"]*"/g, ''));
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
@@ -2251,7 +2276,7 @@ export function Compose(props: {
                 cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
-                <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={replyContext()} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={replyContext()} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onLinkClick={openLinkEdit} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
                   omitGroups={['insert']}
@@ -2261,6 +2286,7 @@ export function Compose(props: {
                   onChange={onEditorChange}
                   onReady={setEditorApi}
                   onContext={setEditorContext}
+                  onLinkClick={openLinkEdit}
                   inline={{
                     owned: ownedCids,
                     preview: (cid) => inlineImages().find((i) => i.cid === cid)?.previewUrl ?? null,

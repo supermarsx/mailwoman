@@ -13,6 +13,8 @@ const THUMB_W = 96;
 const THUMB_H = 60;
 
 /** One attachment as the strip needs it (a subset of `AttachmentItem`). */
+import { beginAttachmentDrag } from '../components/attachmentDrag.ts';
+
 export interface StripItem {
   emailId?: string;
   blobId: string;
@@ -32,6 +34,8 @@ export interface ThumbnailStripProps {
    *  next to, never inside, the thumbnail's own button. `mode` decides when it shows. */
   renderAction?: (item: StripItem) => JSX.Element;
   actionMode?: 'always' | 'hover';
+  /** Make each thumbnail draggable into a composer; carries the message and account it belongs to. */
+  dragSource?: { accountId: string | null; emailId: string };
 }
 
 const ICON: Record<TypeCategory, string> = {
@@ -46,6 +50,7 @@ const ICON: Record<TypeCategory, string> = {
 
 function Thumb(props: {
   item: StripItem;
+  drag?: { accountId: string | null; emailId: string } | undefined;
   selected: boolean;
   onSelect: ((item: StripItem) => void) | undefined;
   resolveThumb: ((item: StripItem) => Promise<string>) | undefined;
@@ -70,6 +75,8 @@ function Thumb(props: {
       aria-selected={props.selected}
       title={isEvent() ? `${t('common-open-event')}: ${props.item.name}` : props.item.name}
       data-event={isEvent() ? '' : undefined}
+      draggable={props.drag !== undefined}
+      onDragStart={(e) => { if (props.drag) beginAttachmentDrag(e, { accountId: props.drag.accountId, emailId: props.drag.emailId, blobId: props.item.blobId, name: props.item.name, mime: props.item.mime, size: props.item.size }); }}
       onClick={() => props.onSelect?.(props.item)}
     >
       <span class="mw-thumb__preview" data-category={category()}>
@@ -105,6 +112,7 @@ export function ThumbnailStrip(props: ThumbnailStripProps): JSX.Element {
               selected={item.blobId === props.selectedBlobId}
               onSelect={props.onSelect}
               resolveThumb={props.resolveThumb}
+              drag={props.dragSource}
             />
           );
           return props.renderAction === undefined ? thumb : (

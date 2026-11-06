@@ -95,10 +95,10 @@ import {
 import { extractHtmlBody } from '../state/slices/mail.ts';
 import {MessagePrivacyBar} from './MessagePrivacyBar.tsx';
 import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
-import { AttachmentDownloadButton } from './AttachmentDownloadButton.tsx';
-import { downloadBarAll, isDownloadButtonMode, type BarItem } from './attachmentsBarDownload.ts';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
+import { AttachmentDownloadButton } from './AttachmentDownloadButton.tsx';
+import { downloadBarAll, isDownloadButtonMode, type BarItem } from './attachmentsBarDownload.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame,type ReaderImageProgress } from './DirectReaderFrame.tsx';
 import {featureOn,featuresLoaded} from '../state/features.ts';
@@ -266,9 +266,9 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : t('mail-attachment-unnamed'),
         mime: a.type.length > 0 ? a.type : 'application/octet-stream',
         size: a.size,
-        inline: typeof a.cid === 'string' && a.cid.length > 0 && a.disposition !== 'attachment',
       }));
   });
+        inline: typeof a.cid === 'string' && a.cid.length > 0 && a.disposition !== 'attachment',
 
   // Why the bar is missing or unusable, told once per message (never a silent gap).
   const barState = createMemo(() => attachmentBarReason({
@@ -351,6 +351,8 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
     setCollapsedLocal(next);
     // This gesture opens only this message; persistent defaults live in Settings.
   }
+  const totalSize = createMemo(() => items().reduce((sum, item) => sum + item.size, 0));
+  const summaryText = (): string => t('reader-attachments-summary', { count: items().length, size: formatBytes(totalSize()) });
   const clickToToggle = (): boolean => effectiveSettings()['attachments.bar.clickToToggle']?.value !== false;
   const downloadMode = () => { const value = effectiveSettings()['attachments.bar.showDownloadButtons']?.value; return isDownloadButtonMode(value) ? value : 'hover'; };
   const downloadAllOn = (): boolean => effectiveSettings()['attachments.bar.downloadAll']?.value !== false;
@@ -362,8 +364,6 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
     setZipping(true);
     void downloadBarAll(app, props.email.id, items(), attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined, zipInline()).finally(() => setZipping(false));
   }
-  const totalSize = createMemo(() => items().reduce((sum, item) => sum + item.size, 0));
-  const summaryText = (): string => t('reader-attachments-summary', { count: items().length, size: formatBytes(totalSize()) });
   const tooltip = (): string => [summaryText(), ...items().slice(0, 8).map((item) => `${isolate(item.name)} · ${formatBytes(item.size)}`), ...(items().length > 8 ? ['…'] : [])].join('\n');
   const panelId = `reader-attachments-${Math.random().toString(36).slice(2)}`;
   const cloudEnabled = (): boolean => app.nextcloud.enabled() && cloudAccount === app.accountId();
@@ -378,13 +378,13 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         state={collapsed() ? 'collapsed' : 'expanded'}
         icon="attachment"
         tooltip={tooltip()}
-        {...(clickToToggle() ? { onToggle: toggle } : {})}
         actions={<>
+          <Show when={cloudEnabled()}>
+        {...(clickToToggle() ? { onToggle: toggle } : {})}
+            <NoticeButton icon="nextcloud" label={t('nextcloud-save-panel-label')} haspopup="menu" expanded={cloudMenu.isOpen()} onClick={(e) => cloudMenu.open(e)} onKeyDown={cloudMenu.keydown} />
           <Show when={downloadAllOn()}>
             <NoticeButton icon="downloadZip" spinner={zipping()} busy={zipping()} disabled={!allowDownload() || zipping()} label={t('reader-attachments-download-all')} ariaLabel={zipping() ? t('reader-attachments-download-all-busy') : t('reader-attachments-download-all-label')} tooltip={allowDownload() ? t('reader-attachments-download-all-label') : t('reader-attachments-download-off')} testid="reader-attachments-download-all" onClick={downloadAll} />
           </Show>
-          <Show when={cloudEnabled()}>
-            <NoticeButton icon="nextcloud" label={t('nextcloud-save-panel-label')} haspopup="menu" expanded={cloudMenu.isOpen()} onClick={(e) => cloudMenu.open(e)} onKeyDown={cloudMenu.keydown} />
           </Show>
           <NoticeButton icon={collapsed() ? 'chevronDown' : 'chevronUp'} iconOnly label={collapsed() ? t('reader-attachments-show') : t('reader-attachments-hide')} expanded={!collapsed()} controls={panelId} testid="reader-attachments-toggle" onClick={toggle} />
         </>}
@@ -402,14 +402,15 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
           density={attachmentDensity()}
           items={items()}
           selectedBlobId={openItem()?.blobId ?? ''}
+          dragSource={{ accountId: app.accountId(), emailId: props.email.id }}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
           {...(attachmentDensity()==='comfortable'?{resolveThumb:(item:StripItem)=>blobUrlFor(item)}:{})}
+        />
+        </div>
           {...(downloadMode() !== 'never' ? {
             actionMode: downloadMode() as 'always' | 'hover',
             renderAction: (item: StripItem) => <AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined} allowDownload={allowDownload()} />,
           } : {})}
-        />
-        </div>
         </Show>
         </Show>
         <Show when={openItem()}>

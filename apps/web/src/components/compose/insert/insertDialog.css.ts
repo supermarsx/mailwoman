@@ -28,6 +28,10 @@ globalStyle(`${dialogForm} .mw-insert-custom`, { flex: '0 0 2rem', width: '2rem'
 
 export const pictureLabel = style({ fontWeight: 'var(--weight-bold)', cursor: 'pointer' });
 
+export const cropDialogBox = style({ position: 'relative', alignSelf: 'start', maxHeight: '18rem', overflow: 'hidden', touchAction: 'none', cursor: 'crosshair', userSelect: 'none' });
+globalStyle(`${cropDialogBox} img`, { display: 'block', maxWidth: '100%', maxHeight: '18rem', userSelect: 'none' });
+globalStyle(`${cropDialogBox} .mw-crop-sel`, { position: 'absolute', boxSizing: 'border-box', border: '2px solid #ffffff', outline: '1px solid #000000', boxShadow: '0 0 0 9999px rgba(0,0,0,.45)', pointerEvents: 'none' });
+
 export const symbolGrid = style({ display: 'grid', gridTemplateColumns: 'repeat(8, 2rem)', gap: '2px', padding: '4px' });
 
 export const shapeGallery = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: vars.space[1] });

@@ -15,6 +15,21 @@ export interface ShapeSpec {
 
 export const SHAPE_IDS: readonly ShapeId[] = ['rectangle', 'rounded', 'ellipse', 'line', 'arrow', 'doubleArrow', 'triangle', 'star', 'bubble', 'check', 'cross', 'heart', 'chevrons', 'callout'];
 export const SHAPE_SCALE = 2;
+
+/** The spec stored in an image's `data-mw-shape` attribute: validated JSON, or null. */
+export function parseShapeAttr(raw: string | null | undefined): ShapeSpec | null {
+  if (!raw || raw.length > 400) return null;
+  try {
+    const v = JSON.parse(raw) as Record<string, unknown>;
+    if (!SHAPE_IDS.includes(v['id'] as ShapeId)) return null;
+    const num = (x: unknown, lo: number, hi: number): number | null => (typeof x === 'number' && Number.isFinite(x) && x >= lo && x <= hi ? x : null);
+    const width = num(v['width'], 8, 1200), height = num(v['height'], 8, 1200), strokeWidth = num(v['strokeWidth'], 0, 24);
+    if (width === null || height === null || strokeWidth === null || typeof v['fill'] !== 'string' || typeof v['stroke'] !== 'string') return null;
+    return { id: v['id'] as ShapeId, width, height, strokeWidth, fill: safeColor(v['fill'], 'none'), stroke: safeColor(v['stroke'], '#000000') };
+  } catch { return null; }
+}
+
+export const shapeAttrValue = (spec: ShapeSpec): string => JSON.stringify({ id: spec.id, width: spec.width, height: spec.height, fill: spec.fill, stroke: spec.stroke, strokeWidth: spec.strokeWidth });
 export const SHAPE_ATTR = 'data-mw-shape';
 const OPEN: readonly ShapeId[] = ['line', 'arrow', 'doubleArrow', 'check', 'cross', 'chevrons'];
 

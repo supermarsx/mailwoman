@@ -14,15 +14,15 @@ function remembered(): Partial<ShapeSpec> {
   try { return JSON.parse(localStorage.getItem(KEY) ?? '{}') as Partial<ShapeSpec>; } catch { return {}; }
 }
 
-export function ShapeDialog(props: { returnTo: HTMLElement | null; onClose: () => void; onInsert: (file: File, alt: string) => void }): JSX.Element {
-  const saved = remembered();
+export function ShapeDialog(props: { returnTo: HTMLElement | null; initial?: ShapeSpec; initialAlt?: string; onClose: () => void; onInsert: (file: File, alt: string, spec: ShapeSpec) => void }): JSX.Element {
+  const saved = props.initial ?? remembered();
   const [id, setId] = createSignal<ShapeId>(saved.id ?? 'rectangle');
   const [fill, setFill] = createSignal(saved.fill ?? '#1a56b0');
   const [stroke, setStroke] = createSignal(saved.stroke ?? '#212121');
   const [strokeWidth, setStrokeWidth] = createSignal(saved.strokeWidth ?? 3);
   const [width, setWidth] = createSignal(saved.width ?? 160);
   const [height, setHeight] = createSignal(saved.height ?? 100);
-  const [alt, setAlt] = createSignal('');
+  const [alt, setAlt] = createSignal(props.initialAlt ?? '');
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const spec = (shape: ShapeId = id()): ShapeSpec => ({ id: shape, width: width(), height: height(), fill: fill(), stroke: stroke(), strokeWidth: strokeWidth() });
@@ -47,7 +47,7 @@ export function ShapeDialog(props: { returnTo: HTMLElement | null; onClose: () =
     const s = spec();
     try { localStorage.setItem(KEY, JSON.stringify(s)); } catch { /* remembering is optional */ }
     void rasteriseShape(s).then(({ blob }) => {
-      props.onInsert(new File([blob], `${s.id}.png`, { type: 'image/png' }), alt().trim() || t(`ins-shape-${s.id}`));
+      props.onInsert(new File([blob], `${s.id}.png`, { type: 'image/png' }), alt().trim() || t(`ins-shape-${s.id}`), s);
     }).catch(() => setError(t('ins-shape-failed'))).finally(() => setBusy(false));
   };
   return (

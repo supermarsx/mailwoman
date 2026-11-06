@@ -65,6 +65,7 @@ export const COMPOSE_FEATURES: readonly ComposeFeature[] = [
   { id: 'insert.pictureFromMessages', group: 'insert', labelKey: 'cf-insert-pictureFromMessages', descKey: 'cf-insert-pictureFromMessages-desc', defaultOn: true, advanced: true },
   { id: 'insert.shapes', group: 'insert', labelKey: 'cf-insert-shapes', descKey: 'cf-insert-shapes-desc', defaultOn: true, advanced: true },
   { id: 'insert.screenshot', group: 'insert', labelKey: 'cf-insert-screenshot', descKey: 'cf-insert-screenshot-desc', defaultOn: true, advanced: true },
+  { id: 'insert.onlinePicture', group: 'insert', labelKey: 'cf-insert-onlinePicture', descKey: 'cf-insert-onlinePicture-desc', defaultOn: true, advanced: true },
   { id: 'insert.businessCard', group: 'insert', labelKey: 'cf-insert-businessCard', descKey: 'cf-insert-businessCard-desc', defaultOn: true, advanced: true },
   { id: 'insert.calendar', group: 'insert', labelKey: 'cf-insert-calendar', descKey: 'cf-insert-calendar-desc', defaultOn: true, advanced: true },
   { id: 'insert.event', group: 'insert', labelKey: 'cf-insert-event', descKey: 'cf-insert-event-desc', defaultOn: true, advanced: true },

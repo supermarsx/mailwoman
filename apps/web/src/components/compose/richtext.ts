@@ -6,6 +6,7 @@ import {effectStyle,effectTag,readEffect,type EffectKind} from './effects.ts';
 import {materializeLists,dematerializeLists,CHECKED_ATTRIBUTE} from './listMarkers.ts';
 import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 import { imageLookAttrs, imageStyleText, readImageLook, cleanImageLook } from './imageAttrs.ts';
+import { parseShapeAttr, shapeAttrValue } from './insert/shapes.ts';
 // Rich-text (ProseMirror) schema + serialization for the composer (W1).
 //
 // This module is DOM-serializer-based (ProseMirror `DOMSerializer`/`DOMParser`),
@@ -71,7 +72,7 @@ const image: NodeSpec = {
   inline: true,
   group: 'inline',
   draggable: true,
-  attrs: { cid: { default: '' }, alt: { default: '' }, src: { default: null }, ...imageLookAttrs },
+  attrs: { cid: { default: '' }, alt: { default: '' }, src: { default: null }, shape: { default: null }, ...imageLookAttrs },
   toDOM(node) {
     const embedded = node.attrs['src'] as string | null;
     const look = cleanImageLook(node.attrs);
@@ -79,6 +80,7 @@ const image: NodeSpec = {
     return ['img', {
       src: embedded ?? `cid:${node.attrs['cid'] as string}`,
       alt: node.attrs['alt'] as string,
+      ...(typeof node.attrs['shape'] === 'string' ? { 'data-mw-shape': node.attrs['shape'] as string } : {}),
       ...(look.title !== '' ? { title: look.title } : {}),
       ...(look.width !== null ? { width: String(look.width) } : {}),
       ...(look.height !== null ? { height: String(look.height) } : {}),
@@ -89,19 +91,26 @@ const image: NodeSpec = {
 
 /** Link targets a parsed `<a href>` may keep. Anything else (`javascript:`,
  *  `data:`, a relative path) is not a link the recipient can use. */
-const LINK_HREF = /^(https?:|mailto:)/i;
+const LINK_HREF = /^(https?:|mailto:|tel:)/i;
 
 // The basic link mark, except that parsing refuses an href outside LINK_HREF:
 // `false` means "this rule does not match", so the text stays and the mark is
 // not applied.
 const link: MarkSpec = {
   ...basicSchema.spec.marks.get('link'),
+  attrs: { href: {}, title: { default: null }, newTab: { default: false } },
+  toDOM(mark) {
+    const href = mark.attrs['href'] as string;
+    const title = mark.attrs['title'] as string | null;
+    const newTab = mark.attrs['newTab'] === true && /^https?:/i.test(href);
+    return ['a', { href, ...(title ? { title } : {}), ...(newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {}) }, 0];
+  },
   parseDOM: [
     {
       tag: 'a[href]',
       getAttrs(dom: HTMLElement) {
         const href = (dom.getAttribute('href') ?? '').trim();
-        return LINK_HREF.test(href) ? { href, title: dom.getAttribute('title') } : false;
+        return LINK_HREF.test(href) ? { href, title: dom.getAttribute('title'), newTab: dom.getAttribute('target') === '_blank' } : false;
       },
     },
   ],
@@ -169,6 +178,11 @@ export const richSchema = new Schema({ nodes: nodes.append({ image }), marks });
 export const quoteSchema = new Schema({ nodes, marks });
 
 /** A Content-ID the composer generates and the engine accepts (atext, `.`, `@`). */
+const readShape = (dom: HTMLElement): string | null => {
+  const spec = parseShapeAttr(dom.getAttribute('data-mw-shape'));
+  return spec ? shapeAttrValue(spec) : null;
+};
+
 const CID = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.@-]{1,255}$/;
 
 /** The parse rule that keeps an `<img src="cid:<id>">` naming an id in `owned`. */
@@ -180,7 +194,7 @@ function ownedImageRule(owned: ReadonlySet<string>): TagParseRule {
       const m = /^cid:(.+)$/i.exec((dom.getAttribute('src') ?? '').trim());
       const cid = m?.[1];
       if (cid === undefined || !CID.test(cid) || !owned.has(cid)) return false;
-      return { cid, alt: dom.getAttribute('alt') ?? '', ...readImageLook(dom) };
+      return { cid, alt: dom.getAttribute('alt') ?? '', shape: readShape(dom), ...readImageLook(dom) };
     },
   };
 }

@@ -429,6 +429,25 @@ describe('Compose', () => {
     expect(within(list).getByText('note.txt')).toBeInTheDocument();
   });
 
+  it('the Attach file button applies the attachment policy: a blocked type is refused and nothing is uploaded', async () => {
+    const base = mockUploadFetch();
+    const policy = { previewAllowed: true, downloadAllowed: true, maxBytes: 0, allowedExtensions: [], blockedExtensions: ['exe'], warnExtensions: [], allowedMimeTypes: [], blockedMimeTypes: [], warnMimeTypes: [] };
+    const spy = vi.fn((input: RequestInfo | URL) => String(input).includes('/api/attachments/policy') ? Promise.resolve(new Response(JSON.stringify(policy), { status: 200, headers: { 'content-type': 'application/json' } })) : base(input));
+    vi.stubGlobal('fetch', spy);
+    const { app } = renderWithApp(() => <Compose onClose={() => undefined} />, { identities: IDENTITIES });
+    await app.login({ username: 'me@example.org', password: 'p' });
+    fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
+    const input = (await screen.findByLabelText('Attach a file')) as HTMLInputElement;
+    await waitFor(() => expect(input.disabled).toBe(false));
+    await waitFor(() => expect(spy.mock.calls.some((c) => String(c[0]).includes('/api/attachments/policy'))).toBe(true));
+    await new Promise((r) => setTimeout(r, 50));
+    fireEvent.change(input, { target: { files: [new File(['MZ'], 'setup.exe', { type: 'application/x-msdownload' }), new File(['hi'], 'note.txt', { type: 'text/plain' })] } });
+    const list = await screen.findByTestId('compose-attachments');
+    expect(within(list).getByText('note.txt')).toBeInTheDocument();
+    expect(within(list).queryByText('setup.exe')).toBeNull();
+    expect(await screen.findByText(/not allowed by the attachment policy/)).toBeInTheDocument();
+  });
+
   it('keeps the composer open while an attachment upload is pending', async () => {
     const baseFetch=mockUploadFetch();let finish!:(response:Response)=>void;
     vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>String(input).includes('/jmap/upload/')?new Promise<Response>(resolve=>{finish=resolve;}):baseFetch(input)));

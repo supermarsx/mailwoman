@@ -6,7 +6,8 @@ import { INLINE_IMAGE_TYPES } from '../inlineImages.ts';
 
 import { MESSAGE_DRAG_TYPE } from '../../messageDrag.ts';
 export { MESSAGE_DRAG_TYPE };
-export const ATTACHMENT_DRAG_TYPE = 'application/x-mailwoman-attachment';
+import { ATTACHMENT_DRAG_TYPE } from '../../attachmentDrag.ts';
+export { ATTACHMENT_DRAG_TYPE };
 
 export type RefusalReason = 'size' | 'blocked' | 'empty' | 'total';
 
@@ -72,6 +73,7 @@ export function summarizeDrag(dt: Pick<DataTransfer, 'types' | 'items'> | null):
   if (!dt) return s;
   const types = Array.from(dt.types ?? []);
   if (types.includes(MESSAGE_DRAG_TYPE)) s.messages = 1;
+  if (types.includes(ATTACHMENT_DRAG_TYPE)) s.files++;
   for (const item of Array.from(dt.items ?? [])) {
     if (item.kind !== 'file') continue;
     s.files++;
