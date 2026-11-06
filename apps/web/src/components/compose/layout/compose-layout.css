@@ -19,3 +19,11 @@
 .mo-advanced summary { cursor: pointer; font-size: .8rem; font-weight: 600; }
 .mo-custom-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .2rem; }
 .mo code { font-size: .75rem; overflow-wrap: anywhere; }
+
+/* Supersedes picker (choose from sent mail) and the reminder checkbox. */
+.mo-picker { display: flex; flex-direction: column; gap: .3rem; padding: .35rem; border: var(--border-hair) solid var(--border); background: var(--bg); }
+.mo-picker input[type=search] { min-block-size: 1.75rem; color: var(--text); background: var(--surface, var(--bg)); border: var(--border-hair) solid var(--border); font: inherit; }
+.mo-picker ul { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .15rem; max-block-size: 10rem; overflow: auto; }
+.mo-picker li button { inline-size: 100%; display: flex; justify-content: space-between; gap: .5rem; text-align: start; }
+.mo-picker li[aria-selected="true"] button { border-color: var(--accent); }
+.mo-check { display: inline-flex; align-items: center; gap: .4rem; font-weight: 600; }
