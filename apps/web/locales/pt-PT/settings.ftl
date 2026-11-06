@@ -764,3 +764,4 @@ settings-folder-icon-group-personal = Pessoal e lazer
 settings-folder-icon-group-tech = Tecnologia e ferramentas
 settings-folder-icon-search-label = Pesquisar ícones
 settings-folder-icon-no-match = Nenhum ícone corresponde
+settings-folders-list-card = Lista e ordem das pastas

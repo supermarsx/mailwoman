@@ -768,3 +768,4 @@ settings-folder-icon-group-personal = Personal and fun
 settings-folder-icon-group-tech = Tech and tools
 settings-folder-icon-search-label = Search icons
 settings-folder-icon-no-match = No icons match
+settings-folders-list-card = Folder list and order

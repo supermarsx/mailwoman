@@ -25,6 +25,8 @@ import {observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent}
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
 import {folderIcon, folderIsHidden, folderPathLabel, shownFolderIds, type PreferenceFolder} from './folderPreferenceModel.ts';
+import {ControlRow} from './layout/SettingRow.tsx';
+import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 import * as folderCss from './FolderPreferences.css.ts';
 export interface FolderPreferencesProps {
@@ -143,16 +145,20 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   const counts=folder as PreferenceFolder&{totalEmails?:number;unreadEmails?:number};
   return typeof counts.totalEmails==='number'?t('settings-folders-counts',{unread:counts.unreadEmails??0,total:counts.totalEmails}):'';
  };
- return <Show when={editing()} keyed fallback={<section class={css.section} aria-label={t('settings-folders-title')}>
-  <div class={folderCss.heading}><div><h2 class={css.heading}>{t('settings-folders-title')}</h2><p class={css.prose}>{t('settings-folders-help')}</p></div><Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class="btn btn--ghost" onClick={()=>setCreating({})}><Icon name="folder"/>{t('folder-create')}</button></Show></div>
-  <p class={css.prose}>{t('settings-folders-hidden-help')}</p>
-  <label class={css.field}><input type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>{t('settings-folders-collapse-user')}</label>
-  <p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>
+ return <Show when={editing()} keyed fallback={<div data-testid="folder-preferences">
+  <SettingsCard id="folders-card-display" title={t('settings-folders-title')} description={t('settings-folders-help')}>
+  <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
+   <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
+  }</ControlRow>
+  <Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class="btn btn--ghost" onClick={()=>setCreating({})}><Icon name="folder"/>{t('folder-create')}</button></Show>
+  </SettingsCard>
   <Show when={!props.onChange}><FocusedInboxPreference/></Show>
   <Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show>
   <Show when={!props.onChange}><FolderCountPreferences/></Show>
   <Show when={!props.onChange&&app?.accountId()}>{accountId=><QuotaDetails accountId={accountId()} refresh={props.folders()}/>}</Show>
   <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
+  <FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>
+  <SettingsCard id="folders-card-list" wide title={t('settings-folders-list-card')}>
   <div class={folderCss.tools}>
    <label class={folderCss.search}><Icon name="search"/><input class={css.input} type="search" aria-label={t('settings-folders-search')} placeholder={t('settings-folders-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
    <button type="button" class="btn btn--ghost" disabled={!current()||!visible().length} onClick={()=>setSelected(value=>new Set([...value,...visible().map(folder=>folder.id)]))}>{t('settings-folders-select-visible')}</button>
@@ -167,7 +173,6 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    <button type="button" class="btn btn--ghost" disabled={selectedFolders().every(folder=>folder.role==='inbox')} onClick={()=>setVisibility(selectedFolders(),false)}>{t('settings-folders-hide-selected')}</button>
    <button type="button" class="btn btn--ghost" onClick={()=>setSelected(new Set<string>())}>{t('settings-folders-clear')}</button>
   </div></Show>
-  <FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>
   <p class={css.meta}>{t('settings-folders-order-help')}</p>
   <p class={folderCss.srOnly} role="status" aria-live="polite">{dnd.announcement()}</p>
   <div class={folderCss.wrap} ref={wrapEl} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select-visible')} disabled={!current()||!visible().length} checked={visible().length>0&&visible().every(folder=>selected().has(folder.id))} ref={input=>createEffect(()=>{input.indeterminate=visible().some(folder=>selected().has(folder.id))&&!visible().every(folder=>selected().has(folder.id));})} onChange={event=>{const checked=event.currentTarget.checked;setSelected(value=>{const next=new Set(value);for(const folder of visible())if(checked)next.add(folder.id);else next.delete(folder.id);return next;});}}/></th><th>{t('settings-folders-name')}</th><th class={folderCss.location}>{t('settings-folders-location')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
@@ -192,9 +197,10 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    </tr>;}}</For>
    <Show when={!visible().length}><tr><td colSpan={4} class={folderCss.empty}>{t('settings-folders-empty')}</td></tr></Show>
   </tbody></table></div>
+  </SettingsCard>
   {context.menu()}
   <FolderNestDialog arranger={layout.arranger} nameOf={id=>props.folders().find(folder=>folder.id===id)?.name??''}/>
   <Show when={moveTo()}>{ids=><FolderMoveToDialog moving={ids()} arranger={layout.arranger} policy={layout.policy} onClose={()=>setMoveTo(null)}/>}</Show>
   <Show when={creating()}>{value=><CreateFolderDialog {...(value().parentId?{parentId:value().parentId!}:{})} onClose={()=>setCreating(undefined)}/>}</Show>
- </section>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation} tags={props.tags??(()=>[])} local={!!props.onChange}/>}</Show>;
+ </div>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation} tags={props.tags??(()=>[])} local={!!props.onChange}/>}</Show>;
 }

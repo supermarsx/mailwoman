@@ -48,6 +48,7 @@ export const card = style({
   padding: vars.space[4], borderRadius: vars.radius.lg, background: vars.color.surface,
   border: `${vars.border.rule} solid ${vars.color.borderStrong}`,
 });
+export const cardWide = style({ gridColumn: '1 / -1' });
 export const cardHead = style({ display: 'flex', flexDirection: 'column', gap: '2px' });
 export const cardTitle = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
 export const cardDesc = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
