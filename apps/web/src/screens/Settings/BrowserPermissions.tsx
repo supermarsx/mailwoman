@@ -5,6 +5,7 @@ import { withBase } from '../../api/basePath.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import { getPlatform } from '../../platform/index.ts';
 import { t } from '../../i18n';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boolean; persistentStorageAllowed: boolean; disabled?: boolean }): JSX.Element {
@@ -63,9 +64,8 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
   // Two groups (background notifications, browser storage) so the Settings
   // card rules each off like its other subgroups.
   return <>
-    <fieldset class={css.group} disabled={props.disabled}>
-    <h3 class={css.subheading}>{t('settings-permissions-background-title')}</h3>
-    <p class={css.prose}>{t('settings-permissions-background-help')}</p>
+    <SettingsCard id="notif-card-background" title={t('settings-permissions-background-title')} description={t('settings-permissions-background-help')}>
+    <fieldset class={css.bareFieldset} disabled={props.disabled}>
     <Show when={pushSupported} fallback={<p>{t('settings-permissions-push-unsupported')}</p>}>
       <p>{t(subscribed() ? 'settings-permissions-push-registered' : 'settings-permissions-push-unregistered')}</p>
       <Show when={browserSubscription()&&!subscribed()}><p>{t('settings-permissions-push-other-registration')}</p></Show>
@@ -76,9 +76,9 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
       <Show when={!props.pushAllowed}><p>{t('settings-permissions-push-policy')}</p></Show>
     </Show>
     </fieldset>
-    <fieldset class={css.group} disabled={props.disabled}>
-    <h3 class={css.subheading}>{t('settings-permissions-storage-title')}</h3>
-    <p class={css.prose}>{t('settings-permissions-storage-help')}</p>
+    </SettingsCard>
+    <SettingsCard id="notif-card-storage" title={t('settings-permissions-storage-title')} description={t('settings-permissions-storage-help')}>
+    <fieldset class={css.bareFieldset} disabled={props.disabled}>
     <Show when={storageSupported} fallback={<p>{t('settings-permissions-storage-unsupported')}</p>}>
       <p role="status">{t(persistent() ? 'settings-permissions-storage-persistent' : 'settings-permissions-storage-evictable')}</p>
       <Show when={usage() !== undefined}><p>{t('settings-permissions-storage-usage', { mib: ((usage() ?? 0) / 1048576).toFixed(1) })}</p></Show>
@@ -89,5 +89,6 @@ export function BrowserPermissions(props: { enabled: boolean; pushAllowed: boole
     </Show>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
     </fieldset>
+    </SettingsCard>
   </>;
 }

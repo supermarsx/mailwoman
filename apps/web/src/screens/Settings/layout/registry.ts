@@ -15,13 +15,14 @@ import { AVATAR_CARD } from '../ContactAppearance.tsx';
 import { UNDO_CARD } from '../UndoRedoPreferences.tsx';
 import { APPEARANCE_CARDS } from './appearanceSpecs.ts';
 import { FOLDER_PREFERENCE_CARDS } from './foldersSpecs.ts';
+import { NOTIFICATION_CARDS } from '../Notifications.tsx';
 import { t } from '../../../i18n';
 import { cardMatches, tokens } from './searchModel.ts';
 import type { CardSpec } from './rows.tsx';
 
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
-  INTERFACE_CARD, FOLDER_COUNT_CARD, ...CACHE_CARDS, AVATAR_CARD, UNDO_CARD, ...APPEARANCE_CARDS, ...FOLDER_PREFERENCE_CARDS,
+  INTERFACE_CARD, FOLDER_COUNT_CARD, ...CACHE_CARDS, AVATAR_CARD, UNDO_CARD, ...APPEARANCE_CARDS, ...FOLDER_PREFERENCE_CARDS, ...NOTIFICATION_CARDS,
 ];
 
 export interface RegistryHit { section: string; card: string; cardTitle: string; row: string; label: string }
