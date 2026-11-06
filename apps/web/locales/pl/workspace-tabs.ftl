@@ -15,7 +15,7 @@ workspace-tabs-close-dirty-title = { $count ->
     [few] { $count } karty mają niezapisane zmiany
     [many] { $count } kart ma niezapisane zmiany
    *[other] { $count } karty ma niezapisane zmiany
-  }
+}
 workspace-tabs-close-dirty-body = Zamknięcie spowoduje utratę niezapisanych zmian w tych kartach. Pozostałe karty zostaną zamknięte w każdym przypadku.
 workspace-tabs-close-dirty-keep = Pozostaw otwarte
 workspace-tabs-close-dirty-discard = Odrzuć i zamknij

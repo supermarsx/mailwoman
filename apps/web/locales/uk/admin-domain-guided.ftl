@@ -1,0 +1,60 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: uk · Module: admin-domain-guided. Source: ../en/admin-domain-guided.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-domain-guided-title = Додавання домену з підказками
+admin-domain-guided-identity = Ідентифікація домену
+admin-domain-guided-domain = Назва домену
+admin-domain-guided-connection = З'єднання
+admin-domain-guided-default = Використовувати типові налаштування сервера
+admin-domain-guided-manual = Налаштувати поштовий сервер
+admin-domain-guided-default-help = Типові налаштування сервера використовують маршрутизацію пошти, задану вашим адміністратором. Ви можете переглянути цей домен перед створенням.
+admin-domain-guided-permission = Ваша роль дозволяє створити домен із типовими налаштуваннями сервера. Для зміни його поштових серверів потрібен дозвіл на налаштування вищих серверів.
+admin-domain-guided-protocol = Поштовий протокол
+admin-domain-guided-host = Ім'я хоста або IP-адреса поштового сервера
+admin-domain-guided-port = Поштовий порт
+admin-domain-guided-tls = Шифрування пошти
+admin-domain-guided-implicit = TLS від початку з'єднання
+admin-domain-guided-starttls = Обов'язковий STARTTLS
+admin-domain-guided-smtp = Налаштувати вихідний SMTP-сервер
+admin-domain-guided-smtp-host = Ім'я хоста або IP-адреса SMTP-сервера
+admin-domain-guided-smtp-port = Порт SMTP
+admin-domain-guided-smtp-tls = Шифрування SMTP
+admin-domain-guided-smtp-omitted = Немає SMTP-сервера для цього домену
+admin-domain-guided-jmap = URL сеансу JMAP
+admin-domain-guided-no-credentials = Облікові дані акаунтів тут не збираються. Перевірка сертифіката TLS лишається ввімкненою; доступ до приватної мережі потребує окремого розширеного налаштування.
+admin-domain-guided-policy = Політика з'єднання
+admin-domain-guided-policy-value = Перевірюваний TLS, парольна автентифікація під час входу, без доступу до приватної мережі
+admin-domain-guided-create = Створити домен
+admin-domain-guided-invalid-domain = Введіть назву домену, наприклад example.org, без схеми, шляху та порту.
+admin-domain-guided-invalid-endpoint = Введіть коректні імена хостів або IP-адреси серверів і порти від 1 до 65535.
+admin-domain-guided-invalid-url = Введіть HTTPS-URL сеансу JMAP без облікових даних, параметрів запиту та фрагмента.
+admin-domain-guided-status-required = Завантажте режим з'єднання сервера, перш ніж налаштовувати поштовий сервер.
+admin-domain-guided-advanced = Налаштувати кілька бекендів і розширені параметри
+admin-domain-guided-draft-help = Це чернетки налаштування. Нічого не зберігається, доки ви не оберете «Створити домен» на останній сторінці перевірки.
+admin-domain-guided-backend-list = Чернетки налаштування бекендів
+admin-domain-guided-backend-empty = Додайте бекенд або перегляньте виявлену конфігурацію.
+admin-domain-guided-backend-done = Назад до списку бекендів
+admin-domain-guided-actions = Дії
+admin-domain-guided-disabled = Вимкнено
+admin-domain-guided-edit-backend = Редагувати бекенд { $id }
+admin-domain-guided-remove-backend = Вилучити бекенд { $id } із налаштування
+admin-domain-guided-remove-help = Вилучити цей незбережений бекенд із чернетки налаштування.
+admin-domain-guided-custom-ca = Налаштовано власний центр сертифікації
+admin-domain-guided-supported-help = Поточний режим сервера: { $mode }. Режим engine підтримує в розширеному налаштуванні IMAP, POP3, SMTP, ManageSieve та EWS HTTPS Basic; режим proxy підтримує JMAP. Microsoft Graph, Gmail API, OAuth, NTLM і MAPI тут недоступні як бекенди домену.
+admin-domain-guided-detect = Виявити конфігурацію
+admin-domain-guided-detecting = Виявлення…
+admin-domain-guided-detect-help = Запустіть явне виявлення на стороні сервера з урахуванням налаштованої політики вихідних з'єднань. Результати є пропозиціями й ніколи не зберігаються автоматично. Ваша роль має дозволяти необмежене налаштування вищих серверів.
+admin-domain-guided-detected = Виявлене джерело: { $source }. Перегляньте всі кінцеві точки та автентифікацію перед створенням цього домену.
+admin-domain-guided-use-proposal = Переглянути виявлені кінцеві точки
+admin-domain-guided-oauth-warning = Цей провайдер повідомляє про вимоги OAuth. Це налаштування не налаштовує OAuth провайдера. Переконайтеся, що вибрані парольні механізми підтримуються, перш ніж використовувати ці кінцеві точки.
+admin-domain-guided-pim-help = Синхронізація контактів і календаря використовує конфігурацію Nextcloud, прив'язану до акаунта. URL DAV домену та автоматичне виявлення цим налаштуванням не активуються.
+admin-domain-guided-backend-count = Налаштуйте від 1 до 32 бекендів.
+admin-domain-guided-backend-id = Задайте кожному бекенду унікальний ідентифікатор із 1–64 літер, цифр, дефісів або підкреслень.
+admin-domain-guided-backend-mode = Вибраний протокол бекенда не підтримується в поточному режимі сервера.
+admin-domain-guided-backend-priority = Пріоритети бекендів мають бути цілими числами від 0 до 65535; менші значення пробуються першими.
+admin-domain-guided-backend-preferred = Оберіть не більше одного ввімкненого пріоритетного бекенда для кожної ролі служби.
+admin-domain-guided-backend-security = Перевірте порядок TLS: використовуйте різні транспорти, один із них у фіксованому режимі, і явно дозвольте відкритий текст, перш ніж його додавати.
+admin-domain-guided-backend-auth = Оберіть різні підтримувані механізми автентифікації; фіксований режим потребує рівно один.
+admin-domain-guided-backend-username = Заповніть вибраний домен імені користувача, realm або власний шаблон.

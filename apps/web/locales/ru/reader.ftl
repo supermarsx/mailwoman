@@ -56,3 +56,13 @@ reader-attachmentsDensity-help = «Компактная» показывает �
 reader-option-compact = Компактная
 reader-attachmentsCollapsed = Сворачивать вложения по умолчанию
 reader-attachmentsCollapsed-help = Начинать каждое сообщение с компактной сводки вложений. Можно развернуть конкретное сообщение, не меняя это значение по умолчанию.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Текст и цвета
+reader-card-text-help = Размер, интервалы, ширина и цвета текста сообщения.
+reader-card-actions = Действия и вложения
+reader-card-actions-help = Лента действий с сообщением и способ начала работы с вложениями.
+reader-card-loading = Загрузка
+reader-card-loading-help = Что вы видите, пока сообщение открывается.
+settings-mail-card-list = Список сообщений
+settings-mail-card-list-help = Действия в строках и поведение списка после действия с сообщением.

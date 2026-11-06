@@ -10,7 +10,7 @@ selection-bar-announce = { $count ->
     [few] Zaznaczono { $count } wiadomości
     [many] Zaznaczono { $count } wiadomości
    *[other] Zaznaczono { $count } wiadomości
-  }
+}
 selection-bar-select-all = Zaznacz wszystko
 selection-bar-select-none = Odznacz wszystko
 selection-bar-clear = Wyczyść zaznaczenie

@@ -10,7 +10,7 @@ selection-bar-announce = { $count ->
     [few] Выбрано { $count } сообщения
     [many] Выбрано { $count } сообщений
    *[other] Выбрано { $count } сообщения
-  }
+}
 selection-bar-select-all = Выбрать все
 selection-bar-select-none = Снять выбор
 selection-bar-clear = Сбросить выбор

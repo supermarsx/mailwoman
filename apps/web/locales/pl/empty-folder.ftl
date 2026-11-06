@@ -45,13 +45,13 @@ empty-folder-done-trash = { $done ->
     [few] Przeniesiono { $done } wiadomości z folderu { $name } do Kosza.
     [many] Przeniesiono { $done } wiadomości z folderu { $name } do Kosza.
    *[other] Przeniesiono { $done } wiadomości z folderu { $name } do Kosza.
-  }
+}
 empty-folder-done-destroy = { $done ->
     [one] Trwale usunięto 1 wiadomość z folderu { $name }.
     [few] Trwale usunięto { $done } wiadomości z folderu { $name }.
     [many] Trwale usunięto { $done } wiadomości z folderu { $name }.
    *[other] Trwale usunięto { $done } wiadomości z folderu { $name }.
-  }
+}
 empty-folder-stopped = Zatrzymano. Przetworzono wiadomości: { $done } z { $total }; w folderze { $name } pozostało: { $remaining }.
 empty-folder-refused = Zatrzymano. Przetworzono wiadomości: { $done } z { $total }; serwer poczty odrzucił: { $refused }. W folderze { $name } pozostało: { $remaining }.
 empty-folder-failed = Opróżnianie folderu { $name } zostało zatrzymane z błędem po { $done } wiadomościach. Ostatnia partia mogła zostać ukończona lub nie; sprawdź folder, zanim spróbujesz ponownie.

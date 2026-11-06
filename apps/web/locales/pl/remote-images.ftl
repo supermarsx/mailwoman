@@ -15,7 +15,7 @@ remote-banner-trackers = { $count ->
     [few] Usunięto { $count } elementy śledzące
     [many] Usunięto { $count } elementów śledzących
    *[other] Usunięto { $count } elementu śledzącego
-  }
+}
 remote-banner-trackers-limited = Usunięto co najmniej { $count } elementów śledzących
 remote-banner-show = Pokaż obrazy
 remote-banner-show-help = Wczytaj obrazy tej wiadomości przez serwer, aby nadawca nie widział Twojego adresu IP
@@ -43,7 +43,7 @@ remote-images-toast-failed = { $count ->
     [few] Nie udało się wczytać { $count } obrazów
     [many] Nie udało się wczytać { $count } obrazów
    *[other] Nie udało się wczytać { $count } obrazu
-  }
+}
 remote-images-toast-retry = Ponów
 remote-images-toast-progress = Wczytywanie obrazów… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = Wczytywanie obrazów… { $loaded }/{ $total } · Ponowienie { $attempt }/{ $max }

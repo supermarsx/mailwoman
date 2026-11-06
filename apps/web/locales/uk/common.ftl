@@ -143,7 +143,12 @@ common-message-preview-too-large = Попередній перегляд вкл�
 common-message-preview-failed = Не вдалося показати попередній перегляд цього вкладення повідомлення. Файл може не підтримуватися або бути пошкодженим, або служба перегляду недоступна. Початковий файл усе одно можна завантажити.
 common-message-preview-attachments = Файли всередині цього повідомлення
 common-message-preview-download = Завантажити файл
-common-message-preview-size-bytes = { $count } Б
+common-message-preview-size-bytes = { $count ->
+    [one] { $count } байт
+    [few] { $count } байти
+    [many] { $count } байтів
+   *[other] { $count } байта
+}
 common-attach-cat-message = Повідомлення / вкладення Outlook
 common-error-retry-help = Цей розділ тимчасово недоступний. Повторіть спробу, щоб завантажити його знову.
 common-error-network-help = Перевірте підключення й повторіть спробу. Можливо, сервер тимчасово недоступний.
@@ -174,4 +179,7 @@ multiselect-count = { $count ->
     [few] Вибрано { $count }
     [many] Вибрано { $count }
    *[other] Вибрано { $count }
-  }
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = Сервер зайнятий. Зачекайте кілька секунд і спробуйте ще раз.

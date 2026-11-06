@@ -143,7 +143,12 @@ common-message-preview-too-large = Предпросмотр вложений с�
 common-message-preview-failed = Не удалось показать предпросмотр этого вложения сообщения. Файл может не поддерживаться или быть повреждён, либо служба предпросмотра недоступна. Исходный файл по-прежнему можно скачать.
 common-message-preview-attachments = Файлы внутри этого сообщения
 common-message-preview-download = Скачать файл
-common-message-preview-size-bytes = { $count } Б
+common-message-preview-size-bytes = { $count ->
+    [one] { $count } байт
+    [few] { $count } байта
+    [many] { $count } байт
+   *[other] { $count } байта
+}
 common-attach-cat-message = Сообщения / вложения Outlook
 common-error-retry-help = Этот раздел временно недоступен. Повторите попытку, чтобы загрузить его снова.
 common-error-network-help = Проверьте подключение и повторите попытку. Возможно, сервер временно недоступен.
@@ -174,4 +179,7 @@ multiselect-count = { $count ->
     [few] Выбрано { $count }
     [many] Выбрано { $count }
    *[other] Выбрано { $count }
-  }
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = Сервер занят. Подождите несколько секунд и повторите попытку.

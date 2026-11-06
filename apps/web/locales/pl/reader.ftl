@@ -56,3 +56,13 @@ reader-attachmentsDensity-help = Kompaktowa pokazuje małe przyciski plików; wy
 reader-option-compact = Kompaktowa
 reader-attachmentsCollapsed = Domyślnie zwijaj załączniki
 reader-attachmentsCollapsed-help = Rozpoczynaj każdą wiadomość od kompaktowego podsumowania załączników. Możesz rozwinąć daną wiadomość bez zmiany tej wartości domyślnej.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Tekst i kolory
+reader-card-text-help = Rozmiar, odstępy, szerokość i kolory tekstu wiadomości.
+reader-card-actions = Akcje i załączniki
+reader-card-actions-help = Wstążka akcji wiadomości i sposób rozpoczynania załączników.
+reader-card-loading = Wczytywanie
+reader-card-loading-help = Co widzisz podczas otwierania wiadomości.
+settings-mail-card-list = Lista wiadomości
+settings-mail-card-list-help = Akcje w wierszach i zachowanie listy po wykonaniu akcji na wiadomości.

@@ -13,7 +13,7 @@ send-delay-minutes = { $n ->
     [few] { $n } хвилини
     [many] { $n } хвилин
    *[other] { $n } хвилини
-  }
+}
 send-delay-custom = Інше…
 send-delay-custom-label = Власна затримка в секундах
 send-delay-custom-help = Ціле число секунд від 0 до { $max }.
@@ -53,4 +53,4 @@ outbox-queued-count = { $count ->
     [few] { $count } повідомлення очікують надсилання
     [many] { $count } повідомлень очікують надсилання
    *[other] { $count } повідомлення очікують надсилання
-  }
+}

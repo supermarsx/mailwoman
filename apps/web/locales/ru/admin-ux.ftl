@@ -158,3 +158,10 @@ admin-ux-appearance-accent = Акцентный цвет
 admin-ux-appearance-light = Светлая
 admin-ux-appearance-dark = Тёмная
 admin-ux-appearance-reset = Использовать тему веб-почты
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = Добавить
+admin-ux-list-remove = Удалить { $item }
+admin-ux-list-none = Пока ничего нет.
+admin-ux-list-duplicate = { $item } уже есть в списке.
+admin-ux-list-empty-entry = Сначала введите значение.

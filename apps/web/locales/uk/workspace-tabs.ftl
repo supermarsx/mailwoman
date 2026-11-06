@@ -15,7 +15,7 @@ workspace-tabs-close-dirty-title = { $count ->
     [few] У { $count } вкладках є незбережені зміни
     [many] У { $count } вкладках є незбережені зміни
    *[other] У { $count } вкладках є незбережені зміни
-  }
+}
 workspace-tabs-close-dirty-body = Під час закриття незбережені зміни в цих вкладках буде втрачено. Інші вкладки закриються в будь-якому разі.
 workspace-tabs-close-dirty-keep = Залишити відкритими
 workspace-tabs-close-dirty-discard = Скасувати зміни й закрити

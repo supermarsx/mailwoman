@@ -56,3 +56,13 @@ reader-attachmentsDensity-help = «Компактна» показує неве�
 reader-option-compact = Компактна
 reader-attachmentsCollapsed = Згортати вкладення за замовчуванням
 reader-attachmentsCollapsed-help = Починати кожне повідомлення з компактного підсумку вкладень. Конкретне повідомлення можна розгорнути, не змінюючи це значення за замовчуванням.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Текст і кольори
+reader-card-text-help = Розмір, інтервали, ширина та кольори тексту повідомлення.
+reader-card-actions = Дії та вкладення
+reader-card-actions-help = Стрічка дій із повідомленням і спосіб початку роботи з вкладеннями.
+reader-card-loading = Завантаження
+reader-card-loading-help = Що ви бачите, поки повідомлення відкривається.
+settings-mail-card-list = Список повідомлень
+settings-mail-card-list-help = Дії в рядках і поведінка списку після дії з повідомленням.

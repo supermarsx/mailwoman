@@ -15,7 +15,7 @@ remote-banner-trackers = { $count ->
     [few] Удалено { $count } трекера
     [many] Удалено { $count } трекеров
    *[other] Удалено { $count } трекера
-  }
+}
 remote-banner-trackers-limited = Удалено не менее { $count } трекеров
 remote-banner-show = Показать изображения
 remote-banner-show-help = Загрузить изображения этого сообщения через сервер, чтобы отправитель не видел Ваш IP-адрес
@@ -43,7 +43,7 @@ remote-images-toast-failed = { $count ->
     [few] Не удалось загрузить { $count } изображения
     [many] Не удалось загрузить { $count } изображений
    *[other] Не удалось загрузить { $count } изображения
-  }
+}
 remote-images-toast-retry = Повторить
 remote-images-toast-progress = Загрузка изображений… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = Загрузка изображений… { $loaded }/{ $total } · Попытка { $attempt }/{ $max }

@@ -143,7 +143,12 @@ common-message-preview-too-large = Podgląd załączników wiadomości jest ogra
 common-message-preview-failed = Nie udało się wyświetlić podglądu tego załącznika wiadomości. Plik może być nieobsługiwany lub uszkodzony albo proces podglądu jest niedostępny. Nadal możesz pobrać oryginał.
 common-message-preview-attachments = Pliki wewnątrz tej wiadomości
 common-message-preview-download = Pobierz plik
-common-message-preview-size-bytes = { $count } B
+common-message-preview-size-bytes = { $count ->
+    [one] { $count } bajt
+    [few] { $count } bajty
+    [many] { $count } bajtów
+   *[other] { $count } bajta
+}
 common-attach-cat-message = Wiadomości / załączniki Outlooka
 common-error-retry-help = Ta sekcja jest chwilowo niedostępna. Spróbuj ponownie, aby ją załadować.
 common-error-network-help = Sprawdź połączenie i spróbuj ponownie. Serwer może być chwilowo niedostępny.
@@ -174,4 +179,7 @@ multiselect-count = { $count ->
     [few] Wybrano { $count }
     [many] Wybrano { $count }
    *[other] Wybrano { $count }
-  }
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = Serwer jest zajęty. Odczekaj kilka sekund i spróbuj ponownie.
