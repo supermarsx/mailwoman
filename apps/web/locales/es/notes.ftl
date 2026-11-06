@@ -61,3 +61,9 @@ notes-link-button = Enlazar
 notes-changed-elsewhere = Esta nota se modificó en otro dispositivo o sesión. El texto que escribió aquí se conserva y su próxima edición lo guardará.
 notes-deleted-elsewhere = La nota que tenía abierta se eliminó en otro dispositivo o sesión.
 notes-create-failed = No se pudo crear la nota.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = No se pudo crear la nota. { $reason }
+notes-toast-pinned = Nota «{ $target }» fijada
+notes-toast-unpinned = Nota «{ $target }» desfijada
+notes-toast-pin-failed = No se pudo cambiar la fijación de la nota «{ $target }»

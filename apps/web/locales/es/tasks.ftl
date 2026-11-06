@@ -39,3 +39,6 @@ tasks-delete-no = Conservar tarea
 tasks-changed-elsewhere = Esta tarea se modificó en otro dispositivo o sesión. Sus cambios se conservan; Guardar aplica solo los campos que modificó.
 tasks-deleted-elsewhere = «{ $title }» se eliminó en otro dispositivo o sesión, así que se cerró su formulario de edición.
 tasks-notice-dismiss = Descartar
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = No se pudo crear la tarea. { $reason }
