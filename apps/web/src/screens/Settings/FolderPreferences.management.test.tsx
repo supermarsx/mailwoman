@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {cleanup, fireEvent, render, screen, waitFor, within} from '@solidjs/testing-library';
+import {cleanup, createEvent, fireEvent, render, screen, waitFor, within} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {FolderPreferences} from './FolderPreferences.tsx';
 import type {PreferenceFolder} from './folderPreferenceModel.ts';
@@ -33,9 +33,19 @@ const selected=(name:string)=>screen.getByRole('checkbox',{name:`Select folder: 
 const click=(name:string)=>fireEvent.click(screen.getByRole('button',{name}));
 const search=(value:string)=>fireEvent.input(screen.getByLabelText('Search folders'),{target:{value}});
 const drag=(name:string)=>screen.getByRole('button',{name:`Drag ${name} to reorder`});
-function drop(source:string,target:string):void{
- fireEvent.dragStart(drag(source),{dataTransfer:{setData:vi.fn()}});
- fireEvent.drop(drag(target).closest('tr')!);
+const transfer=()=>({setData:vi.fn(),types:['application/x-mailwoman-folder']});
+/** jsdom drops clientX/clientY from drag events: set them on the created event. */
+function fire(kind:'dragOver',row:Element,clientY:number,clientX:number):void{
+ const event=createEvent[kind](row,{dataTransfer:transfer()});
+ Object.defineProperty(event,'clientY',{value:clientY});Object.defineProperty(event,'clientX',{value:clientX});
+ fireEvent(row,event);
+}
+/** Drag `source` and release over `target`: zone 'before' (top quarter), 'inside' (middle) or 'after' (bottom quarter). */
+function drop(source:string,target:string,zone:'before'|'inside'|'after'='before',x=0):void{
+ const row=drag(target).closest('tr')!;row.getBoundingClientRect=()=>({top:0,left:0,height:40,width:400,bottom:40,right:400,x:0,y:0,toJSON:()=>({})});
+ fireEvent.dragStart(drag(source),{dataTransfer:transfer()});
+ fire('dragOver',row,zone==='before'?2:zone==='inside'?20:38,x);
+ fireEvent.drop(row,{dataTransfer:transfer()});
 }
 
 it('selects visible search matches separately from all folders and keeps hidden selections manageable',async()=>{
@@ -72,12 +82,38 @@ it('bulk pins and unpins without discarding unrelated or currently unknown folde
  click('Unpin selected');expect(update).toHaveBeenLastCalledWith({folderPinned:['unknown','b']});
 });
 
-it('reorders filtered rows using the full folder order and refuses cross-pin drops',()=>{
- const {update}=mount([{id:'a',name:'Match A'},{id:'middle',name:'Other'},{id:'b',name:'Match B'},{id:'p',name:'Pinned'}],{folderPinned:['p'],folderOrder:['a','middle','b','p']});
+it('reorders through the full folder order and turns dragging off while a search filters the list',()=>{
+ const {update}=mount([{id:'a',name:'Match A'},{id:'middle',name:'Other'},{id:'b',name:'Match B'},{id:'p',name:'Pinned'}],{folderOrder:['a','middle','b','p']});
  search('Match');drop('Match A','Match B');
- expect(update).toHaveBeenLastCalledWith({folderOrder:['p','middle','b','a']});
- search('');update.mockClear();drop('Match B','Pinned');
  expect(update).not.toHaveBeenCalled();
+ search('');drop('Match A','Match B');
+ expect(update).toHaveBeenLastCalledWith({folderOrder:['middle','a','b','p']});
+});
+
+it('nests a folder by dropping on the middle of a row and keeps it a view-only arrangement without a server',()=>{
+ const {update}=mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'}],{folderNestMode:'local'});
+ drop('Receipts','Projects','inside');
+ expect(update).toHaveBeenLastCalledWith({folderOrder:['a','b'],folderParent:{b:'a'}});
+});
+
+it('refuses nesting a folder into its own subfolder and into a locked place',()=>{
+ const {update}=mount([{id:'a',name:'Projects'},{id:'b',name:'Year',parentId:'a'}]);
+ drop('Projects','Year','inside');
+ expect(update).not.toHaveBeenCalled();
+});
+
+it('shows the arranged-only badge for a folder whose visual parent differs from the server',()=>{
+ mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'}],{folderParent:{b:'a'}});
+ expect(screen.getAllByTestId('arranged-only')).toHaveLength(1);
+});
+
+it('moves selected folders together, keeping their order, with the keyboard Move to dialog',async()=>{
+ const {update}=mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'},{id:'c',name:'Archive'}],{folderNestMode:'local'});
+ fireEvent.click(selected('Receipts'));fireEvent.click(selected('Archive'));
+ click('Move selected to…');
+ fireEvent.change(await screen.findByRole('listbox'),{target:{value:'a'}});
+ click('Move');
+ expect(update).toHaveBeenLastCalledWith({folderOrder:['a','b','c'],folderParent:{b:'a',c:'a'}});
 });
 
 it('cancels stale drags and prunes selected folders removed by a refresh',()=>{

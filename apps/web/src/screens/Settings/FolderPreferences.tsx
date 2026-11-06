@@ -11,12 +11,20 @@ import {useLeaveConfirm} from '../../components/confirm.tsx';
 import {CreateFolderDialog} from '../../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../../components/RenameFolder.tsx';
 import {createContextMenu, type ContextAction} from '../../components/ContextMenu.tsx';
+import {createFolderLayout, serverFolderMover} from '../../components/folderLayout.ts';
+import {arrangedOnly, placementForKey, type DndFolder, type KeyMove} from '../../components/folderDnd.ts';
+import {treeRows} from '../../components/folderTree.ts';
+import {FolderNestDialog} from '../../components/FolderNestDialog.tsx';
+import {FolderMoveToDialog} from '../../components/FolderMoveToDialog.tsx';
+import {FolderArrangeCard} from './FolderArrangeCard.tsx';
+import {createConfiguredClient} from '../../api/transport.ts';
+import * as dndCss from '../../components/folderDnd.css.ts';
 import type {Tag} from '../../state/slices/tags.ts';
 import {accountUiPreferences, accountUiPreferenceStatus, retryAccountUiPreferences, setAccountUiPreferences, type AccountUiPreferences, type FolderIcon} from '../../api/accountPreferences.ts';
 import {observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
-import {folderIcon, folderIsHidden, folderPathLabel, shownFolderIds, moveFolder, orderedFolders, type PreferenceFolder} from './folderPreferenceModel.ts';
+import {folderIcon, folderIsHidden, folderPathLabel, shownFolderIds, type PreferenceFolder} from './folderPreferenceModel.ts';
 import * as css from './styles.css.ts';
 import * as folderCss from './FolderPreferences.css.ts';
 export interface FolderPreferencesProps {
@@ -64,10 +72,15 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  onMount(()=>{void loadCatalog('settings');if(!props.onChange&&app)void loadCatalog('mail');});
  const prefs=()=>props.preferences?.()??accountUiPreferences();
  const update=(patch:AccountUiPreferences):void=>{if(current())(props.onChange??setAccountUiPreferences)(patch);};
- const folders=createMemo(()=>orderedFolders(props.folders(),prefs()));
+ // One arrangement model for the sidebar and this list (components/folderLayout.ts): order, visual parents, pins, admin policy.
+ const layout=createFolderLayout({
+  folders:()=>props.folders() as unknown as readonly DndFolder[],prefs,update,accountId:()=>owner?.id??null,
+  ...(!props.onChange&&app?{moveOnServer:serverFolderMover(app as never,ability,createConfiguredClient()),serverAvailable:()=>ability()?.manages===true}:{}),
+ });
+ const folders=createMemo(()=>layout.arranger.visual() as unknown as PreferenceFolder[]);
  const editing=()=>props.folders().find(folder=>navigation.route().editor?.kind==='edit'&&navigation.route().editor?.id===folder.id);
  const [query,setQuery]=createSignal(''),[selected,setSelected]=createSignal<ReadonlySet<string>>(new Set<string>());
- const [dragging,setDragging]=createSignal<readonly string[]>([]),[dropTarget,setDropTarget]=createSignal<string|null>(null);
+ const [moveTo,setMoveTo]=createSignal<string[]|null>(null);let wrapEl:HTMLDivElement|undefined;
  const [creating,setCreating]=createSignal<{parentId?:string}>(),[menuFolder,setMenuFolder]=createSignal<string>();
  const pinned=(id:string)=>prefs().folderPinned?.includes(id)??false;
  function parentPath(folder:PreferenceFolder):string {
@@ -78,9 +91,19 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  const locationLabel=(folder:PreferenceFolder):string=>parentPath(folder)||(folderPathLabel(folder)!==folder.name?folderPathLabel(folder):'');
  const visible=createMemo(()=>{const search=query().trim().toLocaleLowerCase();return folders().filter(folder=>!search||[folderPathLabel(folder),parentPath(folder),folder.name].some(value=>value.toLocaleLowerCase().includes(search)));});
  const selectedFolders=()=>folders().filter(folder=>selected().has(folder.id));
- const canMove=(id:string,target?:string)=>current()&&target!==undefined&&id!==target&&folders().some(folder=>folder.id===id)&&folders().some(folder=>folder.id===target)&&pinned(id)===pinned(target);
- function move(id:string,target:string):void {if(canMove(id,target))update({folderOrder:moveFolder(folders().map(folder=>folder.id),id,target)});}
- function pin(id:string):void {const ids=(prefs().folderPinned??[]).filter(value=>value!==id);update({folderPinned:pinned(id)?ids:[...ids,id]});}
+ const filtering=()=>query().trim()!=='';
+ const rowsAll=createMemo(()=>treeRows(folders() as unknown as DndFolder[],()=>true,{sorts:prefs().folderSort,collapsed:new Set(prefs().folderCollapsed??[])}));
+ const tableRows=createMemo(()=>filtering()?visible().map(box=>({box:box as unknown as DndFolder,depth:0,hasChildren:false,expanded:false})):rowsAll());
+ function setExpanded(id:string,expanded:boolean):void {const next=new Set(prefs().folderCollapsed??[]);if(expanded)next.delete(id);else next.add(id);update({folderCollapsed:[...next]});}
+ const dnd=layout.dnd({rows:()=>rowsAll().map(row=>({id:row.box.id,depth:row.depth,hasChildren:row.hasChildren,expanded:row.expanded})),selected,scroller:()=>wrapEl,indent:()=>20,canDrag:()=>!filtering()&&current(),onExpand:id=>setExpanded(id,true)});
+ const keyOk=(id:string,move:KeyMove):boolean=>current()&&placementForKey(layout.arranger.visual(),id,move,layout.policy()).ok;
+ function keyMove(id:string,move:KeyMove):void {const result=placementForKey(layout.arranger.visual(),id,move,layout.policy());if(result.ok)layout.arranger.place([id],result.placement);}
+ const arranged=createMemo(()=>new Set(arrangedOnly(props.folders() as unknown as DndFolder[],prefs().folderParent)));
+ const starred=(id:string)=>prefs().folderStarred?.includes(id)??false;
+ function star(id:string):void {const ids=(prefs().folderStarred??[]).filter(value=>value!==id);update({folderStarred:starred(id)?ids:[...ids,id]});}
+ const lockedReason=(id:string)=>{const reason=layout.lockReason(id);return reason==='locked'||reason==='forced'?reason:null;};
+ const lockReason=layout.lockReason;
+ function pin(id:string):void {if(layout.forced().has(id))return;const ids=(prefs().folderPinned??[]).filter(value=>value!==id);update({folderPinned:pinned(id)?ids:[...ids,id]});}
  function toggle(id:string):void {if(!current())return;setSelected(value=>{const next=new Set(value);if(next.has(id))next.delete(id);else next.add(id);return next;});}
  function setVisibility(targets:readonly PreferenceFolder[],show:boolean):void {
   let hidden=[...(prefs().folderHidden??[])];
@@ -93,32 +116,26 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   const ids=new Set(prefs().folderPinned??[]);for(const folder of targets)if(value)ids.add(folder.id);else ids.delete(folder.id);
   update({folderPinned:[...ids]});
  }
- function stopDragging():void {setDragging([]);setDropTarget(null);}
- function canDrop(target:string):boolean {return dragging().length>0&&!dragging().includes(target)&&dragging().every(id=>canMove(id,target));}
- function drop(target:string):void {
-  if(canDrop(target)){
-   const ids=folders().map(folder=>folder.id),moving=ids.filter(id=>dragging().includes(id)),remaining=ids.filter(id=>!dragging().includes(id));
-   const insertion=remaining.indexOf(target)+(ids.indexOf(moving[0]!)<ids.indexOf(target)?1:0);
-   remaining.splice(insertion,0,...moving);update({folderOrder:remaining});
-  }
-  stopDragging();
- }
  const context=createContextMenu({label:()=>t('settings-folders-actions'),scope:()=>`${owner?.id}:${owner?.generation}:${ownerCurrent()}:${menuFolder()}`,actions:()=>{
   const folder=folders().find(value=>value.id===menuFolder());if(!folder||!current())return [];
-  const index=folders().findIndex(value=>value.id===folder.id),above=folders()[index-1]?.id,below=folders()[index+1]?.id;
   const actions:ContextAction[]=[
    {id:'select',label:t('settings-folders-select',{name:folder.name}),icon:'check',checked:selected().has(folder.id),run:()=>toggle(folder.id)},
-   {id:'up',label:t('settings-folders-up',{name:folder.name}),icon:'chevronUp',disabled:!canMove(folder.id,above),run:()=>{if(above)move(folder.id,above);}},
-   {id:'down',label:t('settings-folders-down',{name:folder.name}),icon:'chevronDown',disabled:!canMove(folder.id,below),run:()=>{if(below)move(folder.id,below);}},
+   {id:'up',label:t('settings-folders-up',{name:folder.name}),icon:'chevronUp',disabled:!keyOk(folder.id,'up'),run:()=>keyMove(folder.id,'up')},
+   {id:'down',label:t('settings-folders-down',{name:folder.name}),icon:'chevronDown',disabled:!keyOk(folder.id,'down'),run:()=>keyMove(folder.id,'down')},
+   {id:'indent',label:t('folder-dnd-indent',{name:folder.name}),icon:'chevron',disabled:!keyOk(folder.id,'indent'),run:()=>keyMove(folder.id,'indent')},
+   {id:'outdent',label:t('folder-dnd-outdent',{name:folder.name}),icon:'chevronUp',disabled:!keyOk(folder.id,'outdent'),run:()=>keyMove(folder.id,'outdent')},
+   {id:'move-to',label:t('folder-dnd-arrange-menu'),icon:'folder',disabled:lockReason(folder.id)!==null,run:()=>{setMoveTo([folder.id]);}},
+   {id:'star',label:t(starred(folder.id)?'folder-star-remove':'folder-star-add'),icon:starred(folder.id)?'starOutline':'star',run:()=>star(folder.id)},
   ];
   if(ability()?.manages&&app?.mailboxes().find(box=>box.id===folder.id)?.myRights?.mayCreateChild===true)actions.push({id:'create',label:t('folder-create'),icon:'folder',separatorBefore:true,run:()=>{setCreating({parentId:folder.id});}});
   return actions;
  }});
- onCleanup(observePreferenceAccount(()=>{setOwnerCurrent(!!owner&&preferenceAccountIsCurrent(owner));setSelected(new Set<string>());stopDragging();setCreating(undefined);context.close(false);}));
+ onCleanup(observePreferenceAccount(()=>{setOwnerCurrent(!!owner&&preferenceAccountIsCurrent(owner));setSelected(new Set<string>());dnd.end();setCreating(undefined);context.close(false);}));
+ onMount(()=>{void loadCatalog('folder-dnd');});
  createEffect(()=>{
   const ids=new Set(folders().map(folder=>folder.id));
   setSelected(value=>{const valid=new Set([...value].filter(id=>ids.has(id)));return valid.size===value.size?value:valid;});
-  if(dragging().some(id=>!ids.has(id)))stopDragging();
+  if(dnd.dragging().some(id=>!ids.has(id)))dnd.end();
   if(menuFolder()&&!ids.has(menuFolder()!))context.close(false);
   ability();
  });
@@ -143,31 +160,41 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   </div>
   <Show when={selectedFolders().length}><div class={folderCss.bulk} role="group" aria-label={t('settings-folders-selected',{count:selectedFolders().length})}>
    <span role="status">{t('settings-folders-selected',{count:selectedFolders().length})}</span>
+   <button type="button" class="btn btn--ghost" disabled={selectedFolders().some(folder=>!!lockReason(folder.id))} onClick={()=>setMoveTo(selectedFolders().map(folder=>folder.id))}>{t('folder-dnd-selected-move')}</button>
    <button type="button" class="btn btn--ghost" onClick={()=>setPinned(selectedFolders(),true)}>{t('settings-folders-pin-selected')}</button>
    <button type="button" class="btn btn--ghost" onClick={()=>setPinned(selectedFolders(),false)}>{t('settings-folders-unpin-selected')}</button>
    <button type="button" class="btn btn--ghost" onClick={()=>setVisibility(selectedFolders(),true)}>{t('settings-folders-show-selected')}</button>
    <button type="button" class="btn btn--ghost" disabled={selectedFolders().every(folder=>folder.role==='inbox')} onClick={()=>setVisibility(selectedFolders(),false)}>{t('settings-folders-hide-selected')}</button>
    <button type="button" class="btn btn--ghost" onClick={()=>setSelected(new Set<string>())}>{t('settings-folders-clear')}</button>
   </div></Show>
+  <FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>
   <p class={css.meta}>{t('settings-folders-order-help')}</p>
-  <div class={folderCss.wrap} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select-visible')} disabled={!current()||!visible().length} checked={visible().length>0&&visible().every(folder=>selected().has(folder.id))} ref={input=>createEffect(()=>{input.indeterminate=visible().some(folder=>selected().has(folder.id))&&!visible().every(folder=>selected().has(folder.id));})} onChange={event=>{const checked=event.currentTarget.checked;setSelected(value=>{const next=new Set(value);for(const folder of visible())if(checked)next.add(folder.id);else next.delete(folder.id);return next;});}}/></th><th>{t('settings-folders-name')}</th><th class={folderCss.location}>{t('settings-folders-location')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
-   <For each={visible()}>{folder=>{const index=()=>folders().findIndex(value=>value.id===folder.id);const hidden=()=>folderIsHidden(folder,props.folders(),prefs());return <tr data-selected={selected().has(folder.id)||undefined} data-drop-target={dropTarget()===folder.id||undefined} onContextMenu={event=>{setMenuFolder(folder.id);context.open(event);}} onDragOver={event=>{if(canDrop(folder.id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropTarget(folder.id);}}} onDragLeave={event=>{if(!event.currentTarget.contains(event.relatedTarget as Node|null))setDropTarget(null);}} onDrop={event=>{event.preventDefault();drop(folder.id);}}>
+  <p class={folderCss.srOnly} role="status" aria-live="polite">{dnd.announcement()}</p>
+  <div class={folderCss.wrap} ref={wrapEl} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select-visible')} disabled={!current()||!visible().length} checked={visible().length>0&&visible().every(folder=>selected().has(folder.id))} ref={input=>createEffect(()=>{input.indeterminate=visible().some(folder=>selected().has(folder.id))&&!visible().every(folder=>selected().has(folder.id));})} onChange={event=>{const checked=event.currentTarget.checked;setSelected(value=>{const next=new Set(value);for(const folder of visible())if(checked)next.add(folder.id);else next.delete(folder.id);return next;});}}/></th><th>{t('settings-folders-name')}</th><th class={folderCss.location}>{t('settings-folders-location')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
+   <For each={tableRows()}>{row=>{const folder=row.box as unknown as PreferenceFolder;const hidden=()=>folderIsHidden(folder,props.folders(),prefs());return <tr {...dnd.rowProps(folder.id)} style={{'--folder-indent':'1.25rem',...dnd.dropVars(folder.id)}} data-folder-id={folder.id} data-depth={row.depth} data-selected={selected().has(folder.id)||undefined} onKeyDown={event=>{dnd.key(event,folder.id);}} onContextMenu={event=>{setMenuFolder(folder.id);context.open(event);}}>
     <td class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select',{name:folder.name})} disabled={!current()} checked={selected().has(folder.id)} onChange={()=>toggle(folder.id)}/></td>
-    <td><div class={folderCss.name}><button type="button" class={`btn btn--ghost ${folderCss.drag}`} draggable={current()} disabled={!current()} title={t('settings-folders-drag',{name:folder.name})} aria-label={t('settings-folders-drag',{name:folder.name})} onDragStart={event=>{const ids=selected().has(folder.id)?folders().filter(value=>selected().has(value.id)&&pinned(value.id)===pinned(folder.id)).map(value=>value.id):[folder.id];setDragging(ids);if(event.dataTransfer){event.dataTransfer.effectAllowed='move';event.dataTransfer.setData('text/plain',ids.join('\n'));}}} onDragEnd={stopDragging}><Icon name="sort"/></button><Icon name={folderIcon(folder,prefs())}/><span class={folderCss.folderName} title={folderPathLabel(folder)}>{folder.name}</span><Show when={pinned(folder.id)}><Icon name="pin"/></Show></div>
-     <div class={folderCss.metadata}><Show when={locationLabel(folder)}><span class={folderCss.mobileLocation}>{locationLabel(folder)}</span></Show><span>{t(hidden()?'settings-folders-hidden':'settings-folders-visible')}</span><Show when={rowCounts(folder)}><span>{rowCounts(folder)}</span></Show><Show when={prefs().folderLabels?.[folder.id]?.length}><span>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</span></Show></div></td>
+    <td><div class={folderCss.name} style={{'padding-inline-start':`${row.depth*1.25}rem`}}>
+     <Show when={row.hasChildren} fallback={<span class={folderCss.twistySpacer}/>}><button type="button" class={`btn btn--ghost ${folderCss.twisty}`} aria-expanded={row.expanded} aria-label={t(row.expanded?'folder-ops-collapse':'folder-ops-expand',{name:folder.name})} onClick={()=>setExpanded(folder.id,!row.expanded)}><Icon name={row.expanded?'chevronDown':'chevron'}/></button></Show>
+     <button type="button" class={`btn btn--ghost ${folderCss.drag}`} disabled={!current()||!!lockReason(folder.id)||filtering()} title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):lockedReason(folder.id)==='forced'?t('folder-dnd-forced-hint'):t('settings-folders-drag',{name:folder.name})} aria-label={t('settings-folders-drag',{name:folder.name})}><Icon name="sort"/></button><Icon name={folderIcon(folder,prefs())}/><span class={folderCss.folderName} title={folderPathLabel(folder)}>{folder.name}</span><Show when={pinned(folder.id)||layout.forced().has(folder.id)}><Icon name="pin"/></Show><Show when={starred(folder.id)}><span class="sidebar__box-star" aria-hidden="true"><Icon name="star"/></span><span class={folderCss.srOnly}>{t('folder-star-starred')}</span></Show><Show when={lockedReason(folder.id)}><span class={dndCss.lockIcon} data-testid="folder-lock" title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):t('folder-dnd-forced-hint')}><Icon name="lock"/><span class={folderCss.srOnly}>{t('folder-dnd-locked-row')}</span></span></Show></div>
+     <div class={folderCss.metadata}><Show when={locationLabel(folder)}><span class={folderCss.mobileLocation}>{locationLabel(folder)}</span></Show><span>{t(hidden()?'settings-folders-hidden':'settings-folders-visible')}</span><Show when={rowCounts(folder)}><span>{rowCounts(folder)}</span></Show><Show when={prefs().folderLabels?.[folder.id]?.length}><span>{prefs().folderLabels?.[folder.id]?.map(id=>props.tags?.().find(tag=>tag.id===id)?.name??id).join(', ')}</span></Show><Show when={arranged().has(folder.id)}><span class={folderCss.badge} data-testid="arranged-only" title={t('folder-dnd-arranged-only-help',{path:folderPathLabel(folder)})}>{t('folder-dnd-arranged-only')}</span><Show when={!props.onChange&&ability()?.manages}><button type="button" class="btn btn--ghost" disabled={!current()} onClick={()=>void layout.arranger.applyToServer(folder.id)}>{t('folder-dnd-apply-server')}</button></Show></Show></div></td>
     <td class={folderCss.location}><span title={locationLabel(folder)}>{locationLabel(folder)||t('settings-folders-root')}</span></td>
     <td><div class={folderCss.actions}>
      <button type="button" class="btn btn--ghost" disabled={!current()} title={t('settings-folders-edit',{name:folder.name})} aria-label={t('settings-folders-edit',{name:folder.name})} onClick={()=>void navigation.navigate({section:'folders',editor:{kind:'edit',id:folder.id}})}><Icon name="edit"/></button>
-     <button type="button" class="btn btn--ghost" disabled={!current()} title={t('settings-folders-pin',{name:folder.name})} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)} onClick={()=>pin(folder.id)}><Icon name="star"/></button>
+     <button type="button" class="btn btn--ghost" disabled={!current()||layout.forced().has(folder.id)} title={t('settings-folders-pin',{name:folder.name})} aria-label={t('settings-folders-pin',{name:folder.name})} aria-pressed={pinned(folder.id)||layout.forced().has(folder.id)} onClick={()=>pin(folder.id)}><Icon name="pin"/></button>
+     <button type="button" class="btn btn--ghost" disabled={!current()} title={t('folder-star-toggle',{name:folder.name})} aria-label={t('folder-star-toggle',{name:folder.name})} aria-pressed={starred(folder.id)} onClick={()=>star(folder.id)}><Icon name={starred(folder.id)?'star':'starOutline'}/></button>
      <button type="button" class="btn btn--ghost" disabled={!current()||folder.role==='inbox'} title={t(hidden()?'settings-folders-show':'settings-folders-hide',{name:folder.name})} aria-label={t(hidden()?'settings-folders-show':'settings-folders-hide',{name:folder.name})} onClick={()=>setVisibility([folder],hidden())}><Icon name={hidden()?'eyeOff':'eye'}/></button>
      <button type="button" class="btn btn--ghost" disabled={!current()} aria-label={t('settings-folders-more',{name:folder.name})} title={t('settings-folders-more',{name:folder.name})} aria-haspopup="menu" aria-expanded={context.isOpen()&&menuFolder()===folder.id} onClick={event=>{setMenuFolder(folder.id);context.openBelow(event.currentTarget);}}><Icon name="more"/></button>
-     <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('settings-folders-up',{name:folder.name})} disabled={!canMove(folder.id,folders()[index()-1]?.id)} onClick={()=>move(folder.id,folders()[index()-1]!.id)}><Icon name="chevronUp"/></button>
-     <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('settings-folders-down',{name:folder.name})} disabled={!canMove(folder.id,folders()[index()+1]?.id)} onClick={()=>move(folder.id,folders()[index()+1]!.id)}><Icon name="chevronDown"/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('settings-folders-up',{name:folder.name})} disabled={!keyOk(folder.id,'up')} onClick={()=>keyMove(folder.id,'up')}><Icon name="chevronUp"/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('settings-folders-down',{name:folder.name})} disabled={!keyOk(folder.id,'down')} onClick={()=>keyMove(folder.id,'down')}><Icon name="chevronDown"/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('folder-dnd-indent',{name:folder.name})} disabled={!keyOk(folder.id,'indent')} onClick={()=>keyMove(folder.id,'indent')}><Icon name="chevron"/></button>
+     <button type="button" class={`btn btn--ghost ${folderCss.keyboardAction}`} aria-label={t('folder-dnd-outdent',{name:folder.name})} disabled={!keyOk(folder.id,'outdent')} onClick={()=>keyMove(folder.id,'outdent')}><Icon name="chevronUp"/></button>
     </div></td>
    </tr>;}}</For>
    <Show when={!visible().length}><tr><td colSpan={4} class={folderCss.empty}>{t('settings-folders-empty')}</td></tr></Show>
   </tbody></table></div>
   {context.menu()}
+  <FolderNestDialog arranger={layout.arranger} nameOf={id=>props.folders().find(folder=>folder.id===id)?.name??''}/>
+  <Show when={moveTo()}>{ids=><FolderMoveToDialog moving={ids()} arranger={layout.arranger} policy={layout.policy} onClose={()=>setMoveTo(null)}/>}</Show>
   <Show when={creating()}>{value=><CreateFolderDialog {...(value().parentId?{parentId:value().parentId!}:{})} onClose={()=>setCreating(undefined)}/>}</Show>
  </section>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation} tags={props.tags??(()=>[])} local={!!props.onChange}/>}</Show>;
 }

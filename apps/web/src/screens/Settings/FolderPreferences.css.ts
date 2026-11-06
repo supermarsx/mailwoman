@@ -13,7 +13,6 @@ globalStyle(`${table} th, ${table} td`,{padding:`${vars.space[2]} ${vars.space[2
 globalStyle(`${table} thead`,{background:vars.color.bgAlt,fontSize:'0.8rem'});
 globalStyle(`${table} tbody tr:hover`,{background:vars.color.bgAlt});
 globalStyle(`${table} tbody tr[data-selected="true"]`,{background:vars.color.selection});
-globalStyle(`${table} tbody tr[data-drop-target="true"]`,{boxShadow:`inset 0 3px 0 ${vars.color.accent}`,background:vars.color.selection});
 globalStyle(`${table} th:last-child, ${table} td:last-child`,{inlineSize:'9rem',minInlineSize:'9rem'});
 export const selectCell=style({inlineSize:'2rem',textAlign:'center'});
 export const location=style({maxInlineSize:'18rem',fontSize:'0.8rem',color:vars.color.textDim,'@media':{'(max-width: 600px)':{display:'none'}}});
@@ -32,3 +31,7 @@ globalStyle(`${wrap}:focus-visible`,{outline:`${vars.a11y.focusRingWidth} solid 
 
 export const iconGrid=style({display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(44px,1fr))',gap:'4px',maxInlineSize:'28rem'});
 globalStyle(`${iconGrid} button[aria-checked="true"]`,{outline:`2px solid ${vars.color.accent}`,outlineOffset:'-2px'});
+export const srOnly=style({position:'absolute',inlineSize:'1px',blockSize:'1px',overflow:'hidden',clipPath:'inset(50%)',whiteSpace:'nowrap'});
+export const badge=style({border:`${vars.border.hair} solid ${vars.color.borderStrong}`,borderRadius:'999px',paddingInline:'0.5rem',fontSize:'0.75rem',color:vars.color.text,background:vars.color.bgAlt});
+export const twisty=style({flex:'0 0 auto',minInlineSize:'24px',minBlockSize:'30px',padding:'2px',borderColor:'transparent'});
+export const twistySpacer=style({flex:'0 0 auto',inlineSize:'24px'});

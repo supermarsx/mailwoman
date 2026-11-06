@@ -20,7 +20,7 @@ it('keeps hidden folders manageable and restores their hidden ancestors without 
 it('offers seventy-five native icons plus automatic and saves only the changed folder preference',async()=>{
  const [prefs,setPrefs]=createSignal<AccountUiPreferences>({});const update=vi.fn((patch:AccountUiPreferences)=>setPrefs(value=>({...value,...patch})));
  render(()=><FolderPreferences folders={()=>[{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]} preferences={prefs} onChange={update}/>);
- expect(screen.queryByRole('combobox')).toBeNull();
+ expect(screen.queryByRole('combobox',{name:/parent/i})).toBeNull();
  fireEvent.click(await screen.findByRole('button',{name:'Edit Projects appearance'}));
  const select=await screen.findByRole('radiogroup',{name:'Icon for Projects'});expect(select.querySelectorAll('[role=radio]')).toHaveLength(76);expect(select.querySelectorAll('svg')).toHaveLength(76);
  fireEvent.click(screen.getByRole('radio',{name:'Star'}));expect(update).not.toHaveBeenCalled();
