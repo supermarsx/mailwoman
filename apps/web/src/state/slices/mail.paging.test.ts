@@ -15,7 +15,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { createRoot } from 'solid-js';
 import { createMailSlice, PAGE_SIZE, type MailSlice } from './mail.ts';
 import type { SliceContext } from './context.ts';
-import type { Client, Me } from '../../api/client.ts';
+import { ApiError, type Client, type Me } from '../../api/client.ts';
 import {
   CAP_MAIL,
   type Email,
@@ -486,6 +486,86 @@ describe('paging — superseded responses cannot write', () => {
       expect(await archiveDone).toBeUndefined(); // swallowed, not rethrown
       expect(mail.listLoading()).toBe(false);
       dispose();
+    });
+  });
+});
+
+// ── loading never strands the skeleton ──────────────────────────────────────
+
+describe('paging — no skeleton without a request behind it', () => {
+  it('watchdog: a page request that never settles is aborted after 15 s and retried', async () => {
+    vi.useFakeTimers();
+    try {
+      const server = makeServer({ inbox: corpus('inbox', 120) });
+      await withServer(server, async (mail) => {
+        server.hold('inbox');
+        const more = mail.loadMore();
+        expect(mail.loadingMore()).toBe(true);
+        await vi.advanceTimersByTimeAsync(14_000);
+        expect(mail.loadingMore()).toBe(true); // still a genuine load
+        const hung = server.listCalls('inbox').at(-1)!;
+        expect(hung.signal?.aborted).toBe(false);
+        await vi.advanceTimersByTimeAsync(1_500);
+        expect(hung.signal?.aborted).toBe(true);
+        hung.release();
+        await more;
+        expect(mail.loadingMore()).toBe(false);
+        expect(mail.loadMoreFailed()).toBe(false); // first failure retries quietly
+        // the automatic retry fires after the backoff and, unheld, delivers page 2
+        server.releaseAll('inbox');
+        await vi.advanceTimersByTimeAsync(2_500);
+        expect(mail.messages().length).toBeGreaterThanOrEqual(100);
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('429 on the page request: retried once automatically, rows arrive, no Retry row', async () => {
+    vi.useFakeTimers();
+    try {
+      const server = makeServer({ inbox: corpus('inbox', 120) });
+      let throttled = true;
+      const client: Client = {
+        ...server.client,
+        jmap: vi.fn((body: JmapRequest, o?: { signal?: AbortSignal }) => {
+          const q = body.methodCalls.find((c) => c[0] === 'Email/query');
+          const pos = (q?.[1] as { position?: number } | undefined)?.position ?? 0;
+          if (throttled && pos > 0) {
+            throttled = false;
+            return Promise.reject(new ApiError(429, 'slow down', { retryAfterSecs: 1 }));
+          }
+          return server.client.jmap(body, o);
+        }),
+      };
+      await createRoot(async (dispose) => {
+        const mail = createMailSlice({ client, showToast: vi.fn() });
+        await mail.login({ username: 'me@example.org', password: 'p' });
+        await mail.loadMore();
+        expect(mail.loadMoreFailed()).toBe(false);
+        await vi.advanceTimersByTimeAsync(2_500);
+        expect(mail.messages()).toHaveLength(100);
+        expect(mail.loadMoreFailed()).toBe(false);
+        dispose();
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a late page for the previous folder is dropped and leaves no pending tail', async () => {
+    const server = makeServer({ inbox: corpus('inbox', 120), archive: corpus('archive', 30) });
+    await withServer(server, async (mail) => {
+      server.hold('inbox');
+      const late = mail.loadMore();
+      await mail.selectMailbox('archive');
+      server.releaseAll('inbox');
+      await late;
+      expect(mail.messages().every((m) => m.id.startsWith('archive-'))).toBe(true);
+      expect(mail.messages()).toHaveLength(30);
+      expect(mail.loadingMore()).toBe(false);
+      expect(mail.total()).toBe(30);
+      expect(mail.hasMore()).toBe(false);
     });
   });
 });

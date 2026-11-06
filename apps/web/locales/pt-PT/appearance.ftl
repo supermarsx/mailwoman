@@ -145,6 +145,7 @@ appearance-preference-appearance-lowContrast = Modo de baixo contraste
 appearance-preference-mail-messageListStyle = Estilo da lista de mensagens
 appearance-preference-mail-messageListPreview = Mostrar pré-visualização do corpo das mensagens
 appearance-preference-mail-messageListOrder = Ordenação da lista de mensagens
+appearance-preference-mail-list-pageSize = Mensagens carregadas por página (20 a 200)
 appearance-preference-mail-afterDelete = Depois de eliminar uma mensagem
 appearance-preference-reader-attachmentsAtEnd = Mostrar anexos no fim das mensagens
 appearance-preference-ui-notifyNewVersion = Avisar-me quando houver uma nova versão do Mailwoman

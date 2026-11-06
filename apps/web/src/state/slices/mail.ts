@@ -91,6 +91,8 @@ import { clearUndoHistory, recordUndoable, undoOnly, undoReplaying, UndoUnavaila
  * size of an append-on-scroll cursor.
  */
 export const PAGE_SIZE = 50;
+/** `mail.list.pageSize` (20 to 200); `PAGE_SIZE` until the setting is known. */
+const pageSize = (): number => { const v = Number(settings()['mail.list.pageSize']?.value); return Number.isInteger(v) && v >= 20 && v <= 200 ? v : PAGE_SIZE; };
 
 /**
  * Ceiling on how much of the loaded extent an in-place refresh will refetch.
@@ -471,7 +473,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   function prefetchMailbox(id:Id,trigger:PrefetchTrigger):()=>void {
     const owner=cacheOwner(),account=accountId(),box=mailboxes().find(value=>value.id===id);
     if(!owner||!account||!box||id===EVENTS_VIEW_ID)return ()=>undefined;
-    const request=pageRequest(account,{kind:'mailbox',mailboxId:id},0,PAGE_SIZE,true);
+    const request=pageRequest(account,{kind:'mailbox',mailboxId:id},0,pageSize(),true);
     return readCache.prefetch(owner,JSON.stringify(request),'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal,pace:'background'})}),
       {trigger,folderId:id,...(box.role?{folderRole:box.role}:{})});
   }
@@ -1639,11 +1641,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function loadFirstPage(acct: string, src: PageSource): Promise<void> {
     setPageSource(src);
     const req = beginListRequest();
-    const request=pageRequest(acct,src,0,PAGE_SIZE,true),owner=cacheOwner();
+    const request=pageRequest(acct,src,0,pageSize(),true),owner=cacheOwner();
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
     const cached=hit?.kind==='mailbox'?hit.response:undefined;
-    const apply=(res:JmapResponse)=>{const raw=responseFor<EmailGetResponse>(res,'g').list,page=projectRows(withoutHiddenSpam(raw),src,req);setMessages(page);setLoadedStart(0);nextServerPosition=raw.length;setTotal(page.length===raw.length?pageTotal(res):null);setExhausted(raw.length<PAGE_SIZE);};
+    const apply=(res:JmapResponse)=>{const raw=responseFor<EmailGetResponse>(res,'g').list,page=projectRows(withoutHiddenSpam(raw),src,req);setMessages(page);setLoadedStart(0);nextServerPosition=raw.length;setTotal(page.length===raw.length?pageTotal(res):null);setExhausted(raw.length<pageSize());};
     if(cached)apply(cached);
     setListLoading(!cached);
     try {
@@ -1679,13 +1681,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (listLoading() || loadingMore() || !hasMore()) return;
     clearTimeout(loadMoreRetryTimer);
     const position = [...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end,nextServerPosition):loadedRange().end;
+    const size = pageSize();
     const req = beginListRequest();
     setLoadingMore(true);
     setLoadMoreFailed(false);
     // Watchdog: a page request that never settles must not leave the skeleton up forever.
     const watchdog = setTimeout(() => { if (isCurrent(req)) inFlight?.abort(); }, 15_000);
     try {
-      const res = await jmapCall(pageRequest(acct, src, position, PAGE_SIZE, false), { signal: req.signal });
+      const res = await jmapCall(pageRequest(acct, src, position, size, false), { signal: req.signal });
       if (!isCurrent(req)) return;
       const raw = responseFor<EmailGetResponse>(res, 'g').list;
       const page = projectRows(raw,src,req);
@@ -1714,7 +1717,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // while leaving the visible row count unchanged, so a rows-based test ends
       // the query on a folder that is one large thread. That is a worse bug than
       // the loop this guards, and it is the version written first.
-      const done = raw.length < PAGE_SIZE || (next === before&&page.length===raw.length);
+      const done = raw.length < size || (next === before&&page.length===raw.length);
       setExhausted(done);
       // The query ended short of the reported total (server clamped the page,
       // rows hidden or moved): drop the unfetched tail, or its skeleton rows
@@ -1860,7 +1863,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // refresh; superseding it would abandon a spinner nothing else clears.
     if (listLoading() || loadingMore()) return;
     const range = loadedRange();
-    const loaded = Math.max(PAGE_SIZE, range.end - range.start);
+    const loaded = Math.max(pageSize(), range.end - range.start);
     if (loaded > REFRESH_MAX_ROWS) return; // see REFRESH_MAX_ROWS
     const req = beginListRequest();
     try {

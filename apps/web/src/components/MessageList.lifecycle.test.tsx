@@ -254,6 +254,8 @@ interface PagedMount {
 
 /** A client that really pages: honours `position`/`limit` and answers
  *  `calculateTotal` with the whole corpus size. */
+/** Number of upcoming continuation (position > 0) requests that reject. */
+let failPageRequests = 0;
 function pagingClient(corpus: Email[], queries: PagedQuery[], alwaysFirstPage = false): Client {
   const base = makeClient({ emails: corpus });
   return {
@@ -266,6 +268,7 @@ function pagingClient(corpus: Email[], queries: PagedQuery[], alwaysFirstPage = 
       const limit = args.limit ?? 50;
       const calculateTotal = args.calculateTotal === true;
       queries.push({ position, limit, calculateTotal });
+      if (position > 0 && failPageRequests > 0) { failPageRequests -= 1; throw new Error('page failed'); }
       const page = alwaysFirstPage ? corpus.slice(0, limit) : corpus.slice(position, position + limit);
       return {
         methodResponses: [
@@ -326,6 +329,29 @@ describe('MessageList paging trigger (t22-e5b)', () => {
 
     await waitFor(() => expect(app.messages().length).toBe(100));
     await waitFor(() => expect(renderedSubjects(container)).toContain('Message 51'));
+  }, 20_000);
+
+  it('the page lands: its rows replace the skeleton tail, and nothing pending remains at the end', async () => {
+    const { app, container, scroller } = await mountPaged(80);
+    expect(container.querySelector('[data-skeleton="message-row"]')).toBeNull(); // not in view yet
+    scrollTo(scroller, 45 * ROW);
+    await waitFor(() => expect(app.messages().length).toBe(80));
+    scrollTo(scroller, 79 * ROW);
+    await waitFor(() => expect(renderedSubjects(container)).toContain('Message 80'));
+    expect(container.querySelector('[data-skeleton="message-row"]')).toBeNull();
+    expect(app.loadingMore()).toBe(false);
+  }, 20_000);
+
+  it('a failed page shows a Retry row instead of an endless skeleton, and Retry loads the rows', async () => {
+    const { app, container, scroller } = await mountPaged(120);
+    failPageRequests = 2; // the request and its one automatic retry
+    scrollTo(scroller, 45 * ROW);
+    await waitFor(() => expect(container.querySelector('[data-testid="load-more-failed"]')).not.toBeNull(), { timeout: 8000 });
+    expect(app.loadingMore()).toBe(false);
+    expect(container.querySelector('[data-skeleton="message-row"]')).toBeNull();
+    fireEvent.click(container.querySelector('[data-testid="load-more-failed"] button')!);
+    await waitFor(() => expect(app.messages().length).toBe(100));
+    expect(container.querySelector('[data-testid="load-more-failed"]')).toBeNull();
   }, 20_000);
 
   it('does not page until something scrolls — the trigger is the gesture', async () => {

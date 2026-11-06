@@ -13,6 +13,7 @@ const fields: {key:string; fallback:string|number|boolean; choices?:string[]; mi
   {key:'mail.messageListStyle',fallback:'cards',choices:['cards','table']},
   {key:'mail.messageListOrder',fallback:'newest',choices:['newest','oldest','sender','subject']},
   {key:'mail.messageListPreview',fallback:true},
+  {key:'mail.list.pageSize',fallback:50,min:20,max:200},
   {key:'mail.afterDelete',fallback:'next',choices:['next','previous','close']},
   {key:'reader.attachmentsAtEnd',fallback:false},
   {key:'ui.notifyNewVersion',fallback:true},

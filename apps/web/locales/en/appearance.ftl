@@ -164,6 +164,7 @@ appearance-preference-option-previous = Open previous message
 appearance-preference-option-close = Close message
 appearance-preference-inherit = Use administrator or theme default
 appearance-preference-mail-messageListOrder = Message list order
+appearance-preference-mail-list-pageSize = Messages loaded per page (20 to 200)
 appearance-preference-option-newest = Newest first
 appearance-preference-option-oldest = Oldest first
 appearance-preference-option-sender = Sender

@@ -664,7 +664,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // the window grew). Scroll events alone miss those, which left the skeleton
   // tail up with no request behind it.
   createEffect(() => {
-    rows().length; win().endIndex; app.loadingMore(); app.listLoading(); app.loadMoreFailed?.();
+    void [rows().length, win().endIndex, app.loadingMore(), app.listLoading()];
     if (app.loadMoreFailed?.() === true) return;
     queueMicrotask(maybeLoadMore);
   });
