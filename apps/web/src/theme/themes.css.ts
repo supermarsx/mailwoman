@@ -212,7 +212,7 @@ globalStyle(':root', {
 globalStyle(':root[data-reduced-motion]', { vars: NO_MOTION });
 // Belt-and-braces: also neutralise raw CSS animations/transitions under reduced
 // motion for elements that don't yet use the tokens (existing chrome).
-globalStyle(':root[data-reduced-motion] *:not([data-mw-spinner])', {
+globalStyle(':where(:root[data-reduced-motion] *):not([data-mw-spinner])', {
   animationDuration: '0.01ms !important',
   animationIterationCount: '1 !important',
   transitionDuration: '0.01ms !important',

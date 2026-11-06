@@ -32,6 +32,14 @@ export const spinner = style({
   },
 });
 
+// The reduced-motion stand-in for any looping busy motion (skeleton shimmer,
+// sync icons): a slow opacity fade, never a frozen shape. `calmForce` beats the
+// global `animation-duration: 0.01ms !important` that the in-app switch applies
+// (that rule has zero specificity except its :not(); a class rule wins).
+const calm = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.55 } });
+export const calmAnimation = `${calm} 3s ease-in-out infinite`;
+export const calmForce = { animationDuration: '3s !important', animationIterationCount: 'infinite !important' } as const;
+
 export const label = style({
   position: 'absolute',
   inlineSize: '1px',

@@ -6,6 +6,7 @@
 import { masonry } from '../../../components/masonry.css.ts';
 import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
+import { calmAnimation, calmForce } from '../../../components/spinner/spinner.css.ts';
 import { subsectionSurface } from '../subsectionLayout.css.ts';
 
 /** Keyboard focus, as the shell's ux.css.ts draws it. */
@@ -132,7 +133,8 @@ export const chip = style({
   },
 });
 globalStyle(`${chip} svg`, { inlineSize: '12px', blockSize: '12px', flex: 'none' });
-globalStyle(`${chip}[data-status="running"] svg`, { animation: `${spin} 1s linear infinite`, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } } });
+globalStyle(`${chip}[data-status="running"] svg`, { transformBox: 'fill-box', transformOrigin: 'center', animation: `${spin} 1s linear infinite`, '@media': { '(prefers-reduced-motion: reduce)': { animation: calmAnimation } } });
+globalStyle(`:root[data-reduced-motion] ${chip}[data-status="running"] svg`, { animation: calmAnimation, ...calmForce });
 
 /** Overview: one tile per group. */
 export const tiles = style({ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 14rem), 1fr))', gap: vars.space[4] });

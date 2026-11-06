@@ -163,7 +163,7 @@ export const IMAGE_LOADING_STYLE =
   'img[data-mw-image-state="loading"][data-mw-image-unsized]{min-width:24px;min-height:18px}' +
   '@keyframes mw-reader-image-loading{from{background-position:100% 0}to{background-position:-100% 0}}' +
   '@keyframes mw-reader-image-pulse{0%,100%{opacity:1}50%{opacity:.6}}' +
-  '@media(prefers-reduced-motion:reduce){img[data-mw-image-state="loading"]{animation:none!important}}';
+  '@media(prefers-reduced-motion:reduce){img[data-mw-image-state="loading"]{animation:mw-reader-image-pulse 3s ease-in-out 20!important}}';
 
 /** Minimal readable body styling (distinct from the media-centering FRAME_STYLE).
  *  The opaque-origin body frame can't inherit the parent's theme vars, so e8

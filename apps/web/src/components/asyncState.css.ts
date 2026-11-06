@@ -1,5 +1,6 @@
 import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../theme/contract.css.ts';
+import { calmAnimation, calmForce } from './spinner/spinner.css.ts';
 
 const appear = keyframes({ from: { opacity: 0 }, to: { opacity: 1 } });
 
@@ -57,16 +58,17 @@ export const boot = style({minBlockSize:'100dvh',maxInlineSize:'38rem',margin:'0
 // row's own density variables (styles/app.css `--mail-row-*`) and is given the
 // virtualized row height, so the skeleton has the same rhythm as the rows that
 // replace it. The shapes pulse slowly between two flat fills (the t32 style
-// has no gradients); with reduced motion they are still.
+// has no gradients); with reduced motion they fade slowly (calmAnimation) instead.
 // The boot splash (styles/boot.css `mwb-pulse`) uses the same two fills and
 // period, and both are aligned to the document timeline (shell/bootSplash.ts).
 const pulse = keyframes({ '0%, 100%': { backgroundColor: vars.color.border }, '50%': { backgroundColor: `color-mix(in srgb, ${vars.color.border} 45%, ${vars.color.bg})` } });
+const CALM = { selectors: { ':root[data-reduced-motion] &': { animation: calmAnimation, ...calmForce } }, '@media': { '(prefers-reduced-motion: reduce)': { animation: calmAnimation } } } as const;
 const STILL = { selectors: { ':root[data-reduced-motion] &': { animation: 'none' } }, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } } } as const;
-export const skeletonPulse=style({animation:`${pulse} 1.6s ease-in-out infinite`,...STILL});
+export const skeletonPulse=style({animation:`${pulse} 1.6s ease-in-out infinite`,...CALM});
 // Every content-shaped variant shares the mailbox/boot pulse.
 globalStyle(`${skeletonBody} span`,{animation:`${pulse} 1.6s ease-in-out infinite`});
-globalStyle(`:root[data-reduced-motion] ${skeletonBody} span`,{animation:'none'});
-globalStyle(`${skeletonBody} span`,{'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'}}});
+globalStyle(`:root[data-reduced-motion] ${skeletonBody} span`,{animation:calmAnimation,...calmForce});
+globalStyle(`${skeletonBody} span`,{'@media':{'(prefers-reduced-motion: reduce)':{animation:calmAnimation}}});
 export const messagesPanel = style({margin:0,maxInlineSize:'none',flex:'1 1 auto',minBlockSize:0,overflow:'hidden',gap:0});
 export const messageSkeletons = style({display:'block',minInlineSize:0,overflow:'hidden',animation:`${appear} 120ms ease-out 120ms both`,...STILL});
 export const messageSkeleton = style({
@@ -80,8 +82,8 @@ export const messageSkeletonAvatar = style({display:'block',flex:'0 0 auto',inli
 export const messageSkeletonDate = style({display:'block',flex:'0 0 3rem',marginInlineStart:'auto',blockSize:'.6rem',background:vars.color.border,borderRadius:vars.radius.sm});
 export const messageSkeletonDim = style({opacity:.6});
 globalStyle(`${messageSkeletons} span`, {animation:`${pulse} 1.6s ease-in-out infinite`});
-globalStyle(`:root[data-reduced-motion] ${messageSkeletons} span`, {animation:'none'});
-globalStyle(`${messageSkeletons} span`, {'@media':{'(prefers-reduced-motion: reduce)':{animation:'none'}}});
+globalStyle(`:root[data-reduced-motion] ${messageSkeletons} span`, {animation:calmAnimation,...calmForce});
+globalStyle(`${messageSkeletons} span`, {'@media':{'(prefers-reduced-motion: reduce)':{animation:calmAnimation}}});
 
 // Sidebar folder placeholders (`variant="folders"`). Each row IS a
 // `.sidebar__box` (styles/app.css), so it has the folder row's padding, gap and
@@ -89,9 +91,9 @@ globalStyle(`${messageSkeletons} span`, {'@media':{'(prefers-reduced-motion: red
 // they take the rows' places (t71: a mailbox switch keeps the sidebar still).
 export const foldersPanel = style({margin:0,minBlockSize:0,maxInlineSize:'none',gap:0});
 export const folderSkeletons = style({display:'flex',flexDirection:'column',gap:'0.2rem',minInlineSize:0,animation:`${appear} 120ms ease-out 120ms both`,...STILL});
-export const folderSkeletonIcon = style({display:'block',flex:'0 0 auto',inlineSize:'16px',blockSize:'16px',borderRadius:vars.radius.sm,background:vars.color.border,animation:`${pulse} 1.6s ease-in-out infinite`,...STILL});
+export const folderSkeletonIcon = style({display:'block',flex:'0 0 auto',inlineSize:'16px',blockSize:'16px',borderRadius:vars.radius.sm,background:vars.color.border,animation:`${pulse} 1.6s ease-in-out infinite`,...CALM});
 export const folderSkeletonName = style({display:'flex',alignItems:'center'});
-export const folderSkeletonLine = style({display:'block',flex:'1 1 auto',blockSize:'.7rem',borderRadius:vars.radius.sm,background:vars.color.border,animation:`${pulse} 1.6s ease-in-out infinite`,...STILL});
+export const folderSkeletonLine = style({display:'block',flex:'1 1 auto',blockSize:'.7rem',borderRadius:vars.radius.sm,background:vars.color.border,animation:`${pulse} 1.6s ease-in-out infinite`,...CALM});
 
 // A thin indeterminate line over a list that is still indexing in the
 // background while some rows are already shown. Decorative: the list carries
@@ -100,8 +102,8 @@ const travel = keyframes({ from: { transform: 'translateX(-100%)' }, to: { trans
 export const syncProgress = style({
   position:'relative',flex:'0 0 auto',blockSize:'2px',overflow:'hidden',background:`color-mix(in srgb, ${vars.color.accent} 18%, transparent)`,
   '::after':{content:'""',position:'absolute',insetBlock:0,insetInlineStart:0,inlineSize:'40%',background:vars.color.accent,animation:`${travel} 1.4s ease-in-out infinite`},
-  selectors:{':root[data-reduced-motion] &::after':{animation:'none',transform:'none'}},
-  '@media':{'(prefers-reduced-motion: reduce)':{selectors:{'&::after':{animation:'none',transform:'none'}}}},
+  selectors:{':root[data-reduced-motion] &::after':{animation:calmAnimation,...calmForce,inlineSize:'100%',transform:'none'}},
+  '@media':{'(prefers-reduced-motion: reduce)':{selectors:{'&::after':{animation:calmAnimation,inlineSize:'100%',transform:'none'}}}},
 });
 
 // A placeholder that takes over from the boot splash (t52) is already late:

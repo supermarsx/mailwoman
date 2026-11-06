@@ -7,6 +7,7 @@
 
 import { globalStyle, keyframes, style, styleVariants } from '@vanilla-extract/css';
 import { vars } from '../../../theme/contract.css.ts';
+import { calmAnimation, calmForce } from '../../../components/spinner/spinner.css.ts';
 import { series } from '../../../theme/dataviz.css.ts';
 
 const PHONE = 'screen and (max-width: 760px)';
@@ -155,8 +156,8 @@ const skeletonBlock = {
   background: vars.color.bgAlt,
   borderRadius: vars.radius.sm,
   animation: `${pulse} 1.6s ease-in-out infinite`,
-  selectors: { ':root[data-reduced-motion] &': { animation: 'none' } },
-  '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } },
+  selectors: { ':root[data-reduced-motion] &': { animation: calmAnimation, ...calmForce } },
+  '@media': { '(prefers-reduced-motion: reduce)': { animation: calmAnimation } },
 } as const;
 export const skeletonLine = style({ ...skeletonBlock, blockSize: '0.75rem', inlineSize: '60%' });
 export const skeletonValue = style({ ...skeletonBlock, blockSize: '1.75rem', inlineSize: '45%' });

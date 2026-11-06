@@ -47,6 +47,7 @@
 @media (pointer: coarse) { .contact-share__item { min-block-size: 2.75rem; } }
 .address-card__action[aria-busy="true"] { animation: address-card-pulse 1.2s ease-in-out infinite; }
 @keyframes address-card-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { .address-card__action[aria-busy="true"] { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .address-card__action[aria-busy="true"] { animation-duration: 3s; } }
+:root[data-reduced-motion] .address-card__action[aria-busy="true"] { animation-duration: 3s !important; animation-iteration-count: infinite !important; }
 @media (pointer: coarse) { .address-card__action { inline-size: 2.75rem; block-size: 2.75rem; } .contact-address { min-block-size: 2.75rem; } .reader__address-group { padding-inline-end: 2.75rem; } .reader__address-disclosure > summary, .address-card__header > button { min-inline-size: 2.75rem; min-block-size: 2.75rem; } }
 @media (forced-colors: active) { .contact-address, .address-card a, .address-card a:visited { color: LinkText; } .contact-address:focus-visible, .address-card a:focus-visible { outline-color: Highlight; } }

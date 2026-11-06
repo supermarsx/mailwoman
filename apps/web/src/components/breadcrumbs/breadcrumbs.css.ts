@@ -5,6 +5,7 @@
 
 import { globalStyle, keyframes, style } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
+import { calmAnimation, calmForce } from '../spinner/spinner.css.ts';
 import { linkColor } from '../../theme/accentLink.ts';
 
 export const nav = style({ fontSize: '0.8rem', minInlineSize: 0, maxInlineSize: '100%' });
@@ -70,7 +71,8 @@ export const placeholder = style({
   verticalAlign: 'middle',
   background: vars.color.border,
   animation: `${pulse} 1.2s ease-in-out infinite`,
-  '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none' } },
+  '@media': { '(prefers-reduced-motion: reduce)': { animation: calmAnimation } },
+  selectors: { ':root[data-reduced-motion] &': { animation: calmAnimation, ...calmForce } },
 });
 export const srOnly = style({
   position: 'absolute',

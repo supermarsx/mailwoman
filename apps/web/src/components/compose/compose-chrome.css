@@ -15,9 +15,11 @@
 .compose-status__text { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 .compose-status__icon { display:inline-flex; flex:none; }
 .compose-status__icon svg { inline-size:.875rem; block-size:.875rem; }
-.compose-status__icon--spin svg { animation:compose-status-spin 1s linear infinite; }
+.compose-status__icon--spin svg { transform-box:fill-box; transform-origin:center; animation:compose-status-spin 1s linear infinite; }
 @keyframes compose-status-spin { to { transform:rotate(360deg); } }
-@media (prefers-reduced-motion:reduce) { .compose-status__icon--spin svg { animation:none; } }
+@keyframes compose-status-calm { 50% { opacity:.55; } }
+@media (prefers-reduced-motion:reduce) { .compose-status__icon--spin svg { animation:compose-status-calm 3s ease-in-out infinite; } }
+:root[data-reduced-motion] .compose-status__icon--spin svg { animation:compose-status-calm 3s ease-in-out infinite; animation-duration:3s !important; animation-iteration-count:infinite !important; }
 .compose-status__item[data-severity=danger] .compose-status__icon { color:var(--danger); }
 .compose-status__item[data-severity=danger] .compose-status__text { font-weight:600; }
 .compose-status__item[data-severity=warning] .compose-status__icon { color:var(--warning); }
