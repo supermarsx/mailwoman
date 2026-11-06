@@ -3,7 +3,7 @@
 // painter. Each is a plain ProseMirror command, so the ribbon, the keymap and the
 // tests all run the same code.
 
-import { TextSelection, type Command, type EditorState, type Transaction } from 'prosemirror-state';
+import { Selection, TextSelection, type Command, type EditorState, type Transaction } from 'prosemirror-state';
 import { liftListItem, sinkListItem, wrapInList } from 'prosemirror-schema-list';
 import type { Mark, Node as PMNode, NodeType, ResolvedPos } from 'prosemirror-model';
 import {
@@ -87,7 +87,13 @@ export function stepFontSizeCommand(direction: 1 | -1, fine = false): Command {
 interface ListContext { depth: number; pos: number; node: PMNode }
 
 /** The list the selection's start is in (innermost), with its depth and position. */
-export function enclosingList(state: Pick<EditorState, 'selection'>, from = state.selection.$from): ListContext | null {
+/** Where the selection starts, inside text: a select-all (or a node selection) starts at its first text position. */
+export function anchorPos(state: Pick<EditorState, 'selection'>): ResolvedPos {
+  const { $from } = state.selection;
+  return $from.parent.inlineContent ? $from : Selection.near($from, 1).$from;
+}
+
+export function enclosingList(state: Pick<EditorState, 'selection'>, from = anchorPos(state)): ListContext | null {
   for (let depth = from.depth; depth > 0; depth -= 1) {
     const node = from.node(depth);
     if (node.type.name === 'bullet_list' || node.type.name === 'ordered_list') return { depth, pos: from.before(depth), node };
@@ -208,7 +214,7 @@ export function setListStart(start: number | 'restart' | 'continue'): Command {
   return (state, dispatch) => {
     const list = enclosingList(state);
     if (!list || list.node.type.name !== 'ordered_list') return false;
-    const { $from } = state.selection;
+    const $from = anchorPos(state);
     const index = $from.index(list.depth);
     const tr = state.tr;
     let order: number;
@@ -244,7 +250,7 @@ export function canContinueNumbering(state: EditorState): boolean {
 /** Toggle the checkbox of the item the selection is in. */
 export function toggleChecked(at?: number): Command {
   return (state, dispatch) => {
-    const $pos = at === undefined ? state.selection.$from : state.doc.resolve(at);
+    const $pos = at === undefined ? anchorPos(state) : state.doc.resolve(at);
     for (let depth = $pos.depth; depth > 0; depth -= 1) {
       const node = $pos.node(depth);
       if (node.type.name === 'list_item' && typeof node.attrs['checked'] === 'boolean') {
@@ -317,7 +323,7 @@ export function setBlockAttrs(attrs: Record<string, unknown>, prune: readonly st
 
 /** The first text block's paragraph attributes at the selection. */
 export function blockAttrs(state: EditorState): Record<string, unknown> {
-  const parent = state.selection.$from.parent;
+  const parent = anchorPos(state).parent;
   return TEXT_BLOCKS.includes(parent.type.name) ? parent.attrs : {};
 }
 

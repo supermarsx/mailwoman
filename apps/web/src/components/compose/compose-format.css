@@ -23,7 +23,7 @@
 .cfmt-menu__row:disabled { opacity: .5; cursor: default; }
 .cfmt-preview { display: flex; flex-direction: column; gap: 2px; padding: .25rem; background: var(--bg); border: var(--border-hair) solid var(--border); border-radius: var(--radius-sm); }
 .cfmt-preview__row { display: flex; align-items: center; gap: .3rem; font-size: .7rem; line-height: 1; }
-.cfmt-preview__row b { inline-size: 1.7em; text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cfmt-preview__row b { inline-size: 2.6em; white-space: nowrap; text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; }
 .cfmt-preview__row i { flex: 1; block-size: 3px; background: var(--text-dim, currentColor); opacity: .55; border-radius: 2px; }
 .cfmt-menu__label { font-size: .72rem; color: var(--text-dim); }
 .cfmt-start { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .15rem .5rem; font-size: .8rem; }

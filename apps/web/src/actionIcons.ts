@@ -121,6 +121,24 @@ export const ACTION_ICONS = {
   collapseAll: 'collapseAll',
   selectAll: 'selectAll',
   clearSelection: 'clearSelection',
+  // Composer Format tab
+  fontGrow: 'fontGrow',
+  fontShrink: 'fontShrink',
+  indentMore: 'indentMore',
+  indentLess: 'indentLess',
+  copyFormat: 'brushCopy',
+  applyFormat: 'brushApply',
+  textLtr: 'textLtr',
+  textRtl: 'textRtl',
+  lineSpacing: 'lineSpacing',
+  checklist: 'checklist',
+  clearFormatting: 'eraser',
+  bulletList: 'bulletList',
+  numberList: 'numberList',
+  alignLeft: 'alignLeft',
+  alignCenter: 'alignCenter',
+  alignRight: 'alignRight',
+  alignJustify: 'alignJustify',
 } as const satisfies Record<string, IconName>;
 
 export type ActionId = keyof typeof ACTION_ICONS;
@@ -134,6 +152,7 @@ export const ACTION_MENUS: Readonly<Record<string, readonly ActionId[]>> = {
   'message-context': MESSAGE_CONTEXT,
   'message-context-toggled': MESSAGE_CONTEXT.map((id) => TOGGLED[id] ?? id),
   'folder-mark-read': ['markRead', 'markFolderRead'],
+  'compose-format': ['fontGrow', 'fontShrink', 'bulletList', 'numberList', 'checklist', 'indentMore', 'indentLess', 'clearFormatting', 'copyFormat', 'applyFormat', 'alignLeft', 'alignCenter', 'alignRight', 'alignJustify', 'lineSpacing', 'textLtr', 'textRtl'],
   'message-copy': ['copyTo', 'copySender', 'copySubject'],
   'message-search': ['searchSender', 'searchDomain', 'searchSubject', 'searchFolder'],
   'snooze': ['snoozeLater', 'snoozeTomorrow', 'snoozeNextWeek', 'unsnooze'],
