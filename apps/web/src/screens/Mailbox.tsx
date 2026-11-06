@@ -1,5 +1,6 @@
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
+import {settingsRequest} from '../state/settingsRequest.ts';
 import {onMessagesTrashed} from '../state/trashEvents.ts';
 import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMaintenance.tsx';
 import {useRenameContext} from '../components/RenameFolder.tsx';
@@ -297,6 +298,8 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id)) setPanes(old=>[...old,{id,kind:'settings',title:rawT('mail-nav-settings'),navigation:createSettingsNavigation()}]);
     subTabs.open({id,kind:'settings',title:rawT('mail-nav-settings')});
   }
+  // A menu asked for a Settings section (Create filter, Mute this list): open the tab and go there.
+  createEffect(on(settingsRequest,request=>{if(!request)return;openSettings();queueMicrotask(()=>{const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:request.section});});},{defer:true}));
   async function openExport(messageId:string):Promise<void> {
     const owner=preferenceAccount(),account=app.accountId();
     if(!owner||owner.id!==account||!preferenceAccountIsCurrent(owner))return;
@@ -682,11 +685,11 @@ export function MailboxScreen(): JSX.Element {
   /** One folder row; `pinned` renders it in the Pinned group (no twisty, no marquee, the pin drag binding). */
   function folderItem(id:string,custom:boolean,pinned:boolean){
     const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>pinned?undefined:sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
-              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} dnd={pinned?pinDnd:folderDnd} lockHint={()=>folderLockHint(id)} {...(folderLayout.policy().enabled&&!folderLayout.policy().locked?{onArrange:()=>setArranging(id)}:{})} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+              <FolderContextMenu box={box()} depth={row()?.depth??0} treeItem={treeAttrs(id,custom,pinned,row()?.depth??0,row()?.hasChildren?row()!.expanded:undefined)} selection={selectedFolderIds} dnd={pinned?pinDnd:folderDnd} lockHint={()=>folderLockHint(id)} {...(folderLayout.policy().enabled&&!folderLayout.policy().locked?{onArrange:()=>setArranging(id)}:{})} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
               <button
                 type="button"
                 {...prefetch}
-                class={`sidebar__box ${a11y.focusable}`} {...(pinned?{'data-pinned-folder-id':id}:{'data-marquee-item':'','data-folder-id':id,'data-selected':selectedFolderIds().has(id)?'true':undefined})}
+                tabindex={-1} class={`sidebar__box ${a11y.focusable}`} {...(pinned?{'data-pinned-folder-id':id}:{'data-marquee-item':'','data-folder-id':id,'data-selected':selectedFolderIds().has(id)?'true':undefined})}
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
                 onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
                 onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
@@ -705,7 +708,7 @@ export function MailboxScreen(): JSX.Element {
                 <Show when={isStarred(id)}><span class="sidebar__box-star" aria-hidden="true" data-testid="folder-star"><Icon name="star"/></span></Show>
                 <FolderCountBadge folder={row()?.hasChildren&&!row()!.expanded?{...box(),unreadEmails:rolledUnread(app.mailboxes(),id)}:box()}/>
               </button>
-              <Show when={row()?.hasChildren}><button type="button" class={`sidebar__twisty ${a11y.focusable}`} data-folder-twisty="" aria-label={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} title={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} aria-expanded={row()!.expanded} onClick={()=>toggleFolder(id,!row()!.expanded)}><Icon name={row()!.expanded?'chevronDown':'chevron'}/></button></Show>
+              <Show when={row()?.hasChildren}><button type="button" tabindex={-1} class={`sidebar__twisty ${a11y.focusable}`} data-folder-twisty="" aria-label={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} title={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} aria-expanded={row()!.expanded} onClick={()=>toggleFolder(id,!row()!.expanded)}><Icon name={row()!.expanded?'chevronDown':'chevron'}/></button></Show>
               </FolderContextMenu>
             );
   }
@@ -719,21 +722,90 @@ export function MailboxScreen(): JSX.Element {
   const visibleFolderIds=createMemo(()=>[...sectionRows(false),...sectionRows(true)].map(row=>row.box.id));
   const isUserFolder=(id:string):boolean=>{const box=app.mailboxes().find(value=>value.id===id);return !!box&&!box.role&&box.mailwomanSearchQuery===undefined;};
   const focusFolder=(id:string):void=>{sidebarEl?.querySelector<HTMLElement>(`[data-folder-region] [data-folder-id="${CSS.escape(id)}"]`)?.focus();};
+  // ---- ARIA tree (role=tree / treeitem) over the folder rows --------------------------------------
+  // Every row is a treeitem: aria-level (the user folders sit under the "User folders" node), aria-selected (the open
+  // folder, or the folders in the multi-selection), aria-expanded where it has subfolders, and a roving tabindex so the
+  // list is one Tab stop. Up/Down/Home/End move, Right opens or enters, Left closes or goes to the parent, typing jumps
+  // to the next name starting with it, Enter/Space opens the folder. The buttons inside the row stay for the pointer.
+  const USER_FOLDERS_ID='__user-folders';
+  const [treeFocus,setTreeFocus]=createSignal<string|null>(null);
+  const treeKey=(id:string,pinned:boolean):string=>pinned?`pin:${id}`:id;
+  const treeRowEls=():HTMLElement[]=>Array.from(sidebarEl?.querySelectorAll<HTMLElement>('[data-folder-region] [role="treeitem"][data-treeitem-id]')??[]).filter(el=>!el.closest('[hidden]'));
+  const firstTreeKey=():string=>{const first=pinnedIds()[0];return first!==undefined?treeKey(first,true):(sectionRows(false)[0]?.box.id??sectionRows(true)[0]?.box.id??USER_FOLDERS_ID);};
+  const currentTreeKey=():string=>{
+    const focused=treeFocus();if(focused!==null&&treeRowEls().some(el=>el.dataset['treeitemKey']===focused))return focused;
+    const active=surface()==='mail'?app.selectedMailboxId():null;
+    return active&&visibleFolderIds().includes(active)?active:firstTreeKey();
+  };
+  const treeTab=(key:string):number=>currentTreeKey()===key?0:-1;
+  function treeAttrs(id:string,custom:boolean,pinned:boolean,depth:number,expanded:boolean|undefined):Record<string,string|number|boolean|undefined>{
+    const key=treeKey(id,pinned),selected=selectedFolderIds().size>0?selectedFolderIds().has(id):surface()==='mail'&&app.selectedMailboxId()===id;
+    return {role:'treeitem','data-treeitem-id':id,'data-treeitem-key':key,'aria-level':pinned?1:depth+(custom?2:1),'aria-selected':selected,'aria-expanded':expanded,'aria-label':displayText(app.mailboxes().find(value=>value.id===id)?.name??''),tabindex:treeTab(key)};
+  }
+  function onTreeFocus(event:FocusEvent):void {
+    const row=(event.target as HTMLElement).closest<HTMLElement>('[role="treeitem"][data-treeitem-key]');
+    if(row)setTreeFocus(row.dataset['treeitemKey']??null);
+  }
+  let typeahead='',typeaheadTimer:ReturnType<typeof setTimeout>|undefined;
+  /** Keys on a treeitem row itself (focus is on the row; the inner buttons keep their own handler). */
+  function onTreeKey(event:KeyboardEvent,from?:HTMLElement):void {
+    const row=from??event.target as HTMLElement;
+    if(!row.matches?.('[role="treeitem"][data-treeitem-id]'))return;
+    const id=row.dataset['treeitemId']??'',rows=treeRowEls(),at=rows.indexOf(row);
+    const disclosure=id===USER_FOLDERS_ID,open=!accountUiPreferences().userFoldersCollapsed;
+    const go=(el:HTMLElement|undefined):void=>{if(el){event.preventDefault();el.focus();}};
+    if(!disclosure&&folderDnd.key(event,id))return;
+    if(event.altKey||event.ctrlKey||event.metaKey){
+      if(!disclosure&&(event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='a'){event.preventDefault();selectAllFolders(visibleFolderIds(),isUserFolder);}
+      return;
+    }
+    if(event.shiftKey&&(event.key==='ArrowDown'||event.key==='ArrowUp')&&!disclosure){event.preventDefault();const next=extendFolderSelection(visibleFolderIds(),id,event.key==='ArrowDown'?1:-1);if(next)focusFolder(next);return;}
+    if(event.key==='Escape'&&selectedFolderIds().size>0){event.preventDefault();clearSelectedFolders();return;}
+    const rtl=getComputedStyle(row).direction==='rtl',forward=rtl?'ArrowLeft':'ArrowRight',back=rtl?'ArrowRight':'ArrowLeft';
+    const folderRow=disclosure?undefined:folderTreeRows().system.concat(folderTreeRows().custom).find(value=>value.box.id===id);
+    const expandable=disclosure?true:!!folderRow?.hasChildren,expanded=disclosure?open:!!folderRow?.expanded;
+    const setExpanded=(value:boolean):void=>{if(disclosure)setAccountUiPreferences({userFoldersCollapsed:!value});else toggleFolder(id,value);};
+    switch(event.key){
+      case 'ArrowDown':return go(rows[at+1]);
+      case 'ArrowUp':return go(rows[at-1]);
+      case 'Home':return go(rows[0]);
+      case 'End':return go(rows[rows.length-1]);
+      case forward:
+        if(expandable&&!expanded){event.preventDefault();setExpanded(true);return;}
+        if(expandable&&expanded)return go(rows[at+1]);
+        return;
+      case back:{
+        if(expandable&&expanded){event.preventDefault();setExpanded(false);return;}
+        // To the parent: the nearest earlier row one level up.
+        const level=Number(row.getAttribute('aria-level')??'1');
+        for(let i=at-1;i>=0;i--)if(Number(rows[i]!.getAttribute('aria-level')??'1')<level)return go(rows[i]);
+        return;
+      }
+      case 'Enter':case ' ':
+        event.preventDefault();
+        if(disclosure){setExpanded(!open);return;}
+        row.querySelector<HTMLElement>('.sidebar__box')?.click();return;
+      default:
+    }
+    if(event.key.length===1&&!event.shiftKey){
+      typeahead+=event.key.toLowerCase();clearTimeout(typeaheadTimer);typeaheadTimer=setTimeout(()=>{typeahead='';},700);
+      const label=(el:HTMLElement):string=>(el.getAttribute('aria-label')??'').toLowerCase();
+      // A single repeated letter cycles through the names starting with it; more letters narrow the match.
+      const needle=/^(.)\1*$/.test(typeahead)?typeahead[0]!:typeahead;
+      const ordered=[...rows.slice(at+(needle.length===1?1:0)),...rows.slice(0,at+(needle.length===1?1:0))];
+      const hit=ordered.find(el=>label(el).startsWith(needle));
+      if(hit){go(hit);}
+    }
+  }
   function onFolderKey(event:KeyboardEvent,id:string):void {
     if(folderDnd.key(event,id))return;
     // Shift+Arrow extends the selection a row at a time, Ctrl/Cmd+A takes every visible user folder, Escape clears.
     if(event.shiftKey&&!event.altKey&&!event.ctrlKey&&(event.key==='ArrowDown'||event.key==='ArrowUp')){event.preventDefault();const next=extendFolderSelection(visibleFolderIds(),id,event.key==='ArrowDown'?1:-1);if(next)focusFolder(next);return;}
     if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='a'){event.preventDefault();selectAllFolders(visibleFolderIds(),isUserFolder);return;}
     if(event.key==='Escape'&&selectedFolderIds().size>0){event.preventDefault();clearSelectedFolders();return;}
-    const target=event.currentTarget as HTMLElement,rtl=getComputedStyle(target).direction==='rtl';
-    const row=folderTreeRows().system.concat(folderTreeRows().custom).find(value=>value.box.id===id);
-    if(event.key===(rtl?'ArrowLeft':'ArrowRight')&&row?.hasChildren&&!row.expanded){event.preventDefault();toggleFolder(id,true);return;}
-    if(event.key===(rtl?'ArrowRight':'ArrowLeft')&&row?.hasChildren&&row.expanded){event.preventDefault();toggleFolder(id,false);return;}
-    if(!['ArrowDown','ArrowUp','Home','End'].includes(event.key))return;
-    const boxes=Array.from(sidebarEl?.querySelectorAll<HTMLElement>('[data-folder-region] .sidebar__box:not([data-folder-disclosure])')??[]),at=boxes.indexOf(target);
-    const next=event.key==='Home'?0:event.key==='End'?boxes.length-1:at+(event.key==='ArrowDown'?1:-1);
-    if(at<0||next<0||next>=boxes.length)return;
-    event.preventDefault();boxes[next]?.focus();
+    if(!['ArrowDown','ArrowUp','Home','End','ArrowLeft','ArrowRight'].includes(event.key))return;
+    const treeRow=(event.currentTarget as HTMLElement).closest<HTMLElement>('[role="treeitem"][data-treeitem-id]');
+    if(treeRow)onTreeKey(event,treeRow);
   }
   createEffect(()=>{
     const policy=readMailCachePolicy(),boxes=navigationFolders(),loading=app.listLoading();
@@ -987,7 +1059,7 @@ export function MailboxScreen(): JSX.Element {
         <Show when={selectedFolderIds().size>0}><FolderSelectionBar ids={selectedFolderIds()} onMove={ids=>setArranging(ids[0]??null)}/></Show>
         <div class="sidebar__scroll" ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
         <FolderCreationControl><nav class="sidebar__nav" {...pinDnd.unpinProps} aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
-          <div class="sidebar__folder-rows" data-folder-region>
+          <div class="sidebar__folder-rows" data-folder-region role={app.mailboxes().length>0?'tree':undefined} aria-label={app.mailboxes().length>0?t('mail-nav-mailboxes'):undefined} aria-multiselectable={app.mailboxes().length>0?'true':undefined} onKeyDown={onTreeKey} onFocusIn={onTreeFocus}>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
           <Show when={pinnedIds().length>0}>
             <div class={dndCss.pinnedGroup} role="group" aria-label={t('folder-pinned-group')} data-testid="sidebar-pinned-group" {...pinDnd.groupProps}>
@@ -997,8 +1069,8 @@ export function MailboxScreen(): JSX.Element {
             </div>
           </Show>
           <For each={[false,true]}>{custom=><>
-          <Show when={custom&&sectionRows(true).length>0}><button type="button" class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed})}><Icon name={accountUiPreferences().userFoldersCollapsed?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></Show>
-          <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} hidden={sectionRows(custom).length===0||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
+          <Show when={custom&&sectionRows(true).length>0}><div role="treeitem" data-treeitem-id={USER_FOLDERS_ID} aria-level={1} aria-label={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" aria-selected={false} tabindex={treeTab(USER_FOLDERS_ID)} onClick={event=>{if(event.target===event.currentTarget)setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed});}}><button type="button" tabindex={-1} class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed})}><Icon name={accountUiPreferences().userFoldersCollapsed?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></div></Show>
+          <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} role={custom?'group':undefined} hidden={sectionRows(custom).length===0||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
           <For each={sectionRows(custom).map(row=>row.box.id)}>
             {(id) => folderItem(id,custom,false)}

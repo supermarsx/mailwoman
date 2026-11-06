@@ -66,12 +66,19 @@ describe('nested folder tree in the sidebar',()=>{
   fireEvent.click(screen.getByRole('button',{name:'Show subfolders of Work'}));
   await waitFor(()=>expect(names()).toContain('Quarter 3'));expect(accountUiPreferences().folderCollapsed).toEqual([]);
  });
- it('Right and Left arrows expand and collapse; Down moves to the next folder',async()=>{
+ it('Right and Left arrows expand and collapse the focused treeitem; Right again enters, Down moves on, Left goes to the parent',async()=>{
   await mount();await waitFor(()=>expect(names()).toContain('Quarter 3'));
-  const work=screen.getByRole('button',{name:'Work'});work.focus();
-  fireEvent.keyDown(work,{key:'ArrowLeft'});await waitFor(()=>expect(names()).not.toContain('Quarter 3'));
-  fireEvent.keyDown(screen.getByRole('button',{name:'Work'}),{key:'ArrowRight'});await waitFor(()=>expect(names()).toContain('Quarter 3'));
-  fireEvent.keyDown(screen.getByRole('button',{name:'Work'}),{key:'ArrowDown'});expect(document.activeElement).toBe(screen.getByRole('button',{name:'Quarter 3'}));
+  const item=(name:string)=>screen.getByRole('treeitem',{name});
+  item('Work').focus();
+  fireEvent.keyDown(item('Work'),{key:'ArrowLeft'});await waitFor(()=>expect(names()).not.toContain('Quarter 3'));
+  expect(item('Work')).toHaveAttribute('aria-expanded','false');
+  fireEvent.keyDown(item('Work'),{key:'ArrowRight'});await waitFor(()=>expect(names()).toContain('Quarter 3'));
+  expect(item('Work')).toHaveAttribute('aria-expanded','true');
+  fireEvent.keyDown(item('Work'),{key:'ArrowRight'});expect(document.activeElement).toBe(item('Quarter 3'));
+  fireEvent.keyDown(item('Quarter 3'),{key:'ArrowDown'});expect(document.activeElement).toBe(item('Reports'));
+  fireEvent.keyDown(item('Reports'),{key:'ArrowLeft'});expect(document.activeElement).toBe(item('Quarter 3'));
+  fireEvent.keyDown(item('Quarter 3'),{key:'ArrowLeft'});await waitFor(()=>expect(names()).not.toContain('Reports'));
+  fireEvent.keyDown(item('Quarter 3'),{key:'ArrowLeft'});expect(document.activeElement).toBe(item('Work'));
  });
  it('orders user folders by the saved per-parent choice',async()=>{
   const app=await mount();void app;
@@ -98,5 +105,61 @@ describe('secondary divider before views and queues',()=>{
   await mount({},MAILBOXES);
   expect(sidebar().querySelector('[aria-label="Outbox"]')).not.toBeNull();
   expect(divider()).toBeNull();
+ });
+});
+
+describe('the folder list is an ARIA tree',()=>{
+ const tree=()=>screen.getByRole('tree',{name:'Mailboxes'});
+ const item=(name:string)=>screen.getByRole('treeitem',{name});
+ it('is a multiselectable tree of treeitems with level, expanded and selected state',async()=>{
+  await mount();await waitFor(()=>expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(3));
+  expect(tree()).toHaveAttribute('aria-multiselectable','true');
+  expect(item('Work')).toHaveAttribute('aria-level','2');
+  expect(item('Quarter 3')).toHaveAttribute('aria-level','3');
+  expect(item('Reports')).toHaveAttribute('aria-level','4');
+  expect(item('Inbox')).toHaveAttribute('aria-level','1');
+  expect(item('Work')).toHaveAttribute('aria-expanded','true');
+  expect(item('Reports')).not.toHaveAttribute('aria-expanded');
+  expect(item('Inbox')).toHaveAttribute('aria-selected','true');
+  expect(item('Home')).toHaveAttribute('aria-selected','false');
+  // The "User folders" node owns the group of custom folders.
+  const header=screen.getByRole('treeitem',{name:'User folders'});
+  expect(header).toHaveAttribute('aria-expanded','true');
+  expect(document.getElementById(header.getAttribute('aria-controls')!)).toHaveAttribute('role','group');
+ });
+ it('is one Tab stop: the open folder, then wherever focus last was; the buttons inside are not tab stops',async()=>{
+  await mount();await waitFor(()=>expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(3));
+  const stops=()=>screen.getAllByRole('treeitem').filter(el=>el.getAttribute('tabindex')==='0');
+  expect(stops()).toHaveLength(1);expect(stops()[0]).toBe(item('Inbox'));
+  item('Home').focus();
+  await waitFor(()=>expect(stops()).toEqual([item('Home')]));
+  expect(Array.from(tree().querySelectorAll('.sidebar__box,.sidebar__twisty')).every(el=>el.getAttribute('tabindex')==='-1')).toBe(true);
+ });
+ it('Home and End jump to the first and last folder; Enter and Space open the folder',async()=>{
+  await mount();await waitFor(()=>expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(3));
+  const all=()=>screen.getAllByRole('treeitem');
+  item('Work').focus();
+  fireEvent.keyDown(item('Work'),{key:'End'});expect(document.activeElement).toBe(all().at(-1));
+  fireEvent.keyDown(document.activeElement!,{key:'Home'});expect(document.activeElement).toBe(all()[0]);
+  fireEvent.keyDown(item('Home'),{key:'Enter'});
+  await waitFor(()=>expect(item('Home')).toHaveAttribute('aria-selected','true'));
+ });
+ it('typing jumps to the next folder whose name starts with the letters',async()=>{
+  await mount();await waitFor(()=>expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(3));
+  item('Inbox').focus();
+  fireEvent.keyDown(item('Inbox'),{key:'w'});expect(document.activeElement).toBe(item('Work'));
+  fireEvent.keyDown(item('Work'),{key:'h'});
+  // "wh" matches nothing: focus stays.
+  expect(document.activeElement).toBe(item('Work'));
+ });
+ it('the "User folders" node collapses its group with Left and opens it with Right',async()=>{
+  await mount();await waitFor(()=>expect(screen.getAllByRole('treeitem').length).toBeGreaterThan(3));
+  const header=screen.getByRole('treeitem',{name:'User folders'});header.focus();
+  fireEvent.keyDown(header,{key:'ArrowLeft'});
+  await waitFor(()=>expect(header).toHaveAttribute('aria-expanded','false'));
+  expect(screen.queryByRole('treeitem',{name:'Work'})).toBeNull();
+  fireEvent.keyDown(header,{key:'ArrowRight'});
+  await waitFor(()=>expect(header).toHaveAttribute('aria-expanded','true'));
+  expect(item('Work')).toBeInTheDocument();
  });
 });
