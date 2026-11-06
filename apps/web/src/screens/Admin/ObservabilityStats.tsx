@@ -12,6 +12,7 @@ import {loadCatalog,t} from '../../i18n';
 import {useShell} from './shell/context.ts';
 import {resourceValue} from '../../components/resourceValue.ts';
 import {createRequestHistory,HistoryNotes,PeriodPicker,TrafficCharts,TrafficTables,TrafficTiles} from './RequestHistory.tsx';
+import {PersistedStats} from './PersistedStats.tsx';
 import {createClientTiming,ClientTimingCharts,ClientTimingNote,ClientTimingTables,ClientTimingTiles} from './ClientTimings.tsx';
 import {StatTile} from './shell/StatTile.tsx';
 import {BarRows} from './shell/BarChart.tsx';
@@ -113,6 +114,7 @@ export function ObservabilityStats(props:{title?:string}={}):JSX.Element {
      }}</Show>
     </div>
    </StatsSection>
+   <Show when={canTiming()}><PersistedStats source="clientTiming"/></Show>
    <StatsSection kind="tables" title={t('admin-stats-tables')} testId="stats-tables">
     <div class={stats.tables}><TrafficTables history={history}/><Show when={canTiming()}><ClientTimingTables timing={timing}/></Show></div>
    </StatsSection>

@@ -236,6 +236,15 @@ fn with(f: impl FnOnce(&mut Ring)) {
 /// One answer of a budget (`client`, `account`, `admin` or `ua-<class>`).
 pub(crate) fn note_decision(kind: &str, decision: &Decision) {
     with(|r| r.decision(now(), kind, decision));
+    crate::metrics_persist::count(
+        now(),
+        match decision.action {
+            Action::Allow => "requestProtection.allowed",
+            Action::Throttle => "requestProtection.throttled",
+            Action::Block => "requestProtection.blocked",
+        },
+        1,
+    );
 }
 /// An anonymous request refused by its claimed user-agent class action.
 pub(crate) fn note_class_refused(class: &str) {

@@ -9,8 +9,3 @@ globalStyle(`${table} td:last-child`, { textAlign: 'end' });
 globalStyle(`${table} th:first-child, ${table} td:first-child`, { minInlineSize:'3rem',inlineSize:'3rem',maxInlineSize:'3rem' });
 
 globalStyle(`${wrap}:focus-visible`,{outline:`${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`,outlineOffset:'-2px'});
-
-export const originLine = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], margin: `${vars.space[1]} 0 0`, color: vars.color.textDim, fontSize: '0.8rem' });
-export const originDetails = style({ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: `${vars.space[1]} ${vars.space[3]}`, margin: `${vars.space[2]} 0`, textAlign: 'start' });
-globalStyle(`${originDetails} dt`, { color: vars.color.textDim });
-globalStyle(`${originDetails} dd`, { margin: 0, overflowWrap: 'anywhere' });

@@ -92,16 +92,6 @@ export interface SessionMeta {
   readonly lastActivity?: string;
   /** True for the session making the request (never revocable from here). */
   readonly current: boolean;
-  /** `linked` for a "Linked mailbox access" session (access created from another account's link). */
-  readonly linkKind?: 'linked';
-  /** Sign-in name of the account that owns the link; absent when hidden by privacy.sessions.showLinkedOrigin or removed. */
-  readonly originEmail?: string;
-  /** True when the owning account no longer exists. */
-  readonly originRemoved?: boolean;
-  /** The linked mailbox this session opens (this account). */
-  readonly targetEmail?: string;
-  /** Unix seconds the link was created. */
-  readonly linkCreatedAt?: number;
 }
 
 // ── Login-time second factor (S1 web half) ───────────────────────────────────

@@ -229,6 +229,24 @@ fn class_index(class: &str) -> usize {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+/// Outcome names, in the order of [`totals`].
+pub(crate) const OUTCOME_NAMES: [&str; 3] = ["allowed", "queued", "rejected"];
+
+/// Decisions since the process started, per class (in [`CLASSES`] order) as
+/// `[allowed, queued, rejected]`.
+pub(crate) fn totals() -> Vec<[u64; 3]> {
+    counters()
+        .iter()
+        .map(|c| {
+            [
+                c.allowed.load(Ordering::Relaxed),
+                c.queued.load(Ordering::Relaxed),
+                c.rejected.load(Ordering::Relaxed),
+            ]
+        })
+        .collect()
+}
+
 pub(crate) enum Outcome {
     Allowed,
     Queued,

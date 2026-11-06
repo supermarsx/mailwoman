@@ -4,9 +4,6 @@ import {QuotaDetails} from '../../components/QuotaMeter.tsx';
 import {FolderIconPicker} from './FolderIconPicker.tsx';
 import {FolderRoles} from './FolderRoles.tsx';
 import {FolderCountPreferences} from './FolderCountPreferences.tsx';
-import {PropertiesPreferences} from './PropertiesPreferences.tsx';
-import {openFolderProperties} from '../../components/properties/host.tsx';
-import {folderDialogEnabled} from '../../components/properties/policy.ts';
 import {FocusedInboxPreference} from './FocusedInboxPreference.tsx';
 import {FocusedSenders} from './FocusedSenders.tsx';
 import {Icon} from '../../components/Icon.tsx';
@@ -162,7 +159,6 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    {id:'move-to',label:t('folder-dnd-arrange-menu'),icon:'folder',disabled:lockReason(folder.id)!==null,run:()=>{setMoveTo([folder.id]);}},
    {id:'star',label:t(starred(folder.id)?'folder-star-remove':'folder-star-add'),icon:starred(folder.id)?'starOutline':'star',run:()=>star(folder.id)},
   ];
-  {const live=app?.mailboxes().find(box=>box.id===folder.id);if(live&&folderDialogEnabled())actions.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openFolderProperties(live);}});}
   if(ability()?.manages&&app?.mailboxes().find(box=>box.id===folder.id)?.myRights?.mayCreateChild===true)actions.push({id:'create',label:t('folder-create'),icon:'folder',separatorBefore:true,run:()=>{setCreating({parentId:folder.id});}});
   return actions;
  }});
@@ -189,7 +185,6 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <Show when={!props.onChange}><FocusedInboxPreference/></Show>
   <Show when={!props.onChange?app:undefined}>{state=><FocusedSenders senders={state().focusedSenders} onRemove={email=>state().removeSenderFocus(email)}/>}</Show>
   <Show when={!props.onChange}><FolderCountPreferences/></Show>
-  <Show when={!props.onChange}><PropertiesPreferences/></Show>
   <Show when={!props.onChange&&app?.accountId()}>{accountId=><QuotaDetails accountId={accountId()} refresh={props.folders()}/>}</Show>
   <Show when={!props.onChange}><FolderRoles folders={props.folders} {...(props.onRolesSaved?{onSaved:props.onRolesSaved}:{})}/></Show>
   <FolderArrangeCard layout={layout} prefs={prefs} update={update} disabled={!current()}/>

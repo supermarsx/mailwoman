@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, metrics_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, breach_incident, breach_event, breach_delivery, account_restriction, consent_record, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2415,6 +2415,14 @@ mod admin_controls_0033 {
             ("instance_id",'T',"!","replica-one"),("bucket_start",'I',"!","3600"),
             ("metric",'T',"!","timeToUsable"),("device",'T',"!","desktop"),
             ("sample_count",'I',"!","3"),("sum_ms",'I',"!","300"),("histogram_json",'T',"!","[]"),
+        ]},
+        NewTable {name:"metrics_bucket",copied:true,cols:&[
+            ("instance_id",'T',"!","replica-one"),("metric",'T',"!","imageProxy.outcome.miss"),
+            ("bucket_start",'I',"!","3600"),("resolution_seconds",'I',"!","3600"),
+            ("dim_domain",'T',"!","example.org"),("dim_folder_class",'T',"!","inbox"),("dim_client_kind",'T',"!","web"),
+            ("dim_device_class",'T',"!","desktop"),("dim_backend",'T',"!","imap"),
+            ("sample_count",'I',"!","3"),("sum_value",'I',"!","300"),("min_value",'I',"!","50"),("max_value",'I',"!","150"),
+            ("sketch",'B',"!","sketch-bytes"),("flushed_at",'I',"!",TS),
         ]},
         NewTable {name:"user_retention_rule",copied:true,cols:&[
             ("id",'T',"!","urr-1"),("account_id",'T',"!","acct-1"),("name",'T',"!","Newsletters"),

@@ -270,7 +270,7 @@ settings-search-without-attachments = Sem anexos
 settings-search-unread = Só mensagens não lidas
 settings-search-flagged = Só mensagens sinalizadas
 
-settings-sessions-search = Pesquisar conta, dispositivo, IP ou origem associada
+settings-sessions-search = Pesquisar conta, dispositivo ou IP
 settings-sessions-account = Conta
 settings-sessions-device = Dispositivo e cliente
 settings-sessions-location = IP e último país conhecido
@@ -544,23 +544,6 @@ settings-folders-table = Lista de pastas
 settings-kbd-reference = Ver atribuições do conjunto
 settings-kbd-reference-help = Apenas referência do conjunto. As atribuições personalizadas e a política do administrador podem alterar os atalhos ativos.
 settings-sessions-client-details = Detalhes do cliente
-settings-sessions-linked-line = Acesso a caixa de correio associada · de { $origin }
-settings-sessions-linked-line-hidden = Acesso a caixa de correio associada
-settings-sessions-linked-removed = Desconhecida (conta removida)
-settings-sessions-linked-details = Detalhes da associação
-settings-sessions-linked-origin = Origem
-settings-sessions-linked-target = Caixa de correio aberta
-settings-sessions-linked-kind = Tipo de associação
-settings-sessions-linked-kind-linked = Caixa de correio associada
-settings-sessions-linked-created = Associação criada
-settings-sessions-linked-last-used = Última utilização
-settings-sessions-linked-revoke = Revogar acesso da associação
-settings-sessions-linked-revoke-label = Revogar acesso da associação para { $mailbox }
-settings-sessions-origin-setting = Mostrar a origem do acesso a caixas associadas
-settings-sessions-origin-help = Controla como esta tabela identifica a conta de onde vem uma sessão de caixa associada. Só você a vê, nas suas próprias sessões.
-settings-sessions-origin-full = Endereço completo
-settings-sessions-origin-masked-local-part = Endereço com a primeira parte ocultada
-settings-sessions-origin-hidden = Oculta
 
 # t39-e6: política de chaves de acesso do administrador
 settings-2fa-passkey-rules = A sua organização só aceita chaves de acesso que:

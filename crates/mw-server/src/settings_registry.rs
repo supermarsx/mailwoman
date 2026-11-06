@@ -814,14 +814,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "show one notification while a message's remote images load through the privacy proxy; presentation only, the image policy is unchanged"
     ),
     def!(
-        "privacy.sessions.showLinkedOrigin",
-        Kind::Enum(&["full", "masked-local-part", "hidden"]),
-        "\"full\"",
-        GDU,
-        "privacy",
-        "How Settings > Security > Sessions names the account a linked-mailbox session originates from: full address, address with the local part masked, or hidden"
-    ),
-    def!(
         "appearance.customCssEnabled",
         Kind::Bool,
         "false",
@@ -5617,6 +5609,54 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "rules in an export"
+    def!(
+        "metrics.persist.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "keep performance statistics across restarts"
+    ),
+    def!(
+        "metrics.persist.flushSeconds",
+        int(5, 3600),
+        "60",
+        G,
+        "observability",
+        "seconds between saves of performance statistics"
+    ),
+    def!(
+        "metrics.dimensions.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "split saved statistics by client kind and device class"
+    ),
+    def!(
+        "retention.metrics.minuteBucketsHours",
+        int(1, 8760),
+        "48",
+        G,
+        "privacy",
+        "Hours of one-minute statistics kept"
+    ),
+    def!(
+        "retention.metrics.hourBucketsDays",
+        int(1, 3650),
+        "60",
+        G,
+        "privacy",
+        "Days of one-hour statistics kept"
+    ),
+    def!(
+        "retention.metrics.dayBucketsDays",
+        int(0, 3650),
+        "400",
+        G,
+        "privacy",
+        "Days of one-day statistics kept (0 keeps them without limit)"
+    ),
     ),
     def!(
         "dsr.export.include.sessions",

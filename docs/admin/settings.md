@@ -647,6 +647,36 @@ How many rows a metrics breakdown shows.
 
 How many days of hourly metric summaries are kept.
 
+<a id="metrics.persist.enabled"></a>
+### Keep statistics across restarts (`metrics.persist.enabled`)
+
+Save the performance statistics (image proxy speed, browser load times, rate-limit and request-protection counts) to the database every flush interval and when the server stops, so the charts keep their history after a restart. Nothing identifies a person, address or message. Turn off to keep them in memory only. See [Statistics that survive a restart](metrics-persistence.md).
+
+<a id="metrics.persist.flushSeconds"></a>
+### Statistics save interval (seconds) (`metrics.persist.flushSeconds`)
+
+How often the performance statistics are written to the database (5 to 3600 seconds). A server that is killed without warning loses at most this much.
+
+<a id="metrics.dimensions.enabled"></a>
+### Split statistics by client kind and device class (`metrics.dimensions.enabled`)
+
+Store the saved statistics split by client kind (web) and device class (desktop, mobile). Turn off to store one combined row per metric and minute.
+
+<a id="retention.metrics.minuteBucketsHours"></a>
+### Minute statistics kept (hours) (`retention.metrics.minuteBucketsHours`)
+
+Hours of one-minute performance statistics kept before they are merged into hourly rows (at least 1). Default 48.
+
+<a id="retention.metrics.hourBucketsDays"></a>
+### Hourly statistics kept (days) (`retention.metrics.hourBucketsDays`)
+
+Days of hourly performance statistics kept before they are merged into daily rows (at least 1). Default 60.
+
+<a id="retention.metrics.dayBucketsDays"></a>
+### Daily statistics kept (days) (`retention.metrics.dayBucketsDays`)
+
+Days of daily performance statistics kept before they are deleted. 0 keeps them without limit, which lets the table grow slowly for as long as the server runs. Default 400.
+
 <a id="observability.clientTiming.enabled"></a>
 ### Browser load times (`observability.clientTiming.enabled`)
 
@@ -1231,6 +1261,16 @@ Oldest sessions are revoked when a successful sign-in exceeds the cap.
 <a id="session.absoluteSecs"></a>
 `session.absoluteSecs` is 300–1296000 seconds (default 1296000: 15 days).
 Deployment timeout limits also apply; persisted timestamps survive restarts.
+<a id="session.persistAcrossRestarts"></a>
+`session.persistAcrossRestarts` defaults to true. Off ends every stored mailbox,
+app and console session when the server starts. See [Sessions and server
+restarts](sessions.md).
+<a id="session.lastActivityFlushSeconds"></a>
+`session.lastActivityFlushSeconds` is 0–300 seconds (default 15): the most often a
+session's last-seen time is written. It does not change the idle or absolute limits.
+<a id="server.shutdownGraceSeconds"></a>
+`server.shutdownGraceSeconds` is 1–120 seconds (default 30): how long a stopping
+server lets in-flight requests finish. `MW_HTTP_SHUTDOWN_TIMEOUT_MS` overrides it.
 <a id="twofa.rememberDays"></a>
 `twofa.rememberDays` is 0–90 days (default 0, disabled).
 <a id="twofa.passkeysEnabled"></a>
@@ -2523,11 +2563,6 @@ Global/domain/user boolean, default false. Allows an explicit image download thr
 ### Loading-images notification (`privacy.remoteImagesToast`)
 
 Global/domain/user boolean, default true, with administrator locks. When a message's remote images load through the privacy proxy (after Show images, an existing sender or domain grant, or the `proxy` mode), the reader shows one notification for that message: "Loading images…", replaced in place by "Images loaded" or by the number of images that could not load with a Retry action. A load that is displayed within about 300 ms shows nothing. Switching message closes it. It is presentation only: which images load, and through what path, is still decided by `privacy.remoteContent` and the image grants. Users can turn it off in Settings › Privacy unless an administrator locks it.
-
-<a id="privacy.sessions.showLinkedOrigin"></a>
-### Linked mailbox origin in sessions (`privacy.sessions.showLinkedOrigin`)
-
-Global/domain/user choice, default `"full"`, with administrator locks. A session created by linking a mailbox is listed in Settings > Security > Sessions as "Linked mailbox access". With `full` the row adds "from" and the sign-in name of the account that owns the link; `masked-local-part` keeps the first character and the domain (`a***@example.com`); `hidden` shows only that the session is linked. The linked mailbox address, the link type, the link creation time and a Revoke link access action are in the row's Link details. If the owning account no longer exists the row says "Unknown (removed account)". The origin is returned only in the signed-in user's own session list and the account id of the origin is never returned; the administrator sessions list does not include it. An unreadable setting is treated as `hidden`. The sessions search also matches the origin and mailbox addresses.
 
 <a id="mail.resumeTabs"></a>
 ### Resume workspace tabs

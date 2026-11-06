@@ -326,6 +326,9 @@ pub const RULES: &[Rule] = &[
     },
     del!("mail_user_account", "account_id", Bind::Account),
     keep!("user_group", "group definitions belong to the directory, not to one member"),
+    keep!("client_error_group", "browser error groups: a scrubbed error name, message, boundary and route template with counts; no person identifiers"),
+    keep!("client_error_event", "pseudonymous diagnostics: scrubbed stack frames and a coarse browser, OS and viewport class per occurrence; account_hash is a salted one-way hash, empty unless the administrator enabled it, and events expire with retention.clientErrors.eventDays"),
+    keep!("metrics_bucket", "aggregate metrics, no person identifiers: counts and quantile sketches per instance, metric and time bucket, with fixed role-class dimensions only"),
     keep!("data_export", "legacy export log; rows are removed with the request retention"),
     // ---- mail, calendars, contacts, notes --------------------------------
     del!("sieve_script", "account_id", Bind::Account, export: Export::Code { section: "rules" }),

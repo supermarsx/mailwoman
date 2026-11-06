@@ -44,8 +44,6 @@ export interface AccountUiPreferences {
   folderParent?: Record<string,string>;
   /** Folders marked with a star (a marker only; pins are separate). */
   folderStarred?: string[];
-  /** Per-folder notes and overrides of the user's settings (the folder Properties dialog), keyed by folder id. */
-  folderProps?: Record<string, import('../components/properties/folderOverrides.ts').FolderProps>;
   /** What dragging a folder under another one does: ask, change the server, or only arrange it in this app. */
   folderNestMode?: 'ask'|'server'|'local';
   /** Obsolete (ignored): accepted so older stored values still validate. */

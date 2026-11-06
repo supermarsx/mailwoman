@@ -13,6 +13,7 @@ import * as stats from '../shell/stats.css.ts';
 import * as css from './privacy.css.ts';
 import type { LatencySummary, PrivacyStats, ProxyLatency, SpeedVerdict } from './model.ts';
 import { HistoryChart } from './ProxyCharts.tsx';
+import { PersistedStats } from '../PersistedStats.tsx';
 
 /** Milliseconds as "35 ms" or "2.4 s". */
 export const duration = (n: number): string => (n >= 1000 ? `${formatNumber(n / 1000, { maximumFractionDigits: 1 })} s` : `${formatNumber(n, { maximumFractionDigits: n < 10 ? 2 : n < 100 ? 1 : 0 })} ms`);
@@ -104,6 +105,7 @@ export function SpeedSection(props: { stats: PrivacyStats | undefined; loading: 
   onMount(() => void loadCatalog('admin-privacy-speed').then(() => setReady(true)));
   const latency = (): ProxyLatency | undefined => props.stats?.latency;
   return (
+    <>
     <StatsSection title={ready() ? t('privacy-speed-title') : ''} kind="charts" testId="speed-section" busy={props.loading}>
       <Show when={ready()}>
         <Show
@@ -129,5 +131,7 @@ export function SpeedSection(props: { stats: PrivacyStats | undefined; loading: 
         </Show>
       </Show>
     </StatsSection>
+    <PersistedStats source="imageProxy" />
+    </>
   );
 }

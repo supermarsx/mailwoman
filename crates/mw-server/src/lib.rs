@@ -63,6 +63,7 @@ pub mod push_relay;
 mod client_timing;
 mod breach;
 mod breach_model;
+mod metrics_persist;
 mod dsr;
 mod scrub_admin;
 pub mod erasure_cmd;
@@ -183,6 +184,7 @@ pub async fn flush_trust_tiers() {
 mod sec_cfg;
 mod security_alerts;
 mod session_binding;
+    metrics_persist::flush_on_shutdown().await;
 mod session_theft;
 mod session_watch;
 mod signin_spike;
@@ -949,6 +951,9 @@ pub(crate) struct AppState {
     render_bin: Option<PathBuf>,
     /// Whether a render kernel jail is expected on this deployment (DQ4/S6, via
     /// [`mw_sandbox::jail_expected`]). When set, the in-process render fallbacks
+    /// Keeps the persisted-statistics recorder (and its flush loop) alive.
+    #[allow(dead_code)]
+    metrics_recorder: Arc<metrics_persist::Recorder>,
     /// (HTML sanitize / `.oft` parse) fail closed instead of running hostile input in
     /// this trusted process without the jail.
     render_jail_required: bool,
@@ -1407,6 +1412,7 @@ async fn build_app_inner(
         render_jail_required,
         retained_assets: retained_assets(&config.db_path, config.web_dir.as_deref()).await,
         web_dir: config.web_dir,
+        metrics_recorder: metrics_persist::start(store.clone()),
         cookie_secure,
         external,
         base_path: Arc::from(base_path.as_str()),

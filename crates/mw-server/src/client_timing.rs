@@ -213,6 +213,16 @@ impl Recorder {
             .collect()
     }
     fn record_at(&self, time: i64, device: &'static str, values: &[(&'static str, u64)]) {
+        for (metric, ms) in values {
+            if let Some(name) = crate::metrics_persist::client_metric(metric) {
+                let dims = mw_store::metrics_bucket::Dims {
+                    client_kind: "web".into(),
+                    device_class: device.into(),
+                    ..Default::default()
+                };
+                crate::metrics_persist::value(time, name, *ms, &dims);
+            }
+        }
         let mut memory = self
             .memory
             .lock()

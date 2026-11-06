@@ -183,6 +183,13 @@ impl Store {
         Ok(())
     }
 
+    /// Delete every stored browser load-time histogram (the admin "Reset statistics").
+    pub async fn reset_client_timing(&self) -> Result<u64, StoreError> {
+        Ok(q("DELETE FROM client_timing_bucket")
+            .execute(&self.backend)
+            .await?)
+    }
+
     /// Every replica's hourly rows with `from <= start < to`.
     pub async fn client_timing_history(
         &self,

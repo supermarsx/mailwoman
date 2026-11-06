@@ -1298,30 +1298,3 @@ async fn reopened_mailbox_never_receives_stale_uid_writes() {
             .any(|line| line.contains("UID STORE"))
     );
 }
-
-#[tokio::test]
-async fn stripped_copy_append_keeps_flags_keyword_and_internaldate() {
-    // The retention strip flow appends the rewritten message with the original
-    // flags, the `mw-stripped` marker keyword and the original received date.
-    let (addr, log) = spawn_mock(vec![dovecot_script(vec![Ex::Literal {
-        expect: "APPEND",
-        respond: "{tag} OK [APPENDUID 55 12] saved\r\n".into(),
-    }])])
-    .await;
-    let backend = connect_dovecot(addr, vec![]).await;
-    let target = RawMailboxRef { name: "INBOX".into(), uidvalidity: 55 };
-    let result = backend
-        .append_with_date(
-            &target,
-            b"Subject: stripped\r\nX-Mailwoman-Stripped: 2026-11-06; part=2\r\n\r\nbody",
-            &[Flag::Seen, Flag::Flagged, Flag::Keyword("mw-stripped".into())],
-            "2026-01-05T09:00:00Z",
-        )
-        .await
-        .unwrap();
-    assert!(matches!(result, MessageRef::Imap { uid: 12, uidvalidity: 55, .. }));
-    let log = log.lock().unwrap();
-    let line = log.iter().find(|l| l.contains("APPEND")).expect("APPEND sent");
-    assert!(line.contains(r"\Seen") && line.contains(r"\Flagged") && line.contains("mw-stripped"), "{line}");
-    assert!(line.contains("\"05-Jan-2026 09:00:00 +0000\""), "{line}");
-}

@@ -1461,6 +1461,30 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "metrics_bucket",
+        select: "SELECT instance_id,metric,bucket_start,resolution_seconds,dim_domain,dim_folder_class,dim_client_kind,dim_device_class,dim_backend,sample_count,sum_value,min_value,max_value,sketch,flushed_at FROM metrics_bucket",
+        insert: "INSERT INTO metrics_bucket(instance_id,metric,bucket_start,resolution_seconds,dim_domain,dim_folder_class,dim_client_kind,dim_device_class,dim_backend,sample_count,sum_value,min_value,max_value,sketch,flushed_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
+        map: |r| {
+            vec![
+                t(r, "instance_id"),
+                t(r, "metric"),
+                i(r, "bucket_start"),
+                i(r, "resolution_seconds"),
+                t(r, "dim_domain"),
+                t(r, "dim_folder_class"),
+                t(r, "dim_client_kind"),
+                t(r, "dim_device_class"),
+                t(r, "dim_backend"),
+                i(r, "sample_count"),
+                i(r, "sum_value"),
+                i(r, "min_value"),
+                i(r, "max_value"),
+                b(r, "sketch"),
+                i(r, "flushed_at"),
+            ]
+        },
+    },
+    TableSpec {
         name: "cookie_consent",
         select: "SELECT id,account_id,domain,policy_version,decision,categories_json,region,signal,created_at FROM cookie_consent",
         insert: "INSERT INTO cookie_consent(id,account_id,domain,policy_version,decision,categories_json,region,signal,created_at) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9)",

@@ -21,6 +21,7 @@ import { formatSeconds } from './protectionRules.ts';
 import * as stats from './shell/stats.css.ts';
 import * as admin from './admin.css.ts';
 import * as css from './protocolGuard.css.ts';
+import { PersistedStats } from './PersistedStats.tsx';
 
 const KNOWN_CLASSES = ['missing', 'uncommon', 'automation', 'search', 'ai-training', 'ai-search', 'ai-user', 'custom'];
 const kebab = (rule: string): string => rule.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
@@ -168,6 +169,8 @@ export function AggregateInsights(props: { history: ProtectionHistoryController 
           );
         }}
       </Gate>
+      <PersistedStats source="requestProtection" />
+      <PersistedStats source="rateLimit" />
     </section>
   );
 }

@@ -32,13 +32,11 @@ mod header_privacy;
 mod mdn;
 mod mdn_standard;
 mod parse;
-mod priority;
 mod quoted_addresses;
 
 pub use build::{Attachment, ComposeExtras, ComposeRequest, InlinePart, build, build_with};
 pub use check::{generate_content_id, validate_content_id, validate_mailbox};
 pub use cid_references::html_cid_references;
-pub use priority::priority_from_headers;
 pub use dsn::{DsnRecipient, DsnReport, parse_dsn};
 pub use header_privacy::{HeaderPrivacyError, strip_mailer_headers};
 pub use mdn::{

@@ -81,7 +81,7 @@ pub(crate) fn class_of(id: &str) -> Option<Class> {
         | "accountGeo" | "protectionEvents" | "protectionSubjects" | "sessionWatch" => Class::Medium,
         "alertEvents" | "jobRuns" | "outbox" | "sessions" | "nativeSessions" | "rememberedDevices"
         | "signinChallenges" | "oidcTokens" | "oidcCodes" | "oauthTokens" | "webhookNonces" | "sourceFailures"
-        | "imageHandles" | "requestMetrics" | "clientTiming" | "diagnostics" | "uploads" | "logFiles" => Class::Short,
+        | "imageHandles" | "requestMetrics" | "clientTiming" | "metrics" | "clientErrors" | "diagnostics" | "uploads" | "logFiles" => Class::Short,
         _ => return None,
     })
 }

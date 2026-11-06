@@ -180,6 +180,8 @@ pub(crate) const ENTRIES: &[Entry] = &[
     existing("authHistory", Some("logs.auth.retentionDays"), None, Some("signin_event")),
     existing("requestMetrics", Some("metrics.rollupDays"), None, Some("request_metrics_bucket")),
     existing("clientTiming", Some("metrics.rollupDays"), None, Some("client_timing_bucket")),
+    existing("metrics", Some("retention.metrics.hourBucketsDays"), None, Some("metrics_bucket")),
+    existing("clientErrors", Some("retention.clientErrors.eventDays"), None, Some("client_error_event")),
     existing("protectionEvents", None, Some(30), Some("request_protection_event")),
     existing("protectionSubjects", None, None, Some("request_protection_subject")),
     existing("sessionWatch", Some("security.theft.retentionDays"), None, None),
@@ -371,6 +373,28 @@ pub(crate) async fn run_store(store: &Store, now: i64, dry_run: bool) -> Report 
         }
         report.stores.push(r);
     }
+    // Persisted statistics fold minutes into hours and hours into days, then prune
+    // days; a dry run reports nothing because the fold has no row count to preview.
+    let mut r = StoreReport { id: "metrics", rows: 0, more: false, skipped: None, error: None, archived: false };
+    if dry_run {
+        r.skipped = Some("dryRun");
+    } else {
+        match crate::metrics_persist::rollup(store, now).await {
+            Ok(rows) => r.rows = rows,
+            Err(err) => r.error = Some(err.to_string()),
+        }
+    }
+    report.stores.push(r);
+    // Browser error reports: events past eventDays, groups past groupDays.
+    let mut r = StoreReport { id: "clientErrors", rows: 0, more: false, skipped: None, error: None, archived: false };
+    match crate::client_errors::prune(store, now, dry_run).await {
+        Ok(rows) => r.rows = rows,
+        Err(err) => r.error = Some(err.to_string()),
+    }
+    if dry_run {
+        r.skipped = Some("dryRun");
+    }
+    report.stores.push(r);
     report
 }
 

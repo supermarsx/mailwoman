@@ -17,8 +17,6 @@ import {
 } from 'solid-js';
 import { printMessage } from '../viewers/printMessage.ts';
 import { MessageTimes } from './TimeHelpers.tsx';
-import { PriorityMark } from './PriorityMark.tsx';
-import { priorityOf } from './messagePriority.ts';
 import { settings as effectiveSettings } from '../api/settings.ts';
 import { AppContext, useApp } from '../state/context.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
@@ -1412,7 +1410,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               </div>
               <div class="reader__metadata-line" data-badge-density={badgeDensity()} data-badge-labels={badgeLabels()}>
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
-              <PriorityMark priority={priorityOf(email())} badge/>
               <Show when={folderNames().length>0&&badgeVisible('folder',folderNotable())}><BadgeContextMenu badge="folder"><FolderBadge names={folderNames()} role={folderRole()} onGo={goToFolder}/></BadgeContextMenu></Show>
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}

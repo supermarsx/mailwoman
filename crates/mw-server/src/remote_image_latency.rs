@@ -168,6 +168,16 @@ impl Hist {
         Some(self.max as f64)
     }
 
+    /// A stored aggregate (same bucket layout) as a histogram.
+    fn from_agg(a: &mw_store::metrics_bucket::Agg) -> Self {
+        Self {
+            b: (0..BUCKETS).map(|i| a.sketch.bucket_count(i)).collect(),
+            n: a.count,
+            sum: a.sum,
+            max: a.max,
+        }
+    }
+
     fn sparse(&self) -> Sparse {
         Sparse {
             n: self.n,
@@ -274,6 +284,26 @@ pub(crate) enum Phase {
 
 const PHASES: [Phase; 4] = [Phase::Queue, Phase::Cache, Phase::Upstream, Phase::Decode];
 
+/// Stored metric names (`metrics_bucket`), indexed like [`OUTCOMES`] and [`PHASES`].
+/// The stored sketch has the same bucket layout as [`Hist`], in microseconds.
+const OUTCOME_METRICS: [&str; 8] = [
+    "imageProxy.outcome.hitRam",
+    "imageProxy.outcome.hitDisk",
+    "imageProxy.outcome.miss",
+    "imageProxy.outcome.timeout",
+    "imageProxy.outcome.upstreamError",
+    "imageProxy.outcome.rejected",
+    "imageProxy.outcome.busy",
+    "imageProxy.outcome.cancelled",
+];
+const PHASE_METRICS: [&str; 4] = [
+    "imageProxy.phase.queue",
+    "imageProxy.phase.cache",
+    "imageProxy.phase.upstream",
+    "imageProxy.phase.decode",
+];
+const _: () = assert!(mw_store::metrics_bucket::BUCKETS == BUCKETS);
+
 impl Phase {
     fn name(self) -> &'static str {
         match self {
@@ -364,6 +394,36 @@ impl Recorder {
             live: None,
             ring: VecDeque::new(),
         }
+    }
+
+    /// Add stored minutes (all instances, any restart) as sealed slices, without
+    /// replacing a slice this process already has and never past the live one.
+    fn warm(&mut self, rows: &[mw_store::metrics_bucket::MetricRow]) {
+        let mut sets: std::collections::BTreeMap<u64, Set> = Default::default();
+        for r in rows.iter().filter(|r| r.resolution == SLICE_SECS as i64 && r.start >= 0) {
+            let t = r.start as u64;
+            if let Some(i) = OUTCOME_METRICS.iter().position(|m| *m == r.metric) {
+                sets.entry(t).or_insert_with(Set::new).outcomes[i].merge(&Hist::from_agg(&r.agg));
+            } else if let Some(i) = PHASE_METRICS.iter().position(|m| *m == r.metric) {
+                sets.entry(t).or_insert_with(Set::new).phases[i].merge(&Hist::from_agg(&r.agg));
+            }
+        }
+        let live_t = self.live.as_ref().map(|l| l.t);
+        let have: std::collections::BTreeSet<u64> = self.ring.iter().map(|s| s.t).collect();
+        let mut all: Vec<Sealed> = self.ring.drain(..).collect();
+        for (t, set) in sets {
+            if have.contains(&t) || live_t.is_some_and(|l| t >= l) {
+                continue;
+            }
+            all.push(Sealed {
+                t,
+                outcomes: set.outcomes.iter().map(Hist::sparse).collect(),
+                phases: set.phases.iter().map(Hist::sparse).collect(),
+            });
+        }
+        all.sort_by_key(|s| s.t);
+        let skip = all.len().saturating_sub(self.cap);
+        self.ring = all.into_iter().skip(skip).collect();
     }
 
     fn seal(&mut self) {
@@ -507,7 +567,7 @@ impl Recorder {
         json!({
             "enabled": enabled,
             "scope": "instance",
-            "resetsOnRestart": true,
+            "resetsOnRestart": !crate::metrics_persist::active(),
             "sliceSecs": SLICE_SECS,
             "stepSecs": step,
             "retentionSecs": KEEP_SECS,
@@ -604,6 +664,20 @@ fn store() -> &'static Mutex<Recorder> {
     R.get_or_init(|| Mutex::new(Recorder::new(CAPACITY)))
 }
 
+/// Fill the live view from stored minutes (called once at start-up).
+pub(crate) fn warm(rows: Vec<mw_store::metrics_bucket::MetricRow>) {
+    if let Ok(mut r) = store().lock() {
+        r.warm(&rows);
+    }
+}
+
+/// Forget everything held in memory (the admin "Reset statistics").
+pub(crate) fn reset() {
+    if let Ok(mut r) = store().lock() {
+        *r = Recorder::new(CAPACITY);
+    }
+}
+
 fn unix_now() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -677,7 +751,21 @@ fn finish(outcome: Outcome) {
         if let Ok(mut r) = store().lock() {
             r.record(unix_now(), &sample);
         }
+        persist(unix_now() as i64, &sample);
     });
+}
+
+/// The same sample, into the persisted minute buckets.
+fn persist(now: i64, s: &Sample) {
+    let none = mw_store::metrics_bucket::Dims::default();
+    crate::metrics_persist::value(now, OUTCOME_METRICS[s.outcome.index()], s.total_us, &none);
+    if !s.outcome.is_hit() && s.outcome != Outcome::Cancelled {
+        for p in PHASES {
+            if let Some(us) = s.phase_us[p.index()] {
+                crate::metrics_persist::value(now, PHASE_METRICS[p.index()], us, &none);
+            }
+        }
+    }
 }
 
 /// Records a cancelled request when the tracked future is dropped unfinished.

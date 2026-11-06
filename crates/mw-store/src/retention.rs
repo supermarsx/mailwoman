@@ -153,6 +153,8 @@ pub const FOOTPRINT_TABLES: &[&str] = &[
     "signin_event",
     "request_metrics_bucket",
     "client_timing_bucket",
+    "client_error_event",
+    "metrics_bucket",
     "request_protection_event",
     "request_protection_subject",
     "dsr_request",
