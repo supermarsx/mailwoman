@@ -1043,6 +1043,10 @@ async fn migrate_store_sqlite_to_postgres() {
 /// new host. `(table, reason)`.
 const NOT_MIGRATED_DELIBERATELY: &[(&str, &str)] = &[
     (
+        "ephemeral_state",
+        "0097: sealed ceremony state (an in-flight single sign-on redirect) that lives for minutes and is consumed once; it is sealed with the source server key and a person mid-flow starts again after a store move.",
+    ),
+    (
         "settings_revision",
         "0078 (t87): a counter its triggers bump on every settings write so caches          see changes; it starts fresh on the destination.",
     ),
@@ -2431,8 +2435,8 @@ mod admin_controls_0033 {
         NewTable {name:"metrics_bucket",copied:true,cols:&[
             ("instance_id",'T',"!","replica-one"),("metric",'T',"!","imageProxy.outcome.miss"),
             ("bucket_start",'I',"!","3600"),("resolution_seconds",'I',"!","3600"),
-            ("dim_domain",'T',"!","example.org"),("dim_folder_class",'T',"!","inbox"),("dim_client_kind",'T',"!","web"),
-            ("dim_device_class",'T',"!","desktop"),("dim_backend",'T',"!","imap"),
+            ("dim_domain",'T',"=","example.org"),("dim_folder_class",'T',"=","inbox"),("dim_client_kind",'T',"=","web"),
+            ("dim_device_class",'T',"=","desktop"),("dim_backend",'T',"=","imap"),
             ("sample_count",'I',"!","3"),("sum_value",'I',"!","300"),("min_value",'I',"!","50"),("max_value",'I',"!","150"),
             ("sketch",'B',"!","sketch-bytes"),("flushed_at",'I',"!",TS),
         ]},
