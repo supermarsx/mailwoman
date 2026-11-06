@@ -1236,3 +1236,28 @@ mail-from = Remetente
 mail-subject = Assunto
 mail-date = Data
 mail-nav-views-queues = Vistas e filas
+
+mail-badge-unread = { $unread ->
+    [one] { $unread } mensagem não lida
+   *[other] { $unread } mensagens não lidas
+  }
+mail-badge-total = { $total ->
+    [one] { $total } mensagem nesta pasta
+   *[other] { $total } mensagens nesta pasta
+  }
+mail-badge-both = { $unread ->
+    [one] { $unread } mensagem não lida
+   *[other] { $unread } mensagens não lidas
+  } de { $total ->
+    [one] { $total } nesta pasta
+   *[other] { $total } nesta pasta
+  }
+mail-badge-drafts = { $total ->
+    [one] Rascunhos: { $total } mensagem
+   *[other] Rascunhos: { $total } mensagens
+  }
+mail-badge-compact-hint = As pastas que não são a Caixa de entrada usam um indicador mais pequeno. Altere em Definições, Pastas e barra lateral.
+mail-badge-outbox = { $count ->
+    [one] Caixa de saída: { $count } mensagem à espera de envio
+   *[other] Caixa de saída: { $count } mensagens à espera de envio
+  }

@@ -24,7 +24,8 @@ import { readUrlTarget, rememberView, restoreView, writeUrlTarget } from '../sta
 import { primaryMailboxAuthority } from '../api/linkedMailboxSession.ts';
 import {accountDraftApi,localAccountDraft} from '../api/accountDrafts.ts';
 import { listDrafts,saveDraft } from '../components/compose/drafts-store.ts';
-import { FolderCountBadge } from '../components/FolderCountBadge.tsx';
+import { FolderCountBadge, folderBadgeTip } from '../components/FolderCountBadge.tsx';
+import { folderCountMode, folderCountScope, showsFolderCount } from '../api/countBadges.ts';
 import { QuotaMeter } from '../components/QuotaMeter.tsx';
 import { PaneNavigationContext, confirmShellNavigation } from '../shell/navigationGuard.ts';
 import { preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../api/accountPreferenceLifecycle.ts';
@@ -333,6 +334,8 @@ export function MailboxScreen(): JSX.Element {
     if(index<0)return;
     for(const neighbour of [list[index+1],list[index-1],list[index+2]])if(neighbour)app.prefetchMessage?.(neighbour.id,'focus');
   }
+  const compactBadges=()=>settings()['mail.compactFolderBadges']?.value!==false;
+  const folderCountShown=(box:{role?:string|null;unreadEmails:number;totalEmails:number})=>showsFolderCount(box,folderCountMode(),folderCountScope());
   createEffect(on(()=>settings()['mail.messageListOrder']?.value??'newest',()=>{if(app.accountId())void app.refreshCurrentMailbox();},{defer:true}));
   /** `mail.closeOnDelete`: the message views (reading pane, message tabs, detached panes) of deleted messages close instead of staying open on a message that is gone. */
   function closeDeleted(ids:ReadonlySet<string>):void {
@@ -906,7 +909,7 @@ export function MailboxScreen(): JSX.Element {
                 onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
                 onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
                 onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
-                aria-label={displayText(box().name)} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · '))}
+                aria-label={displayText(box().name)} aria-description={folderCountShown(box())?folderBadgeTip(box(),folderCountMode(),compactBadges()):undefined} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id)].join(' · '))}
                 onClick={() => {
                   clearSelectedFolders();
                   router.navigate('mail');
@@ -944,7 +947,7 @@ export function MailboxScreen(): JSX.Element {
           >
             <Icon name="clock"/><span class="sidebar__box-name">{t('mail-nav-outbox')}</span>
             <Show when={app.cancelableOutbox().length > 0}>
-              <span class="sidebar__badge">{app.cancelableOutbox().length}</span>
+              <span class="sidebar__badge" data-secondary="true" title={t('mail-badge-outbox',{count:app.cancelableOutbox().length})} aria-label={t('mail-badge-outbox',{count:app.cancelableOutbox().length})}>{app.cancelableOutbox().length}</span>
             </Show>
           </button>
           {/* Share the selected folder (t13 ACL editor). Only offered once a

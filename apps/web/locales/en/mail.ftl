@@ -1247,3 +1247,28 @@ mail-attachments-zip-capped = The ZIP holds the first { $count } attachments; th
 mail-focus-not-found = Message not found in { $folder }
 mail-focus-go-to = Go to { $folder }
 mail-nav-views-queues = Views and queues
+
+mail-badge-unread = { $unread ->
+    [one] { $unread } unread message
+   *[other] { $unread } unread messages
+  }
+mail-badge-total = { $total ->
+    [one] { $total } message in this folder
+   *[other] { $total } messages in this folder
+  }
+mail-badge-both = { $unread ->
+    [one] { $unread } unread message
+   *[other] { $unread } unread messages
+  } of { $total ->
+    [one] { $total } in this folder
+   *[other] { $total } in this folder
+  }
+mail-badge-drafts = { $total ->
+    [one] Drafts: { $total } message
+   *[other] Drafts: { $total } messages
+  }
+mail-badge-compact-hint = Folders other than the Inbox use a smaller badge. Change this under Settings, Folders and sidebar.
+mail-badge-outbox = { $count ->
+    [one] Outbox: { $count } message waiting to send
+   *[other] Outbox: { $count } messages waiting to send
+  }
