@@ -50,3 +50,7 @@ sharing-right-e-label = Rimuovere definitivamente
 sharing-right-e-desc = Rimuovere in modo permanente i messaggi contrassegnati come eliminati.
 sharing-right-a-label = Amministrare
 sharing-right-a-desc = Modificare chi ha accesso a questa casella.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Questo server di posta non supporta la condivisione delle cartelle.
+sharing-forbidden = Non hai il permesso di gestire la condivisione di questa cartella. Chiedi al proprietario o all'amministratore.

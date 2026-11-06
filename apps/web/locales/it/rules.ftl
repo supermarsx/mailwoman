@@ -89,3 +89,9 @@ rules-forward-title = Inoltro
 rules-forward-address = Inoltra a
 rules-forward-copy = Conserva una copia in questo account
 rules-forward-refused = L’amministratore non consente l’inoltro a questo dominio.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = Salvato. Le risposte automatiche sono disattivate.
+rules-vacation-runs-server = Il tuo server di posta invia questa risposta quando arriva un messaggio.
+rules-vacation-runs-engine = Mailwoman invia questa risposta quando sincronizza la nuova posta in arrivo, quindi una risposta può attendere la sincronizzazione successiva.
+rules-vacation-unavailable = Le risposte di assenza non sono disponibili per questo account: il suo server di posta non le offre oppure l'amministratore le ha disattivate.
