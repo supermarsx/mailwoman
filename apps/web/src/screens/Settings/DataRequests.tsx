@@ -6,7 +6,7 @@ import { t, loadCatalog } from '../../i18n';
 import { activeLocaleSignal as locale } from '../../i18n/registry.ts';
 import { formatDateTime } from '../../i18n/format.ts';
 import {
-  OBJECTION_PURPOSES, REQUEST_KINDS, cancelRequest, confirmRequest, downloadLink, listRequests, loadOverview, loadRequest, submitRequest,
+  OBJECTION_PURPOSES, REQUEST_KINDS, cancelRequest, confirmRequest, downloadLink, listRequests, loadOverview, loadRequest, requestReference, submitRequest,
   type DataRequest, type DataRequestPolicy, type RequestKind, type TrailEntry,
 } from '../../api/dataRequests.ts';
 import { requestedKind } from '../../api/privacyShortcut.ts';
@@ -61,8 +61,8 @@ function RequestRow(props: { request: DataRequest; onChange: () => void }): JSX.
       <Show when={r().kind === 'objection' && (r().purposes?.length ?? 0) > 0}><span class={css.meta} data-testid="dr-purposes">{t('dr-objection-purposes-list', { purposes: (r().purposes ?? []).map(p => t(`dr-purpose-${p.split('.')[0]}`)).join(', ') })}</span></Show>
       <Show when={r().kind === 'rectification' && navigation && ['awaiting_approval', 'in_progress', 'queued', 'awaiting_confirmation', 'awaiting_verification'].includes(r().status)}>
         <span class={css.meta} data-testid="dr-rectify">
-          {t('dr-rectify-ref', { ref: r().id.slice(0, 8) })}{' '}
-          <button type="button" class={css.ghost} onClick={() => void navigation?.navigate({ section: 'identities' })}>{t('dr-rectify-edit')}</button>
+          {t('dr-rectify-ref', { ref: requestReference(r().id) })}{' '}
+          <button type="button" class={css.ghost} onClick={() => void navigation?.navigate({ section: 'identities', rectification: { requestId: r().id, reference: requestReference(r().id) } })}>{t('dr-rectify-edit')}</button>
         </span>
       </Show>
       <Show when={r().status === 'rejected' && r().decisionReason}><span class={css.meta}>{t('dr-rejected-reason', { reason: r().decisionReason ?? '' })}</span></Show>

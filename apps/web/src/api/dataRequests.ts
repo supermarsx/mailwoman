@@ -4,6 +4,8 @@ import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 
 export const REQUEST_KINDS = ['access', 'portability', 'rectification', 'erasure', 'restriction', 'objection', 'other'] as const;
+/** The short reference a person quotes to us for a request: `R-` and four characters of its id. */
+export const requestReference = (id: string): string => `R-${id.replace(/[^0-9a-z]/gi, '').slice(0, 4).toUpperCase()}`;
 export type RequestKind = (typeof REQUEST_KINDS)[number];
 
 export type RequestStatus =

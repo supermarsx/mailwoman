@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { DataRequests } from './DataRequests.tsx';
 import * as api from '../../api/dataRequests.ts';
 import type { DataRequest, DataRequestPolicy } from '../../api/dataRequests.ts';
+import { createSettingsNavigation, SettingsNavigationContext } from './navigation.tsx';
 
 vi.mock('../../api/dataRequests.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../../api/dataRequests.ts')>(),
@@ -32,6 +33,15 @@ beforeEach(() => {
 });
 
 describe('data requests (Settings)', () => {
+  it('opens Identities with the correction request reference as route state', async () => {
+    vi.mocked(api.listRequests).mockResolvedValue([request({ id: '9f3a1c27-0000-4000-8000-000000000000', kind: 'rectification', status: 'in_progress', needsConfirmation: false })]);
+    const navigation = createSettingsNavigation({ section: 'privacy' });
+    render(() => <SettingsNavigationContext.Provider value={navigation}><DataRequests /></SettingsNavigationContext.Provider>);
+    expect(await screen.findByText(/Reference .*R-9F3A/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit my details' }));
+    await waitFor(() => expect(navigation.route()).toEqual({ section: 'identities', rectification: { requestId: '9f3a1c27-0000-4000-8000-000000000000', reference: 'R-9F3A' } }));
+  });
+
   it('offers only the enabled request types and shows the contact', async () => {
     render(() => <DataRequests />);
     const select = await screen.findByLabelText('Request type');

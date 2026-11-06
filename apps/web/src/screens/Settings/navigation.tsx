@@ -1,6 +1,6 @@
 import { createContext, createSignal, useContext, type Accessor } from 'solid-js';
 
-export interface SettingsRoute { section: string; /** Card id to scroll to once the section has rendered. */ card?: string; editor?: { kind: 'new' | 'edit'; id?: string } }
+export interface SettingsRoute { section: string; /** Card id to scroll to once the section has rendered. */ card?: string; editor?: { kind: 'new' | 'edit'; id?: string }; /** Set when the section was opened from a correction request: Identities shows the reference with a Mark as done action. */ rectification?: { requestId: string; reference: string } }
 export interface SettingsNavigation {
   route: Accessor<SettingsRoute>;
   navigate(route: SettingsRoute): Promise<boolean>;

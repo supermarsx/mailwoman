@@ -110,3 +110,5 @@ dr-purpose-push = Push notifications
 dr-purpose-integrations = Integrations and API keys
 dr-rectify-ref = Reference { $ref }. Quote it if you write to us about this correction.
 dr-rectify-edit = Edit my details
+dr-rectify-banner = Updating details for request { $ref }
+dr-rectify-done = Mark as done
