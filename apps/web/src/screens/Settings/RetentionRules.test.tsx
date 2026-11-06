@@ -185,3 +185,41 @@ describe('Settings > Retention', () => {
     await waitFor(() => expect(a.settings).toHaveBeenCalledWith({ folderDefaults: [expect.objectContaining({ folder: 'work', name: 'Work', action: { kind: 'trash', days: 45, target: null } })] }));
   });
 });
+
+describe('Settings > Retention: removing attachments', () => {
+  const stripRule = (): Rule => rule({ id: 'r9', name: 'Big files', action: { kind: 'stripAttachments', days: 120, target: null }, scope: { ...emptyScope(), hasAttachment: true } });
+  const allowed = (): RetentionOverview => overview({ policy: { ...overview().policy, allowStripAttachments: true, strip: { minAgeDays: 90, minAttachmentKb: 100, keepInlineImages: true, undoDays: 7 } } });
+
+  it('hides the action and says why while the administrator has it off', async () => {
+    const off = overview({ rules: [stripRule()] });
+    render(() => <RetentionRules folders={() => folders} api={api({ load: vi.fn(async () => off) })} />);
+    expect(await screen.findByTestId('retention-strip-locked')).toHaveTextContent('turned off by your administrator');
+    expect(screen.getByTestId('retention-rule-strip-off')).toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('retention-add'));
+    const editor = await screen.findByTestId('retention-editor');
+    const options = [...within(editor).getByLabelText('What to do').querySelectorAll('option')].map((o) => (o as HTMLOptionElement).value);
+    expect(options).toContain('markRead');
+    expect(options).not.toContain('stripAttachments');
+  });
+
+  it('offers the action when allowed, refuses a short wait locally and previews the freed space', async () => {
+    const a = api({
+      load: vi.fn(async () => allowed()),
+      preview: vi.fn(async () => preview({ matched: 4, would: { moved: 0, trashed: 0, purged: 0, markedRead: 0, stamped: 0, stripped: 4, reclaimedBytes: 5 * 1024 * 1024 }, sample: [] })),
+    });
+    render(() => <RetentionRules folders={() => folders} api={a} />);
+    expect(await screen.findByTestId('retention-strip-allowed')).toHaveTextContent('100 KB');
+    fireEvent.click(screen.getByTestId('retention-add'));
+    const editor = await screen.findByTestId('retention-editor');
+    fireEvent.input(within(editor).getByLabelText('Name'), { target: { value: 'Big files' } });
+    fireEvent.change(within(editor).getByLabelText('What to do'), { target: { value: 'stripAttachments' } });
+    expect(within(editor).getByTestId('retention-strip-limits')).toHaveTextContent('at least 100 KB');
+    fireEvent.input(within(editor).getByLabelText('After days'), { target: { value: '30' } });
+    fireEvent.click(within(editor).getByTestId('retention-save'));
+    expect(await within(editor).findByRole('alert')).toHaveTextContent('must wait at least 90 days');
+    expect(a.create).not.toHaveBeenCalled();
+    fireEvent.input(within(editor).getByLabelText('After days'), { target: { value: '120' } });
+    fireEvent.click(within(editor).getByTestId('retention-preview'));
+    expect(await screen.findByTestId('retention-strip-preview')).toHaveTextContent('4 message(s) would lose attachments, freeing 5.0 MB');
+  });
+});

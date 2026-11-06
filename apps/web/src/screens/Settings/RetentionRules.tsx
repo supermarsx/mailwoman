@@ -16,7 +16,7 @@ import {
 } from '../../api/retention.ts';
 import { retentionFolder, setRetentionFolder } from '../../state/retentionFocus.ts';
 import { FolderRetention } from './FolderRetention.tsx';
-import { actionMessage, daysFromNow, isDestructive, joinList, needsDays, ruleProblem, splitList } from './retentionModel.ts';
+import { actionMessage, availableActions, daysFromNow, formatBytes, isDestructive, joinList, needsDays, ruleProblem, splitList } from './retentionModel.ts';
 import * as css from './styles.css.ts';
 
 export interface RetentionApi {
@@ -94,7 +94,7 @@ function Editor(props: {
       <div class={css.field}>
         <label class={css.label} for="ret-action">{t('retention-action')}</label>
         <select id="ret-action" class={css.select} value={rule().action.kind} onChange={(e) => patch((r) => { r.action.kind = e.currentTarget.value as ActionKind; })}>
-          <For each={ACTION_KINDS}>{(k) => <option value={k}>{t(`retention-action-${k}`)}</option>}</For>
+          <For each={availableActions(props.policy, ACTION_KINDS)}>{(k) => <option value={k}>{t(`retention-action-${k}`)}</option>}</For>
         </select>
       </div>
       <Show when={needsDays(rule().action.kind)}>
@@ -113,6 +113,7 @@ function Editor(props: {
         </div>
       </Show>
     </div>
+    <Show when={rule().action.kind === 'stripAttachments' && props.policy.strip}>{(s) => <p class={css.meta} data-testid="retention-strip-limits">{t('retention-strip-limits', { days: s().minAgeDays, kb: s().minAttachmentKb, undo: s().undoDays })}{' '}{s().keepInlineImages ? t('retention-strip-inline-kept') : t('retention-strip-inline-removed')}</p>}</Show>
     <Show when={isDestructive(rule().action.kind)}>
       <p class={css.meta} data-testid="retention-limits">{props.policy.maxDays > 0 ? t('retention-limits-both', { min: props.policy.minDays, max: props.policy.maxDays }) : t('retention-limits-min', { min: props.policy.minDays })}</p>
     </Show>
@@ -161,6 +162,7 @@ function Editor(props: {
 
     <Show when={preview()}>{(p) => <div role="status" data-testid="retention-preview-result">
       <p>{p().skipped ? t(`retention-skipped-${p().skipped}`) : p().matched === 0 ? t('retention-preview-none') : t('retention-preview-count', { count: p().matched })}</p>
+      <Show when={(p().would.stripped ?? 0) > 0}><p data-testid="retention-strip-preview">{t(p().stripEstimate ? 'retention-strip-preview-estimate' : 'retention-strip-preview', { count: p().would.stripped ?? 0, size: formatBytes(p().would.reclaimedBytes ?? 0) })}</p></Show>
       <Show when={p().truncated}><p class={css.meta}>{t('retention-preview-truncated')}</p></Show>
       <Show when={p().sample.length > 0}><ul class={css.meta} aria-label={t('retention-preview-sample')}><For each={p().sample}>{(s) => <li>{s.subject || t('retention-no-subject')} · {s.from} · {when(s.receivedAt)} · {t(`retention-do-${s.action}`)}</li>}</For></ul></Show>
     </div>}</Show>
@@ -237,6 +239,9 @@ export function RetentionRules(props: { folders: () => readonly Mailbox[]; api?:
           <li>{d().policy.maxDays > 0 ? t('retention-limits-both', { min: d().policy.minDays, max: d().policy.maxDays }) : t('retention-limits-min', { min: d().policy.minDays })}</li>
           <li>{t('retention-max-rules', { count: d().policy.maxRules })}</li>
           <li>{d().policy.allowPermanentDelete ? t('retention-permanent-allowed') : t('retention-permanent-denied', { days: d().policy.undoDays })}</li>
+          <Show when={d().policy.allowStripAttachments} fallback={<li data-testid="retention-strip-locked">{t('retention-strip-denied')}</li>}>
+            <li data-testid="retention-strip-allowed">{t('retention-strip-allowed', { days: d().policy.strip?.minAgeDays ?? 90, kb: d().policy.strip?.minAttachmentKb ?? 100 })}</li>
+          </Show>
           <Show when={d().policy.protectedFolders.length > 0}><li>{t('retention-protected', { folders: d().policy.protectedFolders.join(', ') })}</li></Show>
           <For each={d().policy.mandatory}>{(m) => <li>{t('retention-mandatory', { folder: t(`retention-role-${m.role}`), days: m.days })}</li>}</For>
         </ul>
@@ -251,7 +256,7 @@ export function RetentionRules(props: { folders: () => readonly Mailbox[]; api?:
         <ul class={css.list}>
           <For each={d().rules}>{(r) => <li class={css.item} data-testid={`retention-rule-${r.id}`}>
             <div class={css.itemMain}>
-              <span class={css.itemName}>{r.name}<Show when={!r.enabled}>{' '}<span class={css.badge}>{t('retention-rule-paused')}</span></Show></span>
+              <span class={css.itemName}>{r.name}<Show when={!r.enabled}>{' '}<span class={css.badge}>{t('retention-rule-paused')}</span></Show><Show when={r.action.kind === 'stripAttachments' && !d().policy.allowStripAttachments}>{' '}<span class={css.badge} data-testid="retention-rule-strip-off">{t('retention-rule-strip-off')}</span></Show></span>
               <span class={css.meta}>
                 {r.scope.folders.length > 0 ? r.scope.folders.map((f) => folderName(props.folders(), f)).join(', ') : t('retention-any-folder')}
                 {' · '}
@@ -296,9 +301,11 @@ export function RetentionRules(props: { folders: () => readonly Mailbox[]; api?:
           <button type="button" class={css.button} disabled={busy() || !d().policy.enabled} onClick={() => void guarded(async () => { setSummary(await a.run()); })} data-testid="retention-run">{t('retention-btn-run')}</button>
         </div>
         <Show when={summary()}>{(s) => <div role="status" data-testid="retention-summary">
-          <p>{s().skipped ? t(`retention-skipped-${s().skipped}`) : s().done && (s().done.moved + s().done.trashed + s().done.purged + s().done.markedRead + s().done.stamped) > 0
-            ? t('retention-run-result', { count: s().done.moved + s().done.trashed + s().done.purged + s().done.markedRead + s().done.stamped })
+          <p>{s().skipped ? t(`retention-skipped-${s().skipped}`) : s().done && (s().done.moved + s().done.trashed + s().done.purged + s().done.markedRead + s().done.stamped + (s().done.stripped ?? 0)) > 0
+            ? t('retention-run-result', { count: s().done.moved + s().done.trashed + s().done.purged + s().done.markedRead + s().done.stamped + (s().done.stripped ?? 0) })
             : s().matched === 0 ? t('retention-preview-none') : t('retention-preview-count', { count: s().matched })}</p>
+          <Show when={(s().would.stripped ?? 0) > 0 || (s().done.stripped ?? 0) > 0}><p data-testid="retention-strip-summary">{t(s().done.stripped ? 'retention-strip-done' : s().stripEstimate ? 'retention-strip-preview-estimate' : 'retention-strip-preview', { count: s().done.stripped || (s().would.stripped ?? 0), size: formatBytes(s().done.stripped ? (s().done.reclaimedBytes ?? 0) : (s().would.reclaimedBytes ?? 0)) })}</p></Show>
+          <Show when={(s().stripRulesSkipped ?? 0) > 0}><p class={css.meta} data-testid="retention-strip-skipped">{t('retention-strip-skipped', { count: s().stripRulesSkipped ?? 0 })}</p></Show>
           <Show when={s().sample.length > 0}><ul class={css.meta} aria-label={t('retention-preview-sample')}><For each={s().sample}>{(x) => <li>{x.subject || t('retention-no-subject')} · {x.from} · {when(x.receivedAt)} · {t(`retention-do-${x.action}`)}</li>}</For></ul></Show>
         </div>}</Show>
         <Show when={d().runs.length > 0}>

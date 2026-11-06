@@ -4,7 +4,7 @@
 import { apiFetch } from './http.ts';
 import { withBase } from './basePath.ts';
 
-export const ACTION_KINDS = ['keep', 'delete', 'trash', 'archive', 'move', 'markRead'] as const;
+export const ACTION_KINDS = ['keep', 'delete', 'trash', 'archive', 'move', 'markRead', 'stripAttachments'] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
 export type ReadState = 'any' | 'read' | 'unread';
 
@@ -50,6 +50,9 @@ export interface RetentionPolicy {
   undoDays: number;
   mandatory: { role: string; days: number }[];
   protectedFolders: string[];
+  /** Whether the administrator lets rules remove attachments. Absent: not allowed. */
+  allowStripAttachments?: boolean;
+  strip?: { minAgeDays: number; minAttachmentKb: number; keepInlineImages: boolean; undoDays: number };
 }
 
 export interface RetentionSettings {
@@ -96,11 +99,15 @@ export interface PreviewSample {
   subject: string;
   from: string;
   receivedAt: number;
-  action: 'trash' | 'move' | 'delete' | 'markRead';
+  action: 'trash' | 'move' | 'delete' | 'markRead' | 'stripAttachments';
   source: string;
 }
 
-export interface Counts { moved: number; trashed: number; purged: number; markedRead: number; stamped: number }
+export interface Counts {
+  moved: number; trashed: number; purged: number; markedRead: number; stamped: number;
+  /** Messages rewritten without attachments, the bytes freed, and messages left alone. */
+  stripped?: number; reclaimedBytes?: number; stripSkipped?: number;
+}
 
 export interface Preview {
   skipped: string | null;
@@ -112,6 +119,10 @@ export interface Preview {
   truncated: boolean;
   bySource: Record<string, number>;
   sample: PreviewSample[];
+  /** Enabled attachment-removal rules left unused because the administrator turned the action off. */
+  stripRulesSkipped?: number;
+  /** The freed-bytes figure includes a size-based guess beyond the messages opened. */
+  stripEstimate?: boolean;
 }
 
 export interface EffectiveRetention {

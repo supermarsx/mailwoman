@@ -24,7 +24,24 @@ export function ruleProblem(rule: RuleInput, policy: RetentionPolicy): { id: str
     if (policy.maxDays > 0 && rule.action.days > policy.maxDays) return { id: 'retention-error-max', args: { days: policy.maxDays } };
   }
   if (rule.action.kind === 'move' && !rule.action.target) return { id: 'retention-error-target', args: {} };
+  if (rule.action.kind === 'stripAttachments') {
+    if (!policy.allowStripAttachments) return { id: 'retention-error-strip-disabled', args: {} };
+    const floor = policy.strip?.minAgeDays ?? 90;
+    if (rule.action.days < floor) return { id: 'retention-error-strip-min', args: { days: floor } };
+  }
   return null;
+}
+
+/** The actions a person may choose: removing attachments only when the administrator allows it. */
+export const availableActions = (policy: RetentionPolicy, all: readonly ActionKind[]): ActionKind[] =>
+  all.filter((k) => k !== 'stripAttachments' || policy.allowStripAttachments === true);
+
+/** "1.5 MB" style size for the freed-space line. */
+export function formatBytes(bytes: number): string {
+  if (bytes >= 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  if (bytes >= 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  if (bytes >= 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${bytes} B`;
 }
 
 /** The message that describes what happens to the mail a rule's scope matches. */
