@@ -51,6 +51,8 @@ mod folders;
 // module for the same reason as `folders`.
 #[path = "empty_folder.rs"]
 mod empty_folder;
+#[path = "folder_stats.rs"]
+mod folder_stats;
 
 // t78: the Events view (`Email/query` on `EVENTS_VIEW_ID`, `mailwomanCalendar`).
 // A child of this module so it reaches the private `email_query`/`email_get`.
@@ -336,6 +338,8 @@ impl Engine {
             "Mailbox/get" => self.mailbox_get(account_id, rt, args).await,
             "Mailbox/set" => self.mailbox_set(account_id, rt, args).await,
             "Mailbox/empty" => self.mailbox_empty(account_id, rt, args).await,
+            "Mailbox/stats" => self.mailbox_stats(account_id, rt, args).await,
+            "Email/location" => self.email_location(account_id, rt, args).await,
             "Mailbox/changes" => {
                 self.type_changes(account_id, ChangeType::Mailbox, args)
                     .await

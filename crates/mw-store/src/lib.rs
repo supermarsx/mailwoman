@@ -67,6 +67,7 @@ pub mod contact_photos;
 pub mod focused_senders;
 pub mod nextcloud_links;
 pub mod nextcloud_pim;
+pub mod folder_stats;
 pub mod package_tracking;
 pub mod receipts;
 mod ssh_tunnels;

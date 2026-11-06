@@ -784,3 +784,91 @@ async fn the_preview_changes_nothing() {
     assert_eq!(h.backend.count("INBOX"), 2);
     assert!(h.backend.moves().is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Mailbox/stats and the priority property
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn folder_stats_report_the_cached_folder_and_its_remote_location() {
+    let h = setup().await;
+    let inbox = mailbox_id(&h, "inbox").await;
+    let resp = jmap(&h, json!([["Mailbox/stats", { "mailboxId": inbox }, "s"]])).await;
+    let s = result(&resp, "s");
+    assert_eq!(s["totalEmails"], 2, "{s}");
+    assert_eq!(s["cachedEmails"], 2);
+    assert_eq!(s["approximate"], false);
+    assert!(s["sizeBytes"].as_u64().unwrap() > 100, "{s}");
+    assert_eq!(s["largest"].as_array().unwrap().len(), 2);
+    assert_eq!(s["remote"]["path"], "INBOX");
+    assert_eq!(s["remote"]["delimiter"], ".");
+    assert!(s["remote"]["uidValidity"].as_u64().unwrap() > 0);
+    assert!(s["oldest"].is_string() && s["newest"].is_string(), "{s}");
+    // The server host is never in the answer.
+    assert!(!s.to_string().contains("example.org:"), "{s}");
+}
+
+#[tokio::test]
+async fn folder_stats_refuse_an_unknown_folder() {
+    let h = setup().await;
+    let resp = jmap(&h, json!([["Mailbox/stats", { "mailboxId": "nope" }, "s"]])).await;
+    let r = &resp["methodResponses"][0];
+    assert_eq!(r[0], "error", "{resp}");
+    assert_eq!(r[1]["type"], "invalidArguments");
+}
+
+#[tokio::test]
+async fn email_get_reports_the_senders_priority() {
+    let h = setup().await;
+    {
+        let mut server = h.backend.server.lock().unwrap();
+        for (i, header) in ["X-Priority: 1 (Highest)", "Importance: low", "Precedence: bulk"]
+            .into_iter()
+            .enumerate()
+        {
+            let raw = format!(
+                "Message-ID: <prio-{i}@x>\r\nFrom: a@example.org\r\nTo: me@example.org\r\nSubject: prio {i}\r\n{header}\r\nDate: 05 Jul 2026 09:00:00 +0000\r\n\r\nbody\r\n"
+            );
+            server.deliver("INBOX", raw.into_bytes());
+        }
+    }
+    h.engine.resync(&h.account_id).await.unwrap();
+    let inbox = mailbox_id(&h, "inbox").await;
+    let ids = email_ids(&h, &inbox).await;
+    let resp = jmap(
+        &h,
+        json!([["Email/get", { "ids": ids, "properties": ["subject", "mailwomanPriority"] }, "g"]]),
+    )
+    .await;
+    let by_subject = |s: &str| {
+        result(&resp, "g")["list"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|e| e["subject"] == s)
+            .cloned()
+            .unwrap_or_else(|| panic!("no {s}"))
+    };
+    assert_eq!(by_subject("prio 0")["mailwomanPriority"], "high");
+    assert_eq!(by_subject("prio 1")["mailwomanPriority"], "low");
+    assert!(by_subject("prio 2").get("mailwomanPriority").is_none());
+}
+
+#[tokio::test]
+async fn email_location_names_the_folder_and_uid_and_refuses_foreign_ids() {
+    let h = setup().await;
+    let inbox = mailbox_id(&h, "inbox").await;
+    let ids = email_ids(&h, &inbox).await;
+    let resp = jmap(
+        &h,
+        json!([["Email/location", { "ids": [ids[0].clone(), "not-a-message"] }, "l"]]),
+    )
+    .await;
+    let l = result(&resp, "l");
+    let first = &l["list"][0];
+    assert_eq!(first["mailboxId"], inbox, "{l}");
+    assert_eq!(first["mailboxPath"], "INBOX");
+    assert!(first["uid"].as_u64().unwrap() >= 1);
+    assert!(first["uidValidity"].as_u64().unwrap() >= 1);
+    assert_eq!(l["notFound"], json!(["not-a-message"]));
+}
