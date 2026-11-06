@@ -39,3 +39,6 @@ tasks-delete-no = Conserver la tâche
 tasks-changed-elsewhere = Cette tâche a été modifiée sur un autre appareil ou dans une autre session. Vos modifications sont conservées ; Enregistrer n’applique que les champs que vous avez modifiés.
 tasks-deleted-elsewhere = « { $title } » a été supprimée sur un autre appareil ou dans une autre session ; son formulaire de modification a donc été fermé.
 tasks-notice-dismiss = Fermer
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = La tâche n’a pas pu être créée. { $reason }

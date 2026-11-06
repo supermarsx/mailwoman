@@ -95,3 +95,73 @@ common-viewer-no-preview = Aucun aperçu intégré pour ce type de fichier.
 common-viewer-unknown-type = type inconnu
 common-viewer-download = Télécharger
 common-viewer-attachments = Pièces jointes
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-retrying = Nouvelle tentative…
+common-waiting-online = En attente d’une connexion…
+common-failure-offline = Vous êtes hors ligne. Reconnectez-vous, puis réessayez.
+common-failure-network = Le serveur est injoignable.
+common-failure-server = Le serveur n’a pas répondu à temps.
+common-failure-rate = Trop de requêtes en peu de temps. Patientez un instant, puis réessayez.
+common-failure-conflict = Cet élément a été modifié ailleurs en même temps. Rechargez, puis réessayez.
+common-failure-account = Le compte connecté a changé. Rechargez la page.
+common-failure-linked = Indisponible tant qu’une boîte aux lettres liée est ouverte.
+common-failure-refused = Le serveur a refusé la modification.
+common-new-version = Une nouvelle version de Mailwoman est disponible. Si vous fermez ce message, il vous sera rappelé dans une heure.
+common-new-version-reload = Recharger maintenant
+common-toast-close = Fermer la notification
+common-toast-seconds = { $seconds } s
+common-attach-refresh = Actualiser les pièces jointes
+common-attach-open-message = Ouvrir le message contenant cette pièce jointe
+common-attach-page-filter-note = Les filtres s’appliquent à cette page. Utilisez Suivant pour parcourir les messages plus anciens avec pièces jointes.
+common-attach-pages = Pages de pièces jointes
+common-attach-previous = Précédent
+common-attach-next = Suivant
+common-attach-page = Page { $page }
+common-attach-column-name = Fichier
+common-attach-column-type = Type
+common-attach-column-size = Taille
+common-attach-column-sender = Expéditeur
+common-attach-column-subject = Objet
+common-attach-column-date = Reçu
+common-pdf-preview = Aperçu PDF
+common-pdf-link-title = Ouvrir le lien de ce PDF ?
+common-pdf-link-help = La destination s’ouvre dans un nouvel onglet, en dehors de Mailwoman.
+common-pdf-link-open = Ouvrir le lien
+common-open-event = Ouvrir l’événement
+common-message-preview-too-large = L’aperçu des pièces jointes de type message est limité à 4 Mio. Vous pouvez toujours télécharger la pièce jointe d’origine.
+common-message-preview-failed = L’aperçu de cette pièce jointe de type message est impossible. Le fichier n’est peut-être pas pris en charge ou est endommagé, ou le service d’aperçu est indisponible. Vous pouvez toujours télécharger l’original.
+common-message-preview-attachments = Fichiers contenus dans ce message
+common-message-preview-download = Télécharger le fichier
+common-message-preview-size-bytes = { $count } octets
+common-attach-cat-message = Messages / pièces jointes Outlook
+common-error-retry-help = Cette section est temporairement indisponible. Réessayez pour la recharger.
+common-error-network-help = Vérifiez votre connexion, puis réessayez. Le serveur est peut-être temporairement indisponible.
+common-error-page = Cette page n’a pas pu se charger
+common-error-page-help = Une ressource de la page n’a pas pu être téléchargée. Réessayez. Si le problème persiste, rechargez l’application pour obtenir la dernière version.
+common-reload-app = Recharger l’application
+common-new-version-reloading = Une nouvelle version est disponible, rechargement…
+common-attach-account-changed = Le compte a changé pendant le chargement des pièces jointes. Rouvrez les pièces jointes pour le compte actuel.
+common-attach-search-account = Rechercher dans tout le compte
+common-attach-scanning = Recherche en cours… { $pages } pages de messages vérifiées · { $count } fichiers trouvés
+common-attach-scan-cancelled = Recherche annulée · { $count } fichiers trouvés sur { $pages } pages. Les résultats sont incomplets.
+common-attach-scan-incomplete = Recherche interrompue · { $count } fichiers trouvés. Relancez la recherche pour parcourir tout le compte.
+common-attach-scan-limited = Affichage des 1 000 premiers fichiers correspondants. Affinez vos filtres pour trouver des fichiers plus précis.
+common-attach-scan-complete = Recherche terminée · { $count } fichiers trouvés sur { $pages } pages de messages
+common-attach-browse-pages = Parcourir les pages
+common-attach-cancel-search = Annuler la recherche
+multiselect-selected = Sélectionné : { $label }
+multiselect-remove = Supprimer { $label }
+multiselect-no-match = Aucune option correspondante
+common-notification-permission-title = Autoriser les notifications ?
+common-notification-permission-help = Soyez averti des nouveaux messages sur cet appareil. Vous pouvez modifier ce réglage dans les paramètres.
+common-notification-permission-allow = Autoriser les notifications
+common-notification-permission-later = Pas maintenant
+common-notification-permission-error = Les notifications n’ont pas pu être activées. Vérifiez les autorisations et les paramètres de notification, puis réessayez.
+common-notifications-enabled = Notifications activées sur cet appareil.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+multiselect-count = { $count ->
+    [one] 1 sélectionné
+   *[other] { $count } sélectionnés
+    }

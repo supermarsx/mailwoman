@@ -61,3 +61,9 @@ notes-link-button = Lier
 notes-changed-elsewhere = Cette note a été modifiée sur un autre appareil ou dans une autre session. Le texte saisi ici est conservé et sera enregistré à votre prochaine modification.
 notes-deleted-elsewhere = La note que vous aviez ouverte a été supprimée sur un autre appareil ou dans une autre session.
 notes-create-failed = La note n’a pas pu être créée.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = La note n’a pas pu être créée. { $reason }
+notes-toast-pinned = Note « { $target } » épinglée
+notes-toast-unpinned = Note « { $target } » désépinglée
+notes-toast-pin-failed = Impossible de modifier l’épinglage de la note « { $target } »
