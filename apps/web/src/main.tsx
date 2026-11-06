@@ -26,6 +26,8 @@ installBundleRecovery();
 // Errors that reach no boundary (window.onerror, rejections, CSP) are reported to
 // the server's observability, scrubbed (docs/admin/observability.md).
 installClientErrors();
+// Test builds only (VITE_MW_E2E_HOOKS=1): window.__mwThrow, a deliberate error through a real boundary.
+if (import.meta.env['VITE_MW_E2E_HOOKS'] === '1') void import('./observability/e2eHook.tsx').then(m => m.installE2eErrorHook());
 
 const root = document.getElementById('root');
 if (root === null) {
