@@ -39,7 +39,7 @@ it('strips editor-only caret markers from captured HTML without dropping typed t
 it('focuses and bookmarks the blank reply answer without sending its view-only spacing',async()=>{
  const {api,doc}=mount('<p></p><p>Alice wrote:</p><blockquote><table cellpadding="7"><tr><td><img src="cid:logo">Original</td></tr></table></blockquote>',undefined,true);
  api.focus();const answer=doc.querySelector('p')!;
- expect(answer).toHaveAttribute('data-mw-native-answer','true');
+ expect(answer).not.toHaveAttribute('data-mw-native-answer');
  expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(answer);
  expect(api.bookmark()).toEqual({start:0,end:0,answer:true});
  answer.textContent='My response';fireEvent.input(answer);
@@ -84,4 +84,24 @@ it('does not replace an old selection after an image upload when the message has
  await waitFor(()=>expect(upload).toHaveBeenCalledOnce());
  paragraph.append(' Later edit');fireEvent.input(paragraph);complete([{cid:'logo',alt:'Image'}]);
  const captured=await api.capture();expect(captured).toContain('Keep this message Later edit');expect(captured).not.toContain('<img');expect(screen.getByRole('status')).toHaveTextContent('The selection changed');
+});
+it('opens a reply with two plain blank paragraphs, caret in the first, and Enter adds ordinary ones',async()=>{
+ const {quoteForReply}=await import('./quote.ts');
+ const quote=await quoteForReply({html:'<p>Original</p>'},'A wrote:');
+ const {api,doc}=mount(quote.html,undefined,true);
+ const paragraphs=[...doc.querySelectorAll('#mw-native-editor > p')];
+ expect(paragraphs[0]!.innerHTML).toBe('<br>');expect(paragraphs[1]!.innerHTML).toBe('<br>');expect(paragraphs[2]!.textContent).toBe('A wrote:');
+ api.focus();expect(doc.getSelection()!.getRangeAt(0).startContainer).toBe(paragraphs[0]);
+ // What a browser does on Enter: a sibling paragraph that copies the attributes.
+ const clone=paragraphs[0]!.cloneNode(true) as HTMLElement;paragraphs[0]!.after(clone);fireEvent.input(clone);
+ for(const p of doc.querySelectorAll('#mw-native-editor > p')){expect(p.hasAttribute('data-mw-native-answer')).toBe(false);expect(p.getAttribute('style')).toBeNull();expect(p.getAttribute('class')).toBeNull();}
+ const sheetText=[...doc.adoptedStyleSheets].flatMap(sheet=>[...sheet.cssRules].map(rule=>rule.cssText)).join('');
+ expect(sheetText).not.toMatch(/native-answer|6em/);
+ expect(await api.capture()).not.toMatch(/data-mw-/);
+});
+it('normalises a legacy answer paragraph carrying the old marker and spacing styles',async()=>{
+ const {api,doc}=mount('<p data-mw-native-answer="true" style="min-block-size:6em;margin:0 0 3em;color:red"><br></p><p>A wrote:</p>',undefined,true);
+ const first=doc.querySelector('#mw-native-editor > p')!;
+ expect(first.hasAttribute('data-mw-native-answer')).toBe(false);expect(first.getAttribute('style')).not.toMatch(/6em|margin/);
+ expect(await api.capture()).not.toMatch(/data-mw-native-answer|6em/);
 });

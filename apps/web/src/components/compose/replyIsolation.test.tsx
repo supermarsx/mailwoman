@@ -53,13 +53,13 @@ describe('a reply keeps its own formatting apart from the quoted original',()=>{
  it('forward and Outlook variants isolate the original the same way',async()=>{
   for(const quote of [await quoteForForward({html:HOSTILE,ownedCids:OWNED},['Forwarded']),await quoteForOutlook({html:HOSTILE,ownedCids:OWNED},[{label:'From:',value:'A'}])]){
    expect(quote.html).not.toContain('mw-email-body');expect(quote.html).toContain('.mw-quote-body p{color:red');
-   expect(quote.html.startsWith('<p></p>')).toBe(true);
+   expect(quote.html.startsWith('<p><br></p><p><br></p>')).toBe(true);
   }
  });
  it('the native editor answer block computes to the default look and the quote is not our text',async()=>{
   const quote=await quoteForReply({html:HOSTILE,ownedCids:OWNED},'A wrote:');
   const {api,doc}=mount(quote.html);
-  const answer=doc.querySelector('[data-mw-native-answer]') as HTMLElement;
+  const answer=doc.querySelector('#mw-native-editor > p') as HTMLElement;expect(doc.querySelector('[data-mw-native-answer]')).toBeNull();
   expect(answer).toBe(doc.querySelector('#mw-native-editor > p'));
   expect(answer.closest('blockquote,.mw-quote-body')).toBeNull();
   const sheets=doc.adoptedStyleSheets.length;expect(sheets).toBeGreaterThan(0);
@@ -75,8 +75,8 @@ describe('a reply keeps its own formatting apart from the quoted original',()=>{
  });
  it('never treats a paragraph of the quote as the answer once ours is deleted',async()=>{
   const quote=await quoteForReply({html:HOSTILE,ownedCids:OWNED},'A wrote:');
-  const {doc}=mount(quote.html.replace('<p></p>',''));
-  expect(doc.querySelector('[data-mw-native-answer]')?.closest('blockquote')??null).toBeNull();
+  const {doc}=mount(quote.html.replace(/^(<p><br><\/p>){2}/,''));
+  expect(doc.querySelector('[data-mw-native-answer]')).toBeNull();
  });
 });
 

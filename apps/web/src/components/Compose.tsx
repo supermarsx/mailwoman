@@ -3,7 +3,7 @@ import {swapQuote} from './compose/quoteRegion.ts';
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
 import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
 import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
-import {htmlMessageDocument} from './compose/htmlMessage.ts';
+import {htmlMessageDocument, stripEditorMarkers} from './compose/htmlMessage.ts';
 import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compose/outgoingExtras.ts';
 import {checkRecipientNames} from './compose/recipientNames.ts';
 import {EditorCounts} from './compose/EditorCounts.tsx';
@@ -199,7 +199,7 @@ export function Compose(props: {
   // `body`. `richMode` toggles the ProseMirror editor vs a plain-text textarea;
   // the toggle round-trips the text.
   const [body, setBody] = createSignal(initial?.bodyText ?? '');
-  const [bodyHtml, setBodyHtml] = createSignal(initial?.bodyHtml ?? '');
+  const [bodyHtml, setBodyHtml] = createSignal(stripEditorMarkers(initial?.bodyHtml ?? ''));
 
   /** The plain-text Body field. It is the fallback for all three ways the rich
    *  editor can be absent — plain-text mode, the chunk still loading, and the
@@ -1143,7 +1143,7 @@ export function Compose(props: {
       ...(threading().inReplyTo.length > 0 ? { inReplyTo: threading().inReplyTo } : {}),
       ...(threading().references.length > 0 ? { references: threading().references } : {}),
       subject: subject(),
-      bodyHtml: richMode() && editorApi() !== null ? bodyHtml() : plainToHtml(body()),
+      bodyHtml: richMode() && editorApi() !== null ? stripEditorMarkers(bodyHtml()) : plainToHtml(body()),
       bodyText: body(),
       savedAt: Date.now(),
       ...(requestReceipt() ? { requestReceipt: true } : {}),
@@ -1523,7 +1523,7 @@ export function Compose(props: {
         // still loading or failed to load, the user typed into the textarea and
         // `bodyHtml` does not hold their text — the body is built from `body`.
         const rich = richMode() && editorApi() !== null;
-        htmlBody = rich ? bodyHtml() : '';
+        htmlBody = rich ? stripEditorMarkers(bodyHtml()) : '';
         if (!rich) textBody = outgoingPlaintext();
         else if(checksumText())htmlBody+=`<pre>${escapeHtml(checksumText())}</pre>`;
         const sig = autoSignature();

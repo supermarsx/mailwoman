@@ -186,6 +186,8 @@ export function htmlFromDoc(doc: PMNode): string {
   const container = inert.createElement('div');
   container.appendChild(fragment);
   tightenCells(container);
+  // A blank paragraph needs a break to keep its height in the recipient's client.
+  for (const p of Array.from(container.querySelectorAll('p'))) if (p.childNodes.length === 0) p.appendChild(inert.createElement('br'));
   return container.innerHTML;
 }
 
@@ -276,6 +278,8 @@ export function hydrateInlineStyles(root: HTMLElement): void {
 export function docFromElement(root: HTMLElement, owned?: ReadonlySet<string>, embedded = false): PMNode {
   hydrateInlineStyles(root);
   boundTableHtml(root);
+  // `<p><br></p>` is how mail clients spell a blank line; in the editor it is an empty paragraph.
+  for (const p of Array.from(root.querySelectorAll('p'))) if (p.childNodes.length === 1 && p.firstChild?.nodeName === 'BR') p.firstChild.remove();
   const extra: TagParseRule[] = [];
   if (owned !== undefined && owned.size > 0) extra.push(ownedImageRule(owned));
   if (embedded) extra.push(embeddedImageRule);

@@ -30,3 +30,11 @@ describe('swapQuote',()=>{
   expect(swapQuote('<p>just my text</p>',rich,'Alice wrote:','reply')).toBeNull();
  });
 });
+
+it('finds and swaps the quote behind two blank lead paragraphs, keeping typed text',()=>{
+ const lead='<p><br></p><p><br></p>';
+ const current=`<p>typed</p><p><br></p>${plain.replace('<p></p>','')}`;
+ const next=`${lead}<p>Alice wrote:</p><blockquote><p>original text</p><img src="cid:r1@mailwoman"></blockquote>`;
+ const out=swapQuote(current,next,'Alice wrote:','reply')!;
+ expect(out.startsWith('<p>typed</p><p><br></p>')).toBe(true);expect(out.match(/Alice wrote:/g)).toHaveLength(1);expect(out.match(/<blockquote/g)).toHaveLength(1);expect(out).toContain('cid:r1@mailwoman');
+});

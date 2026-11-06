@@ -6,7 +6,8 @@ beforeAll(() => {
   initSync({ module: readFileSync(resolve(process.cwd(), 'src/wasm/mw-sanitize/mw_sanitize_bg.wasm')) });
 });
 import { describe, it, expect } from 'vitest';
-import { quoteForForward, quoteForReply, quoteForOutlook } from './quote.ts';
+import { quoteForForward, quoteForReply, quoteForOutlook, REPLY_SPACER_PARAGRAPHS } from './quote.ts';
+import { stripEditorMarkers } from './htmlMessage.ts';
 import { inertBody } from './richtext.ts';
 
 /** A message body holding everything a quote must not carry out. The quote is
@@ -37,7 +38,7 @@ describe('the quote of a hostile original', () => {
   it('keeps the original structure: bold, one http link, the table and the nested quote', async () => {
     const { html } = await quoteForReply({ html: HOSTILE }, 'On 1 Jan 2026, Mallory wrote:');
     const body = inertBody(html);
-    expect(html.startsWith('<p></p><p>On 1 Jan 2026, Mallory wrote:</p>' + BQ)).toBe(true);
+    expect(html.startsWith('<p><br></p><p><br></p><p>On 1 Jan 2026, Mallory wrote:</p>' + BQ)).toBe(true);
     expect(body.querySelectorAll('table')).toHaveLength(1);
     expect(body.querySelector('td')?.textContent).toBe('cell text');
     expect(body.querySelectorAll('b')).toHaveLength(1);
@@ -50,7 +51,7 @@ describe('the quote of a hostile original', () => {
     const { html } = await quoteForReply({ html: HOSTILE }, 'A wrote:');
     const body = inertBody(html);
     const tags = new Set(Array.from(body.querySelectorAll('*')).map((el) => el.tagName.toLowerCase()));
-    expect([...tags].sort()).toEqual(['a', 'b', 'blockquote', 'div', 'p', 'table', 'tbody', 'td', 'tr']);
+    expect([...tags].sort()).toEqual(['a', 'b', 'blockquote', 'br', 'div', 'p', 'table', 'tbody', 'td', 'tr']);
     const names = new Set(Array.from(body.querySelectorAll('*')).flatMap((el) => Array.from(el.attributes).map((a) => a.name)));
     expect([...names].sort()).toEqual(['class', 'href', 'id', 'rel', 'style']);
     expect(Array.from(body.querySelectorAll('a')).map((a) => a.getAttribute('href'))).toEqual(['https://ok.example/page']);
@@ -72,7 +73,7 @@ describe('the quote of a hostile original', () => {
       'From: Mallory <img src=x onerror=steal()> <m@evil.example>',
       'Subject: <script>alert(1)</script>',
     ]);
-    expect(quote.html.startsWith('<p></p><p>---------- Forwarded message ----------<br>' +
+    expect(quote.html.startsWith('<p><br></p><p><br></p><p>---------- Forwarded message ----------<br>' +
         'From: Mallory &lt;img src=x onerror=steal()&gt; &lt;m@evil.example&gt;<br>' +
         'Subject: &lt;script&gt;alert(1)&lt;/script&gt;</p><div class="mw-quote-body">')).toBe(true);
     expect(inertBody(quote.html).querySelectorAll('table')).toHaveLength(1);
@@ -83,13 +84,13 @@ describe('the quote of a hostile original', () => {
 describe('quote sources', () => {
   it('escapes the attribution line', async () => {
     const { html } = await quoteForReply({ html: '<p>x</p>' }, 'On <b>today</b>, "A" & B wrote:');
-    expect(html).toBe('<p></p><p>On &lt;b&gt;today&lt;/b&gt;, "A" &amp; B wrote:</p>'+BQ+'<p>x</p></blockquote>');
+    expect(html).toBe('<p><br></p><p><br></p><p>On &lt;b&gt;today&lt;/b&gt;, "A" &amp; B wrote:</p>'+BQ+'<p>x</p></blockquote>');
   });
 
   it('quotes plain text as text: markup in it is not parsed', async () => {
     const quote = await quoteForReply({ text: 'line one\n<img src=http://t.example/p.gif>\n\nline four' }, 'A wrote:');
     expect(quote.html).toBe(
-      '<p></p><p>A wrote:</p>'+BQ+'<p>line one<br>&lt;img src=http://t.example/p.gif&gt;<br><br>line four</p></blockquote>',
+      '<p><br></p><p><br></p><p>A wrote:</p>'+BQ+'<p>line one<br>&lt;img src=http://t.example/p.gif&gt;<br><br>line four</p></blockquote>',
     );
     expect(quote.text).toBe('\n\nA wrote:\n> line one\n> <img src=http://t.example/p.gif>\n>\n> line four');
   });
@@ -122,5 +123,19 @@ describe('inert parsing', () => {
     expect(body.ownerDocument).not.toBe(document);
     expect(body.ownerDocument.defaultView).toBeNull();
     expect(body.querySelectorAll('img').length).toBe(1);
+  });
+});
+
+describe('reply spacing', () => {
+  it('opens a reply, forward and Outlook-style quote with exactly two plain empty paragraphs', async () => {
+    const lead = '<p><br></p><p><br></p>';
+    expect(REPLY_SPACER_PARAGRAPHS).toBe(2);
+    expect((await quoteForReply({ html: '<p>x</p>' }, 'A wrote:')).html.startsWith(lead + '<p>A wrote:</p>')).toBe(true);
+    expect((await quoteForForward({ html: '<p>x</p>' }, ['---- Fwd ----'])).html.startsWith(lead + '<p>---- Fwd')).toBe(true);
+    expect((await quoteForOutlook({ html: '<p>x</p>' }, [{ label: 'From:', value: 'a' }])).html.startsWith(lead + '<hr>')).toBe(true);
+  });
+  it('strips editor markers and legacy spacing at send and restore', () => {
+    expect(stripEditorMarkers('<p data-mw-native-answer="true" style="min-block-size:6em;padding:2em;color:red"><br></p><p data-mw-vc="1">x</p>')).toBe('<p style="color:red"><br></p><p>x</p>');
+    expect(stripEditorMarkers('<p data-mw-native-answer="true" style="margin:3em"></p>')).toBe('<p></p>');
   });
 });

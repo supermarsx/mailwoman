@@ -9,6 +9,7 @@ import {nativeHtmlBody,normalizeHtmlSource} from './htmlSource.ts';
 import {HTML_MESSAGE_FONT} from './htmlMessage.ts';
 import * as css from './nativeHtmlEditor.css.ts';
 import {NativeHtmlRibbon} from './NativeHtmlRibbon.tsx';
+import {stripEditorMarkers} from './htmlMessage.ts';
 import {createNativeHtmlCommands} from './nativeHtmlCommands.ts';
 import type {EditorSlots} from './EditorRibbon.tsx';
 import type {RichTextApi} from './RichTextEditor.tsx';
@@ -39,7 +40,6 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  let finishReady!:()=>void;
  const admitted=new Promise<void>(resolve=>{finishReady=resolve;});
  function answerBlock():HTMLParagraphElement|null {return props.reply?editor?.querySelector(':scope > p, :scope > .mw-email-body > p')??null:null;}
- function markAnswerBlock():void {if(!editor)return;for(const element of editor.querySelectorAll('[data-mw-native-answer]'))element.removeAttribute('data-mw-native-answer');answerBlock()?.setAttribute('data-mw-native-answer','true');}
  function focusEditor():void {if(!editor||!ready()){focusPending=true;return;}focusPending=false;if(props.reply&&!commands.range()){const range=editor.ownerDocument.createRange();range.selectNodeContents(answerBlock()??editor);range.collapse(true);commands.setRange(range);}else commands.restore();editor.focus({preventScroll:true});}
  function bookmark():NativeHtmlBookmark|null {const range=commands.range();if(!range||!editor)return null;const before=range.cloneRange();before.selectNodeContents(editor);before.setEnd(range.startContainer,range.startOffset);const answer=answerBlock();return {start:before.toString().length,end:before.toString().length+range.toString().length,...(answer&&answer.contains(range.commonAncestorContainer)&&!(answer.textContent??'').replace(/\u200b/g,'').trim()?{answer:true}:{})};}
  function restoreBookmark(value:NativeHtmlBookmark):void {if(!editor)return;const answer=value.answer?answerBlock():null;if(answer){const range=editor.ownerDocument.createRange();range.selectNodeContents(answer);range.collapse(true);commands.setRange(range);return;}const walker=editor.ownerDocument.createTreeWalker(editor,4),nodes:Text[]=[];let node:Node|null;while((node=walker.nextNode()))nodes.push(node as Text);const locate=(position:number,nextBoundary:boolean):[Node,number]=>{for(const node of nodes){if(position<node.length||(position===node.length&&!nextBoundary))return [node,position];position-=node.length;}return [editor!,editor!.childNodes.length];};const range=editor.ownerDocument.createRange();range.setStart(...locate(value.start,true));range.setEnd(...locate(value.end,value.start===value.end));commands.setRange(range);}
@@ -54,7 +54,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   return styles.map(style=>`<style>${style}</style>`).join('')+clone.innerHTML;
  }
  function record(value:string):void {if(history[historyIndex()]===value)return;history=history.slice(0,historyIndex()+1);history.push(value);if(history.length>101)history.shift();setHistoryIndex(history.length-1);setHistoryLength(history.length);}
- function emit():void {if(!disposed){editRevision++;changed=true;markAnswerBlock();scheduleViewColors();const value=serialize();record(value);props.onInput(value);setVersion(value=>value+1);}}
+ function emit():void {if(!disposed){editRevision++;changed=true;scheduleViewColors();const value=serialize();record(value);props.onInput(value);setVersion(value=>value+1);}}
  function moveHistory(direction:number):void {const next=historyIndex()+direction;if(next<0||next>=history.length)return;const selected=bookmark();setHistoryIndex(next);loadDocument(history[next]);if(selected)restoreBookmark(selected);changed=true;props.onInput(serialize());setVersion(value=>value+1);}
  function previewImages(revision:number):void {
   if(!props.preview||!editor)return;
@@ -95,7 +95,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  function scheduleViewColors():void {if(viewTimer===undefined)viewTimer=setTimeout(applyViewColors,120);}
  function installStyles(doc:Document):void {
   const view=doc.defaultView as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}#mw-native-editor [data-mw-native-answer]{min-block-size:6em}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet?[sheet,viewSheet]:[sheet];}
+  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet?[sheet,viewSheet]:[sheet];}
   scheduleViewColors();
  }
  function loadDocument(value=props.html):void {
@@ -103,7 +103,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   const revision=++documentRevision;
   changed=false;
   commands.resetSelection();
-  const body=nativeHtmlBody(value);
+  const body=nativeHtmlBody(stripEditorMarkers(value));
   styles=Array.from(body.querySelectorAll('style')).map(style=>style.textContent??'');
   body.querySelectorAll('style').forEach(style=>style.remove());
   const inlineStyles=Array.from(body.querySelectorAll<HTMLElement>('[style]')).map(element=>[element,element.getAttribute('style')??''] as const);
@@ -120,7 +120,6 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   const source=Array.from(body.querySelectorAll<HTMLElement>('*'));
   const stored=new Map(inlineStyles);
   source.forEach((element,index)=>{const target=imported[index];if(!target)return;const style=stored.get(element);if(style!==undefined)target.style.cssText=style.replace(/url\([^)]*\bcid:[^)]*\)/gi,'none');const original=remembered.get(element);if(original)originals.set(target,original);});
-  markAnswerBlock();
   // CSSOM installation works under the inherited application CSP without
   // permitting inline style/script markup in the child document.
   installStyles(doc);
@@ -203,7 +202,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  createEffect(on(()=>props.revision,()=>{if(ready()){const prior=bookmark();loadDocument();record(props.html);if(prior)restoreBookmark(prior);}},{defer:true}));
  createEffect(()=>{background();app?.theme();app?.appearance();markers();if(ready())queueMicrotask(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});});
  onMount(()=>{const root=frame.ownerDocument.documentElement,observer=new MutationObserver(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});observer.observe(root,{attributes:true});onCleanup(()=>observer.disconnect());});
- onMount(()=>{const editorApi:NativeHtmlVisualApi={async capture(){await admitted;let latest:Promise<void>;do{latest=pending;await latest;}while(latest!==pending);if(disposed)throw new DOMException('Editor closed','AbortError');return changed?serialize():props.html;},focus:focusEditor,refreshImages:()=>previewImages(documentRevision),undo:()=>moveHistory(-1),redo:()=>moveHistory(1),historyDepth:()=>({undo:historyIndex(),redo:historyLength()-historyIndex()-1}),bookmark};setApi({...editorApi,appendHtml:value=>{commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?value:''}} as unknown as ClipboardEvent);},setHtml:value=>{pending=normalizeHtmlSource(value,props.owned(),props.embedded===true).then(safe=>{if(disposed)return;loadDocument(safe.html);emit();});void pending.catch(()=>setFailed(true));}});props.onReady(editorApi);});
+ onMount(()=>{const editorApi:NativeHtmlVisualApi={async capture(){await admitted;let latest:Promise<void>;do{latest=pending;await latest;}while(latest!==pending);if(disposed)throw new DOMException('Editor closed','AbortError');return changed?serialize():stripEditorMarkers(props.html);},focus:focusEditor,refreshImages:()=>previewImages(documentRevision),undo:()=>moveHistory(-1),redo:()=>moveHistory(1),historyDepth:()=>({undo:historyIndex(),redo:historyLength()-historyIndex()-1}),bookmark};setApi({...editorApi,appendHtml:value=>{commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?value:''}} as unknown as ClipboardEvent);},setHtml:value=>{pending=normalizeHtmlSource(value,props.owned(),props.embedded===true).then(safe=>{if(disposed)return;loadDocument(safe.html);emit();});void pending.catch(()=>setFailed(true));}});props.onReady(editorApi);});
  onCleanup(()=>{disposed=true;if(viewTimer!==undefined)clearTimeout(viewTimer);finishReady();undoListeners();});
  return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
 }

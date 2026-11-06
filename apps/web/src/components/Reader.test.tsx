@@ -210,7 +210,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       to: 'Alice Example <alice@example.org>',
       cc: '',
       subject: 'Re: Plans',
-      bodyHtml: expect.stringMatching(new RegExp(`^<p></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p><blockquote style="[^"]*max-width:100%"><div class="mw-quote-body"><p>See you <b>there</b>.</p><p>Second paragraph</p></div></blockquote>$`)),
+      bodyHtml: expect.stringMatching(new RegExp(`^<p><br></p><p><br></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p><blockquote style="[^"]*max-width:100%"><div class="mw-quote-body"><p>See you <b>there</b>.</p><p>Second paragraph</p></div></blockquote>$`)),
       bodyText:
         `\n\nOn ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:\n` +
         '> See you there.\n> Second paragraph',
@@ -332,7 +332,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
       to: '',
       cc: '',
       subject: 'Fwd: Plans',
-      bodyHtml: `<p></p><p>${header}</p><div class="mw-quote-body"><p>See you <b>there</b>.</p><p>Second paragraph</p></div>`,
+      bodyHtml: `<p><br></p><p><br></p><p>${header}</p><div class="mw-quote-body"><p>See you <b>there</b>.</p><p>Second paragraph</p></div>`,
       bodyText:
         '\n\n---------- Forwarded message ----------\n' +
         'From: Alice Example <alice@example.org>\n' +
@@ -384,7 +384,7 @@ describe('Reader: Reply, Reply all, Forward', () => {
     const initial = await click('Reply', onCompose);
     expect(initial.quotesDecrypted).toBe(true);
     expect(initial.bodyHtml).toBe(
-      `<p></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p>` +
+      `<p><br></p><p><br></p><p>On ${shownDate('2026-03-04T10:30:00Z')}, Alice Example wrote:</p>` +
         '<blockquote style="margin:0 0 0 .8em;padding:0 0 0 1em;border-left:2px solid #c8c8c8;max-width:100%"><p>STUB decrypted body</p></blockquote>',
     );
     expect(initial.bodyHtml).not.toContain('BEGIN PGP MESSAGE');

@@ -103,8 +103,14 @@ function quoteLines(text: string): string {
     .join('\n');
 }
 
+/** Empty paragraphs the answer is written in, above the quote. Real
+ * paragraphs, not CSS spacing, so Enter makes ordinary ones; the caret opens
+ * in the first. */
+export const REPLY_SPACER_PARAGRAPHS = 2;
+export const REPLY_SPACER_HTML = '<p><br></p>'.repeat(REPLY_SPACER_PARAGRAPHS);
+
 /**
- * The body a reply opens with: an empty first paragraph for the answer, the
+ * The body a reply opens with: empty paragraphs for the answer, the
  * attribution line, and the original inside a blockquote. Returns an empty
  * quote when there is nothing to quote.
  */
@@ -112,7 +118,7 @@ export async function quoteForReply(source: QuoteSource, attribution: string): P
   const original = await reduce(source);
   if (original.html === '') return original;
   return {
-    html: `<p></p><p>${escapeHtml(attribution)}</p><blockquote style="${QUOTE_BLOCKQUOTE_STYLE}">${original.html}</blockquote>`,
+    html: `${REPLY_SPACER_HTML}<p>${escapeHtml(attribution)}</p><blockquote style="${QUOTE_BLOCKQUOTE_STYLE}">${original.html}</blockquote>`,
     text: `\n\n${attribution}\n${quoteLines(original.text)}`,
   };
 }
@@ -126,7 +132,7 @@ export async function quoteForForward(source: QuoteSource, headerLines: string[]
   const original = await reduce(source);
   const header = headerLines.map(escapeHtml).join('<br>');
   return {
-    html: `<p></p><p>${header}</p>${original.html}`,
+    html: `${REPLY_SPACER_HTML}<p>${header}</p>${original.html}`,
     text: `\n\n${headerLines.join('\n')}\n\n${original.text}`,
   };
 }
@@ -136,7 +142,7 @@ export async function quoteForOutlook(source: QuoteSource, fields: { label: stri
   const original = await reduce(source);
   const header = fields.map(field => `<strong>${escapeHtml(field.label)}</strong> ${escapeHtml(field.value)}`).join('<br>');
   return {
-    html: `<p></p><hr><p>${header}</p>${original.html}`,
+    html: `${REPLY_SPACER_HTML}<hr><p>${header}</p>${original.html}`,
     text: `\n\n________________________________\n${fields.map(field => `${field.label} ${field.value}`).join('\n')}\n\n${original.text}`,
   };
 }

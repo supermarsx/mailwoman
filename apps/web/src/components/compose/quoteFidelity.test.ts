@@ -95,7 +95,7 @@ describe('the quote keeps the original layout', () => {
 
   it('the original is wrapped in its own scoped container after the attribution', async () => {
     const { html } = await quoteForReply({ html: '<style>p{color:red}</style><p>x</p>' }, 'Bob wrote:');
-    expect(html.startsWith('<p></p><p>Bob wrote:</p><blockquote')).toBe(true);
+    expect(html.startsWith('<p><br></p><p><br></p><p>Bob wrote:</p><blockquote')).toBe(true);
     expect(html).toContain('.mw-quote-body p{color:red}');
   });
 });

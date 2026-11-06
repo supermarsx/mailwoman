@@ -226,7 +226,7 @@ describe('Compose opened as a reply or a forward', () => {
           subject: 'Re: Plans',
           bodyValues: {
             body: {
-              value: htmlMessageDocument('<p></p><p>On 1 Jan 2026, Alice wrote:</p><blockquote><p>original text</p></blockquote>'),
+              value: htmlMessageDocument('<p><br></p><p>On 1 Jan 2026, Alice wrote:</p><blockquote><p>original text</p></blockquote>'),
             },
           },
         },
@@ -309,7 +309,7 @@ describe('Compose opened as a reply or a forward', () => {
           to: [{ name: null, email: 'carol@example.org' }],
           subject: 'Fwd: Plans',
           bodyValues: {
-            body: { value: htmlMessageDocument('<p></p><p>---------- Forwarded message ----------</p><p>original text</p>') },
+            body: { value: htmlMessageDocument('<p><br></p><p>---------- Forwarded message ----------</p><p>original text</p>') },
           },
           attachments: [
             { blobId: 'm1.2', name: 'plan.pdf', type: 'application/pdf', size: 1234, disposition: 'attachment' },
