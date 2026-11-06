@@ -1,4 +1,4 @@
-import {createMemo,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
+import {createMemo,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
@@ -14,7 +14,8 @@ export function BulkDeleteFoldersDialog(props:{ids:readonly string[];context:()=
  const auth={current:()=>!!owner&&preferenceAccountIsCurrent(owner)&&app.accountId()===owner.id&&!controller.signal.aborted,signal:controller.signal};
  onMount(()=>{void loadCatalog('folder-dnd');void loadCatalog('mail');});
  onCleanup(()=>controller.abort());onCleanup(observePreferenceAccount(()=>{if(!auth.current())props.onClose();}));
- const plan=createMemo(()=>deletePlan(app.mailboxes().filter(box=>props.ids.includes(box.id)),app.mailboxes(),props.context()));
+ const [withSubfolders,setWithSubfolders]=createSignal(true);
+ const plan=createMemo(()=>deletePlan(app.mailboxes().filter(box=>props.ids.includes(box.id)),app.mailboxes(),props.context(),withSubfolders()));
  async function confirm():Promise<void>{
   const current=plan();
   if(!auth.current()||!owner||!current.roots.length)throw new Error(t('folder-ops-error-failed'));
@@ -29,6 +30,8 @@ export function BulkDeleteFoldersDialog(props:{ids:readonly string[];context:()=
   props.onDone(result.deleted);props.onClose();
  }
  return <ConfirmDialog open title={t('settings-folders-bulk-delete-title',{count:plan().roots.length})} body={t('settings-folders-bulk-delete-body',{folders:plan().folders.length,messages:plan().messages})} confirmLabel={t('settings-folders-bulk-delete-confirm',{count:plan().roots.length})} danger onConfirm={confirm} onCancel={props.onClose}>
+  <label class={css.check}><input class={css.checkbox} type="checkbox" data-testid="bulk-delete-subfolders" checked={withSubfolders()} onChange={event=>setWithSubfolders(event.currentTarget.checked)}/>{t('settings-folders-bulk-delete-subfolders')}</label>
+  <Show when={!withSubfolders()}><p class={css.meta}>{t('settings-folders-bulk-delete-subfolders-off')}</p></Show>
   <Show when={plan().skipped.length>0}><p class={css.meta} role="note" data-testid="bulk-delete-skipped">{t('settings-folders-bulk-delete-skipped',{count:plan().skipped.length,names:plan().skipped.map(box=>isolate(box.name)).join(', ')})}</p></Show>
   <ul class={css.meta} aria-label={t('settings-folders-bulk-delete-list')}><For each={plan().roots}>{box=><li>{isolate(box.name)}</li>}</For></ul>
  </ConfirmDialog>;

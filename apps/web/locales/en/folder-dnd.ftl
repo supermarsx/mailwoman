@@ -144,3 +144,6 @@ settings-folders-bulk-empty-done = Emptied { $count } folders, { $messages } mes
 settings-folders-bulk-empty-partial = Emptied { $done } folders; { $failed } failed. See the list.
 
 settings-folders-select-user = Select all user folders
+
+settings-folders-bulk-delete-subfolders = Also delete the subfolders of each folder
+settings-folders-bulk-delete-subfolders-off = Only the selected folders are deleted. A folder that still has a subfolder outside the selection is kept.

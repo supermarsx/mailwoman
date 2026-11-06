@@ -142,6 +142,11 @@ An integer from 1 to 16, default 8. A drag that would put a folder, or the deepe
 
 A list, default empty, up to 50 entries. Each entry is `role:<role>` (`role:inbox`, `role:sent`, ...) or a folder path such as `Shared/Support`. Matching folders appear in a Pinned group at the top of every user sidebar and cannot be unpinned or moved by users. An entry with no matching folder is skipped. Global/domain policy.
 
+<a id="folders.pinned.hideFromTree"></a>
+### Hide pinned folders from the tree (`folders.pinned.hideFromTree`)
+
+`false` (default). Pinned folders (the administrator's and the user's own) are listed in a Pinned group above the folder tree and also keep their place in the tree. `true` hides a pinned folder from the tree when it has no subfolders, so it shows in the Pinned group only; a pinned folder that has subfolders stays in the tree so its children keep a parent. Global/domain policy.
+
 <a id="folders.order.default"></a>
 ### Default folder order (`folders.order.default`)
 
@@ -746,6 +751,11 @@ Send a confirmation message with a code to the requester's inbox; the request do
 ### Identity verification step (`dsr.identityVerification.required`)
 
 An administrator must record that the requester's identity was verified before the request is approved.
+
+<a id="dsr.admin.stepUp"></a>
+### Confirm again before approving (`dsr.admin.stepUp`)
+
+`true` (default). An administrator who approves a data request, runs an erasure or approves in bulk must first confirm it is them again with the step-up proof (password and second factor, or a passkey); the proof lasts five minutes. `false` removes the extra check; the approval and erasure are still recorded in the request's trail. Global/domain policy.
 
 <a id="dsr.erasure.graceDays"></a>
 ### Erasure grace period (`dsr.erasure.graceDays`)
@@ -1891,6 +1901,10 @@ Global/domain/user composer safeguard: `off`, `warn` (default), `confirm`, `warn
 ### `mail.trustedRecipientDomains`
 Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
 
+| <a id="attachments.bar.clickToToggle"></a>`attachments.bar.clickToToggle` | true, false (clicking anywhere on the reader's attachments bar header expands or collapses it; when false only the arrow button does) | true |
+| <a id="attachments.bar.showDownloadButtons"></a>`attachments.bar.showDownloadButtons` | always, hover, never (when each attachment in the bar shows its download button; touch screens always show it in hover mode) | hover |
+| <a id="attachments.bar.downloadAll"></a>`attachments.bar.downloadAll` | true, false (the bar's Download all button, which saves the allowed attachments as one ZIP file, or a single attachment directly) | true |
+| <a id="attachments.bar.zipInlineImages"></a>`attachments.bar.zipInlineImages` | true, false (include images shown inside the message text in the Download all ZIP) | false |
 <a id="mail.compose.checkInvalidRecipients"></a>
 <a id="mail.compose.checkMissingAttachment"></a>
 <a id="mail.compose.checkEmptySubject"></a>
@@ -1901,10 +1915,6 @@ Global/domain/user pre-send checks in the composer. Each takes one of four value
 - `allow`: no check and no warning.
 - `warn`: Send shows one combined dialog listing every problem, with **Send anyway** and **Review**. The message is never blocked.
 - `warn-remember`: like `warn`, with a "Don't ask again for these" option. Choosing it together with Send anyway stores `allow` for that check in the user's own settings. The option is not offered when an administrator has locked the value.
-| <a id="attachments.bar.clickToToggle"></a>`attachments.bar.clickToToggle` | true, false (clicking anywhere on the reader's attachments bar header expands or collapses it; when false only the arrow button does) | true |
-| <a id="attachments.bar.showDownloadButtons"></a>`attachments.bar.showDownloadButtons` | always, hover, never (when each attachment in the bar shows its download button; touch screens always show it in hover mode) | hover |
-| <a id="attachments.bar.downloadAll"></a>`attachments.bar.downloadAll` | true, false (the bar's Download all button, which saves the allowed attachments as one ZIP file, or a single attachment directly) | true |
-| <a id="attachments.bar.zipInlineImages"></a>`attachments.bar.zipInlineImages` | true, false (include images shown inside the message text in the Download all ZIP) | false |
 - `deny`: Send is refused with the reason shown in the composer. This is the only value that blocks a message.
 
 The checks are: a recipient address in To, Cc or Bcc that is not a valid mailbox; text that mentions an attachment ("attached", "enclosed", "anexo", "adjunto", "pièce jointe", "angehängt", "allegato", "bijlage" and similar) while nothing is attached (quoted lines, the quoted original and the signature are ignored); and an empty subject. The external-recipient check is `mail.externalRecipientWarning`, which also accepts `warn-remember` and `deny`; its `off` value means no check, and `confirm` keeps its separate "I have checked these recipients" box. Administrators can lock any of these to prevent user overrides. While a draft is open, the composer also shows invalid addresses and a missing subject in a compact strip above the fields; recipients outside the trusted domains appear in a smaller, dismissible line.

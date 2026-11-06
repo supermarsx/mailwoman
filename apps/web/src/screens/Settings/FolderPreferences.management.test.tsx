@@ -275,3 +275,18 @@ it('bulk empty counts every folder first, says what goes to Trash, empties them 
  expect(failed).toHaveTextContent('Beta');
  expect(left['a']).toEqual([]);
 },20000);
+
+it('bulk delete can leave subfolders alone: a folder that still has an unselected subfolder is kept',async()=>{
+ mount([deletable('a','Alpha'),deletable('a1','Alpha child',{parentId:'a'}),deletable('b','Beta')],{},true);
+ service.jmap.mockImplementation(async(request:JmapRequest)=>{
+  const call=request.methodCalls[0]!,args=call[1] as {destroy?:string[]};
+  return {methodResponses:[['Mailbox/set',{accountId:'acct1',destroyed:args.destroy??[]},call[2]]]};
+ });
+ fireEvent.click(selected('Alpha'));fireEvent.click(selected('Beta'));
+ fireEvent.click(screen.getByTestId('bulk-delete'));
+ const dialog=await screen.findByRole('alertdialog');
+ fireEvent.click(within(dialog).getByTestId('bulk-delete-subfolders'));
+ expect(within(dialog).getByTestId('bulk-delete-skipped')).toHaveTextContent('Alpha');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Delete 1 folder'}));
+ await waitFor(()=>expect(service.jmap.mock.calls.map(([r])=>(r as JmapRequest).methodCalls[0]![1])).toEqual([expect.objectContaining({destroy:['b']})]));
+});

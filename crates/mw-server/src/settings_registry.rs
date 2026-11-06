@@ -2647,6 +2647,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "folders pinned at the top of every users sidebar (role:<role> or a folder path); users cannot unpin or move them"
     ),
     def!(
+        "folders.pinned.hideFromTree",
+        Kind::Bool,
+        "false",
+        GD,
+        "folders",
+        "hide a pinned folder that has no subfolders from the folder tree, showing it only in the Pinned group"
+    ),
+    def!(
         "folders.order.default",
         Kind::StringList {
             max_len: 100,
@@ -2818,14 +2826,6 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.messageListPreview",
-        Kind::Bool,
-        "true",
-        GDU,
-        "mail",
-        "show body snippets in message list"
-    ),
-    def!(
-        "mail.afterDelete",
     def!(
         "attachments.bar.clickToToggle",
         Kind::Bool,
@@ -2858,6 +2858,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "reader",
         "include inline (cid) images in the attachments bar's Download all ZIP"
     ),
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "show body snippets in message list"
+    ),
+    def!(
+        "mail.afterDelete",
         Kind::Enum(&["next", "previous", "close"]),
         "\"next\"",
         GDU,
@@ -5481,6 +5489,14 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "confirmation message to the requester's inbox"
+    ),
+    def!(
+        "dsr.admin.stepUp",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "administrators confirm it is them again before approving a data request or running an erasure"
     ),
     def!(
         "dsr.identityVerification.required",

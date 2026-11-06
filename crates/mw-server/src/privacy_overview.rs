@@ -4,8 +4,8 @@
 //!
 //! The category list is the data map of this server for one person. Counts come
 //! from the store (`Store::privacy_footprint`); retention comes from the
-//! `retention.*` settings. Per-user retention rules (agent E) plug in through
-//! [`user_rule_days`], which returns `None` until that work provides a source.
+//! `retention.*` settings and, through `user_retention::effective_for_account`
+//! (the document `GET /api/retention/effective` serves), the person's own rules.
 use crate::{AppState, consent_ledger, restriction};
 use axum::{
     Json, Router,
@@ -51,13 +51,32 @@ const CATEGORIES: &[Category] = &[
     Category { id: "requests", keys: &["requests"], retention_key: Some("dsr.retention.completedDays"), processors: &[], purpose: None },
 ];
 
-/// Days a per-user retention rule keeps a category for this person.
-///
-/// TODO(user-retention-rules, agent E): read the person's own rule here once
-/// `mw_store::user_retention` exposes a lookup. Until then the administrator's
-/// `retention.*` setting is the only source.
-fn user_rule_days(_account_id: &str, _category: &str) -> Option<i64> {
-    None
+/// The retention that applies to a category, from the same document
+/// `GET /api/retention/effective` returns (`user_retention::effective_for_account`):
+/// the person's own rules and the administrator's mandatory folder retention for
+/// mail, and the class-clamped system retention for the stores that hold a
+/// person's data. `None` keeps the administrator-setting fallback in `build`.
+fn effective_days(effective: &Value, category: &str) -> Option<(&'static str, i64)> {
+    if category == "mail" {
+        return effective["mail"]
+            .as_array()?
+            .iter()
+            .filter_map(|m| {
+                let days = m["days"].as_i64().filter(|d| *d > 0)?;
+                Some((if m["source"] == "you" { "userRule" } else { "setting" }, days))
+            })
+            .min_by_key(|(_, d)| *d);
+    }
+    let store = match category {
+        "devices" => "sessions",
+        "signInHistory" => "authHistory",
+        "audit" => "passwordChangeAudit",
+        "tracking" => "openTracking",
+        "requests" => "dsrRequests",
+        _ => return None,
+    };
+    let entry = effective["system"].as_array()?.iter().find(|e| e["id"] == store)?;
+    entry["days"].as_i64().filter(|d| *d > 0).map(|d| ("setting", d))
 }
 
 async fn overview(State(state): State<AppState>, headers: HeaderMap) -> Response {
@@ -80,6 +99,7 @@ async fn build(state: &AppState, session: &mw_store::Session, headers: &HeaderMa
     })
     .await
     .unwrap_or_default();
+    let effective = crate::user_retention::effective_for_account(state, &account, &subject.address).await;
     let consents = consent_ledger::own_json(state, session, "en").await?;
     let granted = |purpose: &str| {
         consents["purposes"]
@@ -93,7 +113,7 @@ async fn build(state: &AppState, session: &mw_store::Session, headers: &HeaderMa
             let (n, b) = footprint.items.get(*k).copied().unwrap_or((0, 0));
             (acc.0 + n, acc.1 + b)
         });
-        let days = user_rule_days(&account, c.id).map(|d| ("userRule", d)).or_else(|| {
+        let days = effective_days(&effective, c.id).or_else(|| {
             c.retention_key.and_then(|k| {
                 retention
                     .iter()
@@ -128,4 +148,29 @@ async fn build(state: &AppState, session: &mw_store::Session, headers: &HeaderMa
         "links": {"policy": "/privacy", "processing": "/api/privacy/processing"},
         "shortcuts": {"download": "access", "delete": "erasure"},
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mail_retention_is_the_shortest_positive_period_and_a_rule_wins_the_label() {
+        let effective = json!({
+            "mail": [
+                {"category": "folder:trash", "days": 30, "action": "delete", "source": "administrator"},
+                {"category": "rule", "days": 14, "action": "trash", "source": "you"},
+                {"category": "rule", "days": null, "action": "keep", "source": "you"},
+            ],
+            "system": [
+                {"id": "sessions", "days": 60, "keptForever": false},
+                {"id": "openTracking", "days": 0, "keptForever": true},
+            ],
+        });
+        assert_eq!(effective_days(&effective, "mail"), Some(("userRule", 14)));
+        assert_eq!(effective_days(&effective, "devices"), Some(("setting", 60)));
+        assert_eq!(effective_days(&effective, "tracking"), None, "kept forever shows no period");
+        assert_eq!(effective_days(&effective, "notes"), None);
+        assert_eq!(effective_days(&json!({"mail": [{"days": 30, "source": "administrator"}]}), "mail"), Some(("setting", 30)));
+    }
 }
