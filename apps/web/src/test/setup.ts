@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest';
 import { afterEach } from 'vitest';
+import { configure } from '@solidjs/testing-library';
 import { setupI18nForTests } from './i18n.ts';
 import { resetToasts } from '../components/toast/toast.ts';
 import { forgetSession } from '../state/sessionRestore.ts';
@@ -27,3 +28,7 @@ afterEach(() => {
 // keeps backoff state at module level: a request one test left pending, or a
 // Retry-After window it opened, must not reach the next test.
 afterEach(() => resetRateState());
+
+// A parallel run of ~760 files slows jsdom rendering well past the 1 s default of
+// findBy*/waitFor; a test that is right fails only when the machine is busy.
+configure({ asyncUtilTimeout: 5000 });
