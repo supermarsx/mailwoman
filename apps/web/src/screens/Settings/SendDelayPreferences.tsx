@@ -13,6 +13,8 @@ import {
   recallCapSeconds,
   recallChoices,
 } from '../../state/sendDelay.ts';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 const CUSTOM = 'custom';
@@ -36,15 +38,25 @@ export function SendDelayPreferences(): JSX.Element {
   const selected = (): string => (custom() || !isPreset() ? CUSTOM : String(current()));
   const disabled = (): boolean => off() || !delay.entry() || delay.locked() || delay.saving();
   return (
-    <section class={css.section} aria-label={t('send-delay-title')} data-testid="send-delay">
-      <h3 class={css.heading}>{t('send-delay-title')}</h3>
-      <p class={css.meta}>{t('send-delay-help')}</p>
+    <SettingsCard id="compose-card-send-delay" testId="send-delay" title={t('send-delay-title')} description={t('send-delay-help')}>
       <Show when={off()}>
         <p class={css.meta} role="status">{t('send-delay-disabled')}</p>
       </Show>
-      <label class={css.field}>
-        {t('send-delay-label')}
+      <ControlRow controlId="send-delay-select" label={t('send-delay-label')}
+        note={<>
+          <Show when={invalid()}>
+            <p role="alert">{t('send-delay-invalid', { max: cap() })}</p>
+          </Show>
+          <Show when={cap() < 1800 && !off()}>
+            <p class={css.meta}>{t('send-delay-capped', { max: delayLabel(cap()) })}</p>
+          </Show>
+          <LockNote locked={delay.locked()} />
+          <Show when={delay.error()}>
+            <p role="alert">{delay.error()}</p>
+          </Show>
+        </>}>{() =>
         <select
+          id="send-delay-select"
           class={css.input}
           value={selected()}
           disabled={disabled()}
@@ -64,11 +76,11 @@ export function SendDelayPreferences(): JSX.Element {
           ))}
           <option value={CUSTOM}>{t('send-delay-custom')}</option>
         </select>
-      </label>
+      }</ControlRow>
       <Show when={selected() === CUSTOM}>
-        <label class={css.field}>
-          {t('send-delay-custom-label')}
+        <ControlRow controlId="send-delay-custom" label={t('send-delay-custom-label')} help={t('send-delay-custom-help', { max: cap() })}>{(describedBy) =>
           <input
+            id="send-delay-custom"
             class={css.input}
             type="number"
             min="0"
@@ -76,6 +88,7 @@ export function SendDelayPreferences(): JSX.Element {
             step="1"
             value={current()}
             disabled={disabled()}
+            aria-describedby={describedBy()}
             onChange={(e) => {
               const n = e.currentTarget.valueAsNumber;
               if (Number.isInteger(n) && n >= 0 && n <= cap()) {
@@ -84,19 +97,8 @@ export function SendDelayPreferences(): JSX.Element {
               } else setInvalid(true);
             }}
           />
-        </label>
-        <p class={css.meta}>{t('send-delay-custom-help', { max: cap() })}</p>
+        }</ControlRow>
       </Show>
-      <Show when={invalid()}>
-        <p role="alert">{t('send-delay-invalid', { max: cap() })}</p>
-      </Show>
-      <Show when={cap() < 1800 && !off()}>
-        <p class={css.meta}>{t('send-delay-capped', { max: delayLabel(cap()) })}</p>
-      </Show>
-      <LockNote locked={delay.locked()} />
-      <Show when={delay.error()}>
-        <p role="alert">{delay.error()}</p>
-      </Show>
-    </section>
+    </SettingsCard>
   );
 }

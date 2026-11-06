@@ -65,3 +65,9 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
   ] },
   { id: 'data-requests-card-list', section: 'privacy', title: 'dr-list', rows: [] },
 ];
+
+/** Compose cards added after the first kit pass (undo-send window, response templates). */
+export const COMPOSE_EXTRA_CARDS: readonly CardSpec[] = [
+  { id: 'compose-card-send-delay', section: 'compose', title: 'send-delay-title', help: 'send-delay-help', rows: [{ id: 'send-delay-select', label: 'send-delay-label' }] },
+  { id: 'compose-card-templates', section: 'compose', title: 'response-templates-title', rows: [{ id: 'response-templates-enabled', label: 'response-templates-enable' }] },
+];

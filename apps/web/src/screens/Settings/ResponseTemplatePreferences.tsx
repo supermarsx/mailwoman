@@ -8,6 +8,8 @@ import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} f
 import {useSettingsNavigation} from './navigation.tsx';
 import {useSetting} from './useSetting.ts';
 import {LockNote} from './LockNote.tsx';
+import {ControlRow} from './layout/SettingRow.tsx';
+import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 export function ResponseTemplatePreferences():JSX.Element{
@@ -30,12 +32,14 @@ export function ResponseTemplatePreferences():JSX.Element{
   if(ok)toast.success(t('response-templates-saved'),{id});else toast.error(personal.error(),{id});savingToast=undefined;
  }
  async function toggle(value:boolean):Promise<void>{const owner=preferenceAccount();const ok=await enabled.set(value);if(disposed||preferenceAccount()!==owner)return;if(ok)toast.success(t('response-templates-saved'));else toast.error(enabled.error());}
- return <section class={css.section} aria-label={t('response-templates-title')}><h3 class={css.heading}>{t('response-templates-title')}</h3>
-  <label class={css.check}><input class={css.checkbox} type="checkbox" checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} onChange={event=>void toggle(event.currentTarget.checked)}/>{t('response-templates-enable')}</label><LockNote locked={enabled.locked()}/>
+ return <SettingsCard id="compose-card-templates" wide title={t('response-templates-title')}>
+  <ControlRow controlId="response-templates-enabled" label={t('response-templates-enable')} note={<LockNote locked={enabled.locked()}/>}>{()=>
+   <input id="response-templates-enabled" type="checkbox" checked={enabled.value()} disabled={!enabled.entry()||enabled.locked()||enabled.saving()} onChange={event=>void toggle(event.currentTarget.checked)}/>
+  }</ControlRow>
   <p class={css.meta}>{t(allowed.value()?'response-templates-personal-help':'response-templates-personal-blocked')}</p><LockNote locked={personal.locked()}/>
   <TemplateLibraryEditor value={draft()} onChange={setDraft} disabled={disabled()}/>
   <p class={css.meta}>{t('response-templates-limits')}</p>
   <div class={css.actions}><button type="button" class={css.button} disabled={disabled()||!dirty()||!validResponseTemplates(draft())} onClick={()=>void save()}>{t('response-templates-save')}</button><button type="button" class={css.ghost} disabled={!dirty()||personal.saving()} onClick={()=>setDraft(personal.value().map(row=>({...row})))}>{t('response-templates-discard-button')}</button></div>
   <Leave/>
- </section>;
+ </SettingsCard>;
 }
