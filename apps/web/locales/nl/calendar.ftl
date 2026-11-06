@@ -240,3 +240,167 @@ calendar-share-access-for = Toegang voor { $principal }
 calendar-share-remove = { $principal } verwijderen
 calendar-share-read = Alleen lezen
 calendar-share-readwrite = Lezen en schrijven
+
+# -- Machine translation (2026-11): added to match en ---------------------
+calendar-mini = Datumkiezer
+calendar-event-range = { $title }, { $start } tot { $end }
+calendar-busy-free = Wordt weergegeven als vrij
+calendar-event-with-status = { $event } ({ $status })
+calendar-more-label = Nog { $count } { $count ->
+    [one] afspraak
+   *[other] afspraken
+  } op { $date }
+calendar-fb-caption-people = Bezette tijd op de dag van het conflict, per uur, voor u en elke uitgenodigde persoon.
+calendar-fb-unknown = Beschikbaarheid van { $principal } kon niet worden opgehaald.
+calendar-fb-loading = Beschikbaarheid laden…
+calendar-import-itip-message = Dit bestand is een antwoord of annulering die per e-mail is verzonden. Open het bijbehorende bericht om het toe te passen. Er is niets geïmporteerd.
+calendar-import-skipped = { $count ->
+    [one] { $count } afspraak stond al in de agenda en is ongewijzigd gelaten.
+   *[other] { $count } afspraken stonden al in de agenda en zijn ongewijzigd gelaten.
+ }
+calendar-invite-title = Agenda-uitnodiging
+calendar-invite-sender = Van { $sender }
+calendar-invite-add = Aan agenda toevoegen
+calendar-invite-update = Afspraakupdate toepassen
+calendar-invite-cancel = Annulering toepassen
+calendar-invite-reply = Antwoord van deelnemer vastleggen
+calendar-invite-new = Deze uitnodiging kan aan uw agenda worden toegevoegd.
+calendar-invite-newer = De organisator heeft een bijgewerkte afspraak gestuurd.
+calendar-invite-current = Uw agenda bevat al deze versie.
+calendar-invite-stale = Dit bericht is ouder dan de afspraak in uw agenda.
+calendar-invite-cancelled = De organisator heeft deze afspraak geannuleerd.
+calendar-invite-response = Een deelnemer heeft een antwoord gestuurd.
+calendar-invite-not-organizer = De afzender is niet de opgeslagen organisator. Er wordt niets gewijzigd.
+calendar-invite-not-attendee = De afzender is geen overeenkomende deelnemer. Er wordt niets gewijzigd.
+calendar-invite-unknown = Dit bericht verwijst naar een afspraak die niet in uw agenda staat.
+calendar-invite-unsupported = Dit voorstel kan niet automatisch worden toegepast.
+calendar-invite-no-reply = Hiermee wordt uw agenda bijgewerkt zonder een antwoord te sturen.
+calendar-invite-applied = Uw agenda is bijgewerkt.
+calendar-invite-unchanged = De afspraak is niet gewijzigd. Controleer de huidige status van de uitnodiging.
+calendar-invite-apply-failed = De uitnodiging kon niet worden toegepast. Probeer het opnieuw.
+calendar-invite-load-failed = De uitnodiging kon niet worden gecontroleerd.
+calendar-invite-retry = Opnieuw proberen
+calendar-field-time-zone = Tijdzone van de afspraak
+calendar-field-time-zone-help = Gebruik een IANA-naam zoals Europe/Lisbon. De afspraak behoudt deze zone wanneer u hem elders bekijkt.
+calendar-time-invalid = Voer een geldige tijdzone en lokale tijd in. Sommige lokale tijden bestaan niet wanneer de klok vooruit wordt gezet.
+calendar-mini-prev = Vorige maand
+calendar-mini-next = Volgende maand
+calendar-card-region-event = Agenda-afspraak
+calendar-card-kind-request = Vergaderuitnodiging
+calendar-card-kind-update = Bijgewerkte uitnodiging
+calendar-card-kind-cancel = Geannuleerde vergadering
+calendar-card-kind-reply = Antwoord op vergadering
+calendar-card-kind-counter = Nieuw tijdstip voorgesteld
+calendar-card-kind-publish = { $count ->
+    [one] Agenda-afspraak
+   *[other] { $count } agenda-afspraken
+ }
+calendar-card-when = Wanneer
+calendar-card-where = Waar
+calendar-card-organizer = Organisator
+calendar-card-attendees = Deelnemers
+calendar-card-all-day = { $when } (hele dag)
+calendar-card-organizer-time = Tijd van de organisator: { $when } ({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [one] Elke dag
+   *[other] Elke { $interval } dagen
+ }
+calendar-card-repeat-weekly = { $interval ->
+    [one] Elke week
+   *[other] Elke { $interval } weken
+ }
+calendar-card-repeat-weekly-on = { $interval ->
+    [one] Elke week op { $days }
+   *[other] Elke { $interval } weken op { $days }
+ }
+calendar-card-repeat-monthly = { $interval ->
+    [one] Elke maand
+   *[other] Elke { $interval } maanden
+ }
+calendar-card-repeat-monthly-day = { $interval ->
+    [one] Elke maand op dag { $day }
+   *[other] Elke { $interval } maanden op dag { $day }
+ }
+calendar-card-repeat-yearly = { $interval ->
+    [one] Elk jaar
+   *[other] Elke { $interval } jaar
+ }
+calendar-card-repeat-until = { $rule } tot { $date }
+calendar-card-repeat-count = { $rule }, { $count ->
+    [one] eenmaal
+   *[other] { $count } keer
+ }
+calendar-card-repeat-except = { $rule } ({ $count ->
+    [one] 1 datum overgeslagen
+   *[other] { $count } datums overgeslagen
+ })
+calendar-card-repeat-custom = Herhaalt volgens een aangepast schema
+calendar-card-join = Deelnemen via { $provider }
+calendar-card-organizer-is = Georganiseerd door { $who }
+calendar-card-attendee-summary = { $count ->
+    [one] 1 deelnemer
+   *[other] { $count } deelnemers
+ }
+calendar-card-people-all = Alle { $count } tonen
+calendar-card-people-fewer = Minder tonen
+calendar-card-rsvp-accepted = Geaccepteerd
+calendar-card-rsvp-tentative = Onder voorbehoud
+calendar-card-rsvp-declined = Afgewezen
+calendar-card-rsvp-none = Nog geen antwoord
+calendar-card-in-calendar = In uw agenda
+calendar-card-cancelled = Geannuleerd
+calendar-card-open = Openen in agenda
+calendar-card-agenda = Uw agenda op { $day }
+calendar-card-agenda-title = Uw dag
+calendar-card-agenda-this-event = Deze afspraak
+calendar-card-agenda-unavailable = Uw agenda voor deze dag kon niet worden geladen.
+calendar-card-conflicts = { $count ->
+    [one] Conflicteert met { $titles }
+   *[other] Conflicteert met { $count } afspraken: { $titles }
+ }
+calendar-card-no-conflicts = Geen conflicten in uw agenda
+calendar-card-invited-as = U bent uitgenodigd als { $address }.
+calendar-card-not-invited = Deze uitnodiging vermeldt geen van uw adressen. U kunt hem aan uw agenda toevoegen, maar niet beantwoorden.
+calendar-card-not-invited-short = Deze uitnodiging vermeldt geen van uw adressen.
+calendar-card-out-of-date = Deze uitnodiging is verouderd. Er staat al een nieuwere versie in uw agenda.
+calendar-card-replied = { $who } { $answer ->
+    [accepted] heeft geaccepteerd.
+    [tentative] heeft onder voorbehoud geaccepteerd.
+    [declined] heeft afgewezen.
+   *[other] heeft nog niet geantwoord.
+ }
+calendar-card-counter = { $who } heeft een nieuw tijdstip voorgesteld. Voorstellen worden niet automatisch toegepast.
+calendar-card-todos-skipped = { $count ->
+    [one] Het bestand bevat ook 1 taak, die niet wordt toegevoegd.
+   *[other] Het bestand bevat ook { $count } taken, die niet worden toegevoegd.
+ }
+calendar-card-respond = Op de uitnodiging reageren
+calendar-card-accept = Accepteren
+calendar-card-tentative = Onder voorbehoud
+calendar-card-decline = Afwijzen
+calendar-card-propose = Nieuw tijdstip voorstellen
+calendar-card-propose-start = Nieuwe starttijd
+calendar-card-propose-send = Voorstel verzenden
+calendar-card-propose-invalid = Voer een geldige nieuwe starttijd in.
+calendar-card-send-response = Een antwoord sturen naar { $organizer }
+calendar-card-comment = Opmerking (optioneel)
+calendar-card-calendar = Agenda
+calendar-card-events = Afspraken in dit bestand
+calendar-card-add-one = Toevoegen
+calendar-card-add-all = Alles toevoegen ({ $count })
+calendar-card-added = { $count ->
+    [one] Aan uw agenda toegevoegd.
+   *[other] { $count } afspraken aan uw agenda toegevoegd.
+ }
+calendar-card-remove = Uit agenda verwijderen
+calendar-card-removed = Uit uw agenda verwijderd.
+calendar-card-record-reply = Status van deelnemer bijwerken
+calendar-card-answered-sent = { $answer }. Uw antwoord is verzonden naar { $organizer }.
+calendar-card-answered-not-sent = { $answer }. Uw agenda is bijgewerkt, maar het antwoord kon niet worden verzonden.
+calendar-card-answered-silently = { $answer }. Er is geen antwoord verzonden.
+calendar-card-proposal-sent = Uw voorstel is verzonden naar { $organizer }.
+calendar-card-not-sent = Het bericht kon niet worden verzonden.
+calendar-card-more = { $count ->
+    [one] nog 1
+   *[other] nog { $count }
+ }
