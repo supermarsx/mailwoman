@@ -1,0 +1,79 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ja · Module: folder-dnd. Source: ../en/folder-dnd.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+folder-dnd-moved = フォルダーを移動しました：{ $name }
+folder-dnd-moved-many = { $count } 個のフォルダーを移動しました
+folder-dnd-undo = 元に戻す
+folder-dnd-cancel = キャンセル
+folder-dnd-handle = { $name } をドラッグして移動
+folder-dnd-locked-hint = フォルダーの順序は管理者によって固定されています。
+folder-dnd-forced-hint = 管理者によって固定表示されています。移動や固定解除はできません。
+folder-dnd-disabled-hint = フォルダーのドラッグ＆ドロップはオフです。
+folder-dnd-system-hint = システムフォルダーは移動できません。
+folder-dnd-pinned-group = 固定
+folder-dnd-top-level = 最上位に移動
+folder-dnd-problem-disabled = フォルダーの移動はオフになっています。
+folder-dnd-problem-locked = フォルダーの順序は管理者によって固定されています。
+folder-dnd-problem-self = フォルダーを自分自身の中に移動することはできません。
+folder-dnd-problem-descendant = フォルダーを自分のサブフォルダーの中に移動することはできません。
+folder-dnd-problem-system = システムフォルダーをここに移動することはできません。
+folder-dnd-problem-no-children = このフォルダーにはサブフォルダーを含められません。
+folder-dnd-problem-nesting-off = 管理者がフォルダーの入れ子を許可していません。
+folder-dnd-problem-depth = フォルダーの階層が深くなりすぎます。
+folder-dnd-problem-forced = このフォルダーは管理者によって固定表示されています。
+folder-dnd-problem-unknown = そのフォルダーは存在しません。
+folder-dnd-problem-noop = フォルダーはすでにその場所にあります。
+folder-dnd-problem-collision = { $name } という名前のフォルダーがすでにあります。先に名前を変更してください。
+folder-dnd-problem-server = サーバーは { $name } を移動しませんでした。変更はありません。
+folder-dnd-announce-up = { $name } を上に移動しました
+folder-dnd-announce-down = { $name } を下に移動しました
+folder-dnd-announce-indent = { $name } を上のフォルダーの中に移動しました
+folder-dnd-announce-outdent = { $name } を1階層上に移動しました
+folder-dnd-nest-title = { $name } をここに移動しますか？
+folder-dnd-nest-title-many = { $count } 個のフォルダーをここに移動しますか？
+folder-dnd-nest-body = メールサーバー上のフォルダーを変更するか、このアプリでの表示のみ変更するかを選択してください。
+folder-dnd-nest-legend = 移動方法
+folder-dnd-nest-local = このアプリ内でのみ並べ替える
+folder-dnd-nest-local-help = 表示のみの変更です。フォルダーはサーバー上および他のメールアプリでは元の場所のままです。
+folder-dnd-nest-server = サーバー上で移動する
+folder-dnd-nest-server-help = このアカウントを使うすべてのメールアプリでフォルダーが変更されます。
+folder-dnd-nest-remember = 選択を記憶する
+folder-dnd-nest-confirm = 移動
+folder-dnd-arranged-only = このアプリ内でのみ並べ替え済み
+folder-dnd-arranged-only-help = サーバー上の位置は異なります：{ $path }
+folder-dnd-apply-server = サーバーに適用
+folder-dnd-reset = 順序を初期状態に戻す
+folder-dnd-reset-done = フォルダーの順序をリセットしました
+folder-dnd-move-to = { $name } の移動先…
+folder-dnd-layout-link = フォルダーのレイアウト
+folder-dnd-reorder-enable = ドラッグでフォルダーを並べ替える
+folder-dnd-nest-mode = フォルダーを入れ子にするとき
+folder-dnd-nest-mode-ask = 確認する
+folder-dnd-nest-mode-server = サーバー上で移動する
+folder-dnd-nest-mode-local = このアプリ内でのみ並べ替える
+folder-dnd-new-placement = 新しいフォルダーの表示位置
+folder-dnd-new-placement-end = 同じ階層の最後
+folder-dnd-new-placement-alphabetical = 五十音・アルファベット順
+folder-dnd-handles = ドラッグハンドルを表示
+folder-dnd-handles-hover = ホバー時
+folder-dnd-handles-always = 常に
+folder-dnd-arrange-title = フォルダーを並べ替える
+folder-dnd-arrange-help = フォルダーをドラッグして並べ替え、別のフォルダーにドロップして入れ子にできます。フォーカス中のフォルダーで Alt と矢印キーも使えます。
+folder-dnd-admin-locked = 管理者が設定しています
+
+# -- Machine translation (2026-11): added to match en ---------------------
+folder-dnd-arrange-menu = 移動先…
+folder-star-add = フォルダーにスターを付ける
+folder-star-remove = フォルダーのスターを外す
+folder-star-starred = スター付き
+folder-star-toggle = { $name } にスターを付ける
+folder-star-only = スター付きのみ表示
+folder-star-only-help = スター付きのフォルダーと、それを含むフォルダーのみを表示します。
+folder-dnd-indent = { $name } を上のフォルダーの中に移動
+folder-dnd-outdent = { $name } を1階層上に移動
+folder-dnd-more-actions = 並べ替え
+folder-dnd-selected-move = 選択したものの移動先…
+folder-dnd-locked-row = ロック中
+folder-dnd-problem-pin = 固定したフォルダーは他のフォルダーより上に表示されます。そこに移動するには、先に固定を解除してください。

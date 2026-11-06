@@ -1,0 +1,60 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ja · Module: admin-domain-guided. Source: ../en/admin-domain-guided.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-domain-guided-title = ガイド付きでドメインを追加
+admin-domain-guided-identity = ドメインの識別情報
+admin-domain-guided-domain = ドメイン名
+admin-domain-guided-connection = 接続
+admin-domain-guided-default = サーバーの既定値を使う
+admin-domain-guided-manual = メールサーバーを設定
+admin-domain-guided-default-help = サーバーの既定値では、管理者が設定したメールルーティングを使います。作成する前に、このドメインを確認できます。
+admin-domain-guided-permission = このロールでは、サーバーの既定値を使ってドメインを作成できます。メールサーバーを変更するには、上流の設定権限が必要です。
+admin-domain-guided-protocol = メールプロトコル
+admin-domain-guided-host = メールのホスト名または IP アドレス
+admin-domain-guided-port = メールのポート
+admin-domain-guided-tls = メールの暗号化
+admin-domain-guided-implicit = 接続開始時から TLS
+admin-domain-guided-starttls = STARTTLS を必須にする
+admin-domain-guided-smtp = 送信用 SMTP サーバーを設定
+admin-domain-guided-smtp-host = SMTP のホスト名または IP アドレス
+admin-domain-guided-smtp-port = SMTP のポート
+admin-domain-guided-smtp-tls = SMTP の暗号化
+admin-domain-guided-smtp-omitted = ドメイン専用の SMTP サーバーなし
+admin-domain-guided-jmap = JMAP セッション URL
+admin-domain-guided-no-credentials = ここではアカウントの認証情報を収集しません。TLS 証明書の検証は有効のままで、プライベートネットワークへのアクセスには別途、詳細設定が必要です。
+admin-domain-guided-policy = 接続ポリシー
+admin-domain-guided-policy-value = 検証済みの TLS、サインイン時のパスワード認証、プライベートネットワークへのアクセスなし
+admin-domain-guided-create = ドメインを作成
+admin-domain-guided-invalid-domain = example.org のように、スキーム、パス、ポートを含まないドメイン名を入力してください。
+admin-domain-guided-invalid-endpoint = 有効なサーバーのホスト名または IP アドレスと、1 から 65535 の範囲のポートを入力してください。
+admin-domain-guided-invalid-url = 認証情報、クエリパラメーター、フラグメントを含まない HTTPS の JMAP セッション URL を入力してください。
+admin-domain-guided-status-required = メールサーバーを設定する前に、サーバーの接続モードを読み込んでください。
+admin-domain-guided-advanced = 複数のバックエンドと詳細オプションを設定
+admin-domain-guided-draft-help = これらはセットアップの下書きです。最後の確認ページで「ドメインを作成」を選択するまで、何も保存されません。
+admin-domain-guided-backend-list = バックエンドのセットアップ下書き
+admin-domain-guided-backend-empty = バックエンドを追加するか、検出された設定を確認してください。
+admin-domain-guided-backend-done = バックエンド一覧に戻る
+admin-domain-guided-actions = 操作
+admin-domain-guided-disabled = 無効
+admin-domain-guided-edit-backend = バックエンド { $id } を編集
+admin-domain-guided-remove-backend = バックエンド { $id } をセットアップから削除
+admin-domain-guided-remove-help = この未保存のバックエンドをセットアップの下書きから削除します。
+admin-domain-guided-custom-ca = カスタム認証局を設定済み
+admin-domain-guided-supported-help = 現在のサーバーモード：{ $mode }。エンジンモードでは、詳細設定で IMAP、POP3、SMTP、ManageSieve、EWS HTTPS Basic に対応します。プロキシモードでは JMAP に対応します。Microsoft Graph、Gmail API、OAuth、NTLM、MAPI は、ここではドメインのバックエンドとして利用できません。
+admin-domain-guided-detect = 設定を検出
+admin-domain-guided-detecting = 検出中…
+admin-domain-guided-detect-help = 設定された外向きポリシーを通して、サーバー側の検出を明示的に実行します。結果は提案であり、自動的に保存されることはありません。このロールには、スコープなしの上流設定が許可されている必要があります。
+admin-domain-guided-detected = 検出元：{ $source }。このドメインを作成する前に、すべてのエンドポイントと認証を確認してください。
+admin-domain-guided-use-proposal = 検出されたエンドポイントを確認
+admin-domain-guided-oauth-warning = このプロバイダーは OAuth の要件を報告しています。このセットアップでは、プロバイダーの OAuth は設定されません。これらのエンドポイントを使う前に、選択したパスワードの方式に対応していることを確認してください。
+admin-domain-guided-pim-help = 連絡先とカレンダーの同期は、アカウントに連携した Nextcloud の設定を使います。このセットアップでは、ドメインの DAV URL と自動検出は有効になりません。
+admin-domain-guided-backend-count = バックエンドは 1 個から 32 個の間で設定してください。
+admin-domain-guided-backend-id = 各バックエンドに、英字、数字、ハイフン、アンダースコアを使った 1〜64 文字の一意の ID を付けてください。
+admin-domain-guided-backend-mode = 選択したバックエンドのプロトコルは、現在のサーバーモードでは対応していません。
+admin-domain-guided-backend-priority = バックエンドの優先度は 0 から 65535 の整数にしてください。値が小さいほど先に試行されます。
+admin-domain-guided-backend-preferred = サービスの役割ごとに、有効な優先バックエンドは最大1つまで選択してください。
+admin-domain-guided-backend-security = TLS の順序を確認してください。異なるトランスポートを使い、1つは固定モードにし、平文を含める場合は明示的に許可してください。
+admin-domain-guided-backend-auth = 対応している異なる認証方式を選択してください。固定モードではちょうど1つが必要です。
+admin-domain-guided-backend-username = 選択したユーザー名のドメイン、レルム、またはカスタムテンプレートを入力してください。

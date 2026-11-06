@@ -50,3 +50,7 @@ sharing-right-e-label = 完全削除
 sharing-right-e-desc = 削除済みの印が付いたメッセージを完全に削除します。
 sharing-right-a-label = 管理
 sharing-right-a-desc = このメールボックスにアクセスできるユーザーを変更します。
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = このメールサーバーはフォルダーの共有に対応していません。
+sharing-forbidden = このフォルダーの共有を管理する権限がありません。所有者または管理者にお問い合わせください。

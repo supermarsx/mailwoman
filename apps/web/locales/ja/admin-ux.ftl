@@ -133,3 +133,10 @@ admin-ux-appearance-accent = アクセントカラー
 admin-ux-appearance-light = ライト
 admin-ux-appearance-dark = ダーク
 admin-ux-appearance-reset = ウェブメールのテーマを使用
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = 追加
+admin-ux-list-remove = { $item } を削除
+admin-ux-list-none = まだありません。
+admin-ux-list-duplicate = { $item } はすでにリストにあります。
+admin-ux-list-empty-entry = 先に項目を入力してください。

@@ -160,3 +160,6 @@ common-notifications-enabled = このデバイスで通知が有効になりま�
 multiselect-count = { $count ->
    *[other] { $count } 件選択中
 }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = サーバーが混み合っています。数秒待ってからもう一度お試しください。

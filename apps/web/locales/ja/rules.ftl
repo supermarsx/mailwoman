@@ -89,3 +89,9 @@ rules-forward-title = 転送
 rules-forward-address = 転送先
 rules-forward-copy = このアカウントにコピーを残す
 rules-forward-refused = 管理者はこのドメインへの転送を許可していません。
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = 保存しました。自動返信はオフです。
+rules-vacation-runs-server = メールが届いたときに、メールサーバーがこの返信を送信します。
+rules-vacation-runs-engine = Mailwoman は受信トレイの新着メールを同期するときにこの返信を送信するため、返信は次回の同期まで待つ場合があります。
+rules-vacation-unavailable = このアカウントでは不在時の返信を利用できません。メールサーバーが対応していないか、管理者が無効にしています。
