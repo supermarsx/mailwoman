@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@solidjs/testing-library';
+import { cleanup, render, screen, waitFor } from '@solidjs/testing-library';
 
 const state = vi.hoisted(() => ({ map: {} as Record<string, { value: unknown }> }));
 vi.mock('../api/settings.ts', () => ({ settings: () => state.map, loadSettings: vi.fn(async () => undefined) }));
@@ -68,5 +68,24 @@ describe('HeaderFactsBadges', () => {
     state.map = { 'mail.badge.headers': { value: false } };
     render(() => <HeaderFactsBadges email={{ 'header:Sensitivity:asText': 'private' }} />);
     expect(screen.queryByTestId('header-facts')).toBeNull();
+  });
+  it('shows Superseded by a newer message when the lookup finds a replacement', async () => {
+    const lookup = vi.fn(async () => true);
+    render(() => <HeaderFactsBadges now={NOW} email={{}} messageId="old@example.org" supersededLookup={lookup} />);
+    expect(await screen.findByTestId('hf-superseded-by')).toHaveTextContent('Superseded by a newer message');
+    expect(lookup).toHaveBeenCalledWith('old@example.org');
+  });
+
+  it('shows nothing when no newer message replaces it, or the headers badge is off', async () => {
+    const none = vi.fn(async () => false);
+    render(() => <HeaderFactsBadges now={NOW} email={{}} messageId="current@example.org" supersededLookup={none} />);
+    await waitFor(() => expect(none).toHaveBeenCalled());
+    expect(screen.queryByTestId('hf-superseded-by')).toBeNull();
+    cleanup();
+    state.map = { 'mail.badge.headers': { value: false } };
+    const off = vi.fn(async () => true);
+    render(() => <HeaderFactsBadges now={NOW} email={{}} messageId="old@example.org" supersededLookup={off} />);
+    expect(screen.queryByTestId('hf-superseded-by')).toBeNull();
+    expect(off).not.toHaveBeenCalled();
   });
 });

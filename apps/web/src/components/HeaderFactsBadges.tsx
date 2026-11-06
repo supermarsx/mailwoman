@@ -1,20 +1,36 @@
 // Reader badges for the optional message headers: Sensitivity, Reply-By, Expires
 // (with the expired state and the user's "expired messages" choice) and
 // Supersedes. The values come with the opened message (Email/get header:<Name>:asText).
-import { Show, type JSX } from 'solid-js';
+import { Show, createResource, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../i18n/index.ts';
 import { settings } from '../api/settings.ts';
 import { factsFromEmail, hasFacts, isExpired, isExpiryMode, type HeaderFacts } from './readerHeaders.ts';
 import './headerFacts.css';
 
-export function HeaderFactsBadges(props: { email: Parameters<typeof factsFromEmail>[0]; now?: () => Date; onSearch?: (messageId: string) => void }): JSX.Element {
+export function HeaderFactsBadges(props: {
+  email: Parameters<typeof factsFromEmail>[0];
+  now?: () => Date;
+  onSearch?: (messageId: string) => void;
+  /** This message's own Message-ID, and the lookup that says whether a newer message replaces it. */
+  messageId?: string | undefined;
+  supersededLookup?: ((messageId: string) => Promise<boolean>) | undefined;
+  /** Show the newer message (a search for it). */
+  onFindSupersedingMessage?: ((messageId: string) => void) | undefined;
+}): JSX.Element {
   void loadCatalog('reader-headers');
   const visible = (): boolean => settings()['mail.badge.headers']?.value !== false;
   const mode = () => { const v = settings()['mail.expiry.hideExpired']?.value; return isExpiryMode(v) ? v : 'off'; };
   const f = (): HeaderFacts => factsFromEmail(props.email);
   const date = (d: Date): string => d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const expired = (): boolean => isExpired(f(), props.now?.() ?? new Date());
-  return <Show when={visible() && hasFacts(f())}>
+  const [superseded] = createResource(() => (visible() && props.messageId && props.supersededLookup ? props.messageId : null), (id) => props.supersededLookup!(id));
+  const supersededBadge = (): JSX.Element => <Show when={superseded() === true}>
+    <span class="hf-badge hf-badge--warn" data-testid="hf-superseded-by" title={t('hf-superseded-by-help')}>
+      {t('hf-superseded-by')}
+      <Show when={props.onFindSupersedingMessage}> <button type="button" class="hf-link" onClick={() => props.onFindSupersedingMessage?.(props.messageId!)}>{t('hf-find')}</button></Show>
+    </span>
+  </Show>;
+  return <><Show when={visible() && hasFacts(f())}>
     <span class="hf" data-testid="header-facts">
       <Show when={f().sensitivity}>{(s) => <span class={`hf-badge hf-badge--${s() === 'company-confidential' ? 'warn' : 'info'}`} data-testid="hf-sensitivity" title={t('hf-sensitivity-help')}>{t(`hf-sensitivity-${s()}`)}</span>}</Show>
       <Show when={f().replyBy}>{(d) => <span class="hf-badge hf-badge--info" data-testid="hf-reply-by" title={t('hf-reply-by-help')}>{t('hf-reply-by', { date: date(d()) })}</span>}</Show>
@@ -29,5 +45,5 @@ export function HeaderFactsBadges(props: { email: Parameters<typeof factsFromEma
         <Show when={props.onSearch}> <button type="button" class="hf-link" onClick={() => props.onSearch?.(id())}>{t('hf-find')}</button></Show>
       </span>}</Show>
     </span>
-  </Show>;
+  </Show>{supersededBadge()}</>;
 }

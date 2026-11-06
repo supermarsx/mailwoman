@@ -19,6 +19,7 @@ import {LayoutGroups,decodeFont} from './compose/layout/LayoutGroups.tsx';
 import {isEmptyLayout,joinLayout,splitLayout,type MessageLayout} from './compose/layout/messageLayout.ts';
 import {parseSentFolderPolicy,resolveSentFolder,writableFolders} from './compose/layout/sentFolder.ts';
 import {MessageOptions} from './compose/layout/MessageOptions.tsx';
+import {findSentMessages} from '../api/sentMessages.ts';
 import {DEFAULT_GATES,buildHeaders,parseHeaderOptions,serializeHeaderOptions,type MessageHeaderOptions} from './compose/layout/messageHeaders.ts';
 import {checkReplyTo,isReplyToShow,replyToForSend,replyToRowVisible,replyToToggleAvailable} from './compose/replyToModel.ts';
 import {loadAttachmentPolicy,attachmentPolicyUrl,type AttachmentPolicy} from '../api/attachmentPolicy.ts';
@@ -1760,6 +1761,7 @@ export function Compose(props: {
         identity: identity(),
         ...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
         ...(skipSentCopy()?{skipSentCopy:true}:{}),
+        ...(msgOpts().remindIfNoReply===true&&msgOpts().replyBy&&msgOpts().replyBy!.getTime()>Date.now()&&!skipSentCopy()?{followUpAt:msgOpts().replyBy!.toISOString()}:{}),
         ...(builtHeaders().headers.length>0?{headers:builtHeaders().headers}:{}),
         ...(featReplyTo()&&replyToValue()!==undefined?{replyTo:replyToValue()!}:{}),
         ...(importance()!=='normal'&&settings()['mail.compose.priority.enabled']?.value!==false?{importance:importance()}:{}),
@@ -2327,7 +2329,7 @@ export function Compose(props: {
                 <RibbonItem><label><input type="checkbox" checked={attachPublicKey()} disabled={busy()} onChange={e=>setAttachPublicKey(e.currentTarget.checked)}/>{t('mail-compose-attach-public-key')}</label></RibbonItem>
                 <RibbonItem><label><input type="checkbox" checked={includeFileHashes()} disabled={busy()} onChange={e=>setIncludeFileHashes(e.currentTarget.checked)}/>{t('mail-compose-include-hashes')}</label><Show when={includeFileHashes()&&!hashesReady()}><span role="status" data-testid="compose-hash-status">{t(hashResult()?.error?'mail-compose-hashes-failed':'mail-compose-hashes-pending')}</span></Show></RibbonItem>
               </RibbonGroup>
-              <MessageOptions options={msgOpts} update={change=>setMsgOpts(change)} gates={headerGates} threading={threading} startNewThread={()=>setThreading({inReplyTo:[],references:[]})} fromAddress={()=>identity()?.email??''} externalCount={()=>outside().length} />
+              <MessageOptions options={msgOpts} update={change=>setMsgOpts(change)} gates={headerGates} threading={threading} startNewThread={()=>setThreading({inReplyTo:[],references:[]})} fromAddress={()=>identity()?.email??''} externalCount={()=>outside().length} sentMessages={query=>{const sent=app.mailboxes().find(box=>box.role==='sent')?.id,account=app.accountId();return sent&&account?findSentMessages(createConfiguredClient(),account,sent,query):Promise.resolve([]);}} remindAvailable={()=>!skipSentCopy()} />
               <RibbonGroup label={t('mail-compose-group-sent-copy')} priority={6} icon="folder" testId="compose-delivery-saving">
                 <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><Show when={featSentFolder()}><option value={NO_SENT_COPY}>{t('mail-compose-sent-copy-none')}</option></Show><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
                 <Show when={featSentFolder()}><RibbonItem><span class="compose-rib__hint" role="status" data-testid="compose-sent-copy-hint">{sentCopyHint()}</span></RibbonItem></Show>

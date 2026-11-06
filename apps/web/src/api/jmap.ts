@@ -13,6 +13,7 @@ import {
   type JmapResponse,
 } from './jmap-types.ts';
 import { apiFetch } from './http.ts';
+import { settings } from './settings.ts';
 
 // V2 (§2.1): the list view now fetches the modern-mail props so tags, pins,
 // snooze, follow-up and the attachment indicator render straight off Email/get.
@@ -153,7 +154,10 @@ export interface ListExtra {
 
 export function listMailbox(accountId: Id, mailboxId: Id, limit = 50, page: PageWindow = {}, extra: ListExtra = {}): JmapRequest {
   // The Events view's rows carry their event hint (read from the index, not the body).
-  const properties = mailboxId === EVENTS_VIEW_ID ? [...HEADER_PROPERTIES, 'mailwomanCalendar'] : [...HEADER_PROPERTIES];
+  const properties: string[] = mailboxId === EVENTS_VIEW_ID ? [...HEADER_PROPERTIES, 'mailwomanCalendar'] : [...HEADER_PROPERTIES];
+  // Expiry marks in the list need the Expires headers; they are read only while `mail.expiry.hideExpired` is on.
+  const expiry = settings()['mail.expiry.hideExpired']?.value;
+  if (expiry === 'dim' || expiry === 'archive-suggestion' || expiry === 'hide') properties.push('header:Expires:asText', 'header:Expiry-Date:asText');
   return request(MAIL_USING, [
     [
       'Email/query',
@@ -274,6 +278,8 @@ export interface DraftInput {
   organization?: string;
   /** Send without keeping a copy: the Email is destroyed once the submission succeeded. */
   skipSentCopy?: boolean;
+  /** Flag the sent copy for follow-up at this time (`Remind me if there is no reply`). */
+  followUpAt?: string;
   /** Extra text headers (name, value); the engine writes only the ones it allows. */
   headers?: [string, string][];
   draftMailboxId: Id;
@@ -378,10 +384,11 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
 
   const onSuccessUpdate: Record<string, Record<string, unknown>> = {};
   const destroyCopy = input.skipSentCopy === true;
-  if (input.sentMailboxId !== undefined) {
+  if (input.sentMailboxId !== undefined || input.followUpAt !== undefined) {
     onSuccessUpdate['#send'] = {
-      mailboxIds: { [input.sentMailboxId]: true },
+      ...(input.sentMailboxId !== undefined ? { mailboxIds: { [input.sentMailboxId]: true } } : {}),
       'keywords/$draft': null,
+      ...(input.followUpAt !== undefined ? { followUpAt: input.followUpAt } : {}),
     };
   }
 
@@ -406,7 +413,7 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
     {
       accountId,
       create: { send: sendCreate },
-      ...(input.sentMailboxId !== undefined && !destroyCopy ? { onSuccessUpdateEmail: onSuccessUpdate } : {}),
+      ...((input.sentMailboxId !== undefined || input.followUpAt !== undefined) && !destroyCopy ? { onSuccessUpdateEmail: onSuccessUpdate } : {}),
       ...(destroyCopy ? { onSuccessDestroyEmail: ['#send'] } : {}),
     },
     'submit',
@@ -710,8 +717,8 @@ export function updateEmails(accountId: Id, patches: Record<Id, Record<string, u
 }
 
 /** Permanently destroy a message (used by sweep "delete all"). */
-export function destroyEmails(accountId: Id, ids: Id[]): JmapRequest {
-  return request(MAIL_USING, [['Email/set', { accountId, destroy: ids }, 'set']]);
+export function destroyEmails(accountId: Id, ids: Id[], permanent = false): JmapRequest {
+  return request(MAIL_USING, [['Email/set', { accountId, destroy: ids, ...(permanent ? { mailwomanPermanent: true } : {}) }, 'set']]);
 }
 
 /** Find every message from a sender (sweep preview + execute source). */

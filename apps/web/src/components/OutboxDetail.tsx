@@ -37,12 +37,22 @@ export function statusWhen(status: OutboxStatus): string {
   return '';
 }
 
+/** "Will be saved in <folder>" for a message still waiting to go; empty once it is sent or when the default Sent folder applies. */
+export function sentCopyText(copy: { skip?: boolean; mailboxId?: string } | null | undefined, boxes: () => ReadonlyArray<{ id: string; name: string }>, waiting: boolean): string {
+  if (!waiting || !copy) return '';
+  if (copy.skip === true) return t('outbox-sent-copy-skip');
+  if (!copy.mailboxId) return '';
+  const box = boxes().find((b) => b.id === copy.mailboxId);
+  return box ? t('outbox-sent-copy-folder', { folder: isolate(box.name) }) : t('outbox-sent-copy-missing');
+}
+
 export function OutboxDetail(props: OutboxDetailProps): JSX.Element {
   const app = useApp();
   const status = (): OutboxStatus => outboxStatus(props.sub, props.now);
   const [body] = createResource(() => props.sub.emailId, (id) => app.outboxBody(id));
   const [editing, setEditing] = createSignal(false);
   const [confirmDelete, setConfirmDelete] = createSignal(false);
+  const sentCopyLine = (): string => sentCopyText(props.sub.mailwomanSentCopy, () => app.mailboxes(), status().waiting);
   const btn = `btn btn--ghost ${a11y.focusable}`;
   const addresses = (list: { name?: string | null; email: string }[] | undefined): string => (list ?? []).map((a) => isolate(a.email)).join(', ');
 
@@ -61,6 +71,9 @@ export function OutboxDetail(props: OutboxDetailProps): JSX.Element {
         </Show>
         <Show when={status().lastError !== '' && status().kind !== 'uncertain'}>
           <p class="outbox-reader__error" data-testid="outbox-status-error">{t('outbox-status-last-error', { error: isolate(status().lastError) })}</p>
+        </Show>
+        <Show when={sentCopyLine() !== ''}>
+          <p class="outbox-reader__meta" data-testid="outbox-sent-copy">{sentCopyLine()}</p>
         </Show>
         <Show when={status().kind === 'failed'}>
           <p class="outbox-reader__meta">{t('outbox-failed-drafts')}</p>

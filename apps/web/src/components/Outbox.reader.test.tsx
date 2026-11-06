@@ -206,3 +206,28 @@ describe('Outbox chip', () => {
     expect(document.querySelector('.outbox-chip__item [data-action="recall"]')).toBeNull();
   });
 });
+
+describe('Outbox reader: where the copy will be saved', () => {
+  const folders = [{ id: 'proj', name: 'Project X' }];
+  const queued = (copy: NonNullable<OutboxSubmission['mailwomanSentCopy']> | null): OutboxSubmission => sub('s1', { sendAt: inDays(2).toISOString(), mailwomanSentCopy: copy });
+  const readerFor = (s: OutboxSubmission, boxes = folders): string | null => {
+    const { app } = setup([s]);
+    (app as unknown as { mailboxes: () => typeof boxes }).mailboxes = () => boxes;
+    render(() => (<AppContext.Provider value={app}><Outbox /></AppContext.Provider>));
+    fireEvent.click(document.querySelector<HTMLElement>('.outbox__row')!);
+    const line = screen.queryByTestId('outbox-sent-copy');
+    return line ? text(line) : null;
+  };
+  it('names the chosen folder for a scheduled send', () => {
+    expect(readerFor(queued({ mailboxId: 'proj' }))).toBe('Will be saved in Project X');
+  });
+  it('says no copy is kept when the send skips it', () => {
+    expect(readerFor(queued({ skip: true }))).toBe('No copy will be saved');
+  });
+  it('falls back to Sent in the text when the chosen folder is gone', () => {
+    expect(readerFor(queued({ mailboxId: 'deleted' }))).toBe('Will be saved in Sent (the chosen folder is not available)');
+  });
+  it('shows nothing when the default Sent folder applies', () => {
+    expect(readerFor(queued(null))).toBeNull();
+  });
+});

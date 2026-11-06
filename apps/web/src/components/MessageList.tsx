@@ -32,6 +32,7 @@ import { createBackgroundLoadToast } from './backgroundLoadToast.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as thread from './threadList.css.ts';
 import * as rowCss from './messageRow.css.ts';
+import {rowExpired,visibleRows} from './listExpiry.ts';
 import * as bulk from './bulkBar.css.ts';
 import './messageFlash.css.ts';
 import {focusRequest,clearFocusRequest,focusMessageInFolder} from './messageFocus.ts';
@@ -213,6 +214,7 @@ function MessageRow(props: {
           'list__row--selected': props.selected,
           [bulk.selectedRow]: props.selected,
           [thread.childRow]: props.threadChild === true,
+          [rowCss.expired]: rowExpired(email()),
         }}
         tabindex={props.focused ? 0 : -1}
         aria-current={app.openEmail()?.id === email().id ? 'true' : undefined}
@@ -361,6 +363,7 @@ function ThreadHeadRow(props: {
           'list__row--unread': props.row.unread,
           'list__row--selected': props.selected,
           [bulk.selectedRow]: props.selected,
+          [rowCss.expired]: rowExpired(rep()),
         }}
         tabindex={props.focused ? 0 : -1}
         aria-current={active() ? 'true' : undefined}
@@ -469,7 +472,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
   const rowHeight = (): number => tableMode() ? ({compact:36,cozy:44,relaxed:52}[app.density()]) : ROW_HEIGHTS[app.density()];
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
-  const rows = createMemo<ThreadVisualRow[]>(() => groupThreads(app.listMessages(), expanded()));
+  const rows = createMemo<ThreadVisualRow[]>(() => groupThreads(visibleRows(app.listMessages()) as Email[], expanded()));
   // How many slots the list spans: the loaded rows plus the query's unfetched
   // tail. This is what makes the scrollbar and `aria-setsize` describe the FOLDER
   // rather than the page — before paging they described `rows().length`, so a

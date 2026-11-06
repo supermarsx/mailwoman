@@ -383,6 +383,8 @@ export interface EmailSubmission {
   /** The latest failure. On a sent row: what went wrong filing the copy. */
   mailwomanLastError?: string | null;
   mailwomanNextAttemptAt?: string | null;
+  /** Where the copy goes once sent: a folder, `skip` (none is kept), or `null` (the default Sent folder). */
+  mailwomanSentCopy?: { skip?: boolean; mailboxId?: Id } | null;
 }
 export interface EmailSubmissionGetResponse {
   accountId: Id;

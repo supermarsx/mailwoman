@@ -48,8 +48,8 @@ export function parseHeaderFacts(raw: string): HeaderFacts {
   return out;
 }
 
-export type ExpiryMode = 'off' | 'dim' | 'archive-suggestion';
-export const isExpiryMode = (v: unknown): v is ExpiryMode => v === 'off' || v === 'dim' || v === 'archive-suggestion';
+export type ExpiryMode = 'off' | 'dim' | 'archive-suggestion' | 'hide';
+export const isExpiryMode = (v: unknown): v is ExpiryMode => v === 'off' || v === 'dim' || v === 'archive-suggestion' || v === 'hide';
 
 export function isExpired(facts: HeaderFacts, now: Date): boolean {
   return facts.expires !== undefined && facts.expires.getTime() <= now.getTime();

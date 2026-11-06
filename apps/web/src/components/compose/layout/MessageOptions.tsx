@@ -9,6 +9,7 @@ import { RibbonGroup, RibbonItem } from '../../bars/index.ts';
 import { RibbonPopover } from '../ribbonParts.tsx';
 import { t, loadCatalog } from '../../../i18n/index.ts';
 import { useComposeFeature } from '../composeFeatures.ts';
+import type { SentChoice } from '../../../api/sentMessages.ts';
 import {
   MAX_CUSTOM_HEADERS, isMessageId, isMailbox, validateCustomHeader,
   type AutoSubmitted, type HeaderGates, type MessageHeaderOptions, type Sensitivity,
@@ -26,6 +27,10 @@ export interface MessageOptionsProps {
   fromAddress: () => string;
   /** Recipients outside the organisation, for the confidential note. */
   externalCount: () => number;
+  /** Search the user's Sent folder (the picker for "Replaces an earlier message"). */
+  sentMessages?: (query: string) => Promise<SentChoice[]>;
+  /** Whether the sent copy is kept, which a reminder needs. */
+  remindAvailable?: () => boolean;
 }
 
 const SENSITIVITIES: readonly Sensitivity[] = ['normal', 'personal', 'private', 'company-confidential'];
@@ -84,6 +89,14 @@ export function MessageOptions(props: MessageOptionsProps): JSX.Element {
   const [draftName, setDraftName] = createSignal('');
   const [draftValue, setDraftValue] = createSignal('');
   const [customError, setCustomError] = createSignal('');
+  const [picking, setPicking] = createSignal(false);
+  const [pickQuery, setPickQuery] = createSignal('');
+  const [choices, setChoices] = createSignal<SentChoice[] | null>(null);
+  const [pickFailed, setPickFailed] = createSignal(false);
+  const search = async (query: string): Promise<void> => {
+    setPickQuery(query);
+    try { setChoices(await props.sentMessages!(query)); setPickFailed(false); } catch { setChoices([]); setPickFailed(true); }
+  };
   const o = props.options;
   const set = (patch: MessageHeaderOptions): void => props.update((cur) => ({ ...cur, ...patch }));
   const any = (): boolean => fSens() || fReplyBy() || fExpires() || fSupersedes() || (fReturn() && props.gates().allowLegacyReturnReceipt) || (fAuto() && props.gates().allowAutoSubmitted) || fThread() || (fCustom() && props.gates().allowCustom);
@@ -114,13 +127,32 @@ export function MessageOptions(props: MessageOptionsProps): JSX.Element {
                 <Show when={o().sensitivity === 'company-confidential' && props.externalCount() > 0}><small role="alert" data-testid="mo-confidential-external">{t('mo-confidential-external', { count: props.externalCount() })}</small></Show>
               </div>
             </Show>
-            <Show when={fReplyBy()}><DateRow id="mo-reply-by" testId="mo-reply-by" label={t('mo-reply-by')} help={t('mo-reply-by-help')} value={() => o().replyBy} onChange={(d) => set({ replyBy: d })} /></Show>
+            <Show when={fReplyBy()}><DateRow id="mo-reply-by" testId="mo-reply-by" label={t('mo-reply-by')} help={t('mo-reply-by-help')} value={() => o().replyBy} onChange={(d) => set(d ? { replyBy: d } : { replyBy: null, remindIfNoReply: false })} />
+              <div class="mo-row">
+                <label class="mo-check"><input type="checkbox" data-testid="mo-remind" checked={o().remindIfNoReply === true} disabled={!o().replyBy || props.remindAvailable?.() === false} aria-describedby="mo-remind-help" onChange={(e) => set({ remindIfNoReply: e.currentTarget.checked })} /> {t('mo-remind')}</label>
+                <small id="mo-remind-help">{props.remindAvailable?.() === false ? t('mo-remind-nocopy') : t('mo-remind-help')}</small>
+              </div></Show>
             <Show when={fExpires()}><DateRow id="mo-expires" testId="mo-expires" label={t('mo-expires')} help={t('mo-expires-help')} value={() => o().expires} onChange={(d) => set({ expires: d })} /></Show>
             <Show when={fSupersedes()}>
               <div class="mo-row">
                 <label for="mo-supersedes">{t('mo-supersedes')}</label>
                 <input id="mo-supersedes" type="text" placeholder="<id@example.com>" value={o().supersedes ?? ''} data-testid="mo-supersedes" aria-invalid={supersedesBad()} aria-describedby="mo-supersedes-help" onInput={(e) => set({ supersedes: e.currentTarget.value.trim() })} />
                 <small id="mo-supersedes-help">{supersedesBad() ? t('mo-supersedes-invalid') : t('mo-supersedes-help')}</small>
+                <Show when={props.sentMessages}>
+                  <button type="button" class="compose-rt__btn" data-testid="mo-supersedes-pick" aria-expanded={picking()} onClick={() => { const next = !picking(); setPicking(next); if (next && choices() === null) void search(''); }}>{t('mo-supersedes-pick')}</button>
+                  <Show when={picking()}>
+                    <div class="mo-picker" data-testid="mo-supersedes-picker">
+                      <input type="search" value={pickQuery()} placeholder={t('mo-supersedes-search')} aria-label={t('mo-supersedes-search')} data-testid="mo-supersedes-search" onInput={(e) => void search(e.currentTarget.value)} />
+                      <Show when={!pickFailed()} fallback={<small role="alert">{t('mo-supersedes-failed')}</small>}>
+                        <Show when={(choices() ?? []).length > 0} fallback={<small>{choices() === null ? t('mo-supersedes-loading') : t('mo-supersedes-none')}</small>}>
+                          <ul role="listbox" aria-label={t('mo-supersedes-pick')}>
+                            <For each={choices() ?? []}>{(c) => <li role="option" aria-selected={o().supersedes === c.messageId}><button type="button" class="compose-rt__btn" data-testid="mo-supersedes-choice" onClick={() => { set({ supersedes: c.messageId }); setPicking(false); }}><span>{c.subject || t('mo-supersedes-no-subject')}</span> <small>{c.date ? new Date(c.date).toLocaleDateString() : ''}</small></button></li>}</For>
+                          </ul>
+                        </Show>
+                      </Show>
+                    </div>
+                  </Show>
+                </Show>
               </div>
             </Show>
             <Show when={fReturn() && props.gates().allowLegacyReturnReceipt}>

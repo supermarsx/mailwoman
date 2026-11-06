@@ -12,3 +12,5 @@ hf-archive-suggestion = This message has expired. You may want to archive it.
 hf-supersedes = Replaces an earlier message
 hf-supersedes-help = The sender says this message replaces an earlier one (Supersedes header).
 hf-find = Find it
+hf-superseded-by = Superseded by a newer message
+hf-superseded-by-help = A newer message says it replaces this one (its Supersedes header names this message).

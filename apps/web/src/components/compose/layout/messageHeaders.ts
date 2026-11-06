@@ -14,6 +14,8 @@ export interface MessageHeaderOptions {
   /** Legacy Return-Receipt-To address (admin gated). */
   returnReceiptTo?: string | undefined;
   replyBy?: Date | null;
+  /** Flag the sent copy for follow-up at the Reply-By time (the follow-up feature); not a header. */
+  remindIfNoReply?: boolean;
   expires?: Date | null;
   supersedes?: string;
   autoSubmitted?: AutoSubmitted | undefined;
@@ -159,6 +161,7 @@ export function parseHeaderOptions(text: string): MessageHeaderOptions {
     const v = r[key];
     if (typeof v === 'string') { const d = new Date(v); if (!Number.isNaN(d.getTime())) out[key] = d; }
   }
+  if (r['remindIfNoReply'] === true) out.remindIfNoReply = true;
   if (typeof r['supersedes'] === 'string' && isMessageId(r['supersedes'])) out.supersedes = r['supersedes'];
   if (typeof r['returnReceiptTo'] === 'string' && isMailbox(r['returnReceiptTo'])) out.returnReceiptTo = r['returnReceiptTo'];
   if (Array.isArray(r['custom'])) {

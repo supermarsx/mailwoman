@@ -9,19 +9,19 @@ vi.mock('../../../api/settings.ts', () => ({
   loadSettings: vi.fn(async () => undefined),
 }));
 
-import { MessageOptions, datePresets, fromLocalInput, toLocalInput } from './MessageOptions.tsx';
+import { MessageOptions, type MessageOptionsProps, datePresets, fromLocalInput, toLocalInput } from './MessageOptions.tsx';
 import { DEFAULT_GATES, buildHeaders, type HeaderGates, type MessageHeaderOptions } from './messageHeaders.ts';
 
 afterEach(() => { cleanup(); off.ids.clear(); });
 
-function mount(gates: Partial<HeaderGates> = {}, threading = { inReplyTo: ['a@b'], references: ['x@y', 'a@b'] }) {
+function mount(gates: Partial<HeaderGates> = {}, threading = { inReplyTo: ['a@b'], references: ['x@y', 'a@b'] }, extra: Partial<MessageOptionsProps> = {}) {
   const [opts, setOpts] = createSignal<MessageHeaderOptions>({});
   const g = { ...DEFAULT_GATES, ...gates };
   let newThread = 0;
   render(() => (
     <CollapsibleBar id="composerRibbon" revealPolicy="overlay" label="Ribbon" header={<span />}>
       <RibbonPanel label="Delivery">
-        <MessageOptions options={opts} update={(c) => setOpts(c)} gates={() => g} threading={() => threading} startNewThread={() => { newThread += 1; }} fromAddress={() => 'me@example.com'} externalCount={() => 2} />
+        <MessageOptions options={opts} update={(c) => setOpts(c)} gates={() => g} threading={() => threading} startNewThread={() => { newThread += 1; }} fromAddress={() => 'me@example.com'} externalCount={() => 2} {...extra} />
       </RibbonPanel>
     </CollapsibleBar>
   ));
@@ -99,4 +99,52 @@ it('feature flags remove their part of the dialog', async () => {
   await screen.findByTestId('mo-reply-by');
   expect(screen.queryByTestId('mo-sensitivity')).toBeNull();
   expect(screen.queryByTestId('mo-expires')).toBeNull();
+});
+
+it('picks the message to replace from the Sent folder', async () => {
+  const sentMessages = vi.fn(async (q: string) => [
+    { id: 'e1', messageId: '<offer-v1@example.com>', subject: 'Offer v1', date: '2026-10-01T09:00:00Z' },
+    { id: 'e2', messageId: '<offer-v0@example.com>', subject: 'Offer draft', date: '2026-09-01T09:00:00Z' },
+  ].filter((c) => c.subject.toLowerCase().includes(q.toLowerCase())));
+  const m = mount({}, { inReplyTo: [], references: [] }, { sentMessages });
+  fireEvent.click(await screen.findByTestId('mo-supersedes-pick'));
+  expect(await screen.findAllByTestId('mo-supersedes-choice')).toHaveLength(2);
+  fireEvent.input(screen.getByTestId('mo-supersedes-search'), { target: { value: 'v1' } });
+  await vi.waitFor(() => expect(screen.getAllByTestId('mo-supersedes-choice')).toHaveLength(1));
+  expect(sentMessages).toHaveBeenLastCalledWith('v1');
+  fireEvent.click(screen.getByTestId('mo-supersedes-choice'));
+  expect(m.opts().supersedes).toBe('<offer-v1@example.com>');
+  expect(Object.fromEntries(buildHeaders(m.opts(), m.gates).headers)['Supersedes']).toBe('<offer-v1@example.com>');
+  expect(screen.queryByTestId('mo-supersedes-picker')).toBeNull();
+});
+
+it('says so when the Sent folder cannot be searched', async () => {
+  mount({}, { inReplyTo: [], references: [] }, { sentMessages: async () => { throw new Error('x'); } });
+  fireEvent.click(await screen.findByTestId('mo-supersedes-pick'));
+  expect(await screen.findByRole('alert')).toHaveTextContent('could not be searched');
+});
+
+it('without a sent-mail search there is no picker', async () => {
+  mount();
+  await screen.findByTestId('mo-supersedes');
+  expect(screen.queryByTestId('mo-supersedes-pick')).toBeNull();
+});
+
+it('Remind me needs a Reply-By time and a kept sent copy', async () => {
+  const m = mount({}, { inReplyTo: [], references: [] }, { remindAvailable: () => true });
+  expect(await screen.findByTestId('mo-remind')).toBeDisabled();
+  fireEvent.input(screen.getByTestId('mo-reply-by'), { target: { value: '2026-11-03T17:00' } });
+  expect(screen.getByTestId('mo-remind')).not.toBeDisabled();
+  fireEvent.click(screen.getByTestId('mo-remind'));
+  expect(m.opts().remindIfNoReply).toBe(true);
+  expect(buildHeaders(m.opts(), m.gates).headers.map(([n]) => n)).toEqual(['Reply-By']);
+  fireEvent.click(screen.getAllByRole('button', { name: 'Clear' })[0]!);
+  expect(m.opts().remindIfNoReply).toBe(false);
+});
+
+it('Remind me is off when the message is not saved to a folder', async () => {
+  mount({}, { inReplyTo: [], references: [] }, { remindAvailable: () => false });
+  fireEvent.input(await screen.findByTestId('mo-reply-by'), { target: { value: '2026-11-03T17:00' } });
+  expect(screen.getByTestId('mo-remind')).toBeDisabled();
+  expect(document.body.textContent).toContain('Needs a sent copy');
 });

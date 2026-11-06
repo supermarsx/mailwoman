@@ -568,3 +568,25 @@ it('preserves an explicit plain text composition as text/plain without an HTML b
  expect(submit.onSuccessUpdateEmail).toEqual({'#send':{mailboxIds:{project:true},'keywords/$draft':null}});
  expect(JSON.stringify(submit)).not.toContain('reply@example.org');
  });
+
+describe('Remind me if there is no reply', () => {
+  const base = { from: { name: null, email: 'me@example.org' }, to: 'you@example.org', subject: 'Hi', htmlBody: '<p>hello</p>', draftMailboxId: 'drafts1' };
+  const patch = (extra: Record<string, unknown>): Record<string, unknown> | undefined => {
+    const [, submissionSet] = sendEnvelope('acct1', { ...base, ...extra }).methodCalls as [Invocation, Invocation];
+    return (submissionSet[1]['onSuccessUpdateEmail'] as Record<string, Record<string, unknown>> | undefined)?.['#send'];
+  };
+  it('flags the sent copy through the submission patch, beside the move to Sent', () => {
+    expect(patch({ sentMailboxId: 'sent1', followUpAt: '2026-11-10T09:00:00.000Z' })).toEqual({
+      mailboxIds: { sent1: true }, 'keywords/$draft': null, followUpAt: '2026-11-10T09:00:00.000Z',
+    });
+  });
+  it('still flags it when no Sent folder was chosen', () => {
+    expect(patch({ followUpAt: '2026-11-10T09:00:00.000Z' })).toEqual({ 'keywords/$draft': null, followUpAt: '2026-11-10T09:00:00.000Z' });
+  });
+  it('adds nothing without a reminder, and nothing when the copy is destroyed', () => {
+    expect(patch({ sentMailboxId: 'sent1' })).toEqual({ mailboxIds: { sent1: true }, 'keywords/$draft': null });
+    const [, submissionSet] = sendEnvelope('acct1', { ...base, skipSentCopy: true, followUpAt: '2026-11-10T09:00:00.000Z' }).methodCalls as [Invocation, Invocation];
+    expect(submissionSet[1]['onSuccessUpdateEmail']).toBeUndefined();
+    expect(submissionSet[1]['onSuccessDestroyEmail']).toEqual(['#send']);
+  });
+});

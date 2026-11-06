@@ -20,6 +20,7 @@ import { toastTarget } from '../../components/toast/context.ts';
 
 import { batch,createSignal, createMemo, createEffect, getOwner, onCleanup, type Accessor } from 'solid-js';
 import {createMailReadCache, type PrefetchTrigger} from '../mailReadCache.ts';
+import {folderCachePredicate} from '../folderCache.ts';
 import {readMailCachePolicy} from '../mailCachePolicy.ts';
 import { ApiError, NetworkError, PasswordChangeRequired, type Client, type LoginInput, type Me } from '../../api/client.ts';
 import {
@@ -147,6 +148,7 @@ export interface SendInput {
   replyTo?: string;
   /** Do not keep a copy of the sent message (the Sent copy is removed once the submission succeeds). */
   skipSentCopy?: boolean;
+  followUpAt?: string;
   /** Extra headers to write (Options > Message options); the engine accepts a fixed set. */
   headers?: [string, string][];
   accountDraft?:{id:string;revision:string};
@@ -378,6 +380,8 @@ export interface MailSlice {
   prefetchMailbox(id: Id, trigger: PrefetchTrigger): () => void;
   prefetchMessage(id: Id, trigger: PrefetchTrigger): () => void;
   clearMailCache(): void;
+  /** Drop only the cached reads of one folder (its list requests and the messages known to be in it). */
+  clearFolderCache(mailboxId: Id): void;
   mailCacheStats(): {entries:number;bytes:number;queued:number;inflight:number};
   createReaderView(): MessageView;
   setActiveReader(view: MessageView | null): void;
@@ -2076,6 +2080,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       holdSeconds,
       ...(sent !== null && input.skipSentCopy !== true ? { sentMailboxId: sent } : {}),
       ...(input.skipSentCopy === true ? { skipSentCopy: true } : {}),
+      ...(input.followUpAt !== undefined && input.skipSentCopy !== true ? { followUpAt: input.followUpAt } : {}),
       ...(input.headers !== undefined && input.headers.length > 0 ? { headers: input.headers } : {}),
       ...(senderIdentityId ? { identityId: senderIdentityId } : {}),
       ...(scheduled ? { sendAt: input.sendAt! } : {}),
@@ -2504,6 +2509,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     logout,
     selectMailbox,
     clearMailCache:()=>readCache.invalidate(undefined,{abort:false}),
+    clearFolderCache:(mailboxId:Id)=>readCache.invalidate(folderCachePredicate(mailboxId,messages().filter(message=>message.mailboxIds[mailboxId]).map(message=>message.id)),{abort:false}),
     mailCacheStats:()=>readCache.stats(),
     prefetchMailbox,
     prefetchMessage,

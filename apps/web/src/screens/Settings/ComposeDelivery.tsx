@@ -23,7 +23,7 @@ export const COMPOSE_DELIVERY_CARD: CardSpec = {
 
 const SHOW = ['auto', 'always', 'never'] as const;
 const MODES = ['default', 'fixed', 'byRecipient', 'byIdentity', 'bySubjectRule'] as const;
-const EXPIRY = ['off', 'dim', 'archive-suggestion'] as const;
+const EXPIRY = ['off', 'dim', 'archive-suggestion', 'hide'] as const;
 const isOf = <T extends string>(list: readonly T[]) => (v: unknown): v is T => typeof v === 'string' && (list as readonly string[]).includes(v);
 const isStrings = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === 'string');
 

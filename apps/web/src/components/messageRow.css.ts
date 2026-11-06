@@ -48,6 +48,9 @@ export const slot = style({
 /** The row button fills its slot exactly; whatever does not fit is clipped
  *  rather than spilling onto the next row. Doubled selector so it outranks the
  *  base `.list__row` rule whichever stylesheet loads last. */
+/** A message whose Expires date has passed (`mail.expiry.hideExpired`: dim). */
+export const expired = style({ opacity: 0.55 });
+
 export const row = style({
   selectors: {
     '&&': {

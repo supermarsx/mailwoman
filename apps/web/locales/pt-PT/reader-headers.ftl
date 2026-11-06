@@ -13,4 +13,6 @@ hf-expires-help = O remetente indica que esta mensagem deixa de ser relevante de
 hf-archive-suggestion = Esta mensagem expirou. Pode querer arquivá-la.
 hf-supersedes = Substitui uma mensagem anterior
 hf-supersedes-help = O remetente indica que esta mensagem substitui uma anterior (cabeçalho Supersedes).
+hf-superseded-by = Substituída por uma mensagem mais recente
+hf-superseded-by-help = Uma mensagem mais recente diz que substitui esta (o cabeçalho Supersedes refere esta mensagem).
 hf-find = Procurar
