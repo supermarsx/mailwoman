@@ -10,9 +10,11 @@ import { Icon } from '../../components/Icon.tsx';
 import * as sessionCss from './sessions.css.ts';
 import { ShellContext } from './shell/context.ts';
 import { revokeSessionBatch } from '../../api/sessionRevocation.ts';
-type Session = { handle: string; accountId: string; username: string; lastSeen: string; lastActivity?: string; clientType: string; userAgent: string; ip: string; createdAt?: string; deviceLabel?: string; clientVersion?: string };
+import { adminOriginView, type AdminLinkFields } from './sessionOrigin.ts';
+type Session = { handle: string; accountId: string; username: string; lastSeen: string; lastActivity?: string; clientType: string; userAgent: string; ip: string; createdAt?: string; deviceLabel?: string; clientVersion?: string } & AdminLinkFields;
 type Listing = { sessions: Session[]; truncated: boolean };
-export function AdminSessions(): JSX.Element {
+/** `accountId` embeds the list for one account (the account page's Sessions tab): the account filter is fixed and the filter fields are hidden. */
+export function AdminSessions(props: { accountId?: string } = {}): JSX.Element {
   void loadCatalog('security'); // t112: its ids show wherever it is mounted
   const authority=adminSessionGeneration();let alive=true;onCleanup(()=>{alive=false;});
   const authorityCurrent=():boolean=>alive&&authority===adminSessionGeneration();
@@ -21,7 +23,7 @@ export function AdminSessions(): JSX.Element {
   const [query, setQuery] = createSignal('');
   const [single, setSingle] = createSignal<Session>();
   const [domain, setDomain] = createSignal('');
-  const [account, setAccount] = createSignal('');
+  const [account, setAccount] = createSignal(props.accountId ?? '');
   const [kind, setKind] = createSignal('');
   const [preview, setPreview] = createSignal<Listing>();
   const [busy, setBusy] = createSignal(false);
@@ -29,7 +31,7 @@ export function AdminSessions(): JSX.Element {
   const [selected,setSelected]=createSignal(new Set<string>());
   const [batch,setBatch]=createSignal<Session[]>();
   const [notice,setNotice]=createSignal<{text:string;problem:boolean}>();
-  const [sessions, { refetch }] = createResource(async () => (await adminRequest<Listing>('/sessions')).data);
+  const [sessions, { refetch }] = createResource(async () => (await adminRequest<Listing>(props.accountId ? `/sessions?accountId=${encodeURIComponent(props.accountId)}` : '/sessions')).data);
   const filter = () => ({ ...(domain() ? { domain: domain() } : {}), ...(account() ? { accountId: account() } : {}), ...(kind() ? { clientType: kind() } : {}) });
   function change(set: (value: string) => void, value: string): void { set(value); setPreview(undefined);setSelected(new Set<string>()); }
   async function run(commit: boolean): Promise<void> {
@@ -46,7 +48,7 @@ export function AdminSessions(): JSX.Element {
     const rows = preview()?.sessions ?? (sessions.error ? [] : sessions.latest?.sessions) ?? [];
     return rows.filter((row) => (!domain() || row.username.split('@').at(-1)?.toLowerCase() === domain().toLowerCase())
       && (!account() || row.accountId === account()) && (!kind() || row.clientType === kind())
-      && (!q || [row.username, row.accountId, row.ip, row.userAgent, row.deviceLabel].some((v) => v?.toLowerCase().includes(q))));
+      && (!q || [row.username, row.accountId, row.ip, row.userAgent, row.deviceLabel, row.originEmail, row.originDeviceLabel, row.targetEmail].some((v) => v?.toLowerCase().includes(q))));
   };
   const date = (value?: string): string => !value ? '—' : Number.isNaN(Date.parse(value)) ? value : formatDateTime(new Date(value));
   const chosen=():Session[]=>shown().filter(row=>selected().has(row.handle));
@@ -63,20 +65,30 @@ export function AdminSessions(): JSX.Element {
       try{await refetch();}catch{if(authorityCurrent())setError(t('admin-session-refresh-failed'));}
     }finally{if(authorityCurrent())setBusy(false);}
   }
+  function linkedBlock(view: NonNullable<ReturnType<typeof adminOriginView>>): JSX.Element {
+    const line = view.removed ? t('admin-session-linked-removed') : view.origin ? t('admin-session-linked-line', { origin: view.origin }) : view.restricted ? t('admin-session-linked-restricted') : t('admin-session-linked-line-hidden');
+    return <span data-testid="linked-origin" class={sessionCss.origin}>
+      <span dir="auto">{line}</span>
+      <Show when={view.deviceLabel}><span>{t('admin-session-linked-device', { device: view.deviceLabel! })}</span></Show>
+      <Show when={view.accountHref}><a class="btn btn--ghost" href={view.accountHref}>{t('admin-session-linked-open')}</a></Show>
+    </span>;
+  }
   const columns = (): Column<Session>[] => [
     {id:'select',header:t('admin-session-select'),cell:row=><input type="checkbox" checked={selected().has(row.handle)} disabled={busy()||!canRevoke()} aria-label={t('admin-session-select-account',{account:row.username})} onChange={event=>setSelected(previous=>{const next=new Set(previous);if(event.currentTarget.checked)next.add(row.handle);else next.delete(row.handle);return next;})}/>},
-    { id: 'account', header: t('admin-session-account'), cell: (row) => <span class={sessionCss.cell}><strong>{row.username}</strong><p>{row.accountId}</p></span> },
+    { id: 'account', header: t('admin-session-account'), cell: (row) => <span class={sessionCss.cell}><strong>{row.username}</strong><p>{row.accountId}</p><Show when={adminOriginView(row)}>{view => linkedBlock(view())}</Show></span> },
     { id: 'device', header: t('admin-session-device'), cell: (row) => <span class={sessionCss.cell}>{row.deviceLabel || row.clientType || '—'} {row.clientVersion}<p>{row.userAgent || '—'}</p></span> },
     { id: 'ip', header: t('admin-session-ip'), cell: (row) => row.ip || '—' },
     { id: 'activity', header: t('admin-session-activity'), cell: (row) => date(row.lastActivity ?? row.lastSeen) },
     { id: 'created', header: t('admin-session-created'), cell: (row) => date(row.createdAt) },
   ];
   return <section class={css.section}>
-    <h2 class={css.heading}>{t('admin-nav-sessions')}</h2>
+    <Show when={!props.accountId}><h2 class={css.heading}>{t('admin-nav-sessions')}</h2></Show>
     <Show when={error()}><p role="alert">{error()}</p></Show>
-    <label class={css.field}>{t('admin-sessions-domain')}<input class={css.input} value={domain()} onInput={(e) => change(setDomain, e.currentTarget.value)} /></label>
-    <label class={css.field}>{t('admin-sessions-account')}<input class={css.input} value={account()} onInput={(e) => change(setAccount, e.currentTarget.value)} /></label>
-    <label class={css.field}>{t('admin-sessions-client')}<input class={css.input} value={kind()} onInput={(e) => change(setKind, e.currentTarget.value)} /></label>
+    <Show when={!props.accountId}>
+      <label class={css.field}>{t('admin-sessions-domain')}<input class={css.input} value={domain()} onInput={(e) => change(setDomain, e.currentTarget.value)} /></label>
+      <label class={css.field}>{t('admin-sessions-account')}<input class={css.input} value={account()} onInput={(e) => change(setAccount, e.currentTarget.value)} /></label>
+      <label class={css.field}>{t('admin-sessions-client')}<input class={css.input} value={kind()} onInput={(e) => change(setKind, e.currentTarget.value)} /></label>
+    </Show>
     <button type="button" disabled={busy() || !canRevoke()} title={shell?.can.reason('sessions.revoke') ?? undefined} onClick={() => void run(false)}>{t('admin-sessions-preview')}</button>
     <Show when={preview()}>{(review) => <><p role="status">{t('admin-sessions-count', { count: review().sessions.length })}</p><button type="button" disabled={busy() || !canRevoke() || review().sessions.length === 0} onClick={() => void run(true)}>{t('admin-sessions-confirm')}</button></>}</Show>
     <Show when={(preview() ?? (sessions.error ? undefined : sessions.latest))?.truncated}><p>{t('admin-sessions-truncated')}</p></Show>

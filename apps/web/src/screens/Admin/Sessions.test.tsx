@@ -42,3 +42,35 @@ it('reports partial selected revocations and stops after fresh-proof refusal',as
  const writes=vi.mocked(adminRequest).mock.calls.filter(([path])=>path==='/sessions/revoke');
  expect(writes.map(([,init])=>(init?.body as {handles:string[]}).handles)).toEqual([['one'],['two']]);
 });
+
+it('names the origin of a linked mailbox session, its device and a link to the origin account', async () => {
+  const listing = { sessions: [
+    { handle: 'l1', accountId: 'acct-bob', username: 'bob@other.test', lastSeen: 'today', clientType: 'linked', userAgent: 'Firefox', ip: '192.0.2.1', linkKind: 'linked', originEmail: 'alice@example.test', originAccountId: 'acct-alice', originDeviceLabel: 'Firefox on Windows', targetEmail: 'bob@other.test', originRemoved: false },
+    { handle: 'l2', accountId: 'acct-bob', username: 'bob@other.test', lastSeen: 'today', clientType: 'linked', userAgent: 'Firefox', ip: '192.0.2.2', linkKind: 'linked', originEmail: 'c***@example.test', originRemoved: false },
+    { handle: 'l3', accountId: 'acct-bob', username: 'bob@other.test', lastSeen: 'today', clientType: 'linked', userAgent: 'Firefox', ip: '192.0.2.3', linkKind: 'linked', originRemoved: true },
+    { handle: 'l4', accountId: 'acct-bob', username: 'bob@other.test', lastSeen: 'today', clientType: 'linked', userAgent: 'Firefox', ip: '192.0.2.4', linkKind: 'linked', originRestricted: true, originRemoved: false },
+    { handle: 'l5', accountId: 'acct-bob', username: 'bob@other.test', lastSeen: 'today', clientType: 'linked', userAgent: 'Firefox', ip: '192.0.2.5', linkKind: 'linked' },
+    { handle: 'p1', accountId: 'acct-bob', username: 'bob@other.test', lastSeen: 'today', clientType: 'browser', userAgent: 'Chrome', ip: '192.0.2.6' },
+  ], truncated: false };
+  vi.mocked(adminRequest).mockReset().mockResolvedValue({ data: listing, status: 200, etag: null });
+  render(() => <AdminSessions />);
+  await screen.findByText('Linked mailbox access · from alice@example.test');
+  expect(screen.getByText('Origin session: Firefox on Windows')).toBeInTheDocument();
+  expect(screen.getByRole('link', { name: 'Open origin account' }).getAttribute('href')).toContain('#/users/acct-alice');
+  expect(screen.getByText('Linked mailbox access · from c***@example.test')).toBeInTheDocument();
+  expect(screen.getByText('Linked mailbox access · origin account removed')).toBeInTheDocument();
+  expect(screen.getByText(/origin not shown/)).toBeInTheDocument();
+  expect(screen.getAllByRole('link', { name: 'Open origin account' })).toHaveLength(1);
+  expect(screen.getAllByTestId('linked-origin')).toHaveLength(5);
+  fireEvent.input(screen.getByRole('searchbox', { name: 'Search account, device or IP' }), { target: { value: 'windows' } });
+  await waitFor(() => expect(screen.getAllByTestId('linked-origin')).toHaveLength(1));
+});
+
+it('embeds the sessions of one account with the account fixed and no filter fields', async () => {
+  vi.mocked(adminRequest).mockReset().mockResolvedValue({ data: { sessions: [], truncated: false }, status: 200, etag: null });
+  render(() => <AdminSessions accountId="acct bob" />);
+  await waitFor(() => expect(adminRequest).toHaveBeenCalledWith('/sessions?accountId=acct%20bob'));
+  expect(screen.queryByLabelText('Domain filter')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Preview session revocation' }));
+  await waitFor(() => expect(adminRequest).toHaveBeenCalledWith('/sessions/revoke', { method: 'POST', body: { filter: { accountId: 'acct bob' }, dryRun: true } }));
+});

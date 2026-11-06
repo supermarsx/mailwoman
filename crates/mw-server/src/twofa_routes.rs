@@ -2645,6 +2645,8 @@ mod tests {
             device: mw_store::SessionDevice::default(),
             linked: Some(mw_store::LinkedOrigin {
                 origin_email: origin.map(str::to_owned),
+                origin_account_id: origin.map(|_| "acct-alice".to_owned()),
+                origin_device_label: origin.map(|_| "Firefox on Windows".to_owned()),
                 link_created_at: Some(1_700_000_000),
             }),
         }
@@ -2660,6 +2662,7 @@ mod tests {
         assert_eq!(full["originRemoved"], false);
         assert_eq!(full["linkCreatedAt"], 1_700_000_000);
         assert!(full.get("originAccountId").is_none());
+        assert!(full.get("originDeviceLabel").is_none());
         let masked = session_view(&row, "x", "masked-local-part");
         assert_eq!(masked["originEmail"], "a***@example.test");
         let hidden = session_view(&row, "x", "hidden");

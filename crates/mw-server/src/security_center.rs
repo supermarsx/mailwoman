@@ -720,6 +720,92 @@ fn matches_session(
             .is_none_or(|v| v == &row.device.client_type)
         && filter.handle.as_ref().is_none_or(|v| v == &row.handle)
 }
+/// How the owner of `row`'s account has `privacy.sessions.showLinkedOrigin` set
+/// (global, domain, then the user's own value). Fails closed to `hidden`.
+async fn linked_origin_mode(state: &AppState, row: &mw_store::SecuritySession) -> String {
+    let domain = row
+        .username
+        .rsplit_once('@')
+        .map_or(String::new(), |(_, d)| d.to_ascii_lowercase());
+    let subject = mw_store::settings_policy::SettingSubject {
+        personal_owner: None,
+        domain: &domain,
+        account_id: &row.account_id,
+        address: &row.username,
+    };
+    match crate::settings_registry::effective_for(
+        &state.store,
+        "privacy.sessions.showLinkedOrigin",
+        &subject,
+    )
+    .await
+    {
+        Ok(Some(v)) => v.value.as_str().unwrap_or("hidden").to_owned(),
+        _ => "hidden".to_owned(),
+    }
+}
+/// `a***@example.com`: the first character and the domain are kept.
+fn mask_origin(email: &str) -> String {
+    match email.rsplit_once('@') {
+        Some((local, domain)) => format!(
+            "{}***@{domain}",
+            local.chars().take(1).collect::<String>()
+        ),
+        None => email.chars().take(1).collect::<String>() + "***",
+    }
+}
+/// One row of the administrator's session listing. A linked-mailbox row names the
+/// account it comes from only when the administrator may read that account
+/// (`users.read` for the origin's domain) and the owner's
+/// `privacy.sessions.showLinkedOrigin` allows it: `full` shows the address, the
+/// origin account id (for the "Open origin account" link) and the origin session's
+/// device label; `masked-local-part` shows the masked address only; `hidden`
+/// shows that the session is linked and nothing about where it came from.
+fn admin_session_view(
+    ctx: &crate::admin_ctx::AdminCtx,
+    row: &mw_store::SecuritySession,
+    mode: &str,
+) -> Value {
+    let mut out = serde_json::to_value(row).unwrap_or_else(|_| json!({}));
+    let (Some(linked), Some(object)) = (&row.linked, out.as_object_mut()) else {
+        return out;
+    };
+    object.insert("linkKind".into(), json!("linked"));
+    if mode == "hidden" {
+        return out;
+    }
+    object.insert("targetEmail".into(), json!(row.username));
+    object.insert("originRemoved".into(), json!(linked.origin_email.is_none()));
+    if let Some(created) = linked.link_created_at {
+        object.insert("linkCreatedAt".into(), json!(created));
+    }
+    let Some(email) = &linked.origin_email else {
+        return out;
+    };
+    let origin_domain = email
+        .rsplit_once('@')
+        .map_or("", |(_, d)| d)
+        .to_ascii_lowercase();
+    if ctx
+        .require_domain_for(crate::capabilities::Capability::UsersRead, &origin_domain)
+        .is_err()
+    {
+        object.insert("originRestricted".into(), json!(true));
+        return out;
+    }
+    if mode == "masked-local-part" {
+        object.insert("originEmail".into(), json!(mask_origin(email)));
+        return out;
+    }
+    object.insert("originEmail".into(), json!(email));
+    if let Some(id) = &linked.origin_account_id {
+        object.insert("originAccountId".into(), json!(id));
+    }
+    if let Some(label) = &linked.origin_device_label {
+        object.insert("originDeviceLabel".into(), json!(label));
+    }
+    out
+}
 async fn admin_sessions(
     State(state): State<AppState>,
     ctx: crate::admin_ctx::AdminCtx,
@@ -736,7 +822,21 @@ async fn admin_sessions(
                 .into_iter()
                 .filter(|row| matches_session(&ctx, &filter, row))
                 .collect();
-            Json(json!({"sessions":rows,"truncated":truncated})).into_response()
+            let mut modes: std::collections::HashMap<String, String> = Default::default();
+            let mut out = Vec::with_capacity(rows.len());
+            for row in &rows {
+                let mode = if row.linked.is_some() {
+                    if !modes.contains_key(&row.account_id) {
+                        let mode = linked_origin_mode(&state, row).await;
+                        modes.insert(row.account_id.clone(), mode);
+                    }
+                    modes[&row.account_id].clone()
+                } else {
+                    "hidden".to_owned()
+                };
+                out.push(admin_session_view(&ctx, row, &mode));
+            }
+            Json(json!({"sessions":out,"truncated":truncated})).into_response()
         }
         Err(e) => error("admin sessions", e),
     }
@@ -987,5 +1087,111 @@ mod session_scope_tests {
             },
             &row
         ));
+    }
+}
+
+#[cfg(test)]
+mod admin_linked_origin_tests {
+    use super::*;
+    use crate::admin_ctx::{AdminCtx, DomainScope};
+    use crate::capabilities::Capability;
+    fn linked(origin: Option<&str>) -> mw_store::SecuritySession {
+        mw_store::SecuritySession {
+            handle: "h".into(),
+            account_id: "acct-bob".into(),
+            username: "bob@other.test".into(),
+            created_at: String::new(),
+            last_seen: String::new(),
+            last_activity: String::new(),
+            device: SessionDevice::default(),
+            linked: Some(mw_store::LinkedOrigin {
+                origin_email: origin.map(str::to_owned),
+                origin_account_id: origin.map(|_| "acct-alice".to_owned()),
+                origin_device_label: origin.map(|_| "Firefox on Windows".to_owned()),
+                link_created_at: Some(1_700_000_000),
+            }),
+        }
+    }
+    fn admin_for(domains: &[&str]) -> AdminCtx {
+        AdminCtx::with_grants(
+            "operator",
+            [(
+                Capability::UsersRead,
+                DomainScope::Domains(domains.iter().map(|d| (*d).to_owned()).collect()),
+            )]
+            .into_iter()
+            .collect(),
+        )
+        .for_route(Some(Capability::UsersRead))
+    }
+    #[test]
+    fn an_administrator_with_users_read_for_the_origin_domain_sees_the_origin() {
+        let view = admin_session_view(
+            &admin_for(&["example.test"]),
+            &linked(Some("alice@example.test")),
+            "full",
+        );
+        assert_eq!(view["linkKind"], "linked");
+        assert_eq!(view["originEmail"], "alice@example.test");
+        assert_eq!(view["originAccountId"], "acct-alice");
+        assert_eq!(view["originDeviceLabel"], "Firefox on Windows");
+        assert_eq!(view["targetEmail"], "bob@other.test");
+        assert_eq!(view["originRemoved"], false);
+        for field in ["originIp", "originCountry", "originLocation"] {
+            assert!(view.get(field).is_none(), "{field}");
+        }
+    }
+    #[test]
+    fn an_administrator_without_users_read_for_the_origin_domain_gets_no_origin() {
+        let view = admin_session_view(
+            &admin_for(&["other.test"]),
+            &linked(Some("alice@example.test")),
+            "full",
+        );
+        assert_eq!(view["linkKind"], "linked");
+        assert_eq!(view["originRestricted"], true);
+        for field in ["originEmail", "originAccountId", "originDeviceLabel"] {
+            assert!(view.get(field).is_none(), "{field}");
+        }
+        let none = AdminCtx::with_grants("nobody", Default::default());
+        let view = admin_session_view(&none, &linked(Some("alice@example.test")), "full");
+        assert!(view.get("originEmail").is_none());
+    }
+    #[test]
+    fn the_owners_setting_masks_or_hides_the_origin_for_administrators_too() {
+        let admin = admin_for(&["example.test"]);
+        let row = linked(Some("alice@example.test"));
+        let masked = admin_session_view(&admin, &row, "masked-local-part");
+        assert_eq!(masked["originEmail"], "a***@example.test");
+        assert!(
+            masked.get("originAccountId").is_none(),
+            "a masked origin must not leak through the account link"
+        );
+        assert!(masked.get("originDeviceLabel").is_none());
+        let hidden = admin_session_view(&admin, &row, "hidden");
+        assert_eq!(hidden["linkKind"], "linked");
+        for field in [
+            "originEmail",
+            "originAccountId",
+            "originDeviceLabel",
+            "targetEmail",
+            "originRemoved",
+            "linkCreatedAt",
+        ] {
+            assert!(hidden.get(field).is_none(), "{field}");
+        }
+    }
+    #[test]
+    fn a_removed_origin_is_flagged_and_a_plain_session_has_no_link_fields() {
+        let admin = admin_for(&["example.test"]);
+        let removed = admin_session_view(&admin, &linked(None), "full");
+        assert_eq!(removed["originRemoved"], true);
+        assert!(removed.get("originEmail").is_none());
+        let mut plain = linked(None);
+        plain.linked = None;
+        let plain = admin_session_view(&admin, &plain, "full");
+        for field in ["linkKind", "originEmail", "originAccountId", "targetEmail"] {
+            assert!(plain.get(field).is_none(), "{field}");
+        }
     }
 }

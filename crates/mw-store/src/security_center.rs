@@ -38,6 +38,11 @@ pub struct LinkedOrigin {
     /// The owning account's sign-in name; `None` once that account is gone
     /// (no live primary session for its principal, or the principal retired).
     pub origin_email: Option<String>,
+    /// The owning account's id, for the administrator's link to it. Like the email,
+    /// it is never part of the user's own listing.
+    pub origin_account_id: Option<String>,
+    /// Device label of the owner's live primary session (never its address or location).
+    pub origin_device_label: Option<String>,
     /// When the link was created (unix seconds); `None` if the link is gone.
     pub link_created_at: Option<i64>,
 }
@@ -344,14 +349,19 @@ impl Store {
             if opened.ok().as_deref() != Some(session.as_bytes()) {
                 continue;
             }
-            let email = q("SELECT s.username FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id WHERE sp.principal_id=?1 AND s.linked_internal=0 AND p.state='active' ORDER BY s.last_seen DESC LIMIT 1")
+            let email = q("SELECT s.username,s.account_id,s.device_label FROM session_principal sp JOIN sessions s ON s.id=sp.session_id AND s.account_id=sp.primary_account_id JOIN identity_principal p ON p.id=sp.principal_id WHERE sp.principal_id=?1 AND s.linked_internal=0 AND p.state='active' ORDER BY s.last_seen DESC LIMIT 1")
                 .bind(&owner).fetch_optional(&self.backend).await?;
             return Ok(LinkedOrigin {
-                origin_email: email.map(|r| r.get_string("username")),
+                origin_email: email.as_ref().map(|r| r.get_string("username")),
+                origin_account_id: email.as_ref().map(|r| r.get_string("account_id")),
+                origin_device_label: email
+                    .as_ref()
+                    .and_then(|r| r.get_opt_string("device_label"))
+                    .filter(|l| !l.is_empty()),
                 link_created_at: Some(link.get_i64("created_at")),
             });
         }
-        Ok(LinkedOrigin { origin_email: None, link_created_at: None })
+        Ok(LinkedOrigin { origin_email: None, origin_account_id: None, origin_device_label: None, link_created_at: None })
     }
     pub async fn record_signin_event(&self, event: &SigninEvent) -> Result<(), StoreError> {
         self.record_auth_event(
@@ -950,6 +960,7 @@ mod linked_origin_tests {
         assert_eq!(linked.len(), 1, "only the private linked session is marked");
         let origin = linked[0].linked.as_ref().unwrap();
         assert_eq!(origin.origin_email.as_deref(), Some("alice@example.test"));
+        assert_eq!(origin.origin_account_id.as_deref(), Some("acct-alice"));
         assert_eq!(origin.link_created_at, Some(1_700_000_000));
         assert!(rows.iter().any(|r| r.handle == crate::session_handle(&plain) && r.linked.is_none()));
         // The origin account listing never carries the child's link rows.

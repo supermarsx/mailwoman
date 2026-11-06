@@ -19,6 +19,7 @@ import * as css from '../admin.css.ts';
 import { UserAccessActions } from '../UserAccessActions.tsx';
 import { UserFeatureProfile } from './UserFeatureProfile.tsx';
 import { UserComplianceTab } from './UserComplianceTab.tsx';
+import { AdminSessions } from '../Sessions.tsx';
 import { resolveUserTab, visibleUserTabs, type UserTabId } from './userTabs.ts';
 import { initials } from './UsersTable.tsx';
 import * as ux from './userDetail.css.ts';
@@ -117,6 +118,7 @@ export function UserDetail(props: { id: string; tab?: string }): JSX.Element {
           </Show>
           <Show when={tab.id === 'sessions'}>
             <Index each={one()}>{(u) => <section class={css.card}><h3>{t('admin-users-col-sessions')}</h3><button type="button" class="btn btn--ghost" disabled={!(shell?.can.can('users.revoke_sessions') ?? true)} aria-label={t('admin-users-revoke-for', { account: u().accountId })} onClick={() => void onRevoke(u())}>{t('admin-revoke')}</button></section>}</Index>
+            <Show when={shell?.can.can('sessions.read') ?? true}><Index each={one()}>{(u) => <AdminSessions accountId={u().accountId} />}</Index></Show>
           </Show>
           <Show when={tab.id === 'compliance'}><UserComplianceTab addresses={addresses()} onCount={setOpenRequests} /></Show>
           <Show when={tab.id === 'access'}>
