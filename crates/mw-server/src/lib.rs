@@ -64,16 +64,16 @@ pub mod push_relay;
 mod client_errors;
 mod client_errors_symbolicate;
 mod client_timing;
+mod metrics_persist;
 mod breach;
 mod breach_model;
-mod metrics_persist;
 mod dsr;
 mod scrub_admin;
 pub mod erasure_cmd;
 mod dsr_data;
+mod folder_export;
 mod cookie_consent;
 mod consent_ledger;
-mod folder_export;
 mod privacy_overview;
 mod rate_leeway;
 
@@ -182,10 +182,11 @@ mod signin_guard;
 pub(crate) mod signin_policy;
 mod trust_tier;
 /// Best-effort final save of the known-source table at graceful shutdown.
+pub use session_persistence::{shutdown_grace, termination_signal};
 pub async fn flush_trust_tiers() {
     trust_tier::flush_on_shutdown().await;
+    metrics_persist::flush_on_shutdown().await;
 }
-pub use session_persistence::{shutdown_grace, termination_signal};
 mod sec_cfg;
 mod security_alerts;
 mod session_binding;
@@ -222,8 +223,8 @@ mod user_retention;
 mod diagnostics;
 mod feature_gate;
 mod feature_jmap;
-mod message_headers;
 mod delete_policy;
+mod message_headers;
 mod features;
 mod health_probes;
 mod hosting_connections;
@@ -953,14 +954,14 @@ pub(crate) struct AppState {
     config_snapshot: config_routes::BootConfigSnapshot,
     request_history: Arc<request_history::Recorder>,
     client_timing: Arc<client_timing::Recorder>,
+    /// Keeps the persisted-statistics recorder (and its flush loop) alive.
+    #[allow(dead_code)]
+    metrics_recorder: Arc<metrics_persist::Recorder>,
     store: Store,
     pub(crate) scheduler: Arc<jobs::Scheduler>,
     render_bin: Option<PathBuf>,
     /// Whether a render kernel jail is expected on this deployment (DQ4/S6, via
     /// [`mw_sandbox::jail_expected`]). When set, the in-process render fallbacks
-    /// Keeps the persisted-statistics recorder (and its flush loop) alive.
-    #[allow(dead_code)]
-    metrics_recorder: Arc<metrics_persist::Recorder>,
     /// (HTML sanitize / `.oft` parse) fail closed instead of running hostile input in
     /// this trusted process without the jail.
     render_jail_required: bool,
@@ -1153,11 +1154,11 @@ async fn build_app_inner(
     // `mailwoman serve`) one generated on a new installation / `/admin` kept on
     // an upgrade — set before any route is built.
     console_path::resolve(&store, &admin_overlay).await?;
+    session_persistence::apply_at_startup(&store).await;
     let render_bin = locate_render_bin();
     // DQ4/S6: is a render kernel jail expected here? On Linux (or when
     // `MW_RENDER_JAIL=require`), the hostile-input render must run in the jailed
     // child — the in-process fallbacks then fail closed rather than parse untrusted
-    session_persistence::apply_at_startup(&store).await;
     // input in this trusted process. On non-Linux this is the documented degraded
     // mode (process-split only) and the fallbacks are permitted.
     let render_jail_required = mw_sandbox::jail_expected();
@@ -1414,13 +1415,13 @@ async fn build_app_inner(
         config_snapshot,
         request_history: request_history::Recorder::start(store.clone()),
         client_timing: client_timing::Recorder::start(store.clone()),
+        metrics_recorder: metrics_persist::start(store.clone()),
         store,
         scheduler: jobs::new_scheduler(),
         render_bin,
         render_jail_required,
         retained_assets: retained_assets(&config.db_path, config.web_dir.as_deref()).await,
         web_dir: config.web_dir,
-        metrics_recorder: metrics_persist::start(store.clone()),
         cookie_secure,
         external,
         base_path: Arc::from(base_path.as_str()),
@@ -1577,8 +1578,8 @@ fn router(
         .merge(features::user_router())
         .merge(client_policy::router())
         .merge(client_timing::router())
-        .merge(dsr::router())
         .merge(client_errors::router())
+        .merge(dsr::router())
         .merge(user_retention::router())
         .merge(breach::router())
         .merge(cookie_consent::router())
@@ -1635,11 +1636,11 @@ fn router(
         )
         .route("/jmap/upload/{accountId}", post(jmap_upload))
         .route("/api/export/{stableId}", get(export_message))
+        .route("/api/export/folder/{file}", get(folder_export::export_folder))
         // ── V3 PIM endpoints: Mailwoman-native calendar/address-book sharing
         // (ACL-checked serving of a collection to another principal) + the
         // holiday-feed. Handlers are live. ──
         .route("/dav/calendars/{accountId}/{calendarId}", get(caldav_share))
-        .route("/api/export/folder/{file}", get(folder_export::export_folder))
         .route(
             "/dav/addressbooks/{accountId}/{addressBookId}",
             get(carddav_share),
@@ -3456,10 +3457,10 @@ async fn jmap_api(
     if let Err(response) = message_headers::apply(&state, &session, &mut request).await {
         return response;
     }
-    if let Some(engine) = &state.engine {
     if let Err(response) = delete_policy::admit(&state, &session, &mut request).await {
         return response;
     }
+    if let Some(engine) = &state.engine {
         let echo_only = request["methodCalls"]
             .as_array()
             .is_some_and(|calls| calls.iter().all(|call| call[0] == "Core/echo"));
@@ -5332,12 +5333,12 @@ async fn static_handler(
     if error_pages::is_unsafe_asset_path(path) {
         return error(error_pages::ErrorKind::BadRequest);
     }
-    // The base shim is generated, not bundled: served at every prefix (including
     // Hidden source maps ride in the asset set for the admin symbolicator only
     // (client_errors_symbolicate); a browser never gets one.
     if path.ends_with(".map") {
         return error(error_pages::ErrorKind::NotFound);
     }
+    // The base shim is generated, not bundled: served at every prefix (including
     // none) so an `index.html` cached from a previously-prefixed deployment never
     // hits a 404 here.
     if path == BASE_SHIM_PATH {

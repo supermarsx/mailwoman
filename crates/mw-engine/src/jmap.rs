@@ -1341,19 +1341,6 @@ impl Engine {
         if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled).await {
             return server_fail(&e);
         }
-        // The cached authentication summary a list row needs for a brand logo;
-        // only when the request names it, and never computed here.
-        let wants_auth = args
-            .get("properties")
-            .and_then(Value::as_array)
-            .is_some_and(|named| {
-                named
-                    .iter()
-                    .any(|p| p == crate::security::list_auth::AUTH_PROPERTY)
-            });
-        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled).await {
-            return server_fail(&e);
-        }
 
         // `list` is positional against the request: a repeated id is answered
         // twice, because de-duplicating it drops an entry the client asked for.
@@ -3136,7 +3123,6 @@ impl Engine {
         for row in &rows {
             if let Some(ids) = &wanted
                 && !ids.contains(&row.id)
-                h.on_success.as_deref(),
             {
                 continue;
             }
@@ -3150,6 +3136,7 @@ impl Engine {
                 a.next_attempt_at.as_deref(),
                 h.hold.as_deref(),
                 h.origin.as_deref(),
+                h.on_success.as_deref(),
             ));
         }
         let not_found: Vec<Value> = match &wanted {
@@ -6220,7 +6207,6 @@ fn submission_due_at(row: &SubmissionRow) -> Option<String> {
     }
     let created = chrono::DateTime::parse_from_rfc3339(&row.created_at).ok()?;
     Some(
-    on_success: Option<&str>,
         (created.with_timezone(&chrono::Utc)
             + chrono::Duration::seconds(i64::from(row.hold_seconds)))
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -6234,6 +6220,7 @@ fn submission_json(
     next_attempt_at: Option<&str>,
     hold: Option<&str>,
     origin: Option<&str>,
+    on_success: Option<&str>,
 ) -> Value {
     json!({
         "id": row.id,
@@ -6241,11 +6228,24 @@ fn submission_json(
         "identityId": row.identity_id,
         "sendAt": row.send_at,
         "undoStatus": public_undo_status(&row.undo_status),
-        // Where the copy goes once it is sent (Outbox: "Will be saved in ...").
-        "mailwomanSentCopy": sent_copy_json(on_success),
         "mailwomanHoldSeconds": row.hold_seconds,
         // When the engine will send it: `sendAt`, else created + hold. Lets the
         // Outbox count down without knowing how the window was derived.
+        "mailwomanDueAt": submission_due_at(row),
+        "mailwomanHold": hold.filter(|_| row.undo_status == SUBMISSION_PENDING),
+        "mailwomanOrigin": origin.and_then(|o| serde_json::from_str::<Value>(o).ok()),
+        "mailwomanFailed": row.undo_status == SUBMISSION_FAILED,
+        "mailwomanDeliveryUncertain": row.undo_status == "uncertain" || row.undo_status.starts_with("sending:"),
+        "mailwomanAttempts": attempts,
+        "mailwomanLastError": if row.undo_status == "uncertain" || row.undo_status.starts_with("sending:") {
+            Some("Delivery status unknown. Check Sent or confirm with the recipient before sending again.")
+        } else { last_error },
+        "mailwomanNextAttemptAt": next_attempt_at,
+        // Where the copy goes once it is sent (Outbox: "Will be saved in ...").
+        "mailwomanSentCopy": sent_copy_json(on_success),
+    })
+}
+
 /// The sent-copy choice kept in a submission's `onSuccess*` record: `{"skip": true}`
 /// when the message is destroyed after sending, `{"mailboxId": id}` when the copy
 /// is filed in a folder, `null` when nothing was chosen (the server's default).
@@ -6266,19 +6266,6 @@ fn sent_copy_json(on_success: Option<&str>) -> Value {
         .and_then(Value::as_object)
         .and_then(|m| m.iter().find(|(_, on)| on.as_bool() == Some(true)))
         .map_or(Value::Null, |(id, _)| json!({"mailboxId": id}))
-}
-
-        "mailwomanDueAt": submission_due_at(row),
-        "mailwomanHold": hold.filter(|_| row.undo_status == SUBMISSION_PENDING),
-        "mailwomanOrigin": origin.and_then(|o| serde_json::from_str::<Value>(o).ok()),
-        "mailwomanFailed": row.undo_status == SUBMISSION_FAILED,
-        "mailwomanDeliveryUncertain": row.undo_status == "uncertain" || row.undo_status.starts_with("sending:"),
-        "mailwomanAttempts": attempts,
-        "mailwomanLastError": if row.undo_status == "uncertain" || row.undo_status.starts_with("sending:") {
-            Some("Delivery status unknown. Check Sent or confirm with the recipient before sending again.")
-        } else { last_error },
-        "mailwomanNextAttemptAt": next_attempt_at,
-    })
 }
 
 /// A stored submission status as RFC 8621 `undoStatus`: the engine-only terminal
@@ -7987,19 +7974,6 @@ mod delivery_header_tests {
         );
         // Without `:all` it is the last instance, as RFC 8621 says.
         let last = header_properties_json(raw, &wanted(&["header:Delivered-To:asAddresses"]));
-    #[test]
-    fn the_sent_copy_choice_is_read_back_from_the_stored_instructions() {
-        let stored = |update: Value, destroy: bool| {
-            json!({"update": update, "destroy": destroy, "rcptTo": null, "dsn": null}).to_string()
-        };
-        let folder = stored(json!({"mailboxIds": {"project": true}, "keywords/$draft": null}), false);
-        assert_eq!(sent_copy_json(Some(&folder)), json!({"mailboxId": "project"}));
-        assert_eq!(sent_copy_json(Some(&stored(Value::Null, true))), json!({"skip": true}));
-        assert_eq!(sent_copy_json(Some(&stored(Value::Null, false))), Value::Null);
-        assert_eq!(sent_copy_json(Some("not json")), Value::Null);
-        assert_eq!(sent_copy_json(None), Value::Null);
-    }
-
         assert_eq!(last[0].1.as_array().unwrap().len(), 2);
         // An absent header is null, or an empty list with :all.
         let absent = header_properties_json(raw, &wanted(&["header:Envelope-To:asAddresses", "header:Envelope-To:asAddresses:all"]));
@@ -8012,6 +7986,19 @@ mod delivery_header_tests {
 mod optional_header_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn the_sent_copy_choice_is_read_back_from_the_stored_instructions() {
+        let stored = |update: Value, destroy: bool| {
+            json!({"update": update, "destroy": destroy, "rcptTo": null, "dsn": null}).to_string()
+        };
+        let folder = stored(json!({"mailboxIds": {"project": true}, "keywords/$draft": null}), false);
+        assert_eq!(sent_copy_json(Some(&folder)), json!({"mailboxId": "project"}));
+        assert_eq!(sent_copy_json(Some(&stored(Value::Null, true))), json!({"skip": true}));
+        assert_eq!(sent_copy_json(Some(&stored(Value::Null, false))), Value::Null);
+        assert_eq!(sent_copy_json(Some("not json")), Value::Null);
+        assert_eq!(sent_copy_json(None), Value::Null);
+    }
 
     #[test]
     fn writes_the_allowed_optional_headers() {

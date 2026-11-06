@@ -520,54 +520,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "How the quick actions on message list rows are shown"
     ),
     def!(
-        "mail.badge.auth",
-        Kind::Enum(&["always", "notable", "never"]),
-        r#""always""#,
-        GDU,
-        "mail",
-        "Reader header: when the DMARC authentication badge shows (always, only when notable, never)"
-    ),
-    def!(
-        "mail.badge.spam",
-        Kind::Enum(&["always", "notable", "never"]),
-        r#""always""#,
-        GDU,
-        "mail",
-        "Reader header: when the spam score badge shows (always, only when notable, never)"
-    ),
-    def!(
-        "mail.badge.sanitized",
-        Kind::Enum(&["always", "notable", "never"]),
-        r#""notable""#,
-        GDU,
-        "mail",
-        "Reader header: when the sanitized HTML badge shows (always, only when notable, never)"
-    ),
-    def!(
-        "mail.badge.folder",
-        Kind::Enum(&["always", "notable", "never"]),
-        r#""always""#,
-        GDU,
-        "mail",
-        "Reader header: when the folder badge shows (always, only when notable, never)"
-    ),
-    def!(
-        "mail.badge.density",
-        Kind::Enum(&["compact", "comfortable"]),
-        r#""compact""#,
-        GDU,
-        "mail",
-        "Reader header badge size: compact or comfortable"
-    ),
-    def!(
-        "mail.badge.labels",
-        Kind::Enum(&["text", "icon"]),
-        r#""text""#,
-        GDU,
-        "mail",
-        "Reader header badges: icon with text, or icon only"
-    ),
-    def!(
         "mail.showGoToTop",
         Kind::Bool,
         "false",
@@ -1948,6 +1900,30 @@ pub static REGISTRY: &[SettingDef] = &[
         "Mailbox session absolute timeout, bounded by the deployment cap"
     ),
     def!(
+        "session.persistAcrossRestarts",
+        Kind::Bool,
+        "true",
+        G,
+        "signin",
+        "Keep mailbox, native and console sessions across a server restart; off ends them all at start-up"
+    ),
+    def!(
+        "session.lastActivityFlushSeconds",
+        int(0, 300),
+        "15",
+        G,
+        "signin",
+        "Write a session's last-seen time at most this often; zero writes on every request"
+    ),
+    def!(
+        "server.shutdownGraceSeconds",
+        int(1, 120),
+        "30",
+        G,
+        "maintenance",
+        "How long a stopping server lets in-flight requests finish before it closes connections"
+    ),
+    def!(
         "twofa.rememberDays",
         int(0, 90),
         "0",
@@ -2516,55 +2492,12 @@ pub static REGISTRY: &[SettingDef] = &[
         "split Inbox into Focused and Other tabs (newsletters and automated senders go to Other); off by default"
     ),
     def!(
-        "mail.accountUnreadBadge",
-        Kind::Bool,
-        "false",
-        GDU,
-        "mail",
-        "Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; account wide"
-    ),
-    def!(
-        "contacts.avatarMode",
-        Kind::Enum(&["off", "initials", "contacts"]),
-        "\"initials\"",
-        GDU,
-        "contacts",
-        "local generated avatars or embedded photos from this account contacts; never remote photo requests"
-    ),
-    def!(
-        "contacts.senderIcons",
-        Kind::Bool,
-        "true",
-        GDU,
-        "contacts",
-        "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"
-    ),
-    def!(
-        "mail.brandAvatars",
-        Kind::Bool,
-        "true",
-        GDU,
-        "mail",
-        "show a bundled brand logo beside the sender in the reader only when the message passed DKIM and an aligned DMARC check for that brand's domain; otherwise the normal avatar is used"
-    ),
-    def!(
         "mail.priorityMarks",
         Kind::Enum(&["both", "high", "off"]),
         r#""both""#,
         GDU,
         "mail",
         "Marks on high and low priority messages: both, high only, or off"
-    ),
-    def!(
-        "mail.list.keep",
-        Kind::StringList {
-            max_len: 500,
-            max_item: 300
-        },
-        "[]",
-        GDU,
-        "mail",
-        "Senders and mailing lists the user always keeps: sender:address or list:List-Id. Clean up this sender, unsubscribe suggestions and retention rules skip them"
     ),
     def!(
         "mail.priorityMarks.style",
@@ -2621,6 +2554,17 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "Mailing list Unsubscribe: ask first and send the one-click request, send it at once, or only open the list's link or draft"
+    ),
+    def!(
+        "mail.list.keep",
+        Kind::StringList {
+            max_len: 500,
+            max_item: 300
+        },
+        "[]",
+        GDU,
+        "mail",
+        "Senders and mailing lists the user always keeps: sender:address or list:List-Id. Clean up this sender, unsubscribe suggestions and retention rules skip them"
     ),
     def!(
         "mail.badge.density",
@@ -2851,6 +2795,38 @@ pub static REGISTRY: &[SettingDef] = &[
         "Key combination that opens Properties"
     ),
     def!(
+        "mail.accountUnreadBadge",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Inbox unread count beside the mailbox name in the sidebar head; the mailbox menu always shows per-mailbox counts; account wide"
+    ),
+    def!(
+        "contacts.avatarMode",
+        Kind::Enum(&["off", "initials", "contacts"]),
+        "\"initials\"",
+        GDU,
+        "contacts",
+        "local generated avatars or embedded photos from this account contacts; never remote photo requests"
+    ),
+    def!(
+        "contacts.senderIcons",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"
+    ),
+    def!(
+        "mail.brandAvatars",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "show a bundled brand logo beside the sender in the reader only when the message passed DKIM and an aligned DMARC check for that brand's domain; otherwise the normal avatar is used"
+    ),
+    def!(
         "contacts.favoritesFirst",
         Kind::Bool,
         "true",
@@ -2929,6 +2905,38 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "reader",
         "start the reader's attachments bar collapsed (t110)"
+    ),
+    def!(
+        "attachments.bar.clickToToggle",
+        Kind::Bool,
+        "true",
+        GDU,
+        "reader",
+        "clicking anywhere on the reader's attachments bar header expands or collapses it"
+    ),
+    def!(
+        "attachments.bar.showDownloadButtons",
+        Kind::Enum(&["always", "hover", "never"]),
+        "\"hover\"",
+        GDU,
+        "reader",
+        "when each attachment shows its download button"
+    ),
+    def!(
+        "attachments.bar.downloadAll",
+        Kind::Bool,
+        "true",
+        GDU,
+        "reader",
+        "offer a Download all button on the reader's attachments bar"
+    ),
+    def!(
+        "attachments.bar.zipInlineImages",
+        Kind::Bool,
+        "false",
+        GDU,
+        "reader",
+        "include inline (cid) images in the attachments bar's Download all ZIP"
     ),
     def!(
         "ui.language",
@@ -3209,38 +3217,6 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.messageListPreview",
-    def!(
-        "attachments.bar.clickToToggle",
-        Kind::Bool,
-        "true",
-        GDU,
-        "reader",
-        "clicking anywhere on the reader's attachments bar header expands or collapses it"
-    ),
-    def!(
-        "attachments.bar.showDownloadButtons",
-        Kind::Enum(&["always", "hover", "never"]),
-        "\"hover\"",
-        GDU,
-        "reader",
-        "when each attachment shows its download button"
-    ),
-    def!(
-        "attachments.bar.downloadAll",
-        Kind::Bool,
-        "true",
-        GDU,
-        "reader",
-        "offer a Download all button on the reader's attachments bar"
-    ),
-    def!(
-        "attachments.bar.zipInlineImages",
-        Kind::Bool,
-        "false",
-        GDU,
-        "reader",
-        "include inline (cid) images in the attachments bar's Download all ZIP"
-    ),
         Kind::Bool,
         "true",
         GDU,
@@ -5714,6 +5690,54 @@ pub static REGISTRY: &[SettingDef] = &[
         "hourly metric rollups kept"
     ),
     def!(
+        "metrics.persist.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "keep performance statistics across restarts"
+    ),
+    def!(
+        "metrics.persist.flushSeconds",
+        int(5, 3600),
+        "60",
+        G,
+        "observability",
+        "seconds between saves of performance statistics"
+    ),
+    def!(
+        "metrics.dimensions.enabled",
+        Kind::Bool,
+        "true",
+        G,
+        "observability",
+        "split saved statistics by client kind and device class"
+    ),
+    def!(
+        "retention.metrics.minuteBucketsHours",
+        int(1, 8760),
+        "48",
+        G,
+        "privacy",
+        "Hours of one-minute statistics kept"
+    ),
+    def!(
+        "retention.metrics.hourBucketsDays",
+        int(1, 3650),
+        "60",
+        G,
+        "privacy",
+        "Days of one-hour statistics kept"
+    ),
+    def!(
+        "retention.metrics.dayBucketsDays",
+        int(0, 3650),
+        "400",
+        G,
+        "privacy",
+        "Days of one-day statistics kept (0 keeps them without limit)"
+    ),
+    def!(
         "observability.clientTiming.enabled",
         Kind::Bool,
         "true",
@@ -5752,86 +5776,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "observability",
         "message load time measurement"
-    ),
-    def!(
-        "diagnostics.retentionDays",
-        int(1, 365),
-        "30",
-        G,
-        "diagnostics",
-        "diagnostic runs kept"
-    ),
-    def!(
-        "dataExport.linkHours",
-        int(1, 168),
-        "24",
-        G,
-        "users",
-        "data export download window"
-    ),
-    def!(
-        "dsr.enabled",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "data subject requests accepted"
-    ),
-    def!(
-        "dsr.type.access",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "access requests accepted"
-    ),
-    def!(
-        "dsr.type.portability",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "portability requests accepted"
-    ),
-    def!(
-        "dsr.type.rectification",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "rectification requests accepted"
-    ),
-    def!(
-        "dsr.type.erasure",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "erasure requests accepted"
-    ),
-    def!(
-        "dsr.type.restriction",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "restriction requests accepted"
-    ),
-    def!(
-        "dsr.type.objection",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "objection requests accepted"
-    ),
-    def!(
-        "dsr.type.other",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "other requests accepted"
     ),
     def!(
         "observability.client.enabled",
@@ -5920,6 +5864,86 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "privacy",
         "send an error report from this browser when a section fails to load"
+    ),
+    def!(
+        "diagnostics.retentionDays",
+        int(1, 365),
+        "30",
+        G,
+        "diagnostics",
+        "diagnostic runs kept"
+    ),
+    def!(
+        "dataExport.linkHours",
+        int(1, 168),
+        "24",
+        G,
+        "users",
+        "data export download window"
+    ),
+    def!(
+        "dsr.enabled",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "data subject requests accepted"
+    ),
+    def!(
+        "dsr.type.access",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "access requests accepted"
+    ),
+    def!(
+        "dsr.type.portability",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "portability requests accepted"
+    ),
+    def!(
+        "dsr.type.rectification",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "rectification requests accepted"
+    ),
+    def!(
+        "dsr.type.erasure",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "erasure requests accepted"
+    ),
+    def!(
+        "dsr.type.restriction",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "restriction requests accepted"
+    ),
+    def!(
+        "dsr.type.objection",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "objection requests accepted"
+    ),
+    def!(
+        "dsr.type.other",
+        Kind::Bool,
+        "true",
+        GD,
+        "privacy",
+        "other requests accepted"
     ),
     def!(
         "dsr.approval.export",
@@ -6072,54 +6096,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "rules in an export"
-    def!(
-        "metrics.persist.enabled",
-        Kind::Bool,
-        "true",
-        G,
-        "observability",
-        "keep performance statistics across restarts"
-    ),
-    def!(
-        "metrics.persist.flushSeconds",
-        int(5, 3600),
-        "60",
-        G,
-        "observability",
-        "seconds between saves of performance statistics"
-    ),
-    def!(
-        "metrics.dimensions.enabled",
-        Kind::Bool,
-        "true",
-        G,
-        "observability",
-        "split saved statistics by client kind and device class"
-    ),
-    def!(
-        "retention.metrics.minuteBucketsHours",
-        int(1, 8760),
-        "48",
-        G,
-        "privacy",
-        "Hours of one-minute statistics kept"
-    ),
-    def!(
-        "retention.metrics.hourBucketsDays",
-        int(1, 3650),
-        "60",
-        G,
-        "privacy",
-        "Days of one-hour statistics kept"
-    ),
-    def!(
-        "retention.metrics.dayBucketsDays",
-        int(0, 3650),
-        "400",
-        G,
-        "privacy",
-        "Days of one-day statistics kept (0 keeps them without limit)"
-    ),
     ),
     def!(
         "dsr.export.include.sessions",
@@ -7886,23 +7862,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "interface",
         "A user's custom composer styles, as JSON written by the Styles gallery"
     ),
-
-    def!(
-        "compose.insert.maxInlineImageMB",
-        int(1, 50),
-        "10",
-        GDU,
-        "interface",
-        "Largest picture, in MB, the composer places in the message body (larger ones can still be attached)"
-    ),
-    def!(
-        "compose.insert.imageResizeDefault",
-        Kind::Enum(&["original", "large", "medium"]),
-        "\"large\"",
-        GDU,
-        "interface",
-        "Size preset the composer's Picture from file dialog starts with"
-    ),
     def!(
         "mail.badge.headers",
         Kind::Bool,
@@ -8032,6 +7991,23 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "How expired messages (Expires header) are shown"
+    ),
+
+    def!(
+        "compose.insert.maxInlineImageMB",
+        int(1, 50),
+        "10",
+        GDU,
+        "interface",
+        "Largest picture, in MB, the composer places in the message body (larger ones can still be attached)"
+    ),
+    def!(
+        "compose.insert.imageResizeDefault",
+        Kind::Enum(&["original", "large", "medium"]),
+        "\"large\"",
+        GDU,
+        "interface",
+        "Size preset the composer's Picture from file dialog starts with"
     ),
 
     // ── Server text (e70c seam) ──────────────────────────────────────────────
