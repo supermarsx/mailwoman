@@ -40,3 +40,23 @@ export function SettingRow(props: {
     </div>
   </div>;
 }
+
+/** A compact row for a control that is not a useSetting handle (local state,
+ * button groups, time fields, per-device browser state): label and hint at the
+ * start, the control at the end, then an optional lock note / status below.
+ * `group` labels a role="group" control (the label is a span carrying
+ * `controlId`, which the group references with aria-labelledby); otherwise the label targets `controlId`. */
+export function ControlRow(props: {
+  controlId: string; label: string; help?: string; group?: boolean; stacked?: boolean; note?: JSX.Element;
+  children: (describedBy: () => string) => JSX.Element;
+}): JSX.Element {
+  const helpId = (): string => `${props.controlId}-help`;
+  return <div class={props.stacked ? `${css.row} ${css.rowStacked}` : css.row} data-setting-row>
+    {props.group
+      ? <span class={css.rowLabel} id={props.controlId}>{props.label}</span>
+      : <label class={css.rowLabel} for={props.controlId}>{props.label}</label>}
+    <Show when={props.help}><p id={helpId()} class={css.rowHelp}>{props.help}</p></Show>
+    <div class={css.rowControl}>{untrack(() => props.children(() => (props.help ? helpId() : '')))}</div>
+    <Show when={props.note}><div class={css.rowNote}>{props.note}</div></Show>
+  </div>;
+}

@@ -1,7 +1,7 @@
 import {afterEach,beforeEach,expect,it,vi} from 'vitest';
 import {cleanup,render,screen} from '@solidjs/testing-library';
 import type {JSX} from 'solid-js';
-import {InterfacePreferences} from '../InterfacePreferences.tsx';
+import {InterfacePreferences,APPEARANCE_TEXT_ROWS} from '../InterfacePreferences.tsx';
 import {FolderCountPreferences} from '../FolderCountPreferences.tsx';
 import {FocusedInboxPreference} from '../FocusedInboxPreference.tsx';
 import {CachePreferences} from '../CachePreferences.tsx';
@@ -26,6 +26,7 @@ const CASES:{name:string;view:()=>JSX.Element;cards:string[];extra?:string[]}[]=
  {name:'undo history',view:()=><UndoRedoPreferences/>,cards:['undo-card']},
 ];
 
+const RENDERED_ELSEWHERE=new Set<string>(APPEARANCE_TEXT_ROWS.map(r=>r.id));
 for(const c of CASES){
  it(`${c.name}: each previous setting label appears exactly once`,async()=>{
   render(c.view);
@@ -34,6 +35,7 @@ for(const c of CASES){
    const card=SETTINGS_REGISTRY.find(x=>x.id===id)!;
    expect(card,id).toBeDefined();
    for(const row of card.rows){
+    if(RENDERED_ELSEWHERE.has(row.id))continue;
     expect(document.querySelectorAll(`[id="${row.id}"]`),row.id).toHaveLength(1);
     expect(screen.getAllByText(t(row.label),{selector:'label'}),row.label).toHaveLength(1);
    }

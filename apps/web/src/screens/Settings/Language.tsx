@@ -18,7 +18,13 @@ import {
   storeLanguage,
   type LanguageChoice,
 } from './language.ts';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
+import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
+
+/** Search-index entry for the language picker (Appearance section). */
+export const LANGUAGE_CARD: CardSpec = { id: 'settings-language-card', section: 'appearance', title: 'settings-language-card', rows: [{ id: 'settings-language', label: 'settings-policy-language', help: 'settings-policy-language-help' }] };
 
 export interface LanguageProps {
   /** Apply a locale (defaults to the LocaleProvider's `setLocale`). */
@@ -61,15 +67,23 @@ export function Language(props: LanguageProps): JSX.Element {
     v === 'browser' ? t('settings-policy-language-browser') : formatLanguageName(v, v);
 
   return (
-    <section class={css.section}>
-      <div class={css.field}>
-        <h3 class={css.heading}>
-          <label for="settings-language">{t('settings-policy-language')}</label>
-        </h3>
+    <SettingsCard id="settings-language-card" title={t('settings-language-card')}>
+      <ControlRow controlId="settings-language" label={t('settings-policy-language')} help={t('settings-policy-language-help')}
+        note={<>
+          <LockNote id="settings-language-lock" locked={setting.locked()} />
+          <p class={css.meta} role="status" aria-live="polite">
+            <Show when={saved()}>{t('settings-policy-language-saved')}</Show>
+          </p>
+          <Show when={setting.error() !== ''}>
+            <p class={css.error} role="alert">
+              {setting.error()}
+            </p>
+          </Show>
+        </>}>{(describedBy) =>
         <select
           id="settings-language"
           class={css.select}
-          aria-describedby="settings-language-help settings-language-lock"
+          aria-describedby={`${describedBy()} settings-language-lock`}
           disabled={setting.locked() || setting.saving()}
           value={setting.value()}
           onChange={(e) => void choose(e.currentTarget.value)}
@@ -82,19 +96,7 @@ export function Language(props: LanguageProps): JSX.Element {
             )}
           </For>
         </select>
-        <p class={css.meta} id="settings-language-help">
-          {t('settings-policy-language-help')}
-        </p>
-        <LockNote id="settings-language-lock" locked={setting.locked()} />
-        <p class={css.meta} role="status" aria-live="polite">
-          <Show when={saved()}>{t('settings-policy-language-saved')}</Show>
-        </p>
-        <Show when={setting.error() !== ''}>
-          <p class={css.error} role="alert">
-            {setting.error()}
-          </p>
-        </Show>
-      </div>
-    </section>
+      }</ControlRow>
+    </SettingsCard>
   );
 }

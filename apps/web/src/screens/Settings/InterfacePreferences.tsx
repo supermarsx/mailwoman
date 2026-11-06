@@ -18,8 +18,15 @@ const fields: {key:string; fallback:string|number|boolean; choices?:string[]; mi
   {key:'ui.notifyNewVersion',fallback:true},
 ];
 const labelKey=(key:string):string=>`appearance-preference-${key.replaceAll('.', '-')}`;
+/** Rows of the same card that Settings.tsx renders (not this component): density, font, layout, text mode. */
+export const APPEARANCE_TEXT_ROWS=[
+  {id:'settings-density',label:'settings-density'},
+  {id:'settings-font',label:'settings-font'},
+  {id:'settings-layout',label:'settings-layout'},
+  {id:'settings-text-mode-label',label:'appearance-text-mode-label'},
+] as const;
 /** Search-index entry: these rows render inside the Appearance text card. */
-export const INTERFACE_CARD:CardSpec={id:'settings-appearance-text-card',section:'appearance',title:'settings-appearance-text-card',help:'settings-appearance-text-card-help',rows:fields.map(f=>({id:`preference-${f.key}`,label:labelKey(f.key)}))};
+export const INTERFACE_CARD:CardSpec={id:'settings-appearance-text-card',section:'appearance',title:'settings-appearance-text-card',help:'settings-appearance-text-card-help',rows:[...fields.map(f=>({id:`preference-${f.key}`,label:labelKey(f.key)})),...APPEARANCE_TEXT_ROWS]};
 
 export function InterfacePreferences() {
   onMount(()=>void loadCatalog('appearance'));

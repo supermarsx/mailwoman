@@ -84,6 +84,8 @@ import { Labels } from './Settings/Labels.tsx';
 import {ContactAppearance} from './Settings/ContactAppearance.tsx';
 import { ReaderAppearanceSettings } from './Settings/ReaderAppearance.tsx';
 import { LockNote } from './Settings/LockNote.tsx';
+import { ControlRow } from './Settings/layout/SettingRow.tsx';
+import { SettingsCard } from './Settings/layout/SettingsCard.tsx';
 import { useSetting } from './Settings/useSetting.ts';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { createAclClient } from '../api/acl-types.ts';
@@ -240,26 +242,23 @@ export function Settings(props: SettingsProps): JSX.Element {
           <div class={workspace.content} ref={settingsContent}>
           <Show when={props.embedded}><Breadcrumbs class={workspace.crumb} testId="settings-breadcrumb" label={t('settings-breadcrumb')} loadingLabel={t('settings-crumb-loading')} items={settingsCrumbs(navigation.route()).map(c=>c.route?{label:c.label,onNavigate:()=>void navigation.navigate(c.route!)}:{label:c.label})}/></Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>
-        <section class={customizationCss.section} aria-labelledby="settings-appearance-theme-card"><h3 class={customizationCss.heading} id="settings-appearance-theme-card">{t('settings-appearance-theme-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-theme-card-help')}</p>
+        <SettingsCard id="settings-appearance-theme-card" title={t('settings-appearance-theme-card')} description={t('settings-appearance-theme-card-help')}>
         <ThemeMode locked={themeHold.locked()} />
         <ThemeGallery locked={themeHold.locked()} />
         <AppearanceSyncStatus />
-        </section>
+        </SettingsCard>
 
-        <section class={customizationCss.section} aria-labelledby="settings-appearance-colours-card"><h3 class={customizationCss.heading} id="settings-appearance-colours-card">{t('settings-appearance-colours-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-colours-card-help')}</p>
+        <SettingsCard id="settings-appearance-colours-card" title={t('settings-appearance-colours-card')} description={t('settings-appearance-colours-card-help')}>
         <AccentPicker locked={accentHold.locked()} />
-        <div class={customizationCss.row}>
-          <div class={customizationCss.field}><span aria-hidden="true">{t('appearance-custom-accent')}</span><ColorField label={t('appearance-custom-accent')} testId="settings-custom-accent" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => { applyCustomAccent(document.documentElement, value ?? '', app.theme()); applyDerivedLink(document.documentElement, app.theme(), app.accentId(), value ?? ''); applyDerivedBadge(document.documentElement, app.badgeColor(), app.theme(), app.accentId(), value ?? ''); }} onChange={value => app.setAppearancePrefs({customAccent: value ?? ''})} /></div>
-          <div class={customizationCss.actions}><button type="button" class={customizationCss.ghost} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
-        </div>
+        <ControlRow controlId="appearance-custom-accent" group label={t('appearance-custom-accent')}>{() =>
+          <div class={customizationCss.actions}><ColorField label={t('appearance-custom-accent')} testId="settings-custom-accent" disabled={accentHold.locked()} value={app.appearancePrefs().customAccent || null} fallback="#3366cc" emptyLabel={t('color-picker-default')} contrast={{against: 'bg', use: 'non-text'}} onPreview={value => { applyCustomAccent(document.documentElement, value ?? '', app.theme()); applyDerivedLink(document.documentElement, app.theme(), app.accentId(), value ?? ''); applyDerivedBadge(document.documentElement, app.badgeColor(), app.theme(), app.accentId(), value ?? ''); }} onChange={value => app.setAppearancePrefs({customAccent: value ?? ''})} />
+          <button type="button" class={customizationCss.ghost} disabled={accentHold.locked() || !app.appearancePrefs().customAccent} onClick={() => app.setAppearancePrefs({customAccent: ''})}>{t('appearance-custom-accent-reset')}</button></div>
+        }</ControlRow>
         <BadgeColorPicker locked={badgeHold.locked()} />
-        </section>
+        </SettingsCard>
 
-        <section class={customizationCss.section} aria-labelledby="settings-appearance-text-card"><h3 class={customizationCss.heading} id="settings-appearance-text-card">{t('settings-appearance-text-card')}</h3><p class={customizationCss.meta}>{t('settings-appearance-text-card-help')}</p>
-        <div class={css.row}>
-          <span class={css.label} id="settings-density">
-            {t('settings-density')}
-          </span>
+        <SettingsCard id="settings-appearance-text-card" title={t('settings-appearance-text-card')} description={t('settings-appearance-text-card-help')}>
+        <ControlRow controlId="settings-density" group label={t('settings-density')} note={<LockNote id="settings-density-lock" locked={densityHold.locked()} />}>{() =>
           <div
             class={css.options}
             role="group"
@@ -280,12 +279,8 @@ export function Settings(props: SettingsProps): JSX.Element {
               )}
             </For>
           </div>
-          <LockNote id="settings-density-lock" locked={densityHold.locked()} />
-        </div>
-        <div class={css.row}>
-          <span class={css.label} id="settings-font">
-            {t('settings-font')}
-          </span>
+        }</ControlRow>
+        <ControlRow controlId="settings-font" group stacked label={t('settings-font')} note={<LockNote id="settings-font-lock" locked={fontHold.locked()} />}>{() =>
           <div class={css.options} role="group" aria-labelledby="settings-font" aria-describedby={fontHold.locked() ? 'settings-font-lock' : undefined}>
             <For each={FONT_OPTIONS}>
               {(o) => (
@@ -301,18 +296,13 @@ export function Settings(props: SettingsProps): JSX.Element {
               )}
             </For>
           </div>
-          <LockNote id="settings-font-lock" locked={fontHold.locked()} />
-        </div>
+        }</ControlRow>
 
         <InterfacePreferences/>
-        <TextModePreference enabled={leetspeakHold.value()} disabled={leetspeakHold.locked()} busy={leetspeakHold.saving()} describedBy={leetspeakHold.locked()?'settings-leetspeak-lock':undefined} onChange={next=>void leetspeakHold.set(next)}/>
-        <LockNote id="settings-leetspeak-lock" locked={leetspeakHold.locked()}/>
-        <Show when={leetspeakHold.error()}>{message=><p role="alert" class={customizationCss.prose}>{message()}</p>}</Show>
+        <TextModePreference enabled={leetspeakHold.value()} disabled={leetspeakHold.locked()} busy={leetspeakHold.saving()} describedBy={leetspeakHold.locked()?'settings-leetspeak-lock':undefined} onChange={next=>void leetspeakHold.set(next)} note={<><LockNote id="settings-leetspeak-lock" locked={leetspeakHold.locked()}/>
+          <Show when={leetspeakHold.error()}>{message=><p role="alert" class={customizationCss.prose}>{message()}</p>}</Show></>}/>
 
-        <div class={css.row}>
-          <span class={css.label} id="settings-layout">
-            {t('settings-layout')}
-          </span>
+        <ControlRow controlId="settings-layout" group label={t('settings-layout')}>{() =>
           <div class={css.options} role="group" aria-labelledby="settings-layout">
             <For each={LAYOUT_OPTIONS}>
               {(o) => (
@@ -327,8 +317,8 @@ export function Settings(props: SettingsProps): JSX.Element {
               )}
             </For>
           </div>
-        </div>
-        </section>
+        }</ControlRow>
+        </SettingsCard>
         <Show when={!app.linkedMailboxId?.()}><AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} /></Show>
 
         <BarPreferences />
@@ -397,100 +387,92 @@ function Hint(props: { children: JSX.Element }): JSX.Element {
 function ThemeMode(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
-    <div class={css.row}>
-      <span class={css.label} id="appearance-mode">
-        {t('appearance-mode')}
-      </span>
-      <div
-        class={css.options}
-        role="group"
-        aria-labelledby="appearance-mode"
-        aria-describedby={props.locked ? 'settings-theme-lock' : undefined}
-      >
-        <For each={MODE_OPTIONS}>
-          {(o) => (
-            <button
-              type="button"
-              class={css.option}
-              aria-pressed={app.themeMode() === o.value}
-              disabled={props.locked}
-              onClick={() => app.setThemeMode(o.value)}
-            >
-              {t(o.label)}
-            </button>
-          )}
-        </For>
-      </div>
-      <Hint>{t(MODE_HINTS[app.themeMode()])}</Hint>
+    <>
+      <ControlRow controlId="appearance-mode" group label={t('appearance-mode')} help={t(MODE_HINTS[app.themeMode()])}>{(describedBy) =>
+        <div
+          class={css.options}
+          role="group"
+          aria-labelledby="appearance-mode"
+          aria-describedby={`${describedBy()} ${props.locked ? 'settings-theme-lock' : ''}`.trim() || undefined}
+        >
+          <For each={MODE_OPTIONS}>
+            {(o) => (
+              <button
+                type="button"
+                class={css.option}
+                aria-pressed={app.themeMode() === o.value}
+                disabled={props.locked}
+                onClick={() => app.setThemeMode(o.value)}
+              >
+                {t(o.label)}
+              </button>
+            )}
+          </For>
+        </div>
+      }</ControlRow>
 
       {/* Both automatic modes switch between a PAIR of packs, so following the
           system is not limited to the two neutral themes. */}
       <Show when={app.themeMode() !== 'fixed'}>
-        <div class={css.options}>
-          <label class="field">
-            <span class={css.label}>{t('appearance-pair-light')}</span>
-            <select
-              class={css.select}
-              value={app.lightTheme()}
-              onChange={(e) => {
-                // `isThemeName` is the registry's sanctioned narrowing; a value
-                // that is not a known pack is ignored rather than cast in.
-                const v = e.currentTarget.value;
-                if (isThemeName(v)) app.setLightTheme(v);
-              }}
-            >
-              <For each={themesByAppearance('light')}>
-                {(entry) => <option value={entry.id}>{t(entry.labelId)}</option>}
-              </For>
-            </select>
-          </label>
-          <label class="field">
-            <span class={css.label}>{t('appearance-pair-dark')}</span>
-            <select
-              class={css.select}
-              value={app.darkTheme()}
-              onChange={(e) => {
-                const v = e.currentTarget.value;
-                if (isThemeName(v)) app.setDarkTheme(v);
-              }}
-            >
-              <For each={themesByAppearance('dark')}>
-                {(entry) => <option value={entry.id}>{t(entry.labelId)}</option>}
-              </For>
-            </select>
-          </label>
-        </div>
+        <ControlRow controlId="appearance-pair-light" label={t('appearance-pair-light')}>{() =>
+          <select
+            id="appearance-pair-light"
+            class={css.select}
+            value={app.lightTheme()}
+            onChange={(e) => {
+              // `isThemeName` is the registry's sanctioned narrowing; a value
+              // that is not a known pack is ignored rather than cast in.
+              const v = e.currentTarget.value;
+              if (isThemeName(v)) app.setLightTheme(v);
+            }}
+          >
+            <For each={themesByAppearance('light')}>
+              {(entry) => <option value={entry.id}>{t(entry.labelId)}</option>}
+            </For>
+          </select>
+        }</ControlRow>
+        <ControlRow controlId="appearance-pair-dark" label={t('appearance-pair-dark')}>{() =>
+          <select
+            id="appearance-pair-dark"
+            class={css.select}
+            value={app.darkTheme()}
+            onChange={(e) => {
+              const v = e.currentTarget.value;
+              if (isThemeName(v)) app.setDarkTheme(v);
+            }}
+          >
+            <For each={themesByAppearance('dark')}>
+              {(entry) => <option value={entry.id}>{t(entry.labelId)}</option>}
+            </For>
+          </select>
+        }</ControlRow>
       </Show>
 
       <Show when={app.themeMode() === 'schedule'}>
-        <div class={css.options}>
-          <label class="field">
-            <span class={css.label}>{t('appearance-schedule-start')}</span>
-            <input
-              type="time"
-              class={css.select}
-              aria-label={t('appearance-schedule-start')}
-              value={app.schedule().darkStart}
-              onChange={(e) =>
-                app.setSchedule({ ...app.schedule(), darkStart: e.currentTarget.value })
-              }
-            />
-          </label>
-          <label class="field">
-            <span class={css.label}>{t('appearance-schedule-end')}</span>
-            <input
-              type="time"
-              class={css.select}
-              aria-label={t('appearance-schedule-end')}
-              value={app.schedule().darkEnd}
-              onChange={(e) =>
-                app.setSchedule({ ...app.schedule(), darkEnd: e.currentTarget.value })
-              }
-            />
-          </label>
-        </div>
+        <ControlRow controlId="appearance-schedule-start" label={t('appearance-schedule-start')}>{() =>
+          <input
+            id="appearance-schedule-start"
+            type="time"
+            class={css.select}
+            value={app.schedule().darkStart}
+            onChange={(e) =>
+              app.setSchedule({ ...app.schedule(), darkStart: e.currentTarget.value })
+            }
+          />
+        }</ControlRow>
+        <ControlRow controlId="appearance-schedule-end" label={t('appearance-schedule-end')}>{() =>
+          <input
+            id="appearance-schedule-end"
+            type="time"
+            class={css.select}
+            value={app.schedule().darkEnd}
+            onChange={(e) =>
+              app.setSchedule({ ...app.schedule(), darkEnd: e.currentTarget.value })
+            }
+          />
+        }</ControlRow>
       </Show>
-    </div>
+    </>
   );
 }
 
@@ -504,12 +486,7 @@ function ThemeMode(props: { locked: boolean }): JSX.Element {
 function ThemeGallery(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
-    <div class={css.row}>
-      <span class={css.label} id="settings-theme">
-        {t('settings-theme')}
-      </span>
-      <LockNote id="settings-theme-lock" locked={props.locked} />
-      <Hint>{t('appearance-gallery-hint')}</Hint>
+    <ControlRow controlId="settings-theme" group stacked label={t('settings-theme')} help={t('appearance-gallery-hint')} note={<LockNote id="settings-theme-lock" locked={props.locked} />}>{() =>
       <For each={THEME_GROUPS}>
         {(group) => (
           <Show when={group.themes.length > 0}>
@@ -552,7 +529,7 @@ function ThemeGallery(props: { locked: boolean }): JSX.Element {
           </Show>
         )}
       </For>
-    </div>
+    }</ControlRow>
   );
 }
 
@@ -591,10 +568,7 @@ function ThemePreview(props: { entry: ThemeEntry }): JSX.Element {
 function AccentPicker(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   return (
-    <div class={css.row}>
-      <span class={css.label} id="settings-accent">
-        {t('settings-accent')}
-      </span>
+    <ControlRow controlId="settings-accent" group stacked label={t('settings-accent')} note={<LockNote id="settings-accent-lock" locked={props.locked} />}>{() =>
       <div
         class={css.options}
         role="group"
@@ -632,8 +606,7 @@ function AccentPicker(props: { locked: boolean }): JSX.Element {
           }}
         </For>
       </div>
-      <LockNote id="settings-accent-lock" locked={props.locked} />
-    </div>
+    }</ControlRow>
   );
 }
 
@@ -652,10 +625,7 @@ function BadgeColorPicker(props: { locked: boolean }): JSX.Element {
   const app = useApp();
   const pick = (value: BadgeColor): void => app.setBadgeColor(value);
   return (
-    <div class={css.row}>
-      <span class={css.label} id="settings-badge-color">
-        {t('settings-badge-color')}
-      </span>
+    <ControlRow controlId="settings-badge-color" group stacked label={t('settings-badge-color')} note={<LockNote id="settings-badge-color-lock" locked={props.locked} />}>{() =>
       <div
         class={css.options}
         role="group"
@@ -720,8 +690,7 @@ function BadgeColorPicker(props: { locked: boolean }): JSX.Element {
           }}
         </For>
       </div>
-      <LockNote id="settings-badge-color-lock" locked={props.locked} />
-    </div>
+    }</ControlRow>
   );
 }
 
@@ -752,15 +721,16 @@ function AppearanceSyncStatus(): JSX.Element {
   };
 
   return (
-    <div class={css.row}>
-      <span class={css.label} id="appearance-sync">
-        {t('appearance-sync')}
-      </span>
-      <Hint>{t(SYNC_MESSAGES[status()])}</Hint>
-      <Show when={deploymentTheme()}>
+    <ControlRow controlId="appearance-sync" group label={t('appearance-sync')} help={t(SYNC_MESSAGES[status()])}
+      note={<><Show when={deploymentTheme()}>
         {(theme) => <Hint>{t('appearance-sync-deployment', { theme: theme() })}</Hint>}
       </Show>
-      <div class={css.options}>
+      <Show when={cleared()}>
+        <p class={css.label} role="status">
+          {t('appearance-sync-reset-done')}
+        </p>
+      </Show></>}>{() =>
+      <div class={css.options} role="group" aria-labelledby="appearance-sync">
         <button
           type="button"
           class={css.option}
@@ -771,12 +741,7 @@ function AppearanceSyncStatus(): JSX.Element {
           {t('appearance-sync-reset')}
         </button>
       </div>
-      <Show when={cleared()}>
-        <p class={css.label} role="status">
-          {t('appearance-sync-reset-done')}
-        </p>
-      </Show>
-    </div>
+    }</ControlRow>
   );
 }
 

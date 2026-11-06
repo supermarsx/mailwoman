@@ -4,13 +4,16 @@
 // applies until the user picks and a locked bar shows "Set by your
 // administrator" instead of an editable choice.
 
-import {createUniqueId,For, onMount, Show, type JSX} from 'solid-js';
+import {For, onMount, Show, type JSX} from 'solid-js';
 import {Icon} from '../../components/Icon.tsx';
 import {loadCatalog, t} from '../../i18n';
 import {BAR_IDS, BAR_MODE_DEFAULT, BAR_MODES, barSettingKey, isBarMode, type BarId, type BarMode} from '../../api/barSettings.ts';
 import {useSetting} from './useSetting.ts';
 import {useEffectiveBarMode} from '../../components/bars/useBarMode.ts';
 import {LockNote} from './LockNote.tsx';
+import type {CardSpec} from './layout/rows.tsx';
+import {ControlRow} from './layout/SettingRow.tsx';
+import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 import * as barCss from './BarPreferences.css.ts';
 
@@ -30,7 +33,7 @@ function BarChoice(props: {id: BarId}): JSX.Element {
   const setting = useSetting<BarMode>(barSettingKey(props.id), BAR_MODE_DEFAULT, isBarMode);
   // What the bar shows, including the narrow-screen default (t39 D4).
   const shown = useEffectiveBarMode(props.id, setting.entry);
-  const name = `settings-bar-${props.id}-${createUniqueId()}`;
+  const name = `settings-bar-${props.id}`;
   const lockId = `${name}-lock`;
   const errorId = `${name}-error`;
   const describedBy = (): string | undefined =>
@@ -45,8 +48,8 @@ function BarChoice(props: {id: BarId}): JSX.Element {
     if(next){buttons.get(next)?.focus();choose(next);}
   }
   return (
-    <fieldset class={`${css.field} ${barCss.group}`} data-bar={props.id} aria-describedby={describedBy()}>
-      <legend id={`${name}-label`} class={css.label}>{t(BAR_LABEL[props.id])}</legend>
+    <ControlRow controlId={`${name}-label`} group label={t(BAR_LABEL[props.id])}>{() =>
+      <div role="group" aria-labelledby={`${name}-label`} data-bar={props.id} aria-describedby={describedBy()}>
       <div class={barCss.choices} role="radiogroup" aria-labelledby={`${name}-label`}>
         <For each={BAR_MODES}>
           {(mode) => (
@@ -58,17 +61,19 @@ function BarChoice(props: {id: BarId}): JSX.Element {
       <Show when={setting.error()}>
         <p class={css.error} id={errorId} role="alert">{setting.error()}</p>
       </Show>
-    </fieldset>
+      </div>
+    }</ControlRow>
   );
 }
+
+/** Search-index entry: one row per bar, labelled by the bar's name. */
+export const BAR_CARD: CardSpec = { id: 'settings-bars-heading', section: 'appearance', title: 'settings-bars-heading', help: 'settings-bars-help', rows: BAR_IDS.map(id => ({ id: `settings-bar-${id}-label`, label: BAR_LABEL[id] })) };
 
 export function BarPreferences(): JSX.Element {
   onMount(() => void loadCatalog('bars'));
   return (
-    <section class={css.section} aria-labelledby="settings-bars-heading" data-testid="settings-bars">
-      <h3 class={css.heading} id="settings-bars-heading">{t('settings-bars-heading')}</h3>
-      <p class={css.meta}>{t('settings-bars-help')}</p>
+    <SettingsCard id="settings-bars-heading" title={t('settings-bars-heading')} description={t('settings-bars-help')} testId="settings-bars">
       <For each={BAR_IDS}>{(id) => <BarChoice id={id} />}</For>
-    </section>
+    </SettingsCard>
   );
 }

@@ -52,3 +52,4 @@ cache-card-prefetch = Prefetching
 cache-card-prefetch-help = Load messages ahead of time so they open instantly. Uses more data.
 settings-folder-counts-card = Counter bubbles
 settings-folder-counts-card-help = What the counts beside folders show and which folders have one.
+settings-language-card = Language and region
