@@ -2,12 +2,12 @@
 // each due date, filters, stats, and per-request actions (assign, identity check,
 // approve, reject, extend, complete, legal hold, run now) with the request's
 // trail. What is allowed and how long it takes are the `dsr.*` settings.
-import { For, Show, createResource, createSignal, onMount, type JSX } from 'solid-js';
+import { For, Show, createEffect, createResource, createSignal, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t, formatDateTime, formatNumber } from '../../../i18n';
 import {
   assignDataRequest, approveDataRequest, completeDataRequest, createDataRequestOnBehalf, exportDataRequestLog,
   extendDataRequest, holdDataRequest, listDataRequests, loadDataRequest, rejectDataRequest, releaseDataRequestHold,
-  runDataRequest, verifyDataRequest, type AdminDataRequest, type DataRequestFilter, type DataRequestList, type TrailRow,
+  runDataRequest, verifyDataRequest, bulkDataRequests, type AdminDataRequest, type BulkResult, type DataRequestFilter, type DataRequestList, type TrailRow,
 } from '../../../api/admin/dataRequests.ts';
 import { REQUEST_KINDS, type RequestKind } from '../../../api/dataRequests.ts';
 import { StatTile } from '../shell/StatTile.tsx';
@@ -16,7 +16,7 @@ import { LineChart } from '../shell/LineChart.tsx';
 import { BarChart } from '../shell/BarChart.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import { hrefFor, sectionPath } from '../shell/router.ts';
-import { actionsFor, daysLeft, logFileName, onTimePercent } from './model.ts';
+import { BULK_ACTIONS, actionsFor, bulkField, bulkReady, daysLeft, logFileName, onTimePercent, type BulkKind } from './model.ts';
 import * as css from '../admin.css.ts';
 
 const when = (s: number): string => formatDateTime(s * 1000);
@@ -92,6 +92,49 @@ export function AdminDataRequests(): JSX.Element {
   const [filter, setFilter] = createSignal<DataRequestFilter>({ status: 'open' });
   const [list, { refetch }] = createResource(filter, f => listDataRequests(f));
   const [selected, setSelected] = createSignal<string | null>(null);
+  // Pages after the first, fetched by cursor; the first page is the resource above.
+  const [more, setMore] = createSignal<AdminDataRequest[]>([]);
+  const [cursor, setCursor] = createSignal<string | null>(null);
+  const [paging, setPaging] = createSignal(false);
+  createEffect(() => { const l = list(); if (l) { setMore([]); setCursor(l.nextCursor ?? null); } });
+  const rows = (): AdminDataRequest[] => [...(list()?.requests ?? []), ...more()];
+  async function loadMore(): Promise<void> {
+    const c = cursor(); if (!c) return;
+    setPaging(true); setError('');
+    try { const page = await listDataRequests({ ...filter(), cursor: c }); setMore(m => [...m, ...page.requests]); setCursor(page.nextCursor ?? null); }
+    catch (e) { setError(describeAdminError(e)); } finally { setPaging(false); }
+  }
+  // Bulk actions over the ticked rows.
+  const [picked, setPicked] = createSignal<ReadonlySet<string>>(new Set());
+  const [bulkAction, setBulkAction] = createSignal<BulkKind>('approve');
+  const [bulkText, setBulkText] = createSignal('');
+  const [bulkDays, setBulkDays] = createSignal(30);
+  const [bulkBusy, setBulkBusy] = createSignal(false);
+  const [bulkResult, setBulkResult] = createSignal<BulkResult | null>(null);
+  createEffect(() => { filter(); setPicked(new Set<string>()); setBulkResult(null); });
+  const toggle = (id: string): void => { setPicked(p => { const n = new Set(p); if (n.has(id)) n.delete(id); else n.add(id); return n; }); };
+  const allPicked = (): boolean => rows().length > 0 && rows().every(r => picked().has(r.id));
+  async function runBulk(): Promise<void> {
+    const ids = [...picked()]; setBulkBusy(true); setError(''); setBulkResult(null);
+    const field = bulkField(bulkAction()), text = bulkText().trim();
+    try {
+      const result = await bulkDataRequests({
+        action: bulkAction(), ids,
+        ...(field === 'note' ? { note: text } : {}),
+        ...(field === 'reason' || field === 'extend' ? { reason: text } : {}),
+        ...(field === 'extend' ? { days: bulkDays() } : {}),
+        ...(field === 'assignee' ? { assignee: text || null } : {}),
+      });
+      setBulkResult(result); setPicked(new Set(result.results.filter(r => !r.ok).map(r => r.id))); await refetch();
+    } catch (e) { setError(describeAdminError(e)); } finally { setBulkBusy(false); }
+  }
+  async function exportSelection(): Promise<void> {
+    try {
+      const csv = await exportDataRequestLog({ ids: [...picked()].join(',') });
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+      const a = document.createElement('a'); a.href = url; a.download = logFileName(new Date()); a.click(); URL.revokeObjectURL(url);
+    } catch (e) { setError(describeAdminError(e)); }
+  }
   const [error, setError] = createSignal('');
   const [behalfAddress, setBehalfAddress] = createSignal('');
   const [behalfKind, setBehalfKind] = createSignal<RequestKind>('access');
@@ -142,17 +185,42 @@ export function AdminDataRequests(): JSX.Element {
       <button type="button" class="btn" onClick={() => void exportLog()}>{t('admin-dr-export')}</button>
     </div>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
-    <Show when={list()?.requests.length} fallback={<p class={css.note} role="status">{list.loading ? t('admin-dr-loading') : t('admin-dr-empty')}</p>}>
+    <Show when={picked().size > 0}>
+      <div class={css.card} role="group" aria-label={t('admin-dr-bulk')} data-testid="dr-bulk">
+        <p role="status">{t('admin-dr-bulk-selected', { count: picked().size })}</p>
+        <div class={css.grid}>
+          <label>{t('admin-dr-bulk-action')}<select value={bulkAction()} onChange={e => setBulkAction(e.currentTarget.value as BulkKind)} data-testid="dr-bulk-action"><For each={BULK_ACTIONS}>{a => <option value={a}>{t(`admin-dr-bulk-${a}`)}</option>}</For></select></label>
+          <Show when={bulkField(bulkAction()) !== 'none'}>
+            <label>{t(`admin-dr-bulk-field-${bulkField(bulkAction())}`)}<input value={bulkText()} onInput={e => setBulkText(e.currentTarget.value)} data-testid="dr-bulk-text" /></label>
+          </Show>
+          <Show when={bulkField(bulkAction()) === 'extend'}>
+            <label>{t('admin-dr-extend-days')}<input type="number" min="1" value={bulkDays()} onInput={e => setBulkDays(Number(e.currentTarget.value) || 1)} /></label>
+          </Show>
+        </div>
+        <div class={css.headingRow}>
+          <button type="button" class="btn" disabled={bulkBusy() || !bulkReady(bulkAction(), { text: bulkText(), days: bulkDays() }, picked().size)} onClick={() => void runBulk()} data-testid="dr-bulk-run">{t('admin-dr-bulk-run', { count: picked().size })}</button>
+          <button type="button" class="btn btn--ghost" onClick={() => void exportSelection()} data-testid="dr-bulk-csv">{t('admin-dr-bulk-csv')}</button>
+          <button type="button" class="btn btn--ghost" onClick={() => setPicked(new Set<string>())}>{t('admin-dr-bulk-clear')}</button>
+        </div>
+      </div>
+    </Show>
+    <Show when={bulkResult()}>{r => <div class={css.card} role="status" data-testid="dr-bulk-result">
+      <p>{t('admin-dr-bulk-summary', { done: r().done, failed: r().failed })}</p>
+      <ul><For each={r().results}>{x => <li data-testid={`dr-bulk-row-${x.id}`} data-ok={x.ok ? 'true' : 'false'}>{rows().find(q => q.id === x.id)?.address ?? x.id} · {x.ok ? (x.status ? t(`dr-status-${x.status}`) : t('admin-dr-bulk-ok')) : (x.detail ?? x.code ?? t('admin-dr-bulk-failed'))}</li>}</For></ul>
+    </div>}</Show>
+    <Show when={rows().length} fallback={<p class={css.note} role="status">{list.loading ? t('admin-dr-loading') : t('admin-dr-empty')}</p>}>
       <div class={css.tableWrap}><table class={css.table}>
-        <caption>{t('admin-dr-caption', { shown: list()?.requests.length ?? 0, total: list()?.matched ?? 0 })}</caption>
-        <thead><tr><th>{t('admin-dr-col-person')}</th><th>{t('admin-dr-col-type')}</th><th>{t('admin-dr-col-status')}</th><th>{t('admin-dr-col-due')}</th><th>{t('admin-dr-assignee')}</th><th><span class="sr-only">{t('admin-dr-col-actions')}</span></th></tr></thead>
-        <tbody><For each={list()?.requests ?? []}>{r => <tr data-testid={`dr-row-${r.id}`}>
+        <caption>{t('admin-dr-caption', { shown: rows().length, total: list()?.matched ?? 0 })}</caption>
+        <thead><tr><th><input type="checkbox" aria-label={t('admin-dr-bulk-select-all')} checked={allPicked()} onChange={e => setPicked(e.currentTarget.checked ? new Set(rows().map(r => r.id)) : new Set<string>())} data-testid="dr-select-all" /></th><th>{t('admin-dr-col-person')}</th><th>{t('admin-dr-col-type')}</th><th>{t('admin-dr-col-status')}</th><th>{t('admin-dr-col-due')}</th><th>{t('admin-dr-assignee')}</th><th><span class="sr-only">{t('admin-dr-col-actions')}</span></th></tr></thead>
+        <tbody><For each={rows()}>{r => <tr data-testid={`dr-row-${r.id}`}>
+          <td><input type="checkbox" aria-label={t('admin-dr-bulk-select', { address: r.address })} checked={picked().has(r.id)} onChange={() => toggle(r.id)} /></td>
           <td>{r.address}</td><td>{t(`dr-kind-${r.kind}`)}</td>
           <td>{t(`dr-status-${r.status}`)}<Show when={r.legalHold.active}> <span class={css.badge}>{t('admin-dr-hold-badge')}</span></Show></td>
           <td><Countdown request={r} /></td><td>{r.assignee ?? t('admin-dr-unassigned')}</td>
           <td><button type="button" class="btn btn--ghost" onClick={() => setSelected(r.id)}>{t('admin-dr-open-request')}</button></td>
         </tr>}</For></tbody>
       </table></div>
+      <Show when={cursor()}><button type="button" class="btn btn--ghost" disabled={paging()} onClick={() => void loadMore()} data-testid="dr-more">{t('admin-dr-more')}</button></Show>
     </Show>
     <Show when={selected()}>{id => <Detail id={id()} onChange={() => void refetch()} onClose={() => setSelected(null)} />}</Show>
     <section class={css.card} aria-label={t('admin-dr-behalf')}>

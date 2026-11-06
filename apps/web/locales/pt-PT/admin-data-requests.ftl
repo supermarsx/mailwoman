@@ -69,3 +69,33 @@ admin-dr-trail = Histórico
 admin-dr-behalf = Submeter um pedido em nome de um utilizador
 admin-dr-behalf-help = Para um pedido recebido por correio ou presencialmente. A pessoa não é convidada a confirmar por mensagem.
 admin-dr-behalf-submit = Submeter pedido
+
+# Ações em lote
+admin-dr-bulk = Ações em lote
+admin-dr-bulk-selected = { $count ->
+    [one] { $count } pedido selecionado
+   *[other] { $count } pedidos selecionados
+}
+admin-dr-bulk-action = Ação
+admin-dr-bulk-approve = Aprovar
+admin-dr-bulk-reject = Rejeitar
+admin-dr-bulk-extend = Prolongar o prazo
+admin-dr-bulk-assign = Atribuir
+admin-dr-bulk-hold = Colocar sob retenção legal
+admin-dr-bulk-release-hold = Libertar a retenção legal
+admin-dr-bulk-field-note = Nota (opcional)
+admin-dr-bulk-field-reason = Motivo
+admin-dr-bulk-field-extend = Motivo da prorrogação
+admin-dr-bulk-field-assignee = Atribuir a (vazio remove)
+admin-dr-bulk-run = { $count ->
+    [one] Aplicar a { $count } pedido
+   *[other] Aplicar a { $count } pedidos
+}
+admin-dr-bulk-csv = CSV da seleção
+admin-dr-bulk-clear = Limpar seleção
+admin-dr-bulk-select-all = Selecionar todos os pedidos listados
+admin-dr-bulk-select = Selecionar o pedido de { $address }
+admin-dr-bulk-summary = Concluído para { $done }; recusado para { $failed }. Os pedidos recusados continuam selecionados.
+admin-dr-bulk-ok = Concluído
+admin-dr-bulk-failed = Recusado
+admin-dr-more = Carregar mais pedidos

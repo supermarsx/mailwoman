@@ -6,11 +6,12 @@ import { t, loadCatalog } from '../../i18n';
 import { activeLocaleSignal as locale } from '../../i18n/registry.ts';
 import { formatDateTime } from '../../i18n/format.ts';
 import {
-  REQUEST_KINDS, cancelRequest, confirmRequest, downloadLink, listRequests, loadOverview, loadRequest, submitRequest,
+  OBJECTION_PURPOSES, REQUEST_KINDS, cancelRequest, confirmRequest, downloadLink, listRequests, loadOverview, loadRequest, submitRequest,
   type DataRequest, type DataRequestPolicy, type RequestKind, type TrailEntry,
 } from '../../api/dataRequests.ts';
 import { requestedKind } from '../../api/privacyShortcut.ts';
 import { ControlRow } from './layout/SettingRow.tsx';
+import { useSettingsNavigation } from './navigation.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
@@ -34,6 +35,7 @@ function RequestRow(props: { request: DataRequest; onChange: () => void }): JSX.
   const [message, setMessage] = createSignal('');
   const [trail, setTrail] = createSignal<TrailEntry[] | null>(null);
   const [busy, setBusy] = createSignal(false);
+  const navigation = useSettingsNavigation();
   const r = (): DataRequest => props.request;
   async function run(work: () => Promise<unknown>): Promise<void> {
     setBusy(true); setMessage('');
@@ -56,6 +58,13 @@ function RequestRow(props: { request: DataRequest; onChange: () => void }): JSX.
       <span class={css.meta}>{t('dr-filed', { date: when(r().createdAt) })} · {t('dr-due', { date: when(r().dueAt) })}<Show when={r().extensionDays > 0}> · {t('dr-extended', { days: r().extensionDays })}</Show></span>
       <Show when={r().status === 'scheduled' && r().graceUntil}><span class={css.meta} data-testid="dr-grace">{t('dr-grace', { date: when(r().graceUntil ?? 0) })}</span></Show>
       <Show when={r().status === 'blocked'}><span class={css.meta}>{t('dr-blocked')}</span></Show>
+      <Show when={r().kind === 'objection' && (r().purposes?.length ?? 0) > 0}><span class={css.meta} data-testid="dr-purposes">{t('dr-objection-purposes-list', { purposes: (r().purposes ?? []).map(p => t(`dr-purpose-${p.split('.')[0]}`)).join(', ') })}</span></Show>
+      <Show when={r().kind === 'rectification' && navigation && ['awaiting_approval', 'in_progress', 'queued', 'awaiting_confirmation', 'awaiting_verification'].includes(r().status)}>
+        <span class={css.meta} data-testid="dr-rectify">
+          {t('dr-rectify-ref', { ref: r().id.slice(0, 8) })}{' '}
+          <button type="button" class={css.ghost} onClick={() => void navigation?.navigate({ section: 'identities' })}>{t('dr-rectify-edit')}</button>
+        </span>
+      </Show>
       <Show when={r().status === 'rejected' && r().decisionReason}><span class={css.meta}>{t('dr-rejected-reason', { reason: r().decisionReason ?? '' })}</span></Show>
       <Show when={r().export}>{e => <span class={css.meta}>{t('dr-export-info', { size: Math.ceil(e().bytes / 1024), date: when(e().expiresAt) })}<Show when={!e().complete}> {t('dr-export-partial')}</Show></span>}</Show>
       <Show when={r().completion?.digest}><span class={css.meta}>{t('dr-record', { id: (r().completion?.digest ?? '').slice(0, 12) })}</span></Show>
@@ -87,6 +96,7 @@ export function DataRequests(): JSX.Element {
   createEffect(() => { const k = requestedKind(); if (k) setKind(k); });
   const [details, setDetails] = createSignal('');
   const [includeMail, setIncludeMail] = createSignal(false);
+  const [objectTo, setObjectTo] = createSignal<readonly string[]>([]);
   const [sure, setSure] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [error, setError] = createSignal('');
@@ -97,9 +107,9 @@ export function DataRequests(): JSX.Element {
     try {
       const k = offered(p).includes(kind()) ? kind() : offered(p)[0];
       if (!k) return;
-      const created = await submitRequest({ kind: k, details: details(), includeMail: includeMail() && EXPORT_KINDS.includes(k), locale: locale() });
+      const created = await submitRequest({ kind: k, details: details(), ...(k === 'objection' && objectTo().length > 0 ? { purposes: [...objectTo()] } : {}), includeMail: includeMail() && EXPORT_KINDS.includes(k), locale: locale() });
       setNotice(created.confirmationSent ? t('dr-submitted-code') : t('dr-submitted'));
-      setDetails(''); setSure(false); setIncludeMail(false);
+      setDetails(''); setSure(false); setIncludeMail(false); setObjectTo([]);
       await refetch();
     } catch (e) { setError(e instanceof Error ? e.message : t('dr-error')); } finally { setBusy(false); }
   }
@@ -122,6 +132,13 @@ export function DataRequests(): JSX.Element {
           <ControlRow controlId="dr-include-mail" label={t('dr-include-mail')}>{() =>
             <input id="dr-include-mail" type="checkbox" checked={includeMail()} onChange={e => setIncludeMail(e.currentTarget.checked)} />
           }</ControlRow>
+        </Show>
+        <Show when={kind() === 'objection'}>
+          <fieldset class={css.bareFieldset} data-testid="dr-objection-purposes">
+            <legend class={css.label}>{t('dr-objection-purposes')}</legend>
+            <p class={css.meta}>{t('dr-objection-purposes-help')}</p>
+            <For each={OBJECTION_PURPOSES}>{p => <label class={css.check}><input type="checkbox" class={css.checkbox} checked={objectTo().includes(p)} onChange={e => setObjectTo(cur => e.currentTarget.checked ? [...cur, p] : cur.filter(x => x !== p))} />{t(`dr-purpose-${p}`)}</label>}</For>
+          </fieldset>
         </Show>
         <ControlRow controlId="dr-details" stacked label={t('dr-details')}>{() =>
           <textarea id="dr-details" class={css.textarea} maxlength={2000} value={details()} onInput={e => setDetails(e.currentTarget.value)} />

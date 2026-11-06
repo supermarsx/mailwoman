@@ -14,6 +14,8 @@ export interface DataRequest {
   id: string; kind: RequestKind; status: RequestStatus;
   createdAt: number; updatedAt: number; dueAt: number;
   details: string; requestedBy: 'self' | 'admin';
+  /** An objection's purposes (ids of the consent ledger); empty for other kinds. */
+  purposes?: string[];
   needsConfirmation: boolean; canCancel: boolean; graceUntil: number | null;
   decisionReason: string | null; extensionDays: number; extensionReason: string | null;
   export: { bytes: number; expiresAt: number; complete: boolean } | null;
@@ -54,7 +56,9 @@ async function call<T>(path: string, init: { method?: string; body?: unknown } =
 export const loadOverview = (): Promise<{ policy: DataRequestPolicy }> => call('/overview');
 export const listRequests = async (): Promise<DataRequest[]> => (await call<{ requests: DataRequest[] }>('')).requests;
 export const loadRequest = (id: string): Promise<{ request: DataRequest; trail: TrailEntry[] }> => call(`/${encodeURIComponent(id)}`);
-export const submitRequest = async (input: { kind: RequestKind; details?: string; includeMail?: boolean; locale?: string }): Promise<DataRequest> => (await call<{ request: DataRequest }>('', { method: 'POST', body: input })).request;
+/** The purposes a person can object to by request; the server drops any other id. */
+export const OBJECTION_PURPOSES = ['analytics', 'analyticsTag', 'assistant', 'openTracking', 'push', 'integrations'] as const;
+export const submitRequest = async (input: { kind: RequestKind; details?: string; purposes?: string[]; includeMail?: boolean; locale?: string }): Promise<DataRequest> => (await call<{ request: DataRequest }>('', { method: 'POST', body: input })).request;
 export const confirmRequest = async (id: string, code: string): Promise<DataRequest> => (await call<{ request: DataRequest }>(`/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: { code } })).request;
 export const cancelRequest = async (id: string): Promise<DataRequest> => (await call<{ request: DataRequest }>(`/${encodeURIComponent(id)}/cancel`, { method: 'POST' })).request;
 export const downloadLink = (id: string): Promise<{ url: string; expiresAt: number; singleUse: boolean }> => call(`/${encodeURIComponent(id)}/download-link`, { method: 'POST' });

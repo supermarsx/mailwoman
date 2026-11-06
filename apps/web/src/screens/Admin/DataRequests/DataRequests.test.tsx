@@ -7,7 +7,7 @@ import type { AdminDataRequest, DataRequestList } from '../../../api/admin/dataR
 vi.mock('../../../api/admin/dataRequests.ts', async importOriginal => ({
   ...await importOriginal<typeof import('../../../api/admin/dataRequests.ts')>(),
   listDataRequests: vi.fn(), loadDataRequest: vi.fn(), approveDataRequest: vi.fn(), rejectDataRequest: vi.fn(),
-  extendDataRequest: vi.fn(), createDataRequestOnBehalf: vi.fn(), exportDataRequestLog: vi.fn(), runDataRequest: vi.fn(),
+  extendDataRequest: vi.fn(), createDataRequestOnBehalf: vi.fn(), exportDataRequestLog: vi.fn(), runDataRequest: vi.fn(), bulkDataRequests: vi.fn(),
 }));
 
 const NOW = Math.floor(Date.now() / 1000);
@@ -83,5 +83,50 @@ describe('Admin > Data requests', () => {
     fireEvent.input(screen.getAllByLabelText('Person')[0]!, { target: { value: 'bob@example.test' } });
     fireEvent.click(screen.getByRole('button', { name: 'File request' }));
     await waitFor(() => expect(api.createDataRequestOnBehalf).toHaveBeenCalledWith(expect.objectContaining({ address: 'bob@example.test', kind: 'access' })));
+  });
+
+  it('applies one action to the ticked rows, summarises each row, and keeps the refused ones selected', async () => {
+    vi.mocked(api.listDataRequests).mockResolvedValue(list([request({ id: 'a', address: 'a@example.test', status: 'awaiting_approval', legalHold: { active: false } }), request({ id: 'b', address: 'b@example.test', status: 'awaiting_approval', legalHold: { active: false } })]));
+    vi.mocked(api.bulkDataRequests).mockResolvedValue({ action: 'approve', done: 1, failed: 1, results: [{ id: 'a', ok: true, status: 'in_progress' }, { id: 'b', ok: false, code: 'state', detail: 'A legal hold still applies; release it first.' }] });
+    render(() => <AdminDataRequests />);
+    await screen.findByTestId('dr-row-a');
+    expect(screen.queryByTestId('dr-bulk')).toBeNull();
+    fireEvent.click(screen.getByTestId('dr-select-all'));
+    expect(screen.getByTestId('dr-bulk')).toHaveTextContent('2 requests selected');
+    fireEvent.click(screen.getByTestId('dr-bulk-run'));
+    await waitFor(() => expect(api.bulkDataRequests).toHaveBeenCalledWith({ action: 'approve', ids: ['a', 'b'], note: '' }));
+    const result = await screen.findByTestId('dr-bulk-result');
+    expect(result).toHaveTextContent('Done for 1; refused for 1');
+    expect(screen.getByTestId('dr-bulk-row-a')).toHaveAttribute('data-ok', 'true');
+    expect(screen.getByTestId('dr-bulk-row-b')).toHaveTextContent('A legal hold still applies');
+    expect(screen.getByTestId('dr-bulk')).toHaveTextContent('1 request selected');
+  });
+
+  it('asks for the reason a rejection or hold needs before it can run, and exports the CSV of the selection', async () => {
+    vi.mocked(api.listDataRequests).mockResolvedValue(list([request({ id: 'a', address: 'a@example.test' })]));
+    vi.mocked(api.exportDataRequestLog).mockResolvedValue('id,a');
+    URL.createObjectURL = vi.fn(() => 'blob:x'); URL.revokeObjectURL = vi.fn();
+    render(() => <AdminDataRequests />);
+    await screen.findByTestId('dr-row-a');
+    fireEvent.click(screen.getByLabelText('Select the request of a@example.test'));
+    fireEvent.change(screen.getByTestId('dr-bulk-action'), { target: { value: 'reject' } });
+    expect(screen.getByTestId('dr-bulk-run')).toBeDisabled();
+    fireEvent.input(screen.getByTestId('dr-bulk-text'), { target: { value: 'duplicate' } });
+    expect(screen.getByTestId('dr-bulk-run')).not.toBeDisabled();
+    fireEvent.click(screen.getByTestId('dr-bulk-csv'));
+    await waitFor(() => expect(api.exportDataRequestLog).toHaveBeenCalledWith({ ids: 'a' }));
+  });
+
+  it('loads further pages by cursor and appends them', async () => {
+    vi.mocked(api.listDataRequests)
+      .mockResolvedValueOnce({ ...list([request({ id: 'p1', address: 'p1@example.test' })]), matched: 2, nextCursor: '100.p1' })
+      .mockResolvedValueOnce({ ...list([request({ id: 'p2', address: 'p2@example.test' })]), matched: 2, nextCursor: null });
+    render(() => <AdminDataRequests />);
+    await screen.findByTestId('dr-row-p1');
+    fireEvent.click(screen.getByTestId('dr-more'));
+    await screen.findByTestId('dr-row-p2');
+    expect(vi.mocked(api.listDataRequests).mock.calls[1]![0]).toMatchObject({ cursor: '100.p1' });
+    expect(screen.getByTestId('dr-row-p1')).toBeInTheDocument();
+    expect(screen.queryByTestId('dr-more')).toBeNull();
   });
 });

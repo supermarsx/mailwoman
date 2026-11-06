@@ -97,3 +97,16 @@ dr-event-due-soon = Due soon
 dr-event-overdue = Overdue
 dr-event-retry = Retried
 dr-event-grace-skipped = Waiting period skipped by an administrator
+
+# Objection purposes and rectification
+dr-objection-purposes = What you object to
+dr-objection-purposes-help = When an administrator approves the request, your consent for each purpose you tick is withdrawn at once. You can switch a purpose on again later under Consents.
+dr-objection-purposes-list = Objecting to: { $purposes }
+dr-purpose-analytics = Usage statistics
+dr-purpose-analyticsTag = Analytics tag
+dr-purpose-assistant = Assistant
+dr-purpose-openTracking = Open and read tracking
+dr-purpose-push = Push notifications
+dr-purpose-integrations = Integrations and API keys
+dr-rectify-ref = Reference { $ref }. Quote it if you write to us about this correction.
+dr-rectify-edit = Edit my details

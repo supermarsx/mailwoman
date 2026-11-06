@@ -13,8 +13,8 @@ export interface DataRequestStats {
  total:number;open:number;overdue:number;dueSoon:number;answered:number;onTime:number;avgAnswerHours:number|null;
  byStatus:Record<string,number>;byKind:Record<string,number>;created30d:{t:number;count:number}[];
 }
-export interface DataRequestList {requests:AdminDataRequest[];matched:number;stats:DataRequestStats;kinds:RequestKind[]}
-export interface DataRequestFilter {status?:string;kind?:string;domain?:string;assignee?:string;q?:string;due?:string}
+export interface DataRequestList {requests:AdminDataRequest[];matched:number;/** Present while more rows follow; pass it back as `cursor`. */nextCursor?:string|null;stats:DataRequestStats;kinds:RequestKind[]}
+export interface DataRequestFilter {status?:string;kind?:string;domain?:string;assignee?:string;q?:string;due?:string;/** Comma-separated request ids (the CSV of a selection). */ids?:string;/** The `nextCursor` of the previous page. */cursor?:string;limit?:string}
 export interface TrailRow {id:string;ts:number;actor:string;kind:string;detail:Record<string,unknown>|null}
 
 const qs=(f:DataRequestFilter)=>{const p=new URLSearchParams();for(const [k,v] of Object.entries(f))if(v)p.set(k,v);const s=p.toString();return s?`?${s}`:'';};
@@ -30,6 +30,11 @@ export const completeDataRequest=(id:string,note:string)=>act(id,'complete',{not
 export const holdDataRequest=(id:string,reason:string)=>act(id,'hold',{reason});
 export const releaseDataRequestHold=(id:string)=>act(id,'release-hold');
 export const runDataRequest=(id:string)=>act(id,'run');
+export type BulkAction='approve'|'reject'|'extend'|'assign'|'hold'|'release-hold';
+export interface BulkRowResult {id:string;ok:boolean;status?:string|null;code?:string;detail?:string}
+export interface BulkResult {action:BulkAction;results:BulkRowResult[];done:number;failed:number}
+/** One action over several requests; every row is answered on its own. A missing step-up proof asks once (the admin dialog) and the call is repeated. */
+export const bulkDataRequests=async(input:{action:BulkAction;ids:string[];note?:string;reason?:string;days?:number;assignee?:string|null}):Promise<BulkResult>=>(await adminRequest<BulkResult>('/dsr/bulk',{method:'POST',body:input})).data;
 export const createDataRequestOnBehalf=async(input:{address:string;kind:RequestKind;details?:string;includeMail?:boolean}):Promise<AdminDataRequest>=>(await adminRequest<{request:AdminDataRequest}>('/dsr',{method:'POST',body:input})).data.request;
 /** The CSV of the filtered log, fetched with the admin session (a link would skip the session header). */
 export const exportDataRequestLog=async(f:DataRequestFilter):Promise<string>=>{

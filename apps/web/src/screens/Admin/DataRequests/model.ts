@@ -38,6 +38,22 @@ export function onTimePercent(stats: Pick<DataRequestStats, 'answered' | 'onTime
   return stats.answered === 0 ? null : Math.round((stats.onTime / stats.answered) * 100);
 }
 
+/** What a bulk action needs besides the selection: a note, a reason, days or an assignee. */
+export type BulkField = 'none' | 'note' | 'reason' | 'extend' | 'assignee';
+export const BULK_ACTIONS = ['approve', 'reject', 'extend', 'assign', 'hold', 'release-hold'] as const;
+export type BulkKind = (typeof BULK_ACTIONS)[number];
+export function bulkField(action: BulkKind): BulkField {
+  return action === 'approve' ? 'note' : action === 'reject' || action === 'hold' ? 'reason' : action === 'extend' ? 'extend' : action === 'assign' ? 'assignee' : 'none';
+}
+/** Whether the bulk form holds what the action needs. */
+export function bulkReady(action: BulkKind, input: { text: string; days: number }, count: number): boolean {
+  if (count < 1 || count > 200) return false;
+  const field = bulkField(action);
+  if (field === 'reason') return input.text.trim() !== '';
+  if (field === 'extend') return input.text.trim() !== '' && Number.isInteger(input.days) && input.days >= 1;
+  return true;
+}
+
 /** The CSV file name for the exported log. */
 export function logFileName(now: Date): string {
   return `data-requests-${now.toISOString().slice(0, 10)}.csv`;

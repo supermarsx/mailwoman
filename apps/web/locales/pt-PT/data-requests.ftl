@@ -98,3 +98,16 @@ dr-event-due-soon = A vencer
 dr-event-overdue = Em atraso
 dr-event-retry = Repetido
 dr-event-grace-skipped = Período de espera dispensado por um administrador
+
+# Finalidades da oposição e retificação
+dr-objection-purposes = Aquilo a que se opõe
+dr-objection-purposes-help = Quando um administrador aprovar o pedido, o seu consentimento para cada finalidade marcada é retirado de imediato. Pode voltar a ativar uma finalidade mais tarde em Consentimentos.
+dr-objection-purposes-list = Oposição a: { $purposes }
+dr-purpose-analytics = Estatísticas de utilização
+dr-purpose-analyticsTag = Etiqueta de análise
+dr-purpose-assistant = Assistente
+dr-purpose-openTracking = Rastreio de abertura e leitura
+dr-purpose-push = Notificações push
+dr-purpose-integrations = Integrações e chaves de API
+dr-rectify-ref = Referência { $ref }. Indique-a se nos escrever sobre esta correção.
+dr-rectify-edit = Editar os meus dados

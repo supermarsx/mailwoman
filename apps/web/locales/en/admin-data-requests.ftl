@@ -68,3 +68,33 @@ admin-dr-trail = Trail
 admin-dr-behalf = File a request for a user
 admin-dr-behalf-help = For a request received by post or in person. The person is not asked to confirm by message.
 admin-dr-behalf-submit = File request
+
+# Bulk actions
+admin-dr-bulk = Bulk actions
+admin-dr-bulk-selected = { $count ->
+    [one] { $count } request selected
+   *[other] { $count } requests selected
+}
+admin-dr-bulk-action = Action
+admin-dr-bulk-approve = Approve
+admin-dr-bulk-reject = Reject
+admin-dr-bulk-extend = Extend the due date
+admin-dr-bulk-assign = Assign
+admin-dr-bulk-hold = Put under legal hold
+admin-dr-bulk-release-hold = Release legal hold
+admin-dr-bulk-field-note = Note (optional)
+admin-dr-bulk-field-reason = Reason
+admin-dr-bulk-field-extend = Reason for the extension
+admin-dr-bulk-field-assignee = Assign to (empty clears)
+admin-dr-bulk-run = { $count ->
+    [one] Apply to { $count } request
+   *[other] Apply to { $count } requests
+}
+admin-dr-bulk-csv = CSV of the selection
+admin-dr-bulk-clear = Clear selection
+admin-dr-bulk-select-all = Select every request listed
+admin-dr-bulk-select = Select the request of { $address }
+admin-dr-bulk-summary = Done for { $done }; refused for { $failed }. The refused requests stay selected.
+admin-dr-bulk-ok = Done
+admin-dr-bulk-failed = Refused
+admin-dr-more = Load more requests
