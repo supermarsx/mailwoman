@@ -143,3 +143,10 @@ admin-ux-appearance-accent = 强调色
 admin-ux-appearance-light = 浅色
 admin-ux-appearance-dark = 深色
 admin-ux-appearance-reset = 使用网页邮箱主题
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = 添加
+admin-ux-list-remove = 移除 { $item }
+admin-ux-list-none = 暂无。
+admin-ux-list-duplicate = { $item } 已在列表中。
+admin-ux-list-empty-entry = 请先输入内容。

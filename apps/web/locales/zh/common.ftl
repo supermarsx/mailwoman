@@ -174,3 +174,6 @@ common-notifications-enabled = 此设备已启用通知。
 multiselect-count = { $count ->
    *[other] 已选 { $count } 项
 }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = 服务器繁忙，请等待几秒后重试。

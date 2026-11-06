@@ -50,3 +50,7 @@ sharing-right-e-label = 彻底清除
 sharing-right-e-desc = 永久移除已标记为删除的邮件。
 sharing-right-a-label = 管理
 sharing-right-a-desc = 更改谁可以访问此邮箱。
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = 此邮件服务器不支持文件夹共享。
+sharing-forbidden = 你无权管理此文件夹的共享。请联系其所有者或管理员。

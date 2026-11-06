@@ -96,3 +96,9 @@ rules-forward-title = 转发
 rules-forward-address = 转发至
 rules-forward-copy = 在此账户中保留副本
 rules-forward-refused = 管理员不允许转发到此域名。
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = 已保存。自动回复已关闭。
+rules-vacation-runs-server = 邮件送达时，由你的邮件服务器发送此回复。
+rules-vacation-runs-engine = Mailwoman 在同步收件箱新邮件时发送此回复，因此回复可能要等到下次同步。
+rules-vacation-unavailable = 此账户无法使用休假回复：其邮件服务器不提供该功能，或管理员已将其关闭。

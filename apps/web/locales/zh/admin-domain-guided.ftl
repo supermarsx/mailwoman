@@ -1,0 +1,60 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: zh · Module: admin-domain-guided. Source: ../en/admin-domain-guided.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-domain-guided-title = 在引导下添加域名
+admin-domain-guided-identity = 域名标识
+admin-domain-guided-domain = 域名
+admin-domain-guided-connection = 连接
+admin-domain-guided-default = 使用服务器默认值
+admin-domain-guided-manual = 配置邮件服务器
+admin-domain-guided-default-help = 服务器默认值使用管理员配置的邮件路由。创建之前你可以先查看此域名。
+admin-domain-guided-permission = 你的角色可以使用服务器默认值创建域名。更改其邮件服务器需要上游配置权限。
+admin-domain-guided-protocol = 邮件协议
+admin-domain-guided-host = 邮件主机名或 IP 地址
+admin-domain-guided-port = 邮件端口
+admin-domain-guided-tls = 邮件加密
+admin-domain-guided-implicit = 从连接开始就使用 TLS
+admin-domain-guided-starttls = 必须使用 STARTTLS
+admin-domain-guided-smtp = 配置发件 SMTP 服务器
+admin-domain-guided-smtp-host = SMTP 主机名或 IP 地址
+admin-domain-guided-smtp-port = SMTP 端口
+admin-domain-guided-smtp-tls = SMTP 加密
+admin-domain-guided-smtp-omitted = 没有特定于域名的 SMTP 服务器
+admin-domain-guided-jmap = JMAP 会话 URL
+admin-domain-guided-no-credentials = 此处不收集任何账户凭据。TLS 证书验证保持启用；访问私有网络需要另行进行高级配置。
+admin-domain-guided-policy = 连接策略
+admin-domain-guided-policy-value = 已验证的 TLS、登录时使用密码认证、无私有网络访问
+admin-domain-guided-create = 创建域名
+admin-domain-guided-invalid-domain = 请输入 example.org 这样的域名，不含协议、路径或端口。
+admin-domain-guided-invalid-endpoint = 请输入有效的服务器主机名或 IP 地址，以及 1 到 65535 之间的端口。
+admin-domain-guided-invalid-url = 请输入不含凭据、查询参数或片段的 HTTPS JMAP 会话 URL。
+admin-domain-guided-status-required = 配置邮件服务器之前，请先加载服务器连接模式。
+admin-domain-guided-advanced = 配置多个后端和高级选项
+admin-domain-guided-draft-help = 这些是设置草稿。在最后的审阅页面选择“创建域名”之前，不会保存任何内容。
+admin-domain-guided-backend-list = 后端设置草稿
+admin-domain-guided-backend-empty = 添加一个后端，或查看已发现的配置。
+admin-domain-guided-backend-done = 返回后端列表
+admin-domain-guided-actions = 操作
+admin-domain-guided-disabled = 已禁用
+admin-domain-guided-edit-backend = 编辑后端 { $id }
+admin-domain-guided-remove-backend = 从设置中移除后端 { $id }
+admin-domain-guided-remove-help = 从设置草稿中移除此未保存的后端。
+admin-domain-guided-custom-ca = 已配置自定义证书颁发机构
+admin-domain-guided-supported-help = 当前服务器模式：{ $mode }。引擎模式在高级设置中支持 IMAP、POP3、SMTP、ManageSieve 和 EWS HTTPS Basic；代理模式支持 JMAP。Microsoft Graph、Gmail API、OAuth、NTLM 和 MAPI 在此处不可用作域名后端。
+admin-domain-guided-detect = 发现配置
+admin-domain-guided-detecting = 正在发现…
+admin-domain-guided-detect-help = 通过所配置的出站策略显式运行服务器端发现。结果只是建议，绝不会自动保存。你的角色必须允许不受范围限制的上游配置。
+admin-domain-guided-detected = 发现来源：{ $source }。在创建此域名之前，请审阅所有端点和认证方式。
+admin-domain-guided-use-proposal = 查看已发现的端点
+admin-domain-guided-oauth-warning = 此提供商报告有 OAuth 要求。此设置不会配置提供商的 OAuth。在使用这些端点之前，请确认所选的密码机制受支持。
+admin-domain-guided-pim-help = 联系人和日历同步使用与账户关联的 Nextcloud 配置。此设置不会启用域名的 DAV URL 和自动发现。
+admin-domain-guided-backend-count = 请配置 1 到 32 个后端。
+admin-domain-guided-backend-id = 为每个后端指定唯一的 ID，使用 1–64 个字母、数字、连字符或下划线。
+admin-domain-guided-backend-mode = 当前服务器模式不支持所选的后端协议。
+admin-domain-guided-backend-priority = 后端优先级必须是 0 到 65535 之间的整数；值越小越先尝试。
+admin-domain-guided-backend-preferred = 每个服务角色最多选择一个已启用的首选后端。
+admin-domain-guided-backend-security = 请检查 TLS 顺序：使用不同的传输方式，其中一种为固定模式，且在包含明文之前必须明确允许。
+admin-domain-guided-backend-auth = 请选择不同的受支持认证机制；固定模式必须恰好一个。
+admin-domain-guided-backend-username = 请完成所选的用户名域、领域或自定义模板。
