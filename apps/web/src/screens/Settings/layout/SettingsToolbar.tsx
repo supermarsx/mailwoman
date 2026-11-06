@@ -55,6 +55,7 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
   const scan = (): void => {
     frame = undefined;
     const els = cardEls();
+    const r0 = root()!;
     const refs: CardRef[] = [];
     const parents = new Map<HTMLElement, number>();
     for (const el of els) {
@@ -78,6 +79,7 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     }
     for (const [parent, n] of parents) { if (n >= 2) parent.dataset.kitGrid = ''; else delete parent.dataset.kitGrid; }
     setCards(refs);
+    if (refs.length > 1) r0.dataset.kitRail = ''; else delete r0.dataset.kitRail;
     setCollapsedCount(els.filter(e => e.dataset.kitCollapsed === 'true').length);
     bar.hidden = refs.length === 0;
     observe(els);

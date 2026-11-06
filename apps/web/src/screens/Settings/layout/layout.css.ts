@@ -117,3 +117,25 @@ export const remoteHit = style({
 export const remoteCard = style({ fontSize: '0.75rem', color: vars.color.textDim });
 const flash = keyframes({ '0%': { boxShadow: `0 0 0 3px ${vars.color.accent}` }, '100%': { boxShadow: '0 0 0 3px transparent' } });
 globalStyle('[data-kit-flash]', { animation: `${flash} 1.6s ease-out`, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none', outline: `2px solid ${vars.color.accent}` } } });
+
+// Wide workspaces (>= 1100px): the jump list becomes a left rail that stays put
+// beside the cards. The sticky toolbar is its positioning parent, so the rail
+// sticks with it; the section reserves the rail's width as start padding.
+const RAIL = '12rem';
+globalStyle('[data-settings-section][data-kit-rail]', {
+  '@container': { 'settings-workspace (min-width: 1100px)': { paddingInlineStart: RAIL } },
+});
+globalStyle(`${chips}`, {
+  '@container': { 'settings-workspace (min-width: 1100px)': {
+    position: 'absolute', insetInlineStart: `calc(-1 * ${RAIL})`, insetBlockStart: 'calc(100% + 0.5rem)', inlineSize: '11rem', flex: 'none',
+    flexDirection: 'column', overflowX: 'hidden', overflowY: 'auto', maxBlockSize: 'calc(100vh - 9rem)',
+  } },
+});
+globalStyle(`${chips} > li`, { display: 'flex' });
+globalStyle(`${chip}`, {
+  '@container': { 'settings-workspace (min-width: 1100px)': { whiteSpace: 'normal', textAlign: 'start', inlineSize: '100%', border: 0, borderInlineStart: `2px solid ${vars.color.border}`, borderRadius: 0 } },
+});
+
+// A toggle is small: keep it beside its label even in a narrow card.
+globalStyle(`${row}:has(> ${rowControl} > input[type="checkbox"])`, { '@container': { '(max-width: 22rem)': { gridTemplateColumns: 'minmax(0,1fr) auto' } } });
+globalStyle(`${row} > ${rowControl}:has(> input[type="checkbox"])`, { '@container': { '(max-width: 22rem)': { gridColumn: 2, gridRow: '1 / span 2', alignItems: 'flex-end' } } });

@@ -61,3 +61,21 @@ it('lists the shortcuts-section cards without dropping a setting',async()=>{
  expect(await screen.findAllByText(t('settings-row-actions-mode'),{selector:'label'})).toHaveLength(1);
  expect(document.querySelectorAll('[data-setting-row]').length).toBeGreaterThanOrEqual(5);
 });
+
+import {SettingsNavigationContext,createSettingsNavigation} from '../navigation.tsx';
+it('lists matches from other sections and navigates to the card on click',async()=>{
+ const nav=createSettingsNavigation({section:'reader'});
+ render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
+ const box=await screen.findByRole('textbox',{name:t('settings-kit-search')});
+ fireEvent.input(box,{target:{value:'forward header'}});
+ const hit=await screen.findByRole('button',{name:new RegExp(t('settings-quote-style'))});
+ fireEvent.click(hit);
+ await waitFor(()=>expect(nav.route()).toMatchObject({section:'compose',card:'compose-card-addressing'}));
+});
+it('scrolls to and flags the card named by the route',async()=>{
+ const nav=createSettingsNavigation({section:'reader',card:'reader-card-loading'});
+ const scroll=vi.fn();Element.prototype.scrollIntoView=scroll;
+ render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
+ await waitFor(()=>expect(scroll).toHaveBeenCalled());
+ expect(document.getElementById('reader-card-loading')).toHaveAttribute('data-kit-flash');
+});
