@@ -89,3 +89,9 @@ rules-forward-title = Reenvío
 rules-forward-address = Reenviar a
 rules-forward-copy = Conservar una copia en esta cuenta
 rules-forward-refused = El administrador no permite reenviar a este dominio.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = Guardado. Las respuestas automáticas están desactivadas.
+rules-vacation-runs-server = Su servidor de correo envía esta respuesta cuando llega un mensaje.
+rules-vacation-runs-engine = Mailwoman envía esta respuesta cuando sincroniza el correo nuevo de la bandeja de entrada, así que una respuesta puede esperar hasta la próxima sincronización.
+rules-vacation-unavailable = Las respuestas de vacaciones no están disponibles para esta cuenta: su servidor de correo no las ofrece o su administrador las ha desactivado.

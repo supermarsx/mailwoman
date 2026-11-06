@@ -50,3 +50,7 @@ sharing-right-e-label = Purgar
 sharing-right-e-desc = Quitar definitivamente los mensajes marcados como eliminados.
 sharing-right-a-label = Administrar
 sharing-right-a-desc = Cambiar quién tiene acceso a este buzón.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Este servidor de correo no admite compartir carpetas.
+sharing-forbidden = No tiene permiso para gestionar cómo se comparte esta carpeta. Consulte a su propietario o a su administrador.
