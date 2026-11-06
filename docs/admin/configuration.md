@@ -564,6 +564,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.badge.folder"></a>`mail.badge.folder` | mail | global+domain+user | "always" | plain |  | yes | Reader header: when the folder badge shows (always, only when notable, never) |
 | <a id="mail.badge.list"></a>`mail.badge.list` | mail | global+domain+user | "always" | plain |  | yes | Reader header: when the mailing list badge shows (always, only when notable, never); it needs a List-Id or List-Unsubscribe header |
 | <a id="mail.list.unsubscribemode"></a>`mail.list.unsubscribeMode` | mail | global+domain+user | "ask" | plain |  | yes | Mailing list Unsubscribe: ask first and send the one-click request, send it at once, or only open the list's link or draft |
+| <a id="mail.list.keep"></a>`mail.list.keep` | mail | global+domain+user | [] | plain |  | yes | Senders and mailing lists the user always keeps: sender:address or list:List-Id. Clean up this sender, unsubscribe suggestions and retention rules skip them |
 | <a id="mail.badge.density"></a>`mail.badge.density` | mail | global+domain+user | "compact" | plain |  | yes | Reader header badge size: compact or comfortable |
 | <a id="mail.badge.labels"></a>`mail.badge.labels` | mail | global+domain+user | "text" | plain |  | yes | Reader header badges: icon with text, or icon only |
 | <a id="mail.compose.priority.enabled"></a>`mail.compose.priority.enabled` | mail | global+domain+user | true | plain |  | yes | Priority selector (Normal, High, Low) in the composer |
@@ -1186,6 +1187,9 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="encryption.rotationdays"></a>`encryption.rotationDays` | privacy | global | 365 | plain |  | yes | Days after which the database key is reported as due for rotation; 0 sets no due date |
 | <a id="encryption.warnings.enabled"></a>`encryption.warnings.enabled` | privacy | global | true | plain |  | yes | Report plaintext stores and overdue key rotation in the security assessment |
 | <a id="compose.feature."></a>`compose.feature.*` | interface | global+domain+user | true | plain |  | yes | Whether a composer feature (ribbon control) is available; id is the COMPOSE_FEATURES id |
+| <a id="compose.styles.maxcustom"></a>`compose.styles.maxCustom` | interface | global+domain+user | 20 | plain |  | yes | Most custom paragraph and text styles a user can keep in the composer's Styles gallery; 0 turns custom styles off |
+| <a id="compose.styles.defaultset"></a>`compose.styles.defaultSet` | interface | global+domain+user | "default" | plain |  | yes | Style set the composer's Styles gallery starts with |
+| <a id="compose.styles.custom"></a>`compose.styles.custom` | interface | global+domain+user | "" | plain |  | yes | A user's custom composer styles, as JSON written by the Styles gallery |
 | <a id="mail.badge.headers"></a>`mail.badge.headers` | mail | global+domain+user | true | plain |  | yes | Show badges for Expires, Reply-By, Sensitivity and Supersedes in the reader |
 | <a id="compose.layout.defaultfont"></a>`compose.layout.defaultFont` | mail | global+domain+user | "" | plain |  | yes | Default message font: family\|size px\|#colour |
 | <a id="compose.replyto.show"></a>`compose.replyTo.show` | mail | global+domain+user | "auto" | plain |  | yes | Reply-To row in the composer |
@@ -1203,7 +1207,4 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.expiry.hideexpired"></a>`mail.expiry.hideExpired` | mail | global+domain+user | "off" | plain |  | yes | How expired messages (Expires header) are shown |
 | <a id="compose.insert.maxinlineimagemb"></a>`compose.insert.maxInlineImageMB` | interface | global+domain+user | 10 | plain |  | yes | Largest picture, in MB, the composer places in the message body (larger ones can still be attached) |
 | <a id="compose.insert.imageresizedefault"></a>`compose.insert.imageResizeDefault` | interface | global+domain+user | "large" | plain |  | yes | Size preset the composer's Picture from file dialog starts with |
-| <a id="compose.styles.maxcustom"></a>`compose.styles.maxCustom` | interface | global+domain+user | 20 | plain |  | yes | Most custom paragraph and text styles a user can keep in the composer's Styles gallery; 0 turns custom styles off |
-| <a id="compose.styles.defaultset"></a>`compose.styles.defaultSet` | interface | global+domain+user | default | plain |  | yes | Style set the composer's Styles gallery starts with |
-| <a id="compose.styles.custom"></a>`compose.styles.custom` | interface | global+domain+user | "" | plain |  | yes | A user's custom composer styles, as JSON written by the Styles gallery |
 | <a id="servertext."></a>`serverText.*` | serverText | global+domain | {} | plain |  | yes | server_text(id, locale, domain) overrides |
