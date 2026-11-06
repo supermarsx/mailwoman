@@ -42,7 +42,9 @@ The ZIP is built section by section and stored as it goes, so a restart continue
 
 With `dsr.export.format` set to `jsonCsv`, list data is also written as CSV (cells that start with `=`, `+`, `-` or `@` are prefixed with `'`). `dsr.export.maxMegabytes` caps the total; a section that would exceed it is left out and listed in the manifest. `dsr.export.encrypt` seals the stored parts with the server key until the export is downloaded or expires.
 
-Secrets are not exported: no password, session token, second-factor secret, passkey key material or API key hash.
+Beyond those, sections built from the data map add mail state (pins, snoozes, tags, saved searches, trusted senders, read-receipt rules and status, remote-image grants, queued submissions), tasks, security metadata (key fingerprints and associations, API key prefixes, passkey labels, OAuth token metadata, password change history), integrations (external and linked mailboxes, bridges, webhooks), delegations granted and received, usage and quota figures, and records (consent ledger, restrictions, retention rules, tracking pixels and opens, uploads, plug-in data keys, DLP decisions). [Erasure and export coverage](erasure-coverage.md) lists every table and the section it goes to.
+
+Secrets are not exported: no password, session token, second-factor secret, passkey key material or API key hash. Sealed items (authenticator secrets, recovery codes, stored passwords, sealed tokens, key material) appear in the export only as a marker saying the item is present and not exported.
 
 ### Download
 
@@ -50,14 +52,16 @@ When an export is ready the person asks for a download link (a fresh password is
 
 ## Erasure
 
-The erasure deletes the person's rows from the personal tables (second-factor and passkey records, push subscriptions, signatures, notification rules, sign-in events, remembered devices, masked addresses, API keys, filter scripts, identities, drafts, calendars, address books, notes, personal settings and saved searches, cookie consent records), the search index documents and message embeddings of the person's accounts, their sessions, and any native account rows (which removes the locally cached mail). It then closes the directory entry so the address cannot sign in again. A second pass checks that nothing is left; if anything remains or any step failed, the request is retried and then marked failed for an administrator to rerun.
+The erasure deletes the person's rows from the personal tables (second-factor and passkey records, push subscriptions, signatures, notification rules, sign-in events, remembered devices, masked addresses, API keys, filter scripts, identities, drafts, calendars, address books, notes, personal settings and saved searches, cookie consent records), the search index documents and message embeddings of the person's accounts, their sessions, and any native account rows (which removes the locally cached mail). It then closes the directory entry so the address cannot sign in again. The rows are found through the data map (`crates/mw-store/src/data_map.rs`), which also covers tables that are removed with a parent row (events, contacts, tasks, mail cache), delegations where the person is the delegate, linked mailboxes and the other tables listed in [erasure coverage](erasure-coverage.md). A second pass counts the rows every entry of the data map still finds, not only those the delete statements touch, so a table that is only mapped is verified too; if anything remains or any step failed, the request is retried and then marked failed for an administrator to rerun.
 
 What is kept, and listed in the completion record:
 
-* Audit log entries, for the audit retention period you set.
+* Audit log entries, for the audit retention period you set. With `scrub.autoRunOnErasure` on, the person's address and account ids in audit entries, alert and assistant history and the rotated log files are first replaced with a keyed pseudonym; the audit hash chain is re-sealed and an anchor record is written (see [erasure coverage](erasure-coverage.md#scrubbing-one-person-from-history)).
 * The directory entry (address, domain, status, timestamps), so that the address is not enrolled again without an administrator.
 * The request and its trail, for `dsr.retention.completedDays`.
 * Mail held by an upstream mail provider. This server removes its link to it; it does not delete mail it does not hold.
+
+Every completed erasure also writes a tombstone (a keyed hash of the address, no raw identifier). Backups record the tombstone watermark when they are made, and a restore replays the newer tombstones when `backup.propagateErasure` is on, so people erased after a backup are erased again after restoring it. The admin Erasure and scrubbing page marks backups that still contain people erased since.
 
 The completion record also holds counts of rows removed per table and a digest of those counts, the request id and the time. The digest lets you check later that the record was not edited; it is not a signature.
 

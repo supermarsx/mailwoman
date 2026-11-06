@@ -44,7 +44,7 @@ export function Overview(props: { tabs: readonly ComplianceTab[]; open: (path: s
 
 export function AdminCompliance(): JSX.Element {
   const shell = useShell();
-  onMount(() => { void loadCatalog('admin-compliance'); void loadCatalog('admin-data-requests'); void loadCatalog('admin-retention'); void loadCatalog('admin-cookies'); void loadCatalog('privacy'); });
+  onMount(() => { void loadCatalog('admin-compliance'); void loadCatalog('admin-data-requests'); void loadCatalog('admin-retention'); void loadCatalog('admin-cookies'); void loadCatalog('privacy'); void loadCatalog('admin-erasure'); });
   const tabs = (): ComplianceTab[] => COMPLIANCE_TABS.filter((tab) => canOpenComplianceTab(shell.can, tab));
   const selected = (): string => shell.router.route().rest[0] ?? 'overview';
   const current = (): ComplianceTab | undefined => tabs().find((tab) => tab.id === selected());
