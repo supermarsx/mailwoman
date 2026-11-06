@@ -354,4 +354,19 @@ mod tests {
         assert!(symbolicate("at f (/assets/none.js:1:1)", &cache, |_| None).is_none());
         assert!(parse(b"{\"version\":2}").is_none());
     }
+
+    /// A hidden map exactly as Vite writes it for the web build without `vite-plugin-top-level-await`: one generated line, `../../`
+    /// sources, `sourcesContent`, 5-field segments (apps/web, `MW_SOURCEMAP=hidden`, built with `VITE_MW_E2E_HOOKS=1`).
+    #[test]
+    fn resolves_a_frame_with_a_real_vite_map() {
+        let map = include_bytes!("vite_hook.js.map.json");
+        let cache = MapCache::default();
+        let load = |p: &str| (p == "assets/e2eHook-a3QplZ1k.js.map").then(|| map.to_vec());
+        let stack = "Error: Deliberate E2E boundary error
+    at d (/assets/e2eHook-a3QplZ1k.js:1:108)
+    at get children (/assets/e2eHook-a3QplZ1k.js:1:343)";
+        let (text, n) = symbolicate(stack, &cache, load).expect("a Vite map resolves");
+        assert!(n >= 1, "{text}");
+        assert!(text.contains("e2eHook.tsx:15:9"), "{text}");
+    }
 }

@@ -75,6 +75,8 @@ from browsers that stayed on the page long enough to report, so very slow
 loads that were abandoned are under-represented. Percentiles are hidden for a
 period or chart interval with fewer samples than the minimum (default 20).
 
+Checked in a browser against the real server (a deliberate error through an error boundary, `VITE_MW_E2E_HOOKS=1` build, reported, opened in Client errors): the frames resolve to `src/...:line:col` only when the bundle and its map describe the same text. `vite-plugin-top-level-await` re-prints every chunk after the map is written and does not remap it, so with that plugin in `apps/web/vite.config.ts` the hidden maps no longer line up and the raw frames are shown unresolved; a build without it resolves them. Check a release by building with `MW_SOURCEMAP=hidden`, throwing through a boundary and looking for a `src/` path in the group's stack. `VITE_MW_E2E_HOOKS=1` adds `window.__mwThrow(message)` for that (a normal build contains neither the hook nor its file).
+
 ### Settings
 
 | Key | Default | Effect |
