@@ -7854,7 +7854,7 @@ pub static REGISTRY: &[SettingDef] = &[
     def!(
         "compose.styles.defaultSet",
         Kind::Enum(&["default", "modern", "classic", "compact"]),
-        "default",
+        r#""default""#,
         GDU,
         "interface",
         "Style set the composer's Styles gallery starts with"

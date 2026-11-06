@@ -861,6 +861,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'compose.feature.*',
   'compose.styles.maxCustom',
   'compose.styles.defaultSet',
+  'compose.styles.custom',
   'serverText.*',
 ];
 
