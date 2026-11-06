@@ -110,3 +110,37 @@ settings-folders-bulk-delete-done = { $count ->
 }
 settings-folders-bulk-delete-partial = Deleted { $done } folders. Not deleted: { $names }
 settings-folders-bulk-delete-failed = Nothing was deleted. Not deleted: { $names }
+
+# Selection bar and bulk empty
+folder-bar-label = Actions for the selected folders
+folder-bar-empty = Empty…
+folder-bar-mark-read = Mark all read
+folder-bar-pin = Pin
+folder-bar-unpin = Unpin
+folder-bar-star = Star
+folder-bar-unstar = Unstar
+settings-folders-bulk-empty-title = { $count ->
+    [one] Empty { $count } folder?
+   *[other] Empty { $count } folders?
+}
+settings-folders-bulk-empty-counting = Counting the messages in each folder…
+settings-folders-bulk-empty-body = { $total } messages will be removed. { $permanent ->
+    [0] Nothing is deleted for good: the messages go to Trash first.
+   *[other] { $permanent } of them are deleted for good and cannot be brought back.
+} Subfolders are not touched.
+settings-folders-bulk-empty-confirm = Empty the folders
+settings-folders-bulk-empty-list = Folders to empty
+settings-folders-bulk-empty-to-trash = { $count } messages move to Trash
+settings-folders-bulk-empty-permanent = { $count } messages are deleted for good
+settings-folders-bulk-empty-progress = { $done } of { $of } folders done, { $messages } messages processed. Now: { $name }
+settings-folders-bulk-empty-skip-search = a saved search, skipped
+settings-folders-bulk-empty-skip-unsupported = this account cannot empty it, skipped
+settings-folders-bulk-empty-skip-empty = already empty, skipped
+settings-folders-bulk-empty-skip-count-failed = could not be counted, skipped
+settings-folders-bulk-empty-fail-refused = the server refused part of it; { $remaining } messages remain
+settings-folders-bulk-empty-fail-stopped = stopped; { $remaining } messages remain
+settings-folders-bulk-empty-fail-uncertain = the result of the last batch is unknown; check the folder
+settings-folders-bulk-empty-done = Emptied { $count } folders, { $messages } messages
+settings-folders-bulk-empty-partial = Emptied { $done } folders; { $failed } failed. See the list.
+
+settings-folders-select-user = Select all user folders

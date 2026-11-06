@@ -11,7 +11,7 @@ import type {JmapRequest} from '../../api/jmap-types.ts';
 import {clearSettings,loadSettings} from '../../api/settings.ts';
 
 const service=vi.hoisted(()=>({manages:true,jmap:vi.fn()}));
-vi.mock('../../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:service.jmap})}));
+vi.mock('../../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:service.jmap,session:async()=>({accounts:{}})})}));
 vi.mock('../../components/RenameFolder.tsx',()=>({useRenameContext:()=>()=>({manages:service.manages,delimiter:'/',maxLength:255})}));
 vi.mock('../../components/QuotaMeter.tsx',()=>({QuotaDetails:()=>null}));
 vi.mock('./FolderRoles.tsx',()=>({FolderRoles:()=>null}));
@@ -233,3 +233,45 @@ it('bulk subscribe and unsubscribe send one Mailbox/set with isSubscribed for ev
  expect((service.jmap.mock.calls[0]![0] as JmapRequest).methodCalls[0]![1]).toMatchObject({update:{a:{isSubscribed:false},b:{isSubscribed:false}}});
  await waitFor(()=>expect(refresh).toHaveBeenCalled());
 });
+
+it('shift+click on row checkboxes selects the range in the order shown, ctrl-free click toggles, and Select all user folders skips system folders',async()=>{
+ mount([{id:'i',name:'Inbox',role:'inbox'} as PreferenceFolder,deletable('a','Alpha'),deletable('b','Beta'),deletable('c','Gamma'),deletable('d','Delta')],{},true);
+ fireEvent.click(selected('Alpha'));
+ fireEvent.click(selected('Gamma'),{shiftKey:true});
+ expect(selected('Alpha')).toBeChecked();expect(selected('Beta')).toBeChecked();expect(selected('Gamma')).toBeChecked();expect(selected('Delta')).not.toBeChecked();
+ fireEvent.click(selected('Beta'),{shiftKey:true});
+ expect(selected('Gamma')).not.toBeChecked();expect(selected('Beta')).toBeChecked();
+ fireEvent.click(screen.getByTestId('select-user-folders'));
+ expect(selected('Inbox')).not.toBeChecked();expect(selected('Delta')).toBeChecked();
+});
+
+it('bulk empty counts every folder first, says what goes to Trash, empties them in batches and lists a folder that failed',async()=>{
+ const trash={id:'t',name:'Trash',role:'trash',parentId:null,totalEmails:0,unreadEmails:0,sortOrder:0,myRights:{mayDelete:false,mayRemoveItems:true}} as unknown as PreferenceFolder;
+ mount([trash,deletable('a','Alpha',{totalEmails:2}),deletable('b','Beta',{totalEmails:1}),deletable('e','Empty')],{},true);
+ const left:Record<string,string[]>={a:['a1','a2'],b:['b1']};
+ service.jmap.mockImplementation(async(request:JmapRequest)=>{
+  const calls=request.methodCalls.map(([method,args,id])=>{
+   const a=args as {filter?:{inMailbox?:string};calculateTotal?:boolean;limit?:number;update?:Record<string,unknown>};
+   const box=a.filter?.inMailbox??'';
+   if(method==='Email/query')return [method,{accountId:'acct1',ids:a.calculateTotal?[]:(left[box]??[]).slice(0,a.limit),total:(left[box]??[]).length},id];
+   const ids=Object.keys(a.update??{});
+   // Beta's move is refused by the server.
+   if(ids.includes('b1'))return [method,{accountId:'acct1',updated:null,notUpdated:{b1:{type:'forbidden'}}},id];
+   for(const m of Object.keys(left))left[m]=left[m]!.filter(x=>!ids.includes(x));
+   return [method,{accountId:'acct1',updated:Object.fromEntries(ids.map(x=>[x,null]))},id];
+  });
+  // Email/set precedes its Email/query count in the request: evaluate in order, so the count sees the move.
+  return {methodResponses:calls};
+ });
+ click('Select all user folders');
+ await waitFor(()=>expect(screen.getByTestId('bulk-empty')).not.toBeDisabled());
+ fireEvent.click(screen.getByTestId('bulk-empty'));
+ const dialog=await screen.findByRole('alertdialog');
+ await waitFor(()=>expect(within(dialog).getByTestId('bulk-empty-a')).toHaveTextContent('2 messages move to Trash'));
+ expect(within(dialog).getByTestId('bulk-empty-e')).toHaveTextContent('already empty, skipped');
+ expect(dialog).toHaveTextContent('3 messages will be removed');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Empty the folders'}));
+ const failed=await within(dialog).findByTestId('bulk-empty-failed');
+ expect(failed).toHaveTextContent('Beta');
+ expect(left['a']).toEqual([]);
+},20000);

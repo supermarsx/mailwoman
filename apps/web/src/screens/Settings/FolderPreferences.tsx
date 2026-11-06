@@ -20,6 +20,10 @@ import {FolderArrangeCard} from './FolderArrangeCard.tsx';
 import {BulkDeleteFoldersDialog} from '../../components/BulkDeleteFoldersDialog.tsx';
 import {deletePlan,setFoldersSubscribed} from '../../api/folderBulkDelete.ts';
 import {toast} from '../../components/toast/toast.ts';
+import {BulkEmptyFoldersDialog} from '../../components/BulkEmptyFoldersDialog.tsx';
+import {useEmptyAbility} from '../../components/EmptyFolderDialog.tsx';
+import {canEmpty} from '../../api/emptyFolder.ts';
+import {applyClick} from '../../components/folderSelectionModel.ts';
 import {createConfiguredClient} from '../../api/transport.ts';
 import * as dndCss from '../../components/folderDnd.css.ts';
 import type {Tag} from '../../state/slices/tags.ts';
@@ -85,7 +89,8 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  const folders=createMemo(()=>layout.arranger.visual() as unknown as PreferenceFolder[]);
  const editing=()=>props.folders().find(folder=>navigation.route().editor?.kind==='edit'&&navigation.route().editor?.id===folder.id);
  const [query,setQuery]=createSignal(''),[selected,setSelected]=createSignal<ReadonlySet<string>>(new Set<string>());
- const [moveTo,setMoveTo]=createSignal<string[]|null>(null),[bulkDelete,setBulkDelete]=createSignal<string[]|null>(null);let wrapEl:HTMLDivElement|undefined;
+ const [moveTo,setMoveTo]=createSignal<string[]|null>(null),[bulkDelete,setBulkDelete]=createSignal<string[]|null>(null),[bulkEmpty,setBulkEmpty]=createSignal<string[]|null>(null);
+ const [anchor,setAnchor]=createSignal<string|null>(null),[rangeAdded,setRangeAdded]=createSignal<readonly string[]>([]);let wrapEl:HTMLDivElement|undefined;
  const [creating,setCreating]=createSignal<{parentId?:string}>(),[menuFolder,setMenuFolder]=createSignal<string>();
  const pinned=(id:string)=>prefs().folderPinned?.includes(id)??false;
  function parentPath(folder:PreferenceFolder):string {
@@ -118,6 +123,15 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   update({folderHidden:hidden.filter(id=>!inboxIds.has(id))});
  }
  /** Bulk delete and subscribe change the mail server, so they need a signed-in mailbox account that manages its folders. */
+ const emptyAbility=!props.onChange&&app?useEmptyAbility():()=>null;
+ const emptiable=()=>{const a=emptyAbility();return !!a&&!!app&&app.mailboxes().some(box=>selected().has(box.id)&&canEmpty(box,app.mailboxes(),a));};
+ /** Click on a row checkbox: toggles it, or with Shift selects the range from the last clicked row in the order shown. */
+ function pick(id:string,event:MouseEvent):void {
+  if(!current())return;
+  const next=applyClick({selected:selected(),anchor:anchor(),rangeAdded:rangeAdded()},tableRows().map(row=>row.box.id),id,{shift:event.shiftKey,toggle:true});
+  setSelected(next.selected);setAnchor(next.anchor);setRangeAdded(next.rangeAdded);
+ }
+ const userFolders=()=>folders().filter(folder=>!folder.role&&(folder as unknown as {mailwomanSearchQuery?:string}).mailwomanSearchQuery===undefined);
  const serverOk=()=>!props.onChange&&!!app&&ability()?.manages===true&&current();
  const deletable=()=>app?deletePlan(app.mailboxes().filter(box=>selected().has(box.id)),app.mailboxes(),ability()).roots.length>0:false;
  async function subscribe(targets:readonly PreferenceFolder[],value:boolean):Promise<void> {
@@ -179,6 +193,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    <label class={folderCss.search}><Icon name="search"/><input class={css.input} type="search" aria-label={t('settings-folders-search')} placeholder={t('settings-folders-search')} value={query()} onInput={event=>setQuery(event.currentTarget.value)}/></label>
    <button type="button" class="btn btn--ghost" disabled={!current()||!visible().length} onClick={()=>setSelected(value=>new Set([...value,...visible().map(folder=>folder.id)]))}>{t('settings-folders-select-visible')}</button>
    <button type="button" class="btn btn--ghost" disabled={!current()||!folders().length} onClick={()=>setSelected(new Set(folders().map(folder=>folder.id)))}>{t('settings-folders-select-all')}</button>
+   <button type="button" class="btn btn--ghost" data-testid="select-user-folders" disabled={!current()||!userFolders().length} onClick={()=>{setSelected(new Set(userFolders().map(folder=>folder.id)));setAnchor(null);}}>{t('settings-folders-select-user')}</button>
   </div>
   <Show when={selectedFolders().length}><div class={folderCss.bulk} role="group" aria-label={t('settings-folders-selected',{count:selectedFolders().length})}>
    <span role="status">{t('settings-folders-selected',{count:selectedFolders().length})}</span>
@@ -190,6 +205,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    <Show when={serverOk()}>
     <button type="button" class="btn btn--ghost" data-testid="bulk-subscribe" onClick={()=>void subscribe(selectedFolders(),true)}>{t('settings-folders-subscribe-selected')}</button>
     <button type="button" class="btn btn--ghost" data-testid="bulk-unsubscribe" onClick={()=>void subscribe(selectedFolders(),false)}>{t('settings-folders-unsubscribe-selected')}</button>
+    <button type="button" class="btn btn--ghost" data-testid="bulk-empty" disabled={!emptiable()} title={emptiable()?undefined:t('folder-ops-move-unavailable')} onClick={()=>setBulkEmpty(selectedFolders().map(folder=>folder.id))}><Icon name="delete"/>{t('folder-bar-empty')}</button>
     <button type="button" class="btn btn--ghost" data-testid="bulk-delete" disabled={!deletable()} title={deletable()?undefined:t('settings-folders-bulk-delete-none')} onClick={()=>setBulkDelete(selectedFolders().map(folder=>folder.id))}><Icon name="delete"/>{t('settings-folders-delete-selected')}</button>
    </Show>
    <button type="button" class="btn btn--ghost" onClick={()=>setSelected(new Set<string>())}>{t('settings-folders-clear')}</button>
@@ -198,7 +214,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <p class={folderCss.srOnly} role="status" aria-live="polite">{dnd.announcement()}</p>
   <div class={folderCss.wrap} ref={wrapEl} role="region" aria-label={t('settings-folders-table')} tabIndex={0}><table class={folderCss.table}><thead><tr><th class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select-visible')} disabled={!current()||!visible().length} checked={visible().length>0&&visible().every(folder=>selected().has(folder.id))} ref={input=>createEffect(()=>{input.indeterminate=visible().some(folder=>selected().has(folder.id))&&!visible().every(folder=>selected().has(folder.id));})} onChange={event=>{const checked=event.currentTarget.checked;setSelected(value=>{const next=new Set(value);for(const folder of visible())if(checked)next.add(folder.id);else next.delete(folder.id);return next;});}}/></th><th>{t('settings-folders-name')}</th><th class={folderCss.location}>{t('settings-folders-location')}</th><th>{t('settings-folders-actions')}</th></tr></thead><tbody>
    <For each={tableRows()}>{row=>{const folder=row.box as unknown as PreferenceFolder;const hidden=()=>folderIsHidden(folder,props.folders(),prefs());return <tr {...dnd.rowProps(folder.id)} style={{'--folder-indent':'1.25rem',...dnd.dropVars(folder.id)}} data-folder-id={folder.id} data-depth={row.depth} data-selected={selected().has(folder.id)||undefined} onKeyDown={event=>{dnd.key(event,folder.id);}} onContextMenu={event=>{setMenuFolder(folder.id);context.open(event);}}>
-    <td class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select',{name:folder.name})} disabled={!current()} checked={selected().has(folder.id)} onChange={()=>toggle(folder.id)}/></td>
+    <td class={folderCss.selectCell}><input type="checkbox" aria-label={t('settings-folders-select',{name:folder.name})} disabled={!current()} checked={selected().has(folder.id)} onClick={event=>pick(folder.id,event)} onChange={()=>undefined}/></td>
     <td><div class={folderCss.name} style={{'padding-inline-start':`${row.depth*1.25}rem`}}>
      <Show when={row.hasChildren} fallback={<span class={folderCss.twistySpacer}/>}><button type="button" class={`btn btn--ghost ${folderCss.twisty}`} aria-expanded={row.expanded} aria-label={t(row.expanded?'folder-ops-collapse':'folder-ops-expand',{name:folder.name})} onClick={()=>setExpanded(folder.id,!row.expanded)}><Icon name={row.expanded?'chevronDown':'chevron'}/></button></Show>
      <button type="button" class={`btn btn--ghost ${folderCss.drag}`} disabled={!current()||!!lockReason(folder.id)||filtering()} title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):lockedReason(folder.id)==='forced'?t('folder-dnd-forced-hint'):t('settings-folders-drag',{name:folder.name})} aria-label={t('settings-folders-drag',{name:folder.name})}><Icon name="sort"/></button><Icon name={folderIcon(folder,prefs())}/><span class={folderCss.folderName} title={folderPathLabel(folder)}>{folder.name}</span><Show when={pinned(folder.id)||layout.forced().has(folder.id)}><Icon name="pin"/></Show><Show when={starred(folder.id)}><span class="sidebar__box-star" aria-hidden="true"><Icon name="star"/></span><span class={folderCss.srOnly}>{t('folder-star-starred')}</span></Show><Show when={lockedReason(folder.id)}><span class={dndCss.lockIcon} data-testid="folder-lock" title={lockedReason(folder.id)==='locked'?t('folder-dnd-locked-hint'):t('folder-dnd-forced-hint')}><Icon name="lock"/><span class={folderCss.srOnly}>{t('folder-dnd-locked-row')}</span></span></Show></div>
@@ -222,6 +238,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   {context.menu()}
   <FolderNestDialog arranger={layout.arranger} nameOf={id=>props.folders().find(folder=>folder.id===id)?.name??''}/>
   <Show when={bulkDelete()&&serverOk()&&app?bulkDelete():null}>{ids=><BulkDeleteFoldersDialog ids={ids()} context={ability} onDone={deleted=>setSelected(value=>new Set([...value].filter(id=>!deleted.includes(id))))} onClose={()=>setBulkDelete(null)}/>}</Show>
+  <Show when={bulkEmpty()&&serverOk()&&emptyAbility()}>{a=><BulkEmptyFoldersDialog ids={bulkEmpty()!} ability={a()} onClose={()=>setBulkEmpty(null)}/>}</Show>
   <Show when={moveTo()}>{ids=><FolderMoveToDialog moving={ids()} arranger={layout.arranger} policy={layout.policy} onClose={()=>setMoveTo(null)}/>}</Show>
   <Show when={creating()}>{value=><CreateFolderDialog {...(value().parentId?{parentId:value().parentId!}:{})} onClose={()=>setCreating(undefined)}/>}</Show>
  </div>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation} tags={props.tags??(()=>[])} local={!!props.onChange}/>}</Show>;

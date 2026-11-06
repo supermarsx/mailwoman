@@ -11,6 +11,7 @@ import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
 import {FOLDER_DRAG_TYPE} from '../components/useFolderDnd.ts';
+import {clearSelectedFolders} from '../components/folderSelection.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
 
 // Sidebar drag and drop of folders (reorder, nest, locks) and the starred marker.
@@ -166,5 +167,58 @@ describe('Pinned group',()=>{
   setAccountUiPreferences({folderGrabHandles:'always'});
   await waitFor(()=>expect(rowOf('work')).toHaveAttribute('data-handles','always'));
   setAccountUiPreferences({folderGrabHandles:'hover'});
+ });
+});
+
+describe('selecting folders in the sidebar',{timeout:15000},()=>{
+ const btn=(name:string)=>screen.getByRole('button',{name});
+ const picked=()=>Array.from(sidebar().querySelectorAll('[data-folder-id][data-selected="true"]')).map(node=>node.getAttribute('data-folder-id')).sort();
+ afterEach(()=>{setAccountUiPreferences({folderCollapsed:[]});clearSelectedFolders();});
+ it('Ctrl+click toggles, Shift+click selects the range in tree order, and neither opens the folder',async()=>{
+  await mount();
+  await waitFor(()=>expect(names()).toContain('Home'));
+  fireEvent.click(btn('Work'),{ctrlKey:true});
+  expect(picked()).toEqual(['work']);
+  fireEvent.click(btn('Misc'),{shiftKey:true});
+  await waitFor(()=>expect(picked()).toEqual(['home','misc','q3','work'].sort()));
+  fireEvent.click(btn('Home'),{shiftKey:true});
+  await waitFor(()=>expect(picked()).toEqual(['home','q3','work'].sort()));
+  fireEvent.click(btn('Q3'.replace('Q3','Quarter 3')),{ctrlKey:true});
+  await waitFor(()=>expect(picked()).toEqual(['home','work']));
+  expect(screen.getByTestId('folder-selection-bar')).toHaveTextContent('2');
+ });
+ it('range selection skips subfolders hidden by a collapsed folder',async()=>{
+  await mount();
+  await waitFor(()=>expect(names()).toContain('Quarter 3'));
+  setAccountUiPreferences({folderCollapsed:['work']});
+  await waitFor(()=>expect(names()).not.toContain('Quarter 3'));
+  fireEvent.click(btn('Work'),{ctrlKey:true});
+  fireEvent.click(btn('Misc'),{shiftKey:true});
+  await waitFor(()=>expect(picked()).toEqual(['home','misc','work']));
+ });
+ it('Shift+Arrow extends, Ctrl+A takes the user folders, Escape clears',async()=>{
+  await mount();
+  await waitFor(()=>expect(names()).toContain('Home'));
+  fireEvent.click(btn('Home'),{ctrlKey:true});
+  fireEvent.keyDown(btn('Home'),{key:'ArrowDown',shiftKey:true});
+  await waitFor(()=>expect(picked()).toEqual(['home','misc']));
+  fireEvent.keyDown(btn('Home'),{key:'a',ctrlKey:true});
+  await waitFor(()=>expect(picked()).toEqual(['home','misc','q3','work']));
+  expect(btn('Inbox').closest('[data-folder-id]')?.getAttribute('data-selected')??null).toBeNull();
+  fireEvent.keyDown(btn('Home'),{key:'Escape'});
+  await waitFor(()=>expect(picked()).toEqual([]));
+  expect(screen.queryByTestId('folder-selection-bar')).toBeNull();
+ });
+ it('the selection bar pins and stars the whole set, and a bulk delete names folders and messages',async()=>{
+  await mount();
+  await waitFor(()=>expect(names()).toContain('Home'));
+  fireEvent.click(btn('Home'),{ctrlKey:true});fireEvent.click(btn('Misc'),{ctrlKey:true});
+  fireEvent.click(screen.getByTestId('bar-pin'));
+  await waitFor(()=>expect(accountUiPreferences().folderPinned).toEqual(expect.arrayContaining(['home','misc'])));
+  fireEvent.click(screen.getByTestId('bar-star'));
+  await waitFor(()=>expect(accountUiPreferences().folderStarred).toEqual(expect.arrayContaining(['home','misc'])));
+  // Without folder-management ability the destructive actions are off, with a reason.
+  expect(screen.getByTestId('bar-delete')).toBeDisabled();
+  setAccountUiPreferences({folderPinned:[],folderStarred:[]});
  });
 });

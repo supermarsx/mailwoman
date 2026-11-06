@@ -45,7 +45,8 @@ import {FolderPane} from '../components/FolderPane.tsx';
 import {actions as sidebarFooterActions} from '../components/sidebarFooter.css.ts';
 import {FolderContextMenu} from '../components/FolderContextMenu.tsx';
 import {useFolderMarquee} from '../components/useFolderMarquee.tsx';
-import {clearSelectedFolders,selectedFolderIds} from '../components/folderSelection.ts';
+import {clearSelectedFolders,clickFolder,extendFolderSelection,selectAllFolders,selectedFolderIds} from '../components/folderSelection.ts';
+import {FolderSelectionBar} from '../components/FolderSelectionBar.tsx';
 import {peekMessageDrag,takeMessageDrag} from '../components/messageDrag.ts';
 import {folderDropTarget} from '../components/messageDrag.css.ts';
 import { ResizeHandle } from '../components/ResizeHandle.tsx';
@@ -690,7 +691,9 @@ export function MailboxScreen(): JSX.Element {
                 onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
                 onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
                 aria-label={displayText(box().name)} aria-description={[folderCountShown(box())?folderBadgeTip(box(),folderCountMode(),compactBadges()):'',isStarred(id)?t('folder-star-starred'):''].filter(Boolean).join(' · ')||undefined} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id),...(isStarred(id)?[t('folder-star-starred')]:[])].join(' · '))}
-                onClick={() => {
+                onClick={(event) => {
+                  // Shift+click selects the range from the anchor, Ctrl/Cmd+click toggles: neither opens the folder.
+                  if(!pinned&&(event.shiftKey||event.ctrlKey||event.metaKey)){event.preventDefault();clickFolder(visibleFolderIds(),id,{shift:event.shiftKey,toggle:event.ctrlKey||event.metaKey});return;}
                   clearSelectedFolders();
                   router.navigate('mail');
                   subTabs.activate('mail');
@@ -711,8 +714,16 @@ export function MailboxScreen(): JSX.Element {
     setAccountUiPreferences({folderCollapsed:[...collapsed]});
   }
   /** Arrow keys walk the folder list; Right/Left open and close a folder with subfolders (ARIA tree behaviour). */
+  /** The folders in view in tree order (collapsed folders hide their subfolders): the geometry of range selection. */
+  const visibleFolderIds=createMemo(()=>[...sectionRows(false),...sectionRows(true)].map(row=>row.box.id));
+  const isUserFolder=(id:string):boolean=>{const box=app.mailboxes().find(value=>value.id===id);return !!box&&!box.role&&box.mailwomanSearchQuery===undefined;};
+  const focusFolder=(id:string):void=>{sidebarEl?.querySelector<HTMLElement>(`[data-folder-region] [data-folder-id="${CSS.escape(id)}"]`)?.focus();};
   function onFolderKey(event:KeyboardEvent,id:string):void {
     if(folderDnd.key(event,id))return;
+    // Shift+Arrow extends the selection a row at a time, Ctrl/Cmd+A takes every visible user folder, Escape clears.
+    if(event.shiftKey&&!event.altKey&&!event.ctrlKey&&(event.key==='ArrowDown'||event.key==='ArrowUp')){event.preventDefault();const next=extendFolderSelection(visibleFolderIds(),id,event.key==='ArrowDown'?1:-1);if(next)focusFolder(next);return;}
+    if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='a'){event.preventDefault();selectAllFolders(visibleFolderIds(),isUserFolder);return;}
+    if(event.key==='Escape'&&selectedFolderIds().size>0){event.preventDefault();clearSelectedFolders();return;}
     const target=event.currentTarget as HTMLElement,rtl=getComputedStyle(target).direction==='rtl';
     const row=folderTreeRows().system.concat(folderTreeRows().custom).find(value=>value.box.id===id);
     if(event.key===(rtl?'ArrowLeft':'ArrowRight')&&row?.hasChildren&&!row.expanded){event.preventDefault();toggleFolder(id,true);return;}
@@ -972,6 +983,7 @@ export function MailboxScreen(): JSX.Element {
         <FolderNestDialog arranger={folderLayout.arranger} nameOf={id=>app.mailboxes().find(value=>value.id===id)?.name??''}/>
         <p class={folderSrOnly} role="status" aria-live="polite" data-testid="folder-dnd-status">{folderDnd.announcement()}</p>
         <Show when={(accountUiPreferences().folderStarred?.length??0)>0}><button type="button" class={`btn btn--ghost sidebar__starred-only ${a11y.focusable}`} aria-pressed={starredOnly()} title={t('folder-star-only-help')} onClick={()=>setStarredOnly(!starredOnly())}><Icon name={starredOnly()?'star':'starOutline'}/><span class="sidebar__box-name">{t('folder-star-only')}</span></button></Show>
+        <Show when={selectedFolderIds().size>0}><FolderSelectionBar ids={selectedFolderIds()} onMove={ids=>setArranging(ids[0]??null)}/></Show>
         <div class="sidebar__scroll" ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
         <FolderCreationControl><nav class="sidebar__nav" {...pinDnd.unpinProps} aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region>

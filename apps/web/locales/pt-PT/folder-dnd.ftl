@@ -113,3 +113,37 @@ settings-folders-bulk-delete-done = { $count ->
 }
 settings-folders-bulk-delete-partial = Eliminadas { $done } pastas. Não eliminadas: { $names }
 settings-folders-bulk-delete-failed = Nada foi eliminado. Não eliminadas: { $names }
+
+# Barra de seleção e esvaziar em lote
+folder-bar-label = Ações para as pastas selecionadas
+folder-bar-empty = Esvaziar…
+folder-bar-mark-read = Marcar tudo como lido
+folder-bar-pin = Fixar
+folder-bar-unpin = Desafixar
+folder-bar-star = Marcar com estrela
+folder-bar-unstar = Retirar a estrela
+settings-folders-bulk-empty-title = { $count ->
+    [one] Esvaziar { $count } pasta?
+   *[other] Esvaziar { $count } pastas?
+}
+settings-folders-bulk-empty-counting = A contar as mensagens de cada pasta…
+settings-folders-bulk-empty-body = { $total } mensagens serão removidas. { $permanent ->
+    [0] Nada é eliminado definitivamente: as mensagens vão primeiro para o Lixo.
+   *[other] { $permanent } delas são eliminadas definitivamente e não podem ser recuperadas.
+} As subpastas não são afetadas.
+settings-folders-bulk-empty-confirm = Esvaziar as pastas
+settings-folders-bulk-empty-list = Pastas a esvaziar
+settings-folders-bulk-empty-to-trash = { $count } mensagens vão para o Lixo
+settings-folders-bulk-empty-permanent = { $count } mensagens são eliminadas definitivamente
+settings-folders-bulk-empty-progress = { $done } de { $of } pastas concluídas, { $messages } mensagens processadas. Agora: { $name }
+settings-folders-bulk-empty-skip-search = pesquisa guardada, ignorada
+settings-folders-bulk-empty-skip-unsupported = esta conta não a pode esvaziar, ignorada
+settings-folders-bulk-empty-skip-empty = já está vazia, ignorada
+settings-folders-bulk-empty-skip-count-failed = não foi possível contar, ignorada
+settings-folders-bulk-empty-fail-refused = o servidor recusou parte; restam { $remaining } mensagens
+settings-folders-bulk-empty-fail-stopped = interrompido; restam { $remaining } mensagens
+settings-folders-bulk-empty-fail-uncertain = o resultado do último lote é desconhecido; verifique a pasta
+settings-folders-bulk-empty-done = Esvaziou { $count } pastas, { $messages } mensagens
+settings-folders-bulk-empty-partial = Esvaziadas { $done } pastas; { $failed } falharam. Veja a lista.
+
+settings-folders-select-user = Selecionar todas as pastas do utilizador
