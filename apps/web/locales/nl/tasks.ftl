@@ -36,7 +36,7 @@ tasks-priority-low = Laag
 tasks-delete-confirm = Deze taak verwijderen? Dit kan niet ongedaan worden gemaakt.
 tasks-delete-yes = Taak verwijderen
 tasks-delete-no = Taak behouden
-tasks-changed-elsewhere = Deze taak is op een ander apparaat of in een andere sessie gewijzigd. Je bewerkingen blijven behouden; Opslaan past alleen de velden toe die jij hebt gewijzigd.
+tasks-changed-elsewhere = Deze taak is op een ander apparaat of in een andere sessie gewijzigd. Uw bewerkingen blijven behouden; Opslaan past alleen de velden toe die u hebt gewijzigd.
 tasks-deleted-elsewhere = “{ $title }” is op een ander apparaat of in een andere sessie verwijderd, dus het bewerkingsformulier is gesloten.
 tasks-notice-dismiss = Sluiten
 

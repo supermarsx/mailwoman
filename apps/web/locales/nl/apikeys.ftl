@@ -18,7 +18,7 @@ apikeys-copy = Kopiëren
 apikeys-copy-aria = Geheim naar het klembord kopiëren
 apikeys-copied = Gekopieerd naar het klembord
 
-apikeys-error-need-label = geef de sleutel een label zodat je hem later herkent
+apikeys-error-need-label = geef de sleutel een label zodat u hem later herkent
 apikeys-error-create = de sleutel kon niet worden gemaakt
 apikeys-error-revoke = de sleutel kon niet worden ingetrokken
 
@@ -82,7 +82,7 @@ apikeys-summary-unattended = ONBEHEERD verzenden
 # -- MCP keys ----------------------------------------------------------------
 apikeys-mcp-panel-label = MCP-sleutels
 apikeys-mcp-heading = MCP-sleutels
-apikeys-mcp-intro = Geef een AI-agent (via het Model Context Protocol) precies de tools die je kiest. Berichtteksten die naar de agent gaan, worden gemarkeerd als niet-vertrouwde invoer. Elke tool wordt afzonderlijk toegekend.
+apikeys-mcp-intro = Geef een AI-agent (via het Model Context Protocol) precies de tools die u kiest. Berichtteksten die naar de agent gaan, worden gemarkeerd als niet-vertrouwde invoer. Elke tool wordt afzonderlijk toegekend.
 apikeys-mcp-label-aria = Label van de MCP-sleutel
 apikeys-mcp-label-placeholder = bijv. assistent-agent
 apikeys-mcp-create = MCP-sleutel maken
@@ -98,7 +98,7 @@ apikeys-outbox-suffix = (via Outbox)
 apikeys-unattended-aria = Onbeheerd verzenden
 apikeys-unattended-allow = Onbeheerd verzenden toestaan (Outbox overslaan — vereist medeondertekening door een beheerder)
 apikeys-unattended-pending = Onbeheerd verzenden blijft inactief totdat een beheerder deze sleutel medeondertekent.
-apikeys-unattended-disclosure = Standaard komt een toegestaan verzendverzoek in je Outbox terecht en wacht het tot je het in de app bevestigt — automatisering kan niet zelfstandig verzenden. Onbeheerd verzenden VERWIJDERT die menselijke controlestap, zodat deze sleutel zonder bevestiging mail kan verzenden. Daarnaast moet een beheerder de sleutel medeondertekenen. Geef dit alleen aan automatisering die je volledig vertrouwt; met een gecompromitteerde sleutel voor onbeheerd verzenden kan zonder enige vraag mail namens jou worden verzonden.
+apikeys-unattended-disclosure = Standaard komt een toegestaan verzendverzoek in uw Outbox terecht en wacht het tot u het in de app bevestigt — automatisering kan niet zelfstandig verzenden. Onbeheerd verzenden VERWIJDERT die menselijke controlestap, zodat deze sleutel zonder bevestiging mail kan verzenden. Daarnaast moet een beheerder de sleutel medeondertekenen. Geef dit alleen aan automatisering die u volledig vertrouwt; met een gecompromitteerde sleutel voor onbeheerd verzenden kan zonder enige vraag mail namens u worden verzonden.
 
 # -- MCP tool grants (label + description shown on each checkbox) -------------
 apikeys-tool-mail-search-label = Mail doorzoeken

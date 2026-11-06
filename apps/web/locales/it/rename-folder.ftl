@@ -27,6 +27,6 @@ delete-folder-deleting = Eliminazione…
 delete-folder-done = { $name } eliminata
 delete-folder-error-mailboxHasEmail = Questa cartella contiene messaggi. Conferma l'eliminazione definitiva dei messaggi per continuare.
 delete-folder-error-mailboxHasChild = Questa cartella ha sottocartelle. Rimuovile o spostale prima.
-delete-folder-error-forbidden = Non puoi eliminare questa cartella.
+delete-folder-error-forbidden = Non può eliminare questa cartella.
 delete-folder-error-notFound = Questa cartella non esiste più. Aggiorna l'elenco delle cartelle.
 delete-folder-error-failed = Impossibile eliminare la cartella. Riprova.

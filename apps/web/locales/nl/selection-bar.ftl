@@ -8,7 +8,7 @@ selection-bar-count = { $count } geselecteerd
 selection-bar-announce = { $count ->
     [one] { $count } bericht geselecteerd
    *[other] { $count } berichten geselecteerd
- }
+}
 selection-bar-select-all = Alles selecteren
 selection-bar-select-none = Niets selecteren
 selection-bar-clear = Selectie wissen

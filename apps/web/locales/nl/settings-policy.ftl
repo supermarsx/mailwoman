@@ -20,3 +20,27 @@ settings-policy-language-saved = Taal opgeslagen.
 settings-policy-reference = Referentie: { $id }
 settings-policy-error-feature-disabled = Uw beheerder heeft deze functie voor uw account uitgeschakeld.
 settings-policy-error-sender-forbidden = Dit verzendadres is niet geautoriseerd voor dit account. Kies een adres dat uw e-mailprovider of beheerder toestaat.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-kit-toolbar = Instellingenhulpmiddelen
+settings-kit-search = Deze instellingen doorzoeken
+settings-kit-search-placeholder = Instellingen zoeken (druk op /)
+settings-kit-collapse-all = Alles samenvouwen
+settings-kit-expand-all = Alles uitvouwen
+settings-kit-jump = Naar een groep gaan
+settings-kit-no-results = Geen instellingen hier komen overeen met uw zoekopdracht. Probeer:
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-compose-card-addressing = Adressering en antwoorden
+settings-compose-card-addressing-help = Als wie u verzendt, hoe ontvangers worden ingevoerd en hoe antwoorden worden geciteerd.
+settings-compose-card-checks = Controles vóór het verzenden
+settings-compose-card-checks-help = Vang fouten en riskante ontvangers op voordat een bericht vertrekt.
+settings-compose-card-images = Afbeeldingen in antwoorden
+settings-compose-card-images-help = Of afbeeldingen uit het oorspronkelijke bericht in uw antwoord worden bewaard.
+settings-compose-card-defaults = Standaardwaarden voor nieuwe berichten
+settings-kit-other-sections = Overeenkomsten in andere onderdelen
+cache-card-store = Gecachte mail
+cache-card-prefetch = Vooraf laden
+cache-card-prefetch-help = Laad berichten vooraf zodat ze direct openen. Gebruikt meer gegevens.
+settings-folder-counts-card = Tellerbolletjes
+settings-folder-counts-card-help = Wat de tellers naast mappen tonen en welke mappen er een hebben.

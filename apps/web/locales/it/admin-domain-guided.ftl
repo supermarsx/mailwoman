@@ -1,0 +1,60 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: it · Module: admin-domain-guided. Source: ../en/admin-domain-guided.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-domain-guided-title = Aggiungi un dominio con la guida
+admin-domain-guided-identity = Identità del dominio
+admin-domain-guided-domain = Nome del dominio
+admin-domain-guided-connection = Connessione
+admin-domain-guided-default = Usa i valori predefiniti del server
+admin-domain-guided-manual = Configura un server di posta
+admin-domain-guided-default-help = I valori predefiniti del server usano l'instradamento della posta configurato dall'amministratore. È possibile controllare questo dominio prima di crearlo.
+admin-domain-guided-permission = Il ruolo può creare il dominio con i valori predefiniti del server. Modificarne i server di posta richiede il permesso di configurazione upstream.
+admin-domain-guided-protocol = Protocollo di posta
+admin-domain-guided-host = Nome host o indirizzo IP della posta
+admin-domain-guided-port = Porta della posta
+admin-domain-guided-tls = Cifratura della posta
+admin-domain-guided-implicit = TLS fin dall'inizio della connessione
+admin-domain-guided-starttls = STARTTLS obbligatorio
+admin-domain-guided-smtp = Configura un server SMTP in uscita
+admin-domain-guided-smtp-host = Nome host o indirizzo IP SMTP
+admin-domain-guided-smtp-port = Porta SMTP
+admin-domain-guided-smtp-tls = Cifratura SMTP
+admin-domain-guided-smtp-omitted = Nessun server SMTP specifico del dominio
+admin-domain-guided-jmap = URL di sessione JMAP
+admin-domain-guided-no-credentials = Qui non vengono raccolte credenziali dell'account. La verifica del certificato TLS resta attiva; l'accesso alla rete privata richiede una configurazione avanzata separata.
+admin-domain-guided-policy = Policy di connessione
+admin-domain-guided-policy-value = TLS verificato, autenticazione con password all'accesso, nessun accesso alla rete privata
+admin-domain-guided-create = Crea dominio
+admin-domain-guided-invalid-domain = Inserire un nome di dominio come example.org, senza schema, percorso o porta.
+admin-domain-guided-invalid-endpoint = Inserire nomi host o indirizzi IP dei server validi e porte comprese tra 1 e 65535.
+admin-domain-guided-invalid-url = Inserire un URL di sessione JMAP HTTPS senza credenziali, parametri di query o frammento.
+admin-domain-guided-status-required = Caricare la modalità di connessione del server prima di configurare un server di posta.
+admin-domain-guided-advanced = Configura più backend e opzioni avanzate
+admin-domain-guided-draft-help = Queste sono bozze di configurazione. Non viene salvato nulla finché non si seleziona Crea dominio nella pagina finale di revisione.
+admin-domain-guided-backend-list = Bozze di configurazione dei backend
+admin-domain-guided-backend-empty = Aggiungere un backend o controllare una configurazione rilevata.
+admin-domain-guided-backend-done = Torna all'elenco dei backend
+admin-domain-guided-actions = Azioni
+admin-domain-guided-disabled = Disattivato
+admin-domain-guided-edit-backend = Modifica il backend { $id }
+admin-domain-guided-remove-backend = Rimuovi il backend { $id } dalla configurazione
+admin-domain-guided-remove-help = Rimuove questo backend non salvato dalla bozza di configurazione.
+admin-domain-guided-custom-ca = Autorità di certificazione personalizzata configurata
+admin-domain-guided-supported-help = Modalità attuale del server: { $mode }. La modalità engine supporta IMAP, POP3, SMTP, ManageSieve ed EWS HTTPS Basic nella configurazione avanzata; la modalità proxy supporta JMAP. Microsoft Graph, API di Gmail, OAuth, NTLM e MAPI non sono disponibili qui come backend di dominio.
+admin-domain-guided-detect = Rileva la configurazione
+admin-domain-guided-detecting = Rilevamento in corso…
+admin-domain-guided-detect-help = Esegue un rilevamento esplicito lato server tramite la policy in uscita configurata. I risultati sono proposte e non vengono mai salvati automaticamente. Il ruolo deve consentire la configurazione upstream senza ambito.
+admin-domain-guided-detected = Origine rilevata: { $source }. Controllare tutti gli endpoint e l'autenticazione prima di creare questo dominio.
+admin-domain-guided-use-proposal = Controlla gli endpoint rilevati
+admin-domain-guided-oauth-warning = Questo provider segnala requisiti OAuth. Questa configurazione non imposta l'OAuth del provider. Confermare che i meccanismi di password selezionati siano supportati prima di usare questi endpoint.
+admin-domain-guided-pim-help = La sincronizzazione di contatti e calendario usa la configurazione Nextcloud collegata all'account. Gli URL DAV del dominio e il rilevamento automatico non vengono attivati da questa configurazione.
+admin-domain-guided-backend-count = Configurare da 1 a 32 backend.
+admin-domain-guided-backend-id = Assegnare a ogni backend un ID univoco di 1–64 lettere, cifre, trattini o trattini bassi.
+admin-domain-guided-backend-mode = Il protocollo di backend selezionato non è supportato nella modalità attuale del server.
+admin-domain-guided-backend-priority = Le priorità dei backend devono essere numeri interi tra 0 e 65535; i valori più bassi vengono provati per primi.
+admin-domain-guided-backend-preferred = Scegliere al massimo un backend preferito attivo per ogni ruolo di servizio.
+admin-domain-guided-backend-security = Controllare l'ordine TLS: usare trasporti distinti, uno in modalità fissa, e consentire esplicitamente il testo in chiaro prima di includerlo.
+admin-domain-guided-backend-auth = Scegliere meccanismi di autenticazione supportati e distinti; la modalità fissa ne richiede esattamente uno.
+admin-domain-guided-backend-username = Completare il dominio del nome utente, il realm o il modello personalizzato selezionato.

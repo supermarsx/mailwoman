@@ -95,15 +95,15 @@ common-viewer-attachments = Allegati
 # -- Machine translation (2026-11): added to match en ---------------------
 common-retrying = Nuovo tentativo…
 common-waiting-online = In attesa di una connessione…
-common-failure-offline = Sei offline. Riconnettiti e riprova.
+common-failure-offline = Risulta offline. Riconnettiti e riprova.
 common-failure-network = Impossibile raggiungere il server.
 common-failure-server = Il server non ha risposto in tempo.
 common-failure-rate = Troppe richieste in poco tempo. Attendi un momento e riprova.
 common-failure-conflict = Questo elemento è stato modificato altrove nello stesso momento. Ricarica e riprova.
-common-failure-account = L'account con cui hai effettuato l'accesso è cambiato. Ricarica la pagina.
+common-failure-account = L'account con cui ha effettuato l'accesso è cambiato. Ricarica la pagina.
 common-failure-linked = Non disponibile mentre è aperta una casella collegata.
 common-failure-refused = Il server ha rifiutato la modifica.
-common-new-version = È disponibile una nuova versione di Mailwoman. Chiudendo questo avviso, ti verrà ricordato di nuovo tra un'ora.
+common-new-version = È disponibile una nuova versione di Mailwoman. Chiudendo questo avviso, verrà ricordato di nuovo tra un'ora.
 common-new-version-reload = Ricarica ora
 common-toast-close = Chiudi notifica
 common-toast-seconds = { $seconds } s
@@ -125,8 +125,8 @@ common-pdf-link-title = Aprire il link di questo PDF?
 common-pdf-link-help = La destinazione verrà aperta in una nuova scheda, fuori da Mailwoman.
 common-pdf-link-open = Apri link
 common-open-event = Apri evento
-common-message-preview-too-large = Le anteprime degli allegati dei messaggi sono limitate a 4 MiB. Puoi comunque scaricare l'allegato originale.
-common-message-preview-failed = Non è stato possibile mostrare l'anteprima di questo allegato. Il file potrebbe non essere supportato o essere danneggiato, oppure il servizio di anteprima non è disponibile. Puoi comunque scaricare l'originale.
+common-message-preview-too-large = Le anteprime degli allegati dei messaggi sono limitate a 4 MiB. Può comunque scaricare l'allegato originale.
+common-message-preview-failed = Non è stato possibile mostrare l'anteprima di questo allegato. Il file potrebbe non essere supportato o essere danneggiato, oppure il servizio di anteprima non è disponibile. Può comunque scaricare l'originale.
 common-message-preview-attachments = File contenuti in questo messaggio
 common-message-preview-download = Scarica file
 common-message-preview-size-bytes = { $count } byte
@@ -150,7 +150,7 @@ multiselect-selected = Selezionato: { $label }
 multiselect-remove = Rimuovi { $label }
 multiselect-no-match = Nessuna opzione corrispondente
 common-notification-permission-title = Consentire le notifiche?
-common-notification-permission-help = Ricevi notifiche sui nuovi messaggi su questo dispositivo. Puoi modificarlo in Impostazioni.
+common-notification-permission-help = Ricevi notifiche sui nuovi messaggi su questo dispositivo. Può modificarlo in Impostazioni.
 common-notification-permission-allow = Consenti notifiche
 common-notification-permission-later = Non ora
 common-notification-permission-error = Non è stato possibile attivare le notifiche. Controlla i permessi e le impostazioni delle notifiche, quindi riprova.
@@ -160,4 +160,7 @@ common-notifications-enabled = Notifiche attivate su questo dispositivo.
 multiselect-count = { $count ->
     [one] 1 selezionato
    *[other] { $count } selezionati
- }
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = Il server è occupato. Attendere qualche secondo e riprovare.

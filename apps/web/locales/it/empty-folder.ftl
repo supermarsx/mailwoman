@@ -6,8 +6,8 @@
 empty-folder-action = Svuota cartella…
 empty-folder-title = Svuotare “{ $name }”?
 empty-folder-body-trash = { $count ->
-    [one] Il messaggio in { $name } verrà spostato nel Cestino, dove potrai ripristinarlo.
-   *[other] Tutti i { $count } messaggi in { $name } verranno spostati nel Cestino, dove potrai ripristinarli.
+    [one] Il messaggio in { $name } verrà spostato nel Cestino, dove potrà ripristinarlo.
+   *[other] Tutti i { $count } messaggi in { $name } verranno spostati nel Cestino, dove potrà ripristinarli.
  } Le sottocartelle e i messaggi al loro interno non vengono modificati.
 empty-folder-body-destroy-trash = { $count ->
     [one] Il messaggio nel Cestino verrà eliminato definitivamente. L'operazione non può essere annullata.
@@ -35,11 +35,11 @@ empty-folder-stopping = Interruzione dopo il lotto corrente. Finora { $done } su
 empty-folder-done-trash = { $done ->
     [one] Spostato 1 messaggio da { $name } al Cestino.
    *[other] Spostati { $done } messaggi da { $name } al Cestino.
- }
+}
 empty-folder-done-destroy = { $done ->
     [one] Eliminato definitivamente 1 messaggio da { $name }.
    *[other] Eliminati definitivamente { $done } messaggi da { $name }.
- }
+}
 empty-folder-stopped = Interrotto. { $done } messaggi su { $total } completati; { $remaining } ancora in { $name }.
 empty-folder-refused = Interrotto. { $done } messaggi su { $total } completati; il server di posta ne ha rifiutati { $refused }. { $remaining } ancora in { $name }.
 empty-folder-failed = Lo svuotamento di { $name } si è interrotto con un errore dopo { $done } messaggi. L'ultimo lotto potrebbe essere stato completato oppure no; controlla la cartella prima di riprovare.

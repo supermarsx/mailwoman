@@ -15,4 +15,4 @@ mailing-list-archive = Archivio della lista
 mailing-list-bar = Mailing list
 mailing-list-more = Altre azioni della lista
 mailing-list-unsubscribe-help = Controlla dove va la richiesta di annullamento prima che venga inviato qualcosa
-mailing-list-unsubscribe-review = Non viene inviato nulla finché non apri una pagina o invii tu stesso la bozza.
+mailing-list-unsubscribe-review = Non viene inviato nulla finché non apre una pagina o invia Lei stesso la bozza.

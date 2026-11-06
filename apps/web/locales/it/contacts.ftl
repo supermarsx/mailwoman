@@ -105,7 +105,7 @@ contacts-address-card = Dettagli del contatto
 contacts-address-recipients = Mostra destinatari
 contacts-address-save = Salva contatto
 contacts-address-compose = Invia email
-contacts-address-unsaved = Questo indirizzo non è salvato nei tuoi contatti.
+contacts-address-unsaved = Questo indirizzo non è salvato nei suoi contatti.
 contacts-address-book = Rubrica
 contacts-address-lookup-failed = Impossibile caricare le informazioni del contatto. Riprova.
 contacts-address-save-failed = Impossibile salvare il contatto. Riprova.
@@ -134,13 +134,13 @@ contacts-membership-add-group = Digita il nome di un gruppo per aggiungere quest
 contacts-membership-count = { $count ->
     [one] 1 membro
    *[other] { $count } membri
- }
+}
 contacts-membership-failed = Alcune modifiche all'appartenenza non sono state salvate. L'elenco mostra ciò che è memorizzato.
 contacts-membership-manage = Gestisci appartenenza al gruppo
 contacts-import-source = Origine
 contacts-import-book = Rubrica
 contacts-import-review = Revisione
-contacts-import-empty = Scegli un file o incolla testo vCard o CSV, poi seleziona Anteprima. I contatti trovati sono elencati qui e puoi escluderne qualcuno.
+contacts-import-empty = Scegli un file o incolla testo vCard o CSV, poi seleziona Anteprima. I contatti trovati sono elencati qui e può escluderne qualcuno.
 contacts-merge-sets = Possibili duplicati
 contacts-merge-set = Duplicati di { $name }
 contacts-merge-keep = Scheda da mantenere

@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 receipts-title = Conferme di lettura
-receipts-description = Scegli come risponde questo account quando un mittente richiede una conferma di lettura. Una conferma rivela che il tuo programma di posta ha visualizzato il messaggio.
+receipts-description = Scegli come risponde questo account quando un mittente richiede una conferma di lettura. Una conferma rivela che il suo programma di posta ha visualizzato il messaggio.
 receipts-edit = Modifica risposte alle conferme
 receipts-response = Criterio di risposta
 receipts-mode-never = Non inviare mai conferme di lettura
@@ -25,7 +25,7 @@ receipts-send = Invia conferma di lettura
 receipts-not-now = Non ora
 receipts-uncertain = Non è stato possibile confermare l'esito della conferma. Non verrà ritentata automaticamente.
 receipts-senders-title = Eccezioni per mittente
-receipts-senders-help = Corrisponde a un indirizzo email esatto. La tua preferenza Mai e i criteri impostati dall'amministratore hanno la precedenza. Le risposte automatiche richiedono comunque un indirizzo di risposta sicuro e posta che non provenga da liste.
+receipts-senders-help = Corrisponde a un indirizzo email esatto. La sua preferenza Mai e i criteri impostati dall'amministratore hanno la precedenza. Le risposte automatiche richiedono comunque un indirizzo di risposta sicuro e posta che non provenga da liste.
 receipts-senders-add = Aggiungi eccezione per mittente
 receipts-senders-editor = Modifica eccezione per mittente
 receipts-sender-address = Indirizzo email del mittente

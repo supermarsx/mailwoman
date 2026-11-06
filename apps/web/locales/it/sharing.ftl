@@ -53,4 +53,4 @@ sharing-right-a-desc = Modificare chi ha accesso a questa casella.
 
 # -- Machine translation (2026-11): added to match en ---------------------
 sharing-unsupported = Questo server di posta non supporta la condivisione delle cartelle.
-sharing-forbidden = Non hai il permesso di gestire la condivisione di questa cartella. Chiedi al proprietario o all'amministratore.
+sharing-forbidden = Non ha il permesso di gestire la condivisione di questa cartella. Chiedi al proprietario o all'amministratore.

@@ -15,5 +15,5 @@ quota-details-source = Impostato da
 quota-details-amount = { $used } di { $limit } ({ $percent })
 quota-resource-storage = Spazio
 quota-resource-messages = Messaggi
-quota-source-server = Il tuo server di posta
-quota-source-admin = Il tuo amministratore
+quota-source-server = Il suo server di posta
+quota-source-admin = Il suo amministratore

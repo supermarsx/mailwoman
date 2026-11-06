@@ -37,6 +37,6 @@ admin-identity-done = Klaar
 admin-identity-secret = Gegenereerd clientsecret
 admin-identity-secret-once = Kopieer dit secret nu naar de vertrouwende toepassing. Het kan niet opnieuw worden getoond. Zet een vertrouwelijk secret nooit in browsercode.
 admin-identity-issuer = Publieke HTTPS-issuer-URL
-admin-identity-issuer-help = Gebruik de exacte HTTPS-oorsprong van deze installatie en het pad /oidc, inclusief een eventueel installatieprefix. Als je de issuer of de configuratie wijzigt, worden bestaande identiteitsgrants ingetrokken.
+admin-identity-issuer-help = Gebruik de exacte HTTPS-oorsprong van deze installatie en het pad /oidc, inclusief een eventueel installatieprefix. Als u de issuer of de configuratie wijzigt, worden bestaande identiteitsgrants ingetrokken.
 admin-identity-rotate-key = Ondertekeningssleutel roteren
 admin-identity-key-help = Roteren vereist verse verificatie van de beheerder. Eerdere publieke sleutels blijven 15 minuten beschikbaar zodat onlangs uitgegeven tokens hun korte looptijd kunnen afmaken.

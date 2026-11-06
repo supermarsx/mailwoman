@@ -61,7 +61,7 @@ calendar-event-allday = Hele dag: { $title }
 calendar-editor-new = Nieuwe afspraak
 calendar-editor-edit = Afspraak bewerken
 calendar-invitation = Uitnodiging
-calendar-invited = Je bent uitgenodigd ({ $status }).
+calendar-invited = U bent uitgenodigd ({ $status }).
 calendar-accept = Accepteren
 calendar-tentative = Voorlopig
 calendar-decline = Weigeren
@@ -167,8 +167,8 @@ calendar-events-count-people = { $count ->
 
 # -- Free/busy grid ----------------------------------------------------------
 calendar-fb-whose = Agenda's
-calendar-fb-own = Van jou
-calendar-fb-unavailable = Je bezette tijd kon niet worden geladen.
+calendar-fb-own = Van u
+calendar-fb-unavailable = Uw bezette tijd kon niet worden geladen.
 calendar-fb-cell = { $principal } om { $hour }: { $status }
 calendar-fb-busy = Bezet
 calendar-fb-tentative = Voorlopig
@@ -214,7 +214,7 @@ calendar-import-done = { $count ->
 }
 # The location choice shown for a .hol holiday file with more than one location.
 calendar-import-locations-title = Locaties kiezen om te importeren
-calendar-import-locations-intro = Dit bestand bevat feestdagen voor { $count } locaties. Alleen de locaties die je selecteert, worden geïmporteerd.
+calendar-import-locations-intro = Dit bestand bevat feestdagen voor { $count } locaties. Alleen de locaties die u selecteert, worden geïmporteerd.
 calendar-import-locations-filter = Locaties filteren
 calendar-import-locations-list = Locaties in het bestand
 calendar-import-locations-none = Geen locatie komt overeen met het filter.
@@ -231,7 +231,7 @@ calendar-attachment-uri-placeholder = https://example.com/file
 calendar-share = Delen
 calendar-share-for = { $name } delen
 calendar-share-title = { $name } delen
-calendar-share-intro = Mensen met wie je deelt, kunnen deze agenda zien. Geef lees- en schrijftoegang zodat ze afspraken kunnen toevoegen en bewerken.
+calendar-share-intro = Mensen met wie u deelt, kunnen deze agenda zien. Geef lees- en schrijftoegang zodat ze afspraken kunnen toevoegen en bewerken.
 calendar-share-people = Gedeeld met
 calendar-share-empty = Deze agenda is met niemand gedeeld.
 calendar-share-add = Een persoon toevoegen
@@ -257,7 +257,7 @@ calendar-import-itip-message = Dit bestand is een antwoord of annulering die per
 calendar-import-skipped = { $count ->
     [one] { $count } afspraak stond al in de agenda en is ongewijzigd gelaten.
    *[other] { $count } afspraken stonden al in de agenda en zijn ongewijzigd gelaten.
- }
+}
 calendar-invite-title = Agenda-uitnodiging
 calendar-invite-sender = Van { $sender }
 calendar-invite-add = Aan agenda toevoegen
@@ -294,7 +294,7 @@ calendar-card-kind-counter = Nieuw tijdstip voorgesteld
 calendar-card-kind-publish = { $count ->
     [one] Agenda-afspraak
    *[other] { $count } agenda-afspraken
- }
+}
 calendar-card-when = Wanneer
 calendar-card-where = Waar
 calendar-card-organizer = Organisator
@@ -304,32 +304,32 @@ calendar-card-organizer-time = Tijd van de organisator: { $when } ({ $zone })
 calendar-card-repeat-daily = { $interval ->
     [one] Elke dag
    *[other] Elke { $interval } dagen
- }
+}
 calendar-card-repeat-weekly = { $interval ->
     [one] Elke week
    *[other] Elke { $interval } weken
- }
+}
 calendar-card-repeat-weekly-on = { $interval ->
     [one] Elke week op { $days }
    *[other] Elke { $interval } weken op { $days }
- }
+}
 calendar-card-repeat-monthly = { $interval ->
     [one] Elke maand
    *[other] Elke { $interval } maanden
- }
+}
 calendar-card-repeat-monthly-day = { $interval ->
     [one] Elke maand op dag { $day }
    *[other] Elke { $interval } maanden op dag { $day }
- }
+}
 calendar-card-repeat-yearly = { $interval ->
     [one] Elk jaar
    *[other] Elke { $interval } jaar
- }
+}
 calendar-card-repeat-until = { $rule } tot { $date }
 calendar-card-repeat-count = { $rule }, { $count ->
     [one] eenmaal
    *[other] { $count } keer
- }
+}
 calendar-card-repeat-except = { $rule } ({ $count ->
     [one] 1 datum overgeslagen
    *[other] { $count } datums overgeslagen
@@ -357,7 +357,7 @@ calendar-card-agenda-unavailable = Uw agenda voor deze dag kon niet worden gelad
 calendar-card-conflicts = { $count ->
     [one] Conflicteert met { $titles }
    *[other] Conflicteert met { $count } afspraken: { $titles }
- }
+}
 calendar-card-no-conflicts = Geen conflicten in uw agenda
 calendar-card-invited-as = U bent uitgenodigd als { $address }.
 calendar-card-not-invited = Deze uitnodiging vermeldt geen van uw adressen. U kunt hem aan uw agenda toevoegen, maar niet beantwoorden.
@@ -368,12 +368,12 @@ calendar-card-replied = { $who } { $answer ->
     [tentative] heeft onder voorbehoud geaccepteerd.
     [declined] heeft afgewezen.
    *[other] heeft nog niet geantwoord.
- }
+}
 calendar-card-counter = { $who } heeft een nieuw tijdstip voorgesteld. Voorstellen worden niet automatisch toegepast.
 calendar-card-todos-skipped = { $count ->
     [one] Het bestand bevat ook 1 taak, die niet wordt toegevoegd.
    *[other] Het bestand bevat ook { $count } taken, die niet worden toegevoegd.
- }
+}
 calendar-card-respond = Op de uitnodiging reageren
 calendar-card-accept = Accepteren
 calendar-card-tentative = Onder voorbehoud
@@ -391,7 +391,7 @@ calendar-card-add-all = Alles toevoegen ({ $count })
 calendar-card-added = { $count ->
     [one] Aan uw agenda toegevoegd.
    *[other] { $count } afspraken aan uw agenda toegevoegd.
- }
+}
 calendar-card-remove = Uit agenda verwijderen
 calendar-card-removed = Uit uw agenda verwijderd.
 calendar-card-record-reply = Status van deelnemer bijwerken
@@ -403,4 +403,4 @@ calendar-card-not-sent = Het bericht kon niet worden verzonden.
 calendar-card-more = { $count ->
     [one] nog 1
    *[other] nog { $count }
- }
+}

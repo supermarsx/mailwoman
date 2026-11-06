@@ -13,7 +13,7 @@ remote-banner-direct = Afbeeldingen geladen van de servers van de afzender
 remote-banner-trackers = { $count ->
     [one] { $count } tracker verwijderd
    *[other] { $count } trackers verwijderd
- }
+}
 remote-banner-trackers-limited = Minstens { $count } trackers verwijderd
 remote-banner-show = Afbeeldingen tonen
 remote-banner-show-help = De afbeeldingen van dit bericht via de server laden, zodat de afzender uw IP-adres niet ziet
@@ -39,7 +39,7 @@ remote-images-toast-done = Afbeeldingen geladen
 remote-images-toast-failed = { $count ->
     [one] { $count } afbeelding kon niet worden geladen
    *[other] { $count } afbeeldingen konden niet worden geladen
- }
+}
 remote-images-toast-retry = Opnieuw proberen
 remote-images-toast-progress = Afbeeldingen laden… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = Afbeeldingen laden… { $loaded }/{ $total } · Poging { $attempt }/{ $max }

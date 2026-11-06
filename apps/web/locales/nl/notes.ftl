@@ -58,8 +58,8 @@ notes-link-add = Kruisverwijzing toevoegen
 notes-link-button = Koppelen
 
 # -- Changes from another device or session ------------------------------------
-notes-changed-elsewhere = Deze notitie is op een ander apparaat of in een andere sessie gewijzigd. De tekst die je hier hebt getypt blijft behouden, en je volgende bewerking slaat hem op.
-notes-deleted-elsewhere = De notitie die je open had, is op een ander apparaat of in een andere sessie verwijderd.
+notes-changed-elsewhere = Deze notitie is op een ander apparaat of in een andere sessie gewijzigd. De tekst die u hier hebt getypt blijft behouden, en uw volgende bewerking slaat hem op.
+notes-deleted-elsewhere = De notitie die u open had, is op een ander apparaat of in een andere sessie verwijderd.
 notes-create-failed = De notitie kan niet worden aangemaakt.
 
 # -- Machine translation (2026-11): added to match en ---------------------

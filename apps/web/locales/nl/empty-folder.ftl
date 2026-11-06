@@ -35,11 +35,11 @@ empty-folder-stopping = Stoppen na de huidige batch. Tot nu toe { $done } van { 
 empty-folder-done-trash = { $done ->
     [one] 1 bericht uit { $name } naar de prullenbak verplaatst.
    *[other] { $done } berichten uit { $name } naar de prullenbak verplaatst.
- }
+}
 empty-folder-done-destroy = { $done ->
     [one] 1 bericht uit { $name } definitief verwijderd.
    *[other] { $done } berichten uit { $name } definitief verwijderd.
- }
+}
 empty-folder-stopped = Gestopt. { $done } van { $total } berichten gedaan; { $remaining } nog in { $name }.
 empty-folder-refused = Gestopt. { $done } van { $total } berichten gedaan; de mailserver weigerde er { $refused }. { $remaining } nog in { $name }.
 empty-folder-failed = Het legen van { $name } is na { $done } berichten met een fout gestopt. De laatste batch is mogelijk wel of niet voltooid; controleer de map voordat u het opnieuw probeert.

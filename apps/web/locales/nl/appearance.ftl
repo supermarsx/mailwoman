@@ -8,14 +8,14 @@ appearance-mode-fixed = Eén thema
 appearance-mode-system = Systeem volgen
 appearance-mode-schedule = Op tijdstip van de dag
 
-appearance-mode-hint-fixed = Het gekozen thema blijft actief totdat je het wijzigt.
-appearance-mode-hint-system = Wisselt mee met de lichte of donkere instelling van je besturingssysteem.
+appearance-mode-hint-fixed = Het gekozen thema blijft actief totdat u het wijzigt.
+appearance-mode-hint-system = Wisselt mee met de lichte of donkere instelling van uw besturingssysteem.
 appearance-mode-hint-schedule = Schakelt tijdens de hieronder ingestelde uren over op het donkere thema.
 
 ## Gallery
 
 appearance-gallery = Thema
-appearance-gallery-hint = Als je hier een thema kiest, schakel je over op één vast thema.
+appearance-gallery-hint = Als u hier een thema kiest, schakelt u over op één vast thema.
 appearance-active = In gebruik
 appearance-light = Licht
 appearance-dark = Donker
@@ -36,12 +36,12 @@ appearance-schedule-end = Tot
 
 appearance-sync = Opslaan
 appearance-sync-idle = Niet gestart.
-appearance-sync-loading = Je account controleren…
-appearance-sync-synced = Opgeslagen in je account. Andere apparaten nemen dit over wanneer ze starten.
-appearance-sync-local-only = Opgeslagen op dit apparaat. Log in om deze instellingen in je account op te slaan.
-appearance-sync-error = Kan de server niet bereiken. Opgeslagen op dit apparaat; bij je volgende wijziging wordt het opnieuw verzonden.
+appearance-sync-loading = Uw account controleren…
+appearance-sync-synced = Opgeslagen in uw account. Andere apparaten nemen dit over wanneer ze starten.
+appearance-sync-local-only = Opgeslagen op dit apparaat. Log in om deze instellingen in uw account op te slaan.
+appearance-sync-error = Kan de server niet bereiken. Opgeslagen op dit apparaat; bij uw volgende wijziging wordt het opnieuw verzonden.
 appearance-sync-reset = De weergave die voor mijn account is opgeslagen vergeten
-appearance-sync-reset-done = Verwijderd uit je account. Dit apparaat houdt wat het nu toont.
+appearance-sync-reset-done = Verwijderd uit uw account. Dit apparaat houdt wat het nu toont.
 appearance-sync-deployment = De standaard van deze server is { $theme }.
 
 ## Theme names and descriptions (theme/tokens.ts THEME_META)

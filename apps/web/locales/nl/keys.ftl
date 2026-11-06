@@ -9,7 +9,7 @@ keys-generate = Sleutel aanmaken
 keys-import = Sleutel importeren
 
 # -- Key list groups ---------------------------------------------------------
-keys-your-keys = Jouw sleutels
+keys-your-keys = Uw sleutels
 keys-empty-own = Nog geen sleutels. Maak er een aan of importeer er een om te beginnen.
 keys-contact-keys = Sleutels van contacten
 keys-empty-contact = Geen sleutels van contacten. Zoek er hieronder een op.
@@ -85,7 +85,7 @@ keys-key-type = Sleuteltype
 keys-openpgp = OpenPGP
 keys-smime = S/MIME
 # Under the type list while S/MIME is chosen: what will be made, and its limits.
-keys-generate-smime-note = Maakt een RSA-sleutel van 3072 bits en een certificaat voor het adres hieronder, twee jaar geldig. Het certificaat is zelfondertekend: de mailprogramma's van anderen vertrouwen het pas als ze het handmatig accepteren, of nadat een certificeringsinstantie er een uitgeeft. Mailwoman ondertekent en ontsleutelt er nog geen mail mee; daarna kun je het exporteren voor een ander mailprogramma.
+keys-generate-smime-note = Maakt een RSA-sleutel van 3072 bits en een certificaat voor het adres hieronder, twee jaar geldig. Het certificaat is zelfondertekend: de mailprogramma's van anderen vertrouwen het pas als ze het handmatig accepteren, of nadat een certificeringsinstantie er een uitgeeft. Mailwoman ondertekent en ontsleutelt er nog geen mail mee; daarna kunt u het exporteren voor een ander mailprogramma.
 keys-name = Naam
 keys-email = E-mail
 keys-key-passphrase = Wachtwoordzin voor de sleutel

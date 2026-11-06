@@ -92,10 +92,10 @@ admin-ux-revert-field = ({ $label })
 admin-ux-revert-done = Standaardwaarde ({ $value }) hersteld.
 
 # -- Changed by someone else (UX19) -------------------------------------------
-admin-ux-stale-by-at = { $who } heeft dit op { $time } gewijzigd terwijl je aan het bewerken was.
-admin-ux-stale-by = { $who } heeft dit gewijzigd terwijl je aan het bewerken was.
-admin-ux-stale-unknown = Iemand anders heeft dit gewijzigd terwijl je aan het bewerken was.
-admin-ux-stale-choice = Laad opnieuw om hun versie te zien en je wijzigingen te verliezen, of behoud de jouwe en sla die op over die van hen.
+admin-ux-stale-by-at = { $who } heeft dit op { $time } gewijzigd terwijl u aan het bewerken was.
+admin-ux-stale-by = { $who } heeft dit gewijzigd terwijl u aan het bewerken was.
+admin-ux-stale-unknown = Iemand anders heeft dit gewijzigd terwijl u aan het bewerken was.
+admin-ux-stale-choice = Laad opnieuw om hun versie te zien en uw wijzigingen te verliezen, of behoud de jouwe en sla die op over die van hen.
 admin-ux-stale-reload = Opnieuw laden
 admin-ux-stale-keep = De mijne behouden
 
@@ -138,7 +138,7 @@ admin-ux-palette-kind-field = Veld
 admin-ux-appearance = Weergave
 admin-ux-appearance-title = Weergave van de console
 admin-ux-appearance-note = Deze keuzes wijzigen alleen de beheerconsole, in deze browser.
-admin-ux-appearance-following = De console volgt het webmailthema van deze browser totdat je hier een keuze maakt. Deze keuzes wijzigen alleen de beheerconsole, in deze browser.
+admin-ux-appearance-following = De console volgt het webmailthema van deze browser totdat u hier een keuze maakt. Deze keuzes wijzigen alleen de beheerconsole, in deze browser.
 admin-ux-appearance-mode = Modus
 admin-ux-appearance-mode-light = Licht
 admin-ux-appearance-mode-dark = Donker

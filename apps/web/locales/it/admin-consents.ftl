@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 admin-consents-title = Consensi per finalità
-admin-consents-intro = Ogni finalità ha una base giuridica che imposti tu, una versione del testo e, quando la base è il consenso, un interruttore che resta disattivato finché la persona non lo attiva. La revoca interrompe il trattamento al successivo utilizzo. I conteggi riguardano le persone con una decisione attuale.
+admin-consents-intro = Ogni finalità ha una base giuridica che imposta Lei, una versione del testo e, quando la base è il consenso, un interruttore che resta disattivato finché la persona non lo attiva. La revoca interrompe il trattamento al successivo utilizzo. I conteggi riguardano le persone con una decisione attuale.
 admin-consents-overview = Panoramica
 admin-consents-range = Intervallo
 admin-consents-range-days = { $days } giorni

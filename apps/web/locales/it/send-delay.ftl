@@ -4,14 +4,14 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 send-delay-title = Annulla invio
-send-delay-help = Dopo aver premuto Invia, il messaggio resta in Posta in uscita per questo tempo. Fino ad allora puoi richiamarlo e continuare a modificarlo. Il server lo trattiene, quindi chiudere il browser non lo invia in anticipo né lo perde.
+send-delay-help = Dopo aver premuto Invia, il messaggio resta in Posta in uscita per questo tempo. Fino ad allora può richiamarlo e continuare a modificarlo. Il server lo trattiene, quindi chiudere il browser non lo invia in anticipo né lo perde.
 send-delay-label = Trattieni i messaggi inviati per
 send-delay-off = Disattivato (invio immediato)
 send-delay-seconds = { $n } secondi
 send-delay-minutes = { $n ->
     [one] 1 minuto
    *[other] { $n } minuti
- }
+}
 send-delay-custom = Personalizzato…
 send-delay-custom-label = Ritardo personalizzato in secondi
 send-delay-custom-help = Secondi interi, da 0 a { $max }.
@@ -49,4 +49,4 @@ outbox-failed-drafts = Non è stato possibile inviarlo ed è stato conservato ne
 outbox-queued-count = { $count ->
     [one] 1 messaggio in attesa di invio
    *[other] { $count } messaggi in attesa di invio
- }
+}

@@ -19,10 +19,10 @@ common-retry = Opnieuw proberen
 # Desktop and mobile apps only: under the error shown when the server the app
 # was built or provisioned for does not answer at start. The user cannot change
 # the server; an administrator can.
-common-contact-administrator = Als dit blijft gebeuren, neem dan contact op met je beheerder.
+common-contact-administrator = Als dit blijft gebeuren, neem dan contact op met uw beheerder.
 # Desktop and mobile apps only: shown instead of the sign-in screen when the app
 # was built without a server address and no provisioning file names one.
-common-shell-not-configured = Deze app is niet ingesteld voor een server. Neem contact op met je beheerder.
+common-shell-not-configured = Deze app is niet ingesteld voor een server. Neem contact op met uw beheerder.
 common-copy = Kopiëren
 common-search = Zoeken
 common-more = Meer
@@ -34,15 +34,15 @@ common-loading = Laden…
 common-saving = Opslaan…
 common-empty = Hier staat nog niets
 common-error = Er is iets misgegaan
-common-error-network = Kan de server niet bereiken. Controleer je verbinding en probeer het opnieuw.
-common-offline = Je bent offline
+common-error-network = Kan de server niet bereiken. Controleer uw verbinding en probeer het opnieuw.
+common-offline = U bent offline
 
 # -- Connection banner (realtime/ConnectionToast.tsx). Shown for a signed-in
 #    session only; mounted in the app shell, so it rides the entry bundle. ------
 common-conn-connecting = Verbinden…
 common-conn-degraded = Realtime-updates gepauzeerd — opnieuw verbinden
-common-conn-offline = Je bent offline — wijzigingen worden gesynchroniseerd zodra je weer verbonden bent
-common-conn-auth-expired = Je sessie is verlopen — log opnieuw in
+common-conn-offline = U bent offline — wijzigingen worden gesynchroniseerd zodra u weer verbonden bent
+common-conn-auth-expired = Uw sessie is verlopen — log opnieuw in
 common-conn-reconnect = Opnieuw verbinden
 common-conn-sign-in-again = Opnieuw inloggen
 common-conn-reconnected = Weer verbonden
@@ -174,4 +174,7 @@ common-notifications-enabled = Meldingen ingeschakeld op dit apparaat.
 multiselect-count = { $count ->
     [one] 1 geselecteerd
    *[other] { $count } geselecteerd
- }
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = De server is bezet. Wacht een paar seconden en probeer het opnieuw.

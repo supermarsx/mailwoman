@@ -13,7 +13,7 @@ workspace-tabs-close-all = Chiudi tutte le schede
 workspace-tabs-close-dirty-title = { $count ->
     [one] Una scheda ha modifiche non salvate
    *[other] { $count } schede hanno modifiche non salvate
- }
+}
 workspace-tabs-close-dirty-body = La chiusura scarta ciò che non è stato salvato in queste schede. Le altre schede vengono chiuse comunque.
 workspace-tabs-close-dirty-keep = Lascia aperte
 workspace-tabs-close-dirty-discard = Scarta e chiudi

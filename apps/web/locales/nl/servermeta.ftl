@@ -5,12 +5,12 @@
 servermeta-view-label = Serverannotaties
 servermeta-title = Serverannotaties
 servermeta-title-named = Annotaties bij { $mailbox }
-servermeta-intro = Metadata-items worden op de mailserver opgeslagen. Wijzigingen hier worden alleen doorgevoerd als je account ze mag instellen.
+servermeta-intro = Metadata-items worden op de mailserver opgeslagen. Wijzigingen hier worden alleen doorgevoerd als uw account ze mag instellen.
 servermeta-loading = Annotaties laden…
 servermeta-load-failed = Kan de annotaties niet laden.
 servermeta-unavailable = Deze mailserver biedt geen annotaties.
 servermeta-op-failed = De wijziging is niet opgeslagen. De server heeft hem geweigerd of was onbereikbaar.
-servermeta-readonly = Bewerken is voor jou uitgeschakeld. Annotaties worden alleen-lezen getoond.
+servermeta-readonly = Bewerken is voor u uitgeschakeld. Annotaties worden alleen-lezen getoond.
 
 # -- entries -----------------------------------------------------------------
 servermeta-entries = Items

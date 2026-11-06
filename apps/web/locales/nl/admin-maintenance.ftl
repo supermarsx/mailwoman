@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 maintenance-mode-title = Onderhoudsmodus
-maintenance-mode-help = Pauzeer tijdelijk de webmail-logins en mailboxverzoeken terwijl je de server onderhoudt. Beheerderstoegang blijft beschikbaar. Bestaande sessies en berichten blijven behouden.
+maintenance-mode-help = Pauzeer tijdelijk de webmail-logins en mailboxverzoeken terwijl u de server onderhoudt. Beheerderstoegang blijft beschikbaar. Bestaande sessies en berichten blijven behouden.
 maintenance-mode-enabled = Gebruikerstoegang pauzeren
 maintenance-mode-message = Bericht voor gebruikers
 maintenance-mode-message-help = Platte tekst, maximaal 1.000 tekens. Laat leeg om het standaard onderhoudsbericht te gebruiken.

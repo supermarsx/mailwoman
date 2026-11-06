@@ -5,15 +5,15 @@
 sharing-editor-label = Toegang tot map
 sharing-title = Wie heeft toegang tot deze map
 sharing-title-named = Wie heeft toegang tot { $mailbox }
-sharing-intro = Toegang wordt afgedwongen door de mailserver. Wijzigingen hier worden alleen doorgevoerd als je account deze map mag beheren.
+sharing-intro = Toegang wordt afgedwongen door de mailserver. Wijzigingen hier worden alleen doorgevoerd als uw account deze map mag beheren.
 sharing-loading = Toegang laden…
 sharing-load-failed = Kan de toegangslijst van de map niet laden.
 sharing-op-failed = De wijziging is niet opgeslagen. De server heeft hem geweigerd of was onbereikbaar.
 
 # -- your own access (MYRIGHTS) ----------------------------------------------
-sharing-your-access = Jouw toegang
-sharing-no-access = Je hebt geen toegangsrechten voor deze map.
-sharing-readonly = Je hebt geen beheerrecht voor deze map, dus de toegang wordt alleen-lezen getoond. Vraag een beheerder om dit te wijzigen.
+sharing-your-access = Uw toegang
+sharing-no-access = U hebt geen toegangsrechten voor deze map.
+sharing-readonly = U hebt geen beheerrecht voor deze map, dus de toegang wordt alleen-lezen getoond. Vraag een beheerder om dit te wijzigen.
 
 # -- grants (ACL entries) ----------------------------------------------------
 sharing-grants = Personen en groepen

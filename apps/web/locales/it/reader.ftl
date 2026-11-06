@@ -4,7 +4,7 @@
 
 # -- Machine translation (2026-11): added to match en ---------------------
 reader-settings-title = Visualizzazione dei messaggi
-reader-settings-help = Scegli come vengono visualizzati i messaggi. I valori predefiniti dell'amministratore si applicano finché non scegli una modifica. Il contenuto del messaggio resta isolato dall'applicazione.
+reader-settings-help = Scegli come vengono visualizzati i messaggi. I valori predefiniti dell'amministratore si applicano finché non sceglie una modifica. Il contenuto del messaggio resta isolato dall'applicazione.
 reader-colorMode = Colori dei messaggi
 reader-colorMode-help = Automatico adatta i colori dei messaggi nei temi scuri. Originale conserva i colori del mittente; adattivo usa il tema attivo; inversione inverte i colori preservando quelli delle immagini.
 reader-fontSize = Dimensione del carattere di lettura (px)
@@ -53,4 +53,14 @@ reader-attachmentsDensity = Densità degli allegati
 reader-attachmentsDensity-help = Compatta mostra piccoli pulsanti dei file; confortevole mostra anteprime più grandi quando è espansa.
 reader-option-compact = Compatta
 reader-attachmentsCollapsed = Comprimi gli allegati per impostazione predefinita
-reader-attachmentsCollapsed-help = Inizia ogni messaggio con un riepilogo compatto degli allegati. Puoi espandere quel messaggio senza modificare questa impostazione predefinita.
+reader-attachmentsCollapsed-help = Inizia ogni messaggio con un riepilogo compatto degli allegati. Può espandere quel messaggio senza modificare questa impostazione predefinita.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Testo e colori
+reader-card-text-help = Dimensione, spaziatura, larghezza e colori del testo dei messaggi.
+reader-card-actions = Azioni e allegati
+reader-card-actions-help = La barra delle azioni del messaggio e come vengono inizialmente mostrati gli allegati.
+reader-card-loading = Caricamento
+reader-card-loading-help = Cosa viene mostrato mentre un messaggio si apre.
+settings-mail-card-list = Elenco dei messaggi
+settings-mail-card-list-help = Azioni sulle righe e cosa fa l'elenco quando si agisce su un messaggio.

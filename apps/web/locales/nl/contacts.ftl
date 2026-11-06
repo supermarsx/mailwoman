@@ -134,7 +134,7 @@ contacts-membership-add-group = Typ een groepsnaam om dit contact toe te voegen
 contacts-membership-count = { $count ->
     [one] 1 lid
    *[other] { $count } leden
- }
+}
 contacts-membership-failed = Sommige lidmaatschapswijzigingen konden niet worden opgeslagen. De lijst toont wat is opgeslagen.
 contacts-membership-manage = Groepslidmaatschap beheren
 contacts-import-source = Bron

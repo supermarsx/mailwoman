@@ -47,7 +47,7 @@ nextcloud-error-need-expiry = scegliere una data di scadenza o disattivare la sc
 nextcloud-error-share-failed = impossibile creare il link di condivisione
 
 # -- Machine translation (2026-11): added to match en ---------------------
-nextcloud-share-upload-intro = { $path } supera il limite degli allegati. Caricalo nella cartella “Mail attachments” del tuo Nextcloud e inserisci nel messaggio un link di condivisione.
+nextcloud-share-upload-intro = { $path } supera il limite degli allegati. Caricalo nella cartella “Mail attachments” del suo Nextcloud e inserisci nel messaggio un link di condivisione.
 nextcloud-upload-and-link = Carica e inserisci il link
 nextcloud-share-not-now = Non ora
 nextcloud-upload-progress = Caricamento: { $percent }%
@@ -57,7 +57,7 @@ nextcloud-share-body = { $name } ({ $size }): { $url }
 nextcloud-share-body-expires = Il link funziona fino al { $date }.
 nextcloud-share-body-password = Il link è protetto da password.
 nextcloud-account-title = Account Nextcloud
-nextcloud-account-help = Collega il tuo account a un'istanza approvata dall'amministratore. Le credenziali sono memorizzate cifrate solo per questo account di posta.
+nextcloud-account-help = Collega il suo account a un'istanza approvata dall'amministratore. Le credenziali sono memorizzate cifrate solo per questo account di posta.
 nextcloud-account-load-error = Impossibile caricare i collegamenti Nextcloud. Ricarica per riprovare.
 nextcloud-account-unlink-error = Impossibile rimuovere il collegamento. Ricarica prima di riprovare.
 nextcloud-account-reload = Ricarica
@@ -100,7 +100,7 @@ nextcloud-save-attachment = Salva { $name } in Nextcloud
 nextcloud-save-close = Chiudi la destinazione Nextcloud
 nextcloud-save-options = Salva gli allegati in Nextcloud
 nextcloud-pim-title = Contatti e calendari
-nextcloud-pim-help = Individua le raccolte di questo account Nextcloud verificato, poi connetti esplicitamente quelle che vuoi. Sincronizza per recuperare i dati attuali; le modifiche alle raccolte connesse usano la raccolta remota e falliscono se il collegamento o i permessi vengono revocati.
+nextcloud-pim-help = Individua le raccolte di questo account Nextcloud verificato, poi connetti esplicitamente quelle che desidera. Sincronizza per recuperare i dati attuali; le modifiche alle raccolte connesse usano la raccolta remota e falliscono se il collegamento o i permessi vengono revocati.
 nextcloud-pim-category = Categoria della raccolta
 nextcloud-pim-calendar = Calendari
 nextcloud-pim-contacts = Rubriche

@@ -21,6 +21,6 @@ admin-passkeys-use = Usa una passkey
 admin-passkeys-recovery-code = Codice di recupero
 admin-passkeys-recovery-use = Usa un codice di recupero
 admin-passkeys-factor-note = Conferma l'accesso come amministratore con un fattore registrato.
-admin-passkeys-failed = L'accesso con passkey è stato annullato o non è stato verificato. Riprova o scegli un altro metodo di accesso.
+admin-passkeys-failed = L'accesso con passkey è stato annullato o non è stato verificato. Riprovare o scegliere un altro metodo di accesso.
 admin-passkeys-recovery-failed = Il recupero non è stato verificato. Inserisci di nuovo la password per iniziare un nuovo tentativo.
 admin-passkeys-last-super-protected = Questa è l'ultima credenziale di accesso utilizzabile dell'ultimo Super admin. Aggiungi un'altra passkey o configura una password prima di rimuoverla.

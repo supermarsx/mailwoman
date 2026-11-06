@@ -13,7 +13,7 @@ workspace-tabs-close-all = Alle tabbladen sluiten
 workspace-tabs-close-dirty-title = { $count ->
     [one] Een tabblad heeft niet-opgeslagen wijzigingen
    *[other] { $count } tabbladen hebben niet-opgeslagen wijzigingen
- }
+}
 workspace-tabs-close-dirty-body = Bij het sluiten gaat verloren wat in deze tabbladen niet is opgeslagen. De andere tabbladen worden hoe dan ook gesloten.
 workspace-tabs-close-dirty-keep = Open houden
 workspace-tabs-close-dirty-discard = Negeren en sluiten

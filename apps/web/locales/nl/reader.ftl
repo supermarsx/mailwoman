@@ -54,3 +54,13 @@ reader-attachmentsDensity-help = Compact toont kleine bestandsknoppen; comfortab
 reader-option-compact = Compact
 reader-attachmentsCollapsed = Bijlagen standaard samenvouwen
 reader-attachmentsCollapsed-help = Begin elk bericht met een compacte samenvatting van de bijlagen. U kunt dat bericht uitklappen zonder deze standaard te wijzigen.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Tekst en kleuren
+reader-card-text-help = Grootte, spatiëring, breedte en kleuren van berichttekst.
+reader-card-actions = Acties en bijlagen
+reader-card-actions-help = De actiebalk van het bericht en hoe bijlagen aanvankelijk worden weergegeven.
+reader-card-loading = Laden
+reader-card-loading-help = Wat u ziet terwijl een bericht wordt geopend.
+settings-mail-card-list = Berichtenlijst
+settings-mail-card-list-help = Rij-acties en wat de lijst doet wanneer u een bericht bewerkt.

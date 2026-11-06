@@ -1,0 +1,60 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: nl · Module: admin-domain-guided. Source: ../en/admin-domain-guided.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-domain-guided-title = Een domein toevoegen met begeleiding
+admin-domain-guided-identity = Domeinidentiteit
+admin-domain-guided-domain = Domeinnaam
+admin-domain-guided-connection = Verbinding
+admin-domain-guided-default = Serverstandaarden gebruiken
+admin-domain-guided-manual = Een mailserver configureren
+admin-domain-guided-default-help = De serverstandaarden gebruiken de mailrouting die uw beheerder heeft ingesteld. U kunt dit domein controleren voordat u het aanmaakt.
+admin-domain-guided-permission = Uw rol kan het domein aanmaken met de serverstandaarden. Voor het wijzigen van de mailservers is de machtiging voor upstreamconfiguratie nodig.
+admin-domain-guided-protocol = Mailprotocol
+admin-domain-guided-host = Hostnaam of IP-adres van de mailserver
+admin-domain-guided-port = Mailpoort
+admin-domain-guided-tls = Mailversleuteling
+admin-domain-guided-implicit = TLS vanaf het begin van de verbinding
+admin-domain-guided-starttls = Vereiste STARTTLS
+admin-domain-guided-smtp = Een uitgaande SMTP-server configureren
+admin-domain-guided-smtp-host = Hostnaam of IP-adres van de SMTP-server
+admin-domain-guided-smtp-port = SMTP-poort
+admin-domain-guided-smtp-tls = SMTP-versleuteling
+admin-domain-guided-smtp-omitted = Geen domeinspecifieke SMTP-server
+admin-domain-guided-jmap = JMAP-sessie-URL
+admin-domain-guided-no-credentials = Hier worden geen accountgegevens verzameld. Verificatie van het TLS-certificaat blijft ingeschakeld; toegang tot het privénetwerk vereist een aparte geavanceerde configuratie.
+admin-domain-guided-policy = Verbindingsbeleid
+admin-domain-guided-policy-value = Geverifieerde TLS, wachtwoordauthenticatie bij het inloggen, geen toegang tot het privénetwerk
+admin-domain-guided-create = Domein aanmaken
+admin-domain-guided-invalid-domain = Voer een domeinnaam in zoals example.org, zonder schema, pad of poort.
+admin-domain-guided-invalid-endpoint = Voer geldige hostnamen of IP-adressen van servers en poorten tussen 1 en 65535 in.
+admin-domain-guided-invalid-url = Voer een HTTPS-JMAP-sessie-URL in zonder inloggegevens, queryparameters of fragment.
+admin-domain-guided-status-required = Laad de verbindingsmodus van de server voordat u een mailserver configureert.
+admin-domain-guided-advanced = Meerdere backends en geavanceerde opties configureren
+admin-domain-guided-draft-help = Dit zijn conceptinstellingen. Er wordt niets opgeslagen totdat u op de laatste controlepagina Domein aanmaken selecteert.
+admin-domain-guided-backend-list = Conceptinstellingen voor backends
+admin-domain-guided-backend-empty = Voeg een backend toe of controleer een gedetecteerde configuratie.
+admin-domain-guided-backend-done = Terug naar de backendlijst
+admin-domain-guided-actions = Acties
+admin-domain-guided-disabled = Uitgeschakeld
+admin-domain-guided-edit-backend = Backend { $id } bewerken
+admin-domain-guided-remove-backend = Backend { $id } uit de configuratie verwijderen
+admin-domain-guided-remove-help = Verwijder deze niet-opgeslagen backend uit de conceptconfiguratie.
+admin-domain-guided-custom-ca = Aangepaste certificeringsinstantie ingesteld
+admin-domain-guided-supported-help = Huidige servermodus: { $mode }. De engine-modus ondersteunt IMAP, POP3, SMTP, ManageSieve en EWS HTTPS Basic in de geavanceerde configuratie; de proxymodus ondersteunt JMAP. Microsoft Graph, Gmail-API, OAuth, NTLM en MAPI zijn hier niet beschikbaar als domeinbackends.
+admin-domain-guided-detect = Configuratie detecteren
+admin-domain-guided-detecting = Detecteren…
+admin-domain-guided-detect-help = Voer expliciete detectie aan de serverzijde uit via het ingestelde uitgaande beleid. Resultaten zijn voorstellen en worden nooit automatisch opgeslagen. Uw rol moet ongescopete upstreamconfiguratie toestaan.
+admin-domain-guided-detected = Gedetecteerde bron: { $source }. Controleer alle endpoints en de authenticatie voordat u dit domein aanmaakt.
+admin-domain-guided-use-proposal = Gedetecteerde endpoints controleren
+admin-domain-guided-oauth-warning = Deze provider meldt OAuth-vereisten. Deze configuratie stelt de OAuth van de provider niet in. Bevestig dat de geselecteerde wachtwoordmechanismen worden ondersteund voordat u deze endpoints gebruikt.
+admin-domain-guided-pim-help = Synchronisatie van contacten en agenda gebruikt de aan het account gekoppelde Nextcloud-configuratie. DAV-URL's van het domein en automatische detectie worden door deze configuratie niet geactiveerd.
+admin-domain-guided-backend-count = Configureer tussen 1 en 32 backends.
+admin-domain-guided-backend-id = Geef elke backend een unieke ID van 1–64 letters, cijfers, koppeltekens of underscores.
+admin-domain-guided-backend-mode = Het geselecteerde backendprotocol wordt in de huidige servermodus niet ondersteund.
+admin-domain-guided-backend-priority = Backendprioriteiten moeten gehele getallen tussen 0 en 65535 zijn; lagere waarden worden eerst geprobeerd.
+admin-domain-guided-backend-preferred = Kies hoogstens één ingeschakelde voorkeursbackend per servicerol.
+admin-domain-guided-backend-security = Controleer de TLS-volgorde: gebruik verschillende transporten, één in vaste modus, en sta platte tekst uitdrukkelijk toe voordat u die opneemt.
+admin-domain-guided-backend-auth = Kies verschillende ondersteunde authenticatiemechanismen; de vaste modus vereist er precies één.
+admin-domain-guided-backend-username = Vul het geselecteerde gebruikersnaamdomein, de realm of het aangepaste sjabloon aan.

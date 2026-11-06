@@ -11,7 +11,7 @@ send-delay-seconds = { $n } seconden
 send-delay-minutes = { $n ->
     [one] 1 minuut
    *[other] { $n } minuten
- }
+}
 send-delay-custom = Aangepast…
 send-delay-custom-label = Aangepaste vertraging in seconden
 send-delay-custom-help = Hele seconden, 0 tot { $max }.
@@ -49,4 +49,4 @@ outbox-failed-drafts = Kon niet worden verzonden en is bewaard in uw concepten.
 outbox-queued-count = { $count ->
     [one] 1 bericht wacht op verzending
    *[other] { $count } berichten wachten op verzending
- }
+}
