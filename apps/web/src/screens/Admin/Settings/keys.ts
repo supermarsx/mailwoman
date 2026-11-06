@@ -152,6 +152,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.trustedRecipientDomains',
   'mail.compose.checkInvalidRecipients',
   'mail.compose.checkMissingAttachment',
+  'compose.insert.maxInlineImageMB',
+  'compose.insert.imageResizeDefault',
   'mail.compose.checkEmptySubject',
   'mail.compose.autoChipRecipients',
   'mail.compose.recipientSeparator',

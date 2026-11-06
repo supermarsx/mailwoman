@@ -1262,6 +1262,16 @@ Failures in the window that open a draft. 0 is off.
 
 Exports in the window that open a draft. 0 is off.
 
+'<a id="compose.insert.maxInlineImageMB"></a>
+### Largest inline picture (`compose.insert.maxInlineImageMB`)
+
+Pictures larger than this many MB (1 to 50, default 10) are not placed in the message body by the composer's Picture from file dialog; they can still be attached. Administrators can set or lock it globally, by domain or per user.
+
+<a id="compose.insert.imageResizeDefault"></a>
+### Picture size preset (`compose.insert.imageResizeDefault`)
+
+The size the Picture from file dialog starts with: `original`, `large` (1600 px) or `medium` (1024 px). Default `large`. Users can still pick another size per insert unless an administrator locks the default.
+
 <a id="compose.feature.*"></a>
 ### Composer features (`compose.feature.*`)
 

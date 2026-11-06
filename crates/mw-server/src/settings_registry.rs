@@ -7863,6 +7863,23 @@ pub static REGISTRY: &[SettingDef] = &[
         "A user's custom composer styles, as JSON written by the Styles gallery"
     ),
 
+    def!(
+        "compose.insert.maxInlineImageMB",
+        int(1, 50),
+        "10",
+        GDU,
+        "interface",
+        "Largest picture, in MB, the composer places in the message body (larger ones can still be attached)"
+    ),
+    def!(
+        "compose.insert.imageResizeDefault",
+        Kind::Enum(&["original", "large", "medium"]),
+        "\"large\"",
+        GDU,
+        "interface",
+        "Size preset the composer's Picture from file dialog starts with"
+    ),
+
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
         "serverText.*",
