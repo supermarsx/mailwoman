@@ -105,3 +105,73 @@ common-viewer-no-preview = Для этого типа файлов нет вст
 common-viewer-unknown-type = неизвестный тип
 common-viewer-download = Скачать
 common-viewer-attachments = Вложения
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-retrying = Повторная попытка…
+common-waiting-online = Ожидание подключения…
+common-failure-offline = Нет подключения. Подключитесь и повторите попытку.
+common-failure-network = Не удалось связаться с сервером.
+common-failure-server = Сервер не ответил вовремя.
+common-failure-rate = Слишком много запросов за короткое время. Подождите немного и повторите.
+common-failure-conflict = Это одновременно изменили в другом месте. Перезагрузите и повторите.
+common-failure-account = Вошедшая учётная запись изменилась. Перезагрузите страницу.
+common-failure-linked = Это недоступно, пока открыт связанный почтовый ящик.
+common-failure-refused = Сервер отклонил изменение.
+common-new-version = Доступна новая версия Mailwoman. Если закрыть это сообщение, оно появится снова через час.
+common-new-version-reload = Перезагрузить сейчас
+common-toast-close = Закрыть уведомление
+common-toast-seconds = { $seconds } с
+common-attach-refresh = Обновить вложения
+common-attach-open-message = Открыть сообщение с этим вложением
+common-attach-page-filter-note = Фильтры применяются к этой странице. Нажмите «Далее», чтобы просмотреть более старые сообщения с вложениями.
+common-attach-pages = Страницы вложений
+common-attach-previous = Назад
+common-attach-next = Далее
+common-attach-page = Страница { $page }
+common-attach-column-name = Файл
+common-attach-column-type = Тип
+common-attach-column-size = Размер
+common-attach-column-sender = Отправитель
+common-attach-column-subject = Тема
+common-attach-column-date = Получено
+common-pdf-preview = Предпросмотр PDF
+common-pdf-link-title = Открыть ссылку из этого PDF?
+common-pdf-link-help = Адрес откроется в новой вкладке за пределами Mailwoman.
+common-pdf-link-open = Открыть ссылку
+common-open-event = Открыть событие
+common-message-preview-too-large = Предпросмотр вложений сообщений ограничен 4 МиБ. Исходное вложение по-прежнему можно скачать.
+common-message-preview-failed = Не удалось показать предпросмотр этого вложения сообщения. Файл может не поддерживаться или быть повреждён, либо служба предпросмотра недоступна. Исходный файл по-прежнему можно скачать.
+common-message-preview-attachments = Файлы внутри этого сообщения
+common-message-preview-download = Скачать файл
+common-message-preview-size-bytes = { $count } Б
+common-attach-cat-message = Сообщения / вложения Outlook
+common-error-retry-help = Этот раздел временно недоступен. Повторите попытку, чтобы загрузить его снова.
+common-error-network-help = Проверьте подключение и повторите попытку. Возможно, сервер временно недоступен.
+common-error-page = Не удалось загрузить эту страницу
+common-error-page-help = Не удалось скачать ресурс страницы. Повторите попытку. Если проблема не исчезнет, перезагрузите приложение, чтобы получить последнюю версию.
+common-reload-app = Перезагрузить приложение
+common-new-version-reloading = Доступна новая версия, выполняется перезагрузка…
+common-attach-account-changed = Учётная запись изменилась во время загрузки вложений. Откройте «Вложения» снова для текущей учётной записи.
+common-attach-search-account = Искать во всей учётной записи
+common-attach-scanning = Поиск… Проверено страниц сообщений: { $pages } · найдено файлов: { $count }
+common-attach-scan-cancelled = Поиск отменён · найдено файлов: { $count } на страницах: { $pages }. Результаты неполные.
+common-attach-scan-incomplete = Поиск прерван · найдено файлов: { $count }. Повторите, чтобы искать во всей учётной записи.
+common-attach-scan-limited = Показаны первые 1000 подходящих файлов. Уточните фильтры, чтобы найти нужные файлы.
+common-attach-scan-complete = Поиск завершён · найдено файлов: { $count } на страницах сообщений: { $pages }
+common-attach-browse-pages = Просмотр по страницам
+common-attach-cancel-search = Отменить поиск
+multiselect-selected = Выбрано: { $label }
+multiselect-remove = Удалить: { $label }
+multiselect-no-match = Нет подходящих вариантов
+common-notification-permission-title = Разрешить уведомления?
+common-notification-permission-help = Получайте уведомления о новых сообщениях на этом устройстве. Это можно изменить в настройках.
+common-notification-permission-allow = Разрешить уведомления
+common-notification-permission-later = Не сейчас
+common-notification-permission-error = Не удалось включить уведомления. Проверьте разрешения и настройки уведомлений и повторите попытку.
+common-notifications-enabled = Уведомления на этом устройстве включены.
+multiselect-count = { $count ->
+    [one] Выбран { $count }
+    [few] Выбрано { $count }
+    [many] Выбрано { $count }
+   *[other] Выбрано { $count }
+  }
