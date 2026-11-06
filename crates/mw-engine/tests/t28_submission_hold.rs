@@ -1264,3 +1264,149 @@ async fn a_held_submission_has_no_send_time_to_edit() {
     assert_not_updated(&resp, sub_id, "invalidProperties");
     assert_eq!(submission(&h, sub_id).await["mailwomanHold"], "manual");
 }
+
+// ---- where the sent copy goes (Compose > Options > Sent copy) ---------------
+//
+// The composer picks a folder (or none) per message, or the administrator's rules
+// pick it; either way the instruction travels as `onSuccessUpdateEmail` /
+// `onSuccessDestroyEmail`. The harness mail server has INBOX, Sent and Drafts, so
+// INBOX stands in for "a folder the user chose".
+
+fn folder_patch(folder: &str) -> Value {
+    json!({ "mailboxIds": { folder: true }, "keywords/$draft": null })
+}
+
+/// A chosen folder gets the message and the IMAP APPEND; Sent gets neither.
+#[tokio::test]
+async fn a_chosen_folder_receives_the_copy_and_the_append() {
+    let h = setup(Smtp::Deliver).await;
+    let (inbox, sent) = (mailbox_id(&h, "inbox").await, mailbox_id(&h, "sent").await);
+    let draft = create_draft(&h).await;
+
+    submission_set(
+        &h,
+        json!({
+            "create": { "send": { "emailId": draft } },
+            "onSuccessUpdateEmail": { "#send": folder_patch(&inbox) },
+        }),
+    )
+    .await;
+    assert_eq!(h.submitter.delivered(), 1);
+    let e = email(&h, &draft).await;
+    assert_eq!(e["mailboxIds"], json!({ inbox.clone(): true }), "{e}");
+    assert!(e["keywords"].get("$draft").is_none(), "{e}");
+    assert!(emails_in(&h, &sent).await.is_empty(), "nothing in Sent");
+    assert_eq!(h.backend.appended_to("INBOX").len(), 1, "one APPEND to the chosen folder");
+    assert!(h.backend.appended_to("Sent").is_empty(), "none to Sent");
+}
+
+/// "Do not save": no copy anywhere and no APPEND, on the mail server or locally.
+#[tokio::test]
+async fn skip_copy_files_nothing_and_appends_nothing() {
+    let h = setup(Smtp::Deliver).await;
+    let (inbox, sent) = (mailbox_id(&h, "inbox").await, mailbox_id(&h, "sent").await);
+    let draft = create_draft(&h).await;
+    submission_set(
+        &h,
+        json!({
+            "create": { "send": { "emailId": draft } },
+            "onSuccessDestroyEmail": ["#send"],
+        }),
+    )
+    .await;
+    assert_eq!(h.submitter.delivered(), 1);
+    assert!(email(&h, &draft).await.is_null());
+    assert!(emails_in(&h, &sent).await.is_empty());
+    assert!(emails_in(&h, &inbox).await.is_empty());
+    assert!(h.backend.appended_to("Sent").is_empty());
+    assert!(h.backend.appended_to("INBOX").is_empty());
+}
+
+/// A scheduled send keeps the choice with the submission: the Outbox reads it
+/// back ("Will be saved in ..."), and the copy is filed there when it goes.
+#[tokio::test]
+async fn a_scheduled_send_reports_and_then_files_the_chosen_folder() {
+    let h = setup(Smtp::Deliver).await;
+    let (inbox, sent) = (mailbox_id(&h, "inbox").await, mailbox_id(&h, "sent").await);
+    let draft = create_draft(&h).await;
+    let later = (Utc::now() + chrono::Duration::days(2)).to_rfc3339();
+
+    let resp = submission_set(
+        &h,
+        json!({
+            "create": { "send": { "emailId": draft, "sendAt": later } },
+            "onSuccessUpdateEmail": { "#send": folder_patch(&inbox) },
+        }),
+    )
+    .await;
+    let sub_id = result(&resp, "s")["created"]["send"]["id"].as_str().unwrap().to_string();
+    assert_eq!(
+        submission(&h, &sub_id).await["mailwomanSentCopy"],
+        json!({ "mailboxId": inbox }),
+        "the Outbox can name the folder"
+    );
+    assert_eq!(h.submitter.calls(), 0, "scheduled, not sent");
+
+    tick_long_after(&h).await;
+    assert_eq!(h.submitter.delivered(), 1);
+    assert_eq!(email(&h, &draft).await["mailboxIds"], json!({ inbox.clone(): true }));
+    assert!(emails_in(&h, &sent).await.is_empty());
+    assert_eq!(h.backend.appended_to("INBOX").len(), 1);
+}
+
+/// The Outbox line for the other two cases: no copy kept, and the default.
+#[tokio::test]
+async fn the_submission_reports_no_copy_or_the_default() {
+    let h = setup(Smtp::Deliver).await;
+    let later = (Utc::now() + chrono::Duration::days(2)).to_rfc3339();
+
+    let skipped = create_draft(&h).await;
+    let resp = submission_set(
+        &h,
+        json!({
+            "create": { "send": { "emailId": skipped, "sendAt": later } },
+            "onSuccessDestroyEmail": ["#send"],
+        }),
+    )
+    .await;
+    let skipped_sub = result(&resp, "s")["created"]["send"]["id"].as_str().unwrap().to_string();
+    assert_eq!(submission(&h, &skipped_sub).await["mailwomanSentCopy"], json!({ "skip": true }));
+
+    let plain = create_draft(&h).await;
+    let created = create_submission(&h, json!({ "emailId": plain, "sendAt": later })).await;
+    assert_eq!(
+        submission(&h, created["id"].as_str().unwrap()).await["mailwomanSentCopy"],
+        Value::Null,
+        "nothing chosen: the default Sent folder"
+    );
+}
+
+/// "Remind me if there is no reply": the follow-up flag is set on the sent copy
+/// through the same patch that files it.
+#[tokio::test]
+async fn the_reminder_flag_is_set_on_the_sent_copy() {
+    let h = setup(Smtp::Deliver).await;
+    let sent = mailbox_id(&h, "sent").await;
+    let draft = create_draft(&h).await;
+    let due = "2026-12-01T09:00:00.000Z";
+    let mut patch = sent_patch(&sent);
+    patch["followUpAt"] = json!(due);
+
+    submission_set(
+        &h,
+        json!({
+            "create": { "send": { "emailId": draft } },
+            "onSuccessUpdateEmail": { "#send": patch },
+        }),
+    )
+    .await;
+    assert_eq!(h.submitter.delivered(), 1);
+    let g = jmap(
+        &h,
+        json!([["Email/get", { "ids": [draft], "properties": ["id", "followUpAt", "mailboxIds"] }, "g"]]),
+    )
+    .await;
+    let e = result(&g, "g")["list"][0].clone();
+    assert_eq!(e["mailboxIds"], json!({ sent: true }), "{e}");
+    assert_eq!(e["followUpAt"], due, "{e}");
+}

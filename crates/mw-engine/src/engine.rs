@@ -943,7 +943,10 @@ impl Engine {
             // Art.18 restriction: the message is stored, not indexed. The index
             // is rebuilt for this account when the restriction is lifted.
         } else if self.index_allowed(account_id).await {
-            let keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
+            let mut keywords: Vec<String> = flags_to_keywords(&raw.flags).into_keys().collect();
+            // `list:<id>` search: the List-Id as an index-only keyword.
+            keywords.extend(crate::focus::list_id_keyword(&raw.raw));
+            keywords.extend(crate::focus::supersedes_keyword(&raw.raw));
             let filenames = search_index::attachment_filenames(&raw.raw);
             let attachment_text = search_index::attachment_text(&raw.raw);
             let doc = search_index::build_index_doc(
@@ -980,7 +983,7 @@ impl Engine {
                 .apply_local_sieve_at_ingest(account_id, mailbox_id, &sid, &email, &raw.raw)
                 .await?
             {
-                self.apply_rules_at_ingest(account_id, mailbox_id, &sid, &email, &raw.flags)
+                self.apply_rules_at_ingest(account_id, mailbox_id, &sid, &email, &raw.flags, &raw.raw)
                     .await?;
             }
             // §10.8 spam classification (fail-soft): a jailed `spam-action` plugin
@@ -1214,22 +1217,26 @@ impl Engine {
         // get_body), so re-index matches ingest-time indexing (W19).
         // t78: and its calendar content, from the same read; t94: and its
         // list/bulk header signal (the backfill for mail stored before t94).
-        let (filenames, attachment_text, calendar, list_signal) = match &msg.blob_ref {
+        let (filenames, attachment_text, calendar, list_signal, list_keyword, supersedes_kw) = match &msg.blob_ref {
             Some(blob) => match self.store.get_body(blob).await? {
                 Some(raw) => (
                     search_index::attachment_filenames(&raw),
                     search_index::attachment_text(&raw),
                     crate::calendar_hint::calendar_hint(&raw),
                     crate::focus::list_signal(&raw),
+                    crate::focus::list_id_keyword(&raw),
+                    crate::focus::supersedes_keyword(&raw),
                 ),
-                None => (Vec::new(), String::new(), None, None),
+                None => (Vec::new(), String::new(), None, None, None, None),
             },
-            None => (Vec::new(), String::new(), None, None),
+            None => (Vec::new(), String::new(), None, None, None, None),
         };
-        let keywords: Vec<String> =
+        let mut keywords: Vec<String> =
             flags_to_keywords(&crate::mapping::flags_from_json(&msg.flags_json))
                 .into_keys()
                 .collect();
+        keywords.extend(list_keyword);
+        keywords.extend(supersedes_kw);
         let pinned = self
             .store
             .get_message_meta(stable_id)

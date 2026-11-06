@@ -16,7 +16,7 @@
 //! Supported operators (plan §0.1 / §2.1):
 //! `from: to: cc: subject: body:` (field text) · `text:`/bare (all-fields) ·
 //! `has:attachment` · `filename:` · `before:`/`after:` (date) · `in:` (mailbox) ·
-//! `is:unread|read|flagged|unflagged|pinned|answered|unanswered|forwarded|unforwarded` ·
+//! `is:unread|read|flagged|unflagged|pinned|answered|unanswered|forwarded|unforwarded|high-priority|low-priority` ·
 //! `larger:`/`smaller:` (size) ·
 //! `tag:` (keyword) · `pinned:true|false`.
 //!
@@ -100,6 +100,10 @@ const KW_FLAGGED: &str = "$flagged";
 /// `$answered` (the message has been replied to) and `$forwarded` (RFC 5788).
 const KW_ANSWERED: &str = "$answered";
 const KW_FORWARDED: &str = "$forwarded";
+/// Index-only keywords the engine adds from a message's priority headers (they
+/// are never stored on the message): `is:high-priority` and `is:low-priority`.
+pub const KW_PRIORITY_HIGH: &str = "$priority-high";
+pub const KW_PRIORITY_LOW: &str = "$priority-low";
 
 /// Maximum nesting depth for `(` grouping and `NOT` chains.
 ///
@@ -316,6 +320,8 @@ fn is_operator(name: &str) -> bool {
             | "larger"
             | "smaller"
             | "tag"
+            | "list"
+            | "supersedes"
             | "pinned"
     )
 }
@@ -444,6 +450,16 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
         "filename" => text_clause(TextField::Filename, value, phrase),
         "text" => text_clause(TextField::All, value, phrase),
         "tag" => Clause::Keyword(value),
+        // `supersedes:<Message-ID>`: messages that say they replace that one.
+        "supersedes" if value.trim_matches(['<', '>']).contains('@') => Clause::Keyword(format!(
+            "$supersedes:{}",
+            value.trim_matches(['<', '>']).trim().to_ascii_lowercase()
+        )),
+        // `list:<List-Id>`: mail from one mailing list (an index-only keyword the engine writes).
+        "list" if !value.trim_matches(['<', '>']).trim().is_empty() => Clause::Keyword(format!(
+            "$list:{}",
+            value.trim_matches(['<', '>']).trim().to_ascii_lowercase()
+        )),
         "in" => Clause::Mailbox(value),
         // `has:` names one thing, in four spellings. Any other value falls to
         // the unknown-operator arm below: `HasAttachment(false)` would answer
@@ -463,6 +479,10 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
             }
             "forwarded" => Clause::Keyword(KW_FORWARDED.to_string()),
             "unforwarded" | "notforwarded" => Clause::NotKeyword(KW_FORWARDED.to_string()),
+            "high-priority" | "highpriority" | "important" => {
+                Clause::Keyword(KW_PRIORITY_HIGH.to_string())
+            }
+            "low-priority" | "lowpriority" => Clause::Keyword(KW_PRIORITY_LOW.to_string()),
             // Unknown `is:x` — treat the token as a keyword filter.
             other => Clause::Keyword(other.to_string()),
         },
@@ -871,6 +891,36 @@ mod tests {
         ] {
             assert_eq!(cl(text), Expr::Clause(clause), "{text}");
         }
+    }
+
+    #[test]
+    fn list_operator_matches_the_index_only_keyword() {
+        assert_eq!(cl("list:Users.Rust-Lang.org"), Expr::Clause(Clause::Keyword("$list:users.rust-lang.org".into())));
+        assert_eq!(cl("list:<news.example.net>"), Expr::Clause(Clause::Keyword("$list:news.example.net".into())));
+        assert_eq!(
+            cl("NOT list:news.example.net"),
+            Expr::Not(Box::new(Expr::Clause(Clause::Keyword("$list:news.example.net".into()))))
+        );
+    }
+
+    #[test]
+    fn supersedes_operator_matches_the_index_only_keyword() {
+        assert_eq!(cl("supersedes:<Old.1@Example.org>"), Expr::Clause(Clause::Keyword("$supersedes:old.1@example.org".into())));
+        assert_eq!(cl("supersedes:old@example.org"), Expr::Clause(Clause::Keyword("$supersedes:old@example.org".into())));
+    }
+
+    #[test]
+    fn priority_operators() {
+        assert_eq!(cl("is:high-priority"), Expr::Clause(Clause::Keyword("$priority-high".into())));
+        assert_eq!(cl("is:Low-Priority"), Expr::Clause(Clause::Keyword("$priority-low".into())));
+        assert_eq!(
+            cl("NOT is:high-priority"),
+            Expr::Not(Box::new(Expr::Clause(Clause::Keyword("$priority-high".into()))))
+        );
+        assert_eq!(
+            cl("-is:low-priority"),
+            Expr::Not(Box::new(Expr::Clause(Clause::Keyword("$priority-low".into()))))
+        );
     }
 
     #[test]

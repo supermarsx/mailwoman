@@ -169,6 +169,7 @@ impl<'a> Parser<'a> {
                 }
                 match field.as_str() {
                     "subject" => Ok(Condition::Subject(StringTest { op, value })),
+                    "list-id" => Ok(Condition::ListId(StringTest { op, value })),
                     _ => self.err("unknown header field"),
                 }
             }

@@ -22,7 +22,7 @@ mod query;
 /// the default search path is byte-identical to 26.18.
 pub mod rerank;
 
-pub use query::{Clause, Expr, Sort, SortField, TextField, normalize_sender_domain};
+pub use query::{Clause, Expr, Sort, SortField, TextField, KW_PRIORITY_HIGH, KW_PRIORITY_LOW, normalize_sender_domain};
 pub use rerank::{cosine, rerank_by_cosine};
 
 use std::ops::Bound;

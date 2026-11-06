@@ -133,6 +133,11 @@ fn render_condition(cond: &Condition, ext: &mut BTreeSet<&'static str>) -> Strin
             let op = if *over { ":over" } else { ":under" };
             format!("size {op} {bytes}")
         }
+        Condition::ListId(t) => format!(
+            "header {} \"list-id\" {}",
+            match_type(t.op),
+            quote(&t.value)
+        ),
         Condition::Keyword(t) => {
             ext.insert("imap4flags");
             format!("hasflag {} {}", match_type(t.op), quote(&t.value))

@@ -87,6 +87,8 @@ pub enum Condition {
         bytes: u64,
     },
     Keyword(StringTest),
+    /// The message's `List-Id` (the id between the angle brackets, lower-case).
+    ListId(StringTest),
 }
 
 /// How a string condition matches its operand.
@@ -131,6 +133,8 @@ pub struct ParsedEnvelope {
     pub has_attachment: bool,
     pub size: u64,
     pub keywords: Vec<String>,
+    /// `List-Id` of the message, lower-case, without the angle brackets.
+    pub list_id: String,
 }
 
 #[derive(Debug, thiserror::Error)]

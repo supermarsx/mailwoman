@@ -106,6 +106,7 @@ pub(crate) fn rule_to_mail_rule(rule: &Rule) -> MailRule {
             Condition::From(t) => Some(("from", t)),
             Condition::To(t) => Some(("to", t)),
             Condition::Subject(t) => Some(("subject", t)),
+            Condition::ListId(t) => Some(("listId", t)),
             _ => None,
         })
         .map(|(kind, t)| MailRuleCondition {
@@ -182,13 +183,13 @@ pub(crate) fn mail_rule_to_rule(mr: &MailRule) -> Result<Rule, Value> {
         .conditions
         .iter()
         .map(|c| c.kind.as_str())
-        .filter(|kind| !matches!(*kind, "from" | "to" | "subject"))
+        .filter(|kind| !matches!(*kind, "from" | "to" | "subject" | "listId"))
         .collect();
     if !unsupported.is_empty() {
         unsupported.sort_unstable();
         unsupported.dedup();
         return Err(invalid_conditions(format!(
-            "unsupported condition: {}; a rule can match on from, to and subject",
+            "unsupported condition: {}; a rule can match on from, to, subject and list id",
             unsupported.join(", ")
         )));
     }
@@ -202,7 +203,7 @@ pub(crate) fn mail_rule_update_to_rule(stored: &Rule, mr: &MailRule) -> Result<R
     if stored.conditions.iter().any(|condition| {
         !matches!(
             condition,
-            Condition::From(_) | Condition::To(_) | Condition::Subject(_)
+            Condition::From(_) | Condition::To(_) | Condition::Subject(_) | Condition::ListId(_)
         )
     }) || stored.actions.iter().any(|action| {
         !matches!(
@@ -250,6 +251,7 @@ fn convert_mail_rule(mr: &MailRule) -> Rule {
                 "from" => Some(Condition::From(test)),
                 "to" => Some(Condition::To(test)),
                 "subject" => Some(Condition::Subject(test)),
+                "listId" => Some(Condition::ListId(test)),
                 _ => None,
             }
         })

@@ -58,6 +58,7 @@ impl Engine {
         stable_id: &str,
         email: &Email,
         flags: &[Flag],
+        raw: &[u8],
     ) -> Result<()> {
         // Only inbox deliveries are subject to rules.
         let mailbox = self.effective_mailbox(account_id, mailbox_id).await?;
@@ -69,7 +70,8 @@ impl Engine {
             return Ok(());
         }
 
-        let envelope = envelope_for_rules(email, flags);
+        let mut envelope = envelope_for_rules(email, flags);
+        envelope.list_id = crate::focus::list_id(raw).unwrap_or_default();
         let actions = evaluate_all(&rules, &envelope);
         if actions.is_empty() {
             return Ok(());
@@ -228,6 +230,7 @@ fn envelope_for_rules(email: &Email, flags: &[Flag]) -> ParsedEnvelope {
         has_attachment: email.has_attachment,
         size: email.size,
         keywords: flags_to_keywords(flags).into_keys().collect(),
+        list_id: String::new(),
     }
 }
 

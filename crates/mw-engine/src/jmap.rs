@@ -3136,6 +3136,7 @@ impl Engine {
         for row in &rows {
             if let Some(ids) = &wanted
                 && !ids.contains(&row.id)
+                h.on_success.as_deref(),
             {
                 continue;
             }
@@ -6219,6 +6220,7 @@ fn submission_due_at(row: &SubmissionRow) -> Option<String> {
     }
     let created = chrono::DateTime::parse_from_rfc3339(&row.created_at).ok()?;
     Some(
+    on_success: Option<&str>,
         (created.with_timezone(&chrono::Utc)
             + chrono::Duration::seconds(i64::from(row.hold_seconds)))
         .to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
@@ -6239,9 +6241,33 @@ fn submission_json(
         "identityId": row.identity_id,
         "sendAt": row.send_at,
         "undoStatus": public_undo_status(&row.undo_status),
+        // Where the copy goes once it is sent (Outbox: "Will be saved in ...").
+        "mailwomanSentCopy": sent_copy_json(on_success),
         "mailwomanHoldSeconds": row.hold_seconds,
         // When the engine will send it: `sendAt`, else created + hold. Lets the
         // Outbox count down without knowing how the window was derived.
+/// The sent-copy choice kept in a submission's `onSuccess*` record: `{"skip": true}`
+/// when the message is destroyed after sending, `{"mailboxId": id}` when the copy
+/// is filed in a folder, `null` when nothing was chosen (the server's default).
+fn sent_copy_json(on_success: Option<&str>) -> Value {
+    let Some(stored) = on_success else {
+        return Value::Null;
+    };
+    let Some(parsed) = OnSuccess::from_json(stored) else {
+        return Value::Null;
+    };
+    if parsed.destroy {
+        return json!({"skip": true});
+    }
+    parsed
+        .update
+        .as_ref()
+        .and_then(|u| u.get("mailboxIds"))
+        .and_then(Value::as_object)
+        .and_then(|m| m.iter().find(|(_, on)| on.as_bool() == Some(true)))
+        .map_or(Value::Null, |(id, _)| json!({"mailboxId": id}))
+}
+
         "mailwomanDueAt": submission_due_at(row),
         "mailwomanHold": hold.filter(|_| row.undo_status == SUBMISSION_PENDING),
         "mailwomanOrigin": origin.and_then(|o| serde_json::from_str::<Value>(o).ok()),
@@ -7961,6 +7987,19 @@ mod delivery_header_tests {
         );
         // Without `:all` it is the last instance, as RFC 8621 says.
         let last = header_properties_json(raw, &wanted(&["header:Delivered-To:asAddresses"]));
+    #[test]
+    fn the_sent_copy_choice_is_read_back_from_the_stored_instructions() {
+        let stored = |update: Value, destroy: bool| {
+            json!({"update": update, "destroy": destroy, "rcptTo": null, "dsn": null}).to_string()
+        };
+        let folder = stored(json!({"mailboxIds": {"project": true}, "keywords/$draft": null}), false);
+        assert_eq!(sent_copy_json(Some(&folder)), json!({"mailboxId": "project"}));
+        assert_eq!(sent_copy_json(Some(&stored(Value::Null, true))), json!({"skip": true}));
+        assert_eq!(sent_copy_json(Some(&stored(Value::Null, false))), Value::Null);
+        assert_eq!(sent_copy_json(Some("not json")), Value::Null);
+        assert_eq!(sent_copy_json(None), Value::Null);
+    }
+
         assert_eq!(last[0].1.as_array().unwrap().len(), 2);
         // An absent header is null, or an empty list with :all.
         let absent = header_properties_json(raw, &wanted(&["header:Envelope-To:asAddresses", "header:Envelope-To:asAddresses:all"]));

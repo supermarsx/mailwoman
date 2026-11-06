@@ -127,6 +127,13 @@ pub(crate) fn build_index_doc(
     calendar: Option<mw_search::CalendarHint>,
     list_signal: Option<String>,
 ) -> IndexDoc {
+    let mut keywords = keywords;
+    // Priority is searchable (`is:high-priority`) through index-only keywords.
+    match email.mailwoman_priority.as_deref() {
+        Some("high") => keywords.push(mw_search::KW_PRIORITY_HIGH.to_string()),
+        Some("low") => keywords.push(mw_search::KW_PRIORITY_LOW.to_string()),
+        _ => {}
+    }
     IndexDoc {
         stable_id: stable_id.to_string(),
         account_id: account_id.to_string(),
@@ -333,6 +340,49 @@ fn parse_date_bound(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn priority_and_list_id_are_searchable_through_index_only_keywords() {
+        let idx = mw_search::Index::open_in_ram().unwrap();
+        let doc = |id: &str, priority: Option<&str>, list: Option<&str>| {
+            let email = Email {
+                mailwoman_priority: priority.map(String::from),
+                subject: Some(format!("subject {id}")),
+                ..Email::default()
+            };
+            let mut keywords = vec!["$seen".to_string()];
+            keywords.extend(list.map(|l| format!("$list:{l}")));
+            build_index_doc(id, "account", "owned", &email, keywords, vec![], String::new(), false, None, None)
+        };
+        idx.upsert(&doc("urgent", Some("high"), None)).unwrap();
+        idx.upsert(&doc("slow", Some("low"), Some("news.example.org"))).unwrap();
+        idx.upsert(&doc("plain", None, Some("news.example.org"))).unwrap();
+        idx.upsert(&doc("other", None, Some("dev.example.org"))).unwrap();
+        let search = |q: &str| {
+            let mut ids = idx
+                .search(
+                    &build_search_query(&text(q), Sort::default(), &["owned".to_string()], None),
+                    20,
+                )
+                .unwrap();
+            ids.sort();
+            ids
+        };
+        assert_eq!(search("is:high-priority"), ["urgent"]);
+        assert_eq!(search("is:low-priority"), ["slow"]);
+        assert_eq!(search("NOT is:high-priority"), ["other", "plain", "slow"]);
+        assert_eq!(search("-is:low-priority is:high-priority"), ["urgent"]);
+        assert_eq!(search("list:News.Example.org"), ["plain", "slow"]);
+        assert_eq!(search("list:<dev.example.org>"), ["other"]);
+        assert!(search("list:nobody.example.org").is_empty());
+
+        // A message that replaces another is found by the replaced message's Message-ID.
+        let mut replacement = doc("v2", None, None);
+        replacement.keywords.push("$supersedes:v1@example.org".into());
+        idx.upsert(&replacement).unwrap();
+        assert_eq!(search("supersedes:<V1@example.org>"), ["v2"]);
+        assert!(search("supersedes:v9@example.org").is_empty());
+    }
 
     #[test]
     fn sender_domain_uses_mailbox_addresses_not_display_names_and_keeps_scope() {

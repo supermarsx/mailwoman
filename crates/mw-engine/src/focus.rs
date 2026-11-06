@@ -77,6 +77,76 @@ pub fn list_signal(raw: &[u8]) -> Option<String> {
     })
 }
 
+/// The index-only keyword of a message's `List-Id` (`$list:<id>`, the part
+/// between `<` and `>` lower-cased, or the whole value when it has none), which
+/// `list:<id>` searches. `None` for a message without the header or with an id
+/// that is empty or not one token.
+pub fn list_id_keyword(raw: &[u8]) -> Option<String> {
+    list_id(raw).map(|id| format!("$list:{id}"))
+}
+
+/// The `List-Id` of a message: the part between `<` and `>`, lower-cased.
+pub fn list_id(raw: &[u8]) -> Option<String> {
+    let end = header_end(raw);
+    let head = String::from_utf8_lossy(&raw[..end]);
+    let mut value: Option<String> = None;
+    for line in head.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.starts_with([' ', '\t']) {
+            if let Some(v) = value.as_mut() {
+                v.push(' ');
+                v.push_str(line.trim());
+            }
+        } else if value.is_some() {
+            break;
+        } else if let Some((name, rest)) = line.split_once(':')
+            && name.trim().eq_ignore_ascii_case("list-id")
+        {
+            value = Some(rest.trim().to_string());
+        }
+    }
+    let value = value?;
+    let id = match (value.rfind('<'), value.rfind('>')) {
+        (Some(open), Some(close)) if open < close => &value[open + 1..close],
+        _ => value.as_str(),
+    };
+    let id = id.trim().to_ascii_lowercase();
+    (!id.is_empty() && id.len() <= 200 && !id.chars().any(|c| c.is_whitespace() || c.is_control()))
+        .then_some(id)
+}
+
+/// The index-only keyword of the message a message replaces (`Supersedes`):
+/// `$supersedes:<id>`, the first `<id>` lower-cased without the brackets. A message
+/// that is replaced is found by `supersedes:<its own Message-ID>`.
+pub fn supersedes_keyword(raw: &[u8]) -> Option<String> {
+    let end = header_end(raw);
+    let head = String::from_utf8_lossy(&raw[..end]);
+    let mut value: Option<String> = None;
+    for line in head.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        if line.starts_with([' ', '\t']) {
+            if let Some(v) = value.as_mut() {
+                v.push(' ');
+                v.push_str(line.trim());
+            }
+        } else if value.is_some() {
+            break;
+        } else if let Some((name, rest)) = line.split_once(':')
+            && name.trim().eq_ignore_ascii_case("supersedes")
+        {
+            value = Some(rest.trim().to_string());
+        }
+    }
+    let value = value?;
+    let open = value.find('<')?;
+    let close = open + value[open..].find('>')?;
+    let id = value[open + 1..close].trim().to_ascii_lowercase();
+    (id.contains('@')
+        && id.len() <= 200
+        && !id.chars().any(|c| c.is_whitespace() || c.is_control()))
+    .then(|| format!("$supersedes:{id}"))
+}
+
 /// Where the header block of `raw` ends (the blank line, or the whole input).
 fn header_end(raw: &[u8]) -> usize {
     let crlf = raw.windows(4).position(|w| w == b"\r\n\r\n");
@@ -366,6 +436,34 @@ impl Engine {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn list_id_keyword_takes_the_angle_bracket_part_and_ignores_the_body() {
+        let mail = |h: &str| format!("From: a@x\r\n{h}\r\nSubject: s\r\n\r\nbody\r\n");
+        assert_eq!(
+            list_id_keyword(mail("List-Id: Rust Users <Users.Rust-Lang.org>").as_bytes()).as_deref(),
+            Some("$list:users.rust-lang.org")
+        );
+        assert_eq!(
+            list_id_keyword(mail("list-id:\r\n <news.example.net>").as_bytes()).as_deref(),
+            Some("$list:news.example.net")
+        );
+        assert_eq!(list_id_keyword(mail("X-Other: <a.b>").as_bytes()), None);
+        assert_eq!(list_id_keyword(mail("List-Id: <>").as_bytes()), None);
+        assert_eq!(list_id_keyword(b"From: a@x\r\n\r\nList-Id: <x.y>\r\n"), None);
+    }
+
+    #[test]
+    fn supersedes_keyword_names_the_replaced_message() {
+        let mail = |h: &str| format!("From: a@x\r\n{h}\r\nSubject: s\r\n\r\nbody\r\n");
+        assert_eq!(
+            supersedes_keyword(mail("Supersedes: <Old.1@Example.org>").as_bytes()).as_deref(),
+            Some("$supersedes:old.1@example.org")
+        );
+        assert_eq!(supersedes_keyword(mail("Supersedes: nonsense").as_bytes()), None);
+        assert_eq!(supersedes_keyword(mail("X-Other: <a@b>").as_bytes()), None);
+        assert_eq!(supersedes_keyword(b"From: a@x\r\n\r\nSupersedes: <a@b>\r\n"), None);
+    }
 
     #[test]
     fn list_signal_reads_each_header_and_ignores_the_body() {

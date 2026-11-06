@@ -71,6 +71,7 @@ fn condition_matches(cond: &Condition, env: &ParsedEnvelope) -> bool {
             }
         }
         Condition::Keyword(t) => env.keywords.iter().any(|k| string_matches(t, k)),
+        Condition::ListId(t) => string_matches(t, &env.list_id),
     }
 }
 
@@ -150,7 +151,16 @@ mod tests {
             has_attachment: true,
             size: 2_000_000,
             keywords: vec!["\\Seen".into(), "work".into()],
+            list_id: "news.example.org".into(),
         }
+    }
+
+    #[test]
+    fn list_id_condition_matches_the_envelope_list_id() {
+        let hit = rule(vec![Condition::ListId(st(MatchOp::Is, "news.example.org"))], vec![Action::Stop], true);
+        let miss = rule(vec![Condition::ListId(st(MatchOp::Contains, "other"))], vec![Action::Stop], true);
+        assert_eq!(evaluate(&hit, &env()), vec![Action::Stop]);
+        assert!(evaluate(&miss, &env()).is_empty());
     }
 
     #[test]
