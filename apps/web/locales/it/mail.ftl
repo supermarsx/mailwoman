@@ -320,8 +320,8 @@ mail-undo-failed = Impossibile annullare
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Etichetta aggiunta
 mail-toast-label-removed = Etichetta rimossa
-mail-toast-pinned = Fissato
-mail-toast-unpinned = Sbloccato
+mail-toast-pinned = Messaggio “{ $target }” fissato
+mail-toast-unpinned = Messaggio “{ $target }” sbloccato
 mail-toast-snoozed = Posticipato
 mail-toast-follow-up-set = Completamento impostato
 mail-toast-follow-up-cleared = Completamento rimosso

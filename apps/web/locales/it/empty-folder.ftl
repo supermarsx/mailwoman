@@ -8,19 +8,19 @@ empty-folder-title = Svuotare “{ $name }”?
 empty-folder-body-trash = { $count ->
     [one] Il messaggio in { $name } verrà spostato nel Cestino, dove potrai ripristinarlo.
    *[other] Tutti i { $count } messaggi in { $name } verranno spostati nel Cestino, dove potrai ripristinarli.
- }
+ } Le sottocartelle e i messaggi al loro interno non vengono modificati.
 empty-folder-body-destroy-trash = { $count ->
     [one] Il messaggio nel Cestino verrà eliminato definitivamente. L'operazione non può essere annullata.
    *[other] Tutti i { $count } messaggi nel Cestino verranno eliminati definitivamente. L'operazione non può essere annullata.
- }
+ } Le sottocartelle e i messaggi al loro interno non vengono modificati.
 empty-folder-body-destroy-junk = { $count ->
     [one] Il messaggio in { $name } verrà eliminato definitivamente. L'operazione non può essere annullata.
    *[other] Tutti i { $count } messaggi in { $name } verranno eliminati definitivamente. L'operazione non può essere annullata.
- }
+ } Le sottocartelle e i messaggi al loro interno non vengono modificati.
 empty-folder-body-destroy-no-trash = Questo account non ha una cartella Cestino, quindi { $count ->
     [one] il messaggio in { $name } verrà eliminato definitivamente.
    *[other] tutti i { $count } messaggi in { $name } verranno eliminati definitivamente.
- }
+ } L'operazione non può essere annullata. Le sottocartelle e i messaggi al loro interno non vengono modificati.
 empty-folder-confirm-trash = Sposta nel Cestino
 empty-folder-confirm-destroy = Elimina definitivamente
 empty-folder-cancel = Annulla
