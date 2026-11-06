@@ -159,7 +159,7 @@ mail-headers-failed = Message headers could not be loaded. Check your connection
 mail-headers-copy = Copy headers
 mail-headers-copied = Headers copied.
 mail-headers-copy-failed = Headers could not be copied. Select the text to copy it manually.
-mail-sweep-sender = Sweep sender
+mail-sweep-sender = Clean up this sender
 mail-message-body = Message body
 mail-no-content = No content
 mail-sanitizing = Sanitizing…
@@ -366,8 +366,8 @@ mail-queue-discard-item = Discard: { $what }
 mail-queue-discarded = Discarded. The change was not applied.
 
 # -- Sweep dialog ------------------------------------------------------------
-mail-sweep-label = Sweep messages
-mail-sweep-title = Sweep { $sender }
+mail-sweep-label = Clean up messages
+mail-sweep-title = Clean up { $sender }
 mail-sweep-all = Delete all from this sender
 mail-sweep-keep-latest = Keep the latest, delete the rest
 mail-sweep-older-than = Delete older than N days
@@ -581,7 +581,7 @@ mail-action-help-archive = Move this message to the configured archive folder.
 mail-action-help-delete = Move this message to the trash folder. You can undo the move.
 mail-action-help-spam = Mark this message as junk and move it to the configured spam folder.
 mail-action-help-export = Open the export page to download this message in a format you choose.
-mail-action-help-sweep = Review actions for other messages from this sender before applying them.
+mail-action-help-sweep = Review the other messages from this sender and choose what to clean up (delete all, keep the latest, delete older ones or block the sender) before anything is applied.
 
 mail-empty-trash = Empty trash
 mail-trash-help = Review and permanently delete messages currently in Trash. This cannot be undone.

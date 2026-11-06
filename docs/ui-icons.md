@@ -34,7 +34,7 @@ Directional glyphs (arrows) are mirrored under `[dir=rtl]` through the `DIRECTIO
 | Clean up folder | `cleanup` (sparkles) | folder menu |
 | Delete / Delete folder | `delete` (trash can) | all menus |
 | Delete permanently | `deletePermanently` (can with cross) | reserved |
-| Sweep sender | `sweep` (broom) | reader toolbar |
+| Clean up this sender | `sweep` (broom) | reader toolbar |
 | Archive | `archiveDown` (box with arrow) | message, row, reader, bulk, folder bulk |
 | Retention (folder) | `archive` (plain box) | folder menu |
 | Move to | `moveTo` (folder with arrow) | reader, bulk, folder bulk, Move all |

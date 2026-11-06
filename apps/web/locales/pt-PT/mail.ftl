@@ -151,7 +151,7 @@ mail-headers-failed = Não foi possível carregar os cabeçalhos da mensagem. Ve
 mail-headers-copy = Copiar cabeçalhos
 mail-headers-copied = Cabeçalhos copiados.
 mail-headers-copy-failed = Não foi possível copiar os cabeçalhos. Selecione o texto para o copiar manualmente.
-mail-sweep-sender = Limpar remetente
+mail-sweep-sender = Limpar este remetente
 mail-message-body = Corpo da mensagem
 mail-no-content = Sem conteúdo
 mail-sanitizing = A limpar o conteúdo…
@@ -572,7 +572,7 @@ mail-action-help-archive = Mover esta mensagem para a pasta de arquivo configura
 mail-action-help-delete = Mover esta mensagem para a pasta Lixo. Pode anular a ação.
 mail-action-help-spam = Marcar esta mensagem como indesejada e movê-la para a pasta de spam configurada.
 mail-action-help-export = Abrir a página de exportação para transferir esta mensagem no formato que escolher.
-mail-action-help-sweep = Rever ações para outras mensagens deste remetente antes de as aplicar.
+mail-action-help-sweep = Reveja as outras mensagens deste remetente e escolha o que limpar (eliminar tudo, manter a mais recente, eliminar as mais antigas ou bloquear o remetente) antes de aplicar o que quer que seja.
 
 mail-empty-trash = Esvaziar lixo
 mail-trash-help = Reveja e elimine permanentemente as mensagens que estão no Lixo. Esta ação não pode ser anulada.
