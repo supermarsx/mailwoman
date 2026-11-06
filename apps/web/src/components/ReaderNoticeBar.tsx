@@ -15,6 +15,7 @@
 
 import { Show, type JSX } from 'solid-js';
 import { Icon, type IconName } from './Icon.tsx';
+import { Spinner } from './spinner/Spinner.tsx';
 import * as css from './reader-notice-bar.css.ts';
 
 export { css as noticeCss };
@@ -39,6 +40,29 @@ export interface ReaderNoticeBarProps {
   after?: JSX.Element;
   /** A segment of the single combined message privacy row. */
   embedded?: boolean;
+  /** Makes the whole row a toggle target (the attachments bar). Clicks that land
+   *  on a button, link or field inside the row are left to that control, and a
+   *  click that ends a text selection does not toggle. The summary also toggles
+   *  on Enter and Space; the real, announced button stays in `actions`. */
+  onToggle?: () => void;
+}
+
+const INNER_CONTROL = 'button, a, input, select, textarea, [role="button"], [role="menuitem"], [data-no-toggle]';
+
+function rowClick(event: MouseEvent, toggle: () => void): void {
+  const target = event.target as Element | null;
+  if (target?.closest(INNER_CONTROL)) return;
+  const selection = globalThis.getSelection?.();
+  if (selection && !selection.isCollapsed && selection.toString().length > 0) return;
+  toggle();
+}
+
+function summaryKey(event: KeyboardEvent, toggle: () => void): void {
+  if (event.target !== event.currentTarget || event.altKey || event.ctrlKey || event.metaKey) return;
+  if (event.key === 'Enter' || event.key === ' ') {
+    event.preventDefault();
+    toggle();
+  }
 }
 
 export function ReaderNoticeBar(props: ReaderNoticeBarProps): JSX.Element {
@@ -53,7 +77,11 @@ export function ReaderNoticeBar(props: ReaderNoticeBarProps): JSX.Element {
       data-state={props.state}
       data-tone={props.tone ?? 'neutral'}
     >
-      <div class={css.row}>
+      <div
+        class={props.onToggle ? `${css.row} ${css.rowToggle}` : css.row}
+        data-toggle-row={props.onToggle ? '' : undefined}
+        onClick={props.onToggle ? (event) => rowClick(event, props.onToggle!) : undefined}
+      >
         <span class={css.mark} aria-hidden="true"><Icon name={props.icon} /></span>
         <span
           class={css.summary}
@@ -61,6 +89,7 @@ export function ReaderNoticeBar(props: ReaderNoticeBarProps): JSX.Element {
           aria-live={props.live ? 'polite' : undefined}
           data-tooltip={props.tooltip}
           tabIndex={0}
+          onKeyDown={props.onToggle ? (event) => summaryKey(event, props.onToggle!) : undefined}
         >
           {props.children}
         </span>
@@ -85,6 +114,8 @@ export interface NoticeButtonProps {
   menu?: boolean;
   disabled?: boolean;
   busy?: boolean;
+  /** Show the shared Spinner in place of the icon (work in progress). */
+  spinner?: boolean;
   expanded?: boolean;
   haspopup?: 'menu' | 'dialog';
   controls?: string;
@@ -97,7 +128,7 @@ export interface NoticeButtonProps {
 
 /** An action in a notice bar: the remote-images banner's button style. */
 export function NoticeButton(props: NoticeButtonProps): JSX.Element {
-  const icon = (): JSX.Element => (props.menu ? <span class={css.chevron}><Icon name={props.icon} /></span> : <Icon name={props.icon} />);
+  const icon = (): JSX.Element => (props.spinner ? <Spinner /> : props.menu ? <span class={css.chevron}><Icon name={props.icon} /></span> : <Icon name={props.icon} />);
   return (
     <button
       type="button"

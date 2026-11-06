@@ -98,6 +98,38 @@
   cursor: pointer;
   text-align: center;
 }
+/* A thumbnail with its download button beside it (the attachments bar). */
+.mw-thumb-wrap { position: relative; flex: 0 0 auto; display: flex; }
+.mw-thumb-wrap > .mw-thumb { flex: 1 1 auto; }
+.mw-thumb-wrap > .mw-thumb__download { position: absolute; inset-block-start: 4px; inset-inline-end: 4px; }
+.mw-thumbs[data-density="compact"] .mw-thumb-wrap > .mw-thumb { padding-inline-end: 34px; }
+.mw-thumbs[data-density="compact"] .mw-thumb-wrap > .mw-thumb__download { inset-block-start: 50%; transform: translateY(-50%); }
+.mw-thumb__download {
+  display: inline-grid; place-items: center;
+  inline-size: 24px; block-size: 24px; padding: 0;
+  border: var(--border-hair) solid var(--border-strong, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--bg); color: var(--text); cursor: pointer;
+}
+.mw-thumb__download svg { inline-size: 14px; block-size: 14px; }
+.mw-thumb__download:hover:not([aria-disabled='true']) { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
+.mw-thumb__download:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: 1px; }
+.mw-thumb__download[aria-disabled='true'] { opacity: 0.5; cursor: not-allowed; }
+/* Hover mode: hidden until the thumbnail is hovered or anything in it has focus; touch always shows it. */
+.mw-thumb-wrap[data-action-mode='hover'] > .mw-thumb__download { opacity: 0; }
+.mw-thumb-wrap[data-action-mode='hover']:hover > .mw-thumb__download,
+.mw-thumb-wrap[data-action-mode='hover']:focus-within > .mw-thumb__download,
+.mw-thumb-wrap[data-action-mode='hover'] > .mw-thumb__download[data-busy] { opacity: 1; }
+@media (hover: none), (pointer: coarse) {
+  .mw-thumb-wrap[data-action-mode='hover'] > .mw-thumb__download { opacity: 1; }
+  .mw-thumb__download { inline-size: 44px; block-size: 44px; }
+  .mw-thumbs[data-density="compact"] .mw-thumb-wrap > .mw-thumb { padding-inline-end: 52px; }
+}
+@media (forced-colors: active) {
+  .mw-thumb__download { border: 2px solid ButtonText; background: ButtonFace; color: ButtonText; }
+  .mw-thumb__download:hover:not([aria-disabled='true']) { border-color: Highlight; }
+  .mw-thumb__download:focus-visible { outline: 2px solid Highlight; }
+}
 .mw-thumb:hover { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, var(--bg)); }
 .mw-thumb:focus-visible { outline: var(--focus-ring-width) solid var(--focus); outline-offset: 2px; }
 /* Selected: accent fill with its ink; the preview keeps its own sunken surface. */

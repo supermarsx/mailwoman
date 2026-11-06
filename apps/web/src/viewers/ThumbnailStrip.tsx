@@ -28,6 +28,10 @@ export interface ThumbnailStripProps {
   onSelect?: (item: StripItem) => void;
   /** Resolve an image preview object URL; only called for `image/*` items. */
   resolveThumb?: (item: StripItem) => Promise<string>;
+  /** A small control beside each thumbnail (the bar's download button). It sits
+   *  next to, never inside, the thumbnail's own button. `mode` decides when it shows. */
+  renderAction?: (item: StripItem) => JSX.Element;
+  actionMode?: 'always' | 'hover';
 }
 
 const ICON: Record<TypeCategory, string> = {
@@ -94,14 +98,22 @@ export function ThumbnailStrip(props: ThumbnailStripProps): JSX.Element {
   return (
     <div class="mw-thumbs" data-density={props.density ?? 'comfortable'} role="listbox" aria-label={t('common-viewer-attachments')}>
       <For each={props.items}>
-        {(item) => (
-          <Thumb
-            item={item}
-            selected={item.blobId === props.selectedBlobId}
-            onSelect={props.onSelect}
-            resolveThumb={props.resolveThumb}
-          />
-        )}
+        {(item) => {
+          const thumb = (
+            <Thumb
+              item={item}
+              selected={item.blobId === props.selectedBlobId}
+              onSelect={props.onSelect}
+              resolveThumb={props.resolveThumb}
+            />
+          );
+          return props.renderAction === undefined ? thumb : (
+            <div class="mw-thumb-wrap" role="presentation" data-action-mode={props.actionMode ?? 'hover'}>
+              {thumb}
+              {props.renderAction(item)}
+            </div>
+          );
+        }}
       </For>
     </div>
   );

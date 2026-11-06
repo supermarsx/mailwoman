@@ -62,3 +62,29 @@ reader-card-loading = Loading
 reader-card-loading-help = What you see while a message opens.
 settings-mail-card-list = Message list
 settings-mail-card-list-help = Row actions and what the list does when you act on a message.
+reader-attachments-download = Download { $name }
+reader-attachments-download-label = Download { $name } ({ $size })
+reader-attachments-download-blocked = { $name } cannot be downloaded: { $reason }
+reader-attachments-download-off = Downloads are turned off
+reader-attachments-download-all = Download all
+reader-attachments-download-all-label = Download all attachments as a ZIP file
+reader-attachments-download-all-busy = Preparing the ZIP file
+reader-attachments-download-all-none = There are no attachments to download
+reader-attachments-download-all-blocked = The attachment policy blocks every file here
+reader-card-attachments-bar = Attachments bar
+reader-card-attachments-bar-help = How the bar above a message's attachments responds and what it offers. Lines marked locked are set by your administrator.
+reader-attachmentsBarClickToToggle = Click the bar to expand or collapse
+reader-attachmentsBarClickToToggle-help = Clicking anywhere on the attachments bar toggles it. When off, only the arrow button does.
+reader-attachmentsBarShowDownloadButtons = Download buttons on attachments
+reader-attachmentsBarShowDownloadButtons-help = Show each attachment's download button on hover or focus, always, or never.
+reader-attachmentsBarDownloadAll = Download all button
+reader-attachmentsBarDownloadAll-help = Show a button on the bar that downloads the attachments as one ZIP file.
+reader-attachmentsBarZipInlineImages = Include inline images in the ZIP
+reader-attachmentsBarZipInlineImages-help = Images that appear inside the message text are left out of Download all unless this is on.
+reader-option-always = Always
+reader-option-hover = On hover or focus
+reader-option-never = Never
+reader-attachments-download-all-warned = { $count ->
+    [one] One file that needs a confirmation was left out. Download it on its own.
+   *[other] { $count } files that need a confirmation were left out. Download them one by one.
+ }

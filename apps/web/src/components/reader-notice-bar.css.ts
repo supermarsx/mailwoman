@@ -55,6 +55,19 @@ export const row = style({
   '@media': { '(pointer: coarse)': {minBlockSize:'44px'} },
 });
 
+/** A row that toggles when clicked anywhere (the attachments bar): a pointer
+ *  cursor and a subtle hover wash on the frozen tokens. No transition, so
+ *  reduced motion has nothing to turn off; in forced colors the hover shows as
+ *  a Highlight outline because backgrounds are overridden. */
+export const rowToggle = style({
+  cursor: 'pointer',
+  borderRadius: vars.radius.md,
+  selectors: {
+    '&:hover': { background: `color-mix(in srgb, ${vars.color.accent} 8%, ${vars.color.bgAlt})` },
+  },
+  '@media': { '(forced-colors: active)': { selectors: { '&:hover': { outline: '1px solid Highlight', outlineOffset: '-1px' } } } },
+});
+
 export const mark = style({
   flex: '0 0 auto',
   display: 'inline-flex',
@@ -118,6 +131,7 @@ export const btn = style({
 });
 
 export const btnPrimary = style({ borderColor: vars.color.accent,'@container':{[NARROW]:{paddingInline:vars.space[2],inlineSize:'auto'}} });
+globalStyle(`${rowToggle} ${btn}, ${rowToggle} a`, { cursor: 'pointer' });
 
 export const iconBtn = style({ paddingInline: 0, inlineSize: '1.5rem' });
 

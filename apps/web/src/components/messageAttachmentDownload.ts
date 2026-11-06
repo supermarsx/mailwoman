@@ -21,17 +21,17 @@ const safe=(name:string):string=>name.replace(/[/:*?"<>|\u0000-\u001f]+/g,'_').s
 function save(blob:Blob,name:string):void {
  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10_000);
 }
-async function bytes(app:DownloadApp,emailId:string,item:Named,signal?:AbortSignal):Promise<Blob> {
+async function bytes(app:DownloadApp,emailId:string,item:Named,signal?:AbortSignal,acknowledge=false):Promise<Blob> {
  const template=app.downloadUrl(),account=app.accountId();
  if(!template||!account||!item.part.blobId)throw new Error('no download');
- const url=attachmentPolicyUrl(buildDownloadUrl(template,{accountId:account,blobId:item.part.blobId,name:item.name,mime:item.mime}),emailId,false,false,true);
+ const url=attachmentPolicyUrl(buildDownloadUrl(template,{accountId:account,blobId:item.part.blobId,name:item.name,mime:item.mime}),emailId,false,acknowledge,true);
  const response=await apiFetch(url,{credentials:'same-origin',...(signal?{signal}:{})});
  if(!response.ok)throw new Error(`download failed: ${response.status}`);
  return response.blob();
 }
 /** Save one attachment through the policy-checked `/jmap/download` URL (`download=true`, the server refuses it when mail.allowDownload is off). */
-export async function downloadOne(app:DownloadApp,emailId:string,item:Named):Promise<void> {
- try{save(await bytes(app,emailId,item),safe(item.name));app.showToast('success',t('mail-attachment-downloaded',{name:item.name}));}
+export async function downloadOne(app:DownloadApp,emailId:string,item:Named,acknowledge=false):Promise<void> {
+ try{save(await bytes(app,emailId,item,undefined,acknowledge),safe(item.name));app.showToast('success',t('mail-attachment-downloaded',{name:item.name}));}
  catch{app.showToast('error',t('mail-attachment-download-failed'));}
 }
 /** One folder name per message: unsafe characters replaced, and a repeated subject numbered so two messages never share a folder. */

@@ -65,3 +65,29 @@ reader-card-loading = A carregar
 reader-card-loading-help = O que vê enquanto uma mensagem abre.
 settings-mail-card-list = Lista de mensagens
 settings-mail-card-list-help = Ações das linhas e o que a lista faz quando age sobre uma mensagem.
+reader-attachments-download = Transferir { $name }
+reader-attachments-download-label = Transferir { $name } ({ $size })
+reader-attachments-download-blocked = Não é possível transferir { $name }: { $reason }
+reader-attachments-download-off = As transferências estão desativadas
+reader-attachments-download-all = Transferir tudo
+reader-attachments-download-all-label = Transferir todos os anexos num ficheiro ZIP
+reader-attachments-download-all-busy = A preparar o ficheiro ZIP
+reader-attachments-download-all-none = Não há anexos para transferir
+reader-attachments-download-all-blocked = A política de anexos bloqueia todos os ficheiros aqui
+reader-card-attachments-bar = Barra de anexos
+reader-card-attachments-bar-help = Como a barra por cima dos anexos de uma mensagem responde e o que oferece. As linhas bloqueadas são definidas pelo administrador.
+reader-attachmentsBarClickToToggle = Clicar na barra para expandir ou recolher
+reader-attachmentsBarClickToToggle-help = Clicar em qualquer ponto da barra de anexos alterna-a. Se estiver desligado, só o botão da seta o faz.
+reader-attachmentsBarShowDownloadButtons = Botões de transferência nos anexos
+reader-attachmentsBarShowDownloadButtons-help = Mostrar o botão de transferência de cada anexo ao passar o rato ou com foco, sempre, ou nunca.
+reader-attachmentsBarDownloadAll = Botão Transferir tudo
+reader-attachmentsBarDownloadAll-help = Mostrar na barra um botão que transfere os anexos num único ficheiro ZIP.
+reader-attachmentsBarZipInlineImages = Incluir imagens em linha no ZIP
+reader-attachmentsBarZipInlineImages-help = As imagens que aparecem dentro do texto da mensagem ficam de fora de Transferir tudo, a menos que isto esteja ligado.
+reader-option-always = Sempre
+reader-option-hover = Ao passar o rato ou com foco
+reader-option-never = Nunca
+reader-attachments-download-all-warned = { $count ->
+    [one] Um ficheiro que exige confirmação ficou de fora. Transfira-o individualmente.
+   *[other] { $count } ficheiros que exigem confirmação ficaram de fora. Transfira-os um a um.
+ }
