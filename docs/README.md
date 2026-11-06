@@ -11,6 +11,15 @@ Start here.
 - [`security/`](./security/README.md) — the security model, one page per surface.
   [`security/egress.md`](./security/egress.md) states what the outbound-fetch
   policy guarantees **and what it does not**, which is the more useful half.
+- [`admin/`](./admin/) — one page per administrator setting area. Newer pages:
+  [`compliance.md`](./admin/compliance.md), [`breach-register.md`](./admin/breach-register.md),
+  [`consent.md`](./admin/consent.md), [`cookies.md`](./admin/cookies.md),
+  [`data-requests.md`](./admin/data-requests.md), [`erasure-coverage.md`](./admin/erasure-coverage.md),
+  [`retention.md`](./admin/retention.md), [`encryption.md`](./admin/encryption.md),
+  [`sessions.md`](./admin/sessions.md), [`request-protection.md`](./admin/request-protection.md),
+  [`metrics-persistence.md`](./admin/metrics-persistence.md), [`observability.md`](./admin/observability.md),
+  [`composer-features.md`](./admin/composer-features.md); the settings and configuration references are
+  [`settings.md`](./admin/settings.md) and [`configuration.md`](./admin/configuration.md).
 - [`bridges/`](./bridges/) — Graph / EWS / Gmail / PIM bridges.
 - [`integrations/nextcloud.md`](./integrations/nextcloud.md),
   [`export/msg-oft-docx.md`](./export/msg-oft-docx.md),
