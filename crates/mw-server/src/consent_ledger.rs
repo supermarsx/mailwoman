@@ -277,6 +277,24 @@ pub(crate) async fn record(
         .await
 }
 
+/// Record a withdrawal of `purpose_id` for one account on the person's behalf (an approved objection).
+/// The decision is a receipt like any other, with `source` saying where it came from. The purpose's
+/// current version and basis are the ones the person would have seen.
+pub(crate) async fn withdraw(
+    state: &AppState,
+    account_id: &str,
+    domain: &str,
+    address: &str,
+    purpose_id: &str,
+    source: &str,
+) -> Result<(), mw_store::StoreError> {
+    let base = purpose_id.split_once('.').map_or(purpose_id, |(b, _)| b);
+    let subject = mw_store::settings_policy::SettingSubject { personal_owner: None, domain, account_id, address };
+    let cfg = Config::load(&state.store, &subject).await;
+    let (version, basis) = cfg.purposes.get(base).map_or((1, "consent".to_string()), |c| (c.version, c.basis.clone()));
+    record(&state.store, account_id, domain, purpose_id, "withdrawn", version, &basis, source).await
+}
+
 /// The text a person sees for a purpose: the administrator's own text in their
 /// language, else `None` (the client shows the built-in wording).
 fn text_for(cfg: &Cfg, locale: &str) -> Option<String> {

@@ -249,6 +249,8 @@ impl Policy {
 #[serde(rename_all = "camelCase", default)]
 pub(crate) struct Body {
     details: String,
+    /// For an objection: the purposes objected to (ids of the consent ledger). Applied on approval.
+    purposes: Vec<String>,
     include_mail: bool,
     requested_by: String,
     locale: String,
@@ -340,6 +342,7 @@ fn user_view(row: &DsrRow, body: &Body, policy: &Policy) -> Value {
         "id": row.id, "kind": row.kind, "status": row.status,
         "createdAt": row.created_at, "updatedAt": row.updated_at, "dueAt": row.due_at,
         "details": body.details, "requestedBy": if body.requested_by == "self" { "self" } else { "admin" },
+        "purposes": body.purposes,
         "confirmed": body.confirmed_at.is_some(),
         "needsConfirmation": row.status == "awaiting_confirmation",
         "graceUntil": body.grace_until,
@@ -470,9 +473,86 @@ async fn approve(state: &AppState, row: &mut DsrRow, body: &mut Body, policy: &P
             if row.kind == "restriction" {
                 apply_restriction(state, row, body, actor).await;
             }
+            if row.kind == "objection" {
+                apply_objection(state, row, body, actor).await;
+            }
         }
     }
     Ok(())
+}
+
+/// The purposes of the consent ledger a person may object to by request: the ones whose processing is
+/// switched on this server's side by a ledger decision or a preference. Unknown ids are dropped.
+fn objectable(asked: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for id in asked {
+        let id = id.trim();
+        if crate::consent_ledger::valid_purpose(id) && !out.iter().any(|o| o == id) {
+            out.push(id.to_string());
+        }
+    }
+    out.truncate(16);
+    out
+}
+
+/// An approved Art.21 objection withdraws the person's consent for each purpose it names: a withdrawal
+/// receipt with source `dsr` in the consent ledger for every account of the person (which the assistant,
+/// push, open-tracking and integration routes read at run time), and for the two analytics purposes, which
+/// live in the person's preferences, the preference is switched off as well. The request stays in progress
+/// until an administrator completes it, so the trail records what was changed.
+async fn apply_objection(state: &AppState, row: &DsrRow, body: &Body, actor: &str) {
+    if body.purposes.is_empty() {
+        event(state, &row.id, actor, "objection-noted", json!({"purposes": []})).await;
+        return;
+    }
+    let ids = account_ids_of(state, &row.address, &row.account_id).await;
+    let mut withdrawn: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    for purpose in &body.purposes {
+        let mut ok = true;
+        for account in &ids {
+            if crate::consent_ledger::withdraw(state, account, &row.domain, &row.address, purpose, "dsr").await.is_err() {
+                ok = false;
+            }
+        }
+        if matches!(purpose.as_str(), "analytics" | "analyticsTag") {
+            let owners = owners_of(state, &ids, &body.owners).await;
+            for owner in owners {
+                if !switch_off_analytics_preference(state, &owner, purpose == "analyticsTag").await {
+                    ok = false;
+                }
+            }
+        }
+        if ok { withdrawn.push(purpose.clone()) } else { failed.push(purpose.clone()) }
+    }
+    event(state, &row.id, actor, "objection-applied", json!({"withdrawn": withdrawn, "failed": failed, "accounts": ids.len()})).await;
+}
+
+/// Switch the analytics preference off in the person's stored preferences. `true` when nothing needed
+/// changing or the change was saved.
+async fn switch_off_analytics_preference(state: &AppState, owner: &str, tag: bool) -> bool {
+    let key = crate::prefs_routes::personal_storage::key("ui-preferences", owner);
+    let Ok(raw) = state.store.get_setting(&key).await else { return false };
+    let Some(raw) = raw else { return true };
+    let Ok(mut doc) = serde_json::from_str::<Value>(&raw) else { return true };
+    let prefs = &mut doc["document"]["preferences"];
+    let changed = if tag {
+        let on = prefs["analyticsTagConsent"].as_str().is_some_and(|s| !s.is_empty());
+        if on {
+            prefs.as_object_mut().map(|o| o.remove("analyticsTagConsent"));
+        }
+        on
+    } else {
+        let on = prefs["analyticsConsent"] == true;
+        if on {
+            prefs["analyticsConsent"] = json!(false);
+        }
+        on
+    };
+    if !changed {
+        return true;
+    }
+    state.store.compare_and_set_setting(&key, Some(&raw), &doc.to_string()).await.unwrap_or(false)
 }
 
 /// An approved Art.18 request restricts the person's accounts straight away when
@@ -513,6 +593,7 @@ async fn apply_restriction(state: &AppState, row: &DsrRow, body: &Body, actor: &
 struct NewRequest<'a> {
     kind: &'a str,
     details: String,
+    purposes: Vec<String>,
     include_mail: bool,
     locale: String,
     address: String,
@@ -527,6 +608,7 @@ async fn create(state: &AppState, policy: &Policy, n: NewRequest<'_>) -> Result<
     let on_behalf = n.requested_by != "self";
     let mut body = Body {
         details: n.details.chars().take(2000).collect(),
+        purposes: if n.kind == "objection" { objectable(&n.purposes) } else { Vec::new() },
         include_mail: n.include_mail,
         requested_by: n.requested_by.clone(),
         locale: n.locale,
@@ -730,6 +812,9 @@ struct Submit {
     kind: String,
     #[serde(default)]
     details: String,
+    /// An objection names what it objects to; see [`objectable`].
+    #[serde(default)]
+    purposes: Vec<String>,
     #[serde(default)]
     include_mail: bool,
     #[serde(default)]
@@ -772,6 +857,7 @@ async fn submit(State(state): State<AppState>, headers: HeaderMap, Json(req): Js
             NewRequest {
                 kind: &req.kind,
                 details: req.details,
+                purposes: req.purposes,
                 include_mail,
                 locale: locale_of(&req.locale),
                 address: m.address.clone(),
@@ -950,6 +1036,7 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::POST, "/dsr/{id}/hold", C::DataExportRun, admin_hold);
     r.admin_endpoint(Method::POST, "/dsr/{id}/release-hold", C::DataExportRun, admin_release);
     r.admin_endpoint(Method::POST, "/dsr/{id}/run", C::DataExportRun, admin_run);
+    r.admin_endpoint(Method::POST, "/dsr/bulk", C::DataExportRun, admin_bulk);
 }
 
 async fn scoped(state: &AppState, ctx: &AdminCtx, id: &str) -> Result<(DsrRow, Body, Policy), AdminApiError> {
@@ -970,16 +1057,39 @@ struct ListQuery {
     q: Option<String>,
     due: Option<String>,
     limit: Option<usize>,
+    /// Comma-separated request ids: only those (the CSV of a selection).
+    ids: Option<String>,
+    /// `<createdAt>.<id>` of the last row of the previous page; the next page starts after it.
+    cursor: Option<String>,
+}
+
+/// A position in the queue order (newest first, ties by id): `<createdAt>.<id>`.
+fn parse_cursor(raw: &str) -> Option<(i64, String)> {
+    let (at, id) = raw.split_once('.')?;
+    Some((at.parse().ok()?, id.to_string())).filter(|(_, id): &(i64, String)| !id.is_empty())
+}
+
+fn cursor_of(row: &DsrRow) -> String {
+    format!("{}.{}", row.created_at, row.id)
+}
+
+/// The queue as the admin may see it, with no ceiling on its length.
+async fn visible(state: &AppState, ctx: &AdminCtx) -> Result<Vec<DsrRow>, AdminApiError> {
+    let scope = ctx.domain_filter(C::DataExportRun).cloned();
+    Ok(state.store.dsr_list_all().await?.into_iter().filter(|r| scope.as_ref().is_none_or(|s| s.contains(&r.domain))).collect())
 }
 
 async fn filtered(state: &AppState, ctx: &AdminCtx, q: &ListQuery) -> Result<Vec<DsrRow>, AdminApiError> {
-    let all = state.store.dsr_list(None).await?;
-    let scope = ctx.domain_filter(C::DataExportRun).cloned();
+    Ok(narrow(visible(state, ctx).await?, q))
+}
+
+fn narrow(all: Vec<DsrRow>, q: &ListQuery) -> Vec<DsrRow> {
+    let picked: Option<Vec<&str>> = q.ids.as_deref().map(|v| v.split(',').map(str::trim).filter(|s| !s.is_empty()).collect());
     let needle = q.q.as_deref().map(str::to_lowercase).filter(|s| !s.is_empty());
     let at = now();
-    Ok(all
+    all
         .into_iter()
-        .filter(|r| scope.as_ref().is_none_or(|s| s.contains(&r.domain)))
+        .filter(|r| picked.as_ref().is_none_or(|ids| ids.contains(&r.id.as_str())))
         .filter(|r| q.status.as_deref().is_none_or(|s| s.is_empty() || s == "open" && is_open(&r.status) || s == r.status))
         .filter(|r| q.kind.as_deref().is_none_or(|k| k.is_empty() || k == r.kind))
         .filter(|r| q.domain.as_deref().is_none_or(|d| d.is_empty() || d == r.domain))
@@ -990,7 +1100,7 @@ async fn filtered(state: &AppState, ctx: &AdminCtx, q: &ListQuery) -> Result<Vec
             _ => true,
         })
         .filter(|r| needle.as_ref().is_none_or(|n| r.address.contains(n.as_str()) || r.id.starts_with(n.as_str())))
-        .collect())
+        .collect()
 }
 
 fn stats(rows: &[DsrRow]) -> Value {
@@ -1035,18 +1145,28 @@ fn stats(rows: &[DsrRow]) -> Value {
 }
 
 async fn admin_list(State(state): State<AppState>, ctx: AdminCtx, Query(q): Query<ListQuery>) -> Result<Response, AdminApiError> {
-    let everything = filtered(&state, &ctx, &ListQuery::default()).await?;
-    let rows = filtered(&state, &ctx, &q).await?;
+    let everything = visible(&state, &ctx).await?;
+    let matched = narrow(everything.clone(), &q);
     let limit = q.limit.unwrap_or(200).clamp(1, 1000);
+    // The page starts after the cursor's position in the queue order, wherever rows were added or changed since.
+    let start = match q.cursor.as_deref().filter(|c| !c.is_empty()) {
+        Some(raw) => {
+            let (at, id) = parse_cursor(raw).ok_or_else(|| AdminApiError::invalid("invalid", "The cursor is not one this server gave.", "/cursor"))?;
+            matched.iter().position(|r| r.created_at < at || (r.created_at == at && r.id > id)).unwrap_or(matched.len())
+        }
+        None => 0,
+    };
+    let page: Vec<&DsrRow> = matched.iter().skip(start).take(limit).collect();
+    let next_cursor = (start + page.len() < matched.len()).then(|| page.last().map(|r| cursor_of(r))).flatten();
     let mut policies: HashMap<String, Policy> = HashMap::new();
     let mut views = Vec::new();
-    for r in rows.iter().take(limit) {
+    for r in page {
         if !policies.contains_key(&r.domain) {
             policies.insert(r.domain.clone(), Policy::load(&state, &r.domain, &r.address, &r.account_id).await);
         }
         views.push(admin_view(r, &body_of(r), &policies[&r.domain]));
     }
-    Ok(no_store(Json(json!({"requests": views, "matched": rows.len(), "stats": stats(&everything), "kinds": KINDS}))))
+    Ok(no_store(Json(json!({"requests": views, "matched": matched.len(), "nextCursor": next_cursor, "stats": stats(&everything), "kinds": KINDS}))))
 }
 
 async fn admin_export(State(state): State<AppState>, ctx: AdminCtx, Query(q): Query<ListQuery>) -> Result<Response, AdminApiError> {
@@ -1086,6 +1206,8 @@ struct CreateOnBehalf {
     #[serde(default)]
     details: String,
     #[serde(default)]
+    purposes: Vec<String>,
+    #[serde(default)]
     include_mail: bool,
     #[serde(default)]
     locale: String,
@@ -1121,6 +1243,7 @@ async fn admin_create(State(state): State<AppState>, ctx: AdminCtx, Json(req): J
         NewRequest {
             kind: &req.kind,
             details: req.details,
+            purposes: req.purposes,
             include_mail,
             locale: locale_of(&req.locale),
             address,
@@ -1172,8 +1295,18 @@ async fn admin_verify(State(state): State<AppState>, ctx: AdminCtx, Path(id): Pa
     Ok(no_store(Json(json!({"request": admin_view(&row, &body, &policy)}))))
 }
 
+/// Approving and erasing are decisions about a person's data: with `dsr.admin.stepUp` on (the default),
+/// the administrator confirms it is them again first (the same proof as the other sensitive admin actions).
+async fn decision_step_up(state: &AppState, ctx: &AdminCtx, policy: &Policy) -> Result<(), AdminApiError> {
+    if policy.b("dsr.admin.stepUp") {
+        step_up::require_admin(state, ctx, StepUpAction::DsrDecision).await?;
+    }
+    Ok(())
+}
+
 async fn admin_approve(State(state): State<AppState>, ctx: AdminCtx, Path(id): Path<String>, Json(req): Json<Note>) -> Result<Response, AdminApiError> {
     let (mut row, mut body, policy) = scoped(&state, &ctx, &id).await?;
+    decision_step_up(&state, &ctx, &policy).await?;
     if !matches!(row.status.as_str(), "awaiting_approval" | "blocked" | "awaiting_verification") {
         return Err(Fail::state("This request is not waiting for approval.").into());
     }
@@ -1298,9 +1431,75 @@ async fn admin_release(State(state): State<AppState>, ctx: AdminCtx, Path(id): P
     Ok(no_store(Json(json!({"request": admin_view(&row, &body, &policy)}))))
 }
 
+/// Most requests one bulk call may name.
+const BULK_MAX: usize = 200;
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Bulk {
+    /// approve, reject, extend, assign, hold or release-hold.
+    action: String,
+    ids: Vec<String>,
+    /// The note of an approval.
+    #[serde(default)]
+    note: String,
+    /// The reason of a rejection, an extension or a hold.
+    #[serde(default)]
+    reason: String,
+    /// Days to add, for an extension.
+    #[serde(default)]
+    days: Option<i64>,
+    /// Who to assign to (empty clears it), for an assignment.
+    #[serde(default)]
+    assignee: Option<String>,
+}
+
+/// One action over several requests. Each request is handled exactly as its own call would be, so the
+/// checks, the trail and the notices are the same; one that is refused does not stop the others, and the
+/// answer lists the outcome of every id. A missing step-up proof refuses the whole call before any change.
+async fn admin_bulk(State(state): State<AppState>, ctx: AdminCtx, Json(req): Json<Bulk>) -> Result<Response, AdminApiError> {
+    if !matches!(req.action.as_str(), "approve" | "reject" | "extend" | "assign" | "hold" | "release-hold") {
+        return Err(AdminApiError::invalid("invalid", "The action is not one of approve, reject, extend, assign, hold or release-hold.", "/action"));
+    }
+    let mut ids: Vec<String> = Vec::new();
+    for id in &req.ids {
+        if !ids.contains(id) {
+            ids.push(id.clone());
+        }
+    }
+    if ids.is_empty() || ids.len() > BULK_MAX {
+        return Err(AdminApiError::invalid("invalid", format!("Name between 1 and {BULK_MAX} requests."), "/ids"));
+    }
+    let mut results = Vec::new();
+    for id in &ids {
+        let outcome = match req.action.as_str() {
+            "approve" => admin_approve(State(state.clone()), ctx.clone(), Path(id.clone()), Json(Note { note: req.note.clone() })).await,
+            "reject" => admin_reject(State(state.clone()), ctx.clone(), Path(id.clone()), Json(Reject { reason: req.reason.clone() })).await,
+            "extend" => admin_extend(State(state.clone()), ctx.clone(), Path(id.clone()), Json(Extend { days: req.days.unwrap_or(0), reason: req.reason.clone() })).await,
+            "assign" => admin_assign(State(state.clone()), ctx.clone(), Path(id.clone()), Json(Assign { assignee: req.assignee.clone() })).await,
+            "hold" => admin_hold(State(state.clone()), ctx.clone(), Path(id.clone()), Json(Hold { reason: req.reason.clone() })).await,
+            _ => admin_release(State(state.clone()), ctx.clone(), Path(id.clone())).await,
+        };
+        match outcome {
+            Ok(_) => {
+                let status = state.store.dsr_get(id).await.ok().flatten().map(|r| r.status);
+                results.push(json!({"id": id, "ok": true, "status": status}));
+            }
+            // The proof is the session's, not the request's: ask once, before anything else changed.
+            Err(e) if e.code == "step_up_required" && results.is_empty() => return Err(e),
+            Err(e) => results.push(json!({"id": id, "ok": false, "code": e.code, "detail": e.detail})),
+        }
+    }
+    let done = results.iter().filter(|r| r["ok"] == true).count();
+    Ok(no_store(Json(json!({"action": req.action, "results": results, "done": done, "failed": results.len() - done}))))
+}
+
 /// Run the pending step of one request now (the worker does the same on its tick).
 async fn admin_run(State(state): State<AppState>, ctx: AdminCtx, Path(id): Path<String>) -> Result<Response, AdminApiError> {
     let (mut row, mut body, policy) = scoped(&state, &ctx, &id).await?;
+    if row.kind == "erasure" {
+        decision_step_up(&state, &ctx, &policy).await?;
+    }
     if row.status == "failed" {
         body.attempts = 0;
         body.error = None;
@@ -1335,7 +1534,7 @@ pub(crate) fn start(state: AppState) {
 
 async fn pass(state: &AppState) -> Result<(), mw_store::StoreError> {
     let at = now();
-    for row in state.store.dsr_list(None).await? {
+    for row in state.store.dsr_list_all().await? {
         // Finished requests only matter again when their retention ends.
         if !is_open(&row.status) && !matches!(row.status.as_str(), "ready" | "downloaded") && row.updated_at + 30 * DAY > at {
             continue;

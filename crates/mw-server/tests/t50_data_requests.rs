@@ -50,6 +50,8 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     set(&store, "signin.retryCooldownSecs", json!(0)).await;
+    // These tests drive approvals directly; the step-up proof has its own test below.
+    set(&store, "dsr.admin.stepUp", json!(false)).await;
     let (router, _) = build_app_full(
         AppConfig {
             db_path: db.to_string_lossy().into(),
@@ -390,4 +392,112 @@ async fn queue_extension_csv_rate_limit_and_switches() {
     set(&f.store, "dsr.onBehalf.allowed", json!(true)).await;
     set(&f.store, "dsr.enabled", json!(false)).await;
     assert_eq!(f.file(json!({"kind":"objection"})).await.0, 403, "the whole feature can be switched off");
+}
+
+#[tokio::test]
+async fn approving_needs_a_fresh_admin_proof_when_dsr_admin_step_up_is_on() {
+    let f = fixture().await;
+    set(&f.store, "dsr.admin.stepUp", json!(true)).await;
+    set(&f.store, "dsr.confirmation.required", json!(false)).await;
+    set(&f.store, "dsr.reauth.required", json!(false)).await;
+    let (_, filed) = f.file(json!({"kind":"restriction"})).await;
+    let id = filed["request"]["id"].as_str().unwrap().to_string();
+    assert_eq!(filed["request"]["status"], "awaiting_approval");
+
+    let (status, body) = f.admin_post(&format!("/{id}/approve"), json!({"note":"ok"})).await;
+    assert_eq!((status, body["code"].as_str(), body["action"].as_str()), (403, Some("step_up_required"), Some("dsrDecision")));
+    // Rejecting is not a decision about the data and needs no proof.
+    // Bulk approve is refused whole, before anything changes.
+    let (status, body) = f.admin_post("/bulk", json!({"action":"approve","ids":[id]})).await;
+    assert_eq!((status, body["code"].as_str()), (403, Some("step_up_required")));
+    let still = f.admin_get(&format!("/{id}")).await;
+    assert_eq!(still["request"]["status"], "awaiting_approval");
+
+    auth::admin_step_up(&f.admin, &format!("{}/admin", f.base), "hunter2", &[]).await;
+    let (status, body) = f.admin_post(&format!("/{id}/approve"), json!({"note":"ok"})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["request"]["status"], "in_progress");
+}
+
+#[tokio::test]
+async fn bulk_actions_report_each_row_and_the_queue_pages_by_cursor() {
+    let f = fixture().await;
+    set(&f.store, "dsr.confirmation.required", json!(false)).await;
+    set(&f.store, "dsr.reauth.required", json!(false)).await;
+    set(&f.store, "dsr.rateLimit.perDay", json!(50)).await;
+    // Admin-filed requests for three kinds of one person (a person has one open request per kind).
+    let mut ids = Vec::new();
+    for kind in ["objection", "restriction", "rectification"] {
+        let (status, body) = f.admin_post("", json!({"address":mw_mock_jmap::USER,"kind":kind})).await;
+        assert_eq!(status, 201, "{body}");
+        ids.push(body["request"]["id"].as_str().unwrap().to_string());
+    }
+
+    // Assign two at once; an unknown id is reported on its own row and does not stop the rest.
+    let (status, body) = f.admin_post("/bulk", json!({"action":"assign","ids":[ids[0], ids[1], "no-such-request"],"assignee":"dpo"})).await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!((body["done"].as_i64(), body["failed"].as_i64()), (Some(2), Some(1)));
+    let results = body["results"].as_array().unwrap();
+    assert_eq!(results[2]["ok"], false);
+    assert_eq!(f.admin_get("?assignee=dpo").await["matched"], 2);
+
+    // A bulk extend needs a reason like a single one, and a rejection of one row leaves the others open.
+    let (_, body) = f.admin_post("/bulk", json!({"action":"extend","ids":[ids[0], ids[2]],"days":10,"reason":""})).await;
+    assert_eq!(body["failed"], 2, "{body}");
+    let (_, body) = f.admin_post("/bulk", json!({"action":"extend","ids":[ids[0], ids[2]],"days":10,"reason":"complex"})).await;
+    assert_eq!(body["done"], 2, "{body}");
+    let (_, body) = f.admin_post("/bulk", json!({"action":"hold","ids":[ids[1]],"reason":"litigation"})).await;
+    assert_eq!(body["done"], 1, "{body}");
+    assert_eq!(f.admin_get(&format!("/{}", ids[1])).await["request"]["legalHold"]["active"], true);
+    let (_, body) = f.admin_post("/bulk", json!({"action":"reject","ids":[ids[2]],"reason":"duplicate"})).await;
+    assert_eq!((body["done"].as_i64(), body["results"][0]["status"].as_str()), (Some(1), Some("rejected")));
+    let (status, _) = f.admin_post("/bulk", json!({"action":"explode","ids":[ids[0]]})).await;
+    assert_eq!(status, 422);
+    let (status, _) = f.admin_post("/bulk", json!({"action":"approve","ids":[]})).await;
+    assert_eq!(status, 422);
+
+    // Cursor paging: one row per page, newest first, every row once, no ceiling on the queue.
+    let mut seen = Vec::new();
+    let mut cursor = String::new();
+    for _ in 0..5 {
+        let page = f.admin_get(&format!("?limit=1&cursor={cursor}")).await;
+        assert_eq!(page["matched"], 3);
+        for r in page["requests"].as_array().unwrap() {
+            seen.push(r["id"].as_str().unwrap().to_string());
+        }
+        match page["nextCursor"].as_str() {
+            Some(next) => cursor = next.to_string(),
+            None => break,
+        }
+    }
+    seen.sort();
+    let mut expected = ids.clone();
+    expected.sort();
+    assert_eq!(seen, expected);
+
+    // The CSV of a selection holds only the selected rows.
+    let csv = f.admin.get(format!("{}/admin/dsr/export?ids={}", f.base, ids[0])).send().await.unwrap().text().await.unwrap();
+    assert!(csv.contains(&ids[0]) && !csv.contains(&ids[1]), "{csv}");
+}
+
+#[tokio::test]
+async fn an_approved_objection_withdraws_consent_for_the_purposes_it_names() {
+    let f = fixture().await;
+    set(&f.store, "dsr.confirmation.required", json!(false)).await;
+    set(&f.store, "dsr.reauth.required", json!(false)).await;
+    let (status, filed) = f.file(json!({"kind":"objection","details":"no tracking","purposes":["openTracking","assistant","bogus"]})).await;
+    assert_eq!(status, 201, "{filed}");
+    assert_eq!(filed["request"]["purposes"], json!(["openTracking", "assistant"]), "unknown purposes are dropped");
+    let id = filed["request"]["id"].as_str().unwrap().to_string();
+    let (status, body) = f.admin_post(&format!("/{id}/approve"), json!({"note":"ok"})).await;
+    assert_eq!(status, 200, "{body}");
+    let trail = f.admin_get(&format!("/{id}")).await;
+    let applied = trail["trail"].as_array().unwrap().iter().find(|e| e["kind"] == "objection-applied").expect("the trail records the change");
+    assert_eq!(applied["detail"]["withdrawn"], json!(["openTracking", "assistant"]));
+    let consents: Value = f.user.get(format!("{}/api/privacy/consents", f.base)).send().await.unwrap().json().await.unwrap();
+    let state_of = |p: &str| consents["purposes"].as_array().unwrap().iter().find(|x| x["id"] == p).map(|x| x["state"].clone());
+    assert_eq!(state_of("openTracking"), Some(json!("withdrawn")));
+    assert_eq!(state_of("assistant"), Some(json!("withdrawn")));
+    let receipts = consents["receipts"].as_array().unwrap();
+    assert!(receipts.iter().any(|r| r["purpose"] == "openTracking" && r["source"] == "dsr"), "{receipts:?}");
 }

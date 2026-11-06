@@ -99,10 +99,12 @@ pub enum StepUpAction {
     ConsolePath,
     /// A session was flagged (client mismatch, travel); prove it is the holder.
     SessionVerification,
+    /// An admin approves a data request or runs an erasure.
+    DsrDecision,
 }
 
 impl StepUpAction {
-    pub const ALL: [StepUpAction; 16] = [
+    pub const ALL: [StepUpAction; 17] = [
         StepUpAction::DataExport,
         StepUpAction::DelegationGrant,
         StepUpAction::ApiKeyCreate,
@@ -119,6 +121,7 @@ impl StepUpAction {
         StepUpAction::MaintenanceMode,
         StepUpAction::ConsolePath,
         StepUpAction::SessionVerification,
+        StepUpAction::DsrDecision,
     ];
 
     /// The wire id (`action` in the 403 body and the audit detail).
@@ -140,6 +143,7 @@ impl StepUpAction {
             StepUpAction::MaintenanceMode => "maintenanceMode",
             StepUpAction::ConsolePath => "consolePath",
             StepUpAction::SessionVerification => "sessionVerification",
+            StepUpAction::DsrDecision => "dsrDecision",
         }
     }
 }

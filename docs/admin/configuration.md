@@ -565,6 +565,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="folders.reorder.maxdepth"></a>`folders.reorder.maxDepth` | folders | global+domain | 8 | plain |  | yes | deepest level of folder nesting the sidebar allows when users drag folders |
 | <a id="folders.order.locked"></a>`folders.order.locked` | folders | global+domain | false | plain |  | yes | fix the folder order for everyone: drag and drop and the Move commands are off |
 | <a id="folders.pinned.admin"></a>`folders.pinned.admin` | folders | global+domain | [] | plain |  | yes | folders pinned at the top of every users sidebar (role:<role> or a folder path); users cannot unpin or move them |
+| <a id="folders.pinned.hidefromtree"></a>`folders.pinned.hideFromTree` | folders | global+domain | false | plain |  | yes | hide a pinned folder that has no subfolders from the folder tree, showing it only in the Pinned group |
 | <a id="folders.order.default"></a>`folders.order.default` | folders | global+domain | [] | plain |  | yes | the order folders start in for users with no order of their own (role:<role> or a folder path, first to last) |
 | <a id="folders.newfolderplacement"></a>`folders.newFolderPlacement` | folders | global+domain+user | "end" | plain |  | yes | where a folder that appears on the server is placed among its siblings |
 | <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
@@ -882,6 +883,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="dsr.approval.other"></a>`dsr.approval.other` | privacy | global+domain | "admin" | plain |  | yes | who handles other request types |
 | <a id="dsr.reauth.required"></a>`dsr.reauth.required` | privacy | global+domain | true | plain |  | yes | fresh password or second factor to submit or download |
 | <a id="dsr.confirmation.required"></a>`dsr.confirmation.required` | privacy | global+domain | true | plain |  | yes | confirmation message to the requester's inbox |
+| <a id="dsr.admin.stepup"></a>`dsr.admin.stepUp` | privacy | global+domain | true | plain |  | yes | administrators confirm it is them again before approving a data request or running an erasure |
 | <a id="dsr.identityverification.required"></a>`dsr.identityVerification.required` | privacy | global+domain | false | plain |  | yes | admin identity verification step |
 | <a id="dsr.erasure.gracedays"></a>`dsr.erasure.graceDays` | privacy | global+domain | 14 | plain |  | yes | days between approval and erasure |
 | <a id="dsr.sla.days"></a>`dsr.sla.days` | privacy | global+domain | 30 | plain |  | yes | days allowed to answer a request |
