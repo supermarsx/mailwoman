@@ -8,8 +8,7 @@ import {imageStyle,cleanImageLook} from './imageAttrs.ts';
 import {renderWithCanvas,selectedImage,setImageSource,transformImage,type ImageIO,type ImageOp} from './imageCommands.ts';
 import {inTable} from './tableLayout.ts';
 import {InRibbonSlot,RibbonPopover} from './ribbonParts.tsx';
-import {EditorCounts} from './EditorCounts.tsx';
-import {documentCounts,paragraphStyle,tableLimitPlugin} from './richCommands.ts';
+import {paragraphStyle,tableLimitPlugin} from './richCommands.ts';
 import {tableEditing,goToNextCell} from 'prosemirror-tables';
 import {COMPOSER_FONTS} from './fontCatalog.ts';
 import {SURFACE_CHANGED,cssColorHex,surfaceTone,toggledBackground,viewColorPlugin} from './messageBackground.ts';
@@ -173,12 +172,10 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   // (dictation / Assist) mutations of the shared `body()` signal.
   let lastText = '';
   const [activeState, setActiveState] = createSignal<EditorState | null>(null);
-  const [bodyHtml,setBodyHtml]=createSignal(props.initialHtml??'');
+  const [,setBodyHtml]=createSignal(props.initialHtml??'');
   const [editorError,setEditorError]=createSignal('');
   const [imageLoads,setImageLoads]=createSignal(0);
   const [zoom,setZoom]=createSignal(100),[markers,setMarkers]=createSignal(false);
-  const documentNode=createMemo(()=>activeState()?.doc);
-  const counts=createMemo(()=>{const doc=documentNode();return doc?documentCounts(doc):{words:0,paragraphs:0,characters:0};});
   const [linkOpen, setLinkOpen] = createSignal(false);
   const [linkUrl, setLinkUrl] = createSignal('');
   const has=(group:EditorGroup):boolean=>!(props.omitGroups??[]).includes(group);
@@ -529,7 +526,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       <For each={SLOT_TABS}>{tab=><Show when={slots()[tab]} keyed>{target=><InRibbonSlot target={target}>{groupsFor(tab)}</InRibbonSlot>}</Show>}</For>
       <div class="compose-rt__surface" data-zoom={zoom()} data-surface={background()} data-tone={darkSurface()?'dark':'light'} ref={host} />
       <Show when={editorError()}><p class="compose-rt__error" role="alert">{editorError()}</p></Show>
-      <div class="compose-rt__footer" data-detached-local><EditorCounts counts={counts()} html={bodyHtml()}/><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>
+      <div class="compose-rt__footer" data-detached-local><label>{t('mail-editor-zoom')}<select aria-label={t('mail-editor-zoom')} value={zoom()} onChange={event=>setZoom(Number(event.currentTarget.value))}><For each={[75,100,125,150,200]}>{value=><option value={value}>{value}%</option>}</For></select></label></div>
     </div>
   );
 }

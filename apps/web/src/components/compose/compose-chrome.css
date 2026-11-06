@@ -3,7 +3,9 @@
    always carried by an icon and text too, never by colour alone. */
 
 .compose-status { position:relative; flex:none; display:flex; align-items:center; gap:.5rem; box-sizing:border-box; block-size:1.75rem; min-block-size:1.75rem; max-block-size:1.75rem; padding:0 .5rem; border-block-start:var(--border-hair) solid var(--border); background:var(--bg-alt); font-size:.75rem; color:var(--text-dim); overflow:visible; }
-.compose-status__row { display:flex; align-items:center; gap:.25rem .75rem; min-inline-size:0; flex:1 1 auto; overflow:hidden; white-space:nowrap; }
+.compose-status__start { display:flex; align-items:center; min-inline-size:0; flex:0 1 auto; overflow:hidden; white-space:nowrap; }
+.compose-status__start .compose-editor-counts { flex-wrap:nowrap; margin:0; color:var(--text-dim); }
+.compose-status__row { display:flex; align-items:center; justify-content:flex-end; gap:.25rem .75rem; min-inline-size:0; flex:1 1 auto; overflow:hidden; white-space:nowrap; }
 .compose-status__item { display:inline-flex; align-items:center; gap:.25rem; min-inline-size:0; max-inline-size:100%; color:var(--text); }
 .compose-status__item[data-subdued] { font-size:.6875rem; color:var(--text-dim); }
 .compose-status__body { display:inline-flex; align-items:center; gap:.25rem; min-inline-size:0; padding:0; border:0; background:none; color:inherit; font:inherit; }
@@ -28,7 +30,18 @@
 .compose-status__pop[hidden] { display:none; }
 .compose-status__pop .compose-status__item { white-space:normal; }
 .compose-status__pop .compose-status__text { white-space:normal; overflow:visible; }
-@media (forced-colors:active) { .compose-status, .compose-status__pop { border-color:CanvasText; } }
+/* The detail popover of one chip: opens upward over the editor, the bar never grows. */
+.compose-status__detail { min-inline-size:12rem; max-inline-size:min(24rem,calc(100% - 1rem)); white-space:normal; }
+.compose-status__detail p { margin:0; font-size:.75rem; line-height:1.4; color:var(--text); }
+.compose-status__detail .compose-status__action { align-self:flex-end; }
+.compose-status__item[data-severity=warning] { color:var(--text); }
+/* Phone width: the counters go first, then the chips keep their icon only (the name stays for assistive technology and in the tooltip). */
+@media (max-width:40rem) {
+  .compose-status__start { display:none; }
+  .compose-status__item:not([role=alert]) .compose-status__text { position:absolute; inline-size:1px; block-size:1px; overflow:hidden; clip-path:inset(50%); }
+  .compose-status__pop .compose-status__item .compose-status__text { position:static; inline-size:auto; block-size:auto; clip-path:none; overflow:visible; }
+}
+@media (forced-colors:active) { .compose-status, .compose-status__pop { border-color:CanvasText; background:Canvas; color:CanvasText; } .compose-status__btn:focus-visible, .compose-status__action:focus-visible, .compose-status__more:focus-visible { outline-color:Highlight; } .compose-status__icon { forced-color-adjust:auto; } }
 
 /* The collapsible header (From/To/Cc/Bcc/Subject): tight rows, labels inline. */
 .compose-head { display:flex; flex-direction:column; gap:0; min-inline-size:0; }

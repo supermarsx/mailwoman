@@ -216,7 +216,7 @@ export function Compose(props: {
         setBody(e.currentTarget.value);
         setBodyHtml(plainToHtml(e.currentTarget.value));
       }}
-    /><EditorCounts text={body()}/></>
+    /></>
   );
   const [richMode, setRichMode] = createSignal(true);
   // t98: a profile without rich text composes plain text only (the server refuses an HTML body).
@@ -1659,7 +1659,7 @@ export function Compose(props: {
     const draftBase={id:'draft',testId:'account-draft-status'};
     if(protectedDraft())items.push({...draftBase,severity:'neutral',icon:'lock',label:t('mail-status-protected'),detail:t('mail-draft-protected')});
     else if(status==='saving')items.push({...draftBase,severity:'busy',icon:'refresh',label:t('mail-status-saving')});
-    else if(status==='saved')items.push({...draftBase,severity:'success',icon:'check',label:t('mail-status-saved',{time:savedTime(savedAt()??new Date())})});
+    else if(status==='saved')items.push({...draftBase,severity:'success',icon:'check',label:t('mail-status-saved',{time:savedTime(savedAt()??new Date())}),detail:t('mail-status-saved-full',{time:savedTime(savedAt()??new Date())})});
     else if(status==='pending')items.push({...draftBase,severity:'neutral',icon:'edit',label:t('mail-draft-status-pending')});
     else if(status==='error')items.push({...draftBase,severity:'danger',icon:'alert',label:t('mail-status-not-saved'),detail:t('mail-draft-status-error'),actionLabel:t('mail-status-retry'),onAction:()=>void remoteWriter?.flush()});
     else if(status==='uncertain'||status==='conflict')items.push({...draftBase,severity:'warning',icon:'alert',label:t(status==='conflict'?'mail-status-conflict':'mail-status-uncertain'),detail:t(`mail-draft-status-${status}`),...(localDraftAuthority()?{actionLabel:t('mail-status-close-recovery'),onAction:()=>{allowRecoveryClose=true;props.onClose();}}:{})});
@@ -2205,7 +2205,7 @@ export function Compose(props: {
           </section>
         </Show>
 
-        <ComposeStatusBar items={statusItems} />
+        <ComposeStatusBar items={statusItems} start={<EditorCounts text={body()} html={bodyHtml()}/>} />
 
       </form>
     </div>

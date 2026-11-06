@@ -366,7 +366,11 @@ describe('Compose pre-send checks', () => {
     const bar = await screen.findByTestId('compose-status-external');
     expect(bar).toHaveTextContent('other.example');
     expect(bar).toHaveAttribute('data-subdued');
-    fireEvent.click(within(bar).getByRole('button', { name: 'Dismiss' }));
+    expect(bar).toHaveTextContent('External: 1');
+    fireEvent.click(within(bar).getByRole('button', { name: /External: 1/ }));
+    const detail = screen.getByTestId('compose-status-detail');
+    expect(detail).toHaveTextContent('Check the To, Cc and Bcc recipients before sending confidential information.');
+    fireEvent.click(within(detail).getByRole('button', { name: 'Dismiss' }));
     expect(screen.queryByTestId('compose-status-external')).toBeNull();
   });
 });

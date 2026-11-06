@@ -80,3 +80,30 @@ describe('ComposeStatusBar', () => {
     expect(document.querySelector('.compose-status__icon--spin')).not.toBeNull();
   });
 });
+
+describe('ComposeStatusBar notices on the right', () => {
+  it('renders the start slot before the chips, and the draft save state last', () => {
+    render(() => <ComposeStatusBar start={<span data-testid="counts">3 words</span>} items={() => [
+      make({ id: 'draft', severity: 'success', label: 'Saved 12:49 AM', detail: 'Saved to account Drafts · 12:49 AM' }),
+      make({ id: 'external', severity: 'warning', label: 'External: 1' }),
+    ]} />);
+    expect(screen.getByTestId('counts').compareDocumentPosition(document.querySelector('[data-status-id=external]')!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(Array.from(document.querySelectorAll('[data-status-id]')).map(n => n.getAttribute('data-status-id'))).toEqual(['external', 'draft']);
+    expect(screen.getByTestId('compose-status-draft').querySelector('[title]')).toHaveAttribute('title', 'Saved to account Drafts · 12:49 AM');
+  });
+
+  it('opens a detail popover with a Dismiss action, and Esc closes it', () => {
+    const dismiss = vi.fn();
+    render(() => <ComposeStatusBar items={() => [make({ id: 'external', label: 'External: 1', detail: 'Check the recipients.', actionLabel: 'Dismiss', onAction: dismiss })]} />);
+    expect(screen.queryByTestId('compose-status-detail')).toBeNull();
+    const chip = screen.getByRole('button', { name: /External: 1/ });
+    fireEvent.click(chip);
+    expect(chip).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByTestId('compose-status-detail')).toHaveTextContent('Check the recipients.');
+    fireEvent.keyDown(chip, { key: 'Escape' });
+    expect(screen.queryByTestId('compose-status-detail')).toBeNull();
+    fireEvent.click(chip);
+    fireEvent.click(within(screen.getByTestId('compose-status-detail')).getByRole('button', { name: 'Dismiss' }));
+    expect(dismiss).toHaveBeenCalledOnce();
+  });
+});

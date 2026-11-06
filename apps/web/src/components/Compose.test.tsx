@@ -148,7 +148,8 @@ describe('Compose', () => {
     await app.loadIdentities();
     const hint = await screen.findByTestId('compose-from-hint');
     expect(hint).toHaveTextContent('work@corp.example');
-    fireEvent.click(within(hint).getByRole('button', { name: 'Change' }));
+    fireEvent.click(within(hint).getByRole('button', { name: /From/ }));
+    fireEvent.click(within(screen.getByTestId('compose-status-detail')).getByRole('button', { name: 'Change' }));
     expect(await screen.findByLabelText('From')).toHaveValue('id2');
   });
   it('offers the sending identities once loaded', async () => {

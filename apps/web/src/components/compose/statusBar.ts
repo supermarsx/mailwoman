@@ -32,7 +32,9 @@ const RANK: Record<StatusSeverity, number> = { danger: 0, warning: 1, busy: 2, n
 
 /** Most urgent first; items of one severity keep the order they were given in. */
 export function orderItems(items: readonly StatusItem[]): StatusItem[] {
-  return items.map((item, index) => ({ item, index })).sort((a, b) => RANK[a.item.severity] - RANK[b.item.severity] || a.index - b.index).map(({ item }) => item);
+  // The draft save state is always last, so it sits rightmost on the bar.
+  const rank = (item: StatusItem): number => (item.id === 'draft' ? 99 : RANK[item.severity]);
+  return items.map((item, index) => ({ item, index })).sort((a, b) => rank(a.item) - rank(b.item) || a.index - b.index).map(({ item }) => item);
 }
 
 /** How many items fit inline for a bar `width` px wide; the rest go behind the count chip. */
