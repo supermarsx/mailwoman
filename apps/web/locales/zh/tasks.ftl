@@ -39,3 +39,6 @@ tasks-delete-no = 保留任务
 tasks-changed-elsewhere = 此任务已在其他设备或会话中被修改。你的编辑会保留；“保存”只会应用你更改过的字段。
 tasks-deleted-elsewhere = “{ $title }”已在其他设备或会话中被删除，因此其编辑表单已关闭。
 tasks-notice-dismiss = 关闭
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = 无法创建任务。{ $reason }

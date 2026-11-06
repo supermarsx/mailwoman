@@ -61,3 +61,9 @@ notes-link-button = 链接
 notes-changed-elsewhere = 此笔记已在其他设备或会话中被修改。你在此处输入的文本会保留，下一次编辑时会保存。
 notes-deleted-elsewhere = 你打开的笔记已在其他设备或会话中被删除。
 notes-create-failed = 无法创建笔记。
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = 无法创建便笺。{ $reason }
+notes-toast-pinned = 已置顶便笺“{ $target }”
+notes-toast-unpinned = 已取消置顶便笺“{ $target }”
+notes-toast-pin-failed = 无法更改便笺“{ $target }”的置顶状态
