@@ -15,7 +15,9 @@ export function blockedReason(policy:AttachmentPolicy|undefined,item:Named):stri
 }
 export const sizeLabel=(item:Named):string=>formatBytes(item.size);
 interface DownloadApp {accountId:()=>string|null|undefined;downloadUrl:()=>string|null;showToast:(tone:'success'|'error'|'info',message:string)=>void}
-const safe=(name:string):string=>name.replace(/[\/:*?"<>|\u0000-\u001f]+/g,'_').slice(0,120)||'attachment';
+// Control characters are what is being replaced here.
+// eslint-disable-next-line no-control-regex
+const safe=(name:string):string=>name.replace(/[/:*?"<>|\u0000-\u001f]+/g,'_').slice(0,120)||'attachment';
 function save(blob:Blob,name:string):void {
  const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.rel='noopener';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),10_000);
 }
@@ -32,9 +34,19 @@ export async function downloadOne(app:DownloadApp,emailId:string,item:Named):Pro
  try{save(await bytes(app,emailId,item),safe(item.name));app.showToast('success',t('mail-attachment-downloaded',{name:item.name}));}
  catch{app.showToast('error',t('mail-attachment-download-failed'));}
 }
-/** Stream the allowed attachments of several messages into one ZIP, one folder per message when there is more than one. */
+/** One folder name per message: unsafe characters replaced, and a repeated subject numbered so two messages never share a folder. */
+export function folderNames(labels:string[]):string[] {
+ const seen=new Map<string,number>();
+ return labels.map(label=>{const base=safe(label.trim()||t('mail-no-subject'));const count=(seen.get(base)??0)+1;seen.set(base,count);return count===1?base:`${base} (${count})`;});
+}
+/** Stream the allowed attachments of several messages into one ZIP, one folder per message when there is more than one.
+ * Files the attachment policy refuses are left out and counted in the closing toast; when nothing is allowed nothing is downloaded. */
 export async function downloadZip(app:DownloadApp,groups:{emailId:string;label:string;items:Named[]}[],policy?:AttachmentPolicy):Promise<void> {
- const picked=groups.map(group=>({...group,items:group.items.filter(item=>!blockedReason(policy,item))})).filter(group=>group.items.length);
+ const skipped=groups.reduce((sum,group)=>sum+group.items.filter(item=>blockedReason(policy,item)).length,0);
+ const allowed=groups.map(group=>({...group,items:group.items.filter(item=>!blockedReason(policy,item))})).filter(group=>group.items.length);
+ const folders=folderNames(allowed.map(group=>group.label));
+ const picked=allowed.map((group,i)=>({...group,label:folders[i]!}));
+ if(!picked.length){app.showToast('error',t(skipped?'mail-attachments-zip-all-blocked':'mail-attachment-download-failed',{skipped}));return;}
  let files=0,total=0,capped=false;const entries:{name:string;data:Uint8Array}[]=[];
  try{
   outer:for(const group of picked){
@@ -44,11 +56,12 @@ export async function downloadZip(app:DownloadApp,groups:{emailId:string;label:s
     const blob=await bytes(app,group.emailId,item);
     let name=safe(item.name);for(let n=2;seen.has(name);n++)name=safe(item.name).replace(/(\.[^.]*)?$/,` (${n})$1`);seen.add(name);
     total+=blob.size;files++;
-    entries.push({name:picked.length>1?`${safe(group.label)}/${name}`:name,data:new Uint8Array(await blob.arrayBuffer())});
+    entries.push({name:picked.length>1?`${group.label}/${name}`:name,data:new Uint8Array(await blob.arrayBuffer())});
    }
   }
   if(!entries.length){app.showToast('error',t('mail-attachment-download-failed'));return;}
   save(buildZip(entries),'attachments.zip');
-  app.showToast(capped?'info':'success',t(capped?'mail-attachments-zip-capped':'mail-attachments-zip-done',{count:files,max:ZIP_MAX_FILES,size:formatBytes(ZIP_MAX_BYTES)}));
+  const summary=t(capped?'mail-attachments-zip-capped':'mail-attachments-zip-done',{count:files,max:ZIP_MAX_FILES,size:formatBytes(ZIP_MAX_BYTES)});
+  app.showToast(capped||skipped?'info':'success',skipped?`${summary} ${t('mail-attachments-zip-skipped',{skipped})}`:summary);
  }catch{app.showToast('error',t('mail-attachment-download-failed'));}
 }

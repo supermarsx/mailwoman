@@ -117,7 +117,17 @@ describe('chips', () => {
     ]);
   });
 
+  it('answered and forwarded are chips with their negations, and replied is the answered spelling', () => {
+    const q = parseQuery('is:answered is:unforwarded is:replied is:forwarded');
+    expect(chipsOf(q).map((c) => c.kind)).toEqual(['answered', 'forwarded', 'answered', 'forwarded']);
+    expect(serializeQuery(q)).toBe('is:answered is:unforwarded is:answered is:forwarded');
+  });
+
   it('toggles two-state chips', () => {
+    expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'answered'))] })).toBe('is:unanswered');
+    expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'unanswered'))] })).toBe('is:answered');
+    expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'forwarded'))] })).toBe('is:unforwarded');
+    expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'unforwarded'))] })).toBe('is:forwarded');
     expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'unread'))] })).toBe('is:read');
     expect(serializeQuery({ terms: [toggleTerm(fieldTerm('is', 'flagged'))] })).toBe('is:unflagged');
     expect(serializeQuery({ terms: [toggleTerm(fieldTerm('has', 'attachment'))] })).toBe('-has:attachment');

@@ -50,7 +50,13 @@ export function canonicalValue(op: Operator, value: string): string {
     if (CALENDAR_WORDS.includes(lower)) return 'calendar';
     return value;
   }
-  if (op === 'is') return lower === 'starred' ? 'flagged' : lower;
+  if (op === 'is') {
+    if (lower === 'starred') return 'flagged';
+    if (lower === 'replied') return 'answered';
+    if (lower === 'unreplied' || lower === 'notanswered') return 'unanswered';
+    if (lower === 'notforwarded') return 'unforwarded';
+    return lower;
+  }
   if (op === 'include') return lower;
   if (op === 'larger' || op === 'smaller') return lower;
   return value;
@@ -297,7 +303,7 @@ export function setOptionalField(query: SearchQuery, op: Operator, value: string
 
 export type ChipKind =
   | 'from' | 'to' | 'cc' | 'subject' | 'body' | 'text' | 'filename' | 'tag'
-  | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned'
+  | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned' | 'answered' | 'forwarded'
   | 'date' | 'size' | 'scope' | 'other' | 'expr';
 
 export interface Chip {
@@ -336,6 +342,8 @@ export function chipsOf(query: SearchQuery): Chip[] {
         if (term.value === 'unread' || term.value === 'read') return one('unread');
         if (term.value === 'flagged' || term.value === 'unflagged') return one('flagged');
         if (term.value === 'pinned') return one('pinned');
+        if (term.value === 'answered' || term.value === 'unanswered') return one('answered');
+        if (term.value === 'forwarded' || term.value === 'unforwarded') return one('forwarded');
         return one('other');
       case 'pinned':
         return one('pinned');
@@ -356,11 +364,11 @@ export function chipsOf(query: SearchQuery): Chip[] {
   return chips;
 }
 
-/** Flip a two-state chip: has:x ↔ -has:x, is:unread ↔ is:read, is:flagged ↔ is:unflagged. */
+/** Flip a two-state chip: has:x ↔ -has:x, is:unread ↔ is:read, is:flagged ↔ is:unflagged, is:answered ↔ is:unanswered, is:forwarded ↔ is:unforwarded. */
 export function toggleTerm(term: Term): Term {
   if (term.kind !== 'field') return term.kind === 'text' ? { ...term, negated: !term.negated } : term;
   if (term.op === 'is') {
-    const flip: Record<string, string> = { unread: 'read', read: 'unread', flagged: 'unflagged', unflagged: 'flagged' };
+    const flip: Record<string, string> = { unread: 'read', read: 'unread', flagged: 'unflagged', unflagged: 'flagged', answered: 'unanswered', unanswered: 'answered', forwarded: 'unforwarded', unforwarded: 'forwarded' };
     const next = flip[term.value];
     if (next !== undefined) return { ...term, value: next, negated: false };
   }

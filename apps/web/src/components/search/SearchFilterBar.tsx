@@ -41,11 +41,11 @@ const FIELD_LABEL: Partial<Record<ChipKind, string>> = {
 };
 
 const CHIP_ICON: Partial<Record<ChipKind, IconName>> = {
-  attachment: 'attachment', event: 'calendar', unread: 'mailRead', flagged: 'flag', pinned: 'pin', date: 'clock',
+  attachment: 'attachment', event: 'calendar', unread: 'mailRead', flagged: 'flag', pinned: 'pin', answered: 'reply', forwarded: 'forward', date: 'clock',
   scope: 'folder', from: 'users', to: 'sent', subject: 'mail', body: 'file', text: 'search', size: 'archive',
 };
 
-const TOGGLES: readonly ChipKind[] = ['attachment', 'event', 'unread', 'flagged', 'pinned'];
+const TOGGLES: readonly ChipKind[] = ['attachment', 'event', 'unread', 'flagged', 'pinned', 'answered', 'forwarded'];
 
 /** What the popover is editing: an existing chip, or a new one of `kind`. */
 interface Editing { kind: ChipKind; chip: Chip | null; anchor: HTMLElement }
@@ -63,6 +63,8 @@ function toggleLabel(kind: ChipKind, term: Term | undefined): string {
     case 'event': return t(negated ? 'search-chip-no-event' : 'search-chip-event');
     case 'unread': return t(value === 'read' || negated ? 'search-chip-read' : 'search-chip-unread');
     case 'flagged': return t(value === 'unflagged' || negated ? 'search-chip-unflagged' : 'search-chip-flagged');
+    case 'answered': return t(value === 'unanswered' || negated ? 'search-chip-unanswered' : 'search-chip-answered');
+    case 'forwarded': return t(value === 'unforwarded' || negated ? 'search-chip-unforwarded' : 'search-chip-forwarded');
     default: return t(negated || (term?.kind === 'field' && term.op === 'pinned' && /^(false|0)$/iu.test(value)) ? 'search-chip-unpinned' : 'search-chip-pinned');
   }
 }
@@ -153,6 +155,8 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
         { id: 'event', label: t('search-chip-event'), icon: 'calendar', run: () => addFlag('has', 'calendar', ['calendar']) },
         { id: 'unread', label: t('search-chip-unread'), icon: 'mailRead', run: () => addFlag('is', 'unread', ['unread', 'read']) },
         { id: 'flagged', label: t('search-chip-flagged'), icon: 'flag', run: () => addFlag('is', 'flagged', ['flagged', 'unflagged']) },
+        { id: 'answered', label: t('search-chip-answered'), icon: 'reply', run: () => addFlag('is', 'answered', ['answered', 'unanswered']) },
+        { id: 'forwarded', label: t('search-chip-forwarded'), icon: 'forward', run: () => addFlag('is', 'forwarded', ['forwarded', 'unforwarded']) },
         { ...edit('date', 'clock', 'search-field-date'), separatorBefore: true },
         edit('size', 'archive', 'search-field-size'),
       ];

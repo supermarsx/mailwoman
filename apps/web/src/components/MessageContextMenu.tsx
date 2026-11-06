@@ -15,6 +15,7 @@ import {fetchMessageExtras,type MessageExtras} from './messageRelations.ts';
 import {blockedReason,describe,downloadOne,downloadZip,sizeLabel} from './messageAttachmentDownload.ts';
 import {focusMessageInFolder} from './messageFocus.ts';
 import {formatDateWith} from '../i18n/format.ts';
+import {downloadAttachmentsOf} from './messageAttachmentsBulk.ts';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
 export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focusedInbox'|'senderFocus'|'alwaysMoveSender'>>,message:Email):ContextAction[] {
@@ -25,7 +26,9 @@ export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focused
  return (['focused','other'] as const).map(tab=>({id:`focus:${tab}`,label:t(tab==='focused'?'mail-focus-always-focused':'mail-focus-always-other'),icon:tab==='focused'?'star':'inbox',checked:senderFocus(from)===tab,run:()=>alwaysMoveSender(from,tab)}));
 }
 /** Always targets the indicated message, not an unrelated existing selection. */
-export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?:{replyDraft:(emailId:string)=>{id:string}|undefined;onOpenReplyDraft?:(id:string)=>void},fetchExtras?:typeof fetchMessageExtras) {
+/** A conversation head's menu acts on the conversation: `threadMode` says the menu was opened on a head, `threadMembers` lists the loaded messages of its thread. */
+export interface ThreadMenuOptions {threadMode:Accessor<boolean>;threadMembers:(email:Email)=>Email[]}
+export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?:{replyDraft:(emailId:string)=>{id:string}|undefined;onOpenReplyDraft?:(id:string)=>void},fetchExtras?:typeof fetchMessageExtras,threads?:ThreadMenuOptions) {
   void loadCatalog('search'); // t112: its ids show wherever it is mounted
  const app=useApp();
  // Attachment parts and reply/forward targets are not in the list row: fetched once per message when the menu opens, kept for the session.
@@ -40,6 +43,41 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   void (fetchExtras??fetchMessageExtras)(createConfiguredClient(),account,message,sent).then(value=>setExtras(old=>new Map(old).set(key,value)),()=>{requested.delete(key);setExtras(old=>new Map(old).set(key,'failed'));});
   if(message.hasAttachment&&!policy())void loadAttachmentPolicy().then(setPolicy,()=>undefined);
  };
+ const folderOf=(related:Email)=>Object.keys(related.mailboxIds??{}).find(box=>related.mailboxIds[box]&&app.mailboxes().some(value=>value.id===box));
+ const goTo=(related:Email,from?:Email)=>{const folder=folderOf(related);if(folder)void focusMessageInFolder(app,folder,related.id,{open:true,...(related.threadId!==undefined&&related.threadId===from?.threadId?{thread:true}:{})});};
+ /** A conversation head acts on every loaded message of its thread: attachments grouped per message, and Go to reply / forward from the message that was answered or forwarded. */
+ const threadRows=(rows:ContextAction[],members:Email[]):void=>{
+  const account=app.accountId();
+  const state=(member:Email)=>extras().get(`${account}:${member.id}`);
+  const loadedOf=(member:Email)=>{const found=state(member);return found!==undefined&&found!=='failed'?found:undefined;};
+  const who=(member:Email)=>`${formatDateWith(member.sentAt??member.receivedAt,{dateStyle:"medium",timeStyle:"short"})} · ${member.from?.[0]?.name||member.from?.[0]?.email||''}`;
+  const detail=(related:Email)=>`${formatDateWith(related.sentAt??related.receivedAt,{dateStyle:"medium",timeStyle:"short"})} · ${(related.to??[]).map(a=>a.name||a.email).join(', ')||t('mail-no-recipients')}`;
+  const jump=(rowId:string,keyword:string,label:string,icon:'reply'|'forward',pick:(extra:MessageExtras)=>Email[],missing:string)=>{
+   const sources=members.filter(member=>member.keywords?.[keyword]===true);
+   if(!sources.length)return;
+   const found=new Map<string,{owner:Email;value:Email}>();
+   for(const owner of sources)for(const value of pick(loadedOf(owner)??{attachments:[],replies:[],forwards:[]}))if(folderOf(value)&&!found.has(value.id))found.set(value.id,{owner,value});
+   const targets=[...found.values()],pending=sources.some(member=>state(member)===undefined);
+   const at=rows.findIndex(row=>row.id==='forward')+1+(rows.some(row=>row.id==='open-reply-draft')?1:0)+(rowId==='go-forward'&&rows.some(row=>row.id==='go-reply')?1:0);
+   if(!targets.length)rows.splice(at,0,{id:rowId,label,icon,disabled:true,title:pending?t('mail-context-searching'):missing,run:()=>{}});
+   else if(targets.length===1)rows.splice(at,0,{id:rowId,label,icon,run:()=>goTo(targets[0]!.value,targets[0]!.owner)});
+   else rows.splice(at,0,{id:rowId,label,icon,run:()=>{},children:targets.map((target,i)=>({id:`${rowId}:${i}`,label:`${who(target.owner)} → ${detail(target.value)}`,icon,run:()=>goTo(target.value,target.owner)}))});
+  };
+  jump('go-reply','$answered',t('mail-context-go-reply'),'reply',extra=>extra.replies,t('mail-context-reply-not-found'));
+  jump('go-forward','$forwarded',t('mail-context-go-forward'),'forward',extra=>extra.forwards,t('mail-context-forward-not-found'));
+  const withFiles=members.filter(member=>member.hasAttachment);
+  if(!withFiles.length)return;
+  const off=!mailFeature('allowDownload');
+  const groups=withFiles.flatMap(member=>{const loaded=loadedOf(member);return loaded&&loaded.attachments.length?[{member,emailId:member.id,label:member.subject??'',items:loaded.attachments.map(describe)}]:[];});
+  const base={icon:'download' as const,separatorBefore:true};
+  if(off||!groups.length){rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),disabled:true,title:off?mailFeatureOffTitle():withFiles.some(member=>state(member)===undefined)?t('mail-context-loading-attachments'):t('mail-context-attachments-failed'),run:()=>{}});return;}
+  rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),run:()=>{},children:[
+   ...groups.map(group=>({id:`attachments:msg:${group.emailId}`,label:`${who(group.member)} (${group.items.length})`,icon:'attachment' as const,run:()=>{},children:[
+    ...group.items.map((item,i)=>{const why=blockedReason(policy(),item);return {id:`attachments:msg:${group.emailId}:${i}`,label:`${item.name} (${sizeLabel(item)})`,icon:'attachment' as const,...(why?{disabled:true,title:why}:{title:`${item.mime} · ${sizeLabel(item)}`}),run:()=>downloadOne(app,group.emailId,item)};}),
+    {id:`attachments:msg:${group.emailId}:all`,label:t('mail-context-download-all'),icon:'download' as const,separatorBefore:true,run:()=>downloadZip(app,[group],policy())}]})),
+   {id:'attachments:all',label:t('mail-context-download-thread-attachments',{count:groups.reduce((sum,group)=>sum+group.items.length,0)}),icon:'download',separatorBefore:true,run:()=>downloadZip(app,groups,policy())}]});
+ };
+ const membersOf=(message:Email):Email[]=>{const list=threads?.threadMode()?threads.threadMembers(message):[];return list.length>1?[...list].sort((a,b)=>(a.sentAt??a.receivedAt).localeCompare(b.sentAt??b.receivedAt)):[];};
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
   const message=app.messages().find(value=>value.id===email()?.id);if(!message)return [];const id=message.id;const busy=app.listLoading();
@@ -56,10 +94,12 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    {id:'forward',label:t('mail-context-forward'),icon:'forward',...(mailFeature('allowForward')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'forward');}});
   {const draft=drafts?.onOpenReplyDraft?drafts.replyDraft(id):undefined,openDraft=drafts?.onOpenReplyDraft;
    if(draft&&openDraft){const at=rows.findIndex(row=>row.id==='forward');rows.splice(at+1,0,{id:'open-reply-draft',label:t('mail-reply-draft-open'),icon:'compose',run:()=>openDraft(draft.id)});}}
-  {const found=extras().get(`${app.accountId()}:${id}`);
+  const members=membersOf(message);
+  if(members.length)threadRows(rows,members);
+  else {const found=extras().get(`${app.accountId()}:${id}`);
    const loaded=found!==undefined&&found!=='failed'?found:undefined;
    const target=(related:Email)=>Object.keys(related.mailboxIds??{}).find(box=>related.mailboxIds[box]&&app.mailboxes().some(value=>value.id===box));
-   const go=(related:Email)=>{const folder=target(related);if(folder)void focusMessageInFolder(app,folder,related.id,{open:true});};
+   const go=(related:Email)=>goTo(related,message);
    const detail=(related:Email)=>`${formatDateWith(related.sentAt??related.receivedAt,{dateStyle:"medium",timeStyle:"short"})} · ${(related.to??[]).map(a=>a.name||a.email).join(', ')||t('mail-no-recipients')}`;
    const jump=(rowId:string,keyword:string,label:string,icon:'reply'|'forward',list:Email[]|undefined,missing:string)=>{
     if(message.keywords?.[keyword]!==true)return;
@@ -80,6 +120,11 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
     if(pending||off)rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),disabled:true,title:off?mailFeatureOffTitle():found==='failed'?t('mail-context-attachments-failed'):t('mail-context-loading-attachments'),run:()=>{}});
     else if(items.length===1)rows.push({...base,...rowFor(items[0]!,0),id:'attachments'});
     else if(items.length>1)rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),run:()=>{},children:[...items.map((item,i)=>({...rowFor(item,i),label:`${item.name} (${sizeLabel(item)})`})),{id:'attachments:all',label:t('mail-context-download-all'),icon:'download',separatorBefore:true,run:()=>downloadZip(app,[{emailId:id,label:message.subject??id,items}],policy())}]});}}
+  {const selected=app.selectedIds(),chosen=selected.has(id)&&selected.size>1?app.messages().filter(value=>selected.has(value.id)):[];
+   if(chosen.some(value=>value.hasAttachment)){
+    const off=!mailFeature('allowDownload');
+    rows.push({id:'attachments-selected',label:t('mail-context-download-selected-attachments',{count:chosen.filter(value=>value.hasAttachment).length}),icon:'download',separatorBefore:!rows.some(row=>row.id==='attachments'),...(off?{disabled:true,title:mailFeatureOffTitle()}:{}),run:()=>downloadAttachmentsOf(app,createConfiguredClient(),chosen.filter(value=>value.hasAttachment),policy())});
+   }}
   {const current=new Set(Object.keys(message.mailboxIds??{}).filter(key=>message.mailboxIds[key]));
    const targets=pickerOptions(app.mailboxes(),box=>!current.has(box.id)&&box.mailwomanSearchQuery===undefined&&box.myRights?.mayAddItems!==false&&!spamFolderHidden(box));
    const copies:ContextAction[]=[];
@@ -104,6 +149,13 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],
    ['trash','mail-delete','delete',()=>app.trashMessage(id)],
   ] as const)if(app.mailboxes().some(box=>box.role===role&&!message.mailboxIds[box.id]&&!spamFolderHidden(box)))rows.push({id:role,label:t(label),icon,run});
+  // Hand-set answered / forwarded marks (the keywords an IMAP server keeps as flags too).
+  {const selected=app.selectedIds(),ids=selected.has(id)&&selected.size>1?[...selected]:[id];
+   const targets=app.messages().filter(value=>ids.includes(value.id));
+   const all=(keyword:string)=>targets.length>0&&targets.every(value=>value.keywords?.[keyword]===true);
+   const answered=all('$answered'),forwarded=all('$forwarded');
+   rows.push({id:'mark-answered',label:t(answered?'mail-mark-unanswered':'mail-mark-answered'),icon:'reply',separatorBefore:true,run:()=>app.markReplyState(ids,'$answered',!answered)},
+    {id:'mark-forwarded',label:t(forwarded?'mail-mark-not-forwarded':'mail-mark-forwarded'),icon:'forward',run:()=>app.markReplyState(ids,'$forwarded',!forwarded)});}
   rows.push({id:'snooze',label:t('mail-snooze'),icon:'clock',separatorBefore:true,run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:'clock',run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:'clock',run:()=>app.unsnoozeMessage(id)});
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:'flag',run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
@@ -111,7 +163,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:'download',run:()=>app.exportMessage(id)});
   return rows.map(row=>({...row,disabled:busy||row.disabled===true}));
  },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
- createEffect(()=>{const message=email();if(menu.isOpen()&&message)untrack(()=>prefetch(app.messages().find(value=>value.id===message.id)??message));});
+ createEffect(()=>{const message=email();if(menu.isOpen()&&message)untrack(()=>{const current=app.messages().find(value=>value.id===message.id)??message;prefetch(current);for(const member of membersOf(current))prefetch(member);});});
  onCleanup(observePreferenceAccount(()=>menu.close(false)));
  return menu;
 }

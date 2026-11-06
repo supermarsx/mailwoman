@@ -1030,6 +1030,9 @@ mail-reply-images-retry = Carregar novamente
 mail-image-cancel = Cancelar
 mail-compose-from-why-match = A enviar a partir de { $identity } porque a mensagem foi enviada para { $address }.
 mail-compose-from-why-match-plus = A enviar a partir de { $identity } porque a mensagem foi enviada para { $address }, um endereço com mais do mesmo.
+mail-compose-from-why-match-pattern = A enviar a partir de { $identity } porque a mensagem foi enviada para { $address }, que corresponde ao padrão de endereço dessa identidade.
+mail-compose-from-why-match-domain = A enviar a partir de { $identity } porque a mensagem foi entregue em { $address }, um endereço do mesmo domínio.
+mail-compose-from-via = Correspondeu ao cabeçalho { $header }.
 mail-compose-from-why-ambiguous = Várias identidades correspondem a { $address }. A enviar a partir de { $identity }; escolha outra:
 mail-compose-from-why-default = A enviar a partir da identidade predefinida, { $identity }, porque nenhuma corresponde aos destinatários originais.
 mail-compose-from-why-forced-default = A enviar a partir da identidade predefinida, { $identity }, conforme as suas definições.
@@ -1134,6 +1137,9 @@ mail-status-external-reviewed = Destinatários externos revistos
 mail-status-external-review = Marcar como revisto
 mail-status-from-match = De { $identity }
 mail-status-from-match-plus = De { $identity }
+mail-status-from-match-pattern = De { $identity }
+mail-status-from-match-domain = De { $identity }
+mail-status-from-via = A responder a partir de { $identity } porque correspondeu a { $header }
 mail-status-from-ambiguous = De { $identity } (várias coincidem)
 mail-status-from-default = Da identidade predefinida
 mail-status-from-forced-default = Da identidade predefinida
@@ -1272,3 +1278,39 @@ mail-color-confirm-title = Alterar as cores predefinidas das mensagens?
 mail-color-confirm-body = Todas as mensagens passam a usar «{ $mode }», a menos que altere para uma mensagem.
 mail-color-confirm = Tornar predefinição
 mail-color-default-failed = Não foi possível guardar as cores predefinidas das mensagens.
+
+## Anexos de várias mensagens, marcas de respondida / reencaminhada definidas à mão
+mail-bulk-download-attachments = Transferir anexos como ZIP
+mail-context-download-selected-attachments = { $count ->
+    [one] Transferir os anexos da mensagem selecionada como ZIP
+   *[other] Transferir os anexos de { $count } mensagens selecionadas como ZIP
+}
+mail-context-download-thread-attachments = Transferir os { $count } anexos da conversa como ZIP
+mail-attachments-zip-gathering = A reunir os anexos de { $count } mensagens…
+mail-attachments-zip-unreadable = Não foi possível ler os anexos de { $count } mensagens, que ficaram de fora.
+mail-attachments-none = As mensagens selecionadas não têm anexos para transferir.
+mail-attachments-zip-skipped = { $skipped ->
+    [one] 1 ficheiro bloqueado pela política de anexos ficou de fora.
+   *[other] { $skipped } ficheiros bloqueados pela política de anexos ficaram de fora.
+}
+mail-attachments-zip-all-blocked = Nada foi transferido: a política de anexos bloqueia todos os { $skipped } ficheiros.
+mail-mark-answered = Marcar como respondida
+mail-mark-unanswered = Marcar como não respondida
+mail-mark-forwarded = Marcar como reencaminhada
+mail-mark-not-forwarded = Marcar como não reencaminhada
+mail-toast-marked-answered = { $count ->
+    [one] 1 mensagem marcada como respondida
+   *[other] { $count } mensagens marcadas como respondidas
+}
+mail-toast-marked-unanswered = { $count ->
+    [one] 1 mensagem marcada como não respondida
+   *[other] { $count } mensagens marcadas como não respondidas
+}
+mail-toast-marked-forwarded = { $count ->
+    [one] 1 mensagem marcada como reencaminhada
+   *[other] { $count } mensagens marcadas como reencaminhadas
+}
+mail-toast-marked-not-forwarded = { $count ->
+    [one] 1 mensagem marcada como não reencaminhada
+   *[other] { $count } mensagens marcadas como não reencaminhadas
+}

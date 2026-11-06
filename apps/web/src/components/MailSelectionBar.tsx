@@ -13,6 +13,8 @@ import { SelectionBar, type SelectionAction } from './SelectionBar.tsx';
 import type { ContextAction } from './ContextMenu.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
 import type { Id } from '../api/jmap-types.ts';
+import { createConfiguredClient } from '../api/transport.ts';
+import { downloadAttachmentsOf } from './messageAttachmentsBulk.ts';
 
 export function MailSelectionBar(props: {
   onCompose?: ((initial: ComposeInitial) => void) | undefined;
@@ -59,6 +61,19 @@ export function MailSelectionBar(props: {
     } finally { setBusy(false); }
   }
 
+  // The attachments of the selected messages as one ZIP, a folder per message.
+  async function downloadAttachments(): Promise<void> {
+    if (busy()) return;
+    const owner = preferenceAccount();
+    if (!owner) return;
+    setBusy(true);
+    try {
+      await downloadAttachmentsOf(app, createConfiguredClient(), chosen());
+    } catch {
+      if (preferenceAccountIsCurrent(owner)) failed();
+    } finally { setBusy(false); }
+  }
+
   const moveItems = (): ContextAction[] =>
     app.mailboxes()
       .filter((box) => box.id !== app.selectedMailboxId() && box.mailwomanSearchQuery === undefined && !spamFolderHidden(box))
@@ -86,6 +101,7 @@ export function MailSelectionBar(props: {
     if (app.tags().length > 0) out.push({ id: 'labels', label: t('selection-bar-labels'), icon: 'tag', testId: 'bulk-labels', menu: labelItems });
     if (props.onCompose && mailFeature('allowForward')) out.push({ id: 'forward', label: t('mail-bulk-forward'), icon: 'forward', testId: 'bulk-forward', run: forward });
     if (mailFeature('allowDownload')) out.push({ id: 'download', label: t('mail-bulk-download'), icon: 'download', testId: 'bulk-download', disabled: busy(), run: download });
+    if (mailFeature('allowDownload') && list.some((m) => m.hasAttachment === true)) out.push({ id: 'download-attachments', label: t('mail-bulk-download-attachments'), icon: 'attachment', testId: 'bulk-download-attachments', disabled: busy(), run: downloadAttachments });
     return out;
   };
 

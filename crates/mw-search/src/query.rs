@@ -16,7 +16,8 @@
 //! Supported operators (plan §0.1 / §2.1):
 //! `from: to: cc: subject: body:` (field text) · `text:`/bare (all-fields) ·
 //! `has:attachment` · `filename:` · `before:`/`after:` (date) · `in:` (mailbox) ·
-//! `is:unread|read|flagged|unflagged|pinned` · `larger:`/`smaller:` (size) ·
+//! `is:unread|read|flagged|unflagged|pinned|answered|unanswered|forwarded|unforwarded` ·
+//! `larger:`/`smaller:` (size) ·
 //! `tag:` (keyword) · `pinned:true|false`.
 //!
 //! Text terms additionally support (SPEC §10.4):
@@ -96,6 +97,9 @@
 /// System keyword for a read message (JMAP `$seen`); `is:unread` = its absence.
 const KW_SEEN: &str = "$seen";
 const KW_FLAGGED: &str = "$flagged";
+/// `$answered` (the message has been replied to) and `$forwarded` (RFC 5788).
+const KW_ANSWERED: &str = "$answered";
+const KW_FORWARDED: &str = "$forwarded";
 
 /// Maximum nesting depth for `(` grouping and `NOT` chains.
 ///
@@ -453,6 +457,12 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
             "flagged" | "starred" => Clause::Keyword(KW_FLAGGED.to_string()),
             "unflagged" => Clause::NotKeyword(KW_FLAGGED.to_string()),
             "pinned" => Clause::Pinned(true),
+            "answered" | "replied" => Clause::Keyword(KW_ANSWERED.to_string()),
+            "unanswered" | "unreplied" | "notanswered" => {
+                Clause::NotKeyword(KW_ANSWERED.to_string())
+            }
+            "forwarded" => Clause::Keyword(KW_FORWARDED.to_string()),
+            "unforwarded" | "notforwarded" => Clause::NotKeyword(KW_FORWARDED.to_string()),
             // Unknown `is:x` — treat the token as a keyword filter.
             other => Clause::Keyword(other.to_string()),
         },
@@ -846,6 +856,21 @@ mod tests {
         );
         assert_eq!(cl("pinned:true"), Expr::Clause(Clause::Pinned(true)));
         assert_eq!(cl("pinned:false"), Expr::Clause(Clause::Pinned(false)));
+    }
+
+    #[test]
+    fn answered_and_forwarded_operators() {
+        for (text, clause) in [
+            ("is:answered", Clause::Keyword("$answered".into())),
+            ("is:replied", Clause::Keyword("$answered".into())),
+            ("is:unanswered", Clause::NotKeyword("$answered".into())),
+            ("is:forwarded", Clause::Keyword("$forwarded".into())),
+            ("IS:Forwarded", Clause::Keyword("$forwarded".into())),
+            ("is:unforwarded", Clause::NotKeyword("$forwarded".into())),
+            ("is:notforwarded", Clause::NotKeyword("$forwarded".into())),
+        ] {
+            assert_eq!(cl(text), Expr::Clause(clause), "{text}");
+        }
     }
 
     #[test]

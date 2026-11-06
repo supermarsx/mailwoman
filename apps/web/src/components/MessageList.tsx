@@ -43,6 +43,7 @@ import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
 import { noteFolderSelected, noteMailboxList } from '../perf/clientTiming.ts';
 import type { Density } from '../theme/contract.css.ts';
 import type { Email, EmailAddress, Id } from '../api/jmap-types.ts';
+import { EVENTS_VIEW_ID } from '../api/jmap.ts';
 
 // The message list, virtualized for the §23 100k-row gate: only the rows inside
 // the viewport (± overscan) are mounted, positioned inside a full-height spacer
@@ -138,12 +139,22 @@ function SelectedMark(props: { selected: boolean }): JSX.Element {
   );
 }
 
-type MessageMenu = {open:(event:MouseEvent,email:Email)=>void;keydown:(event:KeyboardEvent,email:Email)=>void;isOpen:(id:string)=>boolean};
+/** `thread` marks a conversation head: its menu then acts on the conversation's messages, not only the latest. */
+type MessageMenu = {open:(event:MouseEvent,email:Email,thread?:boolean)=>void;keydown:(event:KeyboardEvent,email:Email,thread?:boolean)=>void;isOpen:(id:string)=>boolean};
 
-/** In a list that spans folders (search results) the row's folder, as a real button that goes to the folder and flashes the message. */
+/** Whether the open list mixes messages of several folders: search results, a saved-search view, an all-mail folder or the events view. */
+export function listSpansFolders(app:{searchActive:()=>boolean;selectedMailboxId:()=>string|null;mailboxes:()=>{id:string;role?:string|null;mailwomanSearchQuery?:string|undefined}[]}): boolean {
+  if (app.searchActive()) return true;
+  const id = app.selectedMailboxId();
+  if (id === EVENTS_VIEW_ID) return true;
+  const box = app.mailboxes().find((value) => value.id === id);
+  return box !== undefined && (box.mailwomanSearchQuery !== undefined || box.role === 'all');
+}
+
+/** In a list that spans folders (search, saved-search and all-mail views) the row's folder, as a real button that goes to the folder and flashes the message. */
 function FolderChip(props:{email:Email}): JSX.Element {
   const app = useApp();
-  const folder = () => app.searchActive() ? Object.keys(props.email.mailboxIds ?? {}).map((id) => app.mailboxes().find((box) => box.id === id && props.email.mailboxIds[id])).find((box) => box !== undefined) : undefined;
+  const folder = () => listSpansFolders(app) ? Object.keys(props.email.mailboxIds ?? {}).map((id) => app.mailboxes().find((box) => box.id === id && props.email.mailboxIds[id])).find((box) => box !== undefined) : undefined;
   return (
     <Show when={folder()} keyed>
       {(box) => (
@@ -353,7 +364,7 @@ function ThreadHeadRow(props: {
         onClick={(e) => props.onClick(e)}
         onDblClick={(e) => props.onDblClick(e)}
         draggable={dragToFolderEnabled()&&!app.listLoading()} onDragStart={props.onDragStart} onDragEnd={clearMessageDrag}
-        data-email-id={rep().id} data-context-open={props.contextMenu.isOpen(rep().id)?'true':undefined} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,rep())} onKeyDown={e=>props.contextMenu.keydown(e,rep())}
+        data-email-id={rep().id} data-context-open={props.contextMenu.isOpen(rep().id)?'true':undefined} {...prefetch} onContextMenu={e=>props.contextMenu.open(e,rep(),true)} onKeyDown={e=>props.contextMenu.keydown(e,rep(),true)}
       >
         <Show when={props.row.unread}>
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
@@ -376,7 +387,8 @@ function ThreadHeadRow(props: {
         <span class="list__subject">{displayText(rep().subject ?? t('mail-no-subject'))}</span>
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={rep().mailwomanCalendar} />{displayText(rep().preview)}</span></Show>
       </button>
-      <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep())} contextOpen={props.contextMenu.isOpen(rep().id)}/>
+      <FolderChip email={rep()}/>
+      <MessageActions email={rep()} onMore={e=>props.contextMenu.open(e,rep(),true)} contextOpen={props.contextMenu.isOpen(rep().id)}/>
     </li>
   );
 }
@@ -427,8 +439,9 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const answeredThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$answered']===true).map(threadKey)));
   const forwardedThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$forwarded']===true).map(threadKey)));
   const [contextEmail,setContextEmail]=createSignal<Email>();
-  const contextMenu=createMessageContextMenu(contextEmail,{replyDraft:id=>replyDrafts().get(id)??(()=>{const key=messageThreads().get(id);return key?threadDrafts().get(key):undefined;})(),...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})});
-  const messageMenu:MessageMenu={open:(event,email)=>{setContextEmail(email);contextMenu.open(event);},keydown:(event,email)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
+  const [contextThread,setContextThread]=createSignal(false);
+  const contextMenu=createMessageContextMenu(contextEmail,{replyDraft:id=>replyDrafts().get(id)??(()=>{const key=messageThreads().get(id);return key?threadDrafts().get(key):undefined;})(),...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})},undefined,{threadMode:contextThread,threadMembers:email=>app.listMessages().filter(member=>threadKey(member)===threadKey(email))});
+  const messageMenu:MessageMenu={open:(event,email,thread=false)=>{setContextThread(thread);setContextEmail(email);contextMenu.open(event);},keydown:(event,email,thread=false)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextThread(thread);setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
   const [localSelecting,setLocalSelecting]=createSignal(false);
   const selecting=()=>props.selectionMode?.()??localSelecting();
   const setSelecting=(value:boolean|((previous:boolean)=>boolean)):boolean=>{const next=typeof value==='function'?value(selecting()):value;setLocalSelecting(next);props.onSelectionModeChange?.(next);return next;};
@@ -662,7 +675,13 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   function applyFocusRequest(): void {
     const request = focusRequest();
     if (request === null || app.listLoading() || scroller === undefined) return;
-    const index = rows().findIndex((row) => row.email.id === request.emailId || (row.kind === 'head' && idsOf(row).includes(request.emailId)));
+    let index = rows().findIndex((row) => row.email.id === request.emailId && row.kind !== 'head');
+    if (index < 0) {
+      index = rows().findIndex((row) => row.kind === 'head' && idsOf(row).includes(request.emailId));
+      const head = index < 0 ? undefined : rows()[index]!;
+      // The reply is in this conversation: open the conversation; the rows change and the request is applied again.
+      if (head !== undefined && request.thread === true && !head.expanded) { toggleThread(head.key); return; }
+    }
     if (index < 0) return;
     clearFocusRequest();
     const view = scroller.clientHeight || viewportH();

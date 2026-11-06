@@ -5,6 +5,7 @@ import { rememberSuccessfulSigninIfAllowed } from '../../api/rememberedSignins.t
 import { activateAccountPreferences, suspendAccountPreferences, preferenceAccount, preferenceAccountIsCurrent, observePreferenceAccount } from '../../api/accountPreferenceLifecycle.ts';
 import {activeLinkedMailbox,installLinkedMailbox,setPrimaryMailboxAuthority} from '../../api/linkedMailboxSession.ts';
 import {forgetSession,rememberActiveMailbox,restoreMailbox,restoreView} from '../sessionRestore.ts';
+import {retryWhileUnreachable} from '../bootRetry.ts';
 import { swrCachesEnabled } from '../../api/swrCache.ts';
 import {createLinkedAccountsApi} from '../../api/linkedAccounts.ts';
 import {validateLinkedAccountContext} from '../../api/linkedAccountContext.ts';
@@ -322,6 +323,8 @@ export interface MailSlice {
   markRead(ids: Id | readonly Id[], read: boolean): Promise<void>;
   /** Set or clear `$flagged`: the IMAP `\Flagged` flag, not a follow-up reminder. */
   flagMessage(ids: Id | readonly Id[], flagged: boolean): Promise<void>;
+  /** Set or clear the answered (`$answered`) or forwarded (`$forwarded`) mark by hand; undoable. */
+  markReplyState(ids: Id | readonly Id[], keyword: '$answered' | '$forwarded', on: boolean): Promise<void>;
 
   // ── Selection (t28-e16): which list messages a bulk action applies to ──
   /** The selected messages, limited to those still in the list. */
@@ -1058,6 +1061,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     await markWithUndo(asIds(ids), '$flagged', flagged, (count) =>
       flagged ? t('mail-toast-flagged', { count }) : t('mail-toast-unflagged', { count }),
     );
+  }
+
+  async function markReplyState(ids: Id | readonly Id[], keyword: '$answered' | '$forwarded', on: boolean): Promise<void> {
+    const key = keyword === '$answered' ? (on ? 'mail-toast-marked-answered' : 'mail-toast-marked-unanswered') : (on ? 'mail-toast-marked-forwarded' : 'mail-toast-marked-not-forwarded');
+    await markWithUndo(asIds(ids), keyword, on, (count) => t(key, { count }));
   }
 
   // ── mark read on open (t28-e16, D-16) ────────────────────────────────────
@@ -2254,7 +2262,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     suspendAccountPreferences();
     for (const view of readerViews) view.closeMessage();
     try {
-      const user = await client.me();
+      // A restart answers 502/503/504 or refuses the connection; neither says the
+      // session ended, so wait it out. Only a 401 below is the signed-out answer.
+      const user = await retryWhileUnreachable(() => client.me());
       primaryIdentity=user;
       setPrimaryMailboxAuthority(user.storageAuthority);
       void rememberSuccessfulSigninIfAllowed(user.username);
@@ -2430,6 +2440,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     markSpam,
     markRead,
     flagMessage,
+    markReplyState,
 
     selectedIds,
     setSelection,

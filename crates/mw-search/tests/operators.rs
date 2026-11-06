@@ -222,3 +222,38 @@ fn relocate_missing_id_is_noop() {
     idx.relocate("does-not-exist", "INBOX").expect("noop");
     assert_eq!(idx.num_docs(), 4);
 }
+
+/// `is:answered` / `is:forwarded` and their negations select by the `$answered`
+/// and `$forwarded` keywords, which is how an IMAP \Answered flag and a
+/// `$Forwarded` keyword arrive in the index.
+#[test]
+fn answered_and_forwarded_operators_select_by_keyword() {
+    let doc = |id: &str, keywords: &[&str]| IndexDoc {
+        stable_id: id.into(),
+        account_id: "acct".into(),
+        mailbox_id: "INBOX".into(),
+        from: "a@example.com".into(),
+        to: "b@example.com".into(),
+        subject: format!("message {id}"),
+        body: "text".into(),
+        date: 1_577_923_200,
+        keywords: keywords.iter().map(|k| k.to_string()).collect(),
+        ..IndexDoc::default()
+    };
+    let idx = Index::open_in_ram().expect("open ram index");
+    idx.upsert_batch(&[
+        doc("plain", &["$seen"]),
+        doc("replied", &["$seen", "$answered"]),
+        doc("fwd", &["$forwarded"]),
+        doc("both", &["$answered", "$forwarded"]),
+    ])
+    .expect("index");
+    assert_eq!(find(&idx, "is:answered"), ids(&["both", "replied"]));
+    assert_eq!(find(&idx, "is:replied"), ids(&["both", "replied"]));
+    assert_eq!(find(&idx, "is:unanswered"), ids(&["fwd", "plain"]));
+    assert_eq!(find(&idx, "is:forwarded"), ids(&["both", "fwd"]));
+    assert_eq!(find(&idx, "is:unforwarded"), ids(&["plain", "replied"]));
+    assert_eq!(find(&idx, "is:answered is:forwarded"), ids(&["both"]));
+    assert_eq!(find(&idx, "-is:answered"), ids(&["fwd", "plain"]));
+}
+

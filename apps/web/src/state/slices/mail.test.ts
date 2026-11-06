@@ -1974,6 +1974,23 @@ describe('session mail cache integration',()=>{
    await loading;expect(mail.messages().map(v=>v.id)).toEqual(['fresh']);
   });
  });
+ it('marks messages answered or forwarded by hand through the keyword path',async()=>{
+  await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
+   await mail.selectMailbox('inbox');
+   jmap.mockClear();
+   await mail.markReplyState(['a','b'],'$answered',true);
+   const patches=jmap.mock.calls.flatMap(call=>(call[0] as JmapRequest).methodCalls.filter(c=>c[0]==='Email/set'));
+   expect(JSON.stringify(patches)).toContain('keywords/$answered');
+   expect(mail.messages().every(message=>message.keywords?.['$answered']===true)).toBe(true);
+   await mail.markReplyState('a','$forwarded',true);
+   expect(mail.messages().find(message=>message.id==='a')?.keywords?.['$forwarded']).toBe(true);
+   await mail.markReplyState('a','$forwarded',false);
+   expect(mail.messages().find(message=>message.id==='a')?.keywords?.['$forwarded']).toBeUndefined();
+   await mail.markReplyState('a','$answered',false);
+   expect(mail.messages().find(message=>message.id==='a')?.keywords?.['$answered']).toBeUndefined();
+   expect(mail.messages().find(message=>message.id==='b')?.keywords?.['$answered']).toBe(true);
+  });
+ });
  it('invalidates optimistic mutations without aborting an unrelated foreground response',async()=>{
   await withInbox([email('a')],async(mail,{jmap})=>{
    let finish!:(response:JmapResponse)=>void;
