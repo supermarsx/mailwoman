@@ -4,7 +4,7 @@ import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
 import topLevelAwait from 'vite-plugin-top-level-await';
 import { createHash } from 'node:crypto';
-import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
 import { transformWithEsbuild, type Plugin } from 'vite';
 import { bundledPackages } from './scripts/about-bundled-packages.mjs';
@@ -62,6 +62,7 @@ function bootScript(): Plugin {
 export function assetIntegrity(): Plugin {
   let outDir = '';
   let build = false;
+  let written = false;
   const walk = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
     const full = join(dir, entry.name);
     return entry.isDirectory() ? walk(full) : [full];
@@ -70,9 +71,13 @@ export function assetIntegrity(): Plugin {
     name: 'mw-asset-integrity',
     apply: 'build',
     configResolved(config) { build = config.command === 'build'; outDir = resolve(config.root, config.build.outDir); },
+    writeBundle() { written = true; },
     closeBundle() {
-      if (!build) return;
+      // Rollup also calls closeBundle when the build FAILED, before anything was
+      // written; throwing here would mask the real error with an ENOENT.
+      if (!build || !written) return;
       const assets = join(outDir, 'assets');
+      if (!existsSync(assets)) return;
       const digests: Record<string, string> = {};
       for (const file of walk(assets)) {
         const rel = `/assets/${relative(assets, file).split(sep).join('/')}`;

@@ -30,8 +30,9 @@ function fixture(html: string): string {
 }
 
 function run(out: string): void {
-  const plugin = assetIntegrity() as unknown as { configResolved: (c: unknown) => void; closeBundle: () => void };
+  const plugin = assetIntegrity() as unknown as { configResolved: (c: unknown) => void; writeBundle: () => void; closeBundle: () => void };
   plugin.configResolved({ command: 'build', root: join(out, '..'), build: { outDir: 'dist' } });
+  plugin.writeBundle();
   plugin.closeBundle();
 }
 
@@ -52,6 +53,22 @@ describe('mw-asset-integrity', () => {
     expect(manifest['/assets/index-c3.css']).toBe(sha256('a{src:url(/fonts/a.woff2)}'));
     expect(manifest['/index.html']).toBe(sha256(html));
     expect(manifest['/assets/analytics/x.js']).toBeUndefined();
+  });
+  it('does not mask a failed build: closeBundle without a written bundle is a no-op', () => {
+    // Rollup calls closeBundle on its ERROR path too, before dist/assets exists.
+    const root = mkdtempSync(join(tmpdir(), 'mw-integrity-'));
+    dirs.push(root);
+    const plugin = assetIntegrity() as unknown as { configResolved: (c: unknown) => void; closeBundle: () => void };
+    plugin.configResolved({ command: 'build', root, build: { outDir: 'dist' } });
+    expect(() => plugin.closeBundle()).not.toThrow();
+  });
+  it('is a no-op when the bundle was written but has no assets directory', () => {
+    const root = mkdtempSync(join(tmpdir(), 'mw-integrity-'));
+    dirs.push(root);
+    const plugin = assetIntegrity() as unknown as { configResolved: (c: unknown) => void; writeBundle: () => void; closeBundle: () => void };
+    plugin.configResolved({ command: 'build', root, build: { outDir: 'dist' } });
+    plugin.writeBundle();
+    expect(() => plugin.closeBundle()).not.toThrow();
   });
   it('fails the build when a script tag escapes SRI', () => {
     // A shape the SRI rewrite does not match (single quotes) must not pass silently.
