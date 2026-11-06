@@ -1262,6 +1262,11 @@ Failures in the window that open a draft. 0 is off.
 
 Exports in the window that open a draft. 0 is off.
 
+<a id="compose.feature.*"></a>
+### Composer features (`compose.feature.*`)
+
+Switches one composer control on or off, per feature id (for example `layout.columns`). Default on. An administrator can set it for everyone, per domain or per user, and lock it so users cannot change it. Users switch features off in Settings > Compose > Composer features.
+
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 

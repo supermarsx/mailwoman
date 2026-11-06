@@ -13,6 +13,7 @@ import { t } from '../../i18n';
 import * as css from './styles.css.ts';
 import {ResponseTemplatePreferences} from './ResponseTemplatePreferences.tsx';
 import {ComposeDefaults} from './ComposeDefaults.tsx';
+import {ComposerFeatures} from './ComposerFeatures.tsx';
 
 const CHECK_ROWS: ReadonlyArray<{ key: string; id: string; label: string }> = [
   { key: 'mail.compose.checkInvalidRecipients', id: 'check-invalid', label: 'settings-check-invalid' },
@@ -134,6 +135,7 @@ export function ComposePreferences(): JSX.Element {
       </>}</SettingRow>
     </SettingsCard>
     <ComposeDefaults />
+    <ComposerFeatures />
     <ResponseTemplatePreferences />
   </>;
 }

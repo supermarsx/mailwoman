@@ -1,0 +1,58 @@
+# Composer features: the card in Settings and Admin, and the feature names.
+# Agents add their own feature names at the end of the section for their group.
+
+cf-card-title = Composer features
+cf-card-help = Choose which composer controls are available. Features your administrator turned off or locked cannot be changed here.
+cf-group-format = Format
+cf-group-insert = Insert
+cf-group-layout = Layout
+cf-group-options = Options
+cf-group-delivery = Delivery
+cf-group-toggle = All { $group } features
+cf-master-state = { $on } of { $total } on
+cf-reset = Reset to defaults
+cf-reset-done = Reset to defaults.
+cf-locked = Set by your administrator
+cf-admin-only = Only an administrator can change this
+cf-presets = Profiles
+cf-presets-help = Apply a set of features at once. You can still change single features afterwards.
+cf-preset-everything = Everything
+cf-preset-everything-desc = Every composer feature on.
+cf-preset-simple = Simple (plain formatting only)
+cf-preset-simple-desc = Basic formatting; no inserts, layout or delivery extras.
+cf-preset-lockedDown = Locked-down (no inserts, no rich features)
+cf-preset-lockedDown-desc = Basic formatting only. Inserts, layout, themes and header extras are off.
+cf-preset-apply = Apply profile
+cf-preset-applied = Profile applied: { $name }.
+cf-feature-on = On
+cf-feature-off = Off
+cf-saving-failed = Could not save. Try again.
+
+cf-admin-title = Composer features
+cf-admin-help = Switch composer controls on or off for everyone, or force a value for a domain. A locked value cannot be changed by users.
+cf-admin-scope = Applies to
+cf-admin-scope-all = Everyone (deployment default)
+cf-admin-scope-domain = One domain
+cf-admin-domain = Domain
+cf-admin-lock = Lock for users
+cf-admin-preset-note = A profile sets every feature in one step as the default; per-feature locks stay as they are.
+cf-admin-clear = Use default
+cf-admin-value = Value
+cf-admin-saved = Saved.
+
+cf-layout-columns = Columns
+cf-layout-columns-desc = Write in two or three columns using mail-safe tables.
+cf-layout-contentWidth = Content width
+cf-layout-contentWidth-desc = Limit the message to a fixed width and align it left or centred.
+cf-layout-pageColor = Page and content colour
+cf-layout-pageColor-desc = Colour the page behind the message and the content card. These colours are sent.
+cf-layout-themes = Message themes
+cf-layout-themes-desc = Apply a stationery theme with fonts, colours and spacing.
+cf-layout-defaultFont = Default message font
+cf-layout-defaultFont-desc = Set the font family, size and colour used for new text.
+cf-layout-spacing = Spacing
+cf-layout-spacing-desc = Cell padding, column gutter and paragraph spacing presets.
+cf-options-sentFolder = Save sent item to a folder
+cf-options-sentFolder-desc = Choose the folder that receives the copy of a sent message, or skip the copy.
+cf-options-replyTo = Reply-To address
+cf-options-replyTo-desc = Add a Reply-To header so replies go to a different address.

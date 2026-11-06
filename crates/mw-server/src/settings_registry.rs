@@ -7813,6 +7813,16 @@ pub static REGISTRY: &[SettingDef] = &[
         "Report plaintext stores and overdue key rotation in the security assessment"
     ),
 
+    // ── Composer features (layout agent): one Bool per composer control ───────
+    def!(
+        "compose.feature.*",
+        Kind::Bool,
+        "true",
+        GDU,
+        "interface",
+        "Whether a composer feature (ribbon control) is available; id is the COMPOSE_FEATURES id"
+    ),
+
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
         "serverText.*",
@@ -7835,6 +7845,12 @@ pub fn lookup(key: &str) -> Option<&'static SettingDef> {
             && key
                 .strip_prefix(&d.key[..d.key.len() - 1])
                 .is_some_and(|id| {
+                    if d.key == "compose.feature.*" {
+                        // Feature ids: `[a-z][A-Za-z0-9.]*`, e.g. `layout.columns`.
+                        return id.len() <= 64
+                            && id.bytes().next().is_some_and(|b| b.is_ascii_lowercase())
+                            && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'.');
+                    }
                     !id.is_empty()
                         && id.len() <= 64
                         && id
@@ -9135,6 +9151,12 @@ mod tests {
         assert!(lookup("serverText.").is_none());
         assert!(lookup("serverText.Bad Id").is_none());
         assert!(lookup("serverText.*").is_none());
+        assert!(lookup("compose.feature.layout.columns").is_some());
+        assert!(lookup("compose.feature.options.replyTo").is_some());
+        assert!(lookup("compose.feature.Layout").is_none());
+        assert!(lookup("compose.feature.").is_none());
+        assert!(lookup("compose.feature.a-b").is_none());
+        assert!(lookup("compose.feature.*").is_none());
     }
 
     #[test]
