@@ -16,6 +16,9 @@ path = "src/main.rs"
 
 [dependencies]
 regex = { workspace = true }
+# Reads and re-writes the media jail's own normalised PNG output when the optional
+# image resize is on (remote_image_resize.rs); hostile bytes are still decoded only in the jail.
+png = "0.18"
 sqlx = { workspace = true }
 url = { workspace = true }
 hickory-resolver = "=0.26.1"

@@ -1330,20 +1330,49 @@ pub(super) async fn reencode_and_answer(
     policy: &crate::remote_policy::PrivacyPolicy,
     deadline: std::time::Instant,
     admission: ImageAdmission,
+    fetched: Option<(Option<super::tier::Upstream>, super::tier::Directives)>,
+    width: Option<u32>,
 ) -> Response {
+    match reencode_and_cache(raw, key, policy, deadline, admission, fetched, width).await {
+        Ok((png, etag, tracker)) => signed_image(png, etag, tracker),
+        Err(response) => response,
+    }
+}
+
+/// [`reencode_and_answer`] without the response: the cached bytes, their `ETag` and
+/// whether a tracker pixel was replaced. `width` is a validated resize target
+/// (see [`super::resize::ResizeConfig::target`]); the resize runs inside the same
+/// decoder slot as the jail decode.
+pub(super) async fn reencode_and_cache(
+    raw: Vec<u8>,
+    key: Option<CacheKey>,
+    policy: &crate::remote_policy::PrivacyPolicy,
+    deadline: std::time::Instant,
+    admission: ImageAdmission,
+    fetched: Option<(Option<super::tier::Upstream>, super::tier::Directives)>,
+    width: Option<u32>,
+) -> Result<(bytes::Bytes, String, bool), Response> {
     let started = std::time::Instant::now();
     let decode_budget = policy.fetch.decode_timeout;
+    let resize_cfg = policy.image_resize;
     let (png, _admission) = match decode_image(deadline, admission, move || {
         let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-        mw_render::media_jail::reencode_image_with_budget(&raw, decode_budget.min(remaining))
+        let png = mw_render::media_jail::reencode_image_with_budget(&raw, decode_budget.min(remaining))?;
+        Ok(match width {
+            Some(w) => match super::resize::resize(&raw, &png, w, &resize_cfg) {
+                super::resize::Outcome::Resized { png, .. } => png,
+                super::resize::Outcome::Skipped(_) => png,
+            },
+            None => png,
+        })
     })
     .await
     {
         Ok(value) => value,
-        Err(DecodeFailure::Invalid) => return unsupported("not a decodable image"),
+        Err(DecodeFailure::Invalid) => return Err(unsupported("not a decodable image")),
         Err(DecodeFailure::Busy) => {
             tracing::debug!(target: "mw_server::remote_content", phase = "decode", elapsed_ms = started.elapsed().as_millis() as u64, "remote image decoder unavailable within its budget");
-            return busy_response();
+            return Err(busy_response());
         }
     };
     let tracker = policy.trackers && png_size(&png).is_some_and(|(w, h)| w <= 2 && h <= 2);
@@ -1357,16 +1386,19 @@ pub(super) async fn reencode_and_answer(
     if let Some(key) = key {
         // The tier copies into its own buffer and queues any disk write for its
         // background worker; this is a short in-memory insert.
-        super::tier::prepare(&policy.image_tier).await.store(
+        let (upstream, directives) = fetched.unwrap_or_default();
+        super::tier::prepare(&policy.image_tier).await.store_with(
             &key.route,
             &key.url,
             &key.owner,
             key.ctx,
             etag.clone(),
             png.clone(),
+            upstream,
+            directives,
         );
     }
-    signed_image(png, etag, tracker)
+    Ok((bytes::Bytes::from(png), etag, tracker))
 }
 
 /// `GET /api/rc/i/{token}` — a signed remote image.
@@ -1380,7 +1412,13 @@ pub(crate) async fn image(
     let high = super::requested_priority(&headers, uri.query());
     super::with_priority(
         high,
-        super::latency::track(image_inner(state, headers, token, proof)),
+        super::latency::track(image_inner(
+            state,
+            headers,
+            token,
+            proof,
+            super::resize::parse_hint(uri.query()),
+        )),
     )
     .await
 }
@@ -1390,6 +1428,7 @@ async fn image_inner(
     headers: HeaderMap,
     token: String,
     proof: Option<Extension<DisplayProof>>,
+    width_hint: Option<u32>,
 ) -> Response {
     let (claims, session, policy) = if let Some(Extension(proof)) =
         proof.filter(|proof| proof.0.matches(&token, Kind::Image))
@@ -1414,7 +1453,7 @@ async fn image_inner(
         (claims, session, policy)
     };
 
-    fetch_image(state, session, claims, policy, headers).await
+    fetch_image(state, session, claims, policy, headers, width_hint).await
 }
 
 async fn fetch_image(
@@ -1423,6 +1462,7 @@ async fn fetch_image(
     claims: Claims,
     policy: Arc<crate::remote_policy::PrivacyPolicy>,
     headers: HeaderMap,
+    width_hint: Option<u32>,
 ) -> Response {
     super::latency::set_enabled(policy.track_latency);
     let plan = match load_plan(&state.store).await {
@@ -1439,15 +1479,39 @@ async fn fetch_image(
         .to_string();
 
     // A cache hit is served before the rate limit, like the image proxy's.
+    // A resized copy is a different cache entry from the full image.
+    let width = policy.image_resize.target(width_hint);
+    let key_url = match width {
+        Some(w) => format!("{}{}", claims.u, super::resize::key_suffix(w, &policy.image_resize)),
+        None => claims.u.clone(),
+    };
     let key = CacheKey::new(
         &format!("{route_id}:{}:{}", policy.trackers, policy.max_bytes),
-        &claims.u,
+        &key_url,
     )
     .by(&claims.a, !claims.e.is_empty());
     // The signature, session and grant were verified above; only now is the tier read.
     let tier = super::tier::prepare(&policy.image_tier).await;
     let cached_response = || async {
-        let (etag, png) = tier.lookup(&key.route, &key.url, key.ctx).await?;
+        let found = tier
+            .lookup_swr(&key.route, &key.url, key.ctx, policy.image_tier.stale_secs)
+            .await?;
+        super::swr::note(if found.stale { super::swr::Kind::Stale } else { super::swr::Kind::Hit });
+        if found.stale {
+            super::swr::spawn_for(
+                &state,
+                &policy,
+                &route_id,
+                domain.as_deref(),
+                &key,
+                &claims.u,
+                (&claims.a, &claims.e),
+                found.validators.clone(),
+                "image/png, image/jpeg, image/gif, image/webp",
+                width,
+            );
+        }
+        let (etag, png) = (found.etag, found.png);
         super::record_cache(true);
         let tracker = policy.trackers && png.as_ref() == TRANSPARENT_PIXEL;
         if tracker {
@@ -1502,6 +1566,12 @@ async fn fetch_image(
     if let Some(failure) =
         fetch_limits::remembered_for(&claims.a, &claims.u, policy.negative_cache_ttl)
     {
+        // An origin known to be down does not take a still-kept copy away.
+        if let Some((etag, png)) =
+            super::swr::stale_on_error(tier, &key, policy.image_tier.max_stale_secs).await
+        {
+            return signed_image(png, etag, false);
+        }
         outcome(false);
         if fetch_limits::retryable_refusal(&failure.refusal()) {
             fetch_limits::record_retryable_failure(
@@ -1511,6 +1581,7 @@ async fn fetch_image(
         return failed_response(failure.refusal(), policy.negative_cache_ttl);
     }
     super::record_cache(false);
+    super::swr::note(super::swr::Kind::Miss);
     if !charge_image_fetch(&claims.a, &claims.e, &policy, queue_deadline).await {
         fetch_limits::record_retryable_failure(
             &claims.a, &claims.s, &claims.e, &claims.u, claims.x,
@@ -1537,7 +1608,7 @@ async fn fetch_image(
     let request = Request::get(TrafficClass::RemoteContent)
         .response_limit(policy.max_bytes)
         .accept("image/png, image/jpeg, image/gif, image/webp");
-    let (raw, content_type, admission) = match guarded_fetch(
+    let body = match guarded_fetch(
         &state,
         &plan,
         &route_id,
@@ -1550,8 +1621,19 @@ async fn fetch_image(
     )
     .await
     {
-        Ok(fetched) => fetched,
+        Ok(Fetched::Body(body)) => body,
+        Ok(Fetched::NotModified { .. }) => {
+            outcome(false);
+            return refusal_response(mw_egress::Refusal::Upstream);
+        }
         Err(response) => {
+            // The origin failed: a kept copy past its freshness beats an error.
+            if let Some((etag, png)) =
+                super::swr::stale_on_error(tier, &key, policy.image_tier.max_stale_secs).await
+            {
+                outcome(true);
+                return signed_image(png, etag, false);
+            }
             outcome(false);
             if response
                 .headers()
@@ -1565,6 +1647,7 @@ async fn fetch_image(
             return response;
         }
     };
+    let FetchedBody { raw, content_type, admission, upstream, directives } = body;
     if raw.len() > policy.max_bytes {
         outcome(false);
         return refusal_response(mw_egress::Refusal::TooLarge);
@@ -1579,6 +1662,8 @@ async fn fetch_image(
         &policy,
         deadline,
         admission.with_flight(flight),
+        Some((upstream, directives)),
+        width,
     )
     .await;
     if response
@@ -1614,6 +1699,26 @@ fn record_image_response(claims: &Claims, response: &Response) {
     }
 }
 
+/// What a guarded fetch brought back.
+pub(super) struct FetchedBody {
+    pub raw: Vec<u8>,
+    pub content_type: Option<String>,
+    pub admission: ImageAdmission,
+    /// The origin's validators, for a later conditional request.
+    pub upstream: Option<super::tier::Upstream>,
+    /// The origin's `Cache-Control`, as far as this cache honours it.
+    pub directives: super::tier::Directives,
+}
+
+pub(super) enum Fetched {
+    Body(FetchedBody),
+    /// The origin answered `304` to the validators sent with the request.
+    NotModified {
+        upstream: Option<super::tier::Upstream>,
+        directives: super::tier::Directives,
+    },
+}
+
 /// One remote-image fetch under the t56 limits, shared by `/api/rc/i` and the
 /// legacy `/api/image-proxy`: a per-message and per-account slot (waited for,
 /// inside the deadline), the replica's bounded global queue, the per-phase
@@ -1634,7 +1739,7 @@ pub(super) async fn guarded_fetch(
     (account, message, raw_url): (&str, &str, &str),
     policy: &crate::remote_policy::PrivacyPolicy,
     deadline: std::time::Instant,
-) -> Result<(Vec<u8>, Option<String>, ImageAdmission), Response> {
+) -> Result<Fetched, Response> {
     let limits = policy.fetch;
     let current = configure_capacity(state, Some(&limits)).await?;
     let queue_deadline = limits.queue_deadline(deadline);
@@ -1668,10 +1773,12 @@ pub(super) async fn guarded_fetch(
         return Err(busy_response());
     };
     let report = mw_egress::TimeoutReport::new();
+    let meta = mw_egress::ResponseMetadata::default();
     let mut request = request
         .user_agent(IMAGE_FETCH_UA)
         .timeouts(timeouts)
-        .timeout_report(&report);
+        .timeout_report(&report)
+        .capture_response(&meta);
     if let Some(d) = domain {
         request = request.for_domain(d);
     }
@@ -1682,7 +1789,41 @@ pub(super) async fn guarded_fetch(
     .await;
     audit_egress_transition(state, route_id, fetched.traversed_proxy).await;
     match fetched.outcome {
-        Ok(bytes) => Ok((bytes, fetched.content_type, admission)),
+        Ok(bytes) => {
+            let cache = meta.cache_headers().unwrap_or_default();
+            let upstream = super::tier::Upstream {
+                etag: meta.snapshot().and_then(|head| head.etag),
+                last_modified: cache.last_modified,
+            };
+            Ok(Fetched::Body(FetchedBody {
+                raw: bytes,
+                content_type: fetched.content_type,
+                admission,
+                upstream: (!upstream.is_empty()).then_some(upstream),
+                directives: cache
+                    .cache_control
+                    .as_deref()
+                    .map(super::tier::parse_cache_control)
+                    .unwrap_or_default(),
+            }))
+        }
+        // The copy we sent validators for is still good. Not a failure: nothing is
+        // remembered against the URL.
+        Err(mw_egress::Refusal::Status(304)) => {
+            let cache = meta.cache_headers().unwrap_or_default();
+            let upstream = super::tier::Upstream {
+                etag: meta.snapshot().and_then(|head| head.etag),
+                last_modified: cache.last_modified,
+            };
+            Ok(Fetched::NotModified {
+                upstream: (!upstream.is_empty()).then_some(upstream),
+                directives: cache
+                    .cache_control
+                    .as_deref()
+                    .map(super::tier::parse_cache_control)
+                    .unwrap_or_default(),
+            })
+        }
         Err(refusal) => {
             if matches!(refusal, mw_egress::Refusal::Timeout) {
                 // Never the URL, the host or the account.
@@ -1851,7 +1992,7 @@ pub(crate) async fn image_download(
         return forbidden("tracker blocked by policy");
     }
     let mut response =
-        fetch_image(state, session, claims, Arc::new(policy), HeaderMap::new()).await;
+        fetch_image(state, session, claims, Arc::new(policy), HeaderMap::new(), None).await;
     if !response.status().is_success() {
         return response;
     }
@@ -2024,7 +2165,7 @@ pub(crate) async fn part(
     if bytes.len() > policy.max_bytes {
         return refusal_response(mw_egress::Refusal::TooLarge);
     }
-    reencode_and_answer(bytes, None, &policy, deadline, admission).await
+    reencode_and_answer(bytes, None, &policy, deadline, admission, None, None).await
 }
 
 /// `GET /api/rc/f/{token}` — a remote file linked from the message, downloaded

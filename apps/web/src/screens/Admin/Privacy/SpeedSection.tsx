@@ -11,7 +11,7 @@ import { StatusBadge, type StatusTone } from '../shell/StatusBadge.tsx';
 import { ChartSkeleton, StatsSection, TableCard, TileSkeleton } from '../shell/ChartCard.tsx';
 import * as stats from '../shell/stats.css.ts';
 import * as css from './privacy.css.ts';
-import type { LatencySummary, PrivacyStats, ProxyLatency, SpeedVerdict } from './model.ts';
+import type { LatencySummary, PrivacyStats, ProxyHistory, ProxyLatency, SpeedVerdict } from './model.ts';
 import { HistoryChart } from './ProxyCharts.tsx';
 import { PersistedStats } from '../PersistedStats.tsx';
 
@@ -22,6 +22,41 @@ const TONE: Record<SpeedVerdict, StatusTone> = { healthy: 'ok', slow: 'warn', de
 const PHASES = ['queue', 'cache', 'upstream', 'decode'] as const;
 
 const series = (l: ProxyLatency, name: string): (number | null)[] => l.series[name] ?? [];
+const NEW_SERIES = ['coalescedFetches', 'highPriorityRequests', 'handleCacheHitPct', 'staleServed', 'revalidated', 'resized', 'resizeBytesSaved'] as const;
+const whole = (n: number): string => formatNumber(n, { maximumFractionDigits: 0 });
+const percent = (n: number): string => `${formatNumber(n, { maximumFractionDigits: 1 })} %`;
+const kib = (n: number): string => `${formatNumber(n / 1024, { maximumFractionDigits: 1 })} KiB`;
+
+/**
+ * Work the proxy avoided or reshaped, per interval: fetches that joined another
+ * request's fetch, requests that jumped the queue, the handle cache hit rate, images
+ * served stale and revalidated, and images downscaled. Shown only when the server
+ * sent at least one of the series (an older server does not).
+ */
+export function WorkPanel(props: { history: ProxyHistory | undefined }): JSX.Element {
+  const h = (): ProxyHistory => props.history ?? { t: [], series: {} };
+  const s = (name: string): (number | null)[] => h().series[name] ?? [];
+  const present = (): boolean => NEW_SERIES.some((name) => name in h().series);
+  return (
+    <Show when={present()}>
+      <div data-testid="speed-work" role="group" aria-label={t('privacy-work-title')}>
+        <h4>{t('privacy-work-title')}</h4>
+        <div class={stats.charts}>
+          <HistoryChart testId="chart-work-coalesced" title={t('privacy-work-coalesced')} unit={t('privacy-work-per-interval')} history={h()} format={whole}
+            series={[{ label: t('privacy-work-coalesced-series'), values: s('coalescedFetches') }, { label: t('privacy-work-priority-series'), values: s('highPriorityRequests') }]} />
+          <HistoryChart testId="chart-work-handle" title={t('privacy-work-handle')} unit={t('privacy-work-percent')} history={h()} format={percent}
+            series={[{ label: t('privacy-work-handle-series'), values: s('handleCacheHitPct') }]} />
+          <HistoryChart testId="chart-work-stale" title={t('privacy-work-stale')} unit={t('privacy-work-per-interval')} history={h()} format={whole}
+            series={[{ label: t('privacy-work-stale-series'), values: s('staleServed') }, { label: t('privacy-work-revalidated-series'), values: s('revalidated') }]} />
+          <HistoryChart testId="chart-work-resized" title={t('privacy-work-resized')} unit={t('privacy-work-per-interval')} history={h()} format={whole}
+            series={[{ label: t('privacy-work-resized-series'), values: s('resized') }]} />
+          <HistoryChart testId="chart-work-saved" title={t('privacy-work-saved')} unit={t('privacy-work-per-interval')} history={h()} format={kib}
+            series={[{ label: t('privacy-work-saved-series'), values: s('resizeBytesSaved') }]} />
+        </div>
+      </div>
+    </Show>
+  );
+}
 const count = (l: ProxyLatency, outcome: string): number => l.outcomes[outcome]?.count ?? 0;
 const orNA = (n: number | null | undefined): string => (n === null || n === undefined ? NA() : duration(n));
 const share = (n: number | null | undefined): string => (n === null || n === undefined ? NA() : `${formatNumber(n, { maximumFractionDigits: 1 })} %`);
@@ -131,6 +166,7 @@ export function SpeedSection(props: { stats: PrivacyStats | undefined; loading: 
         </Show>
       </Show>
     </StatsSection>
+    <Show when={ready()}><WorkPanel history={props.stats?.history} /></Show>
     <PersistedStats source="imageProxy" />
     </>
   );

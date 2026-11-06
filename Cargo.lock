@@ -5666,6 +5666,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "p256 0.14.0",
+ "png 0.18.1",
  "quick-xml",
  "rand 0.10.3",
  "rand 0.8.7",

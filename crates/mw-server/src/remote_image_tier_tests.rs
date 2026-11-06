@@ -102,6 +102,8 @@ fn cfg() -> TierConfig {
         ram_entries: 100,
         ram_entry_bytes: 4096,
         disk: disk_cfg(),
+        stale_secs: 0,
+        max_stale_secs: 0,
         ..TierConfig::default()
     }
 }
@@ -652,8 +654,27 @@ fn the_real_filesystem_backend_writes_atomically_with_hash_names_and_cleans_up()
 /// real global tier with the exact key the legacy proxy would use, then ask for it
 /// without a session and with a forged signed URL: neither may be served, and the
 /// tier must not even be probed (its hit and miss counters do not move).
-#[tokio::test]
-async fn an_unauthenticated_or_unsigned_request_never_reads_the_cache() {
+/// `build_app` mounts every route and its future is large in a debug build: on the
+/// default 2 MiB test-thread stack this test overflowed as the app grew (it passes at
+/// 3 MiB), so it runs its runtime on a thread with a stack that leaves room.
+#[test]
+fn an_unauthenticated_or_unsigned_request_never_reads_the_cache() {
+    std::thread::Builder::new()
+        .stack_size(32 << 20)
+        .spawn(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .thread_stack_size(32 << 20)
+                .enable_all()
+                .build()
+                .unwrap()
+                .block_on(unauthenticated_requests_never_read_the_cache())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+}
+
+async fn unauthenticated_requests_never_read_the_cache() {
     let dir = std::env::temp_dir().join(format!("mw-tier-auth-{}", rand_u128()));
     std::fs::create_dir_all(&dir).unwrap();
     let config = crate::AppConfig {
@@ -707,4 +728,99 @@ async fn an_unauthenticated_or_unsigned_request_never_reads_the_cache() {
         (after.ram_hits, after.disk_hits, after.misses),
         "a refused request must not read the cache"
     );
+}
+
+// ── stale-while-revalidate ─────────────────────────────────────────────────────
+
+fn put_swr(t: &ImageTier, url: &str, now: u64, up: Option<Upstream>, d: Directives) {
+    let bytes = png(7, 600);
+    let e = etag(&bytes);
+    t.lock().put_with(key_hash("direct", url), account_hash("acct"), Context::Open, e, Bytes::from(bytes), now, up, d);
+}
+
+fn probe_swr(t: &ImageTier, url: &str, now: u64, grace_secs: u64) -> Probe {
+    t.lock().probe_with(key_hash("direct", url), Context::Open, now, grace_secs * 1000)
+}
+
+fn swr_cfg() -> TierConfig {
+    TierConfig { stale_secs: 3600, max_stale_secs: 86_400, ..cfg() }
+}
+
+#[test]
+fn a_stale_entry_is_served_inside_the_window_and_is_not_extended_by_being_served() {
+    let io = Arc::new(MemIo::default());
+    let t = tier_with(&io, swr_cfg());
+    let up = Upstream { etag: Some("\"v1\"".into()), last_modified: None };
+    put_swr(&t, "https://a/s.png", NOW, Some(up.clone()), Directives::default());
+    // Past the base TTL (3600 s) but inside the window: stale, with the validators.
+    let at = NOW + 3_600_000 + 60_000;
+    match probe_swr(&t, "https://a/s.png", at, 3600) {
+        Probe::Hit { stale: true, validators, .. } => assert_eq!(validators, Some(up)),
+        _ => panic!("expected a stale hit"),
+    }
+    // Serving it again does not push its expiry out: still stale, not fresh.
+    assert!(matches!(probe_swr(&t, "https://a/s.png", at + 1000, 3600), Probe::Hit { stale: true, .. }));
+    // Without a window it is a plain miss (the old behaviour), and kept for the error fallback.
+    assert!(matches!(probe_swr(&t, "https://a/s.png", at, 0), Probe::Miss));
+    assert!(matches!(probe_swr(&t, "https://a/s.png", at, 86_400), Probe::Hit { stale: true, .. }));
+    // Past the window it is a miss for the revalidation path, but the error fallback still has it.
+    let later = NOW + 3_600_000 + 3_600_000 + 1;
+    assert!(matches!(probe_swr(&t, "https://a/s.png", later, 3600), Probe::Miss));
+    assert!(matches!(probe_swr(&t, "https://a/s.png", later, 86_400), Probe::Hit { stale: true, .. }));
+    // Past the maximum stale age it is gone.
+    let gone = NOW + 3_600_000 + 86_400_000 + 1;
+    assert!(matches!(probe_swr(&t, "https://a/s.png", gone, 86_400), Probe::Miss));
+    assert_eq!(t.stats(gone).index_entries, 0);
+}
+
+#[test]
+fn a_revalidated_entry_is_fresh_again_and_keeps_serving_without_a_refetch() {
+    let io = Arc::new(MemIo::default());
+    let t = tier_with(&io, swr_cfg());
+    put_swr(&t, "https://a/r.png", NOW, None, Directives::default());
+    let at = NOW + 3_600_000 + 5000;
+    assert!(matches!(probe_swr(&t, "https://a/r.png", at, 3600), Probe::Hit { stale: true, .. }));
+    let new = Upstream { etag: Some("\"v2\"".into()), last_modified: Some("Wed".into()) };
+    assert!(t.lock().renew(key_hash("direct", "https://a/r.png"), Some(new.clone()), Directives::default(), at));
+    match probe_swr(&t, "https://a/r.png", at + 1000, 3600) {
+        Probe::Hit { stale: false, validators, .. } => assert_eq!(validators, Some(new)),
+        _ => panic!("expected a fresh hit after the 304"),
+    }
+    assert_eq!(t.stats(at).counters.revalidated, 1);
+}
+
+#[test]
+fn sweep_keeps_an_entry_through_its_stale_window_and_then_drops_it() {
+    let io = Arc::new(MemIo::default());
+    let t = tier_with(&io, swr_cfg());
+    put_swr(&t, "https://a/w.png", NOW, None, Directives::default());
+    t.sweep(NOW + 3_600_001 + 60_000);
+    assert_eq!(t.stats(NOW).index_entries, 1, "kept for the stale window");
+    t.sweep(NOW + 3_600_000 + 86_400_000 + 1);
+    assert_eq!(t.stats(NOW).index_entries, 0);
+}
+
+#[test]
+fn cache_control_is_honoured() {
+    let d = parse_cache_control("public, max-age=60, s-maxage=30");
+    assert_eq!(d, Directives { no_store: false, no_cache: false, max_age: Some(30) });
+    assert!(parse_cache_control("no-store").no_store);
+    let nc = parse_cache_control("No-Cache");
+    assert!(nc.no_cache && nc.max_age.is_none());
+    assert!(parse_cache_control("max-age=0").no_cache);
+    assert_eq!(parse_cache_control("max-age=abc, private").max_age, None);
+
+    let io = Arc::new(MemIo::default());
+    let t = tier_with(&io, swr_cfg());
+    // no-store is never stored.
+    t.store_with("direct", "https://a/ns.png", "acct", Context::Open, "e".into(), png(1, 500), None, Directives { no_store: true, ..Default::default() });
+    assert_eq!(t.stats(NOW).index_entries, 0);
+    // max-age shorter than the base TTL bounds freshness, and hits do not extend it.
+    put_swr(&t, "https://a/ma.png", NOW, None, Directives { max_age: Some(60), ..Default::default() });
+    assert!(matches!(probe_swr(&t, "https://a/ma.png", NOW + 30_000, 3600), Probe::Hit { stale: false, .. }));
+    assert!(matches!(probe_swr(&t, "https://a/ma.png", NOW + 61_000, 3600), Probe::Hit { stale: true, .. }));
+    // no-cache is stale at once (served, then revalidated).
+    put_swr(&t, "https://a/nc.png", NOW, None, Directives { no_cache: true, ..Default::default() });
+    assert!(matches!(probe_swr(&t, "https://a/nc.png", NOW + 1, 3600), Probe::Hit { stale: true, .. }));
+    assert!(matches!(probe_swr(&t, "https://a/nc.png", NOW + 1, 0), Probe::Miss));
 }

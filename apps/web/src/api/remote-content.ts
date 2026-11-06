@@ -5,7 +5,7 @@ import {tokenize,TokenType as CssToken} from '@csstools/css-tokenizer';
 export function remoteServerBase(): string { return isNativeAuth() ? nativeServerBase() ?? location.origin : location.origin + basePath(); }
 
 export type RemoteMode = 'block' | 'ask' | 'proxy' | 'direct';
-export interface RemotePolicy { mode: RemoteMode; trackers: boolean; trackerOverrideAllowed?:boolean; imageLoadBudgetMs?:number; imageRetryAttempts?:number; imageRetryDelayMs?:number; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; remoteImageDownloads?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
+export interface RemotePolicy { mode: RemoteMode; trackers: boolean; trackerOverrideAllowed?:boolean; imageLoadBudgetMs?:number; imageRetryAttempts?:number; imageRetryDelayMs?:number; imageResizeMaxWidth?: number | null; cleanLinks: boolean; allowDirect: boolean; inlineParts?: boolean; remoteImageDownloads?: boolean; locked: { mode: boolean; trackers: boolean; cleanLinks: boolean } }
 export interface SignedContent { images: { url: string; src: string; ref?: string }[]; parts: { blobId: string; src: string }[]; files: { url: string; src: string }[]; imageDownloads?:{url:string;src:string}[]; refused: { url?: string; blobId?: string; reason: string }[] }
 export interface ReaderReferences { urls: string[]; cids: string[]; trackers: number; files: string[]; links: string[] }
 export const BLOCKED_POLICY: RemotePolicy = { mode: 'block', trackers: true, cleanLinks: true, allowDirect: false, locked: { mode: true, trackers: true, cleanLinks: true } };
@@ -103,9 +103,26 @@ function markFirstViewportImages(doc: Document): void {
     image.setAttribute('fetchpriority', n++ < FIRST_VIEWPORT_IMAGES ? 'high' : 'low');
   }
 }
+/** The widths the server accepts for a resized image (`w=`), ascending. */
+export const IMAGE_WIDTH_STEPS = [320, 640, 960, 1280, 1600] as const;
+/**
+ * The `w=` hint for the reader's frame: the smallest accepted step that covers the
+ * frame at its pixel density, never above the server's configured maximum. `null`
+ * when the server has not turned resizing on, so nothing is sent unless it is wanted.
+ */
+export function imageWidthHint(policy: Pick<RemotePolicy, 'imageResizeMaxWidth'>, cssWidth: number, pixelRatio = 1): number | null {
+  const max = policy.imageResizeMaxWidth;
+  if (typeof max !== 'number' || !Number.isFinite(max) || !Number.isFinite(cssWidth) || cssWidth <= 0) return null;
+  const needed = cssWidth * Math.min(Math.max(pixelRatio, 1), 2);
+  const allowed = IMAGE_WIDTH_STEPS.filter(step => step <= max);
+  if (allowed.length === 0) return null;
+  return allowed.find(step => step >= needed) ?? allowed[allowed.length - 1]!;
+}
+const withWidth = (src: string, width: number | null): string => (width === null ? src : `${src}${src.includes('?') ? '&' : '?'}w=${width}`);
 /** Replaces sanitizer placeholders only. Unapproved references remain inert. */
-export function rewriteReaderContent(html: string, signed: SignedContent, policy: RemotePolicy, cidParts: Readonly<Record<string, string>>, origin = remoteServerBase()): string {
+export function rewriteReaderContent(html: string, signed: SignedContent, policy: RemotePolicy, cidParts: Readonly<Record<string, string>>, origin = remoteServerBase(), frameWidth?: number, pixelRatio?: number): string {
   const doc = documentOf(html);
+  const hint = frameWidth === undefined ? null : imageWidthHint(policy, frameWidth, pixelRatio);
   const imageMap = new Map(signed.images.map(v => [v.url, signedSource(v.src, 'i', origin)]));
   const partMap = new Map(signed.parts.map(v => [v.blobId, signedSource(v.src, 'p', origin)]));
   const refs = new Map<string, string>();
@@ -114,7 +131,7 @@ export function rewriteReaderContent(html: string, signed: SignedContent, policy
     const url = marker.getAttribute('data-mw-rc-url') ?? '';
     if (!/^\d+$/.test(id) || (policy.trackers && marker.hasAttribute('data-mw-tracker'))) continue;
     const src = policy.mode === 'direct' && policy.allowDirect ? httpUrl(url, true) : policy.mode === 'block' ? null : imageMap.get(url);
-    if (src) refs.set(id, src);
+    if (src) refs.set(id, policy.mode === 'direct' && policy.allowDirect ? src : withWidth(src, hint));
   }
   for (const element of doc.querySelectorAll('[src],[srcset],[style],[background]')) {
     for (const attr of ['src', 'srcset', 'style', 'background']) {

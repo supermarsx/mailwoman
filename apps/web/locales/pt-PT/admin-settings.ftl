@@ -1274,6 +1274,24 @@ admin-settings-help-privacy-image-snapshot-secs = Segundos entre instantâneos a
 admin-settings-key-privacy-image-sweep-batch = Tamanho do lote de manutenção
 admin-settings-help-privacy-image-sweep-batch = Entradas que uma passagem de manutenção pode expirar, recalcular ou retirar. Limita o trabalho feito com a cache bloqueada. Intervalo 16–8192; predefinição 256.
 
+admin-settings-key-privacy-image-cache-stale-secs = Servir desatualizada durante a revalidação (segundos)
+admin-settings-help-privacy-image-cache-stale-secs = Segundos após o fim da validade durante os quais uma imagem em cache é servida de imediato enquanto é revalidada em segundo plano. Zero desativa. Intervalo 0–86400; predefinição 3600.
+
+admin-settings-key-privacy-image-cache-max-stale-secs = Manter desatualizada se a origem falhar (segundos)
+admin-settings-help-privacy-image-cache-max-stale-secs = Segundos após o fim da validade durante os quais uma imagem em cache é mantida para responder quando a origem não está acessível. Nunca abaixo da janela de revalidação. Intervalo 0–604800; predefinição 86400.
+
+admin-settings-key-privacy-image-resize-enabled = Redimensionar imagens grandes
+admin-settings-help-privacy-image-resize-enabled = Reduz as imagens remotas grandes à largura pedida pelo leitor (320, 640, 960, 1280 ou 1600 píxeis). As imagens animadas são servidas sem alteração. Desativado por predefinição.
+
+admin-settings-key-privacy-image-resize-max-width = Largura máxima redimensionada (píxeis)
+admin-settings-help-privacy-image-resize-max-width = A maior largura que o redimensionamento produz. Intervalo 320–1600; predefinição 1600.
+
+admin-settings-key-privacy-image-resize-max-pixels = Maior imagem a redimensionar (píxeis)
+admin-settings-help-privacy-image-resize-max-pixels = Imagens com mais píxeis decodificados do que este valor são servidas sem alteração; o tamanho é lido do cabeçalho antes de qualquer descodificação. Intervalo 100000–64000000; predefinição 4000000.
+
+admin-settings-key-privacy-image-resize-format = Formato da imagem redimensionada
+admin-settings-help-privacy-image-resize-format = Automático escolhe o melhor codificador disponível, que é PNG. Predefinição automático.
+
 admin-image-proxy-title = Painel da cache de imagens
 admin-image-proxy-unavailable = O painel da cache de imagens não está disponível.
 admin-image-proxy-unknown = desconhecido

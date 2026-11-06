@@ -769,6 +769,11 @@ pub(crate) fn hit_percent() -> Option<u8> {
 #[path = "remote_image_tier.rs"]
 pub(super) mod tier;
 
+#[path = "remote_image_swr.rs"]
+pub(crate) mod swr;
+#[path = "remote_image_resize.rs"]
+pub(crate) mod resize;
+
 #[path = "remote_image_adaptive.rs"]
 pub(super) mod adaptive;
 #[path = "remote_image_history.rs"]
@@ -1110,10 +1115,20 @@ async fn proxy_image(
     uri: axum::http::Uri,
 ) -> Response {
     let high = requested_priority(&headers, uri.query());
-    with_priority(high, latency::track(proxy_image_inner(state, headers, q))).await
+    let width_hint = resize::parse_hint(uri.query());
+    with_priority(
+        high,
+        latency::track(proxy_image_inner(state, headers, q, width_hint)),
+    )
+    .await
 }
 
-async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -> Response {
+async fn proxy_image_inner(
+    state: AppState,
+    headers: HeaderMap,
+    q: ProxyQuery,
+    width_hint: Option<u32>,
+) -> Response {
     // Require a session — never an open relay. Capture it for the per-account rate
     // limit below.
     let session = match crate::authed(&state, &headers).await {
@@ -1183,16 +1198,40 @@ async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -
 
     // Serve a cache hit before doing any work (and honor If-None-Match). A cache hit
     // performs no upstream fetch, so it does NOT consume the per-account rate budget.
+    // A resized copy is a different cache entry from the full image.
+    let width = policy.image_resize.target(width_hint);
+    let key_url = match width {
+        Some(w) => format!("{}{}", q.url, resize::key_suffix(w, &policy.image_resize)),
+        None => q.url.clone(),
+    };
     let key = CacheKey::new(
         &format!("{route_id}:legacy:{}:{}", policy.trackers, policy.max_bytes),
-        &q.url,
+        &key_url,
     )
     .by(&session.account_id, q.email_id.is_some());
     // Authentication, the grant and the egress plan are all behind this point; the
     // tier is only reached by an authorised request.
     let tier = tier::prepare(&policy.image_tier).await;
     let cached_response = || async {
-        let (etag, png) = tier.lookup(&key.route, &key.url, key.ctx).await?;
+        let found = tier
+            .lookup_swr(&key.route, &key.url, key.ctx, policy.image_tier.stale_secs)
+            .await?;
+        swr::note(if found.stale { swr::Kind::Stale } else { swr::Kind::Hit });
+        if found.stale {
+            swr::spawn_for(
+                &state,
+                &policy,
+                route_id,
+                domain.as_deref(),
+                &key,
+                &q.url,
+                (&session.account_id, q.email_id.as_deref().unwrap_or("")),
+                found.validators.clone(),
+                "image/*",
+                width,
+            );
+        }
+        let (etag, png) = (found.etag, found.png);
         record_cache(true);
         if if_none_match(&headers, &etag) {
             return Some(not_modified(&etag));
@@ -1233,6 +1272,12 @@ async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -
         &q.url,
         policy.negative_cache_ttl,
     ) {
+        // An origin known to be down does not take a still-kept copy away.
+        if let Some((etag, png)) =
+            swr::stale_on_error(tier, &key, policy.image_tier.max_stale_secs).await
+        {
+            return image_response(png, etag);
+        }
         return remote_content::failed_response(failure.refusal(), policy.negative_cache_ttl);
     }
 
@@ -1240,6 +1285,7 @@ async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -
     // charge the account one token here. Exhaustion -> 429 (per-replica; see
     // `AccountRateLimiter`).
     record_cache(false);
+    swr::note(swr::Kind::Miss);
     if !remote_content::charge_image_fetch(
         &session.account_id,
         q.email_id.as_deref().unwrap_or(""),
@@ -1269,7 +1315,7 @@ async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -
     let request = Request::get(TrafficClass::RemoteContent)
         .response_limit(policy.max_bytes)
         .accept("image/*");
-    let (raw, content_type, admission) = match remote_content::guarded_fetch(
+    let body = match remote_content::guarded_fetch(
         &state,
         &plan,
         route_id,
@@ -1286,9 +1332,21 @@ async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -
     )
     .await
     {
-        Ok(fetched) => fetched,
-        Err(response) => return response,
+        Ok(remote_content::Fetched::Body(body)) => body,
+        Ok(remote_content::Fetched::NotModified { .. }) => {
+            return refusal_response(Refusal::Upstream);
+        }
+        Err(response) => {
+            // The origin failed: a kept copy past its freshness beats an error.
+            if let Some((etag, png)) =
+                swr::stale_on_error(tier, &key, policy.image_tier.max_stale_secs).await
+            {
+                return image_response(png, etag);
+            }
+            return response;
+        }
     };
+    let remote_content::FetchedBody { raw, content_type, admission, upstream, directives } = body;
 
     if let Some(why) = remote_content::type_refusal(content_type.as_deref(), &raw) {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, why).into_response();
@@ -1299,6 +1357,8 @@ async fn proxy_image_inner(state: AppState, headers: HeaderMap, q: ProxyQuery) -
         &policy,
         deadline,
         admission.with_flight(flight),
+        Some((upstream, directives)),
+        width,
     )
     .await
 }

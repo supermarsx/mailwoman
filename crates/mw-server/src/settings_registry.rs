@@ -1743,6 +1743,54 @@ pub static REGISTRY: &[SettingDef] = &[
         "Entries one maintenance sweep may expire, rescore or evict"
     ),
     def!(
+        "privacy.imageCacheStaleSecs",
+        int(0, 86400),
+        "3600",
+        G,
+        "imageProxy",
+        "Seconds past its freshness a cached image is still served at once while it is revalidated in the background (If-None-Match / If-Modified-Since, one revalidation per image); zero turns stale-while-revalidate off"
+    ),
+    def!(
+        "privacy.imageCacheMaxStaleSecs",
+        int(0, 604800),
+        "86400",
+        G,
+        "imageProxy",
+        "Seconds past its freshness a cached image is kept to answer when the origin cannot be reached; never below the stale-while-revalidate window"
+    ),
+    def!(
+        "privacy.imageResizeEnabled",
+        Kind::Bool,
+        "false",
+        G,
+        "imageProxy",
+        "Scale oversized remote images down to the width the reader's frame asks for (320, 640, 960, 1280 or 1600 pixels) after the sandboxed decode; animated images pass through unchanged"
+    ),
+    def!(
+        "privacy.imageResizeMaxWidth",
+        int(320, 1600),
+        "1600",
+        G,
+        "imageProxy",
+        "Widest image the resize will produce, in pixels; a frame asking for more gets this width"
+    ),
+    def!(
+        "privacy.imageResizeMaxPixels",
+        int(100000, 64000000),
+        "4000000",
+        G,
+        "imageProxy",
+        "Largest decoded image, in pixels, the resize will touch; a larger one is served unscaled (checked from the image header before any pixel is decoded)"
+    ),
+    def!(
+        "privacy.imageResizeFormat",
+        Kind::Enum(&["auto", "png"]),
+        "\"auto\"",
+        G,
+        "imageProxy",
+        "Format of a resized image; auto picks the best encoder in the build, which is PNG (there is no lossy WebP encoder)"
+    ),
+    def!(
         "privacy.negativeCacheTtlSecs",
         int(0, 300),
         "10",
@@ -9206,6 +9254,7 @@ mod tests {
             if d.category == "imageProxy"
                 && !IMAGE_CACHE_KEYS.contains(&d.key)
                 && !d.key.starts_with("privacy.imageRate")
+                && !d.key.starts_with("privacy.imageResize")
                 && !matches!(
                     d.key,
                     "privacy.ratePerMin" | "privacy.rateBurst" | "privacy.imageLatencyTracking"

@@ -104,6 +104,12 @@ pub(crate) struct TierConfig {
     pub sweep_secs: u64,
     pub snapshot_secs: u64,
     pub sweep_batch: usize,
+    /// How long past its freshness an entry is still served at once while it is
+    /// revalidated in the background. Zero turns stale-while-revalidate off.
+    pub stale_secs: u64,
+    /// How long past its freshness an entry is kept to answer when the origin
+    /// cannot be reached. Never below `stale_secs`.
+    pub max_stale_secs: u64,
     pub disk: DiskConfig,
 }
 impl Default for TierConfig {
@@ -125,6 +131,8 @@ impl Default for TierConfig {
             sweep_secs: 30,
             snapshot_secs: 300,
             sweep_batch: 256,
+            stale_secs: 3600,
+            max_stale_secs: 86_400,
             disk: DiskConfig::default(),
         }
     }
@@ -527,7 +535,63 @@ struct Entry {
     kt: u64,
     stamp: u64,
     dirty: bool,
+    validators: Option<Upstream>,
+    /// The latest instant the origin's `Cache-Control` lets the entry count as fresh;
+    /// a hit never extends the lifetime past it.
+    fresh_cap: Option<u64>,
 }
+
+/// What the origin sent that a later revalidation needs: the validators. Held in the
+/// index only, so an entry restored from disk revalidates by refetching in full.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Upstream {
+    pub etag: Option<String>,
+    pub last_modified: Option<String>,
+}
+
+impl Upstream {
+    pub(crate) fn is_empty(&self) -> bool {
+        self.etag.is_none() && self.last_modified.is_none()
+    }
+}
+
+/// The parts of the origin's `Cache-Control` this cache honours.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Directives {
+    /// Do not store the response at all.
+    pub no_store: bool,
+    /// Store it, but treat it as stale at once (serve stale, revalidate).
+    pub no_cache: bool,
+    /// Freshness lifetime in seconds; `s-maxage` wins over `max-age` (this cache is
+    /// shared between accounts).
+    pub max_age: Option<u64>,
+}
+
+/// Parse a `Cache-Control` value. Unknown directives are ignored; a malformed
+/// number is ignored rather than guessed at.
+pub(crate) fn parse_cache_control(value: &str) -> Directives {
+    let mut d = Directives::default();
+    let (mut max_age, mut s_maxage) = (None, None);
+    for part in value.split(',') {
+        let part = part.trim().to_ascii_lowercase();
+        let (name, arg) = part
+            .split_once('=')
+            .map_or((part.as_str(), ""), |(n, a)| (n.trim(), a.trim().trim_matches('"')));
+        match name {
+            "no-store" => d.no_store = true,
+            "no-cache" => d.no_cache = true,
+            "max-age" => max_age = arg.parse::<u64>().ok(),
+            "s-maxage" => s_maxage = arg.parse::<u64>().ok(),
+            _ => {}
+        }
+    }
+    d.max_age = s_maxage.or(max_age);
+    if d.max_age == Some(0) {
+        d.no_cache = true;
+    }
+    d
+}
+
 impl Entry {
     fn on_disk_or_pending(&self) -> bool {
         self.on_disk || self.pending.is_some()
@@ -558,6 +622,8 @@ pub(crate) struct Counters {
     pub drops: u64,
     pub disk_errors: u64,
     pub drift_recoveries: u64,
+    pub stale_hits: u64,
+    pub revalidated: u64,
 }
 
 struct State {
@@ -585,6 +651,15 @@ struct State {
     last_free: Option<u64>,
 }
 
+/// A lookup that found an entry.
+pub(crate) struct Found {
+    pub etag: String,
+    pub png: Bytes,
+    pub stale: bool,
+    pub validators: Option<Upstream>,
+    pub disk: bool,
+}
+
 pub(crate) enum Probe {
     Miss,
     Hit {
@@ -592,6 +667,9 @@ pub(crate) enum Probe {
         png: Bytes,
         #[cfg_attr(not(test), allow(dead_code))]
         tier: Tier,
+        /// Past its freshness but inside the stale window; not counted as a use.
+        stale: bool,
+        validators: Option<Upstream>,
     },
     NeedDisk { name: String, size: usize },
 }
@@ -846,6 +924,12 @@ impl State {
         self.set_insert(h);
     }
 
+    fn remove_by_hash(&mut self, h: Hash) {
+        if self.map.contains_key(&h) {
+            self.remove_entry(h);
+        }
+    }
+
     fn set_expiry(&mut self, h: Hash, new: u64) {
         if let Some(e) = self.map.get_mut(&h)
             && e.expires != new
@@ -866,7 +950,10 @@ impl State {
         e.last_used = now;
         e.ctx = ctx;
         e.dirty = true;
-        let new_exp = extended_expiry(&self.cfg, e.created, now, e.expires, e.hits);
+        let mut new_exp = extended_expiry(&self.cfg, e.created, now, e.expires, e.hits);
+        if let Some(cap) = e.fresh_cap {
+            new_exp = new_exp.min(cap);
+        }
         self.snapshot_dirty = true;
         self.set_expiry(h, new_exp);
         self.rescore(h, now);
@@ -877,20 +964,37 @@ impl State {
     }
 
     fn probe(&mut self, h: Hash, ctx: Context, now: u64) -> Probe {
+        self.probe_with(h, ctx, now, 0)
+    }
+
+    /// [`Self::probe`] that also answers an entry up to `grace_ms` past its freshness,
+    /// marked stale. A stale answer does not count as a use and does not extend the
+    /// entry's lifetime.
+    fn probe_with(&mut self, h: Hash, ctx: Context, now: u64, grace_ms: u64) -> Probe {
         let Some(e) = self.map.get(&h) else {
             self.counters.misses += 1;
             return Probe::Miss;
         };
-        if self.cfg.ttl_base_secs == 0 || self.is_stale(e, now) {
-            // At max age the egress layer cannot revalidate (the image fetch keeps
-            // no upstream validators), so the entry is refetched.
-            self.remove_entry(h);
+        let hard = now >= e.created + self.cfg.max_age_secs * 1000;
+        let expired = self.is_stale(e, now);
+        if self.cfg.ttl_base_secs == 0 || hard || (expired && now >= e.expires.saturating_add(grace_ms)) {
+            // Past the window the entry is refetched in full. It is kept while the
+            // origin-down fallback ([`TierConfig::max_stale_secs`]) may still want it.
+            let keep_until = e.expires.saturating_add(self.cfg.max_stale_secs * 1000);
+            if self.cfg.ttl_base_secs == 0 || hard || now >= keep_until {
+                self.remove_entry(h);
+            }
             self.counters.misses += 1;
             return Probe::Miss;
         }
         let tier = e.tier();
         if let Some(bytes) = e.ram.clone().or_else(|| e.pending.clone()) {
             let etag = e.etag.clone();
+            let validators = e.validators.clone();
+            if expired {
+                self.counters.stale_hits += 1;
+                return Probe::Hit { etag, png: bytes, tier, stale: true, validators };
+            }
             self.record_hit(h, ctx, now);
             if tier == Tier::Ram {
                 self.counters.ram_hits += 1;
@@ -898,7 +1002,7 @@ impl State {
                 self.counters.disk_hits += 1;
                 self.maybe_promote(h, &bytes, now);
             }
-            return Probe::Hit { etag, png: bytes, tier };
+            return Probe::Hit { etag, png: bytes, tier, stale: false, validators };
         }
         Probe::NeedDisk { name: file_name(h), size: e.size }
     }
@@ -929,6 +1033,18 @@ impl State {
     }
 
     fn finish_disk(&mut self, h: Hash, payload: Option<Bytes>, ctx: Context, now: u64) -> Option<(String, Bytes)> {
+        self.finish_disk_swr(h, payload, ctx, now).map(|(etag, png, ..)| (etag, png))
+    }
+
+    /// [`Self::finish_disk`] that also reports whether the entry is stale (then it
+    /// counts as no use) and its validators.
+    fn finish_disk_swr(
+        &mut self,
+        h: Hash,
+        payload: Option<Bytes>,
+        ctx: Context,
+        now: u64,
+    ) -> Option<(String, Bytes, bool, Option<Upstream>)> {
         let Some(bytes) = payload else {
             // Drift: the index said disk, the file was missing or unreadable.
             if self.map.contains_key(&h) {
@@ -940,13 +1056,55 @@ impl State {
         };
         let e = self.map.get(&h)?;
         let etag = e.etag.clone();
+        let validators = e.validators.clone();
+        if self.is_stale(e, now) {
+            self.counters.stale_hits += 1;
+            return Some((etag, bytes, true, validators));
+        }
         self.counters.disk_hits += 1;
         self.record_hit(h, ctx, now);
         self.maybe_promote(h, &bytes, now);
-        Some((etag, bytes))
+        Some((etag, bytes, false, validators))
+    }
+
+    /// A `304` renews an entry: its freshness restarts from `now`, within the
+    /// origin's directives and the hard maximum age, and its validators are replaced.
+    fn renew(&mut self, h: Hash, upstream: Option<Upstream>, directives: Directives, now: u64) -> bool {
+        let Some(e) = self.map.get_mut(&h) else { return false };
+        let created = e.created;
+        let mut cap = directives.max_age.map(|n| now + n * 1000);
+        if directives.no_cache {
+            cap = Some(now);
+        }
+        e.fresh_cap = cap;
+        if let Some(u) = upstream.filter(|u| !u.is_empty()) {
+            e.validators = Some(u);
+        }
+        let mut new = initial_expiry(&self.cfg, now).min(created + self.cfg.max_age_secs * 1000);
+        if let Some(cap) = cap {
+            new = new.min(cap);
+        }
+        self.set_expiry(h, new);
+        self.counters.revalidated += 1;
+        true
     }
 
     fn put(&mut self, h: Hash, account: u64, ctx: Context, etag: String, png: Bytes, now: u64) {
+        self.put_with(h, account, ctx, etag, png, now, None, Directives::default());
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn put_with(
+        &mut self,
+        h: Hash,
+        account: u64,
+        ctx: Context,
+        etag: String,
+        png: Bytes,
+        now: u64,
+        upstream: Option<Upstream>,
+        directives: Directives,
+    ) {
         let size = png.len();
         let cfg_ok = self.cfg.ttl_base_secs > 0;
         if self.map.contains_key(&h) {
@@ -972,6 +1130,12 @@ impl State {
             on_disk: false,
             created,
             expires: initial_expiry(&self.cfg, created),
+            validators: upstream.filter(|u| !u.is_empty()),
+            fresh_cap: if directives.no_cache {
+                Some(created)
+            } else {
+                directives.max_age.map(|n| created + n * 1000)
+            },
             last_used: now,
             hits: 0.0,
             total_hits: 0,
@@ -982,6 +1146,9 @@ impl State {
             stamp: 0,
             dirty: true,
         };
+        if let Some(cap) = entry.fresh_cap {
+            entry.expires = entry.expires.min(cap);
+        }
         entry.skey = self.rescored_key(&entry, now);
         entry.kt = entry.last_used;
         if to_ram {
@@ -1339,6 +1506,8 @@ impl ImageTier {
                         kt: 0,
                         stamp: 0,
                         dirty: false,
+                        validators: None,
+                        fresh_cap: None,
                     };
                     e.skey = s.rescored_key(&e, now);
                     e.kt = e.last_used;
@@ -1375,24 +1544,62 @@ impl ImageTier {
         found.map(|(etag, png, _)| (etag, png))
     }
 
-    /// The lookup itself; the flag says the hit came from disk.
+    /// [`Self::lookup`] that also answers an entry up to `grace_secs` past its
+    /// freshness, marked stale and carrying the validators for revalidation. A stale
+    /// answer counts as no use. The caller has already authorised the request.
+    pub(crate) async fn lookup_swr(
+        self: &Arc<Self>,
+        route: &str,
+        url: &str,
+        ctx: Context,
+        grace_secs: u64,
+    ) -> Option<Found> {
+        super::latency::engage();
+        let found = super::latency::timed(
+            super::latency::Phase::Cache,
+            self.lookup_tiers_swr(route, url, ctx, grace_secs * 1000),
+        )
+        .await;
+        if let Some(f) = &found
+            && !f.stale
+        {
+            super::latency::note_hit(f.disk);
+        }
+        found
+    }
+
     async fn lookup_tiers(
         self: &Arc<Self>,
         route: &str,
         url: &str,
         ctx: Context,
     ) -> Option<(String, Bytes, bool)> {
+        self.lookup_tiers_swr(route, url, ctx, 0)
+            .await
+            .map(|f| (f.etag, f.png, f.disk))
+    }
+
+    /// The lookup itself; `disk` says the hit came from disk.
+    async fn lookup_tiers_swr(
+        self: &Arc<Self>,
+        route: &str,
+        url: &str,
+        ctx: Context,
+        grace_ms: u64,
+    ) -> Option<Found> {
         let h = key_hash(route, url);
         let now = now_ms();
         let (probe, io) = {
             let mut s = self.lock();
-            let p = s.probe(h, ctx, now);
+            let p = s.probe_with(h, ctx, now, grace_ms);
             let io = matches!(p, Probe::NeedDisk { .. }).then(|| s.io.clone()).flatten();
             (p, io)
         };
         match probe {
             Probe::Miss => None,
-            Probe::Hit { etag, png, .. } => Some((etag, png, false)),
+            Probe::Hit { etag, png, stale, validators, .. } => {
+                Some(Found { etag, png, stale, validators, disk: false })
+            }
             Probe::NeedDisk { name, size } => {
                 let Some(io) = io else {
                     // Disk detached since the index entry was made.
@@ -1407,11 +1614,57 @@ impl ImageTier {
                 .await
                 .ok()
                 .flatten();
-                let result = self.lock().finish_disk(h, read, ctx, now_ms());
+                let result = self.lock().finish_disk_swr(h, read, ctx, now_ms());
                 self.notify.notify_one();
-                result.map(|(etag, png)| (etag, png, true))
+                result.map(|(etag, png, stale, validators)| Found { etag, png, stale, validators, disk: true })
             }
         }
+    }
+
+    /// [`Self::store`] with what the origin said: its validators (kept for a later
+    /// conditional request) and its `Cache-Control` (`no-store` stores nothing,
+    /// `no-cache` and `max-age` bound how long the entry counts as fresh).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn store_with(
+        &self,
+        route: &str,
+        url: &str,
+        account: &str,
+        ctx: Context,
+        etag: String,
+        png: Vec<u8>,
+        upstream: Option<Upstream>,
+        directives: Directives,
+    ) {
+        if directives.no_store {
+            return;
+        }
+        let queued = {
+            let mut s = self.lock();
+            s.put_with(
+                key_hash(route, url),
+                account_hash(account),
+                ctx,
+                etag,
+                Bytes::from(png),
+                now_ms(),
+                upstream,
+                directives,
+            );
+            !s.jobs.is_empty()
+        };
+        if queued {
+            self.notify.notify_one();
+        }
+    }
+
+    /// The origin answered `304` (or an identical body): restart the entry's freshness.
+    pub(crate) fn renew(&self, route: &str, url: &str, upstream: Option<Upstream>, directives: Directives) -> bool {
+        if directives.no_store {
+            self.lock().remove_by_hash(key_hash(route, url));
+            return false;
+        }
+        self.lock().renew(key_hash(route, url), upstream, directives, now_ms())
     }
 
     pub(crate) fn store(&self, route: &str, url: &str, account: &str, ctx: Context, etag: String, png: Vec<u8>) {
@@ -1497,10 +1750,12 @@ impl ImageTier {
         let mut snapshot: Option<(Arc<dyn DiskIo>, String)> = None;
         let probe_dir = {
             let mut s = self.lock();
+            let grace_ms = s.cfg.stale_secs.max(s.cfg.max_stale_secs) * 1000;
             let batch = s.cfg.sweep_batch.max(1);
             for _ in 0..batch {
                 let Some(&(exp, h)) = s.expiry.iter().next() else { break };
-                if exp > now {
+                // Kept past freshness for the stale window.
+                if exp.saturating_add(grace_ms) > now {
                     break;
                 }
                 s.remove_entry(h);
@@ -1689,6 +1944,8 @@ pub(crate) fn readout(cfg: &TierConfig, st: &TierStats) -> serde_json::Value {
     let c = &st.counters;
     let rate = |hits: u64, total: u64| (total > 0).then(|| hits * 100 / total);
     let lookups = c.ram_hits + c.disk_hits + c.misses;
+    let swr = super::swr::counters();
+    let resized = super::resize::counters();
     serde_json::json!({
         "configured": {
             "ramBytes": cfg.ram_bytes, "ramEntries": cfg.ram_entries, "ramEntryBytes": cfg.ram_entry_bytes,
@@ -1723,6 +1980,16 @@ pub(crate) fn readout(cfg: &TierConfig, st: &TierStats) -> serde_json::Value {
         "promotionsPerMin": st.promotions_per_min,
         "promotions": c.promotions, "demotions": c.demotions, "drops": c.drops,
         "misses": c.misses, "hitPercent": rate(c.ram_hits + c.disk_hits, lookups),
+        "freshness": {
+            "staleSecs": cfg.stale_secs, "maxStaleSecs": cfg.max_stale_secs,
+            "hit": swr.hit, "stale": swr.stale, "miss": swr.miss,
+            "revalidated": swr.revalidated, "replaced": swr.replaced,
+            "revalidationFailures": swr.failed, "staleOnError": swr.stale_on_error,
+            "revalidating": super::swr::in_progress(),
+        },
+        "resize": {
+            "resized": resized.0, "bytesSaved": resized.1, "resizeMs": resized.2, "passedThrough": resized.3,
+        },
     })
 }
 

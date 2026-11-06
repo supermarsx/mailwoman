@@ -1274,6 +1274,24 @@ admin-settings-help-privacy-image-snapshot-secs = Seconds between atomic snapsho
 admin-settings-key-privacy-image-sweep-batch = Sweep batch size
 admin-settings-help-privacy-image-sweep-batch = Entries one maintenance sweep may expire, rescore or evict. Bounds the work done under the cache lock. Range 16–8192; default 256.
 
+admin-settings-key-privacy-image-cache-stale-secs = Serve stale while revalidating (seconds)
+admin-settings-help-privacy-image-cache-stale-secs = Seconds past its freshness a cached image is still served at once while it is revalidated in the background. Zero turns it off. Range 0–86400; default 3600.
+
+admin-settings-key-privacy-image-cache-max-stale-secs = Keep stale when the origin fails (seconds)
+admin-settings-help-privacy-image-cache-max-stale-secs = Seconds past its freshness a cached image is kept to answer when the origin cannot be reached. Never below the revalidation window. Range 0–604800; default 86400.
+
+admin-settings-key-privacy-image-resize-enabled = Resize large images
+admin-settings-help-privacy-image-resize-enabled = Scale oversized remote images down to the width the reader asks for (320, 640, 960, 1280 or 1600 pixels). Animated images are served unscaled. Off by default.
+
+admin-settings-key-privacy-image-resize-max-width = Widest resized image (pixels)
+admin-settings-help-privacy-image-resize-max-width = The widest image the resize produces. Range 320–1600; default 1600.
+
+admin-settings-key-privacy-image-resize-max-pixels = Largest image to resize (pixels)
+admin-settings-help-privacy-image-resize-max-pixels = Images with more decoded pixels than this are served unscaled; the size is read from the header before any decoding. Range 100000–64000000; default 4000000.
+
+admin-settings-key-privacy-image-resize-format = Resized image format
+admin-settings-help-privacy-image-resize-format = Auto picks the best encoder in the build, which is PNG. Default auto.
+
 admin-image-proxy-title = Image cache readout
 admin-image-proxy-unavailable = The image cache readout is not available.
 admin-image-proxy-unknown = unknown

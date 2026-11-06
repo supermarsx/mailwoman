@@ -190,7 +190,7 @@ pub(crate) async fn batch(
             let session = session.clone();
             let policy = policy.clone();
             async move {
-                let response = fetch_image(state, session, claims, policy, HeaderMap::new()).await;
+                let response = fetch_image(state, session, claims, policy, HeaderMap::new(), None).await;
                 describe(index, response, want_bodies).await
             }
         })

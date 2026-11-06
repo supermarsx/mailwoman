@@ -72,3 +72,34 @@ describe('image proxy speed section', () => {
     expect(await screen.findByTestId('speed-unavailable')).toHaveTextContent('not available');
   });
 });
+
+describe('image proxy work panel', () => {
+  const history = (series: Record<string, (number | null)[]>) => ({ t: [100, 160, 220], series });
+  const withHistory = (h: ReturnType<typeof history>): PrivacyStats => ({ ...stats(latency()), history: h });
+
+  it('charts the new series with their latest and highest values', async () => {
+    render(() => <SpeedSection stats={withHistory(history({
+      coalescedFetches: [0, 4, 7], highPriorityRequests: [1, 1, 2], handleCacheHitPct: [50, 75, 80],
+      staleServed: [0, 3, 9], revalidated: [0, 2, 5], resized: [1, 6, 8], resizeBytesSaved: [2048, 4096, 10240],
+    }))} loading={false} error={undefined} />);
+    const panel = await screen.findByTestId('speed-work');
+    expect(within(panel).getByTestId('chart-work-coalesced')).toBeInTheDocument();
+    expect(within(panel).getByTestId('chart-work-handle')).toHaveTextContent('80 %');
+    expect(within(panel).getByTestId('chart-work-stale')).toHaveTextContent('Served stale');
+    expect(within(panel).getByTestId('chart-work-stale')).toHaveTextContent('Revalidated');
+    expect(within(panel).getByTestId('chart-work-resized')).toHaveTextContent('8');
+    expect(within(panel).getByTestId('chart-work-saved')).toHaveTextContent('10 KiB');
+  });
+
+  it('is absent when the server sent none of the series', async () => {
+    render(() => <SpeedSection stats={withHistory(history({ requestsPerSec: [1, 2, 3] }))} loading={false} error={undefined} />);
+    await screen.findByTestId('speed-verdict');
+    expect(screen.queryByTestId('speed-work')).toBeNull();
+  });
+
+  it('says there is nothing yet for a series that has no samples', async () => {
+    render(() => <SpeedSection stats={withHistory(history({ resized: [null, null, null], staleServed: [null, null, null] }))} loading={false} error={undefined} />);
+    const panel = await screen.findByTestId('speed-work');
+    expect(within(panel).getByTestId('chart-work-resized')).toBeInTheDocument();
+  });
+});

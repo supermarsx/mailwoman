@@ -69,6 +69,11 @@ pub(crate) struct Sample {
     pub handle_hits: u64,
     pub handle_misses: u64,
     pub high_priority: u64,
+    pub stale_served: u64,
+    pub revalidated: u64,
+    pub resized: u64,
+    pub resize_saved: u64,
+    pub resize_ms: u64,
     pub ram_hits: u64,
     pub disk_hits: u64,
     pub misses: u64,
@@ -185,6 +190,11 @@ impl History {
             put("trackersReplaced", delta(a.trackers, b.trackers));
             put("coalescedFetches", delta(a.coalesced, b.coalesced));
             put("highPriorityRequests", delta(a.high_priority, b.high_priority));
+            put("staleServed", delta(a.stale_served, b.stale_served));
+            put("revalidated", delta(a.revalidated, b.revalidated));
+            put("resized", delta(a.resized, b.resized));
+            put("resizeBytesSaved", delta(a.resize_saved, b.resize_saved));
+            put("resizeMs", delta(a.resize_ms, b.resize_ms));
             put(
                 "handleCacheHitPct",
                 pct(
@@ -275,6 +285,11 @@ fn gather() -> Sample {
         handle_hits: super::remote_content::handle_cache::counters().0,
         handle_misses: super::remote_content::handle_cache::counters().1,
         high_priority: super::high_priority_requests(),
+        stale_served: super::swr::counters().stale,
+        revalidated: super::swr::counters().revalidated + super::swr::counters().replaced,
+        resized: super::resize::counters().0,
+        resize_saved: super::resize::counters().1,
+        resize_ms: super::resize::counters().2,
         ram_hits: tier.counters.ram_hits,
         disk_hits: tier.counters.disk_hits,
         misses: tier.counters.misses,

@@ -9,7 +9,7 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PrivacyPolicy {
     pub mode: String,
@@ -46,6 +46,12 @@ pub(crate) struct PrivacyPolicy {
     pub image_load_budget_ms: u64,
     pub image_retry_attempts: usize,
     pub image_retry_delay_ms: usize,
+    /// The widest image the reader's frame may ask for with a `w=` hint; absent when
+    /// the resize is off, which is also the client's cue not to send one.
+    pub image_resize_max_width: Option<u32>,
+    /// Optional downscale of oversized images (`privacy.imageResize*`).
+    #[serde(skip)]
+    pub image_resize: crate::image_proxy::resize::ResizeConfig,
     /// Timeouts, redirect cap and per-message/per-account concurrency (t56).
     #[serde(skip)]
     pub fetch: crate::image_proxy::remote_content::FetchLimits,
@@ -216,9 +222,15 @@ pub(crate) const POLICY_KEYS: &[&str] = &[
     "privacy.imageLatencyTracking",
     "privacy.imageRetryAttempts",
     "privacy.imageRetryDelayMs",
+    "privacy.imageCacheStaleSecs",
+    "privacy.imageCacheMaxStaleSecs",
+    "privacy.imageResizeEnabled",
+    "privacy.imageResizeMaxWidth",
+    "privacy.imageResizeMaxPixels",
+    "privacy.imageResizeFormat",
 ];
 
-#[derive(Serialize)]
+#[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct Locks {
     pub mode: bool,
@@ -369,6 +381,11 @@ pub(crate) async fn effective(
         image_load_budget_ms: fetch.overall_budget().as_millis() as u64,
         image_retry_attempts: number("privacy.imageRetryAttempts", 3),
         image_retry_delay_ms: number("privacy.imageRetryDelayMs", 5000),
+        image_resize: resize_config(&|key| values.get(key).map(|v| v.value.clone())),
+        image_resize_max_width: {
+            let r = resize_config(&|key| values.get(key).map(|v| v.value.clone()));
+            r.enabled.then_some(r.max_width)
+        },
         fetch,
     })
 }
@@ -410,6 +427,8 @@ pub(crate) const IMAGE_CACHE_KEYS: &[&str] = &[
     "privacy.imageSweepSecs",
     "privacy.imageSnapshotSecs",
     "privacy.imageSweepBatch",
+    "privacy.imageCacheStaleSecs",
+    "privacy.imageCacheMaxStaleSecs",
 ];
 
 /// The cache directory: the configured absolute path, or an `image-cache` folder
@@ -483,6 +502,9 @@ pub(crate) fn tier_config(
         sweep_secs: n("privacy.imageSweepSecs", d.sweep_secs),
         snapshot_secs: n("privacy.imageSnapshotSecs", d.snapshot_secs),
         sweep_batch: n("privacy.imageSweepBatch", d.sweep_batch as u64) as usize,
+        stale_secs: n("privacy.imageCacheStaleSecs", d.stale_secs),
+        max_stale_secs: n("privacy.imageCacheMaxStaleSecs", d.max_stale_secs)
+            .max(n("privacy.imageCacheStaleSecs", d.stale_secs)),
         disk: DiskConfig {
             enabled,
             path: if enabled { tier_path(&text) } else { None },
@@ -499,6 +521,21 @@ pub(crate) fn tier_config(
             ) as usize)
                 << 20,
         },
+    }
+}
+
+/// The optional image resize, from its `privacy.imageResize*` keys.
+pub(crate) fn resize_config(get: &dyn Fn(&str) -> Option<Value>) -> crate::image_proxy::resize::ResizeConfig {
+    use crate::image_proxy::resize::{Format, ResizeConfig};
+    let d = ResizeConfig::default();
+    let n = |key: &str, fallback: u64| get(key).and_then(|v| v.as_u64()).unwrap_or(fallback);
+    ResizeConfig {
+        enabled: get("privacy.imageResizeEnabled").and_then(|v| v.as_bool()).unwrap_or(d.enabled),
+        max_width: n("privacy.imageResizeMaxWidth", u64::from(d.max_width)) as u32,
+        max_pixels: n("privacy.imageResizeMaxPixels", d.max_pixels),
+        format: Format::parse(
+            get("privacy.imageResizeFormat").and_then(|v| v.as_str().map(str::to_owned)).as_deref().unwrap_or("auto"),
+        ),
     }
 }
 
