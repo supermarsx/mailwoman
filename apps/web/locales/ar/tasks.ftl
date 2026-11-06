@@ -39,3 +39,6 @@ tasks-delete-no = الإبقاء على المهمة
 tasks-changed-elsewhere = عُدّلت هذه المهمة على جهاز أو جلسة أخرى. يُحتفظ بتعديلاتك، ولا يطبّق «حفظ» إلا الحقول التي غيّرتها.
 tasks-deleted-elsewhere = حُذفت «{ $title }» على جهاز أو جلسة أخرى، لذا أُغلق نموذج تعديلها.
 tasks-notice-dismiss = تجاهل
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = تعذّر إنشاء المهمة. { $reason }

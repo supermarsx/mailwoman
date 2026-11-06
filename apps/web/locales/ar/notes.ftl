@@ -61,3 +61,9 @@ notes-link-button = ربط
 notes-changed-elsewhere = عُدّلت هذه الملاحظة على جهاز أو جلسة أخرى. يُحتفظ بالنص الذي كتبته هنا، ويحفظه تعديلك التالي.
 notes-deleted-elsewhere = حُذفت الملاحظة التي كانت مفتوحة لديك على جهاز أو جلسة أخرى.
 notes-create-failed = تعذّر إنشاء الملاحظة.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = تعذّر إنشاء الملاحظة. { $reason }
+notes-toast-pinned = تم تثبيت الملاحظة «{ $target }»
+notes-toast-unpinned = تم إلغاء تثبيت الملاحظة «{ $target }»
+notes-toast-pin-failed = تعذّر تغيير تثبيت الملاحظة «{ $target }»

@@ -1,0 +1,65 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ar · Module: search. Source: ../en/search.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+search-submit-help = بحث (Enter)
+search-clear-help = مسح البحث (Esc)
+search-filters-label = عوامل تصفية البحث
+search-guided-button = عوامل التصفية
+search-guided-title = البحث الموجَّه
+search-guided-help = اختر من أو ماذا أو متى تبحث. أضف عوامل تصفية لتضييق النتائج.
+search-include-trash = تضمين المهملات
+search-add-filter = إضافة عامل تصفية
+search-chip-edit = تحرير عامل التصفية: { $label }
+search-chip-switch = تبديل عامل التصفية: { $label }
+search-chip-remove = إزالة عامل التصفية: { $label }
+search-chip-negated = ليس { $value }
+search-field-from = من
+search-field-to = إلى
+search-field-cc = نسخة
+search-field-subject = الموضوع
+search-field-body = النص
+search-field-text = نص
+search-field-filename = اسم الملف
+search-field-tag = تسمية
+search-field-date = التاريخ
+search-field-size = الحجم
+search-field-scope = المجلد
+search-field-expression = تعبير
+search-field-other = عامل تصفية
+search-chip-attachment = يحتوي على مرفق
+search-chip-no-attachment = بلا مرفق
+search-chip-event = يحتوي على حدث
+search-chip-no-event = بلا حدث
+search-chip-unread = غير مقروءة
+search-chip-read = مقروءة
+search-chip-flagged = موسومة بعلامة
+search-chip-unflagged = غير موسومة بعلامة
+search-chip-pinned = مثبّتة
+search-chip-unpinned = غير مثبّتة
+search-date-after = بعد
+search-date-before = قبل
+search-date-between = من { $after } إلى { $before }
+search-date-since = منذ { $date }
+search-date-until = قبل { $date }
+search-date-invalid = أدخل التواريخ بصيغة YYYY-MM-DD.
+search-size-larger = أكبر من
+search-size-smaller = أصغر من
+search-size-hint = مثال: 500k أو 2m
+search-size-between = من { $larger } إلى { $smaller }
+search-size-over = أكثر من { $size }
+search-size-under = أقل من { $size }
+search-size-invalid = أدخل حجمًا مثل 500k أو 2m أو 1g.
+search-scope-all = كل المجلدات
+search-scope-current = المجلد الحالي ({ $name })
+search-exclude = استبعاد المطابقات
+search-apply = تطبيق
+search-cancel = إلغاء
+search-remove = إزالة
+search-refine-menu = البحث في الرسائل ذات الصلة
+search-refine-sender = البحث في رسائل هذا المرسِل
+search-refine-subject = البحث في الرسائل بهذا الموضوع
+search-refine-folder = البحث في هذا المجلد
+search-refine-domain = البحث في رسائل هذا النطاق
+search-include-trash-scoped = يسري خيار «تضمين المهملات» عند البحث في كل المجلدات. أما المجلد المحدد فيُبحث فيه مباشرة.
