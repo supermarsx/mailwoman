@@ -65,6 +65,9 @@ pub(crate) fn register(r: &mut impl AdminRegistrar) {
     r.admin_endpoint(Method::POST, "/login/totp", Access::Public, login_totp);
     r.admin_endpoint(Method::POST, "/logout", Access::Public, logout);
     r.admin_endpoint(Method::GET, "/session", Access::SignedIn, session);
+    // Public to the gate so the gate's refresh does not run; the handler checks the
+    // cookie itself and reads the deadlines without moving them.
+    r.admin_endpoint(Method::GET, "/session/status", Access::Public, session_status);
     r.admin_endpoint(Method::GET, "/me", Access::SignedIn, me);
     r.admin_endpoint(Method::GET, "/me/preferences", Access::SignedIn, get_prefs);
     r.admin_endpoint(Method::PUT, "/me/preferences", Access::SignedIn, put_prefs);
@@ -311,6 +314,76 @@ fn admin_cookie(headers: &HeaderMap) -> Option<String> {
 struct AdminSessionDto {
     username: String,
     csrf_token: String,
+    /// The session's real limits and deadlines (`GET /admin/session` only).
+    #[serde(flatten, skip_serializing_if = "Option::is_none")]
+    timing: Option<SessionTiming>,
+}
+
+/// The admin session's limits and deadlines, all unix seconds. `idleExpiresAt` is
+/// when the session ends if nothing is sent to the server before then (it moves
+/// forward with every admin request); `absoluteExpiresAt` is the hard cap, which
+/// nothing moves. `expiresAt` is the earlier of the two. `serverNow` lets the
+/// client correct for its own clock being wrong.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SessionTiming {
+    idle_timeout_seconds: i64,
+    absolute_timeout_seconds: i64,
+    signed_in_at: i64,
+    idle_expires_at: i64,
+    absolute_expires_at: i64,
+    expires_at: i64,
+    server_now: i64,
+}
+
+/// The timing of the session behind `hash`, without refreshing it. `None` when the
+/// session is not live.
+async fn session_timing(state: &AppState, hash: &str) -> Result<Option<SessionTiming>, AdminApiError> {
+    let (idle, absolute) = session_timeouts(state).await?;
+    let now = chrono::Utc::now().timestamp();
+    let Some((created, idle_at, absolute_at)) = state
+        .store
+        .peek_admin_session_timing(hash, now)
+        .await
+        .map_err(AdminApiError::internal)?
+    else {
+        return Ok(None);
+    };
+    let signed_in_at = chrono::DateTime::parse_from_rfc3339(&created)
+        .map(|t| t.timestamp())
+        .unwrap_or(absolute_at - absolute);
+    Ok(Some(SessionTiming {
+        idle_timeout_seconds: idle,
+        absolute_timeout_seconds: absolute,
+        signed_in_at,
+        idle_expires_at: idle_at,
+        absolute_expires_at: absolute_at,
+        expires_at: idle_at.min(absolute_at),
+        server_now: now,
+    }))
+}
+
+/// `GET /admin/session/status` — the timing of the caller's session, read WITHOUT
+/// refreshing it (every other admin request moves the idle deadline; this one is
+/// how the console's session bar looks at the deadline without changing it). `401`
+/// without a live session. Read-only, so there is nothing for CSRF to guard.
+async fn session_status(State(state): State<AppState>, headers: HeaderMap) -> Response {
+    if !state.v6.admin_enabled {
+        return AdminApiError::unauthenticated().into_response();
+    }
+    let Some(token) = admin_cookie(&headers) else {
+        return AdminApiError::unauthenticated().into_response();
+    };
+    match session_timing(&state, &crate::push_relay::hash_token(&token)).await {
+        Ok(Some(timing)) => {
+            let mut resp = Json(timing).into_response();
+            resp.headers_mut()
+                .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+            resp
+        }
+        Ok(None) => AdminApiError::unauthenticated().into_response(),
+        Err(e) => e.into_response(),
+    }
 }
 
 pub(crate) async fn session_timeouts(state: &AppState) -> Result<(i64, i64), AdminApiError> {
@@ -378,6 +451,7 @@ pub(crate) async fn start_session_for_factor(
     let mut resp = Json(AdminSessionDto {
         username: username.to_string(),
         csrf_token: csrf_token.clone(),
+        timing: None,
     })
     .into_response();
     // The admin cookie stays the first `Set-Cookie`.
@@ -858,9 +932,14 @@ async fn session(State(state): State<AppState>, ctx: AdminCtx, headers: HeaderMa
     let csrf_token = state
         .store
         .session_csrf_token(&admin_cookie(&headers).unwrap_or_default());
+    let timing = match session_timing(&state, &ctx.session_hash).await {
+        Ok(timing) => timing,
+        Err(e) => return e.into_response(),
+    };
     let mut resp = Json(AdminSessionDto {
         username: ctx.username,
         csrf_token: csrf_token.clone(),
+        timing,
     })
     .into_response();
     if existing.as_deref() != Some(csrf_token.as_str()) {
@@ -977,6 +1056,15 @@ async fn put_prefs(
             "notAnObject",
             "Preferences are a JSON object.",
             "",
+        ));
+    }
+    if body.get("sessionBar").is_some_and(|value| {
+        !matches!(value.as_str(), Some("always" | "warn-only" | "hidden"))
+    }) {
+        return Err(AdminApiError::invalid(
+            "invalidValue",
+            "The session bar is always, warn-only or hidden.",
+            "/sessionBar",
         ));
     }
     if body

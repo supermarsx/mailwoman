@@ -1191,3 +1191,73 @@ async fn a_domain_is_its_name_and_registering_it_again_keeps_what_was_stored() {
     assert_eq!(updated.upstream_json, "{}");
     assert_eq!(updated.allowlist_json, "[]");
 }
+
+// ── the console's session bar reads the real deadlines ─────────────────────────
+
+#[tokio::test]
+async fn the_session_endpoints_report_the_real_deadlines_and_status_never_extends() {
+    let db = new_db("mw-session-bar");
+    let base = spawn_server(&db).await;
+    let c = client();
+    let login = admin_login(&c, &base).await;
+    let hash = hash_token(login.token());
+    let pool = raw(&db).await;
+
+    let body: Value = get(&c, format!("{base}/admin/session"), &login.cookie)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(body["idleTimeoutSeconds"], Store::ADMIN_SESSION_IDLE_SECS);
+    assert_eq!(body["absoluteTimeoutSeconds"], Store::ADMIN_SESSION_MAX_SECS);
+    let (idle, cap) = deadlines(&pool, &hash).await.unwrap();
+    assert_eq!(body["idleExpiresAt"], idle);
+    assert_eq!(body["absoluteExpiresAt"], cap);
+    assert_eq!(body["expiresAt"], idle.min(cap));
+    assert!((body["serverNow"].as_i64().unwrap() - unix_now()).abs() <= 5);
+    let signed_in = body["signedInAt"].as_i64().unwrap();
+    assert!((signed_in - unix_now()).abs() <= 30, "{signed_in}");
+
+    // The status read, sent as a peek, leaves the idle deadline where it was.
+    let now = unix_now();
+    set_deadline(&pool, &hash, "expires_at", now + 120).await;
+    let status: Value = peek(&c, format!("{base}/admin/session/status"), &login.cookie)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["idleExpiresAt"], now + 120);
+    assert_eq!(status["expiresAt"], now + 120);
+    assert_eq!(deadlines(&pool, &hash).await.unwrap().0, now + 120);
+    // An ordinary admin request is what extends it, never past the cap.
+    let _ = get(&c, format!("{base}/admin/session"), &login.cookie).await;
+    assert!(deadlines(&pool, &hash).await.unwrap().0 > now + 1000);
+    set_deadline(&pool, &hash, "absolute_expires_at", unix_now() + 300).await;
+    let status: Value = peek(&c, format!("{base}/admin/session/status"), &login.cookie)
+        .await
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(status["expiresAt"], status["absoluteExpiresAt"]);
+
+    // No cookie, or an ended session: 401.
+    let anon = c
+        .get(format!("{base}/admin/session/status"))
+        .header("x-mw-session-peek", "1")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(anon.status(), 401);
+    set_deadline(&pool, &hash, "expires_at", unix_now() - 1).await;
+    let gone = peek(&c, format!("{base}/admin/session/status"), &login.cookie).await;
+    assert_eq!(gone.status(), 401);
+}
+
+async fn peek(c: &reqwest::Client, url: String, cookie: &str) -> reqwest::Response {
+    c.get(url)
+        .header(reqwest::header::COOKIE, cookie)
+        .header("x-mw-session-peek", "1")
+        .send()
+        .await
+        .unwrap()
+}

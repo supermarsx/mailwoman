@@ -391,11 +391,18 @@ impl AdminCtx {
         let hash = crate::push_relay::hash_token(&token);
         let (idle, _) = crate::admin_accounts::session_timeouts(state).await?;
         let now = chrono::Utc::now().timestamp();
-        let username = match state
-            .store
-            .get_admin_session_with_idle(&hash, now, idle)
-            .await
-        {
+        // A request that says it only wants to LOOK at the session (the console's
+        // session bar) does not move the idle deadline. The header can only make a
+        // session last less long than a normal request would, never longer.
+        let lookup = if headers.contains_key(PEEK_HEADER) {
+            state.store.peek_admin_session(&hash, now).await
+        } else {
+            state
+                .store
+                .get_admin_session_with_idle(&hash, now, idle)
+                .await
+        };
+        let username = match lookup {
             Ok(Some(username)) => username,
             Ok(None) => return Err(AdminApiError::unauthenticated()),
             Err(e) => return Err(AdminApiError::internal(e)),
@@ -549,6 +556,9 @@ pub fn domain_of(address: &str) -> String {
         .map_or(address, |(_, d)| d)
         .to_ascii_lowercase()
 }
+
+/// Sent by the console's session bar so that reading the countdown does not extend it.
+pub(crate) const PEEK_HEADER: &str = "x-mw-session-peek";
 
 /// The admin session cookie's value.
 fn session_cookie(headers: &HeaderMap) -> Option<String> {

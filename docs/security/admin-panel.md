@@ -90,6 +90,14 @@ HTTP panel entirely while still administering the server.
 
 The `/admin/*` HTTP endpoints (all under the separate admin session):
 
+- **Session** — `GET /admin/session` answers who is signed in plus the session's real
+  limits and deadlines (`idleTimeoutSeconds`, `absoluteTimeoutSeconds`, `signedInAt`,
+  `idleExpiresAt`, `absoluteExpiresAt`, `expiresAt` = the earlier of the two, and
+  `serverNow`, all unix seconds). Every admin request moves the idle deadline to now +
+  the idle timeout, never past the absolute deadline, which is fixed at sign-in. The
+  console's session bar reads the same fields from `GET /admin/session/status` sent with
+  `x-mw-session-peek: 1`, which leaves the idle deadline where it is; the header can
+  only avoid an extension, never cause one.
 - **Domains** — `GET/PUT /admin/domains[/{name}]`: managed domains, upstream config,
   allow/blocklists.
 - **Users** — `GET/POST /admin/users`, `PUT /admin/users/{id}/quota`,

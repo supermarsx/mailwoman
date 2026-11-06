@@ -246,6 +246,21 @@ impl Store {
         Ok(username)
     }
 
+    /// Resolve a session like [`Self::get_admin_session_with_idle`] but change
+    /// nothing: the idle deadline stays where it is. `None` when the session is
+    /// unknown or past either deadline.
+    pub async fn peek_admin_session(
+        &self,
+        hash: &str,
+        now: i64,
+    ) -> Result<Option<String>, StoreError> {
+        Ok(q("SELECT admin_id FROM admin_sessions WHERE token_hash = ?1 AND expires_at > ?2 AND absolute_expires_at > ?2")
+            .bind(hash)
+            .bind(now)
+            .fetch_opt_scalar_string(&self.backend)
+            .await?)
+    }
+
     // ---- accounts ----------------------------------------------------------
 
     /// Every admin account, by username.
@@ -866,6 +881,29 @@ impl Store {
                 absolute_expires_at: r.get_i64("absolute_expires_at"),
             })
             .collect())
+    }
+
+    /// The deadlines of one live admin session, read without refreshing anything:
+    /// `(created_at, idle deadline, absolute deadline)`. `None` when the token is
+    /// unknown or either deadline has passed. The console's session bar reads this
+    /// so that looking at the countdown never extends the session it counts.
+    pub async fn peek_admin_session_timing(
+        &self,
+        hash: &str,
+        now: i64,
+    ) -> Result<Option<(String, i64, i64)>, StoreError> {
+        let row = q("SELECT created_at, expires_at, absolute_expires_at FROM admin_sessions WHERE token_hash = ?1 AND expires_at > ?2 AND absolute_expires_at > ?2")
+            .bind(hash)
+            .bind(now)
+            .fetch_optional(&self.backend)
+            .await?;
+        Ok(row.map(|r| {
+            (
+                r.get_string("created_at"),
+                r.get_i64("expires_at"),
+                r.get_i64("absolute_expires_at"),
+            )
+        }))
     }
 
     /// Rotate an admin session id: the new row inherits the creation time and

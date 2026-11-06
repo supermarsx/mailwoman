@@ -353,7 +353,7 @@ fn shape(method: &Method, path: &str, headers: &HeaderMap, policy: &Policy) -> S
         }
         // The page itself, sign-out and the "am I signed in?" check are what an
         // admin's own browser sends while signed out.
-        if suffix.is_empty() || suffix == "/logout" || suffix == "/session" {
+        if suffix.is_empty() || suffix == "/logout" || suffix == "/session" || suffix == "/session/status" {
             return Shape::Other;
         }
         return Shape::ConsoleApi {
