@@ -69,7 +69,10 @@ fn effective_days(effective: &Value, category: &str) -> Option<(&'static str, i6
     }
     let store = match category {
         "devices" => "sessions",
-        "signInHistory" => "authHistory",
+        // The category's period is the one `retention_key` names, the IP-address
+        // retention (`retention.ipAddresses.days`), as the class-clamped system entry
+        // rather than the separate deletion period of the sign-in events.
+        "signInHistory" => "authHistoryIp",
         "audit" => "passwordChangeAudit",
         "tracking" => "openTracking",
         "requests" => "dsrRequests",

@@ -83,17 +83,23 @@ pub(crate) fn counters() -> Counters {
 
 /// A kept copy for a foreground request whose fetch failed, if one is within
 /// `max_stale_secs` of its freshness.
-pub(crate) async fn stale_on_error(
-    tier: &Arc<ImageTier>,
-    key: &super::CacheKey,
+///
+/// Boxed: the request handlers hold this future across other awaits, and in a debug
+/// build an inline copy of it enlarges their state machines enough to matter on a
+/// 2 MiB test-thread stack.
+pub(crate) fn stale_on_error<'a>(
+    tier: &'a Arc<ImageTier>,
+    key: &'a super::CacheKey,
     max_stale_secs: u64,
-) -> Option<(String, Bytes)> {
-    if max_stale_secs == 0 {
-        return None;
-    }
-    let found = tier.lookup_swr(&key.route, &key.url, key.ctx, max_stale_secs).await?;
-    STALE_ON_ERROR.fetch_add(1, Relaxed);
-    Some((found.etag, found.png))
+) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<(String, Bytes)>> + Send + 'a>> {
+    Box::pin(async move {
+        if max_stale_secs == 0 {
+            return None;
+        }
+        let found = tier.lookup_swr(&key.route, &key.url, key.ctx, max_stale_secs).await?;
+        STALE_ON_ERROR.fetch_add(1, Relaxed);
+        Some((found.etag, found.png))
+    })
 }
 
 // ── single flight and the concurrency bound ────────────────────────────────────

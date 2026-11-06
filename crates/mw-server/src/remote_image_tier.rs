@@ -1547,25 +1547,29 @@ impl ImageTier {
     /// [`Self::lookup`] that also answers an entry up to `grace_secs` past its
     /// freshness, marked stale and carrying the validators for revalidation. A stale
     /// answer counts as no use. The caller has already authorised the request.
-    pub(crate) async fn lookup_swr(
-        self: &Arc<Self>,
-        route: &str,
-        url: &str,
+    ///
+    /// Boxed so the handlers that await it do not carry its state inline.
+    pub(crate) fn lookup_swr<'a>(
+        self: &'a Arc<Self>,
+        route: &'a str,
+        url: &'a str,
         ctx: Context,
         grace_secs: u64,
-    ) -> Option<Found> {
-        super::latency::engage();
-        let found = super::latency::timed(
-            super::latency::Phase::Cache,
-            self.lookup_tiers_swr(route, url, ctx, grace_secs * 1000),
-        )
-        .await;
-        if let Some(f) = &found
-            && !f.stale
-        {
-            super::latency::note_hit(f.disk);
-        }
-        found
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<Found>> + Send + 'a>> {
+        Box::pin(async move {
+            super::latency::engage();
+            let found = super::latency::timed(
+                super::latency::Phase::Cache,
+                self.lookup_tiers_swr(route, url, ctx, grace_secs * 1000),
+            )
+            .await;
+            if let Some(f) = &found
+                && !f.stale
+            {
+                super::latency::note_hit(f.disk);
+            }
+            found
+        })
     }
 
     async fn lookup_tiers(

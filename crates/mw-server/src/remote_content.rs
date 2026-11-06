@@ -1412,13 +1412,13 @@ pub(crate) async fn image(
     let high = super::requested_priority(&headers, uri.query());
     super::with_priority(
         high,
-        super::latency::track(image_inner(
+        super::latency::track(Box::pin(image_inner(
             state,
             headers,
             token,
             proof,
             super::resize::parse_hint(uri.query()),
-        )),
+        ))),
     )
     .await
 }
@@ -1453,7 +1453,7 @@ async fn image_inner(
         (claims, session, policy)
     };
 
-    fetch_image(state, session, claims, policy, headers, width_hint).await
+    Box::pin(fetch_image(state, session, claims, policy, headers, width_hint)).await
 }
 
 async fn fetch_image(
@@ -1656,7 +1656,7 @@ async fn fetch_image(
         outcome(false);
         return unsupported(why);
     }
-    let response = reencode_and_answer(
+    let response = Box::pin(reencode_and_answer(
         raw,
         Some(key),
         &policy,
@@ -1664,7 +1664,7 @@ async fn fetch_image(
         admission.with_flight(flight),
         Some((upstream, directives)),
         width,
-    )
+    ))
     .await;
     if response
         .headers()

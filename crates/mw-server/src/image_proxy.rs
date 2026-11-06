@@ -1118,7 +1118,9 @@ async fn proxy_image(
     let width_hint = resize::parse_hint(uri.query());
     with_priority(
         high,
-        latency::track(proxy_image_inner(state, headers, q, width_hint)),
+        // Boxed: the handler future is large (policy, plan, tier lookups) and must
+        // live on the heap rather than in the caller's frame.
+        latency::track(Box::pin(proxy_image_inner(state, headers, q, width_hint))),
     )
     .await
 }
@@ -1351,7 +1353,7 @@ async fn proxy_image_inner(
     if let Some(why) = remote_content::type_refusal(content_type.as_deref(), &raw) {
         return (StatusCode::UNSUPPORTED_MEDIA_TYPE, why).into_response();
     }
-    remote_content::reencode_and_answer(
+    Box::pin(remote_content::reencode_and_answer(
         raw,
         Some(key),
         &policy,
@@ -1359,7 +1361,7 @@ async fn proxy_image_inner(
         admission.with_flight(flight),
         Some((upstream, directives)),
         width,
-    )
+    ))
     .await
 }
 
