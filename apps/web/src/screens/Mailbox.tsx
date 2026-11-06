@@ -19,6 +19,7 @@ import {accountIndicatorLabel} from '../components/accounts/MailboxPicker.tsx';
 import {mailboxNickname} from '../api/mailboxLayout.ts';
 import {CollapsibleBar} from '../components/bars/index.ts';
 import {UndoRedoControl} from '../components/UndoRedoControl.tsx';
+import {OutboxChip} from '../components/OutboxChip.tsx';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from '../components/DetachedWorkspacePane.tsx';
 import {WorkspaceLayoutControls} from '../components/WorkspaceLayoutControls.tsx';
 import {createWorkspaceViews,isSplitLayout,isStackedLayout,workspaceLayout as parseWorkspaceLayout,type WorkspaceLayout,type WorkspaceViewSlot} from '../realtime/workspaceLayout.ts';
@@ -1056,6 +1057,7 @@ export function MailboxScreen(): JSX.Element {
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
           <UndoRedoControl/>
+          <OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
         </div>
         </CollapsibleBar>

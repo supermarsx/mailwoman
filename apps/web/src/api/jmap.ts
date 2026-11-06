@@ -714,6 +714,24 @@ export function sendSubmissionNow(accountId: Id, id: Id): JmapRequest {
   ]);
 }
 
+/**
+ * Move a scheduled submission to a new send time. `ifSendAt` is the time the
+ * caller last saw: the engine refuses the change (`stateMismatch`) when the
+ * row has moved on since, so two editors cannot overwrite each other.
+ */
+export function rescheduleSubmission(accountId: Id, id: Id, sendAt: string, ifSendAt: string | null): JmapRequest {
+  const patch: Record<string, unknown> = { sendAt };
+  if (ifSendAt !== null) patch['mailwomanIfSendAt'] = ifSendAt;
+  return request(SUBMISSION_USING, [['EmailSubmission/set', { accountId, update: { [id]: patch } }, 'set']]);
+}
+
+/** Queue a message again for sending (a failed row's "Send again"). */
+export function resendSubmission(accountId: Id, emailId: Id, identityId: Id | null): JmapRequest {
+  const spec: Record<string, unknown> = { emailId };
+  if (identityId !== null) spec['identityId'] = identityId;
+  return request(SUBMISSION_USING, [['EmailSubmission/set', { accountId, create: { again: spec } }, 'set']]);
+}
+
 /** Extract the args of the method response matching `callId`, typed by caller. */
 export function responseFor<T>(res: JmapResponse, callId: string): T {
   const found = res.methodResponses.find((m) => m[2] === callId);

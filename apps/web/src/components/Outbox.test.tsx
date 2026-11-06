@@ -127,7 +127,7 @@ describe('Outbox', () => {
     const scheduled = row('scheduled');
     expect(scheduled.querySelector('[data-testid="outbox-scheduled-badge"]')).not.toBeNull();
     const buttons = [...scheduled.querySelectorAll('button')].map((b) => b.getAttribute('data-action'));
-    expect(buttons).toEqual(['release', 'recall-edit', 'cancel']);
+    expect(buttons).toEqual(['release', 'edit-time', 'recall-edit', 'cancel']);
     fireEvent.click(scheduled.querySelector('[data-action="recall-edit"]')!);
     expect(calls.recallOutbox).toHaveBeenCalledWith('s1');
   });

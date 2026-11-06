@@ -48,3 +48,46 @@ outbox-queued-count = { $count ->
     [one] 1 message waiting to send
    *[other] { $count } messages waiting to send
 }
+
+## Outbox reader, edit send time, queued-count chip
+outbox-open = Open
+outbox-reader-label = Queued message
+outbox-reader-actions = Queued message actions
+outbox-reader-loading = Loading the message…
+outbox-reader-unavailable = The message could not be loaded.
+outbox-reader-to = To: { $recipients }
+outbox-reader-cc = Cc: { $recipients }
+outbox-status-held = Held until you release it
+outbox-status-queued = Queued
+outbox-status-scheduled = Scheduled
+outbox-status-sending = Sending
+outbox-status-retrying = Retrying
+outbox-status-failed = Not sent
+outbox-status-uncertain = Delivery unknown
+outbox-status-sent = Sent
+outbox-status-canceled = Canceled
+outbox-status-sends-at-in = Sends { $when } (in { $time })
+outbox-status-next-attempt = Next attempt { $when }
+outbox-status-attempts = { $count ->
+    [one] 1 attempt so far
+   *[other] { $count } attempts so far
+}
+outbox-status-last-error = Last error: { $error }
+outbox-edit-time = Edit send time
+outbox-edit-time-current = Currently { $when }
+outbox-edit-time-save = Save send time
+outbox-edit-time-conflict = The send time changed or the message was already sent. The Outbox has been reloaded.
+outbox-edit-time-refused = The send time could not be changed. { $error }
+outbox-recall-to-drafts = Recall to drafts
+outbox-send-again = Send again
+outbox-send-again-queued = The message is queued to send again.
+outbox-send-again-failed = Could not queue the message again. { $error }
+outbox-delete = Delete
+outbox-delete-confirm = Delete message?
+outbox-deleted = The queued message was deleted.
+outbox-delete-failed = The message could not be deleted. { $error }
+outbox-failed-toast = A message could not be sent. { $error }
+outbox-failed-uncertain-toast = A message may or may not have been delivered. Check Sent before sending it again.
+outbox-chip-title = Messages waiting to send
+outbox-chip-next = Next send: { $when }
+outbox-chip-view-all = Open Outbox

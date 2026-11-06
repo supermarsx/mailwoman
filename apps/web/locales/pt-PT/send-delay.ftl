@@ -49,3 +49,46 @@ outbox-queued-count = { $count ->
     [one] 1 mensagem à espera de envio
    *[other] { $count } mensagens à espera de envio
 }
+
+## Leitor da Caixa de saída, editar hora de envio, indicador de mensagens em fila
+outbox-open = Abrir
+outbox-reader-label = Mensagem em fila
+outbox-reader-actions = Ações da mensagem em fila
+outbox-reader-loading = A carregar a mensagem…
+outbox-reader-unavailable = Não foi possível carregar a mensagem.
+outbox-reader-to = Para: { $recipients }
+outbox-reader-cc = Cc: { $recipients }
+outbox-status-held = Retida até a libertar
+outbox-status-queued = Em fila
+outbox-status-scheduled = Agendada
+outbox-status-sending = A enviar
+outbox-status-retrying = A tentar novamente
+outbox-status-failed = Não enviada
+outbox-status-uncertain = Entrega desconhecida
+outbox-status-sent = Enviada
+outbox-status-canceled = Cancelada
+outbox-status-sends-at-in = Envio { $when } (daqui a { $time })
+outbox-status-next-attempt = Próxima tentativa { $when }
+outbox-status-attempts = { $count ->
+    [one] 1 tentativa até agora
+   *[other] { $count } tentativas até agora
+}
+outbox-status-last-error = Último erro: { $error }
+outbox-edit-time = Editar hora de envio
+outbox-edit-time-current = Atualmente { $when }
+outbox-edit-time-save = Guardar hora de envio
+outbox-edit-time-conflict = A hora de envio mudou ou a mensagem já foi enviada. A Caixa de saída foi recarregada.
+outbox-edit-time-refused = Não foi possível alterar a hora de envio. { $error }
+outbox-recall-to-drafts = Recuperar para rascunhos
+outbox-send-again = Enviar novamente
+outbox-send-again-queued = A mensagem ficou em fila para ser enviada novamente.
+outbox-send-again-failed = Não foi possível voltar a pôr a mensagem em fila. { $error }
+outbox-delete = Eliminar
+outbox-delete-confirm = Eliminar mensagem?
+outbox-deleted = A mensagem em fila foi eliminada.
+outbox-delete-failed = Não foi possível eliminar a mensagem. { $error }
+outbox-failed-toast = Não foi possível enviar uma mensagem. { $error }
+outbox-failed-uncertain-toast = Uma mensagem pode ou não ter sido entregue. Verifique os Enviados antes de a enviar novamente.
+outbox-chip-title = Mensagens a aguardar envio
+outbox-chip-next = Próximo envio: { $when }
+outbox-chip-view-all = Abrir Caixa de saída

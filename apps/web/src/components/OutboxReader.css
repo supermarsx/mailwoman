@@ -1,0 +1,36 @@
+/* Outbox reader, edit-time dialog and the queued-count chip. Design tokens only. */
+.outbox-edit-time__scrim { position: fixed; inset: 0; z-index: 60; display: grid; place-items: center; background: var(--scrim); }
+.outbox-edit-time { display: flex; flex-direction: column; gap: 0.25rem; width: min(24rem, calc(100vw - 2rem)); padding: 0.9rem; border: var(--border-hair) solid var(--border); border-radius: var(--radius-md); background: var(--bg-alt); color: var(--text); }
+.outbox-edit-time__title { margin: 0 0 0.25rem; font-size: 1rem; }
+.outbox-edit-time__actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-top: 0.5rem; }
+
+.outbox-reader { display: flex; flex-direction: column; gap: 0.75rem; min-width: 0; padding: 0.75rem 0; }
+.outbox-reader__status { display: flex; flex-direction: column; gap: 0.25rem; padding: 0.6rem 0.75rem; border: var(--border-hair) solid var(--border); border-inline-start-width: var(--border-heavy, 3px); border-radius: var(--radius-sm); background: var(--bg-alt); }
+.outbox-reader__status[data-kind="failed"], .outbox-reader__status[data-kind="retrying"] { border-inline-start-color: var(--danger, currentColor); }
+.outbox-reader__status[data-kind="scheduled"], .outbox-reader__status[data-kind="queued"], .outbox-reader__status[data-kind="sending"] { border-inline-start-color: var(--accent, currentColor); }
+.outbox-reader__label { font-weight: 700; }
+.outbox-reader__meta { margin: 0; color: var(--text-dim); font-size: 0.85rem; overflow-wrap: anywhere; }
+.outbox-reader__error { margin: 0; color: var(--danger, inherit); font-size: 0.85rem; overflow-wrap: anywhere; }
+.outbox-reader__actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.outbox-reader__subject { margin: 0; font-size: 1.05rem; overflow-wrap: anywhere; }
+.outbox-reader__body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+.outbox__row { cursor: pointer; }
+.outbox__row[data-selected="true"] { background: var(--bg-alt); }
+
+.outbox-chip { position: relative; display: inline-flex; }
+.outbox-chip__toggle { display: inline-flex; align-items: center; gap: 0.3rem; }
+.outbox-chip__count { font-size: 0.75rem; font-weight: 700; min-width: 1.1rem; text-align: center; }
+.outbox-chip__panel { position: absolute; inset-block-start: calc(100% + 0.25rem); inset-inline-end: 0; z-index: 40; width: min(22rem, calc(100vw - 1.5rem)); display: flex; flex-direction: column; gap: 0.35rem; padding: 0.5rem; border: var(--border-hair) solid var(--border); border-radius: var(--radius-md); background: var(--bg-alt); color: var(--text); }
+.outbox-chip__next { margin: 0; color: var(--text-dim); font-size: 0.8rem; }
+.outbox-chip__list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.35rem; max-height: 18rem; overflow: auto; }
+.outbox-chip__item { display: grid; gap: 0.15rem; padding: 0.35rem 0.25rem; border-block-end: var(--border-hair) solid var(--border); }
+.outbox-chip__subject { font-weight: 700; overflow-wrap: anywhere; }
+.outbox-chip__when { color: var(--text-dim); font-size: 0.8rem; }
+.outbox-chip__actions { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+
+.outbox__split { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; }
+.outbox__reader { min-width: 0; border-block-start: var(--border-hair) solid var(--border); }
+@media (min-width: 1100px) {
+  .outbox__split:has(.outbox__reader) { grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr); align-items: start; }
+  .outbox__reader { border-block-start: 0; border-inline-start: var(--border-hair) solid var(--border); padding-inline-start: 1rem; }
+}

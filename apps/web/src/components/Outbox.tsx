@@ -6,6 +6,11 @@ import { formatDateTime, isolate, loadCatalog, t } from '../i18n/index.ts';
 import { formatCountdown } from '../state/sendDelay.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './outbox.css.ts';
+import './OutboxReader.css';
+import { OutboxDetail } from './OutboxDetail.tsx';
+import { OutboxEditTime } from './OutboxEditTime.tsx';
+import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
+import { outboxStatus } from '../state/outboxStatus.ts';
 import {
   outboxStateOf,
   type OutboxState,
@@ -81,6 +86,27 @@ export function Outbox(): JSX.Element {
   const ticker=setInterval(()=>setNow(Date.now()),1000);
   onCleanup(()=>clearInterval(ticker));
   void loadCatalog('send-delay');
+  // The row whose message is open in the reader, and the row whose send time is being edited.
+  const [selectedId, setSelectedId] = createSignal<string | null>(null);
+  const [editTimeId, setEditTimeId] = createSignal<string | null>(null);
+  const [menuId, setMenuId] = createSignal<string | null>(null);
+  const selected = () => app.outbox().find((s) => s.id === selectedId());
+  const menuActions = (): ContextAction[] => {
+    const sub = app.outbox().find((s) => s.id === menuId());
+    if (sub === undefined) return [];
+    const status = outboxStatus(sub, now());
+    const rows: ContextAction[] = [{ id: 'open', label: t('outbox-open'), icon: 'mail', run: () => { setSelectedId(sub.id); } }];
+    if (status.waiting) rows.push({ id: 'send-now', label: t(status.kind === 'held' ? 'mail-outbox-release' : 'mail-outbox-send-now'), icon: 'mail', run: () => app.sendOutboxNow(sub.id) });
+    if (status.canEditTime) rows.push({ id: 'edit-time', label: t('outbox-edit-time'), icon: 'clock', run: () => { setEditTimeId(sub.id); } });
+    if (status.waiting && status.kind !== 'held') {
+      rows.push({ id: 'recall', label: t('outbox-recall-to-drafts'), icon: 'compose', run: () => app.cancelOutbox(sub.id) });
+      rows.push({ id: 'edit-message', label: t('outbox-recall-edit'), icon: 'compose', run: () => app.recallOutbox(sub.id) });
+    }
+    if (status.canSendAgain) rows.push({ id: 'send-again', label: t('outbox-send-again'), icon: 'mail', run: async () => { await app.sendOutboxAgain(sub.id); } });
+    if (status.waiting || status.kind === 'failed') rows.push({ id: 'delete', label: t('outbox-delete'), icon: 'delete', separatorBefore: true, run: async () => { await app.deleteOutbox(sub.id); } });
+    return rows;
+  };
+  const rowMenu = createContextMenu({ label: () => t('mail-outbox-label'), scope: () => `outbox:${menuId()}`, actions: menuActions, onError: () => app.showToast('error', t('mail-context-failed')) });
   function refresh(owner:PreferenceAccount|null=preferenceAccount()):void {
     if(owner===null)return;
     setFailed(false);
@@ -102,6 +128,7 @@ export function Outbox(): JSX.Element {
           {t('mail-outbox-refresh')}
         </button>
       </header>
+      <div class="outbox__split">
       <Show when={app.outbox().length > 0} fallback={<Show when={app.outboxLoading()} fallback={<p class={`outbox__empty ${css.empty}`}>{t(failed()?'mail-outbox-unavailable':'mail-outbox-empty')}</p>}><AsyncPending variant="list"/></Show>}>
         <ul class={`outbox__items ${css.items}`}>
           <For each={app.outbox()}>
@@ -113,7 +140,20 @@ export function Outbox(): JSX.Element {
               const recipients = () =>
                 (message()?.to ?? []).map((a) => isolate(a.email)).join(', ');
               return (
-                <li class={`outbox__row ${css.row}`} data-state={state()}>
+                <li
+                  class={`outbox__row ${css.row}`}
+                  data-state={state()}
+                  data-selected={selectedId() === sub.id ? 'true' : undefined}
+                  tabIndex={0}
+                  aria-current={selectedId() === sub.id ? 'true' : undefined}
+                  onClick={(event) => { if (!(event.target as Element).closest('button')) setSelectedId(sub.id); }}
+                  onKeyDown={(event) => {
+                    if (event.target !== event.currentTarget) return;
+                    if (event.key === 'Enter') setSelectedId(sub.id);
+                    else { setMenuId(sub.id); rowMenu.keydown(event); }
+                  }}
+                  onContextMenu={(event) => { setMenuId(sub.id); rowMenu.open(event); }}
+                >
                   <span class={`outbox__state outbox__state--${state()} ${css.state} ${css.stateOf[state()]}`}>
                     {t(STATE_LABEL[state()])}
                   </span>
@@ -142,6 +182,13 @@ export function Outbox(): JSX.Element {
                       {errorText(sub)}
                     </p>
                   </Show>
+                  <Show when={state() === 'failed'}>
+                    <span class={`outbox__actions ${css.actions}`}>
+                      <button type="button" class={`btn btn--ghost ${a11y.focusable} ${css.action}`} data-action="send-again" onClick={() => void app.sendOutboxAgain(sub.id)}>
+                        {t('outbox-send-again')}
+                      </button>
+                    </span>
+                  </Show>
                   <Show when={waiting()}>
                     <span class={`outbox__actions ${css.actions}`}>
                       <button
@@ -152,6 +199,16 @@ export function Outbox(): JSX.Element {
                       >
                         {t(held() ? 'mail-outbox-release' : 'mail-outbox-send-now')}
                       </button>
+                      <Show when={state() === 'scheduled'}>
+                        <button
+                          type="button"
+                          class={`btn btn--ghost ${a11y.focusable} ${css.action}`}
+                          data-action="edit-time"
+                          onClick={() => setEditTimeId(sub.id)}
+                        >
+                          {t('outbox-edit-time')}
+                        </button>
+                      </Show>
                       <Show when={!held()}>
                         <button
                           type="button"
@@ -177,6 +234,12 @@ export function Outbox(): JSX.Element {
             }}
           </For>
         </ul>
+      </Show>
+      <Show when={selected()}>{(sub) => <aside class="outbox__reader"><OutboxDetail sub={sub()} now={now()} onClose={() => setSelectedId(null)} /></aside>}</Show>
+      </div>
+      {rowMenu.menu()}
+      <Show when={editTimeId()}>
+        {(id) => <OutboxEditTime current={app.outbox().find((s) => s.id === id())?.sendAt ?? null} save={(iso) => app.rescheduleOutbox(id(), iso)} onClose={() => setEditTimeId(null)} />}
       </Show>
     </section>
   );

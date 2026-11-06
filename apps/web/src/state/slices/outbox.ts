@@ -20,6 +20,8 @@ import { recallFromOutbox } from '../recallFromOutbox.ts';
 import {
   cancelSubmission,
   identityGet,
+  rescheduleSubmission,
+  resendSubmission,
   outboxQuery,
   request,
   responseFor,
@@ -51,6 +53,18 @@ export interface OutboxMessage {
   subject: string | null;
   to: EmailAddress[];
 }
+
+/** A queued message as the Outbox reader shows it. */
+export interface OutboxBody {
+  subject: string | null;
+  from: EmailAddress[];
+  to: EmailAddress[];
+  cc: EmailAddress[];
+  text: string;
+}
+
+/** How an edit of the send time ended. `conflict`: the row moved since it was read. */
+export type RescheduleResult = { ok: true; sendAt: string } | { ok: false; kind: 'conflict' | 'refused'; reason: string };
 
 /** A submission's user-facing lifecycle state (derived from the raw row). */
 export type OutboxState = 'held' | 'scheduled' | 'holding' | 'sent' | 'canceled' | 'failed' | 'uncertain';
@@ -112,6 +126,14 @@ export interface OutboxSlice {
   sendOutboxNow(id: Id): Promise<void>;
   /** Cancel a waiting submission and reopen its message as a draft in the composer. */
   recallOutbox(id: Id): Promise<void>;
+  /** Move a scheduled submission to `sendAt` (ISO), guarded by the time it was read at. */
+  rescheduleOutbox(id: Id, sendAt: string): Promise<RescheduleResult>;
+  /** Queue the message of a failed submission again. */
+  sendOutboxAgain(id: Id): Promise<boolean>;
+  /** The message behind a submission, for the Outbox reader. */
+  outboxBody(emailId: Id): Promise<OutboxBody | null>;
+  /** Stop a waiting submission (if still waiting) and delete its message. */
+  deleteOutbox(id: Id): Promise<boolean>;
 }
 
 export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
@@ -157,6 +179,24 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     }
   }
 
+  // A row that was waiting when last seen and is now a failure is announced
+  // once; a first load announces nothing (those failures are old news).
+  const seenStates = new Map<Id, OutboxState>();
+  let seenOnce = false;
+  function announceFailures(subs: OutboxSubmission[]): void {
+    const now = Date.now();
+    for (const sub of subs) {
+      const state = outboxStateOf(sub, now);
+      const before = seenStates.get(sub.id);
+      if (seenOnce && before !== undefined && before !== state && (state === 'failed' || state === 'uncertain')) {
+        const error = sub.mailwomanLastError ?? '';
+        showToast('error', state === 'uncertain' ? t('outbox-failed-uncertain-toast') : t('outbox-failed-toast', { error }));
+      }
+      seenStates.set(sub.id, state);
+    }
+    seenOnce = true;
+  }
+
   async function refreshOutbox(): Promise<void> {
     setLoading(true);
     try {
@@ -164,6 +204,7 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
       if (acct === null) return;
       const res = await client.jmap(outboxQuery(acct));
       const subs: OutboxSubmission[] = responseFor<EmailSubmissionGetResponse>(res, 'g').list;
+      announceFailures(subs);
       setOutbox(subs);
       await loadMessages(acct, subs);
     } finally {
@@ -252,6 +293,93 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     await refreshOutbox();
   }
 
+  async function rescheduleOutbox(id: Id, sendAt: string): Promise<RescheduleResult> {
+    const acct = await resolveAccount();
+    if (acct === null) return { ok: false, kind: 'refused', reason: '' };
+    const sub = outbox().find((s) => s.id === id);
+    const res = await client.jmap(rescheduleSubmission(acct, id, sendAt, sub?.sendAt ?? null));
+    const set = responseFor<EmailSubmissionSetResponse>(res, 'set');
+    const refused = set.notUpdated?.[id];
+    if (refused !== undefined) {
+      await refreshOutbox();
+      return { ok: false, kind: refused.type === 'stateMismatch' ? 'conflict' : 'refused', reason: refused.description ?? refused.type };
+    }
+    if (set.updated === undefined || set.updated === null || !(id in set.updated)) {
+      return { ok: false, kind: 'refused', reason: 'no result' };
+    }
+    patchRow(id, { sendAt, mailwomanDueAt: sendAt, mailwomanHoldSeconds: 0, ...(set.updated[id] ?? {}) });
+    return { ok: true, sendAt };
+  }
+
+  async function sendOutboxAgain(id: Id): Promise<boolean> {
+    const acct = await resolveAccount();
+    if (acct === null) return false;
+    const sub = outbox().find((s) => s.id === id);
+    if (sub === undefined) return false;
+    const res = await client.jmap(resendSubmission(acct, sub.emailId, sub.identityId));
+    const set = responseFor<EmailSubmissionSetResponse>(res, 'set');
+    const refused = set.notCreated?.['again'];
+    if (refused !== undefined || set.created === null || set.created === undefined || set.created['again'] === undefined) {
+      showToast('error', t('outbox-send-again-failed', { error: refused?.description ?? refused?.type ?? '' }));
+      return false;
+    }
+    showToast('info', t('outbox-send-again-queued'));
+    await refreshOutbox();
+    return true;
+  }
+
+  async function outboxBody(emailId: Id): Promise<OutboxBody | null> {
+    const acct = await resolveAccount();
+    if (acct === null) return null;
+    try {
+      const res = await client.jmap(
+        request(
+          [CAP_CORE, CAP_MAIL],
+          [['Email/get', { accountId: acct, ids: [emailId], properties: ['id', 'subject', 'from', 'to', 'cc', 'textBody', 'bodyValues'], fetchTextBodyValues: true, maxBodyValueBytes: 200_000 }, 'b']],
+        ),
+      );
+      const email = responseFor<{ list?: { subject?: string | null; from?: EmailAddress[] | null; to?: EmailAddress[] | null; cc?: EmailAddress[] | null; textBody?: { partId: string | null }[]; bodyValues?: Record<string, { value: string }> }[] }>(res, 'b').list?.[0];
+      if (email === undefined) return null;
+      const text = (email.textBody ?? []).map((p) => (p.partId !== null ? email.bodyValues?.[p.partId]?.value ?? '' : '')).join('\n');
+      return { subject: email.subject ?? null, from: email.from ?? [], to: email.to ?? [], cc: email.cc ?? [], text };
+    } catch {
+      return null;
+    }
+  }
+
+  async function deleteOutbox(id: Id): Promise<boolean> {
+    const acct = await resolveAccount();
+    if (acct === null) return false;
+    const sub = outbox().find((s) => s.id === id);
+    if (sub === undefined) return false;
+    if (isWaiting(sub)) {
+      const outcome = updateOutcome(await client.jmap(cancelSubmission(acct, id)), id);
+      if (!outcome.ok) {
+        // Already on its way (or sent): the message must not be deleted under it.
+        showToast('error', t('mail-outbox-toast-not-canceled', { error: outcome.reason }));
+        await refreshOutbox();
+        return false;
+      }
+    }
+    try {
+      const res = await client.jmap(request([CAP_CORE, CAP_MAIL], [['Email/set', { accountId: acct, destroy: [sub.emailId] }, 'd']]));
+      const set = responseFor<{ destroyed?: Id[] | null; notDestroyed?: Record<Id, { description?: string; type: string }> | null }>(res, 'd');
+      const failed = set.notDestroyed?.[sub.emailId];
+      if (failed !== undefined) {
+        showToast('error', t('outbox-delete-failed', { error: failed.description ?? failed.type }));
+        await refreshOutbox();
+        return false;
+      }
+    } catch {
+      showToast('error', t('outbox-delete-failed', { error: '' }));
+      await refreshOutbox();
+      return false;
+    }
+    showToast('info', t('outbox-deleted'));
+    await refreshOutbox();
+    return true;
+  }
+
   const cancelableOutbox: Accessor<OutboxSubmission[]> = () => outbox().filter(isWaiting);
 
   return {
@@ -265,5 +393,9 @@ export function createOutboxSlice(ctx: SliceContext): OutboxSlice {
     cancelOutbox,
     sendOutboxNow,
     recallOutbox,
+    rescheduleOutbox,
+    sendOutboxAgain,
+    outboxBody,
+    deleteOutbox,
   };
 }
