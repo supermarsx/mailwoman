@@ -995,3 +995,386 @@ mail-cancel = إلغاء
 mail-bulk-selected = تم تحديد { $count } محادثة
 mail-bulk-select-folder = تحديد الكل في { $folder }
 mail-list-order = ترتيب الرسائل
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-list-order-newest = الأحدث أولًا
+mail-list-order-oldest = الأقدم أولًا
+mail-list-order-sender = المرسل
+mail-list-order-subject = الموضوع
+mail-list-order-error = تعذّر حفظ ترتيب الرسائل.
+mail-bulk-selection-load-failed = تعذّر تحديد المجلد بالكامل. تحقق من اتصالك وحاول مرة أخرى.
+mail-privacy-bar = خصوصية الرسالة
+mail-privacy-trackers-allow = السماح بالمتتبعات لهذه الرسالة
+mail-privacy-trackers-block = حظر المتتبعات مجددًا
+mail-privacy-images-loading = عرض { $loaded }/{ $total } صور · جارٍ تحميل { $pending }
+mail-privacy-images-failed = عرض { $loaded }/{ $total } صور · فشل { $failed }
+mail-privacy-images-loaded = عرض { $loaded }/{ $total } صور
+mail-privacy-images-loading-failed = عرض { $loaded }/{ $total } صور · جارٍ تحميل { $pending } · فشل { $failed }
+mail-reader-folder-title = المجلد: { $folder }
+mail-reader-move-to = نقل إلى…
+mail-action-help-move = انقل هذه الرسالة إلى مجلد آخر.
+folder-ops-new-subfolder = مجلد فرعي جديد
+folder-ops-mark-read = تعليم الكل كمقروء
+folder-ops-this-folder = هذا المجلد
+folder-ops-with-subfolders = تضمين المجلدات الفرعية
+folder-ops-no-unread = لا توجد رسائل غير مقروءة.
+folder-ops-read-unavailable = لا يمكنك تغيير الرسائل في هذا المجلد.
+folder-ops-more = المزيد
+folder-ops-system-folder = لا يمكن تغيير مجلد النظام بهذه الطريقة.
+folder-ops-sort-subfolders = ترتيب المجلدات الفرعية حسب
+folder-ops-sort-folders = ترتيب المجلدات حسب
+folder-ops-sort-name = الاسم
+folder-ops-sort-unread = عدد غير المقروءة
+folder-ops-sort-total = العدد الإجمالي
+folder-ops-sort-date = آخر نشاط
+folder-ops-sort-custom = ترتيب مخصص
+folder-ops-sort-asc = تصاعدي
+folder-ops-sort-desc = تنازلي
+folder-ops-delete-with-subfolders = حذف المجلد والمجلدات الفرعية
+folder-ops-delete-unavailable = لا يمكن حذف هذا المجلد.
+folder-ops-delete-tree-body = سيؤدي هذا إلى حذف { $folders } مجلدًا و{ $count } رسالة بداخلها نهائيًا. لا يمكن التراجع عن ذلك.
+folder-ops-copy-all-menu = نسخ كل العناصر إلى…
+folder-ops-move-all-menu = نقل كل العناصر إلى…
+folder-ops-move-folder-menu = نقل المجلد إلى…
+folder-ops-move-up = نقل لأعلى
+folder-ops-move-down = نقل لأسفل
+folder-ops-move-unavailable = لا يمكنك نقل هذا المجلد أو عناصره.
+folder-ops-move-duplicate = توجد في الوجهة بالفعل مجلد بهذا الاسم.
+folder-ops-move-folder-title = نقل { $name }
+folder-ops-move-folder-body = يُنقل المجلد مع مجلداته الفرعية ورسائله. اختر المجلد الذي سيوضع بداخله، أو المستوى الأعلى.
+folder-ops-move-here = نقل إلى هنا
+folder-ops-moved-folder = تم نقل { $name }.
+folder-ops-choose-folder = اختر مجلد الوجهة.
+folder-ops-destination = مجلد الوجهة
+folder-ops-include-subfolders = تضمين رسائل { $count } من المجلدات الفرعية
+folder-ops-copy-all-title = نسخ كل عناصر { $name }
+folder-ops-move-all-title = نقل كل عناصر { $name }
+folder-ops-copy-all-body = تُضاف { $count } رسالة إلى مجلد الوجهة. وتبقى في مكانها الأصلي.
+folder-ops-move-all-body = تُنقل { $count } رسالة إلى مجلد الوجهة. يمكنك التراجع عن ذلك لاحقًا.
+folder-ops-copy-all = نسخ العناصر
+folder-ops-move-all = نقل العناصر
+folder-ops-undo = تراجع
+folder-ops-stop = إيقاف
+folder-ops-marking = جارٍ تعليم { $name } كمقروء…
+folder-ops-marking-progress = جارٍ تعليم { $name } كمقروء: { $done } من { $total }
+folder-ops-marked = تم تعليم { $count } رسالة في { $name } كمقروءة.
+folder-ops-copying = جارٍ نسخ { $name }…
+folder-ops-copying-progress = جارٍ نسخ { $name }: { $done } من { $total }
+folder-ops-copied = تم نسخ { $count } رسالة من { $name }.
+folder-ops-moving = جارٍ نقل { $name }…
+folder-ops-moving-progress = جارٍ نقل { $name }: { $done } من { $total }
+folder-ops-moved = تم نقل { $count } رسالة من { $name }.
+folder-ops-stopped = توقفت عملية { $name } بعد { $count } من أصل { $total } رسالة.
+folder-ops-partial = تمت معالجة { $count } من أصل { $total } رسالة في { $name }؛ ورُفضت { $refused }.
+folder-ops-failed = تعذّر إكمال { $name }. حدّث الصفحة وحاول مرة أخرى.
+folder-ops-error-forbidden = ليست لديك صلاحية إجراء هذا التغيير.
+folder-ops-error-exists = يوجد هناك مجلد بهذا الاسم بالفعل.
+folder-ops-error-mailboxHasEmail = لا يزال المجلد يحتوي على رسائل.
+folder-ops-error-notFound = لم يعد المجلد موجودًا.
+folder-ops-error-failed = تعذّر إجراء التغيير. حدّث الصفحة وحاول مرة أخرى.
+folder-ops-expand = إظهار المجلدات الفرعية لـ { $name }
+folder-ops-collapse = إخفاء المجلدات الفرعية لـ { $name }
+mail-context-reply = رد
+mail-context-reply-all = رد على الجميع
+mail-context-forward = إعادة توجيه
+mail-context-quick-print = طباعة سريعة
+mail-context-copy = نسخ
+mail-context-copy-to-folder = نسخ الرسالة إلى مجلد…
+mail-context-copy-sender = نسخ عنوان المرسل
+mail-context-copy-subject = نسخ الموضوع
+mail-context-copy-link = نسخ رابط الرسالة
+mail-context-copied = تم النسخ.
+mail-context-copy-failed = تعذّر النسخ إلى الحافظة.
+mail-context-print-failed = تعذّرت طباعة الرسالة.
+mail-reply-images-title = صور الرسالة الأصلية
+mail-reply-images-ask = هل تريد تضمين صور الرسالة الأصلية في هذا الرد؟
+mail-reply-images-include = تضمين الصور
+mail-reply-images-not-now = ليس الآن
+mail-reply-images-trust = الوثوق دائمًا بـ { $domain }
+mail-reply-images-loading = جارٍ إضافة الصور…
+mail-reply-images-cancelled = أُلغي التحميل. لم تُضف الصور.
+mail-reply-images-failed = تعذّرت إضافة الصور.
+mail-reply-images-retry = تحميل مرة أخرى
+mail-image-cancel = إلغاء
+mail-compose-from-why-match = الإرسال من { $identity } لأن الرسالة أُرسلت إلى { $address }.
+mail-compose-from-why-match-plus = الإرسال من { $identity } لأن الرسالة أُرسلت إلى { $address }، وهو عنوان بعلامة + مشتق منه.
+mail-compose-from-why-ambiguous = تتطابق عدة هويات مع { $address }. الإرسال من { $identity }؛ اختر هوية أخرى:
+mail-compose-from-why-default = الإرسال من هويتك الافتراضية { $identity } لأنه لا توجد هوية تطابق مستلمي الرسالة الأصلية.
+mail-compose-from-why-forced-default = الإرسال من هويتك الافتراضية { $identity } كما هو مضبوط في إعداداتك.
+mail-compose-from-why-keep = الإرسال من { $identity }.
+mail-compose-from-change = تغيير
+reader-attachments-reason-encrypted = هذه الرسالة مشفرة. تظهر مرفقاتها بعد فتح قفلها.
+reader-attachments-reason-list-missing = تعذّر تحميل قائمة مرفقات هذه الرسالة، لذا فإن شريط المرفقات مخفي.
+reader-attachments-reason-inline-only = مرفقات هذه الرسالة ({ $count }) هي صور مضمّنة تُعرض في الرسالة نفسها.
+reader-attachments-reason-unavailable-parts = { $count ->
+    [zero] لا مرفقات في هذه الرسالة بلا محتوى قابل للتنزيل، لذا فإن شريط المرفقات مخفي.
+    [one] مرفق واحد في هذه الرسالة بلا محتوى قابل للتنزيل، لذا فإن شريط المرفقات مخفي.
+    [two] مرفقان في هذه الرسالة بلا محتوى قابل للتنزيل، لذا فإن شريط المرفقات مخفي.
+    [few] { $count } مرفقات في هذه الرسالة بلا محتوى قابل للتنزيل، لذا فإن شريط المرفقات مخفي.
+    [many] { $count } مرفقًا في هذه الرسالة بلا محتوى قابل للتنزيل، لذا فإن شريط المرفقات مخفي.
+   *[other] { $count } مرفق في هذه الرسالة بلا محتوى قابل للتنزيل، لذا فإن شريط المرفقات مخفي.
+  }
+reader-attachments-reason-policy-blocked = { $count ->
+    [zero] تحظر سياسة المرفقات لديك تنزيل أي مرفق.
+    [one] تحظر سياسة المرفقات لديك تنزيل هذا المرفق.
+    [two] تحظر سياسة المرفقات لديك تنزيل هذين المرفقين.
+    [few] تحظر سياسة المرفقات لديك تنزيل هذه المرفقات.
+    [many] تحظر سياسة المرفقات لديك تنزيل هذه المرفقات.
+   *[other] تحظر سياسة المرفقات لديك تنزيل هذه المرفقات.
+  }
+reader-attachments-reason-policy-unavailable = تعذّر فحص سياسة المرفقات، لذا لا يمكن فتح المرفقات بعد.
+mail-drafts-popup-count = { $count ->
+    [zero] لا مسودات
+    [one] مسودة واحدة
+    [two] مسودتان
+    [few] { $count } مسودات
+    [many] { $count } مسودة
+   *[other] { $count } مسودة
+  }
+mail-drafts-popup-search = البحث بالموضوع أو المستلم
+mail-drafts-popup-tab-local = المسودات المحلية
+mail-drafts-popup-local-hint = تُحفظ المسودات المحلية في هذا المتصفح فقط.
+mail-drafts-popup-badge-account = الحساب
+mail-drafts-popup-badge-local = محلية
+mail-drafts-popup-current = مفتوحة الآن
+mail-drafts-popup-select = تحديد
+mail-drafts-popup-select-all = تحديد الكل
+mail-drafts-popup-clear = مسح
+mail-drafts-popup-done = تم
+mail-drafts-popup-selected = تم تحديد { $count }
+mail-drafts-popup-select-row = تحديد { $subject }
+mail-drafts-popup-open = فتح
+mail-drafts-popup-discard = تجاهل
+mail-drafts-popup-discard-selected = تجاهل المحدد
+mail-drafts-popup-more = المزيد من الإجراءات لـ { $subject }
+mail-drafts-popup-retry = إعادة المحاولة
+mail-drafts-popup-load-failed = تعذّر تحميل مسودات الحساب.
+mail-drafts-popup-empty-account = لا توجد مسودات في الحساب
+mail-drafts-popup-no-match = لا توجد مسودات تطابق «{ $query }»
+mail-drafts-popup-discarding = جارٍ التجاهل…
+mail-drafts-popup-row-failed = تعذّر التجاهل. تبقى نسخته في الحساب.
+mail-drafts-popup-confirm-title = { $count ->
+    [zero] تجاهل أي مسودة؟
+    [one] تجاهل هذه المسودة؟
+    [two] تجاهل المسودتين؟
+    [few] تجاهل { $count } مسودات؟
+    [many] تجاهل { $count } مسودة؟
+   *[other] تجاهل { $count } مسودة؟
+  }
+mail-drafts-popup-confirm-account = تُزال مسودات الحساب أولًا من مجلد المسودات في حسابك، ولا يُحرَّر مكانها إلا بعد تأكيد هذه الإزالة.
+mail-drafts-popup-confirm-local = تُزال المسودات المحلية من هذا المتصفح.
+mail-drafts-popup-announce-done = { $count ->
+    [zero] لم تُتجاهل أي مسودة
+    [one] تم تجاهل مسودة واحدة
+    [two] تم تجاهل مسودتين
+    [few] تم تجاهل { $count } مسودات
+    [many] تم تجاهل { $count } مسودة
+   *[other] تم تجاهل { $count } مسودة
+  }
+mail-drafts-popup-announce-failed = تم تجاهل { $done }، وتعذّر تجاهل { $failed }
+mail-check-title = تحقق قبل الإرسال
+mail-check-intro = قد تحتاج هذه الأمور إلى نظرة ثانية:
+mail-check-invalid = تبدو بعض عناوين المستلمين غير صالحة: { $list }
+mail-check-subject = الموضوع فارغ.
+mail-check-attachment = تذكر الرسالة مرفقًا، لكن لم يُرفق شيء.
+mail-check-external = مستلمون خارج النطاقات الموثوقة: { $list }
+mail-check-send-anyway = إرسال على أي حال
+mail-check-review = مراجعة
+mail-check-remember = عدم السؤال مرة أخرى عن هذه
+mail-check-denied-invalid = الإرسال محظور بحسب إعداداتك. صحّح عناوين المستلمين غير الصالحة: { $list }
+mail-check-denied-subject = الإرسال محظور بحسب إعداداتك. أضف موضوعًا.
+mail-check-denied-attachment = الإرسال محظور بحسب إعداداتك. أرفق الملف الذي تذكره، أو أعد صياغة الرسالة.
+mail-check-denied-external = الإرسال محظور بحسب إعداداتك. خارج النطاقات الموثوقة: { $list }
+mail-alerts-label = مشكلات الرسالة
+mail-alert-invalid = عنوان غير صالح: { $address }
+mail-alert-subject = بلا موضوع
+mail-recipient-chip-remove = إزالة { $address }
+mail-recipient-chips = المستلمون في { $field }
+mail-recipient-invalid-title = ليس عنوان بريد إلكتروني صالحًا
+mail-recipient-chip-name = { $name }، { $address }. اضغط Enter لعرض تفاصيل جهة الاتصال، وBackspace أو F2 للتحرير، وDelete للإزالة
+mail-recipient-chip-name-invalid = { $address }، ليس عنوانًا صالحًا. اضغط Enter للتحرير وDelete للإزالة
+mail-recipient-added = تمت إضافة { $name }
+mail-recipient-removed = تمت إزالة { $name }
+mail-recipient-removed-many = { $count ->
+    [zero] لم تُزل أي مستلمين
+    [one] تمت إزالة مستلم واحد
+    [two] تمت إزالة مستلمين
+    [few] تمت إزالة { $count } مستلمين
+    [many] تمت إزالة { $count } مستلمًا
+   *[other] تمت إزالة { $count } مستلم
+}
+mail-recipient-editing = جارٍ تحرير { $name }
+mail-recipient-all-selected = { $count ->
+    [zero] لم يُحدَّد أي مستلم
+    [one] تم تحديد مستلم واحد
+    [two] تم تحديد مستلمين
+    [few] تم تحديد { $count } مستلمين
+    [many] تم تحديد { $count } مستلمًا
+   *[other] تم تحديد { $count } مستلم
+}
+mail-external-line = { $count } خارج النطاقات الموثوقة: { $domains }
+mail-external-dismiss = إغلاق
+mail-status-label = حالة المحرر
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-status-more = { $count } إشعارات أخرى
+mail-status-more-label = المزيد من الإشعارات
+mail-status-no-recipients = لا مستلمين
+mail-status-no-attachment = لا مرفق
+mail-status-external = خارجي: { $count }
+mail-status-external-reviewed = تمت مراجعة المستلمين الخارجيين
+mail-status-external-review = تعليم كمُراجَع
+mail-status-from-match = من { $identity }
+mail-status-from-match-plus = من { $identity }
+mail-status-from-ambiguous = من { $identity } (عدة تطابقات)
+mail-status-from-default = من الهوية الافتراضية
+mail-status-from-forced-default = من الهوية الافتراضية
+mail-status-from-keep = من { $identity }
+mail-status-held = { $count } في قائمة الانتظار
+mail-status-storage = لا استرداد محلي
+mail-status-protected = لا تُحفظ كنص عادي
+mail-status-saving = جارٍ الحفظ…
+mail-status-saved = تم الحفظ { $time }
+mail-status-saved-full = تم الحفظ في مسودات الحساب · { $time }
+mail-status-not-saved = لم تُحفظ المسودة
+mail-status-retry = إعادة المحاولة
+mail-status-conflict = تغيّرت على جهاز آخر
+mail-status-uncertain = لم يتأكد الحفظ
+mail-status-close-recovery = إغلاق مع الإبقاء على الاسترداد
+mail-status-unsupported = حفظ المسودة غير مؤكد
+mail-compose-header = ترويسة الرسالة
+mail-header-label = ترويسة الرسالة
+mail-header-collapse = طي ترويسة الرسالة
+mail-header-expand = توسيع ترويسة الرسالة: { $summary }
+mail-header-from-chip = من { $address }. تغيير المرسل
+mail-compose-group-timing = توقيت الإرسال
+mail-compose-group-priority = الأولوية
+mail-compose-group-receipts = الإيصالات والتتبع
+mail-compose-group-keys-files = المفاتيح والملفات
+mail-compose-group-sent-copy = نسخة المرسَل
+mail-editor-style-quote = اقتباس
+mail-editor-style-code = رمز برمجي
+mail-compose-ribbon-table-layout = تخطيط الجدول
+mail-compose-ribbon-picture = صورة
+mail-editor-table-group-rows = الصفوف
+mail-editor-table-group-columns = الأعمدة
+mail-editor-table-group-cells = الخلايا
+mail-editor-table-row-height = ارتفاع الصف
+mail-editor-table-column-width = عرض العمود
+mail-editor-table-size-auto = تلقائي
+mail-editor-table-padding = حشوة الخلية
+mail-editor-table-padding-compact = مضغوطة
+mail-editor-table-padding-normal = عادية
+mail-editor-table-padding-roomy = واسعة
+mail-editor-table-align-left = محاذاة الخلية لليسار
+mail-editor-table-align-center = محاذاة الخلية للوسط
+mail-editor-table-align-right = محاذاة الخلية لليمين
+mail-picture-group-size = الحجم
+mail-picture-group-arrange = الترتيب
+mail-picture-group-text = النص
+mail-picture-group-style = النمط
+mail-picture-group-edit = تحرير
+mail-picture-width = العرض
+mail-picture-height = الارتفاع
+mail-picture-lock = الحفاظ على النسب
+mail-picture-reset-size = الحجم الأصلي
+mail-picture-align-inline = ضمن النص
+mail-picture-align-left = محاذاة لليسار
+mail-picture-align-center = وسط
+mail-picture-align-right = محاذاة لليمين
+mail-picture-alt = النص البديل
+mail-picture-title = العنوان
+mail-picture-border = الحد
+mail-picture-radius = الزوايا
+mail-picture-none = بلا
+mail-picture-round = مستديرة
+mail-picture-rotate-ccw = تدوير لليسار
+mail-picture-rotate-cw = تدوير لليمين
+mail-picture-flip-h = قلب أفقي
+mail-picture-flip-v = قلب عمودي
+mail-picture-crop = اقتصاص
+mail-picture-crop-left = اليسار (%)
+mail-picture-crop-top = الأعلى (%)
+mail-picture-crop-right = اليمين (%)
+mail-picture-crop-bottom = الأسفل (%)
+mail-picture-crop-apply = اقتصاص
+mail-picture-replace = استبدال
+mail-picture-remove = إزالة
+mail-picture-failed-no-image = حدّد صورة أولًا.
+mail-picture-failed-no-source = لا توجد لهذه الصورة نسخة محلية للتحرير. استبدلها بدلًا من ذلك.
+mail-picture-failed-failed = تعذّر تغيير الصورة.
+mail-context-download-attachments = تنزيل المرفقات
+mail-context-download-named = تنزيل { $name }
+mail-context-download-all = تنزيل الكل بصيغة ZIP
+mail-context-loading-attachments = جارٍ تحميل المرفقات…
+mail-context-attachments-failed = تعذّر تحميل المرفقات.
+mail-context-searching = جارٍ البحث عن الرسالة…
+mail-context-go-reply = الانتقال إلى الرد
+mail-context-go-forward = الانتقال إلى إعادة التوجيه
+mail-context-reply-not-found = لم يُعثر على الرد
+mail-context-forward-not-found = لم يُعثر على إعادة التوجيه
+mail-no-recipients = (لا مستلمين)
+mail-attachment-downloaded = تم تنزيل { $name }
+mail-attachment-download-failed = فشل التنزيل.
+mail-attachments-zip-done = تم تنزيل { $count } مرفقًا بصيغة ZIP.
+mail-attachments-zip-capped = يحتوي ملف ZIP على أول { $count } مرفقًا؛ الحد هو { $max } ملفًا أو { $size }.
+mail-focus-not-found = لم يُعثر على الرسالة في { $folder }
+mail-focus-go-to = الانتقال إلى { $folder }
+mail-nav-views-queues = العروض وقوائم الانتظار
+mail-badge-unread = { $unread ->
+    [zero] لا رسائل غير مقروءة
+    [one] رسالة واحدة غير مقروءة
+    [two] رسالتان غير مقروءتين
+    [few] { $unread } رسائل غير مقروءة
+    [many] { $unread } رسالة غير مقروءة
+   *[other] { $unread } رسالة غير مقروءة
+  }
+mail-badge-total = { $total ->
+    [zero] لا رسائل في هذا المجلد
+    [one] رسالة واحدة في هذا المجلد
+    [two] رسالتان في هذا المجلد
+    [few] { $total } رسائل في هذا المجلد
+    [many] { $total } رسالة في هذا المجلد
+   *[other] { $total } رسالة في هذا المجلد
+  }
+mail-badge-both = { $unread ->
+    [zero] لا رسائل غير مقروءة
+    [one] رسالة واحدة غير مقروءة
+    [two] رسالتان غير مقروءتين
+    [few] { $unread } رسائل غير مقروءة
+    [many] { $unread } رسالة غير مقروءة
+   *[other] { $unread } رسالة غير مقروءة
+  } من أصل { $total ->
+    [zero] لا شيء في هذا المجلد
+    [one] واحدة في هذا المجلد
+    [two] اثنتين في هذا المجلد
+    [few] { $total } في هذا المجلد
+    [many] { $total } في هذا المجلد
+   *[other] { $total } في هذا المجلد
+  }
+mail-badge-drafts = { $total ->
+    [zero] المسودات: لا رسائل
+    [one] المسودات: رسالة واحدة
+    [two] المسودات: رسالتان
+    [few] المسودات: { $total } رسائل
+    [many] المسودات: { $total } رسالة
+   *[other] المسودات: { $total } رسالة
+  }
+mail-badge-compact-hint = تستخدم المجلدات غير صندوق الوارد شارة أصغر. غيّر ذلك من الإعدادات، ثم المجلدات والشريط الجانبي.
+mail-badge-outbox = { $count ->
+    [zero] صندوق الصادر: لا رسائل بانتظار الإرسال
+    [one] صندوق الصادر: رسالة واحدة بانتظار الإرسال
+    [two] صندوق الصادر: رسالتان بانتظار الإرسال
+    [few] صندوق الصادر: { $count } رسائل بانتظار الإرسال
+    [many] صندوق الصادر: { $count } رسالة بانتظار الإرسال
+   *[other] صندوق الصادر: { $count } رسالة بانتظار الإرسال
+  }
+mail-color-menu = ألوان الرسالة
+mail-color-button = ألوان الرسالة: { $mode }
+mail-color-use-default = استخدام الافتراضي الخاص بي ({ $mode })
+mail-color-make-default = جعل هذا الافتراضي الخاص بي
+mail-color-locked = مقفل من المسؤول
+mail-color-confirm-title = تغيير ألوان الرسائل الافتراضية؟
+mail-color-confirm-body = ستستخدم كل رسالة «{ $mode }» ما لم تغيّره لرسالة واحدة.
+mail-color-confirm = جعله الافتراضي
+mail-color-default-failed = تعذّر حفظ ألوان الرسائل الافتراضية.

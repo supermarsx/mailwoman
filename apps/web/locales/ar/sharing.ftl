@@ -50,3 +50,7 @@ sharing-right-e-label = الحذف النهائي
 sharing-right-e-desc = إزالة الرسائل الموسومة كمحذوفة نهائيًا.
 sharing-right-a-label = الإدارة
 sharing-right-a-desc = تغيير من يملك الوصول إلى صندوق البريد هذا.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = لا يدعم خادم البريد هذا مشاركة المجلدات.
+sharing-forbidden = غير مسموح لك بإدارة مشاركة هذا المجلد. اسأل مالكه أو المسؤول.

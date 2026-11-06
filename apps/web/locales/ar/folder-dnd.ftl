@@ -1,0 +1,79 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ar · Module: folder-dnd. Source: ../en/folder-dnd.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+folder-dnd-moved = تم نقل المجلد: { $name }
+folder-dnd-moved-many = تم نقل { $count } مجلدات
+folder-dnd-undo = تراجع
+folder-dnd-cancel = إلغاء
+folder-dnd-handle = اسحب { $name } لنقله
+folder-dnd-locked-hint = ترتيب المجلدات ثابت بقرار من المسؤول.
+folder-dnd-forced-hint = مثبّت من المسؤول. لا يمكن نقله أو إلغاء تثبيته.
+folder-dnd-disabled-hint = السحب والإفلات للمجلدات متوقف.
+folder-dnd-system-hint = لا يمكن نقل مجلدات النظام.
+folder-dnd-pinned-group = مثبّتة
+folder-dnd-top-level = نقل إلى المستوى الأعلى
+folder-dnd-problem-disabled = نقل المجلدات متوقف.
+folder-dnd-problem-locked = ترتيب المجلدات ثابت بقرار من المسؤول.
+folder-dnd-problem-self = لا يمكن نقل مجلد إلى داخل نفسه.
+folder-dnd-problem-descendant = لا يمكن نقل مجلد إلى داخل أحد مجلداته الفرعية.
+folder-dnd-problem-system = لا يمكن نقل مجلدات النظام إلى هنا.
+folder-dnd-problem-no-children = لا يمكن أن يحتوي هذا المجلد على مجلدات فرعية.
+folder-dnd-problem-nesting-off = لا يسمح المسؤول بتداخل المجلدات.
+folder-dnd-problem-depth = سيؤدي ذلك إلى تداخل المجلدات بعمق زائد.
+folder-dnd-problem-forced = هذا المجلد مثبّت من المسؤول.
+folder-dnd-problem-unknown = لم يعد هذا المجلد موجودًا.
+folder-dnd-problem-noop = المجلد موجود هناك بالفعل.
+folder-dnd-problem-collision = يوجد هناك مجلد باسم { $name }. أعد تسميته أولًا.
+folder-dnd-problem-server = لم ينقل الخادم { $name }. لم يتغير شيء.
+folder-dnd-announce-up = تم نقل { $name } لأعلى
+folder-dnd-announce-down = تم نقل { $name } لأسفل
+folder-dnd-announce-indent = تم نقل { $name } إلى المجلد الذي فوقه
+folder-dnd-announce-outdent = تم نقل { $name } مستوى واحدًا لأعلى
+folder-dnd-nest-title = نقل { $name } إلى هنا؟
+folder-dnd-nest-title-many = نقل { $count } مجلدات إلى هنا؟
+folder-dnd-nest-body = اختر هل يغيّر هذا المجلد على خادم البريد أم طريقة عرضه في هذا التطبيق فقط.
+folder-dnd-nest-legend = طريقة النقل
+folder-dnd-nest-local = ترتيب في هذا التطبيق فقط
+folder-dnd-nest-local-help = عرض فقط. يبقى المجلد في مكانه على الخادم وفي تطبيقات البريد الأخرى.
+folder-dnd-nest-server = النقل على الخادم
+folder-dnd-nest-server-help = يغيّر المجلد في كل مكان، في كل تطبيق بريد يستخدم هذا الحساب.
+folder-dnd-nest-remember = تذكّر اختياري
+folder-dnd-nest-confirm = نقل
+folder-dnd-arranged-only = مرتّب في هذا التطبيق فقط
+folder-dnd-arranged-only-help = مكانه على الخادم مختلف: { $path }
+folder-dnd-apply-server = تطبيق على الخادم
+folder-dnd-reset = إعادة الترتيب إلى الافتراضي
+folder-dnd-reset-done = تمت إعادة ضبط ترتيب المجلدات
+folder-dnd-move-to = نقل { $name } إلى...
+folder-dnd-layout-link = تخطيط المجلدات
+folder-dnd-reorder-enable = إعادة ترتيب المجلدات بالسحب
+folder-dnd-nest-mode = عند تداخل مجلد
+folder-dnd-nest-mode-ask = اسألني
+folder-dnd-nest-mode-server = النقل على الخادم
+folder-dnd-nest-mode-local = ترتيب في هذا التطبيق فقط
+folder-dnd-new-placement = تظهر المجلدات الجديدة
+folder-dnd-new-placement-end = بعد المجلدات المجاورة
+folder-dnd-new-placement-alphabetical = بالترتيب الأبجدي
+folder-dnd-handles = إظهار مقابض السحب
+folder-dnd-handles-hover = عند التمرير
+folder-dnd-handles-always = دائمًا
+folder-dnd-arrange-title = ترتيب المجلدات
+folder-dnd-arrange-help = اسحب مجلدًا لإعادة ترتيبه، أو أفلته على مجلد آخر لتداخله، أو استخدم Alt مع مفاتيح الأسهم على مجلد محدد.
+folder-dnd-admin-locked = معيّن من المسؤول
+
+# -- Machine translation (2026-11): added to match en ---------------------
+folder-dnd-arrange-menu = نقل إلى…
+folder-star-add = تمييز المجلد بنجمة
+folder-star-remove = إزالة نجمة المجلد
+folder-star-starred = مميّز بنجمة
+folder-star-toggle = تمييز { $name } بنجمة
+folder-star-only = إظهار المميّزة بنجمة فقط
+folder-star-only-help = يُظهر المجلدات المميّزة بنجمة والمجلدات التي تحتويها فقط.
+folder-dnd-indent = نقل { $name } إلى المجلد الذي فوقه
+folder-dnd-outdent = نقل { $name } مستوى واحدًا لأعلى
+folder-dnd-more-actions = ترتيب
+folder-dnd-selected-move = نقل المحدد إلى…
+folder-dnd-locked-row = مقفل
+folder-dnd-problem-pin = تبقى المجلدات المثبّتة فوق غيرها. ألغِ تثبيته أولًا لنقله إلى هناك.

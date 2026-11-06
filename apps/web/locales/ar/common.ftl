@@ -169,3 +169,6 @@ multiselect-count = { $count ->
     [many] { $count } تحديدًا
    *[other] { $count } تحديد
 }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = الخادم مشغول. انتظر بضع ثوانٍ ثم حاول مرة أخرى.

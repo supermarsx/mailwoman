@@ -1,0 +1,60 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: ar · Module: admin-domain-guided. Source: ../en/admin-domain-guided.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-domain-guided-title = إضافة نطاق بإرشاد
+admin-domain-guided-identity = هوية النطاق
+admin-domain-guided-domain = اسم النطاق
+admin-domain-guided-connection = الاتصال
+admin-domain-guided-default = استخدام الإعدادات الافتراضية للخادم
+admin-domain-guided-manual = ضبط خادم بريد
+admin-domain-guided-default-help = تستخدم الإعدادات الافتراضية للخادم توجيه البريد الذي ضبطه المسؤول. يمكنك مراجعة هذا النطاق قبل إنشائه.
+admin-domain-guided-permission = يمكن لدورك إنشاء النطاق بالإعدادات الافتراضية للخادم. يتطلب تغيير خوادم بريده إذن إعدادات الخادم الأصلي.
+admin-domain-guided-protocol = بروتوكول البريد
+admin-domain-guided-host = اسم مضيف البريد أو عنوان IP
+admin-domain-guided-port = منفذ البريد
+admin-domain-guided-tls = تشفير البريد
+admin-domain-guided-implicit = TLS من بداية الاتصال
+admin-domain-guided-starttls = STARTTLS مطلوب
+admin-domain-guided-smtp = ضبط خادم SMTP للإرسال
+admin-domain-guided-smtp-host = اسم مضيف SMTP أو عنوان IP
+admin-domain-guided-smtp-port = منفذ SMTP
+admin-domain-guided-smtp-tls = تشفير SMTP
+admin-domain-guided-smtp-omitted = لا خادم SMTP خاص بالنطاق
+admin-domain-guided-jmap = عنوان URL لجلسة JMAP
+admin-domain-guided-no-credentials = لا تُجمع هنا أي بيانات اعتماد للحساب. يبقى التحقق من شهادة TLS مفعّلًا؛ ويتطلب الوصول إلى الشبكة الخاصة إعدادًا متقدمًا منفصلًا.
+admin-domain-guided-policy = سياسة الاتصال
+admin-domain-guided-policy-value = TLS موثَّق، ومصادقة بكلمة مرور عند تسجيل الدخول، وبلا وصول إلى الشبكة الخاصة
+admin-domain-guided-create = إنشاء النطاق
+admin-domain-guided-invalid-domain = أدخل اسم نطاق مثل example.org، دون مخطط أو مسار أو منفذ.
+admin-domain-guided-invalid-endpoint = أدخل أسماء مضيفي خوادم أو عناوين IP صالحة ومنافذ بين 1 و65535.
+admin-domain-guided-invalid-url = أدخل عنوان URL لجلسة JMAP عبر HTTPS دون بيانات اعتماد أو معلمات استعلام أو جزء.
+admin-domain-guided-status-required = حمّل وضع اتصال الخادم قبل ضبط خادم بريد.
+admin-domain-guided-advanced = ضبط عدة خلفيات وخيارات متقدمة
+admin-domain-guided-draft-help = هذه مسودات إعداد. لا يُحفظ شيء حتى تختار إنشاء النطاق في صفحة المراجعة الأخيرة.
+admin-domain-guided-backend-list = مسودات إعداد الخلفيات
+admin-domain-guided-backend-empty = أضف خلفية أو راجع إعدادًا مكتشفًا.
+admin-domain-guided-backend-done = العودة إلى قائمة الخلفيات
+admin-domain-guided-actions = الإجراءات
+admin-domain-guided-disabled = معطّل
+admin-domain-guided-edit-backend = تعديل الخلفية { $id }
+admin-domain-guided-remove-backend = إزالة الخلفية { $id } من الإعداد
+admin-domain-guided-remove-help = أزل هذه الخلفية غير المحفوظة من مسودة الإعداد.
+admin-domain-guided-custom-ca = ضُبطت جهة إصدار شهادات مخصصة
+admin-domain-guided-supported-help = وضع الخادم الحالي: { $mode }. يدعم وضع المحرك IMAP وPOP3 وSMTP وManageSieve وEWS HTTPS Basic في الإعداد المتقدم؛ ويدعم وضع الوكيل JMAP. لا تتوفر Microsoft Graph وGmail API وOAuth وNTLM وMAPI كخلفيات نطاق هنا.
+admin-domain-guided-detect = اكتشاف الإعدادات
+admin-domain-guided-detecting = جارٍ الاكتشاف…
+admin-domain-guided-detect-help = شغّل اكتشافًا صريحًا من جانب الخادم عبر سياسة الصادر المضبوطة. النتائج مقترحات ولا تُحفظ تلقائيًا أبدًا. يجب أن يسمح دورك بإعدادات الخادم الأصلي غير المقيّدة بنطاق.
+admin-domain-guided-detected = المصدر المكتشَف: { $source }. راجع كل نقاط النهاية والمصادقة قبل إنشاء هذا النطاق.
+admin-domain-guided-use-proposal = مراجعة نقاط النهاية المكتشَفة
+admin-domain-guided-oauth-warning = يبلّغ هذا المزوّد عن متطلبات OAuth. لا يضبط هذا الإعداد OAuth للمزوّد. تأكد من دعم آليات كلمة المرور المحددة قبل استخدام نقاط النهاية هذه.
+admin-domain-guided-pim-help = تستخدم مزامنة جهات الاتصال والتقويم إعدادات Nextcloud المرتبطة بالحساب. لا يفعّل هذا الإعداد عناوين DAV للنطاق ولا الاكتشاف التلقائي.
+admin-domain-guided-backend-count = اضبط بين خلفية واحدة و32 خلفية.
+admin-domain-guided-backend-id = امنح كل خلفية معرّفًا فريدًا من 1 إلى 64 حرفًا أو رقمًا أو واصلة أو شرطة سفلية.
+admin-domain-guided-backend-mode = بروتوكول الخلفية المحدد غير مدعوم في وضع الخادم الحالي.
+admin-domain-guided-backend-priority = يجب أن تكون أولويات الخلفيات أعدادًا صحيحة بين 0 و65535؛ وتُجرَّب القيم الأقل أولًا.
+admin-domain-guided-backend-preferred = اختر خلفية مفضلة مفعّلة واحدة على الأكثر لكل دور خدمة.
+admin-domain-guided-backend-security = راجع ترتيب TLS: استخدم وسائل نقل مختلفة، إحداها بوضع ثابت، واسمح صراحةً بالنص العادي قبل تضمينه.
+admin-domain-guided-backend-auth = اختر آليات مصادقة مدعومة مختلفة؛ ويتطلب الوضع الثابت آلية واحدة بالضبط.
+admin-domain-guided-backend-username = أكمل نطاق اسم المستخدم المحدد أو المجال (realm) أو القالب المخصص.

@@ -89,3 +89,9 @@ rules-forward-title = إعادة التوجيه
 rules-forward-address = إعادة التوجيه إلى
 rules-forward-copy = الاحتفاظ بنسخة في هذا الحساب
 rules-forward-refused = لا يسمح المسؤول بإعادة التوجيه إلى هذا النطاق.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = تم الحفظ. الردود التلقائية متوقفة.
+rules-vacation-runs-server = يرسل خادم بريدك هذا الرد عند وصول البريد.
+rules-vacation-runs-engine = يرسل Mailwoman هذا الرد عند مزامنة البريد الجديد في الوارد، لذا قد ينتظر الرد حتى المزامنة التالية.
+rules-vacation-unavailable = ردود الإجازة غير متاحة لهذا الحساب: إما أن خادم بريده لا يوفرها، أو أن المسؤول أوقفها.

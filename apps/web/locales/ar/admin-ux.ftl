@@ -158,3 +158,10 @@ admin-ux-appearance-accent = لون التمييز
 admin-ux-appearance-light = فاتح
 admin-ux-appearance-dark = داكن
 admin-ux-appearance-reset = استخدام سمة البريد على الويب
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = إضافة
+admin-ux-list-remove = إزالة { $item }
+admin-ux-list-none = لا شيء بعد.
+admin-ux-list-duplicate = { $item } موجود في القائمة بالفعل.
+admin-ux-list-empty-entry = اكتب إدخالًا أولًا.
