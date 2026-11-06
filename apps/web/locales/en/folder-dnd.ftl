@@ -75,3 +75,38 @@ folder-dnd-problem-pin = Pinned folders stay above the others. Unpin it first to
 folder-dnd-handle-hint = Drag to move this folder
 folder-pinned-group = Pinned
 folder-pinned-unpin-zone = Drop here to unpin
+
+settings-folders-subscribe-selected = Subscribe
+settings-folders-unsubscribe-selected = Unsubscribe
+settings-folders-delete-selected = Delete…
+settings-folders-subscribed = { $count ->
+    [one] Subscribed to { $count } folder
+   *[other] Subscribed to { $count } folders
+}
+settings-folders-unsubscribed = { $count ->
+    [one] Unsubscribed from { $count } folder
+   *[other] Unsubscribed from { $count } folders
+}
+settings-folders-subscribe-partial = Changed { $done } folders; { $failed } could not be changed.
+settings-folders-subscribe-failed = The subscriptions could not be changed.
+settings-folders-bulk-delete-none = None of the selected folders can be deleted (system folders and folders you may not delete are skipped).
+settings-folders-bulk-delete-title = { $count ->
+    [one] Delete { $count } folder?
+   *[other] Delete { $count } folders?
+}
+settings-folders-bulk-delete-body = { $folders ->
+    [one] { $folders } folder and the { $messages } messages in it will be deleted. This cannot be undone.
+   *[other] { $folders } folders (with their subfolders) and the { $messages } messages in them will be deleted. This cannot be undone.
+}
+settings-folders-bulk-delete-confirm = { $count ->
+    [one] Delete { $count } folder
+   *[other] Delete { $count } folders
+}
+settings-folders-bulk-delete-list = Folders to delete
+settings-folders-bulk-delete-skipped = { $count } selected folders are skipped because they cannot be deleted: { $names }
+settings-folders-bulk-delete-done = { $count ->
+    [one] Deleted { $count } folder
+   *[other] Deleted { $count } folders
+}
+settings-folders-bulk-delete-partial = Deleted { $done } folders. Not deleted: { $names }
+settings-folders-bulk-delete-failed = Nothing was deleted. Not deleted: { $names }

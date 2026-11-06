@@ -59,6 +59,8 @@ export interface Mailbox {
   sortOrder: number;
   totalEmails: number;
   unreadEmails: number;
+  /** RFC 8621 section 2: whether the folder is subscribed. */
+  isSubscribed?: boolean;
   /** Set on a saved-search / search folder (V2 §2.1); absent on real mailboxes. */
   mailwomanSearchQuery?: string;
   /** RFC 8621 §2 `myRights` (read for Rename, t65, and Empty folder, t45). */
@@ -100,6 +102,13 @@ export interface Email {
   messageId?: string[] | null;
   inReplyTo?: string[] | null;
   references?: string[] | null;
+  /** Delivery headers (`header:<Name>:asAddresses:all`): one address list per
+   *  instance of the header, newest first. Asked for by `emailGetFull` only. */
+  'header:Delivered-To:asAddresses:all'?: EmailAddress[][] | null;
+  'header:X-Original-To:asAddresses:all'?: EmailAddress[][] | null;
+  'header:Envelope-To:asAddresses:all'?: EmailAddress[][] | null;
+  'header:X-Forwarded-To:asAddresses:all'?: EmailAddress[][] | null;
+  'header:Resent-To:asAddresses:all'?: EmailAddress[][] | null;
   /** Native MIME reports null when a message has no readable body text. */
   preview: string | null;
   htmlBody?: EmailBodyPart[];
@@ -124,6 +133,17 @@ export interface Email {
    *  threads you took part in, keywords). Absent from a server that does not
    *  know it (a proxied upstream); the client heuristic applies then. */
   mailwomanFocus?: FocusDecision | null;
+  /** The authentication summary of a message the server has already checked (the
+   *  security panel computes and caches it): `null` when it has not, and absent
+   *  from a server that does not know it. A list row shows a brand logo only
+   *  when this says DMARC aligned and DKIM passed for that brand. */
+  mailwomanAuth?: ListAuthSummary | null;
+}
+
+/** What a list row needs of the full authentication verdict. */
+export interface ListAuthSummary {
+  dkim: { result: string; domain: string | null };
+  dmarc: { result: string; aligned: boolean };
 }
 
 /** Why the server put a message in Focused or Other (t94). */

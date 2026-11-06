@@ -190,3 +190,46 @@ it('resets the arrangement to the server order',()=>{
  click('Reset order to default');
  expect(update).toHaveBeenLastCalledWith({folderOrder:[],folderParent:{}});
 });
+
+const deletable=(id:string,name:string,extra:Record<string,unknown>={}):PreferenceFolder=>({id,name,role:null,parentId:null,totalEmails:0,unreadEmails:0,sortOrder:0,myRights:{mayDelete:true,mayRename:true,mayCreateChild:true},...extra} as unknown as PreferenceFolder);
+
+it('bulk delete names the folders and messages affected, skips system folders, and deletes each root with its subfolders on confirm',async()=>{
+ mount([{id:'i',name:'Inbox',role:'inbox'} as PreferenceFolder,deletable('a','Alpha',{totalEmails:7}),deletable('a1','Alpha child',{parentId:'a',totalEmails:2}),deletable('b','Beta',{totalEmails:1})],{},true);
+ service.jmap.mockImplementation(async(request:JmapRequest)=>{
+  const call=request.methodCalls[0]!,args=call[1] as {destroy?:string[]};
+  return {methodResponses:[['Mailbox/set',{accountId:'acct1',destroyed:args.destroy??[]},call[2]]]};
+ });
+ click('Select all folders');
+ fireEvent.click(screen.getByTestId('bulk-delete'));
+ const dialog=await screen.findByRole('alertdialog');
+ expect(dialog).toHaveTextContent('3 folders (with their subfolders) and the 10 messages in them will be deleted');
+ expect(within(dialog).getByTestId('bulk-delete-skipped')).toHaveTextContent('Inbox');
+ expect(service.jmap).not.toHaveBeenCalled();
+ fireEvent.click(within(dialog).getByRole('button',{name:'Delete 2 folders'}));
+ await waitFor(()=>expect(service.jmap.mock.calls.map(([request])=>(request as JmapRequest).methodCalls[0]![1])).toEqual([
+  expect.objectContaining({destroy:['a1']}),expect.objectContaining({destroy:['a']}),expect.objectContaining({destroy:['b']}),
+ ]));
+});
+
+it('bulk delete is unavailable when nothing selected can be deleted, and never offered to an account that cannot manage folders',async()=>{
+ mount([{id:'i',name:'Inbox',role:'inbox'} as PreferenceFolder],{},true);
+ fireEvent.click(selected('Inbox'));
+ expect(screen.getByTestId('bulk-delete')).toBeDisabled();
+ cleanup();service.manages=false;
+ mount([deletable('a','Alpha')],{},true);
+ fireEvent.click(selected('Alpha'));
+ expect(screen.queryByTestId('bulk-delete')).toBeNull();expect(screen.queryByTestId('bulk-subscribe')).toBeNull();
+});
+
+it('bulk subscribe and unsubscribe send one Mailbox/set with isSubscribed for every selected folder and report partial failures',async()=>{
+ const {refresh}=mount([deletable('a','Alpha'),deletable('b','Beta')],{},true);
+ service.jmap.mockImplementation(async(request:JmapRequest)=>{
+  const call=request.methodCalls[0]!,update=(call[1] as {update:Record<string,unknown>}).update;
+  return {methodResponses:[['Mailbox/set',{accountId:'acct1',updated:{a:null},notUpdated:'b' in update?{b:{type:'forbidden'}}:{}},call[2]]]};
+ });
+ click('Select all folders');
+ fireEvent.click(screen.getByTestId('bulk-unsubscribe'));
+ await waitFor(()=>expect(service.jmap).toHaveBeenCalledTimes(1));
+ expect((service.jmap.mock.calls[0]![0] as JmapRequest).methodCalls[0]![1]).toMatchObject({update:{a:{isSubscribed:false},b:{isSubscribed:false}}});
+ await waitFor(()=>expect(refresh).toHaveBeenCalled());
+});

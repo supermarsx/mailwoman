@@ -78,3 +78,38 @@ folder-dnd-problem-pin = As pastas fixadas ficam acima das outras. Desafixe-a pr
 folder-dnd-handle-hint = Arraste para mover esta pasta
 folder-pinned-group = Fixadas
 folder-pinned-unpin-zone = Largue aqui para desafixar
+
+settings-folders-subscribe-selected = Subscrever
+settings-folders-unsubscribe-selected = Cancelar subscrição
+settings-folders-delete-selected = Eliminar…
+settings-folders-subscribed = { $count ->
+    [one] Subscreveu { $count } pasta
+   *[other] Subscreveu { $count } pastas
+}
+settings-folders-unsubscribed = { $count ->
+    [one] Cancelou a subscrição de { $count } pasta
+   *[other] Cancelou a subscrição de { $count } pastas
+}
+settings-folders-subscribe-partial = Alteradas { $done } pastas; { $failed } não puderam ser alteradas.
+settings-folders-subscribe-failed = Não foi possível alterar as subscrições.
+settings-folders-bulk-delete-none = Nenhuma das pastas selecionadas pode ser eliminada (as pastas do sistema e as que não pode eliminar são ignoradas).
+settings-folders-bulk-delete-title = { $count ->
+    [one] Eliminar { $count } pasta?
+   *[other] Eliminar { $count } pastas?
+}
+settings-folders-bulk-delete-body = { $folders ->
+    [one] { $folders } pasta e as { $messages } mensagens que contém serão eliminadas. Isto não pode ser anulado.
+   *[other] { $folders } pastas (com as subpastas) e as { $messages } mensagens que contêm serão eliminadas. Isto não pode ser anulado.
+}
+settings-folders-bulk-delete-confirm = { $count ->
+    [one] Eliminar { $count } pasta
+   *[other] Eliminar { $count } pastas
+}
+settings-folders-bulk-delete-list = Pastas a eliminar
+settings-folders-bulk-delete-skipped = { $count } pastas selecionadas foram ignoradas porque não podem ser eliminadas: { $names }
+settings-folders-bulk-delete-done = { $count ->
+    [one] Eliminou { $count } pasta
+   *[other] Eliminou { $count } pastas
+}
+settings-folders-bulk-delete-partial = Eliminadas { $done } pastas. Não eliminadas: { $names }
+settings-folders-bulk-delete-failed = Nada foi eliminado. Não eliminadas: { $names }

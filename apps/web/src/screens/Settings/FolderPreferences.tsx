@@ -17,6 +17,9 @@ import {treeRows} from '../../components/folderTree.ts';
 import {FolderNestDialog} from '../../components/FolderNestDialog.tsx';
 import {FolderMoveToDialog} from '../../components/FolderMoveToDialog.tsx';
 import {FolderArrangeCard} from './FolderArrangeCard.tsx';
+import {BulkDeleteFoldersDialog} from '../../components/BulkDeleteFoldersDialog.tsx';
+import {deletePlan,setFoldersSubscribed} from '../../api/folderBulkDelete.ts';
+import {toast} from '../../components/toast/toast.ts';
 import {createConfiguredClient} from '../../api/transport.ts';
 import * as dndCss from '../../components/folderDnd.css.ts';
 import type {Tag} from '../../state/slices/tags.ts';
@@ -82,7 +85,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  const folders=createMemo(()=>layout.arranger.visual() as unknown as PreferenceFolder[]);
  const editing=()=>props.folders().find(folder=>navigation.route().editor?.kind==='edit'&&navigation.route().editor?.id===folder.id);
  const [query,setQuery]=createSignal(''),[selected,setSelected]=createSignal<ReadonlySet<string>>(new Set<string>());
- const [moveTo,setMoveTo]=createSignal<string[]|null>(null);let wrapEl:HTMLDivElement|undefined;
+ const [moveTo,setMoveTo]=createSignal<string[]|null>(null),[bulkDelete,setBulkDelete]=createSignal<string[]|null>(null);let wrapEl:HTMLDivElement|undefined;
  const [creating,setCreating]=createSignal<{parentId?:string}>(),[menuFolder,setMenuFolder]=createSignal<string>();
  const pinned=(id:string)=>prefs().folderPinned?.includes(id)??false;
  function parentPath(folder:PreferenceFolder):string {
@@ -113,6 +116,19 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   else hidden=[...new Set([...hidden,...targets.filter(folder=>folder.role!=='inbox').map(folder=>folder.id)])];
   const inboxIds=new Set(props.folders().filter(folder=>folder.role==='inbox').map(folder=>folder.id));
   update({folderHidden:hidden.filter(id=>!inboxIds.has(id))});
+ }
+ /** Bulk delete and subscribe change the mail server, so they need a signed-in mailbox account that manages its folders. */
+ const serverOk=()=>!props.onChange&&!!app&&ability()?.manages===true&&current();
+ const deletable=()=>app?deletePlan(app.mailboxes().filter(box=>selected().has(box.id)),app.mailboxes(),ability()).roots.length>0:false;
+ async function subscribe(targets:readonly PreferenceFolder[],value:boolean):Promise<void> {
+  const accountId=app?.accountId();if(!app||!owner||!accountId||!current())return;
+  const ids=targets.map(folder=>folder.id);
+  try{
+   const result=await setFoldersSubscribed(createConfiguredClient(),owner.id,ids,value,{current:()=>preferenceAccountIsCurrent(owner)&&app.accountId()===owner.id});
+   await app.refreshFolders().catch(()=>undefined);
+   if(result.failed.length)toast.error(t('settings-folders-subscribe-partial',{done:result.updated.length,failed:result.failed.length}));
+   else toast.success(t(value?'settings-folders-subscribed':'settings-folders-unsubscribed',{count:result.updated.length}));
+  }catch{toast.error(t('settings-folders-subscribe-failed'));}
  }
  function setPinned(targets:readonly PreferenceFolder[],value:boolean):void {
   const ids=new Set(prefs().folderPinned??[]);for(const folder of targets)if(value)ids.add(folder.id);else ids.delete(folder.id);
@@ -171,6 +187,11 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    <button type="button" class="btn btn--ghost" onClick={()=>setPinned(selectedFolders(),false)}>{t('settings-folders-unpin-selected')}</button>
    <button type="button" class="btn btn--ghost" onClick={()=>setVisibility(selectedFolders(),true)}>{t('settings-folders-show-selected')}</button>
    <button type="button" class="btn btn--ghost" disabled={selectedFolders().every(folder=>folder.role==='inbox')} onClick={()=>setVisibility(selectedFolders(),false)}>{t('settings-folders-hide-selected')}</button>
+   <Show when={serverOk()}>
+    <button type="button" class="btn btn--ghost" data-testid="bulk-subscribe" onClick={()=>void subscribe(selectedFolders(),true)}>{t('settings-folders-subscribe-selected')}</button>
+    <button type="button" class="btn btn--ghost" data-testid="bulk-unsubscribe" onClick={()=>void subscribe(selectedFolders(),false)}>{t('settings-folders-unsubscribe-selected')}</button>
+    <button type="button" class="btn btn--ghost" data-testid="bulk-delete" disabled={!deletable()} title={deletable()?undefined:t('settings-folders-bulk-delete-none')} onClick={()=>setBulkDelete(selectedFolders().map(folder=>folder.id))}><Icon name="delete"/>{t('settings-folders-delete-selected')}</button>
+   </Show>
    <button type="button" class="btn btn--ghost" onClick={()=>setSelected(new Set<string>())}>{t('settings-folders-clear')}</button>
   </div></Show>
   <p class={css.meta}>{t('settings-folders-order-help')}</p>
@@ -200,6 +221,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   </SettingsCard>
   {context.menu()}
   <FolderNestDialog arranger={layout.arranger} nameOf={id=>props.folders().find(folder=>folder.id===id)?.name??''}/>
+  <Show when={bulkDelete()&&serverOk()&&app?bulkDelete():null}>{ids=><BulkDeleteFoldersDialog ids={ids()} context={ability} onDone={deleted=>setSelected(value=>new Set([...value].filter(id=>!deleted.includes(id))))} onClose={()=>setBulkDelete(null)}/>}</Show>
   <Show when={moveTo()}>{ids=><FolderMoveToDialog moving={ids()} arranger={layout.arranger} policy={layout.policy} onClose={()=>setMoveTo(null)}/>}</Show>
   <Show when={creating()}>{value=><CreateFolderDialog {...(value().parentId?{parentId:value().parentId!}:{})} onClose={()=>setCreating(undefined)}/>}</Show>
  </div>}>{folder=><FolderIconEditor folder={folder} prefs={prefs} update={update} navigation={navigation} tags={props.tags??(()=>[])} local={!!props.onChange}/>}</Show>;
