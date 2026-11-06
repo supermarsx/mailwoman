@@ -2704,6 +2704,159 @@ Defaults to true; global, domain and account overrides are supported, with admin
 
 An early middleware checks the method, version, request target and headers of every request before routing, sign-in or body parsing, and classes what it finds. Each class `*Mode` is `off`, `detect` (log, count, feed adaptive protection, allow) or `enforce` (reject with a minimal 400, 405, 413, 414, 417 or 431 that repeats nothing the client sent; `Connection: close` after framing and Host rejects). Defaults: `framingMode`, `hostMode` and `pathControlMode` enforce; every heuristic class detects. `/healthz` and `/readyz` are never refused. Counters per class and mode are shown in the Adaptive protection page and `GET /bans/protection`. `exemptPrefixes` switches the heuristic classes off for whole path segments under a prefix; framing and path-control findings are never exempted. The guard sees only what the HTTP server hands the application: see [protocol guard](protocol-guard.md) for what the framework already refuses, what a front proxy must do, and the deferred custom-rule and virtual-patching plan.
 
+<a id="mail.priorityMarks"></a>
+### Priority marks (`mail.priorityMarks`)
+
+Global/domain/user setting, default `"both"`. Which priority marks the message list, conversations and reader show: both high and low, high only, or none. Users choose under Settings > Folders and sidebar unless locked.
+
+<a id="mail.badge.auth"></a>
+<a id="mail.badge.spam"></a>
+<a id="mail.badge.sanitized"></a>
+<a id="mail.badge.folder"></a>
+### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`)
+
+Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) and the folder badge (`"always"`). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
+
+<a id="mail.badge.density"></a>
+### Reader badge density (`mail.badge.density`)
+
+Global/domain/user setting, default `"compact"`. `compact` or `comfortable` height and padding for every badge in the reader's header row.
+
+<a id="mail.badge.labels"></a>
+### Reader badge labels (`mail.badge.labels`)
+
+Global/domain/user setting, default `"text"`. `text` shows an icon and a short label; `icon` shows the icon only (the accessible name and the tooltip keep the full text; the spam score keeps its number).
+
+<a id="mail.priorityMarks.style"></a>
+### Priority mark style (`mail.priorityMarks.style`)
+
+Global/domain/user setting, default `"icon"`. How a priority mark looks: an icon, an icon with the words High or Low, or a thin bar. Icon and text keep the meaning without colour.
+
+<a id="mail.compose.priority.enabled"></a>
+### Priority selector in the composer (`mail.compose.priority.enabled`)
+
+Global/domain/user setting, default `true`. Show the Normal, High and Low priority selector in the composer Options group. When off, new mail is sent without priority headers.
+
+<a id="mail.compose.priority.default"></a>
+### Default message priority (`mail.compose.priority.default`)
+
+Global/domain/user setting, default `"normal"`. The priority a new message starts with in the composer.
+
+<a id="mail.priority.sendHeaders"></a>
+### Priority headers written on send (`mail.priority.sendHeaders`)
+
+Global/domain setting, default `["Importance","X-Priority","X-MSMail-Priority"]`. Which headers a high or low priority message gets when sent: any of Importance, X-Priority and X-MSMail-Priority.
+
+<a id="mail.priority.trustSenderHeaders"></a>
+### Trust sender-set priority (`mail.priority.trustSenderHeaders`)
+
+Global/domain setting, default `"always"`. Whether a priority the sender set is shown: always, only when the message passed an aligned DMARC check, or never. Use trusted or never against senders who mark every message high priority.
+
+<a id="properties.folder.enabled"></a>
+### Folder properties dialog (`properties.folder.enabled`)
+
+Global/domain/user setting, default `true`. Offer Properties in the folder menus and on the shortcut. When off, the dialog is not available.
+
+<a id="properties.message.enabled"></a>
+### Message properties dialog (`properties.message.enabled`)
+
+Global/domain/user setting, default `true`. Offer Properties in the message menus and on the shortcut. When off, the dialog is not available.
+
+<a id="properties.folder.sections"></a>
+### Folder dialog sections (`properties.folder.sections`)
+
+Global/domain setting, default `["general","remote","size","offline","overrides","notes","actions"]`. The sections of the folder Properties dialog: general, remote, size, offline, overrides, notes, actions. A section not listed is hidden.
+
+<a id="properties.message.sections"></a>
+### Message dialog sections (`properties.message.sections`)
+
+Global/domain setting, default `["summary","scoring","headers","attachments","actions"]`. The sections of the message Properties dialog: summary, scoring, headers, attachments, actions. A section not listed is hidden.
+
+<a id="properties.remoteLocation.visibility"></a>
+### Remote location detail (`properties.remoteLocation.visibility`)
+
+Global/domain setting, default `"masked-host"`. How much of the server-side location users see: full (host and path), masked-host (host partly hidden), path-only (mailbox path without the host), or hidden.
+
+<a id="properties.headers.raw"></a>
+### Raw headers (`properties.headers.raw`)
+
+Global/domain setting, default `true`. Allow the message Properties dialog to list the raw headers. When off, only the parsed summary shows.
+
+<a id="properties.scoring.show"></a>
+### Scoring and authentication details (`properties.scoring.show`)
+
+Global/domain setting, default `true`. Show spam score, authentication results and security signals in the message Properties dialog.
+
+<a id="properties.folder.overrides.allowed"></a>
+### Per-folder overrides allowed (`properties.folder.overrides.allowed`)
+
+Global/domain setting, default `["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox"]`. Which settings a user may override for a single folder. An override not listed is hidden and any stored value is ignored.
+
+<a id="properties.folder.notes.enabled"></a>
+### Folder notes (`properties.folder.notes.enabled`)
+
+Global/domain/user setting, default `true`. Allow a description or note on each folder.
+
+<a id="properties.folder.notes.maxLength"></a>
+### Folder note length (`properties.folder.notes.maxLength`)
+
+Global/domain setting, default `2000`. The most characters a folder note may hold.
+
+<a id="properties.folder.sizeCompute"></a>
+### Folder size computation (`properties.folder.sizeCompute`)
+
+Global/domain setting, default `"on-open"`. When the size of a folder on the server is worked out: never, when the dialog opens, or in the background. Counting a large mailbox costs the server a scan.
+
+<a id="properties.offlineClear.enabled"></a>
+### Clear offline cache per folder (`properties.offlineClear.enabled`)
+
+Global/domain setting, default `true`. Allow users to clear the offline cache of a single folder from its Properties dialog.
+
+<a id="export.folder.enabled"></a>
+### Folder export (`export.folder.enabled`)
+
+Global/domain setting, default `true`. Allow users to download a whole folder as a ZIP of messages. Each export is audited.
+
+<a id="export.folder.format"></a>
+### Folder export format (`export.folder.format`)
+
+Global/domain setting, default `"both"`. The formats a folder export offers: a ZIP of .eml files, a ZIP holding an mbox file, or both.
+
+<a id="export.folder.maxBytes"></a>
+### Folder export size limit (`export.folder.maxBytes`)
+
+Global/domain setting, default `2147483648`. The most bytes of messages one folder export may hold. A larger folder is refused with the size shown.
+
+<a id="export.folder.maxMessages"></a>
+### Folder export message limit (`export.folder.maxMessages`)
+
+Global/domain setting, default `100000`. The most messages one folder export may hold.
+
+<a id="export.folder.includeSubfolders"></a>
+### Include subfolders in export (`export.folder.includeSubfolders`)
+
+Global/domain/user setting, default `true`. Whether a folder export includes its subfolders by default, kept as a folder structure in the ZIP.
+
+<a id="export.message.download.enabled"></a>
+### Message download (`export.message.download.enabled`)
+
+Global/domain setting, default `true`. Allow users to download a message as .eml, its headers only, or as an mbox file.
+
+<a id="properties.message.permanentDelete"></a>
+### Permanent delete from properties (`properties.message.permanentDelete`)
+
+Global/domain setting, default `"allow"`. Whether the message dialog may delete a message for good: allow, ask twice, or deny. A message under legal hold is never deleted. Deleting this way cannot be undone.
+
+<a id="properties.shortcut.enabled"></a>
+### Properties shortcut (`properties.shortcut.enabled`)
+
+Global/domain/user setting, default `true`. Open the Properties dialog from the keyboard on a focused folder or selected message.
+
+<a id="properties.shortcut.key"></a>
+### Properties shortcut key (`properties.shortcut.key`)
+
+Global/domain/user setting, default `"Alt+Enter"`. The key combination that opens Properties; Alt+Enter by default.
+
 <a id="security.health.mode"></a>
 <a id="security.health.networks"></a>
 

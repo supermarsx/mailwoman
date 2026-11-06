@@ -2487,6 +2487,282 @@ pub static REGISTRY: &[SettingDef] = &[
         "show a bundled brand logo beside the sender in the reader only when the message passed DKIM and an aligned DMARC check for that brand's domain; otherwise the normal avatar is used"
     ),
     def!(
+        "mail.priorityMarks",
+        Kind::Enum(&["both", "high", "off"]),
+        r#""both""#,
+        GDU,
+        "mail",
+        "Marks on high and low priority messages: both, high only, or off"
+    ),
+    def!(
+        "mail.priorityMarks.style",
+        Kind::Enum(&["icon", "iconText", "bar"]),
+        r#""icon""#,
+        GDU,
+        "mail",
+        "Priority mark style: icon, icon with text, or bar"
+    ),
+    def!(
+        "mail.badge.auth",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the DMARC authentication badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.spam",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the spam score badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.sanitized",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""notable""#,
+        GDU,
+        "mail",
+        "Reader header: when the sanitized HTML badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.folder",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the folder badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.density",
+        Kind::Enum(&["compact", "comfortable"]),
+        r#""compact""#,
+        GDU,
+        "mail",
+        "Reader header badge size: compact or comfortable"
+    ),
+    def!(
+        "mail.badge.labels",
+        Kind::Enum(&["text", "icon"]),
+        r#""text""#,
+        GDU,
+        "mail",
+        "Reader header badges: icon with text, or icon only"
+    ),
+    def!(
+        "mail.compose.priority.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Priority selector (Normal, High, Low) in the composer"
+    ),
+    def!(
+        "mail.compose.priority.default",
+        Kind::Enum(&["normal", "high", "low"]),
+        r#""normal""#,
+        GDU,
+        "mail",
+        "Priority a new message starts with"
+    ),
+    def!(
+        "mail.priority.sendHeaders",
+        Kind::StringList {
+            max_len: 3,
+            max_item: 32
+        },
+        r#"["Importance","X-Priority","X-MSMail-Priority"]"#,
+        GD,
+        "mail",
+        "Headers written for a non-normal priority: Importance, X-Priority, X-MSMail-Priority"
+    ),
+    def!(
+        "mail.priority.trustSenderHeaders",
+        Kind::Enum(&["always", "trusted", "never"]),
+        r#""always""#,
+        GD,
+        "mail",
+        "Whose priority headers are honoured: always, only when DMARC passed aligned, or never"
+    ),
+    def!(
+        "properties.folder.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Folder Properties dialog"
+    ),
+    def!(
+        "properties.message.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Message Properties dialog"
+    ),
+    def!(
+        "properties.folder.sections",
+        Kind::StringList {
+            max_len: 10,
+            max_item: 24
+        },
+        r#"["general","remote","size","offline","overrides","notes","actions"]"#,
+        GD,
+        "mail",
+        "Sections of the folder dialog: general, remote, size, offline, overrides, notes, actions"
+    ),
+    def!(
+        "properties.message.sections",
+        Kind::StringList {
+            max_len: 10,
+            max_item: 24
+        },
+        r#"["summary","scoring","headers","attachments","actions"]"#,
+        GD,
+        "mail",
+        "Sections of the message dialog: summary, scoring, headers, attachments, actions"
+    ),
+    def!(
+        "properties.remoteLocation.visibility",
+        Kind::Enum(&["full", "masked-host", "path-only", "hidden"]),
+        r#""masked-host""#,
+        GD,
+        "mail",
+        "Server location shown to users: full, masked host, path only, or hidden"
+    ),
+    def!(
+        "properties.headers.raw",
+        Kind::Bool,
+        r#"true"#,
+        GD,
+        "mail",
+        "Raw message headers in the message dialog"
+    ),
+    def!(
+        "properties.scoring.show",
+        Kind::Bool,
+        r#"true"#,
+        GD,
+        "mail",
+        "Spam score and authentication details in the message dialog"
+    ),
+    def!(
+        "properties.folder.overrides.allowed",
+        Kind::StringList {
+            max_len: 12,
+            max_item: 24
+        },
+        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox"]"#,
+        GD,
+        "mail",
+        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox"
+    ),
+    def!(
+        "properties.folder.notes.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Folder notes"
+    ),
+    def!(
+        "properties.folder.notes.maxLength",
+        int(100, 2000),
+        r#"2000"#,
+        GD,
+        "mail",
+        "Longest folder note, in characters"
+    ),
+    def!(
+        "properties.folder.sizeCompute",
+        Kind::Enum(&["off", "on-open", "background"]),
+        r#""on-open""#,
+        GD,
+        "mail",
+        "When a folder's size on the server is computed: off, when the dialog opens, or in the background"
+    ),
+    def!(
+        "properties.offlineClear.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GD,
+        "mail",
+        "Clear the offline cache of one folder from its dialog"
+    ),
+    def!(
+        "export.folder.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GD,
+        "mail",
+        "Download a folder as a ZIP"
+    ),
+    def!(
+        "export.folder.format",
+        Kind::Enum(&["zip-eml", "zip-mbox", "both"]),
+        r#""both""#,
+        GD,
+        "mail",
+        "Folder export format: ZIP of .eml files, ZIP with an mbox, or both"
+    ),
+    def!(
+        "export.folder.maxBytes",
+        int(1048576, 107374182400),
+        r#"2147483648"#,
+        GD,
+        "mail",
+        "Largest folder export, in bytes"
+    ),
+    def!(
+        "export.folder.maxMessages",
+        int(1, 1000000),
+        r#"100000"#,
+        GD,
+        "mail",
+        "Most messages in one folder export"
+    ),
+    def!(
+        "export.folder.includeSubfolders",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Folder export includes subfolders by default"
+    ),
+    def!(
+        "export.message.download.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GD,
+        "mail",
+        "Download a message as .eml, headers only or mbox"
+    ),
+    def!(
+        "properties.message.permanentDelete",
+        Kind::Enum(&["allow", "confirm-twice", "deny"]),
+        r#""allow""#,
+        GD,
+        "mail",
+        "Permanent delete from the message dialog: allow, confirm twice, or deny (a legal hold always denies)"
+    ),
+    def!(
+        "properties.shortcut.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Keyboard shortcut that opens Properties"
+    ),
+    def!(
+        "properties.shortcut.key",
+        text(Text::Plain, 32),
+        r#""Alt+Enter""#,
+        GDU,
+        "mail",
+        "Key combination that opens Properties"
+    ),
+    def!(
         "contacts.favoritesFirst",
         Kind::Bool,
         "true",
@@ -7867,8 +8143,8 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "security.protocol.exemptPrefixes"
                         ) {
                             !b.is_ascii_control()
-                        } else if def.key == "mail.replyFrom.headerPriority" {
-                            // Header names: Delivered-To, X-Original-To, ...
+                        } else if matches!(def.key, "mail.replyFrom.headerPriority" | "mail.priority.sendHeaders" | "properties.folder.overrides.allowed") {
+                            // Header names: Delivered-To, X-Original-To, X-MSMail-Priority, ...
                             b.is_ascii_alphanumeric() || b == b'-'
                         } else if def.key == "security.adminProbe.probePaths" {
                             b.is_ascii_alphanumeric() || b"/._~-%+@:".contains(&b)
