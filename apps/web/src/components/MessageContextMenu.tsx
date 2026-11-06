@@ -18,6 +18,8 @@ import {blockedReason,describe,downloadOne,downloadZip,sizeLabel} from './messag
 import {focusMessageInFolder} from './messageFocus.ts';
 import {formatDateWith} from '../i18n/format.ts';
 import {downloadAttachmentsOf} from './messageAttachmentsBulk.ts';
+import {openMessageProperties} from './properties/host.tsx';
+import {messageDialogEnabled} from './properties/policy.ts';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
 export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focusedInbox'|'senderFocus'|'alwaysMoveSender'>>,message:Email):ContextAction[] {
@@ -163,6 +165,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:ACTION_ICONS.followUp,run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>app.exportMessage(id)});
+  if(messageDialogEnabled())rows.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openMessageProperties(message);}});
   return rows.map(row=>({...row,disabled:busy||row.disabled===true}));
  },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
  createEffect(()=>{const message=email();if(menu.isOpen()&&message)untrack(()=>{const current=app.messages().find(value=>value.id===message.id)??message;prefetch(current);for(const member of membersOf(current))prefetch(member);});});

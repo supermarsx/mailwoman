@@ -35,13 +35,15 @@ import * as css from './readerToolbar.css.ts';
 import {t} from '../i18n/index.ts';
 import {zoomRowAction} from './ReaderZoom.tsx';
 import {focusActions} from './MessageContextMenu.tsx';
+import {openMessageProperties} from './properties/host.tsx';
+import {messageDialogEnabled} from './properties/policy.ts';
 import {colorRowAction,type ReaderColorProps} from './ReaderColorMenu.tsx';
 import {RawMessageHeaders} from './RawMessageHeaders.tsx';
 import {ACTION_ICONS} from '../actionIcons.ts';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,zoom:10.5,search:6.5,colors:10.7,
+ reply:0,'reply-all':1,forward:2,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -115,6 +117,7 @@ export function ReaderToolbar(props:{
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
   export:plain({id:'export',icon:icon(ACTION_ICONS.export),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>void app.exportMessage()}),
+  properties:plain({id:'properties',icon:icon('info'),label:()=>t('props-menu-properties'),help:()=>t('props-menu-properties'),testId:'reader-properties',run:()=>{openMessageProperties(props.email);}}),
   print:plain({id:'print',icon:icon('print'),label:()=>t('mail-print'),help:()=>t('mail-print-help'),run:()=>props.onPrint()}),
   // t59: zoom out / level (reset) / zoom in; folds as three More entries.
   zoom:zoomRowAction(),
@@ -131,7 +134,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const menuOnly=():ContextAction[]=>focusActions(app,props.email);
 
  // ── Fitting ────────────────────────────────────────────────────────────────

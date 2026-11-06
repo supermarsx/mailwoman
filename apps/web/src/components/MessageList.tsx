@@ -39,6 +39,8 @@ import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings,writeSetting} from '../api/settings.ts';
 import {PriorityMark} from './PriorityMark.tsx';
+import {isPropertiesShortcut,openMessageProperties} from './properties/host.tsx';
+import {messageDialogEnabled} from './properties/policy.ts';
 import {priorityOf} from './messagePriority.ts';
 import {mailFeature} from '../state/mailFeatures.ts';
 import { classifyRowClick, dblClickOpensTab } from './messageOpen.ts';
@@ -788,6 +790,10 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     // buttons, which have their own meaning for Space.
     const onRow = e.target instanceof Element && e.target.classList.contains('list__row');
     const mod = e.ctrlKey || e.metaKey;
+    if (onRow && isPropertiesShortcut(e) && messageDialogEnabled()) {
+      const email = app.messages().find((m) => m.id === (e.target as HTMLElement).dataset['emailId']);
+      if (email) { e.preventDefault(); openMessageProperties(email); return; }
+    }
     if (e.key === 'ArrowDown' && e.shiftKey && modifierSelectionEnabled()) extendTo(cursor() + 1);
     else if (e.key === 'ArrowUp' && e.shiftKey && modifierSelectionEnabled()) extendTo(cursor() - 1);
     else if (e.key === 'ArrowDown') moveCursor(cursor() + 1);
