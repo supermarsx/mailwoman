@@ -2324,6 +2324,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "which identity replies and forwards are sent from: the one the original was addressed to, the default, a chooser, or the current one"
     ),
     def!(
+        "mail.replyFrom.headerPriority",
+        Kind::StringList {
+            max_len: 8,
+            max_item: 32
+        },
+        "[\"Delivered-To\",\"X-Original-To\",\"To\",\"Cc\"]",
+        GDU,
+        "mail",
+        "which message headers name the address a reply is sent from, in order: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc"
+    ),
+    def!(
         "mail.modifierSelection",
         Kind::Bool,
         "true",
@@ -7816,6 +7827,9 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                                 | "security.protocol.exemptPrefixes"
                         ) {
                             !b.is_ascii_control()
+                        } else if def.key == "mail.replyFrom.headerPriority" {
+                            // Header names: Delivered-To, X-Original-To, ...
+                            b.is_ascii_alphanumeric() || b == b'-'
                         } else if def.key == "security.adminProbe.probePaths" {
                             b.is_ascii_alphanumeric() || b"/._~-%+@:".contains(&b)
                         } else {
