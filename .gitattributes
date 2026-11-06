@@ -76,3 +76,7 @@ crates/mw-store/migrations_pg/0070_personal_settings.sql -text
 # Generated reference compared byte for byte with knobs::render_docs()
 # (t32_cfg_knob_coverage); a CRLF checkout fails it on Windows.
 docs/admin/configuration.md text eol=lf
+
+# Vendored crates are built on Linux and hash/patch-match their sources: a CRLF checkout broke
+# libsqlite3-sys (the SQLCipher amalgamation is matched against a multi-line literal).
+vendor/** text eol=lf
