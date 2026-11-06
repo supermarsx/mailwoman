@@ -50,3 +50,7 @@ sharing-right-e-label = Expurgar
 sharing-right-e-desc = Remover permanentemente as mensagens marcadas como excluídas.
 sharing-right-a-label = Administrar
 sharing-right-a-desc = Alterar quem tem acesso a esta pasta.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Este servidor de e-mail não oferece suporte ao compartilhamento de pastas.
+sharing-forbidden = Você não tem permissão para gerenciar o compartilhamento desta pasta. Fale com o proprietário ou o administrador.
