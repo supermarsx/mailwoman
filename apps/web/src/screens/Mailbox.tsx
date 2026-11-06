@@ -5,6 +5,8 @@ import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMain
 import {useRenameContext} from '../components/RenameFolder.tsx';
 import {treeRows,rolledUnread} from '../components/folderTree.ts';
 import {createFolderLayout} from '../components/folderLayout.ts';
+import {createPinDnd} from '../components/pinDnd.ts';
+import * as dndCss from '../components/folderDnd.css.ts';
 import {FolderNestDialog} from '../components/FolderNestDialog.tsx';
 import {FolderMoveToDialog} from '../components/FolderMoveToDialog.tsx';
 import {canMoveFolder,moveFolderTo} from '../api/folderStructure.ts';
@@ -651,7 +653,9 @@ export function MailboxScreen(): JSX.Element {
   /** The folder tree, depth-first: system folders (with any subfolders), then the user's own folders; collapsed folders list no children. */
   const folderTreeRows=createMemo(()=>{
     const preferences=accountUiPreferences();
-    const rows=treeRows(navigationFolders(),()=>true,{sorts:preferences.folderSort,collapsed:new Set(preferences.folderCollapsed??[]),activity:folderActivity(app.accountId())});
+    // `folders.pinned.hideFromTree`: a pinned folder with no subfolders shows in the Pinned group only.
+    const pinned=settings()['folders.pinned.hideFromTree']?.value===true?new Set(folderLayout.effective().folderPinned??[]):null;
+    const rows=treeRows(navigationFolders(),()=>true,{sorts:preferences.folderSort,collapsed:new Set(preferences.folderCollapsed??[]),activity:folderActivity(app.accountId())}).filter(row=>!pinned?.has(row.box.id)||row.hasChildren);
     const split=rows.findIndex(row=>row.depth===0&&!row.box.role);
     return {system:split<0?rows:rows.slice(0,split),custom:split<0?[]:rows.slice(split)};
   });
@@ -660,6 +664,47 @@ export function MailboxScreen(): JSX.Element {
   const folderDnd=folderLayout.dnd({rows:dndRows,selected:selectedFolderIds,scroller:()=>sidebarEl?.querySelector<HTMLElement>('.sidebar__scroll')??undefined,indent:()=>(parseFloat(getComputedStyle(document.documentElement).fontSize)||16)*0.9,onExpand:id=>toggleFolder(id,true)});
   const folderLockHint=(id:string):string|undefined=>{const reason=folderLayout.lockReason(id);return reason==='locked'?t('folder-dnd-locked-hint'):reason==='forced'?t('folder-dnd-forced-hint'):undefined;};
   const folderMarquee=useFolderMarquee(()=>sectionRows(false).concat(sectionRows(true)).map(row=>row.box.id));
+  // The Pinned group: pinned folders (the administrator's first) listed above the tree. They also keep their tree position
+  // unless `folders.pinned.hideFromTree` is on, which hides a pinned folder with no subfolders from the tree.
+  const pinnedIds=createMemo(()=>{
+    const ids=folderLayout.effective().folderPinned??[],shown=new Set(navigationFolders().map(box=>box.id));
+    return ids.filter((id,index)=>ids.indexOf(id)===index&&shown.has(id));
+  });
+  const pinDnd=createPinDnd({
+    ids:pinnedIds,forced:folderLayout.forced,enabled:()=>folderLayout.policy().enabled&&!folderLayout.policy().locked,
+    onReorder:order=>{setAccountUiPreferences({folderPinned:order});},
+    onUnpin:id=>{setAccountUiPreferences({folderPinned:(accountUiPreferences().folderPinned??[]).filter(value=>value!==id)});},
+    label:id=>app.mailboxes().find(value=>value.id===id)?.name??'',
+    inGroup:el=>el?.closest('[data-testid="sidebar-pinned-group"]')!=null,inNav:el=>el?.closest('.sidebar__nav')!=null,
+  });
+  /** One folder row; `pinned` renders it in the Pinned group (no twisty, no marquee, the pin drag binding). */
+  function folderItem(id:string,custom:boolean,pinned:boolean){
+    const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>pinned?undefined:sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
+              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} dnd={pinned?pinDnd:folderDnd} lockHint={()=>folderLockHint(id)} {...(folderLayout.policy().enabled&&!folderLayout.policy().locked?{onArrange:()=>setArranging(id)}:{})} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
+              <button
+                type="button"
+                {...prefetch}
+                class={`sidebar__box ${a11y.focusable}`} {...(pinned?{'data-pinned-folder-id':id}:{'data-marquee-item':'','data-folder-id':id,'data-selected':selectedFolderIds().has(id)?'true':undefined})}
+                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
+                onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
+                onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
+                onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
+                aria-label={displayText(box().name)} aria-description={[folderCountShown(box())?folderBadgeTip(box(),folderCountMode(),compactBadges()):'',isStarred(id)?t('folder-star-starred'):''].filter(Boolean).join(' · ')||undefined} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id),...(isStarred(id)?[t('folder-star-starred')]:[])].join(' · '))}
+                onClick={() => {
+                  clearSelectedFolders();
+                  router.navigate('mail');
+                  subTabs.activate('mail');
+                  void app.selectMailbox(box().id);
+                }}
+              >
+                <Icon name={folderIcon(box(),accountUiPreferences())}/><span class="sidebar__box-name">{displayText(box().name)}</span>
+                <Show when={isStarred(id)}><span class="sidebar__box-star" aria-hidden="true" data-testid="folder-star"><Icon name="star"/></span></Show>
+                <FolderCountBadge folder={row()?.hasChildren&&!row()!.expanded?{...box(),unreadEmails:rolledUnread(app.mailboxes(),id)}:box()}/>
+              </button>
+              <Show when={row()?.hasChildren}><button type="button" class={`sidebar__twisty ${a11y.focusable}`} data-folder-twisty="" aria-label={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} title={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} aria-expanded={row()!.expanded} onClick={()=>toggleFolder(id,!row()!.expanded)}><Icon name={row()!.expanded?'chevronDown':'chevron'}/></button></Show>
+              </FolderContextMenu>
+            );
+  }
   function toggleFolder(id:string,expand:boolean):void {
     const collapsed=new Set(accountUiPreferences().folderCollapsed??[]);
     if(expand)collapsed.delete(id);else collapsed.add(id);
@@ -928,39 +973,22 @@ export function MailboxScreen(): JSX.Element {
         <p class={folderSrOnly} role="status" aria-live="polite" data-testid="folder-dnd-status">{folderDnd.announcement()}</p>
         <Show when={(accountUiPreferences().folderStarred?.length??0)>0}><button type="button" class={`btn btn--ghost sidebar__starred-only ${a11y.focusable}`} aria-pressed={starredOnly()} title={t('folder-star-only-help')} onClick={()=>setStarredOnly(!starredOnly())}><Icon name={starredOnly()?'star':'starOutline'}/><span class="sidebar__box-name">{t('folder-star-only')}</span></button></Show>
         <div class="sidebar__scroll" ref={folderMarquee.ref}>{folderMarquee.liveRegion()}
-        <FolderCreationControl><nav class="sidebar__nav" aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
+        <FolderCreationControl><nav class="sidebar__nav" {...pinDnd.unpinProps} aria-label={t('mail-nav-mailboxes')} aria-busy={!!app.me()&&app.mailboxes().length===0}>
           <div class="sidebar__folder-rows" data-folder-region>
           <Show when={app.me()&&app.mailboxes().length===0}><AsyncPending variant="folders" rows={folderRows()} quiet message={t('mail-folders-loading')} onRetry={()=>void app.refreshFolders()}/></Show>
+          <Show when={pinnedIds().length>0}>
+            <div class={dndCss.pinnedGroup} role="group" aria-label={t('folder-pinned-group')} data-testid="sidebar-pinned-group" {...pinDnd.groupProps}>
+              <div class={dndCss.groupLabel} aria-hidden="true">{t('folder-pinned-group')}</div>
+              <For each={pinnedIds()}>{id=>folderItem(id,false,true)}</For>
+              <Show when={pinDnd.dragging()}><div class={dndCss.topTarget} data-testid="pinned-unpin-zone" {...pinDnd.unpinProps}>{t('folder-pinned-unpin-zone')}</div></Show>
+            </div>
+          </Show>
           <For each={[false,true]}>{custom=><>
           <Show when={custom&&sectionRows(true).length>0}><button type="button" class={`sidebar__box ${a11y.focusable}`} data-folder-disclosure="" aria-label={t('mail-user-folders')} title={t('mail-user-folders')} aria-expanded={!accountUiPreferences().userFoldersCollapsed} aria-controls="sidebar-user-folders" onClick={()=>setAccountUiPreferences({userFoldersCollapsed:!accountUiPreferences().userFoldersCollapsed})}><Icon name={accountUiPreferences().userFoldersCollapsed?'chevron':'chevronDown'}/><span class="sidebar__box-name">{t('mail-user-folders')}</span></button></Show>
           <div class="sidebar__folder-rows" id={custom?'sidebar-user-folders':undefined} hidden={sectionRows(custom).length===0||(custom&&!!accountUiPreferences().userFoldersCollapsed)}>
           <Show when={!custom||!accountUiPreferences().userFoldersCollapsed}>
           <For each={sectionRows(custom).map(row=>row.box.id)}>
-            {(id) => {const box=createMemo(()=>app.mailboxes().find(value=>value.id===id)!);const row=()=>sectionRows(custom).find(value=>value.box.id===id);const prefetch=mailPrefetchEvents(trigger=>app.prefetchMailbox?.(id,trigger)??(()=>undefined));return (
-              <FolderContextMenu box={box()} depth={row()?.depth??0} selection={selectedFolderIds} dnd={folderDnd} lockHint={()=>folderLockHint(id)} {...(folderLayout.policy().enabled&&!folderLayout.policy().locked?{onArrange:()=>setArranging(id)}:{})} onHidden={()=>queueMicrotask(()=>{(sidebarEl?.querySelector<HTMLElement>('[data-folder-disclosure]')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box--active')??sidebarEl?.querySelector<HTMLElement>('.sidebar__box'))?.focus();})} onOpenTab={()=>openFolderTab(box().id)} onOpen={()=>{router.navigate('mail');subTabs.activate('mail');void app.selectMailbox(box().id);}} onSettings={()=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'folders'});}} onRetention={()=>{setRetentionFolder(box().id);openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section:'retention'});}} canShare={()=>sharingAccess.canShare(box().id)} onProbe={()=>void sharingAccess.probe(box().id,true)} onShare={()=>void openSharing(box().id)}>
-              <button
-                type="button"
-                {...prefetch}
-                class={`sidebar__box ${a11y.focusable}`} data-marquee-item="" data-folder-id={id} data-selected={selectedFolderIds().has(id)?'true':undefined}
-                classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
-                onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
-                onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
-                onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
-                aria-label={displayText(box().name)} aria-description={[folderCountShown(box())?folderBadgeTip(box(),folderCountMode(),compactBadges()):'',isStarred(id)?t('folder-star-starred'):''].filter(Boolean).join(' · ')||undefined} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id),...(isStarred(id)?[t('folder-star-starred')]:[])].join(' · '))}
-                onClick={() => {
-                  clearSelectedFolders();
-                  router.navigate('mail');
-                  subTabs.activate('mail');
-                  void app.selectMailbox(box().id);
-                }}
-              >
-                <Icon name={folderIcon(box(),accountUiPreferences())}/><span class="sidebar__box-name">{displayText(box().name)}</span>
-                <Show when={isStarred(id)}><span class="sidebar__box-star" aria-hidden="true" data-testid="folder-star"><Icon name="star"/></span></Show>
-                <FolderCountBadge folder={row()?.hasChildren&&!row()!.expanded?{...box(),unreadEmails:rolledUnread(app.mailboxes(),id)}:box()}/>
-              </button>
-              <Show when={row()?.hasChildren}><button type="button" class={`sidebar__twisty ${a11y.focusable}`} data-folder-twisty="" aria-label={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} title={t(row()!.expanded?'folder-ops-collapse':'folder-ops-expand',{name:displayText(box().name)})} aria-expanded={row()!.expanded} onClick={()=>toggleFolder(id,!row()!.expanded)}><Icon name={row()!.expanded?'chevronDown':'chevron'}/></button></Show>
-              </FolderContextMenu>
-            );}}
+            {(id) => folderItem(id,custom,false)}
           </For>
           </Show></div></>}</For>
           </div>

@@ -46,8 +46,10 @@ export interface AccountUiPreferences {
   folderStarred?: string[];
   /** What dragging a folder under another one does: ask, change the server, or only arrange it in this app. */
   folderNestMode?: 'ask'|'server'|'local';
+  /** Obsolete (ignored): accepted so older stored values still validate. */
   folderReorderEnabled?: boolean;
   folderGrabHandles?: 'hover'|'always';
+  /** Obsolete (ignored): accepted so older stored values still validate. */
   folderNewPlacement?: 'end'|'alphabetical';
 }
 interface Snapshot { preferences: AccountUiPreferences; etag: string }

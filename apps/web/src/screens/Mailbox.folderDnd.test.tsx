@@ -114,3 +114,57 @@ describe('dragging folders in the sidebar',()=>{
   expect(screen.getByTestId('folder-dnd-status')).toHaveTextContent(/Misc.*moved up/);
  });
 });
+
+describe('Pinned group',()=>{
+ const group=()=>document.querySelector<HTMLElement>('[data-testid="sidebar-pinned-group"]');
+ const pinnedNames=()=>Array.from(group()?.querySelectorAll('.sidebar__box-name')??[]).map(node=>node.textContent);
+ afterEach(()=>{setAccountUiPreferences({folderPinned:[]});});
+ it('lists pinned folders above the tree while they keep their tree position',async()=>{
+  await mount();
+  expect(group()).toBeNull();
+  setAccountUiPreferences({folderPinned:['misc','home']});
+  await waitFor(()=>expect(pinnedNames()).toEqual(['Misc','Home']));
+  expect(group()).toHaveAttribute('aria-label','Pinned');
+  expect(sidebar().querySelectorAll('[data-folder-id="home"]')).toHaveLength(1);
+  expect(group()!.querySelector('[data-folder-id]')).toBeNull();
+ });
+ it('hides a pinned folder without subfolders from the tree when the administrator asks, keeping parents',async()=>{
+  await mount({'folders.pinned.hideFromTree':true});
+  setAccountUiPreferences({folderPinned:['home','work']});
+  await waitFor(()=>expect(pinnedNames()).toEqual(['Home','Work']));
+  expect(sidebar().querySelector('[data-folder-id="home"]')).toBeNull();
+  expect(sidebar().querySelector('[data-folder-id="work"]')).not.toBeNull();
+ });
+ it('reorders pins by dragging within the group and unpins by dropping outside it',async()=>{
+  await mount();
+  setAccountUiPreferences({folderPinned:['misc','home']});
+  await waitFor(()=>expect(pinnedNames()).toEqual(['Misc','Home']));
+  const pinRow=(id:string)=>group()!.querySelector<HTMLElement>(`[data-pin-id="${id}"]`)!;
+  const types=['application/x-mailwoman-pin'];
+  const dt=()=>({setData:()=>undefined,types});
+  const target=pinRow('home');target.getBoundingClientRect=()=>({top:0,left:0,height:40,width:240,bottom:40,right:240,x:0,y:0,toJSON:()=>({})});
+  fireEvent(pinRow('home'),createEvent.dragStart(pinRow('home'),{dataTransfer:dt()}));
+  await new Promise(resolve=>setTimeout(resolve,5));
+  const over=createEvent.dragOver(pinRow('misc'),{dataTransfer:dt()});Object.defineProperty(over,'clientY',{value:1});
+  pinRow('misc').getBoundingClientRect=target.getBoundingClientRect;
+  fireEvent(pinRow('misc'),over);
+  fireEvent(pinRow('misc'),createEvent.drop(pinRow('misc'),{dataTransfer:dt()}));
+  await waitFor(()=>expect(accountUiPreferences().folderPinned).toEqual(['home','misc']));
+  // Drag one out: dropping on the navigation outside the group unpins it.
+  fireEvent(pinRow('misc'),createEvent.dragStart(pinRow('misc'),{dataTransfer:dt()}));
+  await new Promise(resolve=>setTimeout(resolve,5));
+  const nav=sidebar().querySelector('.sidebar__nav')!;
+  fireEvent(nav,createEvent.dragOver(nav,{dataTransfer:dt()}));
+  fireEvent(nav,createEvent.drop(nav,{dataTransfer:dt()}));
+  await waitFor(()=>expect(accountUiPreferences().folderPinned).toEqual(['home']));
+ });
+ it('shows a drag handle on sidebar rows that can be dragged, and honours the setting',async()=>{
+  await mount();
+  await waitFor(()=>expect(names()).toContain('Work'));
+  expect(rowOf('work').querySelector('[data-testid="folder-grab-handle"]')).not.toBeNull();
+  expect(rowOf('work')).toHaveAttribute('data-handles','hover');
+  setAccountUiPreferences({folderGrabHandles:'always'});
+  await waitFor(()=>expect(rowOf('work')).toHaveAttribute('data-handles','always'));
+  setAccountUiPreferences({folderGrabHandles:'hover'});
+ });
+});

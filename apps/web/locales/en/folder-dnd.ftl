@@ -71,3 +71,7 @@ folder-dnd-more-actions = Arrange
 folder-dnd-selected-move = Move selected to…
 folder-dnd-locked-row = Locked
 folder-dnd-problem-pin = Pinned folders stay above the others. Unpin it first to move it there.
+
+folder-dnd-handle-hint = Drag to move this folder
+folder-pinned-group = Pinned
+folder-pinned-unpin-zone = Drop here to unpin

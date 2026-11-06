@@ -78,4 +78,60 @@ describe('folder drag binding',()=>{
   s.dispose();
   const locked=setup({locked:true});locked.dnd.key(key('ArrowUp'),'e');expect(locked.moves).toEqual([]);expect(locked.refused).toEqual(['locked']);locked.dispose();
  });
+
+ describe('touch (long press) drag',()=>{
+  const pointer=(el:HTMLElement,x:number,y:number,type='touch')=>({pointerType:type,isPrimary:true,button:0,pointerId:1,clientX:x,clientY:y,currentTarget:el}) as unknown as PointerEvent;
+  function touchSetup(policy:Partial<DndPolicy>={}){
+   const s=setup(policy),el=rowEl(),a=rowEl(100);
+   el.setAttribute('data-dnd-id','e');a.setAttribute('data-dnd-id','a');
+   el.setPointerCapture=vi.fn();el.releasePointerCapture=vi.fn();
+   let under:Element|null=a;
+   document.elementFromPoint=vi.fn(()=>under);
+   return {...s,el,a,at:(next:Element|null)=>{under=next;}};
+  }
+  it('lifts after 350 ms, shows the drop target while moving and moves on release',()=>{
+   vi.useFakeTimers();
+   const s=touchSetup(),p=s.dnd.rowProps('e') as unknown as Record<string,(e:PointerEvent)=>void>;
+   p.onPointerDown!(pointer(s.el,10,10));
+   vi.advanceTimersByTime(349);expect(s.dnd.dragging()).toEqual([]);
+   vi.advanceTimersByTime(2);expect(s.dnd.dragging()).toEqual(['e']);expect(s.dnd.lifted()).toBe('e');expect(s.dnd.rowProps('e')['data-lifted']).toBe('true');
+   expect(s.el.setPointerCapture).toHaveBeenCalled();
+   p.onPointerMove!(pointer(s.el,10,102));
+   expect(s.dnd.indicator()).toMatchObject({id:'a',zone:'before',ok:true});
+   p.onPointerUp!(pointer(s.el,10,102));
+   expect(s.moves).toEqual([{moving:['e'],placement:{parentId:null,beforeId:'a'}}]);
+   expect(s.dnd.dragging()).toEqual([]);expect(s.dnd.lifted()).toBeNull();
+   s.dispose();
+  });
+  it('treats movement before the hold elapses as a scroll',()=>{
+   vi.useFakeTimers();
+   const s=touchSetup(),p=s.dnd.rowProps('e') as unknown as Record<string,(e:PointerEvent)=>void>;
+   p.onPointerDown!(pointer(s.el,10,10));p.onPointerMove!(pointer(s.el,10,40));
+   vi.advanceTimersByTime(1000);expect(s.dnd.dragging()).toEqual([]);
+   s.dispose();
+  });
+  it('ignores the mouse, a locked folder, and cancels on pointercancel or Escape without moving',()=>{
+   vi.useFakeTimers();
+   const s=touchSetup(),p=s.dnd.rowProps('e') as unknown as Record<string,(e:PointerEvent)=>void>;
+   p.onPointerDown!(pointer(s.el,10,10,'mouse'));vi.advanceTimersByTime(1000);expect(s.dnd.dragging()).toEqual([]);
+   p.onPointerDown!(pointer(s.el,10,10));vi.advanceTimersByTime(400);expect(s.dnd.dragging()).toEqual(['e']);
+   p.onPointerCancel!(pointer(s.el,10,10));expect(s.dnd.dragging()).toEqual([]);
+   p.onPointerDown!(pointer(s.el,10,10));vi.advanceTimersByTime(400);expect(s.dnd.dragging()).toEqual(['e']);
+   document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape'}));expect(s.dnd.dragging()).toEqual([]);
+   p.onPointerUp!(pointer(s.el,10,102));expect(s.moves).toEqual([]);
+   s.dispose();
+   const locked=touchSetup({locked:true}),lp=locked.dnd.rowProps('e') as unknown as Record<string,(e:PointerEvent)=>void>;
+   lp.onPointerDown!(pointer(locked.el,10,10));vi.advanceTimersByTime(1000);expect(locked.dnd.dragging()).toEqual([]);
+   locked.dispose();
+  });
+  it('refuses a drop onto itself and reports why',()=>{
+   vi.useFakeTimers();
+   const s=touchSetup(),p=s.dnd.rowProps('e') as unknown as Record<string,(e:PointerEvent)=>void>;
+   s.at(s.el);
+   p.onPointerDown!(pointer(s.el,10,10));vi.advanceTimersByTime(400);
+   p.onPointerMove!(pointer(s.el,10,20));expect(s.dnd.indicator()).toMatchObject({ok:false,problem:'self'});
+   p.onPointerUp!(pointer(s.el,10,20));expect(s.moves).toEqual([]);expect(s.refused).toEqual(['self']);
+   s.dispose();
+  });
+ });
 });

@@ -60,6 +60,7 @@ export function createFolderLayout(o:FolderLayoutOptions){
   return null;
  }
  const dnd=(rest:Omit<FolderDndOptions,'folders'|'policy'|'canDrag'|'onMove'|'onRefused'|'describe'>&{canDrag?:(id:string)=>boolean})=>createFolderDnd({
+  label:id=>arranger.visual().find(f=>f.id===id)?.name??'',
   ...rest,folders:arranger.visual,policy,canDrag:id=>lockReason(id)===null&&(rest.canDrag?.(id)??true),
   onMove:(moving,placement)=>{arranger.place(moving,placement);},
   onRefused:problem=>{toast.error(problemText(problem));},

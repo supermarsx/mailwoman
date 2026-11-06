@@ -88,6 +88,7 @@ export type IconName =
   | 'folderPlus' | 'copy'
   | 'file'
   | 'lock'
+  | 'grip'
   | 'unlock'
   | 'star'
   | 'starOutline'
@@ -188,6 +189,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   back: () => <path d="M7 2 L1 8 L7 14 M1 8 H15" {...S} />,
   chevronLeft: () => <path d="M10 3 L5 8 L10 13" {...S} />,
   more: () => <path d="M2 8 H4 M7 8 H9 M12 8 H14" {...S} />,
+  grip: () => <><circle cx="5.5" cy="3.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="3.5" r="1.2" fill="currentColor"/><circle cx="5.5" cy="8" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="5.5" cy="12.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="12.5" r="1.2" fill="currentColor"/></>,
   conversation: () => <><path d="M1 2 H10 V8 H5 L2 10.5 V8 H1 Z" {...S}/><path d="M12.5 5 H15 V12 H14 V14.5 L11 12 H6 V10.5" {...S}/></>,
   sort: () => <path d="M3 5 L8 1 L13 5 M3 11 L8 15 L13 11" {...S} />,
   alignLeft: () => <path d="M2 3H14M2 6.5H9M2 10H14M2 13.5H9" {...S}/>,

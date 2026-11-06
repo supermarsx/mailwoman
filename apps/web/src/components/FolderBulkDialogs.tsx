@@ -3,12 +3,11 @@ import {useApp} from '../state/context.ts';
 import {createConfiguredClient} from '../api/transport.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import type {Mailbox} from '../api/jmap-types.ts';
-import {nameProblem} from '../api/renameFolder.ts';
-import {canMoveFolder,deleteFolderTree,moveFolderTo,type StructureProblem} from '../api/folderStructure.ts';
+import {deleteFolderTree,type StructureProblem} from '../api/folderStructure.ts';
 import {spamFolderHidden} from '../state/mailFeatures.ts';
 import {ConfirmDialog} from '../screens/Admin/shell/ConfirmDialog.tsx';
-import {descendantsOf,moveTargets,rolledTotal,treeRows} from './folderTree.ts';
-import {useRenameContext,type RenameContext} from './RenameFolder.tsx';
+import {descendantsOf,rolledTotal,treeRows} from './folderTree.ts';
+import {type RenameContext} from './RenameFolder.tsx';
 import {runTransfer} from './folderOps.ts';
 import {isolate,loadCatalog,t} from '../i18n';
 import {toast} from './toast/toast.ts';
@@ -27,29 +26,6 @@ function FolderList(props:{options:{id:string;label:string}[];top?:boolean;value
   <Show when={props.top}><option value="">{t('folder-top-level')}</option></Show>
   <For each={props.options}>{option=><option value={option.id}>{option.label}</option>}</For>
  </select></label>;
-}
-/** Move a folder, with its subfolders and messages, under another folder or to the top level. */
-export function MoveFolderDialog(props:{box:Mailbox;onClose:()=>void}):JSX.Element {
- const app=useApp(),owner=preferenceAccount(),client=createConfiguredClient(),controller=new AbortController(),context=useRenameContext();
- const [target,setTarget]=createSignal<string|null>(props.box.parentId??null);
- const auth=authority(owner,app,controller);
- onMount(()=>{void loadCatalog('mail');});
- onCleanup(()=>controller.abort());onCleanup(observePreferenceAccount(()=>{if(!auth.current())props.onClose();}));
- const options=createMemo(()=>{const allowed=new Set(moveTargets(app.mailboxes(),props.box.id).map(box=>box.id));return pickerOptions(app.mailboxes(),box=>allowed.has(box.id)&&!spamFolderHidden(box));});
- async function save():Promise<void>{
-  const ability=context();const boxes=app.mailboxes();
-  if(!auth.current()||!ability?.manages||!owner||!canMoveFolder(props.box,boxes,ability,target()))throw new Error(t('folder-ops-move-unavailable'));
-  const problem=nameProblem(props.box.name,{...props.box,parentId:target()},boxes,ability.delimiter,ability.maxLength);
-  if(problem==='duplicate')throw new Error(t('folder-ops-move-duplicate'));
-  const result=await moveFolderTo(client,owner.id,props.box.id,target(),auth);
-  if(!auth.current())return;
-  if(!result.ok)throw new Error(t(`folder-ops-error-${result.problem}`));
-  await app.refreshFolders().catch(()=>{});
-  if(auth.current()){toast.success(t('folder-ops-moved-folder',{name:isolate(props.box.name)}));props.onClose();}
- }
- return <ConfirmDialog open title={t('folder-ops-move-folder-title',{name:isolate(props.box.name)})} body={t('folder-ops-move-folder-body')} confirmLabel={t('folder-ops-move-here')} danger={false} onConfirm={save} onCancel={props.onClose}>
-  <FolderList options={options()} top value={target()} onChange={setTarget} label={t('folder-parent')}/>
- </ConfirmDialog>;
 }
 /** Copy or move every message of a folder (and optionally of its subfolders) to a chosen folder. */
 export function TransferDialog(props:{box:Mailbox;mode:'copy'|'move';onClose:()=>void}):JSX.Element {

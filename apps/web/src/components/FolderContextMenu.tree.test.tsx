@@ -49,7 +49,7 @@ describe('folder context menu by folder kind',()=>{
   fireEvent.click(screen.getByRole('menuitem',{name:'More'}));
   const remove=await screen.findByRole('menuitem',{name:'Delete folder'});
   expect(remove).toHaveAttribute('aria-disabled','true');expect(remove).toHaveAttribute('title','A system folder cannot be changed this way.');
-  for(const label of ['Move up','Move down','Move folder to…'])expect(screen.getByRole('menuitem',{name:label})).toHaveAttribute('aria-disabled','true');
+  for(const label of ['Move up','Move down'])expect(screen.getByRole('menuitem',{name:label})).toHaveAttribute('aria-disabled','true');
   for(const label of ['Copy all items to…','Move all items to…'])expect(screen.getByRole('menuitem',{name:label})).not.toHaveAttribute('aria-disabled','true');
  });
  it('custom folder with subfolders: subfolder, rename, sort submenu and a mark-read choice',async()=>{
@@ -67,7 +67,7 @@ describe('folder context menu by folder kind',()=>{
   await open('work');fireEvent.click(screen.getByRole('menuitem',{name:'More'}));
   expect(await screen.findByRole('menuitem',{name:'Delete folder and subfolders'})).not.toHaveAttribute('aria-disabled','true');
   expect(screen.getByRole('menuitem',{name:'Copy all items to…'})).toBeInTheDocument();expect(screen.getByRole('menuitem',{name:'Move all items to…'})).toBeInTheDocument();
-  expect(screen.getByRole('menuitem',{name:'Move folder to…'})).not.toHaveAttribute('aria-disabled','true');
+  expect(screen.queryByRole('menuitem',{name:'Move folder to…'})).toBeNull();
   expect(screen.getByRole('menuitem',{name:'Move up'})).toHaveAttribute('aria-disabled','true');
   expect(screen.getByRole('menuitem',{name:'Move down'})).not.toHaveAttribute('aria-disabled','true');
  });

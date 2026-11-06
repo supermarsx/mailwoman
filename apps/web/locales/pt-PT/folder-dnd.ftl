@@ -74,3 +74,7 @@ folder-dnd-more-actions = Organizar
 folder-dnd-selected-move = Mover selecionadas para…
 folder-dnd-locked-row = Bloqueada
 folder-dnd-problem-pin = As pastas fixadas ficam acima das outras. Desafixe-a primeiro para a mover para aí.
+
+folder-dnd-handle-hint = Arraste para mover esta pasta
+folder-pinned-group = Fixadas
+folder-pinned-unpin-zone = Largue aqui para desafixar
