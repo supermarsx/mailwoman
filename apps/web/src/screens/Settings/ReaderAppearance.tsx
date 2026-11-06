@@ -6,6 +6,7 @@ import { SettingRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
+import { AttachmentsBarSettings, ATTACHMENTS_BAR_CARD_SPEC } from './AttachmentsBarSettings.tsx';
 import { snapZoom, ZOOM_STEPS } from '../../components/readerZoom.ts';
 
 type Field = { key: string; fallback: string | number; choices?: string[]; steps?: readonly number[]; min?: number; max?: number; step?: number };
@@ -65,4 +66,4 @@ export function ReaderAppearanceSettings(): JSX.Element {
 export const READER_CARD_SPECS: readonly CardSpec[] = [...READER_CARDS.map(card => ({
   id: card.id, section: 'reader', title: card.title, help: card.help,
   rows: [...(card.leading ? [card.leading] : []), ...card.keys].map(key => ({ id: `reader-${key}`, label: `reader-${key}`, help: `reader-${key}-help` })),
-})), MESSAGE_BADGES_CARD];
+})), ATTACHMENTS_BAR_CARD_SPEC, MESSAGE_BADGES_CARD];

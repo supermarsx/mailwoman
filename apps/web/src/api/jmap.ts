@@ -348,6 +348,7 @@ export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
   if(input.importance){spec['header:Importance:asText']=input.importance;spec['header:X-Priority:asText']=({high:'1',normal:'3',low:'5'} as const)[input.importance];}
   for(const [name,value] of input.headers??[]){
     // Header names are tokens and values one line: anything else never reaches the wire.
+    // eslint-disable-next-line no-control-regex -- control characters are exactly what is rejected
     if(!/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/.test(name)||/[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(value)||value.length>998)continue;
     spec[`header:${name}:asText`]=value;
   }

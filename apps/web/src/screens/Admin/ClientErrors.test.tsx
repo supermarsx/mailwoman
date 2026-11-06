@@ -50,7 +50,7 @@ function open(rest: string[], capabilities: Capability[] = ['observability.read'
 }
 
 beforeEach(() => {
-  vi.mocked(api.listClientErrors).mockReset().mockResolvedValue({ groups: [group(), group({ id: 'g2', name: 'RangeError', message: 'bad', count: 2, sessions: 1, boundary: '', series: undefined })], since: NOW - 7 * 86400, policy: { enabled: true, sourceMaps: true, forward: false, includeAccountHash: false } });
+  vi.mocked(api.listClientErrors).mockReset().mockResolvedValue({ groups: [group(), group({ id: 'g2', name: 'RangeError', message: 'bad', count: 2, sessions: 1, boundary: '', series: [] })], since: NOW - 7 * 86400, policy: { enabled: true, sourceMaps: true, forward: false, includeAccountHash: false } });
   vi.mocked(api.loadClientError).mockReset().mockResolvedValue(detail());
   vi.mocked(api.setClientErrorStatus).mockClear();
   vi.mocked(api.deleteClientError).mockClear();

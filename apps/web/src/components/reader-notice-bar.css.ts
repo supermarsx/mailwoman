@@ -86,6 +86,7 @@ export const summary = style({
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
   outlineOffset: '1px',
+  selectors: { '&:focus-visible': { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}` } },
 });
 
 export const headline = style({ fontWeight: vars.weight.bold });
@@ -130,8 +131,8 @@ export const btn = style({
   '@media': { '(pointer: coarse)': {minInlineSize:'44px',minBlockSize:'44px'} },
 });
 
-export const btnPrimary = style({ borderColor: vars.color.accent,'@container':{[NARROW]:{paddingInline:vars.space[2],inlineSize:'auto'}} });
 globalStyle(`${rowToggle} ${btn}, ${rowToggle} a`, { cursor: 'pointer' });
+export const btnPrimary = style({ borderColor: vars.color.accent,'@container':{[NARROW]:{paddingInline:vars.space[2],inlineSize:'auto'}} });
 
 export const iconBtn = style({ paddingInline: 0, inlineSize: '1.5rem' });
 
