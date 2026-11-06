@@ -105,3 +105,73 @@ common-viewer-no-preview = Geen voorbeeld beschikbaar voor dit bestandstype.
 common-viewer-unknown-type = onbekend type
 common-viewer-download = Downloaden
 common-viewer-attachments = Bijlagen
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-retrying = Opnieuw proberen…
+common-waiting-online = Wachten op een verbinding…
+common-failure-offline = U bent offline. Maak opnieuw verbinding en probeer het nogmaals.
+common-failure-network = De server is niet bereikbaar.
+common-failure-server = De server reageerde niet op tijd.
+common-failure-rate = Te veel verzoeken in korte tijd. Wacht even en probeer het opnieuw.
+common-failure-conflict = Dit is tegelijkertijd elders gewijzigd. Laad opnieuw en probeer het nogmaals.
+common-failure-account = Het ingelogde account is gewijzigd. Laad de pagina opnieuw.
+common-failure-linked = Dit is niet beschikbaar zolang een gekoppelde mailbox geopend is.
+common-failure-refused = De server heeft de wijziging geweigerd.
+common-new-version = Er is een nieuwe versie van Mailwoman beschikbaar. Als u dit sluit, krijgt u over een uur opnieuw een herinnering.
+common-new-version-reload = Nu opnieuw laden
+common-toast-close = Melding sluiten
+common-toast-seconds = { $seconds } s
+common-attach-refresh = Bijlagen vernieuwen
+common-attach-open-message = Het bericht met deze bijlage openen
+common-attach-page-filter-note = Filters gelden voor deze pagina. Gebruik Volgende om oudere berichten met bijlagen te bekijken.
+common-attach-pages = Bijlagenpagina's
+common-attach-previous = Vorige
+common-attach-next = Volgende
+common-attach-page = Pagina { $page }
+common-attach-column-name = Bestand
+common-attach-column-type = Type
+common-attach-column-size = Grootte
+common-attach-column-sender = Afzender
+common-attach-column-subject = Onderwerp
+common-attach-column-date = Ontvangen
+common-pdf-preview = PDF-voorbeeld
+common-pdf-link-title = Link uit deze PDF openen?
+common-pdf-link-help = Hiermee opent u de bestemming in een nieuw tabblad buiten Mailwoman.
+common-pdf-link-open = Link openen
+common-open-event = Afspraak openen
+common-message-preview-too-large = Voorbeelden van berichtbijlagen zijn beperkt tot 4 MiB. U kunt de originele bijlage nog steeds downloaden.
+common-message-preview-failed = Van deze berichtbijlage kon geen voorbeeld worden gemaakt. Het bestand wordt mogelijk niet ondersteund, is beschadigd of de voorbeeldservice is niet beschikbaar. U kunt het origineel nog steeds downloaden.
+common-message-preview-attachments = Bestanden in dit bericht
+common-message-preview-download = Bestand downloaden
+common-message-preview-size-bytes = { $count } bytes
+common-attach-cat-message = Berichten / Outlook-bijlagen
+common-error-retry-help = Dit onderdeel is tijdelijk niet beschikbaar. Probeer het opnieuw om het te laden.
+common-error-network-help = Controleer uw verbinding en probeer het opnieuw. De server is mogelijk tijdelijk niet beschikbaar.
+common-error-page = Deze pagina kon niet worden geladen
+common-error-page-help = Een paginabron kon niet worden gedownload. Probeer het opnieuw. Blijft het probleem bestaan, laad dan de applicatie opnieuw om de nieuwste versie te krijgen.
+common-reload-app = Applicatie opnieuw laden
+common-new-version-reloading = Er is een nieuwe versie beschikbaar, opnieuw laden…
+common-attach-account-changed = Het account is gewijzigd tijdens het laden van bijlagen. Open Bijlagen opnieuw voor het huidige account.
+common-attach-search-account = Hele account doorzoeken
+common-attach-scanning = Zoeken… { $pages } berichtpagina's gecontroleerd · { $count } bestanden gevonden
+common-attach-scan-cancelled = Zoekopdracht geannuleerd · { $count } bestanden gevonden in { $pages } pagina's. De resultaten zijn onvolledig.
+common-attach-scan-incomplete = Zoekopdracht onderbroken · { $count } bestanden gevonden. Probeer opnieuw om het hele account te doorzoeken.
+common-attach-scan-limited = De eerste 1.000 overeenkomende bestanden worden getoond. Verfijn uw filters om specifiekere bestanden te vinden.
+common-attach-scan-complete = Zoekopdracht voltooid · { $count } bestanden gevonden in { $pages } berichtpagina's
+common-attach-browse-pages = Pagina's doorbladeren
+common-attach-cancel-search = Zoekopdracht annuleren
+multiselect-selected = Geselecteerd: { $label }
+multiselect-remove = { $label } verwijderen
+multiselect-no-match = Geen overeenkomende opties
+common-notification-permission-title = Meldingen toestaan?
+common-notification-permission-help = Ontvang meldingen over nieuwe berichten op dit apparaat. U kunt dit wijzigen in Instellingen.
+common-notification-permission-allow = Meldingen toestaan
+common-notification-permission-later = Niet nu
+common-notification-permission-error = Meldingen konden niet worden ingeschakeld. Controleer de machtigingen en meldingsinstellingen en probeer het opnieuw.
+common-notifications-enabled = Meldingen ingeschakeld op dit apparaat.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+multiselect-count = { $count ->
+    [one] 1 geselecteerd
+   *[other] { $count } geselecteerd
+ }
