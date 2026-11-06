@@ -73,7 +73,7 @@ export const rowReset = style({
 });
 export const rowNote = style({ gridColumn: '1 / -1', margin: 0 });
 globalStyle(`${rowControl} select, ${rowControl} input:not([type="checkbox"])`, { maxInlineSize: '14rem', minInlineSize: '6rem' });
-globalStyle(`${rowControl} input[type="checkbox"]`, { inlineSize: '1.25rem', blockSize: '1.25rem', accentColor: vars.color.accent, cursor: 'pointer' });
+// A checkbox's size, accent and cursor come from styles/checks.css.ts alone.
 
 // ---- DOM-driven states (set by SettingsToolbar on any section's cards) ----
 // Doubled attribute: must out-rank the section container's flex column rule.
@@ -140,3 +140,8 @@ globalStyle(`${chip}`, {
 // A toggle is small: keep it beside its label even in a narrow card.
 globalStyle(`${row}:has(> ${rowControl} > input[type="checkbox"])`, { '@container': { '(max-width: 22rem)': { gridTemplateColumns: 'minmax(0,1fr) auto' } } });
 globalStyle(`${row} > ${rowControl}:has(> input[type="checkbox"])`, { '@container': { '(max-width: 22rem)': { gridColumn: 2, gridRow: '1 / span 2', alignItems: 'flex-end' } } });
+
+// A toolbar line above a list or table: a search field and a few buttons.
+export const toolRow = style({ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: `${vars.space[1]} ${vars.space[3]}` });
+export const inlineField = style({ display: 'inline-flex', alignItems: 'center', gap: vars.space[2], flex: '1 1 14rem', minInlineSize: 0, fontSize: '0.85rem' });
+globalStyle(`${inlineField} > input`, { flex: '1 1 8rem', minInlineSize: 0, maxInlineSize: '24rem' });
