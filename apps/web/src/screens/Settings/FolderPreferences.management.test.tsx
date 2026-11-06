@@ -1,6 +1,8 @@
 import {afterEach, expect, it, vi} from 'vitest';
 import {cleanup, createEvent, fireEvent, render, screen, waitFor, within} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
+import {ApiError} from '../../api/client.ts';
+import {toast} from '../../components/toast/toast.ts';
 import {FolderPreferences} from './FolderPreferences.tsx';
 import type {PreferenceFolder} from './folderPreferenceModel.ts';
 import type {AccountUiPreferences} from '../../api/accountPreferences.ts';
@@ -9,6 +11,7 @@ import {AppContext} from '../../state/context.ts';
 import type {AppState} from '../../state/store.ts';
 import type {JmapRequest} from '../../api/jmap-types.ts';
 import {clearSettings,loadSettings} from '../../api/settings.ts';
+import * as hostModule from '../../components/properties/host.tsx';
 
 const service=vi.hoisted(()=>({manages:true,jmap:vi.fn()}));
 vi.mock('../../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:service.jmap,session:async()=>({accounts:{}})})}));
@@ -269,7 +272,7 @@ it('bulk empty counts every folder first, says what goes to Trash, empties them 
  const dialog=await screen.findByRole('alertdialog');
  await waitFor(()=>expect(within(dialog).getByTestId('bulk-empty-a')).toHaveTextContent('2 messages move to Trash'));
  expect(within(dialog).getByTestId('bulk-empty-e')).toHaveTextContent('already empty, skipped');
- expect(dialog).toHaveTextContent('3 messages will be removed');
+ expect(dialog).toHaveTextContent('3 messages in 2 folders will be removed');
  fireEvent.click(within(dialog).getByRole('button',{name:'Empty the folders'}));
  const failed=await within(dialog).findByTestId('bulk-empty-failed');
  expect(failed).toHaveTextContent('Beta');
@@ -290,3 +293,92 @@ it('bulk delete can leave subfolders alone: a folder that still has an unselecte
  fireEvent.click(within(dialog).getByRole('button',{name:'Delete 1 folder'}));
  await waitFor(()=>expect(service.jmap.mock.calls.map(([r])=>(r as JmapRequest).methodCalls[0]![1])).toEqual([expect.objectContaining({destroy:['b']})]));
 });
+
+it('Alt+Enter on a folder row opens its Properties dialog',()=>{
+ const open=vi.spyOn(hostModule,'openFolderProperties').mockReturnValue(true);
+ mount([{id:'i',name:'Inbox',role:'inbox'},{id:'a',name:'Projects'}],{},true);
+ const row=document.querySelector('tr[data-folder-id="a"]')!;
+ fireEvent.keyDown(row,{key:'Enter',altKey:true});
+ expect(open).toHaveBeenCalledOnce();
+ expect(open.mock.calls[0]![0]).toMatchObject({id:'a'});
+ fireEvent.keyDown(row,{key:'Enter'});
+ expect(open).toHaveBeenCalledOnce();
+ open.mockRestore();
+});
+
+function emptyMock(left:Record<string,string[]>,sets:Array<Record<string,unknown>>){
+ service.jmap.mockImplementation(async(request:JmapRequest)=>({methodResponses:request.methodCalls.map(([method,args,id])=>{
+  const a=args as {filter?:{inMailbox?:string};calculateTotal?:boolean;limit?:number;position?:number;update?:Record<string,Record<string,unknown>>};
+  const box=a.filter?.inMailbox??'';
+  if(method==='Email/query')return [method,{accountId:'acct1',ids:a.calculateTotal?[]:(left[box]??[]).slice(a.position??0,(a.position??0)+(a.limit??100)),total:(left[box]??[]).length},id];
+  const ids=Object.keys(a.update??{});sets.push(a.update??{});
+  for(const key of Object.keys(left))left[key]=left[key]!.filter(x=>!ids.includes(x));
+  return [method,{accountId:'acct1',updated:Object.fromEntries(ids.map(x=>[x,null]))},id];
+ })}));
+}
+const trashBox=()=>({id:'t',name:'Trash',role:'trash',parentId:null,totalEmails:0,unreadEmails:0,sortOrder:0,myRights:{mayDelete:false,mayRemoveItems:true}}) as unknown as PreferenceFolder;
+
+it('bulk empty to Trash is undoable through the global undo history and says how many go to Trash',async()=>{
+ const {clearUndoHistory,undoEntries,undoLast}=await import('../../state/undoHistory.ts');
+ clearUndoHistory();
+ mount([trashBox(),deletable('a','Alpha',{totalEmails:2}),deletable('b','Beta',{totalEmails:1})],{},true);
+ const left:Record<string,string[]>={a:['a1','a2'],b:['b1']},sets:Array<Record<string,unknown>>=[];
+ emptyMock(left,sets);
+ click('Select all user folders');
+ await waitFor(()=>expect(screen.getByTestId('bulk-empty')).not.toBeDisabled());
+ fireEvent.click(screen.getByTestId('bulk-empty'));
+ const dialog=await screen.findByRole('alertdialog');
+ await waitFor(()=>expect(dialog).toHaveTextContent('3 messages in 2 folders will be removed: 3 move to Trash and can be undone, 0 are deleted for good'));
+ fireEvent.click(within(dialog).getByRole('button',{name:'Empty the folders'}));
+ await waitFor(()=>expect(undoEntries().length).toBe(1));
+ expect(undoEntries()[0]!.label).toBe('Emptied 2 folders (3 messages)');
+ sets.length=0;
+ await undoLast();
+ const restored=Object.assign({},...sets) as Record<string,Record<string,unknown>>;
+ expect(Object.keys(restored).sort()).toEqual(['a1','a2','b1']);
+ expect(restored['a1']).toEqual({'mailboxIds/t':null,'mailboxIds/a':true});
+ expect(restored['b1']).toEqual({'mailboxIds/t':null,'mailboxIds/b':true});
+ clearUndoHistory();
+},20000);
+
+it('bulk empty skips a folder that would be deleted for good when the administrator turned permanent delete off',async()=>{
+ await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'properties.message.permanentDelete':{value:'deny',source:'global',locked:true}}}),{headers:{'Content-Type':'application/json'}})});
+ mount([trashBox(),deletable('a','Alpha',{totalEmails:1}),{id:'j',name:'Junk',role:'junk',parentId:null,totalEmails:4,unreadEmails:0,sortOrder:1,myRights:{mayDelete:false,mayRemoveItems:true}} as unknown as PreferenceFolder],{},true);
+ emptyMock({a:['a1'],j:['j1','j2','j3','j4']},[]);
+ fireEvent.click(selected('Alpha'));fireEvent.click(selected('Junk'));
+ await waitFor(()=>expect(screen.getByTestId('bulk-empty')).not.toBeDisabled());
+ fireEvent.click(screen.getByTestId('bulk-empty'));
+ const dialog=await screen.findByRole('alertdialog');
+ await waitFor(()=>expect(within(dialog).getByTestId('bulk-empty-j')).toHaveTextContent('administrator has turned off'));
+ expect(within(dialog).getByTestId('bulk-empty-a')).toHaveTextContent('1 messages move to Trash');
+ expect(dialog).toHaveTextContent('1 messages in 1 folders will be removed');
+},20000);
+
+it('bulk delete names the folders the server refused because the account is under a legal hold, and deletes nothing',async()=>{
+ mount([deletable('a','Alpha'),deletable('b','Beta')],{},true);
+ service.jmap.mockRejectedValue(new ApiError(403,'legal hold',{code:'legalHold'}));
+ fireEvent.click(selected('Alpha'));fireEvent.click(selected('Beta'));
+ fireEvent.click(screen.getByTestId('bulk-delete'));
+ const dialog=await screen.findByRole('alertdialog');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Delete 2 folders'}));
+ await waitFor(()=>expect(dialog).toHaveTextContent(/Not deleted because the account is under a legal hold \(2 folders\)/));
+ expect(dialog).toHaveTextContent('Alpha');expect(dialog).toHaveTextContent('Beta');
+ expect(service.jmap).toHaveBeenCalledTimes(2);
+},20000);
+
+it('bulk delete reports a partial refusal: what went and what the restriction held back',async()=>{
+ const failure=vi.spyOn(toast,'error');
+ mount([deletable('a','Alpha'),deletable('b','Beta')],{},true);
+ service.jmap.mockImplementation(async(request:JmapRequest)=>{
+  const call=request.methodCalls[0]!,args=call[1] as {destroy?:string[]};
+  if(args.destroy?.includes('b'))throw new ApiError(403,'restricted',{code:'processingRestricted'});
+  return {methodResponses:[['Mailbox/set',{accountId:'acct1',destroyed:args.destroy??[]},call[2]]]};
+ });
+ fireEvent.click(selected('Alpha'));fireEvent.click(selected('Beta'));
+ fireEvent.click(screen.getByTestId('bulk-delete'));
+ const dialog=await screen.findByRole('alertdialog');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Delete 2 folders'}));
+ await waitFor(()=>expect(service.jmap).toHaveBeenCalledTimes(2));
+ await waitFor(()=>expect(failure).toHaveBeenCalledWith(expect.stringMatching(/Deleted 1 folders\. Not deleted because processing of the account is restricted: .*Beta/)));
+ failure.mockRestore();
+},20000);

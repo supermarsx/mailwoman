@@ -2,8 +2,9 @@ import type {Client} from './client.ts';
 import {CAP_CORE,CAP_MAIL,type Mailbox} from './jmap-types.ts';
 import {descendantsOf,isSystemFolder} from '../components/folderTree.ts';
 import type {RenameAbility,RenameAuthority} from './renameFolder.ts';
+import {holdProblem,type HoldProblem} from './deleteFolder.ts';
 /** Folder structure changes through Mailbox/set: moving a folder under another parent, and deleting a folder with its subfolders. */
-export type StructureProblem='forbidden'|'exists'|'mailboxHasEmail'|'notFound'|'failed';
+export type StructureProblem='forbidden'|'exists'|'mailboxHasEmail'|'notFound'|'failed'|HoldProblem;
 export type StructureOutcome={ok:true}|{ok:false;problem:StructureProblem};
 type Transport=Pick<Client,'jmap'>;
 const known=(type:string|undefined):StructureProblem=>type==='forbidden'||type==='notFound'||type==='mailboxHasEmail'?type:type==='invalidProperties'||type==='alreadyExists'?'exists':'failed';
@@ -37,7 +38,9 @@ export async function deleteFolderTree(client:Transport,accountId:string,box:Mai
  const order=[...nested,box];let deleted=0;
  for(const folder of order){
   if(!authority.current()||authority.signal?.aborted)return {ok:false,problem:'failed',deleted};
-  const response=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Mailbox/set',{accountId,destroy:[folder.id],onDestroyRemoveEmails:removeEmails===true},'delete-folder']]},authority.signal?{signal:authority.signal}:undefined);
+  let response:Awaited<ReturnType<Transport['jmap']>>;
+  try{response=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:[['Mailbox/set',{accountId,destroy:[folder.id],onDestroyRemoveEmails:removeEmails===true},'delete-folder']]},authority.signal?{signal:authority.signal}:undefined);}
+  catch(error){const hold=holdProblem(error);if(hold)return {ok:false,problem:hold,deleted};throw error;}
   if(!authority.current()||authority.signal?.aborted)return {ok:false,problem:'failed',deleted};
   const found=response.methodResponses.find(item=>item[2]==='delete-folder');
   const reply=found?.[1] as {accountId?:string;destroyed?:string[]|null;notDestroyed?:Record<string,{type?:string}>|null}|undefined;

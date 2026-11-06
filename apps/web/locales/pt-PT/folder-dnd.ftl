@@ -127,10 +127,7 @@ settings-folders-bulk-empty-title = { $count ->
    *[other] Esvaziar { $count } pastas?
 }
 settings-folders-bulk-empty-counting = A contar as mensagens de cada pasta…
-settings-folders-bulk-empty-body = { $total } mensagens serão removidas. { $permanent ->
-    [0] Nada é eliminado definitivamente: as mensagens vão primeiro para o Lixo.
-   *[other] { $permanent } delas são eliminadas definitivamente e não podem ser recuperadas.
-} As subpastas não são afetadas.
+settings-folders-bulk-empty-body = { $total } mensagens em { $folders } pastas serão removidas: { $toTrash } vão para o Lixo e podem ser repostas, { $permanent } são eliminadas definitivamente e não podem ser recuperadas. As subpastas não são afetadas.
 settings-folders-bulk-empty-confirm = Esvaziar as pastas
 settings-folders-bulk-empty-list = Pastas a esvaziar
 settings-folders-bulk-empty-to-trash = { $count } mensagens vão para o Lixo
@@ -138,6 +135,8 @@ settings-folders-bulk-empty-permanent = { $count } mensagens são eliminadas def
 settings-folders-bulk-empty-progress = { $done } de { $of } pastas concluídas, { $messages } mensagens processadas. Agora: { $name }
 settings-folders-bulk-empty-skip-search = pesquisa guardada, ignorada
 settings-folders-bulk-empty-skip-unsupported = esta conta não a pode esvaziar, ignorada
+settings-folders-bulk-empty-skip-permanent-denied = seria eliminada definitivamente, o que o administrador desativou, ignorada
+settings-folders-bulk-empty-undo-label = Esvaziou { $count } pastas ({ $messages } mensagens)
 settings-folders-bulk-empty-skip-empty = já está vazia, ignorada
 settings-folders-bulk-empty-skip-count-failed = não foi possível contar, ignorada
 settings-folders-bulk-empty-fail-refused = o servidor recusou parte; restam { $remaining } mensagens
@@ -150,3 +149,13 @@ settings-folders-select-user = Selecionar todas as pastas do utilizador
 
 settings-folders-bulk-delete-subfolders = Eliminar também as subpastas de cada pasta
 settings-folders-bulk-delete-subfolders-off = Só as pastas selecionadas são eliminadas. Uma pasta que ainda tenha uma subpasta fora da seleção é mantida.
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+    [one] Não eliminada porque a conta está sob retenção legal: { $names }
+   *[other] Não eliminadas porque a conta está sob retenção legal ({ $count } pastas): { $names }
+}
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+    [one] Não eliminada porque o tratamento da conta está restringido: { $names }
+   *[other] Não eliminadas porque o tratamento da conta está restringido ({ $count } pastas): { $names }
+}
+settings-folders-bulk-delete-partial-done = Eliminou { $done } pastas.
+settings-folders-bulk-delete-others = Também não eliminadas: { $names }

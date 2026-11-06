@@ -27,3 +27,5 @@ delete-folder-error-mailboxHasChild = This folder has subfolders. Remove or move
 delete-folder-error-forbidden = You cannot delete this folder.
 delete-folder-error-notFound = This folder no longer exists. Refresh the folder list.
 delete-folder-error-failed = The folder could not be deleted. Try again.
+delete-folder-error-legalHold = This account is under a legal hold, so folders cannot be deleted.
+delete-folder-error-processingRestricted = Processing of this account is restricted, so folders cannot be deleted.

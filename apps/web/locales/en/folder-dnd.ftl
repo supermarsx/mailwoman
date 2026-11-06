@@ -124,10 +124,7 @@ settings-folders-bulk-empty-title = { $count ->
    *[other] Empty { $count } folders?
 }
 settings-folders-bulk-empty-counting = Counting the messages in each folder…
-settings-folders-bulk-empty-body = { $total } messages will be removed. { $permanent ->
-    [0] Nothing is deleted for good: the messages go to Trash first.
-   *[other] { $permanent } of them are deleted for good and cannot be brought back.
-} Subfolders are not touched.
+settings-folders-bulk-empty-body = { $total } messages in { $folders } folders will be removed: { $toTrash } move to Trash and can be undone, { $permanent } are deleted for good and cannot be brought back. Subfolders are not touched.
 settings-folders-bulk-empty-confirm = Empty the folders
 settings-folders-bulk-empty-list = Folders to empty
 settings-folders-bulk-empty-to-trash = { $count } messages move to Trash
@@ -135,6 +132,8 @@ settings-folders-bulk-empty-permanent = { $count } messages are deleted for good
 settings-folders-bulk-empty-progress = { $done } of { $of } folders done, { $messages } messages processed. Now: { $name }
 settings-folders-bulk-empty-skip-search = a saved search, skipped
 settings-folders-bulk-empty-skip-unsupported = this account cannot empty it, skipped
+settings-folders-bulk-empty-skip-permanent-denied = would be deleted for good, which the administrator has turned off, skipped
+settings-folders-bulk-empty-undo-label = Emptied { $count } folders ({ $messages } messages)
 settings-folders-bulk-empty-skip-empty = already empty, skipped
 settings-folders-bulk-empty-skip-count-failed = could not be counted, skipped
 settings-folders-bulk-empty-fail-refused = the server refused part of it; { $remaining } messages remain
@@ -147,3 +146,13 @@ settings-folders-select-user = Select all user folders
 
 settings-folders-bulk-delete-subfolders = Also delete the subfolders of each folder
 settings-folders-bulk-delete-subfolders-off = Only the selected folders are deleted. A folder that still has a subfolder outside the selection is kept.
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+    [one] Not deleted because the account is under a legal hold: { $names }
+   *[other] Not deleted because the account is under a legal hold ({ $count } folders): { $names }
+}
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+    [one] Not deleted because processing of the account is restricted: { $names }
+   *[other] Not deleted because processing of the account is restricted ({ $count } folders): { $names }
+}
+settings-folders-bulk-delete-partial-done = Deleted { $done } folders.
+settings-folders-bulk-delete-others = Also not deleted: { $names }

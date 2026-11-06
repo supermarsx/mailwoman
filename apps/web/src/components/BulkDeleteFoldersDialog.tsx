@@ -23,13 +23,20 @@ export function BulkDeleteFoldersDialog(props:{ids:readonly string[];context:()=
   if(!auth.current())return;
   await app.refreshFolders().catch(()=>{});
   if(result.failed.length){
-   const names=result.failed.map(item=>app.mailboxes().find(box=>box.id===item.id)?.name??item.id).map(isolate).join(', ');
-   if(!result.deleted.length)throw new Error(t('settings-folders-bulk-delete-failed',{names}));
-   toast.error(t('settings-folders-bulk-delete-partial',{done:result.deleted.length,names}));
+   const nameOf=(item:{id:string})=>isolate(app.mailboxes().find(box=>box.id===item.id)?.name??item.id);
+   const names=result.failed.map(nameOf).join(', ');
+   // Folders the server refused because of a legal hold or a processing restriction are named with that reason, apart from other failures.
+   const refused=result.failed.filter(item=>item.problem==='legalHold'||item.problem==='processingRestricted');
+   const reason=refused[0]?.problem;
+   const refusedText=reason?t(`settings-folders-bulk-delete-refused-${reason}`,{count:refused.length,names:refused.map(nameOf).join(', ')}):'';
+   const others=result.failed.filter(item=>!refused.includes(item));
+   const otherText=others.length?t('settings-folders-bulk-delete-others',{names:others.map(nameOf).join(', ')}):'';
+   if(!result.deleted.length)throw new Error(refusedText||t('settings-folders-bulk-delete-failed',{names}));
+   toast.error(refusedText?`${t('settings-folders-bulk-delete-partial-done',{done:result.deleted.length})} ${refusedText}${otherText?` ${otherText}`:''}`:t('settings-folders-bulk-delete-partial',{done:result.deleted.length,names}));
   }else toast.success(t('settings-folders-bulk-delete-done',{count:result.deleted.length}));
   props.onDone(result.deleted);props.onClose();
  }
- return <ConfirmDialog open title={t('settings-folders-bulk-delete-title',{count:plan().roots.length})} body={t('settings-folders-bulk-delete-body',{folders:plan().folders.length,messages:plan().messages})} confirmLabel={t('settings-folders-bulk-delete-confirm',{count:plan().roots.length})} danger onConfirm={confirm} onCancel={props.onClose}>
+ return <ConfirmDialog open title={t('settings-folders-bulk-delete-title',{count:plan().roots.length})} body={t('settings-folders-bulk-delete-body',{folders:plan().folders.length,messages:plan().messages})} confirmLabel={t('settings-folders-bulk-delete-confirm',{count:plan().roots.length})} danger describeError={error=>error instanceof Error?error.message:t('folder-ops-error-failed')} onConfirm={confirm} onCancel={props.onClose}>
   <label class={css.check}><input class={css.checkbox} type="checkbox" data-testid="bulk-delete-subfolders" checked={withSubfolders()} onChange={event=>setWithSubfolders(event.currentTarget.checked)}/>{t('settings-folders-bulk-delete-subfolders')}</label>
   <Show when={!withSubfolders()}><p class={css.meta}>{t('settings-folders-bulk-delete-subfolders-off')}</p></Show>
   <Show when={plan().skipped.length>0}><p class={css.meta} role="note" data-testid="bulk-delete-skipped">{t('settings-folders-bulk-delete-skipped',{count:plan().skipped.length,names:plan().skipped.map(box=>isolate(box.name)).join(', ')})}</p></Show>

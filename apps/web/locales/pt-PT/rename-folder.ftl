@@ -30,3 +30,5 @@ delete-folder-error-mailboxHasChild = Esta pasta tem subpastas. Remova-as ou mov
 delete-folder-error-forbidden = Não pode eliminar esta pasta.
 delete-folder-error-notFound = Esta pasta já não existe. Atualize a lista de pastas.
 delete-folder-error-failed = Não foi possível eliminar a pasta. Tente novamente.
+delete-folder-error-legalHold = Esta conta está sob retenção legal, por isso as pastas não podem ser eliminadas.
+delete-folder-error-processingRestricted = O tratamento desta conta está restringido, por isso as pastas não podem ser eliminadas.

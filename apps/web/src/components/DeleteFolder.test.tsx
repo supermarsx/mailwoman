@@ -85,3 +85,14 @@ describe('delete folder confirmation',()=>{
   expect((await deleteFolder({jmap},'acct1','home',false,{current:()=>false})).ok).toBe(false);expect(jmap).not.toHaveBeenCalled();let current=true;jmap.mockImplementationOnce(async()=>{current=false;return {methodResponses:[['Mailbox/set',{accountId:'acct1',destroyed:['home']},'delete-folder']],sessionState:'s'};});expect((await deleteFolder({jmap},'acct1','home',false,{current:()=>current})).ok).toBe(false);
  });
 });
+
+describe('folder delete refused by a legal hold or a restriction',()=>{
+ const authority={current:()=>true};
+ it('reports the hold or the restriction the server named, and rethrows other failures',async()=>{
+  const {ApiError}=await import('../api/client.ts');
+  const refuse=(code:string)=>({jmap:vi.fn(async()=>{throw new ApiError(403,'refused',{code});})});
+  expect(await deleteFolder(refuse('legalHold'),'acct1','work',true,authority)).toEqual({ok:false,problem:'legalHold'});
+  expect(await deleteFolder(refuse('processingRestricted'),'acct1','work',true,authority)).toEqual({ok:false,problem:'processingRestricted'});
+  await expect(deleteFolder(refuse('somethingElse'),'acct1','work',true,authority)).rejects.toBeInstanceOf(ApiError);
+ });
+});
