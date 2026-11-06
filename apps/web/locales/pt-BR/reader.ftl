@@ -46,7 +46,7 @@ reader-zoom-help = O tamanho com que as mensagens são abertas, de 50% a 200%. S
 reader-attachments-summary = { $count ->
     [one] 1 anexo
    *[other] { $count } anexos
- }
+ } · { $size }
 reader-attachments-show = Mostrar anexos
 reader-attachments-hide = Ocultar anexos
 reader-attachmentsDensity = Densidade dos anexos

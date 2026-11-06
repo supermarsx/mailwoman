@@ -341,8 +341,8 @@ mail-undo-failed = Não foi possível desfazer
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Marcador adicionado
 mail-toast-label-removed = Marcador removido
-mail-toast-pinned = Fixada
-mail-toast-unpinned = Desafixada
+mail-toast-pinned = Mensagem “{ $target }” fixada
+mail-toast-unpinned = Mensagem “{ $target }” desafixada
 mail-toast-snoozed = Adiada
 mail-toast-follow-up-set = Acompanhamento definido
 mail-toast-follow-up-cleared = Acompanhamento removido

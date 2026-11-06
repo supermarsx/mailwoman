@@ -8,19 +8,19 @@ empty-folder-title = Esvaziar “{ $name }”?
 empty-folder-body-trash = { $count ->
     [one] A mensagem em { $name } será movida para a Lixeira, onde você poderá restaurá-la.
    *[other] Todas as { $count } mensagens em { $name } serão movidas para a Lixeira, onde você poderá restaurá-las.
- }
+ } As subpastas e as mensagens nelas não são afetadas.
 empty-folder-body-destroy-trash = { $count ->
     [one] A mensagem na Lixeira será excluída permanentemente. Isso não pode ser desfeito.
    *[other] Todas as { $count } mensagens na Lixeira serão excluídas permanentemente. Isso não pode ser desfeito.
- }
+ } As subpastas e as mensagens nelas não são afetadas.
 empty-folder-body-destroy-junk = { $count ->
     [one] A mensagem em { $name } será excluída permanentemente. Isso não pode ser desfeito.
    *[other] Todas as { $count } mensagens em { $name } serão excluídas permanentemente. Isso não pode ser desfeito.
- }
+ } As subpastas e as mensagens nelas não são afetadas.
 empty-folder-body-destroy-no-trash = Esta conta não tem pasta Lixeira, então { $count ->
     [one] a mensagem em { $name } será excluída permanentemente.
    *[other] todas as { $count } mensagens em { $name } serão excluídas permanentemente.
- }
+ } Isso não pode ser desfeito. As subpastas e as mensagens nelas não são afetadas.
 empty-folder-confirm-trash = Mover para a Lixeira
 empty-folder-confirm-destroy = Excluir permanentemente
 empty-folder-cancel = Cancelar
