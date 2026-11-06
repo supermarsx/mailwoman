@@ -11,6 +11,12 @@ import * as css from './nativeHtmlEditor.css.ts';
 import {NativeHtmlRibbon} from './NativeHtmlRibbon.tsx';
 import {stripEditorMarkers} from './htmlMessage.ts';
 import {createNativeHtmlCommands} from './nativeHtmlCommands.ts';
+import {createNativeFormat,type NativePaint} from './nativeFormatCommands.ts';
+import {createPainter} from './FormatControls.tsx';
+import {useComposeFeature} from './composeFeatures.ts';
+import {isClearKey,isGrowKey,isShrinkKey,mergeFormatting,type PasteMode} from './formatModel.ts';
+import {materializeLists,dematerializeLists} from './listMarkers.ts';
+import LIST_CSS from './compose-lists.css?raw';
 import type {EditorSlots} from './EditorRibbon.tsx';
 import type {RichTextApi} from './RichTextEditor.tsx';
 
@@ -37,6 +43,9 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  const toggleBackground=()=>{const next=toggledBackground(background(),appTone());if(app)app.setAppearancePrefs({composeBackground:next});else setLocalBackground(next);};
  let history:string[]=[];
  const commands=createNativeHtmlCommands({root:()=>editor,change:()=>emit(),selection:()=>setVersion(value=>value+1),replaceNode:(from,to)=>{const original=originals.get(from);if(original)originals.set(to,original);}});
+ const format=createNativeFormat(commands);
+ const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting');
+ const painter=createPainter<NativePaint>({capture:()=>format.capture(),apply:value=>format.applyPaint(value)});
  let finishReady!:()=>void;
  const admitted=new Promise<void>(resolve=>{finishReady=resolve;});
  function answerBlock():HTMLParagraphElement|null {return props.reply?editor?.querySelector(':scope > p, :scope > .mw-email-body > p')??null:null;}
@@ -51,6 +60,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   for(const answer of clone.querySelectorAll('[data-mw-native-answer]'))answer.removeAttribute('data-mw-native-answer');
   for(const shown of clone.querySelectorAll('[data-mw-vc]'))shown.removeAttribute('data-mw-vc');
   for(const caret of clone.querySelectorAll('[data-mw-native-caret]')){caret.removeAttribute('data-mw-native-caret');const text=caret.firstChild;if(text?.nodeType===3&&text.textContent?.startsWith('\u200b'))text.textContent=text.textContent.slice(1);if(!caret.textContent&&!caret.children.length)caret.remove();}
+  materializeLists(clone);for(const item of Array.from(clone.querySelectorAll('[data-mw-checked]')))item.removeAttribute('data-mw-checked');
   return styles.map(style=>`<style>${style}</style>`).join('')+clone.innerHTML;
  }
  function record(value:string):void {if(history[historyIndex()]===value)return;history=history.slice(0,historyIndex()+1);history.push(value);if(history.length>101)history.shift();setHistoryIndex(history.length-1);setHistoryLength(history.length);}
@@ -95,7 +105,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  function scheduleViewColors():void {if(viewTimer===undefined)viewTimer=setTimeout(applyViewColors,120);}
  function installStyles(doc:Document):void {
   const view=doc.defaultView as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}img{max-width:100%;height:auto}`+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet?[sheet,viewSheet]:[sheet];}
+  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}img{max-width:100%;height:auto}`+LIST_CSS+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet?[sheet,viewSheet]:[sheet];}
   scheduleViewColors();
  }
  function loadDocument(value=props.html):void {
@@ -103,7 +113,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   const revision=++documentRevision;
   changed=false;
   commands.resetSelection();
-  const body=nativeHtmlBody(stripEditorMarkers(value));
+  const body=nativeHtmlBody(stripEditorMarkers(value));dematerializeLists(body);
   styles=Array.from(body.querySelectorAll('style')).map(style=>style.textContent??'');
   body.querySelectorAll('style').forEach(style=>style.remove());
   const inlineStyles=Array.from(body.querySelectorAll<HTMLElement>('[style]')).map(element=>[element,element.getAttribute('style')??''] as const);
@@ -172,30 +182,38 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   void pending.catch(()=>{if(!disposed)setFailed(true);});
  }
  function imageFiles(files:File[]):void {commands.restore();insert({preventDefault(){},clipboardData:{files,getData:()=>''}} as unknown as ClipboardEvent);}
- async function performClipboard(action:'copy'|'cut'|'paste'):Promise<void> {
+ async function performClipboard(action:'copy'|'cut'|'paste',mode:PasteMode='keep'):Promise<void> {
   const host=editor;if(!host)return;commands.restore();const revision=documentRevision,range=commands.range();
   try{
    if(action!=='paste'){if(!host.ownerDocument.execCommand(action))throw new Error('Clipboard unavailable');commands.remember();return;}
    const clipboard=frame.ownerDocument.defaultView?.navigator.clipboard;if(!clipboard)throw new Error('Clipboard unavailable');let html='',plain='';
    if(clipboard.read){const items=await clipboard.read();const item=items.find(item=>item.types.includes('text/html')||item.types.includes('text/plain'));if(!item)throw new Error('No text');const type=item.types.includes('text/html')?'text/html':'text/plain',blob=await item.getType(type);if(blob.size>(type==='text/html'?(props.htmlLimit??786432):786432))throw new Error('Too large');const value=await blob.text();if(type==='text/html')html=value;else plain=value;}else plain=await clipboard.readText();
    const current=commands.range();if(disposed||revision!==documentRevision||!range||!current||range.compareBoundaryPoints(0,current)!==0||range.compareBoundaryPoints(2,current)!==0){setError(t('mail-editor-selection-changed'));return;}
-   if(plain.length>786432)throw new Error('Too large');commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?html:plain}} as unknown as ClipboardEvent);setError('');
+   if(plain.length>786432)throw new Error('Too large');commands.restore();{const merged=(()=>{if(mode!=='merge'||!html)return html;const parsed=new window.DOMParser().parseFromString(html,'text/html');mergeFormatting(parsed.body);return parsed.body.innerHTML;})();const text=plain||(html?new window.DOMParser().parseFromString(html,'text/html').body.textContent??'':'');insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?(mode==='text'?'':merged):(mode==='text'?text:plain)}} as unknown as ClipboardEvent);};setError('');
   }catch(error){if(!disposed)setError(t('mail-editor-clipboard-unavailable'));if(action==='paste')throw error;}
  }
- function clipboard(action:'copy'|'cut'|'paste'):Promise<void>{const prior=pending,work=performClipboard(action);if(action==='paste'){pending=Promise.all([prior,work]).then(()=>undefined);void pending.catch(()=>undefined);}return work.catch(()=>undefined);}
+ function clipboard(action:'copy'|'cut'|'paste',mode:PasteMode='keep'):Promise<void>{const prior=pending,work=performClipboard(action,mode);if(action==='paste'){pending=Promise.all([prior,work]).then(()=>undefined);void pending.catch(()=>undefined);}return work.catch(()=>undefined);}
  function loaded():void {
   const doc=frame.contentDocument;if(!doc||disposed||doc.documentElement.getAttribute('data-mw-native-document')!=='true')return;
   if(editor?.ownerDocument===doc&&editor.isConnected)return;
   undoListeners();editor=doc.createElement('div');editor.id='mw-native-editor';editor.contentEditable='true';editor.tabIndex=0;editor.setAttribute('role','textbox');editor.setAttribute('aria-multiline','true');editor.setAttribute('aria-label',t('mail-compose-body'));doc.body.replaceChildren(editor);
   const input=()=>{commands.remember();emit();};const paste=(event:Event)=>insert(event as ClipboardEvent);const drop=(event:Event)=>insert(event as DragEvent);
   const before=(event:Event)=>{const type=(event as InputEvent).inputType;if(['insertFromPaste','insertFromDrop'].includes(type))event.preventDefault();if(type==='historyUndo'||type==='historyRedo'){event.preventDefault();moveHistory(type==='historyUndo'?-1:1);}};
-  const key=(event:KeyboardEvent)=>{if(!(event.ctrlKey||event.metaKey)||event.altKey)return;if(event.key.toLowerCase()==='z'||event.key.toLowerCase()==='y'){event.preventDefault();moveHistory(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);}};
+  const key=(event:KeyboardEvent)=>{
+   if(event.key==='Escape'&&painter.sticky()){painter.cancel();event.preventDefault();return;}
+   if(stepOn()&&(isGrowKey(event)||isShrinkKey(event))){event.preventDefault();commands.remember();format.stepFont(isGrowKey(event)?1:-1);return;}
+   if(clearOn()&&isClearKey(event)){event.preventDefault();commands.remember();format.clear('all');return;}
+   if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&indentOn()&&commands.current()?.closest('li')){event.preventDefault();commands.remember();format.indent(event.shiftKey?-1:1);return;}
+   if(!(event.ctrlKey||event.metaKey)||event.altKey)return;if(event.key.toLowerCase()==='z'||event.key.toLowerCase()==='y'){event.preventDefault();moveHistory(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);}};
   const selection=()=>commands.remember();
-  const click=(event:Event)=>{const target=event.target as Element|null;if(typeof target?.closest==='function'&&target.closest('a'))event.preventDefault();};
+  const click=(event:Event)=>{const target=event.target as Element|null;
+   const item=typeof target?.closest==='function'?target.closest('li[data-mw-checked]'):null;
+   if(item&&item.parentElement?.getAttribute('data-mw-list')==='check'){const box=item.getBoundingClientRect(),x=(event as MouseEvent).clientX,rtl=doc.defaultView?.getComputedStyle(item).direction==='rtl';if(rtl?x>box.right:x<box.left){event.preventDefault();commands.remember();format.toggleChecked(item as HTMLElement);return;}}
+   if(typeof target?.closest==='function'&&target.closest('a'))event.preventDefault();};
   const focus=(event:Event)=>{if(editor&&event.target&&editor.contains(event.target as Node)&&doc.activeElement!==editor)editor.focus({preventScroll:true});};
   const copy=(event:ClipboardEvent)=>{const selection=doc.getSelection();if(!editor||!event.clipboardData||!selection?.rangeCount||selection.isCollapsed)return;const range=selection.getRangeAt(0);if(!editor.contains(range.commonAncestorContainer))return;const inert=doc.implementation.createHTMLDocument(''),container=inert.createElement('div');container.append(inert.importNode(range.cloneContents(),true));container.querySelectorAll('[data-mw-vc]').forEach(shown=>shown.removeAttribute('data-mw-vc'));const sourceImages=Array.from(editor.querySelectorAll('img')).filter(image=>range.intersectsNode(image));Array.from(container.querySelectorAll('img')).forEach((image,index)=>{const source=sourceImages[index];const src=source?originals.get(source)?.get('src'):undefined;if(src)image.setAttribute('src',src);});event.clipboardData.setData('text/html',styles.map(style=>`<style>${style}</style>`).join('')+container.innerHTML);event.clipboardData.setData('text/plain',selection.toString());event.preventDefault();if(event.type==='cut'){doc.execCommand('delete');emit();}};
-  doc.addEventListener('input',input);doc.addEventListener('paste',paste);doc.addEventListener('drop',drop);doc.addEventListener('beforeinput',before);doc.addEventListener('click',click);doc.addEventListener('pointerdown',focus);doc.addEventListener('copy',copy);doc.addEventListener('cut',copy);doc.addEventListener('selectionchange',selection);doc.addEventListener('keydown',key);
-  undoListeners=()=>{doc.removeEventListener('input',input);doc.removeEventListener('paste',paste);doc.removeEventListener('drop',drop);doc.removeEventListener('beforeinput',before);doc.removeEventListener('click',click);doc.removeEventListener('pointerdown',focus);doc.removeEventListener('copy',copy);doc.removeEventListener('cut',copy);doc.removeEventListener('selectionchange',selection);doc.removeEventListener('keydown',key);};
+  doc.addEventListener('input',input);doc.addEventListener('paste',paste);doc.addEventListener('drop',drop);doc.addEventListener('beforeinput',before);doc.addEventListener('click',click);doc.addEventListener('pointerdown',focus);doc.addEventListener('copy',copy);doc.addEventListener('cut',copy);doc.addEventListener('selectionchange',selection);doc.addEventListener('keydown',key);const release=()=>{if(painter.sticky()&&!doc.getSelection()?.isCollapsed){commands.remember();painter.apply();}};doc.addEventListener('mouseup',release);
+  undoListeners=()=>{doc.removeEventListener('mouseup',release);doc.removeEventListener('input',input);doc.removeEventListener('paste',paste);doc.removeEventListener('drop',drop);doc.removeEventListener('beforeinput',before);doc.removeEventListener('click',click);doc.removeEventListener('pointerdown',focus);doc.removeEventListener('copy',copy);doc.removeEventListener('cut',copy);doc.removeEventListener('selectionchange',selection);doc.removeEventListener('keydown',key);};
   loadDocument();history=[props.html];setHistoryIndex(0);setHistoryLength(1);if(props.bookmark)restoreBookmark(props.bookmark);setReady(true);finishReady();if(focusPending)focusEditor();
  }
  createEffect(()=>{version();if(editor)void ensureManropePreview(editor);});
@@ -204,5 +222,5 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  onMount(()=>{const root=frame.ownerDocument.documentElement,observer=new MutationObserver(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});observer.observe(root,{attributes:true});onCleanup(()=>observer.disconnect());});
  onMount(()=>{const editorApi:NativeHtmlVisualApi={async capture(){await admitted;let latest:Promise<void>;do{latest=pending;await latest;}while(latest!==pending);if(disposed)throw new DOMException('Editor closed','AbortError');return changed?serialize():stripEditorMarkers(props.html);},focus:focusEditor,refreshImages:()=>previewImages(documentRevision),undo:()=>moveHistory(-1),redo:()=>moveHistory(1),historyDepth:()=>({undo:historyIndex(),redo:historyLength()-historyIndex()-1}),bookmark};setApi({...editorApi,appendHtml:value=>{commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?value:''}} as unknown as ClipboardEvent);},setHtml:value=>{pending=normalizeHtmlSource(value,props.owned(),props.embedded===true).then(safe=>{if(disposed)return;loadDocument(safe.html);emit();});void pending.catch(()=>setFailed(true));}});props.onReady(editorApi);});
  onCleanup(()=>{disposed=true;if(viewTimer!==undefined)clearTimeout(viewTimer);finishReady();undoListeners();});
- return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
+ return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} format={format} painter={painter} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
 }

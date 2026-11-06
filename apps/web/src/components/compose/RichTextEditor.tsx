@@ -1,5 +1,10 @@
 import {Portal} from 'solid-js/web';
 import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
+import {Feature,createFormatControls,createPainter,type FormatAdapter} from './FormatControls.tsx';
+import {useComposeFeature} from './composeFeatures.ts';
+import {applyListStyle,applyPaint,canContinueNumbering,canOutdent,capturePaint,changeIndent,clearFormatting,currentListType,blockAttrs,enclosingList,liftItem,setAlignment,setDirection,setLineSpacing,setListStart,setSpacing,sinkItem,stepFontSizeCommand,type PaintedFormat} from './richFormatCommands.ts';
+import {chainCommands} from 'prosemirror-commands';
+import './compose-lists.css';
 import {RibbonGroup,RibbonItem} from '../bars/index.ts';
 import {EDITOR_TABS,SLOT_TABS,EditorRibbon,createEditorRibbon,type EditorSlots,type EditorTab} from './EditorRibbon.tsx';
 import {PictureGroups} from './PictureGroups.tsx';
@@ -29,7 +34,7 @@ import { Icon, type IconName } from '../Icon.tsx';
 import { createEffect, createMemo, createSignal, on, onCleanup, onMount, useContext, For, Show, type JSX } from 'solid-js';
 import { EditorState, type Command } from 'prosemirror-state';
 import { EditorView, type NodeView } from 'prosemirror-view';
-import type { MarkType, Node as PMNode } from 'prosemirror-model';
+import { Slice, type MarkType, type Node as PMNode } from 'prosemirror-model';
 import { baseKeymap, toggleMark, wrapIn } from 'prosemirror-commands';
 import { keymap } from 'prosemirror-keymap';
 import { history, undo, redo, undoDepth, redoDepth, closeHistory } from 'prosemirror-history';
@@ -88,7 +93,7 @@ const BUTTONS: readonly ToolbarButton[] = [
 /** Bold, italic, underline, strike: the Font group's second row. */
 const MARK_BUTTONS = BUTTONS.filter((b) => b.activeMark !== undefined);
 /** Lists and quote: the Paragraph group's first row. */
-const BLOCK_BUTTONS = BUTTONS.filter((b) => b.activeMark === undefined);
+const BLOCK_BUTTONS = BUTTONS.filter((b) => b.activeMark === undefined && b.id === 'quote');
 
 /** Imperative handle the composer uses for signature insert (W12) and draft
  *  resume (W9) without remounting the editor / losing rich formatting. */
@@ -97,6 +102,8 @@ export interface RichTextApi {
   whenReady?:()=>Promise<void>;
   /** Append parsed HTML as new blocks at the end of the document. */
   appendHtml: (html: string) => void;
+  /** Insert parsed HTML at the caret (replacing the selection); `inline` merges into the current paragraph. */
+  insertHtml?: (html: string, inline: boolean) => void;
   /** Replace the whole document with parsed HTML. */
   setHtml: (html: string) => void;
   /** Explicit user replacement that remains undoable. */
@@ -200,6 +207,11 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   function setTextStyle(name:string,value:string):void {if(!view)return;const mark=richSchema.marks[name];if(!mark)return;const {from,to,empty}=view.state.selection;let tr=view.state.tr;if(empty)tr=value?tr.addStoredMark(mark.create({value})):tr.removeStoredMark(mark);else{tr=tr.removeMark(from,to,mark);if(value)tr=tr.addMark(from,to,mark.create({value}));}view.dispatch(tr);view.focus();}
 
   const owned = (): ReadonlySet<string> | undefined => props.inline?.owned();
+  // A switched-off Format feature leaves its shortcut inert, not just its button hidden.
+  const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting');
+  const gate=(on:()=>boolean,command:Command):Command=>(state,dispatch,v)=>on()?command(state,dispatch,v):false;
+  const inList:Command=(state,dispatch,v)=>enclosingList(state)?sinkItem(state,dispatch,v):false;
+  const outOfList:Command=(state,dispatch,v)=>enclosingList(state)?liftItem(state,dispatch,v):false;
 
   /** The editor shows an image from its local preview, not its `cid:`. */
   function imageView(node: PMNode): NodeView {
@@ -296,8 +308,14 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           'Mod-Alt-q': paragraphStyle('quote'),
           'Mod-Alt-c': paragraphStyle('code'),
           Enter: splitListItem(nListItem),
-          Tab: goToNextCell(1),
-          'Shift-Tab': goToNextCell(-1),
+          'Mod->': gate(stepOn,stepFontSizeCommand(1)),
+          'Mod-<': gate(stepOn,stepFontSizeCommand(-1)),
+          'Mod-]': gate(stepOn,stepFontSizeCommand(1,true)),
+          'Mod-[': gate(stepOn,stepFontSizeCommand(-1,true)),
+          'Mod-Space': gate(clearOn,clearFormatting('all')),
+          'Mod-\\': gate(clearOn,clearFormatting('all')),
+          Tab: chainCommands(gate(indentOn,inList),goToNextCell(1)),
+          'Shift-Tab': chainCommands(gate(indentOn,outOfList),goToNextCell(-1)),
         }),
         keymap(baseKeymap),
         tableEditing(),
@@ -340,6 +358,11 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     });
     emit(view.state);
     repaintSurface();
+    // Sticky format painter: paint each new selection until Esc.
+    const paintOnRelease=():void=>{if(painter.sticky()&&view&&!view.state.selection.empty)painter.apply();};
+    view.dom.addEventListener('pointerup',paintOnRelease);
+    view.dom.addEventListener('keyup',event=>{if((event as KeyboardEvent).shiftKey)paintOnRelease();});
+    view.dom.addEventListener('keydown',event=>{if((event as KeyboardEvent).key==='Escape'&&painter.sticky()){painter.cancel();event.stopPropagation();}},true);
 
     const api:RichTextApi = {
       undo:()=>run(undo),redo:()=>run(redo),historyDepth:()=>{const state=activeState();return {undo:state?undoDepth(state):0,redo:state?redoDepth(state):0};},
@@ -347,6 +370,15 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         if (view === undefined) return;
         const frag = docFromHtml(html, owned(), embedded()).content;
         const next = view.state.apply(view.state.tr.insert(view.state.doc.content.size, frag));
+        view.updateState(next);
+        emit(next);
+        view.focus();
+      },
+      insertHtml(html: string, inline: boolean): void {
+        if (view === undefined) return;
+        const frag = docFromHtml(html, owned(), embedded()).content;
+        const slice = inline && frag.childCount === 1 && frag.firstChild?.isTextblock ? new Slice(frag, 1, 1) : new Slice(frag, 0, 0);
+        const next = view.state.apply(view.state.tr.replaceSelection(slice).scrollIntoView());
         view.updateState(next);
         emit(next);
         view.focus();
@@ -412,6 +444,29 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   }
 
   const tools=createAdvancedEditorTools({state:activeState,view:()=>view,run,owned,report:setEditorError,markers,onMarkers:()=>setMarkers(value=>!value)});
+  const painter=createPainter<PaintedFormat>({capture:()=>{const s=view?.state;if(!s)return null;const p=capturePaint(s);return {value:p,summary:p.summary};},apply:value=>{if(!view)return false;run(applyPaint(value));return true;}});
+  const attrsOf=():Record<string,unknown>=>{const s=activeState();return s?blockAttrs(s):{};};
+  const fmtAdapter:FormatAdapter={
+    ready:()=>activeState()!==null,
+    fontStep:(direction,fine)=>execute(stepFontSizeCommand(direction,fine)),
+    listType:()=>{const s=activeState();return s?currentListType(s):null;},
+    applyList:(kind,style)=>execute(applyListStyle(kind,style)),
+    listStart:value=>execute(setListStart(value)),
+    canContinue:()=>{const s=activeState();return s!==null&&canContinueNumbering(s);},
+    indent:direction=>execute(changeIndent(direction)),
+    canOutdent:()=>{const s=activeState();return s!==null&&canOutdent(s);},
+    clear:variant=>execute(clearFormatting(variant)),
+    lineSpacing:value=>execute(setLineSpacing(value)),
+    currentLineSpacing:()=>(attrsOf()['lineHeight'] as string|null)??null,
+    spacing:(side,points)=>execute(setSpacing(side,points)),
+    align:value=>execute(setAlignment(value)),
+    currentAlign:()=>(attrsOf()['align'] as string|null)??null,
+    direction:value=>execute(setDirection(value)),
+    currentDirection:()=>(attrsOf()['dir'] as string|null)??null,
+    paste:mode=>tools.pasteWith(mode),
+    painter,
+  };
+  const fmt=createFormatControls(fmtAdapter);
   const markButton=(btn:ToolbarButton):JSX.Element=>{
     const active=()=>{const s=activeState();return s!==null&&btn.activeMark!==undefined?markActive(s,btn.activeMark):false;};
     return <button type="button" class={`compose-rt__btn ${a11y.focusable}`} classList={{'compose-rt__btn--active':active()}} aria-pressed={active()} aria-label={t(btn.labelKey)} title={t(btn.labelKey)} data-testid={`rt-${btn.id}`} onMouseDown={e=>e.preventDefault()} onClick={()=>run(btn.command)}><Icon name={btn.glyph}/></button>;
@@ -455,21 +510,28 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
   // The Format tab: Clipboard, Font, Paragraph and Editing, each exactly three rows (t38 §2.2).
   const formatGroups=():JSX.Element=><>
     <Show when={has('clipboard')}><RibbonGroup label={t('mail-compose-group-clipboard')} priority={100} icon="paste" testId="rt-group-clipboard">
-      <RibbonItem size="large">{tools.paste()}</RibbonItem>
-      <RibbonItem>{tools.cut()}</RibbonItem><RibbonItem>{tools.copy()}</RibbonItem><RibbonItem>{tools.copyFormat()}</RibbonItem><RibbonItem>{tools.applyFormat()}</RibbonItem>
+      <RibbonItem size="large">{fmt.pasteLarge()}</RibbonItem>
+      <RibbonItem>{tools.cut()}</RibbonItem><RibbonItem>{tools.copy()}</RibbonItem>
     </RibbonGroup></Show>
+    <Show when={has('clipboard')}><Feature id="format.painter"><RibbonGroup label={t('cfmt-group-painter')} priority={95} icon="brushCopy" testId="rt-group-painter">
+      <RibbonItem>{fmt.copyFormat()}</RibbonItem><RibbonItem>{fmt.applyFormat()}</RibbonItem><RibbonItem>{fmt.formatChip()}</RibbonItem>
+    </RibbonGroup></Feature></Show>
     <Show when={has('font')}><RibbonGroup label={t('mail-compose-font')} priority={90} icon="bold" testId="rt-group-font">
       <RibbonItem>{row(
         <select class="compose-rib__font" aria-label={t('mail-compose-font')} data-tooltip={t('mail-compose-font')} value={fontValue('fontFamily')} onChange={event=>setTextStyle('fontFamily',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select>,
-        <select class="compose-rib__size" aria-label={t('mail-compose-font-size')} data-tooltip={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select>,
+        <select class="compose-rib__size" aria-label={t('mail-compose-font-size')} data-tooltip={t('mail-compose-font-size')} value={fontValue('fontSize')} onChange={event=>setTextStyle('fontSize',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><Show when={fontValue('fontSize')&&!COMPOSE_FONT_SIZES.some(size=>`${size}pt`===fontValue('fontSize'))}><option value={fontValue('fontSize')}>{fontValue('fontSize')}</option></Show><For each={COMPOSE_FONT_SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select>,
+        fmt.fontSteps(),
       )}</RibbonItem>
-      <RibbonItem>{row(<For each={MARK_BUTTONS}>{markButton}</For>,tools.changeCase())}</RibbonItem>
+      <RibbonItem>{row(<For each={MARK_BUTTONS}>{markButton}</For>,tools.changeCase(),fmt.clearFormatting())}</RibbonItem>
       <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight())}</RibbonItem>
     </RibbonGroup></Show>
     <Show when={has('paragraph')}><RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
-      <RibbonItem>{row(<For each={BLOCK_BUTTONS}>{markButton}</For>,tools.sort())}</RibbonItem>
+      <RibbonItem>{row(fmt.bulletList(),fmt.numberList(),fmt.indentButtons(),tools.sort())}</RibbonItem>
+      <RibbonItem>{row(fmt.alignButtons(),fmt.lineSpacing(),fmt.direction())}</RibbonItem>
+      <RibbonItem>{row(<For each={BLOCK_BUTTONS}>{markButton}</For>,tools.markers(),tools.paragraphOptions())}</RibbonItem>
+    </RibbonGroup></Show>
+    <Show when={has('paragraph')}><RibbonGroup label={t('cfmt-group-styles')} priority={70} icon="heading" testId="rt-group-styles">
       <RibbonItem>{tools.style()}</RibbonItem>
-      <RibbonItem>{row(tools.markers(),tools.paragraphOptions())}</RibbonItem>
     </RibbonGroup></Show>
     <Show when={has('editing')}><RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
       <RibbonItem>{tools.findReplace()}</RibbonItem><RibbonItem>{tools.selectAll()}</RibbonItem><RibbonItem>{tools.clearSelection()}</RibbonItem>

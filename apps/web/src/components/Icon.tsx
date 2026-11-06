@@ -99,6 +99,7 @@ export type IconName =
   | 'forward'
   | 'calendar'
   | 'minus'
+  | 'shapes' | 'screenshot' | 'idCard' | 'calendarPlus'
   | 'plus'
   | 'sync'
   | 'more'
@@ -112,6 +113,7 @@ export type IconName =
   | 'strike'
   | 'bulletList'
   | 'numberList'
+  | 'fontGrow' | 'fontShrink' | 'indentMore' | 'indentLess' | 'brushCopy' | 'brushApply' | 'textLtr' | 'textRtl' | 'lineSpacing' | 'checklist' | 'eraser' | 'alignJustify'
   | 'heading'
   | 'busy'
   | 'tentative'
@@ -319,6 +321,10 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   forward: () => <path d="M10 3 L15 8 L10 13 M15 8 H6 Q2 8 2 13" {...S} />,
   calendar: () => <path d="M2 3 H14 V15 H2 Z M2 7 H14 M5 1 V5 M11 1 V5" {...S} />,
   minus: () => <path d="M2 8 H14" {...S} />,
+  shapes: () => <path d="M1 9 H8 V15 H1 Z M12 1 L15 7 H9 Z M11.5 15 A3.5 3.5 0 1 1 11.49 15" {...S} />,
+  screenshot: () => <path d="M1 5 V1 H5 M11 1 H15 V5 M15 11 V15 H11 M5 15 H1 V11 M5 5 H11 V11 H5 Z" {...S} />,
+  idCard: () => <path d="M1 3 H15 V13 H1 Z M4 8 A1.5 1.5 0 1 1 4.01 8 M3 11 Q5 9 7 11 M9 6 H13 M9 9 H13" {...S} />,
+  calendarPlus: () => <path d="M2 3 H14 V15 H2 Z M2 7 H14 M5 1 V5 M11 1 V5 M8 9 V13 M6 11 H10" {...S} />,
   plus: () => <path d="M2 8 H14 M8 2 V14" {...S} />,
   sync: () => <path d="M2 7 V2 H7 M2 2 L14 14 M9 14 H14 V9" {...S} />,
 
@@ -583,6 +589,19 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   goForward: () => <><path d="M10 3 L15 8 L10 13 M15 8 H8" {...S} /><circle cx="4" cy="8" r="2.5" {...S} /></>,
   markAnswered: () => <path d="M5 3 L1 7 L5 11 M1 7 H8 M7 13 L9.5 15.5 L15 9" {...S} />,
   markForwarded: () => <path d="M11 3 L15 7 L11 11 M15 7 H8 M1 13 L3.5 15.5 L9 9" {...S} />,
+  // Format tab glyphs (16px grid, 2px stroke)
+  fontGrow: () => <path d="M1 14 L5.5 3 L10 14 M2.8 10 H8.2 M12 7 V1 M9.5 3.5 L12 1 L14.5 3.5" {...S} />,
+  fontShrink: () => <path d="M1 14 L5.5 3 L10 14 M2.8 10 H8.2 M12 1 V7 M9.5 4.5 L12 7 L14.5 4.5" {...S} />,
+  indentMore: () => <path d="M1 2 H15 M7 6 H15 M7 10 H15 M1 14 H15 M1 5 L4 8 L1 11" {...S} />,
+  indentLess: () => <path d="M1 2 H15 M7 6 H15 M7 10 H15 M1 14 H15 M4 5 L1 8 L4 11" {...S} />,
+  brushCopy: () => <path d="M2 1 H10 V5 H2 Z M10 3 H12 V8 H7 V10 M5 10 H9 V15 H5 Z M12 11 H15 M13.5 9.5 V12.5" {...S} />,
+  brushApply: () => <path d="M2 1 H10 V5 H2 Z M10 3 H12 V8 H7 V10 M5 10 H9 V15 H5 Z M11.5 12 L13.5 14 L15.5 10" {...S} />,
+  textLtr: () => <path d="M6 2 H13 M10 2 V12 M7 2 A3.5 3.5 0 0 0 7 9 M1 14 H13 M11 12 L14 14 L11 16" {...S} />,
+  textRtl: () => <path d="M6 2 H13 M10 2 V12 M7 2 A3.5 3.5 0 0 0 7 9 M3 14 H15 M5 12 L2 14 L5 16" {...S} />,
+  lineSpacing: () => <path d="M5 3 H15 M5 8 H15 M5 13 H15 M2 2 V14 M0.5 4 L2 2 L3.5 4 M0.5 12 L2 14 L3.5 12" {...S} />,
+  checklist: () => <path d="M1 2 H5 V6 H1 Z M7 4 H15 M1 10 H5 V14 H1 Z M7 12 H15 M1.8 4 L2.6 4.8 L4.2 3" {...S} />,
+  eraser: () => <path d="M2 11 L9 3 L14 7 L8 14 H4 Z M5.5 7 L11 11.5 M8 14 H15" {...S} />,
+  alignJustify: () => <path d="M1 3 H15 M1 6.5 H15 M1 10 H15 M1 13.5 H15" {...S} />,
   // END action glyphs
 };
 

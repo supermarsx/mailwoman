@@ -54,14 +54,16 @@ describe('composer ribbon (t38)', () => {
 
     expect(groupIds('format')).toEqual([
       'rt-group-clipboard',
+      'rt-group-painter',
       'rt-group-font',
       'rt-group-paragraph',
+      'rt-group-styles',
       'rt-group-editing',
       'rt-group-view',
       'compose-group-recipients',
       'compose-group-message-type',
     ]);
-    expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'rt-group-insert', 'rt-group-table-insert']);
+    expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'insert-group-illustrations', 'insert-group-links', 'insert-group-cards', 'insert-group-symbols', 'rt-group-table-insert']);
     expect(groupIds('table')).toEqual(['rt-group-table-rows', 'rt-group-table-columns', 'rt-group-table-cells', 'rt-group-table-shading', 'rt-group-table']);
     expect(groupIds('picture')).toEqual(['rt-group-picture-size', 'rt-group-picture-arrange', 'rt-group-picture-text', 'rt-group-picture-style', 'rt-group-picture-edit']);
     expect(groupIds('security')).toEqual(['compose-crypto']);

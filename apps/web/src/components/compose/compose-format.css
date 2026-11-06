@@ -1,0 +1,44 @@
+/* Format tab controls (FORMAT): split buttons, menus with previews, the format painter chip.
+ * Logical properties throughout so the ribbon mirrors under dir=rtl. */
+.cfmt-split { display: inline-flex; align-items: stretch; block-size: 100%; }
+.cfmt-split > .compose-rt__btn:first-child { border-start-end-radius: 0; border-end-end-radius: 0; }
+.cfmt-menu-root { display: inline-flex; block-size: 100%; }
+.cfmt-arrow { min-inline-size: 1rem !important; inline-size: 1.1rem; padding-inline: 0 !important; justify-content: center; border-start-start-radius: 0; border-end-start-radius: 0; }
+.cfmt-arrow svg { inline-size: .65rem; block-size: .65rem; }
+.cfmt-arrow--wide { inline-size: 100%; block-size: 1rem !important; border-radius: var(--radius-sm); }
+.cfmt-paste { display: flex; flex-direction: column; align-items: stretch; justify-content: center; block-size: 100%; }
+.cfmt-menu { display: flex; flex-direction: column; min-inline-size: 11rem; gap: 2px; color: var(--text); }
+.cfmt-menu hr { inline-size: 100%; margin-block: .25rem; border: 0; border-block-start: var(--border-hair) solid var(--border); }
+.cfmt-menu__grid { display: grid; grid-template-columns: repeat(3, minmax(5.5rem, 1fr)); gap: 4px; }
+.cfmt-menu__item, .cfmt-menu__row {
+  display: flex; align-items: center; gap: .5rem; padding: .3rem .5rem; border: var(--border-rule) solid transparent;
+  border-radius: var(--radius-sm); background: transparent; color: inherit; font: inherit; font-size: .8rem; text-align: start; cursor: pointer;
+}
+.cfmt-menu__item { flex-direction: column; align-items: stretch; text-align: center; }
+.cfmt-menu__item:hover, .cfmt-menu__row:hover { background: var(--bg-alt); border-color: var(--border-strong); }
+.cfmt-menu__item[aria-checked="true"], .cfmt-menu__row[aria-checked="true"] { border-color: var(--accent); box-shadow: inset 0 -3px 0 var(--accent); }
+.cfmt-menu__item:focus-visible, .cfmt-menu__row:focus-visible, .cfmt-split .compose-rt__btn:focus-visible, .cfmt-painter-item .compose-rt__btn:focus-visible {
+  outline: var(--focus-ring-width, 2px) solid var(--focus, currentColor); outline-offset: 1px;
+}
+.cfmt-menu__row:disabled { opacity: .5; cursor: default; }
+.cfmt-preview { display: flex; flex-direction: column; gap: 2px; padding: .25rem; background: var(--bg); border: var(--border-hair) solid var(--border); border-radius: var(--radius-sm); }
+.cfmt-preview__row { display: flex; align-items: center; gap: .3rem; font-size: .7rem; line-height: 1; }
+.cfmt-preview__row b { inline-size: 1.7em; text-align: end; font-weight: 600; font-variant-numeric: tabular-nums; }
+.cfmt-preview__row i { flex: 1; block-size: 3px; background: var(--text-dim, currentColor); opacity: .55; border-radius: 2px; }
+.cfmt-menu__label { font-size: .72rem; color: var(--text-dim); }
+.cfmt-start { display: flex; align-items: center; justify-content: space-between; gap: .5rem; padding: .15rem .5rem; font-size: .8rem; }
+.cfmt-start label { display: flex; align-items: center; gap: .5rem; justify-content: space-between; flex: 1; }
+.cfmt-start input[type=number] { inline-size: 4.5rem; }
+.cfmt-painter-item { display: flex; align-items: center; min-inline-size: 0; block-size: 100%; }
+.cfmt-chip {
+  display: inline-flex; align-items: center; gap: .35rem; max-inline-size: 11rem; padding-inline: .45rem; block-size: 100%; box-sizing: border-box;
+  border: var(--border-hair) solid var(--border); border-radius: var(--radius-sm); background: var(--bg-alt); font-size: .72rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.cfmt-chip[data-sticky="true"] { border-color: var(--accent); }
+.cfmt-chip em { font-style: normal; color: var(--text-dim); }
+.cfmt-chip__empty { color: var(--text-dim); }
+@media (forced-colors: active) {
+  .cfmt-menu__item[aria-checked="true"], .cfmt-menu__row[aria-checked="true"] { outline: 2px solid Highlight; box-shadow: none; }
+  .cfmt-chip, .cfmt-preview { border-color: CanvasText; }
+  .cfmt-preview__row i { background: CanvasText; }
+}

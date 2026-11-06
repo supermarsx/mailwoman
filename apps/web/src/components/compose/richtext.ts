@@ -1,6 +1,8 @@
 import { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttributes.ts';
 export { PARSED_STYLE_ATTRIBUTE, renameStyleAttributes } from './htmlStyleAttributes.ts';
-import {styledBlock,emailContainer,colorMark,composeTableNodes,boundTableHtml,tightenCells} from './richFormatting.ts';
+import {styledBlock,emailContainer,colorMark,composeTableNodes,boundTableHtml,tightenCells,readListStyle,listDOM,listItemDOM,listAttrs} from './richFormatting.ts';
+import {validPointValue} from './formatModel.ts';
+import {materializeLists,dematerializeLists,CHECKED_ATTRIBUTE} from './listMarkers.ts';
 import {COMPOSER_FONTS,normalizeComposerFont} from './fontCatalog.ts';
 import { imageLookAttrs, imageStyleText, readImageLook, cleanImageLook } from './imageAttrs.ts';
 // Rich-text (ProseMirror) schema + serialization for the composer (W1).
@@ -51,7 +53,15 @@ import { addListNodes } from 'prosemirror-schema-list';
 // basic nodes without the basic `image`, whose parse rule would let parsed HTML
 // carry a remote `<img src>` into the outgoing body.
 const basicNodes=basicSchema.spec.nodes.remove('image').update('paragraph',styledBlock(basicSchema.spec.nodes.get('paragraph')!)).update('heading',styledBlock(basicSchema.spec.nodes.get('heading')!,true));
-const nodes = addListNodes(basicNodes, 'paragraph block*', 'block').append(composeTableNodes).append({email_container:emailContainer});
+// Lists carry their type (bullet shape, numbering style, checklist) and an item its checkbox; see listMarkers.ts.
+const listNodes = addListNodes(basicNodes, 'paragraph block*', 'block');
+const listNode = (name: string): NodeSpec => listNodes.get(name)!;
+const orderedStart = (dom: HTMLElement): number => (dom.hasAttribute('start') ? Number(dom.getAttribute('start')) || 1 : 1);
+const nodes = listNodes
+  .update('bullet_list', { ...listNode('bullet_list'), attrs: { ...listAttrs }, parseDOM: [{ tag: 'ul', getAttrs: (dom: HTMLElement) => ({ listStyle: readListStyle(dom, false) }) }], toDOM: (node) => listDOM(node, 'ul') })
+  .update('ordered_list', { ...listNode('ordered_list'), attrs: { ...listNode('ordered_list').attrs, ...listAttrs }, parseDOM: [{ tag: 'ol', getAttrs: (dom: HTMLElement) => ({ order: orderedStart(dom), tight: dom.hasAttribute('data-tight'), listStyle: readListStyle(dom, true) }) }], toDOM: (node) => listDOM(node, 'ol') })
+  .update('list_item', { ...listNode('list_item'), attrs: { checked: { default: null } }, parseDOM: [{ tag: 'li', getAttrs: (dom: HTMLElement) => ({ checked: dom.getAttribute(CHECKED_ATTRIBUTE) === 'true' ? true : dom.getAttribute(CHECKED_ATTRIBUTE) === 'false' ? false : null }) }], toDOM: (node) => listItemDOM(node) })
+  .append(composeTableNodes).append({email_container:emailContainer});
 
 /** An image this draft uploaded, referenced by its Content-ID. Serialises as
  *  `<img src="cid:<id>">`; the editor shows a local preview instead (a node view
@@ -102,7 +112,7 @@ function textStyle(property:'font-family'|'font-size'):MarkSpec {
  const valid=(value:unknown):string|false=>{
   if(typeof value!=='string')return false;
   const clean=value.replace(/^["']|["']$/g,'').trim();
-  return property==='font-family' ? normalizeComposerFont(value)??normalizeComposerFont(clean)??false : COMPOSE_FONT_SIZES.some(size=>clean===`${size}pt`)?clean:false;
+  return property==='font-family' ? normalizeComposerFont(value)??normalizeComposerFont(clean)??false : validPointValue(clean)?clean:false;
  };
  return {attrs:{value:{}},parseDOM:[{style:property,getAttrs:value=>{const checked=valid(value);return checked?{value:checked}:false;}}],toDOM:mark=>{
   const span=document.createElement('span'),value=valid(mark.attrs['value']);
@@ -186,6 +196,8 @@ export function htmlFromDoc(doc: PMNode): string {
   const container = inert.createElement('div');
   container.appendChild(fragment);
   tightenCells(container);
+  materializeLists(container);
+  for (const item of Array.from(container.querySelectorAll(`[${CHECKED_ATTRIBUTE}]`))) item.removeAttribute(CHECKED_ATTRIBUTE);
   // A blank paragraph needs a break to keep its height in the recipient's client.
   for (const p of Array.from(container.querySelectorAll('p'))) if (p.childNodes.length === 0) p.appendChild(inert.createElement('br'));
   return container.innerHTML;
@@ -277,6 +289,7 @@ export function hydrateInlineStyles(root: HTMLElement): void {
  *  `data:` images (`EMBEDDED_IMAGE`; the signature editor only). */
 export function docFromElement(root: HTMLElement, owned?: ReadonlySet<string>, embedded = false): PMNode {
   hydrateInlineStyles(root);
+  dematerializeLists(root);
   boundTableHtml(root);
   // `<p><br></p>` is how mail clients spell a blank line; in the editor it is an empty paragraph.
   for (const p of Array.from(root.querySelectorAll('p'))) if (p.childNodes.length === 1 && p.firstChild?.nodeName === 'BR') p.firstChild.remove();
@@ -296,6 +309,7 @@ export function docFromHtml(html: string, owned?: ReadonlySet<string>, embedded 
 /** Parse a quoted original's content under `quoteSchema` (no images). */
 export function quoteDocFromElement(root: HTMLElement): PMNode {
   hydrateInlineStyles(root);
+  dematerializeLists(root);
   boundTableHtml(root);
   return DOMParser.fromSchema(quoteSchema).parse(root);
 }

@@ -1,0 +1,24 @@
+/* How the editors draw the list types no mail client draws by itself (listMarkers.ts).
+ * View only: the sent HTML carries each marker as text. Loaded by the rich editor and,
+ * as raw text, by the native editor's document. */
+@counter-style mw-dash { system: cyclic; symbols: "\2013"; suffix: " "; }
+@counter-style mw-arrow { system: cyclic; symbols: "\2192"; suffix: " "; }
+@counter-style mw-tick { system: cyclic; symbols: "\2713"; suffix: " "; }
+@counter-style mw-check { system: cyclic; symbols: "\2610"; suffix: " "; }
+@counter-style mw-paren { system: extends decimal; suffix: ") "; }
+@counter-style mw-zero { system: extends decimal-leading-zero; suffix: ". "; }
+
+[data-mw-list="dash"] { list-style-type: mw-dash; }
+[data-mw-list="arrow"] { list-style-type: mw-arrow; }
+[data-mw-list="tick"] { list-style-type: mw-tick; }
+[data-mw-list="paren"] { list-style-type: mw-paren; }
+[data-mw-list="zero"] { list-style-type: mw-zero; }
+[data-mw-list="check"] { list-style-type: mw-check; }
+[data-mw-list="check"] > li[data-mw-checked="true"] { list-style-type: "\2611  "; }
+[data-mw-list="check"] > li[data-mw-checked="true"]::marker { cursor: pointer; }
+[data-mw-list="legal"] { list-style: none; counter-reset: mwlegal; }
+[data-mw-list="legal"] > li { counter-increment: mwlegal; }
+[data-mw-list="legal"] > li::before { content: counters(mwlegal, ".") " "; }
+/* The rich editor's items hold paragraphs: the number goes inside the first one, not on a line of its own. */
+.ProseMirror [data-mw-list="legal"] > li::before { content: none; }
+.ProseMirror [data-mw-list="legal"] > li > :first-child::before { content: counters(mwlegal, ".") " "; }

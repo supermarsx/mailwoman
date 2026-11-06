@@ -1,6 +1,8 @@
 import {readEmailStyles,applyEmailStyles} from './safeEmailStyles.ts';
 import type {NodeSpec,MarkSpec,Node as PMNode} from 'prosemirror-model';
 import {tableNodes} from 'prosemirror-tables';
+import {INDENT_MAX,INDENT_STEP,validLineHeight,listStyleDef,type ListStyleDef} from './formatModel.ts';
+import {LIST_ATTRIBUTE,CHECKED_ATTRIBUTE} from './listMarkers.ts';
 export const TABLE_LIMITS={rows:20,columns:10,cells:200,tables:10} as const;
 export const LINE_HEIGHTS=['1','1.15','1.5','2','2.5','3'] as const;
 export const PARAGRAPH_SPACING=[0,6,12,18,24,36] as const;
@@ -12,19 +14,20 @@ export function safeColor(value:unknown):string|null {
  const match=/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/.exec(text);
  if(!match)return null;const channels=match.slice(1).map(Number);return channels.every(value=>value<=255)?'#'+channels.map(value=>value.toString(16).padStart(2,'0')).join(''):null;
 }
-export const paragraphAttrs={emailStyles:{default:null},htmlTag:{default:'p'},align:{default:null},lineHeight:{default:null},before:{default:null},after:{default:null},indent:{default:0},shade:{default:null},preset:{default:null}};
+export const paragraphAttrs={emailStyles:{default:null},htmlTag:{default:'p'},align:{default:null},lineHeight:{default:null},before:{default:null},after:{default:null},indent:{default:0},dir:{default:null},shade:{default:null},preset:{default:null}};
 function spacing(value:string):number|null {const match=/^(\d+)pt$/.exec(value);return match&&PARAGRAPH_SPACING.includes(Number(match[1]) as typeof PARAGRAPH_SPACING[number])?Number(match[1]):value==='0px'?0:null;}
 export function readParagraph(element:HTMLElement):Record<string,unknown> {
- const style=element.style,margin=/^(\d+(?:\.\d+)?)em$/.exec(style.marginLeft),indent=margin?Number(margin[1])/1.5:0;
- return {emailStyles:readEmailStyles(element),htmlTag:element.tagName.toLowerCase(),align:['left','center','right','justify'].includes(style.textAlign)?style.textAlign:null,lineHeight:LINE_HEIGHTS.includes(style.lineHeight as typeof LINE_HEIGHTS[number])?style.lineHeight:null,before:spacing(style.marginTop),after:spacing(style.marginBottom),indent:Number.isInteger(indent)&&indent>=0&&indent<=6?indent:0,shade:safeColor(style.backgroundColor),preset:['title','subtitle','no-spacing'].includes(element.dataset['mwStyle']??'')?element.dataset['mwStyle']:null};
+ const style=element.style,margin=/^(\d+(?:\.\d+)?)(em|px)$/.exec(style.marginLeft),indent=margin?margin[2]==='px'?Number(margin[1])/INDENT_STEP:Number(margin[1])/1.5:0,direction=element.getAttribute('dir')??style.direction;
+ return {emailStyles:readEmailStyles(element),htmlTag:element.tagName.toLowerCase(),align:['left','center','right','justify'].includes(style.textAlign)?style.textAlign:null,lineHeight:validLineHeight(style.lineHeight)?style.lineHeight:null,before:spacing(style.marginTop),after:spacing(style.marginBottom),indent:Number.isInteger(indent)&&indent>=0&&indent<=INDENT_MAX?indent:0,dir:direction==='rtl'||direction==='ltr'?direction:null,shade:safeColor(style.backgroundColor),preset:['title','subtitle','no-spacing'].includes(element.dataset['mwStyle']??'')?element.dataset['mwStyle']:null};
 }
 export function paragraphDOM(node:PMNode,tag:string):{dom:HTMLElement;contentDOM:HTMLElement} {
  const element=document.createElement(tag),a=node.attrs;applyEmailStyles(element,a['emailStyles']);
  if(['left','center','right','justify'].includes(a['align']))element.style.textAlign=a['align'];
- if(LINE_HEIGHTS.includes(a['lineHeight']))element.style.lineHeight=a['lineHeight'];
+ if(validLineHeight(a['lineHeight']))element.style.lineHeight=a['lineHeight'];
  if(PARAGRAPH_SPACING.includes(a['before']))element.style.marginTop=`${a['before']}pt`;
  if(PARAGRAPH_SPACING.includes(a['after']))element.style.marginBottom=`${a['after']}pt`;
- if(Number.isInteger(a['indent'])&&a['indent']>0&&a['indent']<=6)element.style.marginLeft=`${a['indent']*1.5}em`;
+ if(Number.isInteger(a['indent'])&&a['indent']>0&&a['indent']<=INDENT_MAX)element.style.marginLeft=`${a['indent']*INDENT_STEP}px`;
+ if(a['dir']==='rtl'||a['dir']==='ltr')element.setAttribute('dir',a['dir']);
  const shade=safeColor(a['shade']);if(shade)element.style.backgroundColor=shade;
  if(['title','subtitle','no-spacing'].includes(a['preset'])){element.dataset['mwStyle']=a['preset'];if(a['preset']==='title')element.style.fontSize='28pt';if(a['preset']==='subtitle')element.style.fontSize='18pt';}
  return {dom:element,contentDOM:element};
@@ -96,3 +99,29 @@ export function boundTableHtml(root:HTMLElement):void {
   if(overflow){const paragraph=root.ownerDocument.createElement('p');paragraph.textContent=rows.map(row=>Array.from(row.cells).map(cell=>cell.textContent??'').join('\t')).join('\n');table.replaceWith(paragraph);}
  });
 }
+
+// ---- lists (FORMAT): the list type each list carries, and an item's checkbox state ----
+const TYPE_ATTRIBUTE_STYLES:Record<string,string>={'1':'decimal',a:'lower-alpha',A:'upper-alpha',i:'lower-roman',I:'upper-roman'};
+/** The list-style id a parsed `<ul>` or `<ol>` carries: an editor marker, or a `list-style-type` / `type` mail clients draw. */
+export function readListStyle(element:HTMLElement,ordered:boolean):string|null {
+ const marker=element.getAttribute(LIST_ATTRIBUTE);
+ const byMarker=listStyleDef(marker);
+ if(byMarker?.marker&&(byMarker.kind==='ordered')===ordered)return byMarker.id;
+ const css=element.style.listStyleType,def=(ordered?['decimal','lower-alpha','upper-alpha','lower-roman','upper-roman']:['disc','circle','square']).find(value=>value===css);
+ if(def)return def;
+ const legacy=ordered?TYPE_ATTRIBUTE_STYLES[element.getAttribute('type')??'']:undefined;
+ return legacy&&legacy!=='decimal'?legacy:null;
+}
+export function listDOM(node:PMNode,tag:'ul'|'ol'):{dom:HTMLElement;contentDOM:HTMLElement} {
+ const element=document.createElement(tag),def:ListStyleDef|undefined=listStyleDef(node.attrs['listStyle']);
+ if(def?.marker)element.setAttribute(LIST_ATTRIBUTE,def.id);
+ else if(def?.css){element.style.setProperty('list-style-type',def.css);if(tag==='ol'&&def.type)element.setAttribute('type',def.type);}
+ if(tag==='ol'&&Number.isInteger(node.attrs['order'])&&node.attrs['order']!==1)element.setAttribute('start',String(node.attrs['order']));
+ return {dom:element,contentDOM:element};
+}
+export function listItemDOM(node:PMNode):{dom:HTMLElement;contentDOM:HTMLElement} {
+ const element=document.createElement('li');
+ if(typeof node.attrs['checked']==='boolean')element.setAttribute(CHECKED_ATTRIBUTE,String(node.attrs['checked']));
+ return {dom:element,contentDOM:element};
+}
+export const listAttrs={listStyle:{default:null}};
