@@ -53,6 +53,6 @@
 .cfmt-sort label { display: flex; align-items: center; justify-content: space-between; gap: .5rem; }
 .cfmt-sort .cfmt-check { justify-content: flex-start; }
 .cfmt-sort select, .cfmt-sort input[type=number] { min-block-size: 1.75rem; color: var(--text); background: var(--bg); border: var(--border-hair) solid var(--border); font: inherit; }
-.cfmt-sort input[type=number] { inline-size: 6rem; }
+.cfmt-sort input[type=number] { inline-size: 8.5rem; }
 .cfmt-sort__actions { display: flex; flex-wrap: wrap; gap: .3rem; }
 .cfmt-sort__message { min-block-size: 1.1rem; color: var(--text-dim); }
