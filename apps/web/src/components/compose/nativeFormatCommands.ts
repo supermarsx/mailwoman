@@ -17,6 +17,8 @@ import {
   pointsOf,
   pointText,
   stepFontSize,
+  validLineHeight,
+  validPointValue,
   type ClearVariant,
   type ListKind,
   type PaintSummary,
@@ -24,6 +26,8 @@ import {
 import { CHECKED_ATTRIBUTE, LIST_ATTRIBUTE } from './listMarkers.ts';
 import { effectDef, effectStyle, effectTag, type EffectKind } from './effects.ts';
 import { sortItems, type SortOptions } from './sortModel.ts';
+import { COMPOSER_FONTS } from './fontCatalog.ts';
+import type { StyleAttrs, StyleBlock, StyleDef, StyleMarks } from './styleModel.ts';
 
 const LEAF = 'p,div,li,blockquote,pre,h1,h2,h3,h4,h5,h6,td,th';
 const LISTS = 'ul,ol';
@@ -409,7 +413,7 @@ export function createNativeFormat(commands: NativeHtmlCommands) {
 
   /** Remove inline elements a split left empty. */
   function pruneEmpty(root: HTMLElement): void {
-    for (const el of Array.from(root.querySelectorAll('b,strong,i,em,u,s,strike,del,font,span,sub,sup,mark,code,a'))) {
+    for (const el of Array.from(root.querySelectorAll('b,strong,i,em,u,s,strike,del,font,span,sub,sup,mark,code,a')).reverse()) {
       if (!el.firstChild && !(el as HTMLElement).hasAttribute('data-mw-native-caret')) el.remove();
     }
   }
@@ -683,8 +687,122 @@ export function createNativeFormat(commands: NativeHtmlCommands) {
     return true;
   }
 
+  // ---- styles ------------------------------------------------------------
+  const STYLE_ID = 'data-mw-style-id';
+
+  function marksCss(marks: StyleMarks): Record<string, string> {
+    const css: Record<string, string> = {};
+    if (marks.fontFamily) css['font-family'] = marks.fontFamily;
+    if (marks.fontSize) css['font-size'] = marks.fontSize;
+    if (marks.color) css['color'] = marks.color;
+    if (marks.highlight) css['background-color'] = marks.highlight;
+    if (marks.bold) css['font-weight'] = 'bold';
+    if (marks.italic) css['font-style'] = 'italic';
+    if (marks.underline) css['text-decoration'] = 'underline';
+    return css;
+  }
+
+  function currentStyleId(): string {
+    const block = currentBlock();
+    if (!block) return 'normal';
+    const given = block.getAttribute(STYLE_ID);
+    if (given) return given;
+    if (block.tagName === 'PRE') return 'code';
+    if (/^H[1-6]$/.test(block.tagName)) return `heading${block.tagName[1]}`;
+    return block.closest('blockquote') ? 'quote' : 'normal';
+  }
+
+  /** Apply a style: the block tag, the paragraph look, and the text look of the block (or of the selection for an inline style). */
+  function applyStyle(def: StyleDef): boolean {
+    const range = commands.restore();
+    const root = host();
+    if (!range || !root) return false;
+    if (def.block === 'inline') {
+      const done = styleSelection(marksCss(def.marks));
+      if (done) commands.commit();
+      return done;
+    }
+    if (def.block === 'task') return applyList('bullet', 'check');
+    const d = root.ownerDocument;
+    const blocks = leafBlocks(range);
+    if (blocks.length === 0) return false;
+    const tag = def.block === 'quote' ? 'p' : def.block === 'code' ? 'pre' : def.block === 'p' ? 'p' : def.block;
+    const done: HTMLElement[] = [];
+    for (let block of blocks) {
+      if (block.matches('td,th')) continue;
+      const quote = block.closest('blockquote');
+      if (def.block === 'quote' && !quote) {
+        const wrapper = d.createElement('blockquote');
+        block.before(wrapper);
+        wrapper.appendChild(block);
+      } else if (def.block !== 'quote' && quote && quote.parentElement && root.contains(quote)) {
+        if (block.parentElement === quote) quote.replaceWith(...Array.from(quote.childNodes));
+      }
+      if (block.tagName !== 'LI' && block.tagName.toLowerCase() !== tag) {
+        const next = d.createElement(tag);
+        while (block.firstChild) next.appendChild(block.firstChild);
+        block.replaceWith(next);
+        block = next;
+      }
+      for (const property of ['text-align', 'line-height', 'margin-top', 'margin-bottom', 'margin-left']) block.style.removeProperty(property);
+      if (def.block !== 'code') {
+        if (def.attrs.align) block.style.setProperty('text-align', def.attrs.align);
+        if (def.attrs.lineHeight) block.style.setProperty('line-height', def.attrs.lineHeight);
+        if (def.attrs.before !== undefined) block.style.setProperty('margin-top', `${def.attrs.before}pt`);
+        if (def.attrs.after !== undefined) block.style.setProperty('margin-bottom', `${def.attrs.after}pt`);
+        if (def.attrs.indent) block.style.setProperty('margin-left', `${def.attrs.indent * INDENT_STEP}px`);
+      }
+      if (block.getAttribute('style') === '') block.removeAttribute('style');
+      cleanFragment(block, true);
+      const css = def.block === 'code' ? {} : marksCss(def.marks);
+      if (Object.keys(css).length > 0 && block.firstChild) {
+        const span = d.createElement('span');
+        for (const [property, value] of Object.entries(css)) span.style.setProperty(property, value);
+        while (block.firstChild) span.appendChild(block.firstChild);
+        block.appendChild(span);
+      }
+      block.setAttribute(STYLE_ID, def.id);
+      done.push(block);
+    }
+    select(done[0], done[done.length - 1]);
+    commands.commit();
+    return true;
+  }
+
+  /** What 'Create style from selection' stores. */
+  function captureStyle(): Omit<StyleDef, 'id'> | null {
+    commands.restore();
+    const block = currentBlock();
+    const taken = capture();
+    if (!block || !taken) return null;
+    const inline = taken.value.inline;
+    const marks: StyleMarks = {};
+    const family = (inline['font-family'] ?? '').split(',')[0]!.replace(/["']/g, '').trim().toLowerCase();
+    const known = COMPOSER_FONTS.find((font) => font.label.toLowerCase() === family || font.stack.split(',')[0]!.replace(/["']/g, '').trim().toLowerCase() === family);
+    if (known) marks.fontFamily = known.stack;
+    const size = pointsOf(inline['font-size']);
+    if (size !== null && validPointValue(pointText(size))) marks.fontSize = pointText(size);
+    if (taken.summary.color) marks.color = taken.summary.color;
+    if (taken.summary.highlight) marks.highlight = taken.summary.highlight;
+    if (taken.summary.bold) marks.bold = true;
+    if (taken.summary.italic) marks.italic = true;
+    if (taken.summary.underline) marks.underline = true;
+    const attrs: StyleAttrs = {};
+    const align = block.style.textAlign;
+    if (['left', 'center', 'right', 'justify'].includes(align)) attrs.align = align as StyleAttrs['align'];
+    if (validLineHeight(block.style.lineHeight)) attrs.lineHeight = block.style.lineHeight;
+    for (const [side, property] of [['before', 'marginTop'], ['after', 'marginBottom']] as const) {
+      const points = /^(\d+)pt$/.exec(block.style[property]);
+      if (points && [0, 6, 12, 18, 24, 36].includes(Number(points[1]))) attrs[side] = Number(points[1]);
+    }
+    const indent = Math.round((parseFloat(block.style.marginLeft) || 0) / INDENT_STEP);
+    if (indent >= 1 && indent <= INDENT_MAX) attrs.indent = indent;
+    const kind: StyleBlock = /^H[1-6]$/.test(block.tagName) ? (`h${block.tagName[1]}` as StyleBlock) : block.tagName === 'PRE' ? 'code' : block.closest('blockquote') ? 'quote' : 'p';
+    return { block: kind, attrs, marks };
+  }
+
   return {
-    toggleEffect, effectOn, sortBlocks,
+    styleSelection, applyStyle, captureStyle, currentStyleId, toggleEffect, effectOn, sortBlocks,
     stepFont, listType, applyList, listStart, canContinue, toggleChecked, indent, canOutdent,
     setBlock, setDirection, currentBlock, clear, capture, applyPaint, sinkItem, outdentItem, doc,
   };

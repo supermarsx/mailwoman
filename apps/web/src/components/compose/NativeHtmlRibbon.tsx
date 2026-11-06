@@ -1,4 +1,4 @@
-import {For,Show,createSignal,type JSX} from 'solid-js';
+import {For,Show,createEffect,createSignal,on,type JSX} from 'solid-js';
 import {RibbonGroup,RibbonItem} from '../bars/index.ts';
 import {Icon,type IconName} from '../Icon.tsx';
 import {ColorField} from '../color/ColorPicker.tsx';
@@ -9,13 +9,15 @@ import {InRibbonSlot,RibbonPopover} from './ribbonParts.tsx';
 import type {RichTextApi} from './RichTextEditor.tsx';
 import type {NativeHtmlCommands,NativeTableAction} from './nativeHtmlCommands.ts';
 import type {NativeFormat} from './nativeFormatCommands.ts';
+import {createStylesGallery} from './StylesGallery.tsx';
 import {Feature,createFormatControls,type FormatAdapter,type Painter} from './FormatControls.tsx';
-import type {PasteMode} from './formatModel.ts';
+import {pointText,validPointValue,type PasteMode} from './formatModel.ts';
+import {DIALOG_EFFECTS,type FontSpec} from './FontDialog.tsx';
 import * as a11y from '../mailA11y.css.ts';
 
 const SIZES=[8,9,10,11,12,14,16,18,20,24,28,32,36,48,72];
 const tableActions:[NativeTableAction,IconName][]=[['row-before','tableRowBefore'],['row-after','tableRowAfter'],['row-delete','tableRowDelete'],['column-before','tableColumnBefore'],['column-after','tableColumnAfter'],['column-delete','tableColumnDelete'],['merge','tableMerge'],['split','tableSplit'],['header','tableHeader'],['delete','delete']];
-export function NativeHtmlRibbon(props:{commands:NativeHtmlCommands;version:()=>number;ready:()=>boolean;ribbonSlots?:()=>EditorSlots;externalHistory?:boolean;history:()=>RichTextApi|null;format:NativeFormat;painter:Painter;clipboard:(action:'copy'|'cut'|'paste',mode?:PasteMode)=>Promise<void>;images:(files:File[])=>void;canImages:boolean;report:(message:string)=>void;zoom:(value:number)=>void;view:()=>{dark:boolean;markers:boolean};toggleView:(kind:'dark'|'markers')=>void}):JSX.Element {
+export function NativeHtmlRibbon(props:{commands:NativeHtmlCommands;version:()=>number;ready:()=>boolean;ribbonSlots?:()=>EditorSlots;externalHistory?:boolean;history:()=>RichTextApi|null;format:NativeFormat;painter:Painter;fontDialogRequest?:()=>number;clipboard:(action:'copy'|'cut'|'paste',mode?:PasteMode)=>Promise<void>;images:(files:File[])=>void;canImages:boolean;report:(message:string)=>void;zoom:(value:number)=>void;view:()=>{dark:boolean;markers:boolean};toggleView:(kind:'dark'|'markers')=>void}):JSX.Element {
  void loadCatalog('color-picker');
  const own=props.ribbonSlots===undefined?createEditorRibbon():undefined;
  const slots=()=>props.ribbonSlots?.()??own?.slots()??{};
@@ -32,7 +34,7 @@ export function NativeHtmlRibbon(props:{commands:NativeHtmlCommands;version:()=>
  const row=(...children:JSX.Element[]) => <div class="compose-rib__row">{children}</div>;
  const mark=(name:string,icon:IconName,key=name)=>button(key,icon,()=>props.commands.exec(name),{label:t(`mail-compose-rt-${key}`),testId:`rt-${key}`,pressed:()=>active(name),iconOnly:true});
  const color=(key:'text-color'|'highlight'|'table-shading'|'shading',property:string,cell=false):JSX.Element=><ColorField variant="ribbon" keepSelection showValue={false} label={t(`mail-editor-${key}`)} value={colorValue(property)} fallback={key==='text-color'?'#000000':key==='highlight'?'#ffff00':'#eeeeee'} emptyLabel={t('color-picker-no-colour')} contrast={{against:key==='text-color'?'#ffffff':'#000000',use:'text',againstLabel:()=>t(key==='text-color'?'color-picker-against-white-message':'color-picker-against-black-text')}} onChange={value=>execute(()=>{if(cell)return props.commands.cellStyle(property,value??'');if(key==='shading')props.commands.blockStyle(property,value??'');else props.commands.inlineStyle(property,value??(key==='text-color'?'#1c1e21':'transparent'));})} testId={`editor-color-${key}`}/>;
- const style=(value:string):void=>{const heading=/^heading([1-6])$/.exec(value);props.commands.exec('formatBlock',heading?`h${heading[1]}`:'p');if(value==='title'||value==='subtitle')props.commands.blockStyle('font-size',value==='title'?'28pt':'18pt');else props.commands.blockStyle('font-size','');if(value==='no-spacing'){props.commands.blockStyle('margin-top','0');props.commands.blockStyle('margin-bottom','0');}};
+
  const block=():HTMLElement|null=>{props.version();return props.format.currentBlock();};
  const fmtAdapter:FormatAdapter={
   ready:props.ready,
@@ -53,11 +55,30 @@ export function NativeHtmlRibbon(props:{commands:NativeHtmlCommands;version:()=>
   currentDirection:()=>block()?.getAttribute('dir')??null,
   paste:mode=>void props.clipboard('paste',mode),
   painter:props.painter,
+  font:{
+   read:()=>{props.version();const taken=props.format.capture();const family=COMPOSER_FONTS.find(font=>font.stack.split(',')[0]!.replace(/["']/g,'').trim().toLowerCase()===(taken?.value.inline['font-family']??'').split(',')[0]!.replace(/["']/g,'').trim().toLowerCase())?.stack??'';const effects:FontSpec['effects']={};for(const entry of DIALOG_EFFECTS)effects[entry.kind]=props.format.effectOn(entry.kind);const element=props.commands.current();const spacing=element?.closest<HTMLElement>('[style*="letter-spacing"]')?.style.letterSpacing;return {family,size:taken?.summary.size??11,color:taken?.summary.color??'',bold:!!taken?.summary.bold,italic:!!taken?.summary.italic,effects,underline:taken?.summary.underline?'single':'',spacing:spacing==='-0.05em'?'condensed':spacing==='0.1em'?'expanded':'normal'};},
+   apply:changes=>{
+    const css:Record<string,string>={};
+    if(changes.family!==undefined&&changes.family)css['font-family']=changes.family;
+    if(changes.size!==undefined&&validPointValue(pointText(changes.size)))css['font-size']=pointText(changes.size);
+    if(changes.color!==undefined&&changes.color)css['color']=changes.color;
+    if(changes.bold!==undefined)css['font-weight']=changes.bold?'bold':'normal';
+    if(changes.italic!==undefined)css['font-style']=changes.italic?'italic':'normal';
+    if(changes.underline==='single')css['text-decoration']='underline';
+    else if(changes.underline==='')css['text-decoration']='none';
+    if(Object.keys(css).length)execute(()=>props.format.styleSelection(css));
+    for(const [kind,on] of Object.entries(changes.effects??{}))if(on!==props.format.effectOn(kind as never))execute(()=>props.format.toggleEffect(kind as never));
+    if(changes.underline&&changes.underline!=='single')execute(()=>props.format.toggleEffect('underlineStyle',changes.underline!));
+    if(changes.spacing!==undefined){const now=props.commands.current()?.closest<HTMLElement>('[style*="letter-spacing"]')?.style.letterSpacing;const have=now==='-0.05em'?'condensed':now==='0.1em'?'expanded':'normal';if(have!==changes.spacing)execute(()=>props.format.toggleEffect('spacing',changes.spacing==='normal'?'':changes.spacing!));}
+   },
+  },
   effectOn:(kind)=>{props.version();return props.format.effectOn(kind);},
   toggleEffect:(kind,value)=>execute(()=>props.format.toggleEffect(kind,value)),
   sort:options=>{let outcome:{kind:'rows'|'items'|'blocks';count:number;removed:number}|null=null;try{props.format.sortBlocks(options,o=>{outcome=o;});}catch{props.report(t('mail-editor-selection-required'));}return outcome;},
  };
  const fmt=createFormatControls(fmtAdapter);
+ createEffect(on(()=>props.fontDialogRequest?.()??0,()=>{fmt.openFontDialog();},{defer:true}));
+ const gallery=createStylesGallery({ready:props.ready,currentId:()=>{props.version();return props.format.currentStyleId();},apply:style=>execute(()=>props.format.applyStyle(style)),capture:()=>props.format.captureStyle()});
  const formatGroups=():JSX.Element=><>
   <RibbonGroup label={t('mail-compose-group-clipboard')} priority={100} icon="paste" testId="rt-group-clipboard">
    <RibbonItem size="large">{fmt.pasteLarge()}</RibbonItem><RibbonItem>{button('cut','cut',()=>{void props.clipboard('cut');})}</RibbonItem><RibbonItem>{button('copy','clone',()=>{void props.clipboard('copy');})}</RibbonItem>
@@ -68,7 +89,7 @@ export function NativeHtmlRibbon(props:{commands:NativeHtmlCommands;version:()=>
   <RibbonGroup label={t('mail-compose-font')} priority={90} icon="bold" testId="rt-group-font">
    <RibbonItem>{row(<select class="compose-rib__font" aria-label={t('mail-compose-font')} disabled={!props.ready()} value={fontValue()} onChange={event=>props.commands.inlineStyle('font-family',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><Show when={fontValue()&&!COMPOSER_FONTS.some(font=>font.stack===fontValue())}><option value={fontValue()}>{fontValue()}</option></Show><For each={COMPOSER_FONTS}>{font=><option value={font.stack}>{font.label}</option>}</For></select>,<select class="compose-rib__size" aria-label={t('mail-compose-font-size')} disabled={!props.ready()} value={sizeValue()} onChange={event=>props.commands.inlineStyle('font-size',event.currentTarget.value)}><option value="">{t('mail-compose-font-inherit')}</option><Show when={sizeValue()&&!SIZES.some(size=>`${size}pt`===sizeValue())}><option value={sizeValue()}>{sizeValue()}</option></Show><For each={SIZES}>{size=><option value={`${size}pt`}>{size} pt</option>}</For></select>,fmt.fontSteps())}</RibbonItem>
    <RibbonItem>{row(mark('bold','bold'),mark('italic','italic'),mark('underline','underline'),<Feature id="format.strikethrough">{mark('strikeThrough','strike','strike')}</Feature>,<select aria-label={t('mail-editor-case')} value="" onChange={event=>{const value=event.currentTarget.value;if(['lower','upper','title','sentence'].includes(value))props.commands.changeCase(value as 'lower'|'upper'|'title'|'sentence');event.currentTarget.value='';}}><option value="">{t('mail-editor-case')}</option><option value="lower">{t('mail-editor-case-lower')}</option><option value="upper">{t('mail-editor-case-upper')}</option><option value="title">{t('mail-editor-case-title')}</option><option value="sentence">{t('mail-editor-case-sentence')}</option></select>,fmt.clearFormatting())}</RibbonItem>
-   <RibbonItem>{row(color('text-color','color'),button('clear-color','clearFormat',()=>props.commands.inlineStyle('color','#1c1e21'),{iconOnly:true}),color('highlight','background-color'),button('clear-highlight','clearFormat',()=>props.commands.inlineStyle('background-color','transparent'),{iconOnly:true}),fmt.effects())}</RibbonItem>
+   <RibbonItem>{row(color('text-color','color'),button('clear-color','clearFormat',()=>props.commands.inlineStyle('color','#1c1e21'),{iconOnly:true}),color('highlight','background-color'),button('clear-highlight','clearFormat',()=>props.commands.inlineStyle('background-color','transparent'),{iconOnly:true}),fmt.effects(),fmt.fontDialog())}</RibbonItem>
   </RibbonGroup>
   <RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
    <RibbonItem>{row(fmt.bulletList(),fmt.numberList(),fmt.indentButtons(),button('quote','quote',()=>props.commands.exec('formatBlock','blockquote'),{label:t('mail-compose-rt-quote'),iconOnly:true}),fmt.sortMenu())}</RibbonItem>
@@ -82,7 +103,7 @@ export function NativeHtmlRibbon(props:{commands:NativeHtmlCommands;version:()=>
    </div></RibbonPopover>)}</RibbonItem>
   </RibbonGroup>
   <Feature id="format.stylesRibbon"><RibbonGroup label={t('cfmt-group-styles')} priority={70} icon="heading" testId="rt-group-styles">
-   <RibbonItem><select aria-label={t('mail-editor-style')} value="normal" onChange={event=>style(event.currentTarget.value)}><For each={['normal','no-spacing','title','subtitle','heading1','heading2','heading3','heading4','heading5','heading6']}>{name=><option value={name}>{t(`mail-editor-style-${name}`)}</option>}</For></select></RibbonItem>
+   <RibbonItem>{gallery.tiles()}</RibbonItem><RibbonItem>{gallery.menu()}</RibbonItem><RibbonItem>{gallery.actions()}</RibbonItem>
   </RibbonGroup></Feature>
   <RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
    <RibbonItem><RibbonPopover label={t('mail-editor-find-replace')} icon="search" keepSelection><div class="compose-rib__form"><label>{t('mail-editor-find')}<input maxlength="256" value={needle()} onInput={event=>setNeedle(event.currentTarget.value)}/></label><label>{t('mail-editor-replacement')}<input maxlength="4096" value={replacement()} onInput={event=>setReplacement(event.currentTarget.value)}/></label><label><input type="checkbox" checked={matchCase()} onChange={event=>setMatchCase(event.currentTarget.checked)}/>{t('mail-editor-match-case')}</label>{button('previous','back',()=>props.commands.find(needle(),-1,matchCase()))}{button('next','forward',()=>props.commands.find(needle(),1,matchCase()))}{button('replace','edit',()=>props.commands.replace(needle(),replacement(),false,matchCase()))}{button('replace-all','edit',()=>props.commands.replace(needle(),replacement(),true,matchCase()))}<span>{t('mail-editor-matches',{count:matchesCount()})}</span></div></RibbonPopover></RibbonItem>

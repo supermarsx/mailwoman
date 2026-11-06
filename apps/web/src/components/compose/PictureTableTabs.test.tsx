@@ -177,32 +177,29 @@ describe('paragraph style gallery', () => {
     expect(shortcutLabel('Mod-Alt-1', true)).toBe('⌘⌥1');
   });
 
-  it('opens a listbox of styles drawn in their own look, applies one and marks the current', async () => {
+  it('lists the styles of the Styles group drawn in their own look, applies one and marks the current', async () => {
     let html = '';
     render(() => <RichTextEditor initialHtml="<p>Title me</p>" ariaLabel="Body" onChange={(value) => { html = value; }} />);
-    const button = screen.getByTestId('rt-style-gallery');
-    expect(button).toHaveTextContent('Normal');
-    fireEvent.click(button);
-    const list = screen.getByRole('listbox', { name: 'Paragraph style' });
-    expect(within(list).getAllByRole('option').length).toBe(STYLE_ENTRIES.length);
-    expect(within(list).getByTestId('rt-style-heading1')).toHaveTextContent('Ctrl+Alt+1');
-    expect(within(list).getByTestId('rt-style-normal')).toHaveAttribute('aria-selected', 'true');
-    fireEvent.click(within(list).getByTestId('rt-style-heading2'));
+    expect(screen.getByTestId('style-tile-normal')).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByTestId('rt-all-styles'));
+    const menu = screen.getByRole('menu', { name: 'All styles' });
+    expect(within(menu).getByTestId('style-heading1')).toHaveTextContent('Heading 1');
+    expect(within(menu).getByTestId('style-normal')).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(within(menu).getByTestId('style-heading2'));
     await waitFor(() => expect(html).toContain('<h2'));
-    expect(screen.getByTestId('rt-style-gallery')).toHaveTextContent('Heading 2');
+    expect(screen.getByTestId('style-tile-heading2')).toHaveAttribute('aria-pressed', 'true');
   });
 
-  it('applies Quote and Code, and Code toggles back', async () => {
+  it('applies Code and Quote, and Normal takes them off again', async () => {
     let html = '';
     render(() => <RichTextEditor initialHtml="<p>text</p>" ariaLabel="Body" onChange={(value) => { html = value; }} />);
-    fireEvent.click(screen.getByTestId('rt-style-gallery'));
-    fireEvent.click(screen.getByTestId('rt-style-code'));
+    fireEvent.click(screen.getByTestId('rt-all-styles'));
+    fireEvent.click(screen.getByTestId('style-code'));
     await waitFor(() => expect(html).toContain('<pre'));
-    fireEvent.click(screen.getByTestId('rt-style-gallery'));
-    fireEvent.click(screen.getByTestId('rt-style-code'));
+    fireEvent.click(screen.getByTestId('style-tile-normal'));
     await waitFor(() => expect(html).not.toContain('<pre'));
-    fireEvent.click(screen.getByTestId('rt-style-gallery'));
-    fireEvent.click(screen.getByTestId('rt-style-quote'));
+    fireEvent.click(screen.getByTestId('rt-all-styles'));
+    fireEvent.click(screen.getByTestId('style-quote'));
     await waitFor(() => expect(html).toContain('<blockquote'));
   });
 

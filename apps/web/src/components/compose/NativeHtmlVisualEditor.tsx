@@ -15,6 +15,8 @@ import {createNativeFormat,type NativePaint} from './nativeFormatCommands.ts';
 import {createPainter} from './FormatControls.tsx';
 import {useComposeFeature} from './composeFeatures.ts';
 import {isClearKey,isGrowKey,isShrinkKey,mergeFormatting,type PasteMode} from './formatModel.ts';
+import {resolveStyle,isStyleSet,type StyleSet} from './styleModel.ts';
+import {settings} from '../../api/settings.ts';
 import {materializeLists,dematerializeLists} from './listMarkers.ts';
 import LIST_CSS from './compose-lists.css?raw';
 import type {EditorSlots} from './EditorRibbon.tsx';
@@ -45,7 +47,9 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  let history:string[]=[];
  const commands=createNativeHtmlCommands({root:()=>editor,change:()=>emit(),selection:()=>setVersion(value=>value+1),replaceNode:(from,to)=>{const original=originals.get(from);if(original)originals.set(to,original);}});
  const format=createNativeFormat(commands);
- const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting'),supOn=useComposeFeature('format.superscript'),subOn=useComposeFeature('format.subscript');
+ const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting'),supOn=useComposeFeature('format.superscript'),subOn=useComposeFeature('format.subscript'),stylesOn=useComposeFeature('format.stylesRibbon'),fontOn=useComposeFeature('format.fontDialog');
+ const [fontRequest,setFontRequest]=createSignal(0);
+ const styleSet=():StyleSet=>{const value=settings()['compose.styles.defaultSet']?.value;return isStyleSet(value)?value:'default';};
  const painter=createPainter<NativePaint>({capture:()=>format.capture(),apply:value=>format.applyPaint(value)});
  let finishReady!:()=>void;
  const admitted=new Promise<void>(resolve=>{finishReady=resolve;});
@@ -61,7 +65,7 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
   for(const answer of clone.querySelectorAll('[data-mw-native-answer]'))answer.removeAttribute('data-mw-native-answer');
   for(const shown of clone.querySelectorAll('[data-mw-vc]'))shown.removeAttribute('data-mw-vc');
   for(const caret of clone.querySelectorAll('[data-mw-native-caret]')){caret.removeAttribute('data-mw-native-caret');const text=caret.firstChild;if(text?.nodeType===3&&text.textContent?.startsWith('\u200b'))text.textContent=text.textContent.slice(1);if(!caret.textContent&&!caret.children.length)caret.remove();}
-  materializeLists(clone);for(const item of Array.from(clone.querySelectorAll('[data-mw-checked]')))item.removeAttribute('data-mw-checked');
+  materializeLists(clone);for(const item of Array.from(clone.querySelectorAll('[data-mw-checked],[data-mw-style-id]'))){item.removeAttribute('data-mw-checked');item.removeAttribute('data-mw-style-id');}
   return styles.map(style=>`<style>${style}</style>`).join('')+clone.innerHTML;
  }
  function record(value:string):void {if(history[historyIndex()]===value)return;history=history.slice(0,historyIndex()+1);history.push(value);if(history.length>101)history.shift();setHistoryIndex(history.length-1);setHistoryLength(history.length);}
@@ -205,6 +209,8 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
    if(stepOn()&&(isGrowKey(event)||isShrinkKey(event))){event.preventDefault();commands.remember();format.stepFont(isGrowKey(event)?1:-1);return;}
    if(clearOn()&&isClearKey(event)){event.preventDefault();commands.remember();format.clear('all');return;}
    if((event.ctrlKey||event.metaKey)&&!event.altKey&&(event.key==='='||event.key==='+')){const sup=event.key==='+';if(sup?supOn():subOn()){event.preventDefault();commands.remember();format.toggleEffect(sup?'superscript':'subscript');return;}}
+   if((event.ctrlKey||event.metaKey)&&stylesOn()&&((event.altKey&&!event.shiftKey&&/^[0-6]$/.test(event.key))||(event.shiftKey&&!event.altKey&&event.key.toLowerCase()==='n'))){const id=event.key.toLowerCase()==='n'||event.key==='0'?'normal':`heading${event.key}`;const set=styleSet();const found=resolveStyle(set,[],id);if(found){event.preventDefault();commands.remember();format.applyStyle(found);return;}}
+   if(event.key.toLowerCase()==='d'&&(event.ctrlKey||event.metaKey)&&!event.altKey&&!event.shiftKey&&fontOn()){event.preventDefault();commands.remember();setFontRequest(value=>value+1);return;}
    if(event.key==='Tab'&&!event.ctrlKey&&!event.metaKey&&!event.altKey&&indentOn()&&commands.current()?.closest('li')){event.preventDefault();commands.remember();format.indent(event.shiftKey?-1:1);return;}
    if(!(event.ctrlKey||event.metaKey)||event.altKey)return;if(event.key.toLowerCase()==='z'||event.key.toLowerCase()==='y'){event.preventDefault();moveHistory(event.key.toLowerCase()==='y'||event.shiftKey?1:-1);}};
   const selection=()=>commands.remember();
@@ -225,5 +231,5 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
  onMount(()=>{const root=frame.ownerDocument.documentElement,observer=new MutationObserver(()=>{if(!disposed&&editor)installStyles(editor.ownerDocument);});observer.observe(root,{attributes:true});onCleanup(()=>observer.disconnect());});
  onMount(()=>{const editorApi:NativeHtmlVisualApi={async capture(){await admitted;let latest:Promise<void>;do{latest=pending;await latest;}while(latest!==pending);if(disposed)throw new DOMException('Editor closed','AbortError');return changed?serialize():stripEditorMarkers(props.html);},focus:focusEditor,refreshImages:()=>previewImages(documentRevision),undo:()=>moveHistory(-1),redo:()=>moveHistory(1),historyDepth:()=>({undo:historyIndex(),redo:historyLength()-historyIndex()-1}),bookmark};setApi({...editorApi,appendHtml:value=>{commands.restore();insert({preventDefault(){},clipboardData:{files:[],getData:(type:string)=>type==='text/html'?value:''}} as unknown as ClipboardEvent);},setHtml:value=>{pending=normalizeHtmlSource(value,props.owned(),props.embedded===true).then(safe=>{if(disposed)return;loadDocument(safe.html);emit();});void pending.catch(()=>setFailed(true));}});props.onReady(editorApi);});
  onCleanup(()=>{disposed=true;if(viewTimer!==undefined)clearTimeout(viewTimer);finishReady();undoListeners();});
- return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} format={format} painter={painter} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
+ return <div class={css.visual}><NativeHtmlRibbon commands={commands} version={version} ready={ready} {...(props.ribbonSlots?{ribbonSlots:props.ribbonSlots}:{})} {...(props.externalHistory===undefined?{}:{externalHistory:props.externalHistory})} history={api} fontDialogRequest={fontRequest} format={format} painter={painter} clipboard={clipboard} images={imageFiles} canImages={Boolean(props.upload||props.embedded)} report={setError} zoom={value=>{if(editor)editor.style.zoom=String(value/100);}} view={()=>({dark:dark(),markers:markers()})} toggleView={kind=>{if(kind==='dark')toggleBackground();else setMarkers(value=>!value);}}/><iframe ref={frame} class={css.frame} data-surface={background()} title={t('mail-compose-html-visual')} sandbox="allow-same-origin" referrerPolicy="no-referrer" srcdoc={FRAME_DOCUMENT} onLoad={loaded}/><span role="status">{error()|| (failed()?t('mail-compose-html-failed'):'')}</span></div>;
 }

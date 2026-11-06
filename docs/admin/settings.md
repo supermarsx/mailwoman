@@ -1267,6 +1267,21 @@ Exports in the window that open a draft. 0 is off.
 
 Switches one composer control on or off, per feature id (for example `layout.columns`). Default on. An administrator can set it for everyone, per domain or per user, and lock it so users cannot change it. Users switch features off in Settings > Compose > Composer features.
 
+<a id="compose.styles.maxCustom"></a>
+### Custom styles limit (`compose.styles.maxCustom`)
+
+Most custom styles a user can keep in the composer's Styles gallery (0 to 100, default 20). 0 turns "Create style from selection" off. Overriding a built-in style does not count.
+
+<a id="compose.styles.defaultSet"></a>
+### Style set (`compose.styles.defaultSet`)
+
+The look of the Styles gallery: `default`, `modern`, `classic` or `compact`. Users can switch set in the gallery unless an administrator locks it.
+
+<a id="compose.styles.custom"></a>
+### Custom styles (`compose.styles.custom`)
+
+A user's own styles as JSON, written by the Styles gallery. It is a user value and has no administrator form.
+
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 

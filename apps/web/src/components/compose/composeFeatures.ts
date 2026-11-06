@@ -58,6 +58,9 @@ export const COMPOSE_FEATURES: readonly ComposeFeature[] = [
   { id: 'format.stylesRibbon', group: 'format', labelKey: 'cf-format-stylesRibbon', descKey: 'cf-format-stylesRibbon-desc', defaultOn: true },
   { id: 'format.sort', group: 'format', labelKey: 'cf-format-sort', descKey: 'cf-format-sort-desc', defaultOn: true, advanced: true },
 
+  { id: 'format.customStyles', group: 'format', labelKey: 'cf-format-customStyles', descKey: 'cf-format-customStyles-desc', defaultOn: true, advanced: true },
+  { id: 'format.fontDialog', group: 'format', labelKey: 'cf-format-fontDialog', descKey: 'cf-format-fontDialog-desc', defaultOn: true, advanced: true },
+
   // ── insert (agent INSERT appends here) ───────────────────────────────────────
   { id: 'insert.attachFile', group: 'insert', labelKey: 'cf-insert-attachFile', descKey: 'cf-insert-attachFile-desc', defaultOn: true },
   { id: 'insert.attachFromMessages', group: 'insert', labelKey: 'cf-insert-attachFromMessages', descKey: 'cf-insert-attachFromMessages-desc', defaultOn: true },
@@ -88,6 +91,15 @@ export const COMPOSE_FEATURES: readonly ComposeFeature[] = [
   // ── options ──────────────────────────────────────────────────────────────────
   { id: 'options.sentFolder', group: 'options', labelKey: 'cf-options-sentFolder', descKey: 'cf-options-sentFolder-desc', defaultOn: true, advanced: true },
   { id: 'options.replyTo', group: 'options', labelKey: 'cf-options-replyTo', descKey: 'cf-options-replyTo-desc', defaultOn: true, advanced: true },
+  { id: 'options.replyBy', group: 'options', labelKey: 'cf-options-replyBy', descKey: 'cf-options-replyBy-desc', defaultOn: true },
+  { id: 'options.returnReceipt', group: 'options', labelKey: 'cf-options-returnReceipt', descKey: 'cf-options-returnReceipt-desc', defaultOn: true, advanced: true },
+  { id: 'options.importance', group: 'options', labelKey: 'cf-options-importance', descKey: 'cf-options-importance-desc', defaultOn: true },
+  { id: 'options.sensitivity', group: 'options', labelKey: 'cf-options-sensitivity', descKey: 'cf-options-sensitivity-desc', defaultOn: true, advanced: true },
+  { id: 'options.expires', group: 'options', labelKey: 'cf-options-expires', descKey: 'cf-options-expires-desc', defaultOn: true, advanced: true },
+  { id: 'options.autoSubmitted', group: 'options', labelKey: 'cf-options-autoSubmitted', descKey: 'cf-options-autoSubmitted-desc', defaultOn: true, advanced: true },
+  { id: 'options.inReplyTo', group: 'options', labelKey: 'cf-options-inReplyTo', descKey: 'cf-options-inReplyTo-desc', defaultOn: true, advanced: true },
+  { id: 'options.supersedes', group: 'options', labelKey: 'cf-options-supersedes', descKey: 'cf-options-supersedes-desc', defaultOn: true, advanced: true },
+  { id: 'options.customHeaders', group: 'options', labelKey: 'cf-options-customHeaders', descKey: 'cf-options-customHeaders-desc', defaultOn: true, advanced: true },
 
   // ── delivery ─────────────────────────────────────────────────────────────────
 ];

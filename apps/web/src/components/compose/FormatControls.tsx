@@ -26,6 +26,7 @@ import {
   type PasteMode,
 } from './formatModel.ts';
 import { EFFECTS, type EffectDef, type EffectKind } from './effects.ts';
+import { FontDialog, type FontAdapter } from './FontDialog.tsx';
 import { DEFAULT_SORT, type SortOptions } from './sortModel.ts';
 import './compose-format.css';
 
@@ -85,6 +86,7 @@ export interface FormatAdapter {
   currentDirection: () => string | null;
   paste: (mode: PasteMode) => void;
   painter: Painter;
+  font?: FontAdapter;
   effectOn: (kind: EffectKind, value?: string) => boolean;
   toggleEffect: (kind: EffectKind, value: string) => void;
   /** Sort the selection; null when there was nothing to sort. */
@@ -126,7 +128,7 @@ function menuKeys(event: KeyboardEvent): void {
 }
 
 /** A ribbon dropdown whose popover holds a menu: focus lands on the checked (or first) item on open. */
-function MenuButton(props: {
+export function MenuButton(props: {
   label: string;
   icon?: IconName;
   iconOnly?: boolean;
@@ -165,7 +167,7 @@ function MenuButton(props: {
   );
 }
 
-const noFocus = (event: MouseEvent): void => event.preventDefault();
+export const noFocus = (event: MouseEvent): void => event.preventDefault();
 
 function ListPreview(props: { def: ListStyleDef }): JSX.Element {
   return (
@@ -178,6 +180,8 @@ function ListPreview(props: { def: ListStyleDef }): JSX.Element {
 export function createFormatControls(adapter: FormatAdapter) {
   void loadCatalog('compose-format');
   const ready = (): boolean => adapter.ready?.() ?? true;
+  const [fontOpen, setFontOpen] = createSignal(false);
+  const fontOn = useComposeFeature('format.fontDialog');
   const button = (key: string, icon: IconName, run: () => void, options: { testId: string; pressed?: () => boolean; disabled?: () => boolean; text?: boolean; extra?: JSX.Element; large?: boolean; tooltip?: string; onDblClick?: () => void; label?: string }): JSX.Element => (
     <button
       type="button"
@@ -293,6 +297,14 @@ export function createFormatControls(adapter: FormatAdapter) {
       </Feature>
     ),
     clearFormatting: clearMenu,
+    /** The Font dialog launcher (Ctrl+D) and its dialog. */
+    fontDialog: (): JSX.Element => (
+      <Feature id="format.fontDialog">
+        <button type="button" class="compose-rt__btn" disabled={!ready() || !adapter.font} aria-label={t('cfmt-font-dialog')} data-tooltip={t('cfmt-font-dialog-help')} data-testid="rt-font-dialog" aria-haspopup="dialog" onMouseDown={noFocus} onClick={() => setFontOpen(true)}><Icon name="preferences" /></button>
+        <Show when={fontOpen() && adapter.font}>{(font) => <FontDialog adapter={font()} onClose={() => setFontOpen(false)} />}</Show>
+      </Feature>
+    ),
+    openFontDialog: (): boolean => { if (!fontOn() || !adapter.font) return false; setFontOpen(true); return true; },
     effects: (): JSX.Element => <EffectsMenu adapter={adapter} ready={ready} />,
     sortMenu: (): JSX.Element => <Feature id="format.sort"><SortMenu adapter={adapter} ready={ready} /></Feature>,
     pasteLarge: (): JSX.Element => (

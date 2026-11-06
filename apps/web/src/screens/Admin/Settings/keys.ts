@@ -842,6 +842,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'consent.telemetry.version',
   'consent.telemetry.text',
   'compose.feature.*',
+  'compose.styles.maxCustom',
+  'compose.styles.defaultSet',
   'serverText.*',
 ];
 

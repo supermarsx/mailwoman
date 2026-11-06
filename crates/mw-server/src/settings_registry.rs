@@ -7838,6 +7838,30 @@ pub static REGISTRY: &[SettingDef] = &[
         "interface",
         "Whether a composer feature (ribbon control) is available; id is the COMPOSE_FEATURES id"
     ),
+    def!(
+        "compose.styles.maxCustom",
+        int(0, 100),
+        "20",
+        GDU,
+        "interface",
+        "Most custom paragraph and text styles a user can keep in the composer's Styles gallery; 0 turns custom styles off"
+    ),
+    def!(
+        "compose.styles.defaultSet",
+        Kind::Enum(&["default", "modern", "classic", "compact"]),
+        "default",
+        GDU,
+        "interface",
+        "Style set the composer's Styles gallery starts with"
+    ),
+    def!(
+        "compose.styles.custom",
+        text(Text::Plain, 20000),
+        "\"\"",
+        GDU,
+        "interface",
+        "A user's custom composer styles, as JSON written by the Styles gallery"
+    ),
 
     // ── Server text (e70c seam) ──────────────────────────────────────────────
     def!(
@@ -9169,6 +9193,9 @@ mod tests {
         assert!(lookup("serverText.*").is_none());
         assert!(lookup("compose.feature.layout.columns").is_some());
         assert!(lookup("compose.feature.options.replyTo").is_some());
+        assert!(lookup("compose.styles.maxCustom").is_some());
+        assert!(lookup("compose.styles.defaultSet").is_some());
+        assert!(lookup("compose.styles.custom").is_some());
         assert!(lookup("compose.feature.Layout").is_none());
         assert!(lookup("compose.feature.").is_none());
         assert!(lookup("compose.feature.a-b").is_none());

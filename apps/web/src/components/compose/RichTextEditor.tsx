@@ -2,6 +2,13 @@ import {Portal} from 'solid-js/web';
 import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
 import {Feature,createFormatControls,createPainter,type FormatAdapter} from './FormatControls.tsx';
 import {useComposeFeature} from './composeFeatures.ts';
+import {createStylesGallery} from './StylesGallery.tsx';
+import {applyStyleDef,captureStyle,currentStyleId} from './richFormatCommands.ts';
+import {resolveStyle} from './styleModel.ts';
+import {DIALOG_EFFECTS,type FontSpec} from './FontDialog.tsx';
+import {currentMarkValue,currentFontSize as currentPoints} from './richFormatCommands.ts';
+import {applyColor as applyTextColor} from './richCommands.ts';
+import {pointText,validPointValue} from './formatModel.ts';
 import {effectActive,currentEffectValue,toggleEffect,sortSelection,applyListStyle,applyPaint,canContinueNumbering,canOutdent,capturePaint,changeIndent,clearFormatting,currentListType,blockAttrs,enclosingList,liftItem,setAlignment,setDirection,setLineSpacing,setListStart,setSpacing,sinkItem,stepFontSizeCommand,type PaintedFormat} from './richFormatCommands.ts';
 import {chainCommands} from 'prosemirror-commands';
 import './compose-lists.css';
@@ -234,7 +241,8 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
 
   const owned = (): ReadonlySet<string> | undefined => props.inline?.owned();
   // A switched-off Format feature leaves its shortcut inert, not just its button hidden.
-  const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting'),supOn=useComposeFeature('format.superscript'),subOn=useComposeFeature('format.subscript');
+  const stepOn=useComposeFeature('format.fontSizeStep'),indentOn=useComposeFeature('format.indent'),clearOn=useComposeFeature('format.clearFormatting'),supOn=useComposeFeature('format.superscript'),subOn=useComposeFeature('format.subscript'),stylesOn=useComposeFeature('format.stylesRibbon');
+  const styleCmd=(id:string,legacy?:Command):Command=>(state,dispatch,v)=>{if(!stylesOn())return legacy?legacy(state,dispatch,v):false;const def=resolveStyle(gallery.store.set(),gallery.store.custom(),id);return def?applyStyleDef(def)(state,dispatch,v):false;};
   const gate=(on:()=>boolean,command:Command):Command=>(state,dispatch,v)=>on()?command(state,dispatch,v):false;
   const inList:Command=(state,dispatch,v)=>enclosingList(state)?sinkItem(state,dispatch,v):false;
   const outOfList:Command=(state,dispatch,v)=>enclosingList(state)?liftItem(state,dispatch,v):false;
@@ -326,11 +334,14 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           'Mod-b': toggleMark(mStrong),
           'Mod-i': toggleMark(mEm),
           'Mod-u': toggleMark(mUnderline),
-          'Mod-Alt-0': paragraphStyle('normal'),
-          'Mod-Alt-1': paragraphStyle('heading1'),
-          'Mod-Alt-2': paragraphStyle('heading2'),
-          'Mod-Alt-3': paragraphStyle('heading3'),
-          'Mod-Alt-4': paragraphStyle('heading4'),
+          'Mod-Alt-0': styleCmd('normal',paragraphStyle('normal')),
+          'Mod-Shift-n': styleCmd('normal'),
+          'Mod-Alt-1': styleCmd('heading1',paragraphStyle('heading1')),
+          'Mod-Alt-2': styleCmd('heading2',paragraphStyle('heading2')),
+          'Mod-Alt-3': styleCmd('heading3',paragraphStyle('heading3')),
+          'Mod-Alt-4': styleCmd('heading4',paragraphStyle('heading4')),
+          'Mod-Alt-5': styleCmd('heading5'),
+          'Mod-Alt-6': styleCmd('heading6'),
           'Mod-Alt-q': paragraphStyle('quote'),
           'Mod-Alt-c': paragraphStyle('code'),
           Enter: splitListItem(nListItem),
@@ -339,6 +350,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
           'Mod-]': gate(stepOn,stepFontSizeCommand(1,true)),
           'Mod-[': gate(stepOn,stepFontSizeCommand(-1,true)),
           'Mod-Space': gate(clearOn,clearFormatting('all')),
+          'Mod-d': (()=>fmt.openFontDialog()) as Command,
           'Mod-=': gate(subOn,toggleEffect('subscript')),
           'Mod-+': gate(supOn,toggleEffect('superscript')),
           'Mod-\\': gate(clearOn,clearFormatting('all')),
@@ -527,11 +539,26 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     currentDirection:()=>(attrsOf()['dir'] as string|null)??null,
     paste:mode=>tools.pasteWith(mode),
     painter,
+    font:{
+      read:()=>{const s=view?.state;const bold=s!==null&&s!==undefined&&markActive(s,mStrong),italic=s!==null&&s!==undefined&&markActive(s,mEm);const effects:FontSpec['effects']={};if(s)for(const entry of DIALOG_EFFECTS)effects[entry.kind]=effectActive(s,entry.kind);return {family:s?currentMarkValue(s,'fontFamily'):'',size:s?(currentPoints(s)??11):11,color:s?currentMarkValue(s,'textColor'):'',bold,italic,effects,underline:s?(effectActive(s,'underlineStyle')?currentEffectValue(s,'underlineStyle'):markActive(s,mUnderline)?'single':''):'',spacing:s?(currentEffectValue(s,'spacing')||'normal'):'normal'};},
+      apply:changes=>{
+        if(!view)return;
+        if(changes.family!==undefined)setTextStyle('fontFamily',changes.family);
+        if(changes.size!==undefined&&validPointValue(pointText(changes.size)))setTextStyle('fontSize',pointText(changes.size));
+        if(changes.color!==undefined)run(applyTextColor('textColor',changes.color));
+        if(changes.bold!==undefined&&changes.bold!==markActive(view.state,mStrong))run(toggleMark(mStrong));
+        if(changes.italic!==undefined&&changes.italic!==markActive(view.state,mEm))run(toggleMark(mEm));
+        for(const [kind,on] of Object.entries(changes.effects??{}))if(on!==effectActive(view.state,kind as never))run(toggleEffect(kind as never));
+        if(changes.underline!==undefined){const style=changes.underline;const hasMark=markActive(view.state,mUnderline),hasEffect=effectActive(view.state,'underlineStyle');if(style===''){if(hasMark)run(toggleMark(mUnderline));if(hasEffect)run(toggleEffect('underlineStyle',currentEffectValue(view.state,'underlineStyle')));}else if(style==='single'){if(hasEffect)run(toggleEffect('underlineStyle',currentEffectValue(view.state,'underlineStyle')));if(!hasMark)run(toggleMark(mUnderline));}else{if(hasMark)run(toggleMark(mUnderline));run(toggleEffect('underlineStyle',style));}}
+        if(changes.spacing!==undefined){const now=currentEffectValue(view.state,'spacing');if(changes.spacing==='normal'){if(now)run(toggleEffect('spacing',now));}else run(toggleEffect('spacing',changes.spacing));}
+      },
+    },
     effectOn:(kind,value)=>{const s=activeState();return s!==null&&effectActive(s,kind)&&(!value||currentEffectValue(s,kind)===value);},
     toggleEffect:(kind,value)=>execute(toggleEffect(kind,value)),
     sort:options=>{let outcome:{kind:'rows'|'items'|'blocks';count:number;removed:number}|null=null;run(sortSelection(options,o=>{outcome=o;}));return outcome;},
   };
   const fmt=createFormatControls(fmtAdapter);
+  const gallery=createStylesGallery({ready:()=>activeState()!==null,currentId:()=>{const s=activeState();return s?currentStyleId(s):'normal';},apply:style=>execute(applyStyleDef(style)),capture:()=>{const s=view?.state;return s?captureStyle(s):null;}});
   const markButton=(btn:ToolbarButton):JSX.Element=>{
     const active=()=>{const s=activeState();return s!==null&&btn.activeMark!==undefined?markActive(s,btn.activeMark):false;};
     const button=<button type="button" class={`compose-rt__btn ${a11y.focusable}`} classList={{'compose-rt__btn--active':active()}} aria-pressed={active()} aria-label={t(btn.labelKey)} title={t(btn.labelKey)} data-testid={`rt-${btn.id}`} onMouseDown={e=>e.preventDefault()} onClick={()=>run(btn.command)}><Icon name={btn.glyph}/></button>;
@@ -589,7 +616,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
         fmt.fontSteps(),
       )}</RibbonItem>
       <RibbonItem>{row(<For each={MARK_BUTTONS}>{markButton}</For>,tools.changeCase(),fmt.clearFormatting())}</RibbonItem>
-      <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight(),fmt.effects())}</RibbonItem>
+      <RibbonItem>{row(tools.textColor(),tools.clearColor(),tools.highlight(),tools.clearHighlight(),fmt.effects(),fmt.fontDialog())}</RibbonItem>
     </RibbonGroup></Show>
     <Show when={has('paragraph')}><RibbonGroup label={t('mail-compose-group-paragraph')} priority={80} icon="paragraph" testId="rt-group-paragraph">
       <RibbonItem>{row(fmt.bulletList(),fmt.numberList(),fmt.indentButtons(),fmt.sortMenu())}</RibbonItem>
@@ -597,7 +624,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
       <RibbonItem>{row(<For each={BLOCK_BUTTONS}>{markButton}</For>,tools.markers(),tools.paragraphOptions())}</RibbonItem>
     </RibbonGroup></Show>
     <Show when={has('paragraph')}><Feature id="format.stylesRibbon"><RibbonGroup label={t('cfmt-group-styles')} priority={70} icon="heading" testId="rt-group-styles">
-      <RibbonItem>{tools.style()}</RibbonItem>
+      <RibbonItem>{gallery.tiles()}</RibbonItem><RibbonItem>{gallery.menu()}</RibbonItem><RibbonItem>{gallery.actions()}</RibbonItem>
     </RibbonGroup></Feature></Show>
     <Show when={has('editing')}><RibbonGroup label={t('mail-compose-group-editing')} priority={45} icon="search" testId="rt-group-editing">
       <RibbonItem>{tools.findReplace()}</RibbonItem><RibbonItem>{tools.selectAll()}</RibbonItem><RibbonItem>{tools.clearSelection()}</RibbonItem>

@@ -14,7 +14,7 @@ export function safeColor(value:unknown):string|null {
  const match=/^rgb\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})\s*\)$/.exec(text);
  if(!match)return null;const channels=match.slice(1).map(Number);return channels.every(value=>value<=255)?'#'+channels.map(value=>value.toString(16).padStart(2,'0')).join(''):null;
 }
-export const paragraphAttrs={emailStyles:{default:null},htmlTag:{default:'p'},align:{default:null},lineHeight:{default:null},before:{default:null},after:{default:null},indent:{default:0},dir:{default:null},shade:{default:null},preset:{default:null}};
+export const paragraphAttrs={emailStyles:{default:null},htmlTag:{default:'p'},align:{default:null},lineHeight:{default:null},before:{default:null},after:{default:null},indent:{default:0},dir:{default:null},shade:{default:null},preset:{default:null},styleId:{default:null}};
 function spacing(value:string):number|null {const match=/^(\d+)pt$/.exec(value);return match&&PARAGRAPH_SPACING.includes(Number(match[1]) as typeof PARAGRAPH_SPACING[number])?Number(match[1]):value==='0px'?0:null;}
 export function readParagraph(element:HTMLElement):Record<string,unknown> {
  const style=element.style,margin=/^(\d+(?:\.\d+)?)(em|px)$/.exec(style.marginLeft),indent=margin?margin[2]==='px'?Number(margin[1])/INDENT_STEP:Number(margin[1])/1.5:0,direction=element.getAttribute('dir')??style.direction;

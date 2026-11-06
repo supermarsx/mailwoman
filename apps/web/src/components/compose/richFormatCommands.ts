@@ -7,6 +7,8 @@ import { Selection, TextSelection, type Command, type EditorState, type Transact
 import { liftListItem, sinkListItem, wrapInList } from 'prosemirror-schema-list';
 import { Fragment, type Mark, type Node as PMNode, type NodeType, type ResolvedPos } from 'prosemirror-model';
 import type { EffectKind } from './effects.ts';
+import type { StyleAttrs, StyleBlock, StyleDef, StyleMarks } from './styleModel.ts';
+import { lift, setBlockType, wrapIn } from 'prosemirror-commands';
 import { sortItems, type SortOptions } from './sortModel.ts';
 import {
   DEFAULT_LIST_STYLE,
@@ -37,6 +39,16 @@ function capture(state: EditorState, command: Command): Transaction | null {
 // ---------------------------------------------------------------------------
 // Font size
 // ---------------------------------------------------------------------------
+
+/** The value of a text-style mark (font family, size, colour) at the selection's start, or ''. */
+export function currentMarkValue(state: EditorState, name: string): string {
+  const type = state.schema.marks[name];
+  const { $from, from, empty } = state.selection;
+  if (!type) return '';
+  const marks = empty ? (state.storedMarks ?? $from.marks()) : (state.doc.nodeAt(from)?.marks ?? []);
+  const value = marks.find((mark) => mark.type === type)?.attrs['value'];
+  return typeof value === 'string' ? value : '';
+}
 
 /** The size, in pt, of the text at the selection's start, or null when the text has none of its own. */
 export function currentFontSize(state: EditorState): number | null {
@@ -602,6 +614,121 @@ export function sortSelection(options: SortOptions, onResult?: (outcome: SortOut
     }
     return true;
   };
+}
+
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const MARK_NAMES: Record<keyof StyleMarks, string> = { fontFamily: 'fontFamily', fontSize: 'fontSize', color: 'textColor', bold: 'strong', italic: 'em', underline: 'underline', highlight: 'highlight' };
+
+function inQuote(state: Pick<EditorState, 'selection'>): boolean {
+  const $pos = anchorPos(state);
+  for (let depth = $pos.depth; depth > 0; depth -= 1) if ($pos.node(depth).type.name === 'blockquote') return true;
+  return false;
+}
+
+/** The style id of the paragraph at the selection: the one it was given, else its structure. */
+export function currentStyleId(state: EditorState): string {
+  const $pos = anchorPos(state);
+  const parent = $pos.parent;
+  const given = parent.attrs['styleId'];
+  if (typeof given === 'string' && given !== '') return given;
+  if (parent.type.name === 'code_block') return 'code';
+  if (parent.type.name === 'heading') return `heading${String(parent.attrs['level'])}`;
+  if (inQuote(state)) return 'quote';
+  const preset = parent.attrs['preset'];
+  return typeof preset === 'string' && preset !== '' ? preset : 'normal';
+}
+
+/** Apply a style: the block type, the paragraph look, and the text look of the block (or, for an inline style, of the selection). */
+export function applyStyleDef(def: StyleDef): Command {
+  return (state, dispatch) => {
+    const schema = state.schema;
+    const out = state.tr;
+    let current = state;
+    const run = (command: Command): boolean => {
+      const step = capture(current, command);
+      if (!step) return false;
+      for (const s of step.steps) out.step(s);
+      current = current.apply(step);
+      return true;
+    };
+    const textMarks = (): { from: number; to: number }[] => {
+      const { from, to, empty, $from } = current.selection;
+      if (def.block !== 'inline' && empty && $from.parent.isTextblock) return [{ from: $from.start(), to: $from.end() }];
+      return [{ from, to }];
+    };
+    if (def.block === 'task') {
+      if (!run(applyListStyle('bullet', 'check'))) return false;
+    } else if (def.block !== 'inline') {
+      const { paragraph, heading, code_block: code, blockquote } = schema.nodes;
+      if (def.block === 'quote') {
+        if (!inQuote(current)) run(wrapIn(blockquote!));
+      } else {
+        for (let guard = 0; guard < 4 && inQuote(current); guard += 1) if (!run(lift)) break;
+      }
+      const level = /^h([1-6])$/.exec(def.block);
+      if (level) run(setBlockType(heading!, { level: Number(level[1]), styleId: def.id }));
+      else if (def.block === 'code') run(setBlockType(code!));
+      else run(setBlockType(paragraph!, { styleId: def.id }));
+      // Blocks other than code carry the paragraph look.
+      if (def.block !== 'code') {
+        const attrs: Record<string, unknown> = { align: def.attrs.align ?? null, lineHeight: def.attrs.lineHeight ?? null, before: def.attrs.before ?? null, after: def.attrs.after ?? null, indent: def.attrs.indent ?? 0, preset: null, styleId: def.id };
+        run(setBlockAttrs(attrs, ['text-align', 'line-height', 'margin-top', 'margin-bottom', 'margin-left']));
+      }
+    }
+    if (def.block !== 'code') {
+      const ranges = textMarks();
+      const { from, to } = ranges[0]!;
+      if (def.block === 'inline' && from === to) {
+        const base = (current.storedMarks ?? current.selection.$from.marks()).filter((mark) => !(FORMAT_MARKS as readonly string[]).includes(mark.type.name));
+        const added: Mark[] = [];
+        for (const [key, markName] of Object.entries(MARK_NAMES) as [keyof StyleMarks, string][]) {
+          const type = schema.marks[markName];
+          const value = def.marks[key];
+          if (type && value) added.push(type.create(typeof value === 'string' ? { value } : undefined));
+        }
+        out.setStoredMarks([...base, ...added]);
+      } else {
+        if (def.block !== 'inline') for (const name of FORMAT_MARKS) { const type = schema.marks[name]; if (type) out.removeMark(from, to, type); }
+        for (const [key, markName] of Object.entries(MARK_NAMES) as [keyof StyleMarks, string][]) {
+          const type = schema.marks[markName];
+          const value = def.marks[key];
+          if (type && value) out.addMark(from, to, type.create(typeof value === 'string' ? { value } : undefined));
+        }
+      }
+    }
+    if (!out.docChanged && !out.storedMarksSet) return false;
+    dispatch?.(out.scrollIntoView());
+    return true;
+  };
+}
+
+/** What 'Create style from selection' stores: the block kind, paragraph look and text look at the selection. */
+export function captureStyle(state: EditorState): Omit<StyleDef, 'id'> {
+  const parent = anchorPos(state).parent;
+  const painted = capturePaint(state);
+  const attrs = blockAttrs(state);
+  const block: StyleBlock = parent.type.name === 'heading' ? (`h${String(parent.attrs['level'])}` as StyleBlock) : parent.type.name === 'code_block' ? 'code' : inQuote(state) ? 'quote' : 'p';
+  const marks: StyleMarks = {};
+  for (const mark of painted.marks) {
+    const value = mark.attrs['value'];
+    if (mark.type.name === 'fontFamily' && typeof value === 'string') marks.fontFamily = value;
+    else if (mark.type.name === 'fontSize' && typeof value === 'string') marks.fontSize = value;
+    else if (mark.type.name === 'textColor' && typeof value === 'string') marks.color = value;
+    else if (mark.type.name === 'highlight' && typeof value === 'string') marks.highlight = value;
+    else if (mark.type.name === 'strong') marks.bold = true;
+    else if (mark.type.name === 'em') marks.italic = true;
+    else if (mark.type.name === 'underline') marks.underline = true;
+  }
+  const out: StyleAttrs = {};
+  if (typeof attrs['align'] === 'string') out.align = attrs['align'] as StyleAttrs['align'];
+  if (typeof attrs['lineHeight'] === 'string') out.lineHeight = attrs['lineHeight'];
+  if (typeof attrs['before'] === 'number') out.before = attrs['before'];
+  if (typeof attrs['after'] === 'number') out.after = attrs['after'];
+  if (typeof attrs['indent'] === 'number' && attrs['indent'] > 0) out.indent = attrs['indent'];
+  return { block, attrs: out, marks };
 }
 
 export type { NodeType };
