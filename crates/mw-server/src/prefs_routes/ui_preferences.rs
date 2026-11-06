@@ -153,6 +153,19 @@ pub(super) struct Preferences {
     /// Folders whose subfolders are collapsed in the sidebar tree.
     #[serde(skip_serializing_if = "Option::is_none")]
     folder_collapsed: Option<Vec<String>>,
+    /// Visual parent per folder id (a folder id or "_top"); the arrangement made by drag and drop.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_parent: Option<BTreeMap<String, String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_starred: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_nest_mode: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_reorder_enabled: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_grab_handles: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    folder_new_placement: Option<String>,
 }
 
 #[derive(Clone, Serialize, Deserialize)]
@@ -231,6 +244,16 @@ fn valid(document: &Document) -> bool {
         && valid_ids(&p.folder_hidden)
         && valid_ids(&p.folder_order)
         && valid_ids(&p.folder_collapsed)
+        && valid_ids(&p.folder_starred)
+        && choices(&p.folder_nest_mode, &["ask", "server", "local"])
+        && choices(&p.folder_grab_handles, &["hover", "always"])
+        && choices(&p.folder_new_placement, &["end", "alphabetical"])
+        && p.folder_parent.as_ref().is_none_or(|parents| {
+            parents.len() <= 500
+                && parents
+                    .iter()
+                    .all(|(id, parent)| valid_id(id) && valid_id(parent) && id != parent)
+        })
         && p.folder_sort.as_ref().is_none_or(|sorts| {
             sorts.len() <= 500
                 && sorts.iter().all(|(id, sort)| {
@@ -430,6 +453,12 @@ mod tests {
             ));
         }
         assert!(valid(
+            json!({"folderParent":{"a":"a"}}),
+            json!({"folderParent":{"":"b"}}),
+            json!({"folderStarred":["a","a"]}),
+            json!({"folderNestMode":"always"}),
+            json!({"folderGrabHandles":"never"}),
+            json!({"folderNewPlacement":"random"}),
             &serde_json::from_value(
                 json!({"version":1,"preferences":{"folderIcons":{"a":"star"},"markRead":"never","folderSort":{"_top":{"by":"unread","dir":"desc"},"a":{"by":"custom","dir":"asc"}},"folderCollapsed":["a"]}})
             )
@@ -438,3 +467,6 @@ mod tests {
         assert!(valid(&serde_json::from_value(json!({"version":1,"preferences":{"tags":{"work":{"name":"Trabalho","color":"#112233","icon":"tag"}}}})).unwrap()));
     }
 }
+        assert!(valid(
+            &serde_json::from_value(json!({"version":1,"preferences":{"folderParent":{"a":"_top","b":"c"},"folderStarred":["a"],"folderNestMode":"local","folderReorderEnabled":false,"folderGrabHandles":"always","folderNewPlacement":"alphabetical"}})).unwrap()
+        ));
