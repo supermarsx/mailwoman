@@ -50,3 +50,7 @@ sharing-right-e-label = Endgültig entfernen
 sharing-right-e-desc = Als gelöscht markierte Nachrichten dauerhaft entfernen.
 sharing-right-a-label = Verwalten
 sharing-right-a-desc = Ändern, wer Zugriff auf dieses Postfach hat.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+sharing-unsupported = Dieser Mailserver unterstützt keine Ordnerfreigabe.
+sharing-forbidden = Sie dürfen die Freigabe dieses Ordners nicht verwalten. Wenden Sie sich an die Besitzerin oder den Besitzer bzw. die Administration.
