@@ -1,0 +1,65 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: uk · Module: search. Source: ../en/search.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+search-submit-help = Шукати (Enter)
+search-clear-help = Очистити пошук (Esc)
+search-filters-label = Фільтри пошуку
+search-guided-button = Фільтри
+search-guided-title = Пошук із підказками
+search-guided-help = Виберіть, кого, що або коли шукати. Додайте фільтри, щоб звузити результати.
+search-include-trash = Враховувати кошик
+search-add-filter = Додати фільтр
+search-chip-edit = Змінити фільтр: { $label }
+search-chip-switch = Перемкнути фільтр: { $label }
+search-chip-remove = Вилучити фільтр: { $label }
+search-chip-negated = не { $value }
+search-field-from = Від
+search-field-to = Кому
+search-field-cc = Копія
+search-field-subject = Тема
+search-field-body = Текст
+search-field-text = Текст
+search-field-filename = Назва файлу
+search-field-tag = Мітка
+search-field-date = Дата
+search-field-size = Розмір
+search-field-scope = Тека
+search-field-expression = Вираз
+search-field-other = Фільтр
+search-chip-attachment = Є вкладення
+search-chip-no-attachment = Немає вкладення
+search-chip-event = Є подія
+search-chip-no-event = Немає події
+search-chip-unread = Непрочитані
+search-chip-read = Прочитані
+search-chip-flagged = З прапорцем
+search-chip-unflagged = Без прапорця
+search-chip-pinned = Закріплені
+search-chip-unpinned = Не закріплені
+search-date-after = Після
+search-date-before = До
+search-date-between = { $after } – { $before }
+search-date-since = з { $date }
+search-date-until = до { $date }
+search-date-invalid = Введіть дати у форматі РРРР-ММ-ДД.
+search-size-larger = Більше ніж
+search-size-smaller = Менше ніж
+search-size-hint = Наприклад, 500k або 2m
+search-size-between = { $larger } – { $smaller }
+search-size-over = понад { $size }
+search-size-under = менше ніж { $size }
+search-size-invalid = Введіть розмір, наприклад 500k, 2m або 1g.
+search-scope-all = Усі теки
+search-scope-current = Поточна тека ({ $name })
+search-exclude = Виключити збіги
+search-apply = Застосувати
+search-cancel = Скасувати
+search-remove = Вилучити
+search-refine-menu = Шукати пов’язані повідомлення
+search-refine-sender = Шукати повідомлення від цього відправника
+search-refine-subject = Шукати повідомлення з цією темою
+search-refine-folder = Шукати в цій теці
+search-refine-domain = Шукати повідомлення з цього домену
+search-include-trash-scoped = Параметр «Враховувати кошик» діє під час пошуку в усіх теках. Вибрана тека переглядається безпосередньо.
