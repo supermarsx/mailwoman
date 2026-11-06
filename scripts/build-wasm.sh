@@ -4,7 +4,7 @@
 # Compiles `mw-crypto` to `wasm32-unknown-unknown` via wasm-pack (target `web`) into
 # `apps/web/src/wasm/mw-crypto`, where the crypto Web Worker
 # (`apps/web/src/crypto/worker.entry.ts`) imports the wasm-pack glue + module
-# (loaded via `vite-plugin-wasm` + `vite-plugin-top-level-await`, off the
+# (loaded via `vite-plugin-wasm`, off the
 # login→inbox critical path — plan risk #12).
 #
 # e0 scaffolded this; e1 filled the crypto; e8 wired the worker; e8b (this) added the

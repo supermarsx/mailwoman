@@ -2,7 +2,6 @@ import { defineConfig } from 'vitest/config';
 import solid from 'vite-plugin-solid';
 import { vanillaExtractPlugin } from '@vanilla-extract/vite-plugin';
 import wasm from 'vite-plugin-wasm';
-import topLevelAwait from 'vite-plugin-top-level-await';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve, sep } from 'node:path';
@@ -131,14 +130,17 @@ export default defineConfig({
   // (plan §2.3, e4). The hand-rolled Service Worker (e5) ships as `public/sw.js`,
   // copied verbatim into `dist/` — no bundling step needed for it.
   //
-  // V4 (plan §2.5): `vite-plugin-wasm` + `vite-plugin-top-level-await` let the
+  // V4 (plan §2.5): `vite-plugin-wasm` lets the
   // crypto Web Worker import the wasm-pack `mw-crypto` (+ `mw-sanitize`) bundle
   // that e8 builds into `src/wasm/` via `scripts/build-wasm.*`. Added now so e8's
   // dynamic `import()` of the wasm module resolves; inert until that bundle exists.
-  plugins: [solid(), vanillaExtractPlugin(), wasm(), topLevelAwait(), bundledPackages({ main: true }), bootScript(), assetIntegrity()],
+  // Top-level await in the wasm modules is native (target es2022) and the workers are built as
+  // ES modules (`worker.format`), so there is no `vite-plugin-top-level-await`: it re-printed each
+  // chunk after its source map was written and misaligned every hidden map (docs/admin/observability.md).
+  plugins: [solid(), vanillaExtractPlugin(), wasm(), bundledPackages({ main: true }), bootScript(), assetIntegrity()],
   // t32-e75: the bundle recorder also sees the worker builds; the main instance writes
   // node_modules/.cache/mailwoman-about/bundled-packages.json for the third-party list.
-  worker: { plugins: () => [bundledPackages()] },
+  worker: { format: 'es', plugins: () => [bundledPackages()] },
   server: {
     port: 5173,
     proxy: {
