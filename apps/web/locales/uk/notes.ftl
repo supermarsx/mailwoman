@@ -61,3 +61,9 @@ notes-link-button = Пов'язати
 notes-changed-elsewhere = Цю нотатку змінено на іншому пристрої або в іншому сеансі. Введений тут текст збережено, і наступне редагування його запише.
 notes-deleted-elsewhere = Відкриту нотатку видалено на іншому пристрої або в іншому сеансі.
 notes-create-failed = Не вдалося створити нотатку.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = Не вдалося створити нотатку. { $reason }
+notes-toast-pinned = Нотатку «{ $target }» закріплено
+notes-toast-unpinned = Нотатку «{ $target }» відкріплено
+notes-toast-pin-failed = Не вдалося змінити закріплення нотатки «{ $target }»

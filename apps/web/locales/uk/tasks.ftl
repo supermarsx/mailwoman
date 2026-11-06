@@ -39,3 +39,6 @@ tasks-delete-no = Залишити завдання
 tasks-changed-elsewhere = Це завдання змінено на іншому пристрої або в іншому сеансі. Ваші зміни збережено; «Зберегти» застосує лише змінені вами поля.
 tasks-deleted-elsewhere = «{ $title }» видалено на іншому пристрої або в іншому сеансі, тому форму редагування закрито.
 tasks-notice-dismiss = Закрити
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = Не вдалося створити завдання. { $reason }
