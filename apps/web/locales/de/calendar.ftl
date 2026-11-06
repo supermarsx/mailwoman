@@ -232,3 +232,167 @@ calendar-share-access-for = Zugriff für { $principal }
 calendar-share-remove = { $principal } entfernen
 calendar-share-read = Nur lesen
 calendar-share-readwrite = Lesen & schreiben
+
+# -- Machine translation (2026-11): added to match en ---------------------
+calendar-mini = Datumsnavigation
+calendar-event-range = { $title }, { $start } bis { $end }
+calendar-busy-free = Wird als frei angezeigt
+calendar-event-with-status = { $event } ({ $status })
+calendar-more-label = { $count ->
+    [one] { $count } weiterer Termin
+   *[other] { $count } weitere Termine
+  } am { $date }
+calendar-fb-caption-people = Belegte Zeiten am Tag des Konflikts, nach Stunde, für Sie und jede eingeladene Person.
+calendar-fb-unknown = Die Verfügbarkeit von { $principal } konnte nicht abgerufen werden.
+calendar-fb-loading = Verfügbarkeit wird geladen …
+calendar-import-itip-message = Diese Datei ist eine per E-Mail gesendete Antwort oder Absage. Öffnen Sie die zugehörige Nachricht, um sie anzuwenden. Es wurde nichts importiert.
+calendar-import-skipped = { $count ->
+    [one] { $count } Termin war bereits im Kalender und blieb unverändert.
+   *[other] { $count } Termine waren bereits im Kalender und blieben unverändert.
+    }
+calendar-invite-title = Kalendereinladung
+calendar-invite-sender = Von { $sender }
+calendar-invite-add = Zum Kalender hinzufügen
+calendar-invite-update = Terminaktualisierung anwenden
+calendar-invite-cancel = Absage anwenden
+calendar-invite-reply = Antwort des Teilnehmers erfassen
+calendar-invite-new = Diese Einladung kann zu Ihrem Kalender hinzugefügt werden.
+calendar-invite-newer = Der Organisator hat einen aktualisierten Termin gesendet.
+calendar-invite-current = Ihr Kalender enthält bereits diese Version.
+calendar-invite-stale = Diese Nachricht ist älter als der Termin in Ihrem Kalender.
+calendar-invite-cancelled = Der Organisator hat diesen Termin abgesagt.
+calendar-invite-response = Ein Teilnehmer hat geantwortet.
+calendar-invite-not-organizer = Der Absender ist nicht der gespeicherte Organisator. Es wird nichts geändert.
+calendar-invite-not-attendee = Der Absender ist kein passender Teilnehmer. Es wird nichts geändert.
+calendar-invite-unknown = Diese Nachricht bezieht sich auf einen Termin, der nicht in Ihrem Kalender ist.
+calendar-invite-unsupported = Dieser Vorschlag kann nicht automatisch angewendet werden.
+calendar-invite-no-reply = Dadurch wird Ihr Kalender aktualisiert, ohne eine Antwort zu senden.
+calendar-invite-applied = Ihr Kalender wurde aktualisiert.
+calendar-invite-unchanged = Der Termin wurde nicht geändert. Prüfen Sie den aktuellen Status der Einladung.
+calendar-invite-apply-failed = Die Einladung konnte nicht angewendet werden. Versuchen Sie es erneut.
+calendar-invite-load-failed = Die Einladung konnte nicht geprüft werden.
+calendar-invite-retry = Erneut versuchen
+calendar-field-time-zone = Zeitzone des Termins
+calendar-field-time-zone-help = Verwenden Sie einen IANA-Namen wie Europe/Lisbon. Der Termin behält diese Zeitzone, wenn er an anderer Stelle angezeigt wird.
+calendar-time-invalid = Geben Sie eine gültige Zeitzone und Ortszeit ein. Manche Ortszeiten existieren nicht, wenn die Uhr vorgestellt wird.
+calendar-mini-prev = Vorheriger Monat
+calendar-mini-next = Nächster Monat
+calendar-card-region-event = Kalendertermin
+calendar-card-kind-request = Besprechungseinladung
+calendar-card-kind-update = Aktualisierte Einladung
+calendar-card-kind-cancel = Abgesagte Besprechung
+calendar-card-kind-reply = Antwort auf die Besprechung
+calendar-card-kind-counter = Neue Zeit vorgeschlagen
+calendar-card-kind-publish = { $count ->
+    [one] Kalendertermin
+   *[other] { $count } Kalendertermine
+    }
+calendar-card-when = Wann
+calendar-card-where = Wo
+calendar-card-organizer = Organisator
+calendar-card-attendees = Teilnehmer
+calendar-card-all-day = { $when } (ganztägig)
+calendar-card-organizer-time = Zeit des Organisators: { $when } ({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [one] Jeden Tag
+   *[other] Alle { $interval } Tage
+    }
+calendar-card-repeat-weekly = { $interval ->
+    [one] Jede Woche
+   *[other] Alle { $interval } Wochen
+    }
+calendar-card-repeat-weekly-on = { $interval ->
+    [one] Jede Woche: { $days }
+   *[other] Alle { $interval } Wochen: { $days }
+    }
+calendar-card-repeat-monthly = { $interval ->
+    [one] Jeden Monat
+   *[other] Alle { $interval } Monate
+    }
+calendar-card-repeat-monthly-day = { $interval ->
+    [one] Jeden Monat am { $day }.
+   *[other] Alle { $interval } Monate am { $day }.
+    }
+calendar-card-repeat-yearly = { $interval ->
+    [one] Jedes Jahr
+   *[other] Alle { $interval } Jahre
+    }
+calendar-card-repeat-until = { $rule } bis { $date }
+calendar-card-repeat-count = { $rule }, { $count ->
+    [one] einmal
+   *[other] { $count }-mal
+    }
+calendar-card-repeat-except = { $rule } ({ $count ->
+    [one] 1 Termin ausgelassen
+   *[other] { $count } Termine ausgelassen
+    })
+calendar-card-repeat-custom = Wiederholt sich nach einem benutzerdefinierten Zeitplan
+calendar-card-join = { $provider } beitreten
+calendar-card-organizer-is = Organisiert von { $who }
+calendar-card-attendee-summary = { $count ->
+    [one] 1 Teilnehmer
+   *[other] { $count } Teilnehmer
+    }
+calendar-card-people-all = Alle { $count } anzeigen
+calendar-card-people-fewer = Weniger anzeigen
+calendar-card-rsvp-accepted = Zugesagt
+calendar-card-rsvp-tentative = Vorläufig
+calendar-card-rsvp-declined = Abgelehnt
+calendar-card-rsvp-none = Noch keine Antwort
+calendar-card-in-calendar = In Ihrem Kalender
+calendar-card-cancelled = Abgesagt
+calendar-card-open = Im Kalender öffnen
+calendar-card-agenda = Ihr Kalender am { $day }
+calendar-card-agenda-title = Ihr Tag
+calendar-card-agenda-this-event = Dieser Termin
+calendar-card-agenda-unavailable = Ihr Kalender für diesen Tag konnte nicht geladen werden.
+calendar-card-conflicts = { $count ->
+    [one] Überschneidung mit { $titles }
+   *[other] Überschneidung mit { $count } Terminen: { $titles }
+    }
+calendar-card-no-conflicts = Keine Überschneidungen in Ihrem Kalender
+calendar-card-invited-as = Sie wurden als { $address } eingeladen.
+calendar-card-not-invited = In dieser Einladung ist keine Ihrer Adressen aufgeführt. Sie können sie zu Ihrem Kalender hinzufügen, aber nicht beantworten.
+calendar-card-not-invited-short = In dieser Einladung ist keine Ihrer Adressen aufgeführt.
+calendar-card-out-of-date = Diese Einladung ist veraltet. Eine neuere Version ist bereits in Ihrem Kalender.
+calendar-card-replied = { $who } { $answer ->
+    [accepted] hat zugesagt.
+    [tentative] hat vorläufig zugesagt.
+    [declined] hat abgelehnt.
+   *[other] hat noch nicht geantwortet.
+    }
+calendar-card-counter = { $who } hat eine neue Zeit vorgeschlagen. Vorschläge werden nicht automatisch angewendet.
+calendar-card-todos-skipped = { $count ->
+    [one] Die Datei enthält außerdem 1 Aufgabe, die nicht hinzugefügt wird.
+   *[other] Die Datei enthält außerdem { $count } Aufgaben, die nicht hinzugefügt werden.
+    }
+calendar-card-respond = Auf die Einladung antworten
+calendar-card-accept = Annehmen
+calendar-card-tentative = Vorläufig
+calendar-card-decline = Ablehnen
+calendar-card-propose = Neue Zeit vorschlagen
+calendar-card-propose-start = Neuer Beginn
+calendar-card-propose-send = Vorschlag senden
+calendar-card-propose-invalid = Geben Sie eine gültige neue Startzeit ein.
+calendar-card-send-response = Antwort an { $organizer } senden
+calendar-card-comment = Kommentar (optional)
+calendar-card-calendar = Kalender
+calendar-card-events = Termine in dieser Datei
+calendar-card-add-one = Hinzufügen
+calendar-card-add-all = Alle hinzufügen ({ $count })
+calendar-card-added = { $count ->
+    [one] Zu Ihrem Kalender hinzugefügt.
+   *[other] { $count } Termine zu Ihrem Kalender hinzugefügt.
+    }
+calendar-card-remove = Aus Kalender entfernen
+calendar-card-removed = Aus Ihrem Kalender entfernt.
+calendar-card-record-reply = Teilnehmerstatus aktualisieren
+calendar-card-answered-sent = { $answer }. Ihre Antwort wurde an { $organizer } gesendet.
+calendar-card-answered-not-sent = { $answer }. Ihr Kalender wurde aktualisiert, die Antwort konnte aber nicht gesendet werden.
+calendar-card-answered-silently = { $answer }. Es wurde keine Antwort gesendet.
+calendar-card-proposal-sent = Ihr Vorschlag wurde an { $organizer } gesendet.
+calendar-card-not-sent = Die Nachricht konnte nicht gesendet werden.
+calendar-card-more = { $count ->
+    [one] 1 weiterer
+   *[other] { $count } weitere
+    }
