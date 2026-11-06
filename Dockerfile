@@ -66,7 +66,7 @@ FROM rust:1.98.1-bookworm@sha256:93ce27a88655056a51dbdd8f5f2d7ddc071c7b0070fb288
 WORKDIR /src
 # Keep optimized workspace intermediates in the existing persistent target cache.
 # Explicit 16 units preserves the release profile's previous codegen partitioning.
-ARG MW_CARGO_INCREMENTAL=1
+ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=
 ARG TARGETPLATFORM
 # Select the already-installed compiler explicitly. Otherwise rustup reads the
@@ -79,7 +79,7 @@ COPY --from=rust-source /src/ /src/
 # Cache the cargo registry and target dir across builds; copy the finished
 # binaries OUT of the (non-persisted) cache mount so later stages can COPY them.
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=mailwoman-target-gnu-${TARGETPLATFORM},target=/src/target,sharing=locked \
+    --mount=type=cache,id=mailwoman-target-gnu-ni-${TARGETPLATFORM},target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
     && cargo build --locked --release --bin mailwoman --bin mw-render --bin mw-mock-jmap \
     && mkdir -p /out /data-empty \
@@ -146,7 +146,7 @@ FROM rust:1.98.1-alpine@sha256:7cc1c22d77d9432f7fe012a70e6d3e555af54c2a6832700ed
 # root bundle copied into the scratch image for rustls upstream TLS.
 RUN apk add --no-cache build-base ca-certificates
 WORKDIR /src
-ARG MW_CARGO_INCREMENTAL=1
+ARG MW_CARGO_INCREMENTAL=0
 ARG MW_BUILD_JOBS=
 ENV RUSTFLAGS="-C target-feature=+crt-static" \
     RUSTUP_TOOLCHAIN=1.98.1 \
@@ -158,7 +158,7 @@ RUN printf 'nonroot:x:65532:65532:nonroot:/data:/sbin/nologin\n' > /etc/mw-passw
     && printf 'nonroot:x:65532:\n' > /etc/mw-group \
     && mkdir -p /data-empty /tmp-empty
 RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,id=/src/target,target=/src/target,sharing=locked \
+    --mount=type=cache,id=mailwoman-target-musl-ni,target=/src/target,sharing=locked \
     if [ -n "$MW_BUILD_JOBS" ]; then export CARGO_BUILD_JOBS="$MW_BUILD_JOBS"; fi \
     && cargo build --locked --release --target x86_64-unknown-linux-musl \
         --bin mailwoman --bin mw-render \

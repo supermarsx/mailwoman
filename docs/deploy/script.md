@@ -39,19 +39,19 @@ unsaved changes). `index.html` is always sent with `Cache-Control: no-cache`, so
 new tab gets the new build. Add `MW_RETAINED_ASSETS_DIR=off` to `app.env` to disable retention; deploy.sh
 needs no other setting for it.
 
-Docker Rust builds enable incremental compilation for workspace/path crates in
-its persistent target cache. Optimization remains release level3 with16 codegen
-units, overflow checks and stripping unchanged. The first build after enabling
-this has to create incremental state; benefits apply to subsequent Rust changes,
-not a cold build. Cache storage grows. Keep the same builder and avoid pruning
-its cache between deploys. Use `--no-incremental` to disable this for a build;
-switching modes can itself require recompilation.
+Docker Rust builds compile non-incrementally by default. Incremental release
+builds in a reused target cache left mw-mime objects that referenced generic
+instantiations missing from the freshly built crates, so the musl link failed
+with undefined references. Pass `--incremental` to opt in; the cache ids carry
+an `-ni` suffix so a cache poisoned by earlier incremental builds is not reused.
+Optimization remains release level 3 with 16 codegen units, overflow checks and
+stripping unchanged.
 
 `sh deploy.sh deploy --build-jobs 4` limits Cargo's concurrent jobs if compilation
 exhausts memory or causes swapping. Without it Cargo chooses concurrency from
 available CPUs. This is separate from `CPU_LIMIT`/`MEMORY_LIMIT`, which limit the
 running app. The corresponding direct Docker build arguments are
-`MW_BUILD_JOBS=4` and `MW_CARGO_INCREMENTAL=0` (default1).
+`MW_BUILD_JOBS=4` and `MW_CARGO_INCREMENTAL=1` to opt in (default 0).
 No build-time reduction is promised without measuring on the deployment host.
 
 GNU/distroless and musl/static builds use separate target caches. Their build

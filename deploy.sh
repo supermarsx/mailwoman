@@ -52,7 +52,7 @@ IMAGE=
 PULL=false
 NO_BUILD=false
 BUILD_JOBS=
-BUILD_INCREMENTAL=1
+BUILD_INCREMENTAL=0
 AUTO_ROLLBACK=true
 REQUIRE_SIGNATURE=false
 DRY_RUN=false
@@ -131,7 +131,8 @@ Options:
                     cosign, or used from the local image store without --pull)
   --no-build        Reuse the last applied app image (configuration-only deploy)
   --build-jobs N    Limit concurrent Cargo jobs (default: Cargo auto-detects CPUs)
-  --no-incremental Disable cached incremental Rust compilation for this build
+  --incremental     Opt in to cached incremental Rust compilation (off by default: stale incremental state in a reused target cache caused link failures)
+  --no-incremental  Force incremental compilation off (the default)
   --no-pull         Deploy the current checkout without updating Git
   --no-auto-rollback
                     Leave a failed update in place instead of restoring the
@@ -248,6 +249,7 @@ while (($#)); do
         --require-signature) REQUIRE_SIGNATURE=true ;;
         --no-build) NO_BUILD=true ;;
         --build-jobs) need_value "$@"; BUILD_JOBS=$2; shift ;;
+        --incremental) BUILD_INCREMENTAL=1 ;;
         --no-incremental) BUILD_INCREMENTAL=0 ;;
         --no-pull) GIT_PULL=false ;;
         --no-auto-rollback) AUTO_ROLLBACK=false ;;
