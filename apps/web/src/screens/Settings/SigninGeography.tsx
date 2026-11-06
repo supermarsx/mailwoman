@@ -3,7 +3,10 @@ import { apiFetch } from '../../api/http.ts';
 import { basePath } from '../../api/basePath.ts';
 import { fetchSettings, putSetting, SettingsApiError } from '../../api/settings.ts';
 import { t } from '../../i18n';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
+
 
 const MODE = 'security.signin.accountGeoMode';
 const COUNTRIES = 'security.signin.accountGeoAllowCountries';
@@ -93,9 +96,7 @@ export function SigninGeography(): JSX.Element {
     }
   }
   return (
-    <section class={css.section} aria-label={t('signin-geo-title')}>
-      <h3 class={css.subheading}>{t('signin-geo-title')}</h3>
-      <p class={css.prose}>{t('signin-geo-help')}</p>
+    <SettingsCard id="signin-geo-card" title={t('signin-geo-title')} description={t('signin-geo-help')}>
       <p class={css.prose} role="note" data-testid="signin-geo-notice">
         {t('signin-geo-accuracy')}
       </p>
@@ -103,22 +104,19 @@ export function SigninGeography(): JSX.Element {
         <Show when={locked()}>
           <p class={css.prose}>{t('signin-geo-locked')}</p>
         </Show>
-        <label class={css.field}>
-          {t('signin-geo-mode')}
-          <select class={css.input} disabled={locked()} value={currentMode()} onChange={(e) => setMode(e.currentTarget.value)}>
+        <ControlRow controlId="signin-geo-mode" label={t('signin-geo-mode')}>{() =>
+          <select id="signin-geo-mode" class={css.input} disabled={locked()} value={currentMode()} onChange={(e) => setMode(e.currentTarget.value)}>
             {MODES.map((m) => (
               <option value={m}>{t(`signin-geo-mode-${m}`)}</option>
             ))}
           </select>
-        </label>
-        <label class={css.field}>
-          {t('signin-geo-countries')}
-          <input class={css.input} value={currentCountries()} placeholder="PT, ES" onInput={(e) => setCountries(e.currentTarget.value)} />
-        </label>
-        <label class={css.field}>
-          {t('signin-geo-ips')}
-          <textarea class={css.input} rows={3} value={currentIps()} placeholder="203.0.113.0/24" onInput={(e) => setIps(e.currentTarget.value)} />
-        </label>
+        }</ControlRow>
+        <ControlRow controlId="signin-geo-countries" label={t('signin-geo-countries')}>{() =>
+          <input id="signin-geo-countries" class={css.input} value={currentCountries()} placeholder="PT, ES" onInput={(e) => setCountries(e.currentTarget.value)} />
+        }</ControlRow>
+        <ControlRow controlId="signin-geo-ips" stacked label={t('signin-geo-ips')}>{() =>
+          <textarea id="signin-geo-ips" class={css.input} rows={3} value={currentIps()} placeholder="203.0.113.0/24" onInput={(e) => setIps(e.currentTarget.value)} />
+        }</ControlRow>
         <p class={css.meta}>
           {data()?.context?.ip ? t('signin-geo-current', { ip: data()!.context!.ip!, country: data()!.context!.country ?? t('signin-geo-unknown-country') }) : t('signin-geo-no-context')}
         </p>
@@ -157,7 +155,7 @@ export function SigninGeography(): JSX.Element {
           )}
         </Show>
       </Show>
-    </section>
+    </SettingsCard>
   );
 }
 export default SigninGeography;

@@ -2,8 +2,9 @@ import { style, globalStyle } from '@vanilla-extract/css';
 import { vars } from '../../theme/contract.css.ts';
 export const wrap = style({ inlineSize: '100%', minInlineSize: 0, overflowX: 'auto', border: `${vars.border.rule} solid ${vars.color.borderStrong}` });
 export const table = style({ inlineSize: '100%', borderCollapse: 'collapse', textAlign: 'start' });
-globalStyle(`${table} th, ${table} td`, { padding: vars.space[5], borderBlockEnd: `1px solid ${vars.color.border}`, verticalAlign: 'top', overflowWrap: 'anywhere', minInlineSize: '8rem', maxInlineSize: '22rem' });
-globalStyle(`${table} caption`, { textAlign: 'start', padding: vars.space[5], fontWeight: 700 });
+globalStyle(`${table} th, ${table} td`, { padding: `${vars.space[2]} ${vars.space[3]}`, borderBlockEnd: `1px solid ${vars.color.border}`, verticalAlign: 'top', overflowWrap: 'anywhere', minInlineSize: '6rem', maxInlineSize: '22rem', fontSize: '0.85rem' });
+// The card title already names the table; the caption stays for assistive technology.
+globalStyle(`${table} caption`, { position: 'absolute', inlineSize: '1px', blockSize: '1px', overflow: 'hidden', clipPath: 'inset(50%)', whiteSpace: 'nowrap' });
 globalStyle(`${table} td:last-child`, { textAlign: 'end' });
 globalStyle(`${table} th:first-child, ${table} td:first-child`, { minInlineSize:'3rem',inlineSize:'3rem',maxInlineSize:'3rem' });
 

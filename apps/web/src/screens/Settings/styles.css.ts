@@ -196,10 +196,11 @@ export const option = style({
 
 export const options = style({ display: 'flex', gap: vars.space[2], flexWrap: 'wrap' });
 
+// Compact list rows (identities, signatures, sessions, devices, rules): one
+// ruled line per entry instead of a boxed tile, with small inline actions.
 export const list = style({
   display: 'flex',
   flexDirection: 'column',
-  gap: vars.space[2],
   margin: 0,
   padding: 0,
   listStyle: 'none',
@@ -209,15 +210,17 @@ export const item = style({
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
-  gap: vars.space[3],
-  padding: vars.space[3],
-  borderRadius: vars.radius.md,
-  border: `${vars.border.hair} solid ${vars.color.border}`,
-  background: vars.color.bg,
+  gap: `${vars.space[1]} ${vars.space[3]}`,
+  paddingBlock: vars.space[2],
+  paddingInline: 0,
+  borderBlockEnd: `${vars.border.hair} solid ${vars.color.border}`,
+  background: 'transparent',
   flexWrap: 'wrap',
+  minBlockSize: '2.75rem',
+  selectors: { '&:last-child': { borderBlockEnd: 0 } },
 });
 
-export const itemMain = style({ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '10rem' });
+export const itemMain = style({ display: 'flex', flexDirection: 'column', gap: '2px', minWidth: '10rem', flex: '1 1 12rem' });
 export const itemName = style({ fontSize: '0.9rem', fontWeight: 600 });
 
 // Status tags and key bindings (`<kbd>`), so the text case is left alone.
@@ -394,3 +397,10 @@ globalStyle(`${options}:has(> label)`, { columnGap: vars.space[5], rowGap: vars.
 
 // A fieldset used only to disable a group of fields at once: no frame of its own.
 export const bareFieldset = style({ border: 'none', padding: 0, margin: 0 });
+
+// Actions of a list row are small, wrap under the text on a narrow card.
+globalStyle(`${item} > ${actions}`, { gap: vars.space[1], flex: '0 1 auto', justifyContent: 'flex-end' });
+globalStyle(`${item} > ${actions} > button`, {
+  minBlockSize: '1.75rem', paddingBlock: '2px', paddingInline: vars.space[2], fontSize: '0.8rem',
+  '@media': { '(pointer: coarse)': { minBlockSize: vars.a11y.touchTarget } },
+});

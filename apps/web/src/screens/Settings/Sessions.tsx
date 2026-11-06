@@ -15,7 +15,10 @@ import { Icon } from '../../components/Icon.tsx';
 import {revokeSessionBatch} from '../../api/sessionRevocation.ts';
 import {SessionRevokeConfirm} from './SessionRevokeConfirm.tsx';
 import * as table from './sessions.css.ts';
+import { SettingsCard } from './layout/SettingsCard.tsx';
+import * as kit from './layout/layout.css.ts';
 import * as css from './styles.css.ts';
+
 
 export interface SessionsProps {
   service?: SettingsService;
@@ -82,13 +85,11 @@ export function Sessions(props: SessionsProps): JSX.Element {
   }
 
   return (
-    <section class={css.section} aria-label={t('settings-sessions-title')}>
-      <h2 class={css.heading}>{t('settings-sessions-title')}</h2>
-      <p class={css.prose}>{t('settings-sessions-intro')}</p>
-
-      <label class={css.field}>{t('settings-sessions-search')}<input class={css.input} type="search" value={query()} onInput={(event) => {setQuery(event.currentTarget.value);setSelected(new Set<string>());}} /></label>
-      <p class={css.prose}>{t('settings-sessions-current-protected')}</p>
-      <div class={css.actions}><label><input type="checkbox" aria-label={t('settings-sessions-select-visible')} checked={eligible().length>0&&chosen().length===eligible().length} disabled={busy()||eligible().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(eligible().map(row=>row.handle)):new Set<string>())}/>{t('settings-sessions-select-visible')}</label><button class={css.danger} disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('settings-sessions-selected-title',{count:chosen().length})}</button></div>
+    <SettingsCard id="sessions-card" wide title={t('settings-sessions-title')} description={t('settings-sessions-intro')}>
+      <div class={kit.toolRow}>
+      <label class={kit.inlineField}>{t('settings-sessions-search')}<input class={css.input} type="search" value={query()} onInput={(event) => {setQuery(event.currentTarget.value);setSelected(new Set<string>());}} /></label>
+      <label><input type="checkbox" aria-label={t('settings-sessions-select-visible')} checked={eligible().length>0&&chosen().length===eligible().length} disabled={busy()||eligible().length===0} onChange={event=>setSelected(event.currentTarget.checked?new Set(eligible().map(row=>row.handle)):new Set<string>())}/>{t('settings-sessions-select-visible')}</label><button class={css.danger} disabled={busy()||chosen().length===0} onClick={()=>setBatch(chosen())}>{t('settings-sessions-selected-title',{count:chosen().length})}</button></div>
+      <p class={css.meta}>{t('settings-sessions-current-protected')}</p>
       <Show when={result()}>{value=><p role={value().problem?'alert':'status'}>{value().text}</p>}</Show>
       <Show when={sessions.error}><AsyncError message={t('settings-sessions-error')} onRetry={()=>{void refetch();}}/></Show>
       <Show when={sessions.loading}><AsyncPending variant={loaded().length?'status':'table'}/></Show>
@@ -113,7 +114,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
         </div>
       </Show>
       <Show when={batch()}>{rows=><SessionRevokeConfirm count={rows().length} busy={busy()} onCancel={()=>setBatch(undefined)} onConfirm={revokeSelected}/>}</Show>
-    </section>
+    </SettingsCard>
   );
 }
 

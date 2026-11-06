@@ -11,7 +11,10 @@ import {
   knownKind,
   noticeDate,
 } from './sessionAlertsModel.ts';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
+
 
 const COUNTRY = 'security.alerts.countryChange';
 const CHANNELS = 'security.alerts.channels';
@@ -98,9 +101,8 @@ export function SessionAlerts(props: SessionAlertsProps): JSX.Element {
       : '';
 
   return (
-    <section class={css.section} aria-label={t('session-alerts-title')} data-testid="session-alerts">
-      <h3 class={css.subheading}>{t('session-alerts-title')}</h3>
-      <p class={css.prose}>{t('session-alerts-help')}</p>
+    <>
+    <SettingsCard id="session-alerts-card" title={t('session-alerts-title')} description={t('session-alerts-help')} testId="session-alerts">
       <Show when={revoked()}>
         <p class={css.prose} role="status" data-testid="session-alerts-revoked">
           {t('session-alerts-revoked')}
@@ -154,37 +156,31 @@ export function SessionAlerts(props: SessionAlertsProps): JSX.Element {
         </Show>
       </Show>
 
-      <h4 class={css.subheading}>{t('session-alerts-prefs')}</h4>
+    </SettingsCard>
+
+    <SettingsCard id="session-alerts-prefs-card" title={t('session-alerts-prefs')}>
       <Show when={prefs()}>
-        <label class={css.field}>
-          <span>
-            <input
-              type="checkbox"
-              disabled={busy() || locked(COUNTRY)}
-              checked={entry(COUNTRY)?.value !== false}
-              aria-describedby="session-alerts-country-note"
-              onChange={(e) => void write(COUNTRY, e.currentTarget.checked)}
-            />{' '}
-            {t('session-alerts-country')}
-          </span>
-        </label>
-        <LockNote locked={locked(COUNTRY)} id="session-alerts-country-note" />
-        <p class={css.meta}>{t('session-alerts-country-help')}</p>
+        <ControlRow controlId="session-alerts-country" label={t('session-alerts-country')} help={t('session-alerts-country-help')} note={<LockNote locked={locked(COUNTRY)} id="session-alerts-country-note" />}>{(describedBy) =>
+          <input
+            id="session-alerts-country"
+            type="checkbox"
+            disabled={busy() || locked(COUNTRY)}
+            checked={entry(COUNTRY)?.value !== false}
+            aria-describedby={`${describedBy()} session-alerts-country-note`}
+            onChange={(e) => void write(COUNTRY, e.currentTarget.checked)}
+          />
+        }</ControlRow>
         <p class={css.meta}>{t('session-alerts-caveat')}</p>
-        <label class={css.field}>
-          {t('session-alerts-channels')}
-          <select class={css.input} disabled={busy() || locked(CHANNELS)} value={String(entry(CHANNELS)?.value ?? 'both')} onChange={(e) => void write(CHANNELS, e.currentTarget.value)}>
+        <ControlRow controlId="session-alerts-channels" label={t('session-alerts-channels')} note={<LockNote locked={locked(CHANNELS)} />}>{() =>
+          <select id="session-alerts-channels" class={css.input} disabled={busy() || locked(CHANNELS)} value={String(entry(CHANNELS)?.value ?? 'both')} onChange={(e) => void write(CHANNELS, e.currentTarget.value)}>
             <For each={CHANNEL_VALUES}>{(v) => <option value={v}>{t(`session-alerts-channel-${v}`)}</option>}</For>
           </select>
-        </label>
-        <LockNote locked={locked(CHANNELS)} />
-        <label class={css.field}>
-          {t('session-alerts-sensitivity')}
-          <select class={css.input} disabled={busy() || locked(SENSITIVITY)} value={String(entry(SENSITIVITY)?.value ?? 'normal')} onChange={(e) => void write(SENSITIVITY, e.currentTarget.value)}>
+        }</ControlRow>
+        <ControlRow controlId="session-alerts-sensitivity" label={t('session-alerts-sensitivity')} note={<LockNote locked={locked(SENSITIVITY)} />}>{() =>
+          <select id="session-alerts-sensitivity" class={css.input} disabled={busy() || locked(SENSITIVITY)} value={String(entry(SENSITIVITY)?.value ?? 'normal')} onChange={(e) => void write(SENSITIVITY, e.currentTarget.value)}>
             <For each={SENSITIVITY_VALUES}>{(v) => <option value={v}>{t(`session-alerts-sensitivity-${v}`)}</option>}</For>
           </select>
-        </label>
-        <LockNote locked={locked(SENSITIVITY)} />
+        }</ControlRow>
         <div class={css.actions}>
           <button
             type="button"
@@ -198,7 +194,8 @@ export function SessionAlerts(props: SessionAlertsProps): JSX.Element {
       <Show when={message()}>
         <p role="alert">{message()}</p>
       </Show>
-    </section>
+    </SettingsCard>
+    </>
   );
 }
 export default SessionAlerts;

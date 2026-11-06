@@ -11,7 +11,9 @@ import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
 import { passkeySupported, registerPasskey } from './webauthn.ts';
 import type { PasskeyPolicySummary, TwofaStatus } from './types.ts';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
+
 
 export interface TwoFactorProps {
   /** Injected in tests to avoid a live server. */
@@ -200,9 +202,8 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
   }
 
   return (
-    <section class={css.section} aria-label={t('settings-2fa-title')}>
-      <h2 class={css.heading}>{t('settings-2fa-title')}</h2>
-      <p class={css.prose}>{t('settings-2fa-intro')}</p>
+    <>
+      <SettingsCard id="twofa-card-overview" title={t('settings-2fa-title')} description={t('settings-2fa-intro')}>
 
       <Show when={status()?.policyRequired}>
         <p class={css.warn} data-testid="policy-required">
@@ -226,9 +227,20 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
         )}
       </Show>
 
+      {/* Recovery codes */}
+      <div class={css.row}>
+        <span class={css.meta} data-testid="recovery-remaining">
+          {t('settings-2fa-recovery-remaining', { count: status()?.recoveryRemaining ?? 0 })}
+        </span>
+        <button type="button" class={css.ghost} disabled={busy()} onClick={() => void regenerateRecovery()}>
+          {t('settings-2fa-recovery-regenerate')}
+        </button>
+      </div>
+
+      </SettingsCard>
+
       {/* Authenticator (TOTP) */}
-      <div class={css.field}>
-        <span class={css.subheading}>{t('settings-2fa-totp-title')}</span>
+      <SettingsCard id="twofa-card-totp" title={t('settings-2fa-totp-title')}>
         <Show
           when={status()?.totp}
           fallback={
@@ -286,11 +298,10 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
           </div>
           {lastFactorHint()}
         </Show>
-      </div>
+      </SettingsCard>
 
       {/* Passkeys */}
-      <div class={css.field}>
-        <span class={css.subheading}>{t('settings-2fa-passkey-title')}</span>
+      <SettingsCard id="twofa-card-passkeys" title={t('settings-2fa-passkey-title')}>
         <Show when={status() && status()!.passkeys.length > 0}>
           <ul class={css.list} data-testid="passkey-list">
             <For each={status()!.passkeys}>
@@ -340,24 +351,14 @@ export function TwoFactor(props: TwoFactorProps): JSX.Element {
             </button>
           </div>
         </Show>
-      </div>
-
-      {/* Recovery codes */}
-      <div class={css.row}>
-        <span class={css.meta} data-testid="recovery-remaining">
-          {t('settings-2fa-recovery-remaining', { count: status()?.recoveryRemaining ?? 0 })}
-        </span>
-        <button type="button" class={css.ghost} disabled={busy()} onClick={() => void regenerateRecovery()}>
-          {t('settings-2fa-recovery-regenerate')}
-        </button>
-      </div>
+      </SettingsCard>
 
       <Show when={error() !== ''}>
         <p class={css.error} role="alert">
           {error()}
         </p>
       </Show>
-    </section>
+    </>
   );
 }
 

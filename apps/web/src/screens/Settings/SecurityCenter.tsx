@@ -3,6 +3,9 @@ import { apiFetch } from '../../api/http.ts';
 import { basePath } from '../../api/basePath.ts';
 import { loadCatalog, t, formatDateTime, formatDate } from '../../i18n';
 import * as css from './styles.css.ts';
+import { SettingsCard } from './layout/SettingsCard.tsx';
+import * as kit from './layout/layout.css.ts';
+
 import { TwoFactor } from './TwoFactor.tsx';
 import { SigninGeography } from './SigninGeography.tsx';
 import { Sessions } from './Sessions.tsx';
@@ -46,7 +49,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
     const anchor = document.createElement('a'); anchor.href = url; anchor.download = 'signin-history.json'; anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return <section class={css.section} aria-label={t('security-center-title')}>
+  return <div class={css.stack} data-testid="security-center">
     <h2 class={css.heading}>{t('security-center-title')}</h2>
     <AsyncBoundary><BreachNoticeBanner /></AsyncBoundary>
     <Show when={tab() !== 'sessions'}><AsyncBoundary><SessionAlertBanner onReview={() => setTab('sessions')} /></AsyncBoundary></Show>
@@ -64,23 +67,27 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
     </div><div {...panel('sessions')}><AsyncBoundary><SessionAlerts /></AsyncBoundary><AsyncBoundary><Sessions /></AsyncBoundary>{props.grants}</div>
     <Show when={error()}><p role="alert">{error()}</p></Show>
     <div {...panel('history')}>
-    <h3 class={css.subheading}>{t('security-center-history')}</h3>
-    <label class={css.field}>{t('security-center-result')}<select class={css.input} value={filter()} onChange={(e) => setFilter(e.currentTarget.value)}>
+    <SettingsCard id="security-history-card" wide title={t('security-center-history')}>
+    <div class={kit.toolRow}>
+    <label class={kit.inlineField}>{t('security-center-result')}<select id="security-history-result" class={css.input} value={filter()} onChange={(e) => setFilter(e.currentTarget.value)}>
       <option value="">{t('security-center-all')}</option><option value="success">{t('security-center-success')}</option><option value="failure">{t('security-center-failure')}</option><option value="blocked">{t('security-center-blocked')}</option>
     </select></label>
-    <div class={css.actions}><button type="button" disabled={busy()} onClick={() => void action(async () => { await refreshHistory(); })}>{t('security-center-refresh')}</button><button type="button" disabled={busy()} onClick={() => void action(exportHistory)}>{t('security-center-export')}</button></div>
+    <button type="button" disabled={busy()} onClick={() => void action(async () => { await refreshHistory(); })}>{t('security-center-refresh')}</button><button type="button" disabled={busy()} onClick={() => void action(exportHistory)}>{t('security-center-export')}</button>
+    </div>
     <ul class={css.list}><For each={history()?.events}>{(event) => <li class={css.item}><div><time>{formatDateTime(new Date(event.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time> · {event.result} · {event.method}<p class={css.meta}>{event.ip} · {event.userAgent}</p></div></li>}</For></ul>
+    </SettingsCard>
     </div><div {...panel('devices')}>
-    <h3 class={css.subheading}>{t('security-center-devices')}</h3>
-    <p class={css.prose}>{t('security-center-remember-help')}</p>
-    <form onSubmit={(e) => { e.preventDefault(); void action(async () => { await request('remembered-devices', { label: label() }); setLabel(''); }); }}>
-      <label class={css.field}>{t('security-center-label')}<input class={css.input} maxLength={128} required value={label()} onInput={(e) => setLabel(e.currentTarget.value)} /></label>
+    <SettingsCard id="security-devices-card" wide title={t('security-center-devices')} description={t('security-center-remember-help')}>
+    <form class={kit.toolRow} onSubmit={(e) => { e.preventDefault(); void action(async () => { await request('remembered-devices', { label: label() }); setLabel(''); }); }}>
+      <label class={kit.inlineField}>{t('security-center-label')}<input class={css.input} maxLength={128} required value={label()} onInput={(e) => setLabel(e.currentTarget.value)} /></label>
       <button type="submit" disabled={busy()}>{t('security-center-remember')}</button>
     </form>
     <ul class={css.list}><For each={devices()?.devices}>{(device) => <li class={css.item}><span>{device.label} · {formatDate(new Date(device.expiresAt * 1000))}</span><button type="button" disabled={busy()} onClick={() => void action(() => request('remembered-devices/revoke', { id: device.id }))}>{t('security-center-revoke')}</button></li>}</For></ul>
+    </SettingsCard>
     </div><div {...panel('activity')}>
-    <h3 class={css.subheading}>{t('security-center-activity')}</h3>
+    <SettingsCard id="security-activity-card" wide title={t('security-center-activity')}>
     <ul class={css.list}><For each={activity()?.events}>{(event) => <li class={css.item}>{event.timestamp} · {event.action}</li>}</For></ul>
+    </SettingsCard>
     </div><div {...panel('encryption')}>{props.encryption}</div>
-  </section>;
+  </div>;
 }

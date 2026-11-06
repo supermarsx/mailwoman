@@ -8,6 +8,7 @@ import { toast } from '../../components/toast/index.ts';
 import { IdentityEditor } from './IdentityEditor.tsx';
 import { useEntityNavigation } from './entityEditor.tsx';
 import { createConfirm } from '../../components/confirm.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 export interface IdentitiesProps { service?:SettingsService }
 export function Identities(props:IdentitiesProps):JSX.Element {
@@ -31,7 +32,7 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
   // A base with variants asks what happens to them (delete or keep) instead of confirming blindly.
   if(variantsOf(identity.id).length>0){setChoosing(identity.id);return;}
   if(!await removal.ask({title:t('settings-ident-delete-title',{email:identity.email}),body:t(identity.isDefault?'settings-ident-delete-default-body':'settings-ident-delete-body'),confirmLabel:t('settings-delete'),testId:'identity-delete-confirm'}))return;await perform(identity.id);}
- return <Show when={editor()} keyed fallback={<section class={css.section} aria-label={t('settings-ident-title')}><h2 class={css.heading}>{t('settings-ident-title')}</h2><p class={css.prose}>{t('settings-ident-intro')}</p><Show when={identities.loading}><AsyncPending onRetry={()=>void refetch()}/></Show>
+ return <Show when={editor()} keyed fallback={<SettingsCard id="identities-card" wide title={t('settings-ident-title')} description={t('settings-ident-intro')}><Show when={identities.loading}><AsyncPending onRetry={()=>void refetch()}/></Show>
       <ul class={css.list} data-testid="identity-list">
         <For each={grouped()}>
           {(entry) => (
@@ -66,6 +67,6 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
           )}
         </For>
       </ul><Show when={!identities.loading&&(identities()?.length??0)===0}><p class={css.prose} data-testid="identity-empty">{t('settings-ident-empty')}</p></Show><removal.Dialog/>
-<div class={css.actions}><button class={css.button} onClick={()=>void open()}>{t('settings-ident-new')}</button></div></section>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor {...(variantBase()?{draftVariantOf:variantBase()!}:{})} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show>;
+<div class={css.actions}><button class={css.button} onClick={()=>void open()}>{t('settings-ident-new')}</button></div></SettingsCard>}>{route=> <Show when={route.kind==='new'} fallback={<Show when={identities()?.find(item=>item.id===route.id)} keyed fallback={<Show when={!identities.loading}><p>{t('settings-editor-missing')}</p><button class={css.ghost} onClick={()=>void back()}>{t('settings-editor-back')}</button></Show>}>{item=><IdentityEditor initial={item} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/>}</Show>}><IdentityEditor {...(variantBase()?{draftVariantOf:variantBase()!}:{})} others={identities() ?? []} service={service} onSaved={async()=>{await refetch();await back();}} onCancel={back}/></Show>}</Show>;
 }
 export default Identities;

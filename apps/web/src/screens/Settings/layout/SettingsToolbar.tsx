@@ -45,6 +45,8 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     const r = root(); if (!r) return [];
     return [...r.querySelectorAll<HTMLElement>('section')].filter(s => {
       if (s.parentElement?.closest('section') && r.contains(s.parentElement.closest('section'))) return false;
+      // Cards in a hidden tab panel are not part of the page until their tab opens.
+      if (s.closest('[hidden]:not([data-settings-section])')) return false;
       return s.querySelector(HEAD) !== null;
     });
   };
@@ -81,7 +83,7 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     setCards(refs);
     if (refs.length > 1) r0.dataset.kitRail = ''; else delete r0.dataset.kitRail;
     setCollapsedCount(els.filter(e => e.dataset.kitCollapsed === 'true').length);
-    bar.hidden = refs.length === 0;
+    if (bar.hidden !== (refs.length === 0)) bar.hidden = refs.length === 0;
     observe(els);
     applyFilter();
   };
@@ -184,7 +186,7 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     const r = root(); if (!r) return;
     scan();
     observer = new MutationObserver(schedule);
-    observer.observe(r, { childList: true, subtree: true });
+    observer.observe(r, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden'] });
     document.addEventListener('keydown', onKey);
     // Heading text is reactive and arrives with lazily loaded catalogs: re-read chip titles shortly after mount.
     for (const ms of [250, 1000]) { const id = setTimeout(schedule, ms); onCleanup(() => clearTimeout(id)); }
