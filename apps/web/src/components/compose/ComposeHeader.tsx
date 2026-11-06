@@ -8,6 +8,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, on, onCleanup, 
 import { Icon } from '../Icon.tsx';
 import { t } from '../../i18n/index.ts';
 import { headerOpen, readHeaderMemory, writeHeaderMemory, type HeaderCollapseMode } from './headerCollapse.ts';
+import { densityComfortable, densityCompact } from './composeHeader.css.ts';
 import './compose-chrome.css';
 
 export interface ComposeHeaderProps {
@@ -57,7 +58,8 @@ export function ComposeHeader(props: ComposeHeaderProps): JSX.Element {
   }
   return (
     <section
-      class="compose-head"
+      class={`compose-head ${props.mode() === 'collapsed' ? densityCompact : densityComfortable}`}
+      data-density={props.mode() === 'collapsed' ? 'compact' : 'comfortable'}
       data-testid="compose-header"
       data-collapsed={open() ? undefined : ''}
       aria-label={t('mail-compose-header')}

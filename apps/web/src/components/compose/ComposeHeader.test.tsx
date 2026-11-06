@@ -1,7 +1,10 @@
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@solidjs/testing-library';
 import { createSignal } from 'solid-js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { ComposeHeader } from './ComposeHeader.tsx';
+import { ccbccGroup, ccbccToggle, densityCompact, densityComfortable } from './composeHeader.css.ts';
 import type { HeaderCollapseMode } from './headerCollapse.ts';
 
 afterEach(() => localStorage.clear());
@@ -65,5 +68,43 @@ describe('ComposeHeader', () => {
     fireEvent.click(toggle());
     expect(toggle()).toHaveAttribute('aria-expanded', 'true');
     expect(localStorage.getItem('mw.compose.headerOpen')).toBeNull();
+  });
+});
+
+describe('ComposeHeader density and Cc/Bcc toggle styling', () => {
+  it('uses the comfortable density by default and compact only when collapsed', () => {
+    mount('auto');
+    expect(screen.getByTestId('compose-header')).toHaveAttribute('data-density', 'comfortable');
+    expect(screen.getByTestId('compose-header')).toHaveClass(densityComfortable);
+  });
+
+  it('uses the compact density in collapsed mode', () => {
+    mount('collapsed');
+    expect(screen.getByTestId('compose-header')).toHaveAttribute('data-density', 'compact');
+    expect(screen.getByTestId('compose-header')).toHaveClass(densityCompact);
+  });
+
+  it('defines distinct densities on space tokens that never reach zero', () => {
+    expect(densityComfortable).not.toBe(densityCompact);
+    const src = readFileSync(resolve(__dirname, 'composeHeader.css.ts'), 'utf8');
+    expect(src).toMatch(/\[headRowGap\]: vars\.space\[2\]/);
+    expect(src).toMatch(/\[headRowGap\]: vars\.space\[1\]/);
+    expect(src).toMatch(/\[headSubjectGap\]: vars\.space\[3\]/);
+    const css = readFileSync(resolve(__dirname, 'compose-chrome.css'), 'utf8');
+    expect(css).toMatch(/\.compose-head__body \{[^}]*row-gap:var\(--mw-head-row-gap/);
+    expect(css).not.toMatch(/margin-block:\.1rem/);
+  });
+
+  it('themes the Cc/Bcc toggle: accent link colour, pressed state, focus ring and forced colours', () => {
+    const src = readFileSync(resolve(__dirname, 'composeHeader.css.ts'), 'utf8');
+    expect(src).toMatch(/color: linkColor/);
+    expect(src).toContain(`'&[aria-pressed="true"]'`);
+    expect(src).toContain('&:hover');
+    expect(src).toContain('&:active');
+    expect(src).toContain('&:focus-visible');
+    expect(src).toContain('vars.a11y.focusRingWidth');
+    expect(src).toContain('forced-colors: active');
+    expect(ccbccToggle).toBeTruthy();
+    expect(ccbccGroup).toBeTruthy();
   });
 });

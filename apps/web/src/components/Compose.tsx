@@ -1,3 +1,4 @@
+import {ccbccGroup,ccbccToggle} from './compose/composeHeader.css.ts';
 import {swapQuote} from './compose/quoteRegion.ts';
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
 import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
@@ -1784,7 +1785,7 @@ export function Compose(props: {
         <div class="field compose__to">
           <span>{t('mail-compose-to')}</span>
           <RecipientTokenField {...recipientProps('to')} placeholder={t('mail-compose-to-placeholder')}>{suggestionList('to')}</RecipientTokenField>
-          <span class="compose-head__ccbcc"><button type="button" data-testid="compose-head-ccbcc" aria-pressed={ccBccOpen()} aria-controls={`${composeId}-ccbcc`} onClick={()=>setCcBccOpen(!ccBccOpen())}>{t('mail-compose-cc')} {t('mail-compose-bcc')}</button></span>
+          <span class={`compose-head__ccbcc ${ccbccGroup}`}><button type="button" class={ccbccToggle} data-testid="compose-head-ccbcc" aria-pressed={ccBccOpen()} aria-controls={`${composeId}-ccbcc`} onClick={()=>setCcBccOpen(!ccBccOpen())}>{t('mail-compose-cc')} {t('mail-compose-bcc')}</button></span>
         </div>
         {addressCard.card()}
 

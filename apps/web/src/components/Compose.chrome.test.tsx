@@ -1,3 +1,4 @@
+import { ccbccToggle } from './compose/composeHeader.css.ts';
 // The composer's chrome: every notice in the bottom status bar, and the
 // collapsible header (summary line, remembered state, opens for a problem).
 
@@ -166,6 +167,8 @@ describe('Compose header collapse', () => {
     const row = screen.getByRole('combobox', { name: 'To' }).closest('.compose__to')!;
     const toggle = within(row as HTMLElement).getByTestId('compose-head-ccbcc');
     expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    expect(toggle).toHaveClass(ccbccToggle);
+    expect(toggle).toHaveAttribute('aria-controls');
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByRole('combobox', { name: 'Cc' })).toBeInTheDocument();

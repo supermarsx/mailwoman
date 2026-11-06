@@ -41,14 +41,18 @@
 .compose-head[data-collapsed] .compose-head__chev { transform:rotate(-90deg); }
 @media (prefers-reduced-motion:reduce) { .compose-head__chev { transition:none; } }
 .compose-head__body[hidden] { display:none; }
-.compose-head__body .field { margin-block:0; }
-.compose .compose-head__body .compose__to, .compose .compose-head__body .compose__subject, .compose .compose-head__body .compose__from-row { display:grid; grid-template-columns:4.25rem minmax(0,1fr) auto; align-items:center; gap:.25rem; margin-block:.1rem; inline-size:auto; }
-.compose .compose-head__body .compose__subject { grid-template-columns:4.25rem minmax(0,1fr); }
-.compose-head__body .compose__to > span, .compose-head__body .compose__subject > span, .compose-head__body .compose__from-row > span { font-size:.75rem; color:var(--text-dim); margin:0; }
-.compose-head__body .compose__to input:not([type=checkbox]):not([type=radio]), .compose-head__body .compose__subject input:not([type=checkbox]):not([type=radio]) { min-block-size:1.75rem; padding:.15rem .4rem; }
-.compose-head__body .compose__from select { min-block-size:1.75rem; padding:.1rem .4rem; }
+/* Rows are spaced by the body's flex gap (--mw-head-row-gap, set by the density class in
+   composeHeader.css.ts), never by per-row margins, so no later margin rule can collapse them. */
+.compose-head__body { display:flex; flex-direction:column; row-gap:var(--mw-head-row-gap,.5rem); padding-block:var(--mw-head-row-gap,.5rem); }
+.compose .compose-head__body .field { margin-block:0; }
+.compose .compose-head__body .compose__to, .compose .compose-head__body .compose__subject, .compose .compose-head__body .compose__from-row { display:grid; grid-template-columns:4.25rem minmax(0,1fr) auto; align-items:center; column-gap:.5rem; row-gap:0; margin-block:0; inline-size:auto; min-block-size:var(--mw-head-row-min,2.5rem); }
+.compose .compose-head__body .compose__subject { grid-template-columns:4.25rem minmax(0,1fr); margin-block-start:calc(var(--mw-head-subject-gap,.75rem) - var(--mw-head-row-gap,.5rem)); }
+.compose-head__body .compose__to > span:first-child, .compose-head__body .compose__subject > span, .compose-head__body .compose__from-row > span { font-size:.75rem; color:var(--text-dim); margin:0; }
+.compose-head__body .compose__to input:not([type=checkbox]):not([type=radio]), .compose-head__body .compose__subject input:not([type=checkbox]):not([type=radio]) { min-block-size:var(--mw-head-row-min,2.5rem); padding:.15rem .5rem; box-sizing:border-box; }
+.compose .compose-head__body .compose-rf__box { min-block-size:var(--mw-head-row-min,2.5rem); row-gap:.25rem; }
+.compose-head__body .compose__from select { min-block-size:var(--mw-head-row-min,2.5rem); padding:.1rem .4rem; }
+@media (max-width:600px) {
+  .compose .compose-head__body .compose__to, .compose .compose-head__body .compose__subject, .compose .compose-head__body .compose__from-row { grid-template-columns:3.25rem minmax(0,1fr) auto; column-gap:.35rem; }
+  .compose .compose-head__body .compose__subject { grid-template-columns:3.25rem minmax(0,1fr); }
+}
 .compose-head__chip { display:inline-flex; align-items:center; gap:.3rem; padding:.05rem .5rem; border:var(--border-hair) solid var(--border); background:var(--bg-alt); font-size:.8125rem; max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.compose-head__ccbcc { display:inline-flex; gap:.15rem; }
-.compose-head__ccbcc button { padding:0 .35rem; min-block-size:1.5rem; border:var(--border-hair) solid transparent; background:none; color:var(--link,var(--accent)); font:inherit; font-size:.75rem; cursor:pointer; }
-.compose-head__ccbcc button:hover, .compose-head__ccbcc button[aria-pressed=true] { border-color:var(--border); background:var(--bg-alt); }
-.compose-head__ccbcc button:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); }
