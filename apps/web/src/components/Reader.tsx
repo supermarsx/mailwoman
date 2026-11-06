@@ -73,6 +73,7 @@ import type {StoredInlineImage} from './compose/drafts-store.ts';
 import { CAP_CORE, CAP_MAIL } from '../api/jmap-types.ts';
 import { CAP_CRYPTO, CAP_SECURITY } from '../api/crypto-types.ts';
 import type { Email, EmailAddress } from '../api/jmap-types.ts';
+import { SenderBrandMark } from '../brands/SenderBrandMark.tsx';
 import type { SecurityVerdict, SignatureVerdict } from '../api/security-types.ts';
 import {
   analyzeBlockedContent,
@@ -1332,7 +1333,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText(email().subject ?? rawT('mail-no-subject'))}</h2>
               <div class="reader__meta">
                 <div class="reader__address-group">
-                  <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-from')}</span><ContactAddresses addresses={email().from} onOpen={addressCard.open}/></div>
+                  <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-from')}</span><SenderBrandMark address={email().from?.[0]?.email} auth={verdict()?.auth}/><ContactAddresses addresses={email().from} onOpen={addressCard.open}/></div>
                 <details class="reader__addresses reader__address-disclosure" open={!narrow()}>
                   <summary title={t('contacts-address-recipients')} aria-label={t('contacts-address-recipients')}><Icon name="chevron"/></summary>
                   <div class="reader__address-details">

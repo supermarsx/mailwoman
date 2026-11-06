@@ -3,6 +3,7 @@
 // (see `loadBrandPath`). Marks are bundled locally: nothing is fetched from a CDN or
 // a favicon service, so lookups never leak which providers an operator uses.
 import {BRANDS} from './registry.generated.ts';
+import {LOADERS} from './loaders.generated.ts';
 import type {BrandEntry} from './types.ts';
 
 export type {BrandEntry, BrandCategory} from './types.ts';
@@ -33,10 +34,10 @@ export function brandFor(key: string | undefined | null): BrandEntry | undefined
  */
 export function brandForHost(input: string | undefined | null): BrandEntry | undefined {
   if (!input) return undefined;
-  let host = input.trim().toLowerCase();
-  const at = host.lastIndexOf('@');
-  if (at >= 0) host = host.slice(at + 1);
-  host = host.replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/[/?#].*$/, '').replace(/:\d+$/, '').replace(/\.$/, '');
+  // Scheme off, then the authority (up to the first / ? #), then any user@ prefix: so a lookalike
+  // hidden in a path or query ("evil.io/?u=@paypal.com") is never read as the host.
+  let host = input.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/[/?#].*$/, '');
+  host = host.slice(host.lastIndexOf('@') + 1).replace(/:\d+$/, '').replace(/\.$/, '');
   if (!host) return undefined;
   const labels = host.split('.');
   for (let i = 0; i < labels.length - 1; i += 1) {
@@ -46,11 +47,15 @@ export function brandForHost(input: string | undefined | null): BrandEntry | und
   return undefined;
 }
 
-let pathModule: Promise<Readonly<Record<string, string>>> | undefined;
-/** Load (once) the vector path for a brand id. Resolves undefined for unknown ids. */
+const chunks = new Map<string, Promise<Readonly<Record<string, string>>>>();
+/** Load (once per category chunk) the vector path for a brand id. Resolves undefined when the brand has no bundled mark. */
 export function loadBrandPath(id: string): Promise<string | undefined> {
-  pathModule ??= import('./paths.generated.ts').then(module => module.PATHS);
-  return pathModule.then(paths => paths[id]);
+  const entry = byKey.get(id);
+  const load = entry && !entry.noMark ? LOADERS[entry.category] : undefined;
+  if (!entry || !load) return Promise.resolve(undefined);
+  let chunk = chunks.get(entry.category);
+  if (!chunk) { chunk = load().then(module => module.PATHS); chunks.set(entry.category, chunk); }
+  return chunk.then(paths => paths[entry.id]);
 }
 
 const AMBIGUOUS = new Set(['live', 'teams', 'spaces', 'element', 'gpt', 'proton']);

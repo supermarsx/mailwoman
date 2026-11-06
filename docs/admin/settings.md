@@ -2480,6 +2480,16 @@ also hides domain icons. Government domains use a generic civic icon, not an
 identity seal. Domain matching is an appearance hint, never authentication
 verification. It does not request favicons, remote logos, or external profiles.
 
+<a id="mail.brandAvatars"></a>
+### Brand logos beside verified senders (`mail.brandAvatars`)
+
+Enabled by default, with global/domain/user overrides and administrator locks.
+The reader shows a bundled brand logo beside the sender when the sender's domain belongs to a known brand and the message passed DKIM and an aligned DMARC check
+for a domain of that same brand. Messages that fail, lack those checks or come from
+an unknown domain keep the normal avatar; the message list, which carries no check result, never shows one.
+Domain matching uses whole registrable-domain suffixes, so `paypal.com.evil.io` or `evilpaypal.com` never match. Logos are bundled with the app and nothing is requested
+from the sender or a logo service. See `docs/brand-logos.md`.
+
 <a id="contacts.favoritesFirst"></a>
 ### Favorites first in suggestions (`contacts.favoritesFirst`)
 

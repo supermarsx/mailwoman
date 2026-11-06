@@ -863,6 +863,8 @@ admin-settings-key-contacts-favorites-first = Favorites first in suggestions
 admin-settings-help-contacts-favorites-first = List favorite contacts ahead of other matches in recipient suggestions. Only the order changes; no suggestion is hidden. User and domain overrides can be locked.
 admin-settings-key-contacts-sender-icons = Bundled sender icons
 admin-settings-help-contacts-sender-icons = Show locally bundled icons for recognised sender domains, with generated initials for others. Contact pictures take priority. Icons do not verify a sender's identity. No external logo service is contacted; user and domain overrides can be locked.
+admin-settings-key-mail-brand-avatars = Brand logos beside verified senders
+admin-settings-help-mail-brand-avatars = Show a locally bundled brand logo beside the sender in the reader, only when the message passed DKIM and an aligned DMARC check for that brand's own domain. Messages that fail or lack those checks keep the normal avatar. No logo is fetched from the sender or a logo service.
 
 admin-settings-key-mail-draft-save-mode = Account draft save mode
 admin-settings-help-mail-draft-save-mode = Save after a typing pause, periodically, or only on demand. Saves require a supported upstream Drafts folder; uncertain writes are never automatically retried.

@@ -863,6 +863,8 @@ admin-settings-key-contacts-favorites-first = Favoritos primeiro nas sugestões
 admin-settings-help-contacts-favorites-first = Listar os contactos favoritos antes das restantes correspondências nas sugestões de destinatários. Só a ordem muda; nenhuma sugestão é ocultada. As substituições de utilizador e de domínio podem ser bloqueadas.
 admin-settings-key-contacts-sender-icons = Ícones de remetente incluídos
 admin-settings-help-contacts-sender-icons = Mostrar ícones incluídos localmente para domínios de remetente reconhecidos, com iniciais geradas para os restantes. As fotografias de contactos têm prioridade. Os ícones não verificam a identidade do remetente. Não é contactado nenhum serviço de logótipos externo; as substituições de utilizador e de domínio podem ser bloqueadas.
+admin-settings-key-mail-brand-avatars = Logótipos de marcas junto a remetentes verificados
+admin-settings-help-mail-brand-avatars = Mostrar um logótipo de marca incluído localmente junto ao remetente no leitor, apenas quando a mensagem passou na verificação DKIM e numa verificação DMARC alinhada com o domínio dessa marca. As mensagens que falham ou não têm essas verificações mantêm o avatar normal. Nenhum logótipo é obtido do remetente nem de um serviço de logótipos.
 
 admin-settings-key-mail-draft-save-mode = Modo de gravação de rascunhos da conta
 admin-settings-help-mail-draft-save-mode = Guardar após uma pausa na escrita, periodicamente ou apenas a pedido. A gravação exige uma pasta Rascunhos suportada no servidor de origem; as escritas incertas nunca são repetidas automaticamente.

@@ -110,6 +110,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'reader.actionStyle',
   'contacts.avatarMode',
   'contacts.senderIcons',
+  'mail.brandAvatars',
   'contacts.favoritesFirst',
   'nextcloud.syncIntervalSecs',
   'time.displayZone',

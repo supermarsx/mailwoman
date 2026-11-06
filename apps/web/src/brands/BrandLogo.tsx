@@ -43,7 +43,7 @@ function Monogram(props: {name: string}): JSX.Element {
  */
 export function BrandLogo(props: BrandLogoProps): JSX.Element {
   const entry = (): BrandEntry | undefined => brandFor(props.brand);
-  const [path] = createResource(() => entry()?.id, id => loadBrandPath(id));
+  const [path] = createResource(() => (entry()?.noMark ? undefined : entry()?.id), id => loadBrandPath(id));
   const label = (): string => props.title ?? entry()?.name ?? props.brand;
   const fill = (): string => (props.mono ? 'currentColor' : entry()?.color ?? 'currentColor');
   return (
@@ -52,7 +52,7 @@ export function BrandLogo(props: BrandLogoProps): JSX.Element {
       viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
       role={props.decorative ? undefined : 'img'} aria-label={props.decorative ? undefined : label()} aria-hidden={props.decorative ? 'true' : undefined}
     >
-      <Show when={entry()} fallback={<Monogram name={props.brand} />}>
+      <Show when={entry() && !entry()!.noMark} fallback={<Monogram name={entry()?.name ?? props.brand} />}>
         <Show when={path()}>{d => <path d={d()} fill={fill()} />}</Show>
       </Show>
     </svg>

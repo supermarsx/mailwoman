@@ -2420,6 +2420,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "bundled sender-domain icons with generated initials fallback; domain hints are not authentication evidence"
     ),
     def!(
+        "mail.brandAvatars",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "show a bundled brand logo beside the sender in the reader only when the message passed DKIM and an aligned DMARC check for that brand's domain; otherwise the normal avatar is used"
+    ),
+    def!(
         "contacts.favoritesFirst",
         Kind::Bool,
         "true",
