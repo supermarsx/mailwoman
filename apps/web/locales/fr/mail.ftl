@@ -326,8 +326,8 @@ mail-undo-failed = Annulation impossible
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Étiquette ajoutée
 mail-toast-label-removed = Étiquette retirée
-mail-toast-pinned = Épinglé
-mail-toast-unpinned = Détaché
+mail-toast-pinned = Message « { $target } » épinglé
+mail-toast-unpinned = Message « { $target } » détaché
 mail-toast-snoozed = Reporté
 mail-toast-follow-up-set = Suivi défini
 mail-toast-follow-up-cleared = Suivi effacé

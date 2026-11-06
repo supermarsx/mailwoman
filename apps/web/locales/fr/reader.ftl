@@ -46,7 +46,7 @@ reader-zoom-help = La taille à laquelle les messages s’ouvrent, de 50 % à 20
 reader-attachments-summary = { $count ->
     [one] 1 pièce jointe
    *[other] { $count } pièces jointes
-    }
+    } · { $size }
 reader-attachments-show = Afficher les pièces jointes
 reader-attachments-hide = Masquer les pièces jointes
 reader-attachmentsDensity = Densité des pièces jointes

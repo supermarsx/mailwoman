@@ -8,19 +8,19 @@ empty-folder-title = Vider « { $name } » ?
 empty-folder-body-trash = { $count ->
     [one] Le message de { $name } sera déplacé dans la corbeille, d’où vous pourrez le restaurer.
    *[other] Les { $count } messages de { $name } seront déplacés dans la corbeille, d’où vous pourrez les restaurer.
-    }
+    } Les sous-dossiers et les messages qu’ils contiennent ne sont pas modifiés.
 empty-folder-body-destroy-trash = { $count ->
     [one] Le message de la corbeille sera supprimé définitivement. Cette action est irréversible.
    *[other] Les { $count } messages de la corbeille seront supprimés définitivement. Cette action est irréversible.
-    }
+    } Les sous-dossiers et les messages qu’ils contiennent ne sont pas modifiés.
 empty-folder-body-destroy-junk = { $count ->
     [one] Le message de { $name } sera supprimé définitivement. Cette action est irréversible.
    *[other] Les { $count } messages de { $name } seront supprimés définitivement. Cette action est irréversible.
-    }
+    } Les sous-dossiers et les messages qu’ils contiennent ne sont pas modifiés.
 empty-folder-body-destroy-no-trash = Ce compte n’a pas de corbeille, donc { $count ->
     [one] le message de { $name } sera supprimé définitivement.
    *[other] les { $count } messages de { $name } seront supprimés définitivement.
-    }
+    } Cette action est irréversible. Les sous-dossiers et les messages qu’ils contiennent ne sont pas modifiés.
 empty-folder-confirm-trash = Déplacer dans la corbeille
 empty-folder-confirm-destroy = Supprimer définitivement
 empty-folder-cancel = Annuler
