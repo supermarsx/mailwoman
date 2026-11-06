@@ -61,6 +61,8 @@ function createPool(): SanitizerPool {
     // bundle the worker and its wasm as a separate chunk (same as crypto/worker.ts).
     createWorker: () => new Worker(new URL('./worker.entry.ts', import.meta.url), { type: 'module' }) as unknown as WorkerLike,
     loadModule: async () => {
+      // A static build asset, not an API request: there is no session or CSRF token to send.
+      // eslint-disable-next-line mw/no-global-fetch
       const res = await fetch(new URL('../wasm/mw-sanitize/mw_sanitize_bg.wasm', import.meta.url));
       if (!res.ok) throw new Error(`sanitizer wasm: ${res.status}`);
       return WebAssembly.compile(await res.arrayBuffer());

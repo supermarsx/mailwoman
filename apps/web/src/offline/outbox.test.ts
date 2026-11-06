@@ -309,7 +309,7 @@ describe('drainOutbox — one drain at a time', () => {
     const ok = fakeClient(vi.fn(async (body) => (body.methodCalls.length === 2 ? accepted : setResponse({ updated: { orig: null } }))));
     await drainOutbox(memoryOutboxStore([item('send', fwd, 1)]), ok);
     expect(ok.jmap).toHaveBeenCalledTimes(2);
-    expect(JSON.stringify((ok.jmap as any).mock.calls[1][0])).toContain('keywords/$forwarded');
+    expect(JSON.stringify((ok.jmap as unknown as { mock: { calls: unknown[][] } }).mock.calls[1]![0])).toContain('keywords/$forwarded');
     const refused = fakeClient(vi.fn(async () => jmapResponse(
       ['Email/set', { created: { draft: { id: 'e9' } } }, 'set'],
       ['EmailSubmission/set', { created: null, notCreated: { send: { type: 'invalidProperties' } } }, 'submit'],

@@ -16,6 +16,8 @@ export interface PatchOp { s: 'b' | 'h'; i: number; a: PatchAttr | 'text'; v: st
 export const PATCH_MAX_OPS = 4096;
 const PATCH_ATTRS: readonly PatchAttr[] = ['src', 'srcset', 'background', 'style'];
 const DATA_IMAGE = /^data:image\/(?:gif|png|jpeg|webp|avif);base64,[A-Za-z0-9+/=]*$/;
+// A NUL byte and a backslash are what this rejects.
+// eslint-disable-next-line no-control-regex
 const CSS_FORBIDDEN = /[\x00\x5c]|@import|image-set|cross-fade|-webkit-image|element\(|\bimage\(|expression\(/i;
 
 /** Signed-handle prefixes (`…/api/rc/i/`, `…/api/rc/p/`) for a server base URL. */

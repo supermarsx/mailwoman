@@ -48,6 +48,8 @@ const URL_ATTRIBUTES = ['src', 'srcset', 'href', 'background', 'poster', 'action
 
 /** True when `value` names a scheme that must not appear in outgoing mail. */
 export function localUrl(value: string): boolean {
+  // Control characters are what is being removed here.
+  // eslint-disable-next-line no-control-regex
   const compact = value.replace(/[\u0000-\u0020\u007f]+/g, '');
   const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(compact)?.[1];
   if (scheme === undefined) return false;
