@@ -8,6 +8,7 @@ import {activateAccountPreferences, suspendAccountPreferences} from '../../api/a
 import {AppContext} from '../../state/context.ts';
 import type {AppState} from '../../state/store.ts';
 import type {JmapRequest} from '../../api/jmap-types.ts';
+import {clearSettings,loadSettings} from '../../api/settings.ts';
 
 const service=vi.hoisted(()=>({manages:true,jmap:vi.fn()}));
 vi.mock('../../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:service.jmap})}));
@@ -17,7 +18,7 @@ vi.mock('./FolderRoles.tsx',()=>({FolderRoles:()=>null}));
 vi.mock('./FocusedInboxPreference.tsx',()=>({FocusedInboxPreference:()=>null}));
 vi.mock('./FocusedSenders.tsx',()=>({FocusedSenders:()=>null}));
 vi.mock('./FolderCountPreferences.tsx',()=>({FolderCountPreferences:()=>null}));
-afterEach(()=>{cleanup();suspendAccountPreferences();service.manages=true;service.jmap.mockReset();});
+afterEach(()=>{cleanup();clearSettings();suspendAccountPreferences();service.manages=true;service.jmap.mockReset();});
 
 function mount(initialFolders:PreferenceFolder[],initialPrefs:AccountUiPreferences={},withApp=false){
  activateAccountPreferences('acct1');
@@ -151,4 +152,41 @@ it('does not expose a usable create control when the account cannot manage folde
  const button=screen.queryByRole('button',{name:'Create folder'});
  if(button)expect(button).toBeDisabled();
  expect(service.jmap).not.toHaveBeenCalled();
+});
+
+const applySettings=(values:Record<string,unknown>)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:Object.fromEntries(Object.entries(values).map(([key,value])=>[key,{value,source:'global',locked:true}]))}),{headers:{'content-type':'application/json'}})});
+
+it('shows a lock and refuses drags and moves when the administrator fixes the order',async()=>{
+ await applySettings({'folders.order.locked':true});
+ const {update}=mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]);
+ expect(screen.getAllByTestId('folder-lock')).toHaveLength(2);
+ expect(drag('Receipts')).toBeDisabled();
+ drop('Receipts','Projects');
+ expect(update).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:'Move Receipts up'})).toBeDisabled();
+});
+
+it('force-pins the administrator list: those rows are locked, pinned and cannot be unpinned',async()=>{
+ await applySettings({'folders.pinned.admin':['role:inbox','Receipts']});
+ const {update}=mount([{id:'i',name:'Inbox',role:'inbox'},{id:'a',name:'Projects'},{id:'b',name:'Receipts'}]);
+ expect(screen.getAllByTestId('folder-lock')).toHaveLength(2);
+ expect(screen.getByRole('button',{name:'Pin Receipts'})).toBeDisabled();
+ drop('Receipts','Projects');
+ expect(update).not.toHaveBeenCalled();
+ expect(screen.getByRole('button',{name:'Pin Projects'})).not.toBeDisabled();
+});
+
+it('marks starred rows with a decorative star, separately from pins',()=>{
+ mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'}],{folderStarred:['b'],folderPinned:['a']});
+ const rows=screen.getAllByRole('row').slice(1);
+ expect(rows[0]!.querySelector('.sidebar__box-star')).toBeNull();
+ expect(rows[1]!.querySelector('.sidebar__box-star')).not.toBeNull();
+ expect(within(rows[1]!).getByRole('button',{name:'Star Receipts'})).toHaveAttribute('aria-pressed','true');
+ expect(within(rows[0]!).getByRole('button',{name:'Pin Projects'})).toHaveAttribute('aria-pressed','true');
+});
+
+it('resets the arrangement to the server order',()=>{
+ const {update}=mount([{id:'a',name:'Projects'},{id:'b',name:'Receipts'}],{folderOrder:['b','a'],folderParent:{a:'b'}});
+ click('Reset order to default');
+ expect(update).toHaveBeenLastCalledWith({folderOrder:[],folderParent:{}});
 });
