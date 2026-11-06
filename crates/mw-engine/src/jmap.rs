@@ -6479,6 +6479,49 @@ mod query_paging_tests {
         assert_eq!(stmts.matching("FROM messages")[0].rows, 50);
     }
 
+    /// The tail of a deep folder: the last page is short, a position past the end
+    /// is an empty page (not an error), and the total reported with a deep page is
+    /// the whole folder, so a client's `total - loaded` is exactly what remains.
+    #[tokio::test]
+    async fn the_last_page_is_short_and_past_the_end_is_empty() {
+        let f = Fixture::with(FOLDER).await;
+
+        let tail = f
+            .query(json!({
+                "filter": f.in_mailbox(), "position": FOLDER - 20, "limit": 50,
+                "calculateTotal": true
+            }))
+            .await;
+        assert_eq!(ids_of(&tail), f.ordered[FOLDER - 20..]);
+        assert_eq!(tail["total"], json!(FOLDER));
+        assert_eq!(tail["position"], json!(FOLDER - 20));
+
+        let past = f
+            .query(json!({
+                "filter": f.in_mailbox(), "position": FOLDER + 10, "limit": 50,
+                "calculateTotal": true
+            }))
+            .await;
+        assert!(ids_of(&past).is_empty(), "{past}");
+        assert_eq!(past["total"], json!(FOLDER));
+
+        // Every id is reachable exactly once by consecutive 50-row pages.
+        let mut seen = Vec::new();
+        let mut position = 0;
+        loop {
+            let page = f
+                .query(json!({ "filter": f.in_mailbox(), "position": position, "limit": 50 }))
+                .await;
+            let ids = ids_of(&page);
+            if ids.is_empty() {
+                break;
+            }
+            position += ids.len();
+            seen.extend(ids);
+        }
+        assert_eq!(seen, f.ordered);
+    }
+
     /// `calculateTotal` is opt-in, and opting out costs nothing.
     ///
     /// `master` returned `total` unconditionally, computed as the length of the
