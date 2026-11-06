@@ -182,8 +182,10 @@ export function SettingsToolbar(props: { name: string }): JSX.Element {
     const r = root(); if (!r) return;
     scan();
     observer = new MutationObserver(schedule);
-    observer.observe(r, { childList: true, subtree: true, characterData: true });
+    observer.observe(r, { childList: true, subtree: true });
     document.addEventListener('keydown', onKey);
+    // Heading text is reactive and arrives with lazily loaded catalogs: re-read chip titles shortly after mount.
+    for (const ms of [250, 1000]) { const id = setTimeout(schedule, ms); onCleanup(() => clearTimeout(id)); }
   });
   onCleanup(() => {
     observer?.disconnect(); io?.disconnect(); document.removeEventListener('keydown', onKey);

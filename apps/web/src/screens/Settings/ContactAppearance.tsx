@@ -1,8 +1,13 @@
-import {For,onMount,Show,type JSX} from 'solid-js';
+import {For,onMount,type JSX} from 'solid-js';
 import {loadCatalog,t} from '../../i18n';
 import {useSetting} from './useSetting.ts';
-import {LockNote} from './LockNote.tsx';
+import {SettingRow} from './layout/SettingRow.tsx';
+import {SettingsCard} from './layout/SettingsCard.tsx';
+import {ToggleRow,type CardSpec} from './layout/rows.tsx';
 import * as css from './styles.css.ts';
+export const AVATAR_CARD:CardSpec={id:'avatars-card',section:'reader',title:'avatars-title',rows:[
+ {id:'avatars-mode',label:'avatars-mode',help:'avatars-help'},{id:'avatars-sender-icons',label:'avatars-sender-icons',help:'avatars-sender-icons-help'},
+ {id:'avatars-brand-avatars',label:'avatars-brand-avatars',help:'avatars-brand-avatars-help'},{id:'avatars-favorites-first',label:'avatars-favorites-first',help:'avatars-favorites-first-help'}]};
 export function ContactAppearance():JSX.Element {
  onMount(()=>void loadCatalog('avatars'));
  const setting=useSetting<string>('contacts.avatarMode','initials',(value):value is string=>typeof value==='string'&&['off','initials','contacts'].includes(value));
@@ -10,9 +15,11 @@ export function ContactAppearance():JSX.Element {
  const brands=useSetting<boolean>('mail.brandAvatars',true,(value):value is boolean=>typeof value==='boolean');
  const favorites=useSetting<boolean>('contacts.favoritesFirst',true,(value):value is boolean=>typeof value==='boolean');
  const disabled=()=>!setting.entry()||setting.locked()||setting.saving();
- return <section class={css.section}><h3 class={css.heading}>{t('avatars-title')}</h3><div class={css.field}><label class={css.field}><span>{t('avatars-mode')}</span><select class={css.select} aria-label={t('avatars-mode')} aria-describedby="avatars-help" disabled={disabled()} value={setting.value()} onChange={event=>void setting.set(event.currentTarget.value)}><For each={['off','initials','contacts']}>{value=><option value={value}>{t(`avatars-${value}`)}</option>}</For></select></label><p id="avatars-help" class={css.meta}>{t('avatars-help')}</p><LockNote locked={setting.locked()}/><Show when={setting.error()}><p role="alert">{setting.error()}</p></Show><button class={css.ghost} disabled={disabled()} onClick={()=>void setting.reset()}>{t('avatars-default')}</button></div>
- <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={icons.value()} disabled={!icons.entry()||icons.locked()||icons.saving()} onChange={e=>void icons.set(e.currentTarget.checked)}/> {t('avatars-sender-icons')}</label><p class={css.meta}>{t('avatars-sender-icons-help')}</p><LockNote locked={icons.locked()}/><Show when={icons.error()}><p role="alert">{icons.error()}</p></Show><button class={css.ghost} disabled={!icons.entry()||icons.locked()||icons.saving()} onClick={()=>void icons.reset()}>{t('avatars-icons-default')}</button></div>
- <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={brands.value()} disabled={!brands.entry()||brands.locked()||brands.saving()} onChange={e=>void brands.set(e.currentTarget.checked)}/> {t('avatars-brand-avatars')}</label><p class={css.meta}>{t('avatars-brand-avatars-help')}</p><LockNote locked={brands.locked()}/><Show when={brands.error()}><p role="alert">{brands.error()}</p></Show><button class={css.ghost} disabled={!brands.entry()||brands.locked()||brands.saving()} onClick={()=>void brands.reset()}>{t('avatars-brand-avatars-default')}</button></div>
- <div class={css.field}><label class={css.check}><input class={css.checkbox} type="checkbox" checked={favorites.value()} disabled={!favorites.entry()||favorites.locked()||favorites.saving()} onChange={e=>void favorites.set(e.currentTarget.checked)}/> {t('avatars-favorites-first')}</label><p class={css.meta}>{t('avatars-favorites-first-help')}</p><LockNote locked={favorites.locked()}/><Show when={favorites.error()}><p role="alert">{favorites.error()}</p></Show><button class={css.ghost} disabled={!favorites.entry()||favorites.locked()||favorites.saving()} onClick={()=>void favorites.reset()}>{t('avatars-favorites-first-default')}</button></div>
- </section>;
+ return <SettingsCard id="avatars-card" title={t('avatars-title')}>
+  <SettingRow controlId="avatars-mode" label={t('avatars-mode')} help={t('avatars-help')} handle={setting}>{d=>
+   <select id="avatars-mode" class={css.select} aria-describedby={d()} disabled={disabled()} value={setting.value()} onChange={event=>void setting.set(event.currentTarget.value)}><For each={['off','initials','contacts']}>{value=><option value={value}>{t(`avatars-${value}`)}</option>}</For></select>}</SettingRow>
+  <ToggleRow id="avatars-sender-icons" label={t('avatars-sender-icons')} help={t('avatars-sender-icons-help')} handle={icons}/>
+  <ToggleRow id="avatars-brand-avatars" label={t('avatars-brand-avatars')} help={t('avatars-brand-avatars-help')} handle={brands}/>
+  <ToggleRow id="avatars-favorites-first" label={t('avatars-favorites-first')} help={t('avatars-favorites-first-help')} handle={favorites}/>
+ </SettingsCard>;
 }

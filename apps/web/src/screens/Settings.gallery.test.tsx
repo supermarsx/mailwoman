@@ -391,5 +391,5 @@ describe('the signed-in sections', () => {
       expect(screen.getByText(text)).toBeInTheDocument();
     }
     expect(screen.getByRole('group', { name: 'Accent' })).toBeInTheDocument();
-  });
+  }, 20_000); // the legacy dialog mounts every section's toolbar at once (its MutationObserver costs ~1.5s in jsdom)
 });

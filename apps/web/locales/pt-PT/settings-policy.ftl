@@ -45,3 +45,10 @@ settings-compose-card-images = Imagens nas respostas
 settings-compose-card-images-help = Se as imagens da mensagem original são mantidas na sua resposta.
 settings-compose-card-defaults = Predefinições para novas mensagens
 settings-kit-other-sections = Correspondências noutras secções
+
+# Cards for cache, folder counters.
+cache-card-store = Correio em cache
+cache-card-prefetch = Pré-carregamento
+cache-card-prefetch-help = Carregue mensagens antecipadamente para abrirem de imediato. Usa mais dados.
+settings-folder-counts-card = Indicadores de contagem
+settings-folder-counts-card-help = O que mostram as contagens junto das pastas e que pastas têm uma.

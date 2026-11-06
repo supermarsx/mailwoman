@@ -6,16 +6,20 @@ import {MailFeaturePreferences} from '../MailFeaturePreferences.tsx';
 import {MailInteractionPreferences} from '../MailInteractionPreferences.tsx';
 import {ComposePreferences} from '../ComposePreferences.tsx';
 import {DraftSavePreferences} from '../DraftSavePreferences.tsx';
+import {CachePreferences} from '../CachePreferences.tsx';
+import {ContactAppearance} from '../ContactAppearance.tsx';
+import {UndoRedoPreferences} from '../UndoRedoPreferences.tsx';
 import {clearSettings} from '../../../api/settings.ts';
 import {t} from '../../../i18n';
 import {SETTINGS_REGISTRY,searchRegistry} from './registry.ts';
 
+vi.mock('../../../state/context.ts',()=>({useApp:()=>({clearMailCache:()=>undefined})}));
 beforeEach(()=>{clearSettings();localStorage.clear();vi.stubGlobal('fetch',vi.fn(async()=>new Response(JSON.stringify({settings:{}}))));});
 afterEach(()=>{vi.unstubAllGlobals();clearSettings();});
 
 const SECTIONS:Record<string,()=>unknown>={
- reader:()=><ReaderAppearanceSettings/>,
- shortcuts:()=><><MailFeaturePreferences/><MailInteractionPreferences/></>,
+ reader:()=><><ReaderAppearanceSettings/><ContactAppearance/><CachePreferences/></>,
+ shortcuts:()=><><MailFeaturePreferences/><MailInteractionPreferences/><UndoRedoPreferences/></>,
  compose:()=><><ComposePreferences/><DraftSavePreferences/></>,
 };
 // Rows that exist only for some values of another setting.

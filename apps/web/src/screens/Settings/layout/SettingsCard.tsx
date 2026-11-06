@@ -3,8 +3,8 @@ import * as css from './layout.css.ts';
 
 /** A titled group of rows. The sub-navigation, collapse state and grid are
  * applied to it by SettingsToolbar through its data attributes. */
-export function SettingsCard(props: { id: string; title: string; description?: string; children: JSX.Element }): JSX.Element {
-  return <section class={css.card} id={props.id} aria-labelledby={`${props.id}-title`}>
+export function SettingsCard(props: { id: string; title: string; description?: string; testId?: string; children: JSX.Element }): JSX.Element {
+  return <section class={css.card} id={props.id} aria-labelledby={`${props.id}-title`} data-testid={props.testId}>
     <header class={css.cardHead}>
       <h4 class={css.cardTitle} id={`${props.id}-title`}>{props.title}</h4>
       {props.description ? <p class={css.cardDesc}>{props.description}</p> : null}

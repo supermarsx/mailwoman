@@ -8,12 +8,18 @@ import { COMPOSE_DEFAULTS_CARD } from '../ComposeDefaults.tsx';
 import { DRAFT_SAVE_CARD } from '../DraftSavePreferences.tsx';
 import { READER_CARD_SPECS } from '../ReaderAppearance.tsx';
 import { MAIL_CARD_SPECS } from '../MailFeaturePreferences.tsx';
+import { INTERFACE_CARD } from '../InterfacePreferences.tsx';
+import { FOLDER_COUNT_CARD } from '../FolderCountPreferences.tsx';
+import { CACHE_CARDS } from '../CachePreferences.tsx';
+import { AVATAR_CARD } from '../ContactAppearance.tsx';
+import { UNDO_CARD } from '../UndoRedoPreferences.tsx';
 import { t } from '../../../i18n';
 import { cardMatches, tokens } from './searchModel.ts';
 import type { CardSpec } from './rows.tsx';
 
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
+  INTERFACE_CARD, FOLDER_COUNT_CARD, ...CACHE_CARDS, AVATAR_CARD, UNDO_CARD,
 ];
 
 export interface RegistryHit { section: string; card: string; cardTitle: string; row: string; label: string }

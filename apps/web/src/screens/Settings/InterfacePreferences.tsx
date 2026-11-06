@@ -1,7 +1,8 @@
 import {For, Show, onMount} from 'solid-js';
 import {loadCatalog, t} from '../../i18n';
 import {useSetting} from './useSetting.ts';
-import {LockNote} from './LockNote.tsx';
+import {SettingRow} from './layout/SettingRow.tsx';
+import type {CardSpec} from './layout/rows.tsx';
 import * as css from './styles.css.ts';
 
 const fields: {key:string; fallback:string|number|boolean; choices?:string[]; min?:number; max?:number; color?:boolean}[] = [
@@ -16,6 +17,9 @@ const fields: {key:string; fallback:string|number|boolean; choices?:string[]; mi
   {key:'reader.attachmentsAtEnd',fallback:false},
   {key:'ui.notifyNewVersion',fallback:true},
 ];
+const labelKey=(key:string):string=>`appearance-preference-${key.replaceAll('.', '-')}`;
+/** Search-index entry: these rows render inside the Appearance text card. */
+export const INTERFACE_CARD:CardSpec={id:'settings-appearance-text-card',section:'appearance',title:'settings-appearance-text-card',help:'settings-appearance-text-card-help',rows:fields.map(f=>({id:`preference-${f.key}`,label:labelKey(f.key)}))};
 
 export function InterfacePreferences() {
   onMount(()=>void loadCatalog('appearance'));
@@ -23,16 +27,12 @@ export function InterfacePreferences() {
     const setting=useSetting<string|number|boolean>(field.key,field.fallback);
     const disabled=()=>!setting.entry()||setting.locked()||setting.saving();
     const id=`preference-${field.key}`;
-    return <div class={css.field}>
-      <label for={id}>{t(`appearance-preference-${field.key.replaceAll('.', '-')}`)}</label>
-      <Show when={typeof field.fallback !== 'boolean'} fallback={<input id={id} type="checkbox" checked={setting.value()===true} disabled={disabled()} onChange={event=>void setting.set(event.currentTarget.checked)}/> }>
-        <Show when={field.choices} fallback={<input id={id} class={css.input} type={field.color?'color':'number'} min={field.min} max={field.max} step="1" value={field.color ? (setting.value() || '#000000') as string : setting.value() as number} disabled={disabled()} onChange={event=>{if(event.currentTarget.checkValidity()) void setting.set(field.color?event.currentTarget.value:event.currentTarget.valueAsNumber);}}/>}>
-          {choices=><select id={id} class={css.select} value={String(setting.value())} disabled={disabled()} onChange={event=>void setting.set(event.currentTarget.value)}><For each={choices()}>{choice=><option value={choice}>{t(`appearance-preference-option-${choice}`)}</option>}</For></select>}
+    return <SettingRow controlId={id} label={t(labelKey(field.key))} handle={setting} resetLabel={t('appearance-preference-inherit')}>{describedBy=>
+      <Show when={typeof field.fallback !== 'boolean'} fallback={<input id={id} type="checkbox" checked={setting.value()===true} disabled={disabled()} aria-describedby={describedBy()} onChange={event=>void setting.set(event.currentTarget.checked)}/> }>
+        <Show when={field.choices} fallback={<input id={id} class={css.input} type={field.color?'color':'number'} min={field.min} max={field.max} step="1" aria-describedby={describedBy()} value={field.color ? (setting.value() || '#000000') as string : setting.value() as number} disabled={disabled()} onChange={event=>{if(event.currentTarget.checkValidity()) void setting.set(field.color?event.currentTarget.value:event.currentTarget.valueAsNumber);}}/>}>
+          {choices=><select id={id} class={css.select} value={String(setting.value())} disabled={disabled()} aria-describedby={describedBy()} onChange={event=>void setting.set(event.currentTarget.value)}><For each={choices()}>{choice=><option value={choice}>{t(`appearance-preference-option-${choice}`)}</option>}</For></select>}
         </Show>
       </Show>
-      <LockNote locked={setting.locked()}/>
-      <Show when={setting.error()}><p role="alert">{setting.error()}</p></Show>
-      <button type="button" class={css.ghost} disabled={disabled()} onClick={()=>void setting.reset()}>{t('appearance-preference-inherit')}</button>
-    </div>;
+    }</SettingRow>;
   }}</For></div>;
 }

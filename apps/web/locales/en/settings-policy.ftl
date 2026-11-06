@@ -45,3 +45,10 @@ settings-compose-card-images = Images in replies
 settings-compose-card-images-help = Whether images from the original message are kept in your reply.
 settings-compose-card-defaults = Defaults for new messages
 settings-kit-other-sections = Matches in other sections
+
+# Cards for cache, folder counters.
+cache-card-store = Cached mail
+cache-card-prefetch = Prefetching
+cache-card-prefetch-help = Load messages ahead of time so they open instantly. Uses more data.
+settings-folder-counts-card = Counter bubbles
+settings-folder-counts-card-help = What the counts beside folders show and which folders have one.
