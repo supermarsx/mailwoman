@@ -225,6 +225,15 @@ export const DELIVERY_HEADER_PROPERTIES = [
   'header:Resent-To:asAddresses:all',
 ] as const;
 
+/** The optional message headers the reader shows as badges (`header:<Name>:asText`, answered by the engine). */
+export const OPTIONAL_HEADER_PROPERTIES = [
+  'header:Expires:asText',
+  'header:Expiry-Date:asText',
+  'header:Reply-By:asText',
+  'header:Sensitivity:asText',
+  'header:Supersedes:asText',
+] as const;
+
 export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_000): JmapRequest {
   return request(MAIL_USING, [
     [
@@ -232,7 +241,7 @@ export function emailGetFull(accountId: Id, id: Id, maxBodyValueBytes = 1_000_00
       {
         accountId,
         ids: [id],
-        properties: [...BODY_PROPERTIES, ...DELIVERY_HEADER_PROPERTIES],
+        properties: [...BODY_PROPERTIES, ...DELIVERY_HEADER_PROPERTIES, ...OPTIONAL_HEADER_PROPERTIES],
         fetchHTMLBodyValues: true,
         fetchTextBodyValues: true,
         maxBodyValueBytes,
@@ -263,6 +272,10 @@ export interface DraftInput {
   importance?: 'high'|'normal'|'low';
   replyTo?: EmailAddress[];
   organization?: string;
+  /** Send without keeping a copy: the Email is destroyed once the submission succeeded. */
+  skipSentCopy?: boolean;
+  /** Extra text headers (name, value); the engine writes only the ones it allows. */
+  headers?: [string, string][];
   draftMailboxId: Id;
   sentMailboxId?: Id;
   /** V2: send via a specific sending identity (§2.1 `Identity`). */
@@ -327,6 +340,11 @@ export function draftCreateSpec(input: DraftInput): Record<string, unknown> {
   if (input.references !== undefined && input.references.length > 0) spec['references'] = [...input.references];
   spec['subject'] = input.subject;
   if(input.importance){spec['header:Importance:asText']=input.importance;spec['header:X-Priority:asText']=({high:'1',normal:'3',low:'5'} as const)[input.importance];}
+  for(const [name,value] of input.headers??[]){
+    // Header names are tokens and values one line: anything else never reaches the wire.
+    if(!/^[A-Za-z0-9!#$%&'*+.^_`|~-]{1,64}$/.test(name)||/[\u0000-\u001f\u007f\u0085\u2028\u2029]/.test(value)||value.length>998)continue;
+    spec[`header:${name}:asText`]=value;
+  }
   const plain = input.textBody !== undefined;
   spec[plain ? 'textBody' : 'htmlBody'] = [{ partId: 'body', type: plain ? 'text/plain' : 'text/html' }];
   spec['bodyValues'] = { body: { value: input.textBody ?? input.htmlBody } };
@@ -359,6 +377,7 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
   const emailSet: Invocation = ['Email/set', { accountId, create: { draft: draftCreate } }, 'set'];
 
   const onSuccessUpdate: Record<string, Record<string, unknown>> = {};
+  const destroyCopy = input.skipSentCopy === true;
   if (input.sentMailboxId !== undefined) {
     onSuccessUpdate['#send'] = {
       mailboxIds: { [input.sentMailboxId]: true },
@@ -387,7 +406,8 @@ export function sendEnvelope(accountId: Id, input: DraftInput): JmapRequest {
     {
       accountId,
       create: { send: sendCreate },
-      ...(input.sentMailboxId !== undefined ? { onSuccessUpdateEmail: onSuccessUpdate } : {}),
+      ...(input.sentMailboxId !== undefined && !destroyCopy ? { onSuccessUpdateEmail: onSuccessUpdate } : {}),
+      ...(destroyCopy ? { onSuccessDestroyEmail: ['#send'] } : {}),
     },
     'submit',
   ];

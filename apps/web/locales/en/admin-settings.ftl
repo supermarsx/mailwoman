@@ -550,6 +550,36 @@ admin-settings-help-dsr-text-completion = Text added to the message sent when a 
 admin-settings-help-compose-insert-max-inline-image-mb = Pictures larger than this are not placed in the message body; they can still be attached. 1 to 50.
 admin-settings-key-compose-insert-image-resize-default = Picture size preset
 admin-settings-help-compose-insert-image-resize-default = The size the Picture from file dialog starts with: original, large (1600 px) or medium (1024 px).
+admin-settings-key-compose-layout-default-font = Default message font
+admin-settings-help-compose-layout-default-font = Font family, size and colour a new message starts with, as family|size|#colour. Empty uses the theme font.
+admin-settings-key-compose-reply-to-show = Reply-To row
+admin-settings-help-compose-reply-to-show = Whether the composer shows the Reply-To row: only when an identity or the original message has one, always, or never.
+admin-settings-key-compose-reply-to-allow-override = Allow changing Reply-To
+admin-settings-help-compose-reply-to-allow-override = When off, the Reply-To of the identity is used as it is and users cannot edit or remove it.
+admin-settings-key-compose-sent-folder-mode = Sent copy: folder rule
+admin-settings-help-compose-sent-folder-mode = Where the copy of a sent message goes: the normal Sent folder, one fixed folder, by recipient domain, by identity, or by subject rules.
+admin-settings-key-compose-sent-folder-fixed-id = Sent copy: fixed folder
+admin-settings-help-compose-sent-folder-fixed-id = Folder role or id used when the rule is "fixed folder".
+admin-settings-key-compose-sent-folder-per-identity = Sent copy: folder per identity
+admin-settings-help-compose-sent-folder-per-identity = One identity=folder pair per line. Used when the rule is "by identity".
+admin-settings-key-compose-sent-folder-rules = Sent copy: rules
+admin-settings-help-compose-sent-folder-rules = One rule per line, domain:example.com=folder or subject:text=folder. The first match wins.
+admin-settings-key-compose-sent-folder-skip-copy = Sent copy: do not save
+admin-settings-help-compose-sent-folder-skip-copy = Never keep a copy of a sent message. An administrator can force this on or off.
+admin-settings-key-compose-headers-allow-auto-submitted = Allow Auto-Submitted
+admin-settings-help-compose-headers-allow-auto-submitted = Lets users set Auto-Submitted (RFC 3834) on a message. Off by default: it tells other systems not to reply.
+admin-settings-key-compose-headers-allow-threading-edit = Allow editing threading headers
+admin-settings-help-compose-headers-allow-threading-edit = Lets users edit In-Reply-To and References, or start a new thread from a reply.
+admin-settings-key-compose-headers-allow-custom = Allow custom headers
+admin-settings-help-compose-headers-allow-custom = Lets users add their own headers (up to 20, names checked, protected headers refused).
+admin-settings-key-compose-headers-allow-return-receipt-to = Allow Return-Receipt-To
+admin-settings-help-compose-headers-allow-return-receipt-to = Lets users request receipts with the legacy Return-Receipt-To header. Off by default.
+admin-settings-key-compose-headers-forced = Forced headers
+admin-settings-help-compose-headers-forced = One Name=value pair per line, added to every message sent from the domain and replacing the user's value. Protected headers are refused.
+admin-settings-key-mail-expiry-hide-expired = Expired messages
+admin-settings-help-mail-expiry-hide-expired = What to do with a message whose Expires date has passed: nothing, show it dimmed, or suggest archiving it.
+admin-settings-key-mail-badge-headers = Header badges
+admin-settings-help-mail-badge-headers = Show a badge in the reader for the Expires, Reply-By, Sensitivity and Supersedes headers of a message.
 admin-settings-key-compose-feature-family = Composer features
 admin-settings-help-compose-feature-family = Switch a composer control on or off by feature id. Default on; lock it to stop users changing it.
 admin-settings-key-compose-styles-max-custom = Custom styles per user

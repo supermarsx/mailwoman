@@ -1185,4 +1185,25 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cookies.description.marketing"></a>`cookies.description.marketing` | privacy | global+domain | {} | plain |  | yes | Description of the marketing category per locale |
 | <a id="encryption.rotationdays"></a>`encryption.rotationDays` | privacy | global | 365 | plain |  | yes | Days after which the database key is reported as due for rotation; 0 sets no due date |
 | <a id="encryption.warnings.enabled"></a>`encryption.warnings.enabled` | privacy | global | true | plain |  | yes | Report plaintext stores and overdue key rotation in the security assessment |
+| <a id="compose.feature."></a>`compose.feature.*` | interface | global+domain+user | true | plain |  | yes | Whether a composer feature (ribbon control) is available; id is the COMPOSE_FEATURES id |
+| <a id="mail.badge.headers"></a>`mail.badge.headers` | mail | global+domain+user | true | plain |  | yes | Show badges for Expires, Reply-By, Sensitivity and Supersedes in the reader |
+| <a id="compose.layout.defaultfont"></a>`compose.layout.defaultFont` | mail | global+domain+user | "" | plain |  | yes | Default message font: family\|size px\|#colour |
+| <a id="compose.replyto.show"></a>`compose.replyTo.show` | mail | global+domain+user | "auto" | plain |  | yes | Reply-To row in the composer |
+| <a id="compose.replyto.allowoverride"></a>`compose.replyTo.allowOverride` | mail | global+domain | true | plain |  | yes | Users may change the Reply-To header |
+| <a id="compose.sentfolder.mode"></a>`compose.sentFolder.mode` | mail | global+domain+user | "default" | plain |  | yes | Where the copy of a sent message is filed |
+| <a id="compose.sentfolder.fixedid"></a>`compose.sentFolder.fixedId` | mail | global+domain+user | "" | plain |  | yes | Folder role or id for the fixed sent folder |
+| <a id="compose.sentfolder.peridentity"></a>`compose.sentFolder.perIdentity` | mail | global+domain+user | [] | plain |  | yes | Sent folder per identity: identity=folder |
+| <a id="compose.sentfolder.rules"></a>`compose.sentFolder.rules` | mail | global+domain+user | [] | plain |  | yes | Sent folder rules: domain:example.com=folder or subject:text=folder |
+| <a id="compose.sentfolder.skipcopy"></a>`compose.sentFolder.skipCopy` | mail | global+domain+user | false | plain |  | yes | Never save a copy of sent messages |
+| <a id="compose.headers.allowautosubmitted"></a>`compose.headers.allowAutoSubmitted` | mail | global+domain | false | plain |  | yes | Allow setting the Auto-Submitted header |
+| <a id="compose.headers.allowthreadingedit"></a>`compose.headers.allowThreadingEdit` | mail | global+domain | false | plain |  | yes | Allow editing In-Reply-To and References |
+| <a id="compose.headers.allowcustom"></a>`compose.headers.allowCustom` | mail | global+domain | false | plain |  | yes | Allow custom message headers |
+| <a id="compose.headers.allowreturnreceiptto"></a>`compose.headers.allowReturnReceiptTo` | mail | global+domain | false | plain |  | yes | Allow the legacy Return-Receipt-To header |
+| <a id="compose.headers.forced"></a>`compose.headers.forced` | mail | global+domain | [] | plain |  | yes | Headers added to every sent message: Name=value |
+| <a id="mail.expiry.hideexpired"></a>`mail.expiry.hideExpired` | mail | global+domain+user | "off" | plain |  | yes | How expired messages (Expires header) are shown |
+| <a id="compose.insert.maxinlineimagemb"></a>`compose.insert.maxInlineImageMB` | interface | global+domain+user | 10 | plain |  | yes | Largest picture, in MB, the composer places in the message body (larger ones can still be attached) |
+| <a id="compose.insert.imageresizedefault"></a>`compose.insert.imageResizeDefault` | interface | global+domain+user | "large" | plain |  | yes | Size preset the composer's Picture from file dialog starts with |
+| <a id="compose.styles.maxcustom"></a>`compose.styles.maxCustom` | interface | global+domain+user | 20 | plain |  | yes | Most custom paragraph and text styles a user can keep in the composer's Styles gallery; 0 turns custom styles off |
+| <a id="compose.styles.defaultset"></a>`compose.styles.defaultSet` | interface | global+domain+user | default | plain |  | yes | Style set the composer's Styles gallery starts with |
+| <a id="compose.styles.custom"></a>`compose.styles.custom` | interface | global+domain+user | "" | plain |  | yes | A user's custom composer styles, as JSON written by the Styles gallery |
 | <a id="servertext."></a>`serverText.*` | serverText | global+domain | {} | plain |  | yes | server_text(id, locale, domain) overrides |

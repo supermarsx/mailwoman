@@ -66,8 +66,9 @@ describe('composer ribbon (t38)', () => {
     expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'insert-group-illustrations', 'insert-group-links', 'insert-group-cards', 'insert-group-symbols', 'rt-group-table-insert']);
     expect(groupIds('table')).toEqual(['rt-group-table-rows', 'rt-group-table-columns', 'rt-group-table-cells', 'rt-group-table-shading', 'rt-group-table']);
     expect(groupIds('picture')).toEqual(['rt-group-picture-size', 'rt-group-picture-arrange', 'rt-group-picture-text', 'rt-group-picture-style', 'rt-group-picture-edit']);
+    expect(groupIds('layout')).toEqual(['layout-group-columns', 'layout-group-width', 'layout-group-spacing', 'layout-group-page', 'layout-group-themes', 'layout-group-font', 'layout-group-direction']);
     expect(groupIds('security')).toEqual(['compose-crypto']);
-    expect(groupIds('delivery')).toEqual(['compose-send-options', 'compose-delivery-priority', 'compose-delivery-receipts', 'compose-delivery-keys', 'compose-delivery-saving']);
+    expect(groupIds('delivery')).toEqual(['compose-send-options', 'compose-delivery-priority', 'compose-delivery-receipts', 'compose-delivery-keys', 'compose-delivery-message-options', 'compose-delivery-saving']);
 
     // Only ribbon items sit in a group's grid: nothing outside the 3-row contract.
     for (const controls of Array.from(bar().querySelectorAll('[data-ribbon-controls]'))) {

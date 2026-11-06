@@ -285,6 +285,11 @@ impl SettingDef {
                     | "mail.send.recallDelayMaxSeconds"
                     | "mail.send.allowRecall"
                     | "mail.send.maxDelayedSeconds"
+                    | "compose.replyTo.allowOverride"
+                    | "compose.headers.allowAutoSubmitted"
+                    | "compose.headers.allowThreadingEdit"
+                    | "compose.headers.allowCustom"
+                    | "compose.headers.allowReturnReceiptTo"
             )
             // t39-e7: the storage meter warns at the admin's thresholds; the
             // user reads them and cannot change them (scope is global/domain).
@@ -7878,6 +7883,136 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "interface",
         "Size preset the composer's Picture from file dialog starts with"
+    ),
+    def!(
+        "mail.badge.headers",
+        Kind::Bool,
+        "true",
+        GDU,
+        "mail",
+        "Show badges for Expires, Reply-By, Sensitivity and Supersedes in the reader"
+    ),
+    def!(
+        "compose.layout.defaultFont",
+        text(Text::Plain, 200),
+        "\"\"",
+        GDU,
+        "mail",
+        "Default message font: family|size px|#colour"
+    ),
+    def!(
+        "compose.replyTo.show",
+        Kind::Enum(&["auto", "always", "never"]),
+        r#""auto""#,
+        GDU,
+        "mail",
+        "Reply-To row in the composer"
+    ),
+    def!(
+        "compose.replyTo.allowOverride",
+        Kind::Bool,
+        "true",
+        GD,
+        "mail",
+        "Users may change the Reply-To header"
+    ),
+    def!(
+        "compose.sentFolder.mode",
+        Kind::Enum(&["default", "fixed", "byRecipient", "byIdentity", "bySubjectRule"]),
+        r#""default""#,
+        GDU,
+        "mail",
+        "Where the copy of a sent message is filed"
+    ),
+    def!(
+        "compose.sentFolder.fixedId",
+        text(Text::Plain, 200),
+        "\"\"",
+        GDU,
+        "mail",
+        "Folder role or id for the fixed sent folder"
+    ),
+    def!(
+        "compose.sentFolder.perIdentity",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 300
+        },
+        "[]",
+        GDU,
+        "mail",
+        "Sent folder per identity: identity=folder"
+    ),
+    def!(
+        "compose.sentFolder.rules",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 300
+        },
+        "[]",
+        GDU,
+        "mail",
+        "Sent folder rules: domain:example.com=folder or subject:text=folder"
+    ),
+    def!(
+        "compose.sentFolder.skipCopy",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Never save a copy of sent messages"
+
+    ),
+    def!(
+        "compose.headers.allowAutoSubmitted",
+        Kind::Bool,
+        "false",
+        GD,
+        "mail",
+        "Allow setting the Auto-Submitted header"
+    ),
+    def!(
+        "compose.headers.allowThreadingEdit",
+        Kind::Bool,
+        "false",
+        GD,
+        "mail",
+        "Allow editing In-Reply-To and References"
+    ),
+    def!(
+        "compose.headers.allowCustom",
+        Kind::Bool,
+        "false",
+        GD,
+        "mail",
+        "Allow custom message headers"
+    ),
+    def!(
+        "compose.headers.allowReturnReceiptTo",
+        Kind::Bool,
+        "false",
+        GD,
+        "mail",
+        "Allow the legacy Return-Receipt-To header"
+    ),
+    def!(
+        "compose.headers.forced",
+        Kind::StringList {
+            max_len: 20,
+            max_item: 300
+        },
+        "[]",
+        GD,
+        "mail",
+        "Headers added to every sent message: Name=value"
+    ),
+    def!(
+        "mail.expiry.hideExpired",
+        Kind::Enum(&["off", "dim", "archive-suggestion"]),
+        r#""off""#,
+        GDU,
+        "mail",
+        "How expired messages (Expires header) are shown"
     ),
 
     // ── Server text (e70c seam) ──────────────────────────────────────────────

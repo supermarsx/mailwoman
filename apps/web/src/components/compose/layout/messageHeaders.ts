@@ -12,11 +12,11 @@ export interface MessageHeaderOptions {
   /** Disposition-Notification-To address. */
   readReceiptTo?: string;
   /** Legacy Return-Receipt-To address (admin gated). */
-  returnReceiptTo?: string;
+  returnReceiptTo?: string | undefined;
   replyBy?: Date | null;
   expires?: Date | null;
   supersedes?: string;
-  autoSubmitted?: AutoSubmitted;
+  autoSubmitted?: AutoSubmitted | undefined;
   inReplyTo?: string;
   references?: string[];
   custom?: { name: string; value: string }[];
@@ -134,6 +134,39 @@ export function applyForced(headers: [string, string][], forced: readonly string
     if (!isHeaderName(name) || isDeniedHeader(name) || hasLineBreak(value) || value.length > VALUE_MAX) continue;
     const at = out.findIndex(([n]) => n.toLowerCase() === name.toLowerCase());
     if (at >= 0) out[at] = [name, value]; else out.push([name, value]);
+  }
+  return out;
+}
+
+/** JSON text for a draft: dates as ISO strings. */
+export function serializeHeaderOptions(o: MessageHeaderOptions): string {
+  return JSON.stringify({ ...o, replyBy: o.replyBy?.toISOString(), expires: o.expires?.toISOString() });
+}
+
+const SENS: readonly Sensitivity[] = ['normal', 'personal', 'private', 'company-confidential'];
+const AUTO_VALUES: readonly AutoSubmitted[] = ['no', 'auto-generated', 'auto-replied'];
+
+/** Read a draft's options back; anything unknown or malformed is dropped. */
+export function parseHeaderOptions(text: string): MessageHeaderOptions {
+  let raw: unknown;
+  try { raw = JSON.parse(text); } catch { return {}; }
+  if (raw === null || typeof raw !== 'object') return {};
+  const r = raw as Record<string, unknown>;
+  const out: MessageHeaderOptions = {};
+  if (SENS.includes(r['sensitivity'] as Sensitivity)) out.sensitivity = r['sensitivity'] as Sensitivity;
+  if (AUTO_VALUES.includes(r['autoSubmitted'] as AutoSubmitted)) out.autoSubmitted = r['autoSubmitted'] as AutoSubmitted;
+  for (const key of ['replyBy', 'expires'] as const) {
+    const v = r[key];
+    if (typeof v === 'string') { const d = new Date(v); if (!Number.isNaN(d.getTime())) out[key] = d; }
+  }
+  if (typeof r['supersedes'] === 'string' && isMessageId(r['supersedes'])) out.supersedes = r['supersedes'];
+  if (typeof r['returnReceiptTo'] === 'string' && isMailbox(r['returnReceiptTo'])) out.returnReceiptTo = r['returnReceiptTo'];
+  if (Array.isArray(r['custom'])) {
+    out.custom = (r['custom'] as unknown[]).flatMap((h) => {
+      if (h === null || typeof h !== 'object') return [];
+      const { name, value } = h as Record<string, unknown>;
+      return typeof name === 'string' && typeof value === 'string' && validateCustomHeader({ name, value }) === null ? [{ name, value }] : [];
+    }).slice(0, MAX_CUSTOM_HEADERS);
   }
   return out;
 }

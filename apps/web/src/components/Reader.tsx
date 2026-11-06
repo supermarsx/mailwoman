@@ -46,6 +46,7 @@ import { SecurityPanel } from './SecurityPanel.tsx';
 import { BadgeContextMenu } from './BadgeContextMenu.tsx';
 import { FolderBadge, folderBadgeKind } from './FolderBadge.tsx';
 import { SanitizedBadge } from './SanitizedBadge.tsx';
+import { HeaderFactsBadges } from './HeaderFactsBadges.tsx';
 import { focusMessageInFolder } from './messageFocus.ts';
 import { badgeDensity, badgeLabels, badgeMode, badgeVisible } from '../state/readerBadges.ts';
 import { overallTone } from './security/model.ts';
@@ -1446,6 +1447,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore menu={(chips)=><BadgeContextMenu badge="spam">{chips}</BadgeContextMenu>} url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
               <Show when={app.accountId()&&email().id}><MailingListBadge headers={currentListHeaders()} accountId={app.accountId()} sender={sender()} receivedAt={email().receivedAt} stats={listStats()} {...(props.onCompose?{onCompose:props.onCompose}:{})} onCleanup={()=>setCleanupOpen(true)} onSenderControl={async action=>(await onSenderControl({action,address:sender()})).updated} {...(props.onOpenSettings?{onOpenRules:()=>props.onOpenSettings?.('rules')}:{})}/></Show>
               <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
+              <HeaderFactsBadges email={email()}/>
               </div>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>

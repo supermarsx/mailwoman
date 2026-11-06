@@ -1,0 +1,8 @@
+/* Reader badges for Sensitivity, Reply-By, Expires and Supersedes. */
+.hf { display: inline-flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.hf-badge { display: inline-flex; gap: .3rem; align-items: center; padding: .1rem .5rem; font-size: .75rem; color: var(--text); background: var(--bg-alt); border: var(--border-hair) solid var(--border); }
+.hf-badge--warn { border-color: var(--warning, var(--accent)); border-inline-start-width: var(--border-heavy, 3px); }
+.hf-badge[data-expired][data-mode="dim"] { opacity: .65; }
+.hf-note { font-size: .75rem; color: var(--text-dim); }
+.hf-link { font: inherit; font-size: .75rem; color: var(--accent); background: none; border: 0; padding: 0; text-decoration: underline; cursor: pointer; }
+.hf-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

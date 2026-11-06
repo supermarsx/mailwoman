@@ -145,3 +145,36 @@ it('forced headers override user values and cannot target denied names', () => {
   const out = applyForced([['Sensitivity', 'personal']], ['Sensitivity=company-confidential', 'From=evil@x.com', 'X-Policy=a\r\nBcc: z', 'X-Tag=ok', 'broken']);
   expect(out).toEqual([['Sensitivity', 'company-confidential'], ['X-Tag', 'ok']]);
 });
+
+it('merges columns tables even after an editor dropped the marker', async () => {
+  const { mergeColumnsInHtml, isColumnsLike } = await import('./columns.ts');
+  const html = buildColumnsHtml({ widths: [50, 50] }, ['one', 'two']).replace(' data-mw-columns="2"', '');
+  const t = parse(html).querySelector('table')!;
+  expect(isColumnsLike(t)).toBe(true);
+  const out = mergeColumnsInHtml(`<p>before</p>${html}<table><tr><td>a</td><td>b</td></tr></table>`);
+  expect(out.merged).toBe(1);
+  expect(out.html).toContain('one');
+  expect(out.html).toContain('<table><tbody><tr><td>a</td>');
+});
+
+it('parses the sent-folder settings and maps roles to writable mailbox ids', async () => {
+  const { parseSentFolderPolicy, writableFolders } = await import('./sentFolder.ts');
+  const p = parseSentFolderPolicy({ mode: 'bySubjectRule', fixedId: 'work', perIdentity: ['id1=work', 'broken', '=x'], rules: ['domain:example.com=clients', 'subject:Invoice = billing', 'nonsense=x', 'domain:x.org='], skipCopy: true });
+  expect(p).toEqual({ mode: 'bySubjectRule', fixedId: 'work', perIdentity: { id1: 'work' }, rules: [{ recipientDomain: 'example.com', folder: 'clients' }, { subjectContains: 'Invoice', folder: 'billing' }], skipCopy: true });
+  expect(parseSentFolderPolicy({ mode: 'evil' }).mode).toBe('default');
+  const w = writableFolders([{ id: 'm1', role: 'sent' }, { id: 'm2', role: null, myRights: { mayAddItems: false } }, { id: 'm3', role: 'archive' }]);
+  expect(w.get('sent')).toBe('m1');
+  expect(w.has('m2')).toBe(false);
+  expect(w.get('archive')).toBe('m3');
+  // The resolved role becomes a mailbox id through the same map.
+  expect(resolveSentFolder({ ...base, writable: new Set(w.keys()), policy: { mode: 'fixed', fixedId: 'archive', skipCopy: false } })).toMatchObject({ folder: 'archive' });
+});
+
+it('options survive a draft round trip and drop what is malformed', async () => {
+  const { serializeHeaderOptions, parseHeaderOptions } = await import('./messageHeaders.ts');
+  const when = new Date(Date.UTC(2026, 10, 3, 17));
+  const o = { sensitivity: 'private' as const, replyBy: when, expires: when, supersedes: '<a@b>', returnReceiptTo: 'me@example.com', autoSubmitted: 'auto-replied' as const, custom: [{ name: 'X-A', value: '1' }] };
+  expect(parseHeaderOptions(serializeHeaderOptions(o))).toEqual(o);
+  expect(parseHeaderOptions('not json')).toEqual({});
+  expect(parseHeaderOptions(JSON.stringify({ sensitivity: 'evil', supersedes: 'x', replyBy: 'nope', custom: [{ name: 'From', value: 'x' }, { name: 'X-B', value: 'a\r\nBcc: z' }, 5] }))).toEqual({ custom: [] });
+});

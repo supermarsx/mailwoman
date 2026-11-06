@@ -109,6 +109,12 @@ export interface Email {
   'header:Envelope-To:asAddresses:all'?: EmailAddress[][] | null;
   'header:X-Forwarded-To:asAddresses:all'?: EmailAddress[][] | null;
   'header:Resent-To:asAddresses:all'?: EmailAddress[][] | null;
+  /** Optional message headers as text (`OPTIONAL_HEADER_PROPERTIES`); null when absent. */
+  'header:Expires:asText'?: string | null;
+  'header:Expiry-Date:asText'?: string | null;
+  'header:Reply-By:asText'?: string | null;
+  'header:Sensitivity:asText'?: string | null;
+  'header:Supersedes:asText'?: string | null;
   /** Native MIME reports null when a message has no readable body text. */
   preview: string | null;
   htmlBody?: EmailBodyPart[];

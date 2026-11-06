@@ -550,6 +550,36 @@ admin-settings-help-dsr-text-completion = Texto acrescentado à mensagem enviada
 admin-settings-help-compose-insert-max-inline-image-mb = As imagens maiores do que isto não são colocadas no corpo da mensagem; podem ser anexadas. De 1 a 50.
 admin-settings-key-compose-insert-image-resize-default = Tamanho predefinido das imagens
 admin-settings-help-compose-insert-image-resize-default = O tamanho com que o diálogo Imagem de ficheiro começa: original, grande (1600 px) ou médio (1024 px).
+admin-settings-key-compose-layout-default-font = Tipo de letra predefinido
+admin-settings-help-compose-layout-default-font = Tipo de letra, tamanho e cor com que uma mensagem nova começa, como família|tamanho|#cor. Vazio usa o tipo de letra do tema.
+admin-settings-key-compose-reply-to-show = Linha Reply-To
+admin-settings-help-compose-reply-to-show = Se o editor mostra a linha Reply-To: só quando uma identidade ou a mensagem original tem uma, sempre ou nunca.
+admin-settings-key-compose-reply-to-allow-override = Permitir alterar o Reply-To
+admin-settings-help-compose-reply-to-allow-override = Quando desligado, usa-se o Reply-To da identidade como está e os utilizadores não o podem editar nem remover.
+admin-settings-key-compose-sent-folder-mode = Cópia enviada: regra de pasta
+admin-settings-help-compose-sent-folder-mode = Onde fica a cópia de uma mensagem enviada: a pasta Enviados normal, uma pasta fixa, por domínio do destinatário, por identidade ou por regras de assunto.
+admin-settings-key-compose-sent-folder-fixed-id = Cópia enviada: pasta fixa
+admin-settings-help-compose-sent-folder-fixed-id = Função ou identificador da pasta usada quando a regra é "pasta fixa".
+admin-settings-key-compose-sent-folder-per-identity = Cópia enviada: pasta por identidade
+admin-settings-help-compose-sent-folder-per-identity = Um par identidade=pasta por linha. Usado quando a regra é "por identidade".
+admin-settings-key-compose-sent-folder-rules = Cópia enviada: regras
+admin-settings-help-compose-sent-folder-rules = Uma regra por linha, domain:exemplo.pt=pasta ou subject:texto=pasta. Vence a primeira correspondência.
+admin-settings-key-compose-sent-folder-skip-copy = Cópia enviada: não guardar
+admin-settings-help-compose-sent-folder-skip-copy = Nunca guardar uma cópia da mensagem enviada. Um administrador pode forçar ligado ou desligado.
+admin-settings-key-compose-headers-allow-auto-submitted = Permitir Auto-Submitted
+admin-settings-help-compose-headers-allow-auto-submitted = Permite definir Auto-Submitted (RFC 3834) numa mensagem. Desligado por predefinição: indica a outros sistemas que não respondam.
+admin-settings-key-compose-headers-allow-threading-edit = Permitir editar cabeçalhos de conversa
+admin-settings-help-compose-headers-allow-threading-edit = Permite editar In-Reply-To e References, ou iniciar uma conversa nova a partir de uma resposta.
+admin-settings-key-compose-headers-allow-custom = Permitir cabeçalhos personalizados
+admin-settings-help-compose-headers-allow-custom = Permite aos utilizadores juntar cabeçalhos próprios (até 20, nomes validados, cabeçalhos protegidos recusados).
+admin-settings-key-compose-headers-allow-return-receipt-to = Permitir Return-Receipt-To
+admin-settings-help-compose-headers-allow-return-receipt-to = Permite pedir recibos com o cabeçalho antigo Return-Receipt-To. Desligado por predefinição.
+admin-settings-key-compose-headers-forced = Cabeçalhos forçados
+admin-settings-help-compose-headers-forced = Um par Nome=valor por linha, juntado a cada mensagem enviada do domínio e substituindo o valor do utilizador. Cabeçalhos protegidos são recusados.
+admin-settings-key-mail-expiry-hide-expired = Mensagens expiradas
+admin-settings-help-mail-expiry-hide-expired = O que fazer a uma mensagem cuja data Expires já passou: nada, mostrar esbatida ou sugerir arquivá-la.
+admin-settings-key-mail-badge-headers = Emblemas de cabeçalhos
+admin-settings-help-mail-badge-headers = Mostra no leitor um emblema para os cabeçalhos Expires, Reply-By, Sensitivity e Supersedes de uma mensagem.
 admin-settings-key-compose-feature-family = Funcionalidades do editor
 admin-settings-help-compose-feature-family = Ativa ou desativa um controlo do editor por identificador. Ativo por predefinição; bloqueie para impedir os utilizadores de o alterar.
 admin-settings-key-compose-styles-max-custom = Estilos personalizados por utilizador

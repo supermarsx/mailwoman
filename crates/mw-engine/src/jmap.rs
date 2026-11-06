@@ -4669,6 +4669,9 @@ fn compose_base_from_spec(spec: &Value, identity: &str, message_id: &str) -> Com
             if let Ok(Some(value)) = organization_header(spec) {
                 headers.push(("Organization".into(), value.into()));
             }
+            if let Ok(extra) = extra_headers(spec) {
+                headers.extend(extra);
+            }
             headers
         },
         attachments: Vec::new(),
@@ -4754,6 +4757,7 @@ fn has_control(s: &str) -> bool {
 fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> {
     importance_pair(spec)?;
     organization_header(spec)?;
+    extra_headers(spec)?;
     let invalid = |property: &'static str, why: String| InvalidProperty { property, why };
     for field in ["to", "cc", "bcc", "replyTo"] {
         for addr in parse_addrs(spec.get(field)) {
@@ -4795,6 +4799,78 @@ fn check_compose_spec(spec: &Value) -> std::result::Result<(), InvalidProperty> 
         return Err(invalid("attachments", control()));
     }
     Ok(())
+}
+
+/// Message headers the composer may set as `header:<Name>:asText` besides
+/// Organization, Importance and X-Priority (Options > Message options): these
+/// fixed names (RFC 2156, RFC 4021, RFC 3834, legacy receipts) and any
+/// `X-` name that is a plain token and not an `X-Mailwoman-` internal. At most
+/// 20, each name once, each value one line of at most 998 characters. Whether a
+/// user may set a gated one is the server's admission check; this is the floor.
+const OPTIONAL_HEADERS: &[&str] = &[
+    "Sensitivity",
+    "Reply-By",
+    "Expires",
+    "Expiry-Date",
+    "Supersedes",
+    "Auto-Submitted",
+    "X-MSMail-Priority",
+    "Return-Receipt-To",
+];
+
+/// The maximum number of optional headers on one message.
+const MAX_OPTIONAL_HEADERS: usize = 20;
+
+/// Whether `name` may be written as an optional header.
+pub fn optional_header_allowed(name: &str) -> bool {
+    if OPTIONAL_HEADERS.iter().any(|h| h.eq_ignore_ascii_case(name)) {
+        return true;
+    }
+    let lower = name.to_ascii_lowercase();
+    lower.starts_with("x-")
+        && !lower.starts_with("x-mailwoman-")
+        && name.len() <= 64
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.".contains(&b))
+}
+
+fn extra_headers(spec: &Value) -> std::result::Result<Vec<(String, String)>, InvalidProperty> {
+    let invalid = |why: String| InvalidProperty {
+        property: "header",
+        why,
+    };
+    let mut out: Vec<(String, String)> = Vec::new();
+    if let Some(properties) = spec.as_object() {
+        for (key, value) in properties {
+            let Some(header) = key.strip_prefix("header:") else {
+                continue;
+            };
+            let (name, form) = header.split_once(':').unwrap_or((header, ""));
+            if ["Organization", "Importance", "X-Priority"]
+                .iter()
+                .any(|h| h.eq_ignore_ascii_case(name))
+            {
+                continue;
+            }
+            if form != "asText" || !optional_header_allowed(name) {
+                return Err(invalid(format!("header {name:?} cannot be set")));
+            }
+            let value = value
+                .as_str()
+                .ok_or_else(|| invalid("requires a text value".into()))?;
+            if value.chars().count() > 998 || value.chars().any(char::is_control) {
+                return Err(invalid(format!(
+                    "header {name:?} requires one control-free line of at most 998 characters"
+                )));
+            }
+            if out.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) || out.len() >= MAX_OPTIONAL_HEADERS {
+                return Err(invalid(format!("header {name:?} is repeated or too many headers")));
+            }
+            out.push((name.to_string(), value.to_string()));
+        }
+    }
+    Ok(out)
 }
 
 fn organization_header(spec: &Value) -> std::result::Result<Option<&str>, InvalidProperty> {
@@ -5411,7 +5487,13 @@ struct WantedHeader {
     name: String,
     /// `:all`: every instance, as an array of address lists.
     all: bool,
+    /// `asText`: the last instance as the header's text (the optional message headers).
+    text: bool,
 }
+
+/// Headers `Email/get` can return as `header:<Name>:asText`: the optional
+/// message headers the reader shows as badges (RFC 2156, RFC 4021).
+const READABLE_TEXT_HEADERS: [&str; 5] = ["expires", "expiry-date", "reply-by", "sensitivity", "supersedes"];
 
 /// The answerable `header:<Name>:asAddresses[:all]` properties of a request.
 fn wanted_header_properties(args: &Value) -> Vec<WantedHeader> {
@@ -5427,25 +5509,34 @@ fn wanted_header_properties(args: &Value) -> Vec<WantedHeader> {
             continue;
         };
         let mut parts = rest.split(':');
-        let (Some(name), Some("asAddresses")) = (parts.next(), parts.next()) else {
+        let (Some(name), Some(form)) = (parts.next(), parts.next()) else {
             continue;
+        };
+        let text = match form {
+            "asAddresses" => false,
+            "asText" => true,
+            _ => continue,
         };
         let all = match parts.next() {
             None => false,
-            Some("all") => true,
+            Some("all") if !text => true,
             Some(_) => continue,
         };
         if parts.next().is_some() {
             continue;
         }
         let name = name.to_ascii_lowercase();
-        if READABLE_ADDRESS_HEADERS.contains(&name.as_str())
-            && !wanted.iter().any(|w| w.property == property)
-        {
+        let readable = if text {
+            READABLE_TEXT_HEADERS.as_slice()
+        } else {
+            READABLE_ADDRESS_HEADERS.as_slice()
+        };
+        if readable.contains(&name.as_str()) && !wanted.iter().any(|w| w.property == property) {
             wanted.push(WantedHeader {
                 property: property.to_string(),
                 name,
                 all,
+                text,
             });
         }
     }
@@ -5528,6 +5619,10 @@ fn header_properties_json(raw: &[u8], wanted: &[WantedHeader]) -> Vec<(String, V
     wanted
         .iter()
         .map(|w| {
+            if w.text {
+                let last = pairs.iter().rev().find(|(name, _)| *name == w.name);
+                return (w.property.clone(), last.map_or(Value::Null, |(_, v)| json!(v)));
+            }
             let instances: Vec<Vec<Value>> = pairs
                 .iter()
                 .filter(|(name, _)| *name == w.name)
@@ -7871,5 +7966,68 @@ mod delivery_header_tests {
         let absent = header_properties_json(raw, &wanted(&["header:Envelope-To:asAddresses", "header:Envelope-To:asAddresses:all"]));
         assert_eq!(absent[0].1, Value::Null);
         assert_eq!(absent[1].1, json!([]));
+    }
+}
+
+#[cfg(test)]
+mod optional_header_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn writes_the_allowed_optional_headers() {
+        let spec = json!({
+            "header:Sensitivity:asText": "private",
+            "header:Reply-By:asText": "Tue, 03 Nov 2026 17:00:00 +0000",
+            "header:X-Ticket:asText": "42",
+            "header:Importance:asText": "high",
+            "header:X-Priority:asText": "1",
+        });
+        let got = extra_headers(&spec).expect("allowed");
+        assert_eq!(got.len(), 3, "Importance and X-Priority are handled elsewhere");
+        assert!(got.iter().any(|(n, v)| n == "Sensitivity" && v == "private"));
+    }
+
+    #[test]
+    fn refuses_protected_and_malformed_headers() {
+        for name in ["From", "To", "Subject", "Bcc", "Content-Type", "Date", "Message-ID", "Received", "X-Mailwoman-Id", "X Bad", "Reply-To"] {
+            let spec = json!({ format!("header:{name}:asText"): "x" });
+            assert!(extra_headers(&spec).is_err(), "{name} must be refused");
+        }
+        assert!(extra_headers(&json!({"header:X-A:asText": "a\r\nBcc: evil@example.org"})).is_err());
+        assert!(extra_headers(&json!({"header:X-A:asText": 5})).is_err());
+        assert!(extra_headers(&json!({"header:X-A:asAddresses": "a"})).is_err());
+        assert!(extra_headers(&json!({"header:X-A:asText": "a", "header:x-a:asText": "b"})).is_err());
+    }
+
+    #[test]
+    fn answers_the_optional_message_headers_as_text() {
+        let wanted = wanted_header_properties(&json!({"properties": [
+            "header:Expires:asText", "header:Sensitivity:asText", "header:Supersedes:asText",
+            "header:Subject:asText", "header:Expires:asText:all", "header:Expires:asAddresses"
+        ]}));
+        assert_eq!(
+            wanted.iter().filter(|w| w.text).count(),
+            3,
+            "only the readable names, text form, no :all"
+        );
+        let raw = b"Subject: x\r\nExpires: Tue, 03 Nov 2026 17:00:00 +0000\r\nSensitivity: private\r\n\r\nExpires: body\r\n";
+        let got = header_properties_json(raw, &wanted);
+        let value = |k: &str| got.iter().find(|(p, _)| p == k).map(|(_, v)| v.clone());
+        assert_eq!(
+            value("header:Expires:asText"),
+            Some(json!("Tue, 03 Nov 2026 17:00:00 +0000"))
+        );
+        assert_eq!(value("header:Sensitivity:asText"), Some(json!("private")));
+        assert_eq!(value("header:Supersedes:asText"), Some(Value::Null));
+    }
+
+    #[test]
+    fn caps_the_number_of_optional_headers() {
+        let mut spec = serde_json::Map::new();
+        for i in 0..21 {
+            spec.insert(format!("header:X-H{i}:asText"), json!("v"));
+        }
+        assert!(extra_headers(&Value::Object(spec)).is_err());
     }
 }

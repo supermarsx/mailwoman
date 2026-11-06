@@ -143,6 +143,12 @@ export type InboxTab = 'focused' | 'other';
 /** The compose/send input (grown for identities + send-later + undo-send). */
 export interface SendInput {
   sentMailboxId?: Id;
+  /** The composer's Reply-To choice: addresses, or '' to send none. Absent = the identity's own. */
+  replyTo?: string;
+  /** Do not keep a copy of the sent message (the Sent copy is removed once the submission succeeds). */
+  skipSentCopy?: boolean;
+  /** Extra headers to write (Options > Message options); the engine accepts a fixed set. */
+  headers?: [string, string][];
   accountDraft?:{id:string;revision:string};
   /** The recipient field as typed: `addr` or `Name <addr>` entries, `,`/`;`-separated. */
   to: string;
@@ -2037,7 +2043,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const fromEmail = override?.email ?? identity?.email ?? user.username;
     const fromName = override === null ? identity?.name ?? null : null;
     const senderIdentityId = override === null ? identity?.id : override.identityId;
-    const replyTo = override === null ? identity?.replyTo : null;
+    const replyTo = input.replyTo !== undefined ? input.replyTo : override === null ? identity?.replyTo : null;
     const organization = override === null ? identity?.organization : null;
     if (replyTo && invalidRecipients(replyTo).length > 0) throw new Error(t('mail-send-bad-recipient', { count: invalidRecipients(replyTo).length, addresses: isolate(replyTo) }));
 
@@ -2068,7 +2074,9 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       htmlBody: input.htmlBody,
       ...(input.textBody !== undefined ? {textBody: input.textBody} : {}),
       holdSeconds,
-      ...(sent !== null ? { sentMailboxId: sent } : {}),
+      ...(sent !== null && input.skipSentCopy !== true ? { sentMailboxId: sent } : {}),
+      ...(input.skipSentCopy === true ? { skipSentCopy: true } : {}),
+      ...(input.headers !== undefined && input.headers.length > 0 ? { headers: input.headers } : {}),
       ...(senderIdentityId ? { identityId: senderIdentityId } : {}),
       ...(scheduled ? { sendAt: input.sendAt! } : {}),
       ...(input.attachments !== undefined && input.attachments.length > 0

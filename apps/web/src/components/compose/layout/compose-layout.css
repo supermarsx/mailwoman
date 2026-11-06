@@ -1,0 +1,21 @@
+/* Layout tab: theme gallery and hints. Tokens only, so it follows light and dark. */
+.compose-rib__hint { margin: 0; max-inline-size: 18rem; font-size: .75rem; color: var(--text-dim); }
+.layout-gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr)); gap: .5rem; min-inline-size: min(34rem, 80vw); padding: .25rem; }
+.layout-gallery__card { display: flex; flex-direction: column; gap: .3rem; padding: .35rem; text-align: start; font: inherit; color: var(--text); background: var(--bg); border: var(--border-hair) solid var(--border); cursor: pointer; }
+.layout-gallery__card[aria-selected="true"] { border-color: var(--accent); outline: 2px solid var(--accent); outline-offset: -2px; }
+.layout-gallery__card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.layout-gallery__page { display: flex; padding: .5rem; min-block-size: 4.2rem; border: var(--border-hair) solid var(--border); }
+.layout-gallery__sheet { display: flex; flex-direction: column; gap: .15rem; flex: 1; padding: .35rem .45rem; font-size: .75rem; }
+.layout-gallery__name { font-size: .8rem; font-weight: 600; }
+
+/* Message options */
+.mo { display: flex; flex-direction: column; gap: .6rem; min-inline-size: min(26rem, 85vw); max-block-size: 70vh; overflow: auto; padding: .25rem; }
+.mo-row { display: flex; flex-direction: column; gap: .2rem; }
+.mo-row small, .mo small { color: var(--text-dim); font-size: .75rem; }
+.mo-row label, .mo-label { font-size: .8rem; font-weight: 600; }
+.mo-row input:not([type=checkbox]), .mo-row select { min-block-size: 1.75rem; color: var(--text); background: var(--bg); border: var(--border-hair) solid var(--border); font: inherit; }
+.mo-controls { display: flex; flex-wrap: wrap; gap: .35rem; align-items: center; }
+.mo-advanced { border-block-start: var(--border-hair) solid var(--border); padding-block-start: .4rem; }
+.mo-advanced summary { cursor: pointer; font-size: .8rem; font-weight: 600; }
+.mo-custom-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: .2rem; }
+.mo code { font-size: .75rem; overflow-wrap: anywhere; }

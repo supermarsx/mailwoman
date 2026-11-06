@@ -4,7 +4,7 @@
 // settings model; a value an administrator locked shows the lock note.
 import { createMemo, createSignal, For, onMount, Show, type JSX } from 'solid-js';
 import {
-  COMPOSE_FEATURES, COMPOSE_FEATURE_GROUPS, COMPOSE_PRESETS, composeFeatureKey, composeFeatureOn, presetValues,
+  COMPOSE_FEATURES, COMPOSE_FEATURE_CATALOGS, COMPOSE_FEATURE_GROUPS, COMPOSE_PRESETS, composeFeatureKey, composeFeatureOn, presetValues,
   type ComposeFeature, type ComposeFeatureGroup, type ComposePresetId,
 } from '../../components/compose/composeFeatures.ts';
 import { resetSetting, settings, writeSetting } from '../../api/settings.ts';
@@ -55,7 +55,7 @@ function GroupMaster(props: { group: ComposeFeatureGroup; features: readonly Com
 }
 
 export function ComposerFeatures(): JSX.Element {
-  onMount(() => { void loadCatalog('compose-features'); void loadCatalog('mail'); });
+  onMount(() => { for (const c of [...COMPOSE_FEATURE_CATALOGS, 'reader']) void loadCatalog(c); });
   const [preset, setPreset] = createSignal<ComposePresetId>('simple');
   const [status, setStatus] = createSignal('');
   const [busy, setBusy] = createSignal(false);

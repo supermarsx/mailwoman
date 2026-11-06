@@ -120,3 +120,29 @@ export function wrapContentWidth(innerHtml: string, widthPx: number | 'full', al
   const a = align === 'center' ? ' align="center"' : '';
   return `<table role="presentation" data-mw-width="${w}"${a} width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:${w}px;${align === 'center' ? 'margin:0 auto;' : ''}border-collapse:collapse"><tr><td valign="top">${innerHtml}</td></tr></table>`;
 }
+
+/**
+ * Columns tables in `html`: tables we built (`data-mw-columns`), or, after an
+ * editor round trip dropped the marker, a borderless one-row table of 2-4 cells
+ * that all carry a percentage width and `vertical-align:top`.
+ */
+export function isColumnsLike(table: HTMLTableElement): boolean {
+  if (table.hasAttribute('data-mw-columns')) return true;
+  const rows = table.querySelectorAll(':scope > tbody > tr, :scope > tr');
+  if (rows.length !== 1) return false;
+  const cells = Array.from(rows[0]!.children) as HTMLElement[];
+  if (cells.length < 2 || cells.length > MAX_COLUMNS) return false;
+  return cells.every((c) => /%/.test(c.style.width || c.getAttribute('width') || '') && (c.style.verticalAlign === 'top' || c.getAttribute('valign') === 'top') && c.style.borderTopWidth === '');
+}
+
+/** Merge every columns table in `html` into one column; returns the new HTML and how many were merged. */
+export function mergeColumnsInHtml(html: string): { html: string; merged: number } {
+  const body = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html').body;
+  let merged = 0;
+  for (const table of Array.from(body.querySelectorAll<HTMLTableElement>('table'))) {
+    if (!body.contains(table) || !isColumnsLike(table)) continue;
+    mergeColumns(table);
+    merged += 1;
+  }
+  return { html: body.innerHTML, merged };
+}

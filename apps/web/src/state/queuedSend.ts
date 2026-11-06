@@ -47,6 +47,7 @@ export function draftFromSend(input: SendInput, now = Date.now()): StoredDraft |
   if (input.fromOverride) draft.fromOverride = input.fromOverride;
   if (input.importance) draft.importance = input.importance;
   if (input.sentMailboxId) draft.sentMailboxId = input.sentMailboxId;
+  if (input.replyTo !== undefined) draft.replyTo = input.replyTo;
   if (input.requestReadReceipt) draft.requestReceipt = true;
   if (input.requestDeliveryReceipt) draft.requestDeliveryReceipt = true;
   if (input.openTracking) draft.openTracking = true;

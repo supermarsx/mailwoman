@@ -15,6 +15,12 @@ import type {LinkEdit} from './compose/insert/linkEdit.ts';
 import {shapeAttrValue,type ShapeSpec} from './compose/insert/shapes.ts';
 import {planFiles} from './compose/insert/dropPolicy.ts';
 import {useComposeFeature} from './compose/composeFeatures.ts';
+import {LayoutGroups,decodeFont} from './compose/layout/LayoutGroups.tsx';
+import {isEmptyLayout,joinLayout,splitLayout,type MessageLayout} from './compose/layout/messageLayout.ts';
+import {parseSentFolderPolicy,resolveSentFolder,writableFolders} from './compose/layout/sentFolder.ts';
+import {MessageOptions} from './compose/layout/MessageOptions.tsx';
+import {DEFAULT_GATES,buildHeaders,parseHeaderOptions,serializeHeaderOptions,type MessageHeaderOptions} from './compose/layout/messageHeaders.ts';
+import {checkReplyTo,isReplyToShow,replyToForSend,replyToRowVisible,replyToToggleAvailable} from './compose/replyToModel.ts';
 import {loadAttachmentPolicy,attachmentPolicyUrl,type AttachmentPolicy} from '../api/attachmentPolicy.ts';
 import type {ResizePreset} from './compose/insert/imageResize.ts';
 import {transportBase} from '../api/transport.ts';
@@ -193,6 +199,14 @@ export function Compose(props: {
   // The Cc and Bcc fields stay folded away until asked for, or until one of
   // them holds something (a reply-all, a resumed draft).
   const [ccBccOpen, setCcBccOpen] = createSignal((initial?.cc ?? '') !== '');
+  // The Reply-To row: the identity's own value is prefilled and follows the identity until the user edits it.
+  const [replyToText, setReplyToText] = createSignal('');
+  const [replyToEdited, setReplyToEdited] = createSignal(false);
+  const [replyToToggled, setReplyToToggled] = createSignal(false);
+  // Message options (Sensitivity, Reply-By, Expires, Supersedes, advanced headers); the server checks the same gates.
+  const [msgOpts, setMsgOpts] = createSignal<MessageHeaderOptions>({});
+  const headerGates = () => { const s = settings(); return { allowAutoSubmitted: s['compose.headers.allowAutoSubmitted']?.value === true, allowThreadingEdit: s['compose.headers.allowThreadingEdit']?.value === true, allowCustom: s['compose.headers.allowCustom']?.value === true, allowLegacyReturnReceipt: s['compose.headers.allowReturnReceiptTo']?.value === true } satisfies typeof DEFAULT_GATES; };
+  const builtHeaders = createMemo(() => buildHeaders(msgOpts(), headerGates()));
   // The ids a reply carries (`In-Reply-To`, `References`). Not editable; a
   // resumed draft brings its own.
   const [threading, setThreading] = createSignal<{ inReplyTo: string[]; references: string[] }>({
@@ -210,7 +224,19 @@ export function Compose(props: {
   // `body`. `richMode` toggles the ProseMirror editor vs a plain-text textarea;
   // the toggle round-trips the text.
   const [body, setBody] = createSignal(initial?.bodyText ?? '');
-  const [bodyHtml, setBodyHtml] = createSignal(stripEditorMarkers(initial?.bodyHtml ?? ''));
+  const initialSplit = splitLayout(stripEditorMarkers(initial?.bodyHtml ?? ''));
+  const [bodyHtml, setBodyHtml] = createSignal(initialSplit.html);
+  // The message layout (theme, page colour, width, font, ...) is kept apart from the
+  // editors and written around the part above a reply quote on save and send.
+  const [layout, setLayout] = createSignal<MessageLayout>(initialSplit.layout);
+  // The user's saved default font applies to a message that has no layout of its own.
+  let defaultFontApplied = false;
+  createEffect(() => {
+    const saved = settings()['compose.layout.defaultFont']?.value;
+    if (defaultFontApplied || typeof saved !== 'string' || saved === '') return;
+    defaultFontApplied = true;
+    setLayout((cur) => (isEmptyLayout(cur) ? { font: decodeFont(saved) } : cur));
+  });
 
   /** The plain-text Body field. It is the fallback for all three ways the rich
    *  editor can be absent — plain-text mode, the chunk still loading, and the
@@ -283,7 +309,7 @@ export function Compose(props: {
   const fromHelpId = createUniqueId();
   // The composer ribbon (t38; shared with the signature editor, t49): the open
   // tab, and the slots where the editor's groups join each tab.
-  const ribbon=createEditorRibbon<'security'|'delivery'>('format');
+  const ribbon=createEditorRibbon<'security'|'delivery'|'layout'>('format');
   const ribbonTab=ribbon.tab,setRibbonTab=ribbon.setTab,showRibbonTab=ribbon.show;
   createEffect(()=>{if(unlockOpen())showRibbonTab('security');});
   const [fromVisibleOverride,setFromVisibleOverride] = createSignal<boolean|null>(null);
@@ -317,8 +343,28 @@ export function Compose(props: {
   const replySource=initial?.mode==='reply'||initial?.mode==='reply-all'?app.openEmail():null;
   const replyMailboxIds=initial?.sourceMailboxIds??(replySource&&replySource.id===initial?.source?.emailId?Object.keys(replySource.mailboxIds):[]);
   const replySourceFolder=initial?.sourceMailboxId??app.selectedMailboxId();
+  // The sent-copy choice: per message first, then the administrator/user rule (compose.sentFolder.*), then the reply-copy habit.
+  const NO_SENT_COPY='__none';
+  const featSentFolder=useComposeFeature('options.sentFolder');
+  const sentPolicy=createMemo(()=>{const s=settings();return parseSentFolderPolicy({mode:s['compose.sentFolder.mode']?.value,fixedId:s['compose.sentFolder.fixedId']?.value,perIdentity:s['compose.sentFolder.perIdentity']?.value,rules:s['compose.sentFolder.rules']?.value,skipCopy:s['compose.sentFolder.skipCopy']?.value});});
+  const sentResolution=createMemo(()=>{
+    if(!featSentFolder())return null;
+    const folders=writableFolders(app.mailboxes());
+    const choice=sentCopyFolder()===NO_SENT_COPY?{kind:'none' as const}:sentCopyFolder()?{kind:'folder' as const,folder:sentCopyFolder()}:undefined;
+    return {folders,result:resolveSentFolder({...(choice?{choice}:{}),policy:sentPolicy(),identityId:identityId(),recipients:parseRecipients([to(),cc(),bcc()].join(',')).map(r=>r.email),subject:subject(),writable:new Set(folders.keys()),sent:'sent'})};
+  });
+  const skipSentCopy=()=>{const r=sentResolution();return r!==null&&r.result.skip;};
+  const policySentCopy=()=>{const r=sentResolution();if(r===null||r.result.skip||r.result.source==='default'||r.result.fellBackFrom!==undefined)return '';return r.folders.get(r.result.folder)??'';};
+  const sentCopyHint=():string=>{
+    const r=sentResolution()?.result;if(!r)return '';
+    if(r.skip)return t(r.reason==='policy'?'mail-compose-sent-copy-skip-policy':'mail-compose-sent-copy-skip');
+    const folders=sentResolution()!.folders;const name=app.mailboxes().find(box=>box.id===folders.get(r.folder))?.name??r.folder;
+    return r.fellBackFrom!==undefined?t('mail-compose-sent-copy-fallback',{folder:isolate(r.fellBackFrom)}):t('mail-compose-sent-copy-will',{folder:isolate(name)});
+  };
   const effectiveSentCopy=()=>{
-    if(sentCopyFolder())return sentCopyFolder();
+    if(skipSentCopy())return '';
+    if(sentCopyFolder()&&sentCopyFolder()!==NO_SENT_COPY)return sentCopyFolder();
+    if(policySentCopy())return policySentCopy();
     if(settings()['mail.replyCopyToOriginal']?.value!==true||!replyMailboxIds.length)return '';
     const candidates=app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false&&replyMailboxIds.includes(box.id));
     return candidates.find(box=>box.id===replySourceFolder)?.id??candidates.find(box=>!['trash','junk','drafts','sent'].includes(box.role??''))?.id??'';
@@ -495,6 +541,7 @@ export function Compose(props: {
 
   onMount(() => {
     void loadCatalog('mail');
+    void loadCatalog('compose-layout');
     void loadCatalog('nextcloud'); // t112: the inserted share link text
     previouslyFocused = document.activeElement as HTMLElement | null;
     if (props.active !== false) toInputEl?.focus();
@@ -876,12 +923,13 @@ export function Compose(props: {
     const images = (d.inline ?? []).map((i) => ({ ...i, previewUrl: null }));
     setInlineImages(images);
     setAttachments(d.attachments ?? []);
-    setIncludeFileHashes(d.includeFileHashes===true);setAttachPublicKey(d.attachPublicKey===true);setSentCopyFolder(d.sentMailboxId??'');
+    setIncludeFileHashes(d.includeFileHashes===true);setAttachPublicKey(d.attachPublicKey===true);setSentCopyFolder(d.sentMailboxId??'');if(d.replyTo!==undefined){setReplyToEdited(true);setReplyToText(d.replyTo);setReplyToToggled(true);}if(d.messageOptions!==undefined)setMsgOpts(parseHeaderOptions(d.messageOptions));
     const nextRich=d.bodyFormat!=='plain',nextNative=nextRich&&d.editorMode!=='rich';
     const changingEditor=nextRich!==richMode()||nextNative!==sourceMode();
-    batch(()=>{if(changingEditor)setEditorApi(null);setSourceMode(nextNative);setRichMode(nextRich);setBody(d.bodyText);setBodyHtml(d.bodyHtml);});
+    const restored=splitLayout(d.bodyHtml);
+    batch(()=>{if(changingEditor)setEditorApi(null);setSourceMode(nextNative);setRichMode(nextRich);setBody(d.bodyText);setBodyHtml(restored.html);setLayout(restored.layout);});
     const api = editorApi();
-    if (!changingEditor&&nextRich&&api!==null)api.setHtml(d.bodyHtml);
+    if (!changingEditor&&nextRich&&api!==null)api.setHtml(restored.html);
     setDraftsOpen(false);
     void loadPreviews(images);
     setLiveDraftVersion(value=>value+1);
@@ -1155,9 +1203,11 @@ export function Compose(props: {
       ...(threading().inReplyTo.length > 0 ? { inReplyTo: threading().inReplyTo } : {}),
       ...(threading().references.length > 0 ? { references: threading().references } : {}),
       subject: subject(),
-      bodyHtml: richMode() && editorApi() !== null ? stripEditorMarkers(bodyHtml()) : plainToHtml(body()),
+      bodyHtml: richMode() && editorApi() !== null ? joinLayout(layout(), stripEditorMarkers(bodyHtml())) : plainToHtml(body()),
       bodyText: body(),
       savedAt: Date.now(),
+      ...(replyToEdited() ? { replyTo: replyToText() } : {}),
+      ...(Object.keys(msgOpts()).length>0 ? { messageOptions: serializeHeaderOptions(msgOpts()) } : {}),
       ...(requestReceipt() ? { requestReceipt: true } : {}),
       ...(requestDelivery() ? { requestDeliveryReceipt: true } : {}),
       ...(trackOpens() ? { openTracking: true } : {}),
@@ -1555,6 +1605,8 @@ export function Compose(props: {
     if(!mailFeature('allowSend')||busy()||uploading()||discardCurrentOpen()||discardCurrentBusy()||checkPrompt()!==null)return;
     setAttempted(true);
     setBusy(true);
+    const fellBack=sentResolution()?.result;
+    if(fellBack&&!fellBack.skip&&fellBack.fellBackFrom!==undefined)toast.info(t('mail-compose-sent-copy-fallback',{folder:isolate(fellBack.fellBackFrom)}));
     try {
     const expectedSelection=sendingSelection();let identityTimer:ReturnType<typeof setTimeout>|undefined;
     try{await Promise.race([loadInitialIdentities(),new Promise<never>((_,reject)=>{identityTimer=setTimeout(()=>reject(new Error('Identity loading timed out')),15_000);})]);}
@@ -1662,7 +1714,7 @@ export function Compose(props: {
         // still loading or failed to load, the user typed into the textarea and
         // `bodyHtml` does not hold their text — the body is built from `body`.
         const rich = richMode() && editorApi() !== null;
-        htmlBody = rich ? stripEditorMarkers(bodyHtml()) : '';
+        htmlBody = rich ? joinLayout(layout(), stripEditorMarkers(bodyHtml())) : '';
         if (!rich) textBody = outgoingPlaintext();
         else if(checksumText())htmlBody+=`<pre>${escapeHtml(checksumText())}</pre>`;
         const sig = autoSignature();
@@ -1707,6 +1759,9 @@ export function Compose(props: {
         ...(textBody !== undefined ? {textBody} : {}),
         identity: identity(),
         ...(effectiveSentCopy()?{sentMailboxId:effectiveSentCopy()}:{}),
+        ...(skipSentCopy()?{skipSentCopy:true}:{}),
+        ...(builtHeaders().headers.length>0?{headers:builtHeaders().headers}:{}),
+        ...(featReplyTo()&&replyToValue()!==undefined?{replyTo:replyToValue()!}:{}),
         ...(importance()!=='normal'&&settings()['mail.compose.priority.enabled']?.value!==false?{importance:importance()}:{}),
         ...(customFrom() ? {fromOverride: fromOverride()} : {}),
         sendAt: sendAtIso,
@@ -1754,9 +1809,18 @@ export function Compose(props: {
   // What the rich editor's selection is on. The HTML editors keep their own Table tab; the rich editor's
   // Table layout and Picture tabs show only while the caret is in a table or an image is selected.
   const [editorContext,setEditorContext]=createSignal<EditorContext>({image:false,table:false});
-  const visibleTabs=():('format'|'insert'|'table'|'picture'|'security'|'delivery')[]=>richMode()
-    ?['format','insert',...(sourceMode()||editorContext().table?['table' as const]:[]),...(!sourceMode()&&editorContext().image?['picture' as const]:[]),'security','delivery']
-    :['format','insert','security','delivery'];
+  // Reply-To: setting, admin gate, flag and the derived state the row and the send use.
+  const featReplyTo = useComposeFeature('options.replyTo');
+  const replyToSetting = () => { const v = settings()['compose.replyTo.show']?.value; return isReplyToShow(v) ? v : 'auto'; };
+  const replyToAllowed = () => settings()['compose.replyTo.allowOverride']?.value !== false;
+  createEffect(() => { const own = identity()?.replyTo ?? ''; if (!replyToEdited()) setReplyToText(own); });
+  const repliesToReplyTo = () => (replySource?.replyTo?.length ?? 0) > 0;
+  const replyToShown = () => featReplyTo() && replyToRowVisible({ show: replyToSetting(), hasValue: replyToText().trim() !== '', toggled: replyToToggled(), repliesToReplyTo: repliesToReplyTo() });
+  const replyToCheck = createMemo(() => checkReplyTo(replyToText(), identity()?.email ?? ''));
+  const replyToValue = () => replyToForSend({ edited: replyToEdited(), text: replyToText(), allowOverride: replyToAllowed() });
+  const visibleTabs=():('format'|'insert'|'layout'|'table'|'picture'|'security'|'delivery')[]=>richMode()
+    ?['format','insert','layout',...(sourceMode()||editorContext().table?['table' as const]:[]),...(!sourceMode()&&editorContext().image?['picture' as const]:[]),'security','delivery']
+    :['format','insert','layout','security','delivery'];
   createEffect(()=>{if(!visibleTabs().includes(ribbonTab() as never))setRibbonTab('format');});
   const noRecipients=()=>to().trim()===''&&cc().trim()===''&&bcc().trim()===''&&(attempted()||subject().trim()!==''||body().trim()!=='');
   const lacksAttachment=createMemo(()=>policyOf('missingAttachment')!=='allow'&&attachments().length===0&&inlineImages().length===0&&!attachPublicKey()&&mentionsAttachment(body()));
@@ -1783,6 +1847,13 @@ export function Compose(props: {
       } else if(!externalHidden()){
         items.push({id:'external',severity:'neutral',subdued:true,icon:'alert',label:t('mail-status-external',{count:outside().length}),detail,actionLabel:t('mail-external-dismiss'),onAction:()=>setDismissedExternal(outside())});
       }
+    }
+    if(builtHeaders().errors.length>0)items.push({id:'message-options-invalid',severity:'warning',icon:'alert',label:t('mo-status-invalid'),detail:t('mo-status-invalid-help'),testId:'compose-status-message-options'});
+    if(msgOpts().sensitivity==='company-confidential'&&outside().length>0)items.push({id:'confidential-external',severity:'warning',icon:'alert',label:t('mo-status-confidential-external',{count:outside().length}),detail:t('mo-confidential-external',{count:outside().length}),testId:'compose-status-confidential-external'});
+    if(featReplyTo()&&replyToShown()){
+      const check=replyToCheck();
+      for(const bad of check.invalid)items.push({id:`replyto-invalid-${bad}`,severity:'danger',icon:'alert',label:t('mail-status-replyto-invalid',{address:isolate(bad)}),testId:'compose-status-replyto-invalid',onClick:()=>{revealHeader();setReplyToToggled(true);}});
+      if(check.external.length>0)items.push({id:'replyto-external',severity:'warning',icon:'alert',label:t('mail-status-replyto-external',{domains:isolate(check.external.join(', '))}),detail:t('mail-status-replyto-external-help'),testId:'compose-status-replyto-external',onClick:()=>{revealHeader();setReplyToToggled(true);}});
     }
     const choice=autoPick();
     if(choice){
@@ -1927,7 +1998,7 @@ export function Compose(props: {
         <div class="field compose__to">
           <span>{t('mail-compose-to')}</span>
           <RecipientTokenField {...recipientProps('to')} placeholder={t('mail-compose-to-placeholder')}>{suggestionList('to')}</RecipientTokenField>
-          <span class={`compose-head__ccbcc ${ccbccGroup}`}><button type="button" class={ccbccToggle} data-testid="compose-head-ccbcc" aria-pressed={ccBccOpen()} aria-controls={`${composeId}-ccbcc`} onClick={()=>setCcBccOpen(!ccBccOpen())}>{t('mail-compose-cc')} {t('mail-compose-bcc')}</button></span>
+          <span class={`compose-head__ccbcc ${ccbccGroup}`}><button type="button" class={ccbccToggle} data-testid="compose-head-ccbcc" aria-pressed={ccBccOpen()} aria-controls={`${composeId}-ccbcc`} onClick={()=>setCcBccOpen(!ccBccOpen())}>{t('mail-compose-cc')} {t('mail-compose-bcc')}</button><Show when={featReplyTo()&&replyToToggleAvailable(replyToSetting())}><button type="button" class={ccbccToggle} data-testid="compose-head-replyto" aria-pressed={replyToShown()} aria-controls={`${composeId}-replyto`} onClick={()=>setReplyToToggled(!replyToShown())}>{t('mail-compose-reply-to')}</button></Show></span>
         </div>
         {addressCard.card()}
 
@@ -1963,6 +2034,16 @@ export function Compose(props: {
           <div class="field compose__to">
             <span>{t('mail-compose-bcc')}</span>
             <RecipientTokenField {...recipientProps('bcc')}>{suggestionList('bcc')}</RecipientTokenField>
+          </div>
+        </Show>
+
+        <Show when={replyToShown()}>
+          <div id={`${composeId}-replyto`} class="field compose__to" data-testid="compose-replyto-row">
+            <span>{t('mail-compose-reply-to')}</span>
+            <RecipientTokenField field="replyto" groupLabel={t('mail-recipient-chips',{field:t('mail-compose-reply-to')})} value={replyToText()} separator={separator()} autoChip={autoChip()} nameOf={contactName}
+              onChange={(value)=>{if(!replyToAllowed())return;setReplyToEdited(true);setReplyToText(value);}} />
+            <Show when={!replyToAllowed()}><small data-testid="compose-replyto-locked">{t('mail-compose-reply-to-locked')}</small></Show>
+            <Show when={repliesToReplyTo()}><small data-testid="compose-replyto-note">{t('mail-compose-reply-to-note',{address:isolate((replySource?.replyTo??[]).map(a=>a.email).join(', '))})}</small></Show>
           </div>
         </Show>
 
@@ -2130,6 +2211,16 @@ export function Compose(props: {
             </>},
             {id:'table'},
             {id:'picture'},
+            {id:'layout',before:()=><LayoutGroups
+              layout={layout}
+              update={(change)=>setLayout(change)}
+              insertHtml={html=>{const api=editorApi();if(api===null)return;if(api.insertHtml)api.insertHtml(html,false);else api.appendHtml(html);}}
+              currentHtml={()=>stripEditorMarkers(bodyHtml())}
+              replaceHtml={html=>{const api=editorApi();if(api===null)return;if(api.replaceHtml)api.replaceHtml(html);else api.setHtml(html);}}
+              plain={()=>!richMode()}
+              savedFont={()=>String(settings()['compose.layout.defaultFont']?.value??'')}
+              saveFont={value=>writeSetting('compose.layout.defaultFont',value).catch(()=>undefined)}
+            />},
             {id:'security',before:()=><>
               {/* Crypto + DLP (plan §2.5): encrypt/sign toggles, the live E2EE/TLS/mixed
                   status from real per-recipient CryptoKey/lookup, and the Dlp/scan
@@ -2236,8 +2327,10 @@ export function Compose(props: {
                 <RibbonItem><label><input type="checkbox" checked={attachPublicKey()} disabled={busy()} onChange={e=>setAttachPublicKey(e.currentTarget.checked)}/>{t('mail-compose-attach-public-key')}</label></RibbonItem>
                 <RibbonItem><label><input type="checkbox" checked={includeFileHashes()} disabled={busy()} onChange={e=>setIncludeFileHashes(e.currentTarget.checked)}/>{t('mail-compose-include-hashes')}</label><Show when={includeFileHashes()&&!hashesReady()}><span role="status" data-testid="compose-hash-status">{t(hashResult()?.error?'mail-compose-hashes-failed':'mail-compose-hashes-pending')}</span></Show></RibbonItem>
               </RibbonGroup>
+              <MessageOptions options={msgOpts} update={change=>setMsgOpts(change)} gates={headerGates} threading={threading} startNewThread={()=>setThreading({inReplyTo:[],references:[]})} fromAddress={()=>identity()?.email??''} externalCount={()=>outside().length} />
               <RibbonGroup label={t('mail-compose-group-sent-copy')} priority={6} icon="folder" testId="compose-delivery-saving">
-                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
+                <RibbonItem><label class="compose-rib__field"><span class="compose-rib__text">{t('mail-compose-sent-copy')}</span><select value={sentCopyFolder()} disabled={busy()} onChange={e=>setSentCopyFolder(e.currentTarget.value)}><option value="">{t('mail-compose-sent-copy-default')}</option><Show when={featSentFolder()}><option value={NO_SENT_COPY}>{t('mail-compose-sent-copy-none')}</option></Show><For each={app.mailboxes().filter(box=>box.myRights?.mayAddItems!==false)}>{box=><option value={box.id}>{box.name}</option>}</For></select></label></RibbonItem>
+                <Show when={featSentFolder()}><RibbonItem><span class="compose-rib__hint" role="status" data-testid="compose-sent-copy-hint">{sentCopyHint()}</span></RibbonItem></Show>
               </RibbonGroup>
             </>},
           ]}

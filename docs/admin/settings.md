@@ -1292,6 +1292,79 @@ The look of the Styles gallery: `default`, `modern`, `classic` or `compact`. Use
 
 A user's own styles as JSON, written by the Styles gallery. It is a user value and has no administrator form.
 
+<a id="compose.layout.defaultFont"></a>
+### Default message font (`compose.layout.defaultFont`)
+
+Font family, size and colour a new message starts with, as family|size|#colour. Empty uses the theme font.
+
+<a id="compose.replyTo.show"></a>
+### Reply-To row (`compose.replyTo.show`)
+
+Whether the composer shows the Reply-To row: only when an identity or the original message has one, always, or never.
+
+<a id="compose.replyTo.allowOverride"></a>
+### Allow changing Reply-To (`compose.replyTo.allowOverride`)
+
+When off, the Reply-To of the identity is used as it is and users cannot edit or remove it.
+
+<a id="compose.sentFolder.mode"></a>
+### Sent copy: folder rule (`compose.sentFolder.mode`)
+
+Where the copy of a sent message goes: the normal Sent folder, one fixed folder, by recipient domain, by identity, or by subject rules.
+
+<a id="compose.sentFolder.fixedId"></a>
+### Sent copy: fixed folder (`compose.sentFolder.fixedId`)
+
+Folder role or id used when the rule is "fixed folder".
+
+<a id="compose.sentFolder.perIdentity"></a>
+### Sent copy: folder per identity (`compose.sentFolder.perIdentity`)
+
+One identity=folder pair per line. Used when the rule is "by identity".
+
+<a id="compose.sentFolder.rules"></a>
+### Sent copy: rules (`compose.sentFolder.rules`)
+
+One rule per line, domain:example.com=folder or subject:text=folder. The first match wins.
+
+<a id="compose.sentFolder.skipCopy"></a>
+### Sent copy: do not save (`compose.sentFolder.skipCopy`)
+
+Never keep a copy of a sent message. An administrator can force this on or off.
+
+<a id="compose.headers.allowAutoSubmitted"></a>
+### Allow Auto-Submitted (`compose.headers.allowAutoSubmitted`)
+
+Lets users set Auto-Submitted (RFC 3834) on a message. Off by default: it tells other systems not to reply.
+
+<a id="compose.headers.allowThreadingEdit"></a>
+### Allow editing threading headers (`compose.headers.allowThreadingEdit`)
+
+Lets users edit In-Reply-To and References, or start a new thread from a reply.
+
+<a id="compose.headers.allowCustom"></a>
+### Allow custom headers (`compose.headers.allowCustom`)
+
+Lets users add their own headers (up to 20, names checked, protected headers refused).
+
+<a id="compose.headers.allowReturnReceiptTo"></a>
+### Allow Return-Receipt-To (`compose.headers.allowReturnReceiptTo`)
+
+Lets users request receipts with the legacy Return-Receipt-To header. Off by default.
+
+<a id="compose.headers.forced"></a>
+### Forced headers (`compose.headers.forced`)
+
+One Name=value pair per line, added to every message sent from the domain and replacing the user's value. Protected headers are refused.
+
+<a id="mail.expiry.hideExpired"></a>
+### Expired messages (`mail.expiry.hideExpired`)
+
+What to do with a message whose Expires date has passed: nothing, show it dimmed, or suggest archiving it.
+<a id="mail.badge.headers"></a>
+### Header badges (`mail.badge.headers`)
+
+Show a badge in the reader for the Expires, Reply-By, Sensitivity and Supersedes headers of a message.
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 

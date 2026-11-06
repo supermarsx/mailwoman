@@ -74,3 +74,39 @@ export function resolveSentFolder(i: SentFolderInput): SentFolderResolution {
   if (i.writable.has(wanted.folder)) return { skip: false, folder: wanted.folder, source: wanted.source };
   return { skip: false, folder: i.sent, source: wanted.source, fellBackFrom: wanted.folder };
 }
+
+const MODES: readonly SentFolderMode[] = ['default', 'fixed', 'byRecipient', 'byIdentity', 'bySubjectRule'];
+
+/** Build the policy from the settings values (`compose.sentFolder.*`); anything malformed is ignored. */
+export function parseSentFolderPolicy(v: {
+  mode?: unknown; fixedId?: unknown; perIdentity?: unknown; rules?: unknown; skipCopy?: unknown;
+}): SentFolderPolicy {
+  const lines = (x: unknown): string[] => (Array.isArray(x) ? x.filter((s): s is string => typeof s === 'string') : []);
+  const perIdentity: Record<string, string> = {};
+  for (const line of lines(v.perIdentity)) {
+    const eq = line.indexOf('=');
+    if (eq > 0 && eq < line.length - 1) perIdentity[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+  }
+  const rules: SentFolderRule[] = [];
+  for (const line of lines(v.rules)) {
+    const eq = line.lastIndexOf('=');
+    if (eq <= 0 || eq === line.length - 1) continue;
+    const folder = line.slice(eq + 1).trim();
+    const cond = line.slice(0, eq).trim();
+    if (cond.startsWith('domain:')) rules.push({ recipientDomain: cond.slice(7).trim(), folder });
+    else if (cond.startsWith('subject:')) rules.push({ subjectContains: cond.slice(8).trim(), folder });
+  }
+  const mode = MODES.find((m) => m === v.mode) ?? 'default';
+  return { mode, fixedId: typeof v.fixedId === 'string' ? v.fixedId : '', perIdentity, rules, skipCopy: v.skipCopy === true };
+}
+
+/** Folder roles and ids a copy may be filed into, mapped to the mailbox id. */
+export function writableFolders(boxes: readonly { id: string; role?: string | null; myRights?: { mayAddItems?: boolean } | null }[]): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const b of boxes) {
+    if (b.myRights?.mayAddItems === false) continue;
+    out.set(b.id, b.id);
+    if (b.role) out.set(b.role, b.id);
+  }
+  return out;
+}

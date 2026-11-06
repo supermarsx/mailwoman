@@ -222,6 +222,7 @@ mod user_retention;
 mod diagnostics;
 mod feature_gate;
 mod feature_jmap;
+mod message_headers;
 mod features;
 mod health_probes;
 mod hosting_connections;
@@ -3423,7 +3424,7 @@ async fn jmap_api(
     }
     // Authorize the entire batch before connecting an account or forwarding
     // any call. A disabled feature cannot hide behind a permitted first call.
-    let request: Value = match serde_json::from_slice(&body) {
+    let mut request: Value = match serde_json::from_slice(&body) {
         Ok(value) => value,
         Err(_) => {
             request_protection::observe(mw_store::request_protection_model::Signal::Malformed);
@@ -3449,6 +3450,9 @@ async fn jmap_api(
         None
     };
     if let Err(response) = feature_jmap::admit(&state, &session, &request).await {
+        return response;
+    }
+    if let Err(response) = message_headers::apply(&state, &session, &mut request).await {
         return response;
     }
     if let Some(engine) = &state.engine {

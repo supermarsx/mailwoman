@@ -163,3 +163,6 @@ export function presetValue(preset: ComposePresetId, f: ComposeFeature): boolean
 export function presetValues(preset: ComposePresetId, opts: { admin: boolean }): [string, boolean][] {
   return COMPOSE_FEATURES.filter((f) => opts.admin || !f.adminOnly).map((f) => [f.id, presetValue(preset, f)]);
 }
+
+/** Catalogs that hold feature names; the cards load all of them (a missing one is a no-op). */
+export const COMPOSE_FEATURE_CATALOGS: readonly string[] = ['compose-features', 'compose-insert', 'compose-format', 'compose-layout', 'mail'];

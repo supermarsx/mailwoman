@@ -4,7 +4,7 @@
 // feature added there appears here without further work.
 import { createEffect, createMemo, createSignal, For, on, Show, type JSX } from 'solid-js';
 import {
-  COMPOSE_FEATURES, COMPOSE_FEATURE_GROUPS, COMPOSE_PRESETS, composeFeatureKey, presetValues,
+  COMPOSE_FEATURES, COMPOSE_FEATURE_CATALOGS, COMPOSE_FEATURE_GROUPS, COMPOSE_PRESETS, composeFeatureKey, presetValues,
   type ComposeFeature, type ComposePresetId,
 } from '../../../components/compose/composeFeatures.ts';
 import { deleteDomainValue, deleteGlobal, listScopedValues, putDomainValue, putGlobal, type AdminSetting } from '../../../api/admin/settings.ts';
@@ -25,7 +25,7 @@ interface Cell { value: boolean | undefined; locked: boolean }
 const validDomain = (d: string): boolean => /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(d);
 
 export function ComposerFeaturesAdmin(props: ComposerFeaturesAdminProps): JSX.Element {
-  void loadCatalog('compose-features');
+  for (const c of COMPOSE_FEATURE_CATALOGS) void loadCatalog(c);
   const [scope, setScope] = createSignal<'all' | 'domain'>('all');
   const [domainInput, setDomainInput] = createSignal('');
   const [preset, setPreset] = createSignal<ComposePresetId>('everything');

@@ -112,7 +112,7 @@ export interface EditorRibbonProps<T extends string> {
 }
 
 /** The contextual tabs are named for what they do, not for the object (the Insert tab has its own "Table"). */
-const TAB_LABEL_KEYS: Readonly<Record<string, string>> = { table: 'mail-compose-ribbon-table-layout', picture: 'mail-compose-ribbon-picture' };
+const TAB_LABEL_KEYS: Readonly<Record<string, string>> = { table: 'mail-compose-ribbon-table-layout', picture: 'mail-compose-ribbon-picture', layout: 'layout-tab' };
 const tabLabel = <T extends string>(spec: EditorRibbonTab<T>): string => spec.label ?? t(TAB_LABEL_KEYS[spec.id] ?? `mail-compose-ribbon-${spec.id}`);
 
 export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX.Element {
