@@ -3,7 +3,9 @@ import { fetchMailHeaders } from '../../api/mailHeaders.ts';
 import { parseSpamScores, spamBand, type SpamScore as Score } from './spamScore.ts';
 import { loadCatalog, t } from '../../i18n';
 import { Icon } from '../Icon.tsx';
+import { badgeMode, badgeVisible } from '../../state/readerBadges.ts';
 import { SecurityPopup } from '../SecurityPanel.tsx';
+import '../readerBadges.css';
 import './spamScore.css';
 
 /** A rule's points with their sign, so a negative (ham) contribution never reads as a positive one. */
@@ -20,7 +22,7 @@ export function signedPoints(value: number): string {
 /** `onHeaders` gets null when a fetch starts, the raw header block when it
  *  arrives and '' when it fails or times out (t110: the reader's notice bars wait
  *  for a settled answer before they appear). */
-export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url:string)=>void }): JSX.Element {
+export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url:string)=>void; /** Wraps the chips (the badge's right-click menu). */menu?: (chips: JSX.Element)=>JSX.Element }): JSX.Element {
   onMount(() => void loadCatalog('spam-score'));
   let current:AbortController|undefined;
   onCleanup(()=>current?.abort());
@@ -30,10 +32,11 @@ export function SpamScore(props: { url: string; onHeaders?: (raw:string|null,url
     const timeout=setTimeout(()=>abort.abort(),10000);
     try{const raw=await fetchMailHeaders(url,abort.signal);if(current===abort&&!abort.signal.aborted)props.onHeaders?.(raw,url);return parseSpamScores(raw);}catch{if(current===abort)props.onHeaders?.('',url);return [];}finally{clearTimeout(timeout);}
   });
-  const ready=()=>scores.state==='ready'?scores.latest:[];
+  // The header is always fetched (the notice bars wait for it); `mail.badge.spam` only decides which chips show.
+  const ready=()=>scores.state==='ready'?(scores.latest??[]).filter(score=>badgeVisible('spam',spamBand(score)!=='ham')):[];
   return <div class="spam-score" role="group" aria-label={t('mail-spam-score')}>
-    <Show when={ready()?.length} fallback={<span class="spam-score__empty">{t(scores.loading?'mail-spam-score-loading':'mail-spam-score-unavailable')}</span>}>
-      <For each={ready()}>{score=><SpamScoreChip score={score}/>}</For>
+    <Show when={ready()?.length} fallback={<Show when={badgeMode('spam')==='always'}><span class="spam-score__empty">{t(scores.loading?'mail-spam-score-loading':'mail-spam-score-unavailable')}</span></Show>}>
+      {(props.menu??(chips=>chips))(<For each={ready()}>{score=><SpamScoreChip score={score}/>}</For>)}
     </Show>
   </div>;
 }
@@ -51,7 +54,7 @@ export function SpamScoreChip(props: { score: Score }): JSX.Element {
     : t('spam-score-chip-label-no-threshold', { source: props.score.source, score: String(props.score.score), band: bandText() });
   return <div data-testid="spam-score-item"><button ref={trigger} type="button"
     aria-label={label()} aria-haspopup="dialog" aria-expanded={open()} aria-controls={dialogId}
-    class={`spam-score__chip spam-score__chip--${band()}`} onClick={()=>setOpen(value=>!value)}>
+    class={`mw-badge spam-score__chip spam-score__chip--${band()}`} data-tone={band()==='ham'?'good':band()==='spam'?'bad':'warning'} onClick={()=>setOpen(value=>!value)}>
     <span class="spam-score__chip-body" data-band={band()}>
       <Icon name="shield"/><span class="spam-score__source">{props.score.source}</span> <strong><span class="spam-score__value">{String(props.score.score)}</span><Show when={props.score.threshold !== null}><span class="spam-score__of">{` / ${props.score.threshold}`}</span></Show></strong>
     </span>

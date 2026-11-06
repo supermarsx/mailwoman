@@ -774,3 +774,26 @@ settings-folder-icon-search-label = Search icons
 settings-folder-icon-no-match = No icons match
 settings-folders-list-card = Folder list and order
 settings-shortcuts-search = Search shortcuts
+
+# Message badges (Message display)
+settings-message-badges = Message badges
+settings-message-badges-help = Choose which badges appear in the header of an open message. Priority marks are set under Folders and sidebar. You can also right-click a badge to hide it.
+settings-badge-auth = Authentication (DMARC)
+settings-badge-auth-help = The DMARC result; it opens the full security details.
+settings-badge-spam = Spam score
+settings-badge-spam-help = The score the receiving server wrote into the message headers.
+settings-badge-sanitized = Sanitized HTML
+settings-badge-sanitized-help = What the HTML sanitizer did to the message. Only when notable shows it when something was blocked.
+settings-badge-folder = Folder
+settings-badge-folder-help = Where the message is stored. Only when notable shows it for Junk and Trash.
+settings-badge-mode-always = Always
+settings-badge-mode-notable = Only when notable
+settings-badge-mode-never = Never
+settings-badge-density = Badge size
+settings-badge-density-help = Compact or comfortable height and spacing for every badge.
+settings-badge-density-compact = Compact
+settings-badge-density-comfortable = Comfortable
+settings-badge-labels = Badge labels
+settings-badge-labels-help = Icon with text, or the icon alone (the full text stays in the tooltip and for screen readers).
+settings-badge-labels-text = Icon and text
+settings-badge-labels-icon = Icon only

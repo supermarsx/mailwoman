@@ -770,3 +770,26 @@ settings-folder-icon-search-label = Pesquisar ícones
 settings-folder-icon-no-match = Nenhum ícone corresponde
 settings-folders-list-card = Lista e ordem das pastas
 settings-shortcuts-search = Pesquisar atalhos
+
+# Message badges (Message display)
+settings-message-badges = Emblemas da mensagem
+settings-message-badges-help = Escolha os emblemas que aparecem no cabeçalho de uma mensagem aberta. As marcas de prioridade definem-se em Pastas e barra lateral. Também pode clicar num emblema com o botão direito para o ocultar.
+settings-badge-auth = Autenticação (DMARC)
+settings-badge-auth-help = O resultado DMARC; abre os detalhes de segurança completos.
+settings-badge-spam = Pontuação de spam
+settings-badge-spam-help = A pontuação que o servidor recetor escreveu nos cabeçalhos da mensagem.
+settings-badge-sanitized = HTML higienizado
+settings-badge-sanitized-help = O que o higienizador de HTML fez à mensagem. Só quando relevante mostra-o quando algo foi bloqueado.
+settings-badge-folder = Pasta
+settings-badge-folder-help = Onde a mensagem está guardada. Só quando relevante mostra-o para Lixo e Reciclagem.
+settings-badge-mode-always = Sempre
+settings-badge-mode-notable = Só quando relevante
+settings-badge-mode-never = Nunca
+settings-badge-density = Tamanho dos emblemas
+settings-badge-density-help = Altura e espaçamento compactos ou confortáveis em todos os emblemas.
+settings-badge-density-compact = Compacto
+settings-badge-density-comfortable = Confortável
+settings-badge-labels = Etiquetas dos emblemas
+settings-badge-labels-help = Ícone com texto, ou só o ícone (o texto completo fica na dica e para leitores de ecrã).
+settings-badge-labels-text = Ícone e texto
+settings-badge-labels-icon = Só ícone

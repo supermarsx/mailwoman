@@ -2796,6 +2796,21 @@ or HTML.
 `mail.messageListOrder` orders the message list: `newest` (default), `oldest`, `sender` or `subject`. Global/domain/user policy.
 <a id="mail.messageListPreview"></a>
 `mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
+<a id="mail.badge.auth"></a>
+### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`)
+
+Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) and the folder badge (`"always"`). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
+
+<a id="mail.badge.density"></a>
+### Reader badge density (`mail.badge.density`)
+
+Global/domain/user setting, default `"compact"`. `compact` or `comfortable` height and padding for every badge in the reader's header row.
+
+<a id="mail.badge.labels"></a>
+### Reader badge labels (`mail.badge.labels`)
+
+Global/domain/user setting, default `"text"`. `text` shows an icon and a short label; `icon` shows the icon only (the accessible name and the tooltip keep the full text; the spam score keeps its number).
+
 <a id="mail.rowActionsMode"></a>
 `mail.rowActionsMode` defaults `open`. Controls the quick-action buttons on each message list row: `open` shows the full set as before (revealed on row hover or keyboard focus), `hover` shows three controls (flag, archive, delete) and a More button that reveals pin, snooze and label, `click` shows one button per row that opens the actions, and `off` removes them from the rows (the context menu and toolbar still carry every action). On touch screens `hover` behaves like `click`. Global/domain/user policy: an administrator sets the default or locks the value for everyone, otherwise each user chooses in Settings; enforced in the web client only.
 <a id="mail.send.recallDelaySeconds"></a>

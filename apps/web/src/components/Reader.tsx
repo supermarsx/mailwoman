@@ -41,6 +41,12 @@ import { attachmentBarReason } from './attachmentBarReason.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
+import { BadgeContextMenu } from './BadgeContextMenu.tsx';
+import { FolderBadge, folderBadgeKind } from './FolderBadge.tsx';
+import { SanitizedBadge } from './SanitizedBadge.tsx';
+import { focusMessageInFolder } from './messageFocus.ts';
+import { badgeDensity, badgeLabels, badgeMode, badgeVisible } from '../state/readerBadges.ts';
+import { overallTone } from './security/model.ts';
 import { mailFeature } from '../state/mailFeatures.ts';
 import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
@@ -690,6 +696,11 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // The folder(s) the open message is in, shown beside its date.
   const folderNames = createMemo<string[]>(() => Object.keys(app.openEmail()?.mailboxIds ?? {}).map((id) => app.mailboxes().find((m) => m.id === id)?.name ?? '').filter((name) => name !== ''));
 
+  const folderRole = (): string | null => app.mailboxes().find((m) => m.id === Object.keys(app.openEmail()?.mailboxIds ?? {})[0])?.role ?? null;
+  const folderNotable = (): boolean => folderBadgeKind(folderRole()) === 'junk' || folderBadgeKind(folderRole()) === 'trash';
+  const authNotable = (): boolean => { const v = verdict(); return v !== null && overallTone(v, mailFeature('showAuthStatus')) !== 'good'; };
+  const goToFolder = (): void => { const id = Object.keys(app.openEmail()?.mailboxIds ?? {})[0], mail = app.openEmail(); if (id && mail) void focusMessageInFolder(app, id, mail.id, {open: true}); };
+
   // Server verdict for the open message (public facets: auth/received/attachments/
   // anomalies + a signature/encryption first pass). Re-fetched per message.
   const [serverVerdict] = createResource(
@@ -1224,6 +1235,17 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // no-media / plain-text modes images are stripped regardless of any grant, so
   // the bar is hidden there rather than offering an action that can't take effect.
   const blockedReport = createMemo(() => { const report = currentBody()?.originalReport??analyzeBlockedContent(currentBody()?.sanitized ?? app.sanitizedHtml()); return { ...report, trackerCount: renderPolicy().trackers ? report.trackerCount : 0 }; });
+  /** What the sanitized-HTML badge shows, or null when the setting or the message leaves it out. */
+  const sanitizedBadge = (): { state: 'blocked' | 'sanitized' | 'clean'; report: { blockedCount: number; trackerCount: number; hostCount: number }; action: { icon: 'eye' | 'shield'; label: string; disabled: boolean; onClick: () => void } | undefined } | null => {
+    const body = currentBody();
+    if (body === undefined || body.original) return null;
+    const state = body.blocked ? (body.restored ? 'sanitized' : 'blocked') : 'clean';
+    if (!badgeVisible('sanitized', state !== 'clean')) return null;
+    if (state === 'clean' && (body.html ?? '') === '') return null;
+    const report = blockedReport();
+    const canToggle = body.blocked && unsafeHtmlMode() === 'ask' && maxsec.effectiveMode(sender()) !== 'plain-text';
+    return { state, report: { blockedCount: report.blockedCount, trackerCount: report.trackerCount, hostCount: report.blockedHosts.length }, action: canToggle ? { icon: body.restored ? 'shield' : 'eye', label: t(body.restored ? 'privacy-body-hide-sanitized' : 'privacy-body-show-sanitized'), disabled: readerBody.loading, onClick: () => setHtmlConsent(body.restored ? null : htmlConsentScope()) } : undefined };
+  };
   const fullMode = (): boolean => maxsec.effectiveMode(sender()) === 'full-sanitized';
 
   // Only once the policy is known (t93): before it, bannerMode() is the blocked
@@ -1364,27 +1386,29 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 </details>
                 </div>
               </div>
-              <div class="reader__metadata-line">
+              <div class="reader__metadata-line" data-badge-density={badgeDensity()} data-badge-labels={badgeLabels()}>
               <MessageTimes sent={email().sentAt} received={email().receivedAt}/>
-              <Show when={folderNames().length>0}><span class="reader__folder" data-testid="reader-folder" title={t('mail-reader-folder-title',{folder:folderNames().join(', ')})}><Icon name="folder"/><span>{folderNames().map(isolate).join(', ')}</span></span></Show>
+              <Show when={folderNames().length>0&&badgeVisible('folder',folderNotable())}><BadgeContextMenu badge="folder"><FolderBadge names={folderNames()} role={folderRole()} onGo={goToFolder}/></BadgeContextMenu></Show>
               {/* Security chip → expandable panel: server verdict merged
                   with the client decrypt/verify result. */}
-              <Show when={verdict()}>
+              <Show when={!verdict()&&serverVerdict.loading&&badgeMode('auth')!=='never'}><span class="mw-badge mw-badge--skeleton" data-testid="reader-auth-skeleton" aria-hidden="true"/></Show>
+              <Show when={badgeVisible('auth',authNotable())?verdict():null}>
                 {(v) => {
                   const tid = threadId();
                   return (
-                    <SecurityPanel
+                    <BadgeContextMenu badge="auth"><SecurityPanel
                       inline
                       hideAuth={!mailFeature('showAuthStatus')}
                       verdict={v()}
                       senderAddress={sender()}
                       {...(tid !== undefined ? { threadId: tid } : {})}
                       onSenderControl={onSenderControl}
-                    />
+                    /></BadgeContextMenu>
                   );
                 }}
               </Show>
-              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+              <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore menu={(chips)=><BadgeContextMenu badge="spam">{chips}</BadgeContextMenu>} url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+              <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
               </div>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
               <Show when={app.accountId()&&policy().inlineParts===true}><ReadReceipt accountId={app.accountId()!} emailId={email().id} active={props.active!==false} fullView={props.view!==undefined} displayed={receiptDisplayed()?.key===receiptDocumentKey()&&receiptDisplayed()?.html===bodySrcdoc()&&!showDecrypt()}/></Show>
@@ -1427,7 +1451,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
             )}</Show>
             <RemoteImageDownloads emailId={email().id} scope={`${app.accountId()}:${email().id}`} urls={policy().remoteImageDownloads===true && armor()===null && decryptedHtml()===null && decryptedText()===null ? currentBody()?.refs.urls??[] : []}/>
             <Show when={originalAllowed()}><ReaderNoticeBar label={t('privacy-original-html')} testid="reader-original-html" state={currentBody()?.original?'original':'sanitized'} tone={currentBody()?.original?'warning':'neutral'} icon="eye" tooltip={t('privacy-original-html-help')} actions={<NoticeButton icon="eye" label={t(originalSelected()?'privacy-original-html-hide':'privacy-original-html-show')} disabled={readerBody.loading||props.active===false} onClick={()=>{if(originalAllowed()&&props.active!==false)setOriginalConsent(originalSelected()?null:originalScope());}}/>}>{t(currentBody()?.original?'privacy-original-html-active':'privacy-original-html-offer')}</ReaderNoticeBar></Show>
-            <Show when={currentBody()?.blocked&&!currentBody()?.original}><ReaderNoticeBar label={t('privacy-body-blocked')} testid="reader-body-blocked" state={currentBody()?.restored?'sanitized':'blocked'} tone="warning" icon="shield" tooltip={t('privacy-body-blocked-detail')} live actions={<Show when={unsafeHtmlMode()==='ask'&&maxsec.effectiveMode(sender())!=='plain-text'}><NoticeButton icon={currentBody()?.restored?'shield':'eye'} label={t(currentBody()?.restored?'privacy-body-hide-sanitized':'privacy-body-show-sanitized')} disabled={readerBody.loading} onClick={()=>setHtmlConsent(currentBody()?.restored?null:htmlConsentScope())}/></Show>}>{t(currentBody()?.restored?'privacy-body-sanitized-shown':'privacy-body-blocked')}</ReaderNoticeBar></Show>
             <Show when={currentBody()?.failed}><AsyncError message={t('privacy-content-failed')} onRetry={()=>void retryReaderBody()}/></Show>
             <Show
               when={showDecrypt()}

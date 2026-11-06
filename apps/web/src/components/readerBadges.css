@@ -1,0 +1,56 @@
+/* One compact badge family for the reader's metadata row: folder, authentication (DMARC)
+   and spam score. Same height, padding, radius, type and icon size; the tone is carried by
+   the icon, the text and the border, never by colour alone. Logical properties throughout. */
+.mw-badge {
+ --mw-badge-tone: var(--text-dim);
+ appearance: none; box-sizing: border-box; position: relative; display: inline-flex; align-items: center; gap: .25rem;
+ min-block-size: 1.4rem; max-inline-size: 100%; margin: 0; padding-block: .1rem; padding-inline: .4rem;
+ font: inherit; font-size: .75rem; line-height: 1.2; font-weight: 500; white-space: nowrap;
+ color: color-mix(in srgb, var(--mw-badge-tone) 72%, var(--text));
+ background: color-mix(in srgb, var(--mw-badge-tone) 9%, var(--surface));
+ border: var(--border-hair, 1px) solid color-mix(in srgb, var(--mw-badge-tone) 55%, var(--border));
+ border-radius: var(--radius-sm, .25rem); text-decoration: none; cursor: default;
+}
+.mw-badge svg { inline-size: .8rem; block-size: .8rem; flex: none; }
+.mw-badge__label { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
+button.mw-badge, a.mw-badge { cursor: pointer; }
+button.mw-badge:hover, a.mw-badge:hover { background: color-mix(in srgb, var(--mw-badge-tone) 18%, var(--surface)); border-color: var(--mw-badge-tone); }
+button.mw-badge:active, a.mw-badge:active { background: color-mix(in srgb, var(--mw-badge-tone) 26%, var(--surface)); }
+.mw-badge:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+/* The tone follows the state. */
+.mw-badge[data-tone="good"] { --mw-badge-tone: var(--success); }
+.mw-badge[data-tone="warning"] { --mw-badge-tone: var(--warning); }
+.mw-badge[data-tone="bad"] { --mw-badge-tone: var(--danger); }
+.mw-badge[data-tone="neutral"] { --mw-badge-tone: var(--text-dim); }
+/* The folder badge: the strongest of the family. A filled accent tint, medium-bold type. */
+.mw-badge--folder { --mw-badge-tone: var(--accent); font-weight: 600; color: var(--text); background: color-mix(in srgb, var(--accent) 18%, var(--surface)); border-color: color-mix(in srgb, var(--accent) 70%, var(--border-strong)); max-inline-size: 14rem; }
+button.mw-badge--folder:hover { background: color-mix(in srgb, var(--accent) 28%, var(--surface)); border-color: var(--accent); }
+.mw-badge--folder[data-role="junk"] { --mw-badge-tone: var(--warning); background: color-mix(in srgb, var(--warning) 20%, var(--surface)); border-color: color-mix(in srgb, var(--warning) 70%, var(--border-strong)); }
+.mw-badge--folder[data-role="trash"] { --mw-badge-tone: var(--danger); background: color-mix(in srgb, var(--danger) 10%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 45%, var(--border)); font-weight: 500; }
+.mw-badge--folder[data-role="other"] { --mw-badge-tone: var(--text-dim); background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-color: var(--border-strong); }
+/* A placeholder while the authentication result is still on its way: same box, no layout shift. */
+.mw-badge--skeleton { inline-size: 6.5rem; color: transparent; border-color: var(--border); background: color-mix(in srgb, var(--text-dim) 14%, var(--surface)); animation: mw-badge-pulse 1.4s ease-in-out infinite; }
+@keyframes mw-badge-pulse { 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { .mw-badge--skeleton { animation: none; } }
+/* Coarse pointers: the visible badge stays compact, an invisible hit area gives a 24px+ target. */
+@media (pointer: coarse) {
+ button.mw-badge::after, a.mw-badge::after { content: ""; position: absolute; inset-inline: 0; inset-block: -.3rem; min-block-size: 1.5rem; }
+}
+@media (forced-colors: active) {
+ .mw-badge { color: CanvasText; background: Canvas; border: 1px solid ButtonText; forced-color-adjust: auto; }
+ button.mw-badge:hover { border-color: Highlight; }
+ .mw-badge:focus-visible { outline-color: Highlight; }
+}
+.mw-badge-host { display: contents; }
+/* Comfortable density and icon-only labels, set on the row (data-badge-density / data-badge-labels). */
+[data-badge-density="comfortable"] .mw-badge { min-block-size: 1.65rem; padding-inline: .55rem; gap: .35rem; }
+[data-badge-labels="icon"] .mw-badge:not(.mw-badge--keep-label) .mw-badge__label, [data-badge-labels="icon"] .mw-badge:not(.mw-badge--keep-label) .spam-score__source { display: none; }
+/* A badge made of a label button and an optional action button, sharing one border. */
+.mw-badge--group { padding: 0; gap: 0; overflow: visible; }
+.mw-badge__part { appearance: none; position: relative; display: inline-flex; align-items: center; gap: .25rem; margin: 0; padding-block: .1rem; padding-inline: .4rem; font: inherit; color: inherit; background: transparent; border: 0; border-radius: inherit; cursor: pointer; }
+.mw-badge__part:hover:not(:disabled) { background: color-mix(in srgb, var(--mw-badge-tone) 18%, var(--surface)); }
+.mw-badge__part:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.mw-badge__part:disabled { opacity: .6; cursor: default; }
+.mw-badge__part--action { border-inline-start: var(--border-hair, 1px) solid color-mix(in srgb, var(--mw-badge-tone) 45%, var(--border)); border-start-start-radius: 0; border-end-start-radius: 0; padding-inline: .3rem; }
+.sanitized-detail { font-size: .85rem; } .sanitized-detail p { margin: .5rem 0; } .sanitized-detail dl { margin: 0; } .sanitized-detail dl div { display: flex; justify-content: space-between; gap: 1rem; padding-block: .15rem; border-block-end: var(--border-hair, 1px) solid var(--border); } .sanitized-detail dd { margin: 0; font-variant-numeric: tabular-nums; } .sanitized-detail__note { color: var(--text-dim); }
+@media (pointer: coarse) { .mw-badge__part::after { content: ""; position: absolute; inset-inline: 0; inset-block: -.3rem; } }

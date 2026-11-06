@@ -1,12 +1,7 @@
-.spam-score { display:flex; flex-wrap:nowrap; gap:.3rem; font-size:.72rem; margin:0; min-inline-size:0; }
+.spam-score { display:flex; flex-wrap:wrap; gap:.25rem; font-size:.72rem; margin:0; min-inline-size:0; }
 .spam-score__empty { color:var(--text-dim); }
 /* The chip: score on one line, the band as its leading edge (the name says it too). */
-.spam-score__chip { display:inline-flex; align-items:center; max-width:100%; padding:.2rem .35rem; font:inherit; line-height:1.25; color:var(--text); background:var(--surface); border:var(--border-hair) solid var(--border); border-inline-start:var(--border-heavy) solid var(--text-dim); cursor:pointer; white-space:nowrap; }
-.spam-score__chip:hover { border-block-color:var(--border-strong); border-inline-end-color:var(--border-strong); }
-.spam-score__chip:focus-visible { outline:2px solid var(--focus); outline-offset:1px; }
-.spam-score__chip--ham { border-inline-start-color:var(--success); }
-.spam-score__chip--neutral { border-inline-start-color:var(--warning); }
-.spam-score__chip--spam { border-inline-start-color:var(--danger); }
+.spam-score__chip { max-width:100%; }
 .spam-score__chip-body { display:inline-flex; align-items:center; gap:.3rem; min-inline-size:0; }
 .spam-score__chip-body svg { inline-size:.8rem; block-size:.8rem; flex:none; }
 /* The breakdown, inside the shared security dialog. */

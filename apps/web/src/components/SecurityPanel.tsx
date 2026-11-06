@@ -43,6 +43,9 @@ import {
 } from './security/model.ts';
 import { t, loadCatalog } from '../i18n';
 import * as css from './security/security-panel.css.ts';
+import './readerBadges.css';
+
+const TONE_ICON: Record<SecurityTone, IconName> = { good: 'check', warning: 'alert', bad: 'close', neutral: 'minus' };
 
 export interface SecurityPanelProps {
   /** The frozen verdict to render. */
@@ -95,7 +98,9 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
       <button
         ref={chipRef}
         type="button"
-        class={`${css.chip} ${css.chipTone[tone()]} ${props.inline ? css.inlineChip : ''}`}
+        class={props.inline ? 'mw-badge mw-badge--auth' : `${css.chip} ${css.chipTone[tone()]}`}
+        data-tone={props.inline ? tone() : undefined}
+        data-testid={props.inline ? 'reader-auth-badge' : undefined}
         aria-expanded={expanded()}
         aria-controls={panelId}
         aria-haspopup="dialog"
@@ -103,11 +108,15 @@ export function SecurityPanel(props: SecurityPanelProps): JSX.Element {
         data-tooltip={summary()}
         onClick={() => setExpanded((v) => !v)}
       >
-        <span class={`${css.chipDot} ${css.chipDotTone[tone()]}`} aria-hidden="true" />
-        <span class={css.chipLabel}>{props.hideAuth === true ? t('security-panel-region') : props.inline ? `DMARC ${t(`security-auth-${props.verdict.auth.dmarc.result}`)}` : 'DKIM · SPF · DMARC'}</span>
-        <span class={css.chipCaret} aria-hidden="true">
-          <Icon name={expanded() ? 'chevronUp' : 'chevronDown'} />
-        </span>
+        <Show when={props.inline} fallback={<span class={`${css.chipDot} ${css.chipDotTone[tone()]}`} aria-hidden="true" />}>
+          <Icon name={TONE_ICON[tone()]} />
+        </Show>
+        <span class={props.inline ? 'mw-badge__label' : css.chipLabel}>{props.hideAuth === true ? t('security-panel-region') : props.inline ? `DMARC ${t(`security-auth-${props.verdict.auth.dmarc.result}`)}` : 'DKIM · SPF · DMARC'}</span>
+        <Show when={!props.inline}>
+          <span class={css.chipCaret} aria-hidden="true">
+            <Icon name={expanded() ? 'chevronUp' : 'chevronDown'} />
+          </span>
+        </Show>
       </button>
 
       <Show when={expanded()}>

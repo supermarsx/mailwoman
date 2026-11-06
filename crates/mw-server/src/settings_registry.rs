@@ -515,6 +515,54 @@ pub static REGISTRY: &[SettingDef] = &[
         "How the quick actions on message list rows are shown"
     ),
     def!(
+        "mail.badge.auth",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the DMARC authentication badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.spam",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the spam score badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.sanitized",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""notable""#,
+        GDU,
+        "mail",
+        "Reader header: when the sanitized HTML badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.folder",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the folder badge shows (always, only when notable, never)"
+    ),
+    def!(
+        "mail.badge.density",
+        Kind::Enum(&["compact", "comfortable"]),
+        r#""compact""#,
+        GDU,
+        "mail",
+        "Reader header badge size: compact or comfortable"
+    ),
+    def!(
+        "mail.badge.labels",
+        Kind::Enum(&["text", "icon"]),
+        r#""text""#,
+        GDU,
+        "mail",
+        "Reader header badges: icon with text, or icon only"
+    ),
+    def!(
         "mail.showGoToTop",
         Kind::Bool,
         "false",

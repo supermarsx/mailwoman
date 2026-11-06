@@ -954,6 +954,7 @@ mail-privacy-images-failed = { $loaded }/{ $total } images shown · { $failed } 
 mail-privacy-images-loaded = { $loaded }/{ $total } images shown
 mail-privacy-images-loading-failed = { $loaded }/{ $total } images shown · { $pending } loading · { $failed } failed
 mail-reader-folder-title = Folder: { $folder }
+mail-reader-folder-go = Stored in { $folder } · Go to folder
 mail-reader-move-to = Move to…
 mail-action-help-move = Move this message to another folder.
 
@@ -1325,3 +1326,20 @@ mail-toast-marked-not-forwarded = { $count ->
     [one] 1 message marked as not forwarded
    *[other] { $count } messages marked as not forwarded
 }
+
+# Reader header badges
+reader-badge-menu = Message badge
+reader-badge-notable = Show only when notable
+reader-badge-hide = Hide this badge
+reader-badge-locked = Set by your administrator
+reader-sanitized-short = Sanitized HTML
+reader-sanitized-short-blocked = HTML blocked
+reader-sanitized-short-clean = HTML clean
+reader-sanitized-clean = Message HTML needed no changes
+reader-sanitized-clean-detail = Nothing was removed or blocked from this message's HTML.
+reader-sanitized-detail = The message HTML was sanitized before it was shown. Remote content follows your privacy settings.
+reader-sanitized-counts = { $blocked } remote items blocked, { $trackers } tracking items.
+reader-sanitized-remote = Remote content blocked
+reader-sanitized-trackers = Tracking items
+reader-sanitized-hosts = Remote hosts
+reader-sanitized-always = Active content such as scripts stays disabled.

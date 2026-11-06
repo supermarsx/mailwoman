@@ -298,6 +298,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'signin.antiBotDifficulty',
   'signin.antiBotExpirySecs',
   'mail.showFrom', 'mail.replyFromMode', 'mail.replyFrom.headerPriority', 'mail.quickReply', 'mail.requestReadReceipt', 'mail.requestDeliveryReceipt', 'mail.modifierSelection', 'mail.dragToFolder', 'mail.resumeTabs', 'mail.draftSaveMode', 'mail.draftDebounceMs', 'mail.draftIntervalSecs', 'mail.folderCounts', 'mail.folderCountScope', 'mail.compactFolderBadges', 'mail.accountUnreadBadge', 'mail.focusedInbox',
+  'mail.priorityMarks', 'mail.priorityMarks.style', 'mail.compose.priority.enabled', 'mail.compose.priority.default', 'mail.priority.sendHeaders', 'mail.priority.trustSenderHeaders', 'properties.folder.enabled', 'properties.message.enabled', 'properties.folder.sections', 'properties.message.sections', 'properties.remoteLocation.visibility', 'properties.headers.raw', 'properties.scoring.show', 'properties.folder.overrides.allowed', 'properties.folder.notes.enabled', 'properties.folder.notes.maxLength', 'properties.folder.sizeCompute', 'properties.offlineClear.enabled', 'export.folder.enabled', 'export.folder.format', 'export.folder.maxBytes', 'export.folder.maxMessages', 'export.folder.includeSubfolders', 'export.message.download.enabled', 'properties.message.permanentDelete', 'properties.shortcut.enabled', 'properties.shortcut.key',
+  'mail.badge.auth', 'mail.badge.spam', 'mail.badge.sanitized', 'mail.badge.folder', 'mail.badge.density', 'mail.badge.labels',
   'mail.reader.unsafeHtmlMode',
   'reader.attachmentsDensity',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',

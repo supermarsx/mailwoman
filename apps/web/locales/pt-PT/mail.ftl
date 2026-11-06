@@ -938,6 +938,7 @@ mail-privacy-images-failed = { $loaded }/{ $total } imagens apresentadas · { $f
 mail-privacy-images-loaded = { $loaded }/{ $total } imagens apresentadas
 mail-privacy-images-loading-failed = { $loaded }/{ $total } imagens apresentadas · { $pending } a carregar · { $failed } falharam
 mail-reader-folder-title = Pasta: { $folder }
+mail-reader-folder-go = Guardada em { $folder } · Ir para a pasta
 mail-reader-move-to = Mover para…
 mail-action-help-move = Mover esta mensagem para outra pasta.
 
@@ -1314,3 +1315,20 @@ mail-toast-marked-not-forwarded = { $count ->
     [one] 1 mensagem marcada como não reencaminhada
    *[other] { $count } mensagens marcadas como não reencaminhadas
 }
+
+# Reader header badges
+reader-badge-menu = Emblema da mensagem
+reader-badge-notable = Mostrar só quando relevante
+reader-badge-hide = Ocultar este emblema
+reader-badge-locked = Definido pelo administrador
+reader-sanitized-short = HTML higienizado
+reader-sanitized-short-blocked = HTML bloqueado
+reader-sanitized-short-clean = HTML limpo
+reader-sanitized-clean = O HTML da mensagem não precisou de alterações
+reader-sanitized-clean-detail = Nada foi removido nem bloqueado no HTML desta mensagem.
+reader-sanitized-detail = O HTML da mensagem foi higienizado antes de ser mostrado. O conteúdo remoto segue as suas definições de privacidade.
+reader-sanitized-counts = { $blocked } itens remotos bloqueados, { $trackers } itens de rastreio.
+reader-sanitized-remote = Conteúdo remoto bloqueado
+reader-sanitized-trackers = Itens de rastreio
+reader-sanitized-hosts = Servidores remotos
+reader-sanitized-always = O conteúdo ativo, como scripts, continua desativado.

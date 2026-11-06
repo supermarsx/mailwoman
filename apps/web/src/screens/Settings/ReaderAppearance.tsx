@@ -1,3 +1,4 @@
+import { MessageBadges, MESSAGE_BADGES_CARD } from './MessageBadges.tsx';
 import { For, Show, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../i18n';
 import { useSetting } from './useSetting.ts';
@@ -56,10 +57,11 @@ export function ReaderAppearanceSettings(): JSX.Element {
       <Show when={card.leading}><AttachmentsCollapsedRow /></Show>
       <For each={card.keys}>{key => <FieldRow field={fields[key]!} />}</For>
     </SettingsCard>}</For>
+    <MessageBadges />
   </>;
 }
 
-export const READER_CARD_SPECS: readonly CardSpec[] = READER_CARDS.map(card => ({
+export const READER_CARD_SPECS: readonly CardSpec[] = [...READER_CARDS.map(card => ({
   id: card.id, section: 'reader', title: card.title, help: card.help,
   rows: [...(card.leading ? [card.leading] : []), ...card.keys].map(key => ({ id: `reader-${key}`, label: `reader-${key}`, help: `reader-${key}-help` })),
-}));
+})), MESSAGE_BADGES_CARD];
