@@ -1,4 +1,4 @@
-# Machine translation (t32, 2026-11). Not reviewed by a native speaker.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Administração > Conformidade > Registo de violações. São controlos de registo e de fluxo de trabalho; se um incidente tem de ser notificado cabe ao operador decidir.
 
 admin-nav-breaches = Registo de violações

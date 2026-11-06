@@ -13,7 +13,7 @@ remote-banner-direct = Imagens carregadas dos servidores do remetente
 remote-banner-trackers = { $count ->
     [one] { $count } rastreador removido
    *[other] { $count } rastreadores removidos
- }
+}
 remote-banner-trackers-limited = Pelo menos { $count } rastreadores removidos
 remote-banner-show = Mostrar imagens
 remote-banner-show-help = Carregar as imagens desta mensagem pelo servidor, para que o remetente não veja seu endereço IP
@@ -39,7 +39,7 @@ remote-images-toast-done = Imagens carregadas
 remote-images-toast-failed = { $count ->
     [one] { $count } imagem não pôde ser carregada
    *[other] { $count } imagens não puderam ser carregadas
- }
+}
 remote-images-toast-retry = Tentar novamente
 remote-images-toast-progress = Carregando imagens… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = Carregando imagens… { $loaded }/{ $total } · Tentativa { $attempt }/{ $max }

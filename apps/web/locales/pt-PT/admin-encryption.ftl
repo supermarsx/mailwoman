@@ -1,4 +1,4 @@
-# Machine translation (t32, 2026-11). Not reviewed by a native speaker.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Administração > Conformidade > Cifragem: o que está cifrado em repouso e como foi determinado.
 # Descreve a configuração e o conteúdo observado dos ficheiros. Não certifica conformidade com qualquer lei ou norma.
 

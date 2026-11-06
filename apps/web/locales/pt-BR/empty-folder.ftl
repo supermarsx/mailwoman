@@ -35,11 +35,11 @@ empty-folder-stopping = Parando após o lote atual. { $done } de { $total } conc
 empty-folder-done-trash = { $done ->
     [one] 1 mensagem de { $name } movida para a Lixeira.
    *[other] { $done } mensagens de { $name } movidas para a Lixeira.
- }
+}
 empty-folder-done-destroy = { $done ->
     [one] 1 mensagem de { $name } excluída permanentemente.
    *[other] { $done } mensagens de { $name } excluídas permanentemente.
- }
+}
 empty-folder-stopped = Interrompido. { $done } de { $total } mensagens concluídas; { $remaining } ainda em { $name }.
 empty-folder-refused = Interrompido. { $done } de { $total } mensagens concluídas; o servidor de e-mail recusou { $refused }. { $remaining } ainda em { $name }.
 empty-folder-failed = O esvaziamento de { $name } parou com um erro após { $done } mensagens. O último lote pode ou não ter sido concluído; verifique a pasta antes de tentar novamente.

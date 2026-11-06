@@ -13,7 +13,7 @@ workspace-tabs-close-all = Fechar todas as guias
 workspace-tabs-close-dirty-title = { $count ->
     [one] Uma guia tem alterações não salvas
    *[other] { $count } guias têm alterações não salvas
- }
+}
 workspace-tabs-close-dirty-body = Ao fechar, o que não foi salvo nessas guias será descartado. As outras guias são fechadas de qualquer forma.
 workspace-tabs-close-dirty-keep = Manter abertas
 workspace-tabs-close-dirty-discard = Descartar e fechar

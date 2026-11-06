@@ -1,4 +1,4 @@
-# Machine translation (t32, 2026-11). Not reviewed by a native speaker.
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Administração > Conformidade > Apagamento e anonimização. São controlos sobre o histórico guardado e as cópias de segurança; se uma instalação cumpre uma determinada lei cabe ao operador decidir.
 
 admin-nav-erasure-coverage = Apagamento e anonimização

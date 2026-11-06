@@ -174,4 +174,7 @@ common-notifications-enabled = Notificações ativadas neste dispositivo.
 multiselect-count = { $count ->
     [one] 1 selecionado
    *[other] { $count } selecionados
- }
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-rate-limited = O servidor está ocupado. Aguarde alguns segundos e tente novamente.
