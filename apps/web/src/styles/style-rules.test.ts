@@ -53,6 +53,48 @@ interface Allowed {
 // Each entry needs a reason; an entry that matches nothing fails the test (no stale exemptions).
 const ALLOWLIST: Allowed[] = [
   {
+    file: 'components/compose/compose-format.css',
+    rule: 'colour',
+    text: "#fff",
+    reason: "the font dialog previews text on the white page a recipient's mail client shows, independent of the interface theme",
+  },
+  {
+    file: 'components/compose/compose-format.css',
+    rule: 'colour',
+    text: "#000",
+    reason: "the font dialog previews text on the white page a recipient's mail client shows, independent of the interface theme",
+  },
+  {
+    file: 'components/compose/insert/insertDialog.css.ts',
+    rule: 'colour',
+    text: "'#ffffff'",
+    reason: "the insert preview shows the content as a recipient sees it, on a white page, independent of the interface theme",
+  },
+  {
+    file: 'components/compose/insert/insertDialog.css.ts',
+    rule: 'colour',
+    text: "'#222222'",
+    reason: "the insert preview shows the content as a recipient sees it, on a white page, independent of the interface theme",
+  },
+  {
+    file: 'components/compose/insert/insertDialog.css.ts',
+    rule: 'colour',
+    text: "'2px solid #ffffff'",
+    reason: "the crop selection must contrast with any picture; a white and a black edge stay visible on light and dark images in every theme",
+  },
+  {
+    file: 'components/compose/insert/insertDialog.css.ts',
+    rule: 'colour',
+    text: "'1px solid #000000'",
+    reason: "the crop selection must contrast with any picture; a white and a black edge stay visible on light and dark images in every theme",
+  },
+  {
+    file: 'components/compose/insert/insertDialog.css.ts',
+    rule: 'colour',
+    text: "'0 0 0 9999px rgba(0,0,0,.45)'",
+    reason: "the crop dims everything outside the selection over the picture; a theme colour would not dim a dark picture",
+  },
+  {
     file: 'components/compose/nativeHtmlEditor.css.ts',
     rule: 'colour',
     text: "'#1e1f22'",

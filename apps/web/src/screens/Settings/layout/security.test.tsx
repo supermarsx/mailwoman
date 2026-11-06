@@ -9,7 +9,7 @@ import {activateAccountPreferences,suspendAccountPreferences} from '../../../api
 import {t} from '../../../i18n';
 import {SETTINGS_REGISTRY} from './registry.ts';
 
-vi.mock('../../../api/http.ts',()=>({apiFetch:vi.fn(async(path:string)=>new Response(JSON.stringify(path.includes('remembered')?{devices:[]}:path.includes('signin-geography')?{}:{events:[]}),{status:200}))}));
+vi.mock('../../../api/http.ts',()=>({setClientHeader:vi.fn(),apiFetch:vi.fn(async(path:string)=>new Response(JSON.stringify(path.includes('remembered')?{devices:[]}:path.includes('signin-geography')?{}:{events:[]}),{status:200}))}));
 beforeEach(()=>{
  clearSettings();activateAccountPreferences('layout-sec');
  vi.spyOn(SettingsService.prototype,'twofaStatus').mockResolvedValue({totp:false,passkeys:[],recoveryRemaining:3,passkeysEnabled:true} as never);

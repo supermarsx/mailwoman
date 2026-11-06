@@ -49,8 +49,12 @@ function renderSettings(signedIn = false) {
 }
 
 /** The gallery card for a pack, found by its accessible name (the pack label). */
+// A scan of the buttons, not `getByRole`: the signed-in dialog mounts every section and the
+// role query over that tree takes tens of seconds in jsdom.
 function card(label: string): HTMLElement {
-  return screen.getByRole('button', { name: label });
+  const hit = [...document.querySelectorAll('button')].find((b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').trim() === label);
+  if (hit === undefined) throw new Error(`no button named ${label}`);
+  return hit as HTMLElement;
 }
 
 describe('theme gallery', () => {

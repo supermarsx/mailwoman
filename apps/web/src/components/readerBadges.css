@@ -9,7 +9,7 @@
  color: color-mix(in srgb, var(--mw-badge-tone) 72%, var(--text));
  background: color-mix(in srgb, var(--mw-badge-tone) 9%, var(--surface));
  border: var(--border-hair, 1px) solid color-mix(in srgb, var(--mw-badge-tone) 55%, var(--border));
- border-radius: var(--radius-sm, .25rem); text-decoration: none; cursor: default;
+ border-radius: var(--radius-sm); text-decoration: none; cursor: default;
 }
 .mw-badge svg { inline-size: .8rem; block-size: .8rem; flex: none; }
 .mw-badge__label { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; }
@@ -47,7 +47,7 @@ button.mw-badge--folder:hover { background: color-mix(in srgb, var(--accent) 28%
 [data-badge-labels="icon"] .mw-badge:not(.mw-badge--keep-label) .mw-badge__label, [data-badge-labels="icon"] .mw-badge:not(.mw-badge--keep-label) .spam-score__source { display: none; }
 /* A badge made of a label button and an optional action button, sharing one border. */
 .mw-badge--group { padding: 0; gap: 0; overflow: visible; }
-.mw-badge__part { appearance: none; position: relative; display: inline-flex; align-items: center; gap: .25rem; margin: 0; padding-block: .1rem; padding-inline: .4rem; font: inherit; color: inherit; background: transparent; border: 0; border-radius: inherit; cursor: pointer; }
+.mw-badge__part { appearance: none; position: relative; display: inline-flex; align-items: center; gap: .25rem; margin: 0; padding-block: .1rem; padding-inline: .4rem; font: inherit; color: inherit; background: transparent; border: 0; border-radius: var(--radius-sm); cursor: pointer; }
 .mw-badge__part:hover:not(:disabled) { background: color-mix(in srgb, var(--mw-badge-tone) 18%, var(--surface)); }
 .mw-badge__part:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 .mw-badge__part:disabled { opacity: .6; cursor: default; }
@@ -66,7 +66,7 @@ button.mw-badge--folder:hover { background: color-mix(in srgb, var(--accent) 28%
 .list-detail__links li { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem; }
 .list-detail__kind { font-weight: 600; min-inline-size: 4.5rem; } .list-detail__href { flex: 1 1 10rem; overflow-wrap: anywhere; color: var(--text-dim); }
 .list-detail__small { padding-block: .1rem; padding-inline: .45rem; font-size: .8rem; }
-.list-detail__confirm { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .5rem; border: var(--border-hair, 1px) solid var(--border-strong, var(--border)); border-radius: var(--radius-sm, .25rem); }
+.list-detail__confirm { display: flex; flex-wrap: wrap; gap: .5rem; align-items: center; padding: .5rem; border: var(--border-hair, 1px) solid var(--border-strong, var(--border)); border-radius: var(--radius-sm); }
 .list-detail__confirm p { flex: 1 1 100%; }
 .list-detail__actions { display: flex; flex-wrap: wrap; gap: .35rem; padding-block-start: .5rem; border-block-start: var(--border-hair, 1px) solid var(--border); }
 .list-detail__action { display: inline-flex; align-items: center; gap: .3rem; font-size: .8rem; }

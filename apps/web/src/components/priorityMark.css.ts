@@ -10,6 +10,6 @@ export const lowIcon=style({display:'inline-flex',transform:'rotate(90deg)'});
 /** Text next to the icon; kept in forced-colours mode, where colour alone says nothing. */
 export const text=style({whiteSpace:'nowrap'});
 /** Compact density drops the words and keeps the icon. */
-export const bar=style({flex:'0 0 auto',alignSelf:'stretch',width:'3px',borderRadius:'2px'});
+export const bar=style({flex:'0 0 auto',alignSelf:'stretch',width:'3px',borderRadius:0});
 export const barHigh=style({backgroundColor:vars.color.danger});
 export const barLow=style({backgroundColor:vars.color.textDim});

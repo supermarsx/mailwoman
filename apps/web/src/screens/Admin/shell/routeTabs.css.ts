@@ -9,8 +9,8 @@ export const frame = style({
     '&[data-start]::before, &[data-end]::after': {
       content: '""', position: 'absolute', insetBlock: 0, inlineSize: vars.space[6], pointerEvents: 'none', zIndex: 1,
     },
-    '&[data-start]::before': { insetInlineStart: 0, background: `linear-gradient(to right, ${vars.color.bg}, transparent)` },
-    '&[data-end]::after': { insetInlineEnd: 0, background: `linear-gradient(to left, ${vars.color.bg}, transparent)` },
+    '&[data-start]::before': { insetInlineStart: 0, background: vars.color.bg, opacity: 0.85 },
+    '&[data-end]::after': { insetInlineEnd: 0, background: vars.color.bg, opacity: 0.85 },
   },
   '@media': { '(forced-colors: active)': { selectors: { '&[data-start]::before, &[data-end]::after': { display: 'none' } } } },
 });

@@ -6,13 +6,13 @@ globalStyle(`${dialogForm} .mw-insert-actions`, { display: 'flex', justifyConten
 globalStyle(`${dialogForm} .mw-insert-row`, { display: 'flex', gap: vars.space[2], flexWrap: 'wrap', alignItems: 'end' });
 globalStyle(`${dialogForm} .mw-insert-row > *`, { flex: '1 1 8rem', minWidth: 0 });
 globalStyle(`${dialogForm} .mw-insert-check`, { display: 'flex', flexDirection: 'row', alignItems: 'center', gap: vars.space[2] });
-globalStyle(`${dialogForm} .mw-insert-check input`, { width: 'auto' });
+globalStyle(`${dialogForm} .mw-insert-check input:not([type='checkbox'], [type='radio'])`, { width: 'auto' });
 globalStyle(`${dialogForm} .mw-insert-warn`, { margin: 0, fontSize: '.8rem', color: vars.color.warning });
 globalStyle(`${dialogForm} .mw-insert-preview`, { border: `1px solid ${vars.color.border}`, borderRadius: vars.radius.sm, padding: vars.space[2], overflow: 'auto', maxHeight: '12rem', background: '#ffffff', color: '#222222' });
 globalStyle(`${dialogForm} .mw-insert-grid`, { display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(5.5rem, 1fr))', gap: vars.space[2], maxHeight: '18rem', overflow: 'auto' });
 globalStyle(`${dialogForm} .mw-insert-thumb`, { display: 'grid', gap: '.2rem', padding: '.25rem', border: `2px solid transparent`, borderRadius: vars.radius.sm, background: 'transparent', cursor: 'pointer', font: 'inherit', color: 'inherit', textAlign: 'start' });
 globalStyle(`${dialogForm} .mw-insert-thumb[aria-pressed="true"]`, { borderColor: vars.color.accent });
-globalStyle(`${dialogForm} .mw-insert-thumb img`, { width: '100%', height: '4.5rem', objectFit: 'cover', borderRadius: '2px', background: vars.color.surface });
+globalStyle(`${dialogForm} .mw-insert-thumb img`, { width: '100%', height: '4.5rem', objectFit: 'cover', borderRadius: vars.radius.sm, background: vars.color.surface });
 globalStyle(`${dialogForm} .mw-insert-thumb span`, { fontSize: '.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 
 globalStyle(`${dialogForm} h2`, { margin: 0, fontSize: '1rem' });
