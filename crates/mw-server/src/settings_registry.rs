@@ -2583,6 +2583,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "Reader header: when the folder badge shows (always, only when notable, never)"
     ),
     def!(
+        "mail.badge.list",
+        Kind::Enum(&["always", "notable", "never"]),
+        r#""always""#,
+        GDU,
+        "mail",
+        "Reader header: when the mailing list badge shows (always, only when notable, never); it needs a List-Id or List-Unsubscribe header"
+    ),
+    def!(
+        "mail.list.unsubscribeMode",
+        Kind::Enum(&["ask", "one-click-direct", "open-link"]),
+        r#""ask""#,
+        GDU,
+        "mail",
+        "Mailing list Unsubscribe: ask first and send the one-click request, send it at once, or only open the list's link or draft"
+    ),
+    def!(
         "mail.badge.density",
         Kind::Enum(&["compact", "comfortable"]),
         r#""compact""#,

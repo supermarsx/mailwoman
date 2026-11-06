@@ -1,4 +1,6 @@
 import {mailHeaderValues} from './mailHeaders.ts';
+import {withBase} from './basePath.ts';
+import {apiFetch} from './http.ts';
 
 export const listActions=['help','subscribe','unsubscribe','post','owner','archive'] as const;
 export type ListAction=typeof listActions[number];
@@ -74,4 +76,50 @@ export function mailingListName(raw:string):string|null {
  const phrase=(match?match[1]!:'').trim().replace(/^"(.*)"$/,'$1').replace(/\\(.)/g,'$1').trim();
  const id=(match?match[2]!:value).trim();
  const name=phrase||id;return name.length>0&&name.length<=200?name:null;
+}
+
+/** The List-Id value itself (RFC 2919): the `<id>` part, else the bare value. Untrusted; `null` when absent or unusable. */
+export function mailingListId(raw:string):string|null {
+ const values=mailHeaderValues(raw).get('list-id');if(values?.length!==1)return null;
+ const value=values[0]!.trim();if(!value||value.length>512||control(value,true))return null;
+ const match=/^(.*?)<([^<>\s]+)>\s*$/.exec(value);
+ const id=(match?match[2]!:value).trim();
+ return id.length>0&&id.length<=200&&!/[\s<>]/u.test(id)?id:null;
+}
+
+export interface UnsubscribeMethods {
+ /** An https List-Unsubscribe URL the server may POST to (RFC 8058): needs a List-Unsubscribe-Post header. */
+ oneClick:ListLink|null;
+ /** The first web (http/https) alternative, opened only after review. */
+ web:ListLink|null;
+ /** The first mailto alternative, composed only after review. */
+ mail:ListLink|null;
+}
+/** The unsubscribe methods the message offers. Nothing is fetched or sent. */
+export function unsubscribeMethods(raw:string):UnsubscribeMethods {
+ const links=mailingListCommands(raw).actions.unsubscribe??[];
+ const post=mailHeaderValues(raw).get('list-unsubscribe-post');
+ const declared=post?.length===1&&/(^|[\s;,])List-Unsubscribe=One-Click(\s|;|,|$)/i.test(post[0]!);
+ const web=links.find(link=>link.kind==='web')??null;
+ const secure=links.find(link=>link.kind==='web'&&link.href.startsWith('https:'))??null;
+ return {oneClick:declared?secure:null,web,mail:links.find(link=>link.kind==='mail')??null};
+}
+
+/** Whether the message carries list headers worth a badge (List-Id or List-Unsubscribe). */
+export function hasListHeaders(raw:string):boolean {
+ return mailingListId(raw)!==null||unsubscribeMethods(raw).web!==null||unsubscribeMethods(raw).mail!==null;
+}
+
+/** Keep only links that are safe to show as text: http(s) and mailto. */
+export function safeListHref(href:string):ListLink|null {return safeListLink(href);}
+
+export type OneClickResult={ok:true}|{ok:false;reason:string};
+/** RFC 8058 through the server (`POST /api/mail/list-unsubscribe`): the list host sees the server, not the reader. */
+export async function unsubscribeOneClick(url:string):Promise<OneClickResult> {
+ try{
+  const response=await apiFetch(withBase('/api/mail/list-unsubscribe'),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({url})});
+  if(response.ok)return {ok:true};
+  const body=await response.json().catch(()=>({})) as {reason?:unknown};
+  return {ok:false,reason:typeof body.reason==='string'?body.reason:'rejected'};
+ }catch{return {ok:false,reason:'network'};}
 }

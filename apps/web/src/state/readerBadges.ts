@@ -4,7 +4,7 @@
 
 import {settings} from '../api/settings.ts';
 
-export const BADGE_IDS = ['auth', 'spam', 'sanitized', 'folder'] as const;
+export const BADGE_IDS = ['auth', 'spam', 'sanitized', 'folder', 'list'] as const;
 export type BadgeId = (typeof BADGE_IDS)[number];
 export const BADGE_MODES = ['always', 'notable', 'never'] as const;
 export type BadgeMode = (typeof BADGE_MODES)[number];
@@ -13,7 +13,7 @@ export type BadgeDensity = (typeof BADGE_DENSITIES)[number];
 export const BADGE_LABELS = ['text', 'icon'] as const;
 export type BadgeLabels = (typeof BADGE_LABELS)[number];
 
-export const BADGE_MODE_DEFAULTS: Record<BadgeId, BadgeMode> = {auth: 'always', spam: 'always', sanitized: 'notable', folder: 'always'};
+export const BADGE_MODE_DEFAULTS: Record<BadgeId, BadgeMode> = {auth: 'always', spam: 'always', sanitized: 'notable', folder: 'always', list: 'always'};
 export const BADGE_DENSITY_KEY = 'mail.badge.density';
 export const BADGE_LABELS_KEY = 'mail.badge.labels';
 

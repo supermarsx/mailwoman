@@ -46,6 +46,7 @@ mod branding_routes;
 mod client_access;
 mod config_routes;
 mod delivery_status;
+mod list_unsubscribe;
 pub mod dlp;
 pub mod engine_mode;
 pub mod fonts;
@@ -1611,6 +1612,7 @@ fn router(
         .merge(client_access::router())
         .route("/api/attachments/policy", get(attachment_policy::get))
         .merge(delivery_status::router())
+        .merge(list_unsubscribe::router())
         .merge(branding_routes::router())
         .merge(analytics_routes::router())
         .merge(appearance_customization::router())

@@ -4,7 +4,7 @@
 // the mailing-list, linked-files and attachments bars use the same frame.
 //
 // Order in the reader, top to bottom (Reader.tsx renders them in one stack):
-//   1. mailing list   2. remote images   3. linked files   4. attachments
+//   1. remote images   2. linked files   3. attachments (the mailing list is a header badge, MailingListBadge.tsx)
 // The attachments bar is last because its expanded region (the thumbnails) sits
 // right above the body it belongs to.
 //

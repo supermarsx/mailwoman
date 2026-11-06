@@ -53,7 +53,8 @@ import { mailFeature } from '../state/mailFeatures.ts';
 import { SpamScore } from './security/SpamScore.tsx';
 import { DeliveryStatus } from './security/DeliveryStatus.tsx';
 import { ReadReceipt } from './ReadReceipt.tsx';
-import { MailingListActions } from './MailingListActions.tsx';
+import { MailingListBadge } from './MailingListBadge.tsx';
+import { SweepDialog } from './SweepDialog.tsx';
 import {ReaderToolbar} from './ReaderToolbar.tsx';
 import {createMessageLinkConsent} from './messageLinkConsent.ts';
 import {reviewMessageLinks} from '../viewers/messageLinks.ts';
@@ -799,6 +800,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     const email=app.openEmail(),accountId=app.accountId(),template=app.downloadUrl();
     return email?.blobId&&accountId&&template?buildDownloadUrl(template,{accountId,blobId:email.blobId,name:'message.eml',mime:'message/rfc822'}):null;
   };
+  const currentListHeaders=():string=>listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:'';
+  const [cleanupOpen,setCleanupOpen]=createSignal(false);
+  /** Mail from this sender already in the loaded mailbox list: a count and the newest time (no extra request). */
+  const listStats=():{count:number;last:string|null}=>{
+    const from=sender();if(!from)return {count:0,last:null};
+    let matches;try{matches=app.sweepPreview(from,'all');}catch{return {count:0,last:null};}
+    const last=matches.map(m=>m.receivedAt).filter((v):v is string=>typeof v==='string').sort().at(-1)??null;
+    return {count:matches.length,last};
+  };
   function collectListHeaders(raw:string|null,url:string):void {
     if(url===messageHeaderUrl())setListHeaders(raw===null?null:{scope:receiptDocumentKey(),url,raw});
   }
@@ -1433,6 +1443,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               </Show>
               <Show when={email().blobId && app.downloadUrl() && app.accountId()}><SpamScore menu={(chips)=><BadgeContextMenu badge="spam">{chips}</BadgeContextMenu>} url={buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'})} onHeaders={collectListHeaders}/></Show>
+              <Show when={app.accountId()&&email().id}><MailingListBadge headers={currentListHeaders()} accountId={app.accountId()} sender={sender()} receivedAt={email().receivedAt} stats={listStats()} {...(props.onCompose?{onCompose:props.onCompose}:{})} onCleanup={()=>setCleanupOpen(true)} onSenderControl={async action=>(await onSenderControl({action,address:sender()})).updated} {...(props.onOpenSettings?{onOpenRules:()=>props.onOpenSettings?.('rules')}:{})}/></Show>
               <Show when={sanitizedBadge()}>{badge=><BadgeContextMenu badge="sanitized"><SanitizedBadge state={badge().state} report={badge().report} action={badge().action}/></BadgeContextMenu>}</Show>
               </div>
               <Show when={app.accountId()}><DeliveryStatus accountId={app.accountId()!} emailId={email().id} enabled={policy().inlineParts === true} proxyUrl={privacy.state === 'ready' && policy().inlineParts !== true && email().blobId && app.downloadUrl() ? buildDownloadUrl(app.downloadUrl()!, {accountId:app.accountId()!,blobId:email().blobId!,name:'message.eml',mime:'message/rfc822'}) : undefined}/></Show>
@@ -1442,19 +1453,19 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
               <ReaderToolbar email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
+              <Show when={cleanupOpen()}><SweepDialog fromEmail={sender()} onClose={()=>setCleanupOpen(false)}/></Show>
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply')}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
               <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />
             </header>
             {/* The reader notice bars (t110, ReaderNoticeBar.tsx), in one stack and a
-                fixed order: mailing list, remote images, linked files, attachments
+                fixed order: remote images, linked files, attachments
                 (last, so its expanded thumbnails sit right above the body). The
                 stack and the body appear together, once the body is ready and the
                 list headers have settled (or 0.5 s have passed), so no bar pushes
                 the body down after it is shown. */}
             <Show when={noticesReady()}>
               <div class={noticeCss.stack} data-testid="reader-notice-stack">
-                <MailingListActions headers={listHeaders()?.scope===receiptDocumentKey()&&listHeaders()?.url===messageHeaderUrl()?listHeaders()!.raw:''} scope={receiptDocumentKey()} active={props.active!==false} {...(props.onCompose?{onCompose:props.onCompose}:{})}/>
                 <MessagePrivacyBar images={showRemoteBar()?{
                   emailId:email().id,sender:sender(),report:blockedReport(),activeGrant:activeGrant(),mode:bannerMode(),
                   decodedTrackers:remoteLoad.trackers(),imageFailures:remoteLoad.failures(),imageProgress:currentImageProgress(),

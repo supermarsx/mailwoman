@@ -1,7 +1,7 @@
 // Reader notice bars, live (t110). Runs on the receipts stack
 // (scripts/e2e-receipts-stack.mjs): a real server and Greenmail, no route mocks.
 //
-// One seeded message carries all four notices: List-* headers (mailing list),
+// One seeded message carries the three notices below plus List-* headers (the mailing list badge in the header row),
 // remote images (blocked in ask mode), links to files (linked files) and two
 // attachments. For Chromium and Firefox, at 1440 and 390 px, in light and dark:
 //   - the four bars show in the documented order: list, images, files, attachments;
@@ -23,7 +23,7 @@ import { join } from 'node:path';
 
 const PHASE = process.env['MW_T110_PHASE'] === 'before' ? 'before' : 'after';
 const SHOTS = process.env['MW_T110_SHOTS'] ?? 'test-results/t110';
-const BARS = ['mailing-list-bar', 'remote-content-bar', 'linked-files-bar', 'reader-attachments-bar'] as const;
+const BARS = ['remote-content-bar', 'linked-files-bar', 'reader-attachments-bar'] as const;
 
 async function smtp(from: string, message: string): Promise<void> {
   const port = Number(process.env['MW_E2E_SMTP_PORT'] ?? 42225);
@@ -196,13 +196,13 @@ test('t110 reader notice bars: one style, fixed order, no jump, files menu, list
       await page.screenshot({ path: join(shots, `${tag}-reader.png`) });
 
       const scope = (id: string) => page.getByTestId(id).filter({ visible: true });
-      await expect(scope('mailing-list-bar')).toContainText(/Mailing list · .?Example News/);
+      await expect(scope('reader-list-badge')).toContainText(/Mailing list · .?Example News/);
       await expect(scope('remote-content-bar').getByRole('status')).toHaveText(/^Remote images blocked/);
       await expect(scope('linked-files-bar')).toContainText('2 files linked in this message');
       await expect(scope('reader-attachments-bar')).toContainText(/^2 attachments · [\d.,]+\s?kB/);
       if (s.w < 761) {
         // Phone: the action labels fold away; each action is an icon button with a name and tooltip.
-        for (const name of ['Unsubscribe', 'Show images', 'Show files']) {
+        for (const name of ['Show images', 'Show files']) {
           const button = page.getByRole('button', { name, exact: true }).filter({ visible: true }).first();
           await expect(button).toHaveAttribute('data-tooltip', /.+/);
           expect(await button.evaluate((b) => (b.querySelector('span:last-child') as HTMLElement).getBoundingClientRect().width), `${name} label hidden`).toBeLessThanOrEqual(1);
@@ -219,14 +219,15 @@ test('t110 reader notice bars: one style, fixed order, no jump, files menu, list
       await page.keyboard.press('Escape'); await expect(page.getByRole('menu')).toHaveCount(0);
 
       // Unsubscribe: the review dialog, nothing requested from the list host.
-      await scope('mailing-list-bar').getByRole('button', { name: 'Unsubscribe' }).click();
+      await scope('reader-list-badge').click();
+      const popup = page.getByRole('dialog', { name: 'Mailing list' });
+      await expect(popup).toBeVisible(); await popup.getByTestId('reader-list-unsubscribe').click();
       const dialog = page.getByRole('dialog', { name: 'Unsubscribe' });
       await expect(dialog).toBeVisible(); await expect(dialog.getByRole('button', { name: 'list.example.test' })).toBeVisible();
       await page.screenshot({ path: join(shots, `${tag}-unsubscribe-review.png`) });
       await dialog.getByRole('button', { name: 'Close' }).click(); await expect(dialog).toHaveCount(0);
-      await scope('mailing-list-bar').getByRole('button', { name: 'More list actions' }).click();
-      await expect(page.getByRole('menuitem')).toHaveText(['Help', 'List archive']);
-      await page.keyboard.press('Escape');
+      await expect(popup.getByTestId('reader-list-links')).toContainText('https://list.example.test');
+      await page.keyboard.press('Escape'); await expect(popup).toHaveCount(0);
       expect(listRequests, 'no request to a list or file host').toEqual([]);
 
       // Attachments collapse and expand in place.

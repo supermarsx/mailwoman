@@ -562,6 +562,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.badge.spam"></a>`mail.badge.spam` | mail | global+domain+user | "always" | plain |  | yes | Reader header: when the spam score badge shows (always, only when notable, never) |
 | <a id="mail.badge.sanitized"></a>`mail.badge.sanitized` | mail | global+domain+user | "notable" | plain |  | yes | Reader header: when the sanitized HTML badge shows (always, only when notable, never) |
 | <a id="mail.badge.folder"></a>`mail.badge.folder` | mail | global+domain+user | "always" | plain |  | yes | Reader header: when the folder badge shows (always, only when notable, never) |
+| <a id="mail.badge.list"></a>`mail.badge.list` | mail | global+domain+user | "always" | plain |  | yes | Reader header: when the mailing list badge shows (always, only when notable, never); it needs a List-Id or List-Unsubscribe header |
+| <a id="mail.list.unsubscribemode"></a>`mail.list.unsubscribeMode` | mail | global+domain+user | "ask" | plain |  | yes | Mailing list Unsubscribe: ask first and send the one-click request, send it at once, or only open the list's link or draft |
 | <a id="mail.badge.density"></a>`mail.badge.density` | mail | global+domain+user | "compact" | plain |  | yes | Reader header badge size: compact or comfortable |
 | <a id="mail.badge.labels"></a>`mail.badge.labels` | mail | global+domain+user | "text" | plain |  | yes | Reader header badges: icon with text, or icon only |
 | <a id="mail.compose.priority.enabled"></a>`mail.compose.priority.enabled` | mail | global+domain+user | true | plain |  | yes | Priority selector (Normal, High, Low) in the composer |

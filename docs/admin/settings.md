@@ -3124,9 +3124,15 @@ or HTML.
 <a id="mail.badge.spam"></a>
 <a id="mail.badge.sanitized"></a>
 <a id="mail.badge.folder"></a>
-### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`)
+<a id="mail.badge.list"></a>
+### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`, `mail.badge.list`)
 
-Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) and the folder badge (`"always"`). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
+Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) the folder badge (`"always"`) and the mailing list badge (`"always"`, shown when the message has a `List-Id` or `List-Unsubscribe` header; for it, `notable` means mail is still arriving after the user unsubscribed). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
+
+<a id="mail.list.unsubscribeMode"></a>
+### Mailing list unsubscribe (`mail.list.unsubscribeMode`)
+
+Global/domain/user setting, default `"ask"`. How the Unsubscribe action of the mailing list badge works when the message offers an RFC 8058 one-click `https` URL (`List-Unsubscribe` plus `List-Unsubscribe-Post: List-Unsubscribe=One-Click`). `ask` shows a confirmation, then the server sends the request (`POST /api/mail/list-unsubscribe`, egress class `unsubscribe`, so the list host sees the server and not the reader); `one-click-direct` sends it without the confirmation; `open-link` never sends it and only opens the list's web link or mail draft after the usual destination review. Without a one-click URL the web link or mail draft is always used. "Unsubscribed on" and "Always keep" are stored in the user's browser only.
 
 <a id="mail.badge.density"></a>
 ### Reader badge density (`mail.badge.density`)
