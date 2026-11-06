@@ -8,19 +8,19 @@ empty-folder-title = „{ $name }“ leeren?
 empty-folder-body-trash = { $count ->
     [one] Die Nachricht in { $name } wird in den Papierkorb verschoben, wo Sie sie wiederherstellen können.
    *[other] Alle { $count } Nachrichten in { $name } werden in den Papierkorb verschoben, wo Sie sie wiederherstellen können.
-    }
+    } Unterordner und die darin enthaltenen Nachrichten bleiben unverändert.
 empty-folder-body-destroy-trash = { $count ->
     [one] Die Nachricht im Papierkorb wird endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.
    *[other] Alle { $count } Nachrichten im Papierkorb werden endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.
-    }
+    } Unterordner und die darin enthaltenen Nachrichten bleiben unverändert.
 empty-folder-body-destroy-junk = { $count ->
     [one] Die Nachricht in { $name } wird endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.
    *[other] Alle { $count } Nachrichten in { $name } werden endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.
-    }
+    } Unterordner und die darin enthaltenen Nachrichten bleiben unverändert.
 empty-folder-body-destroy-no-trash = Dieses Konto hat keinen Papierkorb, daher { $count ->
     [one] wird die Nachricht in { $name } endgültig gelöscht.
    *[other] werden alle { $count } Nachrichten in { $name } endgültig gelöscht.
-    }
+    } Dies kann nicht rückgängig gemacht werden. Unterordner und die darin enthaltenen Nachrichten bleiben unverändert.
 empty-folder-confirm-trash = In den Papierkorb verschieben
 empty-folder-confirm-destroy = Endgültig löschen
 empty-folder-cancel = Abbrechen

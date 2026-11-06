@@ -46,7 +46,7 @@ reader-zoom-help = Die Größe, mit der Nachrichten geöffnet werden, von 50 % b
 reader-attachments-summary = { $count ->
     [one] 1 Anhang
    *[other] { $count } Anhänge
-    }
+    } · { $size }
 reader-attachments-show = Anhänge anzeigen
 reader-attachments-hide = Anhänge ausblenden
 reader-attachmentsDensity = Dichte der Anhänge

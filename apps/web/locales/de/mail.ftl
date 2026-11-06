@@ -320,8 +320,8 @@ mail-undo-failed = Rückgängigmachen nicht möglich
 # -- Toasts raised by mail actions (state/slices/mail.ts) ----------------------
 mail-toast-label-added = Label hinzugefügt
 mail-toast-label-removed = Label entfernt
-mail-toast-pinned = Angeheftet
-mail-toast-unpinned = Gelöst
+mail-toast-pinned = Nachricht „{ $target }“ angeheftet
+mail-toast-unpinned = Nachricht „{ $target }“ gelöst
 mail-toast-snoozed = Zurückgestellt
 mail-toast-follow-up-set = Nachverfolgung gesetzt
 mail-toast-follow-up-cleared = Nachverfolgung entfernt
