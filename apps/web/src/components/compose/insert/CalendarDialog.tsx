@@ -88,7 +88,7 @@ export function CalendarDialog(props: { mode: CalendarKind; controller: Calendar
           <label>{t('ins-cal-work-start')}<input type="number" min="0" max="23" data-testid="insert-cal-work-start" value={workStart()} onInput={(e) => setWorkStart(Math.max(0, Math.min(23, Number(e.currentTarget.value) || 0)))} /></label>
           <label>{t('ins-cal-work-end')}<input type="number" min="1" max="24" data-testid="insert-cal-work-end" value={workEnd()} onInput={(e) => setWorkEnd(Math.max(1, Math.min(24, Number(e.currentTarget.value) || 24)))} /></label>
         </div>
-        <p class="mw-insert-warn" style={{ color: 'inherit' }}>{t('ins-cal-availability-note')}</p>
+        <p class="mw-insert-note">{t('ins-cal-availability-note')}</p>
       </Show>
       <Show when={props.mode !== 'availability'}>
         <div class="mw-insert-row">

@@ -79,9 +79,9 @@ export function MessagePicturesDialog(props: {
     <InsertDialog title={t(imagesOnly ? 'ins-picture-messages' : 'ins-attach-messages')} testId="insert-messages-dialog" returnTo={props.returnTo} busy={loading()} onClose={props.onClose} onSubmit={choose} submitLabel={t('ins-pick-count', { count: selected().size })} submitDisabled={selected().size === 0}>
       <label>{t('ins-pick-search')}<input type="search" data-testid="insert-messages-search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
       <div class="mw-insert-grid" role="listbox" aria-multiselectable="true" aria-label={t('ins-pick-list')}>
-        <For each={shown()} fallback={<p class="mw-insert-warn" style={{ color: 'inherit' }}>{loading() ? t('ins-loading') : t('ins-pick-none')}</p>}>{(item) => (
+        <For each={shown()} fallback={<p class="mw-insert-note">{loading() ? t('ins-loading') : t('ins-pick-none')}</p>}>{(item) => (
           <button type="button" role="option" class="mw-insert-thumb" data-testid="insert-messages-item" aria-selected={selected().has(key(item))} aria-pressed={selected().has(key(item))} title={`${item.name} — ${item.from} — ${item.subject}`} onClick={() => toggle(item)}>
-            <Show when={imagesOnly && thumbs()[key(item)]} fallback={<div style={{ height: '4.5rem', display: 'grid', 'place-items': 'center' }} aria-hidden="true">{imagesOnly ? '…' : '\u{1F4CE}'}</div>}>
+            <Show when={imagesOnly && thumbs()[key(item)]} fallback={<div class="mw-insert-thumb-ph" aria-hidden="true">{imagesOnly ? '…' : '\u{1F4CE}'}</div>}>
               {(src) => <img src={src()} alt="" />}
             </Show>
             <span>{item.name}</span>

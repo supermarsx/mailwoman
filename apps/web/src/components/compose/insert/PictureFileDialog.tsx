@@ -39,7 +39,7 @@ export function PictureFileDialog(props: {
   };
   return (
     <InsertDialog title={t('ins-picture-file')} testId="insert-picture-dialog" returnTo={props.returnTo} busy={busy()} onClose={props.onClose} onSubmit={insert} submitDisabled={props.files.length === 0}>
-      <p style={{ margin: '0' }} data-testid="insert-picture-count">{t('ins-picture-count', { count: props.files.length })}</p>
+      <p data-testid="insert-picture-count">{t('ins-picture-count', { count: props.files.length })}</p>
       <label>{t('ins-picture-placement')}
         <select data-testid="insert-picture-placement" value={asAttachment() ? 'attach' : 'inline'} onChange={(e) => setAsAttachment(e.currentTarget.value === 'attach')}>
           <option value="inline">{t('ins-picture-inline')}</option>

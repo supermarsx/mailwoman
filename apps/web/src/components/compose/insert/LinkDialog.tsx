@@ -50,7 +50,7 @@ export function LinkDialog(props: { initial: LinkInitial; richMode: boolean; ret
         <label>{t('ins-link-tooltip')}<input data-testid="insert-link-title" value={title()} onInput={(e) => setTitle(e.currentTarget.value)} /></label>
         <label class="mw-insert-check"><input type="checkbox" data-testid="insert-link-newtab" checked={newTab()} onChange={(e) => setNewTab(e.currentTarget.checked)} />{t('ins-link-newtab')}</label>
       </Show>
-      <Show when={!props.richMode}><p class="mw-insert-warn" style={{ color: 'inherit' }}>{t('ins-link-plain-note')}</p></Show>
+      <Show when={!props.richMode}><p class="mw-insert-note">{t('ins-link-plain-note')}</p></Show>
       <div role="status" aria-live="polite">
         <For each={warnings()}>{(w) => <p class="mw-insert-warn" data-testid={`insert-link-warn-${w}`}>{t(`ins-link-warn-${w}`)}</p>}</For>
       </div>

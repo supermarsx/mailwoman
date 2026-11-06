@@ -37,9 +37,9 @@ export function BusinessCardDialog(props: {
     <InsertDialog title={t(props.source.kind === 'self' ? 'ins-card-mine' : 'ins-card-contact')} testId="insert-card-dialog" returnTo={props.returnTo} onClose={props.onClose} onSubmit={insert} submitDisabled={!ready()}>
       <Show when={props.source.kind === 'contact'}>
         <label>{t('ins-card-search')}<input type="search" data-testid="insert-card-search" value={query()} onInput={(e) => setQuery(e.currentTarget.value)} /></label>
-        <ul role="listbox" aria-label={t('ins-card-contact')} style={{ 'list-style': 'none', margin: '0', padding: '0', 'max-height': '9rem', overflow: 'auto' }}>
-          <For each={matches()} fallback={<li class="mw-insert-warn" style={{ color: 'inherit' }}>{t('ins-card-no-contacts')}</li>}>{(c) => (
-            <li><button type="button" role="option" class="btn btn--ghost" style={{ width: '100%', 'text-align': 'start' }} data-testid="insert-card-pick" aria-selected={fields().email === (c.emails[0]?.value ?? '') && fields().name === c.name.full} onClick={() => setFields(fieldsFromContact(c))}>{c.name.full || c.emails[0]?.value}</button></li>
+        <ul role="listbox" aria-label={t('ins-card-contact')} class="mw-insert-list">
+          <For each={matches()} fallback={<li class="mw-insert-note">{t('ins-card-no-contacts')}</li>}>{(c) => (
+            <li><button type="button" role="option" class="btn btn--ghost mw-insert-option" data-testid="insert-card-pick" aria-selected={fields().email === (c.emails[0]?.value ?? '') && fields().name === c.name.full} onClick={() => setFields(fieldsFromContact(c))}>{c.name.full || c.emails[0]?.value}</button></li>
           )}</For>
         </ul>
       </Show>

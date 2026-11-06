@@ -48,7 +48,7 @@ export function InsertDialog(props: InsertDialogProps): JSX.Element {
     <Portal mount={(props.returnTo?.ownerDocument ?? document).body}>
       <div class={css.backdrop} onClick={(event) => { if (event.target === event.currentTarget) props.onClose(); }}>
         <section ref={panel} class={`${css.panel} ${dialogForm}`} role="dialog" aria-modal="true" aria-label={props.title} aria-busy={props.busy === true} tabIndex={-1} data-testid={props.testId}>
-          <div class={css.header}><h2 style={{ margin: '0', 'font-size': '1rem' }}>{props.title}</h2></div>
+          <div class={css.header}><h2>{props.title}</h2></div>
           {props.children}
           <div class="mw-insert-actions">
             <button type="button" class="btn btn--ghost" data-testid={`${props.testId}-cancel`} onClick={props.onClose}>{t('ins-cancel')}</button>

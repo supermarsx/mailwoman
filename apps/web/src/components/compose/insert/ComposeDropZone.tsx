@@ -170,7 +170,7 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
             </>}>
               <Spinner label={t('ins-drop-working')} />
               <p>{t('ins-drop-working')}</p>
-              <button type="button" class="btn btn--ghost" style={{ 'pointer-events': 'auto' }} onClick={() => controller?.abort()}>{t('ins-cancel')}</button>
+              <button type="button" class="btn btn--ghost" onClick={() => controller?.abort()}>{t('ins-cancel')}</button>
             </Show>
           </div>
         </div>

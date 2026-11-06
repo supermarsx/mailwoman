@@ -21,6 +21,7 @@ import { ShapeDialog } from './ShapeDialog.tsx';
 import { MessagePicturesDialog } from './MessagePicturesDialog.tsx';
 import { PictureFileDialog } from './PictureFileDialog.tsx';
 import { SPECIAL_CHARACTERS } from './symbols.ts';
+import { pictureLabel, symbolGrid } from './insertDialog.css.ts';
 import type { ResizePreset } from './imageResize.ts';
 
 /** What the Insert tab needs from the composer. */
@@ -114,7 +115,7 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
         <RibbonGroup label={t('ins-group-illustrations')} priority={56} icon="image" testId="insert-group-illustrations">
           <Show when={on.pictureFile()}>
             <RibbonItem>
-              <label class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-picture-file" aria-disabled={host.disabled()}>
+              <label class={`compose-rt__btn ${a11y.focusable} ${pictureLabel}`} data-testid="insert-picture-file" aria-disabled={host.disabled()}>
                 <Icon name="image" /><span class="compose-rib__text">{t('ins-picture-file')}</span>
                 <input type="file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml" multiple class={a11y.srOnly} aria-label={t('ins-picture-file')} disabled={host.disabled()}
                   onChange={(event) => { const input = event.currentTarget; const files = Array.from(input.files ?? []); anchor = input.parentElement; input.value = ''; if (files.length > 0) setDialog({ kind: 'pictureFile', files }); }} />
@@ -168,7 +169,7 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
           <Show when={on.symbols()}>
             <RibbonItem>
               <RibbonPopover label={t('ins-symbols')} icon="smile" buttonClass={`compose-rt__btn ${a11y.focusable}`} buttonTestId="insert-symbols" disabled={host.disabled()} {...menuProps('symbols')}>
-                <div class="compose-rt__symbols" role="group" aria-label={t('ins-symbols')} style={{ display: 'grid', 'grid-template-columns': 'repeat(8, 2rem)', gap: '2px', padding: '4px' }}>
+                <div class={symbolGrid} role="group" aria-label={t('ins-symbols')}>
                   <For each={SPECIAL_CHARACTERS}>{(entry) => (
                     <button type="button" class={`compose-rt__btn ${a11y.focusable}`} aria-label={entry.name} data-tooltip={entry.name} data-testid="insert-symbol" onMouseDown={(event) => event.preventDefault()} onClick={() => { host.insertInline(entry.ch, entry.ch); setMenu(null); }}>{entry.ch}</button>
                   )}</For>

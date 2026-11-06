@@ -93,9 +93,9 @@ export function EventDialog(props: {
   return (
     <InsertDialog title={t(props.existing ? 'ins-event-existing' : 'ins-event-new')} testId="insert-event-dialog" returnTo={props.returnTo} busy={busy() || loaded.loading} onClose={props.onClose} onSubmit={insert} submitDisabled={title().trim() === '' || props.identity === null}>
       <Show when={props.existing}>
-        <ul role="listbox" aria-label={t('ins-event-existing')} style={{ 'list-style': 'none', margin: '0', padding: '0', 'max-height': '9rem', overflow: 'auto' }}>
-          <For each={candidates()} fallback={<li class="mw-insert-warn" style={{ color: 'inherit' }}>{loaded.loading ? t('ins-loading') : t('ins-event-none')}</li>}>{(c) => (
-            <li><button type="button" role="option" class="btn btn--ghost" style={{ width: '100%', 'text-align': 'start' }} data-testid="insert-event-pick" aria-selected={title() === c.title && date() === dateOf(c.start)} onClick={() => choose(c)}>{fmt.format(c.start)} · {c.title}</button></li>
+        <ul role="listbox" aria-label={t('ins-event-existing')} class="mw-insert-list">
+          <For each={candidates()} fallback={<li class="mw-insert-note">{loaded.loading ? t('ins-loading') : t('ins-event-none')}</li>}>{(c) => (
+            <li><button type="button" role="option" class="btn btn--ghost mw-insert-option" data-testid="insert-event-pick" aria-selected={title() === c.title && date() === dateOf(c.start)} onClick={() => choose(c)}>{fmt.format(c.start)} · {c.title}</button></li>
           )}</For>
         </ul>
       </Show>
@@ -109,7 +109,7 @@ export function EventDialog(props: {
       <label>{t('ins-event-where')}<input data-testid="insert-event-location" value={location()} onInput={(e) => setLocation(e.currentTarget.value)} /></label>
       <label>{t('ins-event-description')}<textarea rows="3" data-testid="insert-event-description" value={description()} onInput={(e) => setDescription(e.currentTarget.value)} /></label>
       <label>{t('ins-event-attendees')}<input data-testid="insert-event-attendees" value={attendees()} placeholder="a@example.org, b@example.org" onInput={(e) => setAttendees(e.currentTarget.value)} /></label>
-      <p class="mw-insert-warn" style={{ color: 'inherit' }} data-testid="insert-event-method">{attendeeList().length > 0 ? t('ins-event-method-request') : t('ins-event-method-publish')}</p>
+      <p class="mw-insert-note" data-testid="insert-event-method">{attendeeList().length > 0 ? t('ins-event-method-request') : t('ins-event-method-publish')}</p>
       <label class="mw-insert-check"><input type="checkbox" data-testid="insert-event-also-create" checked={alsoCreate()} onChange={(e) => setAlsoCreate(e.currentTarget.checked)} />{t('ins-event-also-create')}</label>
       <Show when={error()}>{(m) => <p class="mw-insert-warn" role="alert">{m()}</p>}</Show>
     </InsertDialog>

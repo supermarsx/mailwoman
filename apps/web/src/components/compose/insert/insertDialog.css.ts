@@ -15,6 +15,21 @@ globalStyle(`${dialogForm} .mw-insert-thumb[aria-pressed="true"]`, { borderColor
 globalStyle(`${dialogForm} .mw-insert-thumb img`, { width: '100%', height: '4.5rem', objectFit: 'cover', borderRadius: '2px', background: vars.color.surface });
 globalStyle(`${dialogForm} .mw-insert-thumb span`, { fontSize: '.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' });
 
+globalStyle(`${dialogForm} h2`, { margin: 0, fontSize: '1rem' });
+globalStyle(`${dialogForm} p`, { margin: 0 });
+globalStyle(`${dialogForm} .mw-insert-note`, { fontSize: '.8rem', color: 'inherit' });
+globalStyle(`${dialogForm} .mw-insert-list`, { listStyle: 'none', margin: 0, padding: 0, maxHeight: '9rem', overflow: 'auto' });
+globalStyle(`${dialogForm} .mw-insert-option`, { width: '100%', textAlign: 'start' });
+globalStyle(`${dialogForm} .mw-insert-thumb-ph`, { height: '4.5rem', display: 'grid', placeItems: 'center' });
+globalStyle(`${dialogForm} .mw-insert-fieldset`, { border: 0, padding: 0, margin: 0 });
+globalStyle(`${dialogForm} .mw-insert-fieldset legend`, { fontSize: '.8rem', padding: 0 });
+globalStyle(`${dialogForm} .mw-insert-swatches`, { gap: '4px' });
+globalStyle(`${dialogForm} .mw-insert-custom`, { flex: '0 0 2rem', width: '2rem', padding: 0 });
+
+export const pictureLabel = style({ fontWeight: 'var(--weight-bold)', cursor: 'pointer' });
+
+export const symbolGrid = style({ display: 'grid', gridTemplateColumns: 'repeat(8, 2rem)', gap: '2px', padding: '4px' });
+
 export const shapeGallery = style({ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: vars.space[1] });
 globalStyle(`${shapeGallery} button`, { display: 'grid', placeItems: 'center', padding: '.25rem', border: `1px solid ${vars.color.border}`, borderRadius: vars.radius.sm, background: vars.color.bg, cursor: 'pointer' });
 globalStyle(`${shapeGallery} button[aria-pressed="true"]`, { borderColor: vars.color.accent, outline: `2px solid ${vars.color.accent}` });
@@ -29,5 +44,6 @@ export const dropCard = style({
   maxWidth: 'min(32rem, 100%)', boxShadow: vars.elevation[2],
 });
 globalStyle(`${dropCard} p`, { margin: 0 });
+globalStyle(`${dropCard} button`, { pointerEvents: 'auto' });
 globalStyle(`${dropCard} .mw-drop-note`, { fontSize: '.85rem', color: vars.color.textDim });
 globalStyle(`${dropCard} .mw-drop-bad`, { fontSize: '.85rem', color: vars.color.warning });

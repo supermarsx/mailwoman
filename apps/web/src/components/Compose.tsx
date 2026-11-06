@@ -1954,7 +1954,21 @@ export function Compose(props: {
           <ul class="compose__attachments" aria-label={t('mail-compose-attachments')} data-testid="compose-attachments">
             <For each={attachments()}>
               {(a) => (
-                <li>
+                <li
+                  draggable="true"
+                  onDragStart={(e) => { e.dataTransfer?.setData('application/x-mailwoman-compose-attachment', a.blobId); if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move'; }}
+                  onDragOver={(e) => { if (e.dataTransfer?.types.includes('application/x-mailwoman-compose-attachment')) e.preventDefault(); }}
+                  onDrop={(e) => {
+                    const id = e.dataTransfer?.getData('application/x-mailwoman-compose-attachment');
+                    if (!id || id === a.blobId) return;
+                    e.preventDefault(); e.stopPropagation();
+                    setAttachments((cur) => {
+                      const from = cur.findIndex((x) => x.blobId === id), to = cur.findIndex((x) => x.blobId === a.blobId);
+                      if (from < 0 || to < 0) return cur;
+                      const next = [...cur]; const [moved] = next.splice(from, 1); next.splice(to, 0, moved!); return next;
+                    });
+                  }}
+                >
                   <span>{a.name}</span>
                   <button
                     type="button"
