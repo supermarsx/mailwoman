@@ -880,6 +880,8 @@ admin-settings-key-privacy-remote-image-downloads = Transferências manuais de i
 admin-settings-key-privacy-remote-images-toast = Notificação de carregamento de imagens
 admin-settings-help-privacy-remote-images-toast = Mostrar uma notificação no leitor enquanto as imagens remotas de uma mensagem carregam através do proxy de privacidade, e indicar quando carregaram ou quantas não foi possível carregar. Ativado por predefinição. Só altera o que o leitor mostra; as imagens que carregam continuam a ser decididas pela política de conteúdo remoto.
 admin-settings-help-privacy-remote-image-downloads = Permitir a transferência explícita de uma imagem referenciada pela mensagem própria através do proxy de privacidade protegido. Desativado por predefinição; isto nunca abre diretamente o URL externo.
+admin-settings-key-privacy-sessions-show-linked-origin = Origem de caixas associadas nas sessões
+admin-settings-help-privacy-sessions-show-linked-origin = Como Definições > Segurança > Sessões identifica a conta de onde vem uma sessão de Acesso a caixa de correio associada: o endereço completo, o endereço com a primeira parte do nome ocultada, ou nada. O valor só é mostrado ao dono das sessões, nunca a outros utilizadores. Predefinição: endereço completo.
 admin-settings-key-mail-resume-tabs = Retomar separadores da área de trabalho
 admin-settings-help-mail-resume-tabs = Restaurar as referências dos separadores da conta após recarregar. Desativar isto limpa o registo local da área de trabalho sem eliminar rascunhos.
 

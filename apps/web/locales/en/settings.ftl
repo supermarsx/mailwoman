@@ -274,7 +274,7 @@ settings-search-without-attachments = Without attachments
 settings-search-unread = Unread messages only
 settings-search-flagged = Flagged messages only
 
-settings-sessions-search = Search account, device or IP
+settings-sessions-search = Search account, device, IP or linked origin
 settings-sessions-account = Account
 settings-sessions-device = Device and client
 settings-sessions-location = IP and last known country
@@ -548,6 +548,23 @@ settings-folders-table = Folder list
 settings-kbd-reference = View preset bindings
 settings-kbd-reference-help = Preset reference only. Custom bindings and administrator policy can change the active shortcuts.
 settings-sessions-client-details = Client details
+settings-sessions-linked-line = Linked mailbox access · from { $origin }
+settings-sessions-linked-line-hidden = Linked mailbox access
+settings-sessions-linked-removed = Unknown (removed account)
+settings-sessions-linked-details = Link details
+settings-sessions-linked-origin = Comes from
+settings-sessions-linked-target = Mailbox opened
+settings-sessions-linked-kind = Link type
+settings-sessions-linked-kind-linked = Linked mailbox
+settings-sessions-linked-created = Link created
+settings-sessions-linked-last-used = Last used
+settings-sessions-linked-revoke = Revoke link access
+settings-sessions-linked-revoke-label = Revoke link access for { $mailbox }
+settings-sessions-origin-setting = Show where linked mailbox access comes from
+settings-sessions-origin-help = Controls how this table names the account a linked mailbox session comes from. Only you see it, in your own sessions.
+settings-sessions-origin-full = Full address
+settings-sessions-origin-masked-local-part = Address with the first part masked
+settings-sessions-origin-hidden = Hidden
 
 # t39-e6: administrator passkey policy
 settings-2fa-passkey-rules = Your organization accepts only passkeys that:

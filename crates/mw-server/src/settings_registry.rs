@@ -814,6 +814,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "show one notification while a message's remote images load through the privacy proxy; presentation only, the image policy is unchanged"
     ),
     def!(
+        "privacy.sessions.showLinkedOrigin",
+        Kind::Enum(&["full", "masked-local-part", "hidden"]),
+        "\"full\"",
+        GDU,
+        "privacy",
+        "How Settings > Security > Sessions names the account a linked-mailbox session originates from: full address, address with the local part masked, or hidden"
+    ),
+    def!(
         "appearance.customCssEnabled",
         Kind::Bool,
         "false",

@@ -880,6 +880,8 @@ admin-settings-key-privacy-remote-image-downloads = Manual remote image download
 admin-settings-key-privacy-remote-images-toast = Loading-images notification
 admin-settings-help-privacy-remote-images-toast = Show one notification in the reader while a message's remote images load through the privacy proxy, and say when they have loaded or how many could not. On by default. Only changes what the reader shows; which images load is still decided by the remote content policy.
 admin-settings-help-privacy-remote-image-downloads = Allow an explicit download of an image referenced by the owned message through the guarded privacy proxy. Disabled by default; this never opens the external URL directly.
+admin-settings-key-privacy-sessions-show-linked-origin = Linked mailbox origin in sessions
+admin-settings-help-privacy-sessions-show-linked-origin = How Settings > Security > Sessions names the account a Linked mailbox access session comes from: the full address, the address with the first part of the name masked, or nothing. The value is shown only to the owner of the sessions, never to other users. Default: full address.
 admin-settings-key-mail-resume-tabs = Resume workspace tabs
 admin-settings-help-mail-resume-tabs = Restore account-owned tab references after reload. Disabling this clears the local workspace record without deleting drafts.
 
