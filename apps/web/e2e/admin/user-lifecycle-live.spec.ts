@@ -69,7 +69,7 @@ test('provisioned user: session counted, block revokes it, unblock restores, del
     await page.goto(`${ADMIN}#/users?q=${username}&sort=lastSignin&dir=desc`);
     await expect(listed.first().locator('td[data-column="lastSignin"] time')).toHaveText(/now|second|minute/u);
     const record = (await find())!;
-    await page.goto(`${ADMIN}#/users/${encodeURIComponent(record.accountId)}`);
+    await page.goto(`${ADMIN}#/users/${encodeURIComponent(record.accountId)}/access`);
     const access = page.getByRole('heading', { name: 'Mailwoman access', exact: true }).locator('..');
     await page.getByRole('button', { name: `Block login for ${address}` }).click();
     let dialog = page.getByRole('dialog').or(page.getByRole('alertdialog')).filter({ hasText: 'Block Mailwoman login' });

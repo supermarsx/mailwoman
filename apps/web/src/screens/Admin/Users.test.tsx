@@ -55,7 +55,7 @@ describe('Admin › Users', () => {
     const toggleZeroAccess = vi.fn(async () => undefined);
     const setFlags = vi.fn(async () => undefined);
     renderWithAdmin(
-      () => <Users accountId={U.accountId} />,
+      () => <Users accountId={U.accountId} tab="security" />,
       mockAdminApi({ listUsers: vi.fn(async () => [U]), toggleZeroAccess, setFlags }),
     );
     const box = await screen.findByLabelText('Zero-access for alice@example.com');
@@ -66,12 +66,10 @@ describe('Admin › Users', () => {
   });
 
   it('says what "disabled" and "force change" do, and ties each note to its checkbox', async () => {
-    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
+    renderWithAdmin(() => <Users accountId={U.accountId} tab="security" />, mockAdminApi({ listUsers: vi.fn(async () => [U]) }));
 
-    expect(await screen.findByRole('button',{name:'Block login for alice@example.com'})).toBeInTheDocument();
-    expect(screen.queryByLabelText('Disable alice@example.com')).not.toBeInTheDocument();
 
-    const force = screen.getByLabelText('Force password change for alice@example.com');
+    const force = await screen.findByLabelText('Force password change for alice@example.com');
     const forceHelp = document.getElementById(force.getAttribute('aria-describedby') ?? '');
     expect(forceHelp).toHaveTextContent('held at a password-change screen');
     expect(forceHelp).toHaveTextContent('MW_PASSWD_BACKEND');
@@ -80,7 +78,7 @@ describe('Admin › Users', () => {
 
   it('uses the lifecycle action instead of the legacy disabled checkbox', async () => {
     const setFlags = vi.fn(async () => undefined);
-    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({listUsers:vi.fn(async()=>[U]),setFlags}));
+    renderWithAdmin(() => <Users accountId={U.accountId} tab="access" />, mockAdminApi({listUsers:vi.fn(async()=>[U]),setFlags}));
     expect(await screen.findByRole('button',{name:'Block login for alice@example.com'})).toBeInTheDocument();
     expect(screen.queryByLabelText('Disable alice@example.com')).not.toBeInTheDocument();
     expect(setFlags).not.toHaveBeenCalled();
@@ -88,7 +86,7 @@ describe('Admin › Users', () => {
 
   it('revokes sessions', async () => {
     const revokeSessions = vi.fn(async () => 3);
-    renderWithAdmin(() => <Users accountId={U.accountId} />, mockAdminApi({ listUsers: vi.fn(async () => [U]), revokeSessions }));
+    renderWithAdmin(() => <Users accountId={U.accountId} tab="sessions" />, mockAdminApi({ listUsers: vi.fn(async () => [U]), revokeSessions }));
     fireEvent.click(await screen.findByRole('button', { name: 'Revoke sessions for alice@example.com' }));
     await Promise.resolve();
     expect(revokeSessions).toHaveBeenCalledWith('alice@example.com');

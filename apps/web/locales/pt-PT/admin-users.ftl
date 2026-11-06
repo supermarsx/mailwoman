@@ -187,3 +187,24 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] Alterado o perfil de funcionalidades de { $count } utilizadores.
 }
 admin-userlist-bulk-failed = { $done } concluídos, { $failed } falhados: { $reason }
+
+## Separadores do detalhe da conta (#/users/<id>/<separador>)
+admin-user-tabs-label = Secções da conta
+admin-user-tab-overview = Resumo
+admin-user-tab-profile = Perfil de funcionalidades
+admin-user-tab-security = Segurança
+admin-user-tab-sessions = Sessões
+admin-user-tab-compliance = Conformidade
+admin-user-tab-access = Acesso e remoção
+admin-user-overview-status = Estado
+admin-user-overview-last-signin = Último início de sessão
+admin-user-never = Nunca
+admin-user-status-active = Ativa
+admin-user-status-disabled = Bloqueada
+admin-user-status-deleting = A eliminar
+admin-user-status-deleted = Eliminada
+admin-user-compliance-title = Pedidos de dados desta conta
+admin-user-compliance-help = Pedidos submetidos para os endereços desta conta. Abra um em Pedidos de dados para atuar sobre ele.
+admin-user-compliance-empty = Sem pedidos de dados para esta conta.
+admin-user-compliance-due = prazo { $date }
+admin-user-compliance-open-all = Abrir todos os pedidos de dados

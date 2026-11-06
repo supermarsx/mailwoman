@@ -591,6 +591,7 @@ test.describe('checkboxes in the admin console', () => {
     // The per-account flags moved from the table to the account's own page
     // (users/<id>, Users.tsx); the table links to it.
     await table.getByRole('link').first().click();
+    await page.getByRole('tab', { name: 'Security', exact: true }).click(); // the flags live in the account's Security tab
     const flags = main.getByRole('checkbox', { name: /^Zero-access for/ }).first();
     await expect(flags).toBeVisible();
     const problems: string[] = [];

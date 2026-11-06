@@ -323,6 +323,11 @@ export function specFor(section: string, rest: readonly string[], i: number): Cr
       if (i === 0 && word === undefined) return entity('egress-proxy', seg);
       if (i === 1 && rest[0] === 'destinations' && word === undefined) return entity('egress-destination', seg);
       break;
+    case 'users':
+      // `#/users/<id>/<tab>`: the tab is named like its tab label.
+      if (i === 1 && ['overview', 'profile', 'security', 'sessions', 'compliance', 'access'].includes(seg)) return { kind: 'message', id: `admin-user-tab-${seg}`, fallback: seg };
+      if (i === 0 && word === undefined) return entity('user', seg);
+      break;
     default: {
       const kind = FIRST_ENTITY[section];
       if (kind && i === 0 && word === undefined) return entity(kind, seg);

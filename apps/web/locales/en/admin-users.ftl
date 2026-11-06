@@ -184,3 +184,24 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] Changed the feature profile of { $count } users.
 }
 admin-userlist-bulk-failed = { $done } done, { $failed } failed: { $reason }
+
+## Account detail tabs (#/users/<id>/<tab>)
+admin-user-tabs-label = Account sections
+admin-user-tab-overview = Overview
+admin-user-tab-profile = Feature profile
+admin-user-tab-security = Security
+admin-user-tab-sessions = Sessions
+admin-user-tab-compliance = Compliance
+admin-user-tab-access = Access and removal
+admin-user-overview-status = Status
+admin-user-overview-last-signin = Last sign-in
+admin-user-never = Never
+admin-user-status-active = Active
+admin-user-status-disabled = Blocked
+admin-user-status-deleting = Deleting
+admin-user-status-deleted = Deleted
+admin-user-compliance-title = Data requests for this account
+admin-user-compliance-help = Requests filed for this account's addresses. Open one in Data requests to act on it.
+admin-user-compliance-empty = No data requests for this account.
+admin-user-compliance-due = due { $date }
+admin-user-compliance-open-all = Open all data requests
