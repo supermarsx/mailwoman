@@ -97,7 +97,7 @@ describe('folder arranger',()=>{
    s.arranger.place(['b','c'],{parentId:null,beforeId:'a'});
    expect(s.arranger.visual().filter(x=>!x.parentId&&!x.role).map(x=>x.id)).toEqual(['b','c','a']);
    s.arranger.reset();
-   expect(s.prefs().folderOrder).toEqual([]);expect(s.prefs().folderParent).toEqual({});
+   expect(s.prefs().folderOrder).toEqual([]);expect(s.prefs().folderParent??{}).toEqual({});
    dispose();
   });
  });

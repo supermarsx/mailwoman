@@ -33,3 +33,12 @@ export const hint=style({display:'block',color:vars.color.textDim,fontSize:'0.85
 export const pinnedGroup=style({display:'grid',gap:0,paddingBottom:'0.25rem',marginBottom:'0.25rem',borderBottom:`1px solid ${vars.color.borderStrong}`});
 export const groupLabel=style({fontSize:'0.75em',textTransform:'uppercase',letterSpacing:'0.04em',color:vars.color.textDim,padding:'0.2rem 0.6rem'});
 export const topTarget=style({margin:'0.25rem 0.6rem',padding:'0.3rem 0.5rem',border:`1px dashed ${vars.color.borderStrong}`,borderRadius:'4px',color:vars.color.textDim,fontSize:'0.85em'});
+// The starred marker: a small filled star, decorative (the row's description says "Starred").
+globalStyle('.sidebar__box-star',{flex:'none',display:'inline-flex',alignItems:'center',inlineSize:'0.8rem',blockSize:'0.8rem',marginInline:'0.25rem',color:vars.color.accent,'@media':{'(forced-colors: active)':{color:'Highlight',forcedColorAdjust:'none'}}});
+globalStyle('.sidebar__box-star svg',{inlineSize:'100%',blockSize:'100%'});
+// The icon-only rail has no name: the star sits on the icon's corner.
+globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box',{'@media':{'(min-width: 761px)':{position:'relative'}}});
+globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__box-star',{'@media':{'(min-width: 761px)':{position:'absolute',insetBlockStart:'2px',insetInlineEnd:'4px',margin:0,inlineSize:'0.6rem',blockSize:'0.6rem'}}});
+globalStyle('.sidebar__starred-only',{justifyContent:'flex-start',gap:'0.4rem',marginInline:'0.4rem',inlineSize:'calc(100% - 0.8rem)'});
+globalStyle('.sidebar__starred-only[aria-pressed="true"]',{background:`color-mix(in srgb, ${vars.color.accent} 16%, ${vars.color.bg})`});
+globalStyle('.workspace-shell[data-folder-mode="compact"] .sidebar__starred-only .sidebar__box-name',{'@media':{'(min-width: 761px)':{display:'none'}}});

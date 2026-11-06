@@ -97,3 +97,11 @@ describe('keyboard moves',()=>{
   expect(placementForKey(folders,'d','up',{...DEFAULT_POLICY,locked:true})).toEqual({ok:false,problem:'locked'});
  });
 });
+describe('pinned folders',()=>{
+ it('stay above the unpinned ones among their siblings',()=>{
+  const pinned=new Set(['a']);
+  expect(validatePlacement(folders,['a'],{parentId:null,beforeId:null},{...DEFAULT_POLICY,pinned})).toEqual({ok:false,problem:'pin'});
+  expect(validatePlacement(folders,['e'],{parentId:null,beforeId:'a'},{...DEFAULT_POLICY,pinned})).toEqual({ok:false,problem:'pin'});
+  expect(validatePlacement(folders,['a'],{parentId:null,beforeId:'e'},{...DEFAULT_POLICY,pinned:new Set(['a','e'])}).ok).toBe(true);
+ });
+});

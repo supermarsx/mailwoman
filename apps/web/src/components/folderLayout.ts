@@ -1,4 +1,8 @@
 import {createMemo} from 'solid-js';
+import {canMoveFolder,moveFolderTo} from '../api/folderStructure.ts';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import type {Mailbox} from '../api/jmap-types.ts';
+import type {RenameAbility} from '../api/renameFolder.ts';
 import type {AccountUiPreferences} from '../api/accountPreferences.ts';
 import {recordUndoable,undoOnly} from '../state/undoHistory.ts';
 import {isolate,loadCatalog,t} from '../i18n';
@@ -30,7 +34,7 @@ export function createFolderLayout(o:FolderLayoutOptions){
   const prefs=o.prefs(),pinned=[...forced(),...(prefs.folderPinned??[]).filter(id=>!forced().has(id))];
   return {...prefs,folderOrder:effectiveOrder(o.folders(),prefs,layout()),folderPinned:pinned};
  };
- const policy=():DndPolicy=>({...layout().dnd,enabled:layout().dnd.enabled&&o.prefs().folderReorderEnabled!==false,forcePinned:forced()});
+ const policy=():DndPolicy=>({...layout().dnd,enabled:layout().dnd.enabled,forcePinned:forced(),pinned:new Set(effective().folderPinned??[])});
  const problemText=(problem:'server'|'collision'|DropProblem,name?:string):string=>t(`folder-dnd-problem-${problem}`,{name:isolate(name??'')});
  const arranger=createFolderArranger({
   folders:o.folders,prefs:effective,update:o.update,policy,
@@ -55,8 +59,8 @@ export function createFolderLayout(o:FolderLayoutOptions){
   if(f?.role&&!p.allowSystemFolders)return 'system';
   return null;
  }
- const dnd=(rest:Omit<FolderDndOptions,'folders'|'policy'|'canDrag'|'onMove'|'onRefused'|'describe'>)=>createFolderDnd({
-  ...rest,folders:arranger.visual,policy,canDrag:id=>lockReason(id)===null,
+ const dnd=(rest:Omit<FolderDndOptions,'folders'|'policy'|'canDrag'|'onMove'|'onRefused'|'describe'>&{canDrag?:(id:string)=>boolean})=>createFolderDnd({
+  ...rest,folders:arranger.visual,policy,canDrag:id=>lockReason(id)===null&&(rest.canDrag?.(id)??true),
   onMove:(moving,placement)=>{arranger.place(moving,placement);},
   onRefused:problem=>{toast.error(problemText(problem));},
   describe:(move,name)=>t(`folder-dnd-announce-${move}`,{name:isolate(name)}),
@@ -64,3 +68,15 @@ export function createFolderLayout(o:FolderLayoutOptions){
  return {layout,forced,effective,policy,arranger,dnd,lockReason,problemText};
 }
 export type FolderLayout=ReturnType<typeof createFolderLayout>;
+/** The server half of a folder move (JMAP Mailbox/set parentId; IMAP-backed accounts RENAME on the engine side). */
+export function serverFolderMover(app:{mailboxes:()=>Mailbox[];refreshFolders:()=>Promise<unknown>},ability:()=>RenameAbility|null,client:Parameters<typeof moveFolderTo>[0]){
+ return async(id:string,parent:string|null):Promise<boolean>=>{
+  const owner=preferenceAccount();
+  if(!owner||!preferenceAccountIsCurrent(owner))return false;
+  const box=app.mailboxes().find(value=>value.id===id);
+  if(!box||!canMoveFolder(box,app.mailboxes(),ability(),parent))return false;
+  const result=await moveFolderTo(client,owner.id,id,parent,{current:()=>preferenceAccountIsCurrent(owner)});
+  await app.refreshFolders().catch(()=>undefined);
+  return result.ok;
+ };
+}

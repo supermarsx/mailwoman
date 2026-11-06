@@ -21,7 +21,7 @@ import {DeleteTreeDialog,MoveFolderDialog,TransferDialog} from './FolderBulkDial
 import {useActions} from '../keymap/index.ts';
 import * as renameCss from './renameFolder.css.ts';
 import * as css from './contextMenu.css.ts';
-export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;/** Opens Settings > Retention with a rule started for this folder. */onRetention?:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number;/** Folders picked with the marquee; a menu opened on one of several offers bulk actions. */selection?:()=>ReadonlySet<string>;/** Drag-and-drop binding of the row (the shared folder arrangement). */dnd?:{rowProps:(id:string)=>Record<string,unknown>;dropVars:(id:string)=>Record<string,string>};/** Why the folder cannot be dragged, shown as a tooltip on the row. */lockHint?:()=>string|undefined}):JSX.Element {
+export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen:()=>void;onOpenTab?:()=>void;onHidden?:()=>void;onSettings:()=>void;/** Opens Settings > Retention with a rule started for this folder. */onRetention?:()=>void;onShare:()=>void;canShare:()=>boolean;onProbe:()=>void;/** Nesting level in the folder tree (0: top). */depth?:number;/** Folders picked with the marquee; a menu opened on one of several offers bulk actions. */selection?:()=>ReadonlySet<string>;/** Drag-and-drop binding of the row (the shared folder arrangement). */dnd?:{rowProps:(id:string)=>Record<string,unknown>;dropVars:(id:string)=>Record<string,string>};/** Why the folder cannot be dragged, shown as a tooltip on the row. */lockHint?:()=>string|undefined;/** Opens the Move-to dialog of the folder arrangement; absent when arranging is off. */onArrange?:()=>void}):JSX.Element {
  const [creating,setCreating]=createSignal(false),[cleaning,setCleaning]=createSignal(false);
  const app=useApp();const [empty,setEmpty]=createSignal(false);const [deleting,setDeleting]=createSignal(false);const [deletingTree,setDeletingTree]=createSignal(false),[moving,setMoving]=createSignal(false),[transfer,setTransfer]=createSignal<'copy'|'move'|null>(null);const ability=useEmptyAbility(),canEmpty=useCanEmpty();
  const renameContext=useRenameContext(),canRename=useCanRename();const [renaming,setRenaming]=createSignal<'inline'|'dialog'|null>(null);let row:HTMLDivElement|undefined;
@@ -38,7 +38,7 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
  const context=createContextMenu({label:()=>props.box.name,scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${props.box.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
   const box=app.mailboxes().find(value=>value.id===props.box.id);if(!box)return [];
-  const pinned=accountUiPreferences().folderPinned??[];
+  const pinned=accountUiPreferences().folderPinned??[],starred=accountUiPreferences().folderStarred??[];
   const boxes=app.mailboxes(),subs=descendantsOf(boxes,box.id),system=isSystemFolder(box),ability=renameContext();
   const rows:ContextAction[]=[{id:'open',label:t('mail-context-open-folder'),icon:'folder',run:props.onOpen}];
   if(props.onOpenTab)rows.push({id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
@@ -55,6 +55,9 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
     ?{id:'mark-read',label:t('folder-ops-mark-read'),icon:'mailRead',disabled:blocked||all===0,...(title?{title}:{}),children:[{id:'mark-read:this',label:t('folder-ops-this-folder'),icon:'mailRead',disabled:own===0,run:run(false)},{id:'mark-read:all',label:t('folder-ops-with-subfolders'),icon:'mailRead',run:run(true)}],run:()=>{}}
     :{id:'mark-read',label:t('folder-ops-mark-read'),icon:'mailRead',disabled:blocked||own===0,...(title?{title}:{}),run:run(false)});}
   rows.push({id:'pin',label:t(pinned.includes(box.id)?'mail-unpin':'mail-pin'),icon:'pin',run:()=>{const current=accountUiPreferences().folderPinned??[];setAccountUiPreferences({folderPinned:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
+   {id:'star',label:t(starred.includes(box.id)?'folder-star-remove':'folder-star-add'),icon:starred.includes(box.id)?'starOutline':'star',run:()=>{const current=accountUiPreferences().folderStarred??[];setAccountUiPreferences({folderStarred:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
+   {id:'layout',label:t('folder-dnd-layout-link'),icon:'preferences',run:props.onSettings},
+   ...(props.onArrange&&!system?[{id:'arrange',label:t('folder-dnd-arrange-menu'),icon:'folder' as const,run:props.onArrange}]:[]),
    {id:'refresh',label:t('mail-context-refresh'),icon:'refresh',run:()=>selectThen(()=>{void app.refreshCurrentMailbox();})});
   const manages=ability?.manages===true&&box.mailwomanSearchQuery===undefined;
   if(manages&&box.myRights?.mayCreateChild===true)rows.push({id:'create-folder',label:t('folder-ops-new-subfolder'),icon:'folderPlus',separatorBefore:true,run:()=>{setCreating(true);}});

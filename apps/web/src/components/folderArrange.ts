@@ -34,7 +34,10 @@ export function createFolderArranger(deps:ArrangeDeps){
  const visual=():DndFolder[]=>applyVisualParents(orderedFolders([...deps.folders()],deps.prefs()),deps.prefs().folderParent);
  const orderIds=()=>visual().map(f=>f.id);
  const snapshot=():Snapshot=>({folderOrder:deps.prefs().folderOrder??[],folderParent:deps.prefs().folderParent??{}});
- const save=(value:Snapshot):void=>deps.update({folderOrder:value.folderOrder??[],folderParent:value.folderParent??{}});
+ const save=(value:Snapshot):void=>{
+  const parents=value.folderParent??{},same=JSON.stringify(parents)===JSON.stringify(deps.prefs().folderParent??{});
+  deps.update({folderOrder:value.folderOrder??[],...(same?{}:{folderParent:parents})});
+ };
  const nameOf=(ids:readonly string[]):string=>deps.folders().find(f=>f.id===ids[0])?.name??'';
  /** Move the folders; returns what happened so callers can announce it. */
  function place(moving:readonly string[],placement:Placement):'applied'|'asked'|'invalid' {
@@ -89,8 +92,17 @@ export function createFolderArranger(deps:ArrangeDeps){
   void commit(value.moving,value.outcome,mode);
  }
  const cancel=():void=>{setPending(null);};
+ /** Make a visual-only parent real: move the folder on the server to where it is shown, then drop the override. */
+ async function applyToServer(id:string):Promise<boolean> {
+  const folder=visual().find(f=>f.id===id),name=folder?.name??'';
+  if(!folder||!deps.serverMoveAllowed()){deps.failed('server',name);return false;}
+  if(!await deps.moveOnServer(id,folder.parentId??null)){deps.failed('server',name);return false;}
+  const next={...(deps.prefs().folderParent??{})};delete next[id];
+  deps.update({folderParent:next});
+  return true;
+ }
  /** Back to the server's own order: no manual order, no visual parents. */
  function reset():void {save({folderOrder:[],folderParent:{}});}
- return {visual,pending,place,choose,cancel,reset};
+ return {visual,pending,place,choose,cancel,reset,applyToServer};
 }
 export type FolderArranger=ReturnType<typeof createFolderArranger>;

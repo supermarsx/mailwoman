@@ -20,9 +20,11 @@ export interface DndPolicy {
  enabled:boolean;allowNesting:boolean;allowSystemFolders:boolean;maxDepth:number;locked:boolean;
  /** Folders the administrator pinned: never moved by users. */
  forcePinned?:ReadonlySet<string>;
+ /** Every pinned folder: a pinned folder stays above the unpinned ones among its siblings. */
+ pinned?:ReadonlySet<string>;
 }
 export const DEFAULT_POLICY:DndPolicy={enabled:true,allowNesting:true,allowSystemFolders:false,maxDepth:10,locked:false};
-export type DropProblem='disabled'|'locked'|'self'|'descendant'|'system'|'no-children'|'nesting-off'|'depth'|'forced'|'unknown'|'noop';
+export type DropProblem='disabled'|'locked'|'self'|'descendant'|'system'|'no-children'|'nesting-off'|'depth'|'forced'|'pin'|'unknown'|'noop';
 export type DropResult={ok:true;placement:Placement}|{ok:false;problem:DropProblem};
 /** The row zones: the top quarter is "before", the bottom quarter "after", the middle "inside". */
 export function zoneOf(y:number,top:number,height:number):DropZone {
@@ -86,6 +88,11 @@ export function validatePlacement(folders:readonly DndFolder[],moving:readonly s
  for(const id of moving){
   if(placement.parentId===id||(placement.parentId&&moving.includes(placement.parentId)))return {ok:false,problem:'self'};
   if(placement.parentId&&descendantsOf(folders,id).some(d=>d.id===placement.parentId))return {ok:false,problem:'descendant'};
+ }
+ if(policy.pinned&&moving.every(id=>(by.get(id)!.parentId??null)===placement.parentId)){
+  const siblings=folders.filter(f=>(f.parentId??null)===placement.parentId&&!moving.includes(f.id)&&!f.role);
+  const neighbour=placement.beforeId?by.get(placement.beforeId):siblings.at(-1);
+  if(neighbour&&moving.some(id=>policy.pinned!.has(id)!==policy.pinned!.has(neighbour.id)))return {ok:false,problem:'pin'};
  }
  const changesParent=moving.some(id=>(by.get(id)!.parentId??null)!==placement.parentId);
  if(changesParent){
