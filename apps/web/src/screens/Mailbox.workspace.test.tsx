@@ -48,7 +48,7 @@ describe('retained mailbox workspace',()=>{
     const reply=await screen.findByTestId('reader-reply');await waitFor(()=>expect(reply).toBeEnabled());fireEvent.click(reply);
     await waitFor(()=>expect(realtime.subTabs.activeId()).not.toBe('mail'));const composer=await screen.findByRole('tabpanel',{name:/Re: Subject a/}),id=realtime.subTabs.activeId();
     fireEvent.input(within(composer).getByLabelText('Subject'),{target:{value:'Unsaved protected workspace'}});
-    realtime.subTabs.activate('mail');await waitFor(()=>expect(document.querySelector('.list button[data-reply-draft-id]')).not.toBeNull());const control=document.querySelector<HTMLButtonElement>('.list button[data-reply-draft-id]')!,before=realtime.subTabs.tabs().length;
+    realtime.subTabs.activate('mail');await waitFor(()=>expect(document.querySelector('[data-testid="reader-open-draft"]')).not.toBeNull());const control=document.querySelector<HTMLButtonElement>('[data-testid="reader-open-draft"]')!,before=realtime.subTabs.tabs().length;
     expect(control).toHaveAccessibleName('Open draft');fireEvent.click(control);await waitFor(()=>expect(realtime.subTabs.activeId()).toBe(id));expect(realtime.subTabs.tabs()).toHaveLength(before);
     expect(within(screen.getByRole('tabpanel',{name:'Unsaved protected workspace'})).getByLabelText('Subject')).toHaveValue('Unsaved protected workspace');
   });
@@ -93,19 +93,21 @@ describe('retained mailbox workspace',()=>{
     await screen.findByRole('button',{name:'User folders'});
     const region=container.querySelector('[data-folder-region]')!;
     const nav=region.parentElement!;
-    const children=nav.children.length;
+    // The hairline before Views and queues exists only while user folders do; the rest of the nav is the structure that must not change.
+    const navChildren=()=>[...nav.children].filter(child=>child.getAttribute('data-testid')!=='sidebar-secondary-divider').length;
+    const children=navChildren();
     const expected=initial.filter(box=>box.role).length+1+(collapsed?0:14);
     expect(region.querySelectorAll('button')).toHaveLength(expected);
     expect(region.querySelector('#sidebar-user-folders')).toHaveProperty('hidden',collapsed);
     setBoxes([]);
     await waitFor(()=>expect(region.querySelectorAll('[data-folder-skeleton]')).toHaveLength(expected));
     expect(container.querySelector('[data-folder-region]')).toBe(region);
-    expect(nav.children).toHaveLength(children);
+    expect(navChildren()).toBe(children);
     expect(region.querySelectorAll('.sidebar__folder-rows:not([hidden])')).toHaveLength(0);
     setBoxes(initial);
     await waitFor(()=>expect(region.querySelector('[data-folder-skeleton]')).toBeNull());
     expect(region.querySelectorAll('button')).toHaveLength(expected);
-    expect(nav.children).toHaveLength(children);
+    expect(navChildren()).toBe(children);
   });
 
   it('displays folder and workspace labels in leetspeak without persisting transformed titles',async()=>{
