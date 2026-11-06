@@ -12,6 +12,7 @@ import {
 } from '../../api/privacy.ts';
 import { chooseRequest } from '../../api/privacyShortcut.ts';
 import { withBase } from '../../api/basePath.ts';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 const when = (seconds: number | null): string => (seconds === null ? '' : formatDateTime(seconds * 1000));
@@ -64,12 +65,16 @@ function Consents(props: { view: ConsentView; onChange: (v: ConsentView) => void
     try { props.onChange(await decideConsent(id, decision)); } catch { setError(t('yd-error')); } finally { setBusy(false); }
   }
   return <>
-    <h4 class={css.subheading}>{t('yd-consents-title')}</h4>
-    <p class={css.meta}>{t('yd-consents-help')}</p>
+    <SettingsCard id="your-data-card-consents" wide title={t('yd-consents-title')} description={t('yd-consents-help')}>
     <ul class={css.list} data-testid="yd-consents"><For each={props.view.purposes}>{p => <Purpose purpose={p} busy={busy()} onDecide={d => void decide(p.id, d)} />}</For></ul>
+    <Show when={error()}><p role="alert">{error()}</p></Show>
+    <details>
+      <summary>{t('yd-receipts-title', { count: props.view.receipts.length })}</summary>
+      <ol class={css.meta} data-testid="yd-receipts"><For each={props.view.receipts}>{r => <li>{when(r.createdAt)} · {r.purpose} · {t(`yd-state-${r.decision}`)} · v{r.version} · {r.source}</li>}</For></ol>
+    </details>
+    </SettingsCard>
     <Show when={props.view.art22.enabled}>
-      <section data-testid="yd-art22" aria-labelledby="yd-art22-title">
-        <h4 id="yd-art22-title" class={css.subheading}>{t('yd-art22-title')}</h4>
+      <SettingsCard id="your-data-card-art22" wide title={t('yd-art22-title')} testId="yd-art22">
         <p class={css.prose}>{t('yd-art22-logic')}</p>
         <p class={css.prose}>{t('yd-art22-significance')}</p>
         <p class={css.prose}>{t('yd-art22-review')}</p>
@@ -77,13 +82,8 @@ function Consents(props: { view: ConsentView; onChange: (v: ConsentView) => void
           <div class={css.itemMain}><span class={css.itemName}>{t(`yd-feature-${f.feature}`)}</span><span class={css.meta}>{t(`yd-feature-${f.feature}-desc`)}</span></div>
           <label class={css.check}><input type="checkbox" checked={f.enabled} disabled={busy()} onChange={e => void decide(f.id, e.currentTarget.checked ? 'granted' : 'withdrawn')} /> {f.enabled ? t('yd-feature-on') : t('yd-feature-off')}</label>
         </li>}</For></ul>
-      </section>
+      </SettingsCard>
     </Show>
-    <Show when={error()}><p role="alert">{error()}</p></Show>
-    <details>
-      <summary>{t('yd-receipts-title', { count: props.view.receipts.length })}</summary>
-      <ol class={css.meta} data-testid="yd-receipts"><For each={props.view.receipts}>{r => <li>{when(r.createdAt)} · {r.purpose} · {t(`yd-state-${r.decision}`)} · v{r.version} · {r.source}</li>}</For></ol>
-    </details>
   </>;
 }
 
@@ -96,7 +96,7 @@ function Devices(): JSX.Element {
     try { await work(); await reload(); } catch { setError(t('yd-error')); }
   }
   return <>
-    <h4 class={css.subheading}>{t('yd-sessions-title')}</h4>
+    <SettingsCard id="your-data-card-sessions" wide title={t('yd-sessions-title')}>
     <Show when={(sessions() ?? []).length > 0} fallback={<p class={css.meta}>{t('yd-sessions-none')}</p>}>
       <ul class={css.list} data-testid="yd-sessions"><For each={sessions() ?? []}>{s => <li class={css.item}>
         <div class={css.itemMain}>
@@ -106,7 +106,8 @@ function Devices(): JSX.Element {
         <Show when={!s.current}><button type="button" class={css.ghost} onClick={() => void run(() => revokeSession(s.handle), refetch)}>{t('yd-revoke')}</button></Show>
       </li>}</For></ul>
     </Show>
-    <h4 class={css.subheading}>{t('yd-keys-title')}</h4>
+    </SettingsCard>
+    <SettingsCard id="your-data-card-keys" wide title={t('yd-keys-title')}>
     <Show when={(keys() ?? []).length > 0} fallback={<p class={css.meta}>{t('yd-keys-none')}</p>}>
       <ul class={css.list} data-testid="yd-keys"><For each={keys() ?? []}>{k => <li class={css.item}>
         <div class={css.itemMain}><span class={css.itemName}>{k.label || k.name || k.prefix}</span><span class={css.meta}>{k.prefix}</span></div>
@@ -114,16 +115,15 @@ function Devices(): JSX.Element {
       </li>}</For></ul>
     </Show>
     <Show when={error()}><p role="alert">{error()}</p></Show>
+    </SettingsCard>
   </>;
 }
 
 export function YourData(props: { load?: () => Promise<PrivacyOverview> } = {}): JSX.Element {
   onMount(() => { void loadCatalog('your-data'); });
   const [overview, { mutate }] = createResource(async () => { try { return await (props.load ?? loadOverview)(); } catch { return null; } });
-  return <section class={css.section} aria-labelledby="your-data-heading" data-testid="your-data">
-    <h3 id="your-data-heading" class={css.heading}>{t('yd-title')}</h3>
-    <Show when={overview()} fallback={<p class={css.meta}>{overview.loading ? t('yd-loading') : t('yd-unavailable')}</p>}>{o => <>
-      <p class={css.prose}>{t('yd-intro', { address: o().account.address })}</p>
+  return <Show when={overview()} fallback={<SettingsCard id="your-data-card-overview" title={t('yd-title')} testId="your-data"><p class={css.meta}>{overview.loading ? t('yd-loading') : t('yd-unavailable')}</p></SettingsCard>}>{o => <>
+      <SettingsCard id="your-data-card-overview" wide title={t('yd-title')} description={t('yd-intro', { address: o().account.address })} testId="your-data">
       <Show when={o().restriction.active}>
         <p class={css.warn} role="status" data-testid="yd-restriction">
           {t('yd-restriction-active', { scopes: o().restriction.scopes.map(s => t(`yd-scope-${s}`)).join(', '), date: when(o().restriction.since) })}
@@ -131,9 +131,10 @@ export function YourData(props: { load?: () => Promise<PrivacyOverview> } = {}):
         </p>
       </Show>
       <Categories items={o().categories} />
+      </SettingsCard>
       <Show when={o().consents.enabled}><Consents view={o().consents} onChange={v => mutate({ ...o(), consents: v })} /></Show>
       <Devices />
-      <h4 class={css.subheading}>{t('yd-shortcuts-title')}</h4>
+      <SettingsCard id="your-data-card-requests" title={t('yd-shortcuts-title')} description={t('yd-prefs-pointer')}>
       <div class={css.actions}>
         <button type="button" class={css.button} onClick={() => chooseRequest('portability')}>{t('yd-download')}</button>
         <button type="button" class={css.ghost} onClick={() => chooseRequest('restriction')}>{t('yd-restrict')}</button>
@@ -143,7 +144,6 @@ export function YourData(props: { load?: () => Promise<PrivacyOverview> } = {}):
         <a href={withBase(o().links.policy)} rel="noopener">{t('yd-link-policy')}</a>{' · '}
         <a href={withBase(o().links.processing)} rel="noopener">{t('yd-link-processing')}</a>
       </p>
-      <p class={css.meta}>{t('yd-prefs-pointer')}</p>
-    </>}</Show>
-  </section>;
+      </SettingsCard>
+    </>}</Show>;
 }

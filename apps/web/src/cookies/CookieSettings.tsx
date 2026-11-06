@@ -3,6 +3,7 @@
 
 import { For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../i18n';
+import { SettingsCard } from '../screens/Settings/layout/SettingsCard.tsx';
 import * as css from '../screens/Settings/styles.css.ts';
 import { bootConsent, consentConfig, consentEffective, consentStored, openCookiePreferences, scanNow } from './runtime.ts';
 import { OPTIONAL } from './policy.ts';
@@ -13,9 +14,7 @@ export function CookieSettings(): JSX.Element {
   const offered = () => OPTIONAL.filter((c) => consentConfig()?.categories?.find((x) => x.id === c)?.enabled === true);
   return (
     <Show when={consentConfig()?.enabled}>
-      <section class={css.section} aria-labelledby="cookie-settings-heading" data-testid="cookie-settings">
-        <h3 id="cookie-settings-heading" class={css.heading}>{t('cookies-settings-title')}</h3>
-        <p class={css.prose}>{t('cookies-settings-help')}</p>
+      <SettingsCard id="privacy-card-cookies" testId="cookie-settings" title={t('cookies-settings-title')} description={t('cookies-settings-help')}>
         <ul aria-label={t('cookies-settings-current')}>
           <li>{t('cookies-category-necessary')}: {t('cookies-always-on')}</li>
           <For each={offered()}>{(c) => <li>{t(`cookies-category-${c}`)}: {consentEffective()?.allowed[c] ? t('cookies-state-on') : t('cookies-state-off')}</li>}</For>
@@ -29,7 +28,7 @@ export function CookieSettings(): JSX.Element {
             <Show when={policyLinks(consentConfig()).cookies}>{(url) => <a href={url()} target="_blank" rel="noopener noreferrer">{t('cookies-policy-link')}</a>}</Show>
           </p>
         </Show>
-      </section>
+      </SettingsCard>
     </Show>
   );
 }

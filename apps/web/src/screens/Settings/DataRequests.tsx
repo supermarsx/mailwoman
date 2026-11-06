@@ -10,6 +10,8 @@ import {
   type DataRequest, type DataRequestPolicy, type RequestKind, type TrailEntry,
 } from '../../api/dataRequests.ts';
 import { requestedKind } from '../../api/privacyShortcut.ts';
+import { ControlRow } from './layout/SettingRow.tsx';
+import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
 
 const when = (seconds: number): string => formatDateTime(seconds * 1000);
@@ -101,40 +103,47 @@ export function DataRequests(): JSX.Element {
       await refetch();
     } catch (e) { setError(e instanceof Error ? e.message : t('dr-error')); } finally { setBusy(false); }
   }
-  return <section id="your-data-requests" class={css.section} aria-labelledby="data-requests-heading" data-testid="data-requests">
-    <h3 id="data-requests-heading" class={css.heading}>{t('dr-title')}</h3>
+  return <>
+  <SettingsCard id="your-data-requests" wide title={t('dr-title')} testId="data-requests"
+    {...(overview() ? { description: introText(overview()!, locale()) } : {})}>
     <Show when={overview()} fallback={<p class={css.meta}>{overview.loading ? t('dr-loading') : t('dr-unavailable')}</p>}>{policy => <>
-      <p class={css.prose}>{introText(policy(), locale())}</p>
       <Contact policy={policy()} />
       <Show when={policy().enabled && offered(policy()).length > 0} fallback={<p class={css.meta}>{t('dr-off')}</p>}>
-        <div class={css.field}>
-          <label class={css.label} for="dr-kind">{t('dr-kind')}</label>
+        <ControlRow controlId="dr-kind" label={t('dr-kind')} help={t(`dr-kind-${kind()}-help`)}
+          note={<>
+            <Show when={kind() === 'erasure'}><p class={css.meta} role="note">{t('dr-erasure-warning', { days: policy().graceDays })}</p></Show>
+            <Show when={kind() === 'rectification'}><p class={css.meta}>{t('dr-rectification-pointer')}</p></Show>
+          </>}>{() =>
           <select id="dr-kind" class={css.select} value={kind()} onChange={e => { setKind(e.currentTarget.value as RequestKind); setSure(false); }}>
             <For each={offered(policy())}>{k => <option value={k}>{t(`dr-kind-${k}`)}</option>}</For>
           </select>
-          <p class={css.meta}>{t(`dr-kind-${kind()}-help`)}</p>
-          <Show when={kind() === 'erasure'}><p class={css.meta} role="note">{t('dr-erasure-warning', { days: policy().graceDays })}</p></Show>
-          <Show when={kind() === 'rectification'}><p class={css.meta}>{t('dr-rectification-pointer')}</p></Show>
-          <Show when={EXPORT_KINDS.includes(kind()) && policy().mailAllowed}>
-            <label><input type="checkbox" checked={includeMail()} onChange={e => setIncludeMail(e.currentTarget.checked)} /> {t('dr-include-mail')}</label>
-          </Show>
-          <label class={css.label} for="dr-details">{t('dr-details')}</label>
+        }</ControlRow>
+        <Show when={EXPORT_KINDS.includes(kind()) && policy().mailAllowed}>
+          <ControlRow controlId="dr-include-mail" label={t('dr-include-mail')}>{() =>
+            <input id="dr-include-mail" type="checkbox" checked={includeMail()} onChange={e => setIncludeMail(e.currentTarget.checked)} />
+          }</ControlRow>
+        </Show>
+        <ControlRow controlId="dr-details" stacked label={t('dr-details')}>{() =>
           <textarea id="dr-details" class={css.textarea} maxlength={2000} value={details()} onInput={e => setDetails(e.currentTarget.value)} />
-          <Show when={policy().reauthRequired && ['access', 'portability', 'erasure'].includes(kind())}><p class={css.meta}>{t('dr-reauth')}</p></Show>
-          <Show when={kind() === 'erasure'}>
-            <label><input type="checkbox" checked={sure()} onChange={e => setSure(e.currentTarget.checked)} /> {t('dr-erasure-sure')}</label>
-          </Show>
-          <div class={css.actions}>
-            <button type="button" class={kind() === 'erasure' ? css.danger : css.button} disabled={busy() || (kind() === 'erasure' && !sure())} onClick={() => void submit(policy())}>{t('dr-submit')}</button>
-          </div>
-          <Show when={error()}><p role="alert">{error()}</p></Show>
-          <Show when={notice()}><p role="status">{notice()}</p></Show>
+        }</ControlRow>
+        <Show when={policy().reauthRequired && ['access', 'portability', 'erasure'].includes(kind())}><p class={css.meta}>{t('dr-reauth')}</p></Show>
+        <Show when={kind() === 'erasure'}>
+          <ControlRow controlId="dr-erasure-sure" label={t('dr-erasure-sure')}>{() =>
+            <input id="dr-erasure-sure" type="checkbox" checked={sure()} onChange={e => setSure(e.currentTarget.checked)} />
+          }</ControlRow>
+        </Show>
+        <div class={css.actions}>
+          <button type="button" class={kind() === 'erasure' ? css.danger : css.button} disabled={busy() || (kind() === 'erasure' && !sure())} onClick={() => void submit(policy())}>{t('dr-submit')}</button>
         </div>
+        <Show when={error()}><p role="alert">{error()}</p></Show>
+        <Show when={notice()}><p role="status">{notice()}</p></Show>
       </Show>
     </>}</Show>
-    <h4 class={css.subheading}>{t('dr-list')}</h4>
+  </SettingsCard>
+  <SettingsCard id="data-requests-card-list" wide title={t('dr-list')}>
     <Show when={(requests() ?? []).length > 0} fallback={<p class={css.meta}>{t('dr-none')}</p>}>
       <ul class={css.list}><For each={requests() ?? []}>{r => <RequestRow request={r} onChange={() => void refetch()} />}</For></ul>
     </Show>
-  </section>;
+  </SettingsCard>
+  </>;
 }
