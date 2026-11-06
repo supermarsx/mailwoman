@@ -338,7 +338,7 @@ calendar-card-organizer-is = Organizado por { $who }
 calendar-card-attendee-summary = { $count ->
     [one] 1 asistente
    *[other] { $count } asistentes
-    }
+    } · { $accepted } aceptaron, { $tentative } provisionales, { $declined } rechazaron
 calendar-card-people-all = Mostrar los { $count }
 calendar-card-people-fewer = Mostrar menos
 calendar-card-rsvp-accepted = Aceptado

@@ -8,19 +8,19 @@ empty-folder-title = ¿Vaciar «{ $name }»?
 empty-folder-body-trash = { $count ->
     [one] El mensaje de { $name } se moverá a la papelera, desde donde podrá restaurarlo.
    *[other] Los { $count } mensajes de { $name } se moverán a la papelera, desde donde podrá restaurarlos.
-    }
+    } Las subcarpetas y los mensajes que contienen no se modifican.
 empty-folder-body-destroy-trash = { $count ->
     [one] El mensaje de la papelera se eliminará de forma permanente. Esta acción no se puede deshacer.
    *[other] Los { $count } mensajes de la papelera se eliminarán de forma permanente. Esta acción no se puede deshacer.
-    }
+    } Las subcarpetas y los mensajes que contienen no se modifican.
 empty-folder-body-destroy-junk = { $count ->
     [one] El mensaje de { $name } se eliminará de forma permanente. Esta acción no se puede deshacer.
    *[other] Los { $count } mensajes de { $name } se eliminarán de forma permanente. Esta acción no se puede deshacer.
-    }
+    } Las subcarpetas y los mensajes que contienen no se modifican.
 empty-folder-body-destroy-no-trash = Esta cuenta no tiene papelera, así que { $count ->
     [one] el mensaje de { $name } se eliminará de forma permanente.
    *[other] los { $count } mensajes de { $name } se eliminarán de forma permanente.
-    }
+    } Esta acción no se puede deshacer. Las subcarpetas y los mensajes que contienen no se modifican.
 empty-folder-confirm-trash = Mover a la papelera
 empty-folder-confirm-destroy = Eliminar permanentemente
 empty-folder-cancel = Cancelar
