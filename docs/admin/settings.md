@@ -107,6 +107,51 @@ An integer from 0 to 50, default 50. The number of recent mail actions the **Und
 
 An integer from 0 to 50, default 50. The most actions any user may keep in the Undo and Redo history, whatever `ui.undoHistorySize` says for them. `0` turns the history off for everyone. Global only; enforced in the web client only.
 
+<a id="folders.reorder.enabled"></a>
+### Folder drag and drop (`folders.reorder.enabled`)
+
+`true` (default) lets people rearrange folders by dragging them in the sidebar and in **Settings > Folders and sidebar**, with Alt+arrow keys, and with **Move...** in the folder menu. `false` removes the drag handles and the commands. Global/domain/user policy: a user can turn it off for themselves unless an administrator locks it. Enforced in the web client only.
+
+<a id="folders.reorder.allowNesting"></a>
+### Folder nesting (`folders.reorder.allowNesting`)
+
+`true` (default) lets a folder be dropped onto another folder (nest) or back to the top level (un-nest). `false` keeps every folder under its current parent; only the order among siblings changes. Global/domain policy.
+
+<a id="folders.reorder.allowServerMove"></a>
+### Move folders on the server (`folders.reorder.allowServerMove`)
+
+`true` (default) lets a nest or un-nest change the folder real parent: JMAP `Mailbox/set parentId`, or an IMAP RENAME to the new path with its subfolders and subscriptions. The user chooses per move, or once with "remember", between this and "only arrange in this app". `false` keeps every nest as a view-only arrangement stored in the user UI preferences. Reordering among siblings never changes the server. Global/domain policy.
+
+<a id="folders.reorder.allowSystemFolders"></a>
+### Move system folders (`folders.reorder.allowSystemFolders`)
+
+`false` (default) keeps Inbox, Drafts, Sent, Junk, Trash and Archive fixed. `true` lets users drag them to reorder, in this app only; they are never renamed or moved on the server, and cannot be nested. Global/domain policy.
+
+<a id="folders.reorder.maxDepth"></a>
+### Folder nesting depth (`folders.reorder.maxDepth`)
+
+An integer from 1 to 16, default 8. A drag that would put a folder, or the deepest of its subfolders, below this level is refused. Folders already deeper stay as they are. Global/domain policy.
+
+<a id="folders.order.locked"></a>
+### Fix the folder order (`folders.order.locked`)
+
+`false` (default). `true` turns off dragging, the Move commands and Alt+arrow moves for everyone in the scope; users see a lock icon and a tooltip. Force-pinned folders and the default order still apply. Global/domain policy.
+
+<a id="folders.pinned.admin"></a>
+### Force-pinned folders (`folders.pinned.admin`)
+
+A list, default empty, up to 50 entries. Each entry is `role:<role>` (`role:inbox`, `role:sent`, ...) or a folder path such as `Shared/Support`. Matching folders appear in a Pinned group at the top of every user sidebar and cannot be unpinned or moved by users. An entry with no matching folder is skipped. Global/domain policy.
+
+<a id="folders.order.default"></a>
+### Default folder order (`folders.order.default`)
+
+A list, default empty, up to 100 entries, each `role:<role>` or a folder path, first to last. Users with no order of their own start from it; folders not listed follow in the server order. "Reset order to default" in the user settings returns to it. Global/domain policy.
+
+<a id="folders.newFolderPlacement"></a>
+### New folder placement (`folders.newFolderPlacement`)
+
+`end` (default) places a folder that appears on the server after its siblings; `alphabetical` sorts it among them. Global/domain/user policy: users choose in **Settings > Folders and sidebar** unless an administrator locks it.
+
 <a id="ui.bar.mailTopBar"></a>
 ### Mail toolbar (`ui.bar.mailTopBar`)
 

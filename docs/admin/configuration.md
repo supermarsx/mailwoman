@@ -558,6 +558,15 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="ui.notifynewversion"></a>`ui.notifyNewVersion` | interface | global+domain+user | true | plain |  | yes | show a toast when a newer version of the web app has been deployed |
 | <a id="ui.undohistorysize"></a>`ui.undoHistorySize` | interface | global+domain+user | 50 | plain |  | yes | how many recent mail actions the Undo and Redo buttons remember (0 turns them off) |
 | <a id="ui.undohistorymax"></a>`ui.undoHistoryMax` | interface | global | 50 | plain |  | yes | most recent mail actions any user may keep in the Undo and Redo history |
+| <a id="folders.reorder.enabled"></a>`folders.reorder.enabled` | folders | global+domain+user | true | plain |  | yes | let users rearrange folders in the sidebar and in Settings by drag and drop |
+| <a id="folders.reorder.allownesting"></a>`folders.reorder.allowNesting` | folders | global+domain | true | plain |  | yes | let users move a folder under another folder or back to the top level |
+| <a id="folders.reorder.allowservermove"></a>`folders.reorder.allowServerMove` | folders | global+domain | true | plain |  | yes | let users change a folders real parent on the mail server when they nest it |
+| <a id="folders.reorder.allowsystemfolders"></a>`folders.reorder.allowSystemFolders` | folders | global+domain | false | plain |  | yes | let users drag system folders (Inbox, Drafts, Sent, Junk, Trash, Archive) to reorder them |
+| <a id="folders.reorder.maxdepth"></a>`folders.reorder.maxDepth` | folders | global+domain | 8 | plain |  | yes | deepest level of folder nesting the sidebar allows when users drag folders |
+| <a id="folders.order.locked"></a>`folders.order.locked` | folders | global+domain | false | plain |  | yes | fix the folder order for everyone: drag and drop and the Move commands are off |
+| <a id="folders.pinned.admin"></a>`folders.pinned.admin` | folders | global+domain | [] | plain |  | yes | folders pinned at the top of every users sidebar (role:<role> or a folder path); users cannot unpin or move them |
+| <a id="folders.order.default"></a>`folders.order.default` | folders | global+domain | [] | plain |  | yes | the order folders start in for users with no order of their own (role:<role> or a folder path, first to last) |
+| <a id="folders.newfolderplacement"></a>`folders.newFolderPlacement` | folders | global+domain+user | "end" | plain |  | yes | where a folder that appears on the server is placed among its siblings |
 | <a id="ui.bar.mailtopbar"></a>`ui.bar.mailTopBar` | interface | global+domain+user | "pinned" | plain |  | yes | mail top bar: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.workspacetabs"></a>`ui.bar.workspaceTabs` | interface | global+domain+user | "pinned" | plain |  | yes | workspace tab strip: always shown, or auto-hidden behind a slim handle |
 | <a id="ui.bar.mailribbon"></a>`ui.bar.mailRibbon` | interface | global+domain+user | "pinned" | plain |  | yes | mail ribbon (ribbon layout): always shown, or only its tab names |

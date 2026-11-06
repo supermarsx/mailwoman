@@ -2540,6 +2540,84 @@ pub static REGISTRY: &[SettingDef] = &[
         "most recent mail actions any user may keep in the Undo and Redo history"
     ),
     def!(
+        "folders.reorder.enabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "folders",
+        "let users rearrange folders in the sidebar and in Settings by drag and drop"
+    ),
+    def!(
+        "folders.reorder.allowNesting",
+        Kind::Bool,
+        "true",
+        GD,
+        "folders",
+        "let users move a folder under another folder or back to the top level"
+    ),
+    def!(
+        "folders.reorder.allowServerMove",
+        Kind::Bool,
+        "true",
+        GD,
+        "folders",
+        "let users change a folders real parent on the mail server when they nest it"
+    ),
+    def!(
+        "folders.reorder.allowSystemFolders",
+        Kind::Bool,
+        "false",
+        GD,
+        "folders",
+        "let users drag system folders (Inbox, Drafts, Sent, Junk, Trash, Archive) to reorder them"
+    ),
+    def!(
+        "folders.reorder.maxDepth",
+        int(1, 16),
+        "8",
+        GD,
+        "folders",
+        "deepest level of folder nesting the sidebar allows when users drag folders"
+    ),
+    def!(
+        "folders.order.locked",
+        Kind::Bool,
+        "false",
+        GD,
+        "folders",
+        "fix the folder order for everyone: drag and drop and the Move commands are off"
+    ),
+    def!(
+        "folders.pinned.admin",
+        Kind::StringList {
+            max_len: 50,
+            max_item: 256
+        },
+        "[]",
+        GD,
+        "folders",
+        "folders pinned at the top of every users sidebar (role:<role> or a folder path); users cannot unpin or move them"
+    ),
+    def!(
+        "folders.order.default",
+        Kind::StringList {
+            max_len: 100,
+            max_item: 256
+        },
+        "[]",
+        GD,
+        "folders",
+        "the order folders start in for users with no order of their own (role:<role> or a folder path, first to last)"
+    ),
+    def!(
+        "folders.newFolderPlacement",
+        Kind::Enum(&["end", "alphabetical"]),
+        "\"end\"",
+        GDU,
+        "folders",
+        "where a folder that appears on the server is placed among its siblings"
+    ),
+    def!(
         "ui.bar.mailTopBar",
         Kind::Enum(&["pinned", "auto"]),
         "\"pinned\"",
