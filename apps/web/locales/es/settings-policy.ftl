@@ -20,3 +20,27 @@ settings-policy-language-saved = Idioma guardado.
 settings-policy-reference = Referencia: { $id }
 settings-policy-error-feature-disabled = Su administrador ha desactivado esta función para su cuenta.
 settings-policy-error-sender-forbidden = Esta dirección de envío no está autorizada para esta cuenta. Elija una dirección permitida por su proveedor de correo o su administrador.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-kit-toolbar = Herramientas de ajustes
+settings-kit-search = Buscar en estos ajustes
+settings-kit-search-placeholder = Buscar ajustes (pulse /)
+settings-kit-collapse-all = Contraer todo
+settings-kit-expand-all = Expandir todo
+settings-kit-jump = Ir a un grupo
+settings-kit-no-results = Ningún ajuste coincide con su búsqueda. Pruebe lo siguiente:
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-compose-card-addressing = Direcciones y respuestas
+settings-compose-card-addressing-help = Con qué identidad envía, cómo se introducen los destinatarios y cómo se citan las respuestas.
+settings-compose-card-checks = Comprobaciones antes de enviar
+settings-compose-card-checks-help = Detecte errores y destinatarios de riesgo antes de que salga un mensaje.
+settings-compose-card-images = Imágenes en las respuestas
+settings-compose-card-images-help = Si las imágenes del mensaje original se conservan en su respuesta.
+settings-compose-card-defaults = Valores predeterminados de los mensajes nuevos
+settings-kit-other-sections = Coincidencias en otras secciones
+cache-card-store = Correo en caché
+cache-card-prefetch = Precarga
+cache-card-prefetch-help = Cargue los mensajes con antelación para que se abran al instante. Usa más datos.
+settings-folder-counts-card = Globos de contador
+settings-folder-counts-card-help = Qué muestran los números junto a las carpetas y qué carpetas tienen uno.

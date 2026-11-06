@@ -54,3 +54,13 @@ reader-attachmentsDensity-help = „Kompakt“ zeigt kleine Dateischaltflächen;
 reader-option-compact = Kompakt
 reader-attachmentsCollapsed = Anhänge standardmäßig einklappen
 reader-attachmentsCollapsed-help = Jede Nachricht beginnt mit einer kompakten Anhangsübersicht. Sie können die jeweilige Nachricht aufklappen, ohne diesen Standard zu ändern.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Text und Farben
+reader-card-text-help = Größe, Abstände, Breite und Farben des Nachrichtentexts.
+reader-card-actions = Aktionen und Anhänge
+reader-card-actions-help = Die Aktionsleiste der Nachricht und das Verhalten von Anhängen beim Öffnen.
+reader-card-loading = Laden
+reader-card-loading-help = Was Sie sehen, während eine Nachricht geöffnet wird.
+settings-mail-card-list = Nachrichtenliste
+settings-mail-card-list-help = Zeilenaktionen und was die Liste tut, wenn Sie eine Nachricht bearbeiten.

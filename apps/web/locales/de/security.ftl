@@ -208,7 +208,7 @@ session-alerts-none = Keine Sicherheitshinweise zu Sitzungen.
 session-alerts-banner = { $count ->
     [one] Sie haben 1 ungelesenen Sicherheitshinweis zu Sitzungen.
    *[other] Sie haben { $count } ungelesene Sicherheitshinweise zu Sitzungen.
-    }
+}
 session-alerts-banner-review = Prüfen
 session-alerts-kind-countryChange = Eine Sitzung wurde aus einem anderen Land verwendet ({ $from } nach { $to }).
 session-alerts-kind-impossibleTravel = Eine Sitzung tauchte in einem anderen Land auf ({ $from } nach { $to }), schneller als eine Reise möglich wäre.

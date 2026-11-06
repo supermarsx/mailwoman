@@ -20,3 +20,27 @@ settings-policy-language-saved = Sprache gespeichert.
 settings-policy-reference = Referenz: { $id }
 settings-policy-error-feature-disabled = Ihre Administration hat diese Funktion für Ihr Konto deaktiviert.
 settings-policy-error-sender-forbidden = Diese Absenderadresse ist für dieses Konto nicht autorisiert. Wählen Sie eine Adresse, die Ihr E-Mail-Anbieter oder Ihre Administration erlaubt.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-kit-toolbar = Einstellungswerkzeuge
+settings-kit-search = In diesen Einstellungen suchen
+settings-kit-search-placeholder = Einstellungen durchsuchen (/ drücken)
+settings-kit-collapse-all = Alle einklappen
+settings-kit-expand-all = Alle ausklappen
+settings-kit-jump = Zu einer Gruppe springen
+settings-kit-no-results = Keine Einstellungen hier entsprechen Ihrer Suche. Versuchen Sie:
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-compose-card-addressing = Adressierung und Antworten
+settings-compose-card-addressing-help = Als wer Sie senden, wie Empfänger eingegeben werden und wie Antworten zitiert werden.
+settings-compose-card-checks = Prüfungen vor dem Senden
+settings-compose-card-checks-help = Fehler und riskante Empfänger abfangen, bevor eine Nachricht rausgeht.
+settings-compose-card-images = Bilder in Antworten
+settings-compose-card-images-help = Ob Bilder aus der ursprünglichen Nachricht in Ihrer Antwort erhalten bleiben.
+settings-compose-card-defaults = Standardwerte für neue Nachrichten
+settings-kit-other-sections = Treffer in anderen Bereichen
+cache-card-store = Zwischengespeicherte E-Mails
+cache-card-prefetch = Vorabladen
+cache-card-prefetch-help = Nachrichten im Voraus laden, damit sie sofort geöffnet werden. Verbraucht mehr Daten.
+settings-folder-counts-card = Zähler-Badges
+settings-folder-counts-card-help = Was die Zahlen neben Ordnern anzeigen und welche Ordner einen Zähler haben.

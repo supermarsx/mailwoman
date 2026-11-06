@@ -54,3 +54,13 @@ reader-attachmentsDensity-help = Compacta muestra botones de archivo pequeños; 
 reader-option-compact = Compacta
 reader-attachmentsCollapsed = Contraer los adjuntos de forma predeterminada
 reader-attachmentsCollapsed-help = Cada mensaje empieza con un resumen compacto de adjuntos. Puede expandir ese mensaje sin cambiar este valor predeterminado.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Texto y colores
+reader-card-text-help = Tamaño, espaciado, anchura y colores del texto de los mensajes.
+reader-card-actions = Acciones y archivos adjuntos
+reader-card-actions-help = La cinta de acciones del mensaje y cómo se inician los archivos adjuntos.
+reader-card-loading = Carga
+reader-card-loading-help = Lo que ve mientras se abre un mensaje.
+settings-mail-card-list = Lista de mensajes
+settings-mail-card-list-help = Acciones de fila y qué hace la lista cuando actúa sobre un mensaje.

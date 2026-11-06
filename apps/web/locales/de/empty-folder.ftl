@@ -35,11 +35,11 @@ empty-folder-stopping = Wird nach dem aktuellen Stapel gestoppt. Bisher { $done 
 empty-folder-done-trash = { $done ->
     [one] 1 Nachricht aus { $name } in den Papierkorb verschoben.
    *[other] { $done } Nachrichten aus { $name } in den Papierkorb verschoben.
-    }
+}
 empty-folder-done-destroy = { $done ->
     [one] 1 Nachricht aus { $name } endgültig gelöscht.
    *[other] { $done } Nachrichten aus { $name } endgültig gelöscht.
-    }
+}
 empty-folder-stopped = Gestoppt. { $done } von { $total } Nachrichten erledigt; { $remaining } noch in { $name }.
 empty-folder-refused = Gestoppt. { $done } von { $total } Nachrichten erledigt; der Mailserver hat { $refused } abgelehnt. { $remaining } noch in { $name }.
 empty-folder-failed = Das Leeren von { $name } wurde nach { $done } Nachrichten mit einem Fehler beendet. Der letzte Stapel wurde möglicherweise abgeschlossen, möglicherweise nicht; prüfen Sie den Ordner, bevor Sie es erneut versuchen.

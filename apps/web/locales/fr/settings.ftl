@@ -580,3 +580,146 @@ settings-compose-window = Ouvrir les nouveaux messages dans
 settings-compose-window-tab = Un onglet de l’espace de travail
 settings-compose-window-new = Une nouvelle fenêtre
 settings-compose-window-help = Si votre navigateur bloque une nouvelle fenêtre, le rédacteur s’ouvre dans un onglet de l’espace de travail.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-compose-read-receipt = Toujours demander un accusé de lecture
+settings-compose-delivery-receipt = Toujours demander un accusé de réception
+settings-compose-reply-copy = Enregistrer une copie des réponses dans le dossier d’origine
+settings-compose-receipts-help = Les accusés sont des demandes. Le destinataire ou son serveur de messagerie peut les refuser ou les ignorer.
+settings-compose-forward = Format de transfert par défaut
+settings-compose-forward-inline = Texte du message dans le corps
+settings-compose-forward-attachment = Message d’origine en pièce jointe .eml
+settings-compose-saving = Enregistrement de la préférence de rédaction…
+settings-compose-saved = Préférence de rédaction enregistrée
+settings-ident-organization = Organisation
+settings-ident-auto-bcc = Cci automatique
+settings-ident-auto-bcc-help = Ajoutez jusqu’à 20 adresses en Cci lors de l’envoi depuis cette identité. Séparez les adresses par des virgules.
+settings-ident-pgp-key = Clé OpenPGP
+settings-ident-pgp-none = Utiliser la clé par défaut
+settings-ident-pgp-unavailable = Clé enregistrée indisponible : choisissez une autre clé
+settings-ident-pgp-help = Choisissez l’une de vos clés de signature OpenPGP existantes. Le matériel de clé privée reste dans votre coffre de clés.
+settings-ident-error-optional = Vérifiez l’adresse de réponse, les adresses Cci automatiques, l’organisation et la clé sélectionnée.
+settings-compose-open-tracking = Enregistrer par défaut l’ouverture des messages
+settings-compose-open-tracking-help = Ajoute une image de suivi aux messages mis en forme éligibles. Les ouvertures dépendent du chargement des images par le destinataire et ne prouvent pas que le message a été lu. Votre administrateur peut désactiver le suivi ou verrouiller ce réglage par défaut.
+settings-compose-open-tracking-inherit = Utiliser le réglage de suivi hérité
+settings-reply-images = Images dans les réponses et les transferts
+settings-reply-images-ask = Demander à chaque fois
+settings-reply-images-allow = Toujours inclure
+settings-reply-images-trusted = Inclure pour les domaines d’expéditeur de confiance, sinon demander
+settings-reply-images-deny = Ne jamais inclure
+settings-reply-images-help = Choisissez si une réponse ou un transfert conserve les images du message d’origine. Les images incluses sont copiées dans le brouillon comme pièces jointes.
+settings-reply-image-domains = Domaines d’expéditeur de confiance pour les images
+settings-reply-image-domains-help = Saisissez jusqu’à 200 domaines d’expéditeur exacts, un par ligne. Utilisé lorsque le choix ci-dessus porte sur les domaines de confiance.
+settings-reply-image-domains-save = Enregistrer les domaines d’images de confiance
+settings-ident-group-basics = Informations de base
+settings-ident-group-replies = Gestion des réponses
+settings-ident-group-signature = Signature
+settings-ident-group-sending = Options d’envoi
+settings-ident-name-required = Saisissez un nom affiché.
+settings-ident-email-invalid = Saisissez une adresse e-mail valide, par exemple nom@example.org.
+settings-ident-email-duplicate = Vous avez déjà une identité avec cette adresse.
+settings-ident-replyto-invalid = Saisissez une adresse e-mail valide ou laissez ce champ vide.
+settings-ident-replyto-help = Les réponses aux messages envoyés depuis cette identité sont adressées à cette adresse plutôt qu’à celle de l’expéditeur.
+settings-ident-bcc-invalid = Vérifiez la liste Cci : utilisez des adresses valides séparées par des virgules, 20 au maximum.
+settings-ident-delete-title = Supprimer l’identité { $email } ?
+settings-ident-delete-body = Vous ne pourrez plus envoyer de messages depuis cette identité. Les brouillons et les messages envoyés ne sont pas affectés.
+settings-ident-empty = Vous n’avez encore aucune identité. Ajoutez-en une pour choisir son nom, son adresse et sa signature lors de la rédaction.
+settings-sig-delete-title = Supprimer la signature { $name } ?
+settings-sig-delete-body = Les identités qui l’utilisent reviennent à la signature du compte. Les messages déjà envoyés ne sont pas affectés.
+settings-sig-deleted = Signature supprimée.
+settings-reply-from = Répondre depuis
+settings-reply-from-match = L’adresse à laquelle le message a été envoyé
+settings-reply-from-default = Toujours mon identité par défaut
+settings-reply-from-ask = Me demander lorsque plusieurs identités correspondent
+settings-reply-from-keep = Conserver l’identité déjà sélectionnée
+settings-reply-from-help = Choisissez l’identité utilisée lorsque vous répondez ou transférez. Si aucune identité ne correspond à l’adresse à laquelle le message a été envoyé, votre identité par défaut est utilisée. Les adresses avec plus, comme nom+tag@example.org, correspondent à nom@example.org.
+settings-ident-default-badge = Par défaut
+settings-ident-make-default = Définir par défaut
+settings-ident-default-set = { $email } est maintenant votre identité par défaut.
+settings-ident-create-variant = Créer une variante
+settings-ident-variant-count = { $count } { $count ->
+        [one] variante
+       *[other] variantes
+    }
+settings-ident-inherits = Utilise { $base } pour : { $fields }
+settings-ident-field-replyTo = adresse de réponse
+settings-ident-field-autoBcc = Cci automatique
+settings-ident-field-organization = organisation
+settings-ident-field-pgpKeyId = clé OpenPGP
+settings-ident-field-signatureName = signature
+settings-ident-delete-default-body = Il s’agit de votre identité par défaut. Votre plus ancienne identité restante devient l’identité par défaut. Vous ne pourrez plus envoyer de messages depuis cette identité. Les brouillons et les messages envoyés ne sont pas affectés.
+settings-ident-variants-choice-title = Supprimer { $email } ?
+settings-ident-variants-choice-body = Cette identité a { $count } { $count ->
+        [one] variante
+       *[other] variantes
+    }. Supprimez-{ $count ->
+        [one] la
+       *[other] les
+    } également, ou conservez-{ $count ->
+        [one] la
+       *[other] les
+    } comme identités distinctes. Une variante conservée copie les réglages hérités de cette identité.
+settings-ident-delete-with-variants = Supprimer l’identité et les variantes
+settings-ident-delete-keep-variants = Supprimer l’identité, conserver les variantes
+settings-ident-new-variant = Nouvelle variante
+settings-ident-edit-variant-title = Modifier la variante
+settings-ident-variant-intro = Une variante de { $base }. Laissez un champ vide pour utiliser la valeur de cette identité.
+settings-ident-label-label = Libellé de la variante
+settings-ident-label-required = Saisissez un libellé pour cette variante, par exemple Newsletters.
+settings-ident-inherit-hint = Vide : utilise { $value } de l’identité de base.
+settings-ident-inherit-none = rien
+settings-check-policy-allow = Envoyer sans demander
+settings-check-policy-warn = Demander à chaque fois
+settings-check-policy-warn-remember = Demander, avec possibilité de ne plus demander
+settings-check-policy-deny = Bloquer l’envoi
+settings-check-invalid = Adresses de destinataires non valides
+settings-check-attachment = Pièce jointe mentionnée mais absente
+settings-check-subject = Objet vide
+settings-check-help = Ce qui se passe lorsque la vérification détecte un problème. Avec « Demander », l’option Envoyer quand même est toujours proposée ; seul Bloquer l’envoi empêche l’envoi d’un message.
+settings-external-warn-remember = Demander, avec possibilité de ne plus demander
+settings-external-deny = Bloquer l’envoi
+settings-auto-chip = Finaliser un destinataire lorsque je tape un espace, une virgule ou un point-virgule
+settings-auto-chip-help = Une adresse valide devient un destinataire finalisé et le séparateur est ajouté pour vous.
+settings-recipient-separator = Séparateur de destinataires
+settings-recipient-separator-comma = Virgule
+settings-recipient-separator-semicolon = Point-virgule
+settings-header-collapse = En-tête du message (À, Cc, Objet)
+settings-header-collapse-expanded = Toujours afficher
+settings-header-collapse-collapsed = Réduire en une ligne de résumé
+settings-header-collapse-auto = Réduire pendant que je rédige le corps
+settings-header-collapse-help = Réduit, l’en-tête affiche une ligne comme À : Ana +2 et s’ouvre lorsque vous cliquez dessus ou qu’un champ demande votre attention.
+settings-retention-title = Conservation
+settings-folder-icon-camera = Appareil photo
+settings-folder-icon-music = Musique
+settings-folder-icon-film = Film
+settings-folder-icon-lightbulb = Idée
+settings-folder-icon-rocket = Fusée
+settings-folder-icon-trophy = Trophée
+settings-folder-icon-leaf = Feuille
+settings-folder-icon-globe = Globe
+settings-folder-icon-cloud = Nuage
+settings-folder-icon-bookmark = Signet
+settings-folder-icon-wallet = Portefeuille
+settings-folder-icon-medical = Médical
+settings-folder-icon-bell = Cloche
+settings-folder-icon-key = Clé
+settings-folder-icon-receipt = Reçu
+settings-folder-icon-cart = Panier
+settings-folder-icon-package = Colis
+settings-folder-icon-wrench = Outils
+settings-folder-icon-chart = Graphique
+settings-folder-icon-team = Équipe
+settings-folder-icon-store = Boutique
+settings-folder-icon-office = Bureau
+settings-folder-icon-laptop = Ordinateur portable
+settings-folder-icon-crown = Couronne
+settings-folder-icon-family = Famille
+settings-folder-icon-group-general = Général
+settings-folder-icon-group-mail = Messagerie
+settings-folder-icon-group-work = Travail
+settings-folder-icon-group-finance = Finances et achats
+settings-folder-icon-group-travel = Voyages et maison
+settings-folder-icon-group-personal = Personnel et loisirs
+settings-folder-icon-group-tech = Technologie et outils
+settings-folder-icon-search-label = Rechercher des icônes
+settings-folder-icon-no-match = Aucune icône correspondante

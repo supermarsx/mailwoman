@@ -580,3 +580,146 @@ settings-compose-window = Neue Nachrichten öffnen in
 settings-compose-window-tab = Einem Arbeitsbereich-Tab
 settings-compose-window-new = Einem neuen Fenster
 settings-compose-window-help = Wenn Ihr Browser ein neues Fenster blockiert, wird der Editor in einem Arbeitsbereich-Tab geöffnet.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+settings-compose-read-receipt = Immer Lesebestätigungen anfordern
+settings-compose-delivery-receipt = Immer Zustellbestätigungen anfordern
+settings-compose-reply-copy = Kopie von Antworten im ursprünglichen Ordner speichern
+settings-compose-receipts-help = Bestätigungen sind Anfragen. Empfänger oder deren Mailserver können sie ablehnen oder ignorieren.
+settings-compose-forward = Standardformat für Weiterleitungen
+settings-compose-forward-inline = Nachrichtentext im Text
+settings-compose-forward-attachment = Originalnachricht als .eml-Anhang
+settings-compose-saving = Verfassen-Einstellung wird gespeichert …
+settings-compose-saved = Verfassen-Einstellung gespeichert
+settings-ident-organization = Organisation
+settings-ident-auto-bcc = Automatisch in Bcc
+settings-ident-auto-bcc-help = Fügen Sie beim Senden mit dieser Identität bis zu 20 Adressen in Bcc hinzu. Trennen Sie die Adressen mit Kommas.
+settings-ident-pgp-key = OpenPGP-Schlüssel
+settings-ident-pgp-none = Standardschlüssel verwenden
+settings-ident-pgp-unavailable = Gespeicherter Schlüssel nicht verfügbar – wählen Sie einen anderen Schlüssel
+settings-ident-pgp-help = Wählen Sie einen Ihrer vorhandenen OpenPGP-Signaturschlüssel. Das private Schlüsselmaterial bleibt in Ihrem Schlüsseltresor.
+settings-ident-error-optional = Prüfen Sie die Antwortadresse, die automatischen Bcc-Adressen, die Organisation und den ausgewählten Schlüssel.
+settings-compose-open-tracking = Nachrichtenöffnungen standardmäßig erfassen
+settings-compose-open-tracking-help = Fügt geeigneten formatierten Nachrichten ein Tracking-Bild hinzu. Öffnungen hängen davon ab, ob der Empfänger Bilder lädt, und belegen nicht, dass die Nachricht gelesen wurde. Ihre Administration kann das Tracking deaktivieren oder diese Voreinstellung sperren.
+settings-compose-open-tracking-inherit = Geerbte Tracking-Voreinstellung verwenden
+settings-reply-images = Bilder in Antworten und Weiterleitungen
+settings-reply-images-ask = Jedes Mal fragen
+settings-reply-images-allow = Immer einschließen
+settings-reply-images-trusted = Bei vertrauenswürdigen Absenderdomains einschließen, sonst fragen
+settings-reply-images-deny = Nie einschließen
+settings-reply-images-help = Legen Sie fest, ob eine Antwort oder Weiterleitung die Bilder der Originalnachricht enthält. Eingeschlossene Bilder werden als Anhänge in den Entwurf kopiert.
+settings-reply-image-domains = Vertrauenswürdige Absenderdomains für Bilder
+settings-reply-image-domains-help = Geben Sie bis zu 200 exakte Absenderdomains ein, eine pro Zeile. Wird verwendet, wenn oben die Option für vertrauenswürdige Domains gewählt ist.
+settings-reply-image-domains-save = Vertrauenswürdige Bilddomains speichern
+settings-ident-group-basics = Grundlagen
+settings-ident-group-replies = Umgang mit Antworten
+settings-ident-group-signature = Signatur
+settings-ident-group-sending = Sendeoptionen
+settings-ident-name-required = Geben Sie einen Anzeigenamen ein.
+settings-ident-email-invalid = Geben Sie eine gültige E-Mail-Adresse ein, zum Beispiel name@example.org.
+settings-ident-email-duplicate = Sie haben bereits eine Identität mit dieser Adresse.
+settings-ident-replyto-invalid = Geben Sie eine gültige E-Mail-Adresse ein oder lassen Sie das Feld leer.
+settings-ident-replyto-help = Antworten auf Nachrichten, die mit dieser Identität gesendet wurden, gehen an diese Adresse statt an die Absenderadresse.
+settings-ident-bcc-invalid = Prüfen Sie die Bcc-Liste: Verwenden Sie gültige Adressen, durch Kommas getrennt, höchstens 20.
+settings-ident-delete-title = Identität { $email } löschen?
+settings-ident-delete-body = Sie können mit dieser Identität nicht mehr senden. Entwürfe und gesendete Nachrichten bleiben unverändert.
+settings-ident-empty = Sie haben noch keine Identitäten. Fügen Sie eine hinzu, um beim Schreiben Name, Adresse und Signatur zu wählen.
+settings-sig-delete-title = Signatur { $name } löschen?
+settings-sig-delete-body = Identitäten, die sie verwenden, greifen auf die Kontosignatur zurück. Bereits gesendete Nachrichten bleiben unverändert.
+settings-sig-deleted = Signatur gelöscht.
+settings-reply-from = Antworten von
+settings-reply-from-match = Die Adresse, an die die Nachricht gesendet wurde
+settings-reply-from-default = Immer meine Standardidentität
+settings-reply-from-ask = Fragen, wenn mehrere Identitäten passen
+settings-reply-from-keep = Bereits ausgewählte Identität beibehalten
+settings-reply-from-help = Legen Sie fest, welche Identität beim Antworten oder Weiterleiten verwendet wird. Passt keine Identität zur Adresse, an die die Nachricht gesendet wurde, wird Ihre Standardidentität verwendet. Plus-Adressen wie name+tag@example.org passen zu name@example.org.
+settings-ident-default-badge = Standard
+settings-ident-make-default = Als Standard festlegen
+settings-ident-default-set = { $email } ist jetzt Ihre Standardidentität.
+settings-ident-create-variant = Variante erstellen
+settings-ident-variant-count = { $count } { $count ->
+        [one] Variante
+       *[other] Varianten
+    }
+settings-ident-inherits = Verwendet { $base } für: { $fields }
+settings-ident-field-replyTo = Antwortadresse
+settings-ident-field-autoBcc = automatisches Bcc
+settings-ident-field-organization = Organisation
+settings-ident-field-pgpKeyId = OpenPGP-Schlüssel
+settings-ident-field-signatureName = Signatur
+settings-ident-delete-default-body = Dies ist Ihre Standardidentität. Ihre älteste verbleibende Identität wird zur Standardidentität. Sie können mit dieser Identität nicht mehr senden. Entwürfe und gesendete Nachrichten bleiben unverändert.
+settings-ident-variants-choice-title = { $email } löschen?
+settings-ident-variants-choice-body = Diese Identität hat { $count } { $count ->
+        [one] Variante
+       *[other] Varianten
+    }. Löschen Sie { $count ->
+        [one] sie
+       *[other] sie
+    } ebenfalls oder behalten Sie { $count ->
+        [one] sie
+       *[other] sie
+    } als eigenständige Identitäten. Eine behaltene Variante übernimmt als Kopie die Einstellungen, die sie von dieser Identität geerbt hat.
+settings-ident-delete-with-variants = Identität und Varianten löschen
+settings-ident-delete-keep-variants = Identität löschen, Varianten behalten
+settings-ident-new-variant = Neue Variante
+settings-ident-edit-variant-title = Variante bearbeiten
+settings-ident-variant-intro = Eine Variante von { $base }. Lassen Sie ein Feld leer, um den Wert dieser Identität zu verwenden.
+settings-ident-label-label = Variantenbezeichnung
+settings-ident-label-required = Geben Sie eine Bezeichnung für diese Variante ein, zum Beispiel Newsletter.
+settings-ident-inherit-hint = Leer: verwendet { $value } der Basisidentität.
+settings-ident-inherit-none = nichts
+settings-check-policy-allow = Ohne Nachfrage senden
+settings-check-policy-warn = Jedes Mal fragen
+settings-check-policy-warn-remember = Fragen, mit Option zum Abschalten
+settings-check-policy-deny = Senden blockieren
+settings-check-invalid = Ungültige Empfängeradressen
+settings-check-attachment = Anhang erwähnt, aber nicht vorhanden
+settings-check-subject = Leerer Betreff
+settings-check-help = Was passiert, wenn die Prüfung ein Problem findet. Bei „Fragen“ steht immer „Trotzdem senden“ zur Wahl; nur „Senden blockieren“ hält eine Nachricht zurück.
+settings-external-warn-remember = Fragen, mit Option zum Abschalten
+settings-external-deny = Senden blockieren
+settings-auto-chip = Empfänger abschließen, wenn ich ein Leerzeichen, Komma oder Semikolon tippe
+settings-auto-chip-help = Eine gültige Adresse wird zu einem fertigen Empfänger, und das Trennzeichen wird für Sie hinzugefügt.
+settings-recipient-separator = Empfängertrennzeichen
+settings-recipient-separator-comma = Komma
+settings-recipient-separator-semicolon = Semikolon
+settings-header-collapse = Nachrichtenkopf (An, Cc, Betreff)
+settings-header-collapse-expanded = Immer anzeigen
+settings-header-collapse-collapsed = Auf eine Übersichtszeile einklappen
+settings-header-collapse-auto = Einklappen, während ich den Text schreibe
+settings-header-collapse-help = Eingeklappt zeigt der Kopf eine Zeile wie „An: Ana +2“ und öffnet sich per Klick oder wenn ein Feld Aufmerksamkeit braucht.
+settings-retention-title = Aufbewahrung
+settings-folder-icon-camera = Kamera
+settings-folder-icon-music = Musik
+settings-folder-icon-film = Film
+settings-folder-icon-lightbulb = Idee
+settings-folder-icon-rocket = Rakete
+settings-folder-icon-trophy = Pokal
+settings-folder-icon-leaf = Blatt
+settings-folder-icon-globe = Globus
+settings-folder-icon-cloud = Wolke
+settings-folder-icon-bookmark = Lesezeichen
+settings-folder-icon-wallet = Geldbörse
+settings-folder-icon-medical = Medizin
+settings-folder-icon-bell = Glocke
+settings-folder-icon-key = Schlüssel
+settings-folder-icon-receipt = Beleg
+settings-folder-icon-cart = Warenkorb
+settings-folder-icon-package = Paket
+settings-folder-icon-wrench = Werkzeuge
+settings-folder-icon-chart = Diagramm
+settings-folder-icon-team = Team
+settings-folder-icon-store = Geschäft
+settings-folder-icon-office = Büro
+settings-folder-icon-laptop = Laptop
+settings-folder-icon-crown = Krone
+settings-folder-icon-family = Familie
+settings-folder-icon-group-general = Allgemein
+settings-folder-icon-group-mail = E-Mail
+settings-folder-icon-group-work = Arbeit
+settings-folder-icon-group-finance = Finanzen und Einkauf
+settings-folder-icon-group-travel = Reisen und Zuhause
+settings-folder-icon-group-personal = Persönliches und Freizeit
+settings-folder-icon-group-tech = Technik und Werkzeuge
+settings-folder-icon-search-label = Symbole suchen
+settings-folder-icon-no-match = Keine passenden Symbole

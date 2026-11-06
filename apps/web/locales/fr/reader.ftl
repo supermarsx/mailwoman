@@ -54,3 +54,13 @@ reader-attachmentsDensity-help = Compact affiche de petits boutons de fichier ; 
 reader-option-compact = Compact
 reader-attachmentsCollapsed = Réduire les pièces jointes par défaut
 reader-attachmentsCollapsed-help = Chaque message commence par un résumé compact des pièces jointes. Vous pouvez développer ce message sans modifier cette valeur par défaut.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+reader-card-text = Texte et couleurs
+reader-card-text-help = Taille, espacement, largeur et couleurs du texte des messages.
+reader-card-actions = Actions et pièces jointes
+reader-card-actions-help = Le ruban d’actions du message et le démarrage des pièces jointes.
+reader-card-loading = Chargement
+reader-card-loading-help = Ce que vous voyez pendant l’ouverture d’un message.
+settings-mail-card-list = Liste des messages
+settings-mail-card-list-help = Actions de ligne et comportement de la liste lorsque vous agissez sur un message.

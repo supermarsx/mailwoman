@@ -1193,3 +1193,14 @@ mail-badge-outbox = { $count ->
     [one] Postausgang: { $count } Nachricht wartet auf das Senden
    *[other] Postausgang: { $count } Nachrichten warten auf das Senden
   }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-color-menu = Nachrichtenfarben
+mail-color-button = Nachrichtenfarben: { $mode }
+mail-color-use-default = Meine Standardeinstellung verwenden ({ $mode })
+mail-color-make-default = Als meine Standardeinstellung festlegen
+mail-color-locked = Von Ihrer Administration gesperrt
+mail-color-confirm-title = Ihre Standardfarben für Nachrichten ändern?
+mail-color-confirm-body = Jede Nachricht verwendet „{ $mode }“, solange Sie es nicht für eine einzelne Nachricht ändern.
+mail-color-confirm = Als Standard festlegen
+mail-color-default-failed = Ihre Standardfarben für Nachrichten konnten nicht gespeichert werden.

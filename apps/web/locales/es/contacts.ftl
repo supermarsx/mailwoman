@@ -136,7 +136,7 @@ contacts-membership-add-group = Escriba el nombre de un grupo para añadir este 
 contacts-membership-count = { $count ->
     [one] 1 miembro
    *[other] { $count } miembros
-    }
+}
 contacts-membership-failed = No se pudieron guardar algunos cambios de pertenencia. La lista muestra lo que está guardado.
 contacts-membership-manage = Gestionar la pertenencia al grupo
 contacts-import-source = Origen

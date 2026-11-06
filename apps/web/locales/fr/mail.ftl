@@ -1214,3 +1214,14 @@ mail-badge-outbox = { $count ->
     [one] Boîte d’envoi : { $count } message en attente d’envoi
    *[other] Boîte d’envoi : { $count } messages en attente d’envoi
   }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-color-menu = Couleurs des messages
+mail-color-button = Couleurs des messages : { $mode }
+mail-color-use-default = Utiliser mon réglage par défaut ({ $mode })
+mail-color-make-default = Définir comme mon réglage par défaut
+mail-color-locked = Verrouillé par votre administrateur
+mail-color-confirm-title = Modifier vos couleurs de message par défaut ?
+mail-color-confirm-body = Chaque message utilisera « { $mode } », sauf si vous le modifiez pour un message en particulier.
+mail-color-confirm = Définir par défaut
+mail-color-default-failed = Vos couleurs de message par défaut n’ont pas pu être enregistrées.

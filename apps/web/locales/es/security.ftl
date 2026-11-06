@@ -202,7 +202,7 @@ session-alerts-none = No hay avisos de seguridad de sesión.
 session-alerts-banner = { $count ->
     [one] Tiene 1 aviso de seguridad de sesión sin leer.
    *[other] Tiene { $count } avisos de seguridad de sesión sin leer.
-    }
+}
 session-alerts-banner-review = Revisar
 session-alerts-kind-countryChange = Se usó una sesión desde otro país ({ $from } a { $to }).
 session-alerts-kind-impossibleTravel = Una sesión apareció en otro país ({ $from } a { $to }) más rápido de lo que permite un viaje.

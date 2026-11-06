@@ -1193,3 +1193,14 @@ mail-badge-outbox = { $count ->
     [one] Bandeja de salida: { $count } mensaje pendiente de enviar
    *[other] Bandeja de salida: { $count } mensajes pendientes de enviar
   }
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-color-menu = Colores de los mensajes
+mail-color-button = Colores de los mensajes: { $mode }
+mail-color-use-default = Usar mi valor predeterminado ({ $mode })
+mail-color-make-default = Establecer como mi valor predeterminado
+mail-color-locked = Bloqueado por su administrador
+mail-color-confirm-title = ¿Cambiar sus colores de mensaje predeterminados?
+mail-color-confirm-body = Todos los mensajes usarán «{ $mode }» a menos que lo cambie para un mensaje concreto.
+mail-color-confirm = Establecer como predeterminado
+mail-color-default-failed = No se pudieron guardar sus colores de mensaje predeterminados.

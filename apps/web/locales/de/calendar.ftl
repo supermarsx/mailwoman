@@ -249,7 +249,7 @@ calendar-import-itip-message = Diese Datei ist eine per E-Mail gesendete Antwort
 calendar-import-skipped = { $count ->
     [one] { $count } Termin war bereits im Kalender und blieb unverändert.
    *[other] { $count } Termine waren bereits im Kalender und blieben unverändert.
-    }
+}
 calendar-invite-title = Kalendereinladung
 calendar-invite-sender = Von { $sender }
 calendar-invite-add = Zum Kalender hinzufügen
@@ -286,7 +286,7 @@ calendar-card-kind-counter = Neue Zeit vorgeschlagen
 calendar-card-kind-publish = { $count ->
     [one] Kalendertermin
    *[other] { $count } Kalendertermine
-    }
+}
 calendar-card-when = Wann
 calendar-card-where = Wo
 calendar-card-organizer = Organisator
@@ -296,32 +296,32 @@ calendar-card-organizer-time = Zeit des Organisators: { $when } ({ $zone })
 calendar-card-repeat-daily = { $interval ->
     [one] Jeden Tag
    *[other] Alle { $interval } Tage
-    }
+}
 calendar-card-repeat-weekly = { $interval ->
     [one] Jede Woche
    *[other] Alle { $interval } Wochen
-    }
+}
 calendar-card-repeat-weekly-on = { $interval ->
     [one] Jede Woche: { $days }
    *[other] Alle { $interval } Wochen: { $days }
-    }
+}
 calendar-card-repeat-monthly = { $interval ->
     [one] Jeden Monat
    *[other] Alle { $interval } Monate
-    }
+}
 calendar-card-repeat-monthly-day = { $interval ->
     [one] Jeden Monat am { $day }.
    *[other] Alle { $interval } Monate am { $day }.
-    }
+}
 calendar-card-repeat-yearly = { $interval ->
     [one] Jedes Jahr
    *[other] Alle { $interval } Jahre
-    }
+}
 calendar-card-repeat-until = { $rule } bis { $date }
 calendar-card-repeat-count = { $rule }, { $count ->
     [one] einmal
    *[other] { $count }-mal
-    }
+}
 calendar-card-repeat-except = { $rule } ({ $count ->
     [one] 1 Termin ausgelassen
    *[other] { $count } Termine ausgelassen
@@ -349,7 +349,7 @@ calendar-card-agenda-unavailable = Ihr Kalender für diesen Tag konnte nicht gel
 calendar-card-conflicts = { $count ->
     [one] Überschneidung mit { $titles }
    *[other] Überschneidung mit { $count } Terminen: { $titles }
-    }
+}
 calendar-card-no-conflicts = Keine Überschneidungen in Ihrem Kalender
 calendar-card-invited-as = Sie wurden als { $address } eingeladen.
 calendar-card-not-invited = In dieser Einladung ist keine Ihrer Adressen aufgeführt. Sie können sie zu Ihrem Kalender hinzufügen, aber nicht beantworten.
@@ -360,12 +360,12 @@ calendar-card-replied = { $who } { $answer ->
     [tentative] hat vorläufig zugesagt.
     [declined] hat abgelehnt.
    *[other] hat noch nicht geantwortet.
-    }
+}
 calendar-card-counter = { $who } hat eine neue Zeit vorgeschlagen. Vorschläge werden nicht automatisch angewendet.
 calendar-card-todos-skipped = { $count ->
     [one] Die Datei enthält außerdem 1 Aufgabe, die nicht hinzugefügt wird.
    *[other] Die Datei enthält außerdem { $count } Aufgaben, die nicht hinzugefügt werden.
-    }
+}
 calendar-card-respond = Auf die Einladung antworten
 calendar-card-accept = Annehmen
 calendar-card-tentative = Vorläufig
@@ -383,7 +383,7 @@ calendar-card-add-all = Alle hinzufügen ({ $count })
 calendar-card-added = { $count ->
     [one] Zu Ihrem Kalender hinzugefügt.
    *[other] { $count } Termine zu Ihrem Kalender hinzugefügt.
-    }
+}
 calendar-card-remove = Aus Kalender entfernen
 calendar-card-removed = Aus Ihrem Kalender entfernt.
 calendar-card-record-reply = Teilnehmerstatus aktualisieren
@@ -395,4 +395,4 @@ calendar-card-not-sent = Die Nachricht konnte nicht gesendet werden.
 calendar-card-more = { $count ->
     [one] 1 weiterer
    *[other] { $count } weitere
-    }
+}

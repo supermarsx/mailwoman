@@ -13,7 +13,7 @@ remote-banner-direct = Images chargées depuis les serveurs de l’expéditeur
 remote-banner-trackers = { $count ->
     [one] { $count } traceur supprimé
    *[other] { $count } traceurs supprimés
-    }
+}
 remote-banner-trackers-limited = Au moins { $count } traceurs supprimés
 remote-banner-show = Afficher les images
 remote-banner-show-help = Charger les images de ce message via le serveur, afin que l’expéditeur ne voie pas votre adresse IP
@@ -39,7 +39,7 @@ remote-images-toast-done = Images chargées
 remote-images-toast-failed = { $count ->
     [one] { $count } image n’a pas pu être chargée
    *[other] { $count } images n’ont pas pu être chargées
-    }
+}
 remote-images-toast-retry = Réessayer
 remote-images-toast-progress = Chargement des images… { $loaded }/{ $total }
 remote-images-toast-retrying-progress = Chargement des images… { $loaded }/{ $total } · Nouvelle tentative { $attempt }/{ $max }

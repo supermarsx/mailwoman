@@ -202,7 +202,7 @@ session-alerts-none = Aucun avis de sécurité de session.
 session-alerts-banner = { $count ->
     [one] Vous avez 1 avis de sécurité de session non lu.
    *[other] Vous avez { $count } avis de sécurité de session non lus.
-    }
+}
 session-alerts-banner-review = Examiner
 session-alerts-kind-countryChange = Une session a été utilisée depuis un autre pays ({ $from } vers { $to }).
 session-alerts-kind-impossibleTravel = Une session est apparue dans un autre pays ({ $from } vers { $to }) plus vite qu’un déplacement ne le permet.

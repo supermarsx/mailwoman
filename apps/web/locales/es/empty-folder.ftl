@@ -35,11 +35,11 @@ empty-folder-stopping = Deteniendo tras el lote actual. Hasta ahora, { $done } d
 empty-folder-done-trash = { $done ->
     [one] Se movió 1 mensaje de { $name } a la papelera.
    *[other] Se movieron { $done } mensajes de { $name } a la papelera.
-    }
+}
 empty-folder-done-destroy = { $done ->
     [one] Se eliminó 1 mensaje de { $name } de forma permanente.
    *[other] Se eliminaron { $done } mensajes de { $name } de forma permanente.
-    }
+}
 empty-folder-stopped = Detenido. { $done } de { $total } mensajes procesados; quedan { $remaining } en { $name }.
 empty-folder-refused = Detenido. { $done } de { $total } mensajes procesados; el servidor de correo rechazó { $refused }. Quedan { $remaining } en { $name }.
 empty-folder-failed = El vaciado de { $name } se detuvo con un error tras { $done } mensajes. Puede que el último lote se completara o no; compruebe la carpeta antes de volver a intentarlo.

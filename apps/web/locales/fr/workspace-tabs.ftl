@@ -13,7 +13,7 @@ workspace-tabs-close-all = Fermer tous les onglets
 workspace-tabs-close-dirty-title = { $count ->
     [one] Un onglet contient des modifications non enregistrées
    *[other] { $count } onglets contiennent des modifications non enregistrées
-    }
+}
 workspace-tabs-close-dirty-body = La fermeture supprime ce qui n’a pas été enregistré dans ces onglets. Les autres onglets se ferment dans tous les cas.
 workspace-tabs-close-dirty-keep = Les garder ouverts
 workspace-tabs-close-dirty-discard = Abandonner et fermer

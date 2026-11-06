@@ -138,3 +138,10 @@ admin-ux-appearance-accent = Color de acento
 admin-ux-appearance-light = Claro
 admin-ux-appearance-dark = Oscuro
 admin-ux-appearance-reset = Usar el tema del correo web
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = Añadir
+admin-ux-list-remove = Quitar { $item }
+admin-ux-list-none = Aún no hay ninguno.
+admin-ux-list-duplicate = { $item } ya está en la lista.
+admin-ux-list-empty-entry = Escriba primero una entrada.

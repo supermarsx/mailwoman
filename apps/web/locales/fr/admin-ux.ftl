@@ -143,3 +143,10 @@ admin-ux-appearance-accent = Couleur d’accentuation
 admin-ux-appearance-light = Clair
 admin-ux-appearance-dark = Sombre
 admin-ux-appearance-reset = Utiliser le thème du webmail
+
+# -- Machine translation (2026-11): added to match en ---------------------
+admin-ux-list-add = Ajouter
+admin-ux-list-remove = Supprimer { $item }
+admin-ux-list-none = Aucun pour l’instant.
+admin-ux-list-duplicate = { $item } figure déjà dans la liste.
+admin-ux-list-empty-entry = Saisissez d’abord une entrée.

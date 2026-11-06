@@ -13,7 +13,7 @@ workspace-tabs-close-all = Alle Tabs schließen
 workspace-tabs-close-dirty-title = { $count ->
     [one] Ein Tab hat ungespeicherte Änderungen
    *[other] { $count } Tabs haben ungespeicherte Änderungen
-    }
+}
 workspace-tabs-close-dirty-body = Beim Schließen gehen nicht gespeicherte Änderungen in diesen Tabs verloren. Die anderen Tabs werden in jedem Fall geschlossen.
 workspace-tabs-close-dirty-keep = Geöffnet lassen
 workspace-tabs-close-dirty-discard = Verwerfen und schließen

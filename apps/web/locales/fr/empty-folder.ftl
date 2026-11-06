@@ -35,11 +35,11 @@ empty-folder-stopping = Arrêt après le lot en cours. { $done } sur { $total } 
 empty-folder-done-trash = { $done ->
     [one] 1 message de { $name } déplacé dans la corbeille.
    *[other] { $done } messages de { $name } déplacés dans la corbeille.
-    }
+}
 empty-folder-done-destroy = { $done ->
     [one] 1 message de { $name } supprimé définitivement.
    *[other] { $done } messages de { $name } supprimés définitivement.
-    }
+}
 empty-folder-stopped = Arrêté. { $done } messages traités sur { $total } ; { $remaining } restent dans { $name }.
 empty-folder-refused = Arrêté. { $done } messages traités sur { $total } ; le serveur de messagerie en a refusé { $refused }. { $remaining } restent dans { $name }.
 empty-folder-failed = Le vidage de { $name } s’est arrêté sur une erreur après { $done } messages. Le dernier lot a pu être terminé ou non ; vérifiez le dossier avant de réessayer.

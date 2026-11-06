@@ -13,7 +13,7 @@ workspace-tabs-close-all = Cerrar todas las pestañas
 workspace-tabs-close-dirty-title = { $count ->
     [one] Una pestaña tiene cambios sin guardar
    *[other] { $count } pestañas tienen cambios sin guardar
-    }
+}
 workspace-tabs-close-dirty-body = Al cerrar se descarta lo que no se guardó en estas pestañas. Las demás pestañas se cierran de todos modos.
 workspace-tabs-close-dirty-keep = Mantenerlas abiertas
 workspace-tabs-close-dirty-discard = Descartar y cerrar
