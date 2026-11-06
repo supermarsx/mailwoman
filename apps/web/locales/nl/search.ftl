@@ -1,0 +1,65 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+# Locale: nl · Module: search. Source: ../en/search.ftl
+
+
+# -- Machine translation (2026-11): added to match en ---------------------
+search-submit-help = Zoeken (Enter)
+search-clear-help = Zoekopdracht wissen (Esc)
+search-filters-label = Zoekfilters
+search-guided-button = Filters
+search-guided-title = Begeleid zoeken
+search-guided-help = Kies wie, wat of wanneer u zoekt. Voeg filters toe om de resultaten te beperken.
+search-include-trash = Prullenbak meenemen
+search-add-filter = Filter toevoegen
+search-chip-edit = Filter bewerken: { $label }
+search-chip-switch = Filter wisselen: { $label }
+search-chip-remove = Filter verwijderen: { $label }
+search-chip-negated = niet { $value }
+search-field-from = Van
+search-field-to = Aan
+search-field-cc = Cc
+search-field-subject = Onderwerp
+search-field-body = Berichttekst
+search-field-text = Tekst
+search-field-filename = Bestandsnaam
+search-field-tag = Label
+search-field-date = Datum
+search-field-size = Grootte
+search-field-scope = Map
+search-field-expression = Expressie
+search-field-other = Filter
+search-chip-attachment = Met bijlage
+search-chip-no-attachment = Zonder bijlage
+search-chip-event = Met afspraak
+search-chip-no-event = Zonder afspraak
+search-chip-unread = Ongelezen
+search-chip-read = Gelezen
+search-chip-flagged = Gemarkeerd
+search-chip-unflagged = Niet gemarkeerd
+search-chip-pinned = Vastgezet
+search-chip-unpinned = Niet vastgezet
+search-date-after = Na
+search-date-before = Voor
+search-date-between = { $after } tot { $before }
+search-date-since = sinds { $date }
+search-date-until = vóór { $date }
+search-date-invalid = Voer datums in als JJJJ-MM-DD.
+search-size-larger = Groter dan
+search-size-smaller = Kleiner dan
+search-size-hint = Bijvoorbeeld 500k of 2m
+search-size-between = { $larger } tot { $smaller }
+search-size-over = meer dan { $size }
+search-size-under = minder dan { $size }
+search-size-invalid = Voer een grootte in zoals 500k, 2m of 1g.
+search-scope-all = Alle mappen
+search-scope-current = Huidige map ({ $name })
+search-exclude = Overeenkomsten uitsluiten
+search-apply = Toepassen
+search-cancel = Annuleren
+search-remove = Verwijderen
+search-refine-menu = Gerelateerde berichten zoeken
+search-refine-sender = Berichten van deze afzender zoeken
+search-refine-subject = Berichten met dit onderwerp zoeken
+search-refine-folder = In deze map zoeken
+search-refine-domain = Berichten van dit domein zoeken
+search-include-trash-scoped = De optie Prullenbak meenemen geldt bij het zoeken in alle mappen. De geselecteerde map wordt rechtstreeks doorzocht.
