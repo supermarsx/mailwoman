@@ -124,7 +124,8 @@ describe('Admin retention tiers', () => {
   });
 
   it('leaves the screen as it was when the server offers no tiers', async () => {
-    const plain = { ...api(), tiers: undefined };
+    const { tiers: _unused, ...plain } = api();
+    void _unused;
     renderInShell(() => <Retention api={plain} />);
     await screen.findByTestId('retention-stores');
     expect(screen.queryByTestId('retention-class-long')).toBeNull();
