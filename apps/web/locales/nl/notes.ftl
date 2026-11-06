@@ -61,3 +61,9 @@ notes-link-button = Koppelen
 notes-changed-elsewhere = Deze notitie is op een ander apparaat of in een andere sessie gewijzigd. De tekst die je hier hebt getypt blijft behouden, en je volgende bewerking slaat hem op.
 notes-deleted-elsewhere = De notitie die je open had, is op een ander apparaat of in een andere sessie verwijderd.
 notes-create-failed = De notitie kan niet worden aangemaakt.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = De notitie kon niet worden aangemaakt. { $reason }
+notes-toast-pinned = Notitie “{ $target }” vastgemaakt
+notes-toast-unpinned = Notitie “{ $target }” losgemaakt
+notes-toast-pin-failed = Vastmaken van notitie “{ $target }” kon niet worden gewijzigd
