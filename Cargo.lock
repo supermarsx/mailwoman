@@ -4635,18 +4635,16 @@ dependencies = [
 [[package]]
 name = "libsqlite3-sys"
 version = "0.30.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
+dependencies = [
  "aes 0.8.4",
  "cbc 0.1.2",
-checksum = "2e99fb7a497b1e3339bc746195567ed8d3e24945ecd636e3619d20b9de9e9149"
+ "cc",
  "getrandom 0.2.17",
  "hmac 0.12.1",
  "pbkdf2 0.12.2",
-dependencies = [
+ "pkg-config",
  "sha1 0.10.7",
  "sha2 0.10.9",
- "cc",
- "pkg-config",
  "vcpkg",
 ]
 
@@ -5783,11 +5781,11 @@ version = "26.19.0"
 dependencies = [
  "async-trait",
  "chacha20poly1305",
- "libsqlite3-sys",
  "chrono",
- "pbkdf2 0.13.0",
  "flate2",
+ "libsqlite3-sys",
  "mw-test-gate",
+ "pbkdf2 0.13.0",
  "rand 0.8.7",
  "serde",
  "serde_json",
