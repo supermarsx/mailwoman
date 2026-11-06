@@ -91,3 +91,73 @@ common-viewer-no-preview = Nessuna anteprima disponibile per questo tipo di file
 common-viewer-unknown-type = tipo sconosciuto
 common-viewer-download = Scarica
 common-viewer-attachments = Allegati
+
+# -- Machine translation (2026-11): added to match en ---------------------
+common-retrying = Nuovo tentativo…
+common-waiting-online = In attesa di una connessione…
+common-failure-offline = Sei offline. Riconnettiti e riprova.
+common-failure-network = Impossibile raggiungere il server.
+common-failure-server = Il server non ha risposto in tempo.
+common-failure-rate = Troppe richieste in poco tempo. Attendi un momento e riprova.
+common-failure-conflict = Questo elemento è stato modificato altrove nello stesso momento. Ricarica e riprova.
+common-failure-account = L'account con cui hai effettuato l'accesso è cambiato. Ricarica la pagina.
+common-failure-linked = Non disponibile mentre è aperta una casella collegata.
+common-failure-refused = Il server ha rifiutato la modifica.
+common-new-version = È disponibile una nuova versione di Mailwoman. Chiudendo questo avviso, ti verrà ricordato di nuovo tra un'ora.
+common-new-version-reload = Ricarica ora
+common-toast-close = Chiudi notifica
+common-toast-seconds = { $seconds } s
+common-attach-refresh = Aggiorna allegati
+common-attach-open-message = Apri il messaggio che contiene questo allegato
+common-attach-page-filter-note = I filtri si applicano a questa pagina. Usa Avanti per sfogliare i messaggi più vecchi con allegati.
+common-attach-pages = Pagine degli allegati
+common-attach-previous = Precedente
+common-attach-next = Avanti
+common-attach-page = Pagina { $page }
+common-attach-column-name = File
+common-attach-column-type = Tipo
+common-attach-column-size = Dimensione
+common-attach-column-sender = Mittente
+common-attach-column-subject = Oggetto
+common-attach-column-date = Ricevuto
+common-pdf-preview = Anteprima PDF
+common-pdf-link-title = Aprire il link di questo PDF?
+common-pdf-link-help = La destinazione verrà aperta in una nuova scheda, fuori da Mailwoman.
+common-pdf-link-open = Apri link
+common-open-event = Apri evento
+common-message-preview-too-large = Le anteprime degli allegati dei messaggi sono limitate a 4 MiB. Puoi comunque scaricare l'allegato originale.
+common-message-preview-failed = Non è stato possibile mostrare l'anteprima di questo allegato. Il file potrebbe non essere supportato o essere danneggiato, oppure il servizio di anteprima non è disponibile. Puoi comunque scaricare l'originale.
+common-message-preview-attachments = File contenuti in questo messaggio
+common-message-preview-download = Scarica file
+common-message-preview-size-bytes = { $count } byte
+common-attach-cat-message = Messaggi / allegati Outlook
+common-error-retry-help = Questa sezione non è temporaneamente disponibile. Riprova per ricaricarla.
+common-error-network-help = Controlla la connessione e riprova. Il server potrebbe essere temporaneamente non disponibile.
+common-error-page = Impossibile caricare questa pagina
+common-error-page-help = Non è stato possibile scaricare una risorsa della pagina. Riprova. Se il problema persiste, ricarica l'applicazione per ottenere l'ultima versione.
+common-reload-app = Ricarica applicazione
+common-new-version-reloading = È disponibile una nuova versione, ricaricamento in corso…
+common-attach-account-changed = L'account è cambiato durante il caricamento degli allegati. Riapri Allegati per l'account corrente.
+common-attach-search-account = Cerca in tutto l'account
+common-attach-scanning = Ricerca in corso… { $pages } pagine di messaggi controllate · { $count } file trovati
+common-attach-scan-cancelled = Ricerca annullata · { $count } file trovati in { $pages } pagine. I risultati sono incompleti.
+common-attach-scan-incomplete = Ricerca interrotta · { $count } file trovati. Riprova per cercare in tutto l'account.
+common-attach-scan-limited = Vengono mostrati i primi 1.000 file corrispondenti. Restringi i filtri per trovare file più specifici.
+common-attach-scan-complete = Ricerca completata · { $count } file trovati in { $pages } pagine di messaggi
+common-attach-browse-pages = Sfoglia pagine
+common-attach-cancel-search = Annulla ricerca
+multiselect-selected = Selezionato: { $label }
+multiselect-remove = Rimuovi { $label }
+multiselect-no-match = Nessuna opzione corrispondente
+common-notification-permission-title = Consentire le notifiche?
+common-notification-permission-help = Ricevi notifiche sui nuovi messaggi su questo dispositivo. Puoi modificarlo in Impostazioni.
+common-notification-permission-allow = Consenti notifiche
+common-notification-permission-later = Non ora
+common-notification-permission-error = Non è stato possibile attivare le notifiche. Controlla i permessi e le impostazioni delle notifiche, quindi riprova.
+common-notifications-enabled = Notifiche attivate su questo dispositivo.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+multiselect-count = { $count ->
+    [one] 1 selezionato
+   *[other] { $count } selezionati
+ }
