@@ -61,3 +61,9 @@ notes-link-button = Связать
 notes-changed-elsewhere = Эта заметка была изменена на другом устройстве или в другом сеансе. Введённый здесь текст сохранён и будет записан при следующем изменении.
 notes-deleted-elsewhere = Открытая заметка была удалена на другом устройстве или в другом сеансе.
 notes-create-failed = Не удалось создать заметку.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+notes-create-failed-reason = Не удалось создать заметку. { $reason }
+notes-toast-pinned = Заметка «{ $target }» закреплена
+notes-toast-unpinned = Заметка «{ $target }» откреплена
+notes-toast-pin-failed = Не удалось изменить закрепление заметки «{ $target }»

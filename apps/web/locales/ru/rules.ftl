@@ -96,3 +96,9 @@ rules-forward-title = Пересылка
 rules-forward-address = Пересылать на
 rules-forward-copy = Сохранять копию в этом аккаунте
 rules-forward-refused = Администратор запретил пересылку на этот домен.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+rules-vacation-saved-off = Сохранено. Автоответы отключены.
+rules-vacation-runs-server = Этот ответ отправляет почтовый сервер при поступлении письма.
+rules-vacation-runs-engine = Mailwoman отправляет этот ответ при синхронизации новой почты во входящих, поэтому ответ может задержаться до следующей синхронизации.
+rules-vacation-unavailable = Ответы на время отпуска недоступны для этой учётной записи: почтовый сервер их не поддерживает или администратор их отключил.
