@@ -39,3 +39,6 @@ tasks-delete-no = Mantieni attività
 tasks-changed-elsewhere = Questa attività è stata modificata su un altro dispositivo o in un'altra sessione. Le modifiche apportate qui vengono mantenute; Salva applica solo i campi modificati.
 tasks-deleted-elsewhere = “{ $title }” è stata eliminata su un altro dispositivo o in un'altra sessione, quindi il modulo di modifica è stato chiuso.
 tasks-notice-dismiss = Ignora
+
+# -- Machine translation (2026-11): added to match en ---------------------
+tasks-create-failed = Impossibile creare l'attività. { $reason }
