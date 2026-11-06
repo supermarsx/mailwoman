@@ -61,42 +61,6 @@ fn row_of(r: &crate::backend::Row) -> DsrRow {
     }
 }
 
-/// Erasure statements by `account_id`: table name and its fixed DELETE.
-const BY_ACCOUNT: &[(&str, &str)] = &[
-    ("totp_secrets", "DELETE FROM totp_secrets WHERE account_id=?1"),
-    ("webauthn_credentials", "DELETE FROM webauthn_credentials WHERE account_id=?1"),
-    ("recovery_codes", "DELETE FROM recovery_codes WHERE account_id=?1"),
-    ("remembered_device", "DELETE FROM remembered_device WHERE account_id=?1"),
-    ("push_subscriptions", "DELETE FROM push_subscriptions WHERE account_id=?1"),
-    ("signatures", "DELETE FROM signatures WHERE account_id=?1"),
-    ("notification_rules", "DELETE FROM notification_rules WHERE account_id=?1"),
-    ("signin_event", "DELETE FROM signin_event WHERE account_id=?1"),
-    ("signin_identity", "DELETE FROM signin_identity WHERE account_id=?1"),
-    ("user_activity", "DELETE FROM user_activity WHERE account_id=?1"),
-    ("masked_email", "DELETE FROM masked_email WHERE account_id=?1"),
-    ("api_keys", "DELETE FROM api_keys WHERE account_id=?1"),
-    ("sieve_script", "DELETE FROM sieve_script WHERE account_id=?1"),
-    ("identities", "DELETE FROM identities WHERE account_id=?1"),
-    ("password_change_audit", "DELETE FROM password_change_audit WHERE account_id=?1"),
-    ("account_draft", "DELETE FROM account_draft WHERE account_id=?1"),
-    ("delegation_grant", "DELETE FROM delegation_grant WHERE owner_account_id=?1"),
-    ("calendars", "DELETE FROM calendars WHERE account_id=?1"),
-    ("address_books", "DELETE FROM address_books WHERE account_id=?1"),
-    ("notes", "DELETE FROM notes WHERE account_id=?1"),
-    ("notebooks", "DELETE FROM notebooks WHERE account_id=?1"),
-];
-
-/// Erasure statements by the personal owner subject.
-const BY_OWNER: &[(&str, &str)] = &[
-    ("personal_setting_value", "DELETE FROM personal_setting_value WHERE owner_subject=?1"),
-    ("personal_signature", "DELETE FROM personal_signature WHERE owner_subject=?1"),
-    ("personal_saved_search", "DELETE FROM personal_saved_search WHERE owner_subject=?1"),
-    ("personal_identity", "DELETE FROM personal_identity WHERE owner_subject=?1"),
-    ("personal_notification_rules", "DELETE FROM personal_notification_rules WHERE owner_subject=?1"),
-    ("personal_push_subscription", "DELETE FROM personal_push_subscription WHERE owner_subject=?1"),
-    ("focused_sender", "DELETE FROM focused_sender WHERE owner_subject=?1"),
-];
-
 impl Store {
     pub async fn dsr_insert(&self, row: &DsrRow) -> Result<(), StoreError> {
         q("INSERT INTO dsr_request(id,address,domain,account_id,kind,status,created_at,updated_at,due_at,assignee,rev,body_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12)")
@@ -345,48 +309,28 @@ impl Store {
         })
     }
 
-    /// Delete one person's rows from every personal table. Returns rows removed
-    /// per table; a table that fails is reported under `errors`, and the rest are
-    /// still processed (the erasure is idempotent and is run again).
+    /// Delete one person's rows from every table the data map names. Returns rows
+    /// removed per table; a statement that fails is reported under `errors`, and
+    /// the rest are still processed (the erasure is idempotent and is run again).
+    /// Principals are resolved here; use [`Store::dsr_purge_person`] when they are
+    /// already known.
     pub async fn dsr_purge_personal(
         &self,
         account_ids: &[String],
         owners: &[String],
         address: &str,
     ) -> (BTreeMap<String, u64>, Vec<String>) {
-        let mut counts = BTreeMap::new();
-        let mut errors = Vec::new();
-        for id in account_ids {
-            for (table, sql) in BY_ACCOUNT {
-                match self.dsr_exec(sql, id).await {
-                    Ok(n) => *counts.entry((*table).to_string()).or_insert(0) += n,
-                    Err(e) => errors.push(format!("{table}: {e}")),
-                }
-            }
-        }
-        for owner in owners {
-            for (table, sql) in BY_OWNER {
-                match self.dsr_exec(sql, owner).await {
-                    Ok(n) => *counts.entry((*table).to_string()).or_insert(0) += n,
-                    Err(e) => errors.push(format!("{table}: {e}")),
-                }
-            }
-        }
-        let mut scope_ids: Vec<&str> = account_ids.iter().map(String::as_str).collect();
-        scope_ids.push(address);
-        for id in scope_ids {
-            match self
-                .dsr_exec(
-                    "DELETE FROM setting_value WHERE scope_kind='user' AND scope_id=?1",
-                    id,
-                )
-                .await
-            {
-                Ok(n) => *counts.entry("setting_value".into()).or_insert(0) += n,
-                Err(e) => errors.push(format!("setting_value: {e}")),
-            }
-        }
-        (counts, errors)
+        let principals = self
+            .dsr_resolve_principals(account_ids, address)
+            .await
+            .unwrap_or_default();
+        self.dsr_purge_person(&crate::erasure::PersonIds {
+            address: address.to_string(),
+            account_ids: account_ids.to_vec(),
+            owners: owners.to_vec(),
+            principals,
+        })
+        .await
     }
 
     /// Delete a native mail account row; the cascade removes its mail cache and

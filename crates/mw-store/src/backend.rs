@@ -458,6 +458,45 @@ impl Row {
         }
     }
 
+    /// One column as JSON whatever its storage type (text, integer, real, boolean;
+    /// a blob becomes `null`). Used by the table-driven export, which must not
+    /// panic on a column whose declared type differs between the dialects.
+    pub(crate) fn get_json(&self, col: &str) -> serde_json::Value {
+        use serde_json::Value;
+        match self {
+            Row::Sqlite(r) => {
+                if let Ok(v) = r.try_get::<Option<String>, _>(col) {
+                    return v.map_or(Value::Null, Value::String);
+                }
+                if let Ok(v) = r.try_get::<Option<i64>, _>(col) {
+                    return v.map_or(Value::Null, Value::from);
+                }
+                if let Ok(v) = r.try_get::<Option<f64>, _>(col) {
+                    return v.map_or(Value::Null, Value::from);
+                }
+                Value::Null
+            }
+            Row::Postgres(r) => {
+                if let Ok(v) = r.try_get::<Option<String>, _>(col) {
+                    return v.map_or(Value::Null, Value::String);
+                }
+                if let Ok(v) = r.try_get::<Option<i64>, _>(col) {
+                    return v.map_or(Value::Null, Value::from);
+                }
+                if let Ok(v) = r.try_get::<Option<i32>, _>(col) {
+                    return v.map_or(Value::Null, Value::from);
+                }
+                if let Ok(v) = r.try_get::<Option<bool>, _>(col) {
+                    return v.map_or(Value::Null, Value::from);
+                }
+                if let Ok(v) = r.try_get::<Option<f64>, _>(col) {
+                    return v.map_or(Value::Null, Value::from);
+                }
+                Value::Null
+            }
+        }
+    }
+
     pub(crate) fn get_blob(&self, col: &str) -> Vec<u8> {
         match self {
             Row::Sqlite(r) => r.get(col),

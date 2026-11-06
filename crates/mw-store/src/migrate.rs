@@ -1560,6 +1560,71 @@ const TABLES: &[TableSpec] = &[
         },
     },
     TableSpec {
+        name: "erasure_tombstone",
+        select: "SELECT seq,id,subject_hash,key_gen,scope,request_id,erased_at FROM erasure_tombstone",
+        insert: "INSERT INTO erasure_tombstone(seq,id,subject_hash,key_gen,scope,request_id,erased_at) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                i(r, "seq"),
+                t(r, "id"),
+                t(r, "subject_hash"),
+                i(r, "key_gen"),
+                t(r, "scope"),
+                ot(r, "request_id"),
+                i(r, "erased_at"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "backup_register",
+        select: "SELECT id,kind,label,location,created_at,tombstone_watermark,manifest_json FROM backup_register",
+        insert: "INSERT INTO backup_register(id,kind,label,location,created_at,tombstone_watermark,manifest_json) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                t(r, "kind"),
+                t(r, "label"),
+                t(r, "location"),
+                i(r, "created_at"),
+                i(r, "tombstone_watermark"),
+                t(r, "manifest_json"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "scrub_key",
+        select: "SELECT gen,sealed_key,created_at,retired_at,destroy_after FROM scrub_key",
+        insert: "INSERT INTO scrub_key(gen,sealed_key,created_at,retired_at,destroy_after) VALUES(?1,?2,?3,?4,?5)",
+        map: |r| {
+            vec![
+                i(r, "gen"),
+                b(r, "sealed_key"),
+                i(r, "created_at"),
+                oi(r, "retired_at"),
+                oi(r, "destroy_after"),
+            ]
+        },
+    },
+    TableSpec {
+        name: "audit_rechain",
+        select: "SELECT id,ts,scrub_id,from_seq,to_seq,old_head_hash,new_head_hash,rows_changed,algorithm,key_gen FROM audit_rechain",
+        insert: "INSERT INTO audit_rechain(id,ts,scrub_id,from_seq,to_seq,old_head_hash,new_head_hash,rows_changed,algorithm,key_gen) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        map: |r| {
+            vec![
+                t(r, "id"),
+                i(r, "ts"),
+                t(r, "scrub_id"),
+                i(r, "from_seq"),
+                i(r, "to_seq"),
+                ot(r, "old_head_hash"),
+                ot(r, "new_head_hash"),
+                i(r, "rows_changed"),
+                t(r, "algorithm"),
+                i(r, "key_gen"),
+            ]
+        },
+    },
+    TableSpec {
         name: "breach_incident",
         select: "SELECT id,title,domain,status,severity,source,detected_at,aware_at,deadline_at,assignee,created_at,updated_at,rev,body_json FROM breach_incident",
         insert: "INSERT INTO breach_incident(id,title,domain,status,severity,source,detected_at,aware_at,deadline_at,assignee,created_at,updated_at,rev,body_json) VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",

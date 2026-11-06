@@ -52,7 +52,7 @@ fn pg_lock() -> &'static tokio::sync::Mutex<()> {
 }
 
 /// Every store table, for TRUNCATE between Postgres runs.
-const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, breach_incident, breach_event, breach_delivery, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
+const ALL_TABLES: &str = "user_activity, assist_profile, assist_egress_grant, personal_setting_value, linked_credential, linked_grant, linked_layout, linked_primary, linked_context, linked_challenge, linked_account, account_provider, account_draft, personal_identity, personal_notification_rules, personal_push_subscription, request_metrics_bucket, client_timing_bucket, dsr_request, dsr_event, dsr_part, erasure_tombstone, backup_register, scrub_key, audit_rechain, breach_incident, breach_event, breach_delivery, user_retention_rule, user_retention_account, user_retention_run, retention_archive_segment, retention_archive_index, compliance_policy_version, compliance_policy_override, compliance_record, dpia, dpia_version, cookie_consent, cookie_rule, cookie_detected, feature_user_subject, personal_signature, focused_sender, personal_saved_search, oidc_browser_flow, oidc_provider_config, oidc_client, oidc_signing_key, oidc_consent, oidc_authorization, oidc_grant, oidc_code, oidc_token, nextcloud_account_link, nextcloud_instance, nextcloud_pim_binding, package_account, package_provider, identity_principal, identity_binding, session_principal, sessions, settings, accounts, mailboxes, messages, bodies, threads, \
     pop3_uidl, sync_state, message_meta, tags, saved_searches, submissions, identities, changes, \
     calendars, calendar_shares, events, event_instances, tasks, notebooks, notes, address_books, \
     contacts, contact_groups, pim_changes, crypto_keys, key_associations, security_verdicts, \
@@ -2464,6 +2464,23 @@ mod admin_controls_0033 {
         NewTable {name:"dsr_event",copied:true,cols:&[
             ("id",'T',"!","dsr-event-1"),("request_id",'T',"!","dsr-1"),("ts",'I',"!",TS),
             ("actor",'T',"!","admin"),("kind",'T',"!","created"),("detail_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"erasure_tombstone",copied:true,cols:&[
+            ("seq",'I',"!","1"),("id",'T',"!","tomb-1"),("subject_hash",'T',"!","abc123"),("key_gen",'I',"!","1"),
+            ("scope",'T',"!","erasure"),("request_id",'T',"~","dsr-1"),("erased_at",'I',"!",TS),
+        ]},
+        NewTable {name:"backup_register",copied:true,cols:&[
+            ("id",'T',"!","bk-1"),("kind",'T',"!","store"),("label",'T',"!","nightly"),("location",'T',"!","/backups/a.sqlite"),
+            ("created_at",'I',"!",TS),("tombstone_watermark",'I',"!","1"),("manifest_json",'T',"!","{}"),
+        ]},
+        NewTable {name:"scrub_key",copied:true,cols:&[
+            ("gen",'I',"!","1"),("sealed_key",'B',"!","sealed-key-bytes"),("created_at",'I',"!",TS),
+            ("retired_at",'I',"~",TS),("destroy_after",'I',"~",TS),
+        ]},
+        NewTable {name:"audit_rechain",copied:true,cols:&[
+            ("id",'T',"!","rc-1"),("ts",'I',"!",TS),("scrub_id",'T',"!","scrub-1"),("from_seq",'I',"!","1"),("to_seq",'I',"!","5"),
+            ("old_head_hash",'T',"~","aa"),("new_head_hash",'T',"~","bb"),("rows_changed",'I',"!","2"),
+            ("algorithm",'T',"!","hmac-sha256-16"),("key_gen",'I',"!","1"),
         ]},
         NewTable {name:"dsr_part",copied:true,cols:&[
             ("request_id",'T',"!","dsr-1"),("name",'T',"!","profile.json"),("seq",'I',"!","0"),
