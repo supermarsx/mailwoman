@@ -34,6 +34,9 @@ import { ResizeHandle } from '../../../components/ResizeHandle.tsx';
 import { useOptionalPersonalPreferences } from './personalPreferences.tsx';
 import { AdminNavSkeleton } from './BootSkeleton.tsx';
 import { releaseBootSplash } from '../../../shell/bootSplash.ts';
+import { SessionBar } from './SessionBar.tsx';
+import { parseSessionBarMode, type SessionBarApi } from './sessionBar.ts';
+import './sessionBar.css.ts';
 import * as css from './shell.css.ts';
 
 export interface AdminShellProps {
@@ -53,6 +56,8 @@ export interface AdminShellProps {
    * roles are known, so a restricted admin never sees a section flash and vanish.
    */
   loading?: boolean;
+  /** The session countdown along the bottom edge. Left out, the console draws no bar (tests, previews). */
+  sessionBar?: { api: SessionBarApi; onExpired: () => void } | undefined;
   /** The "leave with unsaved changes?" question, owned by the router. */
   leave: { open: boolean; onStay: () => void; onLeave: () => void };
   children: JSX.Element;
@@ -80,6 +85,8 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
     setSidebarCollapsed(layout['sidebarCollapsed'] === true);
   });
   const saveLayout = () => preferences?.patch({ shellLayout: { sidebarWidth: sidebarWidth(), sidebarCollapsed: sidebarCollapsed() } });
+  const [barShown, setBarShown] = createSignal(false);
+  const barMode = () => (preferences?.loading() ? 'hidden' : parseSessionBarMode(preferences?.data()['sessionBar']));
   const [drawerOpen, setDrawerOpen] = createSignal(false);
   const [paletteOpen, setPaletteOpen] = createSignal(false);
   const [navEl, setNavEl] = createSignal<HTMLElement>();
@@ -226,14 +233,14 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
   );
 
   return (
-    <div ref={frameElement} class={`${css.frame} mw-custom-admin`} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined}>
+    <div ref={frameElement} class={`${css.frame} mw-custom-admin`} data-screen="admin" data-sidebar-collapsed={sidebarCollapsed() ? '' : undefined} data-session-bar={barShown() ? '' : undefined}>
       <AppearanceCustomizationRuntime owner={() => ({kind: 'admin', username: props.username})} />
-      <aside id="admin-sidebar" class={css.sidebar}>
+      <aside id="admin-sidebar" class={css.sidebar} data-admin-column="sidebar">
         <Brand />
         <Nav roving />
         <Footer />
       </aside>
-      <div class={css.sidebarResize}>
+      <div class={css.sidebarResize} data-admin-column="resize">
         <ResizeHandle label={t('admin-shell-sidebar-resize')} controls="admin-sidebar" value={sidebarWidth()} min={180} max={480}
           direction={document.documentElement.dir === 'rtl' ? -1 : 1} onChange={setSidebarWidth} onCommit={saveLayout} />
       </div>
@@ -288,7 +295,7 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
         </div>
       </Show>
 
-      <main class={css.main} id="admin-main" tabindex="-1">
+      <main class={css.main} id="admin-main" tabindex="-1" data-admin-column="main">
         <div class={css.mainHead}>
           <button type="button" class={`btn btn--ghost ${css.sidebarToggle}`} aria-expanded={!sidebarCollapsed()} aria-controls="admin-sidebar"
             aria-label={t(sidebarCollapsed() ? 'admin-shell-sidebar-show' : 'admin-shell-sidebar-hide')}
@@ -311,6 +318,10 @@ export function AdminShell(props: AdminShellProps): JSX.Element {
         </div>
         {props.children}
       </main>
+
+      <Show when={props.sessionBar}>
+        {(bar) => <SessionBar api={bar().api} mode={barMode()} onExpired={bar().onExpired} onVisible={setBarShown} />}
+      </Show>
 
       <CommandPalette
         open={paletteOpen()}

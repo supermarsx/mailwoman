@@ -4,13 +4,25 @@ import { AdminScreen } from './index.tsx';
 import { mockAdminApi } from './testkit.tsx';
 import { offlineShell } from './shell/testkit.tsx';
 import { AdminApiError, createHttpAdminApi } from '../../state/slices/admin.ts';
+import { forgetAdminSession } from '../../api/adminSession.ts';
 
 describe('Admin sign-in gate — session lifetime', () => {
-  it('states how long an admin session lasts', async () => {
+  it('does not print the session lifetime on the sign-in card (the console shows a countdown instead)', async () => {
     render(() => <AdminScreen api={mockAdminApi({ session: vi.fn(async () => null) })} {...offlineShell()} />);
     const form = await screen.findByRole('form', { name: 'Admin sign in' });
-    expect(form).toHaveTextContent('30 minutes without activity');
-    expect(form).toHaveTextContent('12 hours');
+    expect(form).not.toHaveTextContent('separate admin session');
+    expect(form).not.toHaveTextContent('without activity');
+    expect(form).not.toHaveTextContent('after sign-in at the latest');
+    expect(document.body).not.toHaveTextContent('30 minutes');
+  });
+
+  it('prints no session-lifetime notice in the signed-in console either', async () => {
+    render(() => <AdminScreen api={mockAdminApi()} {...offlineShell()} />);
+    expect(await screen.findByRole('link', { name: 'Domains' })).toBeInTheDocument();
+    expect(document.body).not.toHaveTextContent('separate admin session');
+    expect(document.body).not.toHaveTextContent('without activity');
+    expect(document.body).not.toHaveTextContent('at the latest');
+    forgetAdminSession(); // the signed-in probe left a session marker behind
   });
 
   it('does not say a session ended when there simply is none', async () => {

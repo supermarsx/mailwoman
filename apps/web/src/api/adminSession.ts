@@ -23,13 +23,30 @@ export function markAdminSessionEnded():void{
 }
 export function adminResponseIsCurrent(epoch:number):boolean{return epoch===generation||epoch===invalidated;}
 export function onAdminSessionEnded(listener:()=>void):()=>void{listeners.add(listener);return()=>listeners.delete(listener);}
-export function observeAdminResponse(input:string,status:number,epoch:number,sessionProbe=false):void{
-  if(status!==401||epoch!==generation||!hadAdminSession())return;
+const activityListeners=new Set<()=>void>();
+/** Called after the server accepted an ordinary admin request: it moved the session's idle deadline. */
+export function onAdminActivity(listener:()=>void):()=>void{activityListeners.add(listener);return()=>activityListeners.delete(listener);}
+function adminSuffix(input:string):string|null{
   const base=new URL(adminUrl(''),globalThis.location?.href??'http://localhost');
   const target=new URL(input,base);
-  if(target.origin!==base.origin||!target.pathname.startsWith(`${base.pathname}/`))return;
-  const suffix=target.pathname.slice(base.pathname.length);
-  if(suffix==='/login'||suffix.startsWith('/login/')||suffix==='/logout'||(suffix==='/session'&&!sessionProbe))return;
+  if(target.origin!==base.origin||!target.pathname.startsWith(`${base.pathname}/`))return null;
+  return target.pathname.slice(base.pathname.length);
+}
+export function observeAdminResponse(input:string,status:number,epoch:number,sessionProbe=false):void{
+  if(epoch!==generation||!hadAdminSession())return;
+  if(status!==401){
+    // The server counts any request that passed its session gate, whatever it then answered;
+    // the sign-in, sign-out and the non-refreshing status read are not that.
+    if(status>=500||status===429||activityListeners.size===0)return;
+    const suffix=adminSuffix(input);
+    if(suffix===null||suffix==='/login'||suffix.startsWith('/login/')||suffix==='/logout'||suffix==='/session/status')return;
+    for(const listener of activityListeners)listener();
+    return;
+  }
+  const suffix=adminSuffix(input);
+  if(suffix===null)return;
+  // `/session/status` is the session bar's own look at the deadline; the bar decides what an end means.
+  if(suffix==='/login'||suffix.startsWith('/login/')||suffix==='/logout'||suffix==='/session/status'||(suffix==='/session'&&!sessionProbe))return;
   markAdminSessionEnded();
   for(const listener of listeners)listener();
 }

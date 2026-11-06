@@ -170,7 +170,6 @@ export function AdminLogin(props: AdminLoginProps = {}): JSX.Element {
           <form ref={card} class={`${css.loginCard} ${authCard}`} data-testid="admin-login-card" onSubmit={(e) => void onSubmit(e)} aria-label={t('admin-login-form')}>
             <Show when={brandAssetUrl(branding()?.logoUrl)}>{url=><img src={url()} alt={branding()?.brandName||'Mailwoman'} class={brandCss.loginLogo}/>}</Show>
             <h1 class={css.heading}>{branding()?.brandName||t('admin-brand')}</h1>
-            <p class={css.note}>{t('admin-login-note')}</p>
             <Show when={branding()?.loginNotice}>{notice=><p class={css.note} dir="auto">{notice()}</p>}</Show>
             <label class="field">
               <span>{t('admin-login-username')}</span>

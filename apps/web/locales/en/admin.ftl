@@ -28,7 +28,6 @@ admin-saved = Saved.
 
 # -- Sign-in gate (separate admin session) -----------------------------------
 admin-login-form = Admin sign in
-admin-login-note = This panel runs under a separate admin session. The session ends after 30 minutes without activity, and 12 hours after sign-in at the latest.
 admin-login-session-ended = Your admin session has ended. Sign in again.
 admin-login-username = Admin username
 admin-login-password = Password

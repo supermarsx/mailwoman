@@ -22,6 +22,7 @@ import { horizontalWheel } from '../../components/horizontalWheel.ts';
 import * as tabsCss from './shell/sectionTabs.css.ts';
 import {toast} from '../../components/toast/toast.ts';
 import {fieldAnchorAttrs} from './shell/fieldAnchors.ts';
+import { SESSION_BAR_MODES, parseSessionBarMode } from './shell/sessionBar.ts';
 
 /** Live accent while the picker is dragged; the store re-applies the saved one on commit. */
 function previewAccent(value: string | null): void {
@@ -73,6 +74,7 @@ export function PersonalPreferences(): JSX.Element {
     <fieldset disabled={blocked()} class={css.section}><legend class={css.heading}>{t('admin-personal-layout')}</legend>
       <label class={css.field}>{t('admin-personal-density')}<select class={css.select} value={prefs.appearance.prefs().density ?? 'cozy'} onChange={e => prefs.appearance.setDensity(e.currentTarget.value as 'compact' | 'cozy' | 'relaxed')}><For each={['compact', 'cozy', 'relaxed'] as const}>{value => <option value={value}>{t(`admin-personal-density-${value}`)}</option>}</For></select></label>
       <label class={css.field}>{t('admin-personal-font')}<select class={css.select} value={prefs.appearance.prefs().font ?? 'default'} onChange={e => prefs.appearance.setFont(e.currentTarget.value as UiFont)}><For each={['default', 'system', 'serif', 'mono', 'inter', 'roboto', 'open-sans', 'jost', 'manrope'] as const}>{value => <option value={value}>{t(`admin-personal-font-${value}`)}</option>}</For></select></label>
+      <label class={css.field}>{t('admin-personal-session-bar')}<select class={css.select} data-testid="admin-session-bar-mode" value={parseSessionBarMode(prefs.data()['sessionBar'])} onChange={e => prefs.patch({ sessionBar: parseSessionBarMode(e.currentTarget.value) })}><For each={SESSION_BAR_MODES}>{value => <option value={value}>{t(`admin-personal-session-bar-${value}`)}</option>}</For></select><span class={css.meta}>{t('admin-personal-session-bar-hint')}</span></label>
       <Show when={prefs.i18n}>{ctx => <label class={css.field}>{t('admin-personal-language')}<select class={css.select} value={ctx().locale()} onChange={e => { const locale = e.currentTarget.value; if (isKnownLocale(locale)) { prefs.patch({ locale }); ctx().setLocale(locale); } }}><For each={LOCALES}>{locale => <option value={locale} lang={locale}>{formatLanguageName(locale)}</option>}</For></select></label>}</Show>
     </fieldset>
     </div>

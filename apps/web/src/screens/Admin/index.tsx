@@ -41,6 +41,7 @@ import { ToastRegion, toast } from '../../components/toast/index.ts';
 import { PersonalPreferencesProvider, type AdminPreferencesApi } from './shell/personalPreferences.tsx';
 import { AdminLoginSkeleton, AdminPageSkeleton } from './shell/BootSkeleton.tsx';
 import { releaseBootSplash, rememberAdminBootSession } from '../../shell/bootSplash.ts';
+import { createHttpSessionBarApi, type SessionBarApi } from './shell/sessionBar.ts';
 import * as shellCss from './shell/shell.css.ts';
 
 export interface AdminScreenProps {
@@ -55,6 +56,8 @@ export interface AdminScreenProps {
   search?: AdminSearch;
   /** Second sign-in step. Defaults to the HTTP client. */
   verifyTotp?: AdminTotpVerifier;
+  /** The session bar's server client. Defaults to the HTTP one, unless a mock `api` is injected (then no bar). */
+  sessionBarApi?: SessionBarApi;
   /** The section table. Defaults to `SECTIONS`; tests may pass a smaller one. */
   sections?: readonly SectionDef[];
 }
@@ -107,6 +110,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
   const admin = useAdmin();
   const sections = props.sections ?? SECTIONS;
   const can = createLoadedCan(props.loadMe ?? createAdminMeLoader());
+  const sessionBarApi = props.sessionBarApi ?? (props.api ? undefined : createHttpSessionBarApi());
   const [capabilityError,setCapabilityError]=createSignal<unknown>();
   async function loadCapabilities():Promise<void>{
     const epoch=adminSessionGeneration();
@@ -225,6 +229,7 @@ function Console(props: AdminScreenProps & { username: string }): JSX.Element {
           can={can}
           username={props.username}
           onSignOut={() => void admin.logout()}
+          sessionBar={sessionBarApi ? { api: sessionBarApi, onExpired: () => admin.api.onSessionEnded?.() } : undefined}
           search={services.search}
           breadcrumbs={crumbs()}
           leave={{ open: leaveOpen(), onStay: () => settle(false), onLeave: () => settle(true) }}

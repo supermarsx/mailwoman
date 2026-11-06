@@ -332,3 +332,20 @@ admin-crumb-limits = Limites
 admin-crumb-delivery = Transferência e pré-visualização
 admin-crumb-warnings = Avisos
 admin-crumb-test = Testar um ficheiro
+
+# -- Session bar (bottom status bar) ------------------------------------------
+admin-session-bar-label = Sessão de administrador
+admin-session-bar-idle = Inatividade termina em { $time }
+admin-session-bar-absolute = A sessão termina em { $time }
+admin-session-bar-hm = { $hours } h { $minutes } min
+admin-session-bar-extend = Prolongar
+admin-session-bar-expired = Sessão expirada — inicie sessão novamente
+admin-session-bar-sign-in = Iniciar sessão
+admin-session-bar-details = Detalhes da sessão
+admin-session-bar-row-idle = Inatividade termina em
+admin-session-bar-row-absolute = A sessão termina em
+admin-session-bar-row-signed-in = Início de sessão
+admin-session-bar-note = A atividade na consola repõe o tempo de inatividade. O limite da sessão conta desde o início de sessão e não pode ser prolongado.
+admin-session-bar-announce-warning = A sua sessão de administrador termina em menos de 5 minutos.
+admin-session-bar-announce-critical = A sua sessão de administrador termina em menos de 1 minuto.
+admin-session-bar-announce-expired = A sua sessão de administrador expirou.

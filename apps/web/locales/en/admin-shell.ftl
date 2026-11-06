@@ -336,3 +336,20 @@ admin-crumb-limits = Limits
 admin-crumb-delivery = Download and preview
 admin-crumb-warnings = Warnings
 admin-crumb-test = Test a file
+
+# -- Session bar (bottom status bar) ------------------------------------------
+admin-session-bar-label = Admin session
+admin-session-bar-idle = Idle timeout in { $time }
+admin-session-bar-absolute = Session ends in { $time }
+admin-session-bar-hm = { $hours }h { $minutes }m
+admin-session-bar-extend = Extend
+admin-session-bar-expired = Session expired — sign in again
+admin-session-bar-sign-in = Sign in
+admin-session-bar-details = Session details
+admin-session-bar-row-idle = Idle timeout in
+admin-session-bar-row-absolute = Session ends in
+admin-session-bar-row-signed-in = Signed in
+admin-session-bar-note = Activity in the console resets the idle timeout. The session limit counts from sign-in and cannot be extended.
+admin-session-bar-announce-warning = Your admin session ends in less than 5 minutes.
+admin-session-bar-announce-critical = Your admin session ends in less than 1 minute.
+admin-session-bar-announce-expired = Your admin session has expired.

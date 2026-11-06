@@ -76,3 +76,9 @@ admin-personal-font-manrope = Manrope
 admin-personal-font-roboto = Roboto
 admin-personal-font-open-sans = Open Sans
 admin-personal-font-jost = Jost
+
+admin-personal-session-bar = Barra de contagem da sessão
+admin-personal-session-bar-always = Mostrar sempre
+admin-personal-session-bar-warn-only = Só quando a sessão estiver prestes a terminar
+admin-personal-session-bar-hidden = Oculta
+admin-personal-session-bar-hint = Aparece na parte inferior da consola. Apenas indica os limites de sessão do servidor; não os pode prolongar.
