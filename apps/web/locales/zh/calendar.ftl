@@ -232,3 +232,166 @@ calendar-share-access-for = { $principal } 的权限
 calendar-share-remove = 移除 { $principal }
 calendar-share-read = 只读
 calendar-share-readwrite = 读写
+
+# -- Machine translation (2026-11): added to match en ---------------------
+calendar-mini = 日期导航
+calendar-event-range = { $title },{ $start } 至 { $end }
+calendar-busy-free = 显示为空闲
+calendar-event-with-status = { $event }({ $status })
+calendar-more-label = { $date }还有 { $count } { $count ->
+   *[other] 个日程
+  }
+calendar-fb-caption-people = 冲突当天按小时显示你和每位受邀者的忙碌时间。
+calendar-fb-unknown = 无法获取 { $principal } 的空闲状态。
+calendar-fb-loading = 正在加载空闲状态…
+calendar-import-itip-message = 此文件是通过邮件发送的回复或取消通知。请打开随附的邮件来应用。未导入任何内容。
+calendar-import-skipped = { $count ->
+   *[other] 有 { $count } 个日程已在日历中,保持原样。
+}
+calendar-invite-title = 日历邀请
+calendar-invite-sender = 来自 { $sender }
+calendar-invite-add = 添加到日历
+calendar-invite-update = 应用日程更新
+calendar-invite-cancel = 应用取消
+calendar-invite-reply = 记录参与者回复
+calendar-invite-new = 此邀请可以添加到你的日历。
+calendar-invite-newer = 组织者发送了更新后的日程。
+calendar-invite-current = 你的日历中已有此版本。
+calendar-invite-stale = 此邮件比日历中的日程更旧。
+calendar-invite-cancelled = 组织者已取消此日程。
+calendar-invite-response = 有参与者发来了回复。
+calendar-invite-not-organizer = 发件人不是已存储的组织者。不会做任何更改。
+calendar-invite-not-attendee = 发件人不是匹配的参与者。不会做任何更改。
+calendar-invite-unknown = 此邮件涉及的日程不在你的日历中。
+calendar-invite-unsupported = 此提议无法自动应用。
+calendar-invite-no-reply = 这会更新你的日历,但不会发送回复。
+calendar-invite-applied = 你的日历已更新。
+calendar-invite-unchanged = 日程未更改。请查看邀请的当前状态。
+calendar-invite-apply-failed = 无法应用此邀请。请重试。
+calendar-invite-load-failed = 无法检查此邀请。
+calendar-invite-retry = 重试
+calendar-field-time-zone = 日程时区
+calendar-field-time-zone-help = 使用 IANA 名称,例如 Europe/Lisbon。在其他地方查看时,日程会保留此时区。
+calendar-time-invalid = 请输入有效的时区和本地时间。时钟拨快时,部分本地时间并不存在。
+calendar-mini-prev = 上个月
+calendar-mini-next = 下个月
+calendar-card-region-event = 日历日程
+calendar-card-kind-request = 会议邀请
+calendar-card-kind-update = 更新的邀请
+calendar-card-kind-cancel = 已取消的会议
+calendar-card-kind-reply = 会议回复
+calendar-card-kind-counter = 提议了新时间
+calendar-card-kind-publish = { $count ->
+   *[other] { $count } 个日历日程
+}
+calendar-card-when = 时间
+calendar-card-where = 地点
+calendar-card-organizer = 组织者
+calendar-card-attendees = 参与者
+calendar-card-all-day = { $when }(全天)
+calendar-card-organizer-time = 组织者的时间:{ $when }({ $zone })
+calendar-card-repeat-daily = { $interval ->
+    [one] 每天
+   *[other] 每 { $interval } 天
+}
+calendar-card-repeat-weekly = { $interval ->
+    [one] 每周
+   *[other] 每 { $interval } 周
+}
+calendar-card-repeat-weekly-on = { $interval ->
+    [one] 每{ $days }
+   *[other] 每 { $interval } 周的{ $days }
+}
+calendar-card-repeat-monthly = { $interval ->
+    [one] 每月
+   *[other] 每 { $interval } 个月
+}
+calendar-card-repeat-monthly-day = { $interval ->
+    [one] 每月 { $day } 日
+   *[other] 每 { $interval } 个月的 { $day } 日
+}
+calendar-card-repeat-yearly = { $interval ->
+    [one] 每年
+   *[other] 每 { $interval } 年
+}
+calendar-card-repeat-until = { $rule },直到 { $date }
+calendar-card-repeat-count = { $rule },{ $count ->
+    [one] 一次
+   *[other] 共 { $count } 次
+}
+calendar-card-repeat-custom = 按自定义计划重复
+calendar-card-join = 加入 { $provider }
+calendar-card-organizer-is = 组织者:{ $who }
+calendar-card-people-all = 显示全部 { $count } 位
+calendar-card-people-fewer = 显示更少
+calendar-card-rsvp-accepted = 已接受
+calendar-card-rsvp-tentative = 待定
+calendar-card-rsvp-declined = 已拒绝
+calendar-card-rsvp-none = 尚未回复
+calendar-card-in-calendar = 已在你的日历中
+calendar-card-cancelled = 已取消
+calendar-card-open = 在日历中打开
+calendar-card-agenda = 你在 { $day } 的日历
+calendar-card-agenda-title = 你的一天
+calendar-card-agenda-this-event = 此日程
+calendar-card-agenda-unavailable = 无法加载你这一天的日历。
+calendar-card-conflicts = { $count ->
+    [one] 与 { $titles } 冲突
+   *[other] 与 { $count } 个日程冲突:{ $titles }
+}
+calendar-card-no-conflicts = 你的日历中没有冲突
+calendar-card-invited-as = 你受邀的地址是 { $address }。
+calendar-card-not-invited = 此邀请未列出你的任何地址。你可以将其添加到日历,但无法回复。
+calendar-card-not-invited-short = 此邀请未列出你的任何地址。
+calendar-card-out-of-date = 此邀请已过期。你的日历中已有更新的版本。
+calendar-card-replied = { $who }{ $answer ->
+    [accepted] 已接受。
+    [tentative] 已暂时接受。
+    [declined] 已拒绝。
+   *[other] 尚未回复。
+}
+calendar-card-counter = { $who } 提议了新的时间。提议不会自动应用。
+calendar-card-todos-skipped = { $count ->
+    [one] 该文件还包含 1 个任务,未添加。
+   *[other] 该文件还包含 { $count } 个任务,未添加。
+}
+calendar-card-respond = 回复邀请
+calendar-card-accept = 接受
+calendar-card-tentative = 待定
+calendar-card-decline = 拒绝
+calendar-card-propose = 提议新时间
+calendar-card-propose-start = 新的开始时间
+calendar-card-propose-send = 发送提议
+calendar-card-propose-invalid = 请输入有效的新开始时间。
+calendar-card-send-response = 向 { $organizer } 发送回复
+calendar-card-comment = 备注(可选)
+calendar-card-calendar = 日历
+calendar-card-events = 此文件中的日程
+calendar-card-add-one = 添加
+calendar-card-add-all = 全部添加({ $count })
+calendar-card-added = { $count ->
+    [one] 已添加到你的日历。
+   *[other] 已将 { $count } 个日程添加到你的日历。
+}
+calendar-card-remove = 从日历中移除
+calendar-card-removed = 已从你的日历中移除。
+calendar-card-record-reply = 更新参与者状态
+calendar-card-answered-sent = { $answer }。你的回复已发送给 { $organizer }。
+calendar-card-answered-not-sent = { $answer }。你的日历已更新,但回复未能发送。
+calendar-card-answered-silently = { $answer }。未发送回复。
+calendar-card-proposal-sent = 你的提议已发送给 { $organizer }。
+calendar-card-not-sent = 邮件未能发送。
+calendar-card-more = { $count ->
+    [one] 另有 1 个
+   *[other] 另有 { $count } 个
+}
+
+# -- Machine translation (2026-11): added to match en ---------------------
+calendar-card-repeat-except = { $count ->
+    [one] { $rule }(跳过 1 个日期)
+   *[other] { $rule }(跳过 { $count } 个日期)
+}
+calendar-card-attendee-summary = { $count ->
+    [one] 1 位参与者 · 已接受 { $accepted },待定 { $tentative },已拒绝 { $declined }
+   *[other] { $count } 位参与者 · 已接受 { $accepted },待定 { $tentative },已拒绝 { $declined }
+}
