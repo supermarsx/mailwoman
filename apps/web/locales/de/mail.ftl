@@ -729,3 +729,467 @@ mail-editor-selection-changed = Die Auswahl hat sich geändert. Wählen Sie den 
 mail-editor-clipboard = Zwischenablage und Formatierung
 mail-editor-copy = Kopieren
 mail-editor-cut = Ausschneiden
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-privacy-images-failed = { $loaded }/{ $total } Bilder angezeigt · { $failed } fehlgeschlagen
+mail-privacy-images-loaded = { $loaded }/{ $total } Bilder angezeigt
+mail-privacy-images-loading-failed = { $loaded }/{ $total } Bilder angezeigt · { $pending } werden geladen · { $failed } fehlgeschlagen
+mail-reader-folder-title = Ordner: { $folder }
+mail-reader-move-to = Verschieben nach …
+mail-action-help-move = Diese Nachricht in einen anderen Ordner verschieben.
+folder-ops-new-subfolder = Neuer Unterordner
+folder-ops-mark-read = Alle als gelesen markieren
+folder-ops-this-folder = Dieser Ordner
+folder-ops-with-subfolders = Unterordner einbeziehen
+folder-ops-no-unread = Keine ungelesenen Nachrichten.
+folder-ops-read-unavailable = Sie können Nachrichten in diesem Ordner nicht ändern.
+folder-ops-more = Mehr
+folder-ops-system-folder = Ein Systemordner kann so nicht geändert werden.
+folder-ops-sort-subfolders = Unterordner sortieren nach
+folder-ops-sort-folders = Ordner sortieren nach
+folder-ops-sort-name = Name
+folder-ops-sort-unread = Anzahl ungelesener
+folder-ops-sort-total = Gesamtanzahl
+folder-ops-sort-date = Letzte Aktivität
+folder-ops-sort-custom = Eigene Reihenfolge
+folder-ops-sort-asc = Aufsteigend
+folder-ops-sort-desc = Absteigend
+folder-ops-delete-with-subfolders = Ordner und Unterordner löschen
+folder-ops-delete-unavailable = Dieser Ordner kann nicht gelöscht werden.
+folder-ops-delete-tree-body = Dadurch werden { $folders } Ordner und die darin enthaltenen { $count } Nachrichten endgültig gelöscht. Dies kann nicht rückgängig gemacht werden.
+folder-ops-copy-all-menu = Alle Elemente kopieren nach …
+folder-ops-move-all-menu = Alle Elemente verschieben nach …
+folder-ops-move-folder-menu = Ordner verschieben nach …
+folder-ops-move-up = Nach oben
+folder-ops-move-down = Nach unten
+folder-ops-move-unavailable = Sie können diesen Ordner oder seine Elemente nicht verschieben.
+folder-ops-move-duplicate = Im Zielordner existiert bereits ein Ordner mit diesem Namen.
+folder-ops-move-folder-title = { $name } verschieben
+folder-ops-move-folder-body = Der Ordner wird mit seinen Unterordnern und Nachrichten verschoben. Wählen Sie den Ordner, in dem er liegen soll, oder die oberste Ebene.
+folder-ops-move-here = Hierher verschieben
+folder-ops-moved-folder = { $name } verschoben.
+folder-ops-choose-folder = Wählen Sie einen Zielordner.
+folder-ops-destination = Zielordner
+folder-ops-include-subfolders = Nachrichten aus { $count } Unterordnern einbeziehen
+folder-ops-copy-all-title = Alle Elemente von { $name } kopieren
+folder-ops-move-all-title = Alle Elemente von { $name } verschieben
+folder-ops-copy-all-body = Fügt { $count } Nachrichten zum Zielordner hinzu. Sie bleiben an ihrem Ort.
+folder-ops-move-all-body = Verschiebt { $count } Nachrichten in den Zielordner. Sie können dies anschließend rückgängig machen.
+folder-ops-copy-all = Elemente kopieren
+folder-ops-move-all = Elemente verschieben
+folder-ops-undo = Rückgängig
+folder-ops-stop = Anhalten
+folder-ops-marking = { $name } wird als gelesen markiert …
+folder-ops-marking-progress = { $name } wird als gelesen markiert: { $done } von { $total }
+folder-ops-marked = { $count } Nachrichten in { $name } als gelesen markiert.
+folder-ops-copying = { $name } wird kopiert …
+folder-ops-copying-progress = { $name } wird kopiert: { $done } von { $total }
+folder-ops-copied = { $count } Nachrichten aus { $name } kopiert.
+folder-ops-moving = { $name } wird verschoben …
+folder-ops-moving-progress = { $name } wird verschoben: { $done } von { $total }
+folder-ops-moved = { $count } Nachrichten aus { $name } verschoben.
+folder-ops-stopped = { $name } nach { $count } von { $total } Nachrichten angehalten.
+folder-ops-partial = { $count } von { $total } Nachrichten in { $name } wurden verarbeitet; { $refused } wurden abgelehnt.
+folder-ops-failed = { $name } konnte nicht abgeschlossen werden. Aktualisieren Sie und versuchen Sie es erneut.
+folder-ops-error-forbidden = Ihnen fehlen die Rechte für diese Änderung.
+folder-ops-error-exists = Dort existiert bereits ein Ordner mit diesem Namen.
+folder-ops-error-mailboxHasEmail = Der Ordner enthält noch Nachrichten.
+folder-ops-error-notFound = Der Ordner existiert nicht mehr.
+folder-ops-error-failed = Die Änderung konnte nicht durchgeführt werden. Aktualisieren Sie und versuchen Sie es erneut.
+folder-ops-expand = Unterordner von { $name } anzeigen
+folder-ops-collapse = Unterordner von { $name } ausblenden
+mail-context-reply = Antworten
+mail-context-reply-all = Allen antworten
+mail-context-forward = Weiterleiten
+mail-context-quick-print = Schnelldruck
+mail-context-copy = Kopieren
+mail-context-copy-to-folder = Nachricht in Ordner kopieren …
+mail-context-copy-sender = Absenderadresse kopieren
+mail-context-copy-subject = Betreff kopieren
+mail-context-copy-link = Nachrichtenlink kopieren
+mail-context-copied = Kopiert.
+mail-context-copy-failed = Kopieren in die Zwischenablage nicht möglich.
+mail-context-print-failed = Die Nachricht konnte nicht gedruckt werden.
+mail-reply-images-title = Bilder der ursprünglichen Nachricht
+mail-reply-images-ask = Bilder der ursprünglichen Nachricht in diese Antwort aufnehmen?
+mail-reply-images-include = Bilder aufnehmen
+mail-reply-images-not-now = Jetzt nicht
+mail-reply-images-trust = { $domain } immer vertrauen
+mail-reply-images-loading = Bilder werden hinzugefügt …
+mail-reply-images-cancelled = Laden abgebrochen. Es wurden keine Bilder hinzugefügt.
+mail-reply-images-failed = Die Bilder konnten nicht hinzugefügt werden.
+mail-reply-images-retry = Erneut laden
+mail-image-cancel = Abbrechen
+mail-compose-from-why-match = Gesendet wird von { $identity }, weil die Nachricht an { $address } gesendet wurde.
+mail-compose-from-why-match-plus = Gesendet wird von { $identity }, weil die Nachricht an { $address } gesendet wurde, eine Plus-Adresse davon.
+mail-compose-from-why-ambiguous = Mehrere Identitäten passen zu { $address }. Gesendet wird von { $identity }; wählen Sie eine andere:
+mail-compose-from-why-default = Gesendet wird von Ihrer Standardidentität { $identity }, da keine zu den ursprünglichen Empfängern passt.
+mail-compose-from-why-forced-default = Gesendet wird von Ihrer Standardidentität { $identity }, wie in Ihren Einstellungen festgelegt.
+mail-compose-from-why-keep = Gesendet wird von { $identity }.
+mail-compose-from-change = Ändern
+reader-attachments-reason-encrypted = Diese Nachricht ist verschlüsselt. Ihre Anhänge erscheinen, nachdem Sie sie entsperrt haben.
+reader-attachments-reason-list-missing = Die Anhangsliste dieser Nachricht konnte nicht geladen werden, daher ist die Anhangsleiste ausgeblendet.
+reader-attachments-reason-inline-only = Die Anhänge dieser Nachricht ({ $count }) sind Inline-Bilder, die in der Nachricht selbst angezeigt werden.
+reader-attachments-reason-unavailable-parts = { $count ->
+    [one] Ein Anhang dieser Nachricht hat keinen herunterladbaren Inhalt, daher ist die Anhangsleiste ausgeblendet.
+   *[other] { $count } Anhänge dieser Nachricht haben keinen herunterladbaren Inhalt, daher ist die Anhangsleiste ausgeblendet.
+  }
+reader-attachments-reason-policy-blocked = Ihre Anhangsrichtlinie blockiert das Herunterladen { $count ->
+    [one] dieses Anhangs.
+   *[other] dieser Anhänge.
+  }
+reader-attachments-reason-policy-unavailable = Die Anhangsrichtlinie konnte nicht geprüft werden, daher können Anhänge noch nicht geöffnet werden.
+mail-drafts-popup-count = { $count ->
+    [one] 1 Entwurf
+   *[other] { $count } Entwürfe
+  }
+mail-drafts-popup-search = Nach Betreff oder Empfänger suchen
+mail-drafts-popup-tab-local = Lokale Entwürfe
+mail-drafts-popup-local-hint = Lokale Entwürfe werden nur in diesem Browser aufbewahrt.
+mail-drafts-popup-badge-account = Konto
+mail-drafts-popup-badge-local = Lokal
+mail-drafts-popup-current = Jetzt geöffnet
+mail-drafts-popup-select = Auswählen
+mail-drafts-popup-select-all = Alle auswählen
+mail-drafts-popup-clear = Leeren
+mail-drafts-popup-done = Fertig
+mail-drafts-popup-selected = { $count } ausgewählt
+mail-drafts-popup-select-row = { $subject } auswählen
+mail-drafts-popup-open = Öffnen
+mail-drafts-popup-discard = Verwerfen
+mail-drafts-popup-discard-selected = Ausgewählte verwerfen
+mail-drafts-popup-more = Weitere Aktionen für { $subject }
+mail-drafts-popup-retry = Erneut versuchen
+mail-drafts-popup-load-failed = Die Kontoentwürfe konnten nicht geladen werden.
+mail-drafts-popup-empty-account = Keine Kontoentwürfe
+mail-drafts-popup-no-match = Keine Entwürfe passen zu „{ $query }“
+mail-drafts-popup-discarding = Wird verworfen …
+mail-drafts-popup-row-failed = Konnte nicht verworfen werden. Die Kontokopie bleibt bestehen.
+mail-drafts-popup-confirm-title = { $count ->
+    [one] Diesen Entwurf verwerfen?
+   *[other] { $count } Entwürfe verwerfen?
+  }
+mail-drafts-popup-confirm-account = Kontoentwürfe werden zuerst aus dem Entwurfsordner Ihres Kontos entfernt; ihr Platz wird erst freigegeben, wenn dieses Entfernen bestätigt ist.
+mail-drafts-popup-confirm-local = Lokale Entwürfe werden aus diesem Browser entfernt.
+mail-drafts-popup-announce-done = { $count ->
+    [one] 1 Entwurf verworfen
+   *[other] { $count } Entwürfe verworfen
+  }
+mail-drafts-popup-announce-failed = { $done } verworfen, { $failed } konnten nicht verworfen werden
+mail-check-title = Vor dem Senden prüfen
+mail-check-intro = Diese Punkte sollten Sie noch einmal ansehen:
+mail-check-invalid = Einige Empfängeradressen sehen ungültig aus: { $list }
+mail-check-subject = Der Betreff ist leer.
+mail-check-attachment = Die Nachricht erwähnt einen Anhang, es ist aber nichts angehängt.
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-editor-paste = Einfügen
+mail-editor-copy-format = Formatierung kopieren
+mail-editor-apply-format = Formatierung anwenden
+mail-editor-style = Absatzformat
+mail-editor-text-color = Schriftfarbe
+mail-editor-clear-color = Standardfarbe
+mail-editor-highlight = Hervorhebung
+mail-editor-clear-highlight = Hervorhebung entfernen
+mail-editor-paragraph = Absatzoptionen
+mail-editor-alignment = Ausrichtung
+mail-editor-line-height = Zeilenhöhe
+mail-editor-space-before = Abstand davor
+mail-editor-space-after = Abstand danach
+mail-editor-indent = Einzug
+mail-editor-shading = Absatzschattierung
+mail-editor-clear-shading = Schattierung entfernen
+mail-editor-case = Groß-/Kleinschreibung ändern
+mail-editor-sort = Ausgewählte Absätze sortieren
+mail-editor-sort-alpha = Alphabetisch
+mail-editor-sort-numeric = Numerisch
+mail-editor-table-rows = Tabellenzeilen
+mail-editor-table-columns = Tabellenspalten
+mail-editor-table-insert = Tabelle einfügen
+mail-editor-table-limits = Bis zu 20 Zeilen, 10 Spalten und 200 Zellen pro Tabelle; höchstens 10 Tabellen. Verschachtelte Tabellen werden nicht unterstützt.
+mail-editor-table-row-before = Zeile darüber
+mail-editor-table-row-after = Zeile darunter
+mail-editor-table-row-delete = Zeile löschen
+mail-editor-table-column-before = Spalte davor
+mail-editor-table-column-after = Spalte danach
+mail-editor-table-column-delete = Spalte löschen
+mail-editor-table-merge = Zellen verbinden
+mail-editor-table-split = Zelle teilen
+mail-editor-table-header = Kopfzeile umschalten
+mail-editor-table-delete = Tabelle löschen
+mail-editor-table-shading = Zellschattierung
+mail-editor-find-replace = Suchen und Ersetzen
+mail-editor-find = Text suchen
+mail-editor-replacement = Ersetzen durch
+mail-editor-match-case = Groß-/Kleinschreibung beachten
+mail-editor-previous = Vorheriger Treffer
+mail-editor-next = Nächster Treffer
+mail-editor-replace = Ausgewählten Treffer ersetzen
+mail-editor-replace-all = Alle Treffer ersetzen
+mail-editor-matches = { $count } Treffer (bis zu 1.000)
+mail-editor-select-all = Alles auswählen
+mail-editor-clear-selection = Auswahl aufheben
+mail-editor-history = Verlauf zum Rückgängigmachen
+mail-editor-undo-groups = Letzte { $count } Änderungsgruppen rückgängig machen
+mail-editor-zoom = Editor-Zoom
+mail-editor-markers = Absatzmarken
+mail-editor-style-normal = Normal
+mail-editor-style-no-spacing = Kein Abstand
+mail-editor-style-title = Titel
+mail-editor-style-subtitle = Untertitel
+mail-editor-style-heading1 = Überschrift 1
+mail-editor-style-heading2 = Überschrift 2
+mail-editor-style-heading3 = Überschrift 3
+mail-editor-style-heading4 = Überschrift 4
+mail-editor-style-heading5 = Überschrift 5
+mail-editor-style-heading6 = Überschrift 6
+mail-editor-align-left = Links
+mail-editor-align-center = Zentriert
+mail-editor-align-right = Rechts
+mail-editor-align-justify = Blocksatz
+mail-editor-case-lower = kleinbuchstaben
+mail-editor-case-upper = GROSSBUCHSTABEN
+mail-editor-case-title = Jedes Wort Groß
+mail-editor-case-sentence = Satzanfang groß
+mail-editor-action-history = Verlauf: { $action }
+mail-editor-history-empty = Keine Aktionen verfügbar
+mail-editor-redo-groups = { $count } Änderungen wiederholen
+mail-compose-identities-failed = Die Absenderidentitäten konnten nicht geladen werden. Schließen Sie diesen Entwurf und öffnen Sie ihn erneut, um es noch einmal zu versuchen.
+mail-folders-loading = Ordner werden geladen …
+mail-initial-sync-error = Ihre Nachrichten konnten noch nicht synchronisiert werden.
+mail-initial-sync-error-help = Die Verbindung zu Ihrem Mailserver wurde unterbrochen. Versuchen Sie es erneut oder bitten Sie Ihre Administration, die Verbindungsprotokolle zu prüfen, falls das Problem weiterbesteht.
+mail-links-trusted = Vertrauenswürdige Domain: wird ohne Prüfung geöffnet
+mail-links-trust-domain = { $domain } vertrauen
+mail-links-trust-failed = Die vertrauenswürdige Domain konnte nicht gespeichert werden. Versuchen Sie es erneut.
+mail-focus-always-focused = Immer in „Fokussiert“ verschieben
+mail-focus-always-other = Immer in „Andere“ verschieben
+mail-focus-moved-focused = Nachrichten von { $sender } landen jetzt in „Fokussiert“.
+mail-focus-moved-other = Nachrichten von { $sender } landen jetzt in „Andere“.
+mail-focus-save-failed = Die Auswahl für den Posteingang „Fokussiert“ konnte für diesen Absender nicht gespeichert werden. Versuchen Sie es erneut.
+mail-context-search-domain = Nachrichten dieser Domain suchen
+mail-loading-mailbox = { $name } wird geladen …
+mail-user-folders = Benutzerordner
+mail-context-hide-folder = In der Seitenleiste ausblenden
+mail-folder-fallback = Ordner
+mail-toast-moving = { $count ->
+    [one] Eine Nachricht wird nach { $folder } verschoben …
+   *[other] { $count } Nachrichten werden nach { $folder } verschoben …
+    }
+mail-toast-move-queueing = { $count ->
+    [one] Eine Nachricht wird zum Verschieben nach { $folder } eingereiht …
+   *[other] { $count } Nachrichten werden zum Verschieben nach { $folder } eingereiht …
+    }
+mail-toast-move-queued = { $count ->
+    [one] Eine Nachricht zum Verschieben nach { $folder } eingereiht
+   *[other] { $count } Nachrichten zum Verschieben nach { $folder } eingereiht
+    }
+mail-toast-move-partial = { $count } von { $total } Nachrichten nach { $folder } verschoben; { $failed } konnten nicht verschoben werden
+mail-send-copy-folder-unavailable = Der ausgewählte Ordner für die Kopie gesendeter Nachrichten ist nicht verfügbar. Wählen Sie vor dem Senden einen anderen Ordner.
+mail-send-copy-failed = Die Nachricht wurde angenommen, aber ihre gesendete Kopie konnte nicht abgelegt werden. Senden Sie sie nicht erneut.
+mail-compose-attach-public-key = Meinen öffentlichen Schlüssel oder mein Zertifikat anhängen
+mail-compose-include-hashes = SHA-256-Hashes der angehängten Dateien einschließen
+mail-compose-hashes-pending = Anhangs-Hashes werden berechnet. Senden Sie, wenn sie bereit sind.
+mail-compose-hashes-failed = Die Bytes der Anhänge konnten nicht überprüft werden. Schalten Sie die Hashes aus oder aktivieren Sie sie erneut, um es noch einmal zu versuchen.
+mail-compose-crypto-pending = Die Verschlüsselung wird aktualisiert. Bitte warten Sie vor dem Senden.
+mail-compose-public-key-unavailable = Kein aktueller öffentlicher Schlüssel und kein Zertifikat passt zur Absenderadresse.
+mail-compose-sent-copy = Gesendete Nachricht speichern in
+mail-compose-sent-copy-default = Kontostandard
+folder-create = Ordner erstellen
+folder-name = Ordnername
+folder-parent = Übergeordneter Ordner
+folder-top-level = Oberste Ebene
+folder-created = Ordner erstellt.
+folder-create-unavailable = Das Erstellen von Ordnern ist für dieses Konto oder diesen übergeordneten Ordner nicht verfügbar.
+folder-create-invalid = Wählen Sie einen gültigen, eindeutigen Ordnernamen ohne Hierarchietrennzeichen oder Steuerzeichen.
+folder-create-failed = Der Ordner konnte nicht erstellt werden. Aktualisieren Sie und versuchen Sie es erneut.
+folder-cleanup = Ordner bereinigen …
+folder-cleanup-title = { $name } bereinigen
+folder-cleanup-help = Nachrichten finden, die älter als das gewählte Alter sind. Prüfen Sie die Anzahl, bevor Sie löschen. Unterordner sind ausgeschlossen.
+folder-cleanup-age = Älter als
+folder-age-days = Tage
+folder-age-weeks = Wochen
+folder-age-months = Monate
+folder-age-years = Jahre
+folder-cleanup-preview = Bereinigung in der Vorschau anzeigen
+folder-cleanup-confirm = Passende Nachrichten löschen
+folder-cleanup-permanent = { $count } passende Nachrichten endgültig löschen. Dies kann nicht rückgängig gemacht werden.
+folder-cleanup-trash = { $count } passende Nachrichten in den Papierkorb verschieben.
+folder-cleanup-before = Empfangen vor dem { $date }
+folder-cleanup-done = { $count } Nachrichten bereinigt.
+mail-from = Absender
+mail-subject = Betreff
+mail-date = Datum
+mail-cancel = Abbrechen
+mail-bulk-selected = { $count } Unterhaltungen ausgewählt
+mail-bulk-select-folder = Alle in { $folder } auswählen
+mail-list-order = Nachrichtenreihenfolge
+
+# -- Machine translation (2026-11): added to match en ---------------------
+mail-list-order-newest = Neueste zuerst
+mail-list-order-oldest = Älteste zuerst
+mail-list-order-sender = Absender
+mail-list-order-subject = Betreff
+mail-list-order-error = Die Nachrichtenreihenfolge konnte nicht gespeichert werden.
+mail-bulk-selection-load-failed = Der gesamte Ordner konnte nicht ausgewählt werden. Prüfen Sie Ihre Verbindung und versuchen Sie es erneut.
+mail-privacy-bar = Nachrichten-Datenschutz
+mail-privacy-trackers-allow = Tracker für diese Nachricht zulassen
+mail-privacy-trackers-block = Tracker wieder blockieren
+mail-privacy-images-loading = { $loaded }/{ $total } Bilder angezeigt · { $pending } werden geladen
+mail-check-external = Empfänger außerhalb vertrauenswürdiger Domains: { $list }
+mail-check-send-anyway = Trotzdem senden
+mail-check-review = Prüfen
+mail-check-remember = Für diese nicht mehr nachfragen
+mail-check-denied-invalid = Das Senden ist durch Ihre Einstellungen blockiert. Korrigieren Sie die ungültigen Empfängeradressen: { $list }
+mail-check-denied-subject = Das Senden ist durch Ihre Einstellungen blockiert. Fügen Sie einen Betreff hinzu.
+mail-check-denied-attachment = Das Senden ist durch Ihre Einstellungen blockiert. Hängen Sie die erwähnte Datei an oder formulieren Sie die Nachricht um.
+mail-check-denied-external = Das Senden ist durch Ihre Einstellungen blockiert. Außerhalb vertrauenswürdiger Domains: { $list }
+mail-alerts-label = Probleme mit der Nachricht
+mail-alert-invalid = Ungültige Adresse: { $address }
+mail-alert-subject = Kein Betreff
+mail-recipient-chip-remove = { $address } entfernen
+mail-recipient-chips = Empfänger in { $field }
+mail-recipient-invalid-title = Keine gültige E-Mail-Adresse
+mail-recipient-chip-name = { $name }, { $address }. Eingabetaste für Kontaktdetails, Rücktaste oder F2 zum Bearbeiten, Entf zum Entfernen
+mail-recipient-chip-name-invalid = { $address }, keine gültige Adresse. Eingabetaste zum Bearbeiten, Entf zum Entfernen
+mail-recipient-added = { $name } hinzugefügt
+mail-recipient-removed = { $name } entfernt
+mail-recipient-removed-many = { $count ->
+    [one] { $count } Empfänger entfernt
+   *[other] { $count } Empfänger entfernt
+}
+mail-recipient-editing = { $name } wird bearbeitet
+mail-recipient-all-selected = { $count ->
+    [one] { $count } Empfänger ausgewählt
+   *[other] { $count } Empfänger ausgewählt
+}
+mail-external-line = { $count } außerhalb vertrauenswürdiger Domains: { $domains }
+mail-external-dismiss = Schließen
+mail-status-label = Status des Editors
+mail-status-more = { $count } weitere Hinweise
+mail-status-more-label = Weitere Hinweise
+mail-status-no-recipients = Keine Empfänger
+mail-status-no-attachment = Kein Anhang
+mail-status-external = Extern: { $count }
+mail-status-external-reviewed = Externe Empfänger geprüft
+mail-status-external-review = Als geprüft markieren
+mail-status-from-match = Von { $identity }
+mail-status-from-match-plus = Von { $identity }
+mail-status-from-ambiguous = Von { $identity } (mehrere passen)
+mail-status-from-default = Von Standardidentität
+mail-status-from-forced-default = Von Standardidentität
+mail-status-from-keep = Von { $identity }
+mail-status-held = { $count } in der Warteschlange
+mail-status-storage = Keine lokale Wiederherstellung
+mail-status-protected = Nicht als Klartext gespeichert
+mail-status-saving = Speichern …
+mail-status-saved = Gespeichert { $time }
+mail-status-saved-full = In den Entwürfen des Kontos gespeichert · { $time }
+mail-status-not-saved = Entwurf nicht gespeichert
+mail-status-retry = Erneut versuchen
+mail-status-conflict = Auf anderem Gerät geändert
+mail-status-uncertain = Speichern nicht bestätigt
+mail-status-close-recovery = Schließen, Wiederherstellung behalten
+mail-status-unsupported = Entwurfsspeicherung unbestätigt
+mail-compose-header = Nachrichtenkopf
+mail-header-label = Nachrichtenkopf
+mail-header-collapse = Nachrichtenkopf einklappen
+mail-header-expand = Nachrichtenkopf ausklappen: { $summary }
+mail-header-from-chip = Von { $address }. Absender ändern
+mail-compose-group-timing = Sendezeitpunkt
+mail-compose-group-priority = Priorität
+mail-compose-group-receipts = Bestätigungen und Tracking
+mail-compose-group-keys-files = Schlüssel und Dateien
+mail-compose-group-sent-copy = Gesendete Kopie
+mail-editor-style-quote = Zitat
+mail-editor-style-code = Code
+mail-compose-ribbon-table-layout = Tabellenlayout
+mail-compose-ribbon-picture = Bild
+mail-editor-table-group-rows = Zeilen
+mail-editor-table-group-columns = Spalten
+mail-editor-table-group-cells = Zellen
+mail-editor-table-row-height = Zeilenhöhe
+mail-editor-table-column-width = Spaltenbreite
+mail-editor-table-size-auto = Automatisch
+mail-editor-table-padding = Zellabstand
+mail-editor-table-padding-compact = Kompakt
+mail-editor-table-padding-normal = Normal
+mail-editor-table-padding-roomy = Großzügig
+mail-editor-table-align-left = Zelle linksbündig
+mail-editor-table-align-center = Zelle zentrieren
+mail-editor-table-align-right = Zelle rechtsbündig
+mail-picture-group-size = Größe
+mail-picture-group-arrange = Anordnen
+mail-picture-group-text = Text
+mail-picture-group-style = Stil
+mail-picture-group-edit = Bearbeiten
+mail-picture-width = Breite
+mail-picture-height = Höhe
+mail-picture-lock = Proportionen beibehalten
+mail-picture-reset-size = Originalgröße
+mail-picture-align-inline = In Zeile mit Text
+mail-picture-align-left = Linksbündig
+mail-picture-align-center = Zentriert
+mail-picture-align-right = Rechtsbündig
+mail-picture-alt = Alternativtext
+mail-picture-title = Titel
+mail-picture-border = Rahmen
+mail-picture-radius = Ecken
+mail-picture-none = Keine
+mail-picture-round = Rund
+mail-picture-rotate-ccw = Nach links drehen
+mail-picture-rotate-cw = Nach rechts drehen
+mail-picture-flip-h = Horizontal spiegeln
+mail-picture-flip-v = Vertikal spiegeln
+mail-picture-crop = Zuschneiden
+mail-picture-crop-left = Links (%)
+mail-picture-crop-top = Oben (%)
+mail-picture-crop-right = Rechts (%)
+mail-picture-crop-bottom = Unten (%)
+mail-picture-crop-apply = Zuschneiden
+mail-picture-replace = Ersetzen
+mail-picture-remove = Entfernen
+mail-picture-failed-no-image = Wählen Sie zuerst ein Bild aus.
+mail-picture-failed-no-source = Dieses Bild hat keine lokale Kopie zum Bearbeiten. Ersetzen Sie es stattdessen.
+mail-picture-failed-failed = Das Bild konnte nicht geändert werden.
+mail-context-download-attachments = Anhänge herunterladen
+mail-context-download-named = { $name } herunterladen
+mail-context-download-all = Alle als ZIP herunterladen
+mail-context-loading-attachments = Anhänge werden geladen …
+mail-context-attachments-failed = Die Anhänge konnten nicht geladen werden.
+mail-context-searching = Nachricht wird gesucht …
+mail-context-go-reply = Zur Antwort
+mail-context-go-forward = Zur Weiterleitung
+mail-context-reply-not-found = Antwort nicht gefunden
+mail-context-forward-not-found = Weiterleitung nicht gefunden
+mail-no-recipients = (keine Empfänger)
+mail-attachment-downloaded = { $name } heruntergeladen
+mail-attachment-download-failed = Der Download ist fehlgeschlagen.
+mail-attachments-zip-done = { $count } Anhänge als ZIP heruntergeladen.
+mail-attachments-zip-capped = Das ZIP enthält die ersten { $count } Anhänge; das Limit liegt bei { $max } Dateien oder { $size }.
+mail-focus-not-found = Nachricht in { $folder } nicht gefunden
+mail-focus-go-to = Zu { $folder }
+mail-nav-views-queues = Ansichten und Warteschlangen
+mail-badge-unread = { $unread ->
+    [one] { $unread } ungelesene Nachricht
+   *[other] { $unread } ungelesene Nachrichten
+  }
+mail-badge-total = { $total ->
+    [one] { $total } Nachricht in diesem Ordner
+   *[other] { $total } Nachrichten in diesem Ordner
+  }
+mail-badge-both = { $unread ->
+    [one] { $unread } ungelesene Nachricht
+   *[other] { $unread } ungelesene Nachrichten
+  } von { $total ->
+    [one] { $total } in diesem Ordner
+   *[other] { $total } in diesem Ordner
+  }
+mail-badge-drafts = { $total ->
+    [one] Entwürfe: { $total } Nachricht
+   *[other] Entwürfe: { $total } Nachrichten
+  }
+mail-badge-compact-hint = Andere Ordner als der Posteingang verwenden ein kleineres Zeichen. Ändern Sie dies unter Einstellungen, Ordner und Seitenleiste.
+mail-badge-outbox = { $count ->
+    [one] Postausgang: { $count } Nachricht wartet auf das Senden
+   *[other] Postausgang: { $count } Nachrichten warten auf das Senden
+  }
