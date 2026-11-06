@@ -319,42 +319,6 @@ impl Store {
         Ok(row.map(|r| r.get_blob("verdict_json")))
     }
 
-    /// The cached verdict blobs of several emails of one account, one read: the
-    /// emails with no cached verdict are absent from the map. A message list uses
-    /// this for its compact authentication summary, so it never computes a
-    /// verdict (DNS) itself. The raw hash is not compared (that would need every
-    /// raw message): a stored message is immutable, and a changed one is
-    /// recomputed, and the row replaced, the next time it is opened.
-    pub async fn get_security_verdicts(
-        &self,
-        account_id: &str,
-        email_ids: &[String],
-    ) -> Result<std::collections::HashMap<String, Vec<u8>>, StoreError> {
-        let mut found = std::collections::HashMap::new();
-        if email_ids.is_empty() {
-            return Ok(found);
-        }
-        let sql = match self.backend.dialect() {
-            crate::backend::Dialect::Sqlite => {
-                "SELECT email_id, verdict_json FROM security_verdicts
-                 WHERE account_id = ?1 AND email_id IN (SELECT value FROM json_each(?2))"
-            }
-            crate::backend::Dialect::Postgres => {
-                "SELECT email_id, verdict_json FROM security_verdicts
-                 WHERE account_id = ?1 AND email_id IN (SELECT value FROM json_array_elements_text(?2::json))"
-            }
-        };
-        let rows = q(sql)
-            .bind(account_id)
-            .bind(serde_json::to_string(email_ids).expect("a Vec<String> always serializes"))
-            .fetch_all(&self.backend)
-            .await?;
-        for r in &rows {
-            found.insert(r.get_string("email_id"), r.get_blob("verdict_json"));
-        }
-        Ok(found)
-    }
-
     /// Cache a computed verdict (replaces any stale row for the email).
     pub async fn upsert_security_verdict(
         &self,

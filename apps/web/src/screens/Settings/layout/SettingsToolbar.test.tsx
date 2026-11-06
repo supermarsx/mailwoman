@@ -21,12 +21,12 @@ it('shows every message display setting exactly once, grouped into cards',async(
  mount();
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
- expect(screen.getAllByRole('heading',{level:4})).toHaveLength(READER_CARDS.length+1);
+ expect(screen.getAllByRole('heading',{level:4})).toHaveLength(READER_CARDS.length+2);
 });
 it('builds a jump bar with one chip per card',async()=>{
  mount();
  const nav=await screen.findByRole('list',{name:t('settings-kit-jump')});
- expect(nav.querySelectorAll('button')).toHaveLength(READER_CARDS.length+1);
+ expect(nav.querySelectorAll('button')).toHaveLength(READER_CARDS.length+2);
 });
 it('filters rows and cards by label or hint, and reports no results',async()=>{
  mount();

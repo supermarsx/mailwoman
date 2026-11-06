@@ -1337,19 +1337,6 @@ impl Engine {
         if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled).await {
             return server_fail(&e);
         }
-        // The cached authentication summary a list row needs for a brand logo;
-        // only when the request names it, and never computed here.
-        let wants_auth = args
-            .get("properties")
-            .and_then(Value::as_array)
-            .is_some_and(|named| {
-                named
-                    .iter()
-                    .any(|p| p == crate::security::list_auth::AUTH_PROPERTY)
-            });
-        if wants_auth && let Err(e) = self.fill_auth(account_id, &mut assembled).await {
-            return server_fail(&e);
-        }
 
         // `list` is positional against the request: a repeated id is answered
         // twice, because de-duplicating it drops an entry the client asked for.

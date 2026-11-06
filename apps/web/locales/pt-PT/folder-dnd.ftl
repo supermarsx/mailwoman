@@ -147,6 +147,3 @@ settings-folders-bulk-empty-done = Esvaziou { $count } pastas, { $messages } men
 settings-folders-bulk-empty-partial = Esvaziadas { $done } pastas; { $failed } falharam. Veja a lista.
 
 settings-folders-select-user = Selecionar todas as pastas do utilizador
-
-settings-folders-bulk-delete-subfolders = Eliminar também as subpastas de cada pasta
-settings-folders-bulk-delete-subfolders-off = Só as pastas selecionadas são eliminadas. Uma pasta que ainda tenha uma subpasta fora da seleção é mantida.

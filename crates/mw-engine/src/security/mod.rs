@@ -29,7 +29,6 @@ pub mod dlp;
 pub mod geoip;
 pub mod geoip_fixture;
 pub mod keyring;
-pub mod list_auth;
 pub mod sender_controls;
 pub mod store_key;
 pub mod types;

@@ -2647,14 +2647,6 @@ pub static REGISTRY: &[SettingDef] = &[
         "folders pinned at the top of every users sidebar (role:<role> or a folder path); users cannot unpin or move them"
     ),
     def!(
-        "folders.pinned.hideFromTree",
-        Kind::Bool,
-        "false",
-        GD,
-        "folders",
-        "hide a pinned folder that has no subfolders from the folder tree, showing it only in the Pinned group"
-    ),
-    def!(
         "folders.order.default",
         Kind::StringList {
             max_len: 100,
@@ -2834,6 +2826,38 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.afterDelete",
+    def!(
+        "attachments.bar.clickToToggle",
+        Kind::Bool,
+        "true",
+        GDU,
+        "reader",
+        "clicking anywhere on the reader's attachments bar header expands or collapses it"
+    ),
+    def!(
+        "attachments.bar.showDownloadButtons",
+        Kind::Enum(&["always", "hover", "never"]),
+        "\"hover\"",
+        GDU,
+        "reader",
+        "when each attachment shows its download button"
+    ),
+    def!(
+        "attachments.bar.downloadAll",
+        Kind::Bool,
+        "true",
+        GDU,
+        "reader",
+        "offer a Download all button on the reader's attachments bar"
+    ),
+    def!(
+        "attachments.bar.zipInlineImages",
+        Kind::Bool,
+        "false",
+        GDU,
+        "reader",
+        "include inline (cid) images in the attachments bar's Download all ZIP"
+    ),
         Kind::Enum(&["next", "previous", "close"]),
         "\"next\"",
         GDU,
@@ -5457,14 +5481,6 @@ pub static REGISTRY: &[SettingDef] = &[
         GD,
         "privacy",
         "confirmation message to the requester's inbox"
-    ),
-    def!(
-        "dsr.admin.stepUp",
-        Kind::Bool,
-        "true",
-        GD,
-        "privacy",
-        "administrators confirm it is them again before approving a data request or running an erasure"
     ),
     def!(
         "dsr.identityVerification.required",

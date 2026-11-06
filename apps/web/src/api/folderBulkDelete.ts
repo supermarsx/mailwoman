@@ -2,7 +2,6 @@ import type {Client} from './client.ts';
 import {CAP_CORE,CAP_MAIL,type Mailbox} from './jmap-types.ts';
 import {descendantsOf} from '../components/folderTree.ts';
 import {canDeleteTree,deleteFolderTree,type StructureProblem} from './folderStructure.ts';
-import {canDeleteFolder,deleteFolder} from './deleteFolder.ts';
 import type {RenameAbility,RenameAuthority} from './renameFolder.ts';
 /** Bulk folder actions of Settings > Folders: delete several folders at once, subscribe or unsubscribe several. */
 type Transport=Pick<Client,'jmap'>;
@@ -16,20 +15,9 @@ export interface DeletePlan {
  messages:number;
  /** Selected folders that cannot be deleted: system folders, saved searches, folders the account may not delete. */
  skipped:Mailbox[];
- /** True when subfolders are not deleted with their parent: every folder in `roots` is deleted on its own, deepest first. */
- flat:boolean;
 }
 /** What deleting `selected` would remove, without removing anything. */
-export function deletePlan(selected:readonly Mailbox[],boxes:readonly Mailbox[],ability:RenameAbility|null,includeSubfolders=true):DeletePlan {
- if(!includeSubfolders){
-  // A folder goes only if each of its subfolders is also selected (and goes too); otherwise it is kept, since the server refuses a folder that still has children.
-  const own=selected.filter(box=>canDeleteFolder(box,[],ability));
-  const ownIds=new Set(own.map(box=>box.id));
-  const eligible=own.filter(box=>boxes.filter(value=>value.parentId===box.id).every(child=>ownIds.has(child.id)));
-  const depth=(box:Mailbox):number=>{let d=0,cursor=boxes.find(value=>value.id===box.parentId);while(cursor&&d<64){d++;cursor=boxes.find(value=>value.id===cursor?.parentId);}return d;};
-  const roots=[...eligible].sort((a,b)=>depth(b)-depth(a));
-  return {roots,folders:roots,messages:roots.reduce((sum,box)=>sum+(box.totalEmails||0),0),skipped:selected.filter(box=>!eligible.includes(box)),flat:true};
- }
+export function deletePlan(selected:readonly Mailbox[],boxes:readonly Mailbox[],ability:RenameAbility|null):DeletePlan {
  const eligible=selected.filter(box=>canDeleteTree(box,boxes,ability));
  const skipped=selected.filter(box=>!eligible.includes(box));
  const eligibleIds=new Set(eligible.map(box=>box.id));
@@ -39,7 +27,7 @@ export function deletePlan(selected:readonly Mailbox[],boxes:readonly Mailbox[],
   return true;
  });
  const folders=roots.flatMap(root=>[root,...descendantsOf(boxes,root.id)]);
- return {roots,folders,messages:folders.reduce((sum,box)=>sum+(box.totalEmails||0),0),skipped,flat:false};
+ return {roots,folders,messages:folders.reduce((sum,box)=>sum+(box.totalEmails||0),0),skipped};
 }
 export interface BulkDeleteResult {deleted:string[];failed:{id:string;problem:StructureProblem}[]}
 /** Delete the plan's roots one after another, each with its subfolders. Continues past a refusal and reports it. */
@@ -47,11 +35,6 @@ export async function bulkDeleteFolders(client:Transport,accountId:string,plan:D
  const result:BulkDeleteResult={deleted:[],failed:[]};
  for(const root of plan.roots){
   if(!authority.current()||authority.signal?.aborted){result.failed.push({id:root.id,problem:'failed'});continue;}
-  if(plan.flat){
-   const single=await deleteFolder(client,accountId,root.id,true,authority);
-   if(single.ok)result.deleted.push(root.id);else result.failed.push({id:root.id,problem:single.problem==='mailboxHasChild'?'failed':single.problem});
-   continue;
-  }
   const outcome=await deleteFolderTree(client,accountId,root,boxes,true,authority);
   if(outcome.ok)result.deleted.push(...[root,...descendantsOf(boxes,root.id)].map(box=>box.id));
   else result.failed.push({id:root.id,problem:outcome.problem});

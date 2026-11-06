@@ -52,8 +52,6 @@ async fn fixture() -> Fixture {
         .await
         .unwrap();
     set(&store, "signin.retryCooldownSecs", json!(0)).await;
-    // The approval below is made directly; the step-up proof is covered by t50_data_requests.
-    set(&store, "dsr.admin.stepUp", json!(false)).await;
     let (router, _) = build_app_full(
         AppConfig {
             db_path: db.to_string_lossy().into(),

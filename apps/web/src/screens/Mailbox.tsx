@@ -76,7 +76,6 @@ import * as a11y from '../components/mailA11y.css.ts';
 import { useRealtime } from '../realtime/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
-import { PropertiesHost } from '../components/properties/host.tsx';
 import { createNarrowViewport, focusIsLost } from '../components/narrowViewport.ts';
 import { Compose } from '../components/Compose.tsx';
 import type { ComposeInitial } from '../components/compose/reply.ts';
@@ -690,7 +689,7 @@ export function MailboxScreen(): JSX.Element {
                 classList={{ 'sidebar__box--active': surface() === 'mail' && app.selectedMailboxId() === box().id,[folderDropTarget]:dropFolder()===box().id }}
                 onDragOver={event=>{if(acceptsMessageDrop(event,box().id)){event.preventDefault();if(event.dataTransfer)event.dataTransfer.dropEffect='move';setDropFolder(box().id);}}}
                 onDragLeave={()=>setDropFolder(null)} onDrop={event=>dropMessages(event,box().id)}
-                onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined} aria-pressed={!pinned&&selectedFolderIds().size>0?selectedFolderIds().has(id):undefined}
+                onKeyDown={event=>onFolderKey(event,id)} aria-expanded={row()?.hasChildren?row()!.expanded:undefined}
                 aria-label={displayText(box().name)} aria-description={[folderCountShown(box())?folderBadgeTip(box(),folderCountMode(),compactBadges()):'',isStarred(id)?t('folder-star-starred'):''].filter(Boolean).join(' · ')||undefined} title={displayText([box().name,...(accountUiPreferences().folderLabels?.[box().id]??[]).map(id=>app.tagByKeyword(id)?.name??id),...(isStarred(id)?[t('folder-star-starred')]:[])].join(' · '))}
                 onClick={(event) => {
                   // Shift+click selects the range from the anchor, Ctrl/Cmd+click toggles: neither opens the folder.
@@ -1098,7 +1097,6 @@ export function MailboxScreen(): JSX.Element {
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
           <UndoRedoControl/>
-          <PropertiesHost/>
           <OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
         </div>

@@ -92,40 +92,6 @@ impl Store {
         Ok(n == 1)
     }
 
-    /// One page of the whole queue in the order of [`Store::dsr_list`] (newest first, ties by id),
-    /// starting after the `(created_at, id)` cursor when given. The cursor is a position in
-    /// the order, not an offset, so rows created or changed meanwhile never shift a later page.
-    pub async fn dsr_page(&self, after: Option<(i64, &str)>, limit: i64) -> Result<Vec<DsrRow>, StoreError> {
-        let limit = limit.clamp(1, 5000);
-        let rows = match after {
-            Some((at, id)) => {
-                q("SELECT id,address,domain,account_id,kind,status,created_at,updated_at,due_at,assignee,rev,body_json FROM dsr_request WHERE created_at<?1 OR (created_at=?1 AND id>?2) ORDER BY created_at DESC,id LIMIT ?3")
-                    .bind(at).bind(id).bind(limit).fetch_all(&self.backend).await?
-            }
-            None => {
-                q("SELECT id,address,domain,account_id,kind,status,created_at,updated_at,due_at,assignee,rev,body_json FROM dsr_request ORDER BY created_at DESC,id LIMIT ?1")
-                    .bind(limit).fetch_all(&self.backend).await?
-            }
-        };
-        Ok(rows.iter().map(row_of).collect())
-    }
-
-    /// Every request, newest first, with no ceiling (read in pages of 1000).
-    pub async fn dsr_list_all(&self) -> Result<Vec<DsrRow>, StoreError> {
-        let mut out: Vec<DsrRow> = Vec::new();
-        loop {
-            let page = match out.last() {
-                Some(last) => self.dsr_page(Some((last.created_at, last.id.as_str())), 1000).await?,
-                None => self.dsr_page(None, 1000).await?,
-            };
-            let full = page.len() == 1000;
-            out.extend(page);
-            if !full {
-                return Ok(out);
-            }
-        }
-    }
-
     /// Newest first, at most [`MAX_LIST`]; `address` narrows to one person.
     pub async fn dsr_list(&self, address: Option<&str>) -> Result<Vec<DsrRow>, StoreError> {
         let rows = match address {

@@ -94,6 +94,8 @@ import {MessagePrivacyBar} from './MessagePrivacyBar.tsx';
 import { NoticeButton, ReaderNoticeBar, noticeCss } from './ReaderNoticeBar.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
+import { AttachmentDownloadButton } from './AttachmentDownloadButton.tsx';
+import { downloadBarAll, isDownloadButtonMode, type BarItem } from './attachmentsBarDownload.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame,type ReaderImageProgress } from './DirectReaderFrame.tsx';
 import {featureOn,featuresLoaded} from '../state/features.ts';
@@ -251,7 +253,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   const decision=(item:StripItem)=>attachmentPolicy.state==='ready'?attachmentDecision(attachmentPolicy()!,item):undefined;
   const [openItem, setOpenItem] = createSignal<StripItem | null>(null);
 
-  const items = createMemo<StripItem[]>(() => {
+  const items = createMemo<BarItem[]>(() => {
     const parts = (props.email as { attachments?: AttachmentPart[] }).attachments ?? [];
     return parts
       .filter((a) => a.blobId !== null && a.blobId !== undefined && a.blobId !== '')
@@ -263,6 +265,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         size: a.size,
       }));
   });
+        inline: typeof a.cid === 'string' && a.cid.length > 0 && a.disposition !== 'attachment',
 
   // Why the bar is missing or unusable, told once per message (never a silent gap).
   const barState = createMemo(() => attachmentBarReason({
@@ -347,6 +350,17 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
   }
   const totalSize = createMemo(() => items().reduce((sum, item) => sum + item.size, 0));
   const summaryText = (): string => t('reader-attachments-summary', { count: items().length, size: formatBytes(totalSize()) });
+  const clickToToggle = (): boolean => effectiveSettings()['attachments.bar.clickToToggle']?.value !== false;
+  const downloadMode = () => { const value = effectiveSettings()['attachments.bar.showDownloadButtons']?.value; return isDownloadButtonMode(value) ? value : 'hover'; };
+  const downloadAllOn = (): boolean => effectiveSettings()['attachments.bar.downloadAll']?.value !== false;
+  const zipInline = (): boolean => effectiveSettings()['attachments.bar.zipInlineImages']?.value === true;
+  const allowDownload = (): boolean => mailFeature('allowDownload');
+  const [zipping, setZipping] = createSignal(false);
+  function downloadAll(): void {
+    if (zipping()) return;
+    setZipping(true);
+    void downloadBarAll(app, props.email.id, items(), attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined, zipInline()).finally(() => setZipping(false));
+  }
   const tooltip = (): string => [summaryText(), ...items().slice(0, 8).map((item) => `${isolate(item.name)} · ${formatBytes(item.size)}`), ...(items().length > 8 ? ['…'] : [])].join('\n');
   const panelId = `reader-attachments-${Math.random().toString(36).slice(2)}`;
   const cloudEnabled = (): boolean => app.nextcloud.enabled() && cloudAccount === app.accountId();
@@ -363,7 +377,11 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         tooltip={tooltip()}
         actions={<>
           <Show when={cloudEnabled()}>
+        {...(clickToToggle() ? { onToggle: toggle } : {})}
             <NoticeButton icon="nextcloud" label={t('nextcloud-save-panel-label')} haspopup="menu" expanded={cloudMenu.isOpen()} onClick={(e) => cloudMenu.open(e)} onKeyDown={cloudMenu.keydown} />
+          <Show when={downloadAllOn()}>
+            <NoticeButton icon="downloadZip" spinner={zipping()} busy={zipping()} disabled={!allowDownload() || zipping()} label={t('reader-attachments-download-all')} ariaLabel={zipping() ? t('reader-attachments-download-all-busy') : t('reader-attachments-download-all-label')} tooltip={allowDownload() ? t('reader-attachments-download-all-label') : t('reader-attachments-download-off')} testid="reader-attachments-download-all" onClick={downloadAll} />
+          </Show>
           </Show>
           <NoticeButton icon={collapsed() ? 'chevronDown' : 'chevronUp'} iconOnly label={collapsed() ? t('reader-attachments-show') : t('reader-attachments-hide')} expanded={!collapsed()} controls={panelId} testid="reader-attachments-toggle" onClick={toggle} />
         </>}
@@ -385,6 +403,10 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
           {...(attachmentDensity()==='comfortable'?{resolveThumb:(item:StripItem)=>blobUrlFor(item)}:{})}
         />
         </div>
+          {...(downloadMode() !== 'never' ? {
+            actionMode: downloadMode() as 'always' | 'hover',
+            renderAction: (item: StripItem) => <AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined} allowDownload={allowDownload()} />,
+          } : {})}
         </Show>
         </Show>
         <Show when={openItem()}>
