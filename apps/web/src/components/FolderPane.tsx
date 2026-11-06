@@ -21,6 +21,7 @@ import {RenameFolderDialog,useCanRename,useRenameContext} from './RenameFolder.t
 import {loadCatalog,t} from '../i18n/index.ts';
 import type {Email} from '../api/jmap-types.ts';
 import * as css from './folderPane.css.ts';
+import {ACTION_ICONS} from '../actionIcons.ts';
 
 export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:string;active:boolean;selecting?:boolean;onSelectionModeChange?:(enabled:boolean)=>void;/** Shown beside a message opened from it (t51): next/previous still walk this list. */companion?:boolean;onOpen:(id:string)=>void;registerRefresh?:(refresh:()=>void)=>void;beforeGlobalAction?:()=>void}):JSX.Element{
  const app=useApp();
@@ -64,11 +65,11 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
  const barActions=():SelectionAction[]=>{
   const off=disabled(),out:SelectionAction[]=[
    {id:'read',label:t('mail-mark-read'),icon:'mailRead',disabled:off,run:()=>run({kind:'read',read:true})},
-   {id:'unread',label:t('mail-mark-unread'),icon:'mail',disabled:off,run:()=>run({kind:'read',read:false})},
+   {id:'unread',label:t('mail-mark-unread'),icon:ACTION_ICONS.markUnread,disabled:off,run:()=>run({kind:'read',read:false})},
   ];
-  const archive=role('archive');if(archive)out.push({id:'archive',label:t('mail-archive'),icon:'archive',disabled:off,run:()=>run({kind:'move',target:archive.id})});
+  const archive=role('archive');if(archive)out.push({id:'archive',label:t('mail-archive'),icon:ACTION_ICONS.archive,disabled:off,run:()=>run({kind:'move',target:archive.id})});
   if(box()?.role==='trash'||role('trash'))out.push({id:'delete',label:t('mail-delete'),icon:'delete',disabled:off,run:remove});
-  out.push({id:'move',label:t('selection-bar-move'),icon:'folder',testId:'folder-bulk-move',disabled:off,menu:()=>app.mailboxes().filter(folder=>folder.id!==props.mailboxId&&folder.mailwomanSearchQuery===undefined&&!spamFolderHidden(folder)).map(folder=>({id:`move:${folder.id}`,label:folder.name,icon:'folder' as const,run:()=>run({kind:'move',target:folder.id})}))});
+  out.push({id:'move',label:t('selection-bar-move'),icon:ACTION_ICONS.moveTo,testId:'folder-bulk-move',disabled:off,menu:()=>app.mailboxes().filter(folder=>folder.id!==props.mailboxId&&folder.mailwomanSearchQuery===undefined&&!spamFolderHidden(folder)).map(folder=>({id:`move:${folder.id}`,label:folder.name,icon:'folder' as const,run:()=>run({kind:'move',target:folder.id})}))});
   return out;
  };
  function focusList():void{const rows=viewport?.querySelectorAll<HTMLButtonElement>('[data-folder-message]');if(!rows?.length)return;const last=[...view.selection()].at(-1);([...rows].find(row=>row.dataset['folderMessage']===last)??rows[0])?.focus();}

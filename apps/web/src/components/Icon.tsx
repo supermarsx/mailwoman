@@ -118,10 +118,62 @@ export type IconName =
   | 'chevronLeft'
   | 'back'
   | 'microphone'
-  | 'refresh';
+  | 'refresh'
+  | 'emptyFolder'
+  | 'cleanup'
+  | 'deletePermanently'
+  | 'archiveDown'
+  | 'moveTo'
+  | 'copyTo'
+  | 'duplicate'
+  | 'copyLink'
+  | 'copyId'
+  | 'copyAddress'
+  | 'copyText'
+  | 'copySubject'
+  | 'copyPath'
+  | 'copyHeaders'
+  | 'openTab'
+  | 'openWindow'
+  | 'openSide'
+  | 'downloadZip'
+  | 'exportFile'
+  | 'forwardAttachment'
+  | 'redirect'
+  | 'markAllRead'
+  | 'markUnread'
+  | 'pinOff'
+  | 'starOff'
+  | 'flagOff'
+  | 'followUp'
+  | 'mute'
+  | 'block'
+  | 'shieldAlert'
+  | 'notSpam'
+  | 'phishing'
+  | 'createFilter'
+  | 'expandAll'
+  | 'collapseAll'
+  | 'selectAll'
+  | 'clearSelection'
+  | 'snooze'
+  | 'snoozeLater'
+  | 'snoozeEvening'
+  | 'snoozeTomorrow'
+  | 'snoozeWeekend'
+  | 'snoozeNextWeek'
+  | 'snoozeMonth'
+  | 'snoozePick'
+  | 'unsnooze'
+  | 'snoozedFolder'
+  | 'remindNoReply'
+  | 'goReply'
+  | 'goForward'
+  | 'markAnswered'
+  | 'markForwarded';
 
 /** Icons whose meaning depends on reading direction. */
-export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'replyAll', 'forward', 'undo', 'redo']);
+export const DIRECTIONAL: ReadonlySet<IconName> = new Set<IconName>(['signOut', 'egress', 'chevron', 'chevronLeft', 'back', 'reply', 'replyAll', 'forward', 'undo', 'redo', 'goReply', 'goForward', 'markAnswered', 'markForwarded', 'redirect', 'forwardAttachment', 'moveTo', 'copyTo', 'exportFile', 'openSide']);
 
 const S = { fill: 'none', stroke: 'currentColor', 'stroke-width': '2' } as const;
 const F = { fill: 'currentColor' } as const;
@@ -272,7 +324,7 @@ const PATHS: Record<IconName, () => JSX.Element> = {
 
   restore: () => <><path d="M3 5 A6 6 0 1 1 2 10 M3 1 V5 H7" {...S} /></>,
   edit: () => <><path d="M2 11 L11 2 L14 5 L5 14 H2 Z M9 4 L12 7" {...S} /></>,
-  print: () => <g fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5V1h8v4M4 11H2V5h12v6h-2" /><path d="M4 9h8v6H4z" /><path d="M11 7h1" /></g>,
+  print: () => <path d="M4 5 V1 H12 V5 M4 12 H1 V5 H15 V12 H12 M4 9 H12 V15 H4 Z" {...S} />,
   preferences: () => <><circle cx="5" cy="4" r="2" {...S} /><path d="M1 14 V11 A4 4 0 0 1 9 11 V14 M11 3 H15 M11 8 H15 M11 13 H15" {...S} /></>,
   diagnostics: () => <><path d="M1 8 H4 L6 2 L10 14 L12 8 H15" {...S} /></>,
   configuration: () => <><rect x="2" y="1" width="12" height="14" {...S} /><path d="M5 5 H11 M5 8 H11 M5 11 H8" {...S} /></>,
@@ -477,6 +529,61 @@ const PATHS: Record<IconName, () => JSX.Element> = {
       <path d="M8 8 H15 M12 8 V11 M15 8 V10" {...S} />
     </>
   ),
+  // BEGIN action glyphs
+  // Same 16 px grid, 2 px stroke, currentColor. Copy variants share the two-sheet base with a badge; snooze variants share clock, sky or calendar.
+  emptyFolder: () => <path d="M1 9 V14 H15 V9 M1 9 H5 L6 11 H10 L11 9 H15 M8 7 V1 M5.5 3.5 L8 1 L10.5 3.5" {...S} />,
+  cleanup: () => <><path d="M6 3 Q6.6 8.4 12 9 Q6.6 9.6 6 15 Q5.4 9.6 0 9 Q5.4 8.4 6 3 Z" {...S} /><path d="M13 1 V5 M11 3 H15" {...S} /></>,
+  deletePermanently: () => <path d="M3 4 H13 M6 1 H10 M4 4 L5 15 H11 L12 4 M6.5 7 L9.5 12 M9.5 7 L6.5 12" {...S} />,
+  archiveDown: () => <path d="M1 2 H15 V5 H1 Z M3 5 V14 H13 V5 M8 7 V12 M5.5 9.5 L8 12 L10.5 9.5" {...S} />,
+  moveTo: () => <path d="M1 3 H6 L8 5 H15 V14 H1 Z M4.5 9.5 H11 M8.5 7 L11 9.5 L8.5 12" {...S} />,
+  copyTo: () => <path d="M1 3 H6 L8 5 H15 V14 H1 Z M3.5 9.5 H8 M6.5 7.5 L8.5 9.5 L6.5 11.5 M11.5 8 V11 M10 9.5 H13" {...S} />,
+  duplicate: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><path d="M10 8 V12 M8 10 H12" {...S} /></>,
+  copyLink: () => <><path d="M1 8 V1 H8" {...S} /><g transform="translate(4.5 4.5) scale(0.72)"><path d="M6 10 L10 6 M5 8 L2 11 A2 2 0 0 0 5 14 L8 11 M8 5 L11 2 A2 2 0 0 1 14 5 L11 8" {...S} /></g></>,
+  copyId: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><path d="M8.5 8 V12.5 M11.5 8 V12.5" {...S} /></>,
+  copyAddress: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><circle cx="10" cy="8.5" r="1.3" {...F} /><path d="M7.5 13 A2.5 2.5 0 0 1 12.5 13" {...S} /></>,
+  copyText: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><path d="M8 8 H12 M10 8 V12.5" {...S} /></>,
+  copySubject: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><path d="M8 8.5 H12.5 M8 12 H11" {...S} /></>,
+  copyPath: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><path d="M11.5 8 L8.5 12.5" {...S} /></>,
+  copyHeaders: () => <><path d="M5.5 5.5 H14.5 V14.5 H5.5 Z M3 10.5 H1.5 V1.5 H10.5 V3" {...S} /><rect x="7.5" y="7.5" width="5" height="2.5" {...F} /><path d="M8 12.5 H11" {...S} /></>,
+  openTab: () => <path d="M7 3 H2 V14 H13 V9 M9 1 H15 V7 M15 1 L7.5 8.5" {...S} />,
+  openWindow: () => <path d="M1 2 H15 V14 H1 Z M1 5.5 H15 M6 12 L11 7.5 M7.5 7.5 H11 V11" {...S} />,
+  openSide: () => <path d="M1 2 H15 V14 H1 Z M10 2 V14 M3 8 H8 M6 6 L8 8 L6 10" {...S} />,
+  downloadZip: () => <><path d="M3 1 H13 V15 H3 Z" {...S} /><rect x="7" y="2" width="2" height="1.5" {...F} /><rect x="7" y="5" width="2" height="1.5" {...F} /><rect x="7" y="8" width="2" height="1.5" {...F} /><rect x="6" y="11" width="4" height="3" {...F} /></>,
+  exportFile: () => <path d="M7 15 H2 V1 H9 L12 4 V6 M9 1 V4 H12 M6 11 H15 M12 8 L15 11 L12 14" {...S} />,
+  forwardAttachment: () => <path d="M1 5 H6 V11 H1 Z M6 8 H15 M12 5 L15 8 L12 11" {...S} />,
+  redirect: () => <path d="M2 14 V4 H13 M10 1 L13 4 L10 7 M5 9 H9 M5 12 H11" {...S} />,
+  markAllRead: () => <path d="M1 9 L4 12 L9 5 M7.5 12 L9 13.5 L15 5" {...S} />,
+  markUnread: () => <><path d="M10 3 H1 V13 H15 V8 M1 3 L8 9 L11 6.5" {...S} /><circle cx="13" cy="3.5" r="2.25" {...F} /></>,
+  pinOff: () => <path d="M5 1 H11 L10 6 L13 9 H9 V15 H7 V9 H3 L6 6 Z M2 14 L14 2" {...S} />,
+  starOff: () => <path d="M8 1 L10 6 H15 L11 9 L13 15 L8 12 L3 15 L5 9 L1 6 H6 Z M2 14 L14 2" {...S} />,
+  flagOff: () => <path d="M3 15 V1 H13 L10 4 L13 7 H3 M1 14 L15 2" {...S} />,
+  followUp: () => <><path d="M2 15 V1 H12 L10 3.5 L12 6 H2" {...S} /><circle cx="11.5" cy="11.5" r="3.5" {...S} /><circle cx="11.5" cy="11.5" r="0.8" {...F} /></>,
+  mute: () => <path d="M1.5 12 H14.5 M3.5 12 V7 A4.5 4.5 0 0 1 12.5 7 V12 M6.5 14.5 H9.5 M2 2 L14 14" {...S} />,
+  block: () => <><circle cx="6" cy="4.5" r="3" {...S} /><path d="M1 15 A5 5 0 0 1 8 10.5 M10.5 10.5 L15 15 M15 10.5 L10.5 15" {...S} /></>,
+  shieldAlert: () => <path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z M8 5 V8.5 M8 10.5 V11" {...S} />,
+  notSpam: () => <path d="M5 1 H11 L15 5 V11 L11 15 H5 L1 11 V5 Z M5.5 8 L7.5 10 L10.5 6" {...S} />,
+  phishing: () => <path d="M10 1 V10 A4 4 0 0 1 2 10 M2 10 L0.5 8 M2 10 L4 8.5 M13.5 2 V7 M13.5 10.5 V11.5" {...S} />,
+  createFilter: () => <path d="M1 2 H13 L8 8 V13 L6 14 V8 Z M12 11 H16 M14 9 V13" {...S} />,
+  expandAll: () => <path d="M2 8 H14 M5 5 L8 2 L11 5 M5 11 L8 14 L11 11" {...S} />,
+  collapseAll: () => <path d="M2 8 H14 M5 2 L8 5 L11 2 M5 14 L8 11 L11 14" {...S} />,
+  selectAll: () => <path d="M2 2 H14 V14 H2 Z M5 8 L7 10 L11 6" {...S} />,
+  clearSelection: () => <path d="M2 2 H14 V14 H2 Z M5.5 5.5 L10.5 10.5 M10.5 5.5 L5.5 10.5" {...S} />,
+  snooze: () => <path d="M8 1 A7 7 0 1 1 7.99 1 M5.5 5.5 H10.5 L5.5 10.5 H10.5" {...S} />,
+  snoozeLater: () => <><circle cx="8" cy="8" r="2.5" {...S} /><path d="M8 1 V3 M8 13 V15 M1 8 H3 M13 8 H15 M3 3 L4.5 4.5 M11.5 11.5 L13 13 M13 3 L11.5 4.5 M4.5 11.5 L3 13" {...S} /></>,
+  snoozeEvening: () => <path d="M1 13 H15 M4 13 A4 4 0 0 1 12 13 M8 1 V6.5 M5.5 4.5 L8 7 L10.5 4.5" {...S} />,
+  snoozeTomorrow: () => <path d="M1 12.5 H15 M4.5 12.5 A3.5 3.5 0 0 1 11.5 12.5 M8 3 V5.5 M2.5 5.5 L4.3 7.3 M13.5 5.5 L11.7 7.3" {...S} />,
+  snoozeWeekend: () => <path d="M2 3 H14 V15 H2 Z M2 7 H14 M5 1 V5 M11 1 V5 M9 10 H12 V13 H9 Z" {...S} />,
+  snoozeNextWeek: () => <path d="M2 3 H14 V15 H2 Z M2 7 H14 M5 1 V5 M11 1 V5 M5 11 H11 M9 9 L11 11 L9 13" {...S} />,
+  snoozeMonth: () => <><path d="M2 3 H14 V15 H2 Z M2 7 H14 M5 1 V5 M11 1 V5" {...S} /><circle cx="5.5" cy="11" r="0.9" {...F} /><circle cx="8" cy="11" r="0.9" {...F} /><circle cx="10.5" cy="11" r="0.9" {...F} /></>,
+  snoozePick: () => <><path d="M13 7 V3 H2 V15 H7 M2 7 H13 M5 1 V5 M10 1 V5" {...S} /><circle cx="11.5" cy="11.5" r="3.5" {...S} /><circle cx="11.5" cy="11.5" r="0.8" {...F} /></>,
+  unsnooze: () => <path d="M8 1 A7 7 0 1 1 7.99 1 M8 4 V8 L11 10 M2 14 L14 2" {...S} />,
+  snoozedFolder: () => <path d="M1 3 H6 L8 5 H15 V14 H1 Z M5.5 8 H10 L5.5 12 H10" {...S} />,
+  remindNoReply: () => <><circle cx="11" cy="5" r="4" {...S} /><circle cx="11" cy="5" r="0.8" {...F} /><path d="M6 9 L2 12.5 L6 15.5 M2 12.5 H8 Q10 12.5 10 15" {...S} /></>,
+  goReply: () => <><path d="M6 3 L1 8 L6 13 M1 8 H8" {...S} /><circle cx="12" cy="8" r="2.5" {...S} /></>,
+  goForward: () => <><path d="M10 3 L15 8 L10 13 M15 8 H8" {...S} /><circle cx="4" cy="8" r="2.5" {...S} /></>,
+  markAnswered: () => <path d="M5 3 L1 7 L5 11 M1 7 H8 M7 13 L9.5 15.5 L15 9" {...S} />,
+  markForwarded: () => <path d="M11 3 L15 7 L11 11 M15 7 H8 M1 13 L3.5 15.5 L9 9" {...S} />,
+  // END action glyphs
 };
 
 /** Every icon name, for tests and the section table. */

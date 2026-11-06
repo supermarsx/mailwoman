@@ -5,6 +5,8 @@ import {loadCatalog,t} from '../i18n';
 import {relatedSearchValue,relatedSenderDomain} from './messageSearch.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {snoozePresets} from './MessageActions.tsx';
+import {ACTION_ICONS,snoozePresetIcon} from '../actionIcons.ts';
+import type {IconName} from './Icon.tsx';
 import {mailFeature,mailFeatureOffTitle,spamFolderHidden} from '../state/mailFeatures.ts';
 import {copyMessageToFolder,copyText,quickPrint,replyFromList} from './messageQuickActions.ts';
 import {pickerOptions} from './FolderBulkDialogs.tsx';
@@ -23,7 +25,7 @@ export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focused
  // An app without the Focused inbox (a detached pane's reduced state) offers nothing.
  const {focusedInbox,senderFocus,alwaysMoveSender}=app;
  if(!focusedInbox||!senderFocus||!alwaysMoveSender||!focusedInbox()||from==='')return [];
- return (['focused','other'] as const).map(tab=>({id:`focus:${tab}`,label:t(tab==='focused'?'mail-focus-always-focused':'mail-focus-always-other'),icon:tab==='focused'?'star':'inbox',checked:senderFocus(from)===tab,run:()=>alwaysMoveSender(from,tab)}));
+ return (['focused','other'] as const).map(tab=>({id:`focus:${tab}`,label:t(tab==='focused'?'mail-focus-always-focused':'mail-focus-always-other'),icon:tab==='focused'?ACTION_ICONS.focusFocused:ACTION_ICONS.focusOther,checked:senderFocus(from)===tab,run:()=>alwaysMoveSender(from,tab)}));
 }
 /** Always targets the indicated message, not an unrelated existing selection. */
 /** A conversation head's menu acts on the conversation: `threadMode` says the menu was opened on a head, `threadMembers` lists the loaded messages of its thread. */
@@ -52,7 +54,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   const loadedOf=(member:Email)=>{const found=state(member);return found!==undefined&&found!=='failed'?found:undefined;};
   const who=(member:Email)=>`${formatDateWith(member.sentAt??member.receivedAt,{dateStyle:"medium",timeStyle:"short"})} · ${member.from?.[0]?.name||member.from?.[0]?.email||''}`;
   const detail=(related:Email)=>`${formatDateWith(related.sentAt??related.receivedAt,{dateStyle:"medium",timeStyle:"short"})} · ${(related.to??[]).map(a=>a.name||a.email).join(', ')||t('mail-no-recipients')}`;
-  const jump=(rowId:string,keyword:string,label:string,icon:'reply'|'forward',pick:(extra:MessageExtras)=>Email[],missing:string)=>{
+  const jump=(rowId:string,keyword:string,label:string,icon:IconName,pick:(extra:MessageExtras)=>Email[],missing:string)=>{
    const sources=members.filter(member=>member.keywords?.[keyword]===true);
    if(!sources.length)return;
    const found=new Map<string,{owner:Email;value:Email}>();
@@ -63,29 +65,29 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    else if(targets.length===1)rows.splice(at,0,{id:rowId,label,icon,run:()=>goTo(targets[0]!.value,targets[0]!.owner)});
    else rows.splice(at,0,{id:rowId,label,icon,run:()=>{},children:targets.map((target,i)=>({id:`${rowId}:${i}`,label:`${who(target.owner)} → ${detail(target.value)}`,icon,run:()=>goTo(target.value,target.owner)}))});
   };
-  jump('go-reply','$answered',t('mail-context-go-reply'),'reply',extra=>extra.replies,t('mail-context-reply-not-found'));
-  jump('go-forward','$forwarded',t('mail-context-go-forward'),'forward',extra=>extra.forwards,t('mail-context-forward-not-found'));
+  jump('go-reply','$answered',t('mail-context-go-reply'),ACTION_ICONS.goReply,extra=>extra.replies,t('mail-context-reply-not-found'));
+  jump('go-forward','$forwarded',t('mail-context-go-forward'),ACTION_ICONS.goForward,extra=>extra.forwards,t('mail-context-forward-not-found'));
   const withFiles=members.filter(member=>member.hasAttachment);
   if(!withFiles.length)return;
   const off=!mailFeature('allowDownload');
   const groups=withFiles.flatMap(member=>{const loaded=loadedOf(member);return loaded&&loaded.attachments.length?[{member,emailId:member.id,label:member.subject??'',items:loaded.attachments.map(describe)}]:[];});
-  const base={icon:'download' as const,separatorBefore:true};
+  const base={icon:ACTION_ICONS.attachment,separatorBefore:true};
   if(off||!groups.length){rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),disabled:true,title:off?mailFeatureOffTitle():withFiles.some(member=>state(member)===undefined)?t('mail-context-loading-attachments'):t('mail-context-attachments-failed'),run:()=>{}});return;}
   rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),run:()=>{},children:[
    ...groups.map(group=>({id:`attachments:msg:${group.emailId}`,label:`${who(group.member)} (${group.items.length})`,icon:'attachment' as const,run:()=>{},children:[
     ...group.items.map((item,i)=>{const why=blockedReason(policy(),item);return {id:`attachments:msg:${group.emailId}:${i}`,label:`${item.name} (${sizeLabel(item)})`,icon:'attachment' as const,...(why?{disabled:true,title:why}:{title:`${item.mime} · ${sizeLabel(item)}`}),run:()=>downloadOne(app,group.emailId,item)};}),
-    {id:`attachments:msg:${group.emailId}:all`,label:t('mail-context-download-all'),icon:'download' as const,separatorBefore:true,run:()=>downloadZip(app,[group],policy())}]})),
-   {id:'attachments:all',label:t('mail-context-download-thread-attachments',{count:groups.reduce((sum,group)=>sum+group.items.length,0)}),icon:'download',separatorBefore:true,run:()=>downloadZip(app,groups,policy())}]});
+    {id:`attachments:msg:${group.emailId}:all`,label:t('mail-context-download-all'),icon:ACTION_ICONS.downloadAll,separatorBefore:true,run:()=>downloadZip(app,[group],policy())}]})),
+   {id:'attachments:all',label:t('mail-context-download-thread-attachments',{count:groups.reduce((sum,group)=>sum+group.items.length,0)}),icon:ACTION_ICONS.downloadAll,separatorBefore:true,run:()=>downloadZip(app,groups,policy())}]});
  };
  const membersOf=(message:Email):Email[]=>{const list=threads?.threadMode()?threads.threadMembers(message):[];return list.length>1?[...list].sort((a,b)=>(a.sentAt??a.receivedAt).localeCompare(b.sentAt??b.receivedAt)):[];};
  const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
   const message=app.messages().find(value=>value.id===email()?.id);if(!message)return [];const id=message.id;const busy=app.listLoading();
   const rows:ContextAction[]=[
-   {id:'open',label:t('mail-context-open-message'),icon:'mail',run:()=>app.openMessage(id)},
-   {id:'read',label:t(message.keywords?.$seen?'mail-mark-unread':'mail-mark-read'),icon:'mailRead',run:()=>app.markRead(id,!message.keywords?.$seen)},
-   {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:'flag',run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
-   {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:'pin',run:()=>app.pinMessage(id,!message.pinned)},
+   {id:'open',label:t('mail-context-open-message'),icon:ACTION_ICONS.open,run:()=>app.openMessage(id)},
+   {id:'read',label:t(message.keywords?.$seen?'mail-mark-unread':'mail-mark-read'),icon:message.keywords?.$seen?ACTION_ICONS.markUnread:ACTION_ICONS.markRead,run:()=>app.markRead(id,!message.keywords?.$seen)},
+   {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:message.keywords?.$flagged?ACTION_ICONS.unflag:ACTION_ICONS.flag,run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
+   {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:message.pinned?ACTION_ICONS.unpin:ACTION_ICONS.pin,run:()=>app.pinMessage(id,!message.pinned)},
   ];
   // Reply, reply all and forward go through the reader (it owns decryption, quoting and threading); the feature switches disable them with the usual tooltip.
   rows.splice(1,0,
@@ -101,7 +103,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    const target=(related:Email)=>Object.keys(related.mailboxIds??{}).find(box=>related.mailboxIds[box]&&app.mailboxes().some(value=>value.id===box));
    const go=(related:Email)=>goTo(related,message);
    const detail=(related:Email)=>`${formatDateWith(related.sentAt??related.receivedAt,{dateStyle:"medium",timeStyle:"short"})} · ${(related.to??[]).map(a=>a.name||a.email).join(', ')||t('mail-no-recipients')}`;
-   const jump=(rowId:string,keyword:string,label:string,icon:'reply'|'forward',list:Email[]|undefined,missing:string)=>{
+   const jump=(rowId:string,keyword:string,label:string,icon:IconName,list:Email[]|undefined,missing:string)=>{
     if(message.keywords?.[keyword]!==true)return;
     const targets=(list??[]).filter(value=>target(value));
     const at=rows.findIndex(row=>row.id==='forward')+1+(rows.some(row=>row.id==='open-reply-draft')?1:0)+(rowId==='go-forward'&&rows.some(row=>row.id==='go-reply')?1:0);
@@ -110,42 +112,42 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
     else if(targets.length===1)rows.splice(at,0,{id:rowId,label,icon,run:()=>go(targets[0]!)});
     else rows.splice(at,0,{id:rowId,label,icon,run:()=>{},children:targets.map((value,i)=>({id:`${rowId}:${i}`,label:detail(value),icon,run:()=>go(value)}))});
    };
-   jump('go-reply','$answered',t('mail-context-go-reply'),'reply',loaded?.replies,t('mail-context-reply-not-found'));
-   jump('go-forward','$forwarded',t('mail-context-go-forward'),'forward',loaded?.forwards,t('mail-context-forward-not-found'));
+   jump('go-reply','$answered',t('mail-context-go-reply'),ACTION_ICONS.goReply,loaded?.replies,t('mail-context-reply-not-found'));
+   jump('go-forward','$forwarded',t('mail-context-go-forward'),ACTION_ICONS.goForward,loaded?.forwards,t('mail-context-forward-not-found'));
    if(message.hasAttachment){
     const off=!mailFeature('allowDownload'),pending=!loaded;
     const items=(loaded?.attachments??[]).map(describe);
-    const base={icon:'download' as const,separatorBefore:true};
+    const base={icon:ACTION_ICONS.attachment,separatorBefore:true};
     const rowFor=(item:ReturnType<typeof describe>,i:number):ContextAction=>{const why=blockedReason(policy(),item);return {id:`attachment:${i}`,label:t('mail-context-download-named',{name:item.name}),icon:'attachment',...(off||why?{disabled:true,title:off?mailFeatureOffTitle():why!}:{title:`${item.mime} · ${sizeLabel(item)}`}),run:()=>downloadOne(app,id,item)};};
     if(pending||off)rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),disabled:true,title:off?mailFeatureOffTitle():found==='failed'?t('mail-context-attachments-failed'):t('mail-context-loading-attachments'),run:()=>{}});
     else if(items.length===1)rows.push({...base,...rowFor(items[0]!,0),id:'attachments'});
-    else if(items.length>1)rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),run:()=>{},children:[...items.map((item,i)=>({...rowFor(item,i),label:`${item.name} (${sizeLabel(item)})`})),{id:'attachments:all',label:t('mail-context-download-all'),icon:'download',separatorBefore:true,run:()=>downloadZip(app,[{emailId:id,label:message.subject??id,items}],policy())}]});}}
+    else if(items.length>1)rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),run:()=>{},children:[...items.map((item,i)=>({...rowFor(item,i),label:`${item.name} (${sizeLabel(item)})`})),{id:'attachments:all',label:t('mail-context-download-all'),icon:ACTION_ICONS.downloadAll,separatorBefore:true,run:()=>downloadZip(app,[{emailId:id,label:message.subject??id,items}],policy())}]});}}
   {const selected=app.selectedIds(),chosen=selected.has(id)&&selected.size>1?app.messages().filter(value=>selected.has(value.id)):[];
    if(chosen.some(value=>value.hasAttachment)){
     const off=!mailFeature('allowDownload');
-    rows.push({id:'attachments-selected',label:t('mail-context-download-selected-attachments',{count:chosen.filter(value=>value.hasAttachment).length}),icon:'download',separatorBefore:!rows.some(row=>row.id==='attachments'),...(off?{disabled:true,title:mailFeatureOffTitle()}:{}),run:()=>downloadAttachmentsOf(app,createConfiguredClient(),chosen.filter(value=>value.hasAttachment),policy())});
+    rows.push({id:'attachments-selected',label:t('mail-context-download-selected-attachments',{count:chosen.filter(value=>value.hasAttachment).length}),icon:ACTION_ICONS.downloadAll,separatorBefore:!rows.some(row=>row.id==='attachments'),...(off?{disabled:true,title:mailFeatureOffTitle()}:{}),run:()=>downloadAttachmentsOf(app,createConfiguredClient(),chosen.filter(value=>value.hasAttachment),policy())});
    }}
   {const current=new Set(Object.keys(message.mailboxIds??{}).filter(key=>message.mailboxIds[key]));
    const targets=pickerOptions(app.mailboxes(),box=>!current.has(box.id)&&box.mailwomanSearchQuery===undefined&&box.myRights?.mayAddItems!==false&&!spamFolderHidden(box));
    const copies:ContextAction[]=[];
-   if(targets.length)copies.push({id:'copy:folder',label:t('mail-context-copy-to-folder'),icon:'copy',run:()=>{},children:targets.map(target=>({id:`copy:to:${target.id}`,label:target.label,icon:'folder',run:async()=>{if(!await copyMessageToFolder(app,id,target.id,app.refreshFolders))app.showToast('error',t('mail-context-failed'));}}))});
+   if(targets.length)copies.push({id:'copy:folder',label:t('mail-context-copy-to-folder'),icon:ACTION_ICONS.copyTo,run:()=>{},children:targets.map(target=>({id:`copy:to:${target.id}`,label:target.label,icon:'folder',run:async()=>{if(!await copyMessageToFolder(app,id,target.id,app.refreshFolders))app.showToast('error',t('mail-context-failed'));}}))});
    const sender=(message.from?.[0]?.email??'').trim();
-   const text=(label:string,value:string,action:string):ContextAction=>({id:`copy:${action}`,label,icon:'copy',run:async()=>{const ok=await copyText(value);app.showToast(ok?'success':'error',t(ok?'mail-context-copied':'mail-context-copy-failed'));}});
+   const text=(label:string,value:string,action:string):ContextAction=>({id:`copy:${action}`,label,icon:action==='sender'?ACTION_ICONS.copySender:ACTION_ICONS.copySubject,run:async()=>{const ok=await copyText(value);app.showToast(ok?'success':'error',t(ok?'mail-context-copied':'mail-context-copy-failed'));}});
    if(sender)copies.push(text(t('mail-context-copy-sender'),sender,'sender'));
    if(message.subject)copies.push(text(t('mail-context-copy-subject'),message.subject,'subject'));
-   if(copies.length)rows.push({id:'copy',label:t('mail-context-copy'),icon:'copy',children:copies,run:()=>{}});}
+   if(copies.length)rows.push({id:'copy',label:t('mail-context-copy'),icon:ACTION_ICONS.copy,children:copies,run:()=>{}});}
   if(mailFeature('allowPrint'))rows.push({id:'quick-print',label:t('mail-context-quick-print'),icon:'print',run:()=>quickPrint(app,id)});
   else rows.push({id:'quick-print',label:t('mail-context-quick-print'),icon:'print',disabled:true,title:mailFeatureOffTitle(),run:()=>{}});
   const searches:ContextAction[]=[];
-  for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)searches.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:'search',run:()=>app.searchMessageField(field,value)});}
+  for(const field of ['from','subject'] as const){const value=relatedSearchValue(message,field);if(value)searches.push({id:`search:${field}`,label:t(field==='from'?'mail-context-search-sender':'mail-context-search-subject'),icon:field==='from'?ACTION_ICONS.searchSender:ACTION_ICONS.searchSubject,run:()=>app.searchMessageField(field,value)});}
   // t88: scope a search to the message's folder (its chip shows in the filter bar).
-  {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)searches.push({id:'search:in',label:t('search-refine-folder'),icon:'search',run:()=>app.searchMessageField('in',folder)});}
+  {const folder=Object.keys(message.mailboxIds??{}).find(id=>message.mailboxIds[id]&&app.mailboxes().some(box=>box.id===id));if(folder)searches.push({id:'search:in',label:t('search-refine-folder'),icon:ACTION_ICONS.searchFolder,run:()=>app.searchMessageField('in',folder)});}
   const domain=relatedSenderDomain(message);if(domain&&app.supportsFromDomainSearch())searches.splice(1,0,{id:'search:from-domain',label:t('mail-context-search-domain'),icon:'domains',run:()=>app.searchMessageField('from-domain',domain)});
   if(searches.length)rows.push({id:'search',label:t('search-refine-menu'),icon:'search',separatorBefore:true,children:searches,run:()=>{}});
   // t94: the sender's Focused inbox override; the current choice is checked.
   for(const row of focusActions(app,message))rows.push(row);
   for(const [role,label,icon,run] of [
-   ['archive','mail-archive','archive',()=>app.archiveMessage(id)],
+   ['archive','mail-archive',ACTION_ICONS.archive,()=>app.archiveMessage(id)],
    ['junk','mail-mark-spam','spam',()=>app.markSpam(id)],
    ['trash','mail-delete','delete',()=>app.trashMessage(id)],
   ] as const)if(app.mailboxes().some(box=>box.role===role&&!message.mailboxIds[box.id]&&!spamFolderHidden(box)))rows.push({id:role,label:t(label),icon,run});
@@ -154,13 +156,13 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    const targets=app.messages().filter(value=>ids.includes(value.id));
    const all=(keyword:string)=>targets.length>0&&targets.every(value=>value.keywords?.[keyword]===true);
    const answered=all('$answered'),forwarded=all('$forwarded');
-   rows.push({id:'mark-answered',label:t(answered?'mail-mark-unanswered':'mail-mark-answered'),icon:'reply',separatorBefore:true,run:()=>app.markReplyState(ids,'$answered',!answered)},
-    {id:'mark-forwarded',label:t(forwarded?'mail-mark-not-forwarded':'mail-mark-forwarded'),icon:'forward',run:()=>app.markReplyState(ids,'$forwarded',!forwarded)});}
-  rows.push({id:'snooze',label:t('mail-snooze'),icon:'clock',separatorBefore:true,run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:'clock',run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
-  if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:'clock',run:()=>app.unsnoozeMessage(id)});
-  rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:'flag',run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
+   rows.push({id:'mark-answered',label:t(answered?'mail-mark-unanswered':'mail-mark-answered'),icon:ACTION_ICONS.markAnswered,separatorBefore:true,run:()=>app.markReplyState(ids,'$answered',!answered)},
+    {id:'mark-forwarded',label:t(forwarded?'mail-mark-not-forwarded':'mail-mark-forwarded'),icon:ACTION_ICONS.markForwarded,run:()=>app.markReplyState(ids,'$forwarded',!forwarded)});}
+  rows.push({id:'snooze',label:t('mail-snooze'),icon:ACTION_ICONS.snooze,separatorBefore:true,run:()=>{},children:snoozePresets().map(preset=>({id:`snooze:${preset.labelId}`,label:t(preset.labelId),icon:snoozePresetIcon(preset.labelId),run:()=>app.snoozeMessage(id,snoozePresets().find(value=>value.labelId===preset.labelId)!.at)}))});
+  if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:ACTION_ICONS.unsnooze,run:()=>app.unsnoozeMessage(id)});
+  rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:ACTION_ICONS.followUp,run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
-  if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:'download',run:()=>app.exportMessage(id)});
+  if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>app.exportMessage(id)});
   return rows.map(row=>({...row,disabled:busy||row.disabled===true}));
  },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
  createEffect(()=>{const message=email();if(menu.isOpen()&&message)untrack(()=>{const current=app.messages().find(value=>value.id===message.id)??message;prefetch(current);for(const member of membersOf(current))prefetch(member);});});

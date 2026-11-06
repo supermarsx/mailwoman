@@ -7,6 +7,7 @@ import type {Mailbox} from '../api/jmap-types.ts';
 import {loadCatalog,t} from '../i18n';
 import {EmptyFolderDialog,useCanEmpty,useEmptyAbility} from './EmptyFolderDialog.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
+import {ACTION_ICONS} from '../actionIcons.ts';
 import {FolderRenameField,prefersRenameDialog,RenameFolderDialog,useCanRename,useRenameContext} from './RenameFolder.tsx';
 import {DeleteFolderDialog} from './DeleteFolder.tsx';
 import {canDeleteFolder} from '../api/deleteFolder.ts';
@@ -43,34 +44,34 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
   const pinned=accountUiPreferences().folderPinned??[],starred=accountUiPreferences().folderStarred??[];
   const boxes=app.mailboxes(),subs=descendantsOf(boxes,box.id),system=isSystemFolder(box),ability=renameContext();
   const rows:ContextAction[]=[{id:'open',label:t('mail-context-open-folder'),icon:'folder',run:props.onOpen}];
-  if(props.onOpenTab)rows.push({id:'open-tab',label:t('folder-tabs-open'),icon:'folder',run:props.onOpenTab});
+  if(props.onOpenTab)rows.push({id:'open-tab',label:t('folder-tabs-open'),icon:ACTION_ICONS.openFolderTab,run:props.onOpenTab});
   // Several folders picked with the marquee: mark all of them read at once.
   {const picked=props.selection?.()??new Set<string>();
    if(picked.size>1&&picked.has(box.id)){
     const chosen=boxes.filter(value=>picked.has(value.id)),blocked=chosen.every(value=>value.myRights?.maySetSeen===false||value.mailwomanSearchQuery!==undefined),idle=chosen.every(value=>value.unreadEmails===0);
-    rows.push({id:'mark-read-selected',label:t('folder-select-mark-read',{count:chosen.length}),icon:'mailRead',disabled:blocked||idle,run:()=>{const account=preferenceAccount(),accountId=app.accountId();if(!account||!accountId||account.id!==accountId)return;void runMarkAllRead({app,client,accountId,current:()=>preferenceAccountIsCurrent(account)&&app.accountId()===accountId},t('folder-select-count',{count:chosen.length}),chosen.filter(value=>value.myRights?.maySetSeen!==false&&value.mailwomanSearchQuery===undefined).map(value=>value.id));}});}}
+    rows.push({id:'mark-read-selected',label:t('folder-select-mark-read',{count:chosen.length}),icon:ACTION_ICONS.markSelectedFoldersRead,disabled:blocked||idle,run:()=>{const account=preferenceAccount(),accountId=app.accountId();if(!account||!accountId||account.id!==accountId)return;void runMarkAllRead({app,client,accountId,current:()=>preferenceAccountIsCurrent(account)&&app.accountId()===accountId},t('folder-select-count',{count:chosen.length}),chosen.filter(value=>value.myRights?.maySetSeen!==false&&value.mailwomanSearchQuery===undefined).map(value=>value.id));}});}}
   // Mark all as read: this folder, or with its subfolders (a choice when there are any).
   {const own=box.unreadEmails,all=rolledUnread(boxes,box.id),blocked=box.myRights?.maySetSeen===false||box.mailwomanSearchQuery!==undefined;
    const run=(include:boolean)=>()=>{const account=preferenceAccount(),accountId=app.accountId();if(!account||!accountId||account.id!==accountId)return;void runMarkAllRead({app,client,accountId,current:()=>preferenceAccountIsCurrent(account)&&app.accountId()===accountId},box.name,include?[box.id,...subs.map(value=>value.id)]:[box.id]);};
    const title=blocked?t('folder-ops-read-unavailable'):all===0?t('folder-ops-no-unread'):undefined;
    rows.push(subs.length>0
-    ?{id:'mark-read',label:t('folder-ops-mark-read'),icon:'mailRead',disabled:blocked||all===0,...(title?{title}:{}),children:[{id:'mark-read:this',label:t('folder-ops-this-folder'),icon:'mailRead',disabled:own===0,run:run(false)},{id:'mark-read:all',label:t('folder-ops-with-subfolders'),icon:'mailRead',run:run(true)}],run:()=>{}}
-    :{id:'mark-read',label:t('folder-ops-mark-read'),icon:'mailRead',disabled:blocked||own===0,...(title?{title}:{}),run:run(false)});}
+    ?{id:'mark-read',label:t('folder-ops-mark-read'),icon:ACTION_ICONS.markFolderRead,disabled:blocked||all===0,...(title?{title}:{}),children:[{id:'mark-read:this',label:t('folder-ops-this-folder'),icon:ACTION_ICONS.markRead,disabled:own===0,run:run(false)},{id:'mark-read:all',label:t('folder-ops-with-subfolders'),icon:ACTION_ICONS.markFolderRead,run:run(true)}],run:()=>{}}
+    :{id:'mark-read',label:t('folder-ops-mark-read'),icon:ACTION_ICONS.markFolderRead,disabled:blocked||own===0,...(title?{title}:{}),run:run(false)});}
   rows.push({id:'pin',label:t(pinned.includes(box.id)?'mail-unpin':'mail-pin'),icon:'pin',run:()=>{const current=accountUiPreferences().folderPinned??[];setAccountUiPreferences({folderPinned:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
-   {id:'star',label:t(starred.includes(box.id)?'folder-star-remove':'folder-star-add'),icon:starred.includes(box.id)?'starOutline':'star',run:()=>{const current=accountUiPreferences().folderStarred??[];setAccountUiPreferences({folderStarred:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
+   {id:'star',label:t(starred.includes(box.id)?'folder-star-remove':'folder-star-add'),icon:starred.includes(box.id)?ACTION_ICONS.folderUnstar:ACTION_ICONS.folderStar,run:()=>{const current=accountUiPreferences().folderStarred??[];setAccountUiPreferences({folderStarred:current.includes(box.id)?current.filter(id=>id!==box.id):[...current,box.id]});}},
    {id:'layout',label:t('folder-dnd-layout-link'),icon:'preferences',run:props.onSettings},
-   ...(props.onArrange&&!system?[{id:'arrange',label:t('folder-dnd-arrange-menu'),icon:'folder' as const,run:props.onArrange}]:[]),
+   ...(props.onArrange&&!system?[{id:'arrange',label:t('folder-dnd-arrange-menu'),icon:ACTION_ICONS.arrangeFolders,run:props.onArrange}]:[]),
    {id:'refresh',label:t('mail-context-refresh'),icon:'refresh',run:()=>selectThen(()=>{void app.refreshCurrentMailbox();})});
   const manages=ability?.manages===true&&box.mailwomanSearchQuery===undefined;
   if(manages&&box.myRights?.mayCreateChild===true)rows.push({id:'create-folder',label:t('folder-ops-new-subfolder'),icon:'folderPlus',separatorBefore:true,run:()=>{setCreating(true);}});
   if(canRename(box))rows.push({id:'rename',label:t('rename-folder-action'),icon:'edit',run:startRename});
   if(subs.some(value=>value.parentId===box.id))rows.push(folderSortAction(box.id,t('folder-ops-sort-subfolders'),()=>loadActivity()));
-  if(canEmpty(box))rows.push({id:'cleanup',label:t('folder-cleanup'),icon:'delete',separatorBefore:true,run:()=>{setCleaning(true);}});
+  if(canEmpty(box))rows.push({id:'cleanup',label:t('folder-cleanup'),icon:ACTION_ICONS.cleanupFolder,separatorBefore:true,run:()=>{setCleaning(true);}});
   // Any real folder (t45): ordinary folders move to Trash, Trash and Junk empty for good.
-  if(canEmpty(box))rows.push({id:'empty',label:t('empty-folder-action'),icon:'delete',run:()=>{if(app.mailboxes().some(value=>value.id===box.id)&&canEmpty(box))setEmpty(true);}});
+  if(canEmpty(box))rows.push({id:'empty',label:t('empty-folder-action'),icon:ACTION_ICONS.emptyFolder,run:()=>{if(app.mailboxes().some(value=>value.id===box.id)&&canEmpty(box))setEmpty(true);}});
   rows.push({id:'settings',label:t('mail-context-folder-settings'),icon:'settings',separatorBefore:true,run:props.onSettings});
   if(props.onRetention&&box.mailwomanSearchQuery===undefined)rows.push({id:'retention',label:t('retention-context-action'),icon:'archive',run:props.onRetention});
-  if(box.role!=='inbox')rows.push({id:'hide',label:t('mail-context-hide-folder'),icon:'eye',run:()=>{
+  if(box.role!=='inbox')rows.push({id:'hide',label:t('mail-context-hide-folder'),icon:ACTION_ICONS.hideFolder,run:()=>{
    const hidden=accountUiPreferences().folderHidden??[];
    if(!hidden.includes(box.id))setAccountUiPreferences({folderHidden:[...hidden,box.id]});
    props.onHidden?.();
@@ -90,8 +91,8 @@ export function FolderContextMenu(props:{box:Mailbox;children:JSX.Element;onOpen
    const deletable=canDeleteFolder(box,boxes,ability),tree=!deletable&&subs.length>0&&canDeleteTree(box,boxes,ability);
    more.push({id:'delete-folder',label:t(tree?'folder-ops-delete-with-subfolders':'delete-folder-action'),icon:'delete',disabled:!deletable&&!tree,...(system?{title:sysTitle}:!deletable&&!tree?{title:t('folder-ops-delete-unavailable')}:{}),run:()=>{const target=app.mailboxes().find(value=>value.id===box.id);if(!target)return;if(canDeleteFolder(target,app.mailboxes(),renameContext()))setDeleting(true);else if(canDeleteTree(target,app.mailboxes(),renameContext()))setDeletingTree(true);}});
    const readable=box.myRights?.mayReadItems!==false;
-   more.push({id:'copy-all',label:t('folder-ops-copy-all-menu'),icon:'copy',separatorBefore:true,disabled:!readable,...(readable?{}:{title:t('folder-ops-read-unavailable')}),run:()=>{setTransfer('copy');}},
-    {id:'move-all',label:t('folder-ops-move-all-menu'),icon:'transfer',disabled:!readable||box.myRights?.mayRemoveItems===false,...(box.myRights?.mayRemoveItems===false?{title:t('folder-ops-move-unavailable')}:{}),run:()=>{setTransfer('move');}});
+   more.push({id:'copy-all',label:t('folder-ops-copy-all-menu'),icon:ACTION_ICONS.copyAllMessages,separatorBefore:true,disabled:!readable,...(readable?{}:{title:t('folder-ops-read-unavailable')}),run:()=>{setTransfer('copy');}},
+    {id:'move-all',label:t('folder-ops-move-all-menu'),icon:ACTION_ICONS.moveAllMessages,disabled:!readable||box.myRights?.mayRemoveItems===false,...(box.myRights?.mayRemoveItems===false?{title:t('folder-ops-move-unavailable')}:{}),run:()=>{setTransfer('move');}});
    more.push({id:'move-up',label:t('folder-ops-move-up'),icon:'chevronUp',disabled:system||at<=0,...(system?{title:sysTitle}:{}),run:shift('up')},
     {id:'move-down',label:t('folder-ops-move-down'),icon:'chevronDown',disabled:system||at<0||at>=siblings.length-1,...(system?{title:sysTitle}:{}),run:shift('down')});
    rows.push({id:'more',label:t('folder-ops-more'),icon:'more',separatorBefore:true,children:more,run:()=>{}});

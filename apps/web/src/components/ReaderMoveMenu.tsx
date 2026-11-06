@@ -7,6 +7,7 @@ import { loadCatalog, t } from '../i18n/index.ts';
 import { ReaderAction } from './ReaderAction.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { spamFolderHidden } from '../state/mailFeatures.ts';
+import {ACTION_ICONS} from '../actionIcons.ts';
 import type { Email } from '../api/jmap-types.ts';
 
 /** The folders `email` can be moved to: any real folder it is not already in. */
@@ -28,7 +29,7 @@ export function ReaderMoveMenu(props: { email: Email }): JSX.Element {
   });
   return (
     <>
-      <ReaderAction icon="folder" label={t('mail-reader-move-to')} help={t('mail-action-help-move')} testId="reader-move" popup="menu" expanded={menu.isOpen()} onClick={(event) => { button = event.currentTarget as HTMLButtonElement; menu.open(event); }} />
+      <ReaderAction icon={ACTION_ICONS.moveTo} label={t('mail-reader-move-to')} help={t('mail-action-help-move')} testId="reader-move" popup="menu" expanded={menu.isOpen()} onClick={(event) => { button = event.currentTarget as HTMLButtonElement; menu.open(event); }} />
       {menu.menu()}
     </>
   );

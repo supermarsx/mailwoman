@@ -6,6 +6,7 @@ import { rowActionsMode, type RowActionsMode } from '../state/mailFeatures.ts';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './messageRow.css.ts';
 import type { Email } from '../api/jmap-types.ts';
+import { ACTION_ICONS, snoozePresetIcon } from '../actionIcons.ts';
 
 // The per-row action cluster (plan §1.5): pin, snooze (with presets), label
 // (tag registry), follow-up, archive, delete. Each action goes through the mail
@@ -161,7 +162,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           aria-label={t('mail-flag')}
           data-testid="msg-followup-mark"
         >
-          <Icon name="flag" />
+          <Icon name={ACTION_ICONS.followUp} />
         </span>
       </Show>
 
@@ -199,7 +200,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           aria-pressed={pinned()}
           onClick={() => void app.pinMessage(id(), !pinned())}
         >
-          <Icon name="pin" />
+          <Icon name={pinned() ? ACTION_ICONS.unpin : ACTION_ICONS.pin} />
         </button>
 
         <div class={`msg-actions__wrap ${css.menuWrap}`} classList={{ [css.actionSecondary]: compact() && !expanded() }}>
@@ -211,7 +212,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
             aria-expanded={menu() === 'snooze'}
             onClick={() => toggleMenu('snooze')}
           >
-            <Icon name="clock" />
+            <Icon name={ACTION_ICONS.snooze} />
           </button>
           <Show when={menu() === 'snooze'}>
             <div class={`msg-menu ${css.menu}`} role="menu" aria-label={t('mail-snooze-menu')}>
@@ -226,7 +227,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
                       void app.snoozeMessage(id(), p.at);
                     }}
                   >
-                    {t(p.labelId)}
+                    <Icon name={snoozePresetIcon(p.labelId)} />{t(p.labelId)}
                   </button>
                 )}
               </For>
@@ -240,7 +241,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
                     void app.unsnoozeMessage(id());
                   }}
                 >
-                  {t('mail-unsnooze')}
+                  <Icon name={ACTION_ICONS.unsnooze} />{t('mail-unsnooze')}
                 </button>
               </Show>
             </div>
@@ -297,7 +298,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
             void app.setFollowUp(id(), at);
           }}
         >
-          <Icon name="flag" />
+          <Icon name={ACTION_ICONS.followUp} />
         </button>
 
         <button
@@ -306,7 +307,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
           aria-label={t('mail-archive')}
           onClick={() => void app.archiveMessage(id())}
         >
-          <Icon name="archive" />
+          <Icon name={ACTION_ICONS.archive} />
         </button>
         <button
           type="button"

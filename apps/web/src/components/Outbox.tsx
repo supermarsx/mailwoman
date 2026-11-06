@@ -10,6 +10,7 @@ import './OutboxReader.css';
 import { OutboxDetail } from './OutboxDetail.tsx';
 import { OutboxEditTime } from './OutboxEditTime.tsx';
 import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
+import {ACTION_ICONS} from '../actionIcons.ts';
 import { outboxStatus } from '../state/outboxStatus.ts';
 import {
   outboxStateOf,
@@ -95,15 +96,15 @@ export function Outbox(): JSX.Element {
     const sub = app.outbox().find((s) => s.id === menuId());
     if (sub === undefined) return [];
     const status = outboxStatus(sub, now());
-    const rows: ContextAction[] = [{ id: 'open', label: t('outbox-open'), icon: 'mail', run: () => { setSelectedId(sub.id); } }];
-    if (status.waiting) rows.push({ id: 'send-now', label: t(status.kind === 'held' ? 'mail-outbox-release' : 'mail-outbox-send-now'), icon: 'mail', run: () => app.sendOutboxNow(sub.id) });
-    if (status.canEditTime) rows.push({ id: 'edit-time', label: t('outbox-edit-time'), icon: 'clock', run: () => { setEditTimeId(sub.id); } });
+    const rows: ContextAction[] = [{ id: 'open', label: t('outbox-open'), icon: ACTION_ICONS.outboxOpen, run: () => { setSelectedId(sub.id); } }];
+    if (status.waiting) rows.push({ id: 'send-now', label: t(status.kind === 'held' ? 'mail-outbox-release' : 'mail-outbox-send-now'), icon: ACTION_ICONS.outboxSendNow, run: () => app.sendOutboxNow(sub.id) });
+    if (status.canEditTime) rows.push({ id: 'edit-time', label: t('outbox-edit-time'), icon: ACTION_ICONS.outboxEditTime, run: () => { setEditTimeId(sub.id); } });
     if (status.waiting && status.kind !== 'held') {
-      rows.push({ id: 'recall', label: t('outbox-recall-to-drafts'), icon: 'compose', run: () => app.cancelOutbox(sub.id) });
-      rows.push({ id: 'edit-message', label: t('outbox-recall-edit'), icon: 'compose', run: () => app.recallOutbox(sub.id) });
+      rows.push({ id: 'recall', label: t('outbox-recall-to-drafts'), icon: ACTION_ICONS.outboxRecall, run: () => app.cancelOutbox(sub.id) });
+      rows.push({ id: 'edit-message', label: t('outbox-recall-edit'), icon: ACTION_ICONS.outboxEdit, run: () => app.recallOutbox(sub.id) });
     }
-    if (status.canSendAgain) rows.push({ id: 'send-again', label: t('outbox-send-again'), icon: 'mail', run: async () => { await app.sendOutboxAgain(sub.id); } });
-    if (status.waiting || status.kind === 'failed') rows.push({ id: 'delete', label: t('outbox-delete'), icon: 'delete', separatorBefore: true, run: async () => { await app.deleteOutbox(sub.id); } });
+    if (status.canSendAgain) rows.push({ id: 'send-again', label: t('outbox-send-again'), icon: ACTION_ICONS.outboxSendAgain, run: async () => { await app.sendOutboxAgain(sub.id); } });
+    if (status.waiting || status.kind === 'failed') rows.push({ id: 'delete', label: t('outbox-delete'), icon: ACTION_ICONS.outboxDelete, separatorBefore: true, run: async () => { await app.deleteOutbox(sub.id); } });
     return rows;
   };
   const rowMenu = createContextMenu({ label: () => t('mail-outbox-label'), scope: () => `outbox:${menuId()}`, actions: menuActions, onError: () => app.showToast('error', t('mail-context-failed')) });

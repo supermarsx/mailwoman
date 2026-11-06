@@ -10,6 +10,7 @@ import { downloadMessages, forwardMessages } from '../api/mailBulk.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from '../api/accountPreferenceLifecycle.ts';
 import { mailFeature, spamFolderHidden } from '../state/mailFeatures.ts';
 import { SelectionBar, type SelectionAction } from './SelectionBar.tsx';
+import {ACTION_ICONS} from '../actionIcons.ts';
 import type { ContextAction } from './ContextMenu.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
 import type { Id } from '../api/jmap-types.ts';
@@ -89,19 +90,19 @@ export function MailSelectionBar(props: {
     const anyUnread = list.some((m) => m.keywords?.['$seen'] !== true);
     const allFlagged = list.length > 0 && list.every((m) => m.keywords?.['$flagged'] === true);
     const out: SelectionAction[] = [
-      { id: 'archive', label: t('mail-archive'), icon: 'archive', testId: 'bulk-archive', run: () => app.archiveMessage(targets()) },
+      { id: 'archive', label: t('mail-archive'), icon: ACTION_ICONS.archive, testId: 'bulk-archive', run: () => app.archiveMessage(targets()) },
       { id: 'delete', label: t('mail-delete'), icon: 'delete', testId: 'bulk-delete', run: () => app.trashMessage(targets()) },
-      { id: 'move', label: t('selection-bar-move'), icon: 'folder', testId: 'bulk-move', menu: moveItems },
+      { id: 'move', label: t('selection-bar-move'), icon: ACTION_ICONS.moveTo, testId: 'bulk-move', menu: moveItems },
       anyUnread
         ? { id: 'read', label: t('mail-mark-read'), icon: 'mailRead', testId: 'bulk-read', run: () => app.markRead(targets(), true) }
-        : { id: 'read', label: t('mail-mark-unread'), icon: 'mail', testId: 'bulk-read', run: () => app.markRead(targets(), false) },
-      { id: 'flag', label: allFlagged ? t('mail-unflag-message') : t('mail-flag-message'), icon: 'flag', testId: 'bulk-flag', run: () => app.flagMessage(targets(), !allFlagged) },
+        : { id: 'read', label: t('mail-mark-unread'), icon: ACTION_ICONS.markUnread, testId: 'bulk-read', run: () => app.markRead(targets(), false) },
+      { id: 'flag', label: allFlagged ? t('mail-unflag-message') : t('mail-flag-message'), icon: allFlagged ? ACTION_ICONS.unflag : ACTION_ICONS.flag, testId: 'bulk-flag', run: () => app.flagMessage(targets(), !allFlagged) },
     ];
     if (mailFeature('showSpam')) out.push({ id: 'spam', label: t('mail-mark-spam'), icon: 'spam', testId: 'bulk-spam', run: () => app.markSpam(targets()) });
     if (app.tags().length > 0) out.push({ id: 'labels', label: t('selection-bar-labels'), icon: 'tag', testId: 'bulk-labels', menu: labelItems });
-    if (props.onCompose && mailFeature('allowForward')) out.push({ id: 'forward', label: t('mail-bulk-forward'), icon: 'forward', testId: 'bulk-forward', run: forward });
+    if (props.onCompose && mailFeature('allowForward')) out.push({ id: 'forward', label: t('mail-bulk-forward'), icon: ACTION_ICONS.forwardAttachment, testId: 'bulk-forward', run: forward });
     if (mailFeature('allowDownload')) out.push({ id: 'download', label: t('mail-bulk-download'), icon: 'download', testId: 'bulk-download', disabled: busy(), run: download });
-    if (mailFeature('allowDownload') && list.some((m) => m.hasAttachment === true)) out.push({ id: 'download-attachments', label: t('mail-bulk-download-attachments'), icon: 'attachment', testId: 'bulk-download-attachments', disabled: busy(), run: downloadAttachments });
+    if (mailFeature('allowDownload') && list.some((m) => m.hasAttachment === true)) out.push({ id: 'download-attachments', label: t('mail-bulk-download-attachments'), icon: ACTION_ICONS.downloadAll, testId: 'bulk-download-attachments', disabled: busy(), run: downloadAttachments });
     return out;
   };
 

@@ -37,6 +37,7 @@ import {zoomRowAction} from './ReaderZoom.tsx';
 import {focusActions} from './MessageContextMenu.tsx';
 import {colorRowAction,type ReaderColorProps} from './ReaderColorMenu.tsx';
 import {RawMessageHeaders} from './RawMessageHeaders.tsx';
+import {ACTION_ICONS} from '../actionIcons.ts';
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
@@ -95,9 +96,9 @@ export function ReaderToolbar(props:{
  // (read, flagged, a new link count) updates its button in place and never
  // re-creates a button that has focus. `ids` decides which are present.
  const all:Record<string,RowAction>={
-  reply:plain({id:'reply',icon:icon('reply'),label:()=>t('mail-reply'),help:()=>t('mail-action-help-reply'),testId:'reader-reply',disabled:()=>props.preparing,run:()=>props.onReply('reply')}),
-  'reply-all':plain({id:'reply-all',icon:icon('replyAll'),label:()=>t('mail-reply-all'),help:()=>t('mail-action-help-reply-all'),testId:'reader-reply-all',disabled:()=>props.preparing,run:()=>props.onReply('reply-all')}),
-  forward:plain({id:'forward',icon:icon('forward'),label:()=>t('mail-forward'),help:()=>t('mail-action-help-forward'),testId:'reader-forward',disabled:()=>props.preparing,run:()=>props.onReply('forward'),groupEnd:true}),
+  reply:plain({id:'reply',icon:icon(ACTION_ICONS.reply),label:()=>t('mail-reply'),help:()=>t('mail-action-help-reply'),testId:'reader-reply',disabled:()=>props.preparing,run:()=>props.onReply('reply')}),
+  'reply-all':plain({id:'reply-all',icon:icon(ACTION_ICONS.replyAll),label:()=>t('mail-reply-all'),help:()=>t('mail-action-help-reply-all'),testId:'reader-reply-all',disabled:()=>props.preparing,run:()=>props.onReply('reply-all')}),
+  forward:plain({id:'forward',icon:icon(ACTION_ICONS.forward),label:()=>t('mail-forward'),help:()=>t('mail-action-help-forward'),testId:'reader-forward',disabled:()=>props.preparing,run:()=>props.onReply('forward'),groupEnd:true}),
   'open-draft':plain({id:'open-draft',icon:icon('compose'),label:()=>t('mail-reply-draft-open'),help:()=>t('mail-reply-draft'),testId:'reader-open-draft',run:()=>{const draft=replyDraft();if(draft)props.onOpenReplyDraft?.(draft.id);}}),
   conversation:{id:'conversation',
    inline:()=><ReaderAction icon="conversation" label={t('mail-conversation-title')} help={t('mail-conversation-title')} testId="reader-conversation" popup="dialog" expanded={conversation.open()} onClick={()=>conversation.toggle()}/>,
@@ -107,13 +108,13 @@ export function ReaderToolbar(props:{
    menu:()=>[{id:'links',label:t('mail-links-review',{count:linkReview.count()}),icon:'link',run:()=>linkReview.open()}]},
   search:{id:'search',inline:()=><ReaderSearchMenu email={props.email}/>,menu:()=>[{id:'search-related',label:t('search-refine-menu'),icon:'search',children:relatedSearchActions(props.email,app.mailboxes().map(m=>m.id),(field,value)=>{if(realtime.subTabs.tabs().some(tab=>tab.id==='mail'))realtime.subTabs.activate('mail');void app.searchMessageField(field,value);},app.supportsFromDomainSearch()),run:()=>{}}]},
   pin:plain({id:'pin',icon:icon('pin'),label:()=>pinned()?t('mail-unpin'):t('mail-pin'),help:()=>t('mail-action-help-pin'),pressed:pinned,run:()=>void app.pinMessage(id(),!pinned()),local:true}),
-  read:plain({id:'read',icon:()=>unread()?'mailRead':'mail',label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
+  read:plain({id:'read',icon:()=>unread()?ACTION_ICONS.markRead:ACTION_ICONS.markUnread,label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
   flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged()),local:true}),
-  archive:plain({id:'archive',icon:icon('archive'),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
-  move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',label:t('mail-reader-move-to'),icon:'folder',children:moveActions(props.email,app),run:()=>{}}]},
+  archive:plain({id:'archive',icon:icon(ACTION_ICONS.archive),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
+  move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',label:t('mail-reader-move-to'),icon:ACTION_ICONS.moveTo,children:moveActions(props.email,app),run:()=>{}}]},
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
-  export:plain({id:'export',icon:icon('download'),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>void app.exportMessage()}),
+  export:plain({id:'export',icon:icon(ACTION_ICONS.export),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>void app.exportMessage()}),
   print:plain({id:'print',icon:icon('print'),label:()=>t('mail-print'),help:()=>t('mail-print-help'),run:()=>props.onPrint()}),
   // t59: zoom out / level (reset) / zoom in; folds as three More entries.
   zoom:zoomRowAction(),
