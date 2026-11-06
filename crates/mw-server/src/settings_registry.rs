@@ -2556,6 +2556,17 @@ pub static REGISTRY: &[SettingDef] = &[
         "Marks on high and low priority messages: both, high only, or off"
     ),
     def!(
+        "mail.list.keep",
+        Kind::StringList {
+            max_len: 500,
+            max_item: 300
+        },
+        "[]",
+        GDU,
+        "mail",
+        "Senders and mailing lists the user always keeps: sender:address or list:List-Id. Clean up this sender, unsubscribe suggestions and retention rules skip them"
+    ),
+    def!(
         "mail.priorityMarks.style",
         Kind::Enum(&["icon", "iconText", "bar"]),
         r#""icon""#,
@@ -8016,7 +8027,7 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.expiry.hideExpired",
-        Kind::Enum(&["off", "dim", "archive-suggestion"]),
+        Kind::Enum(&["off", "dim", "archive-suggestion", "hide"]),
         r#""off""#,
         GDU,
         "mail",

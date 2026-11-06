@@ -55,6 +55,15 @@ pub struct EditorState {
     pub open_tracking: bool,
     #[serde(default)]
     pub protected_content: bool,
+    /// The Reply-To the user typed in the composer (editor intent; complete
+    /// addresses also enter the unsent MIME as `replyTo`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reply_to: Option<String>,
+    /// Message options (Sensitivity, Reply-By, Expires, Supersedes, receipts,
+    /// threading, custom headers) as the composer's JSON text. Kept as editor
+    /// state and restored; the send path writes the headers.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message_options: Option<String>,
 }
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -118,6 +127,11 @@ impl EditorState {
                 .from_override
                 .as_ref()
                 .is_some_and(|value| !header(value, 254))
+            || self.reply_to.as_ref().is_some_and(|value| value.len() > 16384 || value.chars().any(|c| c.is_control()))
+            || self.message_options.as_ref().is_some_and(|value| {
+                value.len() > 16384
+                    || !serde_json::from_str::<Value>(value).is_ok_and(|v| v.is_object())
+            })
             || [&self.to, &self.cc, &self.bcc]
                 .iter()
                 .any(|s| s.len() > 16384)
@@ -169,6 +183,10 @@ impl EditorState {
             "low" => "5",
             _ => "3",
         });
+        let reply_to = recipients(self.reply_to.as_deref().unwrap_or_default());
+        if !reply_to.is_empty() {
+            spec["replyTo"] = json!(reply_to);
+        }
         let plain = self.body_format == "plain";
         spec[if plain { "textBody" } else { "htmlBody" }] =
             json!([{"partId":"body","type":if plain{"text/plain"}else{"text/html"}}]);
@@ -261,6 +279,33 @@ mod tests {
             state.sent_mailbox_id = Some(invalid);
             assert_eq!(state.validate(), Err("invalidDraftState"));
         }
+    }
+    #[test]
+    fn reply_to_and_message_options_roundtrip_in_editor_state() {
+        let options = r#"{"sensitivity":"private","replyBy":"2026-12-01T10:00:00.000Z","expires":"2026-12-24T10:00:00.000Z","supersedes":"<old@example.org>","custom":[{"name":"X-Ticket","value":"42"}]}"#;
+        let mut state: EditorState = serde_json::from_value(json!({
+            "version":1,"bodyFormat":"plain","replyTo":"Support <help@example.org>, half","messageOptions":options
+        })).unwrap();
+        state.validate().unwrap();
+        let encoded = serde_json::to_value(&state).unwrap();
+        assert_eq!(encoded["replyTo"], "Support <help@example.org>, half");
+        assert_eq!(encoded["messageOptions"], options);
+        // Only the complete address enters the unsent MIME; the options stay editor state.
+        let spec = state.compose_spec();
+        assert_eq!(spec["replyTo"], json!([{"name":null,"email":"help@example.org"}]));
+        assert!(spec.get("header:Sensitivity:asText").is_none());
+        // Refused: control characters in Reply-To, and options that are not a JSON object.
+        state.reply_to = Some("a@example.org\r\nBcc: x@example.org".into());
+        assert_eq!(state.validate(), Err("invalidDraftState"));
+        state.reply_to = None;
+        for bad in ["not json", "[1]", "\"text\""] {
+            state.message_options = Some(bad.into());
+            assert_eq!(state.validate(), Err("invalidDraftState"));
+        }
+        state.message_options = Some("x".repeat(16385));
+        assert_eq!(state.validate(), Err("invalidDraftState"));
+        let none: EditorState = serde_json::from_value(json!({"version":1,"bodyFormat":"plain"})).unwrap();
+        assert!(none.compose_spec().get("replyTo").is_none());
     }
     #[test]
     fn protected_content_and_header_injection_are_refused() {

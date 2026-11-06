@@ -292,6 +292,27 @@ pub(crate) struct Plan {
     pub strip: StripParams,
 }
 
+/// The sender addresses in a `mail.list.keep` list. Entries are `sender:<address>`
+/// or `list:<List-Id>`; retention sees only the sender, so list entries do not apply here.
+pub(crate) fn kept_senders(entries: &[String]) -> Vec<String> {
+    entries
+        .iter()
+        .filter_map(|e| e.strip_prefix("sender:"))
+        .map(|a| a.trim().to_ascii_lowercase())
+        .filter(|a| !a.is_empty())
+        .collect()
+}
+
+/// Remove from the plan every message from a kept sender; returns how many.
+pub(crate) fn drop_kept(plan: &mut Plan, kept: &[String]) -> usize {
+    if kept.is_empty() {
+        return 0;
+    }
+    let before = plan.entries.len();
+    plan.entries.retain(|(m, _)| !kept.iter().any(|k| k.eq_ignore_ascii_case(&m.from)));
+    before - plan.entries.len()
+}
+
 pub(crate) async fn build_plan(port: &dyn MailPort, folders: &[Folder], i: &Inputs<'_>) -> Plan {
     let tree = rr::Tree::new(folders);
     let mut plan = Plan {
@@ -651,7 +672,7 @@ fn describe(d: &Decision) -> &'static str {
     }
 }
 
-async fn is_held(store: &Store, account: &str) -> bool {
+pub(crate) async fn is_held(store: &Store, account: &str) -> bool {
     let who = Who::of("", "");
     let subjects = list_setting(store, "dsr.legalHold.subjects", &who).await;
     if subjects.is_empty() {
@@ -709,7 +730,10 @@ pub(crate) async fn run_account(
     };
     let folders = port.folders().await?;
     let inputs = Inputs { now, rules: &rules, defaults: &defaults, policy: &policy, acct: &acct };
-    let plan = build_plan(port, &folders, &inputs).await;
+    let mut plan = build_plan(port, &folders, &inputs).await;
+    // Senders the user chose to always keep (`mail.list.keep`) are left alone by every rule.
+    let kept = kept_senders(&list_setting(store, "mail.list.keep", &who).await);
+    drop_kept(&mut plan, &kept);
     let cap = setting(store, "retention.user.maxPerRun", &who).await.as_i64().unwrap_or(5000).max(1) as usize;
     summary.scanned = plan.scanned;
     summary.matched = plan.entries.len();
@@ -1288,6 +1312,35 @@ mod tests {
     use super::*;
     use crate::retention_rules::{DAY, TRASH_STAMP};
     use std::sync::Mutex;
+
+    fn kept_msg(id: &str, from: &str) -> Msg {
+        Msg {
+            id: id.into(),
+            mailbox_id: "inbox".into(),
+            received_at: 1,
+            size: 1,
+            keywords: vec![],
+            from: from.into(),
+            subject: "s".into(),
+            has_attachment: false,
+        }
+    }
+
+    #[test]
+    fn kept_senders_are_left_out_of_a_plan() {
+        let entries: Vec<String> = ["sender:News@Example.org", "list:digest.example.org", "sender: ", "bare@example.org"]
+            .map(String::from)
+            .to_vec();
+        assert_eq!(kept_senders(&entries), vec!["news@example.org"]);
+        let decision = || Decision { outcome: Outcome::MarkRead, source: "rule:r".into() };
+        let mut plan = Plan::default();
+        plan.entries.push((kept_msg("a", "news@example.org"), decision()));
+        plan.entries.push((kept_msg("b", "other@example.org"), decision()));
+        plan.entries.push((kept_msg("c", "News@example.org"), decision()));
+        assert_eq!(drop_kept(&mut plan, &kept_senders(&entries)), 2);
+        assert_eq!(plan.entries.iter().map(|(m, _)| m.id.as_str()).collect::<Vec<_>>(), vec!["b"]);
+        assert_eq!(drop_kept(&mut plan, &[]), 0);
+    }
 
     /// An in-memory mailbox.
     struct Fake {

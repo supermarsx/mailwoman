@@ -1305,7 +1305,7 @@ Whether the composer shows the Reply-To row: only when an identity or the origin
 <a id="compose.replyTo.allowOverride"></a>
 ### Allow changing Reply-To (`compose.replyTo.allowOverride`)
 
-When off, the Reply-To of the identity is used as it is and users cannot edit or remove it.
+When off, the Reply-To of the identity is used as it is and users cannot edit or remove it. The server enforces it: a message whose Reply-To is not one of the addresses the sending identity already carries is refused with `replyToNotAllowed` (HTTP 403).
 
 <a id="compose.sentFolder.mode"></a>
 ### Sent copy: folder rule (`compose.sentFolder.mode`)
@@ -1330,7 +1330,7 @@ One rule per line, domain:example.com=folder or subject:text=folder. The first m
 <a id="compose.sentFolder.skipCopy"></a>
 ### Sent copy: do not save (`compose.sentFolder.skipCopy`)
 
-Never keep a copy of a sent message. An administrator can force this on or off.
+Never keep a copy of a sent message. An administrator can force this on or off. When the effective value is on, the server replaces the sent-copy instructions of every submission with "destroy after sending", whatever the client asked for.
 
 <a id="compose.headers.allowAutoSubmitted"></a>
 ### Allow Auto-Submitted (`compose.headers.allowAutoSubmitted`)
@@ -1340,7 +1340,7 @@ Lets users set Auto-Submitted (RFC 3834) on a message. Off by default: it tells 
 <a id="compose.headers.allowThreadingEdit"></a>
 ### Allow editing threading headers (`compose.headers.allowThreadingEdit`)
 
-Lets users edit In-Reply-To and References, or start a new thread from a reply.
+Lets users edit In-Reply-To and References, or start a new thread from a reply. The server enforces it: an `In-Reply-To`, `References` or `Message-ID` set as a custom header is refused with `headerNotAllowed` unless this is on; the threading of an ordinary reply is not affected.
 
 <a id="compose.headers.allowCustom"></a>
 ### Allow custom headers (`compose.headers.allowCustom`)
@@ -1360,7 +1360,7 @@ One Name=value pair per line, added to every message sent from the domain and re
 <a id="mail.expiry.hideExpired"></a>
 ### Expired messages (`mail.expiry.hideExpired`)
 
-What to do with a message whose Expires date has passed: nothing, show it dimmed, or suggest archiving it.
+What to do with a message whose Expires date has passed: nothing (`off`), show it dimmed (`dim`), suggest archiving it in the reader (`archive-suggestion`), or leave it out of message lists (`hide`). `dim`, `archive-suggestion` and `hide` also dim (or, for `hide`, drop) the expired rows in the message list; the list asks for the Expires headers only while the setting is on, so `off` costs nothing. The reader still opens a hidden message from a link or search result, and the folder's message count includes it.
 <a id="mail.badge.headers"></a>
 ### Header badges (`mail.badge.headers`)
 
@@ -2906,9 +2906,20 @@ Global/domain/user setting, default `"both"`. Which priority marks the message l
 <a id="mail.badge.spam"></a>
 <a id="mail.badge.sanitized"></a>
 <a id="mail.badge.folder"></a>
-### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`)
+<a id="mail.badge.list"></a>
+### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`, `mail.badge.list`)
 
-Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) and the folder badge (`"always"`). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
+Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) the folder badge (`"always"`) and the mailing list badge (`"always"`, shown when the message has a `List-Id` or `List-Unsubscribe` header; for it, `notable` means mail is still arriving after the user unsubscribed). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
+
+<a id="mail.list.unsubscribeMode"></a>
+### Mailing list unsubscribe (`mail.list.unsubscribeMode`)
+
+Global/domain/user setting, default `"ask"`. How the Unsubscribe action of the mailing list badge works when the message offers an RFC 8058 one-click `https` URL (`List-Unsubscribe` plus `List-Unsubscribe-Post: List-Unsubscribe=One-Click`). `ask` shows a confirmation, then the server sends the request (`POST /api/mail/list-unsubscribe`, egress class `unsubscribe`, so the list host sees the server and not the reader); `one-click-direct` sends it without the confirmation; `open-link` never sends it and only opens the list's web link or mail draft after the usual destination review. Without a one-click URL the web link or mail draft is always used. "Unsubscribed on" is stored in the user's browser only; "Always keep" is stored in the user's settings (`mail.list.keep`).
+
+<a id="mail.list.keep"></a>
+### Always keep (`mail.list.keep`)
+
+Global/domain/user setting, default empty. The senders and mailing lists a user chose to always keep, one entry per line: `sender:alice@example.org` or `list:news.example.org` (the part of `List-Id` between the angle brackets). The reader's mailing list badge writes it ("Always keep"), so the choice follows the user to every browser. A kept sender is skipped by "Clean up this sender", by the unsubscribe suggestions and by the user's retention rules (retention sees only the sender, so `list:` entries do not stop a retention rule). An administrator can add entries globally or for a domain; a user adds their own on top.
 
 <a id="mail.badge.density"></a>
 ### Reader badge density (`mail.badge.density`)
@@ -2938,7 +2949,7 @@ Global/domain/user setting, default `"normal"`. The priority a new message start
 <a id="mail.priority.sendHeaders"></a>
 ### Priority headers written on send (`mail.priority.sendHeaders`)
 
-Global/domain setting, default `["Importance","X-Priority","X-MSMail-Priority"]`. Which headers a high or low priority message gets when sent: any of Importance, X-Priority and X-MSMail-Priority.
+Global/domain setting, default `["Importance","X-Priority","X-MSMail-Priority"]`. Which headers a high or low priority message gets when sent: any of Importance, X-Priority and X-MSMail-Priority. The server applies it to every message the composer submits. The engine writes Importance and X-Priority as a pair, so listing either one writes both; listing neither removes both, and X-MSMail-Priority (High, Low) is written only when listed. Messages stored before Mailwoman read priority headers show no mark in the list until they are opened once (the client reads the headers then and remembers the answer for the session); `is:high-priority` and `is:low-priority` find them after the account's search index is rebuilt.
 
 <a id="mail.priority.trustSenderHeaders"></a>
 ### Trust sender-set priority (`mail.priority.trustSenderHeaders`)
@@ -2998,7 +3009,7 @@ Global/domain setting, default `2000`. The most characters a folder note may hol
 <a id="properties.folder.sizeCompute"></a>
 ### Folder size computation (`properties.folder.sizeCompute`)
 
-Global/domain setting, default `"on-open"`. When the size of a folder on the server is worked out: never, when the dialog opens, or in the background. Counting a large mailbox costs the server a scan.
+Global/domain setting, default `"on-open"`. When the size of a folder on the server is worked out: never, when the dialog opens, or in the background. Counting a large mailbox costs the server a scan. With `off` the server refuses `Mailbox/stats` with `sizeComputeOff` (HTTP 403), so a modified client cannot compute sizes either.
 
 <a id="properties.offlineClear.enabled"></a>
 ### Clear offline cache per folder (`properties.offlineClear.enabled`)
@@ -3038,7 +3049,7 @@ Global/domain setting, default `true`. Allow users to download a message as .eml
 <a id="properties.message.permanentDelete"></a>
 ### Permanent delete from properties (`properties.message.permanentDelete`)
 
-Global/domain setting, default `"allow"`. Whether the message dialog may delete a message for good: allow, ask twice, or deny. A message under legal hold is never deleted. Deleting this way cannot be undone.
+Global/domain setting, default `"allow"`. Whether the message dialog may delete a message for good: allow, ask twice, or deny. A message under legal hold is never deleted. Deleting this way cannot be undone. The server enforces it: a JMAP `Email/set` destroy marked `mailwomanPermanent` (what the message and selection Properties dialogs send) is refused with `permanentDeleteDenied` when the value is `deny`, and every destroy is refused with `legalHold` or `processingRestricted` while the account is under a legal hold (`dsr.legalHold.subjects`) or an active processing restriction.
 
 <a id="properties.shortcut.enabled"></a>
 ### Properties shortcut (`properties.shortcut.enabled`)

@@ -223,6 +223,7 @@ mod diagnostics;
 mod feature_gate;
 mod feature_jmap;
 mod message_headers;
+mod delete_policy;
 mod features;
 mod health_probes;
 mod hosting_connections;
@@ -3456,6 +3457,9 @@ async fn jmap_api(
         return response;
     }
     if let Some(engine) = &state.engine {
+    if let Err(response) = delete_policy::admit(&state, &session, &mut request).await {
+        return response;
+    }
         let echo_only = request["methodCalls"]
             .as_array()
             .is_some_and(|calls| calls.iter().all(|call| call[0] == "Core/echo"));
