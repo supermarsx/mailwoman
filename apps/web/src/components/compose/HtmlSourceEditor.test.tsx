@@ -85,3 +85,14 @@ it('queues a reply focus request until normalization and the native document are
  fireEvent.click(screen.getByRole('tab',{name:'Visual editor'}));await waitFor(()=>expect(screen.getByTitle('Visual editor')).toBeInTheDocument());
  const reopened=admit();await api.whenReady!();expect(reopened.getSelection()!.getRangeAt(0).startContainer).toBe(reopened.querySelector('p'));
 });
+it('never adopts a view-colour sheet created for a previous iframe document',async()=>{
+ const {api,frame}=mount('<p style="color:#fff;background:#fff">Pale</p>');await api.whenReady!();
+ const first=frame.contentDocument!;
+ const adopt=vi.fn();const view=frame.contentWindow as Window&{CSSStyleSheet:typeof CSSStyleSheet};
+ void adopt;void view;
+ // Reloading the frame document must rebuild the sheet from the new document's own realm.
+ fireEvent.load(frame);await api.whenReady!();
+ const owners=new Set<Window|null>();
+ for(const sheet of frame.contentDocument!.adoptedStyleSheets??[])owners.add(sheet.constructor===frame.contentWindow!.CSSStyleSheet?frame.contentWindow:null);
+ expect(owners.has(null)).toBe(false);expect(first).toBeDefined();
+});

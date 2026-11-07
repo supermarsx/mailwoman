@@ -33,7 +33,7 @@ const FRAME_DOCUMENT='<!doctype html><html data-mw-native-document="true"><head>
  * before insertion, so it cannot briefly load resources before being cleaned. */
 export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLimit?:number;reply?:boolean;owned:()=>ReadonlySet<string>;embedded?:boolean;preview?:(cid:string)=>Promise<string|null>;upload?:(files:File[])=>Promise<{cid:string;alt:string}[]>;ribbonSlots?:()=>EditorSlots;externalHistory?:boolean;bookmark?:NativeHtmlBookmark;onLinkClick?:(edit:LinkEdit)=>void;onInput:(html:string)=>void;onReady:(api:NativeHtmlVisualApi)=>void}):JSX.Element {
  let frame!:HTMLIFrameElement,editor:HTMLDivElement|undefined,disposed=false,documentRevision=0,changed=false,focusPending=false;
- let styles:string[]=[],viewTimer:ReturnType<typeof setTimeout>|undefined,viewSheet:CSSStyleSheet|undefined;let undoListeners=()=>{};let pending:Promise<void>=Promise.resolve();let editRevision=0;
+ let styles:string[]=[],viewTimer:ReturnType<typeof setTimeout>|undefined,viewSheet:CSSStyleSheet|undefined,viewSheetDoc:Document|undefined;let undoListeners=()=>{};let pending:Promise<void>=Promise.resolve();let editRevision=0;
  const originals=new WeakMap<Element,Map<string,string>>();
  const [ready,setReady]=createSignal(false);
  const [failed,setFailed]=createSignal(false);
@@ -104,13 +104,14 @@ export function NativeHtmlVisualEditor(props:{html:string;revision:number;htmlLi
    let slot=index.get(shown);if(slot===undefined){slot=rules.length;index.set(shown,slot);rules.push(`[data-mw-vc="${slot}"]{color:${shown} !important}`);}
    element.setAttribute('data-mw-vc',String(slot));
   }
+  if(viewSheetDoc!==doc){viewSheet=undefined;viewSheetDoc=doc;}
   if(!viewSheet){const Sheet=(view as Window&{CSSStyleSheet:typeof CSSStyleSheet}).CSSStyleSheet;viewSheet=new Sheet();doc.adoptedStyleSheets=[...doc.adoptedStyleSheets,viewSheet];}
   while(viewSheet.cssRules.length)viewSheet.deleteRule(0);rules.forEach(rule=>viewSheet!.insertRule(rule,viewSheet!.cssRules.length));
  }
  function scheduleViewColors():void {if(viewTimer===undefined)viewTimer=setTimeout(applyViewColors,120);}
  function installStyles(doc:Document):void {
   const view=doc.defaultView as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
-  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}img{max-width:100%;height:auto}`+LIST_CSS+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet?[sheet,viewSheet]:[sheet];}
+  if(view){const host=frame.ownerDocument.defaultView?.getComputedStyle(frame),sheet=new view.CSSStyleSheet();sheet.replaceSync(`html,body{margin:0;min-height:100%;background:${host?.backgroundColor||'transparent'};color:${host?.color||'inherit'};color-scheme:${dark()?'dark':'light'}}html{height:100%}body{box-sizing:border-box;height:100%;padding:calc(.6rem - 1px) calc(.7rem - 1px);font:${HTML_MESSAGE_FONT}}#mw-native-editor{box-sizing:border-box;min-height:100%;outline:0}img{max-width:100%;height:auto}`+LIST_CSS+styles.join('\n').replace(/url\([^)]*\bcid:[^)]*\)/gi,'none')+(markers()?'#mw-native-editor :is(p,li,h1,h2,h3,h4,h5,h6)::after{content:"¶";opacity:.5}':''));doc.adoptedStyleSheets=viewSheet&&viewSheetDoc===doc?[sheet,viewSheet]:[sheet];}
   scheduleViewColors();
  }
  function loadDocument(value=props.html):void {
