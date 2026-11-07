@@ -7,6 +7,7 @@ import { t } from '../../i18n';
 import { Icon } from '../../components/Icon.tsx';
 import {createContextMenu} from '../../components/ContextMenu.tsx';
 import { SETTINGS_CATEGORIES, visibleCategories } from './settingsCategories.ts';
+import { searchRegistry } from './layout/registry.ts';
 import * as workspace from './workspace.css.ts';
 
 export interface SettingsNavProps {
@@ -15,6 +16,8 @@ export interface SettingsNavProps {
   onQueryChange?: (query: string) => void;
   supported: (section: string) => boolean;
   onSelect: (section: string) => void;
+  /** A matching setting row: open its section scrolled to its card. */
+  onOpenCard?: (section: string, card: string) => void;
 }
 
 const NEXT = new Set(['ArrowDown', 'ArrowRight']);
@@ -23,6 +26,8 @@ const PREVIOUS = new Set(['ArrowUp', 'ArrowLeft']);
 export function SettingsNav(props: SettingsNavProps): JSX.Element {
   let nav!: HTMLElement;
   const groups = () => visibleCategories(props.supported, props.query(), id => t(id));
+  // Settings rows (label, hint or card title) that match, listed under the matching sections.
+  const rowHits=()=>props.onOpenCard?searchRegistry(props.query(),'').filter(hit=>props.supported(hit.section)).slice(0,30):[];
   const current=()=>SETTINGS_CATEGORIES.flatMap(category=>category.sections).find(entry=>entry.id===props.current());
   const labelId=`settings-current-${createUniqueId()}`;
   const menu=createContextMenu({label:()=>t('settings-sections'),scope:()=>`${props.current()}:${props.query()}:${groups().flatMap(group=>group.sections.map(entry=>entry.id)).join(',')}`,focusCurrent:true,actions:()=>groups().flatMap((group,groupIndex)=>group.sections.map((entry,index)=>({id:entry.id,label:t(entry.label),icon:entry.icon,radio:true,checked:props.current()===entry.id,current:props.current()===entry.id,separatorBefore:groupIndex>0&&index===0,run:()=>props.onSelect(entry.id)})))});
@@ -56,7 +61,7 @@ export function SettingsNav(props: SettingsNavProps): JSX.Element {
     <nav ref={nav} class={workspace.navRoot} aria-label={t('settings-sections')} onKeyDown={onKeyDown}>
       <div class={workspace.navHeader}><span class={workspace.navTitle}>{t('settings-title')}</span><input class={workspace.search} type="search" aria-label={t('settings-search-sections')} placeholder={t('settings-search-sections')} value={props.query()} onInput={event=>props.onQueryChange?.(event.currentTarget.value)}/></div>
       <button type="button" class={`btn btn--ghost ${workspace.sectionPicker}`} data-settings-picker aria-label={t('settings-sections')} aria-describedby={labelId} title={current()?t(current()!.label):t('settings-sections')} aria-haspopup="menu" aria-expanded={menu.isOpen()} disabled={!groups().length} onClick={event=>{if(menu.isOpen())menu.close();else openPicker(event.currentTarget);}} onKeyDown={event=>{if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();openPicker(event.currentTarget);}}}><Icon name={current()?.icon??'preferences'}/><span id={labelId}>{current()?t(current()!.label):t('settings-sections')}</span><Icon name="chevronDown"/></button>
-      <Show when={groups().length} fallback={<p role="status" class={workspace.navEmpty}>{t('settings-search-no-sections')}</p>}><div class={workspace.nav}>
+      <Show when={groups().length||rowHits().length} fallback={<p role="status" class={workspace.navEmpty}>{t('settings-search-no-sections')}</p>}><div class={workspace.nav}>
       <For each={groups()}>{group => {
         const headingId = `settings-category-${group.category.id}`;
         return (
@@ -70,6 +75,9 @@ export function SettingsNav(props: SettingsNavProps): JSX.Element {
           </div>
         );
       }}</For>
+      <Show when={rowHits().length}><ul class={workspace.rowHits} aria-label={t('settings-kit-other-sections')}>
+        <For each={rowHits()}>{hit=><li><button type="button" data-settings-hit={hit.row} onClick={()=>props.onOpenCard?.(hit.section,hit.card)}>{hit.label}<span>{hit.cardTitle}</span></button></li>}</For>
+      </ul></Show>
       </div></Show>
       {menu.menu()}
     </nav>

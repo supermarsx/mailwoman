@@ -11,6 +11,9 @@ export const navTitle=style({fontSize:'0.875rem',fontWeight:vars.weight.bold,whi
 globalStyle(`${navHeader} > input`,{blockSize:'32px',minBlockSize:'32px',padding:'3px 6px',fontSize:'0.8125rem','@media':{'(pointer: coarse)':{blockSize:'44px',minBlockSize:'44px'}}});
 export const navEmpty=style({margin:0,padding:vars.space[2],fontSize:'0.8125rem',color:vars.color.textDim});
 export const nav=style({display:'flex',flexDirection:'column',gap:vars.space[1],overflow:'auto',alignItems:'stretch',minBlockSize:0,flex:'1 1 0','@container':{'settings-workspace (max-width: 760px)':{display:'none'}}});
+export const rowHits=style({listStyle:'none',margin:0,padding:0,marginBlockStart:vars.space[3],display:'flex',flexDirection:'column'});
+globalStyle(`${rowHits} button`,{display:'flex',flexDirection:'column',alignItems:'flex-start',gap:0,inlineSize:'100%',textAlign:'start',padding:vars.space[2],fontSize:'0.8125rem',background:'transparent',color:vars.color.text,border:'1px solid transparent',cursor:'pointer'});
+globalStyle(`${rowHits} button > span`,{fontSize:'0.7rem',color:vars.color.textDim});
 export const sectionPicker=style({display:'none',inlineSize:'100%',minInlineSize:0,justifyContent:'start','@container':{'settings-workspace (max-width: 760px)':{display:'flex',blockSize:'32px',minBlockSize:'32px',padding:'3px 8px',fontSize:'0.8125rem',gap:vars.space[2]}}});
 globalStyle(`${sectionPicker} > span`,{flex:'1 1 auto',minInlineSize:0,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',textAlign:'start'});
 globalStyle(`${sectionPicker} > svg`,{inlineSize:'16px',blockSize:'16px',flex:'0 0 auto'});

@@ -49,7 +49,7 @@ function RoleField(props:{role:typeof SPECIAL_ROLES[number];folders:Accessor<rea
 }
 export function FolderRoles(props:{folders:Accessor<readonly PreferenceFolder[]>;onSaved?:()=>Promise<void>}):JSX.Element {
  const supported=()=>props.folders().some(folder=>folder.mailwomanUpstreamName!==undefined);
- return <SettingsCard id="folders-card-roles" title={t('settings-folder-role-title')}>
+ return <SettingsCard id="folders-card-roles" collapsible title={t('settings-folder-role-title')}>
   <p id="folder-role-help" class={css.meta}>{t('settings-folder-role-help')}</p>
   <Show when={supported()} fallback={<p class={css.meta}>{t('settings-folder-role-unsupported')}</p>}>
    <For each={SPECIAL_ROLES}>{role=><RoleField role={role} folders={props.folders} {...(props.onSaved?{onSaved:props.onSaved}:{})}/>}</For>
