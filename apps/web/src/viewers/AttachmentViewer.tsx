@@ -30,17 +30,18 @@ export function AttachmentViewer(props: ViewerProps): JSX.Element {
     <div class="mw-viewer" data-viewer-kind={kind()}>
       {/* A viewer that throws stays in its own panel: Retry re-renders only the preview. */}
       <ErrorBoundary fallback={(error: unknown, reset: () => void) => {
-        const report = reportBoundaryError(error, `Reader/AttachmentViewer/${kind()}`);
-        console.warn('[viewer] preview failed', { type: props.mime, kind: kind(), error: error instanceof Error ? error.name : typeof error });
+        const linked = error instanceof Error && error.name === 'LinkedContextUnsupportedError';
+        const report = linked ? undefined : reportBoundaryError(error, `Reader/AttachmentViewer/${kind()}`);
+        if (!linked) console.warn('[viewer] preview failed', { type: props.mime, kind: kind(), error: error instanceof Error ? error.name : typeof error });
         return (
           <div class="mw-text__state" role="alert" data-viewer-failed="">
-            <p><strong>{t('text-viewer-failed')}</strong></p>
-            <p>{t('text-viewer-failed-help')}</p>
+            <p><strong>{t(linked ? 'text-viewer-linked-unavailable' : 'text-viewer-failed')}</strong></p>
+            <Show when={!linked}><p>{t('text-viewer-failed-help')}</p></Show>
             <div class="mw-text__actions">
-              <button type="button" class="btn" onClick={reset}>{t('text-viewer-retry')}</button>
+              <Show when={!linked}><button type="button" class="btn" onClick={reset}>{t('text-viewer-retry')}</button></Show>
               <Show when={mailFeature('allowDownload')}><a class="btn" href={props.blobUrl} download={props.name.replace(/[\\/]/g, '_')}>{t('text-viewer-download')}</a></Show>
             </div>
-            <ErrorReference report={report} />
+            <Show when={report}><ErrorReference report={report!} /></Show>
           </div>
         );
       }}>

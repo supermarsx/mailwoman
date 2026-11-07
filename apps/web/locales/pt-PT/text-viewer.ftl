@@ -21,3 +21,4 @@ text-viewer-search-count = { $current } de { $total }
 text-viewer-search-none = Sem resultados
 text-viewer-lines = { $count } linhas
 text-viewer-encoding = { $encoding }
+text-viewer-linked-unavailable = A pré-visualização ainda não está disponível para caixas de correio associadas.

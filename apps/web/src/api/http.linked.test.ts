@@ -54,3 +54,15 @@ describe('linked mailbox transport authority',()=>{
     expect(send).toHaveBeenCalledOnce();
   });
 });
+describe('linked mailbox: page-held URLs',()=>{
+  it.each(['blob:https://localhost/abc','data:text/plain;base64,aGk='])('fetches %s directly without the linked-context check',async(url)=>{
+    const send=vi.fn(async(_url:string,_init?:RequestInit)=>ok());vi.stubGlobal('fetch',send);
+    await expect(apiFetch(url)).resolves.toBeInstanceOf(Response);
+    expect(send).toHaveBeenCalledTimes(1);expect(header(send.mock.calls[0]?.[1])).toBeNull();
+  });
+  it('still routes the attachment download through the child selector',async()=>{
+    const send=vi.fn(async(_url:string,_init?:RequestInit)=>ok());vi.stubGlobal('fetch',send);
+    await apiFetch('/jmap/download/acc/blob1/a.png');
+    expect(header(send.mock.calls[0]?.[1])).toBe(child.linkId);
+  });
+});

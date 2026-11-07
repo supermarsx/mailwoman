@@ -287,6 +287,8 @@ const confirming = new Map<string, Promise<boolean>>();
 
 /** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
 export async function apiFetch(input: string, options?: ApiRequestInit): Promise<Response> {
+  // blob:/data: URLs name bytes the page already holds, not an API route: no linked-context check, no CSRF, no retry.
+  if (/^(?:blob|data):/i.test(input)) { const { mailboxContext: _m, pace: _p, recovery: _r, ...plain } = options ?? {}; return fetch(input, plain); }
   if (options?.recovery !== undefined) {
     const { recovery, ...rest } = options;
     const authority = recovery.authority ?? ((): string | null => preferenceAccount()?.storageAuthority ?? null);
