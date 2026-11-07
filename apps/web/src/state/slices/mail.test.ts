@@ -900,6 +900,23 @@ describe('mail slice — a refused send', () => {
 
 describe('mail slice — archive / trash / spam / move', () => {
   beforeEach(()=>toastStore.clear());
+  it('moves the open message to Trash when the list no longer holds it, instead of silently doing nothing',async()=>{
+    await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
+      await mail.openMessage('a');
+      const original=jmap.getMockImplementation()!;
+      jmap.mockImplementation((request:JmapRequest)=>{
+        if(request.methodCalls.some(([method])=>method==='Email/query'))return Promise.resolve({methodResponses:[['Email/query',{accountId:'acct1',ids:['b'],total:1},'q'],['Email/get',{accountId:'acct1',state:'s',list:[email('b')],notFound:[]},'g']],sessionState:'s'} as JmapResponse);
+        return original(request);
+      });
+      await mail.refreshCurrentMailbox();
+      expect(mail.openEmail()?.id).toBe('a');
+      expect(mail.messages().map(item=>item.id)).toEqual(['b']);
+      jmap.mockClear();
+      await mail.trashMessage('a');
+      const set=jmap.mock.calls.map(c=>c[0] as JmapRequest).flatMap(r=>r.methodCalls).find(([m,args])=>m==='Email/set'&&args['update']);
+      expect(set).toBeTruthy();
+      expect(Object.keys((set![1]['update'] as Record<string,unknown>))).toEqual(['a']);
+    });
   it.each(['before-pending','before-acknowledgement','during-pending'] as const)('does not resurrect a moved row from a refresh started %s',async timing=>{
     await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
       const original=jmap.getMockImplementation()!;

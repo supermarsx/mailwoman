@@ -1242,15 +1242,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const source = pageSource();
     const origin=sourceKey(source);
     if (acct === null || !current()) return;
+    // The message open in the reader, when the list does not hold it (opened from search, a thread, a link, or
+    // while the list reloads) is still moved: it joins the move as an off-list
+    // item (index -1) that undo gives back to the server but not to the list.
     let taken = takeFromList(ids);
+    const offList = ids.filter((id) => !taken.some((item) => item.email.id === id));
+    if (offList.length > 0) {
+      const open = openEmail();
+      for (const id of offList) {
+        const known = open !== null && open.id === id ? open : null;
+        if (known !== null) taken = [...taken, { email: known, index: -1 }];
+        if (known !== null && open !== null && open.id === id) closeMessage();
+      }
+    }
     if (taken.length === 0) return;
     const originallyTaken=taken;
     const restore = (items: readonly Taken[]) => {
       if(!current()||sourceKey(pageSource())!==origin)return;
       const allowed=items.filter(item=>!relocations.has(item.email.id)||relocations.get(item.email.id)?.token===token);
       const present=new Set(messages().map(email=>email.id)),returning=new Set(allowed.map(item=>item.email.id));
-      const absent=originallyTaken.filter(item=>!present.has(item.email.id)&&!returning.has(item.email.id));let removedBefore=0;
-      restoreToList([...allowed].sort((a,b)=>a.index-b.index).map(item=>{
+      const absent=originallyTaken.filter(item=>item.index>=0&&!present.has(item.email.id)&&!returning.has(item.email.id));let removedBefore=0;
+      restoreToList([...allowed].filter(item=>item.index>=0).sort((a,b)=>a.index-b.index).map(item=>{
         while(absent[removedBefore]&&absent[removedBefore]!.index<item.index)removedBefore++;
         return {...item,index:item.index-removedBefore};
       }));

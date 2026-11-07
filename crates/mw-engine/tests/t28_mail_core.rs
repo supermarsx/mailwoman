@@ -87,6 +87,7 @@ impl RecordingBackend {
         let mut messages = HashMap::new();
         messages.insert("INBOX".to_string(), inbox);
         messages.insert("Archive".to_string(), Vec::new());
+        messages.insert("Trash".to_string(), Vec::new());
         Self {
             messages: Mutex::new(messages),
             flag_calls: Mutex::new(Vec::new()),
@@ -153,6 +154,7 @@ impl AccountBackend for RecordingBackend {
         Ok([
             ("INBOX", MailboxRole::Inbox),
             ("Archive", MailboxRole::Archive),
+            ("Trash", MailboxRole::Trash),
         ]
         .into_iter()
         .map(|(name, role)| {
@@ -1133,4 +1135,28 @@ async fn has_attachments_selects_the_messages_with_an_attachment() {
     let unknown = query(&h, text("has:zzqx")).await;
     assert_ne!(unknown, sorted(&[&plain, &flagged]), "has:zzqx inverted");
     assert_ne!(unknown, sorted(&[&attach]));
+}
+
+/// A plain move to the Trash folder (the web's "Move to Trash": one
+/// `mailboxIds` patch) succeeds for a normal account and the message is then
+/// in Trash. Moving is not a destroy, so no destroy guard applies to it.
+#[tokio::test]
+async fn move_to_trash_is_an_ordinary_mailbox_move() {
+    let h = setup().await;
+    let inbox = inbox(&h).await;
+    let [plain, other, _] = seeded_ids(&h, &inbox).await;
+    let mb = jmap(&h, json!([["Mailbox/get", {}, "mb"]])).await;
+    let trash = result(&mb, "mb")["list"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|m| m["role"] == "trash")
+        .expect("trash")["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let set = set_update(&h, &plain, json!({ "mailboxIds": { &trash: true } })).await;
+    assert_updated(&set, &plain, "move to trash");
+    assert_eq!(email(&h, &plain).await["mailboxIds"], json!({ &trash: true }));
+    assert_eq!(email(&h, &other).await["mailboxIds"], json!({ &inbox: true }));
 }
