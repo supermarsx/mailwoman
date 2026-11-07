@@ -93,6 +93,6 @@ it('never adopts a view-colour sheet created for a previous iframe document',asy
  // Reloading the frame document must rebuild the sheet from the new document's own realm.
  fireEvent.load(frame);await api.whenReady!();
  const owners=new Set<Window|null>();
- for(const sheet of frame.contentDocument!.adoptedStyleSheets??[])owners.add(sheet.constructor===frame.contentWindow!.CSSStyleSheet?frame.contentWindow:null);
+ for(const sheet of frame.contentDocument!.adoptedStyleSheets??[])owners.add(sheet.constructor===(frame.contentWindow as Window&{CSSStyleSheet:typeof CSSStyleSheet}).CSSStyleSheet?frame.contentWindow:null);
  expect(owners.has(null)).toBe(false);expect(first).toBeDefined();
 });
