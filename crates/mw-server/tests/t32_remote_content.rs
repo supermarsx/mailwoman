@@ -1186,12 +1186,12 @@ async fn signed_display_batch_pays_one_aggregate_request_for_remote_and_inline_i
         after.snapshot.short, before.snapshot.short,
         "image successes must not inflate adaptive normal samples"
     );
-    let response = f
-        .user
-        .get(format!("{}/api/me", f.base))
-        .send()
-        .await
-        .unwrap();
+    // A signed-in user from a known source gets ceil(1 x ratelimit.trustedMultiplier) requests, so the
+    // quota of one is spent by the sign admission plus at most one ordinary request.
+    let mut response = f.user.get(format!("{}/api/me", f.base)).send().await.unwrap();
+    if response.status() == 200 {
+        response = f.user.get(format!("{}/api/me", f.base)).send().await.unwrap();
+    }
     assert_eq!(
         response.status(),
         429,

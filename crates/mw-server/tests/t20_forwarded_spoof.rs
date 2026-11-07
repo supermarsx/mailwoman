@@ -896,7 +896,8 @@ async fn require_mode_drops_a_headerless_connection() {
     })
     .await;
     let addr = serve_behind_proxy_protocol(build().await).await;
-    let req = http_get(addr, "/healthz", &[]);
+    // A public route: /healthz is internal-only by default, and the PROXY-header client here is not internal.
+    let req = http_get(addr, "/api/public-config", &[]);
 
     assert!(
         raw_exchange(addr, b"", &req).await.is_none(),

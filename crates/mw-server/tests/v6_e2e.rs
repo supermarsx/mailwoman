@@ -285,7 +285,7 @@ async fn spawn_server(db_path: String, mode: ServerMode, v6: V6Config) -> String
     trust_loopback_proxy();
     let config = AppConfig {
         db_path,
-        server_key_hex: None,
+        server_key_hex: Some("deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef".into()),
         web_dir: Some(web_dir()),
         cookie_secure: false,
         mode,

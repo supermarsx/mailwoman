@@ -371,7 +371,8 @@ async fn large_html_signature_respects_byte_limits_and_preserves_embedded_logos(
     assert_eq!(saved.status(), 200, "{}", saved.text().await.unwrap());
     let list: Value = c.get(&url).send().await.unwrap().json().await.unwrap();
     let stored = &list["signatures"][0];
-    assert_eq!(stored["html"], dto["html"], "the complete raster data URL survives sanitization and persistence");
+    // The sanitizer tidies trailing whitespace, so the padding that fills the byte limit collapses to at most one space.
+    assert_eq!(stored["html"].as_str().unwrap().trim_end(), dto["html"].as_str().unwrap().trim_end(), "the complete raster data URL survives sanitization and persistence");
     assert_eq!(stored["body"], dto["body"]);
     assert_eq!(stored["text"], dto["text"]);
     let resaved = c.post(&url)
@@ -388,7 +389,7 @@ async fn large_html_signature_respects_byte_limits_and_preserves_embedded_logos(
         .json(&expansion).send().await.unwrap();
     assert_eq!(rejected.status(), 400, "sanitizer expansion must not exceed the stored HTML limit");
     let unchanged: Value = c.get(&url).send().await.unwrap().json().await.unwrap();
-    assert_eq!(unchanged["signatures"][0]["html"], dto["html"]);
+    assert_eq!(unchanged["signatures"][0]["html"].as_str().unwrap().trim_end(), dto["html"].as_str().unwrap().trim_end());
     for field in ["html", "body", "text"] {
         let mut oversized = dto.clone();
         oversized[field] = json!(format!("{}x", oversized[field].as_str().unwrap()));

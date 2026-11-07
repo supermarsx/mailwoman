@@ -160,6 +160,9 @@ fn geo() -> Vec<(&'static str, Value)> {
         // Isolate the geo rule from the adaptive per-address probe handling.
         ("security.protection.rateMode", json!("off")),
         ("security.protection.adaptiveMode", json!("off")),
+        // Liveness probes are internal-only by default (a source outside is answered as an unknown
+        // path); this test is about the geo rule, so they are open to every source.
+        ("security.health.mode", json!("open")),
     ]
 }
 
