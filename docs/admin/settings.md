@@ -1262,7 +1262,12 @@ Failures in the window that open a draft. 0 is off.
 
 Exports in the window that open a draft. 0 is off.
 
-'<a id="compose.insert.maxInlineImageMB"></a>
+<a id="compose.feature.*"></a>
+### Composer features (`compose.feature.*`)
+
+Switches one composer control on or off, per feature id (for example `layout.columns`). Default on. An administrator can set it for everyone, per domain or per user, and lock it so users cannot change it. Users switch features off in Settings > Compose > Composer features.
+
+<a id="compose.insert.maxInlineImageMB"></a>
 ### Largest inline picture (`compose.insert.maxInlineImageMB`)
 
 Pictures larger than this many MB (1 to 50, default 10) are not placed in the message body by the composer's Picture from file dialog; they can still be attached. Administrators can set or lock it globally, by domain or per user.
@@ -1271,26 +1276,6 @@ Pictures larger than this many MB (1 to 50, default 10) are not placed in the me
 ### Picture size preset (`compose.insert.imageResizeDefault`)
 
 The size the Picture from file dialog starts with: `original`, `large` (1600 px) or `medium` (1024 px). Default `large`. Users can still pick another size per insert unless an administrator locks the default.
-
-<a id="compose.feature.*"></a>
-### Composer features (`compose.feature.*`)
-
-Switches one composer control on or off, per feature id (for example `layout.columns`). Default on. An administrator can set it for everyone, per domain or per user, and lock it so users cannot change it. Users switch features off in Settings > Compose > Composer features.
-
-<a id="compose.styles.maxCustom"></a>
-### Custom styles limit (`compose.styles.maxCustom`)
-
-Most custom styles a user can keep in the composer's Styles gallery (0 to 100, default 20). 0 turns "Create style from selection" off. Overriding a built-in style does not count.
-
-<a id="compose.styles.defaultSet"></a>
-### Style set (`compose.styles.defaultSet`)
-
-The look of the Styles gallery: `default`, `modern`, `classic` or `compact`. Users can switch set in the gallery unless an administrator locks it.
-
-<a id="compose.styles.custom"></a>
-### Custom styles (`compose.styles.custom`)
-
-A user's own styles as JSON, written by the Styles gallery. It is a user value and has no administrator form.
 
 <a id="compose.layout.defaultFont"></a>
 ### Default message font (`compose.layout.defaultFont`)
@@ -1365,6 +1350,21 @@ What to do with a message whose Expires date has passed: nothing (`off`), show i
 ### Header badges (`mail.badge.headers`)
 
 Show a badge in the reader for the Expires, Reply-By, Sensitivity and Supersedes headers of a message.
+<a id="compose.styles.maxCustom"></a>
+### Custom styles limit (`compose.styles.maxCustom`)
+
+Most custom styles a user can keep in the composer's Styles gallery (0 to 100, default 20). 0 turns "Create style from selection" off. Overriding a built-in style does not count.
+
+<a id="compose.styles.defaultSet"></a>
+### Style set (`compose.styles.defaultSet`)
+
+The look of the Styles gallery: `default`, `modern`, `classic` or `compact`. Users can switch set in the gallery unless an administrator locks it.
+
+<a id="compose.styles.custom"></a>
+### Custom styles (`compose.styles.custom`)
+
+A user's own styles as JSON, written by the Styles gallery. It is a user value and has no administrator form.
+
 <a id="serverText.*"></a>
 ### Server text (`serverText.*`)
 
@@ -2109,6 +2109,10 @@ These keys support global and domain defaults, administrator locks and user over
 | <a id="reader.loadingDelayMs"></a>`reader.loadingDelayMs` | 0–1000 milliseconds | 120 |
 | <a id="reader.zoom"></a>`reader.zoom` | 50–200 percent (the reader snaps to 50, 67, 75, 90, 100, 110, 125, 150, 175, 200) | 100 |
 | <a id="reader.attachmentsCollapsed"></a>`reader.attachmentsCollapsed` | true, false (the reader's attachments bar starts collapsed; the user's last toggle is saved here) | false |
+| <a id="attachments.bar.clickToToggle"></a>`attachments.bar.clickToToggle` | true, false (clicking anywhere on the reader's attachments bar header expands or collapses it; when false only the arrow button does) | true |
+| <a id="attachments.bar.showDownloadButtons"></a>`attachments.bar.showDownloadButtons` | always, hover, never (when each attachment in the bar shows its download button; touch screens always show it in hover mode) | hover |
+| <a id="attachments.bar.downloadAll"></a>`attachments.bar.downloadAll` | true, false (the bar's Download all button, which saves the allowed attachments as one ZIP file, or a single attachment directly) | true |
+| <a id="attachments.bar.zipInlineImages"></a>`attachments.bar.zipInlineImages` | true, false (include images shown inside the message text in the Download all ZIP) | false |
 
 Automatic colors adapt in dark themes and preserve original colors in light themes. Inversion reverses message colors while counter-inverting images. Adaptive mode removes sender foreground/background overrides while preserving layout and media sources. Loader delay affects only feedback, never delivery.
 
@@ -2149,10 +2153,6 @@ Global/domain/user composer safeguard: `off`, `warn` (default), `confirm`, `warn
 ### `mail.trustedRecipientDomains`
 Global/domain/user list of up to 100 exact domains, each at most 253 characters. DNS case and IDNA are normalized; invalid entries grant no trust. Subdomains are not implicitly trusted. The selected sending identity's domain is trusted automatically. Administrators can lock both settings to prevent user overrides; an unlocked user list replaces the inherited list.
 
-| <a id="attachments.bar.clickToToggle"></a>`attachments.bar.clickToToggle` | true, false (clicking anywhere on the reader's attachments bar header expands or collapses it; when false only the arrow button does) | true |
-| <a id="attachments.bar.showDownloadButtons"></a>`attachments.bar.showDownloadButtons` | always, hover, never (when each attachment in the bar shows its download button; touch screens always show it in hover mode) | hover |
-| <a id="attachments.bar.downloadAll"></a>`attachments.bar.downloadAll` | true, false (the bar's Download all button, which saves the allowed attachments as one ZIP file, or a single attachment directly) | true |
-| <a id="attachments.bar.zipInlineImages"></a>`attachments.bar.zipInlineImages` | true, false (include images shown inside the message text in the Download all ZIP) | false |
 <a id="mail.compose.checkInvalidRecipients"></a>
 <a id="mail.compose.checkMissingAttachment"></a>
 <a id="mail.compose.checkEmptySubject"></a>
@@ -2807,96 +2807,6 @@ Global/domain/user boolean, default `false`. When on, Inbox shows two tabs above
 
 Global/domain/user boolean, default `false`. When on, the sidebar head shows the Inbox unread count next to the signed-in address or nickname (the plain address, and the mailbox picker's button). The per-mailbox counts inside the mailbox menu are shown either way. Users can change this under Settings > Folders unless locked. Resolved for the sign-in account, like `mail.folderCounts`.
 
-<a id="metrics.defaultRangeSeconds"></a>
-### Default request history range (`metrics.defaultRangeSeconds`)
-
-Global seconds, default 3,600; bounded from 60 to 34,560,000. Applies when both history endpoints are omitted. Effective default is capped by the maximum range and retention.
-
-<a id="metrics.maxRangeSeconds"></a>
-### Maximum request history range (`metrics.maxRangeSeconds`)
-
-Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–400 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.
-
-<a id="contacts.senderIcons"></a>
-### Bundled sender icons (`contacts.senderIcons`)
-
-Enabled by default, with global/domain/user overrides and administrator locks.
-Recognised sender domains use bundled SVG icons; unknown senders use deterministic
-initials from a 192-colour palette with at least 4.5:1 white-text contrast. Embedded
-contact photos take priority when contact-photo mode is selected; hiding avatars
-also hides domain icons. Government domains use a generic civic icon, not an
-identity seal. Domain matching is an appearance hint, never authentication
-verification. It does not request favicons, remote logos, or external profiles.
-
-<a id="mail.brandAvatars"></a>
-### Brand logos beside verified senders (`mail.brandAvatars`)
-
-Enabled by default, with global/domain/user overrides and administrator locks.
-The reader shows a bundled brand logo beside the sender when the sender's domain belongs to a known brand and the message passed DKIM and an aligned DMARC check
-for a domain of that same brand. Messages that fail, lack those checks or come from
-an unknown domain keep the normal avatar; the message list, which carries no check result, never shows one.
-Domain matching uses whole registrable-domain suffixes, so `paypal.com.evil.io` or `evilpaypal.com` never match. Logos are bundled with the app and nothing is requested
-from the sender or a logo service. See `docs/brand-logos.md`.
-
-<a id="contacts.favoritesFirst"></a>
-### Favorites first in suggestions (`contacts.favoritesFirst`)
-
-Enabled by default, with global/domain/user overrides and administrator locks.
-When on, recipient suggestions in Compose list contacts marked as favorites ahead
-of other matches; within each group the usual ranking applies. It only changes
-the order: no suggestion is hidden, and favorites are a flag on the contact
-(`CATEGORIES:favorite` in its vCard), stored per address book.
-
-<a id="mail.draftSaveMode"></a>
-<a id="mail.draftDebounceMs"></a>
-<a id="mail.draftIntervalSecs"></a>
-
-Account draft saving supports global, domain and user defaults and administrator locks. `mail.draftSaveMode` defaults to `realtime` (after a typing pause), with `periodic` and `manual` alternatives. `mail.draftDebounceMs` defaults to 1000 and accepts 500–10000 milliseconds; `mail.draftIntervalSecs` defaults to 30 and accepts 5–3600 seconds. Manual mode disables scheduled upstream writes. These settings do not grant backend capabilities: a mapped, writable native IMAP Drafts folder and confirmed APPENDUID are required. Unsupported backends remain explicit. Interrupted or unconfirmed saves retain a durable uncertain claim and are never automatically repeated.
-
-<a id="mail.showFrom"></a>
-
-`mail.showFrom` is a global/domain/user boolean, default false. It controls the initial visibility of the composer From field. A per-compose ribbon action can reveal the field; visibility never grants permission to send as an address. Typed one-message addresses must pass current native or upstream sender authorization and are not saved as identities.
-
-<a id="mail.replyFromMode"></a>
-
-`mail.replyFromMode` is a global/domain/user enum, default `match`. When replying, replying to all or forwarding, `match` sends from the identity whose address the original was addressed to (To, then Cc; case-insensitive, and `user+tag@host` matches `user@host`; an exact address beats a plus-tag match) and falls back to the default identity. `default` always uses the default identity, `ask` matches the same way but lists the other candidates for a one-click change, and `keep` leaves the composer identity unchanged. The choice never grants permission to send as an address.
-
-<a id="mail.replyFrom.headerPriority"></a>
-
-`mail.replyFrom.headerPriority` is a global/domain/user list of header names, default `Delivered-To`, `X-Original-To`, `To`, `Cc`. It is read when `mail.replyFromMode` is `match` or `ask`: the headers are tried in this order, and the first one that names an address of one of the user's identities decides which identity the reply is sent from. Accepted names are `Delivered-To`, `X-Original-To`, `Envelope-To`, `X-Forwarded-To`, `Resent-To`, `To` and `Cc` (case-insensitive; unknown names and repeats are ignored, an empty or invalid list means the default). A header that is not listed is not read. Within one header the match order is: the exact address; plus-addressing (`user+tag@host` reaches `user@host`, and the reverse); an identity address written with `*` (`*@host` catches every address at that host, `user+*@host` any tag, `user@*.host` any subdomain); and, for the delivery headers only (never `To` or `Cc`, which also list other people), the same domain or a parent domain of the received address, which is how mail delivered to a catch-all alias is answered from the identity at that domain. The composer's status line names the header that matched ("From me@example.org (matched Delivered-To)"). The delivery headers are read from the stored message when a reply is opened, so they work for mail of IMAP, POP3 and JMAP accounts alike. The choice never grants permission to send as an address; a header cannot select an identity the account does not have.
-
-<a id="mail.replyFrom.headerPriority"></a>
-
-`mail.replyFrom.headerPriority` is a global/domain/user list of header names, default `Delivered-To`, `X-Original-To`, `To`, `Cc`. It is read when `mail.replyFromMode` is `match` or `ask`: the headers are tried in this order, and the first one that names an address of one of the user's identities decides which identity the reply is sent from. Accepted names are `Delivered-To`, `X-Original-To`, `Envelope-To`, `X-Forwarded-To`, `Resent-To`, `To` and `Cc` (case-insensitive; unknown names and repeats are ignored, an empty or invalid list means the default). A header that is not listed is not read. Within one header the match order is: the exact address; plus-addressing (`user+tag@host` reaches `user@host`, and the reverse); an identity address written with `*` (`*@host` catches every address at that host, `user+*@host` any tag, `user@*.host` any subdomain); and, for the delivery headers only (never `To` or `Cc`, which also list other people), the same domain or a parent domain of the received address, which is how mail delivered to a catch-all alias is answered from the identity at that domain. The composer's status line names the header that matched ("From me@example.org (matched Delivered-To)"). The delivery headers are read from the stored message when a reply is opened, so they work for mail of IMAP, POP3 and JMAP accounts alike. The choice never grants permission to send as an address; a header cannot select an identity the account does not have.
-
-<a id="privacy.stripMailerHeaders"></a>
-### Outgoing mailer header privacy (`privacy.stripMailerHeaders`)
-
-Defaults to true; global, domain and account overrides are supported, with administrator locks. Native SMTP/EWS submissions remove top-level X-Mailer, User-Agent and X-MimeOLE. Bodies, attachments and ARF report payloads are unchanged; upstream JMAP proxy sends are outside this boundary. See [outgoing header privacy](../deploy/outgoing-header-privacy.md) for pre-signed message conflicts and relay limitations.
-
-<a id="security.protocol.framingMode"></a>
-<a id="security.protocol.hostMode"></a>
-<a id="security.protocol.hostPinningMode"></a>
-<a id="security.protocol.pathControlMode"></a>
-<a id="security.protocol.targetMode"></a>
-<a id="security.protocol.pathLengthMode"></a>
-<a id="security.protocol.methodMode"></a>
-<a id="security.protocol.duplicateHeadersMode"></a>
-<a id="security.protocol.forwardedMode"></a>
-<a id="security.protocol.headerHygieneMode"></a>
-<a id="security.protocol.bodyMode"></a>
-<a id="security.protocol.maxPathBytes"></a>
-<a id="security.protocol.maxQueryBytes"></a>
-<a id="security.protocol.maxHeaderCount"></a>
-<a id="security.protocol.maxHeaderValueBytes"></a>
-<a id="security.protocol.maxCookieBytes"></a>
-<a id="security.protocol.maxBodyBytes"></a>
-<a id="security.protocol.allowedMethods"></a>
-<a id="security.protocol.allowedHosts"></a>
-<a id="security.protocol.exemptPrefixes"></a>
-
-An early middleware checks the method, version, request target and headers of every request before routing, sign-in or body parsing, and classes what it finds. Each class `*Mode` is `off`, `detect` (log, count, feed adaptive protection, allow) or `enforce` (reject with a minimal 400, 405, 413, 414, 417 or 431 that repeats nothing the client sent; `Connection: close` after framing and Host rejects). Defaults: `framingMode`, `hostMode` and `pathControlMode` enforce; every heuristic class detects. `/healthz` and `/readyz` are never refused. Counters per class and mode are shown in the Adaptive protection page and `GET /bans/protection`. `exemptPrefixes` switches the heuristic classes off for whole path segments under a prefix; framing and path-control findings are never exempted. The guard sees only what the HTTP server hands the application: see [protocol guard](protocol-guard.md) for what the framework already refuses, what a front proxy must do, and the deferred custom-rule and virtual-patching plan.
-
 <a id="mail.priorityMarks"></a>
 ### Priority marks (`mail.priorityMarks`)
 
@@ -3060,6 +2970,92 @@ Global/domain/user setting, default `true`. Open the Properties dialog from the 
 ### Properties shortcut key (`properties.shortcut.key`)
 
 Global/domain/user setting, default `"Alt+Enter"`. The key combination that opens Properties; Alt+Enter by default.
+
+<a id="metrics.defaultRangeSeconds"></a>
+### Default request history range (`metrics.defaultRangeSeconds`)
+
+Global seconds, default 3,600; bounded from 60 to 34,560,000. Applies when both history endpoints are omitted. Effective default is capped by the maximum range and retention.
+
+<a id="metrics.maxRangeSeconds"></a>
+### Maximum request history range (`metrics.maxRangeSeconds`)
+
+Global seconds, default 2,592,000 (30 days); bounded from 3,600 to 34,560,000. The effective limit also respects `metrics.rollupDays` (1–400 days). Request history records response-ready latency for requests that reach application middleware, not full streamed transfers or transport-parser rejections. Aggregate snapshots flush every 15 seconds; a sudden process loss can lose the unflushed tail. Minute snapshots are retained for 48 hours, hourly snapshots for the configured retention. Percentiles combine histogram counts across replicas, with no request paths, addresses or identities stored. Missing periods remain unavailable, not zero. Queries return at most 1,000 points and refuse scans exceeding 20,000 stored buckets; reduce the range if the deployment has too many replica snapshots. Only unscoped Dashboard read or Observability read access can see this server-wide history.
+
+<a id="contacts.senderIcons"></a>
+### Bundled sender icons (`contacts.senderIcons`)
+
+Enabled by default, with global/domain/user overrides and administrator locks.
+Recognised sender domains use bundled SVG icons; unknown senders use deterministic
+initials from a 192-colour palette with at least 4.5:1 white-text contrast. Embedded
+contact photos take priority when contact-photo mode is selected; hiding avatars
+also hides domain icons. Government domains use a generic civic icon, not an
+identity seal. Domain matching is an appearance hint, never authentication
+verification. It does not request favicons, remote logos, or external profiles.
+
+<a id="mail.brandAvatars"></a>
+### Brand logos beside verified senders (`mail.brandAvatars`)
+
+Enabled by default, with global/domain/user overrides and administrator locks.
+The reader shows a bundled brand logo beside the sender when the sender's domain belongs to a known brand and the message passed DKIM and an aligned DMARC check
+for a domain of that same brand. Messages that fail, lack those checks or come from
+an unknown domain keep the normal avatar; the message list, which carries no check result, never shows one.
+Domain matching uses whole registrable-domain suffixes, so `paypal.com.evil.io` or `evilpaypal.com` never match. Logos are bundled with the app and nothing is requested
+from the sender or a logo service. See `docs/brand-logos.md`.
+
+<a id="contacts.favoritesFirst"></a>
+### Favorites first in suggestions (`contacts.favoritesFirst`)
+
+Enabled by default, with global/domain/user overrides and administrator locks.
+When on, recipient suggestions in Compose list contacts marked as favorites ahead
+of other matches; within each group the usual ranking applies. It only changes
+the order: no suggestion is hidden, and favorites are a flag on the contact
+(`CATEGORIES:favorite` in its vCard), stored per address book.
+
+<a id="mail.draftSaveMode"></a>
+<a id="mail.draftDebounceMs"></a>
+<a id="mail.draftIntervalSecs"></a>
+
+Account draft saving supports global, domain and user defaults and administrator locks. `mail.draftSaveMode` defaults to `realtime` (after a typing pause), with `periodic` and `manual` alternatives. `mail.draftDebounceMs` defaults to 1000 and accepts 500–10000 milliseconds; `mail.draftIntervalSecs` defaults to 30 and accepts 5–3600 seconds. Manual mode disables scheduled upstream writes. These settings do not grant backend capabilities: a mapped, writable native IMAP Drafts folder and confirmed APPENDUID are required. Unsupported backends remain explicit. Interrupted or unconfirmed saves retain a durable uncertain claim and are never automatically repeated.
+
+<a id="mail.showFrom"></a>
+
+`mail.showFrom` is a global/domain/user boolean, default false. It controls the initial visibility of the composer From field. A per-compose ribbon action can reveal the field; visibility never grants permission to send as an address. Typed one-message addresses must pass current native or upstream sender authorization and are not saved as identities.
+
+<a id="mail.replyFromMode"></a>
+
+`mail.replyFromMode` is a global/domain/user enum, default `match`. When replying, replying to all or forwarding, `match` sends from the identity whose address the original was addressed to (To, then Cc; case-insensitive, and `user+tag@host` matches `user@host`; an exact address beats a plus-tag match) and falls back to the default identity. `default` always uses the default identity, `ask` matches the same way but lists the other candidates for a one-click change, and `keep` leaves the composer identity unchanged. The choice never grants permission to send as an address.
+
+<a id="mail.replyFrom.headerPriority"></a>
+
+`mail.replyFrom.headerPriority` is a global/domain/user list of header names, default `Delivered-To`, `X-Original-To`, `To`, `Cc`. It is read when `mail.replyFromMode` is `match` or `ask`: the headers are tried in this order, and the first one that names an address of one of the user's identities decides which identity the reply is sent from. Accepted names are `Delivered-To`, `X-Original-To`, `Envelope-To`, `X-Forwarded-To`, `Resent-To`, `To` and `Cc` (case-insensitive; unknown names and repeats are ignored, an empty or invalid list means the default). A header that is not listed is not read. Within one header the match order is: the exact address; plus-addressing (`user+tag@host` reaches `user@host`, and the reverse); an identity address written with `*` (`*@host` catches every address at that host, `user+*@host` any tag, `user@*.host` any subdomain); and, for the delivery headers only (never `To` or `Cc`, which also list other people), the same domain or a parent domain of the received address, which is how mail delivered to a catch-all alias is answered from the identity at that domain. The composer's status line names the header that matched ("From me@example.org (matched Delivered-To)"). The delivery headers are read from the stored message when a reply is opened, so they work for mail of IMAP, POP3 and JMAP accounts alike. The choice never grants permission to send as an address; a header cannot select an identity the account does not have.
+
+<a id="privacy.stripMailerHeaders"></a>
+### Outgoing mailer header privacy (`privacy.stripMailerHeaders`)
+
+Defaults to true; global, domain and account overrides are supported, with administrator locks. Native SMTP/EWS submissions remove top-level X-Mailer, User-Agent and X-MimeOLE. Bodies, attachments and ARF report payloads are unchanged; upstream JMAP proxy sends are outside this boundary. See [outgoing header privacy](../deploy/outgoing-header-privacy.md) for pre-signed message conflicts and relay limitations.
+
+<a id="security.protocol.framingMode"></a>
+<a id="security.protocol.hostMode"></a>
+<a id="security.protocol.hostPinningMode"></a>
+<a id="security.protocol.pathControlMode"></a>
+<a id="security.protocol.targetMode"></a>
+<a id="security.protocol.pathLengthMode"></a>
+<a id="security.protocol.methodMode"></a>
+<a id="security.protocol.duplicateHeadersMode"></a>
+<a id="security.protocol.forwardedMode"></a>
+<a id="security.protocol.headerHygieneMode"></a>
+<a id="security.protocol.bodyMode"></a>
+<a id="security.protocol.maxPathBytes"></a>
+<a id="security.protocol.maxQueryBytes"></a>
+<a id="security.protocol.maxHeaderCount"></a>
+<a id="security.protocol.maxHeaderValueBytes"></a>
+<a id="security.protocol.maxCookieBytes"></a>
+<a id="security.protocol.maxBodyBytes"></a>
+<a id="security.protocol.allowedMethods"></a>
+<a id="security.protocol.allowedHosts"></a>
+<a id="security.protocol.exemptPrefixes"></a>
+
+An early middleware checks the method, version, request target and headers of every request before routing, sign-in or body parsing, and classes what it finds. Each class `*Mode` is `off`, `detect` (log, count, feed adaptive protection, allow) or `enforce` (reject with a minimal 400, 405, 413, 414, 417 or 431 that repeats nothing the client sent; `Connection: close` after framing and Host rejects). Defaults: `framingMode`, `hostMode` and `pathControlMode` enforce; every heuristic class detects. `/healthz` and `/readyz` are never refused. Counters per class and mode are shown in the Adaptive protection page and `GET /bans/protection`. `exemptPrefixes` switches the heuristic classes off for whole path segments under a prefix; framing and path-control findings are never exempted. The guard sees only what the HTTP server hands the application: see [protocol guard](protocol-guard.md) for what the framework already refuses, what a front proxy must do, and the deferred custom-rule and virtual-patching plan.
 
 <a id="security.health.mode"></a>
 <a id="security.health.networks"></a>
@@ -3234,30 +3230,6 @@ or HTML.
 `mail.list.pageSize` sets how many messages the message list fetches per page as a user scrolls to the end (default 50, range 20 to 200). Global/domain/user policy; an administrator lock fixes the value.
 <a id="mail.messageListPreview"></a>
 `mail.messageListPreview` defaults true. When false, the message list shows no body snippets. Global/domain/user policy.
-<a id="mail.badge.auth"></a>
-<a id="mail.badge.spam"></a>
-<a id="mail.badge.sanitized"></a>
-<a id="mail.badge.folder"></a>
-<a id="mail.badge.list"></a>
-### Reader badges (`mail.badge.auth`, `mail.badge.spam`, `mail.badge.sanitized`, `mail.badge.folder`, `mail.badge.list`)
-
-Global/domain/user settings, one per badge in the reader's header row: the DMARC authentication badge (default `"always"`), the spam score badge (`"always"`), the sanitized HTML badge (`"notable"`) the folder badge (`"always"`) and the mailing list badge (`"always"`, shown when the message has a `List-Id` or `List-Unsubscribe` header; for it, `notable` means mail is still arriving after the user unsubscribed). Values: `always`, `notable` (only when there is something to look at: an authentication problem, a spam score above the ham band, HTML that was blocked, a message in Junk or Trash) and `never`. Users choose under Settings > Message display > Message badges, or right-click a badge, unless locked; a lock disables the control and the right-click items. The spam header is still read when its badge is hidden, because the notices below the header depend on it. `mail.showAuthStatus` keeps its own meaning: it leaves the SPF, DKIM and DMARC results out of the security details. Priority marks keep their own setting, `mail.priorityMarks`.
-
-<a id="mail.list.unsubscribeMode"></a>
-### Mailing list unsubscribe (`mail.list.unsubscribeMode`)
-
-Global/domain/user setting, default `"ask"`. How the Unsubscribe action of the mailing list badge works when the message offers an RFC 8058 one-click `https` URL (`List-Unsubscribe` plus `List-Unsubscribe-Post: List-Unsubscribe=One-Click`). `ask` shows a confirmation, then the server sends the request (`POST /api/mail/list-unsubscribe`, egress class `unsubscribe`, so the list host sees the server and not the reader); `one-click-direct` sends it without the confirmation; `open-link` never sends it and only opens the list's web link or mail draft after the usual destination review. Without a one-click URL the web link or mail draft is always used. "Unsubscribed on" and "Always keep" are stored in the user's browser only.
-
-<a id="mail.badge.density"></a>
-### Reader badge density (`mail.badge.density`)
-
-Global/domain/user setting, default `"compact"`. `compact` or `comfortable` height and padding for every badge in the reader's header row.
-
-<a id="mail.badge.labels"></a>
-### Reader badge labels (`mail.badge.labels`)
-
-Global/domain/user setting, default `"text"`. `text` shows an icon and a short label; `icon` shows the icon only (the accessible name and the tooltip keep the full text; the spam score keeps its number).
-
 <a id="mail.rowActionsMode"></a>
 `mail.rowActionsMode` defaults `open`. Controls the quick-action buttons on each message list row: `open` shows the full set as before (revealed on row hover or keyboard focus), `hover` shows three controls (flag, archive, delete) and a More button that reveals pin, snooze and label, `click` shows one button per row that opens the actions, and `off` removes them from the rows (the context menu and toolbar still carry every action). On touch screens `hover` behaves like `click`. Global/domain/user policy: an administrator sets the default or locks the value for everyone, otherwise each user chooses in Settings; enforced in the web client only.
 <a id="mail.send.recallDelaySeconds"></a>
