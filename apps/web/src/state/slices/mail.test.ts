@@ -917,6 +917,7 @@ describe('mail slice — archive / trash / spam / move', () => {
       expect(set).toBeTruthy();
       expect(Object.keys((set![1]['update'] as Record<string,unknown>))).toEqual(['a']);
     });
+  });
   it.each(['before-pending','before-acknowledgement','during-pending'] as const)('does not resurrect a moved row from a refresh started %s',async timing=>{
     await withInbox([email('a'),email('b')],async(mail,{jmap})=>{
       const original=jmap.getMockImplementation()!;
