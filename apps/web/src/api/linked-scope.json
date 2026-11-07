@@ -8,6 +8,7 @@
     { "prefix": "/jmap/upload/", "segments": 1, "scope": "mailbox" },
     { "prefix": "/jmap/download/", "segments": 3, "scope": "mailbox", "resource": true },
     { "prefix": "/api/export/", "segments": 1, "scope": "mailbox", "resource": true },
+    { "prefix": "/api/export/folder/", "segments": 1, "scope": "mailbox", "resource": true, "note": "folder ZIP (folder_export.rs, feature_session -> authed: the linked child)" },
 
     { "path": "/api/settings", "scope": "mailbox" },
     { "prefix": "/api/settings/", "segments": 1, "scope": "mailbox" },

@@ -350,6 +350,24 @@ function withoutBodyMedia(html: string): string {
   return doc.body.innerHTML;
 }
 
+/** Last line of defence for the script-free body frame: a navigation attribute naming the local machine or an
+ *  executable scheme is dropped, so no click or load can make the browser try `file:`, `javascript:`, `vbscript:` or
+ *  a `data:` document (the sanitizer already removes them; Firefox reports each attempt as "may not load or link
+ *  to file:///"). `data:image/*` stays valid for `src`. The frame has no script, so there is nothing to toast from. */
+const UNSAFE_NAV = /^(?:file|filesystem|javascript|vbscript|data|blob|view-source|jar|resource|chrome|moz-extension|ms-help)$/i;
+export function withoutUnsafeLinks(html: string): string {
+  return html.replace(/(\s(?:href|xlink:href|action|formaction|src|poster|background|data)\s*=\s*)("([^"]*)"|'([^']*)'|([^\s>"']+))/gi, (whole, lead: string, _v: string, dq?: string, sq?: string, bare?: string) => {
+    const value = (dq ?? sq ?? bare ?? '').replace(/&(?:#x0*([0-9a-f]+)|#0*(\d+));?/gi, (_m, h?: string, d?: string) => String.fromCodePoint(h !== undefined ? parseInt(h, 16) : parseInt(d!, 10)));
+    // eslint-disable-next-line no-control-regex
+    const compact = value.replace(/[\u0000-\u0020\u007f]+/g, '');
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(compact)?.[1];
+    if (scheme === undefined || !UNSAFE_NAV.test(scheme)) return whole;
+    if (/^data$/i.test(scheme) && /^\s*(?:src|poster)\s*=/i.test(lead.trimStart()) && /^data:image\/(?:png|jpe?g|gif|webp);base64,/i.test(compact)) return whole;
+    if (/^blob$/i.test(scheme)) return whole;
+    return '';
+  });
+}
+
 /** The colour mode, theme variables and tooltip theme live in a second, url-free `<style>` so a colour-mode change
  *  is one text patch of that element (the first holds data: URLs, which the patch channel refuses). */
 /** Build the message-body `srcdoc` for a mode. In `plain-text` the content is
@@ -361,12 +379,13 @@ export function bodyFrameDoc(
   opts: { themeVars?: string; direct?: boolean; serverBase?: string; appearance?: ReaderAppearance; tips?: FrameTips } = {},
 ): string {
   const styleVars = opts.themeVars !== undefined && opts.themeVars.length > 0 ? opts.themeVars : '';
-  const inner =
+  const rawInner =
     mode === 'plain-text'
       ? `<pre>${escapeHtml(content.text ?? '')}</pre>`
       : mode === 'sanitized-no-media'
         ? withoutBodyMedia(withoutImageTitles(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? ''))
         : withBlockedImagePlaceholders(withImageLoadingHints(withoutImageTitles(opts.appearance?.colorMode === 'adaptive' ? adaptReaderColors(content.html ?? '') : content.html ?? '')));
+  const inner = mode === 'plain-text' ? rawInner : withoutUnsafeLinks(rawInner);
   // The themed image tooltip is drawn by the frame handler, so only HTML modes get it.
   const tip = mode === 'plain-text' ? { css: '', bodyAttrs: '' } : frameTipParts(opts.tips);
   return (

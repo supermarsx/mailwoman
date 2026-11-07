@@ -90,7 +90,8 @@
  ],
  "resource": [
   "/jmap/download/a/b/name",
-  "/api/export/e1"
+  "/api/export/e1",
+  "/api/export/folder/m1.zip"
  ],
  "primary": [
   "/api/accounts",

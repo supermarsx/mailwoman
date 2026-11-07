@@ -5,6 +5,9 @@
 // as a plain download so it streams to disk instead of into memory.
 import {apiFetch} from '../../api/http.ts';
 import {withBase} from '../../api/basePath.ts';
+import {activeLinkedMailbox} from '../../api/linkedMailboxSession.ts';
+import {linkedResourceUrl} from '../../api/linkedAccountRouting.ts';
+import {transportBase} from '../../api/transport.ts';
 import type {ExportFormat} from './policy.ts';
 
 export interface ExportEstimate {folders:number;messages:number;bytes:number;maxBytes:number;maxMessages:number;format:ExportFormat;formats:ExportFormat[];subfolders:boolean;allowed:boolean;reason?:string}
@@ -17,7 +20,10 @@ export class ExportRefused extends Error {constructor(readonly code:string,reado
 export function exportUrl(mailboxId:string,options:ExportOptions,estimate=false):string {
  const params=new URLSearchParams({format:options.format,subfolders:options.subfolders?'1':'0'});
  if(estimate)params.set('estimate','1');
- return withBase(`/api/export/folder/${encodeURIComponent(mailboxId)}.zip?${params}`);
+ const url=withBase(`/api/export/folder/${encodeURIComponent(mailboxId)}.zip?${params}`);
+ // A browser-level download (no apiFetch) carries the link selector in the URL, never the primary's.
+ const linked=activeLinkedMailbox();
+ return linked?linkedResourceUrl(url,linked.linkId,new URL(`${transportBase()}/`,globalThis.location.href).href):url;
 }
 
 async function refusal(response:Response):Promise<ExportRefused> {
