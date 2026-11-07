@@ -49,6 +49,14 @@ reader-attachments-summary = { $count ->
     [one] 1 anexo
    *[other] { $count } anexos
 } · { $size }
+reader-attachments-inline-summary = { $count ->
+    [one] 1 imagem incorporada
+   *[other] { $count } imagens incorporadas
+} · { $size }
+reader-attachments-inline-group = { $count ->
+    [one] 1 imagem incorporada
+   *[other] { $count } imagens incorporadas
+}
 reader-attachments-show = Mostrar anexos
 reader-attachments-hide = Ocultar anexos
 reader-attachmentsDensity = Densidade dos anexos

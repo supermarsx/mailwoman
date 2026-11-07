@@ -145,10 +145,11 @@ fn an_inline_part_round_trips_as_a_cid_resource() {
     assert_eq!(part.attachment_name(), Some("picture.png"));
     assert_eq!(part.contents(), PNG);
 
-    // The JMAP mapping treats it as part of the body, not as a file.
+    // The JMAP mapping does not count it as a file (hasAttachment) but still lists it, flagged inline.
     let parsed = parse(&raw).expect("parse");
     assert!(!parsed.email.has_attachment);
-    assert!(parsed.email.attachments.is_empty());
+    assert_eq!(parsed.email.attachments.len(), 1);
+    assert_eq!(parsed.email.attachments[0].disposition.as_deref(), Some("inline"));
     assert_eq!(parsed.email.html_body.len(), 1);
     assert_eq!(part_blob(&raw, 4).expect("image blob").bytes, PNG);
 }
@@ -191,7 +192,15 @@ fn inline_parts_sit_in_related_inside_mixed_beside_ordinary_attachments() {
         .iter()
         .map(|p| p.name.clone())
         .collect();
-    assert_eq!(names, [Some("invoice.pdf".to_string())]);
+    // Both inline images are listed (flagged inline) beside the one real file.
+    assert_eq!(
+        names,
+        [
+            Some("picture.png".to_string()),
+            Some("picture.png".to_string()),
+            Some("invoice.pdf".to_string())
+        ]
+    );
 }
 
 #[test]

@@ -1041,11 +1041,11 @@ mail-compose-from-why-keep = A enviar a partir de { $identity }.
 mail-compose-from-change = Alterar
 
 reader-attachments-reason-encrypted = Esta mensagem está cifrada. Os anexos aparecem depois de a desbloquear.
-reader-attachments-reason-list-missing = Não foi possível carregar a lista de anexos desta mensagem, por isso a barra de anexos está oculta.
+reader-attachments-reason-list-missing = Não foi possível carregar a lista de anexos desta mensagem, por isso os respetivos anexos não podem ser mostrados.
 reader-attachments-reason-inline-only = Os anexos desta mensagem ({ $count }) são imagens incorporadas apresentadas na própria mensagem.
 reader-attachments-reason-unavailable-parts = { $count ->
-    [one] Um anexo desta mensagem não tem conteúdo transferível, por isso a barra de anexos está oculta.
-   *[other] { $count } anexos desta mensagem não têm conteúdo transferível, por isso a barra de anexos está oculta.
+    [one] Um anexo desta mensagem não tem conteúdo transferível e não pode ser mostrado.
+   *[other] { $count } anexos desta mensagem não têm conteúdo transferível e não podem ser mostrados.
   }
 reader-attachments-reason-policy-blocked = A sua política de anexos bloqueia a transferência { $count ->
     [one] deste anexo.

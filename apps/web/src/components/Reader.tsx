@@ -39,7 +39,7 @@ import { readingPane } from './readingPane.ts';
 import { accountUiPreferences } from '../api/accountPreferences.ts';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
-import { attachmentBarReason } from './attachmentBarReason.ts';
+import { attachmentBarReason, isInlineResourcePart } from './attachmentBarReason.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { buildDownloadUrl, fetchObjectUrl, type AttachmentPart } from '../viewers/attachments.ts';
 import { SecurityPanel } from './SecurityPanel.tsx';
@@ -273,7 +273,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         name: a.name !== null && a.name !== undefined && a.name.length > 0 ? a.name : t('mail-attachment-unnamed'),
         mime: a.type.length > 0 ? a.type : 'application/octet-stream',
         size: a.size,
-        inline: typeof a.cid === 'string' && a.cid.length > 0 && a.disposition !== 'attachment',
+        inline: isInlineResourcePart(a),
       }));
   });
 
@@ -369,15 +369,54 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
     setZipping(true);
     void downloadBarAll(app, props.email.id, items(), attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined, zipInline()).finally(() => setZipping(false));
   }
-  const totalSize = createMemo(() => items().reduce((sum, item) => sum + item.size, 0));
-  const summaryText = (): string => t('reader-attachments-summary', { count: items().length, size: formatBytes(totalSize()) });
+  // Files first; parts the body consumes (cid images) sit in their own group, never dropped.
+  const fileItems = createMemo(() => items().filter((item) => item.inline !== true));
+  const inlineItems = createMemo(() => items().filter((item) => item.inline === true));
+  const totalSize = createMemo(() => fileItems().reduce((sum, item) => sum + item.size, 0));
+  const inlineSize = createMemo(() => inlineItems().reduce((sum, item) => sum + item.size, 0));
+  const summaryText = (): string => fileItems().length > 0
+    ? t('reader-attachments-summary', { count: fileItems().length, size: formatBytes(totalSize()) })
+    : t('reader-attachments-inline-summary', { count: inlineItems().length, size: formatBytes(inlineSize()) });
   const tooltip = (): string => [summaryText(), ...items().slice(0, 8).map((item) => `${isolate(item.name)} · ${formatBytes(item.size)}`), ...(items().length > 8 ? ['…'] : [])].join('\n');
   const panelId = `reader-attachments-${Math.random().toString(36).slice(2)}`;
   const cloudEnabled = (): boolean => app.nextcloud.enabled() && cloudAccount === app.accountId();
   const cloudActions = createMemo<ContextAction[]>(() => items().map((item, i) => ({ id: `nc${i}`, label: t('nextcloud-save-attachment', { name: isolate(item.name) }), icon: 'nextcloud', disabled: !decision(item)?.allowed, run: () => { setCloudItem(item); } })));
   const cloudMenu = createContextMenu({ label: () => t('nextcloud-save-options'), scope: () => props.email.id, actions: cloudActions });
 
+  const renderStrip = (list: BarItem[]): JSX.Element => (
+        <ThumbnailStrip
+          density={attachmentDensity()}
+          items={list}
+          selectedBlobId={openItem()?.blobId ?? ''}
+          dragSource={{ accountId: app.accountId(), emailId: props.email.id }}
+          onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
+          {...(attachmentDensity()==='comfortable'?{resolveThumb:(item:StripItem)=>blobUrlFor(item)}:{})}
+          {...(downloadMode() !== 'never' ? {
+            actionMode: downloadMode() as 'always' | 'hover',
+            renderAction: (item: StripItem) => <AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined} allowDownload={allowDownload()} />,
+          } : {})}
+        />
+  );
+
+  const missingReason = (): 'list-missing' | 'unavailable-parts' | null => {
+    const reason = barState().reason;
+    return reason === 'list-missing' || reason === 'unavailable-parts' ? reason : null;
+  };
+
   return (
+    <>
+    <Show when={items().length === 0 && missingReason()}>{(reason) => (
+      <ReaderNoticeBar
+        label={t('mail-attachments')}
+        testid="reader-attachments-bar"
+        icon="attachment"
+        tone="warning"
+        tooltip={t(`reader-attachments-reason-${reason()}`, { count: barState().count })}
+        actions={reason() === 'list-missing' ? <NoticeButton icon="refresh" label={t('common-retry')} testid="reader-attachments-retry" onClick={() => { announced.delete(`attachments-${props.email.id}-list-missing`); void app.openMessage(props.email.id); }} /> : undefined}
+      >
+        <span class={noticeCss.headline}>{t(`reader-attachments-reason-${reason()}`, { count: barState().count })}</span>
+      </ReaderNoticeBar>
+    )}</Show>
     <Show when={items().length > 0}>
       <ReaderNoticeBar
         label={t('mail-attachments')}
@@ -405,18 +444,13 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
             panel keeps its height, so the body below never moves. */}
         <Show when={attachmentPolicy.state==='ready'} fallback={<Show when={attachmentPolicy.error} fallback={<div data-testid="async-pending" data-policy="pending" role="status" aria-label={t('mail-attachment-policy-loading')} aria-busy="true" inert><ThumbnailStrip density={attachmentDensity()} items={items()} selectedBlobId="" onSelect={() => undefined} resolveThumb={() => Promise.resolve('')} /></div>}><AsyncError message={t('mail-attachment-policy-unavailable')} onRetry={()=>{void retryPolicy();}}/></Show>}>
         <div data-policy="ready">
-        <ThumbnailStrip
-          density={attachmentDensity()}
-          items={items()}
-          selectedBlobId={openItem()?.blobId ?? ''}
-          dragSource={{ accountId: app.accountId(), emailId: props.email.id }}
-          onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
-          {...(attachmentDensity()==='comfortable'?{resolveThumb:(item:StripItem)=>blobUrlFor(item)}:{})}
-          {...(downloadMode() !== 'never' ? {
-            actionMode: downloadMode() as 'always' | 'hover',
-            renderAction: (item: StripItem) => <AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined} allowDownload={allowDownload()} />,
-          } : {})}
-        />
+        {renderStrip(fileItems())}
+        <Show when={inlineItems().length > 0}>
+          <details class="reader__attachments-inline" data-testid="reader-attachments-inline" open={fileItems().length === 0}>
+            <summary>{t('reader-attachments-inline-group', { count: inlineItems().length })}</summary>
+            {renderStrip(inlineItems())}
+          </details>
+        </Show>
         </div>
         </Show>
         </Show>
@@ -467,6 +501,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
         <span class={noticeCss.headline}>{summaryText()}</span>
       </ReaderNoticeBar>
     </Show>
+    </>
   );
 }
 

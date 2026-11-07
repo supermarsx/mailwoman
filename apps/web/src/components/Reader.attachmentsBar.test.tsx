@@ -30,9 +30,10 @@ describe('AttachmentsPane bar and reasons', () => {
     await new Promise((r) => setTimeout(r, 20));
     expect(showToast).not.toHaveBeenCalled();
   });
-  it('hides the bar and toasts once with a Retry when hasAttachment has no list', async () => {
+  it('shows a compact bar with Retry, and toasts once, when hasAttachment has no list', async () => {
     const { showToast, openMessage, view } = setup({ id: 'miss1', hasAttachment: true });
-    expect(view.queryByTestId('reader-attachments-bar')).toBeNull();
+    expect(view.queryByTestId('reader-attachments-bar')).not.toBeNull();
+    expect(view.queryByTestId('reader-attachments-retry')).not.toBeNull();
     await waitFor(() => expect(showToast).toHaveBeenCalledTimes(1));
     const [, , , extra] = showToast.mock.calls[0]!;
     extra.action.run();

@@ -46,6 +46,14 @@ reader-attachments-summary = { $count ->
     [one] 1 attachment
    *[other] { $count } attachments
 } · { $size }
+reader-attachments-inline-summary = { $count ->
+    [one] 1 inline image
+   *[other] { $count } inline images
+} · { $size }
+reader-attachments-inline-group = { $count ->
+    [one] 1 inline image
+   *[other] { $count } inline images
+}
 reader-attachments-show = Show attachments
 reader-attachments-hide = Hide attachments
 reader-attachmentsDensity = Attachment density

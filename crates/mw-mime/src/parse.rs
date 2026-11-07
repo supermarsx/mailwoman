@@ -208,20 +208,20 @@ fn message_ids(value: &str) -> Option<Vec<String>> {
     (!ids.is_empty()).then_some(ids)
 }
 
-/// Build [`EmailBodyPart`] metadata for the message's non-inline attachment
-/// parts. `blobId` is left `None` — the engine, which owns the message's stable
-/// id, fills it (`<stableId>.<partId>`) so [`crate::part_blob`] can resolve a
-/// download back to these exact bytes.
+/// Build [`EmailBodyPart`] metadata for EVERY attachment-class part, the same
+/// set the Security panel's per-attachment risk lists (`msg.attachments()`).
+/// Inline/cid resources are included and are told apart by `disposition` +
+/// `cid` (see [`is_inline_resource`]); they never raise `hasAttachment`, but the
+/// reader's bar must not silently drop a part another panel lists. `blobId` is
+/// left `None` - the engine, which owns the message's stable id, fills it
+/// (`<stableId>.<partId>`) so [`crate::part_blob`] can resolve a download back
+/// to these exact bytes.
 fn collect_attachments(message: &Message<'_>) -> Vec<EmailBodyPart> {
     let mut parts = Vec::new();
     for &id in &message.attachments {
         let Some(part) = message.part(id) else {
             continue;
         };
-        // Inline/cid resources belong to the rendered body, not the file list.
-        if is_inline_resource(part) {
-            continue;
-        }
         let (mime_type, charset) = content_type_of(part);
         parts.push(EmailBodyPart {
             part_id: Some(id.to_string()),

@@ -35,19 +35,19 @@ fn explicit_attachment_with_content_id_is_an_attachment() {
 }
 
 #[test]
-fn cid_inline_image_stays_a_body_resource() {
+fn cid_inline_image_is_listed_but_not_counted() {
     let (has, n) = names(&msg(
         "Content-Type: image/png; name=\"l.png\"\r\nContent-Disposition: inline; filename=\"l.png\"\r\nContent-ID: <l@y>\r\nContent-Transfer-Encoding: base64",
     ));
     assert!(!has);
-    assert!(n.is_empty());
+    assert_eq!(n, vec![Some("l.png".to_string())]);
 }
 
 #[test]
-fn nameless_inline_part_without_cid_is_not_listed() {
+fn nameless_inline_part_without_cid_is_listed_but_not_counted() {
     let (has, n) = names(&msg(
         "Content-Type: image/png\r\nContent-Disposition: inline\r\nContent-Transfer-Encoding: base64",
     ));
     assert!(!has);
-    assert!(n.is_empty());
+    assert_eq!(n.len(), 1);
 }

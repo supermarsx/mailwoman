@@ -1057,11 +1057,11 @@ mail-compose-from-why-keep = Sending from { $identity }.
 mail-compose-from-change = Change
 
 reader-attachments-reason-encrypted = This message is encrypted. Its attachments appear after you unlock it.
-reader-attachments-reason-list-missing = The attachment list for this message could not be loaded, so the attachments bar is hidden.
+reader-attachments-reason-list-missing = The attachment list for this message could not be loaded, so its attachments cannot be shown.
 reader-attachments-reason-inline-only = This message's attachments ({ $count }) are inline images shown in the message itself.
 reader-attachments-reason-unavailable-parts = { $count ->
-    [one] One attachment of this message has no downloadable content, so the attachments bar is hidden.
-   *[other] { $count } attachments of this message have no downloadable content, so the attachments bar is hidden.
+    [one] One attachment of this message has no downloadable content and cannot be shown.
+   *[other] { $count } attachments of this message have no downloadable content and cannot be shown.
   }
 reader-attachments-reason-policy-blocked = Your attachment policy blocks downloading { $count ->
     [one] this attachment.
