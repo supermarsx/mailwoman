@@ -23,18 +23,20 @@ function ConversationDialog(props:{onClose:()=>void;children:JSX.Element}):JSX.E
  * more than one, so a single message shows no conversation action. Opening
  * reuses that snapshot and pages members in as before; the count and "Load more"
  * appear once the first page is in, so the dialog never reads "0 of N" while it loads. */
+/** Last known thread size per account+thread: the button keeps its last value while the size is looked up again (no unmount/remount, no flicker). */
+const sizeCache=new Map<string,ConversationSnapshot>();
 export function createConversation(props:{threadId:()=>string|undefined;messageId:()=>string;active:()=>boolean}){
  const app=useApp(),client=createConfiguredClient();const scope=createMemo(()=>JSON.stringify([app.accountId(),props.threadId()??null]));
  const [open,setOpen]=createSignal(false),[busy,setBusy]=createSignal(false),[error,setError]=createSignal(false),[snapshot,setSnapshot]=createSignal<ConversationSnapshot>(),[messages,setMessages]=createSignal<Email[]>([]),[next,setNext]=createSignal(0),[missing,setMissing]=createSignal(0);
  let abort:AbortController|undefined,probe:AbortController|undefined;
- function reset():void{abort?.abort();abort=undefined;probe?.abort();probe=undefined;setOpen(false);setBusy(false);setError(false);setSnapshot(undefined);setMessages([]);setNext(0);setMissing(0);}
+ function reset():void{abort?.abort();abort=undefined;probe?.abort();probe=undefined;setOpen(false);setBusy(false);setError(false);setSnapshot(sizeCache.get(scope()));setMessages([]);setNext(0);setMissing(0);}
  /** Size the thread without loading any member. A failure leaves the action hidden. */
  async function size():Promise<void>{
-  const threadId=props.threadId();const account=preferenceAccount();if(!threadId||!account||account.id!==app.accountId()||snapshot()||probe)return;const heldScope=scope();const controller=new AbortController();probe=controller;
-  try{const held=await conversationSnapshot(client,account.id,threadId,controller.signal);if(!controller.signal.aborted&&preferenceAccountIsCurrent(account)&&scope()===heldScope&&!snapshot())setSnapshot(held);}catch{/* hidden: the size is unknown */}finally{if(probe===controller)probe=undefined;}
+  const threadId=props.threadId();const account=preferenceAccount();if(!threadId||!account||account.id!==app.accountId()||probe)return;const heldScope=scope();const controller=new AbortController();probe=controller;
+  try{const held=await conversationSnapshot(client,account.id,threadId,controller.signal);if(!controller.signal.aborted&&preferenceAccountIsCurrent(account)&&scope()===heldScope){if(sizeCache.size>200)sizeCache.delete(sizeCache.keys().next().value as string);sizeCache.set(heldScope,held);if(messages().length===0)setSnapshot(held);}}catch{/* hidden: the size is unknown */}finally{if(probe===controller)probe=undefined;}
  }
  createEffect(()=>{void scope();const active=props.active();untrack(()=>{reset();if(active)void size();});});
- onCleanup(observePreferenceAccount(()=>{reset();queueMicrotask(()=>{if(props.active())void size();});}));onCleanup(()=>{abort?.abort();probe?.abort();});
+ onCleanup(observePreferenceAccount(()=>{sizeCache.clear();reset();queueMicrotask(()=>{if(props.active())void size();});}));onCleanup(()=>{abort?.abort();probe?.abort();});
  async function load():Promise<void>{
   const threadId=props.threadId();if(busy()||!threadId)return;const account=preferenceAccount();if(!account||account.id!==app.accountId())return;const heldScope=scope();const controller=new AbortController();abort=controller;setBusy(true);setError(false);
   const current=()=>!controller.signal.aborted&&preferenceAccountIsCurrent(account)&&scope()===heldScope;
