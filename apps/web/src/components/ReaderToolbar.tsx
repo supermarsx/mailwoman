@@ -41,13 +41,14 @@ import {messageDialogEnabled} from './properties/policy.ts';
 import {colorRowAction,type ReaderColorProps} from './ReaderColorMenu.tsx';
 import {RawMessageHeaders} from './RawMessageHeaders.tsx';
 import {ACTION_ICONS} from '../actionIcons.ts';
+import {isDraftMessage} from './draftMessage.ts';
 import { loadCatalog } from '../i18n/catalog.ts';
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('properties'); void loadCatalog('search');
 
 /** Fold order: lower stays on the row longer. */
 export const PRIORITY: Record<string,number> = {
- reply:0,'reply-all':1,forward:2,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
+ reply:0,'reply-all':1,forward:2,'edit-draft':-1,'open-draft':2.5,delete:3,archive:4,move:4.5,conversation:5,links:6,read:7,flag:8,pin:9,spam:10,security:11,headers:11.5,sweep:12,print:13,export:14,properties:15,zoom:10.5,search:6.5,colors:10.7,
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
@@ -71,6 +72,8 @@ export function ReaderToolbar(props:{
  onCompose?:(draft:ComposeInitial)=>void;
  /** Opens the saved reply to this message; the action appears only while one exists. */
  onOpenReplyDraft?:(draftId:string)=>void;
+ /** Opens this message in the composer when it is a draft; the action appears only then. */
+ onEditDraft?:(messageId:string)=>void;
  security:{value:SecurityMode;floor:SecurityMode|null;onChange:(mode:SecurityMode)=>void};
  /** Per-message colour mode (the same modes as Settings > Reader); omitted when the reader offers none. */
  colors?:ReaderColorProps;
@@ -81,6 +84,7 @@ export function ReaderToolbar(props:{
  const [headersOpen,setHeadersOpen]=createSignal(false);
  const id=()=>props.email.id;
  const replyDrafts=createReplyDraftIndex(app.accountId);
+ const isDraft=()=>props.onEditDraft!==undefined&&isDraftMessage(props.email,app.mailboxes());
  const replyDraft=()=>props.onOpenReplyDraft?replyDrafts().get(id()):undefined;
  const sender=()=>props.email.from?.[0]?.email??'';
  const pinned=()=>props.email.pinned===true;
@@ -105,6 +109,7 @@ export function ReaderToolbar(props:{
   reply:plain({id:'reply',icon:icon(ACTION_ICONS.reply),label:()=>t('mail-reply'),help:()=>t('mail-action-help-reply'),testId:'reader-reply',disabled:()=>props.preparing,run:()=>props.onReply('reply')}),
   'reply-all':plain({id:'reply-all',icon:icon(ACTION_ICONS.replyAll),label:()=>t('mail-reply-all'),help:()=>t('mail-action-help-reply-all'),testId:'reader-reply-all',disabled:()=>props.preparing,run:()=>props.onReply('reply-all')}),
   forward:plain({id:'forward',icon:icon(ACTION_ICONS.forward),label:()=>t('mail-forward'),help:()=>t('mail-action-help-forward'),testId:'reader-forward',disabled:()=>props.preparing,run:()=>props.onReply('forward'),groupEnd:true}),
+  'edit-draft':plain({id:'edit-draft',icon:icon('compose'),label:()=>t('mail-draft-edit'),help:()=>t('mail-draft-edit-help'),testId:'reader-edit-draft',run:()=>props.onEditDraft?.(id())}),
   'open-draft':plain({id:'open-draft',icon:icon('compose'),label:()=>t('mail-reply-draft-open'),help:()=>t('mail-reply-draft'),testId:'reader-open-draft',run:()=>{const draft=replyDraft();if(draft)props.onOpenReplyDraft?.(draft.id);}}),
   conversation:{id:'conversation',
    inline:()=><ReaderAction icon="conversation" label={t('mail-conversation-title')} help={t('mail-conversation-title')} testId="reader-conversation" popup="dialog" expanded={conversation.open()} onClick={()=>conversation.toggle()}/>,
@@ -138,7 +143,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const ids=createMemo(()=>[...(mailFeature('allowReply')?['reply','reply-all']:[]),...(mailFeature('allowForward')?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const ids=createMemo(()=>[...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const menuOnly=():ContextAction[]=>[...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))];
 
  // ── Fitting ────────────────────────────────────────────────────────────────

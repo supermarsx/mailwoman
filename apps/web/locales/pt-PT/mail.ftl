@@ -1332,3 +1332,9 @@ reader-sanitized-remote = Conteúdo remoto bloqueado
 reader-sanitized-trackers = Itens de rastreio
 reader-sanitized-hosts = Servidores remotos
 reader-sanitized-always = O conteúdo ativo, como scripts, continua desativado.
+
+mail-draft-notice = Este é um rascunho
+mail-draft-continue = Continuar a editar
+mail-draft-edit = Editar rascunho
+mail-draft-edit-help = Abrir este rascunho no editor para continuar a editá-lo
+mail-draft-edit-failed = Não foi possível abrir o rascunho para edição

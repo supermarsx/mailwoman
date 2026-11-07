@@ -12,13 +12,13 @@ vi.mock('../realtime/context.ts',()=>({useRealtime:()=>({subTabs:{tabs:()=>[],ac
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:state.jmap})}));
 vi.mock('../api/mailHeaders.ts',async original=>({...await original<typeof import('../api/mailHeaders.ts')>(),fetchMailHeaders:vi.fn()}));
 vi.mock('../api/settings.ts',()=>({settings:()=>({'reader.actionStyle':{value:'icons'}})}));
-vi.mock('../state/context.ts',()=>({useApp:()=>({accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:state.search,mailboxes:()=>[],openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({identities:()=>[],contacts:()=>[],accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:state.search,mailboxes:()=>[],openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
 
 const email=(over:Partial<Email>={}):Email=>({id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@example.org'}],keywords:{$seen:true},mailboxIds:{inbox:true},...over}) as Email;
 const thread=(ids:string[])=>({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:ids}],notFound:[]},'thread']]});
 const security={value:'full-sanitized' as const,floor:null,onChange:vi.fn()};
-function toolbar(over:{onOpenReplyDraft?:(id:string)=>void;email?:Email;links?:ReturnType<typeof inspectMessageLink>[];headersUrl?:string}={}){
- return render(()=><ReaderToolbar email={over.email??email()} {...(over.onOpenReplyDraft?{onOpenReplyDraft:over.onOpenReplyDraft}:{})} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={(over.links??[]).filter(link=>link!==null)} linksTruncated={false} linkScope="a:m1" {...(over.headersUrl?{headersUrl:over.headersUrl}:{})} headersScope="account:message" security={security}/>);
+function toolbar(over:{onEditDraft?:(id:string)=>void;onOpenReplyDraft?:(id:string)=>void;email?:Email;links?:ReturnType<typeof inspectMessageLink>[];headersUrl?:string}={}){
+ return render(()=><ReaderToolbar email={over.email??email()} {...(over.onOpenReplyDraft?{onOpenReplyDraft:over.onOpenReplyDraft}:{})} {...(over.onEditDraft?{onEditDraft:over.onEditDraft}:{})} onReply={vi.fn()} preparing={false} onPrint={vi.fn()} active links={(over.links??[]).filter(link=>link!==null)} linksTruncated={false} linkScope="a:m1" {...(over.headersUrl?{headersUrl:over.headersUrl}:{})} headersScope="account:message" security={security}/>);
 }
 
 describe('reply draft action',()=>{
@@ -30,6 +30,20 @@ describe('reply draft action',()=>{
   const button=await screen.findByTestId('reader-open-draft');
   expect(button.getAttribute('aria-label')??button.textContent).toMatch(/Open draft/);
   fireEvent.click(button);expect(open).toHaveBeenCalledWith('rd1');
+ });
+});
+
+describe('draft message action',()=>{
+ it('offers Edit draft first, in place of Reply and Forward, when the open message is a draft',async()=>{
+  const edit=vi.fn();toolbar({email:email({keywords:{$draft:true,$seen:true}}),onEditDraft:edit});
+  const button=await screen.findByTestId('reader-edit-draft');
+  expect(button.getAttribute('aria-label')??button.textContent).toMatch(/Edit draft/);
+  expect(screen.queryByTestId('reader-reply')).toBeNull();expect(screen.queryByTestId('reader-forward')).toBeNull();
+  fireEvent.click(button);expect(edit).toHaveBeenCalledWith('m1');
+ });
+ it('keeps Reply and offers no Edit draft for an ordinary message',()=>{
+  toolbar({onEditDraft:vi.fn()});
+  expect(screen.queryByTestId('reader-edit-draft')).toBeNull();expect(screen.getByTestId('reader-reply')).toBeTruthy();
  });
 });
 
@@ -114,7 +128,7 @@ describe('reader action row: overflow into More',()=>{
  });
  it('folds by PRIORITY: Delete, Archive and Move outlast the conversation, links and the rest',()=>{
   const order=Object.entries(PRIORITY).sort((a,b)=>a[1]-b[1]).map(([id])=>id);
-  expect(order.slice(0,9)).toEqual(['reply','reply-all','forward','open-draft','delete','archive','move','conversation','links']);
+  expect(order.slice(0,10)).toEqual(['edit-draft','reply','reply-all','forward','open-draft','delete','archive','move','conversation','links'].slice(0,10));
  });
  it('folds nothing when everything fits, and More stays because it holds the message-only actions',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));

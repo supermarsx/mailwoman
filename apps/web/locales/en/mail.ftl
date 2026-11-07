@@ -1343,3 +1343,9 @@ reader-sanitized-remote = Remote content blocked
 reader-sanitized-trackers = Tracking items
 reader-sanitized-hosts = Remote hosts
 reader-sanitized-always = Active content such as scripts stays disabled.
+
+mail-draft-notice = This is a draft
+mail-draft-continue = Continue editing
+mail-draft-edit = Edit draft
+mail-draft-edit-help = Open this draft in the composer to keep editing it
+mail-draft-edit-failed = The draft could not be opened for editing

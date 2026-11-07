@@ -120,6 +120,8 @@ import { settings,settingsLoadStatus,writeSetting } from '../api/settings.ts';
 import { themeCssVars } from '../theme/themeCssVars.ts';
 import { MessageLoading } from './MessageLoading.tsx';
 import { Icon } from './Icon.tsx';
+import * as replyStateCss from './replyState.css.ts';
+import { isDraftMessage } from './draftMessage.ts';
 import { RemoteChangeNotice } from './RemoteChangeNotice.tsx';
 import type { ReaderAppearance } from '../viewers/readerAppearance.ts';
 import { isReaderColorChoice, messageColorOverride, readerColorKey, resolveReaderColorMode, setMessageColorOverride, type ReaderColorChoice } from '../viewers/readerColorMode.ts';
@@ -694,6 +696,8 @@ function AutoTagSection(props: { email: Email }): JSX.Element {
 
 interface ReaderProps {
   onOpenReplyDraft?: (draftId:string)=>void;
+  /** Continue editing this message when it is itself a draft (opens the composer with the saved draft). */
+  onEditDraft?: (messageId:string)=>void;
   onExport?: (messageId: string) => void;
   onOpenAttachment?: (item: StripItem) => void;
   onCompose?: (initial: ComposeInitial) => void;
@@ -1509,9 +1513,10 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               {/* One action row (t57): reply group, View conversation (threads of more
                   than one message), Review links (with its count), the message
                   actions and the max-security switch; what does not fit folds into More. */}
-              <ReaderToolbar email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
+              <ReaderToolbar email={email()} colors={{get value(){return colorChoice();},get setting(){return colorSetting();},get locked(){return colorLocked();},onChange:(choice)=>setMessageColorOverride(colorKey(),choice),onMakeDefault:(choice)=>void makeColorDefault(choice)}} {...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})} {...(props.onEditDraft?{onEditDraft:props.onEditDraft}:{})} headersUrl={messageHeaderUrl()} headersScope={receiptDocumentKey()} onReply={(mode) => void startReply(mode)} preparing={preparing()||!linkAccountCurrent()} onPrint={() => printMessage(email(), displayedContent(email()).source)} active={props.active!==false} links={reviewedBody()?.links??[]} linksTruncated={reviewedBody()?.truncated??false} linkScope={receiptDocumentKey()} {...(props.onCompose?{onCompose:props.onCompose}:{})} security={{get value(){return maxsec.effectiveMode(sender());},get floor(){return maxsec.adminFloor();},onChange:(m)=>maxsec.setSenderMode(sender(),m)}} />{colorConfirm.Dialog()}
               <Show when={cleanupOpen()}><SweepDialog fromEmail={sender()} onClose={()=>setCleanupOpen(false)}/></Show>
               <Show when={effectiveSettings()['mail.quickReply']?.value === true && props.onCompose && mailFeature('allowReply')}><button type="button" class="btn btn--ghost" disabled={preparing()} title={t('mail-quick-reply-help')} onClick={() => void startReply('reply', true)}><Icon name="reply"/>{t('mail-quick-reply')}</button></Show>
+              <Show when={props.onEditDraft&&isDraftMessage(email(),app.mailboxes())}><div class={replyStateCss.notice} role="status" data-testid="reader-draft-notice"><span>{t('mail-draft-notice')}</span><button type="button" class="btn" data-testid="reader-draft-notice-edit" onClick={()=>props.onEditDraft?.(email().id)}><Icon name="compose"/>{t('mail-draft-continue')}</button></div></Show>
               <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(email().id)} onOpen={props.onOpenReplyDraft}/>
               <AutoTagSection email={email()} />
             </header>
