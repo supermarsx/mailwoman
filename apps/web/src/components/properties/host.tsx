@@ -2,7 +2,7 @@
 // and the Alt+Enter shortcut call `openFolderProperties` / `openMessageProperties`;
 // `PropertiesHost` (mounted once in the mail screen) draws the dialog. A request
 // is dropped when the administrator has switched that dialog off.
-import {Show,createSignal,lazy,type JSX} from 'solid-js';
+import {Show,Suspense,createSignal,lazy,type JSX} from 'solid-js';
 import type {Email,Mailbox} from '../../api/jmap-types.ts';
 import type {FolderDialogActions} from './FolderProperties.tsx';
 import type {MessageDialogActions} from './MessageProperties.tsx';
@@ -38,7 +38,7 @@ export function propertiesOpen():'folder'|'message'|'bulk'|null {return open()?.
 export function isPropertiesShortcut(event:KeyboardEvent):boolean {return shortcutEnabled()&&matchesShortcut(event,shortcutKey());}
 
 export function PropertiesHost():JSX.Element {
- return <>
+ return <Suspense fallback={null}>
   <Show when={open()}>{current=>{
    const value=current();
    // A dialog never outlives the account it was opened for.
@@ -48,5 +48,5 @@ export function PropertiesHost():JSX.Element {
     ?<FolderPropertiesDialog box={value.box} {...(value.actions?{actions:value.actions}:{})} onClose={closeProperties}/>
     :<MessageDialogs email={value.email} {...(value.actions?{actions:value.actions}:{})} onClose={closeProperties}/>;
   }}</Show>
- </>;
+ </Suspense>;
 }

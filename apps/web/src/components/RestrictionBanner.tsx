@@ -5,6 +5,7 @@ import { createResource, Show, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../i18n';
 import { loadRestriction, type RestrictionStatus } from '../api/privacy.ts';
 import { formatDate } from '../i18n/format.ts';
+import { resourceValue } from './resourceValue.ts';
 import * as css from './restrictionBanner.css.ts';
 
 export function RestrictionBanner(props: { load?: () => Promise<RestrictionStatus> } = {}): JSX.Element {
@@ -15,7 +16,7 @@ export function RestrictionBanner(props: { load?: () => Promise<RestrictionStatu
       return s.active ? s : null;
     } catch { return null; }
   });
-  return <Show when={status()}>{s => (
+  return <Show when={resourceValue(status)}>{s => (
     <div class={css.banner} role="status" data-testid="restriction-banner">
       <span>{t('yd-banner', { scopes: s().scopes.map(x => t(`yd-scope-${x}`)).join(', ') })}</span>
       <Show when={s().expiresAt}>{e => <span>{t('yd-restriction-until', { date: formatDate(e() * 1000) })}</span>}</Show>

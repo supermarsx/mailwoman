@@ -2,6 +2,7 @@
 // (with the expired state and the user's "expired messages" choice) and
 // Supersedes. The values come with the opened message (Email/get header:<Name>:asText).
 import { Show, createResource, type JSX } from 'solid-js';
+import { resourceValue } from './resourceValue.ts';
 import { t, loadCatalog } from '../i18n/index.ts';
 import { settings } from '../api/settings.ts';
 import { factsFromEmail, hasFacts, isExpired, isExpiryMode, type HeaderFacts } from './readerHeaders.ts';
@@ -24,7 +25,7 @@ export function HeaderFactsBadges(props: {
   const date = (d: Date): string => d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
   const expired = (): boolean => isExpired(f(), props.now?.() ?? new Date());
   const [superseded] = createResource(() => (visible() && props.messageId && props.supersededLookup ? props.messageId : null), (id) => props.supersededLookup!(id));
-  const supersededBadge = (): JSX.Element => <Show when={superseded() === true}>
+  const supersededBadge = (): JSX.Element => <Show when={resourceValue(superseded) === true}>
     <span class="hf-badge hf-badge--warn" data-testid="hf-superseded-by" title={t('hf-superseded-by-help')}>
       {t('hf-superseded-by')}
       <Show when={props.onFindSupersedingMessage}> <button type="button" class="hf-link" onClick={() => props.onFindSupersedingMessage?.(props.messageId!)}>{t('hf-find')}</button></Show>

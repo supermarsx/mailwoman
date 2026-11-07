@@ -1,4 +1,5 @@
 import {createResource, Show, type JSX} from 'solid-js';
+import {resourceValue} from '../components/resourceValue.ts';
 import {brandFor, brandForHost, loadBrandPath, type BrandCategory, type BrandEntry} from './registry.ts';
 import * as css from './brandLogo.css.ts';
 
@@ -55,7 +56,7 @@ export function BrandLogo(props: BrandLogoProps): JSX.Element {
       role={props.decorative ? undefined : 'img'} aria-label={props.decorative ? undefined : label()} aria-hidden={props.decorative ? 'true' : undefined}
     >
       <Show when={entry() && !entry()!.noMark} fallback={<Monogram name={entry()?.name ?? props.brand} />}>
-        <Show when={path()}>{d => <path d={d()} fill={fill()} />}</Show>
+        <Show when={resourceValue(path)}>{d => <path d={d()} fill={fill()} />}</Show>
       </Show>
     </svg>
   );

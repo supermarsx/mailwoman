@@ -1,3 +1,4 @@
+import {resourceValue} from './resourceValue.ts';
 import {createMemo, createResource, createSignal, createUniqueId, For, onMount, Show, type JSX} from 'solid-js';
 import {listMailDraft, mailingListCommands, mailingListId, mailingListName, safeListHref, unsubscribeMethods, unsubscribeOneClick, type ListLink} from '../api/mailingList.ts';
 import {settings} from '../api/settings.ts';
@@ -191,7 +192,7 @@ export function MailingListBadge(props: {
                 {rec => <>{t('mailing-list-status-unsubscribed', {date: date(rec().at)})}<Show when={ignored()}><strong class="list-detail__warn">{' '}{t('mailing-list-status-ignored')}</strong></Show>{' '}<button type="button" class="btn btn--ghost list-detail__small" onClick={() => clearUnsubscribed(key())}>{t('mailing-list-forget')}</button></>}
               </Show>
             </p>
-            <Show when={counted()}>{c => <p class="list-detail__stats" data-testid="reader-list-count">{c().count > 0 ? t('mailing-list-list-count', {count: c().count, date: c().last ? formatDateTime(c().last!) : '-'}) : t('mailing-list-list-count-none')}</p>}</Show>
+            <Show when={resourceValue(counted)}>{c => <p class="list-detail__stats" data-testid="reader-list-count">{c().count > 0 ? t('mailing-list-list-count', {count: c().count, date: c().last ? formatDateTime(c().last!) : '-'}) : t('mailing-list-list-count-none')}</p>}</Show>
             <Show when={props.stats}>{stats => <p class="list-detail__stats" data-testid="reader-list-stats">{stats().count > 0 ? t('mailing-list-stats', {count: stats().count, date: stats().last ? formatDateTime(stats().last!) : '-'}) : t('mailing-list-stats-none')}</p>}</Show>
             <Show when={links().length > 0}>
               <section aria-label={t('mailing-list-links')}>

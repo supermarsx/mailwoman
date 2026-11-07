@@ -3,6 +3,7 @@
 // whole-message actions (download, permanent delete, copy id, go to folder).
 // Sections shown, the raw headers, the scoring details, downloads and permanent
 // delete follow the administrator's `properties.*` / `export.message.*` settings.
+import {resourceValue} from '../resourceValue.ts';
 import {For,Show,createEffect,createMemo,createResource,createSignal,createUniqueId,onMount,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
 import {createConfiguredClient} from '../../api/transport.ts';
@@ -58,7 +59,7 @@ export function MessageDialogs(props:{email:Email;actions?:MessageDialogActions;
    return found?{...props.email,...found}:props.email;
   }catch{return props.email;}
  });
- const email=()=>detail.latest??props.email;
+ const email=()=>resourceValue(detail)??props.email;
  const [location]=createResource(()=>({account:accountId(),id:props.email.id}),async key=>{
   if(!key.account)return null;
   try{
@@ -92,11 +93,11 @@ export function MessageDialogs(props:{email:Email;actions?:MessageDialogActions;
     <For each={sections()}>{(section,index)=><button type="button" role="tab" id={`${titleId}-tab-${section}`} aria-selected={active()===section} aria-controls={`${titleId}-panel`} tabindex={active()===section?0:-1} class={css.tab} ref={el=>{tabRefs[index()]=el;}} onClick={()=>setActive(section)}>{t(`props-mtab-${section}`)}</button>}</For>
    </div>
    <div class={css.panel} role="tabpanel" id={`${titleId}-panel`} aria-labelledby={`${titleId}-tab-${active()}`} tabindex="0">
-    <Show when={active()==='summary'}><Summary email={email()} location={location.latest??null} onClose={props.onClose}/></Show>
-    <Show when={active()==='scoring'}><Scoring verdict={verdict.latest??null} loading={verdict.loading} raw={rawHeaders.latest??null} email={email()} trackers={trackers.latest}/></Show>
-    <Show when={active()==='headers'}><Headers raw={rawHeaders.latest??null} loading={rawHeaders.loading} hops={verdict.latest?.received??[]}/></Show>
-    <Show when={active()==='attachments'}><Attachments email={email()} verdict={verdict.latest??null}/></Show>
-    <Show when={active()==='actions'}><MessageActionsPane email={email()} url={messageUrl()} raw={rawHeaders.latest??null} actions={props.actions} onClose={props.onClose}/></Show>
+    <Show when={active()==='summary'}><Summary email={email()} location={resourceValue(location)??null} onClose={props.onClose}/></Show>
+    <Show when={active()==='scoring'}><Scoring verdict={resourceValue(verdict)??null} loading={verdict.loading} raw={resourceValue(rawHeaders)??null} email={email()} trackers={resourceValue(trackers)}/></Show>
+    <Show when={active()==='headers'}><Headers raw={resourceValue(rawHeaders)??null} loading={rawHeaders.loading} hops={resourceValue(verdict)?.received??[]}/></Show>
+    <Show when={active()==='attachments'}><Attachments email={email()} verdict={resourceValue(verdict)??null}/></Show>
+    <Show when={active()==='actions'}><MessageActionsPane email={email()} url={messageUrl()} raw={resourceValue(rawHeaders)??null} actions={props.actions} onClose={props.onClose}/></Show>
    </div>
   </div>
  </SecurityPopup>;

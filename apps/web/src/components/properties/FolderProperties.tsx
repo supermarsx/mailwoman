@@ -3,6 +3,7 @@
 // and whole-folder actions (download as ZIP, empty, mark read, rename, delete).
 // What shows is bounded by the administrator's `properties.*` and `export.*`
 // settings (policy.ts); a locked setting shows its lock instead of a control.
+import {resourceValue} from '../resourceValue.ts';
 import {For,Show,createEffect,createMemo,createResource,createSignal,createUniqueId,onCleanup,onMount,type JSX} from 'solid-js';
 import {useApp} from '../../state/context.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../../api/accountPreferences.ts';
@@ -93,7 +94,7 @@ function useStats(box:()=>Mailbox):{stats:()=>FolderStats|undefined;loading:()=>
   if(!key?.account)return undefined;
   return await fetchFolderStats(client,key.account,key.id);
  });
- return {stats:()=>stats.latest,loading:()=>stats.loading,failed:()=>stats.state==='errored',compute:()=>{if(wanted())void refetch();else setWanted(true);},mode:()=>sizeCompute()};
+ return {stats:()=>resourceValue(stats),loading:()=>stats.loading,failed:()=>stats.state==='errored',compute:()=>{if(wanted())void refetch();else setWanted(true);},mode:()=>sizeCompute()};
 }
 
 function Remote(props:{box:Mailbox}):JSX.Element {
