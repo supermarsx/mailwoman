@@ -544,6 +544,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   // A full raw page may render no rows while a move is pending. Still advance
   // past that server window rather than repeatedly requesting the same rows.
   let nextServerPosition=0;
+  // Server rows of the loaded pages that are never shown (junk, notFound): the next page starts after them.
+  let hiddenRows=0;
 
   // Value-compared for the same reason `virtual.ts`'s `sameWindow` exists: this
   // is read by the virtualizer, and an equal-but-fresh object every tick would
@@ -618,6 +620,50 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       }
       return [{...email,mailboxIds:move.mailboxIds}];
     });
+  }
+  /**
+   * Email/get can answer fewer rows than Email/query named (an id that was moved
+   * or expunged between the two calls, or a get that dropped some). Ask once more
+   * for just the missing ids and merge them back in query order; ids that are
+   * still absent are genuinely gone and `ingestPage` counts them as hidden.
+   * A failure here keeps the original response: the page must not fail for it.
+   */
+  async function fillMissing(res: JmapResponse, request: JmapRequest, signal: AbortSignal): Promise<JmapResponse> {
+    try {
+      const q = responseFor<EmailQueryResponse>(res, 'q').ids;
+      const g = responseFor<EmailGetResponse>(res, 'g');
+      if (!Array.isArray(q) || q.length <= g.list.length) return res;
+      const have = new Set(g.list.map((m) => m.id));
+      const missing = q.filter((id) => !have.has(id));
+      if (missing.length === 0) return res;
+      const get = request.methodCalls.find((c) => c[2] === 'g');
+      if (get === undefined) return res;
+      const retry = await jmapCall({ ...request, methodCalls: [['Email/get', { accountId: get[1]['accountId'], ids: missing, properties: get[1]['properties'] }, 'g']] }, { signal });
+      const extra = new Map(responseFor<EmailGetResponse>(retry, 'g').list.map((m) => [m.id, m] as const));
+      if (extra.size === 0) return res;
+      const byId = new Map(g.list.map((m) => [m.id, m] as const));
+      const list = q.flatMap((id) => { const m = byId.get(id) ?? extra.get(id); return m === undefined ? [] : [m]; });
+      return { ...res, methodResponses: res.methodResponses.map((r) => (r[2] === 'g' ? [r[0], { ...(r[1] as object), list }, r[2]] as typeof r : r)) };
+    } catch { return res; }
+  }
+
+  /**
+   * Read one list response. The page's size is the QUERY's (`q.ids`), not the
+   * number of rows Email/get returned: a `notFound` id (deleted between the two
+   * calls) or a hidden `$junk` row shortens `list` without the query being
+   * short, and treating that as the end hid every message after it. `hidden` is
+   * the count of server rows that will never be shown (junk, notFound); it
+   * offsets the next position and the reported total so both stay in the
+   * units of `messages`.
+   */
+  function ingestPage(res: JmapResponse, src: PageSource, req: ListRequest): { page: Email[]; serverLen: number; hidden: number; relocated: number } {
+    const got = responseFor<EmailGetResponse>(res, 'g').list;
+    let ids: unknown;
+    try { ids = responseFor<EmailQueryResponse>(res, 'q').ids; } catch { ids = undefined; }
+    const serverLen = Array.isArray(ids) ? Math.max(ids.length, got.length) : got.length;
+    const shown = withoutHiddenSpam(got);
+    const page = projectRows(shown, src, req);
+    return { page, serverLen, hidden: serverLen - shown.length, relocated: shown.length - page.length };
   }
   function endListRequest(req: ListRequest): void {
     if (isCurrent(req)) inFlight = undefined;
@@ -1655,13 +1701,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const key=JSON.stringify(request);
     const hit=src.kind==='mailbox'&&owner?readCache.peek(owner,key,'mailbox')?.value:undefined;
     const cached=hit?.kind==='mailbox'?hit.response:undefined;
-    const apply=(res:JmapResponse)=>{const raw=responseFor<EmailGetResponse>(res,'g').list,page=projectRows(withoutHiddenSpam(raw),src,req);setMessages(page);setLoadedStart(0);nextServerPosition=raw.length;setTotal(page.length===raw.length?pageTotal(res):null);setExhausted(raw.length<pageSize());};
+    const apply=(res:JmapResponse)=>{const {page,serverLen,hidden,relocated}=ingestPage(res,src,req);setMessages(page);setLoadedStart(0);nextServerPosition=serverLen;hiddenRows=hidden;const t=pageTotal(res);setTotal(relocated>0?null:t===null?null:Math.max(0,t-hidden));setExhausted(serverLen<pageSize());};
     if(cached)apply(cached);
     setListLoading(!cached);
     try {
       let res:JmapResponse;
       if(src.kind==='mailbox'&&owner){const result=await readCache.load(owner,key,'mailbox',async signal=>({kind:'mailbox',response:await jmapCall(request,{signal})}),{signal:req.signal,force:readMailCachePolicy().refreshOnOpen});if(result.kind!=='mailbox')throw new Error(t('mail-toast-load-more-failed'));res=result.response;}
       else res=await jmapCall(request,{signal:req.signal});
+      if (!isCurrent(req)) return;
+      res=await fillMissing(res,request,req.signal);
       if (!isCurrent(req)) return;
       apply(res);
     } catch (err) {
@@ -1690,7 +1738,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (acct === null || src === null) return;
     if (listLoading() || loadingMore() || !hasMore()) return;
     clearTimeout(loadMoreRetryTimer);
-    const position = [...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end,nextServerPosition):loadedRange().end;
+    const position = [...relocations.values()].some(move=>move.throughGeneration===null)?Math.max(loadedRange().end+hiddenRows,nextServerPosition):loadedRange().end+hiddenRows;
     const size = pageSize();
     const req = beginListRequest();
     setLoadingMore(true);
@@ -1698,17 +1746,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // Watchdog: a page request that never settles must not leave the skeleton up forever.
     const watchdog = setTimeout(() => { if (isCurrent(req)) inFlight?.abort(); }, 15_000);
     try {
-      const res = await jmapCall(pageRequest(acct, src, position, size, false), { signal: req.signal });
+      const pageReq = pageRequest(acct, src, position, size, false);
+      let res = await jmapCall(pageReq, { signal: req.signal });
       if (!isCurrent(req)) return;
-      const raw = responseFor<EmailGetResponse>(res, 'g').list;
-      const page = projectRows(raw,src,req);
+      res = await fillMissing(res, pageReq, req.signal);
+      if (!isCurrent(req)) return;
+      const { page, serverLen, hidden: newHidden, relocated } = ingestPage(res, src, req);
       const before = messages();
       const next = appendPage(before, page);
       setMessages(next);
-      nextServerPosition=position+raw.length;
-      // Continuations do not ask for a total; keep the one the query reported.
+      nextServerPosition=position+serverLen;
+      hiddenRows+=newHidden;
+      // Continuations do not ask for a total; keep the one the query reported
+      // (less the rows this page showed to be hidden).
       const t = pageTotal(res);
-      if(page.length!==raw.length)setTotal(null);else if (t !== null) setTotal(t);
+      if(relocated>0)setTotal(null);
+      else if (t !== null) setTotal(Math.max(0, t - hiddenRows));
+      else if (newHidden > 0 && total() !== null) setTotal(Math.max(0, total()! - newHidden));
       // A page that ADDS NOTHING ends the query, not just a short one.
       //
       // A continuation can come back full-size and yet hold only ids already
@@ -1727,7 +1781,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // while leaving the visible row count unchanged, so a rows-based test ends
       // the query on a folder that is one large thread. That is a worse bug than
       // the loop this guards, and it is the version written first.
-      const done = raw.length < size || (next === before&&page.length===raw.length);
+      const done = serverLen < size || (next === before&&relocated===0&&newHidden===0);
       setExhausted(done);
       // The query ended short of the reported total (server clamped the page,
       // rows hidden or moved): drop the unfetched tail, or its skeleton rows
@@ -1873,19 +1927,23 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // refresh; superseding it would abandon a spinner nothing else clears.
     if (listLoading() || loadingMore()) return;
     const range = loadedRange();
-    const loaded = Math.max(pageSize(), range.end - range.start);
+    const loaded = Math.max(pageSize(), range.end - range.start + hiddenRows);
     if (loaded > REFRESH_MAX_ROWS) return; // see REFRESH_MAX_ROWS
     const req = beginListRequest();
     try {
-      const res = await jmapCall(pageRequest(acct, src, range.start, loaded, true), { signal: req.signal });
+      const refreshReq = pageRequest(acct, src, range.start, loaded, true);
+      let res = await jmapCall(refreshReq, { signal: req.signal });
       if (!isCurrent(req)) return;
-      const raw = responseFor<EmailGetResponse>(res, 'g').list;
-      const page = projectRows(raw,src,req);
+      res = await fillMissing(res, refreshReq, req.signal);
+      if (!isCurrent(req)) return;
+      const { page, serverLen, hidden, relocated } = ingestPage(res, src, req);
       setMessages(page);
-      nextServerPosition=range.start+raw.length;
+      nextServerPosition=range.start+serverLen;
+      hiddenRows=hidden;
       setLoadedStart(range.start);
-      setTotal(page.length===raw.length?pageTotal(res):null);
-      setExhausted(raw.length < loaded);
+      const t = pageTotal(res);
+      setTotal(relocated>0||t===null?null:Math.max(0,t-hidden));
+      setExhausted(serverLen < loaded);
     } catch {
       // Transient/offline refetch — keep the current list.
     } finally {
@@ -1921,7 +1979,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       const req=beginListRequest();
       const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{}),...(spamHidden?{notKeyword:'$junk'}:{})});
       const projected=projectRows(hits,{kind:'search',filter:{text:serverQueryText(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})}},req);
-      setPageSource(null);
+      setPageSource(null);hiddenRows=0;
       setMessages(projected);
       setLoadedStart(0);
       setTotal(projected.length);

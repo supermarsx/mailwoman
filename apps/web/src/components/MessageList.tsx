@@ -889,7 +889,8 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // First sync (dcd88d3): an empty folder that the engine has not indexed yet
   // is "still loading", not "No messages". The list reloads once it is indexed.
   const sync = createInitialSync(() => (app.searchActive() ? null : app.selectedMailboxId()), () => app.refreshCurrentMailbox());
-  const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending());
+  // Rows can all be hidden client-side (expired mail in `hide` mode) while more pages exist: that is "still loading", not an empty folder.
+  const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending() || (app.messages().length > 0 && app.hasMore() && app.loadMoreFailed?.() !== true));
   const skeletonRows = (): number => Math.max(4, Math.min(16, Math.ceil((globalThis.innerHeight || 800) / rowHeight())));
 
   // One delayed spinner covers initial loads, folder changes and linked/primary

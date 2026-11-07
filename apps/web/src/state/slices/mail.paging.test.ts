@@ -294,6 +294,8 @@ describe('paging — reaching past the first page', () => {
         if (q === undefined || pos < 50) return res;
         const g = res.methodResponses.find((r) => r[0] === 'Email/get');
         if (g !== undefined) (g[1] as { list: Email[] }).list = (g[1] as { list: Email[] }).list.slice(0, 20);
+        const qr = res.methodResponses.find((r) => r[0] === 'Email/query');
+        if (qr !== undefined) (qr[1] as { ids: string[] }).ids = (qr[1] as { ids: string[] }).ids.slice(0, 20);
         return res;
       }),
     };
