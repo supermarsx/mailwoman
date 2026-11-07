@@ -164,6 +164,17 @@ export default defineConfig({
       use: { ...devices['Desktop Firefox'], baseURL: engineBaseURL },
     },
     {
+      name: 'editor-frame-chromium',
+      // Self-contained (starts its own Vite server): the HTML editor's iframe stylesheet regression.
+      testMatch: ['editor-frame.spec.ts'],
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      name: 'editor-frame-firefox',
+      testMatch: ['editor-frame.spec.ts'],
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
       name: 'crypto',
       // V4 crypto/security live E2E (plan §3 e10): the SAME engine-mode server
       // (:8090) as `e2e-engine`/`e2e-pim`, but the `crypto-*.spec.ts` specs drive

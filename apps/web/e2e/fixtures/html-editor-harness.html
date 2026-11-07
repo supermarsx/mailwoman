@@ -1,0 +1,8 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>HTML editor harness</title></head>
+<body><div id="root"></div>
+<script type="module">
+import {render} from 'solid-js/web';
+import HtmlSourceEditor from '/src/components/compose/HtmlSourceEditor.tsx';
+render(()=>HtmlSourceEditor({initialHtml:'<p style="color:#fff;background:#fff">Pale</p><p>Hello</p>',owned:()=>new Set(),onChange:()=>{},onReady:()=>{}}),document.getElementById('root'));
+</script></body></html>
