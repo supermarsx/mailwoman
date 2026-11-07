@@ -41,6 +41,16 @@ export const PROVIDER_CATEGORIES: readonly BrandCategory[] = ['identity', 'mail'
  */
 export function brandForHost(input: string | undefined | null): BrandEntry | undefined {
   if (!input) return undefined;
+  // A list shows hundreds of rows from a handful of senders: memoise per input (bounded).
+  if (hostMemo.has(input)) return hostMemo.get(input);
+  const hit = resolveHost(input);
+  if (hostMemo.size >= 4000) hostMemo.clear();
+  hostMemo.set(input, hit);
+  return hit;
+}
+const hostMemo = new Map<string, BrandEntry | undefined>();
+
+function resolveHost(input: string): BrandEntry | undefined {
   // Scheme off, then the authority (up to the first / ? #), then any user@ prefix: so a lookalike
   // hidden in a path or query ("evil.io/?u=@paypal.com") is never read as the host.
   let host = input.trim().toLowerCase().replace(/^[a-z][a-z0-9+.-]*:\/\//, '').replace(/[/?#].*$/, '');

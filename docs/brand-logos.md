@@ -42,21 +42,25 @@ import {BrandLogo, BrandLabel, BrandCell, HostBrandCell} from '../brands/BrandLo
 
 `brandForHost()` matches a host, URL or e-mail address by whole registrable-domain suffix: `mail.paypal.com` matches `paypal.com`; `paypal.com.evil.io`, `evilpaypal.com`, `paypal.com-secure.net` and `https://evil.io/?u=@paypal.com` do not. Only the host part is read (scheme, path, query and `user@` are removed first), and the longest matching suffix wins, so `aws.amazon.com` is AWS while `amazon.co.uk` is Amazon. Tests cover the lookalike cases. Subdomains of shared-hosting domains (`run.app`, `appspot.com`, `azurewebsites.net`, `windows.net`) are deliberately not registered.
 
-## Brand logos beside verified senders
+## Brand logos beside senders
 
-In the reader, the logo of a recognised brand is shown beside the sender only when the message passed an aligned DMARC check and DKIM passed for a domain of the same brand (`brandAvatarFor`, `SenderBrandMark`). Brands without a bundled mark show nothing there. The setting `mail.brandAvatars` (user, domain and global scope, default on) turns it off. The message list follows the same rule (see below). The setting `contacts.senderIcons` turns the bundled sender-domain icons off entirely.
+A recognised brand's logo is shown beside the sender when the From domain, or any subdomain of it at any depth (`e.amazon.com`, `mail.zalando.com`, `notifications.github.com`, `service.fnac.pt`), belongs to the brand (`brandAvatarFor`, `SenderBrandMark` in the reader, `PersonAvatar` with `messageSender` in the list and the reader). Public mailbox providers (the `mail` category: Gmail, Outlook, Yahoo...) are never a sender brand, because those addresses belong to people. Brands without a bundled mark show nothing. The setting `mail.brandAvatars` (user, domain and global scope, default on) is the master switch; `contacts.senderIcons` turns the bundled catalogue icons off entirely.
+
+`mail.brandAvatars.requireAuth` decides what authentication changes:
+
+- `never`: the logo is shown whenever the domain matches.
+- `known-failure` (default): the logo is shown unless the message's cached verdict says it failed. Failed means DMARC `fail`, or DKIM `fail` while DMARC did not pass, or (with the full verdict) SPF and DKIM both `fail`. A message that has not been checked (no verdict) keeps its logo. On a failure the avatar shows the initials with the tooltip "Unverified sender".
+- `always`: the former strict rule. The logo needs an aligned DMARC pass and DKIM pass for a domain of the same brand, so mail that has not been opened shows initials.
 
 ### The message list
 
-A message list row applies the same rule. A brand logo on a row needs proof for that message; the sender domain alone is never enough, because a spoofed From on a brand's domain would otherwise show the brand's logo.
-
 - `Email/get` accepts the property `mailwomanAuth` (the web list asks for it with the other list properties). Its value is `{dkim: {result, domain}, dmarc: {result, aligned}}`, or `null`. The engine reads it from the verdict cache (`security_verdicts`) for the whole page in one query and never computes it for a list: the full verdict needs DNS lookups and is computed when a message is opened in the security panel. A server that does not know the property (a proxied upstream) leaves it out.
-- `PersonAvatar` with `messageSender` shows a bundled sender icon only if `senderIconProven` accepts it. A brand in the logo registry needs `brandAvatarFor` to accept the summary (aligned DMARC pass, DKIM pass for a domain of the same brand). A bundled icon that is not in the registry needs the same two checks, with DKIM passing for a domain of that same icon. The generic public-body glyph (`government`) is not a brand and needs no proof.
-- A message with no verdict (not opened yet, or a server without the property) and a message whose check failed show the normal initials avatar. After a message has been opened once, its verdict is cached and later list loads show the logo.
-- The summary is read by message id without comparing the raw-message hash. A stored message does not change, and a changed one is recomputed, and the row replaced, the next time it is opened.
-- The reader's contact card for a sender (`AddressContactCard`) is a message address too and follows the same rule. The Contacts module, which lists the user's own address book rather than received messages, is unchanged.
+- A row's icon is one memoised decision: a bundled catalogue icon (`senderDomainIcon`), else a registry brand (`brandForHost`), else initials. Host lookups are memoised per address, so scrolling makes no extra requests. A registry mark loads from its category chunk; the avatar box has a fixed size and shows the initials until the path arrives, so nothing shifts.
+- The generic public-body glyph (`government`) is not a brand and needs no proof in any mode.
+- The reader's contact card for a sender (`AddressContactCard`) and the Contacts module show the catalogue icon without proof.
 
-`contacts.senderIcons` (user and admin setting) still turns the bundled sender icons off entirely, and it still shows them without any proof for senders that are not messages (Contacts). Domain matching is an appearance hint, not authentication evidence.
+Domain matching is an appearance hint, not authentication evidence.
+
 
 ## Interpretation of ambiguous names
 

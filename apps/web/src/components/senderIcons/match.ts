@@ -34,6 +34,14 @@ const domains=[...SENDER_ICONS,...EXPANDED_SENDER_ICONS,...GOVERNMENT_ICONS].fla
 /** Domain hints only, never authentication evidence. Do not match display names,
  * substring lookalikes, public mailbox providers or user-controlled hosting. */
 export function senderDomainIcon(address:string):SenderIcon|undefined {
+ if(iconMemo.has(address))return iconMemo.get(address);
+ const hit=matchSenderIcon(address);
+ if(iconMemo.size>=4000)iconMemo.clear();
+ iconMemo.set(address,hit);
+ return hit;
+}
+const iconMemo=new Map<string,SenderIcon|undefined>();
+function matchSenderIcon(address:string):SenderIcon|undefined {
  const normalized=address.trim().toLowerCase();
  if(normalized.length>320||/[\s\p{Cc}\p{Cf}]/u.test(normalized))return;
  const at=normalized.indexOf('@');

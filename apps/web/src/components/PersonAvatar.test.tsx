@@ -3,12 +3,12 @@ import {render,screen,waitFor} from '@solidjs/testing-library';
 import {createSignal} from 'solid-js';
 import {avatarPresentation,PersonAvatar} from './PersonAvatar.tsx';
 import {AVATAR_COLORS} from './senderIcons/palette.ts';
-const state=vi.hoisted(()=>({mode:'initials',icons:true,fetch:vi.fn(),owner:{accountId:'one',generation:1}}));
-vi.mock('../api/settings.ts',()=>({settings:()=>({'contacts.avatarMode':{value:state.mode},'contacts.senderIcons':{value:state.icons}})}));
+const state=vi.hoisted(()=>({mode:'initials',icons:true,brands:true as boolean,requireAuth:undefined as string|undefined,fetch:vi.fn(),owner:{accountId:'one',generation:1}}));
+vi.mock('../api/settings.ts',()=>({settings:()=>({'contacts.avatarMode':{value:state.mode},'contacts.senderIcons':{value:state.icons},'mail.brandAvatars':{value:state.brands},'mail.brandAvatars.requireAuth':{value:state.requireAuth}})}));
 vi.mock('../api/http.ts',()=>({apiFetch:(...args:unknown[])=>state.fetch(...args)}));
 vi.mock('../api/accountPreferenceLifecycle.ts',()=>({observePreferenceAccount:(listener:(value:unknown)=>void)=>{listener(state.owner);return ()=>{};},preferenceAccount:()=>state.owner,preferenceAccountIsCurrent:(owner:unknown)=>owner===state.owner}));
 afterEach(()=>vi.unstubAllGlobals());
-beforeEach(()=>{state.mode='initials';state.icons=true;state.fetch.mockReset();});
+beforeEach(()=>{state.mode='initials';state.icons=true;state.brands=true;state.requireAuth=undefined;state.fetch.mockReset();});
 it('uses 192 stable colours with readable white initials and no inline style',()=>{
  expect(new Set(AVATAR_COLORS).size).toBe(192);
  for(const hex of AVATAR_COLORS){
@@ -26,26 +26,48 @@ it('uses a bundled SVG for recognised senders without any photo requests',()=>{
  expect(state.fetch).not.toHaveBeenCalled();
 });
 const proven={dkim:{result:'pass',domain:'github.com'},dmarc:{result:'pass',aligned:true}};
-it('a message row shows a brand icon only when the message authenticated for that brand',()=>{
- const row=(auth?:unknown)=>render(()=><PersonAvatar name="GitHub" address="notifications@github.com" messageSender auth={auth as never}/>).container;
- // Pass: aligned DMARC and DKIM for a domain of the same brand.
- expect(row(proven).querySelector('[data-sender-icon="github"]')).not.toBeNull();
- // Fail, misaligned, DKIM for another domain: the initials, never the logo.
- for(const auth of [{...proven,dmarc:{result:'fail',aligned:true}},{...proven,dmarc:{result:'pass',aligned:false}},{...proven,dkim:{result:'fail',domain:'github.com'}},{...proven,dkim:{result:'pass',domain:'evil.example'}},{...proven,dkim:{result:'pass',domain:null}}]){
-  const view=row(auth);expect(view.querySelector('[data-sender-icon]')).toBeNull();expect(view).toHaveTextContent('G');
+const row=(address:string,auth?:unknown)=>render(()=><PersonAvatar name="Sender" address={address} messageSender auth={auth as never}/>).container;
+it('a message row shows a brand icon for the sender domain when the verdict is unknown, passed or merely unaligned',()=>{
+ for(const auth of [null,undefined,proven,{...proven,dmarc:{result:'none',aligned:false}},{...proven,dmarc:{result:'pass',aligned:false}},{...proven,dkim:{result:'none',domain:null}},{...proven,dkim:{result:'pass',domain:'evil.example'}}]){
+  expect(row('notifications@github.com',auth).querySelector('[data-sender-icon="github"]')).not.toBeNull();
  }
- // Unknown (no verdict yet, or a server that sends none): the initials.
- for(const auth of [null,undefined]){const view=row(auth);expect(view.querySelector('[data-sender-icon]')).toBeNull();expect(view).toHaveTextContent('G');}
+});
+it('a message row with a known authentication failure shows initials and an unverified tooltip',()=>{
+ for(const auth of [{...proven,dmarc:{result:'fail',aligned:false}},{...proven,dmarc:{result:'fail',aligned:true}},{dkim:{result:'fail',domain:'github.com'},dmarc:{result:'none',aligned:false}}]){
+  const view=row('notifications@github.com',auth);
+  expect(view.querySelector('[data-sender-icon]')).toBeNull();expect(view).toHaveTextContent('S');
+  expect(view.querySelector('[data-unverified="true"]')).not.toBeNull();expect(view.querySelector('.person-avatar')?.getAttribute('data-tooltip')).toMatch(/nverified|não verificado/i);
+ }
+ // DKIM failed but an aligned DMARC pass (SPF) rescued the message: not a failure.
+ expect(row('notifications@github.com',{dkim:{result:'fail',domain:'github.com'},dmarc:{result:'pass',aligned:true}}).querySelector('[data-sender-icon="github"]')).not.toBeNull();
+});
+it('shows the icon for subdomains of the brand at any depth, and not for lookalikes',()=>{
+ for(const address of ['a@e.amazon.com','a@mail.zalando.com','a@em.paypal.com','a@notifications.github.com','a@news.vinted.com','a@service.fnac.pt','a@a.b.c.paypal.com','a@EM.PayPal.COM'])expect(row(address).querySelector('[data-sender-icon]'),address).not.toBeNull();
+ for(const address of ['a@paypal.com.evil.io','a@evilpaypal.com','a@pay-pal.com','a@notgithub.com'])expect(row(address).querySelector('[data-sender-icon]'),address).toBeNull();
+});
+it('a registry brand outside the bundled catalogue gets its mark in a message row, never for a person on a public mailbox provider',()=>{
+ expect(row('news@mail.ryanair.com').querySelector('[data-sender-icon="ryanair"]')).not.toBeNull();
+ expect(row('friend@gmail.com').querySelector('[data-sender-icon]')).toBeNull();
+ expect(render(()=><PersonAvatar name="R" address="news@mail.ryanair.com"/>).container.querySelector('[data-sender-icon]')).toBeNull();
+});
+it('requireAuth never ignores a failure, always needs a pass, known-failure is the default',()=>{
+ const failed={...proven,dmarc:{result:'fail',aligned:false}};
+ state.requireAuth='never';expect(row('a@github.com',failed).querySelector('[data-sender-icon="github"]')).not.toBeNull();
+ state.requireAuth='always';
+ expect(row('a@github.com',proven).querySelector('[data-sender-icon="github"]')).not.toBeNull();
+ for(const auth of [null,failed,{...proven,dkim:{result:'pass',domain:'evil.example'}}])expect(row('a@github.com',auth).querySelector('[data-sender-icon]')).toBeNull();
+ expect(row('a@bsky.app',{dkim:{result:'pass',domain:'bsky.social'},dmarc:{result:'pass',aligned:true}}).querySelector('[data-sender-icon]')).not.toBeNull();
+ expect(row('a@bsky.app',null).querySelector('[data-sender-icon]')).toBeNull();
+ state.requireAuth='nonsense';expect(row('a@github.com',failed).querySelector('[data-sender-icon]')).toBeNull();expect(row('a@github.com',null).querySelector('[data-sender-icon="github"]')).not.toBeNull();
 });
 it('a message row needs no verdict for a generic public-body glyph, and a contact needs none at all',()=>{
  expect(render(()=><PersonAvatar name="Finanças" address="aviso@portaldasfinancas.gov.pt" messageSender/>).container.querySelector('[data-sender-icon="government"]')).not.toBeNull();
  expect(render(()=><PersonAvatar name="GitHub" address="notifications@github.com"/>).container.querySelector('[data-sender-icon="github"]')).not.toBeNull();
 });
-it('a sender icon outside the logo registry is proven against DKIM for a domain of the same icon',()=>{
- const view=(auth:unknown)=>render(()=><PersonAvatar name="Bluesky" address="noreply@bsky.app" messageSender auth={auth as never}/>).container;
- expect(view({dkim:{result:'pass',domain:'bsky.social'},dmarc:{result:'pass',aligned:true}}).querySelector('[data-sender-icon]')).not.toBeNull();
- expect(view({dkim:{result:'pass',domain:'github.com'},dmarc:{result:'pass',aligned:true}}).querySelector('[data-sender-icon]')).toBeNull();
- expect(view(null).querySelector('[data-sender-icon]')).toBeNull();
+it('mail.brandAvatars off hides registry marks in rows but keeps the catalogue icons',()=>{
+ state.brands=false;
+ expect(row('news@mail.ryanair.com').querySelector('[data-sender-icon]')).toBeNull();
+ expect(row('a@github.com').querySelector('[data-sender-icon="github"]')).not.toBeNull();
 });
 it('allows user or admin policy to disable sender icons',()=>{
  state.icons=false;
