@@ -170,6 +170,12 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'] },
     },
     {
+      name: 'frame-layout-firefox',
+      // Self-contained (own HTTP server): the reader bridge raises no Firefox "Layout was forced before the page was fully loaded" warning.
+      testMatch: ['frame-layout-warning.spec.ts'],
+      use: { ...devices['Desktop Firefox'] },
+    },
+    {
       name: 'editor-frame-firefox',
       testMatch: ['editor-frame.spec.ts'],
       use: { ...devices['Desktop Firefox'] },

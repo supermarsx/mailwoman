@@ -10,6 +10,10 @@
   let prefixes = [];
   let restoreScroll = null;
   const emptyImage = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+  // Firefox logs 'Layout was forced before the page was fully loaded' for a layout read made
+  // before the document finished loading, so box measurements wait for `load`; until then an
+  // unsized loading image gets its temporary minimum from attributes alone (CSS only).
+  let settled = document.readyState === 'complete';
   const imageStates = new Map();
   const imageCounts = { loaded: 0, failed: 0, pending: 0, total: 0 };
   let progressScheduled = false;
@@ -43,7 +47,7 @@
     const state = pending || !image.complete ? 'loading' : image.naturalWidth > 0 ? 'loaded' : 'error';
     image.setAttribute('data-mw-image-state', state);
     countImage(image, state);
-    if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && !image.getBoundingClientRect().width && !image.getBoundingClientRect().height) image.setAttribute('data-mw-image-unsized', '');
+    if (state === 'loading' && !image.hasAttribute('width') && !image.hasAttribute('height') && !image.style.width && !image.style.height && !image.style.aspectRatio && (!settled || (!image.getBoundingClientRect().width && !image.getBoundingClientRect().height))) image.setAttribute('data-mw-image-unsized', '');
     else if (state !== 'loading') image.removeAttribute('data-mw-image-unsized');
     tipRefresh(image);
   }
@@ -229,7 +233,7 @@
     else parsed();
   }
   function restore() { if (restoreScroll) scrollTo(restoreScroll.x, restoreScroll.y); }
-  function parsed() { restore(); observeImages(); if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
+  function parsed() { if (settled) restore(); observeImages(); if (port) port.postMessage({ type: 'displayed', nonce, revision }); }
   // Themed image tooltip. The frame is opaque, so a native `title` tooltip would
   // be OS-styled; the app strips those into `data-mw-tip` and this draws one
   // bubble (`.mw-frame-tip`, styled by the document's own --mw-tip-* tokens) after
@@ -327,7 +331,7 @@
   addEventListener('resize', tipHide);
   addEventListener('message', initialize);
   addEventListener('scroll', reportScroll, { passive: true });
-  addEventListener('load', () => { restore(); restoreScroll = null; }, { once: true });
+  addEventListener('load', () => { settled = true; restore(); restoreScroll = null; document.querySelectorAll('img[data-mw-image-unsized]').forEach(image => { if (image.getBoundingClientRect().width || image.getBoundingClientRect().height) image.removeAttribute('data-mw-image-unsized'); }); }, { once: true });
   document.addEventListener('contextmenu', event => {
     if (!event.isTrusted || event.defaultPrevented || !port) return;
     const target = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
