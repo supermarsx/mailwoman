@@ -16,7 +16,7 @@ function imageProgress(value:Record<string,unknown>):ReaderImageProgress|null {
 }
 /** Only fixed hash-authorized handlers run; both frames retain opaque origins.
  * The Reader remounts this wrapper when message-link consent changes. */
-export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; title: string; documentKey?:string; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void; onImageProgress?:(value:ReaderImageProgress)=>void }): JSX.Element {
+export function DirectReaderFrame(props: { html: string; suspended?:boolean; linksEnabled?:boolean; title: string; documentKey?:string|undefined; loadingFallback?:JSX.Element; onDisplayed?: (html:string,key:string|undefined)=>void; onAddressContext?:(value:ReaderAddressContext)=>void; onImageProgress?:(value:ReaderImageProgress)=>void }): JSX.Element {
   let frame: HTMLIFrameElement | undefined;
   const newToken = ():string => Array.from(crypto.getRandomValues(new Uint8Array(24)), byte => byte.toString(16).padStart(2, '0')).join('');
   const [token,setToken] = createSignal(newToken());
@@ -45,7 +45,8 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
   const [sentTick,setSentTick]=createSignal(0);
   let paintHost:Window|null=null;let paint:number|undefined;
   const settled=():boolean=>{void sentTick();const visible=presentedRevision();return ready()&&revision>0&&visible===revision&&sentHtml===props.html&&sentKey===props.documentKey;};
-  const presented=():boolean=>settled()||(holding()&&ready()&&!failed()&&sentKey===props.documentKey);
+  /** `suspended`: the next message is loading; the document last given stays loaded in this same frame but is hidden (and inert) until a new one is presented. */
+  const presented=():boolean=>props.suspended!==true&&(settled()||(holding()&&ready()&&!failed()&&sentKey===props.documentKey));
   function cancelPaint():void {if(paint!==undefined)paintHost?.cancelAnimationFrame(paint);paint=undefined;paintHost=null;}
   function present():void {
     if(settled()||paint!==undefined)return;
@@ -138,5 +139,5 @@ export function DirectReaderFrame(props: { html: string; linksEnabled?:boolean; 
       sendFrame(true);
     });
   });
-  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={0}/>}</div></Show></ReaderZoomBox></>;
+  return <><Show when={failed()}><p role="alert">{t('privacy-frame-failed')}</p></Show><Show when={compatible()&&ready()}><p class="meta" role="status">{t('privacy-frame-compatible')}</p></Show><ReaderZoomBox><iframe ref={frame} class="reader__frame" classList={{'reader__frame--pending':!presented()}} title={props.title} aria-hidden={!presented()} inert={!presented()} tabIndex={presented()?undefined:-1} sandbox="allow-scripts allow-popups allow-popups-to-escape-sandbox" referrerPolicy="no-referrer" onLoad={loaded} src={source()} /><Show when={!presented()&&!failed()}><div class="reader__frame-loading" data-testid="reader-frame-loading" aria-busy="true">{props.loadingFallback??<MessageLoading variant="skeleton" delayMs={150}/>}</div></Show></ReaderZoomBox></>;
 }

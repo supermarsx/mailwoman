@@ -21,8 +21,12 @@ const DESKTOP = 'screen and (min-width: 761px)';
 // Keep the already configured skeleton over the opaque frame until its current
 // document has parsed. Never show the empty bridge's default canvas in between.
 globalStyle('.reader__frame--pending', {visibility:'hidden',pointerEvents:'none'});
-globalStyle('.reader__frame-loading', {position:'absolute',inset:0,zIndex:1,overflow:'auto',background:vars.color.surface});
-globalStyle('.reader__frame-loading > [role="status"]', {animation:'none'});
+// A compact label in the corner of the body area, never a cover: it holds no background and takes no pointer events.
+globalStyle('.reader__frame-loading', {position:'absolute',insetBlockStart:0,insetInlineStart:0,zIndex:1,pointerEvents:'none',padding:vars.space[3]});
+// Another message is loading into the open reader: its chrome stays mounted and updates in place.
+// What still describes the previous message fades out only if the load takes longer than a blink,
+// so a cached or prefetched switch never flickers.
+globalStyle('.reader[data-switching] .reader__header > :not(.reader__subject)', {opacity:0,pointerEvents:'none',transition:'opacity 100ms linear 180ms'});
 
 globalStyle(':root .reader--open .reader__header', {'@media':{'(max-width: 760px)':{paddingBlock:'4px',paddingInline:'8px',maxBlockSize:'min(42dvh, 17rem)'}}});
 globalStyle(':root .reader--open .reader__subject', {'@media':{'(max-width: 760px)':{fontSize:'1rem',lineHeight:'1.25',marginBlockEnd:'4px'}}});

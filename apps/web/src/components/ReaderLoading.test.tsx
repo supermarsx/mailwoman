@@ -46,8 +46,13 @@ describe('Reader loading state', () => {
     gates.get('a')!({ email: emails[0]!, html: '<p>Body A secret</p>' });
     await waitFor(() => expect(view.openEmail()?.id).toBe('a'));
     // Switch to B: A's subject/body must not stay under B's id.
+    // The reader stays mounted (toolbar, header, frame); only the body region shows the pending state.
+    const header = document.querySelector('.reader__header');
     void view.openMessage('b');
-    await waitFor(() => expect(document.querySelector('[data-testid="reader-pending"]')).not.toBeNull());
+    await waitFor(() => expect(view.pendingId()).toBe('b'));
+    expect(document.querySelector('.reader__header')).toBe(header);
+    expect(document.querySelector('[data-testid="reader-pending"]')).toBeNull();
+    await waitFor(() => expect(screen.getAllByRole('status').length).toBeGreaterThan(0));
     expect(screen.queryByText('Select a message to read')).toBeNull();
     expect(screen.queryByText(/Body A secret/)).toBeNull();
     expect(screen.queryByText('Subject A')).toBeNull();

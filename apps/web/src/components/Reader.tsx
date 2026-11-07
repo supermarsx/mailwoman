@@ -731,6 +731,17 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // a keyword write (the automatic mark-read a second after opening) replaces the
   // openEmail object, and the decrypted body was reset with it.
   const emailId = createMemo((): string | null => app.openEmail()?.id ?? null);
+  // The list row of the message being loaded (its header is already known).
+  const pendingEntry = () => {
+    const id = props.view?.pendingId();
+    return id ? app.listMessages().find((message) => message.id === id) : undefined;
+  };
+  // The reader chrome (toolbar, header, badges, notices, attachments) is mounted once and
+  // re-targeted in place: while another message loads, the open view reports no email, but the
+  // chrome keeps the previous one (dimmed, not actionable) and only the body region shows the
+  // pending state. It is released when nothing is open or loading any more.
+  const chromeEmail = createMemo<Email | null>((previous) => app.openEmail() ?? ((app.readLoading() || pendingEntry()) ? previous : null), null);
+  const switching = (): boolean => app.openEmail() === null && chromeEmail() !== null;
   const addressCard = createAddressContactCard({ scope: () => JSON.stringify([app.accountId(), emailId()]), active: () => props.active !== false && emailId() !== null, ...(props.onCompose ? { onCompose: props.onCompose } : {}) });
   const [addressTarget, setAddressTarget] = createSignal<ReaderAddressContext>();
   const addressMenu = createContextMenu({ label: () => t('contacts-address-card'), ownerDocument: () => addressTarget()?.ownerDocument,
@@ -763,12 +774,12 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     }),
   );
 
-  const sender = (): string => app.openEmail()?.from?.[0]?.email ?? '';
-  const threadId = (): string | undefined => app.openEmail()?.threadId;
+  const sender = (): string => chromeEmail()?.from?.[0]?.email ?? '';
+  const threadId = (): string | undefined => chromeEmail()?.threadId;
   // The folder(s) the open message is in, shown beside its date.
-  const folderNames = createMemo<string[]>(() => Object.keys(app.openEmail()?.mailboxIds ?? {}).map((id) => app.mailboxes().find((m) => m.id === id)?.name ?? '').filter((name) => name !== ''));
+  const folderNames = createMemo<string[]>(() => Object.keys(chromeEmail()?.mailboxIds ?? {}).map((id) => app.mailboxes().find((m) => m.id === id)?.name ?? '').filter((name) => name !== ''));
 
-  const folderRole = (): string | null => app.mailboxes().find((m) => m.id === Object.keys(app.openEmail()?.mailboxIds ?? {})[0])?.role ?? null;
+  const folderRole = (): string | null => app.mailboxes().find((m) => m.id === Object.keys(chromeEmail()?.mailboxIds ?? {})[0])?.role ?? null;
   const folderNotable = (): boolean => folderBadgeKind(folderRole()) === 'junk' || folderBadgeKind(folderRole()) === 'trash';
   const authNotable = (): boolean => { const v = verdict(); return v !== null && overallTone(v, mailFeature('showAuthStatus')) !== 'good'; };
   const goToFolder = (): void => { const id = Object.keys(app.openEmail()?.mailboxIds ?? {})[0], mail = app.openEmail(); if (id && mail) void focusMessageInFolder(app, id, mail.id, {open: true}); };
@@ -1361,6 +1372,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function onRemoteGrant(scope: GrantScope, options?: MutationOptions): Promise<void> {
     const acct = app.accountId();
     if (acct === null) return;
+  /** The stack's nodes (attachments bar, notices) are created with the first settled message and kept: a later message only hides it until its body is ready (no bar above a shown body), it is not rebuilt. */
+  const stackMounted = createMemo<boolean>((mounted) => chromeEmail() === null ? false : mounted || noticesReady(), false);
+  const anyLoading = (): boolean => app.readLoading() || readerBody.loading || privacy.loading || grants.loading;
+  const bodyReady = (): boolean => bodySrcdoc() !== null && listHeadersSettled();
+  /** The body frame is created once and re-used: the document it was last given stays (hidden, `suspended`) while the next message loads. */
+  const frameHtml = createMemo<string | null>((previous) => bodyReady() ? bodySrcdoc() : chromeEmail() !== null ? previous : null, null);
+  const frameKey = createMemo<string | undefined>((previous) => bodyReady() ? receiptDocumentKey() : previous);
     // An explicit Show images supersedes an earlier "Cancel loading" for this message.
     clearImagesCancelled();
     await remoteImages.grant(acct, scope, options);
@@ -1432,11 +1450,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // shell, and every open message frame reloads (t60).
   const bannerMode = () => (resourceValue(privacy) ?? policy()).mode;
   // t59: body zoom shortcuts and Ctrl/Cmd + wheel, only while focus is in this reader.
-  // The list row of the message being loaded (its header is already known).
-  const pendingEntry = () => {
-    const id = props.view?.pendingId();
-    return id ? app.listMessages().find((message) => message.id === id) : undefined;
-  };
+
   let readerRoot: HTMLElement | undefined;
   useReaderZoom({ root: () => readerRoot, active: () => props.active !== false });
 
@@ -1445,10 +1459,12 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       ref={readerRoot}
       class={`reader ${motion.surface}`}
       data-mw-entering={entering()}
-      classList={{ 'reader--open': app.openEmail() !== null }}
+      classList={{ 'reader--open': chromeEmail() !== null }}
+      data-switching={switching() ? '' : undefined}
+      aria-busy={switching() ? 'true' : undefined}
       aria-label={t('mail-reader-label')}
     >
-      <Show when={app.openEmail()} fallback={<Show when={app.readLoading() || pendingEntry()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
+      <Show when={chromeEmail()} fallback={<Show when={app.readLoading() || pendingEntry()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>
         {/* Loading another message: keep the reader frame and show the list row's known header with the delayed skeleton; never the previous body, never the empty text. */}
         <div class="reader__pending" data-testid="reader-pending" aria-busy="true">
           <Show when={pendingEntry()}>{(entry) => <header class="reader__header">
@@ -1464,7 +1480,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           <>
             <Show when={props.view}>{(view) => <RemoteChangeNotice view={view()} />}</Show>
             <header class="reader__header">
-              <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText(email().subject ?? rawT('mail-no-subject'))}</h2>
+              <h2 ref={subjectHeading} tabIndex={-1} class="reader__subject">{displayText((switching() ? pendingEntry()?.subject : undefined) ?? email().subject ?? rawT('mail-no-subject'))}</h2>
               <div class="reader__meta">
                 <div class="reader__address-group">
                   <div class="reader__address-line"><span class="reader__address-label">{t('mail-compose-from')}</span><SenderBrandMark address={email().from?.[0]?.email} auth={verdict()?.auth}/><ContactAddresses addresses={email().from} onOpen={addressCard.open}/></div>
@@ -1526,8 +1542,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 stack and the body appear together, once the body is ready and the
                 list headers have settled (or 0.5 s have passed), so no bar pushes
                 the body down after it is shown. */}
-            <Show when={noticesReady()}>
-              <div class={noticeCss.stack} data-testid="reader-notice-stack">
+            <Show when={stackMounted()}>
+              <div class={noticeCss.stack} data-testid="reader-notice-stack" style={noticesReady() ? undefined : {display:'none'}}>
                 <MessagePrivacyBar images={showRemoteBar()?{
                   emailId:email().id,sender:sender(),report:blockedReport(),activeGrant:activeGrant(),mode:bannerMode(),
                   decodedTrackers:remoteLoad.trackers(),imageFailures:remoteLoad.failures(),imageProgress:currentImageProgress(),
@@ -1554,8 +1570,8 @@ function ReaderBody(props: ReaderProps): JSX.Element {
               when={showDecrypt()}
               fallback={
                 <Show
-                  when={bodySrcdoc() !== null && listHeadersSettled()}
-                  fallback={<Show when={app.readLoading() || readerBody.loading || privacy.loading || grants.loading} fallback={<p class="reader__empty">{t('mail-no-content')}</p>}>{messageLoading()}</Show>}
+                  when={frameHtml() !== null}
+                  fallback={<Show when={anyLoading()} fallback={<p class="reader__empty">{t('mail-no-content')}</p>}>{messageLoading()}</Show>}
                 >
                   {/*
                     Security-critical (SPEC §7.2): the message body renders in a
@@ -1564,7 +1580,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, only the fixed hash-authorized address
                     handler runs; the opaque frame cannot access its parent.
                   */}
-                  <DirectReaderFrame linksEnabled={linksEnabled()} html={bodySrcdoc() ?? ''} title={t('mail-message-body')} documentKey={receiptDocumentKey()} loadingFallback={messageLoading()} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
+                  <DirectReaderFrame linksEnabled={linksEnabled()} suspended={!bodyReady()} html={frameHtml() ?? ''} title={t('mail-message-body')} documentKey={frameKey()} loadingFallback={anyLoading() || switching() ? messageLoading() : <p class="reader__empty">{t('mail-no-content')}</p>} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
                 </Show>
               }
             >
@@ -1580,7 +1596,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                 }}
               />
             </Show>
-            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && noticesReady()}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>
+            <Show when={settings()['reader.attachmentsAtEnd']?.value === true && stackMounted()}><div style={{display: noticesReady() ? 'contents' : 'none'}}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></div></Show>
           </>
         )}
       </Show>
