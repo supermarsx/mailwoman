@@ -1,4 +1,4 @@
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 // Key-management module (plan §2.5, §3 e2). The Settings/Security surface for
 // OpenPGP + S/MIME keys: own-key generation (OpenPGP, or an S/MIME key with a
 // self-signed certificate) and import (armored + PKCS#12) with a preview step, an
@@ -221,7 +221,7 @@ function KeyGroup(props: {
       <h2 class={css.heading}>{props.heading}</h2>
       <Show
         when={props.keys.length > 0}
-        fallback={<Show when={props.loading} fallback={<p class={css.empty}>{props.emptyText}</p>}><AsyncPending variant="list" message={t('keys-loading')}/></Show>}
+        fallback={<Show when={props.loading} fallback={<p class={css.empty}>{props.emptyText}</p>}><InlineLoading message={t('keys-loading')}/></Show>}
       >
         <ul class={css.keyList} aria-label={props.heading}>
           <For each={props.keys}>

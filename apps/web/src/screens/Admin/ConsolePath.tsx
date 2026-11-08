@@ -7,7 +7,7 @@
 import {createSignal,onMount,Show,type JSX} from 'solid-js';
 import {consolePathApi,validChosenPath,type ConsolePathApi,type ConsolePathChange,type ConsolePathView} from '../../api/admin/consolePath.ts';
 import {basePath} from '../../api/basePath.ts';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {loadCatalog,t} from '../../i18n';
 import {ConfirmDialog} from './shell/ConfirmDialog.tsx';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
@@ -54,7 +54,7 @@ export function ConsolePath(props:{readOnly:boolean;api?:ConsolePathApi}):JSX.El
     <p class={css.note}>{t('admin-console-path-help')}</p>
     <p class={css.note}>{t('admin-console-path-limits')}</p>
     <Feedback kind="error" message={error()}/><Feedback kind="success" as="toast" message={saved()}/>
-    <Show when={busy()&&!view()}><AsyncPending/></Show>
+    <Show when={busy()&&!view()}><InlineLoading/></Show>
     <Show when={error()&&!view()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
     <Show when={view()}>{v=><div class={css.subsectionBody}>
       <p><strong>{t('admin-console-path-current')}</strong> <code data-testid="console-path-current">{address(v().path)}</code></p>

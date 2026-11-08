@@ -1,4 +1,4 @@
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, formatDateTime, loadCatalog } from '../../i18n';
 import { adminRead, type AdminReadResult } from './shell/adminApi.ts';
@@ -93,7 +93,7 @@ export function AuthLogs(props: {
    <label class="field">{t('admin-auth-reason')}<input value={reason()} onInput={(e) => setReason(e.currentTarget.value)} maxlength={64}/></label>
    <div class={ux.pageActions}><button class="btn" type="submit" disabled={busy()}>{t('admin-auth-apply')}</button></div>
   </form>
-  <Show when={busy()}><AsyncPending variant={rows().length ? 'status' : 'table'}/></Show><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/>
+  <Show when={busy()}><InlineLoading /></Show><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/>
   <div class={css.tableWrap} tabindex="0" role="group" aria-label={t('admin-auth-title')}><table class={css.table}><caption>{t('admin-auth-title')}</caption><thead><tr><For each={['time', 'account', 'surface', 'backend', 'result', 'reason', 'method', 'ip', 'count']}>{(key) => <th scope="col">{t(`admin-auth-${key}`)}</th>}</For></tr></thead>
   <tbody><For each={rows()}>{(row) => <tr><td><time datetime={new Date(row.ts * 1000).toISOString()}>{formatDateTime(new Date(row.ts * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</time><Show when={row.lastSeen !== row.ts}><br /><small>{t('admin-auth-last')} {formatDateTime(new Date(row.lastSeen * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</small></Show></td><th scope="row"><Show when={row.actorLabel} fallback={<>{row.usernameAttempted || missing()}<Show when={row.accountId}><br /><small>{row.accountId}</small></Show></>}>{(label) => <><AuditActor actor={row.accountId ?? row.usernameAttempted} actorLabel={label()} {...(row.actorLink ? { actorLink: row.actorLink } : {})}/><Show when={row.usernameAttempted && !label().includes(row.usernameAttempted)}><br /><small>{t('admin-auth-attempted', { name: row.usernameAttempted })}</small></Show></>}</Show></th><td>{row.surface}</td><td>{row.backend || missing()}</td><td>{row.result}</td><td>{row.reason || '—'}</td><td>{row.method}</td><td>{row.ip || missing()}<Show when={row.userAgent}><details><summary>{t('admin-auth-device')}</summary>{row.userAgent}</details></Show></td><td>{row.repeatCount}</td></tr>}</For></tbody></table></div>
   <Show when={!busy() && !rows().length && !notice() && !error()}><p>{t('admin-auth-empty')}</p></Show>

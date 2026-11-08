@@ -8,7 +8,7 @@ import { listAdminSettings, putGlobal, type AdminSetting } from '../../api/admin
 import { protectionApi, type ProtectionApi, type ProtocolGuardRow } from '../../api/admin/requestProtection.ts';
 import { formatNumber, loadCatalog, t } from '../../i18n';
 import { resourceValue } from '../../components/resourceValue.ts';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { useShell } from './shell/context.ts';
 import { ConfirmDialog } from './shell/ConfirmDialog.tsx';
@@ -83,7 +83,7 @@ export function ProtocolGuardPanel(props: { load?: typeof listAdminSettings; api
       <Feedback kind="success" as="toast" message={toast()} />
       <Show when={!canRead()}><p role="alert">{t('admin-protocol-panel-denied')}</p></Show>
       <Show when={canRead()}>
-        <Show when={settings.loading && current() === undefined}><AsyncPending /></Show>
+        <Show when={settings.loading && current() === undefined}><InlineLoading /></Show>
         <Show when={settings.error}><p role="alert">{describeAdminError(settings.error)}</p></Show>
         <Show when={current() !== undefined && current()?.kind !== 'ok'}><p role="alert">{t('admin-protocol-panel-unavailable')}</p></Show>
         <Show when={current()?.kind === 'ok'}>

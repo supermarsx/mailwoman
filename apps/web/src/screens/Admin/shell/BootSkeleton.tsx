@@ -12,7 +12,7 @@
 import { For, Show, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { passkeySupported } from '../../Settings/webauthn.ts';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import * as a11y from '../../../components/mailA11y.css.ts';
 import * as shellCss from './shell.css.ts';
 
@@ -60,7 +60,7 @@ export function AdminPageSkeleton(props: { message?: string }): JSX.Element {
     <div class="mwb-console-page" data-testid="admin-page-skeleton">
       <div class="mwb-console-page-head" aria-hidden="true"><span class="mwb-block" /></div>
       <div class={shellCss.state}>
-        <AsyncPending variant="page" message={props.message ?? t('admin-shell-loading')} />
+        <InlineLoading message={props.message ?? t('admin-shell-loading')} />
       </div>
     </div>
   );

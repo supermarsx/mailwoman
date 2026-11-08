@@ -1,5 +1,5 @@
 import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService, SettingsError } from './service.ts';
@@ -33,7 +33,7 @@ function OwnedIdentities(props:IdentitiesProps):JSX.Element {
   // A base with variants asks what happens to them (delete or keep) instead of confirming blindly.
   if(variantsOf(identity.id).length>0){setChoosing(identity.id);return;}
   if(!await removal.ask({title:t('settings-ident-delete-title',{email:identity.email}),body:t(identity.isDefault?'settings-ident-delete-default-body':'settings-ident-delete-body'),confirmLabel:t('settings-delete'),testId:'identity-delete-confirm'}))return;await perform(identity.id);}
- return <><RectificationBanner/><Show when={editor()} keyed fallback={<SettingsCard id="identities-card" wide title={t('settings-ident-title')} description={t('settings-ident-intro')}><Show when={identities.loading}><AsyncPending onRetry={()=>void refetch()}/></Show>
+ return <><RectificationBanner/><Show when={editor()} keyed fallback={<SettingsCard id="identities-card" wide title={t('settings-ident-title')} description={t('settings-ident-intro')}><Show when={identities.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
       <ul class={css.list} data-testid="identity-list">
         <For each={grouped()}>
           {(entry) => (

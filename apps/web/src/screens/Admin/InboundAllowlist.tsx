@@ -1,7 +1,7 @@
 import {For,Show,createSignal,createUniqueId,onMount,type JSX} from 'solid-js';
 import {inboundAllowlistApi,type InboundAllowlistApi,type InboundConfig,type InboundView} from '../../api/admin/inboundAllowlist.ts';
 import {loadCatalog,rawT,t} from '../../i18n';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {useShell} from './shell/context.ts';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
 import {ConfirmDialog} from './shell/ConfirmDialog.tsx';
@@ -36,7 +36,7 @@ export function InboundAllowlist(props:{api?:InboundAllowlistApi}):JSX.Element {
    <Show when={error()}><p role="alert">{error()}</p></Show><Feedback kind="success" as="toast" message={saved()?t('admin-inbound-saved'):null}/>
    <Show when={conflict()}><p role="alert">{t('admin-inbound-conflict')}</p></Show>
    <div class={ux.pageActions}><button type="button" class="btn" disabled={busy()} onClick={()=>void reload()}>{t('admin-inbound-refresh')}</button><Show when={dirty()}><button type="button" class="btn" disabled={busy()} onClick={()=>{setDraft(JSON.parse(baseline()) as InboundDraft);setSaved(false);}}>{t('admin-inbound-reset')}</button></Show></div>
-   <Show when={draft()} fallback={<Show when={busy()}><AsyncPending/></Show>}>{value=><form class={css.subsectionBody} onSubmit={submit}>
+   <Show when={draft()} fallback={<Show when={busy()}><InlineLoading/></Show>}>{value=><form class={css.subsectionBody} onSubmit={submit}>
     <For each={['admin','webmail'] as const}>{surface=><AdminSubsection title={t(`admin-inbound-${surface}`)} description={t(`admin-inbound-${surface}-help`)}>
      <label class="field"><input type="checkbox" disabled={!writable()||busy()} checked={value()[surface].enabled} onChange={event=>change({...value(),[surface]:{...value()[surface],enabled:event.currentTarget.checked}})}/><span>{t('admin-inbound-enabled')}</span></label>
      <label class="field"><span>{t('admin-inbound-cidrs')}</span><textarea rows={4} maxlength={8448} disabled={!writable()||busy()} value={value()[surface].cidrs} onInput={event=>change({...value(),[surface]:{...value()[surface],cidrs:event.currentTarget.value}})}/><small>{t('admin-inbound-cidrs-help')}</small></label>

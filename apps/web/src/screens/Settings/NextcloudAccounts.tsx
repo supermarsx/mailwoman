@@ -1,7 +1,7 @@
 import {For,Show,createSignal,onMount,onCleanup,type JSX} from 'solid-js';
 import {nextcloudAccountsApi,type NextcloudAccountsApi,type CloudAccount,type CloudInstance} from '../../api/nextcloudAccounts.ts';
 import {observePreferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {loadCatalog,t} from '../../i18n';
 import {useEditorGuard,useEntityNavigation} from './entityEditor.tsx';
 import * as css from './styles.css.ts';
@@ -20,7 +20,7 @@ export function NextcloudAccounts(props:{api?:NextcloudAccountsApi}):JSX.Element
   return <section class={css.section}>
     <Show when={editing()} fallback={<>
       <h2 class={css.heading}>{t('nextcloud-account-title')}</h2><p>{t('nextcloud-account-help')}</p>
-      <Show when={busy()&&!view()}><AsyncPending/></Show>
+      <Show when={busy()&&!view()}><InlineLoading/></Show>
       <Show when={error()}><p role="alert">{error()}</p><button class={css.button} onClick={()=>void reload()}>{t('nextcloud-account-reload')}</button></Show>
       <Show when={view()}>{data=><><Show when={data().instances.length===0}><p>{t('nextcloud-account-no-instances')}</p></Show>
         <For each={data().instances}>{instance=>{const linked=()=>data().links.find(link=>link.instanceId===instance.id);return <section class={css.section}><h3>{instance.name}</h3><p>{instance.baseUrl}</p><p>{t(linked()?.ready?'nextcloud-account-ready':linked()?'nextcloud-account-stale':'nextcloud-account-unlinked')}</p>

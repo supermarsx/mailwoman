@@ -6,7 +6,7 @@
 
 import { For, Show, createResource, createSignal, onMount, type JSX } from 'solid-js';
 import { formatDateTime, formatNumber, loadCatalog, t } from '../../../i18n';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { InlineGroup, SettingsGate, rowsFor } from '../Privacy/InlineGroup.tsx';
 import type { PrivacyTabContext } from '../Privacy/model.ts';
 import { AdminSubsection } from '../AdminSubsection.tsx';
@@ -60,7 +60,7 @@ export default function CookiesTab(props: { ctx: PrivacyTabContext; api?: Cookie
 
       <AdminSubsection title={t('admin-cookies-inventory')} description={t('admin-cookies-inventory-help')}>
         <Show when={inventory.error}><p role="alert">{describeAdminError(inventory.error)}</p></Show>
-        <Show when={inventory.loading && !inv()}><AsyncPending /></Show>
+        <Show when={inventory.loading && !inv()}><InlineLoading /></Show>
         <Show when={inv()}>{(view) => (
           <>
             <div class={css.tableWrap} tabindex="0" role="region" aria-label={t('admin-cookies-inventory')}>
@@ -127,7 +127,7 @@ export default function CookiesTab(props: { ctx: PrivacyTabContext; api?: Cookie
           <button type="button" class="btn" onClick={() => void run(async () => { const to = Math.floor(Date.now() / 1000) + 1; download(await api.exportCsv(to - days() * DAY, to)); }, t('admin-cookies-exported'))}>{t('admin-cookies-export')}</button>
         </>}>
         <Show when={stats.error}><p role="alert">{describeAdminError(stats.error)}</p></Show>
-        <Show when={stats.loading && !stats.latest}><AsyncPending /></Show>
+        <Show when={stats.loading && !stats.latest}><InlineLoading /></Show>
         <Show when={!stats.error ? stats.latest : undefined}>{(value) => <StatsView stats={value()} />}</Show>
       </AdminSubsection>
     </SettingsGate>

@@ -1,4 +1,4 @@
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { t, formatDateTime } from '../../i18n';
 import { adminRead, type AdminReadResult } from './shell/adminApi.ts';
@@ -80,7 +80,7 @@ export function ApplicationLogs(props: {
  <label class="field-label">{t('admin-app-logs-target')}<input class="field" value={target()} maxlength={128} onInput={(e) => setTarget(e.currentTarget.value)}/></label>
  <label class="field-label">{t('admin-app-logs-level')}<select class="field" value={level()} onChange={(e) => setLevel(e.currentTarget.value)}><option value="">{t('admin-auth-all')}</option><option value="WARN">WARN</option><option value="ERROR">ERROR</option></select></label>
  <div class={ux.pageActions}><button class="btn" type="submit" disabled={busy()}>{t('admin-auth-apply')}</button></div></form>
- <Show when={busy()}><AsyncPending variant={rows().length ? 'status' : 'table'}/></Show><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/>
+ <Show when={busy()}><InlineLoading /></Show><Feedback kind="error" message={error()}/><Feedback kind="info" message={notice()}/>
  <div class={css.tableWrap}><table class={css.table}><caption>{t('admin-app-logs-title')}</caption><thead><tr><th>{t('admin-auth-time')}</th><th>{t('admin-app-logs-level')}</th><th>{t('admin-app-logs-target')}</th><th>{t('admin-app-logs-details')}</th><th>{t('admin-auth-count')}</th></tr></thead><tbody><For each={rows()}>{(row) => <tr><td>{formatDateTime(new Date(row.firstSeen * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}<Show when={row.lastSeen !== row.firstSeen}><br />{t('admin-auth-last')} {formatDateTime(new Date(row.lastSeen * 1000), { dateStyle: 'medium', timeStyle: 'medium' })}</Show></td><td>{row.level}</td><th scope="row">{row.target}</th><td><For each={Object.entries(row.fields)}>{([key, value]) => <p><strong>{key}: </strong>{typeof value === 'string' ? value : JSON.stringify(value)}</p>}</For></td><td>{row.repeatCount}</td></tr>}</For></tbody></table></div>
  <Show when={!busy() && !rows().length && !notice() && !error()}><p>{t('admin-app-logs-empty')}</p></Show><Show when={cursor() != null}><button class="btn" disabled={busy()} onClick={() => void load(true)}>{t('admin-auth-more')}</button></Show></section>;
 }

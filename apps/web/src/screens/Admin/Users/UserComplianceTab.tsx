@@ -1,6 +1,6 @@
 import { createResource, For, Show, type JSX } from 'solid-js';
 import { t, formatDate } from '../../../i18n/index.ts';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { listDataRequests } from '../../../api/admin/dataRequests.ts';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import { hrefFor, sectionPath } from '../shell/router.ts';
@@ -20,7 +20,7 @@ export function UserComplianceTab(props: { addresses: readonly string[]; onCount
   return <section class={css.card} aria-label={t('admin-user-tab-compliance')}>
     <h3>{t('admin-user-compliance-title')}</h3>
     <p class={css.note}>{t('admin-user-compliance-help')}</p>
-    <Show when={requests.loading}><AsyncPending variant="status" /></Show>
+    <Show when={requests.loading}><InlineLoading /></Show>
     <Show when={requests.error}><p role="alert">{describeAdminError(requests.error)}</p></Show>
     <Show when={!requests.error && requests.state === 'ready'}>
       <Show when={(requests()?.length ?? 0) > 0} fallback={<p class={css.note}>{t('admin-user-compliance-empty')}</p>}>

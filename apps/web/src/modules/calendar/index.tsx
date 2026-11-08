@@ -1,4 +1,4 @@
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { ColorField } from '../../components/color/ColorPicker.tsx';
 import {MiniCalendar} from './MiniCalendar.tsx';
@@ -380,7 +380,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
         </aside>
 
         <main class={css.main} aria-busy={c.loading()}>
-          <Show when={c.loading()}><AsyncPending variant="status"/></Show>
+          <Show when={c.loading()}><InlineLoading /></Show>
           <ActiveView controller={c} onOpenEvent={(inst) => openEvent(inst.event.id)} onNewAt={(day) => openNewAt(day)} />
         </main>
       </div>

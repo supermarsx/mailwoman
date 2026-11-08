@@ -40,7 +40,7 @@ const text = (el: HTMLElement): string => stripIsolates(el.textContent ?? '');
 
 describe('Outbox', () => {
   it('shows pending instead of false empty during initial load', () => {
-    renderOutbox([],{},true);expect(screen.getByTestId('async-pending')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Refresh'})).toBeDisabled();
+    renderOutbox([],{},true);expect(screen.getByTestId('inline-loading')).toBeInTheDocument();expect(screen.getByRole('button',{name:'Refresh'})).toBeDisabled();
   });
   it('warns about unknown delivery without offering resend or cancellation', () => {
     renderOutbox([sub('unknown', { undoStatus: 'final', mailwomanDeliveryUncertain: true })]);

@@ -1,6 +1,6 @@
 import {createSignal,onMount,Show,type JSX} from 'solid-js';
 import {maintenanceModeApi,type MaintenanceModeApi,type MaintenanceConfig} from '../../api/admin/maintenanceMode.ts';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {loadCatalog,t} from '../../i18n';
 import {ConfirmDialog} from './shell/ConfirmDialog.tsx';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
@@ -23,7 +23,7 @@ export function MaintenanceMode(props:{readOnly:boolean;api?:MaintenanceModeApi}
     <h2 class={css.heading}>{t('maintenance-mode-title')}</h2><p class={css.note}>{t('maintenance-mode-help')}</p>
     <Feedback kind="error" message={error()}/><Feedback kind="success" as="toast" message={saved()}/>
     <Show when={invalid()}><p role="alert" class={css.error}>{t('maintenance-mode-invalid')}</p></Show>
-    <Show when={busy()&&!value()}><AsyncPending/></Show>
+    <Show when={busy()&&!value()}><InlineLoading/></Show>
     <Show when={error()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
     <Show when={value()}>{current=><form class={css.subsectionBody} onSubmit={event=>{event.preventDefault();setConfirm(true);}}>
       <p role="status">{t(baseline()&&JSON.parse(baseline()).enabled?'maintenance-mode-active':'maintenance-mode-inactive')}</p>

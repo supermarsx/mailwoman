@@ -1,7 +1,7 @@
 import {For,Show,createSignal,onMount,onCleanup,type JSX} from 'solid-js';
 import {nextcloudPimApi,type NextcloudPimApi,type CloudPimView,type CloudDiscovery,type CloudPimKind} from '../../api/nextcloudPim.ts';
 import {NextcloudSyncSettings} from './NextcloudSyncSettings.tsx';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {t} from '../../i18n';
 import * as css from './styles.css.ts';
 export function NextcloudPim(props:{accountId:string;instanceId:string;instanceName:string;onBack:()=>void;api?:NextcloudPimApi}):JSX.Element {
@@ -18,7 +18,7 @@ export function NextcloudPim(props:{accountId:string;instanceId:string;instanceN
   const configured=()=>view()?.collections.filter(row=>row.instanceId===props.instanceId)??[];
   return <section class={css.section}>
     <h2 class={css.heading}>{t('nextcloud-pim-title')} — {props.instanceName}</h2><p>{t('nextcloud-pim-help')}</p>
-    <Show when={busy()&&!view()}><AsyncPending/></Show>
+    <Show when={busy()&&!view()}><InlineLoading/></Show>
     <Show when={error()}><p role="alert">{error()}</p><button class={css.button} disabled={busy()} onClick={()=>void run(load)}>{t('nextcloud-account-reload')}</button></Show>
     <Show when={notice()}><p role="status">{notice()}</p></Show>
     <Show when={view()}>{data=><Show when={data().supported} fallback={<p>{t('nextcloud-pim-native-required')}</p>}>

@@ -1,5 +1,5 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { render, screen, waitFor } from '@solidjs/testing-library';
+import { render, waitFor } from '@solidjs/testing-library';
 import { Suspense } from 'solid-js';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';

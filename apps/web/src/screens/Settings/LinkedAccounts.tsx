@@ -7,7 +7,7 @@ import {keyOf,layoutChange,mailboxNickname,orderedKeys,saveLayout} from '../../a
 import type {MailboxAvatarSpec} from '../../api/mailboxAvatar.ts';
 import {moveTo} from '../../components/accounts/pointerReorder.ts';
 import {SigninChallenge} from '../../components/SigninChallenge.tsx';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {linkedAccountError} from '../../components/accounts/linkedAccountError.ts';
 import {isTransientFailure,showFailure} from '../../components/recoverableAction.ts';
 import {useApp} from '../../state/context.ts';
@@ -87,7 +87,7 @@ function OwnedLinkedAccounts():JSX.Element {
     finally{if(!disposed)setBusy(false);}
   }
   return <Show when={challenge()} keyed fallback={<Show when={editing()} fallback={<>
-    <Show when={list.loading&&!list()}><AsyncPending variant="list"/></Show>
+    <Show when={list.loading&&!list()}><InlineLoading /></Show>
     <Show when={list.error}><button class={css.button} onClick={()=>void refetch()}>{t('linked-accounts-retry')}</button></Show>
     <Show when={!list.error&&list()}>{value=><>
       <Show when={app.linkedMailboxId()===null} fallback={<p class={css.meta}>{t('linked-accounts-primary-preference')}</p>}><LinkedPreference onChanged={()=>{invalidateLinkedAccounts();void refetch();}}/></Show>

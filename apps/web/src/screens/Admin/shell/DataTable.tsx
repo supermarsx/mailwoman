@@ -13,7 +13,7 @@ import { Icon } from '../../../components/Icon.tsx';
 
 import { For, Show, createSignal, createUniqueId, onCleanup, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { Feedback } from './Feedback.tsx';
 import * as css from './shell.css.ts';
 import * as admin from '../admin.css.ts';
@@ -146,7 +146,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
       }>
         <Show when={props.state === 'ready' || props.rows.length > 0} fallback={
           <div class={css.state}>
-            <AsyncPending variant="table" message={t('admin-shell-loading')} onRetry={props.onRetry} />
+            <InlineLoading message={t('admin-shell-loading')} onRetry={props.onRetry} />
           </div>
         }>
           <Show when={props.rows.length > 0} fallback={
@@ -163,7 +163,7 @@ export function DataTable<R>(props: DataTableProps<R>): JSX.Element {
           }>
             <div class={css.tableRefresh}>
               <Show when={props.state === 'loading'}>
-                <AsyncPending variant="status" message={t('admin-shell-loading')} onRetry={props.onRetry} />
+                <InlineLoading message={t('admin-shell-loading')} onRetry={props.onRetry} />
               </Show>
             </div>
             <div class={admin.tableWrap}>

@@ -1,5 +1,5 @@
 import {InstanceSelector} from './InstanceSelector.tsx';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // A minimal WebDAV directory picker (SPEC §18.4, plan §3 e7). Browses Nextcloud
 // folders via the injected NextcloudService, letting the caller either navigate into
@@ -64,7 +64,7 @@ export function FilePicker(props: FilePickerProps): JSX.Element {
       </div>
 
       <Show when={entries.loading}>
-        <AsyncPending message={t('nextcloud-loading')}/>
+        <InlineLoading message={t('nextcloud-loading')}/>
       </Show>
       <Show when={entries.error as unknown}>
         <p class={css.error} role="alert">

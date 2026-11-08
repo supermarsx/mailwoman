@@ -1,5 +1,5 @@
 import { PersonalAccountBoundary } from './PersonalAccountBoundary.tsx';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { createResource, createSignal, For, Show, onMount, type JSX } from 'solid-js';
 import { t, loadCatalog } from '../../i18n';
 import { SettingsService } from './service.ts';
@@ -20,7 +20,7 @@ function OwnedSignatures(props:SignaturesProps):JSX.Element {
  const open=(id?:string,source?:Signature)=>{if(source){const {rule:_rule,...content}=source;setVariant({...structuredClone(content),name:'',isDefault:false});}else setVariant(undefined);return navigation.navigate({section:'signatures',editor:id===undefined?{kind:'new'}:{kind:'edit',id}});};
  const back=async():Promise<void>=>{await navigation.navigate({section:'signatures'});};
  async function remove(id:string):Promise<void>{setBusy(true);try{await service.deleteSignature(id);await refetch();}catch{toast.error(t('settings-sig-error-generic'));}finally{setBusy(false);}}
- return <Show when={editor()} keyed fallback={<SettingsCard id="signatures-card" wide title={t('settings-sig-title')} description={t('settings-sig-intro')}><Show when={signatures.loading}><AsyncPending onRetry={()=>void refetch()}/></Show>
+ return <Show when={editor()} keyed fallback={<SettingsCard id="signatures-card" wide title={t('settings-sig-title')} description={t('settings-sig-intro')}><Show when={signatures.loading}><InlineLoading onRetry={()=>void refetch()}/></Show>
       <ul class={css.list} data-testid="signature-list">
         <For each={signatures() ?? []}>
           {(sig) => (

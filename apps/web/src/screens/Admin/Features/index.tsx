@@ -20,7 +20,7 @@ import { Feedback, describeAdminError } from '../shell/Feedback.tsx';
 import { AdminProblemError } from '../shell/adminApi.ts';
 import { sectionPath, type AdminRoute } from '../shell/router.ts';
 import type { Column } from '../shell/DataTable.tsx';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { featuresApi, profileIdFor, type FeatureCatalogue, type FeatureProfile, type FeaturesApi, type ProfileAssignment, type ProfileValue } from './api.ts';
 import { ProfileEditor } from './ProfileEditor.tsx';
 import { Assignments } from './Assignments.tsx';
@@ -127,7 +127,7 @@ export function AdminFeatures(props: AdminFeaturesProps): JSX.Element {
   // t98 (t75 pattern): the detail stays mounted while the catalogue reloads after a
   // write; only a first load shows the pending state.
   const detail = (id: string): JSX.Element => (
-    <Show when={catalogue()} fallback={loading() ? <AsyncPending /> : <Feedback kind="error" message={error()} />}>
+    <Show when={catalogue()} fallback={loading() ? <InlineLoading /> : <Feedback kind="error" message={error()} />}>
       {(current) => detailOf(id, current)}
     </Show>
   );
@@ -141,7 +141,7 @@ export function AdminFeatures(props: AdminFeaturesProps): JSX.Element {
       );
     }
     return (
-      <Show when={find(id)?.id} keyed fallback={loading() ? <AsyncPending /> : <Feedback kind="error" message={t('admin-features-not-found', { id: isolate(id) })} />}>
+      <Show when={find(id)?.id} keyed fallback={loading() ? <InlineLoading /> : <Feedback kind="error" message={t('admin-features-not-found', { id: isolate(id) })} />}>
         {(_id) => {
           const p = (): FeatureProfile => find(id)!;
           return (

@@ -1,6 +1,6 @@
 import { For, Show, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { AdminSubsection } from '../AdminSubsection.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
@@ -12,7 +12,7 @@ export default function TrafficTab(props: { ctx: PrivacyTabContext }): JSX.Eleme
   return (
     <AdminSubsection title={t('privacy-process-stats')} actions={<button class="btn" disabled={ctx().statsLoading()} onClick={() => ctx().refresh()}>{t('privacy-refresh')}</button>}>
       <Show when={ctx().statsError()}><p role="alert">{describeAdminError(ctx().statsError())}</p></Show>
-      <Show when={ctx().statsLoading() && !ctx().stats()}><AsyncPending /></Show>
+      <Show when={ctx().statsLoading() && !ctx().stats()}><InlineLoading /></Show>
       <Show when={!ctx().statsError() ? ctx().stats() : undefined}>{(value) => <div class={css.section} aria-busy={ctx().statsLoading()}>
         <div class={css.tableWrap} tabindex="0" role="region" aria-label={t('privacy-traffic-summary')}>
           <table class={css.table} aria-label={t('privacy-traffic-summary')}>

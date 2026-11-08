@@ -1,7 +1,7 @@
 import {Show,createSignal,onMount,type JSX} from 'solid-js';
 import {nextcloudAccountsApi,type NextcloudAccountsApi,type CloudInstance,type CloudWrite} from '../../api/nextcloudAccounts.ts';
 import {loadCatalog,t} from '../../i18n';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {useShell} from './shell/context.ts';
 import {sectionPath} from './shell/router.ts';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
@@ -23,7 +23,7 @@ export function AdminNextcloud(props:{api?:NextcloudAccountsApi}):JSX.Element {
   onMount(()=>{void loadCatalog('nextcloud');void reload();});
   return <section class={css.section}>
     <Show when={error()}><p role="alert">{error()}</p></Show>
-    <Show when={rows()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('nextcloud-account-reload')}</button>}><AsyncPending/></Show>}>
+    <Show when={rows()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('nextcloud-account-reload')}</button>}><InlineLoading/></Show>}>
       <Show when={editing()} fallback={<>
         <h2 class={css.heading}>{t('nextcloud-admin-title')}</h2><p class={css.note}>{t('nextcloud-admin-help')}</p>
         <div class={ux.pageActions}><button class="btn btn--primary" disabled={!writable()||busy()||(rows()?.length??0)>=64} onClick={()=>go('new')}>{t('nextcloud-admin-add')}</button><button class="btn" disabled={busy()} onClick={()=>void reload()}>{t('nextcloud-account-reload')}</button></div>

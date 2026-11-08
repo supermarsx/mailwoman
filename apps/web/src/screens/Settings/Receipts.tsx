@@ -1,7 +1,7 @@
 import {createEffect,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {receiptPolicyApi,ReceiptPolicyError,type ReceiptMode,type ReceiptPolicy,type ReceiptPolicyApi} from '../../api/receipts.ts';
 import {loadCatalog,t} from '../../i18n';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {useEditorGuard,useEntityNavigation} from './entityEditor.tsx';
 import {LockNote} from './LockNote.tsx';
 import {ReceiptSenders} from './ReceiptSenders.tsx';
@@ -18,7 +18,7 @@ export function Receipts(props:{accountId:string;api?:ReceiptPolicyApi}):JSX.Ele
  return <section class={`${layout.section} ${layout.cards}`} aria-label={t('receipts-title')}>
  <Show when={!nav.route().editor || nav.route().editor?.id==='delivery'}><DeliveryReceiptPreferences accountId={props.accountId}/></Show>
  <Show when={nav.route().editor?.id!=='delivery'}>
- <Show when={error()}><p role="alert">{t(error())}</p></Show><Show when={!policy()&&!error()}><AsyncPending/></Show>
+ <Show when={error()}><p role="alert">{t(error())}</p></Show><Show when={!policy()&&!error()}><InlineLoading/></Show>
  <Show when={policy()}>{current=><><Show when={!nav.route().editor?.id?.startsWith('sender:')}><Show when={nav.route().editor} fallback={<section class={css.section}><h2 class={css.heading}>{t('receipts-title')}</h2><p class={css.prose}>{t('receipts-description')}</p><p>{t(`receipts-mode-${current().policy}`)}</p><LockNote locked={current().locked}/><div class={css.actions}><button class={css.button} onClick={()=>void nav.navigate({section:'receipts',editor:{kind:'edit',id:'response'}})}>{t('receipts-edit')}</button></div></section>}>
   <ReceiptPolicyEditor accountId={props.accountId} value={current()} api={props.api??receiptPolicyApi} onSaved={setPolicy} onBack={()=>nav.navigate({section:'receipts'}).then(()=>undefined)}/>
  </Show></Show><Show when={!nav.route().editor||nav.route().editor?.id?.startsWith('sender:')}><ReceiptSenders accountId={props.accountId} locked={current().locked}/></Show></>}</Show></Show></section>;

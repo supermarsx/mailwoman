@@ -1,7 +1,7 @@
 import { createSignal, For, onMount, Show, useContext, type JSX } from 'solid-js';
 import { telemetryApi, type TelemetryApi, type TelemetryConfig, type TelemetryView } from '../../api/admin/telemetry.ts';
 import { loadCatalog, t } from '../../i18n';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { ShellContext } from './shell/context.ts';
 import { useDirtyGuard } from './shell/useDirtyGuard.ts';
@@ -37,7 +37,7 @@ export function Telemetry(props:{api?:TelemetryApi}):JSX.Element {
     <button class="btn btn--ghost" onClick={()=>void shell?.router.navigate(sectionPath('observability'))}>{t('admin-telemetry-back')}</button>
     <Show when={error()}><p role="alert">{error()}</p></Show><Feedback kind="success" as="toast" message={saved()?t('admin-telemetry-saved'):null}/>
     <Show when={view()?.restartRequired}><p role="status">{t('admin-telemetry-restart')}</p></Show>
-    <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('admin-telemetry-reload')}</button>}><AsyncPending/></Show>}>{value=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
+    <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" onClick={()=>void reload()}>{t('admin-telemetry-reload')}</button>}><InlineLoading/></Show>}>{value=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
       <AdminSubsection title={t('admin-telemetry-collector')} description={t('admin-telemetry-collector-help')}>
         <For each={['enabled','traces','metrics'] as const}>{key=><label><input type="checkbox" checked={view()?.pinned.includes(key)?Boolean(view()?.effective[key]):value()[key]} disabled={disabled(key)} onChange={event=>change({[key]:event.currentTarget.checked})}/>{t(`admin-telemetry-${key}`)}</label>}</For>
         <For each={['endpoint','serviceName','environment'] as const}>{key=><label class="field"><span>{t(`admin-telemetry-${key}`)}</span><input type={key==='endpoint'?'url':'text'} maxlength={key==='endpoint'?2048:key==='serviceName'?128:64} value={view()?.pinned.includes(key)?String(view()?.effective[key]):value()[key]} disabled={disabled(key)} onInput={event=>change({[key]:event.currentTarget.value})}/><small>{t(`admin-telemetry-${key}-help`)}</small></label>}</For>

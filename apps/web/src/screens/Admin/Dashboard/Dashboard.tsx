@@ -12,7 +12,7 @@ import * as auditCss from '../shell/audit.css.ts';
 // (nothing measures it), backups (host-side), recent error log lines (log viewer).
 
 import { For, Match, Show, Switch, createResource, createSignal, createEffect, onCleanup, onMount, type JSX } from 'solid-js';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { resourceValue } from '../../../components/resourceValue.ts';
 import { isolate, loadCatalog, t } from '../../../i18n';
 import { useOptionalPersonalPreferences } from '../shell/personalPreferences.tsx';
@@ -126,7 +126,7 @@ export function Dashboard(): JSX.Element {
       </div>
       <Switch>
         <Match when={resource.loading && current() === undefined}>
-          <div class={shell.state}><AsyncPending variant="page" message={t('admin-shell-loading')} onRetry={() => void refetch()} /></div>
+          <div class={shell.state}><InlineLoading message={t('admin-shell-loading')} onRetry={() => void refetch()} /></div>
         </Match>
         <Match when={current()?.kind === 'unavailable'}>
           <div class={shell.field} data-testid="dash-unavailable">

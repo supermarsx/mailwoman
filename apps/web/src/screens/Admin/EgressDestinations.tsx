@@ -1,7 +1,7 @@
 import { HostBrandCell } from '../../brands/BrandLogo.tsx';
 import {For,Show,createSignal,onMount,type JSX} from 'solid-js';
 import {egressDestinationsApi,type EgressDestinationsApi,type InternalDestination,type DestinationDraft} from '../../api/admin/egressDestinations.ts';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {t} from '../../i18n';
 import {describeAdminError} from './shell/Feedback.tsx';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
@@ -18,7 +18,7 @@ export function EgressDestinations(props:{api?:EgressDestinationsApi;editor?:str
   async function remove(id:string):Promise<void>{if(busy()||props.readOnly)return;setBusy(true);setError('');try{await api().remove(id);setRemoving(undefined);await load();}catch(error){setError(describeAdminError(error));}finally{setBusy(false);}}
   return <section class={css.section}><h2>{t('admin-egress-destinations-title')}</h2><p>{t('admin-egress-destinations-help')}</p>
     <Show when={error()}><p role="alert">{error()}</p></Show>
-    <Show when={rows()} fallback={<Show when={!error()} fallback={<button class="btn" onClick={()=>void load()}>{t('common-retry')}</button>}><AsyncPending/></Show>}>
+    <Show when={rows()} fallback={<Show when={!error()} fallback={<button class="btn" onClick={()=>void load()}>{t('common-retry')}</button>}><InlineLoading/></Show>}>
       <Show when={props.editor==='new'} fallback={<>
         <div class={ux.pageActions}><button class="btn" onClick={props.onBack}>{t('admin-egress-destinations-back')}</button><button class="btn btn--primary" disabled={props.readOnly||busy()} onClick={()=>props.onNavigate('new')}>{t('admin-egress-destinations-add')}</button></div>
         <div class={css.tableWrap}><table class={css.table}><thead><tr><th>{t('admin-egress-destination-class')}</th><th>{t('admin-egress-destination-target')}</th><th>{t('admin-egress-destination-note')}</th><th>{t('admin-egress-destination-actions')}</th></tr></thead><tbody><For each={rows()}>{row=><tr><td>{t(`admin-egress-class-${row.trafficClass}`)}</td><td><HostBrandCell host={row.destination}>{row.destination}</HostBrandCell></td><td>{row.note}</td><td><Show when={removing()===row.id} fallback={<button class="btn" disabled={props.readOnly||busy()} onClick={()=>setRemoving(row.id)}>{t('admin-egress-destination-revoke')}</button>}><p>{t('admin-egress-destination-confirm')}</p><button class="btn" disabled={busy()} onClick={()=>void remove(row.id)}>{t('admin-egress-destination-confirm-button')}</button><button class="btn" disabled={busy()} onClick={()=>setRemoving(undefined)}>{t('common-cancel')}</button></Show></td></tr>}</For></tbody></table></div>

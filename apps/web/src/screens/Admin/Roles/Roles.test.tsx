@@ -78,9 +78,9 @@ it('offers retry after initial role loading fails without retaining a loading sk
  const api=service();let reject!:(cause:unknown)=>void;
  vi.mocked(api.roles).mockImplementation(()=>new Promise((_resolve,no)=>{reject=no;}));
  mount('/admin#/roles',api);
- expect(screen.getByTestId('async-pending')).toBeInTheDocument();
+ expect(screen.getByTestId('inline-loading')).toBeInTheDocument();
  reject(new Error('roles refused'));
- await waitFor(()=>expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument());
+ await waitFor(()=>expect(screen.queryByTestId('inline-loading')).not.toBeInTheDocument());
  expect(screen.getByRole('alert')).toBeInTheDocument();
  vi.mocked(api.roles).mockResolvedValue([role]);
  fireEvent.click(screen.getByRole('button',{name:'Retry'}));

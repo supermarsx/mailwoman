@@ -61,6 +61,6 @@ it('does not continue or publish an old batch after the account changes',async()
 
 it('announces the initial session load and exposes a named keyboard scroll region',async()=>{
  const service=new SettingsService();let release!:(value:[])=>void;vi.spyOn(service,'sessions').mockImplementation(()=>new Promise(resolve=>{release=resolve;}));
- render(()=><Sessions service={service}/>);expect(screen.getByTestId('async-pending')).toBeVisible();expect(screen.getByRole('region',{name:'Active sessions table'})).toHaveAttribute('tabindex','0');
- release([]);await waitFor(()=>expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument());
+ render(()=><Sessions service={service}/>);expect(screen.getByTestId('inline-loading')).toBeVisible();expect(screen.getByRole('region',{name:'Active sessions table'})).toHaveAttribute('tabindex','0');
+ release([]);await waitFor(()=>expect(screen.queryByTestId('inline-loading')).not.toBeInTheDocument());
 });

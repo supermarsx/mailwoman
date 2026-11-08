@@ -5,7 +5,8 @@ import { createEffect, createMemo, createResource, createSignal, onCleanup, For,
 import { t, formatDate } from '../i18n';
 import {Icon} from '../components/Icon.tsx';
 import {inspectFile} from '../viewers/fileInfo.ts';
-import {AsyncPending, AsyncError} from '../components/AsyncState.tsx';
+import { AsyncError } from '../components/AsyncState.tsx';
+import { InlineLoading } from '../components/InlineLoading.tsx';
 import * as table from './attachmentsTable.css.ts';
 import '../viewers/viewers.css';
 import {
@@ -132,7 +133,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
 
       <Show when={!data.error} fallback={<AsyncError error={data.error} onRetry={()=>void refetch()}/> }><Show
         when={!data.loading||all().length>0}
-        fallback={<AsyncPending variant="table" message={t('common-attach-loading')} onRetry={()=>void refetch()}/>}
+        fallback={<InlineLoading message={t('common-attach-loading')} onRetry={()=>void refetch()}/>}
       >
         <Show
           when={filtered().length > 0}

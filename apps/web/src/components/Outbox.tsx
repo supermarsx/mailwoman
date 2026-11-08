@@ -1,4 +1,4 @@
-import {AsyncPending} from './AsyncState.tsx';
+import { InlineLoading } from './InlineLoading.tsx';
 import { For, Show, createSignal, onCleanup, onMount, type JSX } from 'solid-js';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import { useApp } from '../state/context.ts';
@@ -130,7 +130,7 @@ export function Outbox(): JSX.Element {
         </button>
       </header>
       <div class="outbox__split">
-      <Show when={app.outbox().length > 0} fallback={<Show when={app.outboxLoading()} fallback={<p class={`outbox__empty ${css.empty}`}>{t(failed()?'mail-outbox-unavailable':'mail-outbox-empty')}</p>}><AsyncPending variant="list"/></Show>}>
+      <Show when={app.outbox().length > 0} fallback={<Show when={app.outboxLoading()} fallback={<p class={`outbox__empty ${css.empty}`}>{t(failed()?'mail-outbox-unavailable':'mail-outbox-empty')}</p>}><InlineLoading /></Show>}>
         <ul class={`outbox__items ${css.items}`}>
           <For each={app.outbox()}>
             {(sub) => {

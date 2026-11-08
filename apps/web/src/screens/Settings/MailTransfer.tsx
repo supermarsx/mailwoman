@@ -1,7 +1,7 @@
 import {createEffect,createSignal,For,onCleanup,onMount,Show,type JSX} from 'solid-js';
 import {mailTransferApi,MailTransferError,type MailTransferApi,type MailImportFormat,type MailExportFormat,type MailImportFormats,type MailImportResult} from '../../api/mailTransfer.ts';
 import {loadCatalog,t} from '../../i18n';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {useEditorGuard,useEntityNavigation} from './entityEditor.tsx';
 import * as css from './styles.css.ts';
 import * as layout from './MailTransfer.css.ts';
@@ -82,7 +82,7 @@ export function MailImportEditor(props:{accountId:string;mailboxes:readonly Tran
   }
   const back=()=><button type="button" class={css.ghost} disabled={busy()} onClick={()=>void guard.leave(props.onBack)}>{t('mail-transfer-back')}</button>;
   return <><h2 class={css.heading}>{t('mail-transfer-import-title')}</h2><p class={css.prose}>{t('mail-transfer-import-detail')}</p>
-    <Show when={!formats()&&!error()}><AsyncPending/></Show>
+    <Show when={!formats()&&!error()}><InlineLoading/></Show>
     <Show when={formats()}>{limits=><>
       <Show when={limits().available} fallback={<p role="status">{t('mail-transfer-unavailable')}</p>}>
         <form class={layout.fields} onSubmit={event=>void submit(event)}><fieldset disabled={busy()} class={layout.fields}>

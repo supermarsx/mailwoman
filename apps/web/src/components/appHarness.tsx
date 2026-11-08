@@ -113,7 +113,13 @@ export function renderWithApp(ui: () => JSX.Element, opts: HarnessOpts = {}): {
   app: AppState;
   result: ReturnType<typeof render>;
 } {
-  const app = createAppState(makeClient(opts), opts.deps);
-  const result = render(() => <AppContext.Provider value={app}>{ui()}</AppContext.Provider>);
+  let app!: AppState;
+  // Auth listeners and account-scoped slices belong to the rendered fixture.
+  // Creating the store before render leaves them without a Solid owner, so
+  // later tests' account switches continue rebuilding already-unmounted stores.
+  const result = render(() => {
+    app = createAppState(makeClient(opts), opts.deps);
+    return <AppContext.Provider value={app}>{ui()}</AppContext.Provider>;
+  });
   return { app, result };
 }

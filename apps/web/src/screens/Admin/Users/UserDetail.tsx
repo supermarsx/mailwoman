@@ -8,7 +8,7 @@ import { useAdmin } from '../context.ts';
 import type { UserFeatureFlags, UserSummary } from '../../../state/slices/admin.ts';
 import { loadCatalog } from '../../../i18n/catalog.ts';
 import { t, formatDateTime } from '../../../i18n/index.ts';
-import { AsyncPending } from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { ShellContext } from '../shell/context.ts';
 import { adminRequest } from '../shell/adminApi.ts';
 import { hrefFor, sectionPath } from '../shell/router.ts';
@@ -79,7 +79,7 @@ export function UserDetail(props: { id: string; tab?: string }): JSX.Element {
   return <section class={css.section} aria-label={t('admin-users-title')}>
     <a href={hrefFor(sectionPath('users'))}>{t('admin-users-back')}</a>
     <h2 class={css.heading}>{t('admin-users-identity')}</h2>
-    <Show when={identity.loading}><AsyncPending variant="status" /></Show>
+    <Show when={identity.loading}><InlineLoading /></Show>
     <Show when={identity.error}><p role="alert">{t('admin-users-load-error')}</p></Show>
     <Show when={error()}><p class={css.error} role="alert">{error()}</p></Show>
     <Feedback kind="error" as="toast" message={failure()} />

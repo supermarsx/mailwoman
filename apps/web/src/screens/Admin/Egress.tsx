@@ -1,5 +1,5 @@
 import { HostBrandCell } from '../../brands/BrandLogo.tsx';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { controls, field, fields, editor, group, choices, check, actions } from './Egress.css.ts';
 // Egress-proxy routes admin (26.20 t22-e16), over t22-e12's API (`2eede09`):
 //
@@ -467,7 +467,7 @@ export function AdminEgress(props: AdminEgressProps): JSX.Element {
 
       <Show when={!props.onNavigate||!showEditor()}>
       <Show when={props.onNavigate}><button type="button" class="btn" onClick={()=>props.onNavigate?.('new')}>{t('admin-egress-add-heading')}</button></Show>
-      <Show when={loaded()} fallback={<AsyncPending variant="page"/>}>
+      <Show when={loaded()} fallback={<InlineLoading />}>
         <Show
           when={routes().length > 0}
           fallback={

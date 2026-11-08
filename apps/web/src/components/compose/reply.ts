@@ -23,7 +23,10 @@ export interface ComposeImageOffer {
   /** Remember the sender's domain in the user's settings. */
   trust():Promise<void>;
 }
-export interface ImageContext{cidParts:Readonly<Record<string,string>>;allowRemote:boolean;allowInline:boolean;blockTrackers:boolean}
+export interface ImageContext{cidParts:Readonly<Record<string,string>>;allowRemote:boolean;allowInline:boolean;blockTrackers:boolean;
+ /** Present when remote images are held back only for want of a grant: saves the
+ *  single-message grant the reader's Show images button would. */
+ grantRemote?:()=>Promise<void>}
 export type ReplyMode = 'reply' | 'reply-all' | 'forward';
 
 /** What a composer opened from a message starts with. */

@@ -10,7 +10,8 @@ import { t, loadCatalog, isolate } from '../../i18n';
 import { SettingsService } from './service.ts';
 import type { SessionMeta } from './types.ts';
 import { toast } from '../../components/toast/index.ts';
-import { AsyncPending, AsyncError } from '../../components/AsyncState.tsx';
+import { AsyncError } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import {revokeSessionBatch} from '../../api/sessionRevocation.ts';
 import {SessionRevokeConfirm} from './SessionRevokeConfirm.tsx';
@@ -130,7 +131,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
       <p class={css.meta}>{t('settings-sessions-current-protected')}</p>
       <Show when={result()}>{value=><p role={value().problem?'alert':'status'}>{value().text}</p>}</Show>
       <Show when={sessions.error}><AsyncError message={t('settings-sessions-error')} onRetry={()=>{void refetch();}}/></Show>
-      <Show when={sessions.loading}><AsyncPending variant={loaded().length?'status':'table'}/></Show>
+      <Show when={sessions.loading}><InlineLoading /></Show>
       <div class={table.wrap} aria-busy={sessions.loading} role="region" aria-label={t('settings-sessions-table')} tabIndex={0}>
         <table class={table.table} data-testid="session-list"><caption>{t('settings-sessions-title')}</caption>
           <thead><tr><th aria-label={t('settings-sessions-select')}/><th>{t('settings-sessions-account')}</th><th>{t('settings-sessions-device')}</th><th>{t('settings-sessions-location')}</th><th>{t('settings-sessions-activity')}</th><th>{t('settings-sessions-actions')}</th></tr></thead>

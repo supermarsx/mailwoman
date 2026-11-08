@@ -16,7 +16,7 @@ import type { AuditLogEntry } from '../../state/slices/admin.ts';
 import { t } from '../../i18n';
 import { SectionTabs } from './shell/SectionTabs.tsx';
 import { ObservabilityStats } from './ObservabilityStats.tsx';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { Feedback } from './shell/Feedback.tsx';
 import { AuditRetention } from './Logs/AuditRetention.tsx';
 import * as css from './admin.css.ts';
@@ -101,7 +101,7 @@ function ObservabilityAudit(): JSX.Element {
             {t('admin-obs-export')}
           </button>
         </div>
-        <Show when={audit().length > 0} fallback={<Show when={loading()} fallback={<Show when={!error()}><p class={css.note}>{t('admin-obs-audit-empty')}</p></Show>}><AsyncPending /></Show>}>
+        <Show when={audit().length > 0} fallback={<Show when={loading()} fallback={<Show when={!error()}><p class={css.note}>{t('admin-obs-audit-empty')}</p></Show>}><InlineLoading /></Show>}>
           <div class={css.tableWrap}>
             <table class={`${css.table} ${auditCss.auditTable}`}>
               <thead>

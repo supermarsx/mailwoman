@@ -96,6 +96,7 @@ import {
   coveringGrant,
   createRemoteImageApi,
   hasBlockedContent,
+  scopeFor,
   type GrantScope,
   type MutationOptions,
 } from '../api/remote-images.ts';
@@ -730,7 +731,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // motion) run when ANOTHER message opens, not on every update of the open one:
   // a keyword write (the automatic mark-read a second after opening) replaces the
   // openEmail object, and the decrypted body was reset with it.
-  const emailId = createMemo((): string | null => app.openEmail()?.id ?? null);
   // The list row of the message being loaded (its header is already known).
   const pendingEntry = () => {
     const id = props.view?.pendingId();
@@ -742,6 +742,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   // pending state. It is released when nothing is open or loading any more.
   const chromeEmail = createMemo<Email | null>((previous) => app.openEmail() ?? ((app.readLoading() || pendingEntry()) ? previous : null), null);
   const switching = (): boolean => app.openEmail() === null && chromeEmail() !== null;
+  const emailId = createMemo((): string | null => app.openEmail()?.id ?? null);
   const addressCard = createAddressContactCard({ scope: () => JSON.stringify([app.accountId(), emailId()]), active: () => props.active !== false && emailId() !== null, ...(props.onCompose ? { onCompose: props.onCompose } : {}) });
   const [addressTarget, setAddressTarget] = createSignal<ReaderAddressContext>();
   const addressMenu = createContextMenu({ label: () => t('contacts-address-card'), ownerDocument: () => addressTarget()?.ownerDocument,
@@ -1001,7 +1002,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     return { colorMode, fontSize: Number(values['reader.fontSize']?.value ?? 14), lineHeight: Number(values['reader.lineHeight']?.value ?? 1.6), contentWidth: width === 'comfortable' || width === 'wide' ? width : 'full' };
   };
   const frameOptions = () => ({ appearance: readerAppearance(), themeVars: readerAppearance().colorMode === 'adaptive' ? themeCssVars(app.theme(), { density: app.density() }) : '', tips: { theme: app.theme(), invert: readerAppearance().colorMode === 'invert', labels: { blocked: t('image-tip-blocked'), loading: t('image-tip-loading'), error: t('image-tip-error') } } });
-  const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 120)} />;
+  const messageLoading = () => <MessageLoading variant={String(settings()['reader.loading']?.value ?? 'skeleton')} delayMs={Number(settings()['reader.loadingDelayMs']?.value ?? 150)} />;
   const unreviewedBodySrcdoc = createMemo<string | null>(() => {
     const email = app.openEmail(); if (!email) return null;
     const mode = maxsec.effectiveMode(sender());
@@ -1106,12 +1107,22 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   createEffect(()=>{const active=props.active!==false;app.accountId();app.openEmail();replyViewScope();replyPolicyScope();decryptedHtml();decryptedText();if(replyCurrent&&(!active||!replyCurrent()))replyAbort?.abort();});
   onCleanup(()=>replyAbort?.abort());
 
+  let grantRefreshPending=false;
+  function flushGrantRefresh():void{if(!grantRefreshPending)return;grantRefreshPending=false;void refetchGrants();void reloadOpenMessage().catch(()=>undefined);}
   function captureImageContext():ImageContext{
     const body=currentBody(),full=maxsec.effectiveMode(sender())==='full-sanitized';
     return {
       cidParts:body?.cidParts??{},
       allowRemote:full&&bodyAllowsContent()&&(body?.policy.mode==='proxy'||body?.policy.mode==='direct'&&body.policy.allowDirect||body?.policy.mode==='ask'&&activeGrant()!==null),
       allowInline:full&&bodyAllowsContent(),blockTrackers:body?.policy.trackers!==false,
+      // "Ask" mode with nothing shown yet: choosing to put the images in the reply
+      // is the user's explicit request for this message's images (the same grant
+      // the banner's Show images button saves), so the server may then sign them.
+      ...(full&&bodyAllowsContent()&&body?.policy.mode==='ask'&&activeGrant()===null&&emailId()!==null?{grantRemote:async()=>{
+        const acct=app.accountId(),id=emailId();if(acct===null||id===null)throw new Error('No message');
+        await remoteImages.grant(acct,scopeFor('single',{emailId:id,sender:sender()}));
+        grantRefreshPending=true; // the reader catches up once the reply is prepared: a grant now would make this preparation stale
+      }}:{}),
     };
   }
   async function composeFrom(email: Email, mode: ReplyMode,preparation:{account:string;signal:AbortSignal;current:()=>boolean},forced?:{shown:{source:QuoteSource;decrypted:boolean};context:ImageContext}): Promise<ComposeInitial> {
@@ -1131,13 +1142,14 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     let inline:StoredInlineImage[]=[];
     let imageOffer:ComposeImageOffer|undefined;
     if(shown.source.html!==undefined&&hasQuoteImages(shown.source.html)){
-      const context=forced?.context??captureImageContext();
+      let context=forced?.context??captureImageContext();
       const settingsNow=effectiveSettings();
       const domain=senderDomain(email.from?.[0]?.email??'');
       const trustedList=(settingsNow['mail.replyImageTrustedDomains']?.value as string[]|undefined)??[];
       const decision=forced?'include':replyImageDecision(settingsNow['mail.replyImages']?.value,domain,trustedList);
       if(decision==='include'){
         const {embedReplyImages}=await import('./compose/replyImages.ts');
+        if(!context.allowRemote&&context.grantRemote){try{await context.grantRemote();context={...context,allowRemote:true};}catch{/* the cid images are still copied */}}
         let session:ReturnType<typeof jmapClient.session>|undefined;
         const copied=await embedReplyImages(shown.source.html,{
           emailId:email.id,accountId:preparation.account,cidParts:context.cidParts,
@@ -1167,7 +1179,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
           anchor:'',kind:'reply',
           include:async(signal)=>{
             const account=preparation.account;
-            const next=await composeFrom(email,mode,{account,signal,current:()=>!signal.aborted&&app.accountId()===account},captured);
+            let next;try{next=await composeFrom(email,mode,{account,signal,current:()=>!signal.aborted&&app.accountId()===account},captured);}finally{flushGrantRefresh();}
             return {bodyHtml:next.bodyHtml,bodyText:next.bodyText,inline:next.inline??[]};
           },
           trust:async()=>{
@@ -1290,7 +1302,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       if(current())app.showToast('error', t('mail-reply-failed'));
     } finally {
       unwatch();if(replyAbort===controller){replyAbort=undefined;replyCurrent=undefined;}
-      setPreparing(false);
+      setPreparing(false);flushGrantRefresh();
     }
   }
 
@@ -1360,6 +1372,13 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   /** The notice stack appears with the body (t110), never before it settles. */
   const noticesReady = (): boolean =>
     listHeadersSettled() && (bodySrcdoc() !== null || showDecrypt() || !(app.readLoading() || readerBody.loading || privacy.loading || grants.loading));
+  /** The stack's nodes (attachments bar, notices) are created with the first settled message and kept: a later message only hides it until its body is ready (no bar above a shown body), it is not rebuilt. */
+  const stackMounted = createMemo<boolean>((mounted) => chromeEmail() === null ? false : mounted || noticesReady(), false);
+  const anyLoading = (): boolean => app.readLoading() || readerBody.loading || privacy.loading || grants.loading;
+  const bodyReady = (): boolean => bodySrcdoc() !== null && listHeadersSettled();
+  /** The body frame is created once and re-used: the document it was last given stays (hidden, `suspended`) while the next message loads. */
+  const frameHtml = createMemo<string | null>((previous) => bodyReady() ? bodySrcdoc() : chromeEmail() !== null ? previous : null, null);
+  const frameKey = createMemo<string | undefined>((previous) => bodyReady() ? receiptDocumentKey() : previous);
 
   async function reloadOpenMessage(): Promise<void> {
     const id = emailId();
@@ -1372,13 +1391,6 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   async function onRemoteGrant(scope: GrantScope, options?: MutationOptions): Promise<void> {
     const acct = app.accountId();
     if (acct === null) return;
-  /** The stack's nodes (attachments bar, notices) are created with the first settled message and kept: a later message only hides it until its body is ready (no bar above a shown body), it is not rebuilt. */
-  const stackMounted = createMemo<boolean>((mounted) => chromeEmail() === null ? false : mounted || noticesReady(), false);
-  const anyLoading = (): boolean => app.readLoading() || readerBody.loading || privacy.loading || grants.loading;
-  const bodyReady = (): boolean => bodySrcdoc() !== null && listHeadersSettled();
-  /** The body frame is created once and re-used: the document it was last given stays (hidden, `suspended`) while the next message loads. */
-  const frameHtml = createMemo<string | null>((previous) => bodyReady() ? bodySrcdoc() : chromeEmail() !== null ? previous : null, null);
-  const frameKey = createMemo<string | undefined>((previous) => bodyReady() ? receiptDocumentKey() : previous);
     // An explicit Show images supersedes an earlier "Cancel loading" for this message.
     clearImagesCancelled();
     await remoteImages.grant(acct, scope, options);

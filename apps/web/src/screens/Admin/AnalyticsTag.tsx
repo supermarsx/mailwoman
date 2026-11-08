@@ -2,7 +2,7 @@ import { BrandCell } from '../../brands/BrandLogo.tsx';
 import { For, Match, Show, Switch, createMemo, createSignal, onMount, untrack, useContext, type JSX } from 'solid-js';
 import { TAG_PROVIDERS, analyticsTagApi, type AnalyticsTagApi, type AnalyticsTagConfig, type AnalyticsTagTest, type AnalyticsTagView, type TagProvider } from '../../api/admin/analyticsTag.ts';
 import { formatNumber, loadCatalog, t } from '../../i18n';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { Icon } from '../../components/Icon.tsx';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { ShellContext } from './shell/context.ts';
@@ -107,7 +107,7 @@ export function AnalyticsTag(props: { api?: AnalyticsTagApi }): JSX.Element {
     </ul>
     <Show when={error()}><p role="alert" class={css.error}>{error()}</p></Show>
     <Feedback kind="success" as="toast" message={saved()?t('admin-analytics-tag-saved'):null}/>
-    <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={() => void reload()}>{t('admin-analytics-reload')}</button>}><AsyncPending /></Show>}>{value => <form class={css.subsectionBody} onSubmit={event => void save(event)} aria-label={t('admin-analytics-tag-title')}>
+    <Show when={config()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={() => void reload()}>{t('admin-analytics-reload')}</button>}><InlineLoading /></Show>}>{value => <form class={css.subsectionBody} onSubmit={event => void save(event)} aria-label={t('admin-analytics-tag-title')}>
       <label class={ux.checkboxRow}><input type="checkbox" checked={value().enabled} disabled={disabled()} onChange={event => change({ enabled: event.currentTarget.checked })} /> {t('admin-analytics-tag-enabled')}</label>
       <label class="field"><span>{t('admin-analytics-tag-provider')}</span>
         <BrandCell brand={value().provider === 'custom' ? '' : value().provider} size={24}>
@@ -156,7 +156,7 @@ export function AnalyticsTag(props: { api?: AnalyticsTagApi }): JSX.Element {
         <button class="btn" type="button" disabled={busy() || testing() || !writable()} data-tooltip={t('admin-analytics-tag-test-tooltip')} onClick={() => void runTest()}><Icon name="diagnostics" /> {t('admin-analytics-tag-test')}</button>
         <button class="btn" type="button" disabled={busy()} onClick={() => void reload()}>{t('admin-analytics-reload')}</button>
       </div>
-      <Show when={testing()}><AsyncPending /></Show>
+      <Show when={testing()}><InlineLoading /></Show>
       <Show when={testError()}><p role="alert" class={css.error}>{testError()}</p></Show>
       <Show when={tested()}>{result => <ul class={tag.results} aria-label={t('admin-analytics-tag-test-results')}>
         <li class={tag.result}><Icon name={result().served ? 'check' : 'info'} />{t(result().served ? 'admin-analytics-tag-test-served' : 'admin-analytics-tag-test-unsaved', { path: result().path, bytes: formatNumber(result().bytes) })}</li>

@@ -8,7 +8,7 @@
 import { For, Match, Show, Switch, createResource, createSignal, type JSX } from 'solid-js';
 import { listAdminSettings, type AdminSetting } from '../../api/admin/settings.ts';
 import { loadCatalog, t } from '../../i18n';
-import { AsyncPending } from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import { resourceValue } from '../../components/resourceValue.ts';
 import { AdminSubsection } from './AdminSubsection.tsx';
 import { useShell } from './shell/context.ts';
@@ -72,7 +72,7 @@ export function AdminAttachmentPolicy(props: { load?: typeof listAdminSettings; 
     <section class={css.section}>
       <h2>{t('admin-attachments-title')}</h2>
       <p>{t('admin-attachments-description')}</p>
-      <Show when={settings.loading && current() === undefined}><AsyncPending /></Show>
+      <Show when={settings.loading && current() === undefined}><InlineLoading /></Show>
       <Show when={settings.error}><p role="alert">{describeAdminError(settings.error)}</p></Show>
       <Show when={current() !== undefined && current()?.kind !== 'ok'}><p role="alert">{t('admin-attachments-unavailable')}</p></Show>
       <Show when={current()?.kind === 'ok'}>

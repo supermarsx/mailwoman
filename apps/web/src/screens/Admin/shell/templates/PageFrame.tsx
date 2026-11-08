@@ -13,7 +13,7 @@
 
 import { Match, Show, Switch, type JSX } from 'solid-js';
 import { t } from '../../../../i18n';
-import { AsyncPending } from '../../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../../components/InlineLoading.tsx';
 import { describeAdminError } from '../Feedback.tsx';
 import { Icon } from '../icons.tsx';
 import * as ux from '../ux.css.ts';
@@ -69,7 +69,7 @@ export function PageState(props: { state: PageStateKind; testId?: string }): JSX
     <div class={ux.pageState} data-testid={props.testId ?? 'page-state'} data-state={props.state.kind}>
       <Switch>
         <Match when={props.state.kind === 'loading'}>
-          <AsyncPending message={t('admin-shell-loading')} />
+          <InlineLoading message={t('admin-shell-loading')} />
         </Match>
         <Match when={props.state.kind === 'error' ? props.state : undefined}>
           {(s) => (

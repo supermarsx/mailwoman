@@ -1,7 +1,7 @@
 import {createSignal,createUniqueId,onMount,onCleanup,Show,type JSX} from 'solid-js';
 import {clientAccessApi,validClientPsk,validClientSlug,type ClientAccessApi,type ClientAccessChange,type ClientAccessView} from '../../api/admin/clientAccess.ts';
 import {loadCatalog,t} from '../../i18n';
-import {AsyncPending} from '../../components/AsyncState.tsx';
+import { InlineLoading } from '../../components/InlineLoading.tsx';
 import {Feedback,describeAdminError} from './shell/Feedback.tsx';
 import {useSavingToast} from './shell/useSavingToast.ts';
 import {useDirtyGuard} from './shell/useDirtyGuard.ts';
@@ -30,7 +30,7 @@ export function ClientAccess(props:{readOnly:boolean;api?:ClientAccessApi}):JSX.
  return <section class={css.section} aria-label={t('admin-client-access-title')}>
   <h2 class={css.heading}>{t('admin-client-access-title')}</h2><p class={css.note}>{t('admin-client-access-help')}</p><p class={css.note}>{t('admin-client-access-scope')}</p>
   <Feedback kind="error" message={loadError()}/><Feedback kind="error" as="toast" message={error()}/><Feedback kind="success" as="toast" message={saved()}/>
-  <Show when={loading()}><AsyncPending/></Show><Show when={loadError()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
+  <Show when={loading()}><InlineLoading/></Show><Show when={loadError()}><button class="btn" onClick={()=>void load()}>{t('common-retry')}</button></Show>
   <Show when={view()}>{current=><form class={css.subsectionBody} onSubmit={event=>void save(event)}>
    <p><strong>{t('admin-client-access-entry')}</strong> <code data-testid="client-entry-path">{current().clientEntryPath}</code></p>
    <label><input type="checkbox" checked={slugEnabled()} disabled={disabled()} onChange={event=>setSlugEnabled(event.currentTarget.checked)}/>{t('admin-client-access-slug-enable')}</label>

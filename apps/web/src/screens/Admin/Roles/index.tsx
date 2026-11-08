@@ -1,4 +1,4 @@
-import {AsyncPending} from '../../../components/AsyncState.tsx';
+import { InlineLoading } from '../../../components/InlineLoading.tsx';
 import { For, Show, createSignal, onMount, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../../i18n';
 import { adminsApi, type AdminAccountsApi, type AdminRole, type AdminMe } from '../../../api/admin/admins.ts';
@@ -39,8 +39,8 @@ export function AdminRoles(props: { service?: AdminAccountsApi }): JSX.Element {
   }
   onMount(() => { void loadCatalog('admin-admins'); void loadCatalog('admin-role-purpose'); void reload(); });
   return <>
-    <Feedback kind="error" message={error()} /><Show when={loaded() && busy()}><AsyncPending variant="status"/></Show>
-    <Show when={loaded()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={()=>void reload()}>{t('common-retry')}</button>}><AsyncPending variant="list"/></Show>}>
+    <Feedback kind="error" message={error()} /><Show when={loaded() && busy()}><InlineLoading /></Show>
+    <Show when={loaded()} fallback={<Show when={busy()} fallback={<button class="btn" type="button" onClick={()=>void reload()}>{t('common-retry')}</button>}><InlineLoading /></Show>}>
       <Show when={creating() || editing()} fallback={<section class={css.section} aria-label={t('admin-accounts-roles')}>
         <h2 class={css.heading}>{t('admin-accounts-roles')}</h2>
         <p class={css.note}>{t('admin-roles-list-help')}</p>

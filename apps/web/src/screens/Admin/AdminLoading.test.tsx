@@ -10,10 +10,10 @@ it.each(['auth','application'] as const)('separates %s pending and failed histor
  const application=vi.fn<ApplicationLogsApi['history']>(()=>new Promise((_resolve,no)=>{reject=no;}));
  renderInShell(()=>kind==='auth'?<AuthLogs api={{history:auth}}/>:<ApplicationLogs api={{history:application}}/>);
  const empty=kind==='auth'?'No matching attempts.':'No matching warnings or errors in this process buffer.';
- expect(screen.getByTestId('async-pending').querySelector('[data-skeleton="table"]')).not.toBeNull();
+ expect(screen.getByTestId('inline-loading')).toBeInTheDocument();
  expect(screen.queryByText(empty)).not.toBeInTheDocument();
  reject(new Error('history refused'));
- await vi.waitFor(()=>expect(screen.queryByTestId('async-pending')).not.toBeInTheDocument());
+ await vi.waitFor(()=>expect(screen.queryByTestId('inline-loading')).not.toBeInTheDocument());
  expect(screen.getByRole('alert')).toBeInTheDocument();
  expect(screen.queryByText(empty)).not.toBeInTheDocument();
  auth.mockResolvedValue({kind:'ok',etag:null,data:{events:[],cursor:null,retentionDays:7}});
