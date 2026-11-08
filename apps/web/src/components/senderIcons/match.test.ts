@@ -34,3 +34,10 @@ it('bundles passive SVG artwork without scripts, event handlers or external reso
  const dir='src/components/senderIcons/assets';
  for(const file of readdirSync(dir).filter(name=>name.endsWith('.svg'))){const svg=readFileSync(`${dir}/${file}`,'utf8');expect(svg).not.toMatch(/<(?:script|foreignObject|image)\b|on(?:load|error)\s*=|<!DOCTYPE/iu);expect(svg).not.toMatch(/(?:href|src)\s*=\s*["'](?:https?:|\/\/)|url\(\s*["']?https?:/iu);}
 });
+
+it('matches MEO Empresas and its subdomains using the existing MEO asset, never lookalikes',()=>{
+ for(const address of ['billing@meoempresas.pt','billing@mail.meoempresas.pt']){
+  const icon=senderDomainIcon(address);expect(icon?.id).toBe('meo');expect(icon?.asset).toContain('meo-site.png');
+ }
+ for(const address of ['billing@notmeoempresas.pt','billing@meoempresas.pt.evil.io'])expect(senderDomainIcon(address)).toBeUndefined();
+});

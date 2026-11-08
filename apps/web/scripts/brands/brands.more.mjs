@@ -364,7 +364,7 @@ export const MORE = [
   ['amorim', 'Corticeira Amorim', null, ['amorim', 'corticeira amorim'], ['amorim.com', 'corticeiraamorim.com'], 'industry'],
   ['jeronimomartins', 'Jerónimo Martins', null, ['jeronimo martins'], ['jeronimomartins.com', 'jeronimomartins.pt'], 'shopping'],
   ['nos', 'NOS', null, [], ['nos.pt'], 'telecom'],
-  ['meo', 'MEO', null, [], ['meo.pt'], 'telecom'],
+  ['meo', 'MEO', null, ['meo empresas'], ['meo.pt', 'meoempresas.pt'], 'telecom'],
   ['vodafone', 'Vodafone', 'vodafone', [], ['vodafone.pt', 'vodafone.com', 'vodafone.es', 'vodafone.de', 'vodafone.co.uk'], 'telecom'],
   ['nowo', 'NOWO', null, [], ['nowo.pt'], 'telecom'],
   ['altice', 'Altice', null, [], ['altice.pt', 'alticeusa.com'], 'telecom'],

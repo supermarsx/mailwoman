@@ -4,7 +4,7 @@ export const BRANDS = [
   ['google', 'Google', 'google', ['google oauth'], ['google.com', 'googleapis.com', 'accounts.google.com'], 'identity'],
   ['gmail', 'Gmail', 'gmail', ['google mail', 'googlemail'], ['gmail.com', 'googlemail.com'], 'mail'],
   ['outlook', 'Outlook', 'microsoftoutlook', ['hotmail', 'live', 'exchange online'], ['outlook.com', 'hotmail.com', 'live.com', 'outlook.office.com', 'outlook.pt', 'hotmail.pt', 'hotmail.es', 'hotmail.fr', 'hotmail.de', 'hotmail.it', 'hotmail.co.uk', 'outlook.es', 'outlook.fr', 'outlook.de'], 'mail'],
-  ['microsoft', 'Microsoft', 'microsoft', ['entra', 'microsoft entra', 'entra id', 'azure ad', 'azure active directory'], ['microsoft.com', 'microsoftonline.com'], 'identity'],
+  ['microsoft', 'Microsoft', 'microsoft', ['entra', 'microsoft entra', 'entra id', 'azure ad', 'azure active directory'], ['microsoft.com', 'microsoftonline.com', 'onmicrosoft.com'], 'identity'],
   ['icloud', 'iCloud', 'icloud', ['icloud mail'], ['icloud.com', 'me.com', 'mac.com'], 'mail'],
   ['apple', 'Apple', 'apple', ['sign in with apple', 'apns', 'apple push'], ['apple.com', 'push.apple.com'], 'identity'],
   ['yahoo', 'Yahoo', 'yahoo', ['yahoo mail', 'ymail'], ['yahoo.com', 'ymail.com', 'rocketmail.com', 'yahoo.co.uk'], 'mail'],

@@ -1,6 +1,7 @@
 import type {AuthVerdict} from '../api/security-types.ts';
 import type {ListAuthSummary} from '../api/jmap-types.ts';
 import {brandForHost, type BrandEntry} from './registry.ts';
+import {brandAsset} from './assets.ts';
 
 /** `mail.brandAvatars.requireAuth`: how much proof a sender brand icon needs. */
 export type RequireAuth = 'never' | 'known-failure' | 'always';
@@ -50,7 +51,7 @@ export function authDecision(mode: RequireAuth, proves: () => boolean, auth: Aut
  */
 export function brandAvatarDecision(address: string | null | undefined, auth: AuthEvidence | null | undefined, mode: RequireAuth = DEFAULT_REQUIRE_AUTH): {brand: BrandEntry | undefined; unverified: boolean} {
   const brand = address ? brandForHost(address) : undefined;
-  if (!brand || brand.noMark || brand.category === 'mail') return {brand: undefined, unverified: false};
+  if (!brand || (brand.noMark && !brandAsset(brand.id)) || brand.category === 'mail') return {brand: undefined, unverified: false};
   const decision = authDecision(mode, () => authProves(brand.id, auth), auth);
   return decision === 'show' ? {brand, unverified: false} : {brand: undefined, unverified: true};
 }

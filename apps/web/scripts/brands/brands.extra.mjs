@@ -50,7 +50,7 @@ export const EXTRA = [
   ['leroymerlin', 'Leroy Merlin', 'leroymerlin', [], ['leroymerlin.pt', 'leroymerlin.es', 'leroymerlin.fr'], 'shopping'],
 
   // Mail, Microsoft, Google and productivity
-  ['m365', 'Microsoft 365', ['microsoft365', 'microsoftoffice'], ['office 365', 'office365', 'm365', 'microsoft office'], ['office365.com', 'office.com', 'microsoft365.com', 'sharepoint.com', 'onmicrosoft.com'], 'productivity'],
+  ['m365', 'Microsoft 365', ['microsoft365', 'microsoftoffice'], ['office 365', 'office365', 'm365', 'microsoft office'], ['office365.com', 'office.com', 'microsoft365.com', 'sharepoint.com'], 'productivity'],
   ['mozilla', 'Mozilla', 'mozilla', ['firefox'], ['mozilla.org', 'mozilla.com', 'firefox.com'], 'productivity'],
   ['googleworkspace', 'Google Workspace', 'googleworkspace', ['g suite', 'gsuite'], ['workspace.google.com'], 'productivity'],
   ['adobe', 'Adobe', 'adobe', [], ['adobe.com', 'adobe.io', 'adobesign.com'], 'productivity'],

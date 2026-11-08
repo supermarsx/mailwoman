@@ -250,3 +250,20 @@ describe('fourth batch: insurers, Moey and eyewear', () => {
     for (const b of BRANDS.filter(x => x.category === 'insurance' || x.category === 'eyewear')) expect(PROVIDER_CATEGORIES).not.toContain(b.category);
   });
 });
+
+describe('Microsoft tenants and MEO Empresas',()=>{
+ it('maps tenant hosts to the bundled Microsoft mark and MEO enterprise hosts to MEO',async()=>{
+  for(const host of ['onmicrosoft.com','tenant.onmicrosoft.com','user@tenant.onmicrosoft.com'])expect(brandForHost(host)?.id).toBe('microsoft');
+  expect(await loadBrandPath('microsoft')).toBeTruthy();
+  for(const host of ['meoempresas.pt','billing.meoempresas.pt'])expect(brandForHost(host)?.id).toBe('meo');
+  expect(brandFor('MEO Empresas')?.id).toBe('meo');
+  for(const host of ['notonmicrosoft.com','onmicrosoft.com.evil.io','tenant.onmicrosoft.com.evil.io','notmeoempresas.pt','meoempresas.pt.evil.io'])expect(brandForHost(host),host).toBeUndefined();
+ });
+ it('renders actual local Microsoft and MEO marks in provider logos',async()=>{
+  const ms=render(()=><BrandLogo brand="tenant.onmicrosoft.com"/>).container;
+  await waitFor(()=>expect(ms.querySelector('path')?.getAttribute('d')).toBe(PATHS.microsoft));
+  expect(ms.querySelector('text')).toBeNull();
+  const meo=render(()=><BrandLogo brand="meoempresas.pt"/>).container;
+  expect(meo.querySelector('image')?.getAttribute('href')).toContain('meo-site.png');expect(meo.querySelector('text')).toBeNull();
+ });
+});

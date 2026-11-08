@@ -120,7 +120,7 @@ export const EXPANDED_SENDER_ICONS:readonly SenderIcon[]=[
  {"id":"ey","name":"EY","category":"consultancy","domains":["ey.com"],"paths":[],"asset":eySiteAsset},
  {"id":"kpmg","name":"KPMG","category":"consultancy","domains":["kpmg.com"],"paths":[],"monogram":"KPMG"},
  {"id":"capgemini","name":"Capgemini","category":"consultancy","domains":["capgemini.com"],"paths":[],"asset":capgeminiSiteAsset},
- {"id":"meo","name":"MEO","category":"telecom","domains":["meo.pt"],"paths":[],"asset":meoSiteAsset},
+ {"id":"meo","name":"MEO","category":"telecom","domains":["meo.pt","meoempresas.pt"],"paths":[],"asset":meoSiteAsset},
  {"id":"nos","name":"NOS","category":"telecom","domains":["nos.pt"],"paths":[],"asset":nosSiteAsset},
  {"id":"vodafone","name":"Vodafone","category":"telecom","domains":["vodafone.pt","vodafone.com"],"paths":[],"asset":vodafoneSiteAsset},
  {"id":"digi","name":"DIGI Portugal","category":"telecom","domains":["digi.pt"],"paths":[],"asset":digiSiteAsset},

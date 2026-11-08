@@ -2,6 +2,7 @@ import {createResource, Show, type JSX} from 'solid-js';
 import {resourceValue} from '../components/resourceValue.ts';
 import {brandFor, brandForHost, loadBrandPath, type BrandCategory, type BrandEntry} from './registry.ts';
 import * as css from './brandLogo.css.ts';
+import {brandAsset} from './assets.ts';
 
 export type BrandLogoSize = 16 | 20 | 24 | 32;
 
@@ -55,7 +56,7 @@ export function BrandLogo(props: BrandLogoProps): JSX.Element {
       viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"
       role={props.decorative ? undefined : 'img'} aria-label={props.decorative ? undefined : label()} aria-hidden={props.decorative ? 'true' : undefined}
     >
-      <Show when={entry() && !entry()!.noMark} fallback={<Monogram name={entry()?.name ?? props.brand} />}>
+      <Show when={entry() && !entry()!.noMark} fallback={<Show when={entry() && brandAsset(entry()!.id)} fallback={<Monogram name={entry()?.name ?? props.brand} />}>{asset=><image href={asset()} width="24" height="24" preserveAspectRatio="xMidYMid meet"/>}</Show>}>
         <Show when={resourceValue(path)}>{d => <path d={d()} fill={fill()} />}</Show>
       </Show>
     </svg>

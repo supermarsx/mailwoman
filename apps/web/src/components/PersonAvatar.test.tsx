@@ -94,3 +94,10 @@ it('renders bundled official artwork or an honest compact monogram without exter
  expect(view.container.querySelector('[data-sender-icon="credibom"] .person-avatar__monogram')).toHaveTextContent('CB');
  expect(state.fetch).not.toHaveBeenCalled();
 });
+
+it('shows Microsoft tenant and MEO Empresas marks in list avatars and retains known-failure gates',async()=>{
+ const ms=row('a@tenant.onmicrosoft.com');await waitFor(()=>expect(ms.querySelector('[data-sender-icon="microsoft"] svg path')).not.toBeNull());
+ const meo=row('billing@meoempresas.pt');expect(meo.querySelector('[data-sender-icon="meo"] img')?.getAttribute('src')).toContain('meo-site.png');
+ for(const address of ['a@tenant.onmicrosoft.com','billing@meoempresas.pt'])expect(row(address,{dkim:{result:'fail'},dmarc:{result:'fail'}}).querySelector('[data-sender-icon]')).toBeNull();
+ for(const address of ['a@notonmicrosoft.com','a@tenant.onmicrosoft.com.evil.io','billing@notmeoempresas.pt','billing@meoempresas.pt.evil.io'])expect(row(address).querySelector('[data-sender-icon]')).toBeNull();
+});

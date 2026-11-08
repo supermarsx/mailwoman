@@ -145,7 +145,7 @@ This is a curated coverage set, not a ranked list. Sender domains match only at 
 | EY | ey.com | https://ey.com | Official bundled favicon/touch icon | https://www.ey.com/content/dam/ey-unified-site/icon/ey-favicon.jpg |
 | KPMG | kpmg.com | https://kpmg.com | Original text monogram (not a logo) | Official favicon inspected: no legible identifying glyph at avatar size |
 | Capgemini | capgemini.com | https://capgemini.com | Official bundled favicon/touch icon | https://www.capgemini.com/wp-content/uploads/2025/10/cropped-Capgemini_spade_32x32.png?w=180 |
-| MEO | meo.pt | https://meo.pt | Official bundled favicon/touch icon | https://conteudos.meo.pt/Style%20Library/consumo/images/favicons/favicon-167x167.png |
+| MEO | meo.pt, meoempresas.pt | https://meo.pt | Official bundled favicon/touch icon | https://conteudos.meo.pt/Style%20Library/consumo/images/favicons/favicon-167x167.png |
 | NOS | nos.pt | https://nos.pt | Official bundled favicon/touch icon | https://www.nos.pt/etc.clientlibs/nos/clientlibs/clientlib-site/resources/favicons/favicon_144.png |
 | Vodafone | vodafone.pt,vodafone.com | https://vodafone.pt | Official bundled favicon/touch icon | https://www.vodafone.pt/content/dam/favicon/favicon.svg |
 | DIGI Portugal | digi.pt | https://digi.pt | Official bundled favicon/touch icon | https://www.digi.pt/images/favicon.png |
@@ -196,3 +196,5 @@ The generic civic icon (original artwork, not an official seal) additionally cov
 | Mailwoman | Repository branding/icon/mark.svg |
 
 WTF currently uses a bundled text monogram; the official site icon was unavailable.
+
+MEO Empresas domain attribution: [official MEO enterprise customer-area terms](https://conteudos.meo.pt/empresarial/Documentos/Condicoes-Utilizacao/Condicoes-Utilizacao-ACE.pdf) identify `meoempresas.pt` as the enterprise customer-area domain. It reuses the existing bundled MEO mark.

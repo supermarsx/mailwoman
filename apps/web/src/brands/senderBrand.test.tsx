@@ -71,3 +71,16 @@ describe('SenderBrandMark', () => {
     expect(render(() => <SenderBrandMark address="a@paypal.com" auth={auth()} />).container.querySelector('svg')).not.toBeNull();
   });
 });
+
+it('uses bundled tenant/enterprise marks in the reader while preserving authentication policy',()=>{
+ state.value=true;
+ for(const [address,id,domain] of [['a@tenant.onmicrosoft.com','microsoft','tenant.onmicrosoft.com'],['a@billing.meoempresas.pt','meo','meoempresas.pt']] as const){
+  expect(brandAvatarFor(address,undefined)?.id).toBe(id);
+  expect(brandAvatarFor(address,auth({dmarc:'fail'}))).toBeUndefined();
+  expect(brandAvatarFor(address,undefined,'always')).toBeUndefined();
+  expect(brandAvatarFor(address,auth({dkimDomain:domain}),'always')?.id).toBe(id);
+  expect(brandAvatarFor(address,auth({dkimDomain:'evil.io'}),'always')).toBeUndefined();
+  expect(render(()=><SenderBrandMark address={address} auth={null}/>).container.querySelector(`svg[data-brand="${id}"]`)).not.toBeNull();
+  expect(render(()=><SenderBrandMark address={address} auth={auth({dmarc:'fail'})}/>).container.querySelector('svg')).toBeNull();
+ }
+});
