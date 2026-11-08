@@ -1,3 +1,4 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
 # Machine translation (2026-11). Not reviewed by a native speaker.
 # Locale: pt-PT · Module: compose-signature. Source: ../en/compose-signature.ftl
 sig-group = Assinatura
