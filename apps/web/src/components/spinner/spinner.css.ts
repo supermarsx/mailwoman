@@ -1,7 +1,7 @@
 // The one busy indicator (toasts, async states, inline loading). A ring with one
 // arc in currentColor; rotation is transform-only (compositor friendly), 0.9 s
-// linear. Reduced motion (the OS setting or the in-app switch) swaps the
-// rotation for a slow opacity pulse: still visibly busy, nothing travels.
+// linear. Reduced motion (the OS setting or the in-app switch) slows the
+// rotation while keeping the ring visibly spinning.
 // The global reduced-motion rule in theme/themes.css.ts skips [data-mw-spinner],
 // otherwise its `animation-duration: 0.01ms !important` froze every spinner.
 // Forced colours: the arc is currentColor (CanvasText family), the track GrayText.
@@ -9,7 +9,6 @@
 import { keyframes, style } from '@vanilla-extract/css';
 
 const spin = keyframes({ from: { transform: 'rotate(0deg)' }, to: { transform: 'rotate(360deg)' } });
-const pulse = keyframes({ '0%, 100%': { opacity: 1 }, '50%': { opacity: 0.35 } });
 
 export const spinner = style({
   display: 'inline-block',
@@ -24,11 +23,11 @@ export const spinner = style({
   transformBox: 'fill-box',
   animation: `${spin} 0.9s linear infinite`,
   '@media': {
-    '(prefers-reduced-motion: reduce)': { animation: `${pulse} 1.6s ease-in-out infinite` },
+    '(prefers-reduced-motion: reduce)': { animationDuration: '1.8s' },
     '(forced-colors: active)': { borderColor: 'GrayText', borderBlockStartColor: 'CanvasText' },
   },
   selectors: {
-    ':root[data-reduced-motion] &': { animation: `${pulse} 1.6s ease-in-out infinite` },
+    ':root[data-reduced-motion] &': { animationDuration: '1.8s' },
   },
 });
 
