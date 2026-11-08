@@ -645,6 +645,7 @@ mail-compose-delivery-unavailable = Delivery notifications are unavailable or di
 
 mail-compose-account-changed = This composition belongs to a different sign-in. Sign in to the correct account and reopen the draft.
 mail-context-open-message = Open message
+mail-context-open-new-tab = Open in a new tab
 mail-context-open-folder = Open folder
 mail-context-download = Download message
 mail-context-refresh = Refresh folder

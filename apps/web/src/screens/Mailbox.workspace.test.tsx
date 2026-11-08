@@ -404,6 +404,31 @@ describe('retained mailbox workspace',()=>{
     await waitFor(()=>expect(paneSubject()).toBe('Subject a'));
     expect(messageTabs()).toHaveLength(1);
   });
+  it('context menu opens a reusable message tab while retaining another message in the reading pane',async()=>{
+    const {app,realtime,show,client}=setup();show();await app.login({username:'me@example.org',password:'p'});
+    const row=(id:string)=>screen.getByText(`Subject ${id}`,{selector:'.list__subject'});
+    const gets=(id:string)=>vi.mocked(client.jmap).mock.calls.filter(([request])=>request.methodCalls.some(call=>{const ids=call[1]['ids'];return call[0]==='Email/get'&&Array.isArray(ids)&&ids.length===1&&ids[0]===id;})).length;
+    fireEvent.contextMenu(await screen.findByText('Subject a',{selector:'.list__subject'}));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Open message'}));
+    const pane=screen.getByTestId('reading-pane');
+    await waitFor(()=>expect(pane.querySelector('.reader__subject')?.textContent).toBe('Subject a'));
+    const originalReader=pane.querySelector('.reader__subject');
+    expect(realtime.subTabs.activeId()).toBe('mail');
+    fireEvent.contextMenu(row('b'));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Open in a new tab'}));
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
+    await within(screen.getByRole('tabpanel',{name:'Subject b'})).findByRole('heading',{name:'Subject b'});
+    const loads=gets('b');expect(loads).toBeGreaterThan(0);
+    fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
+    expect(screen.getByTestId('reading-pane')).toBe(pane);
+    expect(pane.querySelector('.reader__subject')).toBe(originalReader);
+    expect(originalReader?.textContent).toBe('Subject a');
+    fireEvent.contextMenu(row('b'));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Open in a new tab'}));
+    await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
+    expect(realtime.subTabs.tabs().filter(tab=>tab.kind==='messages'&&tab.id!=='mail')).toHaveLength(1);
+    expect(gets('b')).toBe(loads);
+  });
   it('reading pane off: a click opens the message tab and a second click on it reuses that tab',async()=>{
     try{
       const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});setAccountUiPreferences({readerCollapsed:true});setReadingPane('off');

@@ -637,6 +637,7 @@ mail-compose-delivery-unavailable = As notificações de entrega não estão dis
 
 mail-compose-account-changed = Esta mensagem pertence a outro início de sessão. Inicie sessão na conta correta e volte a abrir o rascunho.
 mail-context-open-message = Abrir mensagem
+mail-context-open-new-tab = Abrir num novo separador
 mail-context-open-folder = Abrir pasta
 mail-context-download = Transferir mensagem
 mail-context-refresh = Atualizar pasta

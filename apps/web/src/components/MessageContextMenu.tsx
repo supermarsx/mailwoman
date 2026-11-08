@@ -37,7 +37,8 @@ export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focused
 /** Always targets the indicated message, not an unrelated existing selection. */
 /** A conversation head's menu acts on the conversation: `threadMode` says the menu was opened on a head, `threadMembers` lists the loaded messages of its thread. */
 export interface ThreadMenuOptions {threadMode:Accessor<boolean>;threadMembers:(email:Email)=>Email[]}
-export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?:{replyDraft:(emailId:string)=>{id:string}|undefined;onOpenReplyDraft?:(id:string)=>void},fetchExtras?:typeof fetchMessageExtras,threads?:ThreadMenuOptions) {
+export interface MessageOpeningOptions {onOpenMessage?:(id:string)=>void;onOpenMessageTab?:(id:string)=>void}
+export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?:{replyDraft:(emailId:string)=>{id:string}|undefined;onOpenReplyDraft?:(id:string)=>void},fetchExtras?:typeof fetchMessageExtras,threads?:ThreadMenuOptions,opening?:MessageOpeningOptions) {
   void loadCatalog('properties');
   void loadCatalog('search'); // t112: its ids show wherever it is mounted
  const app=useApp();
@@ -93,7 +94,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
   const message=app.messages().find(value=>value.id===email()?.id);if(!message)return [];const id=message.id;const busy=app.listLoading();
   const rows:ContextAction[]=[
-   {id:'open',label:t('mail-context-open-message'),icon:ACTION_ICONS.open,run:()=>app.openMessage(id)},
+   {id:'open',label:t('mail-context-open-message'),icon:ACTION_ICONS.open,run:()=>opening?.onOpenMessage?opening.onOpenMessage(id):app.openMessage(id)},
    {id:'read',label:t(message.keywords?.$seen?'mail-mark-unread':'mail-mark-read'),icon:message.keywords?.$seen?ACTION_ICONS.markUnread:ACTION_ICONS.markRead,run:()=>app.markRead(id,!message.keywords?.$seen)},
    {id:'flag',label:t(message.keywords?.$flagged?'mail-unflag-message':'mail-flag-message'),icon:message.keywords?.$flagged?ACTION_ICONS.unflag:ACTION_ICONS.flag,run:()=>app.flagMessage(id,!message.keywords?.$flagged)},
    {id:'pin',label:t(message.pinned?'mail-unpin':'mail-pin'),icon:message.pinned?ACTION_ICONS.unpin:ACTION_ICONS.pin,run:()=>app.pinMessage(id,!message.pinned)},
@@ -103,6 +104,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    {id:'reply',label:t('mail-context-reply'),icon:'reply',separatorBefore:true,...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'reply');}},
    {id:'reply-all',label:t('mail-context-reply-all'),icon:'replyAll',...(mailFeature('allowReply')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'replyAll');}},
    {id:'forward',label:t('mail-context-forward'),icon:'forward',...(mailFeature('allowForward')?{}:{disabled:true,title:mailFeatureOffTitle()}),run:()=>{void replyFromList(app,id,'forward');}});
+  if(opening?.onOpenMessageTab){const openTab=opening.onOpenMessageTab;rows.splice(1,0,{id:'open-tab',label:t('mail-context-open-new-tab'),icon:'openTab',run:()=>openTab(id)});}
   {const draft=drafts?.onOpenReplyDraft?drafts.replyDraft(id):undefined,openDraft=drafts?.onOpenReplyDraft;
    if(draft&&openDraft){const at=rows.findIndex(row=>row.id==='forward');rows.splice(at+1,0,{id:'open-reply-draft',label:t('mail-reply-draft-open'),icon:'compose',run:()=>openDraft(draft.id)});}}
   const members=membersOf(message);

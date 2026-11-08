@@ -462,7 +462,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const forwardedThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$forwarded']===true).map(threadKey)));
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const [contextThread,setContextThread]=createSignal(false);
-  const contextMenu=createMessageContextMenu(contextEmail,{replyDraft:id=>replyDrafts().get(id)??(()=>{const key=messageThreads().get(id);return key?threadDrafts().get(key):undefined;})(),...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})},undefined,{threadMode:contextThread,threadMembers:email=>app.listMessages().filter(member=>threadKey(member)===threadKey(email))});
+  const contextMenu=createMessageContextMenu(contextEmail,{replyDraft:id=>replyDrafts().get(id)??(()=>{const key=messageThreads().get(id);return key?threadDrafts().get(key):undefined;})(),...(props.onOpenReplyDraft?{onOpenReplyDraft:props.onOpenReplyDraft}:{})},undefined,{threadMode:contextThread,threadMembers:email=>app.listMessages().filter(member=>threadKey(member)===threadKey(email))},{onOpenMessage:id=>open(id),...(props.onOpenMessageTab?{onOpenMessageTab:(id:string)=>openTab(id)}:{})});
   const messageMenu:MessageMenu={open:(event,email,thread=false)=>{setContextThread(thread);setContextEmail(email);contextMenu.open(event);},keydown:(event,email,thread=false)=>{if(event.key==='ContextMenu'||(event.shiftKey&&event.key==='F10')){setContextThread(thread);setContextEmail(email);contextMenu.keydown(event);}},isOpen:id=>contextMenu.isOpen()&&contextEmail()?.id===id};
   const [localSelecting,setLocalSelecting]=createSignal(false);
   const selecting=()=>props.selectionMode?.()??localSelecting();
