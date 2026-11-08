@@ -79,6 +79,10 @@ export interface CollapsibleBarApi {
   close(opts?: { restoreFocus?: boolean }): void;
   /** Keep the panel open until the returned function runs (menus, popovers, dropdowns). */
   hold(): () => void;
+  /** An administrator holds the pinned/auto-hide choice; `setMode` does nothing. */
+  locked: Accessor<boolean>;
+  /** Pin the bar open or set it to auto-hide (stored per user). Resolves `false` when refused. */
+  setMode(mode: BarMode): Promise<boolean>;
 }
 
 const BarContext = createContext<CollapsibleBarApi>();
@@ -395,6 +399,8 @@ export function CollapsibleBar(props: CollapsibleBarProps): JSX.Element {
     open,
     close,
     hold,
+    locked: () => bar.locked(),
+    setMode: (mode) => bar.setMode(mode),
   };
 
   // Rendered inside the provider, so the header (ribbon tabs) can reach the bar.

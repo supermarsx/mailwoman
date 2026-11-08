@@ -1,10 +1,10 @@
 import {createEffect,createMemo,createSignal,onCleanup,type Accessor} from 'solid-js';
-import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../../api/accountPreferenceLifecycle.ts';
+import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent,type PreferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {accountDraftApi,type AccountDraftDocument} from '../../api/accountDrafts.ts';
-import {DRAFTS_CHANGED,listDrafts,isDraftSource,type DraftChange} from './drafts-store.ts';
+import {DRAFTS_CHANGED,listDrafts,deleteDraft,isDraftSource,type DraftChange} from './drafts-store.ts';
 import {liveReplyDrafts} from './liveReplyDrafts.ts';
 
-export interface ReplyDraft {id:string;emailId:string;savedAt:number}
+export interface ReplyDraft {id:string;emailId:string;savedAt:number;serverRevision?:string|null;serverStatus?:string}
 /** Only explicit source metadata identifies a pending reply. Subjects/thread ids
  * are not evidence that an arbitrary draft answers this particular message. */
 export function createReplyDraftIndex(account:Accessor<string|null>):Accessor<ReadonlyMap<string,ReplyDraft>> {
@@ -35,11 +35,31 @@ export function createReplyDraftIndex(account:Accessor<string|null>):Accessor<Re
     if(!id||!owner||owner.id!==id||!preferenceAccountIsCurrent(owner))return index;
     const add=(draft:ReplyDraft)=>{const previous=index.get(draft.emailId);if(!previous||previous.savedAt<draft.savedAt)index.set(draft.emailId,draft);};
     const local=listDrafts(id,owner.storageAuthority),localIds=new Set(local.map(draft=>draft.id));
-    for(const draft of remote())if(!removed.has(draft.id)&&draft.accountId===id&&draft.storageAuthority===owner.storageAuthority&&!localIds.has(draft.id)&&isDraftSource(draft.summary.source)&&draft.summary.source.keyword==='$answered')add({id:draft.id,emailId:draft.summary.source.emailId,savedAt:draft.savedAt*1000});
-    for(const draft of local)if(draft.source?.keyword==='$answered')add({id:draft.id,emailId:draft.source.emailId,savedAt:draft.savedAt});
+    for(const draft of remote())if(!removed.has(draft.id)&&draft.accountId===id&&draft.storageAuthority===owner.storageAuthority&&!localIds.has(draft.id)&&isDraftSource(draft.summary.source)&&draft.summary.source.keyword==='$answered')add({id:draft.id,emailId:draft.summary.source.emailId,savedAt:draft.savedAt*1000,serverRevision:draft.revision,serverStatus:draft.status});
+    for(const draft of local)if(draft.source?.keyword==='$answered')add({id:draft.id,emailId:draft.source.emailId,savedAt:draft.savedAt,...(draft.serverRevision?{serverRevision:draft.serverRevision}:{}),...(draft.serverStatus?{serverStatus:draft.serverStatus}:{})});
     // An active composer wins over saved copies, including privacy-protected
     // replies that intentionally never enter local or remote draft storage.
     for(const draft of liveReplyDrafts(owner))index.set(draft.emailId,{id:draft.id,emailId:draft.emailId,savedAt:draft.savedAt});
     return index;
   });
+}
+
+/** Discard exactly the copy the reader offered, never a newer account revision.
+ * Active composers own their writer and cleanup, including unsaved private replies. */
+export async function discardReplyDraft(owner:PreferenceAccount,draft:ReplyDraft):Promise<void>{
+ if(!preferenceAccountIsCurrent(owner)||!owner.storageAuthority)throw new Error('accountChanged');
+ const live=liveReplyDrafts(owner).find(value=>value.id===draft.id&&value.emailId===draft.emailId);
+ if(live){if(!live.discard)throw new Error('draftBusy');await live.discard();return;}
+ if(draft.serverStatus==='uncertain'||draft.serverStatus==='refused')throw new Error('draftConflict');
+ const local=listDrafts(owner.id,owner.storageAuthority).find(value=>value.id===draft.id);
+ if(local&&(local.serverRevision!==draft.serverRevision||local.savedAt!==draft.savedAt||local.source?.emailId!==draft.emailId||local.source.keyword!=='$answered'))throw new Error('draftConflict');
+ if(draft.serverRevision!==undefined){
+  const api=accountDraftApi(owner),remote=await api.load(draft.id);
+  if(remote.revision!==draft.serverRevision||remote.summary.source?.emailId!==draft.emailId||remote.summary.source.keyword!=='$answered')throw new Error('draftConflict');
+  await api.discard(draft.id,draft.serverRevision);
+ }else if(!local)throw new Error('draftMissing');
+ if(!preferenceAccountIsCurrent(owner))throw new Error('accountChanged');
+ const latest=listDrafts(owner.id,owner.storageAuthority).find(value=>value.id===draft.id);
+ if(latest&&(latest.savedAt!==draft.savedAt||latest.serverRevision!==draft.serverRevision))throw new Error('draftConflict');
+ deleteDraft(draft.id,owner.id,owner.storageAuthority);
 }

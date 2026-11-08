@@ -428,7 +428,7 @@ mail-toast-update-refused = { $count ->
    *[other] The server refused the change for { $count } messages
 }
 mail-toast-no-archive-folder = No Archive folder
-mail-toast-no-trash-folder = No Trash folder
+mail-toast-no-trash-folder = No Trash folder is configured. Choose one in Settings > Folders.
 mail-toast-no-spam-folder = No Spam folder
 mail-toast-sweep-nothing = Nothing to sweep
 mail-toast-swept = { $count ->
@@ -1196,6 +1196,14 @@ mail-header-label = Message header
 mail-header-collapse = Collapse message header
 mail-header-expand = Expand message header: { $summary }
 mail-header-from-chip = From { $address }. Change sender
+mail-header-expand-short = Expand message header (Alt+H)
+mail-header-attachments =
+    { $count ->
+        [one] { $count } attachment
+       *[other] { $count } attachments
+    }
+mail-compose-ribbon-autohide = Auto-hide ribbon (Ctrl+F1)
+mail-compose-ribbon-pin = Always show ribbon (Ctrl+F1)
 mail-compose-group-timing = Send timing
 mail-compose-group-priority = Priority
 mail-compose-group-receipts = Receipts and tracking
@@ -1367,3 +1375,13 @@ mail-draft-continue = Continue editing
 mail-draft-edit = Edit draft
 mail-draft-edit-help = Open this draft in the composer to keep editing it
 mail-draft-edit-failed = The draft could not be opened for editing
+
+mail-toast-move-failed-reason = Could not move the messages ({ $reason }). Nothing was moved.
+mail-toast-update-refused-reason = { $count ->
+    [one] The server refused the move for one message: { $reason }
+   *[other] The server refused the move for { $count } messages: { $reason }
+}
+
+mail-reply-draft-discard = Discard reply
+mail-reply-draft-discard-title = Discard this reply?
+mail-reply-draft-discard-detail = Permanently remove this reply in progress? This cannot be undone.

@@ -753,6 +753,8 @@ settings-header-collapse-expanded = Always show
 settings-header-collapse-collapsed = Fold to a summary line
 settings-header-collapse-auto = Fold while I write the body
 settings-header-collapse-help = Folded, the header shows one line such as To: Ana +2 and opens when you click it or a field needs attention.
+settings-header-auto-collapse = Fold the header after writing (seconds)
+settings-header-auto-collapse-help = When the body has had focus for this many seconds and the header has a recipient and a subject, it folds to the summary line. 0 turns this off.
 settings-retention-title = Retention
 
 settings-folder-icon-camera = Camera

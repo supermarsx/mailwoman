@@ -55,12 +55,15 @@ export interface HeaderOpenInput {
   empty: boolean;
   /** The user opened it for a moment in `auto` mode (a click on the summary). */
   peek: boolean;
+  /** The header folded itself after the body held focus (`autoCollapseSeconds`); any user action clears it. */
+  autoFolded?: boolean;
 }
 
 /** Whether the header's fields are on screen. */
 export function headerOpen(input: HeaderOpenInput): boolean {
   if (input.focusWithin || input.attention) return true;
   if (input.empty) return true;
+  if (input.autoFolded) return false;
   if (input.mode === 'auto') return input.peek;
   return input.remembered ?? input.mode === 'expanded';
 }
@@ -75,11 +78,12 @@ function countOf(raw: string): number {
   return parseRecipients(raw).filter((entry) => entry.email.trim() !== '').length;
 }
 
-export interface SummaryLabels { to: string; cc: string; bcc: string; subject: string; noSubject: string }
+export interface SummaryLabels { to: string; cc: string; bcc: string; subject: string; noSubject: string; attachments?: (count: number) => string }
 
-/** One line: `To: Ana +2 · Cc: 1 · Subject: Re: Invoice`. */
-export function headerSummary(fields: { to: string; cc: string; bcc: string; subject: string }, labels: SummaryLabels): string {
+/** One line: `Ana Lima · To: Ana +2 · Cc: 1 · Subject: Re: Invoice · 2 attachments` (From and attachments only when given). */
+export function headerSummary(fields: { to: string; cc: string; bcc: string; subject: string; from?: string; attachments?: number }, labels: SummaryLabels): string {
   const parts: string[] = [];
+  if (fields.from && fields.from.trim() !== '') parts.push(fields.from.trim());
   const toCount = countOf(fields.to);
   if (toCount > 0) parts.push(`${labels.to}: ${shortName(fields.to)}${toCount > 1 ? ` +${toCount - 1}` : ''}`);
   const ccCount = countOf(fields.cc);
@@ -87,5 +91,11 @@ export function headerSummary(fields: { to: string; cc: string; bcc: string; sub
   const bccCount = countOf(fields.bcc);
   if (bccCount > 0) parts.push(`${labels.bcc}: ${bccCount}`);
   parts.push(`${labels.subject}: ${fields.subject.trim() === '' ? labels.noSubject : fields.subject.trim()}`);
+  if (fields.attachments && fields.attachments > 0 && labels.attachments) parts.push(labels.attachments(fields.attachments));
   return parts.join(' · ');
+}
+
+/** Whether the header is complete enough to fold on its own: a recipient and a subject. */
+export function headerValid(fields: { to: string; cc: string; bcc: string; subject: string }): boolean {
+  return countOf(fields.to) + countOf(fields.cc) + countOf(fields.bcc) > 0 && fields.subject.trim() !== '';
 }

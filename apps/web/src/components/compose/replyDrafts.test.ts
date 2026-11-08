@@ -4,7 +4,7 @@ import {waitFor} from '@solidjs/testing-library';
 import {activateAccountPreferences,suspendAccountPreferences,preferenceAccount} from '../../api/accountPreferenceLifecycle.ts';
 import {registerLiveReplyDraft} from './liveReplyDrafts.ts';
 import {draftEditorState,localAccountDraft,type AccountDraftDocument} from '../../api/accountDrafts.ts';
-import {createReplyDraftIndex} from './replyDrafts.ts';
+import {createReplyDraftIndex,discardReplyDraft} from './replyDrafts.ts';
 import {clearDrafts,deleteDraft,saveDraft,listDrafts,type StoredDraft} from './drafts-store.ts';
 const authority='test-storage-authority-a';
 const draft=(id:string,over:Partial<StoredDraft>={}):StoredDraft=>({id,accountId:'a',storageAuthority:authority,to:'person@example.org',subject:'Reply',bodyHtml:'<p>Reply text</p>',bodyText:'Reply text',savedAt:1,source:{emailId:'message',keyword:'$answered'},...over});
@@ -43,4 +43,26 @@ it('drops late remote metadata after account authority changes or a local deleti
  release(new Response(JSON.stringify({accountId:'a',storageAuthority:authority,supported:true,items:[remote('late')]})));await new Promise(resolve=>setTimeout(resolve,0));expect(state.value().size).toBe(0);
  saveDraft(draft('local'));expect(state.value().size).toBe(1);activateAccountPreferences('a','replacement-storage-authority');expect(state.value().size).toBe(0);
  state.setAccount('b');expect(state.value().size).toBe(0);
+});
+
+it('discards a local reply without a network request',async()=>{
+ saveDraft(draft('local'));await discardReplyDraft(preferenceAccount()!,{id:'local',emailId:'message',savedAt:1});
+ expect(listDrafts('a',authority)).toEqual([]);expect(fetch).not.toHaveBeenCalled();
+});
+it('delegates a live reply to its composer instead of racing the writer',async()=>{
+ const discard=vi.fn(async()=>{}),release=registerLiveReplyDraft(preferenceAccount()!,'live',{emailId:'message',keyword:'$answered'},discard);
+ try{await discardReplyDraft(preferenceAccount()!,{id:'live',emailId:'message',savedAt:1});expect(discard).toHaveBeenCalledOnce();expect(fetch).not.toHaveBeenCalled();}finally{release();}
+});
+it('uses the captured remote revision and refuses a newer copy',async()=>{
+ const request=vi.fn(async(_input:unknown,init?:RequestInit)=>new Response(JSON.stringify(init?.method==='DELETE'?{accountId:'a',storageAuthority:authority,deleted:true}:remote('remote'))));vi.stubGlobal('fetch',request);
+ await discardReplyDraft(preferenceAccount()!,{id:'remote',emailId:'message',savedAt:1,serverRevision:'r1',serverStatus:'saved'});
+ expect(JSON.parse(String(request.mock.calls.find(call=>call[1]?.method==='DELETE')?.[1]?.body))).toEqual({expectedRevision:'r1'});
+ request.mockClear();await expect(discardReplyDraft(preferenceAccount()!,{id:'remote',emailId:'message',savedAt:1,serverRevision:'old'})).rejects.toThrow('draftConflict');
+ expect(request.mock.calls.some(call=>call[1]?.method==='DELETE')).toBe(false);
+});
+it('does not discard under a replaced account authority or after a local revision changes',async()=>{
+ const owner=preferenceAccount()!;saveDraft(draft('local',{serverRevision:'r2'}));
+ await expect(discardReplyDraft(owner,{id:'local',emailId:'message',savedAt:1,serverRevision:'r1'})).rejects.toThrow('draftConflict');
+ activateAccountPreferences('a','replacement-storage-authority');
+ await expect(discardReplyDraft(owner,{id:'local',emailId:'message',savedAt:1})).rejects.toThrow('accountChanged');expect(fetch).not.toHaveBeenCalled();
 });

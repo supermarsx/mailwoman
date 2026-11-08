@@ -9,6 +9,9 @@ import type { IconName } from './components/Icon.tsx';
 export const ACTION_ICONS = {
   // Message actions
   open: 'mail',
+  saveSender: 'personAdd',
+  saveContacts: 'teamAdd',
+  openContact: 'person',
   markRead: 'mailRead',
   markUnread: 'markUnread',
   markAllRead: 'markAllRead',
@@ -143,9 +146,9 @@ export const ACTION_ICONS = {
 
 export type ActionId = keyof typeof ACTION_ICONS;
 
-const MESSAGE_CONTEXT: readonly ActionId[] = ['open', 'markRead', 'flag', 'pin', 'reply', 'replyAll', 'forward', 'openReplyDraft', 'goReply', 'goForward', 'attachment', 'downloadAll', 'copy', 'print', 'search', 'focusFocused', 'focusOther', 'archive', 'spam', 'trash', 'markAnswered', 'markForwarded', 'snooze', 'unsnooze', 'followUp', 'label', 'export'];
+const MESSAGE_CONTEXT: readonly ActionId[] = ['open', 'markRead', 'flag', 'pin', 'reply', 'replyAll', 'forward', 'openReplyDraft', 'goReply', 'goForward', 'attachment', 'downloadAll', 'copy', 'print', 'search', 'focusFocused', 'focusOther', 'archive', 'spam', 'trash', 'markAnswered', 'markForwarded', 'snooze', 'unsnooze', 'followUp', 'label', 'export', 'saveSender', 'saveContacts'];
 /** An action's other state, shown when it is already on. */
-const TOGGLED: Partial<Record<ActionId, ActionId>> = { markRead: 'markUnread', flag: 'unflag', pin: 'unpin' };
+const TOGGLED: Partial<Record<ActionId, ActionId>> = { markRead: 'markUnread', flag: 'unflag', pin: 'unpin', saveSender: 'openContact' };
 
 /** The actions each menu, toolbar or bar shows at once. Two actions listed together never share an icon (a toggle's two states count as one action). */
 export const ACTION_MENUS: Readonly<Record<string, readonly ActionId[]>> = {

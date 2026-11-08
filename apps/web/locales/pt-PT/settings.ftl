@@ -749,6 +749,8 @@ settings-header-collapse-expanded = Mostrar sempre
 settings-header-collapse-collapsed = Recolher numa linha de resumo
 settings-header-collapse-auto = Recolher enquanto escrevo o corpo
 settings-header-collapse-help = Recolhido, o cabeçalho mostra uma linha como Para: Ana +2 e abre ao clicar ou quando um campo precisa de atenção.
+settings-header-auto-collapse = Recolher o cabeçalho depois de escrever (segundos)
+settings-header-auto-collapse-help = Quando o corpo tem o foco há este número de segundos e o cabeçalho tem destinatário e assunto, recolhe para a linha de resumo. 0 desativa.
 settings-retention-title = Retenção
 
 settings-folder-icon-camera = Câmara

@@ -420,7 +420,7 @@ mail-toast-update-refused = { $count ->
    *[other] O servidor recusou a alteração de { $count } mensagens
 }
 mail-toast-no-archive-folder = Sem pasta Arquivo
-mail-toast-no-trash-folder = Sem pasta Lixo
+mail-toast-no-trash-folder = Nenhuma pasta Lixo está configurada. Escolha uma em Definições > Pastas.
 mail-toast-no-spam-folder = Sem pasta Spam
 mail-toast-sweep-nothing = Nada para limpar
 mail-toast-swept = { $count ->
@@ -1180,6 +1180,14 @@ mail-header-label = Cabeçalho da mensagem
 mail-header-collapse = Recolher o cabeçalho da mensagem
 mail-header-expand = Expandir o cabeçalho da mensagem: { $summary }
 mail-header-from-chip = De { $address }. Alterar remetente
+mail-header-expand-short = Expandir o cabeçalho da mensagem (Alt+H)
+mail-header-attachments =
+    { $count ->
+        [one] { $count } anexo
+       *[other] { $count } anexos
+    }
+mail-compose-ribbon-autohide = Ocultar o friso automaticamente (Ctrl+F1)
+mail-compose-ribbon-pin = Mostrar sempre o friso (Ctrl+F1)
 mail-compose-group-timing = Hora de envio
 mail-compose-group-priority = Prioridade
 mail-compose-group-receipts = Recibos e acompanhamento
@@ -1356,3 +1364,13 @@ mail-draft-continue = Continuar a editar
 mail-draft-edit = Editar rascunho
 mail-draft-edit-help = Abrir este rascunho no editor para continuar a editá-lo
 mail-draft-edit-failed = Não foi possível abrir o rascunho para edição
+
+mail-toast-move-failed-reason = Não foi possível mover as mensagens ({ $reason }). Nada foi movido.
+mail-toast-update-refused-reason = { $count ->
+    [one] O servidor recusou a mudança para uma mensagem: { $reason }
+   *[other] O servidor recusou a mudança para { $count } mensagens: { $reason }
+}
+
+mail-reply-draft-discard = Descartar resposta
+mail-reply-draft-discard-title = Descartar esta resposta?
+mail-reply-draft-discard-detail = Remover permanentemente esta resposta em curso? Esta ação não pode ser anulada.

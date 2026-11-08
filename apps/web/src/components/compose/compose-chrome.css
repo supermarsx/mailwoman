@@ -71,3 +71,18 @@
   .compose .compose-head__body .compose__subject { grid-template-columns:3.25rem minmax(0,1fr); }
 }
 .compose-head__chip { display:inline-flex; align-items:center; gap:.3rem; padding:.05rem .5rem; border:var(--border-hair) solid var(--border); background:var(--bg-alt); font-size:.8125rem; max-inline-size:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+
+/* The header's corner toggle (top-right) and the height transition: the fields sit in a grid row that
+   animates between 0fr and 1fr, so the editor below only moves by the height difference. */
+.compose-head__corner { display:inline-flex; align-items:center; justify-content:center; flex:none; margin-inline-start:auto; inline-size:1.5rem; block-size:1.5rem; padding:0; border:0; background:none; color:var(--text-dim); cursor:pointer; }
+.compose-head__corner:hover { color:var(--text); background:color-mix(in srgb,var(--accent) 10%,transparent); }
+.compose-head__corner:focus-visible { outline:var(--focus-ring-width,2px) solid var(--focus,var(--signal)); outline-offset:1px; }
+.compose-head__corner .compose-head__chev { transform:rotate(180deg); }
+.compose-head[data-collapsed] .compose-head__corner .compose-head__chev { transform:none; }
+.compose-head__wrap { display:grid; grid-template-rows:1fr; transition:grid-template-rows .16s ease; }
+.compose-head__wrap[data-open=false] { grid-template-rows:0fr; }
+.compose-head__clip { min-block-size:0; overflow:hidden; }
+.compose-head__wrap[data-open=true] .compose-head__clip { overflow:visible; }
+.compose-head__body[hidden] { display:flex; visibility:hidden; }
+@media (prefers-reduced-motion:reduce) { .compose-head__wrap { transition:none; } }
+:root[data-reduced-motion] .compose-head__wrap { transition:none; }

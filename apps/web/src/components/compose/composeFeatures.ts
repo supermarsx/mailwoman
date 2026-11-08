@@ -66,6 +66,9 @@ export const COMPOSE_FEATURES: readonly ComposeFeature[] = [
 
   // ── insert (agent INSERT appends here) ───────────────────────────────────────
   { id: 'insert.attachFile', group: 'insert', labelKey: 'cf-insert-attachFile', descKey: 'cf-insert-attachFile-desc', defaultOn: true },
+  {id:'insert.signature',group:'insert',labelKey:'cf-insert-signature',defaultOn:true},
+  {id:'insert.signatureEdit',group:'insert',labelKey:'cf-insert-signatureEdit',defaultOn:true},
+  {id:'options.signaturePosition',group:'options',labelKey:'cf-options-signaturePosition',defaultOn:true},
   { id: 'insert.attachFromMessages', group: 'insert', labelKey: 'cf-insert-attachFromMessages', descKey: 'cf-insert-attachFromMessages-desc', defaultOn: true },
   { id: 'insert.pictureFile', group: 'insert', labelKey: 'cf-insert-pictureFile', descKey: 'cf-insert-pictureFile-desc', defaultOn: true },
   { id: 'insert.pictureFromMessages', group: 'insert', labelKey: 'cf-insert-pictureFromMessages', descKey: 'cf-insert-pictureFromMessages-desc', defaultOn: true, advanced: true },
@@ -90,6 +93,8 @@ export const COMPOSE_FEATURES: readonly ComposeFeature[] = [
   { id: 'layout.themes', group: 'layout', labelKey: 'cf-layout-themes', descKey: 'cf-layout-themes-desc', defaultOn: true, advanced: true },
   { id: 'layout.defaultFont', group: 'layout', labelKey: 'cf-layout-defaultFont', descKey: 'cf-layout-defaultFont-desc', defaultOn: true },
   { id: 'layout.spacing', group: 'layout', labelKey: 'cf-layout-spacing', descKey: 'cf-layout-spacing-desc', defaultOn: true, advanced: true },
+  { id: 'layout.headerCollapse', group: 'layout', labelKey: 'cf-layout-headerCollapse', descKey: 'cf-layout-headerCollapse-desc', defaultOn: true },
+  { id: 'layout.ribbonAutoHide', group: 'layout', labelKey: 'cf-layout-ribbonAutoHide', descKey: 'cf-layout-ribbonAutoHide-desc', defaultOn: true },
 
   // ── options ──────────────────────────────────────────────────────────────────
   { id: 'options.sentFolder', group: 'options', labelKey: 'cf-options-sentFolder', descKey: 'cf-options-sentFolder-desc', defaultOn: true, advanced: true },

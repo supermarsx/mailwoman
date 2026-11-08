@@ -71,6 +71,7 @@ export function ComposePreferences(): JSX.Element {
   const autoChip = useSetting<boolean>('mail.compose.autoChipRecipients', true);
   const separator = useSetting<RecipientSeparator>('mail.compose.recipientSeparator', 'comma', isRecipientSeparator);
   const headerCollapse = useSetting<HeaderCollapseMode>('mail.compose.headerCollapse', HEADER_COLLAPSE_DEFAULT, isHeaderCollapseMode);
+  const headerAutoCollapse = useSetting<number>('mail.compose.headerAutoCollapseSeconds', 0, (v): v is number => typeof v === 'number');
   const warning = useSetting<'off'|'warn'|'confirm'|'warn-remember'|'deny'>('mail.externalRecipientWarning', 'warn', (v): v is 'off'|'warn'|'confirm'|'warn-remember'|'deny' => v === 'off' || v === 'warn' || v === 'confirm' || v === 'warn-remember' || v === 'deny');
   const domains = useSetting<string[]>('mail.trustedRecipientDomains', [], (v): v is string[] => Array.isArray(v) && v.every(item => typeof item === 'string'));
   const imagePolicy = useSetting<ReplyImagePolicy>('mail.replyImages', 'ask', isReplyImagePolicy);
@@ -114,6 +115,7 @@ export function ComposePreferences(): JSX.Element {
       <ToggleRow id="auto-chip" label={t('settings-auto-chip')} help={t('settings-auto-chip-help')} handle={autoChip} />
       <SelectRow id="recipient-separator" label={t('settings-recipient-separator')} handle={separator} accept={isRecipientSeparator} options={(['comma', 'semicolon'] as const).map(v => ({ value: v, label: t(`settings-recipient-separator-${v}`) }))} />
       <SelectRow id="header-collapse" label={t('settings-header-collapse')} help={t('settings-header-collapse-help')} handle={headerCollapse} accept={isHeaderCollapseMode} options={HEADER_COLLAPSE_MODES.map(v => ({ value: v, label: t(`settings-header-collapse-${v}`) }))} />
+      <SettingRow controlId="header-auto-collapse" label={t('settings-header-auto-collapse')} help={t('settings-header-auto-collapse-help')} handle={headerAutoCollapse}>{d => <input id="header-auto-collapse" class={css.input} type="number" min="0" max="60" value={headerAutoCollapse.value()} disabled={!headerAutoCollapse.entry() || headerAutoCollapse.locked() || headerAutoCollapse.saving()} aria-describedby={d()} onChange={e => { const n = e.currentTarget.valueAsNumber; if (Number.isInteger(n) && n >= 0 && n <= 60) void headerAutoCollapse.set(n); }} />}</SettingRow>
       <SelectRow id="quote-style" label={t('settings-quote-style')} help={t('settings-quote-help')} handle={quote} accept={(v): v is 'classic' | 'outlook' => v === 'classic' || v === 'outlook'} options={[{ value: 'classic', label: t('settings-quote-classic') }, { value: 'outlook', label: t('settings-quote-outlook') }]} />
     </SettingsCard>
     <SettingsCard id="compose-card-checks" title={t('settings-compose-card-checks')} description={t('settings-check-help')}>

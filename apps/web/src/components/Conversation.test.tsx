@@ -37,6 +37,6 @@ describe('reader conversation',()=>{
   setActive(false);await Promise.resolve();setActive(true);await waitFor(()=>expect(state.jmap).toHaveBeenCalledTimes(2));
   expect(screen.queryByRole('button',{name:'View conversation'})).not.toBeNull();
   finish({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'flick',emailIds:['x','current']}]},'thread']]});await Promise.resolve();await Promise.resolve();
-  watch.disconnect();expect(gone).toBe(false);expect(screen.queryByRole('button',{name:'View conversation'})).not.toBeNull();
+  watch.disconnect();expect(gone).toBe(false);expect(screen.queryByRole('button',{name:'View conversation'})).toBe(button);
  });
 });

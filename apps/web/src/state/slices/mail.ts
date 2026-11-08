@@ -73,6 +73,7 @@ import { EMPTY_QUERY, excludedSearchMailboxes, offlineQueryOf, parseQuery, seria
 import { clearDrafts } from '../../components/compose/drafts-store.ts';
 import { purgeShellCaches } from '../../sw/purge.ts';
 import { toast } from '../../components/toast/index.ts';
+import { reportBoundaryError } from '../../observability/clientErrors.ts';
 import type { SliceContext } from './context.ts';
 import { createFocusedSenders } from '../focusedSenders.ts';
 import type { FocusedSender } from '../../api/focusedSenders.ts';
@@ -392,7 +393,7 @@ export interface MailSlice {
 
 /** What a refused create says about itself: the server's description when it
  *  gave one (`to: "bob": no @`), otherwise the bare error type. */
-function refusalReason(err: SetError): string {
+function setErrorReason(err: SetError): string {
   return typeof err.description === 'string' && err.description.length > 0 ? err.description : err.type;
 }
 
@@ -939,6 +940,22 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     return new Set(notUpdated != null ? Object.keys(notUpdated).filter((id) => ids.includes(id)) : []);
   }
 
+  /** Why the server refused a set: the first `notUpdated` type (and description), or the method error's type. Empty when it said nothing. */
+  function refusalReason(res: JmapResponse): string {
+    const found = res.methodResponses.find((m) => m[2] === 'set');
+    if (found === undefined) return '';
+    const body = found[1] as { type?: unknown; description?: unknown; notUpdated?: Record<string, { type?: unknown; description?: unknown }> | null };
+    const one = found[0] === 'error' ? body : Object.values(body.notUpdated ?? {})[0];
+    if (one === undefined || typeof one.type !== 'string') return '';
+    return typeof one.description === 'string' && one.description !== '' ? `${one.type}: ${one.description}` : one.type;
+  }
+  /** A failed move is never silent: its reason is in the toast and reaches the client error reporter. */
+  function reportMoveFailure(error: unknown, kind: string, target: Id): string {
+    const reason = error instanceof Error ? (error.name !== 'Error' ? error.name : error.message) : String(error);
+    try { reportBoundaryError(error instanceof Error ? error : new Error(`${kind}: ${reason}`), (roleOf(mailboxes(), 'trash') === target ? 'mail/trash' : 'mail/move')); } catch { /* reporting never blocks the toast */ }
+    return reason;
+  }
+
   // ── selection (t28-e16) ──────────────────────────────────────────────────
   const [selection, setSelectionRaw] = createSignal<ReadonlySet<Id>>(new Set());
   // Limited to what the list holds, so a message archived elsewhere, or dropped
@@ -1315,14 +1332,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       let res: JmapResponse;
       try {
         res = await jmapCall(updateEmails(acct, patches));
-      } catch {
+      } catch (error) {
         if (!current()) return;
+        const reason = reportMoveFailure(error, 'move', targetMailboxId);
         const restored=clearProjection(taken);
         followReaders(restored, true);
         restore(restored);
         await finishCounts();
         if (!current()) return;
-        fail(t('mail-toast-move-failed'));
+        fail(reason === '' ? t('mail-toast-move-failed') : t('mail-toast-move-failed-reason', { reason }));
         return;
       }
       if (!current()) return;
@@ -1334,12 +1352,14 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
         followReaders(restored, true);
         restore(restored);
         taken = taken.filter((x) => !refused.has(x.email.id));
-        if(!progressId)showToast('error', t('mail-toast-update-refused', { count: refused.size }));
+        const why = refusalReason(res);
+        if (why !== '') reportMoveFailure(new Error(`move refused: ${why}`), 'refused', targetMailboxId);
+        if(!progressId)showToast('error', why === '' ? t('mail-toast-update-refused', { count: refused.size }) : t('mail-toast-update-refused-reason', { count: refused.size, reason: why }));
       }
       await finishCounts(res);
       if (!current()) return;
       ctx.broadcastChange?.();
-      if (taken.length === 0) {if(progressId)fail(t('mail-toast-update-refused',{count:refusedCount}));return;}
+      if (taken.length === 0) {if(progressId){const why = refusalReason(res);fail(why === '' ? t('mail-toast-update-refused',{count:refusedCount}) : t('mail-toast-update-refused-reason',{count:refusedCount,reason:why}));}return;}
     }
     if (!current()) return;
     const moved = taken;
@@ -2192,12 +2212,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // A refused create throws, so the composer stays open and shows why.
     const draftRefused = setRes.notCreated?.['draft'];
     if (draftRefused !== undefined) {
-      throw new Error(t('mail-send-draft-refused', { reason: isolate(refusalReason(draftRefused)) }));
+      throw new Error(t('mail-send-draft-refused', { reason: isolate(setErrorReason(draftRefused)) }));
     }
     const subRes = responseFor<EmailSubmissionSetResponse>(res, 'submit');
     const sendRefused = subRes.notCreated?.['send'];
     if (sendRefused !== undefined) {
-      throw new Error(t('mail-send-submission-refused', { reason: isolate(refusalReason(sendRefused)) }));
+      throw new Error(t('mail-send-submission-refused', { reason: isolate(setErrorReason(sendRefused)) }));
     }
     const submissionId = subRes.created?.['send']?.id ?? null;
     if(submissionId&&res.methodResponses.some(([method,value,tag])=>method==='Email/set'&&tag!=='draft'&&Object.keys((value as Partial<EmailSetResponse>).notUpdated??{}).length>0))showToast('error',t('mail-send-copy-failed'));

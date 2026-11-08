@@ -63,7 +63,7 @@ describe('composer ribbon (t38)', () => {
       'compose-group-recipients',
       'compose-group-message-type',
     ]);
-    expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'insert-group-illustrations', 'insert-group-links', 'insert-group-cards', 'insert-group-symbols', 'rt-group-table-insert']);
+    expect(groupIds('insert')).toEqual(['compose-response-templates', 'compose-attach', 'insert-group-illustrations', 'insert-group-links', 'insert-group-cards', 'insert-group-symbols', 'rt-group-table-insert', 'compose-group-signature']);
     expect(groupIds('table')).toEqual(['rt-group-table-rows', 'rt-group-table-columns', 'rt-group-table-cells', 'rt-group-table-shading', 'rt-group-table']);
     expect(groupIds('picture')).toEqual(['rt-group-picture-size', 'rt-group-picture-arrange', 'rt-group-picture-text', 'rt-group-picture-style', 'rt-group-picture-edit']);
     expect(groupIds('layout')).toEqual(['layout-group-columns', 'layout-group-width', 'layout-group-spacing', 'layout-group-page', 'layout-group-themes', 'layout-group-font', 'layout-group-direction']);

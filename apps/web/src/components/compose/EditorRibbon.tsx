@@ -14,7 +14,8 @@
 // `BodyModeGroup` is the one select that switches the body between plain text,
 // the rich editor and native HTML. Both hosts use it.
 
-import { createSignal, For, Show, type JSX } from 'solid-js';
+import { createSignal, For, onCleanup, Show, type JSX } from 'solid-js';
+import { Icon } from '../Icon.tsx';
 import {IconSelect} from '../IconSelect.tsx';
 import {
   CollapsibleBar,
@@ -109,6 +110,8 @@ export interface EditorRibbonProps<T extends string> {
   /** The bar's mode handle; defaults to the `composerRibbon` preference. */
   bar?: BarModeHandle;
   class?: string;
+  /** Show the pin / auto-hide toggle in the ribbon's corner and answer Ctrl+F1 (the layout.ribbonAutoHide flag). Default on. */
+  modeToggle?: () => boolean;
 }
 
 /** The contextual tabs are named for what they do, not for the object (the Insert tab has its own "Table"). */
@@ -127,6 +130,22 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
       const spec = props.tabs.find((tab) => tab.id === id);
       return spec ? tabLabel(spec) : id;
     };
+    const toggleOn = (): boolean => props.modeToggle?.() ?? true;
+    const pinned = (): boolean => (bar?.mode() ?? 'pinned') === 'pinned';
+    const flip = (): void => {
+      if (!bar || bar.locked()) return;
+      void bar.setMode(pinned() ? 'auto' : 'pinned');
+    };
+    // Ctrl+F1 pins or auto-hides the ribbon, as in Office; it never moves focus.
+    const onKey = (event: KeyboardEvent): void => {
+      if (!toggleOn() || event.key !== 'F1' || !event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return;
+      event.preventDefault();
+      flip();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('keydown', onKey);
+      onCleanup(() => document.removeEventListener('keydown', onKey));
+    }
     return (
       <div class="compose-ribbon__heading" data-detached-local>
         <Show when={props.showHistory()}>
@@ -141,6 +160,10 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
                 aria-selected={state.tab() === tab}
                 aria-expanded={bar?.mode() === 'auto' ? (bar.expanded() && state.tab() === tab ? 'true' : 'false') : undefined}
                 aria-controls={bar?.panelId}
+                onDblClick={() => {
+                  // Office: a double click on a tab pins the ribbon open.
+                  if (toggleOn() && bar?.mode() === 'auto' && !bar.locked()) void bar.setMode('pinned');
+                }}
                 onClick={(event) => {
                   // Auto-hide: a tab opens the ribbon on itself; the open tab, clicked again, hides it (Office).
                   if (bar?.mode() === 'auto' && bar.expanded() && state.tab() === tab) {
@@ -156,6 +179,20 @@ export function EditorRibbon<T extends string>(props: EditorRibbonProps<T>): JSX
             )}
           </For>
         </div>
+        <Show when={toggleOn() && bar && !bar.locked()}>
+          <button
+            type="button"
+            class="compose-ribbon__pin"
+            data-testid="compose-ribbon-pin"
+            aria-pressed={pinned() ? 'true' : 'false'}
+            aria-keyshortcuts="Control+F1"
+            aria-label={pinned() ? t('mail-compose-ribbon-autohide') : t('mail-compose-ribbon-pin')}
+            data-tooltip={pinned() ? t('mail-compose-ribbon-autohide') : t('mail-compose-ribbon-pin')}
+            onClick={flip}
+          >
+            <Icon name={pinned() ? 'pin' : 'pinOff'} />
+          </button>
+        </Show>
       </div>
     );
   };

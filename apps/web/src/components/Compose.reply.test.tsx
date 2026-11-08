@@ -2,7 +2,7 @@ import { allowSendChecks } from './compose/sendChecksTestSettings.ts';
 import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent, waitFor } from '@solidjs/testing-library';
+import { cleanup, render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
 import { createEffect, type JSX } from 'solid-js';
 import { recipientList } from './compose/recipientTestUtils.ts';
 import { Compose } from './Compose.tsx';
@@ -389,6 +389,17 @@ describe('Compose quoting the decrypted text of an encrypted message', () => {
     fireEvent.click(button);const id=button.getAttribute('data-reply-draft-id');expect(id).toMatch(/^d-/);expect(openDraft).toHaveBeenCalledWith(id);
     expect(liveReplyDrafts(preferenceAccount()!)).toEqual([expect.objectContaining({id,emailId:'protected-original'})]);
     cleanup();expect(liveReplyDrafts(preferenceAccount()!)).toEqual([]);expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);
+  });
+
+  it('discards an active private reply from the reader only after confirmation',async()=>{
+    const {app,onClose}=await open(reply({quotesDecrypted:true,source:{emailId:'discard-original',keyword:'$answered'}}));
+    function Pending(){const index=createReplyDraftIndex(app.accountId);return <ReaderReplyState answered={false} draft={index().get('discard-original')}/>;}
+    render(()=><Pending/>);
+    fireEvent.click(await screen.findByTestId('reader-discard-reply'));
+    const dialog=await screen.findByRole('alertdialog',{name:'Discard this reply?'});expect(onClose).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button',{name:'Discard'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    expect(listDrafts('acct1','test-storage-authority-acct1')).toEqual([]);expect(JSON.parse(localStorage.getItem('mw.compose.drafts.v2')??'[]')).toEqual([]);
+    cleanup();expect(liveReplyDrafts(preferenceAccount()!)).toEqual([]);
   });
 
   it('asks before sending unencrypted; nothing is sent until the user confirms', async () => {

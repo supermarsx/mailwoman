@@ -1,5 +1,6 @@
 import { allowSendChecks, SEND_CHECKS_OFF } from './compose/sendChecksTestSettings.ts';
 import {webcrypto} from 'node:crypto';
+import {setImmediate as yieldToNode} from 'node:timers/promises';
 import {chooseComposeFormat,structuredComposeEditor} from './compose/nativeHtmlTestHarness.ts';
 import {htmlMessageDocument} from './compose/htmlMessage.ts';
 import {readFileSync} from 'node:fs';
@@ -8,7 +9,7 @@ import {initSync} from '../wasm/mw-sanitize/mw_sanitize.js';
 import { saveDraft, listDrafts } from './compose/drafts-store.ts';
 import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@solidjs/testing-library';
-import { Suspense } from 'solid-js';
+import { createRoot, Suspense } from 'solid-js';
 import { recipientList } from './compose/recipientTestUtils.ts';
 import { Compose } from './Compose.tsx';
 import { renderWithApp, makeClient } from './appHarness.tsx';
@@ -22,7 +23,17 @@ import { resetClientPolicy } from '../api/policy.ts';
 import { clearSettings, loadSettings } from '../api/settings.ts';
 import {clearFeatures,loadFeatures} from '../state/features.ts';
 
-afterEach(()=>setAdminLeetspeak(null));
+// Resolved UI mocks can keep consecutive cases entirely in microtasks. Yield
+// to Node's event loop so Vitest can receive the task-update IPC acknowledgements
+// the parent has already sent, rather than timing them out after 60 seconds.
+afterEach(async()=>{setAdminLeetspeak(null);await yieldToNode();});
+
+// Direct custom-client fixtures need the same lifetime as renderWithApp stores.
+const directStoreDisposers: Array<() => void> = [];
+afterEach(()=>{for(const dispose of directStoreDisposers.splice(0))dispose();});
+function createOwnedAppState(...args:Parameters<typeof createAppState>):ReturnType<typeof createAppState> {
+  return createRoot(dispose=>{directStoreDisposers.push(dispose);return createAppState(...args);});
+}
 
 // ── V7 (e14b) integration doubles ────────────────────────────────────────────
 function json(body: unknown, status = 200): Response {
@@ -251,7 +262,7 @@ describe('Compose', () => {
     let finish!:(response:Response)=>void;
     const base=mockUploadFetch();vi.stubGlobal('crypto',webcrypto);
     vi.stubGlobal('fetch',vi.fn((input:RequestInfo|URL)=>String(input)==='/d'?new Promise<Response>(resolve=>{finish=resolve;}):base(input)));
-    const client=makeClient();const app=createAppState(client);
+    const client=makeClient();const app=createOwnedAppState(client);
     render(()=><AppContext.Provider value={app}><Compose initial={{mode:'new',to:'you@example.org',cc:'',subject:'hashes',bodyHtml:'',bodyText:'Hello',inReplyTo:[],references:[],attachments:[{name:'file.txt',blobId:'original',size:3,contentType:'text/plain'}],quotesDecrypted:false}} onClose={()=>undefined}/></AppContext.Provider>);
     await app.login({username:'me@example.org',password:'p'});
     await chooseComposeFormat('plain');
@@ -268,7 +279,7 @@ describe('Compose', () => {
   });
 
   it('persists the actual reply pane destination across draft resume without main reader context',async()=>{
-    const client=makeClient();const app=createAppState(client);await app.login({username:'me@example.org',password:'p'});
+    const client=makeClient();const app=createOwnedAppState(client);await app.login({username:'me@example.org',password:'p'});
     const target=app.mailboxes().find(box=>box.role==='inbox')!;expect(target).toBeDefined();
     await loadSettings({refresh:true,fetcher:async()=>json({settings:{...SEND_CHECKS_OFF,'mail.replyCopyToOriginal':{value:true,source:'user',locked:false}}})});
     const mounted=render(()=><AppContext.Provider value={app}><Compose initial={{mode:'reply',to:'you@example.org',cc:'',subject:'reply',bodyHtml:'',bodyText:'Hello',inReplyTo:[],references:[],attachments:[],quotesDecrypted:false,source:{emailId:'different-reader-pane',keyword:'$answered'},sourceMailboxId:target.id,sourceMailboxIds:[target.id]}} onClose={()=>undefined}/></AppContext.Provider>);
@@ -286,15 +297,16 @@ describe('Compose', () => {
   it('applies identity Bcc defaults while preserving a user edit',async()=>{
     const {app}=renderWithApp(()=><Compose onClose={()=>undefined}/>,{identities:IDENTITIES.map((identity,index)=>({...identity,autoBcc:index===0?'audit@example.org':'archive@example.org'}))});
     await app.login({username:'me@example.org',password:'p'});await app.loadIdentities();
+    const fields=within(screen.getByTestId('compose-header-body'));
     fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}
-    fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
-    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('audit@example.org');
-    fireEvent.change(screen.getByLabelText('From'),{target:{value:'id2'}});
-    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('archive@example.org');
-    fireEvent.input(screen.getByLabelText('Bcc'),{target:{value:'personal@example.org'}});
-    fireEvent.change(screen.getByLabelText('From'),{target:{value:'id1'}});
+    fireEvent.change(fields.getByLabelText('From'),{target:{value:'id1'}});
+    expect(recipientList(fields.getByLabelText('Bcc'))).toBe('audit@example.org');
+    fireEvent.change(fields.getByLabelText('From'),{target:{value:'id2'}});
+    expect(recipientList(fields.getByLabelText('Bcc'))).toBe('archive@example.org');
+    fireEvent.input(fields.getByLabelText('Bcc'),{target:{value:'personal@example.org'}});
+    fireEvent.change(fields.getByLabelText('From'),{target:{value:'id1'}});
     // The typed address joins the default chip in the box; switching identity keeps the user's edit.
-    expect(recipientList(screen.getByLabelText('Bcc'))).toBe('archive@example.org, personal@example.org');
+    expect(recipientList(fields.getByLabelText('Bcc'))).toBe('archive@example.org, personal@example.org');
   });
 
   it('switches the Send button to Schedule when a send-later time is set', () => {
@@ -619,7 +631,7 @@ describe('Compose', () => {
   /** A composer over a client whose calls the test can read back. */
   async function composeWithClient(opts: Parameters<typeof makeClient>[0] = {}) {
     const client = makeClient(opts);
-    const app = createAppState(client);
+    const app = createOwnedAppState(client);
     await app.login({ username: 'me@example.org', password: 'p' });
     const onClose = vi.fn();
     render(() => (
@@ -893,7 +905,7 @@ describe('Compose', () => {
     fireEvent.click(screen.getByRole('button',{name:'From'}));{const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);}fireEvent.change(await screen.findByLabelText('From'),{target:{value:'native'}});
     await fillPlain('Existing message');await chooseComposeFormat('rich');await structuredComposeEditor();
     if(how==='picker'){
-      fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.change(within(await screen.findByTestId('compose-signature')).getByRole('combobox'),{target:{value:'native'}});
+      fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.click(await screen.findByTestId('signature-menu'));fireEvent.click(await screen.findByTestId('signature-choice-native'));
       const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
       const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
       if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});
@@ -917,6 +929,41 @@ describe('Compose', () => {
     expect(sentBody(client)).toEqual({ body: { value: 'hi\n\n-- \nSent from Mailwoman' } });
   });
 
+  it('No signature in the menu suppresses the automatic signature before any insertion', async () => {
+    const {client,app,onClose}=await composeWithClient({identities:IDENTITIES});
+    await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);
+    fireEvent.change(await screen.findByLabelText('From'),{target:{value:'id1'}});
+    await fillPlain('hi');
+    expect(screen.getByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
+    fireEvent.click(screen.getByRole('tab',{name:'Insert'}));
+    expect(await screen.findByTestId('signature-primary')).toHaveAttribute('aria-pressed','false');
+    fireEvent.click(screen.getByTestId('signature-menu'));
+    const none=await screen.findByTestId('signature-none');expect(none).toBeEnabled();fireEvent.click(none);
+    await waitFor(()=>expect(screen.queryByTestId('compose-auto-signature')).toBeNull());
+    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toBe('hi');
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));
+    await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    expect(sentBody(client)).toEqual({body:{value:'hi'}});
+  });
+
+  it('choosing another identity signature replaces the sender automatic signature', async () => {
+    const {client,app,onClose}=await composeWithClient({identities:IDENTITIES.map(id=>id.id==='id2'?{...id,signatureText:'Work signature'}:id)});
+    await app.loadIdentities();
+    fireEvent.click(screen.getByRole('button',{name:'From'}));
+    const chip=screen.queryByTestId('compose-from-chip');if(chip)fireEvent.click(chip);
+    fireEvent.change(await screen.findByLabelText('From'),{target:{value:'id1'}});
+    await fillPlain('hi');
+    expect(screen.getByTestId('compose-auto-signature')).toHaveTextContent('Sent from Mailwoman');
+    fireEvent.click(screen.getByRole('tab',{name:'Insert'}));fireEvent.click(await screen.findByTestId('signature-menu'));
+    fireEvent.click(await screen.findByTestId('signature-choice-id2'));
+    await waitFor(()=>expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Work signature'));
+    expect(screen.queryByTestId('compose-auto-signature')).toBeNull();
+    fireEvent.click(screen.getByRole('button',{name:'Send'}));await waitFor(()=>expect(onClose).toHaveBeenCalledOnce());
+    expect(sentBody(client)).toEqual({body:{value:'hi\n\n-- \nWork signature'}});
+  });
+
   it('does not append a signature the picker already put in the body', async () => {
     const { client, app, onClose } = await composeWithClient({ identities: IDENTITIES });
     await app.loadIdentities();
@@ -927,7 +974,9 @@ describe('Compose', () => {
     expect(screen.getByTestId('compose-auto-signature')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
-    fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
+    fireEvent.click(within(picker).getByTestId('signature-menu'));
+    fireEvent.click(await screen.findByTestId('signature-choice-id1'));
+    await waitFor(()=>expect(screen.queryByTestId('compose-auto-signature')).toBeNull());
     expect(screen.queryByTestId('compose-auto-signature')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
@@ -955,7 +1004,7 @@ describe('Compose', () => {
     // App.tsx). The crypto panel's DLP scan goes pending on every body change;
     // if that reached the outer boundary, the composer would leave the document
     // mid-keystroke and the field being typed in would lose focus.
-    const app = createAppState(makeClient());
+    const app = createOwnedAppState(makeClient());
     render(() => (
       <AppContext.Provider value={app}>
         <Suspense fallback={<p data-testid="outer-fallback" />}>
@@ -1013,8 +1062,10 @@ describe('Compose', () => {
     await chooseComposeFormat((screen.getByTestId('format-toggle') as HTMLButtonElement).value==='plain'?'rich':'plain'); // plain text
     fireEvent.click(screen.getByRole('tab', {name:'Insert'}));
     const picker = await screen.findByTestId('compose-signature');
-    fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id1' } });
-    expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman');
+    fireEvent.click(within(picker).getByTestId('signature-menu'));
+    fireEvent.click(await screen.findByTestId('signature-choice-id1'));
+    await waitFor(()=>expect(screen.queryByTestId('compose-auto-signature')).toBeNull());
+    await waitFor(()=>expect((screen.getByLabelText('Body') as HTMLTextAreaElement).value).toContain('Sent from Mailwoman'));
   });
 
   it.each(['html','rich'] as const)('resumes an explicit %s draft in its saved editor without losing native layout',async editorMode=>{
@@ -1236,7 +1287,8 @@ describe('Compose', () => {
         if (how === 'picker') {
           fireEvent.click(screen.getByRole('tab', { name: 'Insert' }));
           const picker = await screen.findByTestId('compose-signature');
-          fireEvent.change(within(picker).getByRole('combobox'), { target: { value: 'id4' } });
+          fireEvent.click(within(picker).getByTestId('signature-menu'));
+          fireEvent.click(await screen.findByTestId('signature-choice-id4'));
           const frame=await screen.findByTitle('Visual editor') as HTMLIFrameElement;
           const view=frame.contentWindow as (Window&{CSSStyleSheet:typeof CSSStyleSheet})|null;
           if(view&&!view.CSSStyleSheet.prototype.replaceSync)Object.defineProperty(view.CSSStyleSheet.prototype,'replaceSync',{value:()=>{},configurable:true});

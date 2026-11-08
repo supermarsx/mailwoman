@@ -16,7 +16,7 @@ export type IconName =
   | 'alignLeft' | 'alignCenter' | 'alignRight' | 'rotateCw' | 'rotateCcw' | 'flipH' | 'flipV' | 'crop'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
   | 'mailboxes' | 'signature' | 'compose' | 'mailCheck' | 'transfer' | 'palette' | 'keyboard' | 'bell' | 'package' | 'key'
-  | 'office' | 'laptop' | 'team' | 'store' | 'chart' | 'heartHome' | 'person' | 'smile' | 'gear' | 'crown' | 'wrench' | 'bolt' | 'receipt' | 'cart' | 'family'
+  | 'office' | 'laptop' | 'team' | 'store' | 'chart' | 'heartHome' | 'person' | 'personAdd' | 'teamAdd' | 'smile' | 'gear' | 'crown' | 'wrench' | 'bolt' | 'receipt' | 'cart' | 'family'
   | 'home' | 'briefcase' | 'heart' | 'shopping' | 'education' | 'travel' | 'coffee' | 'gift' | 'bank' | 'book'
   | 'camera' | 'music' | 'film' | 'lightbulb' | 'rocket' | 'trophy' | 'leaf' | 'globe' | 'cloud' | 'bookmark' | 'wallet' | 'medical'
   | 'identityProvider'
@@ -207,6 +207,8 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   chart: () => <path d="M1 13 L6 8 L9 11 L15 4 M11 4 H15 V8" {...S} />,
   heartHome: () => <><path d="M1 7 L8 1 L15 7 M3 5.5 V15 H13 V5.5" {...S} /><path d="M8 13 L5.25 10.25 C4 9 5.5 7 8 8.75 C10.5 7 12 9 10.75 10.25 Z" {...F} /></>,
   person: () => <><circle cx="8" cy="4.5" r="3" {...S} /><path d="M2 15 A6 6 0 0 1 14 15" {...S} /></>,
+  personAdd: () => <><circle cx="6" cy="4.5" r="3" {...S} /><path d="M1 15 A5 5 0 0 1 11 15 M13 3 V8 M10.5 5.5 H15.5" {...S} /></>,
+  teamAdd: () => <><circle cx="6" cy="5" r="2" {...S} /><circle cx="2" cy="6" r="1.25" {...F} /><path d="M2.5 14 V13 A3.5 3.5 0 0 1 9.5 13 V14 M13 8 V13 M10.5 10.5 H15.5" {...S} /></>,
   smile: () => <><circle cx="8" cy="8" r="6.5" {...S} /><circle cx="5.5" cy="6.5" r="1" {...F} /><circle cx="10.5" cy="6.5" r="1" {...F} /><path d="M5 10 Q8 13 11 10" {...S} /></>,
   gear: () => <><circle cx="8" cy="8" r="4" {...S} /><circle cx="8" cy="8" r="1.25" {...F} /><path d="M8 1 V3.5 M8 12.5 V15 M1 8 H3.5 M12.5 8 H15 M3 3 L4.8 4.8 M11.2 11.2 L13 13 M13 3 L11.2 4.8 M4.8 11.2 L3 13" {...S} /></>,
   crown: () => <path d="M1 5 L4.5 9 L8 3 L11.5 9 L15 5 L13.5 13 H2.5 Z" {...S} />,

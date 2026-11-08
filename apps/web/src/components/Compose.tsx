@@ -2,6 +2,10 @@ import {ccbccGroup,ccbccToggle} from './compose/composeHeader.css.ts';
 import {swapQuote} from './compose/quoteRegion.ts';
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
 import {assignedSignature,signatureVariants} from './compose/signatureVariants.ts';
+import {SignatureGroup,type SignatureMenuGroup} from './compose/SignatureGroup.tsx';
+import {createSignatureController} from './compose/signatureControl.ts';
+import {stripSignatureMarker} from './compose/signatureRegion.ts';
+import {SignatureManager} from './compose/SignatureManager.tsx';
 import {registerLiveReplyDraft} from './compose/liveReplyDrafts.ts';
 import {htmlMessageDocument, stripEditorMarkers} from './compose/htmlMessage.ts';
 import {attachmentHashManifest,publicIdentityFile,liveIdentityKey} from './compose/outgoingExtras.ts';
@@ -43,7 +47,7 @@ import { Icon } from './Icon.tsx';
 import { ComposeStatusBar } from './compose/ComposeStatusBar.tsx';
 import { ComposeHeader } from './compose/ComposeHeader.tsx';
 import { savedTime, type StatusItem } from './compose/statusBar.ts';
-import { HEADER_COLLAPSE_DEFAULT, headerSummary, isHeaderCollapseMode, type HeaderCollapseMode } from './compose/headerCollapse.ts';
+import { HEADER_COLLAPSE_DEFAULT, headerSummary, headerValid, isHeaderCollapseMode, type HeaderCollapseMode } from './compose/headerCollapse.ts';
 import {
   createEffect,
   batch,
@@ -69,7 +73,6 @@ import {RibbonGroup,RibbonItem} from './bars/index.ts';
 import {BodyModeGroup,EditorRibbon,createEditorRibbon,type BodyMode} from './compose/EditorRibbon.tsx';
 import {RibbonPopover} from './compose/ribbonParts.tsx';
 import {
-  SignaturePicker,
   RecallPanel,
   type ComposeSignature,
 } from './compose/ComposerExtras.tsx';
@@ -862,41 +865,33 @@ export function Compose(props: {
     return sig.text;
   }
 
-  /** Insert a chosen signature (W12). In rich mode it appends as HTML through the
-   *  editor handle (keeping existing formatting); otherwise it appends its text
-   *  to the plain body. */
-  let pendingSignature:Promise<void>|undefined;
-  function insertSignature(sig: ComposeSignature): void {
-    // Text-only choices remain immediate. HTML work is awaited by Send so a
-    // quick submission cannot omit the insertion or append it a second time.
-    if(!sig.html){
-      if(richMode()&&editorApi())editorApi()!.appendHtml(plainToHtml(sig.text));
-      else setBody(cur=>cur.trim()?`${cur}\n\n-- \n${sig.text}`:sig.text);
-      setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id));return;
-    }
-    pendingSignature=(pendingSignature??Promise.resolve()).catch(()=>undefined).then(async()=>{
-      if(!ownsDraft())return;
-      if(!richMode()){
-        const plain=await signaturePlain(sig);if(!ownsDraft())return;
-        setBody(cur=>cur.trim()?`${cur}\n\n-- \n${plain}`:plain);
-      }else{
-        const html=await signatureBlock(sig);if(!ownsDraft())return;
-        if(sig.format==='html'||sourceMode()||editorApi()===null){
-          if(sourceMode()&&editorApi()){
-            editorApi()!.appendHtml(html);await editorApi()!.whenReady?.();
-          }else{
-            const {normalizeHtmlSource}=await import('./compose/htmlSource.ts');
-            const combined=await normalizeHtmlSource(`${bodyHtml()}<br>${html}`,ownedCids());
-            if(!ownsDraft())return;
-            batch(()=>{setBodyHtml(combined.html);setBody(combined.text);changeFormat('html');});
-          }
-        }else editorApi()!.appendHtml(html);
-      }
-      if(!ownsDraft())return;
-      setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id));
-    });
-    void pendingSignature.catch(()=>{if(ownsDraft())setError(t('mail-compose-html-failed'));});
-  }
+  const [signatureManager,setSignatureManager]=createSignal(false);
+  let signatureReturnTo:HTMLElement|null=null;
+  const signatureGroups=createMemo<SignatureMenuGroup[]>(()=>app.identities().map(id=>({identityId:id.id,name:id.name||id.email,current:id.id===identityId(),items:signatures().filter(sig=>sig.identityId===id.id).map(sig=>({sig,isDefault:assignedSignature(id,replyContext())?.id===sig.id}))})));
+  const signatureController=createSignatureController({
+    captureAuthority:()=>{const key=sendingSelection();return ()=>ownsDraft()&&sendingSelection()===key;},
+    richMode,bodyHtml,body,
+    setHtml:html=>{
+      if(!ownsDraft())throw new Error('Draft authority changed');
+      const api=editorApi();
+      if(api?.replaceHtml)api.replaceHtml(html);else if(api)api.setHtml(html);else setBodyHtml(html);
+    },
+    setPlain:text=>{if(!ownsDraft())throw new Error('Draft authority changed');setBody(text);},
+    insertAtCursor:(html,text)=>insertBlock(html,text),
+    renderHtml:async sig=>{
+      const html=await signatureBlock(sig);
+      if(!ownsDraft())throw new Error('Draft authority changed');
+      if(sig.format==='html'&&!sourceMode())changeFormat('html');
+      return html;
+    },
+    renderPlain:signaturePlain,variants:signatures,
+    defaultFor:id=>{if(customFrom())return null;const item=app.identities().find(value=>value.id===id);return item?assignedSignature(item,replyContext()):null;},
+    identityId,quoteAnchor:()=>imageOffer?.anchor??(initial&&initial.mode!='new'?initial.bodyText.trim().split('\n')[0]:undefined),quoteKind:()=>imageOffer?.kind,
+    defaultPosition:()=>replyContext()?'above-quote':'end',
+    markInserted:sig=>setInsertedSignatures(prev=>new Set(prev).add(sig.id).add(sig.identityId??sig.id).add(identityId())),
+    markRemoved:id=>setInsertedSignatures(prev=>new Set(prev).add(id).add(identityId())),
+  });
+  createEffect(on(identityId,(next,previous)=>{if(previous)void signatureController.identityChanged(previous,next).catch(()=>setError(t('mail-compose-html-failed')));},{defer:true}));
 
   /** Resume a locally auto-saved draft (W9) into this composer. */
   function resumeDraft(d: StoredDraft): void {
@@ -943,9 +938,13 @@ export function Compose(props: {
    *  blob, through the authenticated download route). An image whose blob is
    *  gone shows its name as alt text. */
   async function loadPreviews(images: InlineImage[]): Promise<void> {
-    const template = downloadUrl();
     const acct = app.accountId();
-    if (template === null || acct === null) return;
+    if (acct === null) return;
+    // A draft resumed before the session probe has landed has no download
+    // template yet: ask the (cached) session for it instead of giving up.
+    let template = downloadUrl();
+    if (template === null) { try { template = (await jmapClient.session()).downloadUrl; } catch { return; } }
+    if (!ownsDraft() || app.accountId() !== acct) return;
     for (const img of images) {
       try {
         const url = await fetchObjectUrl(
@@ -1158,7 +1157,7 @@ export function Compose(props: {
   createEffect(()=>{
     liveDraftVersion();const source=draftSource(),owner=composerAuthority(),account=app.accountId();
     if(sent||!owner||owner.id!==account||!ownsDraft())return;
-    const release=registerLiveReplyDraft(owner,draftId,source);releaseLiveReply=release;onCleanup(release);
+    const release=registerLiveReplyDraft(owner,draftId,source,()=>discardCurrentDraft());releaseLiveReply=release;onCleanup(release);
   });
   let resumedWorkspaceDraft=false;
   createEffect(()=>{
@@ -1619,7 +1618,7 @@ export function Compose(props: {
     if(!ownsDraft())return;
     if(!await runSendChecks()||!ownsDraft())return;
     if(sendingSelection()!==expectedSelection){setError(t('mail-compose-send-failed'));return;}
-    if(pendingSignature)await pendingSignature;
+    await signatureController.whenReady();
     if(sourceMode()&&editorApi()===null){setError(t('mail-compose-html-processing'));return;}
     const readyEditor=editorApi();if(readyEditor?.whenReady)await readyEditor.whenReady();
     remoteWriter?.suspend(true);
@@ -1726,7 +1725,7 @@ export function Compose(props: {
           if (rich) htmlBody += `<br>${await signatureBlock(sig)}`;
           else textBody += `\n\n-- \n${await signaturePlain(sig)}`;
         }
-        if (rich) htmlBody = htmlMessageDocument(htmlBody.replace(/\sdata-mw-shape="[^"]*"/g, ''));
+        if (rich) htmlBody = htmlMessageDocument(stripSignatureMarker(htmlBody).replace(/\sdata-mw-shape="[^"]*"/g, ''));
       }
       const subjectToSend =
         enc !== null && cs !== null && cs.protectSubject && enc.encryptedSubjectApplied
@@ -1808,7 +1807,10 @@ export function Compose(props: {
   const [savedAt,setSavedAt]=createSignal<Date|null>(null);
   createEffect(on(remoteStatus,status=>{if(status==='saved')setSavedAt(new Date());}));
   const headerMode=():HeaderCollapseMode=>{const value=settings()['mail.compose.headerCollapse']?.value;return isHeaderCollapseMode(value)?value:HEADER_COLLAPSE_DEFAULT;};
-  const headerSummaryText=()=>headerSummary({to:to(),cc:cc(),bcc:bcc(),subject:subject()},{to:t('mail-compose-to'),cc:t('mail-compose-cc'),bcc:t('mail-compose-bcc'),subject:t('mail-compose-subject'),noSubject:t('mail-no-subject')});
+  const headerSummaryText=()=>headerSummary({to:to(),cc:cc(),bcc:bcc(),subject:subject(),from:identity()?.name||identity()?.email||'',attachments:attachments().length},{to:t('mail-compose-to'),cc:t('mail-compose-cc'),bcc:t('mail-compose-bcc'),subject:t('mail-compose-subject'),noSubject:t('mail-no-subject'),attachments:count=>t('mail-header-attachments',{count})});
+  const featHeaderCollapse=useComposeFeature('layout.headerCollapse'),featRibbonAutoHide=useComposeFeature('layout.ribbonAutoHide');
+  const headerValidNow=()=>headerValid({to:to(),cc:cc(),bcc:bcc(),subject:subject()});
+  const headerAutoSeconds=()=>{const value=settings()['mail.compose.headerAutoCollapseSeconds']?.value;return typeof value==='number'&&value>=0?value:0;};
   const headerEmpty=()=>to().trim()===''&&cc().trim()===''&&bcc().trim()===''&&subject().trim()==='';
   const [fromChipOpen,setFromChipOpen]=createSignal(false);
   // What the rich editor's selection is on. The HTML editors keep their own Table tab; the rich editor's
@@ -1832,6 +1834,7 @@ export function Compose(props: {
   const severityOf=(id:CheckId):'danger'|'warning'=>policyOf(id)==='deny'?'danger':'warning';
   /** Open the header (when folded) so a field in it can take focus. */
   const revealHeader=():void=>{setAttentionTick(n=>n+1);};
+  createEffect(on(ccBccOpen,()=>revealHeader(),{defer:true}));
   const jumpToIssue=(issue:SendIssue):void=>{revealHeader();focusIssue(issue);queueMicrotask(()=>focusIssue(issue));};
   const statusItems=createMemo<StatusItem[]>(()=>{
     const items:StatusItem[]=[];
@@ -1975,7 +1978,7 @@ export function Compose(props: {
 
         <Show when={compact()}><section class="compose__quick-summary" aria-label={t('mail-quick-reply')}><p><strong>{t('mail-compose-to')}:</strong> {to()}<Show when={cc()}>{' · '}{t('mail-compose-cc')}: {cc()}</Show><Show when={bcc()}>{' · '}{t('mail-compose-bcc')}: {bcc()}</Show></p><p>{subject()}</p><button type="button" class="btn btn--ghost" onClick={() => setExpanded(true)}>{t('mail-quick-reply-expand')}</button></section></Show>
         <Show when={!compact()}>
-          <ComposeHeader mode={headerMode} summary={headerSummaryText} empty={headerEmpty} attention={attentionTick}>
+          <ComposeHeader mode={headerMode} summary={headerSummaryText} empty={headerEmpty} attention={attentionTick} valid={headerValidNow} autoCollapseSeconds={headerAutoSeconds} collapsible={featHeaderCollapse}>
           <Show when={showFrom()}><Show when={app.identities().length===1&&!customFrom()&&!fromChipOpen()} fallback={<label class="field compose__from compose__from-row">
             <span>{t('mail-compose-from')}</span>
             <select value={customFrom() ? "__custom_from__" : identityId()} onChange={(e) => { const value=e.currentTarget.value; setCustomFrom(value === "__custom_from__"); if(value !== "__custom_from__") pickIdentity(value); }}>
@@ -2117,6 +2120,7 @@ export function Compose(props: {
             tabs stay mounted, so the security evaluation is always live. */}
         <EditorRibbon
           state={ribbon}
+          modeToggle={featRibbonAutoHide}
           visible={()=>visibleTabs()}
           history={editorApi}
           showHistory={()=>richMode()}
@@ -2180,11 +2184,9 @@ export function Compose(props: {
                 </Show>
               </>}/>
             </>,after:()=><>
-              <Show when={signatures().length > 0}>
-                <RibbonGroup label={t('mail-compose-signature')} priority={40} icon="edit" testId="compose-group-signature">
-                  <RibbonItem><SignaturePicker signatures={signatures} onInsert={insertSignature} /></RibbonItem>
-                </RibbonGroup>
-              </Show>
+              <SignatureGroup controller={signatureController} groups={signatureGroups} disabled={()=>busy()||!ownsDraft()}
+                onEdit={(_mode,target)=>{signatureReturnTo=target;setSignatureManager(true);}} onError={setError}/>
+
               {/* V7 inline Assist composer tools + dictation (plan §14.3). Each component
                   self-hides on the capabilities it lacks; the whole group is gated on
                   the gateway being enabled, so a Disabled Assist gateway renders
@@ -2464,6 +2466,7 @@ export function Compose(props: {
         <ComposeStatusBar items={statusItems} start={<EditorCounts text={body()} html={bodyHtml()}/>} />
 
       </form>
+      <Show when={signatureManager()}><SignatureManager document={backdropEl?.ownerDocument??document} onClose={()=>{setSignatureManager(false);queueMicrotask(()=>signatureReturnTo?.focus());void app.loadIdentities();}}/></Show>
     </div>
   );
 }
