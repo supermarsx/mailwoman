@@ -29,3 +29,13 @@ it('keeps security sections in labelled keyboard-navigable tabs', () => {
   expect(screen.getByText('Encryption settings')).toBeVisible();
   expect(screen.getByText('Password settings')).not.toBeVisible();
 });
+
+it('keeps the Settings tabs usable while account activity is pending', () => {
+  vi.mocked(apiFetch).mockImplementation(async path => path.endsWith('/activity') ? new Promise<Response>(() => {}) : new Response(JSON.stringify({ events: [], devices: [] }), { status: 200 }));
+  render(() => <SecurityCenter password={<p>Password settings</p>} />);
+  expect(screen.getByText('Password settings')).toBeVisible();
+  fireEvent.click(screen.getByRole('tab', { name: 'Account activity' }));
+  expect(screen.getByRole('status')).toHaveTextContent('Loading account activity');
+  fireEvent.click(screen.getByRole('tab', { name: 'Sign-in & passkeys' }));
+  expect(screen.getByText('Password settings')).toBeVisible();
+});

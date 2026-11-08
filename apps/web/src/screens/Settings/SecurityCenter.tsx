@@ -14,9 +14,9 @@ import { SessionAlertBanner } from './SessionAlertBanner.tsx';
 import { BreachNoticeBanner } from './BreachNoticeBanner.tsx';
 import * as tabs from './securityTabs.css.ts';
 import { AsyncBoundary } from '../../components/ErrorBoundary.tsx';
+import { AccountActivity } from './AccountActivity.tsx';
 
 type History = { id: string; ts: number; method: string; result: string; ip: string; userAgent: string };
-type Activity = { id: string; timestamp: string; action: string };
 type Device = { id: string; label: string; expiresAt: number };
 async function request<T>(path: string, body?: object): Promise<T> {
   const response = await apiFetch(`${basePath()}/api/account/security/${path}`, {
@@ -33,7 +33,6 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
   onMount(() => void loadCatalog('security'));
   const [filter, setFilter] = createSignal('');
   const [history, { refetch: refreshHistory }] = createResource(filter, (result) => request<{ events: History[] }>(`history?limit=100${result ? `&result=${result}` : ''}`));
-  const [activity] = createResource(() => request<{ events: Activity[] }>('activity'));
   const [devices, { refetch: refreshDevices }] = createResource(() => request<{ devices: Device[] }>('remembered-devices'));
   const [label, setLabel] = createSignal('');
   const [busy, setBusy] = createSignal(false);
@@ -85,9 +84,7 @@ export function SecurityCenter(props: { password?: JSX.Element; grants?: JSX.Ele
     <ul class={css.list}><For each={devices()?.devices}>{(device) => <li class={css.item}><span>{device.label} · {formatDate(new Date(device.expiresAt * 1000))}</span><button type="button" disabled={busy()} onClick={() => void action(() => request('remembered-devices/revoke', { id: device.id }))}>{t('security-center-revoke')}</button></li>}</For></ul>
     </SettingsCard>
     </div><div {...panel('activity')}>
-    <SettingsCard id="security-activity-card" wide title={t('security-center-activity')}>
-    <ul class={css.list}><For each={activity()?.events}>{(event) => <li class={css.item}>{event.timestamp} · {event.action}</li>}</For></ul>
-    </SettingsCard>
+    <AccountActivity />
     </div><div {...panel('encryption')}>{props.encryption}</div>
   </div>;
 }

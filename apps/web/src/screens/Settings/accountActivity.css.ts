@@ -1,0 +1,17 @@
+import { style, globalStyle } from '@vanilla-extract/css';
+import { vars } from '../../theme/contract.css.ts';
+export const root = style({ inlineSize: '100%', maxInlineSize: '52rem', minInlineSize: 0 });
+export const list = style({ listStyle: 'none', padding: 0, margin: 0 });
+export const row = style({ display: 'grid', gridTemplateColumns: '2rem minmax(0,1fr)', gap: vars.space[3], paddingBlock: vars.space[3], borderBlockEnd: `1px solid ${vars.color.border}` });
+globalStyle(`${row}:last-child`, { borderBlockEnd: 0 });
+export const icon = style({ display: 'grid', placeItems: 'center', inlineSize: '2rem', blockSize: '2rem', borderRadius: vars.radius.md, background: vars.color.bgAlt, color: vars.color.textDim });
+export const body = style({ minInlineSize: 0, overflowWrap: 'anywhere' });
+export const heading = style({ fontWeight: 600, lineHeight: 1.5 });
+export const time = style({ display: 'block', color: vars.color.textDim, fontSize: '.85rem', lineHeight: 1.6 });
+export const details = style({ marginBlockStart: vars.space[1], fontSize: '.8rem', color: vars.color.textDim });
+globalStyle(`${details} summary`, { cursor: 'pointer', inlineSize: 'fit-content', paddingBlock: vars.space[1] });
+globalStyle(`${details} summary:focus-visible`, { outline: `${vars.a11y.focusRingWidth} solid ${vars.a11y.focusRingColor}`, outlineOffset: '2px' });
+export const facts = style({ display: 'grid', gridTemplateColumns: 'minmax(5rem,auto) minmax(0,1fr)', gap: `${vars.space[1]} ${vars.space[3]}`, marginBlock: vars.space[2] });
+globalStyle(`${facts} dd`, { margin: 0, overflowWrap: 'anywhere', unicodeBidi: 'plaintext' });
+export const payload = style({ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere', fontSize: 'inherit', padding: vars.space[2], background: vars.color.bgAlt, borderRadius: vars.radius.sm, margin: 0, unicodeBidi: 'plaintext' });
+export const empty = style({ display: 'flex', alignItems: 'center', gap: vars.space[2], color: vars.color.textDim, margin: 0, paddingBlock: vars.space[3] });
