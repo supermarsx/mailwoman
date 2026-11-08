@@ -37,8 +37,11 @@ test('EML and Outlook attachments use the isolated preview worker @phone', async
   await expect(tab.getByRole('heading', { name: 'Nested preview' })).toBeVisible();
   await expect(tab.locator('iframe')).toHaveAttribute('sandbox', '');
   await expect(page.frameLocator('.attachment-tab iframe').getByText('Nested body')).toBeVisible();
-  await tab.getByText('File details and fingerprint', {exact:true}).click();
-  await expect(tab.locator('code').first()).toHaveText(/^[a-f0-9]{64}$/);
+  await tab.getByRole('button', { name: 'File details' }).click();
+  const details = page.getByRole('dialog', { name: 'File details and fingerprint' });
+  await expect(details.getByTestId('attachment-fingerprint')).toHaveText(/^[a-f0-9]{8}( [a-f0-9]{8}){7}$/);
+  await details.getByRole('button', { name: 'Close' }).click();
+  await expect(details).toHaveCount(0);
   await page.getByRole('tab', { name: subject, exact: true }).click();
   await expect(page.getByRole('heading', { name: subject, exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'forwarded.eml', exact: true }).click();

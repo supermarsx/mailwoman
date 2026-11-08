@@ -217,6 +217,7 @@ fn required() -> Vec<String> {
     let mut out: Vec<String> = vec![
         "pdfjs/web/mailwoman.html".into(),
         "pdfjs/bootstrap.mjs".into(),
+        "pdfjs/polyfills.mjs".into(),
         "pdfjs/mailwoman.css".into(),
         "pdfjs/build/pdf.mjs".into(),
         "pdfjs/web/viewer.mjs".into(),
@@ -367,7 +368,7 @@ mod tests {
             concat!(env!("CARGO_MANIFEST_DIR"), "/../../apps/web/public/pdfjs/bootstrap.mjs"),
         )
         .unwrap();
-        for import in ["./build/pdf.mjs", "./web/viewer.mjs", "../pdf.worker.mjs"] {
+        for import in ["./polyfills.mjs", "./build/pdf.mjs", "./web/viewer.mjs", "../pdf.worker.mjs"] {
             assert!(boot.contains(import), "bootstrap no longer names {import}");
         }
         for path in refs.iter().chain(&required()) {

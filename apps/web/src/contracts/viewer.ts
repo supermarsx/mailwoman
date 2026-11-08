@@ -14,6 +14,20 @@ export interface ViewerProps {
   blobUrl: string;
   mime: string;
   name: string;
+  /** Optional: told what the viewer learned about the document itself (the File details dialog lists it). */
+  onDetails?: (details: ViewerDetails) => void;
+}
+
+/** Facts about a document that only its viewer can read. Every field is optional: a viewer reports what it has. */
+export interface ViewerDetails {
+  pages?: number;
+  producer?: string;
+  creator?: string;
+  /** ISO 8601. */
+  created?: string;
+  pdfVersion?: string;
+  /** A password was asked for before the document opened. */
+  passwordRequired?: boolean;
 }
 
 /** The viewer variants `<AttachmentViewer>` dispatches to (plan §2.4). */

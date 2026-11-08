@@ -26,7 +26,10 @@ FRAME_CSP = "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; worker-sr
 def frame_document():
     html = (ROOT / "web/viewer.html").read_text()
     html = re.sub(r'(http-equiv="Content-Security-Policy"\s+content=")[^"]+', lambda match: match[1] + FRAME_CSP, html)
-    html = html.replace('<script src="../build/pdf.mjs" type="module"></script>', '<script src="../bootstrap.mjs" type="module"></script><link rel="stylesheet" href="../mailwoman.css" />')
+    # Stylesheets first, then the module script: a script ahead of a pending stylesheet makes Firefox log
+    # "Layout was forced before the page was fully loaded" for the layout reads the viewer makes on start.
+    html = html.replace('<script src="../build/pdf.mjs" type="module"></script>', '<link rel="stylesheet" href="../mailwoman.css" />')
+    html = html.replace('<link rel="stylesheet" href="viewer.css" />', '<link rel="stylesheet" href="viewer.css" />\n<script src="../bootstrap.mjs" type="module"></script>')
     return html.replace('<script src="viewer.mjs" type="module"></script>', '')
 
 

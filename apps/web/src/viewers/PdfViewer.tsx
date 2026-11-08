@@ -13,28 +13,30 @@
 // authenticated attachment route and posts them to the frame, which is addressed
 // by window (an opaque origin cannot be a postMessage target, so '*') and
 // answers only to the frame window with the origin 'null' and the per-frame nonce.
-import { createMemo, createSignal, onCleanup, onMount, Show, type JSX } from 'solid-js';
-import type { ViewerProps } from '../contracts/viewer.ts';
+import { createMemo, createSignal, For, onCleanup, onMount, Show, type JSX } from 'solid-js';
+import type { ViewerDetails, ViewerProps } from '../contracts/viewer.ts';
 import { shellBase } from '../api/basePath.ts';
 import { apiFetch } from '../api/http.ts';
 import { t } from '../i18n/index.ts';
 import { ConfirmDialog } from '../screens/Admin/shell/ConfirmDialog.tsx';
 import { reportBoundaryError } from '../observability/clientErrors.ts';
-import { authorizedPdfBlob, pdfFrameError, PDF_CHANNEL, PDF_ERROR_BOUNDARY, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX, safePdfLink, validPdfMessage } from './pdfBridge.ts';
+import { viewerDetailsFrom } from './attachmentDetails.ts';
+import { authorizedPdfBlob, pdfFailureContext, pdfFailureLines, pdfFrameError, pdfHostFailure, PDF_CHANNEL, PDF_ERROR_BOUNDARY, PDF_FRAME_ORIGIN, PDF_FRAME_SANDBOX, safePdfLink, validPdfMessage, type PdfFailure, type PdfStage } from './pdfBridge.ts';
 
 export { PDF_WORKER_SRC, isSelfHosted } from './pdfWorkerSrc.ts';
 
 export function PdfViewer(props: ViewerProps): JSX.Element {
   const document = createMemo(() => ({ url: props.blobUrl, name: props.name }));
-  return <Show when={document()} keyed>{attachment => <PdfDocument url={attachment.url} name={attachment.name}/>}</Show>;
+  return <Show when={document()} keyed>{attachment => <PdfDocument url={attachment.url} name={attachment.name} onDetails={props.onDetails}/>}</Show>;
 }
 
-function PdfDocument(props: { url: string; name: string }): JSX.Element {
+function PdfDocument(props: { url: string; name: string; onDetails: ((details: ViewerDetails) => void) | undefined }): JSX.Element {
   let frame!: HTMLIFrameElement;
   let ready = false;
   let sent = false;
   let disposed = false;
   let failed = false;
+  let passwordAsked = false;
   let instance: string|undefined;
   let reloads = 0;
   let host = window;
@@ -45,10 +47,16 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
   let nonce = crypto.randomUUID();
   const [status, setStatus] = createSignal<'loading'|'ready'|'error'>('loading');
   const [link, setLink] = createSignal<string>();
-  function fail(reason?: unknown): void {
+  const [failure, setFailure] = createSignal<PdfFailure>();
+  const browser = (): string => host.navigator?.userAgent ?? '';
+  /** `stage` names the host-side step that failed; a frame error carries its own. */
+  function fail(reason?: unknown, stage: PdfStage = 'unknown'): void {
     if (disposed || failed) return;
     failed = true;
-    reportBoundaryError(reason ?? new Error('PDF viewer failed'), PDF_ERROR_BOUNDARY);
+    const error = reason ?? new Error('PDF viewer failed');
+    const detail = (error as { pdf?: PdfFailure }).pdf ?? pdfHostFailure(stage, error);
+    setFailure(detail);
+    reportBoundaryError(error, PDF_ERROR_BOUNDARY, pdfFailureContext(detail, browser()));
     abort.abort();
     bytes = undefined;
     setStatus('error');
@@ -76,16 +84,18 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     if (event.data.type === 'ready' && typeof event.data.instance === 'string' && event.data.instance.length <= 100) {
       if (event.data.instance === instance || (failed && instance === undefined)) return;
       if (instance !== undefined) {
-        if (++reloads > 5) { fail(new Error('PDF viewer reloaded too many times')); return; }
+        if (++reloads > 5) { fail(new Error('PDF viewer reloaded too many times'), 'handshake'); return; }
         abort.abort(); abort = new AbortController(); nonce = crypto.randomUUID(); sent = false; bytes = undefined; failed = false;
-        clearTimeout(deadline); deadline = setTimeout(() => fail(new Error('PDF viewer timed out')), 45_000); setStatus('loading'); setLink(undefined);
+        clearTimeout(deadline); deadline = setTimeout(timedOut, 45_000); setStatus('loading'); setLink(undefined); setFailure(undefined);
         fetchBytes();
       }
       instance = event.data.instance;
       ready = true; open(); return;
     }
     if (failed || event.data.instance !== instance || event.data.nonce !== nonce || !sent) return;
+    if (event.data.type === 'password') passwordAsked = true;
     if (event.data.type === 'loaded' || event.data.type === 'password') { clearTimeout(deadline); setStatus('ready'); }
+    if (event.data.type === 'loaded') props.onDetails?.({ ...viewerDetailsFrom(event.data), passwordRequired: passwordAsked });
     else if (event.data.type === 'error') fail(pdfFrameError(event.data));
     else if (event.data.type === 'link') {
       const url = safePdfLink(event.data.url);
@@ -93,14 +103,16 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
     }
   }
   function fetchBytes(): void {
-    if (!authorizedPdfBlob(props.url, host.location.origin)) { fail(new Error('PDF attachment URL not authorized')); return; }
+    if (!authorizedPdfBlob(props.url, host.location.origin)) { fail(new Error('PDF attachment URL not authorized'), 'authorize'); return; }
     const request = abort;
     void apiFetch(props.url, { signal: request.signal }).then(async response => {
-      if (!response.ok) throw new Error('PDF unavailable');
+      if (!response.ok) throw new Error(`PDF unavailable (HTTP ${response.status})`);
       const result = await response.arrayBuffer();
       if (!disposed && !failed && request === abort) { bytes = result; open(); }
-    }).catch((error: unknown) => { if (request === abort) fail(error); });
+    }).catch((error: unknown) => { if (request === abort) fail(error, 'fetch'); });
   }
+  /** No frame answer at all (its script was blocked or failed to load) versus an answer that never became a document. */
+  function timedOut(): void { fail(new Error(ready ? 'PDF viewer did not finish opening the document' : 'PDF viewer frame did not answer'), ready ? 'timeout' : 'handshake'); }
   function bindHost(): void {
     host.removeEventListener('message', receive);
     host = frame.ownerDocument.defaultView ?? window;
@@ -111,7 +123,7 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
   }
   onMount(() => {
     bindHost();
-    deadline = setTimeout(() => fail(new Error('PDF viewer timed out')), 45_000);
+    deadline = setTimeout(timedOut, 45_000);
     fetchBytes();
   });
   onCleanup(() => {
@@ -125,7 +137,13 @@ function PdfDocument(props: { url: string; name: string }): JSX.Element {
   });
   return <div class="mw-viewer__pdf-full" data-pdf-state={status()}>
     <Show when={status() === 'loading'}><p role="status" class="mw-viewer__loading">{t('common-viewer-rendering-pdf')}</p></Show>
-    <Show when={status() === 'error'}><p role="alert" class="mw-viewer__error">{t('common-viewer-pdf-failed')}</p></Show>
+    <Show when={status() === 'error'}><div role="alert" class="mw-viewer__error">
+      <p>{t('common-viewer-pdf-failed')}</p>
+      <Show when={failure()}>{detail => <details class="mw-viewer__error-details" data-testid="pdf-failure-details"><summary>{t('common-viewer-pdf-details')}</summary>
+        <dl>{<For each={pdfFailureLines(detail(), browser())}>{([label, value]) => <><dt>{label}</dt><dd>{value}</dd></>}</For>}</dl>
+        <p class="mw-viewer__error-help">{t('common-viewer-pdf-details-help')}</p>
+      </details>}</Show>
+    </div></Show>
     <iframe ref={frame} class="mw-viewer__pdf-frame" src={`${shellBase()}pdfjs/web/mailwoman.html`} title={t('common-pdf-preview') + ': ' + props.name}
       onLoad={() => { bindHost(); post('probe'); }}
       sandbox={PDF_FRAME_SANDBOX} allowfullscreen referrerPolicy="no-referrer" />

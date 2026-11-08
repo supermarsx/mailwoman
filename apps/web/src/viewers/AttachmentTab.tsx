@@ -3,10 +3,11 @@ import { apiFetch } from '../api/http.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
 import { Icon } from '../components/Icon.tsx';
 import { AttachmentViewer } from './AttachmentViewer.tsx';
+import { AttachmentDetailsButton } from './AttachmentDetails.tsx';
+import type { ViewerDetails } from '../contracts/viewer.ts';
 import { inspectFile } from './fileInfo.ts';
 import type { StripItem } from './ThumbnailStrip.tsx';
-import { formatSize } from './attachments.ts';
-import { formatNumber, t } from '../i18n';
+import { t } from '../i18n';
 import { mailFeature } from '../state/mailFeatures.ts';
 import './attachment-tab.css';
 
@@ -37,8 +38,12 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
   });
   const ready = () => file.state === 'ready' ? file.latest : undefined;
   const declared = () => inspectFile(props.item.name, props.item.mime);
+  // What the open viewer reports about the document itself (a PDF's pages, producer...).
+  const [extra, setExtra] = createSignal<ViewerDetails>();
   return <section class="attachment-tab" aria-label={props.item.name}>
-    <header class="attachment-tab__header"><Icon name={declared().icon}/><h2>{props.item.name}</h2></header>
+    <header class="attachment-tab__header"><Icon name={declared().icon}/><h2>{props.item.name}</h2>
+      <Show when={ready()}>{loaded => <AttachmentDetailsButton details={{ name: props.item.name, mime: props.item.mime || 'application/octet-stream', size: loaded().size, digest: loaded().digest, type: loaded().info.description, extension: loaded().info.extension, detected: loaded().info.detected, extra: extra() }}/>}</Show>
+    </header>
     <Show when={policy.loading}><p role="status">{t('mail-attachment-policy-loading')}</p></Show>
     <Show when={policy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>
     <Show when={decision() && !decision()!.allowed}><p role="alert">{t('mail-attachment-policy-blocked')}</p></Show>
@@ -47,18 +52,10 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
     <Show when={file.loading}><p role="status">{t('mail-attachment-loading')}</p></Show>
     <Show when={file.state === 'errored'}><p role="alert">{t('mail-attachment-failed')}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={ready()}>{loaded => <>
-      <details class="attachment-tab__details"><summary>{t('mail-file-details')}</summary><dl>
-        <dt>{t('mail-file-type')}</dt><dd>{loaded().info.description}</dd>
-        <dt>{t('mail-file-extension')}</dt><dd>{loaded().info.extension || '—'}</dd>
-        <dt>MIME</dt><dd>{props.item.mime || 'application/octet-stream'}</dd>
-        <dt>{t('mail-file-detected')}</dt><dd>{loaded().info.detected || t('mail-file-unknown')}</dd>
-        <dt>{t('mail-file-size')}</dt><dd>{formatSize(loaded().size)} ({t('mail-file-size-bytes', { count: formatNumber(loaded().size) })})</dd>
-        <dt>SHA-256</dt><dd><code>{loaded().digest || t('mail-file-hash-unavailable')}</code></dd>
-      </dl><p>{t('mail-file-fingerprint-help')}</p></details>
       <For each={loaded().info.warnings}>{warning => <p class="attachment-tab__warning" role="status"><Icon name="alert"/>{t(`mail-file-warning-${warning}`)}</p>}</For>
       <Show when={mailFeature('allowDownload')}><a class="btn btn--ghost attachment-tab__download" href={loaded().url} download={props.item.name.replace(/[\\/]/g, '_')} rel="noopener">{t('common-message-preview-download')}</a></Show>
       <Show when={!loaded().info.blockPreview} fallback={<p>{t('mail-file-preview-blocked')}</p>}>
-        <div class="attachment-tab__viewer"><AttachmentViewer part={{ partId: null, blobId: props.item.blobId, size: loaded().size, type: props.item.mime }} blobUrl={loaded().url} mime={props.item.mime} name={props.item.name}/></div>
+        <div class="attachment-tab__viewer"><AttachmentViewer part={{ partId: null, blobId: props.item.blobId, size: loaded().size, type: props.item.mime }} blobUrl={loaded().url} mime={props.item.mime} name={props.item.name} onDetails={setExtra}/></div>
       </Show>
     </>}</Show>
   </section>;

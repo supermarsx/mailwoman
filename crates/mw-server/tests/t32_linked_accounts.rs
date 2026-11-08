@@ -524,6 +524,16 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
     let email = imported["methodResponses"][0][1]["created"]["i"]["id"]
         .as_str()
         .unwrap_or_else(|| panic!("{imported}"));
+    // "Move to Trash" in a linked mailbox: a plain mailboxIds update through the link selector is accepted and the message is then in the child's Trash.
+    let child_trash=folders["methodResponses"][0][1]["list"].as_array().unwrap().iter().find(|m|m["role"]=="trash").map(|m|m["id"].as_str().unwrap().to_string());
+    if let Some(trash)=child_trash {
+        let moved=value(parent.post(format!("{base}/jmap/api")).header("x-mailwoman-link",link).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"accountId":child_account,"update":{email:{"mailboxIds":{trash.clone():true}}}},"s"]]})).send().await.unwrap(),200).await;
+        assert!(moved["methodResponses"][0][1]["updated"].get(email).is_some(),"linked move to Trash: {moved}");
+        let back=value(parent.post(format!("{base}/jmap/api")).header("x-mailwoman-link",link).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/set",{"accountId":child_account,"update":{email:{"mailboxIds":{inbox:true}}}},"s"]]})).send().await.unwrap(),200).await;
+        assert!(back["methodResponses"][0][1]["updated"].get(email).is_some(),"linked move back: {back}");
+    } else {
+        eprintln!("linked child has no Trash role in this fixture: {folders}");
+    }
     let message=value(parent.post(format!("{base}/jmap/api")).header("x-mailwoman-link",link).json(&json!({"using":["urn:ietf:params:jmap:core","urn:ietf:params:jmap:mail"],"methodCalls":[["Email/get",{"accountId":child_account,"ids":[email],"properties":["id","mailwomanInlineParts"]},"g"]]})).send().await.unwrap(),200).await;
     let blob = message["methodResponses"][0][1]["list"][0]["mailwomanInlineParts"][0]["blobId"]
         .as_str()
@@ -559,6 +569,62 @@ async fn linked_password_mfa_context_personal_data_and_revocation_are_real() {
         .unwrap();
     assert_eq!(download.status(), 200);
     assert!(download.bytes().await.unwrap().starts_with(b"\x89PNG"));
+    // The same download through the header selector (what the web client's
+    // apiFetch sends) is served from the linked mailbox.
+    let by_header = parent
+        .get(format!("{base}/jmap/download/{child_account}/{blob}/note.png"))
+        .header("x-mailwoman-link", link)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(by_header.status(), 200);
+    assert!(by_header.bytes().await.unwrap().starts_with(b"\x89PNG"));
+    // The linked grant authorises only the linked account: the primary's own
+    // account id under the same selector is refused, and so is the child's id
+    // with no selector (that request runs as the primary).
+    let primary_account = p["accountId"].as_str().unwrap();
+    assert_ne!(primary_account, child_account);
+    assert_eq!(
+        parent
+            .get(format!("{base}/jmap/download/{primary_account}/{blob}/note.png"))
+            .header("x-mailwoman-link", link)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    assert_eq!(
+        parent
+            .get(format!("{base}/jmap/download/{child_account}/{blob}/note.png"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
+    // A selector is a link id: anything else is refused before a handler runs.
+    assert_eq!(
+        parent
+            .get(format!("{base}/jmap/download/{child_account}/{blob}/note.png"))
+            .header("x-mailwoman-link", "not-a-link")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
+    // mwLink is for GET resources only and never together with the header.
+    assert_eq!(
+        parent
+            .get(format!("{base}/jmap/download/{child_account}/{blob}/note.png?mwLink={link}"))
+            .header("x-mailwoman-link", link)
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        400
+    );
     for internal in store.sessions_by_account(child_account).await.unwrap() {
         if store.linked_session_kind(&internal.id).await.unwrap() != Some(0) {
             assert_eq!(

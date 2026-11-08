@@ -1,6 +1,7 @@
 /* global location, window, document, history, URL, matchMedia, crypto */
 // Mailwoman bridge for the unmodified, pinned Mozilla PDF.js generic viewer.
 // PDF-embedded code and external resource fetching are never enabled.
+import { installed as polyfilled } from './polyfills.mjs';
 const CHANNEL = 'mailwoman-pdf-v1';
 // The frame is sandboxed WITHOUT allow-same-origin, so its own origin is opaque
 // ('null') and it cannot read the embedding page or its storage. It can neither
@@ -14,12 +15,17 @@ let opened = false;
 let application = null;
 let configuration = null;
 const worker = new URL('../pdf.worker.mjs', import.meta.url).href;
+const polyfills = new URL('./polyfills.mjs', import.meta.url).href;
+// Where the open stopped, for the error detail the host shows and reports.
+let stage = 'script';
+const workerStatus = { mode: 'pending', reason: '' };
 const base = new URL('./web/', import.meta.url).href;
 // A data: module worker has an opaque origin like this document and may import the
 // real worker over CORS (a blob: worker is refused outright from an opaque origin,
 // and so is a direct http(s) worker URL). The wrapper is the only script URL ever
 // handed to the Worker constructor.
-const workerWrapper = `data:text/javascript,${encodeURIComponent(`await import(${JSON.stringify(worker)});`)}`;
+// The same polyfills the frame uses come first: the worker is a separate realm.
+const workerWrapper = `data:text/javascript,${encodeURIComponent(`await import(${JSON.stringify(polyfills)});await import(${JSON.stringify(worker)});`)}`;
 let workerPort = null;
 
 // An opaque-origin document has no localStorage (the getter throws). The viewer
@@ -86,10 +92,15 @@ function applyTheme(theme) {
 function startWorker() {
   return new Promise(resolve => {
     let worker;
-    try { worker = new Worker(workerWrapper, { type: 'module' }); } catch { resolve(null); return; }
-    const done = value => { clearTimeout(timer); worker.removeEventListener('message', ready); worker.removeEventListener('error', failed); if (!value) worker.terminate(); resolve(value ? worker : null); };
+    try { worker = new Worker(workerWrapper, { type: 'module' }); } catch (error) { workerStatus.mode = 'main-thread'; workerStatus.reason = `constructor: ${error?.name}: ${error?.message}`; resolve(null); return; }
+    const done = (value, reason = '') => {
+      clearTimeout(timer); worker.removeEventListener('message', ready); worker.removeEventListener('error', failed);
+      workerStatus.mode = value ? 'worker' : 'main-thread'; workerStatus.reason = reason;
+      if (!value) worker.terminate();
+      resolve(value ? worker : null);
+    };
     const ready = () => done(true);
-    const failed = () => done(false);
+    const failed = event => done(false, event?.message ? `error event: ${event.message}` : 'no ready message within 8 s');
     const timer = setTimeout(failed, 8000);
     worker.addEventListener('message', ready);
     worker.addEventListener('error', failed);
@@ -139,8 +150,11 @@ function configure(event) {
 
 async function start() {
   send('ready');
+  stage = 'handshake';
   const message = await initialization;
+  stage = 'worker';
   workerPort = await startWorker();
+  stage = 'stylesheets';
   // The viewer measures layout as it starts. Let our stylesheets finish first, or the
   // browser warns that layout was forced before the page was fully loaded (Firefox) and
   // the first measurements are taken against unstyled content.
@@ -151,9 +165,12 @@ async function start() {
   if (document.readyState !== 'complete') await new Promise(resolve => window.addEventListener('load', resolve, { once: true }));
   document.addEventListener('webviewerloaded', configure);
   try {
+    stage = 'library';
     await import('./build/pdf.mjs');
+    stage = 'viewer';
     await import('./web/viewer.mjs');
     application = window.PDFViewerApplication;
+    stage = 'initialize';
     await application.initializedPromise;
   } finally {
     document.removeEventListener('webviewerloaded', configure);
@@ -210,11 +227,21 @@ async function start() {
   const passwordPrompt = application.passwordPrompt;
   const openPasswordPrompt = passwordPrompt.open.bind(passwordPrompt);
   passwordPrompt.open = (...args) => { send('password'); return openPasswordPrompt(...args); };
+  stage = 'document';
   await application.open({ data: new Uint8Array(message.bytes) });
+  stage = 'loaded';
   application._contentDispositionFilename = [...String(message.name || 'document.pdf')].map(char => char === '/' || char === '\\' || char.charCodeAt(0) < 32 ? '_' : char).join('');
   document.title = application._contentDispositionFilename;
   opened = true;
-  send('loaded', { pages: application.pdfDocument.numPages });
+  send('loaded', { pages: application.pdfDocument.numPages, ...(await documentMeta()) });
+}
+// Document facts for the File details dialog: what the PDF itself declares, bounded by the host.
+async function documentMeta() {
+  try {
+    const { info } = await application.pdfDocument.getMetadata();
+    const text = value => (typeof value === 'string' ? value.slice(0, 200) : undefined);
+    return { producer: text(info?.Producer), creator: text(info?.Creator), created: text(info?.CreationDate), pdfVersion: text(info?.PDFFormatVersion) };
+  } catch { return {}; }
 }
 // The error detail is what the host files with the client error reporter; it is
 // bounded here and scrubbed again by the host (no document text is ever included).
@@ -224,6 +251,11 @@ function errorDetail(reason) {
     name: String(e?.name ?? 'PdfViewerError').slice(0, 80),
     message: String(e?.message ?? (typeof reason === 'string' ? reason : 'PDF viewer failed')).slice(0, 300),
     stack: String(e?.stack ?? '').slice(0, 2000),
+    // Where it stopped and what this browser lacked (never document content).
+    stage,
+    pdfjs: String(window.pdfjsLib?.version ?? '').slice(0, 40),
+    polyfilled: polyfilled.join(',').slice(0, 400),
+    worker: `${workerStatus.mode}${workerStatus.reason ? `: ${workerStatus.reason}` : ''}`.slice(0, 300),
   };
 }
 start().catch(reason => send('error', errorDetail(reason)));

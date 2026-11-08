@@ -102,7 +102,47 @@ describe('full PDF viewer authorized byte bridge', () => {
     const second = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/refused-report`} mime="application/pdf" name="test.pdf"/>);
     await waitFor(() => expect(second.container.firstElementChild?.getAttribute('data-pdf-state')).toBe('error'));
     expect(report).toHaveBeenCalledTimes(2);
-    expect((report.mock.calls[1] as unknown as [Error])[0].message).toBe('PDF unavailable');
+    expect((report.mock.calls[1] as unknown as [Error])[0].message).toBe('PDF unavailable (HTTP 403)');
+  });
+  it('shows the real reason in a technical-details section and files it with the stage, pdf.js version and browser', async () => {
+    const report = vi.fn(() => null);
+    setReporterForTests({ report } as unknown as Reporter);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(new Uint8Array([37, 80, 68, 70]))));
+    const view = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/details`} mime="application/pdf" name="test.pdf"/>);
+    const frame = view.container.querySelector('iframe')!;
+    const post = vi.spyOn(frame.contentWindow!, 'postMessage');
+    message(frame, { type: 'ready' });
+    await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+    const nonce = (post.mock.calls[0]![0] as { nonce: string }).nonce;
+    message(frame, { type: 'error', nonce, stage: 'library', name: 'TypeError', message: 'Promise.try is not a function', pdfjs: '6.1.200', polyfilled: 'Promise.try,Math.sumPrecise', worker: 'main-thread: no ready message within 8 s' });
+    const details = view.container.querySelector('[data-testid="pdf-failure-details"]')!;
+    expect(details.tagName).toBe('DETAILS');
+    expect(details.hasAttribute('open')).toBe(false);
+    const text = details.textContent ?? '';
+    for (const expected of ['library', 'TypeError: Promise.try is not a function', '6.1.200', 'main-thread: no ready message within 8 s', 'Promise.try, Math.sumPrecise', navigator.userAgent]) expect(text).toContain(expected);
+    expect(view.container.querySelector('[role="alert"]')!.contains(details)).toBe(true);
+    const context = (report.mock.calls[0] as unknown as [Error, string, string, { componentStack: string }])[3].componentStack;
+    expect(context).toContain('stage=library');
+    expect(context).toContain('pdf.js=6.1.200');
+    expect(context).toContain('browser=');
+  });
+  it('names the host-side stage: a refused download is a fetch failure, a silent frame a handshake failure', async () => {
+    const report = vi.fn(() => null);
+    setReporterForTests({ report } as unknown as Reporter);
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 502 })));
+    const refused = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/stage-fetch`} mime="application/pdf" name="test.pdf"/>);
+    await waitFor(() => expect(refused.container.querySelector('[data-testid="pdf-failure-details"]')).not.toBeNull());
+    expect(refused.container.querySelector('[data-testid="pdf-failure-details"]')!.textContent).toContain('fetch');
+    expect(refused.container.querySelector('[data-testid="pdf-failure-details"]')!.textContent).toContain('HTTP 502');
+    refused.unmount();
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal('fetch', vi.fn(() => new Promise(() => {})));
+      const silent = render(() => <PdfViewer part={part} blobUrl={`blob:${location.origin}/stage-handshake`} mime="application/pdf" name="test.pdf"/>);
+      await vi.advanceTimersByTimeAsync(45_000);
+      expect(silent.container.querySelector('[data-testid="pdf-failure-details"]')!.textContent).toContain('handshake');
+      expect(silent.container.querySelector('[data-testid="pdf-failure-details"]')!.textContent).toContain('PDF viewer frame did not answer');
+    } finally { vi.useRealTimers(); }
   });
   it('shows fetch failures without handing an attachment URL to PDF.js', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 403 })));
