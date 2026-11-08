@@ -41,7 +41,7 @@ props-tab-general = General
 props-tab-remote = Remote location
 props-tab-size = Size and storage
 props-tab-offline = Offline cache
-props-tab-overrides = Counters and badges
+props-tab-overrides = Display
 props-tab-notes = Notes
 props-tab-actions = Actions
 props-name = Name
@@ -340,3 +340,8 @@ props-act-empty-help = Remove every message in this folder.
 props-act-delete-help = Delete this folder and what it holds.
 props-footer-hint = Changes are saved as you make them.
 props-done = Done
+
+props-group-visibility = Folder visibility
+props-group-visibility-help = Choose when this folder appears in the folder list.
+props-ovr-hideWhenEmpty = Hide when empty
+props-ovr-hideWhenEmpty-help = Hide this folder when it has no messages. Off keeps it visible; Same as default follows your folder preference. Inbox, search folders, unknown counts and parents needed to reach visible folders stay shown.

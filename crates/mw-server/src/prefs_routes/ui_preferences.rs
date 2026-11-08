@@ -106,6 +106,8 @@ struct FolderProps {
     #[serde(skip_serializing_if = "Option::is_none")]
     compact_badge: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    hide_when_empty: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     notifications: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     sort: Option<String>,
@@ -484,6 +486,13 @@ mod tests {
                 .is_ok_and(|d| super::valid(&d))
         };
         assert!(ok(serde_json::json!({"a":{"notes":"Quarterly invoices","counters":"both","badgeColour":"#aabbcc","compactBadge":false,"notifications":"vips","sort":"size","threading":true,"previewLines":2,"markReadDelayMs":1500,"replyIdentity":"id1","unifiedInbox":false}})));
+        for value in [true, false] {
+            let document: super::Document = serde_json::from_value(serde_json::json!({"version":1,"preferences":{"folderProps":{"a":{"hideWhenEmpty":value}}}})).unwrap();
+            assert!(super::valid(&document));
+            assert_eq!(serde_json::to_value(document).unwrap()["preferences"]["folderProps"]["a"]["hideWhenEmpty"], value);
+        }
+        assert!(!ok(serde_json::json!({"a":{"hideWhenEmpty":"false"}})));
+        assert!(!ok(serde_json::json!({"a":{"hideWhenEmpty":0}})));
         assert!(!ok(serde_json::json!({"a":{"notes":"x".repeat(2001)}})));
         assert!(!ok(serde_json::json!({"a":{"counters":"everything"}})));
         assert!(!ok(serde_json::json!({"a":{"badgeColour":"red"}})));

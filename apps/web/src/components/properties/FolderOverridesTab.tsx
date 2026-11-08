@@ -1,5 +1,5 @@
-// The Counters and badges (per-folder overrides) and Notes tabs of the folder dialog.
-// Only the counter display, the compact badge and the badge colour change what the
+// The Display (per-folder overrides) and Notes tabs of the folder dialog.
+// Visibility, counter display, compact badge and badge colour change what the
 // app draws today; the other overrides are stored with the folder and shown under
 // "More options", labelled as saved for later, so no control promises more than it does.
 import {For,Show,createEffect,createMemo,createSignal,createUniqueId,onCleanup,onMount,type JSX} from 'solid-js';
@@ -16,7 +16,8 @@ const OPTION_KEYS:Record<string,string>={none:'props-opt-none',unread:'props-opt
 type Patch={[K in keyof FolderProps]?:FolderProps[K]|undefined};
 
 /** The overrides the app applies today. */
-export const APPLIED_OVERRIDES:readonly OverrideKey[]=['counters','compactBadge','badgeColour'];
+const COUNTER_OVERRIDES:readonly OverrideKey[]=['counters','compactBadge','badgeColour'];
+export const APPLIED_OVERRIDES:readonly OverrideKey[]=[...COUNTER_OVERRIDES,'hideWhenEmpty'];
 const MORE_GROUPS:readonly {id:string;keys:readonly OverrideKey[]}[]=[
  {id:'notifications',keys:['notifications']},
  {id:'reading',keys:['sort','threading','previewLines','markReadDelay']},
@@ -29,10 +30,17 @@ export function Overrides(props:{box:Mailbox;onRetention:(()=>void)|undefined}):
  const own=()=>prefs()[props.box.id];
  const allowed=createMemo(()=>allowedOverrides());
  const defsFor=(keys:readonly OverrideKey[])=>OVERRIDE_DEFS.filter(def=>keys.includes(def.key)&&allowed().includes(def.key));
- const applied=()=>defsFor(APPLIED_OVERRIDES),more=createMemo(()=>MORE_GROUPS.map(group=>({...group,defs:defsFor(group.keys)})).filter(group=>group.defs.length>0));
+ const applied=()=>defsFor(COUNTER_OVERRIDES),more=createMemo(()=>MORE_GROUPS.map(group=>({...group,defs:defsFor(group.keys)})).filter(group=>group.defs.length>0));
  function set(patch:Patch):void {setAccountUiPreferences({folderProps:withOverride(prefs(),props.box.id,patch)});}
  const eff=(key:OverrideKey)=>effectiveOverride(OVERRIDE_DEFS.find(def=>def.key===key)!,own(),undefined,undefined);
  return <div data-testid="props-overrides" style={{display:'contents'}}>
+  <Show when={allowed().includes('hideWhenEmpty')}>
+   <section class={css.card} aria-labelledby="props-ovr-g-visibility" data-testid="props-folder-visibility">
+    <h3 id="props-ovr-g-visibility" class={css.cardTitle}>{t('props-group-visibility')}</h3>
+    <p class={css.cardHelp}>{t('props-group-visibility-help')}</p>
+    <OverrideRow def={OVERRIDE_DEFS.find(def=>def.key==='hideWhenEmpty')!} props={own()} onSet={set}/>
+   </section>
+  </Show>
   <Show when={applied().length>0}>
    <section class={css.card} aria-labelledby="props-ovr-g-counters">
     <h3 id="props-ovr-g-counters" class={css.cardTitle}>{t('props-group-counters')}</h3>
@@ -100,6 +108,7 @@ function OverrideRow(props:{def:OverrideDef;props:FolderProps|undefined;onSet:(p
   <Show when={!eff().locked} fallback={<span class={css.lockedValue} title={t('props-src-admin-locked-tip')} data-testid={`ovr-${props.def.key}-locked`}><Icon name="lock"/>{label(eff().value)}<span class={css.cardHelp}>{t('props-src-admin-locked-tip')}</span></span>}>
    <Show when={type.kind==='enum'||type.kind==='bool'||type.kind==='lines'}>
     <div class={css.segmented} role="radiogroup" aria-labelledby={`${id}-label`}>
+     <Show when={props.def.key==='hideWhenEmpty'}><button type="button" role="radio" class={css.segment} aria-checked={current()===undefined} onClick={reset}>{t('props-ovr-inherit')}</button></Show>
      <For each={options()}>{option=><button type="button" role="radio" class={css.segment} aria-checked={current()===option} onClick={()=>choose(option)}>{optionText(option as string)}</button>}</For>
     </div>
    </Show>

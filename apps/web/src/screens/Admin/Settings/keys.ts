@@ -457,6 +457,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'ui.notifyNewVersion',
   'ui.undoHistorySize',
   'ui.undoHistoryMax',
+  'folders.hideEmpty',
   'folders.reorder.enabled',
   'folders.reorder.allowNesting',
   'folders.reorder.allowServerMove',

@@ -2693,10 +2693,10 @@ pub static REGISTRY: &[SettingDef] = &[
             max_len: 12,
             max_item: 24
         },
-        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox"]"#,
+        r#"["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty"]"#,
         GD,
         "mail",
-        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox"
+        "Per-folder overrides users may set: counters, badgeColour, compactBadge, notifications, sort, threading, previewLines, markReadDelay, replyIdentity, unifiedInbox, hideWhenEmpty"
     ),
     def!(
         "properties.folder.notes.enabled",
@@ -3076,6 +3076,14 @@ pub static REGISTRY: &[SettingDef] = &[
         G,
         "interface",
         "most recent mail actions any user may keep in the Undo and Redo history"
+    ),
+    def!(
+        "folders.hideEmpty",
+        Kind::Bool,
+        "false",
+        GDU,
+        "folders",
+        "hide empty folders in the sidebar; per-folder overrides apply unless the setting is locked"
     ),
     def!(
         "folders.reorder.enabled",

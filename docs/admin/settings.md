@@ -107,6 +107,11 @@ An integer from 0 to 50, default 50. The number of recent mail actions the **Und
 
 An integer from 0 to 50, default 50. The most actions any user may keep in the Undo and Redo history, whatever `ui.undoHistorySize` says for them. `0` turns the history off for everyone. Global only; enforced in the web client only.
 
+<a id="folders.hideEmpty"></a>
+### Hide empty folders (`folders.hideEmpty`)
+
+`false` (default) keeps empty folders visible. `true` hides empty folders in the sidebar without deleting mail or folders. Global/domain/user policy: users choose in **Settings > Folders and sidebar** unless an administrator locks the value. Per-folder `folderProps.hideWhenEmpty` overrides this default when `hideWhenEmpty` is listed in `properties.folder.overrides.allowed`; an administrator lock takes precedence. Omitting the override restores inheritance. Inbox, folders whose counts are unknown, and search folders remain visible. An ancestor needed to reach a retained descendant also stays visible.
+
 <a id="folders.reorder.enabled"></a>
 ### Folder drag and drop (`folders.reorder.enabled`)
 
@@ -2909,7 +2914,7 @@ Global/domain setting, default `true`. Show spam score, authentication results a
 <a id="properties.folder.overrides.allowed"></a>
 ### Per-folder overrides allowed (`properties.folder.overrides.allowed`)
 
-Global/domain setting, default `["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox"]`. Which settings a user may override for a single folder. An override not listed is hidden and any stored value is ignored.
+Global/domain setting, default `["counters","badgeColour","compactBadge","notifications","sort","threading","previewLines","markReadDelay","replyIdentity","unifiedInbox","hideWhenEmpty"]`. Which settings a user may override for a single folder. An override not listed is hidden and any stored value is ignored.
 
 <a id="properties.folder.notes.enabled"></a>
 ### Folder notes (`properties.folder.notes.enabled`)

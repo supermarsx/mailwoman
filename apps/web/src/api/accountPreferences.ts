@@ -54,6 +54,17 @@ export interface AccountUiPreferences {
   /** Obsolete (ignored): accepted so older stored values still validate. */
   folderNewPlacement?: 'end'|'alphabetical';
 }
+/** Keep the visibility override tri-state: absent inherits policy, only real
+ * booleans override it. Never let a malformed saved "false" become truthy. */
+export function normalizeAccountUiPreferences(preferences:AccountUiPreferences):AccountUiPreferences {
+  if(!preferences.folderProps)return preferences;
+  const folderProps=Object.fromEntries(Object.entries(preferences.folderProps).map(([id,value])=>{
+    const props={...value};
+    if(typeof props.hideWhenEmpty!=='boolean')delete props.hideWhenEmpty;
+    return [id,props];
+  }));
+  return {...preferences,folderProps};
+}
 interface Snapshot { preferences: AccountUiPreferences; etag: string }
 export interface AccountPreferencesApi {
   load(): Promise<Snapshot>;
@@ -134,7 +145,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     try {
       const loaded = await transport.load();
       if (!active(owner)) return;
-      base = loaded.preferences; etag = loaded.etag; emit();
+      base = normalizeAccountUiPreferences(loaded.preferences); etag = loaded.etag; emit();
       report(Object.keys(dirty).length ? 'saving' : 'synced');
     } catch { if (active(owner)) report('error'); }
     finally { if (active(owner)) { busy = false; if (Object.keys(dirty).length && etag) schedule(); } }
@@ -162,7 +173,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
     try {
       const saved = await transport.save(sent, etag, keepalive ? { keepalive: true } : undefined);
       if (!active(owner)) return;
-      base = saved.preferences; etag = saved.etag;
+      base = normalizeAccountUiPreferences(saved.preferences); etag = saved.etag;
       for (const key of Object.keys(sentEdits) as (keyof AccountUiPreferences)[]) {
         if (edits[key] === sentEdits[key]) { delete dirty[key]; delete edits[key]; }
       }
@@ -208,6 +219,7 @@ export function createAccountPreferencesSync(transport: AccountPreferencesApi, p
       if (next) void refresh();
     },
     update(patch: AccountUiPreferences): void {
+      patch=normalizeAccountUiPreferences(patch);
       if (!account || !active(account)) return;
       if (patch.folderIcons) {
         const previous = dirty.folderIcons ?? base.folderIcons ?? {};

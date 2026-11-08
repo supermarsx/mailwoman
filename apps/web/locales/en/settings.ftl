@@ -818,3 +818,6 @@ settings-badge-labels = Badge labels
 settings-badge-labels-help = Icon with text, or the icon alone (the full text stays in the tooltip and for screen readers).
 settings-badge-labels-text = Icon and text
 settings-badge-labels-icon = Icon only
+
+settings-folders-hide-empty = Hide empty folders in the sidebar
+settings-folders-hide-empty-help = Folders reappear when they contain messages. Inbox, search folders, folders with unknown counts, and parents of visible folders stay shown. Override individual folders under Properties, Display; every folder remains in this list.

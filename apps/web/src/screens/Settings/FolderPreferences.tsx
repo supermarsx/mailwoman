@@ -35,6 +35,8 @@ import {observePreferenceAccount, preferenceAccount, preferenceAccountIsCurrent}
 import {t, loadCatalog} from '../../i18n';
 import {createSettingsNavigation, type SettingsNavigation} from './navigation.tsx';
 import {folderIcon, folderIsHidden, folderPathLabel, shownFolderIds, type PreferenceFolder} from './folderPreferenceModel.ts';
+import {useSetting} from './useSetting.ts';
+import {ToggleRow} from './layout/rows.tsx';
 import {ControlRow} from './layout/SettingRow.tsx';
 import {SettingsCard} from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
@@ -78,6 +80,7 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
  </section>;
 }
 export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
+ const hideEmpty=useSetting<boolean>('folders.hideEmpty',false,(value):value is boolean=>typeof value==='boolean');
  const navigation=props.navigation??createSettingsNavigation({section:'folders'});
  const app=useContext(AppContext),owner=preferenceAccount();
  const ability=!props.onChange&&app?useRenameContext():()=>null;
@@ -186,6 +189,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <ControlRow controlId="folders-collapse-user" label={t('settings-folders-collapse-user')} help={t('settings-folders-hidden-help')} note={<p role="status" class={css.meta}>{t(`settings-folders-sync-${props.onChange?'synced':accountUiPreferenceStatus()}`)}</p>}>{describedBy=>
    <input id="folders-collapse-user" type="checkbox" checked={prefs().userFoldersCollapsed===true} disabled={!current()} aria-describedby={describedBy()} onChange={event=>update({userFoldersCollapsed:event.currentTarget.checked})}/>
   }</ControlRow>
+  <ToggleRow id="folders-hide-empty" label={t('settings-folders-hide-empty')} help={t('settings-folders-hide-empty-help')} handle={hideEmpty}/>
   <Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class="btn btn--ghost" onClick={()=>setCreating({})}><Icon name="folder"/>{t('folder-create')}</button></Show>
   </SettingsCard>
   <Show when={!props.onChange}><FocusedInboxPreference/></Show>

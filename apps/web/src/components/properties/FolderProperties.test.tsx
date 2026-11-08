@@ -68,7 +68,7 @@ describe('folder Properties dialog',()=>{
   expect(dialog).toHaveAttribute('aria-modal','true');
   expect(dialog.getAttribute('aria-label')??dialog.textContent).toMatch(/Properties: .?Archive/);
   expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
-  expect(screen.getAllByRole('tab').map(item=>item.textContent)).toEqual(['General','Appearance','Remote location','Size and storage','Offline cache','Counters and badges','Notes','Actions']);
+  expect(screen.getAllByRole('tab').map(item=>item.textContent)).toEqual(['General','Appearance','Remote location','Size and storage','Offline cache','Display','Notes','Actions']);
   expect(screen.getByRole('tabpanel')).toBeInTheDocument();
   expect(dialog).toHaveClass(css.phone);
   expect(within(dialog).getByTestId('props-general')).toHaveTextContent('Type');
@@ -129,7 +129,7 @@ describe('folder Properties dialog',()=>{
  it('shows the default in force as a chip, and writes and resets an override',async()=>{
   await policy({'mail.folderCounts':{value:'both',source:'user'}});
   await open();
-  fireEvent.click(tab('Counters and badges'));
+  fireEvent.click(tab('Display'));
   const row=await screen.findByTestId('ovr-counters');
   expect(row).toHaveAttribute('data-source','user');
   expect(within(row).getByTestId('ovr-counters-source')).toHaveTextContent('Using your default (Unread and total)');
@@ -146,7 +146,7 @@ describe('folder Properties dialog',()=>{
  it('previews the badge with the choices as the sidebar will draw it',async()=>{
   await policy({'mail.folderCounts':{value:'both',source:'user'}});
   await open(MAILBOXES[1]!);
-  fireEvent.click(tab('Counters and badges'));
+  fireEvent.click(tab('Display'));
   const preview=await screen.findByTestId('ovr-preview');
   expect(within(preview).getByTestId('ovr-preview-badge')).toBeInTheDocument();
   fireEvent.click(within(screen.getByTestId('ovr-counters')).getByRole('radio',{name:'None'}));
@@ -155,7 +155,7 @@ describe('folder Properties dialog',()=>{
  it('labels the overrides the app does not apply yet and keeps them behind a disclosure',async()=>{
   await policy({});
   await open();
-  fireEvent.click(tab('Counters and badges'));
+  fireEvent.click(tab('Display'));
   const more=await screen.findByTestId('props-ovr-more');
   expect(more.tagName).toBe('DETAILS');
   expect(more).not.toHaveAttribute('open');
@@ -166,7 +166,7 @@ describe('folder Properties dialog',()=>{
  it('shows an administrator default and an administrator lock, and offers no control for a locked one',async()=>{
   await policy({'mail.folderCounts':{value:'unread',source:'global',locked:true},'mail.compactFolderBadges':{value:false,source:'domain'}});
   await open();
-  fireEvent.click(tab('Counters and badges'));
+  fireEvent.click(tab('Display'));
   const locked=await screen.findByTestId('ovr-counters');
   expect(locked).toHaveAttribute('data-source','admin-locked');
   expect(within(locked).queryByRole('radio')).toBeNull();
@@ -179,10 +179,59 @@ describe('folder Properties dialog',()=>{
  it('lists only the overrides the administrator allows',async()=>{
   await policy({'properties.folder.overrides.allowed':{value:['counters','sort'],source:'global'}});
   await open();
-  fireEvent.click(tab('Counters and badges'));
+  fireEvent.click(tab('Display'));
   await screen.findByTestId('ovr-counters');
   expect(screen.getByTestId('ovr-sort')).toBeInTheDocument();
   expect(screen.queryByTestId('ovr-threading')).toBeNull();
+ });
+ it('offers empty-folder visibility as an applied choice with inherited default, explicit false and reset',async()=>{
+  h.prefs={folderProps:{[MAILBOXES[1]!.id]:{notes:'keep this note'}}};
+  await policy({});await open();fireEvent.click(tab('Display'));
+  const card=await screen.findByTestId('props-folder-visibility');
+  const row=within(card).getByTestId('ovr-hideWhenEmpty');
+  expect(row.closest('details')).toBeNull();
+  expect(within(row).queryByTestId('ovr-hideWhenEmpty-later')).toBeNull();
+  expect(row).toHaveAttribute('data-source','user');
+  expect(within(row).getByTestId('ovr-hideWhenEmpty-source')).toHaveTextContent('Using your default (Off)');
+  expect(within(row).getByRole('radio',{name:'Same as default'})).toHaveAttribute('aria-checked','true');
+  fireEvent.click(within(row).getByRole('radio',{name:'On'}));
+  expect(h.sets.at(-1)).toEqual({folderProps:{[MAILBOXES[1]!.id]:{notes:'keep this note',hideWhenEmpty:true}}});
+  expect(row).toHaveAttribute('data-source','folder');
+  fireEvent.click(within(row).getByRole('radio',{name:'Off'}));
+  expect(h.sets.at(-1)).toEqual({folderProps:{[MAILBOXES[1]!.id]:{notes:'keep this note',hideWhenEmpty:false}}});
+  expect(within(row).getByRole('radio',{name:'Off'})).toHaveAttribute('aria-checked','true');
+  fireEvent.click(within(row).getByTestId('ovr-hideWhenEmpty-reset'));
+  expect(h.sets.at(-1)).toEqual({folderProps:{[MAILBOXES[1]!.id]:{notes:'keep this note'}}});
+  expect(within(row).getByRole('radio',{name:'Same as default'})).toHaveAttribute('aria-checked','true');
+ });
+ it('restores inherited administrator visibility when Same as default is selected',async()=>{
+  await policy({'folders.hideEmpty':{value:true,source:'global'}});
+  h.prefs={folderProps:{[MAILBOXES[1]!.id]:{hideWhenEmpty:false}}};
+  await open();fireEvent.click(tab('Display'));const row=await screen.findByTestId('ovr-hideWhenEmpty');
+  expect(within(row).getByTestId('ovr-hideWhenEmpty-source')).toHaveTextContent('Overridden for this folder (Off)');
+  fireEvent.click(within(row).getByRole('radio',{name:'Same as default'}));
+  expect(h.sets.at(-1)).toEqual({folderProps:{}});
+  expect(row).toHaveAttribute('data-source','admin-default');
+  expect(within(row).getByTestId('ovr-hideWhenEmpty-source')).toHaveTextContent('Using the administrator default (On)');
+ });
+ it('shows locked visibility without editable or reset controls even over an existing folder override',async()=>{
+  await policy({'folders.hideEmpty':{value:true,source:'global',locked:true}});
+  h.prefs={folderProps:{[MAILBOXES[1]!.id]:{hideWhenEmpty:false}}};
+  await open();fireEvent.click(tab('Display'));const row=await screen.findByTestId('ovr-hideWhenEmpty');
+  expect(row).toHaveAttribute('data-source','admin-locked');
+  expect(within(row).getByTestId('ovr-hideWhenEmpty-source')).toHaveTextContent('Locked by your administrator (On)');
+  expect(within(row).queryByRole('radio')).toBeNull();
+  expect(within(row).queryByTestId('ovr-hideWhenEmpty-reset')).toBeNull();
+  expect(h.sets).toEqual([]);
+ });
+ it('respects the visibility override allowlist independently of the counter controls',async()=>{
+  await policy({'properties.folder.overrides.allowed':{value:['hideWhenEmpty'],source:'global'}});
+  await open();fireEvent.click(tab('Display'));
+  expect(await screen.findByTestId('ovr-hideWhenEmpty')).toBeInTheDocument();
+  expect(screen.queryByTestId('ovr-counters')).toBeNull();
+  await policy({'properties.folder.overrides.allowed':{value:['counters'],source:'global'}});
+  expect(screen.queryByTestId('props-folder-visibility')).toBeNull();
+  expect(screen.getByTestId('ovr-counters')).toBeInTheDocument();
  });
  it('saves a note with its length shown, bounded by the administrator maximum',async()=>{
   await policy({'properties.folder.notes.maxLength':{value:120,source:'global'}});

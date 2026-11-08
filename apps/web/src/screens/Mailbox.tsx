@@ -58,6 +58,7 @@ import {BulkSelectionSummary} from '../components/BulkSelectionSummary.tsx';
 import { readingPane } from '../components/readingPane.ts';
 import { readingPaneSplit } from '../components/readingPaneSplit.ts';
 import { messageOpenTarget, type OpenGesture } from '../components/messageOpen.ts';
+import { visibleSidebarFolders } from '../components/folderVisibility.ts';
 import { folderIcon, folderIsHidden, type PreferenceFolder } from './Settings/folderPreferenceModel.ts';
 import { mailFeature, spamFolderHidden, viewsClosedByDelete, vanishedIds, type ListSnapshot } from '../state/mailFeatures.ts';
 import type { MessageView } from '../state/slices/messageView.ts';
@@ -664,7 +665,7 @@ export function MailboxScreen(): JSX.Element {
     for(const id of accountUiPreferences().folderStarred??[]){let cursor=boxes.find(box=>box.id===id),guard=0;while(cursor&&!keep.has(cursor.id)&&guard++<64){keep.add(cursor.id);cursor=boxes.find(box=>box.id===cursor?.parentId);}}
     return keep;
   });
-  const navigationFolders=createMemo(()=>folderLayout.arranger.visual().filter(box=>!navHidden(box)&&(!starredOnly()||starredVisible().has(box.id))));
+  const navigationFolders=createMemo(()=>visibleSidebarFolders(folderLayout.arranger.visual().filter(box=>!navHidden(box)),accountUiPreferences()).filter(box=>!starredOnly()||starredVisible().has(box.id)));
   /** The folder tree, depth-first: system folders (with any subfolders), then the user's own folders; collapsed folders list no children. */
   const folderTreeRows=createMemo(()=>{
     const preferences=accountUiPreferences();

@@ -42,6 +42,26 @@ function mount(attachment=false) {
   return {app,realtime,...show()};
 }
 describe('retained mailbox workspace',()=>{
+  it('hides empty sidebar folders, restores them on count changes, and honors per-folder overrides',async()=>{
+    const {app,show}=setup();await app.login({username:'me@example.org',password:'p'});
+    const extras=[{id:'spam-empty',name:'Spam empty',role:'junk',totalEmails:0},{id:'drafts-empty',name:'Drafts empty',role:'drafts',totalEmails:0},{id:'parent-empty',name:'Empty parent',role:null,totalEmails:0},{id:'child-read',name:'Read child',role:null,totalEmails:2}].map(folder=>({...folder,parentId:folder.id==='child-read'?'parent-empty':null,sortOrder:10,unreadEmails:0}));
+    const [boxes,setBoxes]=createSignal([...app.mailboxes(),...extras]);vi.spyOn(app,'mailboxes').mockImplementation(boxes);
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'folders.hideEmpty':{value:true,source:'user',locked:false}}}),{headers:{'content-type':'application/json'}})});
+    try{
+      const {container}=show();const sidebar=()=>container.querySelector('[data-folder-region]')!;
+      await waitFor(()=>expect(sidebar()).not.toBeNull());
+      expect(within(sidebar() as HTMLElement).queryByRole('button',{name:'Spam empty'})).toBeNull();
+      expect(within(sidebar() as HTMLElement).queryByRole('button',{name:'Drafts empty'})).toBeNull();
+      expect(within(sidebar() as HTMLElement).getByRole('button',{name:'Empty parent'})).toBeVisible();
+      setBoxes(boxes().map(box=>box.id==='spam-empty'?{...box,totalEmails:1}:box));
+      await waitFor(()=>expect(within(sidebar() as HTMLElement).getByRole('button',{name:'Spam empty'})).toBeVisible());
+      setBoxes(boxes().map(box=>box.id==='spam-empty'?{...box,totalEmails:0}:box));
+      await waitFor(()=>expect(within(sidebar() as HTMLElement).queryByRole('button',{name:'Spam empty'})).toBeNull());
+      setAccountUiPreferences({folderProps:{'drafts-empty':{hideWhenEmpty:false}}});
+      await waitFor(()=>expect(within(sidebar() as HTMLElement).getByRole('button',{name:'Drafts empty'})).toBeVisible());
+    }finally{clearSettings();}
+  });
+
   it('reopens a live reply without persistent storage authority and keeps its unsaved composer',async()=>{
     const {app,realtime,show,client}=setup();vi.mocked(client.login).mockResolvedValue({username:'me@example.org',accountId:'acct1'});
     await app.login({username:'me@example.org',password:'p'});show();

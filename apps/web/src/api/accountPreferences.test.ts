@@ -1,5 +1,5 @@
 import {afterEach, expect, it, vi} from 'vitest';
-import {createAccountPreferencesSync, PreferenceConflict, type AccountUiPreferences, type AccountPreferencesApi} from './accountPreferences.ts';
+import {createAccountPreferencesSync,normalizeAccountUiPreferences, PreferenceConflict, type AccountUiPreferences, type AccountPreferencesApi} from './accountPreferences.ts';
 function deferred<T>() {let resolve!:(value:T)=>void;const promise=new Promise<T>(r=>{resolve=r;});return {promise,resolve};}
 const owner={id:'a',generation:1};
 afterEach(()=>vi.useRealTimers());
@@ -81,5 +81,23 @@ it('a left-over write is not replayed once the server has moved on (t67)',async(
  sync.bind({id:'b',generation:1,storageAuthority:'realm-bbbbbbbbbbbbbbbb'});await vi.advanceTimersByTimeAsync(1000);
  expect(save).not.toHaveBeenCalled();
  expect(localStorage.getItem('mw.account-prefs:v1:realm-bbbbbbbbbbbbbbbb:pending')).toBeNull();
+ sync.dispose();
+});
+
+it('keeps hide-empty overrides boolean and distinguishes false from inheritance',()=>{
+ const raw={folderProps:{hide:{hideWhenEmpty:true},show:{hideWhenEmpty:false},inherit:{notes:'Keep note'},invalid:{hideWhenEmpty:'false',compactBadge:false}}} as unknown as AccountUiPreferences;
+ const normalized=normalizeAccountUiPreferences(raw);
+ expect(normalized.folderProps).toEqual({hide:{hideWhenEmpty:true},show:{hideWhenEmpty:false},inherit:{notes:'Keep note'},invalid:{compactBadge:false}});
+ expect(raw.folderProps?.invalid?.hideWhenEmpty).toBe('false');
+});
+it('round-trips per-folder hide-empty choices through account preference synchronization',async()=>{
+ vi.useFakeTimers();const publish=vi.fn(),save=vi.fn(async(preferences:AccountUiPreferences)=>({preferences,etag:'"1"'}));
+ const sync=createAccountPreferencesSync({load:async()=>({preferences:{folderProps:{inbox:{hideWhenEmpty:false}}},etag:'"0"'}),save},publish,vi.fn(),()=>true);
+ sync.bind(owner);await vi.advanceTimersByTimeAsync(0);
+ expect(publish.mock.calls.at(-1)?.[0].folderProps.inbox.hideWhenEmpty).toBe(false);
+ sync.update({folderProps:{inbox:{hideWhenEmpty:false},empty:{hideWhenEmpty:true}}});
+ await vi.advanceTimersByTimeAsync(500);
+ expect(save).toHaveBeenCalledWith({folderProps:{inbox:{hideWhenEmpty:false},empty:{hideWhenEmpty:true}}},'"0"',undefined);
+ expect(publish.mock.calls.at(-1)?.[0].folderProps.empty.hideWhenEmpty).toBe(true);
  sync.dispose();
 });

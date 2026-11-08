@@ -31,3 +31,17 @@ fn interface_and_message_preferences_support_user_and_admin_policy() {
         .unwrap();
     assert!(validate(size, &json!(25), "/value").is_err());
 }
+
+#[test]
+fn empty_folder_visibility_defaults_to_off_and_supports_locked_user_policy() {
+    let def = REGISTRY.iter().find(|d| d.key == "folders.hideEmpty").unwrap();
+    assert!(matches!(def.scopes, Scopes::GlobalDomainUser));
+    assert_eq!(def.default, "false");
+    assert!(def.user_visible());
+    assert!(validate(def, &json!(true), "/value").is_ok());
+    assert!(validate(def, &json!(false), "/value").is_ok());
+    assert!(validate(def, &json!("false"), "/value").is_err());
+    let overrides = REGISTRY.iter().find(|d| d.key == "properties.folder.overrides.allowed").unwrap();
+    let values: Vec<String> = serde_json::from_str(overrides.default).unwrap();
+    assert!(values.iter().any(|key| key == "hideWhenEmpty"));
+}

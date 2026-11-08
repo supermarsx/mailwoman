@@ -42,7 +42,7 @@ props-tab-general = Geral
 props-tab-remote = Localização remota
 props-tab-size = Tamanho e armazenamento
 props-tab-offline = Cache offline
-props-tab-overrides = Contadores e indicadores
+props-tab-overrides = Apresentação
 props-tab-notes = Notas
 props-tab-actions = Ações
 props-name = Nome
@@ -341,3 +341,8 @@ props-act-empty-help = Remover todas as mensagens desta pasta.
 props-act-delete-help = Eliminar esta pasta e o que contém.
 props-footer-hint = As alterações são guardadas à medida que as faz.
 props-done = Concluído
+
+props-group-visibility = Visibilidade da pasta
+props-group-visibility-help = Escolha quando esta pasta aparece na lista de pastas.
+props-ovr-hideWhenEmpty = Ocultar quando estiver vazia
+props-ovr-hideWhenEmpty-help = Ocultar esta pasta quando não contém mensagens. Desativado mantém-na visível; A predefinição segue a sua preferência. A Caixa de entrada, as pastas de pesquisa, as contagens desconhecidas e as pastas necessárias para chegar a pastas visíveis continuam disponíveis.

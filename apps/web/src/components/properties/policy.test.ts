@@ -11,7 +11,8 @@ describe('policy readers',()=>{
  it('default to everything on when nothing is set',()=>{
   expect(folderSections(reader({}))).toHaveLength(7);
   expect(messageSections(reader({}))).toHaveLength(5);
-  expect(allowedOverrides(reader({}))).toHaveLength(10);
+  expect(allowedOverrides(reader({}))).toHaveLength(11);
+  expect(allowedOverrides(reader({}))).toContain('hideWhenEmpty');
   expect(permanentDeletePolicy(reader({}))).toBe('allow');
   expect(remoteVisibility(reader({}))).toBe('masked-host');
   expect(sizeCompute(reader({}))).toBe('on-open');
@@ -57,6 +58,18 @@ describe('overrides',()=>{
  });
  it('ignores a stored override the administrator no longer allows',()=>{
   expect(effectiveOverride(def,{counters:'total'},()=>entry('both'),[])).toMatchObject({value:'both',source:'user'});
+ });
+ it('inherits the shipped empty-folder visibility default and respects explicit false, reset and admin lock',()=>{
+  const visibility=OVERRIDE_DEFS.find(item=>item.key==='hideWhenEmpty')!;
+  expect(effectiveOverride(visibility,undefined,()=>undefined,['hideWhenEmpty'])).toMatchObject({value:false,source:'user',overridden:false});
+  const read=()=>entry(true,{source:'global'});
+  expect(effectiveOverride(visibility,undefined,read,['hideWhenEmpty'])).toMatchObject({value:true,source:'admin-default',overridden:false});
+  const own=withOverride(undefined,'f1',{hideWhenEmpty:false});
+  expect(own).toEqual({f1:{hideWhenEmpty:false}});
+  expect(effectiveOverride(visibility,own['f1'],read,['hideWhenEmpty'])).toMatchObject({value:false,source:'folder',overridden:true});
+  expect(effectiveOverride(visibility,own['f1'],()=>entry(true,{source:'global',locked:true}),['hideWhenEmpty'])).toMatchObject({value:true,source:'admin-locked',overridden:false,locked:true});
+  expect(effectiveOverride(visibility,own['f1'],read,[])).toMatchObject({value:true,source:'admin-default',overridden:false});
+  expect(withOverride(own,'f1',{hideWhenEmpty:undefined})).toEqual({});
  });
  it('writes and clears overrides, dropping an empty folder entry',()=>{
   const one=withOverride(undefined,'f1',{counters:'none',notes:'x'});

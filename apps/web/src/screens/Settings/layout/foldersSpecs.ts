@@ -9,6 +9,7 @@ void loadCatalog('folder-dnd');
 export const FOLDER_PREFERENCE_CARDS: readonly CardSpec[] = [
   { id: 'folders-card-display', section: 'folders', title: 'settings-folders-title', help: 'settings-folders-help', rows: [
     { id: 'folders-collapse-user', label: 'settings-folders-collapse-user', help: 'settings-folders-hidden-help' },
+    { id: 'folders-hide-empty', label: 'settings-folders-hide-empty', help: 'settings-folders-hide-empty-help' },
   ] },
   { id: 'folders-arrange-card', section: 'folders', title: 'folder-dnd-arrange-title', help: 'folder-dnd-arrange-help', rows: [
     { id: 'folders-arrange-enabled', label: 'folder-dnd-reorder-enable' },

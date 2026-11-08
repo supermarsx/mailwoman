@@ -814,3 +814,6 @@ settings-badge-labels = Etiquetas dos emblemas
 settings-badge-labels-help = Ícone com texto, ou só o ícone (o texto completo fica na dica e para leitores de ecrã).
 settings-badge-labels-text = Ícone e texto
 settings-badge-labels-icon = Só ícone
+
+settings-folders-hide-empty = Ocultar pastas vazias na barra lateral
+settings-folders-hide-empty-help = As pastas reaparecem quando contêm mensagens. A Caixa de entrada, as pastas de pesquisa, as pastas com contagens desconhecidas e as pastas ascendentes de pastas visíveis continuam disponíveis. Pode alterar cada pasta em Propriedades, Apresentação; todas permanecem nesta lista.
