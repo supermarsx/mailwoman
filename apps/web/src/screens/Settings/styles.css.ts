@@ -43,7 +43,7 @@ export const subheading = style({ fontSize: '0.9rem', fontWeight: vars.weight.he
 export const prose = style({ fontSize: '0.9rem', lineHeight: 1.5, margin: 0 });
 export const meta = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
 
-export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2] });
+export const field = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2], minInlineSize: 0, overflowWrap: 'anywhere' });
 // Field label: small tracked capitals (the tracking token is 0 for ar/ja/zh).
 export const label = style({
   fontSize: '0.8rem',
@@ -76,6 +76,7 @@ export const textarea = style([input, { minHeight: '5rem', resize: 'vertical', l
 export const select = style([input, { cursor: 'pointer' }]);
 
 export const row = style({
+  minInlineSize: 0, maxInlineSize: '52rem',
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'space-between',
@@ -350,9 +351,11 @@ registerFieldLayout(field);
 // One setting per line: a multi-column auto-fit grid packed unrelated settings
 // (and their help and reset buttons) side by side into a wall of controls.
 globalStyle(`${section}:has(> ${field})`, { display: 'flex', flexDirection: 'column' });
-// The row spans the card (so its rule does); its control and help keep a
-// readable measure.
-globalStyle(`${section} > ${field}`, { maxInlineSize: 'none', marginBlockEnd: 0 });
+// Bound each setting line independently; tables and other card contents can
+// still use the pane's available width.
+globalStyle(`${section} > ${field}`, { inlineSize: '100%', maxInlineSize: '52rem', minInlineSize: 0, boxSizing: 'border-box', marginBlockEnd: 0 });
+// Multiline fields also keep a readable measure inside nested groups.
+globalStyle(`${field}:has(textarea), ${field}:has([contenteditable='true']), ${field}[data-field-span='full']`, { maxInlineSize: '52rem' });
 globalStyle(`${section} > ${field} > :is(input:not([type='checkbox'], [type='radio']), select)`, { maxInlineSize: 'min(32rem, 100%)' });
 globalStyle(`${section} > ${field} > :is(p, ${meta})`, { maxInlineSize: '70ch' });
 // Each setting row, and each group, is ruled off from the one before it.

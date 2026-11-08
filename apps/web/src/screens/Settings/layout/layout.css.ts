@@ -13,9 +13,9 @@ export const card = style({
   borderBlockStart: `1px solid ${vars.color.border}`,
   selectors: { '&:first-child': { borderBlockStart: 0, paddingBlockStart: 0 } },
 });
-export const cardHead = style({ display: 'flex', flexDirection: 'column', gap: '2px' });
+export const cardHead = style({ display: 'flex', flexDirection: 'column', gap: '2px', maxInlineSize: '52rem' });
 export const cardTitle = style({ fontSize: '1rem', fontWeight: vars.weight.heavy, margin: 0 });
-export const cardDesc = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0 });
+export const cardDesc = style({ fontSize: '0.8rem', color: vars.color.textDim, margin: 0, maxInlineSize: '70ch', overflowWrap: 'anywhere' });
 // Collapsible card: the title row is the summary, with the browser's own marker.
 export const disclosure = style({ display: 'flex', flexDirection: 'column', gap: vars.space[2] });
 export const disclosureSummary = style({
@@ -26,16 +26,19 @@ globalStyle(`${disclosureSummary} > h4`, { display: 'inline' });
 globalStyle(`${disclosureSummary} > p`, { marginBlockStart: '2px' });
 export const rows = style({ display: 'flex', flexDirection: 'column' });
 
+// Keep each setting and its control together even when its card fills a wide pane.
 export const row = style({
+  inlineSize: '100%', maxInlineSize: '52rem', minInlineSize: 0, boxSizing: 'border-box',
   display: 'grid', gridTemplateColumns: 'minmax(0,1fr) auto', columnGap: vars.space[3], rowGap: '2px',
   alignItems: 'center', paddingBlock: vars.space[2], minBlockSize: '2.75rem',
   borderBlockStart: `1px solid ${vars.color.border}`,
   selectors: { '&:first-child': { borderBlockStart: 0 } },
   '@container': { '(max-width: 22rem)': { gridTemplateColumns: 'minmax(0,1fr)' } },
 });
-export const rowLabel = style({ fontSize: '0.9rem', fontWeight: vars.weight.medium, cursor: 'pointer', gridColumn: 1 });
-export const rowHelp = style({ fontSize: '0.78rem', color: vars.color.textDim, margin: 0, gridColumn: 1, gridRow: 2 });
+export const rowLabel = style({ fontSize: '0.9rem', fontWeight: vars.weight.medium, cursor: 'pointer', gridColumn: 1, minInlineSize: 0, overflowWrap: 'anywhere' });
+export const rowHelp = style({ fontSize: '0.78rem', color: vars.color.textDim, margin: 0, gridColumn: 1, gridRow: 2, minInlineSize: 0, maxInlineSize: '70ch', overflowWrap: 'anywhere' });
 export const rowControl = style({
+  minInlineSize: 0, maxInlineSize: '100%',
   gridColumn: 2, gridRow: '1 / span 2', display: 'flex', flexDirection: 'column', alignItems: 'flex-end', justifyContent: 'center', gap: '2px',
   '@container': { '(max-width: 22rem)': { gridColumn: 1, gridRow: 'auto', alignItems: 'flex-start' } },
 });
@@ -44,7 +47,7 @@ export const rowReset = style({
   selectors: { '&:disabled': { opacity: 0.5, cursor: 'not-allowed' }, '&:focus-visible': ring },
 });
 export const rowNote = style({ gridColumn: '1 / -1', margin: 0 });
-globalStyle(`${rowControl} select, ${rowControl} input:not([type="checkbox"])`, { maxInlineSize: '14rem', minInlineSize: '6rem' });
+globalStyle(`${rowControl} select, ${rowControl} input:not([type="checkbox"])`, { maxInlineSize: 'min(14rem, 100%)', minInlineSize: 'min(6rem, 100%)' });
 // A checkbox's size, accent and cursor come from styles/checks.css.ts alone.
 
 // Deep link target (SettingsRoute.card): a short outline, no layout change.
