@@ -124,7 +124,6 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
         </select>
         <Show when={props.loadPage}><button type="button" disabled={searching()} onClick={()=>void searchAccount()}>{t('common-attach-search-account')}</button></Show>
       </header>
-      <Show when={props.loadPage && !search()}><p class="mw-attach__status">{t('common-attach-page-filter-note')}</p></Show>
       <Show when={search()}>{result=><div class={table.paging} role="status">
         <span>{t(searching()?'common-attach-scanning':cancelled()?'common-attach-scan-cancelled':searchError()?'common-attach-scan-incomplete':result().limited?'common-attach-scan-limited':'common-attach-scan-complete',{pages:result().pages,count:result().items.length})}</span>
         <Show when={searching()} fallback={<button type="button" onClick={resetSearch}>{t('common-attach-browse-pages')}</button>}><button type="button" onClick={()=>{searchController?.abort();setSearching(false);setCancelled(true);}}>{t('common-attach-cancel-search')}</button></Show>
