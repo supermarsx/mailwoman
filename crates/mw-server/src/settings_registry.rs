@@ -2942,6 +2942,254 @@ pub static REGISTRY: &[SettingDef] = &[
         "save the Reply-To address instead of From for mailing-list and notification senders"
     ),
     def!(
+        "reader.actions.reply",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the reply reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.reply-all",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the reply all reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.forward",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the forward reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.edit-draft",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the edit draft reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.open-draft",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the open reply draft reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.delete",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the delete reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.archive",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the archive reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.move",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the move reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.conversation",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the view conversation reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.links",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the review links reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.read",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the read / unread reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.flag",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the flag / unflag reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.pin",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the pin / unpin reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.spam",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the mark as spam reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.security",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the security mode reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.headers",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the raw headers reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.sweep",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the sweep sender reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.print",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the print reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.export",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the export reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.properties",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the message properties reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.zoom",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the zoom reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.search",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the related search reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.colors",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"toolbar\"",
+        GDU,
+        "reader",
+        "where the message colors reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.save-sender",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the save sender reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.save-contacts",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the save message contacts reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.focus-focused",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the move to focused reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.focus-other",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the move to other reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.not-spam",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the not spam reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.view-source",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the view message source reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.create-filter",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the create filter reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.block-sender",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "where the block sender reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
         "reader.actionStyle",
         Kind::Enum(&["icons", "labels"]),
         "\"icons\"",

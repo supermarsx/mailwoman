@@ -45,3 +45,24 @@ fn empty_folder_visibility_defaults_to_off_and_supports_locked_user_policy() {
     let values: Vec<String> = serde_json::from_str(overrides.default).unwrap();
     assert!(values.iter().any(|key| key == "hideWhenEmpty"));
 }
+
+#[test]
+fn all_reader_action_placements_preserve_defaults_and_allow_user_admin_policy() {
+    let toolbar = ["reply", "reply-all", "forward", "edit-draft", "open-draft", "delete", "archive", "move", "conversation", "links", "read", "flag", "pin", "spam", "security", "headers", "sweep", "print", "export", "properties", "zoom", "search", "colors"];
+    let menu = ["save-sender", "save-contacts", "focus-focused", "focus-other", "not-spam", "view-source", "create-filter", "block-sender"];
+    assert_eq!(REGISTRY.iter().filter(|d| d.key.starts_with("reader.actions.")).count(), toolbar.len() + menu.len());
+    for (ids, placement) in [(toolbar.as_slice(), "toolbar"), (menu.as_slice(), "menu")] {
+        for id in ids {
+            let key = format!("reader.actions.{id}");
+            let def = REGISTRY.iter().find(|d| d.key == key).unwrap();
+            assert!(matches!(def.scopes, Scopes::GlobalDomainUser));
+            assert!(def.user_visible());
+            assert_eq!(serde_json::from_str::<String>(def.default).unwrap(), placement);
+            for value in ["toolbar", "menu", "hidden"] {
+                assert!(validate(def, &json!(value), "/value").is_ok(), "{key}: {value}");
+            }
+            assert!(validate(def, &json!(true), "/value").is_err());
+            assert!(validate(def, &json!("nowhere"), "/value").is_err());
+        }
+    }
+}

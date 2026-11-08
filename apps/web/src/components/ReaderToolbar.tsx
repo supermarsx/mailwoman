@@ -29,6 +29,7 @@ import {createConversation} from './Conversation.tsx';
 import {createLinkReview} from './MessageLinks.tsx';
 import {createContextMenu,type ContextAction} from './ContextMenu.tsx';
 import {foldActions} from './readerToolbarFit.ts';
+import {READER_ACTIONS,readerActionPlacement,readerMenuActionId} from './readerActionPlacement.ts';
 import {Icon,type IconName} from './Icon.tsx';
 import * as a11y from './mailA11y.css.ts';
 import * as css from './readerToolbar.css.ts';
@@ -54,6 +55,25 @@ export const PRIORITY: Record<string,number> = {
 };
 
 interface RowAction {id:string;groupEnd?:boolean;inline:()=>JSX.Element;menu:()=>ContextAction[]}
+
+/** Promote a menu descriptor without flattening its submenu or losing its live state. */
+function ReaderMenuAction(props:{id:string;action:()=>ContextAction|undefined;scope:()=>string;onError:()=>void}):JSX.Element {
+ let button:HTMLButtonElement|undefined;
+ const action=()=>props.action();
+ const children=()=>action()?.children??[];
+ const menu=createContextMenu({label:()=>action()?.label??'',scope:props.scope,actions:children,onError:props.onError,restoreFocus:()=>button?.focus()});
+ return <>
+  <ReaderAction icon={action()?.icon??'more'} label={action()?.label??''} help={action()?.title??action()?.label??''} testId={`reader-${props.id}`}
+   disabled={action()?.disabled===true} pressed={action()?.checked}
+   {...(children().length?{popup:'menu' as const,expanded:menu.isOpen()}:{})}
+   onClick={event=>{
+    const trigger=event.currentTarget as HTMLButtonElement;button=trigger;const current=action();if(!current||current.disabled)return;
+    if(current.children?.length){menu.openBelow(trigger);return;}
+    try{void Promise.resolve(current.run()).catch(props.onError);}catch{props.onError();}
+   }}/>
+  {menu.menu()}
+ </>;
+}
 
 export function ReaderToolbar(props:{
  email:Email;
@@ -95,7 +115,7 @@ export function ReaderToolbar(props:{
  const conversation=createConversation({threadId:()=>props.email.threadId??undefined,messageId:id,active:()=>props.active});
  const linkReview=createLinkReview({links:()=>props.links,truncated:()=>props.linksTruncated,scope:()=>props.linkScope,active:()=>props.active,...(props.onCompose?{onCompose:props.onCompose}:{})});
  createEffect(()=>{void props.headersUrl;void props.headersScope;void app.accountId();void id();void props.active;setHeadersOpen(false);});
- function closeHeaders():void {setHeadersOpen(false);if(folded().has('headers'))moreButton?.focus();else row?.querySelector<HTMLButtonElement>('[data-testid="reader-headers"]')?.focus();}
+ function closeHeaders():void {setHeadersOpen(false);if(placement('headers')!=='toolbar'||folded().has('headers'))moreButton?.focus();else row?.querySelector<HTMLButtonElement>('[data-testid="reader-headers"]')?.focus();}
 
  /** A plain button action: the same descriptor drives the row and the menu. */
  function plain(spec:{id:string;icon:()=>IconName;label:()=>string;help:()=>string;testId?:string;disabled?:()=>boolean;pressed?:()=>boolean;run:()=>void;groupEnd?:boolean;local?:boolean}):RowAction {
@@ -145,8 +165,23 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const ids=createMemo(()=>[...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
- const menuOnly=():ContextAction[]=>[...saveRowsFor(app,[props.email]),...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))];
+ const primaryIds=createMemo(()=>[...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const extraRows=createMemo(()=>[...saveRowsFor(app,[props.email]),...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))]);
+ const extraId=(value:ContextAction)=>readerMenuActionId(value.id)??value.id;
+ const extraIds=createMemo(()=>[...new Set(extraRows().map(extraId))].filter(key=>!primaryIds().includes(key)));
+ const extraRow=(key:string)=>extraRows().find(value=>extraId(value)===key);
+ const placement=(key:string)=>readerActionPlacement(key);
+ const sameIds=(a:readonly string[],b:readonly string[])=>a.length===b.length&&a.every((value,index)=>value===b[index]);
+ const ids=createMemo(()=>[...primaryIds(),...extraIds()],[] as string[],{equals:sameIds});
+ const toolbarIds=createMemo(()=>ids().filter(key=>placement(key)==='toolbar'),[] as string[],{equals:sameIds});
+ const forcedMenuIds=createMemo(()=>ids().filter(key=>placement(key)==='menu'),[] as string[],{equals:sameIds});
+ function actionFor(key:string):RowAction {
+  return all[key]??(all[key]={id:key,
+   inline:()=><ReaderMenuAction id={key} action={()=>extraRow(key)} scope={()=>`${app.accountId()}:${id()}:${placement(key)}`} onError={()=>app.showToast?.('error',t('mail-context-failed'))}/>,
+   menu:()=>{const value=extraRow(key);return value?[value]:[];},
+  });
+ }
+
 
  // ── Fitting ────────────────────────────────────────────────────────────────
  const [folded,setFolded]=createSignal<ReadonlySet<string>>(new Set(),{equals:(a,b)=>a.size===b.size&&[...a].every(value=>b.has(value))});
@@ -156,25 +191,42 @@ export function ReaderToolbar(props:{
  let moreWidth=0;
  function fit():void {
   if(!row?.isConnected)return;
-  for(const element of Array.from(row.querySelectorAll<HTMLElement>('[data-reader-item]')))if(!element.hidden){const style=getComputedStyle(element);widths.set(element.dataset['readerItem']!,element.getBoundingClientRect().width+(Number.parseFloat(style.marginLeft)||0)+(Number.parseFloat(style.marginRight)||0));}
+  for(const element of Array.from(row.querySelectorAll<HTMLElement>('[data-reader-item]')))if(!element.hidden&&placement(element.dataset['readerItem']!)==='toolbar'){const style=getComputedStyle(element);widths.set(element.dataset['readerItem']!,element.getBoundingClientRect().width+(Number.parseFloat(style.marginLeft)||0)+(Number.parseFloat(style.marginRight)||0));}
   const measuredMore=moreButton.getBoundingClientRect().width;if(measuredMore>0)moreWidth=measuredMore;
   const style=getComputedStyle(row);const gap=Number.parseFloat(style.columnGap)||0;
   const available=row.clientWidth-(Number.parseFloat(style.paddingLeft)||0)-(Number.parseFloat(style.paddingRight)||0);
   if(available<=0)return;
-  setFolded(foldActions(ids().map(key=>({id:key,priority:PRIORITY[key]??99,width:widths.get(key)??0})),available,gap,moreWidth,menuOnly().length>0));
+  setFolded(foldActions(toolbarIds().map(key=>({id:key,priority:PRIORITY[key]??99,width:widths.get(key)??0})),available,gap,moreWidth,forcedMenuIds().length>0));
  }
  const observer=typeof ResizeObserver==='function'?new ResizeObserver(()=>fit()):undefined;
  onMount(()=>{observer?.observe(row);observer?.observe(moreButton);fit();});
  onCleanup(()=>observer?.disconnect());
  // A new set of actions (a conversation found, links parsed) or a label-style
  // change: show everything for one measure, then fold again.
- createEffect(()=>{void ids();void settings()['reader.actionStyle']?.value;void menuOnly().length;setFolded(new Set<string>());queueMicrotask(fit);});
+ createEffect(()=>{void toolbarIds();void settings()['reader.actionStyle']?.value;void forcedMenuIds().length;setFolded(new Set<string>());queueMicrotask(fit);});
 
  // ── More menu ──────────────────────────────────────────────────────────────
  // t94: entries that live only in More (never on the row): the sender's
  // Focused inbox override while the Focused inbox is on.
- const idle=()=>folded().size===0&&menuOnly().length===0;
- const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>{const rows=ids().filter(key=>folded().has(key)).flatMap(key=>all[key]?.menu()??[]);const extra=menuOnly().map((row,index)=>index===0&&rows.length>0?{...row,separatorBefore:true}:row);return [...rows,...extra];},restoreFocus:()=>moreButton?.focus()});
+ const idle=()=>folded().size===0&&forcedMenuIds().length===0;
+ const inMore=(key:string)=>placement(key)==='menu'||(placement(key)==='toolbar'&&folded().has(key));
+ const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>{
+  const rows=primaryIds().filter(inMore).flatMap(key=>actionFor(key).menu());
+  const extra=extraIds().filter(inMore).flatMap(key=>actionFor(key).menu()).map((value,index)=>index===0&&rows.length>0?{...value,separatorBefore:true}:value);
+  return [...rows,...extra];
+ },restoreFocus:()=>moreButton?.focus()});
+ // A preference change can hide the trigger of an already open dropdown.
+ // Dismiss context menus before moving their actions, while keeping row nodes.
+ let previousPlacements:string|undefined;
+ createEffect(()=>{
+  const next=READER_ACTIONS.map(item=>placement(item.id)).join('|');
+  if(previousPlacements!==undefined&&next!==previousPlacements){
+   menu.close(false);const doc=row?.ownerDocument;
+   if(doc){const event=doc.createEvent('Event');event.initEvent('mailwoman-context-open',false,false);doc.dispatchEvent(event);}
+  }
+  previousPlacements=next;
+ });
+
  // A pointerdown on this button while the menu is open closes it (ContextMenu's
  // outside-press handler); the click that follows must not open it again. This
  // capture listener is registered before the menu's, so it sees the press first.
@@ -184,7 +236,7 @@ export function ReaderToolbar(props:{
 
  return (
   <div ref={row} class={`reader__toolbar ${css.row}`} role="toolbar" aria-label={t('mail-reader-actions')}>
-   <For each={ids()}>{key=>{const value=all[key]!;return <span ref={element=>{observer?.observe(element);onCleanup(()=>observer?.unobserve(element));}} class={css.item} classList={{[css.groupEnd]:value.groupEnd===true}} data-reader-item={key} hidden={folded().has(key)}>{value.inline()}</span>;}}</For>
+   <For each={ids()}>{key=>{const value=actionFor(key);return <span ref={element=>{observer?.observe(element);onCleanup(()=>observer?.unobserve(element));}} class={css.item} classList={{[css.groupEnd]:value.groupEnd===true}} data-reader-item={key} data-reader-placement={placement(key)} hidden={placement(key)!=='toolbar'||folded().has(key)}>{value.inline()}</span>;}}</For>
    <button ref={moreButton} type="button" class={`btn btn--ghost reader-action reader-action--compact ${a11y.focusable} ${css.more}`} classList={{[css.moreIdle]:idle()}} aria-label={t('mail-more-actions')} title={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-hidden={idle()?'true':undefined} tabindex={idle()?-1:0} data-testid="reader-more" onClick={toggleMore}><Icon name="more"/></button>
    {menu.menu()}
    {conversation.dialog()}

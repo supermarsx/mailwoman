@@ -2530,6 +2530,165 @@ The server requires an authenticated account and exact contact email, reads at m
 ### Nextcloud refresh interval (`nextcloud.syncIntervalSecs`)
 Global/domain/user integer, default 300 seconds, range 0–86400. Zero disables periodic refresh. Positive values have a 60-second runtime minimum. Only already connected native-engine accounts with active collection bindings are considered; the scheduler never logs into mailbox accounts. Two account refreshes run concurrently with a 30-second deadline and exponential failure backoff capped at one day. Manual and scheduled refreshes share the same account lock. Current capability, source route and linked credentials are checked again for each DAV operation.
 
+## Message reader action placement
+
+Every action has an independent global/domain/user enum: `toolbar`, `menu` or `hidden`. Toolbar actions still overflow into More when space is short. Users choose under **Settings > Message display > Message reader actions** and can reset a choice to inherit policy. Administrator locks hold the effective placement. Placement never grants an action blocked by a feature, permission, or the current message context.
+
+<a id="reader.actions.reply"></a>
+### Reply (`reader.actions.reply`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.reply-all"></a>
+### Reply all (`reader.actions.reply-all`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.forward"></a>
+### Forward (`reader.actions.forward`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.edit-draft"></a>
+### Edit draft (`reader.actions.edit-draft`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.open-draft"></a>
+### Open reply draft (`reader.actions.open-draft`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.delete"></a>
+### Delete (`reader.actions.delete`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.archive"></a>
+### Archive (`reader.actions.archive`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.move"></a>
+### Move (`reader.actions.move`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.conversation"></a>
+### View conversation (`reader.actions.conversation`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.links"></a>
+### Review links (`reader.actions.links`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.read"></a>
+### Read / unread (`reader.actions.read`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.flag"></a>
+### Flag / unflag (`reader.actions.flag`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.pin"></a>
+### Pin / unpin (`reader.actions.pin`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.spam"></a>
+### Mark as spam (`reader.actions.spam`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.security"></a>
+### Security mode (`reader.actions.security`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.headers"></a>
+### Raw headers (`reader.actions.headers`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.sweep"></a>
+### Sweep sender (`reader.actions.sweep`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.print"></a>
+### Print (`reader.actions.print`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.export"></a>
+### Export (`reader.actions.export`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.properties"></a>
+### Message properties (`reader.actions.properties`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.zoom"></a>
+### Zoom (`reader.actions.zoom`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.search"></a>
+### Related search (`reader.actions.search`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.colors"></a>
+### Message colors (`reader.actions.colors`)
+
+Default `toolbar`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.save-sender"></a>
+### Save sender (`reader.actions.save-sender`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.save-contacts"></a>
+### Save message contacts (`reader.actions.save-contacts`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.focus-focused"></a>
+### Move to Focused (`reader.actions.focus-focused`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.focus-other"></a>
+### Move to Other (`reader.actions.focus-other`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.not-spam"></a>
+### Not spam (`reader.actions.not-spam`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.view-source"></a>
+### View message source (`reader.actions.view-source`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.create-filter"></a>
+### Create filter (`reader.actions.create-filter`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
+<a id="reader.actions.block-sender"></a>
+### Block sender (`reader.actions.block-sender`)
+
+Default `menu`. Choose `toolbar`, `menu` or `hidden`; global/domain/user policy and administrator locks apply.
+
 <a id="reader.actionStyle"></a>
 ### Message action ribbon (`reader.actionStyle`)
 Global/domain/user enum, default `icons`; `labels` adds visible text beside each native icon. Both styles preserve accessible action names, keyboard activation and themed explanatory tooltips. Mobile controls keep 44-pixel targets. User configuration is in Message display and administrator locks apply.
