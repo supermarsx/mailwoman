@@ -20,7 +20,9 @@ import {formatDateWith} from '../i18n/format.ts';
 import {downloadAttachmentsOf} from './messageAttachmentsBulk.ts';
 import {openMessageProperties} from './properties/host.tsx';
 import {messageDialogEnabled} from './properties/policy.ts';
+import {exportFromMenu} from './exportDialog/openExport.ts';
 import {dialogActionsFor,messageActionRows} from './messageMenuActions.ts';
+import {saveRowsFor} from '../modules/contacts/saveFromMessage.rows.ts';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
 export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focusedInbox'|'senderFocus'|'alwaysMoveSender'>>,message:Email):ContextAction[] {
@@ -140,6 +142,8 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    if(sender)copies.push(text(t('mail-context-copy-sender'),sender,'sender'));
    if(message.subject)copies.push(text(t('mail-context-copy-subject'),message.subject,'subject'));
    if(copies.length)rows.push({id:'copy',label:t('mail-context-copy'),icon:ACTION_ICONS.copy,children:copies,run:()=>{}});}
+  {const selected=app.selectedIds(),chosen=selected.has(id)&&selected.size>1?app.messages().filter(value=>selected.has(value.id)):[message];
+   const saveRows=saveRowsFor(app,chosen);if(saveRows.length)rows.push({...saveRows[0]!,separatorBefore:true},...saveRows.slice(1));}
   if(mailFeature('allowPrint'))rows.push({id:'quick-print',label:t('mail-context-quick-print'),icon:'print',run:()=>quickPrint(app,id)});
   else rows.push({id:'quick-print',label:t('mail-context-quick-print'),icon:'print',disabled:true,title:mailFeatureOffTitle(),run:()=>{}});
   const searches:ContextAction[]=[];
@@ -166,7 +170,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   if(message.snoozedUntil)rows.push({id:'unsnooze',label:t('mail-unsnooze'),icon:ACTION_ICONS.unsnooze,run:()=>app.unsnoozeMessage(id)});
   rows.push({id:'followup',label:t(message.followUpAt?'mail-clear-flag':'mail-flag'),icon:ACTION_ICONS.followUp,run:()=>app.setFollowUp(id,message.followUpAt?null:new Date(Date.now()+86400000).toISOString())});
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
-  if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>app.exportMessage(id)});
+  if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>{if(!exportFromMenu(app,id,message))void app.exportMessage(id);}});
   {const more=messageActionRows(app,message);if(more.length)rows.push({...more[0]!,separatorBefore:true},...more.slice(1));}
   if(messageDialogEnabled())rows.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openMessageProperties(message,dialogActionsFor(app,message));}});
   return rows.map(row=>({...row,disabled:busy||row.disabled===true}));

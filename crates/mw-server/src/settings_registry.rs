@@ -2120,6 +2120,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "composer header (To, Cc, Bcc, Subject): expanded, folded to a summary line, or folded while writing the body and open on focus"
     ),
     def!(
+        "mail.compose.headerAutoCollapseSeconds",
+        int(0, 60),
+        "0",
+        GDU,
+        "mail",
+        "seconds the composer body must hold focus before a complete header (recipient and subject) folds to its summary line; 0 never folds it on its own"
+    ),
+    def!(
         "mail.compose.autoChipRecipients",
         Kind::Bool,
         "true",
@@ -2771,6 +2779,41 @@ pub static REGISTRY: &[SettingDef] = &[
         "Download a message as .eml, headers only or mbox"
     ),
     def!(
+        "export.dialog.enabled",
+        Kind::Bool,
+        r#"true"#,
+        GDU,
+        "mail",
+        "Export dialog in the message view and the message menus"
+    ),
+    def!(
+        "export.formats",
+        Kind::StringList {
+            max_len: 12,
+            max_item: 8
+        },
+        r#"["eml","mbox","txt","md","msg","docx","csv","json","pdf"]"#,
+        GD,
+        "mail",
+        "Formats the export dialog offers: eml, mbox, txt, md, msg, docx, csv, json, pdf"
+    ),
+    def!(
+        "export.defaultFormat",
+        Kind::Enum(&["eml", "mbox", "txt", "md", "msg", "docx", "csv", "json", "pdf"]),
+        r#""eml""#,
+        GDU,
+        "mail",
+        "Format the export dialog starts with"
+    ),
+    def!(
+        "export.defaultScope",
+        Kind::Enum(&["message", "conversation", "selection", "folder"]),
+        r#""message""#,
+        GDU,
+        "mail",
+        "Scope the export dialog starts with, when the context offers it"
+    ),
+    def!(
         "properties.message.permanentDelete",
         Kind::Enum(&["allow", "confirm-twice", "deny"]),
         r#""allow""#,
@@ -2824,7 +2867,15 @@ pub static REGISTRY: &[SettingDef] = &[
         "true",
         GDU,
         "mail",
-        "show a bundled brand logo beside the sender in the reader only when the message passed DKIM and an aligned DMARC check for that brand's domain; otherwise the normal avatar is used"
+        "show a bundled brand logo beside the sender (reader and message list) when the From domain or any subdomain of it belongs to a known brand; mail.brandAvatars.requireAuth decides what authentication changes"
+    ),
+    def!(
+        "mail.brandAvatars.requireAuth",
+        Kind::Enum(&["never", "known-failure", "always"]),
+        "\"known-failure\"",
+        GDU,
+        "mail",
+        "when a sender brand logo needs authentication: never = domain match only; known-failure = hidden only when the cached DKIM or DMARC result is a failure (unchecked mail keeps it); always = needs an aligned DMARC pass with DKIM for the brand's own domain"
     ),
     def!(
         "contacts.favoritesFirst",
@@ -2833,6 +2884,62 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "contacts",
         "recipient suggestions list favourite contacts ahead of other matches; a sort preference only, it never hides a suggestion"
+    ),
+    def!(
+        "contacts.saveFromMessage.enabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "offer Save contacts from this message in message menus; when off the item is hidden"
+    ),
+    def!(
+        "contacts.saveFromMessage.defaultScope",
+        Kind::Enum(&["sender", "sender+replyto", "all"]),
+        "\"sender\"",
+        GDU,
+        "contacts",
+        "which participants of a message are ticked first in the Save contacts dialog: the sender, the sender and Reply-To, or everyone"
+    ),
+    def!(
+        "contacts.saveFromMessage.skipAutomated",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "leave no-reply, notification and bounce addresses out of Save contacts unless the user ticks them"
+    ),
+    def!(
+        "contacts.saveFromMessage.addNote",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "add a note recording the date to contacts saved from a message"
+    ),
+    def!(
+        "contacts.saveFromMessage.defaultBook",
+        text(Text::Plain, 128),
+        "\"default\"",
+        GDU,
+        "contacts",
+        "address book that receives contacts saved from a message: an address book id, or default for the default book"
+    ),
+    def!(
+        "contacts.saveSender.enabled",
+        Kind::Bool,
+        "true",
+        GDU,
+        "contacts",
+        "offer the one-click Save sender as contact item in message menus; when off the item is hidden"
+    ),
+    def!(
+        "contacts.saveSender.useReplyTo",
+        Kind::Bool,
+        "false",
+        GDU,
+        "contacts",
+        "save the Reply-To address instead of From for mailing-list and notification senders"
     ),
     def!(
         "reader.actionStyle",

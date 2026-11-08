@@ -79,6 +79,8 @@ import { useRealtime } from '../realtime/context.ts';
 import { MessageList } from '../components/MessageList.tsx';
 import { Reader } from '../components/Reader.tsx';
 import { PropertiesHost } from '../components/properties/host.tsx';
+import { ExportDialogHost } from '../components/exportDialog/host.tsx';
+import { exportFromMenu } from '../components/exportDialog/openExport.ts';
 import { createNarrowViewport, focusIsLost } from '../components/narrowViewport.ts';
 import { Compose } from '../components/Compose.tsx';
 import type { ComposeInitial } from '../components/compose/reply.ts';
@@ -307,13 +309,10 @@ export function MailboxScreen(): JSX.Element {
     const owner=preferenceAccount(),account=app.accountId();
     if(!owner||owner.id!==account||!preferenceAccountIsCurrent(owner))return;
     if(!featureOn('export')){app.showToast('error',t('mail-export-forbidden'));return;}
-    openSettings();
-    const pane=panes().find(item=>item.id===`settings:${account ?? ''}`);
-    if(!pane?.navigation){app.showToast('error',t('mail-export-open-failed'));return;}
-    if(preferenceAccountIsCurrent(owner)&&account===app.accountId()){
-      try{await pane.navigation.navigate({section:'mail-transfer',editor:{kind:'edit',id:messageId}});}
-      catch{if(preferenceAccountIsCurrent(owner))app.showToast('error',t('mail-export-open-failed'));}
-    }
+    // The dialog opens in place; with it switched off the message downloads as .eml. Settings is never opened from here.
+    const open=app.openEmail()?.id===messageId?app.openEmail():app.listMessages().find(row=>row.id===messageId);
+    if(open&&exportFromMenu(app,messageId,open))return;
+    await app.exportMessage(messageId);
   }
   /** A message opened from the Mail list: the reading pane or a tab (t74, messageOpen.ts). Drafts open in compose either way. */
   function openFromList(messageId:string,gesture:OpenGesture):Promise<void>{
@@ -1182,6 +1181,7 @@ export function MailboxScreen(): JSX.Element {
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
           <UndoRedoControl/>
           <PropertiesHost/>
+          <ExportDialogHost/>
           <OutboxChip onOpenOutbox={()=>router.navigate('outbox')}/>
           <button type="button" class={`btn btn--ghost ${a11y.iconButton}`} title={t('mail-workspace-refresh')} aria-label={t('mail-workspace-refresh')} onClick={()=>{if(activePane()?.kind==='folder')activePane()?.refresh?.();else void app.refreshCurrentMailbox();}}><Icon name="refresh" /></button>
         </div>

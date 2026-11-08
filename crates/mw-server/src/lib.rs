@@ -72,6 +72,7 @@ mod scrub_admin;
 pub mod erasure_cmd;
 mod dsr_data;
 mod folder_export;
+mod message_export;
 mod cookie_consent;
 mod consent_ledger;
 mod privacy_overview;
@@ -4575,6 +4576,16 @@ async fn export_message(
         )
             .into_response();
     };
+    if let Err(response) = message_export::gate(
+        &state,
+        &session,
+        &stable_id,
+        ext,
+    )
+    .await
+    {
+        return response;
+    }
     // The whole-message blob path yields the raw RFC822 bytes mw-export consumes.
     let raw = match engine.fetch_blob(&session.account_id, &stable_id).await {
         Ok(Some(blob)) => blob.bytes,
@@ -4591,7 +4602,10 @@ async fn export_message(
         }
     };
     match mw_export::export_one(&mw_export::RawEmail::new(raw), format) {
-        Ok(out) => blob_response(content_type, &format!("{stable_id}.{ext}"), out, &headers),
+        Ok(out) => {
+            message_export::audit(&state, &session, &stable_id, ext, "served").await;
+            blob_response(content_type, &format!("{stable_id}.{ext}"), out, &headers)
+        }
         Err(e) => {
             tracing::warn!("export failed: {e}");
             (StatusCode::INTERNAL_SERVER_ERROR, "export error").into_response()

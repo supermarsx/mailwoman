@@ -3,7 +3,9 @@ import {readFileSync} from 'node:fs';
 import {createServer,type Server} from 'node:http';
 import type {AddressInfo} from 'node:net';
 import {expect,test,type ConsoleMessage} from '@playwright/test';
+import {resolve} from 'node:path';
 import {traceLayoutReads} from './layoutTrace.ts';
+import {buildPdf} from './pdf-fixtures.ts';
 
 /**
  * Firefox logs "Layout was forced before the page was fully loaded. If stylesheets
@@ -34,6 +36,16 @@ test.beforeAll(async () => {
       const hash = createHash('sha256').update(script).digest('base64');
       response.writeHead(200, {'content-type': 'text/html; charset=utf-8', 'content-security-policy': `default-src 'none'; script-src 'sha256-${hash}' 'sha256-${handlerHash}'; style-src 'unsafe-inline'; frame-src 'self'; img-src * data: blob:; base-uri 'none'; form-action 'none'`});
       response.end(`<!doctype html><html><head><meta charset=utf-8><style>html,body{margin:0;width:100%;height:100%;overflow:hidden}</style></head><body><script>${script}</script></body></html>`);
+    } else if (url.pathname.startsWith('/pdfjs/') || url.pathname === '/pdf.worker.mjs') {
+      // The embedded PDF viewer's files, served as mw-server serves them (CORS + CORP for the opaque-origin frame).
+      const root = resolve(process.cwd(), 'public');
+      const file = resolve(root, '.' + decodeURIComponent(url.pathname));
+      const types: Record<string, string> = {mjs: 'text/javascript', js: 'text/javascript', css: 'text/css', html: 'text/html; charset=utf-8', json: 'application/json', wasm: 'application/wasm', svg: 'image/svg+xml', ftl: 'text/plain'};
+      try {
+        if (!file.startsWith(root)) throw new Error('outside');
+        response.writeHead(200, {'content-type': types[file.split('.').pop() ?? ''] ?? 'application/octet-stream', 'access-control-allow-origin': '*', 'cross-origin-resource-policy': 'cross-origin', 'cache-control': 'no-store'});
+        response.end(readFileSync(file));
+      } catch { response.writeHead(404); response.end(); }
     } else if (url.pathname === '/slow.css') {
       setTimeout(() => { response.writeHead(200, {'content-type': 'text/css', 'cross-origin-resource-policy': 'cross-origin'}); response.end('p{color:#333}'); }, 500);
     } else if (url.pathname.startsWith('/img/')) {
@@ -112,5 +124,41 @@ test.describe('reader frame', () => {
     const early = [...traces].filter(line => !/ready=complete/.test(line));
     expect(early, 'layout reads before the document finished loading').toEqual([]);
     expect(warnings, `forced-layout warnings (url:line)`).toEqual([]);
+  });
+
+  // The PDF viewer frame (apps/web/public/pdfjs/web/mailwoman.html). Its own document and bootstrap
+  // must read no layout before load; the vendored PDF.js files (build/pdf.mjs, web/viewer.mjs) are upstream
+  // code and are excepted, but are reported so a change in their behaviour is visible.
+  test('PDF viewer: the document and its bootstrap log no forced-layout warning', async ({page}) => {
+    const mine: string[] = []; const upstream: string[] = [];
+    page.on('console', message => {
+      if (!WARNING.test(message.text())) return;
+      const where = `${message.location().url.replace(origin, '')}:${message.location().lineNumber}`;
+      (/\/pdfjs\/(build\/|web\/viewer\.mjs)/.test(where) ? upstream : mine).push(where);
+    });
+    await page.goto(`${origin}/`);
+    const pdf = buildPdf(2);
+    await page.evaluate(async ({origin, pdf}) => {
+      const frame = document.createElement('iframe');
+      frame.setAttribute('sandbox', 'allow-scripts allow-downloads allow-modals');
+      frame.style.cssText = 'width:900px;height:600px;border:0';
+      frame.src = `${origin}/pdfjs/web/mailwoman.html`;
+      document.getElementById('host')!.append(frame);
+      const state = window as unknown as {pdfLoaded?: boolean};
+      addEventListener('message', event => {
+        const data = event.data as {channel?: string; type?: string; instance?: string};
+        if (event.source !== frame.contentWindow || data?.channel !== 'mailwoman-pdf-v1') return;
+        if (data.type === 'ready' && !('sent' in state)) {
+          Object.assign(state, {sent: true});
+          const bytes = Uint8Array.from(pdf, c => c.charCodeAt(0)).buffer;
+          frame.contentWindow!.postMessage({channel: 'mailwoman-pdf-v1', type: 'open', instance: data.instance, nonce: 'n', bytes, name: 'a.pdf', locale: 'en', theme: {}}, '*', [bytes]);
+        }
+        if (data.type === 'loaded') state.pdfLoaded = true;
+      });
+    }, {origin, pdf});
+    await expect.poll(() => page.evaluate(() => (window as unknown as {pdfLoaded?: boolean}).pdfLoaded === true), {timeout: 30_000}).toBe(true);
+    await page.waitForTimeout(1000);
+    console.log('pdf viewer forced-layout warnings: own', mine.length, 'upstream', upstream.length, upstream.join(' '));
+    expect(mine, 'forced-layout warnings from the viewer document / bootstrap (url:line)').toEqual([]);
   });
 });

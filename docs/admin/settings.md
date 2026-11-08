@@ -2178,6 +2178,11 @@ Global/domain/user. When `autoChipRecipients` is `true` (default), a valid addre
 
 Global/domain/user. How the composer header (From, To, Cc, Bcc, Subject) behaves: `expanded` (default; always shown until the user folds it), `collapsed` (folded to a one-line summary such as `To: Ana +2 · Cc: 1 · Subject: Re: Invoice`, opened by clicking it) or `auto` (folded while the user writes the body, open while a header field has focus). A header with no recipient and no subject is always open, and a click on a problem in the composer's status bar opens it. A user's own fold or unfold is remembered in that browser. An administrator can set the default and lock it. The composer ribbon's pinned or auto-hide behaviour is the existing `ui.bar.composerRibbon` key.
 
+<a id="mail.compose.headerAutoCollapseSeconds"></a>
+### `mail.compose.headerAutoCollapseSeconds`
+
+Global/domain/user, 0 to 60, default 0 (off). The number of seconds the composer body must hold focus before a header that has a recipient and a subject folds to its summary line. Focusing a header field, a problem raised by the status bar, or toggling the Cc/Bcc rows opens it again. In the composer the header also has a chevron in its top-right corner and the Alt+H shortcut. The `layout.headerCollapse` and `layout.ribbonAutoHide` composer features switch the header and ribbon toggles off.
+
 <a id="mail.replyImages"></a>
 ### `mail.replyImages`
 Global/domain/user policy for including the original message's images (inline parts and proxied remote images) in a reply or forward: `ask` (default; the quote shows a prompt with Include images, Not now and Always trust this domain), `allow` (always include), `trusted` (include when the sender's domain is in `mail.replyImageTrustedDomains`, otherwise ask) or `deny` (the quote shows no images and none are fetched). Included images are copied into the draft as inline attachments, so they are fetched through the same authorised, tracker-filtering routes the reader uses. Administrators can lock the value to prevent user overrides. Only newly opened compositions change.
@@ -2956,6 +2961,26 @@ Global/domain/user setting, default `true`. Whether a folder export includes its
 
 Global/domain setting, default `true`. Allow users to download a message as .eml, its headers only, or as an mbox file.
 
+<a id="export.dialog.enabled"></a>
+### Export dialog (`export.dialog.enabled`)
+
+Global/domain/user setting, default `true`. Export in the message view and the message menus opens a dialog in place. When off, the menus offer a plain .eml download of the one message and nothing else.
+
+<a id="export.formats"></a>
+### Export dialog formats (`export.formats`)
+
+Global/domain setting, default `["eml","mbox","txt","md","msg","docx","csv","json","pdf"]`. The formats the export dialog offers. The server refuses `/api/export/<id>` for a server-built format (eml, mbox, txt, md, msg, docx) that is not listed, and for every format while `export.message.download.enabled` is off; each message export, served or refused, writes a `user-message-export` audit row. `csv` and `json` are built in the browser from the message list rows and `pdf` is a print hint, so for those the list only decides what the dialog shows.
+
+<a id="export.defaultFormat"></a>
+### Export dialog default format (`export.defaultFormat`)
+
+Global/domain/user setting, default `"eml"`. The format the dialog starts with; the first listed format is used when this one is not offered.
+
+<a id="export.defaultScope"></a>
+### Export dialog default scope (`export.defaultScope`)
+
+Global/domain/user setting, default `"message"`. The scope the dialog starts with (message, conversation, selection, folder) when the place it was opened from offers it.
+
 <a id="properties.message.permanentDelete"></a>
 ### Permanent delete from properties (`properties.message.permanentDelete`)
 
@@ -2996,9 +3021,13 @@ verification. It does not request favicons, remote logos, or external profiles.
 ### Brand logos beside verified senders (`mail.brandAvatars`)
 
 Enabled by default, with global/domain/user overrides and administrator locks.
-The reader shows a bundled brand logo beside the sender when the sender's domain belongs to a known brand and the message passed DKIM and an aligned DMARC check
-for a domain of that same brand. Messages that fail, lack those checks or come from
-an unknown domain keep the normal avatar; the message list, which carries no check result, never shows one.
+The reader and the message list show a bundled brand logo beside the sender when the From domain, or any subdomain of it (`e.amazon.com`, `news.vinted.com`), belongs to a known brand. Public mailbox providers (Gmail, Outlook) are never brands. A logo is hidden, and the initials get an "unverified sender" tooltip, only when the message's cached authentication verdict says it failed: DMARC failed, DKIM failed without a DMARC pass, or SPF and DKIM both failed. A message that has not been checked yet keeps its logo.
+
+<a id="mail.brandAvatars.requireAuth"></a>
+### Authentication needed for brand logos (`mail.brandAvatars.requireAuth`)
+
+`never` shows the logo whenever the domain matches. `known-failure` (default) hides it only on a known failure. `always` shows it only after an aligned DMARC pass with DKIM for a domain of the same brand, so unopened mail shows initials. User and domain overrides can be locked, like `mail.brandAvatars`, which stays the master switch.
+
 Domain matching uses whole registrable-domain suffixes, so `paypal.com.evil.io` or `evilpaypal.com` never match. Logos are bundled with the app and nothing is requested
 from the sender or a logo service. See `docs/brand-logos.md`.
 
@@ -3010,6 +3039,27 @@ When on, recipient suggestions in Compose list contacts marked as favorites ahea
 of other matches; within each group the usual ranking applies. It only changes
 the order: no suggestion is hidden, and favorites are a flag on the contact
 (`CATEGORIES:favorite` in its vCard), stored per address book.
+
+<a id="contacts.saveFromMessage.enabled"></a>
+<a id="contacts.saveFromMessage.defaultScope"></a>
+<a id="contacts.saveFromMessage.skipAutomated"></a>
+<a id="contacts.saveFromMessage.addNote"></a>
+<a id="contacts.saveFromMessage.defaultBook"></a>
+<a id="contacts.saveSender.enabled"></a>
+<a id="contacts.saveSender.useReplyTo"></a>
+### Save contacts from a message (`contacts.saveFromMessage.*`, `contacts.saveSender.*`)
+
+Message menus (list, thread row, reader More) offer Save sender as contact (one click) and Save contacts from this message (a dialog to choose among the sender, Reply-To, To and Cc). Both use the normal contact create path, so the Contacts feature switch, address-book rights and contact limits apply. Each key has global, domain and user values and administrator locks.
+
+- `contacts.saveFromMessage.enabled` (default on): shows or hides Save contacts from this message.
+- `contacts.saveFromMessage.defaultScope` (`sender`, `sender+replyto`, `all`; default `sender`): which participants are ticked when the dialog opens.
+- `contacts.saveFromMessage.skipAutomated` (default on): no-reply, notification, mailer-daemon and bounce addresses, and the user's own addresses, are left out unless ticked by hand.
+- `contacts.saveFromMessage.addNote` (default on): adds the note "Saved from a message on <date>" to the new contact.
+- `contacts.saveFromMessage.defaultBook` (default `default`): address book id that receives the contact; `default` or an unknown id uses the default book.
+- `contacts.saveSender.enabled` (default on): shows or hides the one-click Save sender as contact item.
+- `contacts.saveSender.useReplyTo` (default off): saves Reply-To instead of From when the sender is a mailing list or notification address.
+
+No avatar or remote content is fetched when saving.
 
 <a id="mail.draftSaveMode"></a>
 <a id="mail.draftDebounceMs"></a>

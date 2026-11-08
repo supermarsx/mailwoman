@@ -2,7 +2,8 @@ import {createSignal} from 'solid-js';
 import {setAdminLeetspeak} from '../i18n/presentation.ts';
 import * as workspaceAttachments from '../realtime/workspaceAttachment.ts';
 import {loadFeatures,clearFeatures} from '../state/features.ts';
-import {loadSettings} from '../api/settings.ts';
+import {loadSettings,clearSettings} from '../api/settings.ts';
+import * as folderExport from '../components/properties/folderExport.ts';
 import {WORKSPACE_STORAGE_KEY} from '../realtime/workspaceStorage.ts';
 import {suspendAccountPreferences} from '../api/accountPreferenceLifecycle.ts';
 import { beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
@@ -274,29 +275,50 @@ describe('retained mailbox workspace',()=>{
     await waitFor(()=>expect(realtime.subTabs.tabs().some(tab=>tab.title==='Tasks')).toBe(false));
     expect(container.querySelector('[data-surface="contacts"]')).toBe(contacts);
   });
-  it.each([false,true])('opens the selected message export editor in Settings and retains its reader when linked=%s',async linked=>{
-    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
+  it.each([false,true])('opens the selected message export popup and retains its reader and URL when linked=%s',async linked=>{
+    const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});
     if(linked)vi.spyOn(app,'linkedMailboxId').mockReturnValue('verified-child');
+    const save=vi.spyOn(folderExport,'saveBlob').mockImplementation(()=>{});
+    const fetcher=vi.fn(async(input:RequestInfo|URL)=>{
+      const path=new URL(input instanceof Request?input.url:String(input),location.href).pathname;
+      return path==='/api/export/a'?new Response('RAW MESSAGE',{status:200}):new Response(JSON.stringify({}),{headers:{'content-type':'application/json'}});
+    });vi.stubGlobal('fetch',fetcher);
     try{
       fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+      await within(await screen.findByRole('tabpanel',{name:'Subject a'})).findByRole('heading',{name:'Subject a'});
+      const href=location.href,active=realtime.subTabs.activeId();
       fireEvent.click(await screen.findByTestId('reader-export'));
-      expect(await screen.findByRole('heading',{name:'Export message'})).toBeVisible();
-      expect(screen.getByRole('combobox',{name:'File format'})).toHaveValue('eml');
-      expect(screen.getByRole('tab',{name:'Subject a'})).toBeInTheDocument();
-      expect(screen.getByRole('tab',{name:'Settings'})).toHaveAttribute('aria-selected','true');
+      const dialog=await screen.findByRole('dialog',{name:'Export'});
+      expect(within(dialog).getByTestId('export-scope-message')).toBeChecked();
+      expect(within(dialog).getByRole('combobox',{name:'Format'})).toHaveValue('eml');
+      expect(within(dialog).getByTestId('export-estimate')).toHaveTextContent('1 messages');
+      expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true');
+      expect(screen.queryByRole('tab',{name:'Settings'})).toBeNull();
+      expect(location.href).toBe(href);expect(realtime.subTabs.activeId()).toBe(active);
+      fireEvent.click(within(dialog).getByTestId('export-start'));
+      await waitFor(()=>expect(save).toHaveBeenCalledOnce());
+      expect(fetcher.mock.calls.some(([input])=>String(input).includes('/api/export/a?format=eml'))).toBe(true);
+      expect(save.mock.calls[0]?.[1]).toContain('Subject a');
+      fireEvent.click(within(dialog).getByTestId('export-close'));
+      await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Export'})).toBeNull());
+      expect(location.href).toBe(href);expect(realtime.subTabs.activeId()).toBe(active);
     }finally{vi.restoreAllMocks();}
   });
-  it('shows the export policy refusal instead of opening an empty settings page',async()=>{
-    const {app}=mount();await app.login({username:'me@example.org',password:'p'});
-    const report=vi.spyOn(app,'showToast');
+  it('shows the export policy refusal inside the popup without navigating',async()=>{
+    const {app,realtime}=mount();await app.login({username:'me@example.org',password:'p'});
     try{
-      await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{export:{enabled:false,limits:{},settings:{}}}}))});
+      await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'export.message.download.enabled':{value:false,source:'global',locked:true}}}),{headers:{'content-type':'application/json'}})});
       fireEvent.dblClick(await screen.findByText('Subject a',{selector:'.list__subject'}));
+      const href=location.href,active=realtime.subTabs.activeId();
       fireEvent.click(await screen.findByTestId('reader-export'));
-      expect(report).toHaveBeenCalledWith('error','Your administrator has disabled message export for this account.');
+      const dialog=await screen.findByRole('dialog',{name:'Export'});
+      expect(within(dialog).getByTestId('export-refusal')).toHaveTextContent('Exporting is switched off by your administrator.');
+      expect(within(dialog).getByTestId('export-start')).toBeDisabled();
       expect(screen.queryByRole('tab',{name:'Settings'})).toBeNull();
-      expect(screen.queryByRole('heading',{name:'Export message'})).toBeNull();
-    }finally{clearFeatures();vi.restoreAllMocks();}
+      expect(location.href).toBe(href);expect(realtime.subTabs.activeId()).toBe(active);
+      fireEvent.click(within(dialog).getByTestId('export-close'));
+      await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Export'})).toBeNull());
+    }finally{clearSettings();vi.restoreAllMocks();}
   });
   it('opens attachments in their own reusable tab without replacing the message reader',async()=>{
     const policy={previewAllowed:true,downloadAllowed:true,maxBytes:1024,allowedExtensions:[],blockedExtensions:[],warnExtensions:[],allowedMimeTypes:[],blockedMimeTypes:[],warnMimeTypes:[]};
@@ -345,7 +367,7 @@ describe('retained mailbox workspace',()=>{
     fireEvent.click(row,{detail:2});fireEvent.dblClick(row,{detail:2});
     await waitFor(()=>expect(realtime.subTabs.activeId()).toBe('message:acct1:b'));
     expect(messageTabs()).toHaveLength(1);expect(gets('b')).toBe(loads);
-    expect(within(screen.getByRole('tabpanel',{name:'Subject b'})).getByRole('heading',{name:'Subject b'})).toBeInTheDocument();
+    expect(await within(screen.getByRole('tabpanel',{name:'Subject b'})).findByRole('heading',{name:'Subject b'})).toBeInTheDocument();
     expect(app.openEmail()?.id).toBe('b');
     // Again: the tab is reused, not duplicated.
     fireEvent.dblClick(screen.getByText('Subject b',{selector:'.list__subject'}));
