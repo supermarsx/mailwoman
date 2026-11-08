@@ -173,7 +173,14 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>{if(!exportFromMenu(app,id,message))void app.exportMessage(id);}});
   {const more=messageActionRows(app,message);if(more.length)rows.push({...more[0]!,separatorBefore:true},...more.slice(1));}
   if(messageDialogEnabled())rows.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openMessageProperties(message,dialogActionsFor(app,message));}});
-  return rows.map(row=>({...row,disabled:busy||row.disabled===true}));
+  // Keep marking commands together without changing their message/selection
+  // targets. Filing and destructive actions remain on the outer menu.
+  const markIds=new Set(['read','flag','mark-answered','mark-forwarded','junk','not-spam']);
+  const firstMark=rows.findIndex(row=>markIds.has(row.id));
+  const marks=rows.filter(row=>markIds.has(row.id));
+  const actions=rows.filter(row=>!markIds.has(row.id));
+  if(marks.length)actions.splice(firstMark,0,{id:'mark-as',label:t('mail-mark-as'),icon:'check',separatorBefore:true,run:()=>{},children:marks.map(row=>({...row,separatorBefore:false}))});
+  return actions.map(row=>({...row,disabled:busy||row.disabled===true}));
  },restoreFocus:trigger=>{const row=Array.from(document.querySelectorAll<HTMLElement>('.list__row')).find(value=>value.dataset['emailId']===email()?.id);const more=trigger?.classList.contains('msg-more__toggle')?row?.closest('.list__slot')?.querySelector<HTMLElement>('.msg-more__toggle'):undefined;(more??row)?.focus();},onError:()=>app.showToast('error',t('mail-context-failed'))});
  createEffect(()=>{const message=email();if(menu.isOpen()&&message)untrack(()=>{const current=app.messages().find(value=>value.id===message.id)??message;prefetch(current);for(const member of membersOf(current))prefetch(member);});});
  onCleanup(observePreferenceAccount(()=>menu.close(false)));

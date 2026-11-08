@@ -50,6 +50,7 @@ describe('message menu: answered and forwarded marks',()=>{
   const app=await mount([mkEmail('m1',{subject:'First'}),mkEmail('m2',{subject:'Second',keywords:{$seen:true,$answered:true}})]);
   const mark=vi.spyOn(app,'markReplyState').mockResolvedValue();
   fireEvent.contextMenu(rowOf('First'));
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Mark as'}));
   fireEvent.click(await screen.findByRole('menuitem',{name:'Mark as answered'}));
   expect(mark).toHaveBeenCalledWith(['m1'],'$answered',true);
  });
@@ -57,6 +58,7 @@ describe('message menu: answered and forwarded marks',()=>{
   const app=await mount([mkEmail('m1',{subject:'First',keywords:{$seen:true,$forwarded:true}})]);
   const mark=vi.spyOn(app,'markReplyState').mockResolvedValue();
   fireEvent.contextMenu(rowOf('First'));
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Mark as'}));
   fireEvent.click(await screen.findByRole('menuitem',{name:'Mark as not forwarded'}));
   expect(mark).toHaveBeenCalledWith(['m1'],'$forwarded',false);
  });
@@ -65,6 +67,7 @@ describe('message menu: answered and forwarded marks',()=>{
   const mark=vi.spyOn(app,'markReplyState').mockResolvedValue();
   app.setSelection(['m1','m2']);
   fireEvent.contextMenu(rowOf('First'));
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Mark as'}));
   fireEvent.click(await screen.findByRole('menuitem',{name:'Mark as answered'}));
   expect(mark).toHaveBeenCalledWith(expect.arrayContaining(['m1','m2']),'$answered',true);
  });

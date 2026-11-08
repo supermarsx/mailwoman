@@ -1385,3 +1385,5 @@ mail-toast-update-refused-reason = { $count ->
 mail-reply-draft-discard = Discard reply
 mail-reply-draft-discard-title = Discard this reply?
 mail-reply-draft-discard-detail = Permanently remove this reply in progress? This cannot be undone.
+
+mail-mark-as = Mark as

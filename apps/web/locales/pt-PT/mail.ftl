@@ -1374,3 +1374,5 @@ mail-toast-update-refused-reason = { $count ->
 mail-reply-draft-discard = Descartar resposta
 mail-reply-draft-discard-title = Descartar esta resposta?
 mail-reply-draft-discard-detail = Remover permanentemente esta resposta em curso? Esta ação não pode ser anulada.
+
+mail-mark-as = Marcar como
