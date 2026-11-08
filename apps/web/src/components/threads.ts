@@ -1,3 +1,4 @@
+import {hasFileAttachments} from './attachmentMetadata.ts';
 // Conversation threading for the message list (W2).
 //
 // The engine already assigns every message a JWZ `threadId` (see mw-engine
@@ -88,7 +89,7 @@ export function groupThreads(emails: Email[], expanded: ReadonlySet<string>): Th
         unread: only.keywords?.['$seen'] !== true,
         expanded: false,
         senderCount: 1,
-        hasAttachment: only.hasAttachment === true,
+        hasAttachment: hasFileAttachments(only),
       });
       continue;
     }
@@ -103,7 +104,7 @@ export function groupThreads(emails: Email[], expanded: ReadonlySet<string>): Th
       unread: members.some((m) => m.keywords?.['$seen'] !== true),
       expanded: isExpanded,
       senderCount: senders.size,
-      hasAttachment: members.some((m) => m.hasAttachment === true),
+      hasAttachment: members.some((m) => hasFileAttachments(m)),
       priority: highestPriority(members),
     });
     if (isExpanded) {
@@ -117,7 +118,7 @@ export function groupThreads(emails: Email[], expanded: ReadonlySet<string>): Th
           unread: m.keywords?.['$seen'] !== true,
           expanded: false,
           senderCount: 1,
-          hasAttachment: m.hasAttachment === true,
+          hasAttachment: hasFileAttachments(m),
         });
       }
     }

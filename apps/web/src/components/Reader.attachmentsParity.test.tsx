@@ -55,6 +55,15 @@ describe('attachments bar lists every part the Security panel lists', () => {
     expect(view.getByTestId('reader-attachments-inline').textContent).toContain('2 inline images');
   });
 
+  it('a CID PDF is a file in the bar despite a stale false flag, not an inline image', async () => {
+    const view=mount([part('iban_Habito.pdf','application/pdf',{cid:'invoice@sender',disposition:'inline'})],false);
+    expect(view.getByTestId('reader-attachments-bar').textContent).toContain('1 attachment');
+    expand(view);
+    await vi.waitFor(()=>expect(view.container.querySelectorAll('.mw-thumb').length).toBe(1));
+    expect(view.queryByTestId('reader-attachments-inline')).toBeNull();
+    expect(view.container.textContent).toContain('iban_Habito.pdf');
+  });
+
   it('an inline-only message still gets a bar, headed by its inline images', () => {
     const view = mount(FIXTURES['inline image only'], false);
     expect(view.getByTestId('reader-attachments-bar').textContent).toContain('1 inline image');
@@ -78,9 +87,9 @@ describe('attachments bar lists every part the Security panel lists', () => {
 
   it('classifies like mw-mime is_inline_resource', () => {
     expect(isInlineResourcePart({ cid: 'a', disposition: 'attachment' })).toBe(false);
-    expect(isInlineResourcePart({ cid: 'a', disposition: 'inline', name: 'l.png' })).toBe(true);
+    expect(isInlineResourcePart({ type:'image/png', cid: 'a', disposition: 'inline', name: 'l.png' })).toBe(true);
     expect(isInlineResourcePart({ disposition: 'inline', name: 'a.pdf' })).toBe(false);
-    expect(isInlineResourcePart({ disposition: 'inline', name: null })).toBe(true);
+    expect(isInlineResourcePart({ type:'image/png', disposition: 'inline', name: null })).toBe(true);
     expect(isInlineResourcePart({ disposition: 'attachment', name: null })).toBe(false);
   });
 });

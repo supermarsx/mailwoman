@@ -906,7 +906,7 @@ impl Engine {
         email.thread_id = thread_id.clone();
 
         let (uidvalidity, uid, uidl) = coords(&raw.message_ref);
-        let env_bytes = serde_json::to_vec(&email).unwrap_or_default();
+        let env_bytes = crate::attachment_metadata::encode(&email);
         let blob_ref = self.store.put_body(account_id, &raw.raw).await?;
         let flags_json = flags_to_json(&raw.flags);
 

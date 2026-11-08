@@ -1653,6 +1653,26 @@ impl Store {
         }
     }
 
+    /// Replace derived envelope metadata only while its immutable source still
+    /// belongs to this account/message. A concurrent body replacement or delete
+    /// must never receive a projection computed from the previous raw bytes.
+    pub async fn repair_message_envelope(
+        &self,
+        account_id: &str,
+        stable_id: &str,
+        expected_blob_ref: &str,
+        envelope: &[u8],
+    ) -> Result<bool, StoreError> {
+        let sealed = self.key.seal(envelope)?;
+        Ok(q("UPDATE messages SET envelope_json=?1 WHERE account_id=?2 AND stable_id=?3 AND blob_ref=?4")
+            .bind(sealed)
+            .bind(account_id)
+            .bind(stable_id)
+            .bind(expected_blob_ref)
+            .execute(&self.backend)
+            .await? == 1)
+    }
+
     // ---- threads --------------------------------------------------------
 
     /// Look up (or create) the thread id for a root Message-ID within an
@@ -2033,6 +2053,74 @@ mod tests {
             envelope: None,
             blob_ref: None,
         }
+    }
+
+    #[tokio::test]
+    async fn envelope_repair_is_sealed_and_fenced_to_account_and_current_body() {
+        let s = store().await;
+        let account = seed_account(&s).await;
+        let mailbox = seed_mailbox(&s, &account, "INBOX", 100).await;
+        let body = s.put_body(&account, b"original raw").await.unwrap();
+        let old = br#"{"subject":"old"}"#;
+        let new = br#"{"subject":"corrected"}"#;
+        let mut row = msg(
+            &account,
+            &mailbox,
+            1,
+            100,
+            "<repair@example.org>",
+            "2026-01-01T00:00:00Z",
+        );
+        row.envelope = Some(old);
+        row.blob_ref = Some(&body);
+        let id = s.upsert_message(&row).await.unwrap();
+        let before = s.get_message(&id).await.unwrap();
+        assert!(
+            !s.repair_message_envelope("foreign-account", &id, &body, new)
+                .await
+                .unwrap()
+        );
+        assert!(
+            !s.repair_message_envelope(&account, &id, "obsolete-body", new)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            s.get_envelope(&id).await.unwrap().as_deref(),
+            Some(old.as_slice())
+        );
+        assert!(
+            s.repair_message_envelope(&account, &id, &body, new)
+                .await
+                .unwrap()
+        );
+        assert_eq!(s.get_message(&id).await.unwrap(), before);
+        assert_eq!(
+            s.get_envelope(&id).await.unwrap().as_deref(),
+            Some(new.as_slice())
+        );
+        let sealed = q("SELECT envelope_json FROM messages WHERE stable_id=?1")
+            .bind(&id)
+            .fetch_one(&s.backend)
+            .await
+            .unwrap()
+            .get_opt_blob("envelope_json")
+            .unwrap();
+        assert!(!sealed.windows(new.len()).any(|part| part == new));
+        // A concurrent re-ingest changes the raw source. Its new projection wins.
+        let replacement = s.put_body(&account, b"replacement raw").await.unwrap();
+        row.blob_ref = Some(&replacement);
+        row.envelope = Some(old);
+        s.upsert_message(&row).await.unwrap();
+        assert!(
+            !s.repair_message_envelope(&account, &id, &body, new)
+                .await
+                .unwrap()
+        );
+        assert_eq!(
+            s.get_envelope(&id).await.unwrap().as_deref(),
+            Some(old.as_slice())
+        );
     }
 
     #[tokio::test]

@@ -493,6 +493,11 @@ fn is_inline_resource(part: &MessagePart<'_>) -> bool {
     if disposition.is_some_and(|d| d.ctype().eq_ignore_ascii_case("attachment")) {
         return false;
     }
+    // A CID is an address, not proof of an inline image. Banks and mail clients
+    // also stamp PDFs and other downloadable documents with Content-ID.
+    if !content_type_of(part).0.starts_with("image/") {
+        return false;
+    }
     if part.content_id().is_some() {
         return true;
     }

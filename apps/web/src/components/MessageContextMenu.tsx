@@ -1,3 +1,4 @@
+import {hasFileAttachments} from './attachmentMetadata.ts';
 import {createEffect,createSignal,onCleanup,untrack,type Accessor} from 'solid-js';
 import {useApp} from '../state/context.ts';
 import {observePreferenceAccount,preferenceAccount} from '../api/accountPreferenceLifecycle.ts';
@@ -45,11 +46,11 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
  const requested=new Set<string>();
  const prefetch=(message:Email)=>{
   const account=app.accountId(),key=`${account}:${message.id}`;
-  if(!account||requested.has(key)||!(message.hasAttachment||message.keywords?.['$answered']||message.keywords?.['$forwarded']))return;
+  if(!account||requested.has(key)||!(hasFileAttachments(message)||message.keywords?.['$answered']||message.keywords?.['$forwarded']))return;
   requested.add(key);
   const sent=new Set(app.mailboxes().filter(box=>box.role==='sent').map(box=>box.id));
   void (fetchExtras??fetchMessageExtras)(createConfiguredClient(),account,message,sent).then(value=>setExtras(old=>new Map(old).set(key,value)),()=>{requested.delete(key);setExtras(old=>new Map(old).set(key,'failed'));});
-  if(message.hasAttachment&&!policy())void loadAttachmentPolicy().then(setPolicy,()=>undefined);
+  if(hasFileAttachments(message)&&!policy())void loadAttachmentPolicy().then(setPolicy,()=>undefined);
  };
  const folderOf=(related:Email)=>Object.keys(related.mailboxIds??{}).find(box=>related.mailboxIds[box]&&app.mailboxes().some(value=>value.id===box));
  const goTo=(related:Email,from?:Email)=>{const folder=folderOf(related);if(folder)void focusMessageInFolder(app,folder,related.id,{open:true,...(related.threadId!==undefined&&related.threadId===from?.threadId?{thread:true}:{})});};
@@ -73,7 +74,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   };
   jump('go-reply','$answered',t('mail-context-go-reply'),ACTION_ICONS.goReply,extra=>extra.replies,t('mail-context-reply-not-found'));
   jump('go-forward','$forwarded',t('mail-context-go-forward'),ACTION_ICONS.goForward,extra=>extra.forwards,t('mail-context-forward-not-found'));
-  const withFiles=members.filter(member=>member.hasAttachment);
+  const withFiles=members.filter(member=>hasFileAttachments(member));
   if(!withFiles.length)return;
   const off=!mailFeature('allowDownload');
   const groups=withFiles.flatMap(member=>{const loaded=loadedOf(member);return loaded&&loaded.attachments.length?[{member,emailId:member.id,label:member.subject??'',items:loaded.attachments.map(describe)}]:[];});
@@ -120,7 +121,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    };
    jump('go-reply','$answered',t('mail-context-go-reply'),ACTION_ICONS.goReply,loaded?.replies,t('mail-context-reply-not-found'));
    jump('go-forward','$forwarded',t('mail-context-go-forward'),ACTION_ICONS.goForward,loaded?.forwards,t('mail-context-forward-not-found'));
-   if(message.hasAttachment){
+   if(hasFileAttachments(message)){
     const off=!mailFeature('allowDownload'),pending=!loaded;
     const items=(loaded?.attachments??[]).map(describe);
     const base={icon:ACTION_ICONS.attachment,separatorBefore:true};
@@ -129,9 +130,9 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
     else if(items.length===1)rows.push({...base,...rowFor(items[0]!,0),id:'attachments'});
     else if(items.length>1)rows.push({...base,id:'attachments',label:t('mail-context-download-attachments'),run:()=>{},children:[...items.map((item,i)=>({...rowFor(item,i),label:`${item.name} (${sizeLabel(item)})`})),{id:'attachments:all',label:t('mail-context-download-all'),icon:ACTION_ICONS.downloadAll,separatorBefore:true,run:()=>downloadZip(app,[{emailId:id,label:message.subject??id,items}],policy())}]});}}
   {const selected=app.selectedIds(),chosen=selected.has(id)&&selected.size>1?app.messages().filter(value=>selected.has(value.id)):[];
-   if(chosen.some(value=>value.hasAttachment)){
+   if(chosen.some(hasFileAttachments)){
     const off=!mailFeature('allowDownload');
-    rows.push({id:'attachments-selected',label:t('mail-context-download-selected-attachments',{count:chosen.filter(value=>value.hasAttachment).length}),icon:ACTION_ICONS.downloadAll,separatorBefore:!rows.some(row=>row.id==='attachments'),...(off?{disabled:true,title:mailFeatureOffTitle()}:{}),run:()=>downloadAttachmentsOf(app,createConfiguredClient(),chosen.filter(value=>value.hasAttachment),policy())});
+    rows.push({id:'attachments-selected',label:t('mail-context-download-selected-attachments',{count:chosen.filter(hasFileAttachments).length}),icon:ACTION_ICONS.downloadAll,separatorBefore:!rows.some(row=>row.id==='attachments'),...(off?{disabled:true,title:mailFeatureOffTitle()}:{}),run:()=>downloadAttachmentsOf(app,createConfiguredClient(),chosen.filter(hasFileAttachments),policy())});
    }}
   {const current=new Set(Object.keys(message.mailboxIds??{}).filter(key=>message.mailboxIds[key]));
    const targets=pickerOptions(app.mailboxes(),box=>!current.has(box.id)&&box.mailwomanSearchQuery===undefined&&box.myRights?.mayAddItems!==false&&!spamFolderHidden(box));

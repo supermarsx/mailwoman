@@ -36,6 +36,14 @@ describe('message menu: attachments, go to reply, go to forward',()=>{
   fireEvent.click(await screen.findByRole('menuitem',{name:'Download a.pdf'}));
   expect(spy).toHaveBeenCalledWith(expect.anything(),'m1',expect.objectContaining({name:'a.pdf'}));
  });
+ it('offers the actual PDF when metadata contradicts a false hasAttachment flag',async()=>{
+  const pdf={blobId:'m1.1',partId:'1',name:'iban_Habito.pdf',type:'application/pdf',size:10,cid:'invoice',disposition:'inline'};
+  const spy=vi.spyOn(download,'downloadOne').mockResolvedValue();
+  await open({hasAttachment:false,attachments:[pdf]} as Partial<Email>,{attachments:[pdf],replies:[],forwards:[]});
+  fireEvent.click(await screen.findByRole('menuitem',{name:'Download iban_Habito.pdf'}));
+  expect(relations.fetchMessageExtras).toHaveBeenCalledTimes(1);
+  expect(spy).toHaveBeenCalledWith(expect.anything(),'m1',expect.objectContaining({name:'iban_Habito.pdf',part:expect.objectContaining({blobId:'m1.1'})}));
+ });
  it('shows a disabled loading entry until the attachments arrive',async()=>{
   await open({hasAttachment:true},new Promise(()=>undefined));
   expect(screen.getByRole('menuitem',{name:'Download attachments'})).toHaveAttribute('aria-disabled','true');

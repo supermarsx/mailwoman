@@ -1438,55 +1438,75 @@ impl Engine {
                 built.push(None);
                 continue;
             };
-            // Only an envelope-less message reaches the body, one read each.
-            let mut email = match envelope {
-                Some(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({})),
-                None => match &msg.blob_ref {
-                    Some(blob) => match self.cached_body(&msg.account_id, id, blob).await? {
-                        Some(raw) => mw_mime::parse(&raw)
-                            .ok()
-                            .and_then(|p| serde_json::to_value(p.email).ok())
-                            .unwrap_or_else(|| json!({})),
-                        None => json!({}),
-                    },
-                    None => json!({}),
-                },
-            };
+            // Envelope-less and malformed cached rows use the same one-time
+            // repair path as older MIME projections.
+            let mut email = envelope
+                .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+                .filter(Value::is_object)
+                .unwrap_or_else(|| json!({}));
+            // Old envelopes were computed before attachment enumeration and CID
+            // classification fixes. Repair once from the owned raw bytes and
+            // persist the version, preserving the constant-cost current path.
+            let mut repair_raw = None;
+            if crate::attachment_metadata::needs_repair(&email)
+                && let Some(blob) = &msg.blob_ref
+            {
+                repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                if let Some(raw) = &repair_raw
+                    && crate::attachment_metadata::repair(&mut email, raw)
+                {
+                    self.persist_attachment_metadata(&msg.account_id, id, blob, &email)
+                        .await;
+                }
+            }
             if fill.threading
                 && email
                     .as_object()
                     .is_some_and(|stored| !stored.contains_key("messageId"))
                 && let Some(blob) = &msg.blob_ref
-                && let Some(raw) = self.cached_body(&msg.account_id, id, blob).await?
-                && let Ok(parsed) = mw_mime::parse(&raw)
             {
-                email["messageId"] = json!(parsed.email.message_id);
-                email["inReplyTo"] = json!(parsed.email.in_reply_to);
-                email["references"] = json!(parsed.email.references);
+                if repair_raw.is_none() {
+                    repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                }
+                if let Some(raw) = &repair_raw
+                    && let Ok(parsed) = mw_mime::parse(raw)
+                {
+                    email["messageId"] = json!(parsed.email.message_id);
+                    email["inReplyTo"] = json!(parsed.email.in_reply_to);
+                    email["references"] = json!(parsed.email.references);
+                }
             }
             if fill.raw_derived
                 && let Some(blob) = &msg.blob_ref
-                && let Some(raw) = self.cached_body(&msg.account_id, id, blob).await?
             {
-                let (request, report) = mail_ext::mdn::email_properties(&raw);
-                email["mailwomanMdn"] = match request {
-                    Some(mut request) => {
-                        request["sent"] =
-                            json!(self.mdn_sent(&msg.account_id, id, &msg.flags_json).await?);
-                        request
-                    }
-                    None => Value::Null,
-                };
-                email["mailwomanMdnReport"] = report;
-                email["mailwomanDsnReport"] = dsn_report_json(&raw);
-                email["mailwomanInlineParts"] = inline_parts_json(&raw, id);
+                if repair_raw.is_none() {
+                    repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                }
+                if let Some(raw) = &repair_raw {
+                    let (request, report) = mail_ext::mdn::email_properties(raw);
+                    email["mailwomanMdn"] = match request {
+                        Some(mut request) => {
+                            request["sent"] =
+                                json!(self.mdn_sent(&msg.account_id, id, &msg.flags_json).await?);
+                            request
+                        }
+                        None => Value::Null,
+                    };
+                    email["mailwomanMdnReport"] = report;
+                    email["mailwomanDsnReport"] = dsn_report_json(raw);
+                    email["mailwomanInlineParts"] = inline_parts_json(raw, id);
+                }
             }
             if !fill.headers.is_empty()
                 && let Some(blob) = &msg.blob_ref
-                && let Some(raw) = self.cached_body(&msg.account_id, id, blob).await?
             {
-                for (property, value) in header_properties_json(&raw, &fill.headers) {
-                    email[property] = value;
+                if repair_raw.is_none() {
+                    repair_raw = self.cached_body(&msg.account_id, id, blob).await?;
+                }
+                if let Some(raw) = &repair_raw {
+                    for (property, value) in header_properties_json(raw, &fill.headers) {
+                        email[property] = value;
+                    }
                 }
             }
             if fill.calendar {
@@ -4538,6 +4558,7 @@ fn patch_engine_fields(
     meta: &StoredMeta,
 ) -> Value {
     let obj = email.as_object_mut().expect("email is an object");
+    obj.remove(crate::attachment_metadata::SCHEMA_KEY);
     obj.insert("id".into(), json!(stable_id));
     // blobId scheme (e14): the whole message is `<stableId>`, each attachment
     // part is `<stableId>.<partId>` — both resolved by `Engine::fetch_blob`
@@ -7564,6 +7585,149 @@ mod email_get_batch_tests {
             )
             .await
         }
+    }
+
+    const LEGACY_PDF_RAW: &[u8] = b"From: bank@example.org\r\nTo: me@example.org\r\nSubject: Raw document\r\nMIME-Version: 1.0\r\nContent-Type: multipart/mixed; boundary=B\r\n\r\n--B\r\nContent-Type: text/plain\r\n\r\nDocument\r\n--B\r\nContent-Type: application/pdf; name=\"iban_Habito.pdf\"\r\nContent-Disposition: inline; filename=\"iban_Habito.pdf\"\r\nContent-ID: <document@bank.example>\r\nContent-Transfer-Encoding: base64\r\n\r\nJVBERi0xLjQK\r\n--B--\r\n";
+    async fn seed_legacy_projection(f: &Fixture, raw: Option<&[u8]>, envelope: &[u8]) {
+        let row = f.store().get_message(&f.ids[0]).await.unwrap();
+        let blob = match raw {
+            Some(raw) => f.store().put_body(&f.account, raw).await.unwrap(),
+            None => "missing-body-fixture".to_string(),
+        };
+        f.store()
+            .upsert_message(&MessageUpsert {
+                account_id: &row.account_id,
+                mailbox_id: &row.mailbox_id,
+                uid: row.uid,
+                uidvalidity: row.uidvalidity,
+                message_id: row.message_id.as_deref(),
+                thread_id: row.thread_id.as_deref(),
+                internaldate: row.internaldate.as_deref(),
+                size: row.size,
+                flags_json: &row.flags_json,
+                envelope: Some(envelope),
+                blob_ref: Some(&blob),
+            })
+            .await
+            .unwrap();
+    }
+    #[tokio::test]
+    async fn legacy_attachment_projection_is_repaired_once_and_never_leaks_its_version() {
+        for cached in [false, true] {
+            let f = Fixture::with(1).await;
+            let stale = br#"{"subject":"Preserved subject","messageId":null,"hasAttachment":false,"attachments":[]}"#;
+            seed_legacy_projection(&f, Some(LEGACY_PDF_RAW), stale).await;
+            if cached {
+                f.engine.attach_v6(crate::v6::V6Hooks::new().with_cache(
+                    mw_cache::Cache::in_memory(mw_cache::ScopeMatrix::spec_defaults()),
+                ));
+            }
+            let (first, reads) = f.get(1).await;
+            let message = &first["list"][0];
+            assert_eq!(message["hasAttachment"], true);
+            assert_eq!(message["subject"], "Preserved subject");
+            assert_eq!(message["attachments"][0]["name"], "iban_Habito.pdf");
+            assert!(
+                message["attachments"][0]["blobId"]
+                    .as_str()
+                    .unwrap()
+                    .starts_with(&f.ids[0])
+            );
+            assert!(
+                message
+                    .get(crate::attachment_metadata::SCHEMA_KEY)
+                    .is_none()
+            );
+            assert_eq!(
+                reads.against("bodies"),
+                1,
+                "one body read for legacy attachment repair: {reads:#?}"
+            );
+            let stored: Value =
+                serde_json::from_slice(&f.store().get_envelope(&f.ids[0]).await.unwrap().unwrap())
+                    .unwrap();
+            assert!(!crate::attachment_metadata::needs_repair(&stored));
+            let (second, reads) = f.get(1).await;
+            assert_eq!(second["list"][0], *message);
+            assert_eq!(
+                reads.against("bodies"),
+                0,
+                "current envelopes never re-read raw: {reads:#?}"
+            );
+            assert!(
+                reads.len() <= 4,
+                "preserve the current-format bulk path: {reads:#?}"
+            );
+        }
+    }
+    #[tokio::test]
+    async fn legacy_attachment_projection_without_raw_keeps_metadata_and_remains_retryable() {
+        let f = Fixture::with(1).await;
+        let stale = br#"{"subject":"Unavailable raw","messageId":null,"hasAttachment":true,"attachments":[{"partId":"2","name":"remember.pdf","type":"application/pdf"}]}"#;
+        seed_legacy_projection(&f, None, stale).await;
+        for _ in 0..2 {
+            let (response, reads) = f.get(1).await;
+            assert_eq!(response["list"][0]["hasAttachment"], true);
+            assert_eq!(
+                response["list"][0]["attachments"][0]["name"],
+                "remember.pdf"
+            );
+            assert_eq!(reads.against("bodies"), 1);
+            assert_eq!(
+                f.store().get_envelope(&f.ids[0]).await.unwrap().as_deref(),
+                Some(stale.as_slice())
+            );
+        }
+    }
+    #[tokio::test]
+    async fn legacy_attachment_malformed_projection_recovers_from_raw_instead_of_panicking() {
+        let f = Fixture::with(1).await;
+        seed_legacy_projection(&f, Some(LEGACY_PDF_RAW), b"[]").await;
+        let (response, _) = f.get(1).await;
+        assert_eq!(response["list"][0]["hasAttachment"], true);
+        assert_eq!(response["list"][0]["subject"], "Raw document");
+        assert_eq!(
+            response["list"][0]["attachments"][0]["name"],
+            "iban_Habito.pdf"
+        );
+    }
+    #[tokio::test]
+    async fn legacy_attachment_repair_updates_existing_attachment_search_flag() {
+        let f = Fixture::with(1).await;
+        let stale = br#"{"messageId":null,"hasAttachment":false,"attachments":[]}"#;
+        seed_legacy_projection(&f, Some(LEGACY_PDF_RAW), stale).await;
+        let document = f.engine.build_index_doc(&f.ids[0]).await.unwrap();
+        assert!(!document.has_attachment);
+        f.engine.search().upsert(&document).unwrap();
+        let before = mw_search::commit_count();
+        f.get(1).await;
+        assert!(
+            f.engine
+                .search()
+                .fetch_doc(&f.ids[0])
+                .unwrap()
+                .unwrap()
+                .has_attachment
+        );
+        assert_eq!(mw_search::commit_count() - before, 1);
+        let before = mw_search::commit_count();
+        f.get(1).await;
+        assert_eq!(mw_search::commit_count() - before, 0);
+    }
+    #[tokio::test]
+    async fn legacy_attachment_repair_does_not_commit_an_unchanged_search_flag() {
+        let f = Fixture::with(1).await;
+        let stale = br#"{"messageId":null,"hasAttachment":true,"attachments":[]}"#;
+        seed_legacy_projection(&f, Some(LEGACY_PDF_RAW), stale).await;
+        let document = f.engine.build_index_doc(&f.ids[0]).await.unwrap();
+        f.engine.search().upsert(&document).unwrap();
+        let before = mw_search::commit_count();
+        let (response, _) = f.get(1).await;
+        assert_eq!(
+            response["list"][0]["attachments"][0]["name"],
+            "iban_Habito.pdf"
+        );
+        assert_eq!(mw_search::commit_count() - before, 0);
     }
 
     /// **`master`'s per-id composition, retained here as the oracle** — the same

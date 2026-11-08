@@ -1,3 +1,4 @@
+import {hasFileAttachments} from './attachmentMetadata.ts';
 // Attachments of several messages at once: a multi-selection, or the messages of
 // one conversation. The parts are not in the list rows, so they are fetched
 // (a few at a time) and then handed to `downloadZip`, which makes one folder per
@@ -16,7 +17,7 @@ const POOL=4;
 
 /** The attachments of each message that has any; `failed` counts messages whose parts could not be read. */
 export async function collectAttachmentGroups(client:Pick<Client,'jmap'>,accountId:string,messages:Email[],sentIds:ReadonlySet<string>,fetchExtras:Extras=fetchMessageExtras):Promise<{groups:AttachmentGroup[];failed:number}> {
- const withFiles=messages.filter(message=>message.hasAttachment);
+ const withFiles=messages.filter(hasFileAttachments);
  const found:(MessageExtras|'failed')[]=new Array(withFiles.length);
  let next=0;
  const worker=async():Promise<void>=>{
@@ -46,7 +47,7 @@ export async function downloadAttachmentsOf(app:BulkApp,client:Pick<Client,'jmap
  const account=app.accountId();
  if(!account)return;
  const sent=new Set(app.mailboxes().filter(box=>box.role==='sent').map(box=>box.id));
- app.showToast('info',t('mail-attachments-zip-gathering',{count:messages.filter(message=>message.hasAttachment).length}));
+ app.showToast('info',t('mail-attachments-zip-gathering',{count:messages.filter(hasFileAttachments).length}));
  const {groups,failed}=await collectAttachmentGroups(client,account,messages,sent,fetchExtras);
  if(!groups.length){app.showToast('error',t(failed?'mail-attachment-download-failed':'mail-attachments-none'));return;}
  let rules=policy;

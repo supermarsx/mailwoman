@@ -1,3 +1,4 @@
+import {hasFileAttachments} from './attachmentMetadata.ts';
 import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
 import {ReplyDraftIndicator} from './ReplyState.tsx';
 import {createReplyDraftIndex,type ReplyDraft} from './compose/replyDrafts.ts';
@@ -242,7 +243,7 @@ function MessageRow(props: {
             <span class="list__pin" aria-label={t('mail-pinned')}><Icon name="pin" /></span>
           </Show>
           <PriorityMark priority={priorityOf(email())}/>
-          <Show when={email().hasAttachment === true}>
+          <Show when={hasFileAttachments(email())}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
           <Show when={email().keywords?.['$answered'] === true}>
@@ -385,7 +386,7 @@ function ThreadHeadRow(props: {
             {props.row.count}
           </span>
           <PriorityMark priority={props.row.priority ?? priorityOf(rep())}/>
-          <Show when={props.row.hasAttachment}>
+          <Show when={hasFileAttachments(props.row)}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
           </Show>
           <Show when={props.answered}><span class="list__attach" data-testid="row-answered" role="img" aria-label={t('mail-answered')} title={t('mail-answered')}><Icon name="reply"/></span></Show>

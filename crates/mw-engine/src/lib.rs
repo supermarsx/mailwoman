@@ -7,6 +7,7 @@
 //! engine-side JWZ threading. The scaffolder (e0) authors only the frozen
 //! [`backend`] seam; the orchestration itself is filled in by e6.
 
+mod attachment_metadata;
 pub mod account;
 pub mod acl;
 pub mod backend;

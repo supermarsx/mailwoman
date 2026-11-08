@@ -56,11 +56,4 @@ export function attachmentBarReason(input: AttachmentBarInput): AttachmentBarRes
   return { show: false, reason: 'list-missing', count: 0 };
 }
 
-/** A part the rendered body consumes (a `cid:` image, or a nameless `inline` part),
- *  mirroring `is_inline_resource` in mw-mime. Listed in the bar, but grouped apart
- *  from files; an explicit `attachment` disposition always makes it a file. */
-export function isInlineResourcePart(a: { cid?: string | null; disposition?: string | null; name?: string | null }): boolean {
-  if (a.disposition === 'attachment') return false;
-  if (typeof a.cid === 'string' && a.cid.length > 0) return true;
-  return a.disposition === 'inline' && !(typeof a.name === 'string' && a.name.length > 0);
-}
+export {isInlineResourcePart} from './attachmentMetadata.ts';

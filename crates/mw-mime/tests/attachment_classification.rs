@@ -51,3 +51,18 @@ fn nameless_inline_part_without_cid_is_listed_but_not_counted() {
     assert!(!has);
     assert_eq!(n.len(), 1);
 }
+
+#[test]
+fn pdf_documents_with_content_id_are_files_even_when_inline() {
+    for disposition in [
+        "Content-Disposition: inline; filename=\"iban_Habito.pdf\"\r\n",
+        "",
+    ] {
+        let raw = msg(&format!(
+            "Content-Type: application/pdf; name=\"iban_Habito.pdf\"\r\n{disposition}Content-ID: <bank-document@example.org>\r\nContent-Transfer-Encoding: base64"
+        ));
+        let (has, names) = names(&raw);
+        assert!(has, "document CID must not suppress the paperclip");
+        assert_eq!(names, vec![Some("iban_Habito.pdf".into())]);
+    }
+}

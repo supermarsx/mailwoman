@@ -1,3 +1,4 @@
+import {isInlineResourcePart} from './attachmentMetadata.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {CAP_CORE,CAP_MAIL,type EmailGetResponse} from '../api/jmap-types.ts';
 import {responseFor} from '../api/jmap.ts';
@@ -35,6 +36,6 @@ export async function fetchMessageExtras(client:Pick<Client,'jmap'>,accountId:st
  const response=await client.jmap({using:[CAP_CORE,CAP_MAIL],methodCalls:calls});
  const self=responseFor<EmailGetResponse>(response,'self').list[0] as (Email&{attachments?:AttachmentPart[]})|undefined;
  const found=related?classifyRelated({id:email.id,messageId:self?.messageId??null},responseFor<EmailGetResponse>(response,'members').list,sentIds):{replies:[],forwards:[]};
- const attachments=(self?.attachments??[]).filter(part=>part.blobId&&part.disposition!=='inline'||(part.blobId&&!part.cid));
+ const attachments=(self?.attachments??[]).filter(part=>typeof part.blobId==='string'&&part.blobId!==''&&!isInlineResourcePart(part));
  return {attachments,...found};
 }
