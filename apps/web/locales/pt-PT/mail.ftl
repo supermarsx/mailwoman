@@ -1376,3 +1376,6 @@ mail-reply-draft-discard-title = Descartar esta resposta?
 mail-reply-draft-discard-detail = Remover permanentemente esta resposta em curso? Esta ação não pode ser anulada.
 
 mail-mark-as = Marcar como
+
+mail-order-by = Ordenar por
+mail-list-order-locked = A ordem das mensagens está bloqueada pelo administrador.

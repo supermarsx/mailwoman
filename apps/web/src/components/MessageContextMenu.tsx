@@ -24,6 +24,7 @@ import {messageDialogEnabled} from './properties/policy.ts';
 import {exportFromMenu} from './exportDialog/openExport.ts';
 import {dialogActionsFor,messageActionRows} from './messageMenuActions.ts';
 import {saveRowsFor} from '../modules/contacts/saveFromMessage.rows.ts';
+import {createMessageOrder} from './messageOrder.ts';
 /** "Always move to Focused / Other" for a message's sender (t94), while the
  * Focused inbox is on. Shared by this menu (the row menu too) and the reader. */
 export function focusActions(app:Partial<Pick<ReturnType<typeof useApp>,'focusedInbox'|'senderFocus'|'alwaysMoveSender'>>,message:Email):ContextAction[] {
@@ -40,6 +41,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   void loadCatalog('properties');
   void loadCatalog('search'); // t112: its ids show wherever it is mounted
  const app=useApp();
+ const order=createMessageOrder(()=>app.showToast('error',t('mail-list-order-error')));
  // Attachment parts and reply/forward targets are not in the list row: fetched once per message when the menu opens, kept for the session.
  const [extras,setExtras]=createSignal<ReadonlyMap<string,MessageExtras|'failed'>>(new Map());
  const [policy,setPolicy]=createSignal<AttachmentPolicy>();
@@ -173,6 +175,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
   if(app.tags().length)rows.push({id:'labels',label:t('mail-label'),icon:'tag',run:()=>{},children:app.tags().map(tag=>({id:`tag:${tag.id}`,label:tag.name,icon:message.keywords?.[tag.id]?'check':'tag',checked:message.keywords?.[tag.id]===true,run:()=>message.keywords?.[tag.id]?app.removeTag(id,tag.id):app.applyTag(id,tag.id)}))});
   if(mailFeature('allowDownload'))rows.push({id:'download' ,label:t('mail-context-download'),icon:ACTION_ICONS.export,run:()=>{if(!exportFromMenu(app,id,message))void app.exportMessage(id);}});
   {const more=messageActionRows(app,message);if(more.length)rows.push({...more[0]!,separatorBefore:true},...more.slice(1));}
+  rows.push(order.contextAction());
   if(messageDialogEnabled())rows.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openMessageProperties(message,dialogActionsFor(app,message));}});
   // Keep marking commands together without changing their message/selection
   // targets. Filing and destructive actions remain on the outer menu.

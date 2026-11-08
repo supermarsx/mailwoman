@@ -1387,3 +1387,6 @@ mail-reply-draft-discard-title = Discard this reply?
 mail-reply-draft-discard-detail = Permanently remove this reply in progress? This cannot be undone.
 
 mail-mark-as = Mark as
+
+mail-order-by = Order by
+mail-list-order-locked = The message order is locked by your administrator.

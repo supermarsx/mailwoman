@@ -39,7 +39,10 @@ import './messageFlash.css.ts';
 import {focusRequest,clearFocusRequest,focusMessageInFolder} from './messageFocus.ts';
 import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
-import {settings,writeSetting} from '../api/settings.ts';
+import {settings} from '../api/settings.ts';
+import {createContextMenu} from './ContextMenu.tsx';
+import {createMessageOrder,isMessageListOrder,MESSAGE_LIST_ORDERS,type MessageOrderController} from './messageOrder.ts';
+import {MessageOrderMenu} from './MessageOrderMenu.tsx';
 import {PriorityMark} from './PriorityMark.tsx';
 import {isPropertiesShortcut,openMessageProperties} from './properties/host.tsx';
 import {messageDialogEnabled} from './properties/policy.ts';
@@ -404,12 +407,12 @@ function ThreadHeadRow(props: {
 }
 
 /** The always-visible view toolbar: the reading-pane position control (W3). */
-function ListToolbar(props:{selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean;goToTop?:(()=>void)|undefined}): JSX.Element {
+function ListToolbar(props:{order:MessageOrderController;scope:()=>string;selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean;goToTop?:(()=>void)|undefined}): JSX.Element {
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
       <Show when={!props.hideSelectionToggle}><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button></Show>
       <Show when={props.goToTop}>{goToTop=><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} data-testid="list-go-to-top" aria-label={t('mail-go-to-top')} title={t('mail-go-to-top')} onClick={()=>goToTop()()}><Icon name="chevronUp"/></button>}</Show>
-      <EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
+      <MessageOrderMenu order={props.order} scope={props.scope}/><EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
     </div>
   );
 }
@@ -443,6 +446,15 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   /** t109: the message in the top row as the user scrolls (null at the top). */
   onAnchorChange?: (id: string | null) => void } = {}): JSX.Element {
   const app = useApp();
+  const order=createMessageOrder(()=>app.showToast('error',t('mail-list-order-error')));
+  const orderScope=()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}`;
+  const orderContext=createContextMenu({label:()=>t('mail-view-options'),scope:orderScope,actions:()=>[order.contextAction()]});
+  function backgroundContext(event:MouseEvent):void {
+    const target=event.target as Element|null;
+    if(event.defaultPrevented||!target||target.closest('button,input,select,textarea,[contenteditable="true"],.list__row,.msg-more__toggle'))return;
+    orderContext.open(event);
+  }
+
   const replyDrafts=createReplyDraftIndex(app.accountId);
   const messageThreads=createMemo(()=>new Map(app.listMessages().map(email=>[email.id,threadKey(email)])));
   const threadDrafts=createMemo(()=>{const result=new Map<string,ReplyDraft>();for(const draft of replyDrafts().values()){const key=messageThreads().get(draft.emailId);if(key&&(!result.has(key)||result.get(key)!.savedAt<draft.savedAt))result.set(key,draft);}return result;});
@@ -908,9 +920,9 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   onCleanup(() => loadToast.cancel());
 
   return (
-    <section class="list" data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
-      <ListToolbar goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
-      <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={String(settings()['mail.messageListOrder']?.value??'newest')} disabled={settings()['mail.messageListOrder']?.locked===true} onChange={event=>void writeSetting('mail.messageListOrder',event.currentTarget.value).catch(()=>app.showToast('error',t('mail-list-order-error')))}><For each={['newest','oldest','sender','subject']}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
+    <section class="list" onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
+      <ListToolbar order={order} scope={orderScope} goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
+      <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={order.value()} disabled={order.locked()||order.saving()} onChange={event=>{const select=event.currentTarget,value=select.value;if(isMessageListOrder(value))void order.set(value).then(()=>{if(select.isConnected)select.value=order.value();});}}><For each={MESSAGE_LIST_ORDERS}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
         <Show when={rows().length > 0} fallback={
@@ -1017,6 +1029,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
           It never takes focus itself; Esc/F6 in it come back to the cursor row. */}
       <MailSelectionBar selecting={selecting()} onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>
       {contextMenu.menu()}
+      {orderContext.menu()}
     </section>
   );
 }

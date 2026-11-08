@@ -248,6 +248,8 @@ export interface MailSlice {
   /** Refetch the current mailbox list in place (push/peer-sync), preserving the
    *  open message + selection (unlike `selectMailbox`). No-op during search. */
   refreshCurrentMailbox(): Promise<void>;
+  /** Reapply message ordering to the current mailbox or search result window. */
+  refreshMessageOrder(): Promise<void>;
   refreshFolders(): Promise<void>;
   /** Show these folders as having no unread mail before the server answers (mark all as read); the next folder refresh replaces the guess. */
   clearFolderUnread(ids: readonly string[]): void;
@@ -1945,7 +1947,15 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     }
   }
 
-  async function refreshCurrentMailbox(): Promise<void> {
+  function refreshCurrentMailbox(): Promise<void> {
+    return refreshCurrentList(false);
+  }
+
+  function refreshMessageOrder(): Promise<void> {
+    return refreshCurrentList(true);
+  }
+
+  async function refreshCurrentList(includeSearch: boolean): Promise<void> {
     readCache.invalidate(undefined,{abort:false});
     const current = captureMailAuthority();
     void syncOpenMessages();
@@ -1953,8 +1963,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (!current()) return;
     const acct = accountId();
     const src = pageSource();
-    if (acct === null || searchActive()) return;
-    if (src === null || src.kind !== 'mailbox') return;
+    if (acct === null || (!includeSearch && searchActive())) return;
+    if (src === null || (!includeSearch && src.kind !== 'mailbox')) return;
     // A replace or an append already in flight is strictly better than this
     // refresh; superseding it would abandon a spinner nothing else clears.
     if (listLoading() || loadingMore()) return;
@@ -2533,6 +2543,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     searchMessageField,
     clearSearch,
     refreshCurrentMailbox,
+    refreshMessageOrder,
     refreshFolders,
     clearFolderUnread,
 
