@@ -164,7 +164,7 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
    {id:'move-to',label:t('folder-dnd-arrange-menu'),icon:'folder',disabled:lockReason(folder.id)!==null,run:()=>{setMoveTo([folder.id]);}},
    {id:'star',label:t(starred(folder.id)?'folder-star-remove':'folder-star-add'),icon:starred(folder.id)?'starOutline':'star',run:()=>star(folder.id)},
   ];
-  {const live=app?.mailboxes().find(box=>box.id===folder.id);if(live&&folderDialogEnabled())actions.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openFolderProperties(live);}});}
+  {const live=app?.mailboxes().find(box=>box.id===folder.id);if(live&&folderDialogEnabled())actions.push({id:'properties',label:t('props-menu-properties'),icon:'info',separatorBefore:true,run:()=>{openFolderProperties(live,lockReason(folder.id)===null?{onMove:()=>setMoveTo([folder.id])}:undefined);}});}
   if(ability()?.manages&&app?.mailboxes().find(box=>box.id===folder.id)?.myRights?.mayCreateChild===true)actions.push({id:'create',label:t('folder-create'),icon:'folder',separatorBefore:true,run:()=>{setCreating({parentId:folder.id});}});
   return actions;
  }});
