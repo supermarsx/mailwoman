@@ -20,3 +20,7 @@ spam-score-col-description = Description
 spam-score-points-missing = Not given
 spam-score-no-rules = The header lists no individual rules.
 spam-score-not-scanned = Mailwoman shows these scores as the receiving server wrote them; it does not scan the message itself.
+
+spam-score-copy = Copy breakdown
+spam-score-copied = Breakdown copied.
+spam-score-copy-failed = The breakdown could not be copied. Try again.

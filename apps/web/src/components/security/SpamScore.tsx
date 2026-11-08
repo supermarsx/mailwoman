@@ -66,8 +66,32 @@ export function SpamScoreChip(props: { score: Score }): JSX.Element {
 /** The rule table: one layout for SpamAssassin rules and Rspamd symbols, largest contribution first. */
 export function SpamScoreBreakdown(props: { score: Score; titleId?: string }): JSX.Element {
   const band = () => spamBand(props.score);
+  const [copyState,setCopyState]=createSignal<'idle'|'copying'|'copied'|'failed'>('idle');
+  let alive=true;onCleanup(()=>{alive=false;});
+  async function copy():Promise<void>{
+    if(copyState()==='copying')return;
+    const score=props.score;
+    const text=[
+      t('spam-score-title',{source:score.source}),
+      `${t('spam-score-total')}: ${score.score}`,
+      `${t('spam-score-threshold')}: ${score.threshold??t('spam-score-threshold-missing')}`,
+      `${t('spam-score-band')}: ${t(`spam-score-band-${spamBand(score)}`)}`,
+      t(score.spam===true?'mail-spam-score-positive':score.spam===false?'mail-spam-score-negative':'mail-spam-score-unknown'),
+      '',
+      score.rules.length?[t('spam-score-col-rule'),t('spam-score-col-points'),t('spam-score-col-description')].join('\t'):t('spam-score-no-rules'),
+      ...score.rules.map(rule=>[rule.name,rule.score===null?t('spam-score-points-missing'):signedPoints(rule.score),rule.description].join('\t')),
+      '',t('mail-spam-score-unverified'),t('spam-score-not-scanned'),
+    ].join('\n');
+    setCopyState('copying');
+    try{await navigator.clipboard.writeText(text);if(alive&&props.score===score)setCopyState('copied');}
+    catch{if(alive&&props.score===score)setCopyState('failed');}
+  }
   return <div class="spam-score__sheet" data-testid="spam-score-breakdown">
     <Show when={props.titleId}><h3 id={props.titleId} class="spam-score__title">{t('spam-score-title', { source: props.score.source })}</h3></Show>
+    <div class="spam-score__actions">
+      <Show when={copyState()==='copied'||copyState()==='failed'}><span role="status">{t(copyState()==='copied'?'spam-score-copied':'spam-score-copy-failed')}</span></Show>
+      <button type="button" class="btn btn--ghost" disabled={copyState()==='copying'} onClick={()=>void copy()}><Icon name="clone"/>{t('spam-score-copy')}</button>
+    </div>
     <dl class="spam-score__summary">
       <div><dt>{t('spam-score-total')}</dt><dd><strong>{String(props.score.score)}</strong></dd></div>
       <div><dt>{t('spam-score-threshold')}</dt><dd>{props.score.threshold !== null ? String(props.score.threshold) : t('spam-score-threshold-missing')}</dd></div>

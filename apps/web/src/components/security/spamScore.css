@@ -7,6 +7,7 @@
 /* The breakdown, inside the shared security dialog. */
 .spam-score__sheet { inline-size:100%; min-inline-size:0; font-size:.8rem; overflow-wrap:anywhere; }
 .spam-score__title { margin:0 0 .5rem; font-size:.95rem; }
+.spam-score__actions { display:flex; flex-wrap:wrap; align-items:center; justify-content:flex-end; gap:.5rem; margin-block-end:.5rem; }
 .spam-score__summary { display:flex; flex-wrap:wrap; gap:.25rem 1rem; margin:0 0 .5rem; }
 .spam-score__summary div { display:flex; gap:.35rem; align-items:baseline; }
 .spam-score__summary dt { color:var(--text-dim); }
