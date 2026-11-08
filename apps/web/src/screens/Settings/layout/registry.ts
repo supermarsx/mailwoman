@@ -13,6 +13,7 @@ import { FOLDER_COUNT_CARD } from '../FolderCountPreferences.tsx';
 import { PROPERTIES_CARD } from '../PropertiesPreferences.tsx';
 import { CACHE_CARDS } from '../CachePreferences.tsx';
 import { AVATAR_CARD } from '../ContactAppearance.tsx';
+import { SAVE_CONTACTS_CARD } from '../SaveContactsSettings.tsx';
 import { UNDO_CARD } from '../UndoRedoPreferences.tsx';
 import { APPEARANCE_CARDS } from './appearanceSpecs.ts';
 import { FOLDER_PREFERENCE_CARDS } from './foldersSpecs.ts';
@@ -28,7 +29,7 @@ import type { CardSpec } from './rows.tsx';
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
   COMPOSE_DELIVERY_CARD, COMPOSER_FEATURES_CARD,
-  INTERFACE_CARD, FOLDER_COUNT_CARD, PROPERTIES_CARD, ...CACHE_CARDS, AVATAR_CARD, UNDO_CARD, ...APPEARANCE_CARDS, ...FOLDER_PREFERENCE_CARDS, ...NOTIFICATION_CARDS,
+  INTERFACE_CARD, FOLDER_COUNT_CARD, PROPERTIES_CARD, ...CACHE_CARDS, AVATAR_CARD, SAVE_CONTACTS_CARD, UNDO_CARD, ...APPEARANCE_CARDS, ...FOLDER_PREFERENCE_CARDS, ...NOTIFICATION_CARDS,
   ...LIST_CARDS, ...SECURITY_SECTION_CARDS, ...DEVICE_PREFERENCE_CARDS, ...SHORTCUT_CARDS, ...PRIVACY_CARDS, ...COMPOSE_EXTRA_CARDS, ...MISC_SECTION_CARDS, ...PIM_RETENTION_CARDS,
 ];
 
