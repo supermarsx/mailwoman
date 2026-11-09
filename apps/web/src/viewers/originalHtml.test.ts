@@ -50,3 +50,14 @@ it('cleans tracking query parameters and retains only explicitly consented valid
  expect(inert.links[0]?.href).toBe('https://site.test/page?id=2');expect(new DOMParser().parseFromString(inert.html,'text/html').querySelector('a[href]')).toBeNull();expect(inert.html).toContain('data-mw-contact-address="Case@example.org"');
  const active=reviewOriginalLinks(source,'Review',true);expect(active.html).toContain('target="_blank"');expect(active.html).toContain('rel="noopener noreferrer"');expect(active.html).not.toContain('utm_source');
 });
+it('keeps authored links with query spaces and nested labels available for original-view review',()=>{
+ const prepared=prepareOriginalHtml('<a href="  //shop.example/order status?name=Jane Doe&amp;query=a b&amp;literal=a+b  "><strong>Invoice</strong> details</a>',policy);
+ expect(prepared.refs.links).toEqual(['https://shop.example/order%20status?name=Jane%20Doe&query=a%20b&literal=a+b']);
+ const source=renderOriginalHtml(prepared,EMPTY_SIGNED,policy,{},base);
+ const inert=reviewOriginalLinks(source,'Review',false);
+ expect(inert.links[0]?.label).toBe('Invoice details');
+ expect(new URL(inert.links[0]!.href).searchParams.get('name')).toBe('Jane Doe');
+ expect(new DOMParser().parseFromString(inert.html,'text/html').querySelector('a[href]')).toBeNull();
+ const anchor=new DOMParser().parseFromString(reviewOriginalLinks(source,'Review',true).html,'text/html').querySelector('a')!;
+ expect(anchor.getAttribute('href')).toBe(prepared.refs.links[0]);expect(anchor.getAttribute('rel')).toBe('noopener noreferrer');
+});

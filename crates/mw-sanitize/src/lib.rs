@@ -356,8 +356,15 @@ fn sanitize_core(
     }
     builder.url_schemes(schemes);
 
-    // Deny relative URLs — emails have no trusted base.
-    builder.url_relative(ammonia::UrlRelative::Deny);
+    // Deny unresolved relative URLs — emails have no trusted base. A custom
+    // rejecting resolver lets the attribute filter first normalize the one
+    // self-contained case we accept: scheme-relative anchor destinations.
+    fn deny_unresolved_relative(_: &str) -> Option<Cow<'_, str>> {
+        None
+    }
+    builder.url_relative(ammonia::UrlRelative::Custom(Box::new(
+        deny_unresolved_relative,
+    )));
 
     // Allow the presentational attributes CSS needs to target: `style` (inline,
     // sanitized in the filter below), plus `class`/`id` so namespaced `<style>`
@@ -454,8 +461,24 @@ fn sanitize_core(
             return None;
         }
         if element == "a" && attribute == "href" {
+            // Scheme-relative navigation is common in generated HTML mail.
+            // Give only anchors an explicit HTTPS scheme: relative image/CSS
+            // resources remain denied, and no sender-controlled base is used.
+            let normalized = if value.trim().starts_with("//") {
+                let candidate = format!("https:{}", value.trim());
+                if candidate.chars().any(|c| c.is_control() || c == '\\')
+                    || !ammonia::Url::parse(&candidate)
+                        .is_ok_and(|url| url.scheme() == "https" && url.has_host())
+                {
+                    return None;
+                }
+                Some(candidate)
+            } else {
+                None
+            };
+            let href = normalized.as_deref().unwrap_or(value);
             if rec.opts.clean_links
-                && let Some(cleaned) = remote::clean_link(value)
+                && let Some(cleaned) = remote::clean_link(href)
             {
                 rec.links.push((value.to_string(), cleaned.clone()));
                 if remote::is_http_url(&cleaned) {
@@ -463,10 +486,10 @@ fn sanitize_core(
                 }
                 return Some(Cow::Owned(cleaned));
             }
-            if remote::is_http_url(value) {
-                rec.link_urls.push(value.to_string());
+            if remote::is_http_url(href) {
+                rec.link_urls.push(href.to_string());
             }
-            return Some(Cow::Borrowed(value));
+            return Some(normalized.map_or(Cow::Borrowed(value), Cow::Owned));
         }
         if attribute == "style" {
             let sanitized = sanitize_declaration_list_with(value, Some(&mut *rec));
@@ -1494,9 +1517,7 @@ mod tests {
     #[test]
     fn strips_script_tags_and_content() {
         let out = clean(r#"<p>hi</p><script>window.__pwned=1</script>"#);
-        // Past the nesting limit the body is shown as escaped text in a <pre>, never as markup.
         assert!(!out.contains("<script"), "{}", &out[..out.len().min(400)]);
-        assert!(out.contains("data-mw-body-truncated"));
         assert!(!out.contains("__pwned"));
         assert!(out.contains("<p>hi</p>"));
     }

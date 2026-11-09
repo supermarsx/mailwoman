@@ -48,3 +48,20 @@ describe('trusted link domains',()=>{
   expect(screen.queryByRole('button',{name:/^Trust /})).toBeNull();expect(screen.getByRole('link',{name:'Open in a new tab'})).toBeVisible();
  });
 });
+
+it('dismisses a click on the backdrop and restores trigger focus without dismissing inside clicks',()=>{
+ render(()=><MessageLinks links={[inspectMessageLink('https://example.org/doc','Document')!]} truncated={false} scope="outside" active/>);
+ const trigger=screen.getByRole('button',{name:'Review links (1)'});trigger.focus();fireEvent.click(trigger);
+ const dialog=screen.getByRole('dialog',{name:'Message links'});
+ fireEvent.click(dialog.querySelector('section')!);expect(dialog).toBeVisible();
+ fireEvent.click(screen.getByRole('button',{name:'Document'}));expect(dialog).toBeVisible();
+ fireEvent.click(dialog.querySelector('.message-links__destination h3')!);expect(dialog).toBeVisible();
+ expect(screen.getByRole('link',{name:'Open in a new tab'})).toHaveAttribute('href','https://example.org/doc');
+ fireEvent.click(dialog);expect(screen.queryByRole('dialog')).toBeNull();expect(trigger).toHaveFocus();
+});
+it('keeps Escape dismissal and trigger focus restoration after an inside destination selection',()=>{
+ render(()=><MessageLinks links={[inspectMessageLink('https://example.org/doc','Document')!]} truncated={false} scope="escape" active/>);
+ const trigger=screen.getByRole('button',{name:'Review links (1)'});trigger.focus();fireEvent.click(trigger);
+ fireEvent.click(screen.getByRole('button',{name:'Document'}));fireEvent.keyDown(screen.getByRole('link',{name:'Open in a new tab'}),{key:'Escape'});
+ expect(screen.queryByRole('dialog')).toBeNull();expect(trigger).toHaveFocus();
+});

@@ -5,8 +5,11 @@ export interface ReviewedMessage {html:string;links:MessageLink[];truncated:bool
 const control=(value:string):boolean=>[...value].some(char=>char.charCodeAt(0)<32||char.charCodeAt(0)===127);
 const direction=/[\u202a-\u202e\u2066-\u2069]/u;
 export function inspectMessageLink(raw:string,label:string):MessageLink|null{
- if(!raw||raw.length>4096||control(raw)||/\s/u.test(raw)||direction.test(raw))return null;
- let url:URL;try{url=new URL(raw);}catch{return null;}
+ if(!raw||raw.length>4096||control(raw)||direction.test(raw))return null;
+ // Authored query values often contain literal spaces. Let the URL parser
+ // encode them instead of discarding an otherwise valid destination.
+ const destination=raw.trim();if(!destination)return null;
+ let url:URL;try{url=new URL(destination.startsWith('//')?'https:'+destination:destination);}catch{return null;}
  if(url.username||url.password)return null;
  if(url.protocol==='mailto:'){
   const draft=listMailDraft({href:url.href,kind:'mail',host:''});return draft?{href:url.href,label:label.slice(0,256),host:draft.to,kind:'mail',warnings:[]}:null;

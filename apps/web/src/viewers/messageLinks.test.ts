@@ -6,8 +6,20 @@ it('neutralizes navigation while preserving CSP, body text and local fragment na
  expect(anchors[0]?.hasAttribute('href')).toBe(false);expect(anchors[0]?.hasAttribute('target')).toBe(false);expect(anchors[0]?.hasAttribute('ping')).toBe(false);expect(anchors[0]?.hasAttribute('download')).toBe(false);expect(anchors[0]?.getAttribute('title')).toBe('Review above');expect(anchors[1]?.getAttribute('href')).toBe('#foot');expect(doc.querySelector('meta')?.getAttribute('content')).toBe("default-src 'none'");expect(result.links[0]?.warnings).toEqual(['mismatch']);expect(source).toContain('href="https://evil.example/path"');
 });
 it('rejects executable, relative, credentialed and control-character addresses',()=>{
- for(const url of ['javascript:alert(1)','data:text/html,x','/login','//evil.example','https://me:password@evil.example','https://evil.example/\nother','https://evil.example/\u202ehidden','mailto:user@example.org?bcc=hidden@example.org'])expect(inspectMessageLink(url,'label'),url).toBeNull();
+ for(const url of ['javascript:alert(1)','data:text/html,x','/login','https://me:password@evil.example','https://evil.example/\nother','https://evil.example/\u202ehidden','mailto:user@example.org?bcc=hidden@example.org'])expect(inspectMessageLink(url,'label'),url).toBeNull();
  expect(inspectMessageLink('http://127.0.0.1/path','Go')?.warnings).toEqual(['http','address']);expect(inspectMessageLink('https://bücher.example','Go')?.warnings).toContain('international');expect(inspectMessageLink('mailto:user@example.org?subject=Hello','Write')?.kind).toBe('mail');
+});
+it('preserves spaces in URL parameters and paths, outer spacing and scheme-relative web links',()=>{
+ const link=inspectMessageLink('  https://shop.example/order status?name=Jane Doe&note=a b&encoded=a%2Bb&plus=a+b  ','Order');
+ expect(link?.href).toBe('https://shop.example/order%20status?name=Jane%20Doe&note=a%20b&encoded=a%2Bb&plus=a+b');
+ const url=new URL(link!.href);expect(url.searchParams.get('name')).toBe('Jane Doe');expect(url.searchParams.get('encoded')).toBe('a+b');expect(url.searchParams.get('plus')).toBe('a b');
+ expect(inspectMessageLink('//shop.example/order?name=Jane Doe','Order')?.href).toBe('https://shop.example/order?name=Jane%20Doe');
+ for(const value of [' https://bad host.example/x ',' javascript:alert(1) ','//me:secret@shop.example/x','https://shop.example/?value=a\tb'])expect(inspectMessageLink(value,'Order')).toBeNull();
+ const reviewed=reviewMessageLinks('<a href="https://shop.example/?name=Jane Doe&amp;query=a b"><b>Order status</b></a>','Review',true);
+ expect(reviewed.links[0]?.label).toBe('Order status');
+ expect(new URL(reviewed.links[0]!.href).searchParams.get('query')).toBe('a b');
+ const anchor=new DOMParser().parseFromString(reviewed.html,'text/html').querySelector('a')!;
+ expect(anchor.href).toBe('https://shop.example/?name=Jane%20Doe&query=a%20b');expect(anchor.getAttribute('rel')).toBe('noopener noreferrer');
 });
 it('bounds the review list and still disables every additional destination',()=>{
  const result=reviewMessageLinks(Array.from({length:110},(_,i)=>`<a href="https://example.org/${i}">Link</a>`).join(''),'Review');expect(result.links).toHaveLength(100);expect(result.truncated).toBe(true);expect(new DOMParser().parseFromString(result.html,'text/html').querySelectorAll('a[href]')).toHaveLength(0);

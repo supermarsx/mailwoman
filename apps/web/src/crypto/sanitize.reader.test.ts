@@ -24,6 +24,15 @@ beforeAll(() => {
 });
 
 describe('mw-sanitize wasm reader mode (t32 e31a)', () => {
+  it('preserves query spaces and scheme-relative navigation without admitting relative image loads', () => {
+    const input='<a href="https://shop.test/?name=Jane Doe&amp;query=a b">Spaces</a><a href="//shop.test/order?name=Jane Doe&amp;token=a%2Bb">Order</a><img src="//images.test/logo.png">';
+    for(const output of [sanitizeEmailHtmlReader(input,true,true),sanitizeEmailHtmlReaderSafe(input,true,true)]){
+      const doc=new DOMParser().parseFromString(output,'text/html');
+      expect([...doc.querySelectorAll('a')].map(link=>link.getAttribute('href'))).toEqual(['https://shop.test/?name=Jane Doe&query=a b','https://shop.test/order?name=Jane Doe&token=a%2Bb']);
+      expect(doc.querySelector('img')?.getAttribute('src')).toBeNull();
+      expect(output).not.toContain('data-mw-rc-url');
+    }
+  });
   it('retains benign newsletter table, font and document-root layout in the committed guest', () => {
     const source = '<html lang="en"><head><style>html body td{padding-inline:20px}</style></head><body dir="rtl" style="font-family:Georgia;font-size:18px;padding:24px"><table width="600" cellpadding="12" cellspacing="0"><tr><td valign="middle"><font face="Arial" size="4">Readable newsletter</font></td></tr></table></body></html>';
     const output = sanitizeEmailHtmlReaderSafe(source, false, true);
