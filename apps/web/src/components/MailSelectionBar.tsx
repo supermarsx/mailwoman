@@ -8,8 +8,9 @@ import { useApp } from '../state/context.ts';
 import { loadCatalog, t } from '../i18n/index.ts';
 import { downloadMessages, forwardMessages } from '../api/mailBulk.ts';
 import { preferenceAccount, preferenceAccountIsCurrent } from '../api/accountPreferenceLifecycle.ts';
-import { mailFeature, spamFolderHidden } from '../state/mailFeatures.ts';
+import { mailFeature } from '../state/mailFeatures.ts';
 import { SelectionBar, type SelectionAction } from './SelectionBar.tsx';
+import {moveActions} from './ReaderMoveMenu.tsx';
 import {ACTION_ICONS} from '../actionIcons.ts';
 import type { ContextAction } from './ContextMenu.tsx';
 import type { ComposeInitial } from './compose/reply.ts';
@@ -75,10 +76,7 @@ export function MailSelectionBar(props: {
     } finally { setBusy(false); }
   }
 
-  const moveItems = (): ContextAction[] =>
-    app.mailboxes()
-      .filter((box) => box.id !== app.selectedMailboxId() && box.mailwomanSearchQuery === undefined && !spamFolderHidden(box))
-      .map((box) => ({ id: `move:${box.id}`, label: box.name, icon: 'folder', run: () => app.moveMessage(targets(), box.id) }));
+  const moveItems = (): ContextAction[] => {const messages=chosen();return messages[0]?moveActions(messages[0],app,messages):[];};
   const labelItems = (): ContextAction[] =>
     app.tags().map((tag) => {
       const on = chosen().length > 0 && chosen().every((m) => m.keywords?.[tag.id] === true);
@@ -116,7 +114,7 @@ export function MailSelectionBar(props: {
       dismiss={props.onClear}
       actions={actions()}
       returnFocus={props.returnFocus}
-      scope={`${app.accountId()}:${app.selectedMailboxId()}`}
+      scope={`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${JSON.stringify([...app.selectedIds()].sort())}`}
     />
   );
 }

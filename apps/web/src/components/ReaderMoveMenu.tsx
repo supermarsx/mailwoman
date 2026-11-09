@@ -10,11 +10,20 @@ import { spamFolderHidden } from '../state/mailFeatures.ts';
 import {ACTION_ICONS} from '../actionIcons.ts';
 import type { Email } from '../api/jmap-types.ts';
 
-/** The folders `email` can be moved to: any real folder it is not already in. */
-export function moveActions(email: Email, app: ReturnType<typeof useApp>): ContextAction[] {
+/** Moving a selected message acts on the selection. An unrelated open/context
+ * message retains its own target, so a background selection cannot move it. */
+export function selectedMoveMessages(email:Email,app:ReturnType<typeof useApp>):Email[]{
+  const selected=app.selectedIds?.();
+  return selected?.has(email.id)&&selected.size>1?app.messages().filter(message=>selected.has(message.id)):[email];
+}
+/** Real writable destinations shared by reader, row context and selection bar.
+ * A folder containing only some selected messages is still a valid destination. */
+export function moveActions(email: Email, app: ReturnType<typeof useApp>,messages:readonly Email[]=selectedMoveMessages(email,app)): ContextAction[] {
+  if(messages.length===0)return [];
+  const ids=messages.map(message=>message.id);
   return app.mailboxes()
-    .filter((box) => email.mailboxIds?.[box.id] !== true && box.mailwomanSearchQuery === undefined && box.myRights?.mayAddItems!==false && !spamFolderHidden(box))
-    .map((box) => ({ id: `move:${box.id}`, label: box.name, icon: 'folder', run: () => void app.moveMessage(email.id, box.id) }));
+    .filter(box=>!messages.every(message=>message.mailboxIds?.[box.id]===true)&&box.mailwomanSearchQuery===undefined&&box.myRights?.mayAddItems!==false&&!spamFolderHidden(box))
+    .map(box=>({id:`move:${box.id}`,label:box.name,icon:'folder',run:()=>app.moveMessage(ids.length===1?ids[0]!:ids,box.id)}));
 }
 
 export function ReaderMoveMenu(props: { email: Email }): JSX.Element {
@@ -24,7 +33,7 @@ export function ReaderMoveMenu(props: { email: Email }): JSX.Element {
   const menu = createContextMenu({
     label: () => t('mail-reader-move-to'),
     searchLabel:()=>t('mail-move-search'),
-    scope: () => `${app.accountId()}:${props.email.id}`,
+    scope: () => `${app.accountId()}:${props.email.id}:${JSON.stringify([...(app.selectedIds?.()??[])].sort())}`,
     restoreFocus: () => button?.focus(),
     actions: () => moveActions(props.email, app),
   });

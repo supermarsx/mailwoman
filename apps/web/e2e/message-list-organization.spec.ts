@@ -101,3 +101,16 @@ test('Move to filters folders while typing, Escape returns to the parent menu, a
   await move.click();const reopened=page.getByRole('menu',{name:'Move to…',exact:true});await reopened.getByRole('searchbox',{name:'Search folders'}).fill('Project 25');await reopened.getByRole('menuitem',{name:'Project 25',exact:true}).click();
   await expect.poll(()=>state.moves.length).toBe(1);expect(JSON.stringify(state.moves[0])).toContain('organization-folder-25');await expect(reopened).toHaveCount(0);
 });
+
+test('Move to sends every selected message to the chosen folder in one batch',async({page})=>{
+ const state=await fixture(page),rows=state.list.locator('.list__row');
+ const selected=await rows.evaluateAll(nodes=>nodes.slice(0,2).map(node=>(node as HTMLElement).dataset['emailId']!));
+ await rows.nth(0).click({modifiers:['Control']});await rows.nth(1).click({modifiers:['Control']});
+ await expect(state.list.locator('.list__row--selected')).toHaveCount(2);
+ await rows.first().click({button:'right',position:{x:10,y:10}});await page.getByRole('menuitem',{name:'Move to…',exact:true}).click();
+ const menu=page.getByRole('menu',{name:'Move to…',exact:true});await menu.getByRole('searchbox',{name:'Search folders'}).fill('Project 25');await menu.getByRole('menuitem',{name:'Project 25',exact:true}).click();
+ await expect.poll(()=>state.moves.length).toBe(2);
+ expect(new Set(state.moves.map(move=>move['message']))).toEqual(new Set(selected));
+ for(const move of state.moves)expect(move['patch']).toEqual({mailboxIds:{'organization-folder-25':true}});
+ await expect(state.list.locator('.list__row--selected')).toHaveCount(0);
+});

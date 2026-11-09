@@ -201,7 +201,7 @@ export function ReaderToolbar(props:{
  const forcedMenuIds=createMemo(()=>ids().filter(key=>placement(key)==='menu'),[] as string[],{equals:sameIds});
  function actionFor(key:string):RowAction {
   return all[key]??(all[key]={id:key,
-   inline:()=><ReaderMenuAction id={key} action={()=>extraRow(key)} scope={()=>`${app.accountId()}:${id()}:${placement(key)}`} onError={()=>app.showToast?.('error',t('mail-context-failed'))}/>,
+   inline:()=><ReaderMenuAction id={key} action={()=>extraRow(key)} scope={()=>`${app.accountId()}:${id()}:${placement(key)}:${JSON.stringify([...(app.selectedIds?.()??[])].sort())}`} onError={()=>app.showToast?.('error',t('mail-context-failed'))}/>,
    menu:()=>{const value=extraRow(key);return value?[value]:[];},
   });
  }
@@ -234,7 +234,7 @@ export function ReaderToolbar(props:{
  // Focused inbox override while the Focused inbox is on.
  const idle=()=>folded().size===0&&forcedMenuIds().length===0;
  const inMore=(key:string)=>placement(key)==='menu'||(placement(key)==='toolbar'&&folded().has(key));
- const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}`,actions:()=>{
+ const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${id()}:${JSON.stringify([...(app.selectedIds?.()??[])].sort())}`,actions:()=>{
   const rows=primaryIds().filter(inMore).flatMap(key=>actionFor(key).menu());
   const extra=extraIds().filter(inMore).flatMap(key=>actionFor(key).menu()).map((value,index)=>index===0&&rows.length>0?{...value,separatorBefore:true}:value);
   return [...rows,...extra];

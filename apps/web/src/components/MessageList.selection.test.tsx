@@ -199,6 +199,23 @@ describe('MessageList selection', () => {
     expect(sets).toHaveLength(1);
   });
 
+  it('moves the full selection from a selected row context menu in one batch and can undo it',async()=>{
+    const {app,jmap}=await setup();fireEvent.click(row('Subject a'),{ctrlKey:true});fireEvent.click(row('Subject b'),{ctrlKey:true});jmap.mockClear();
+    fireEvent.contextMenu(row('Subject a'));fireEvent.click(screen.getByRole('menuitem',{name:'Move to…'}));
+    fireEvent.click(screen.getByRole('menuitem',{name:'Trash'}));
+    await waitFor(()=>expect(app.messages().map(message=>message.id)).toEqual(['c','d','e']));
+    const sets=jmap.mock.calls.flatMap(([request])=>request.methodCalls.filter(call=>call[0]==='Email/set'));
+    expect(sets).toHaveLength(1);expect(sets[0]![1]['update']).toEqual({a:{mailboxIds:{trash:true}},b:{mailboxIds:{trash:true}}});
+    await waitFor(()=>expect(app.pendingUndo()).not.toBeNull());await app.undoNow();expect(new Set(app.messages().map(message=>message.id))).toEqual(new Set(['a','b','c','d','e']));
+  });
+  it('does not move an unrelated selection when Move to opens on an unselected message',async()=>{
+    const {app,jmap}=await setup();fireEvent.click(row('Subject a'),{ctrlKey:true});fireEvent.click(row('Subject b'),{ctrlKey:true});jmap.mockClear();
+    fireEvent.contextMenu(row('Subject c'));fireEvent.click(screen.getByRole('menuitem',{name:'Move to…'}));fireEvent.click(screen.getByRole('menuitem',{name:'Trash'}));
+    await waitFor(()=>expect(app.messages().map(message=>message.id)).toEqual(['a','b','d','e']));
+    const sets=jmap.mock.calls.flatMap(([request])=>request.methodCalls.filter(call=>call[0]==='Email/set'));
+    expect(sets).toHaveLength(1);expect(Object.keys(sets[0]![1]['update'] as object)).toEqual(['c']);
+  });
+
   it('a flagged message shows its flag on the row', async () => {
     await setup([mkEmail('f', { subject: 'Flagged one', keywords: { $seen: true, $flagged: true } })]);
     expect(within(row('Flagged one')).getByRole('img', { name: 'Flagged' })).toBeInTheDocument();

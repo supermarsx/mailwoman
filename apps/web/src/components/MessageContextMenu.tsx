@@ -90,7 +90,7 @@ export function createMessageContextMenu(email:Accessor<Email|undefined>,drafts?
    {id:'attachments:all',label:t('mail-context-download-thread-attachments',{count:groups.reduce((sum,group)=>sum+group.items.length,0)}),icon:ACTION_ICONS.downloadAll,separatorBefore:true,run:()=>downloadZip(app,groups,policy())}]});
  };
  const membersOf=(message:Email):Email[]=>{const list=threads?.threadMode()?threads.threadMembers(message):[];return list.length>1?[...list].sort((a,b)=>(a.sentAt??a.receivedAt).localeCompare(b.sentAt??b.receivedAt)):[];};
- const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}`,actions:()=>{
+ const menu=createContextMenu({label:()=>t('mail-more-actions'),scope:()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}:${email()?.id}:${JSON.stringify([...app.selectedIds()].sort())}`,actions:()=>{
   const owner=preferenceAccount();if(!owner||owner.id!==app.accountId())return [];
   const message=app.messages().find(value=>value.id===email()?.id);if(!message)return [];const id=message.id;const busy=app.listLoading();
   const rows:ContextAction[]=[
