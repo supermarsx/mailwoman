@@ -19,7 +19,7 @@
 # Stage 1 — web: build the SPA. apps/web is a self-contained pnpm project
 # (its own pnpm-workspace.yaml + pnpm-lock.yaml live under apps/web/).
 # ---------------------------------------------------------------------------
-FROM node:22-alpine@sha256:fe4f6d74e20370acb04ad889077d14d0f64a9c8ea6a42bc60cddf1e844699914 AS web
+FROM node:22-alpine@sha256:0e1754758c2df4cfa3e68d59e2e1b7374bb7fd9ea6328eaaacf15cc934af8202 AS web
 RUN corepack enable
 WORKDIR /web
 # Copy manifests first so `pnpm install` layer caches on unchanged deps.
