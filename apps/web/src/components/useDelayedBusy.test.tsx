@@ -61,12 +61,13 @@ describe('InlineLoading', () => {
   });
 });
 
-describe('MessageLoading (Sanitizing…)', () => {
+describe('MessageLoading (Loading…)', () => {
   it('is a one-line inline label with no skeleton blocks', async () => {
     const { MessageLoading } = await import('./MessageLoading.tsx');
     const { container } = render(() => <MessageLoading variant="skeleton" delayMs={150} />);
     expect(container.querySelectorAll('[role="status"]').length).toBe(1);
-    expect(container.textContent).toContain('Sanitizing');
+    expect(container.textContent).toContain('Loading');
+    expect(container.textContent).not.toContain('Sanitizing');
     expect(container.querySelector('[class*="skeleton"]')).toBeNull();
     expect(container.querySelector('[data-mw-spinner]')).toBeNull();
     vi.advanceTimersByTime(160);
