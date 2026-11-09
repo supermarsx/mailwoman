@@ -50,7 +50,7 @@ fn empty_folder_visibility_defaults_to_off_and_supports_locked_user_policy() {
 #[test]
 fn all_reader_action_placements_preserve_defaults_and_allow_user_admin_policy() {
     let toolbar = ["reply", "reply-all", "forward", "edit-draft", "open-draft", "delete", "archive", "move", "conversation", "links", "read", "flag", "pin", "spam", "security", "headers", "sweep", "print", "export", "properties", "zoom", "search", "colors"];
-    let menu = ["save-sender", "save-contacts", "focus-focused", "focus-other", "not-spam", "view-source", "create-filter", "block-sender"];
+    let menu = ["save-sender", "save-contacts", "focus-focused", "focus-other", "not-spam", "view-source", "create-filter", "block-sender", "finish-followup"];
     assert_eq!(REGISTRY.iter().filter(|d| d.key.starts_with("reader.actions.")).count(), toolbar.len() + menu.len());
     for (ids, placement) in [(toolbar.as_slice(), "toolbar"), (menu.as_slice(), "menu")] {
         for id in ids {

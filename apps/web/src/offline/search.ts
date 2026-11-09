@@ -21,6 +21,8 @@ export interface OfflineQuery {
   hasKeyword?: string;
   notKeyword?: string;
   hasAttachment?: boolean;
+  followup?: boolean;
+  finished?: boolean;
 }
 
 function addressText(addrs: EmailAddress[] | null | undefined): string {
@@ -34,6 +36,10 @@ function includesCI(haystack: string, needle: string): boolean {
 
 /** Does one cached header match the offline query? All present fields must match. */
 export function matchesOffline(email: Email, q: OfflineQuery): boolean {
+  const finished = email.keywords?.['mw-followup-completed'] === true;
+  const followup = !finished && (!!email.followUpAt || email.keywords?.['$flagged'] === true);
+  if (q.finished !== undefined && finished !== q.finished) return false;
+  if (q.followup !== undefined && followup !== q.followup) return false;
   if(q.inMailbox!==undefined&&email.mailboxIds[q.inMailbox]!==true)return false;
   if(q.inMailboxOtherThan?.some(id=>email.mailboxIds[id]===true))return false;
   if (q.text !== undefined) {

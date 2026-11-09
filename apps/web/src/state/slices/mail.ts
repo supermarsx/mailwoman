@@ -330,6 +330,7 @@ export interface MailSlice {
   snoozeMessage(id: Id, untilIso: string): Promise<void>;
   unsnoozeMessage(id: Id): Promise<void>;
   setFollowUp(id: Id, atIso: string | null): Promise<void>;
+  completeFollowUp(id:Id):Promise<void>;
   // The relocations and the read/flag marks take one id or many. Many ids are
   // ONE `Email/set` request (t28-e16), and one undo puts every message back.
   archiveMessage(ids: Id | readonly Id[]): Promise<void>;
@@ -1142,6 +1143,17 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function flagMessage(ids: Id | readonly Id[], flagged: boolean): Promise<void> {
+    const list=asIds(ids),snapshots=list.map(id=>({id,email:findEmail(id)}));
+    if(flagged&&snapshots.some(item=>item.email?.keywords?.['mw-followup-completed'])){
+      const before=snapshots.filter((item):item is {id:Id;email:Email}=>item.email!=null);
+      const authority=captureMailAuthority(),written:typeof before=[];let failed=0;
+      for(const item of before){if(!authority())return;try{await writeFollowUp(item.id,item.email.followUpAt??null,false,true);written.push(item);}catch{failed++;}}
+      if(!authority())return;
+      if(failed)showToast('error',t('mail-toast-update-refused',{count:failed}));
+      if(written.length===0)return;
+      showUndo(t('mail-toast-flagged',{count:written.length}),async()=>{for(const item of written){if(!authority())return;await writeFollowUp(item.id,item.email.followUpAt??null,item.email.keywords?.['mw-followup-completed']===true,item.email.keywords?.['$flagged']===true);}},10_000,t('mail-undo-action'),false,{},async()=>{for(const item of written){if(!authority())return;await writeFollowUp(item.id,item.email.followUpAt??null,false,true);}});
+      return;
+    }
     await markWithUndo(asIds(ids), '$flagged', flagged, (count) =>
       flagged ? t('mail-toast-flagged', { count }) : t('mail-toast-unflagged', { count }),
     );
@@ -1236,12 +1248,56 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   async function unsnoozeMessage(id: Id): Promise<void> {
     await rawMeta(id, { snoozedUntil: null });
   }
+  let followUpSequence=0;
+  const followUpOperations=new Map<Id,number>();
+  async function writeFollowUp(id:Id,at:string|null,completed:boolean,flagged:boolean):Promise<void>{
+    const acct=accountId();if(!acct)return;
+    const owner=preferenceAccount(),operation=++followUpSequence;
+    if(followUpOperations.size>=2000)followUpOperations.delete(followUpOperations.keys().next().value!);
+    followUpOperations.set(id,operation);
+    const current=()=>accountId()===acct&&preferenceAccount()?.generation===owner?.generation&&followUpOperations.get(id)===operation;
+    const previous=findEmail(id);if(!previous)return;
+    const restore=()=>{if(!current())return;const keywords={...findEmail(id)?.keywords};for(const key of ['$flagged','mw-followup-completed']){if(previous.keywords?.[key])keywords[key]=true;else delete keywords[key];}patchMessage(id,{followUpAt:previous.followUpAt??null,keywords});};
+    const keywords={...previous.keywords};
+    if(completed)keywords['mw-followup-completed']=true;else delete keywords['mw-followup-completed'];
+    if(flagged)keywords['$flagged']=true;else delete keywords['$flagged'];
+    patchMessage(id,{followUpAt:at,keywords});
+    // Metadata reminders retain the existing offline behavior. Keyword changes
+    // have the standard replay opcode; do not claim completion while offline.
+    if(isOffline()){
+      const queued:string[]=[];
+      try{
+        if(completed)throw new Error(t('mail-offline'));
+        if(ctx.enqueueOffline)for(const [keyword,value] of [['mw-followup-completed',false],['$flagged',flagged]] as const){
+          if(!current())throw new UndoUnavailable();
+          const queuedId=await ctx.enqueueOffline('flag',{accountId:acct,emailId:id,keyword,value});if(typeof queuedId==='string')queued.push(queuedId);
+        }
+      }catch(error){for(const queuedId of queued)try{await ctx.dequeueOffline?.(queuedId);}catch{/* Preserve the original queue failure. */}restore();throw error;}
+      return;
+    }
+    try{
+      const response=await jmapCall(updateEmails(acct,{[id]:{followUpAt:at,'keywords/mw-followup-completed':completed?true:null,'keywords/$flagged':flagged?true:null}}));
+      const result=response.methodResponses?.find(call=>call[0]==='Email/set');
+      if(!result||result[1]['notUpdated']&&Object.prototype.hasOwnProperty.call(result[1]['notUpdated'],id))throw new Error(t('mail-toast-update-failed'));
+      ctx.broadcastChange?.();
+    }catch(error){restore();throw error;}
+  }
   async function setFollowUp(id: Id, atIso: string | null): Promise<void> {
-    const prev = messages().find((m) => m.id === id)?.followUpAt ?? null;
-    await rawMeta(id, { followUpAt: atIso });
-    showUndo(atIso ? t('mail-toast-follow-up-set') : t('mail-toast-follow-up-cleared'), () =>
-      rawMeta(id, { followUpAt: prev }), 10_000, t('mail-undo-action'), false, {}, () => rawMeta(id, { followUpAt: atIso }),
-    );
+    const previous=findEmail(id);if(!previous)return;
+    const before={at:previous.followUpAt??null,done:previous.keywords?.['mw-followup-completed']===true,flag:previous.keywords?.['$flagged']===true};
+    const after={at:atIso,done:false,flag:atIso!==null};
+    const account=accountId(),generation=preferenceAccount()?.generation;
+    const pending=writeFollowUp(id,after.at,after.done,after.flag),operation=followUpOperations.get(id);await pending;
+    if(account!==accountId()||generation!==preferenceAccount()?.generation||followUpOperations.get(id)!==operation)return;
+    showUndo(t(atIso?'mail-toast-follow-up-set':'mail-toast-follow-up-cleared'),()=>writeFollowUp(id,before.at,before.done,before.flag),10_000,t('mail-undo-action'),false,{},()=>writeFollowUp(id,after.at,after.done,after.flag));
+  }
+  async function completeFollowUp(id:Id):Promise<void>{
+    const previous=findEmail(id);if(!previous)return;
+    const before={at:previous.followUpAt??null,done:previous.keywords?.['mw-followup-completed']===true,flag:previous.keywords?.['$flagged']===true};
+    const account=accountId(),generation=preferenceAccount()?.generation;
+    const pending=writeFollowUp(id,null,true,false),operation=followUpOperations.get(id);await pending;
+    if(account!==accountId()||generation!==preferenceAccount()?.generation||followUpOperations.get(id)!==operation)return;
+    showUndo(t('mail-toast-follow-up-finished'),()=>writeFollowUp(id,before.at,before.done,before.flag),10_000,t('mail-undo-action'),false,{},()=>writeFollowUp(id,null,true,false));
   }
 
   // ── archive / trash / move / spam ─────────────────────────────────────────
@@ -2580,6 +2636,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     snoozeMessage,
     unsnoozeMessage,
     setFollowUp,
+    completeFollowUp,
     archiveMessage,
     trashMessage,
     moveMessage,

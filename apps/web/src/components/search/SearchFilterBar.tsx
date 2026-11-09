@@ -45,10 +45,10 @@ const FIELD_LABEL: Partial<Record<ChipKind, string>> = {
 const CHIP_ICON: Partial<Record<ChipKind, IconName>> = {
   attachment: 'attachment', event: 'calendar', unread: 'mailRead', flagged: 'flag', pinned: 'pin', answered: 'reply', forwarded: 'forward', priority: 'alert', date: 'clock',
   scope: 'folder', from: 'users', to: 'sent', subject: 'mail', body: 'file', text: 'search', size: 'archive',
-  mentions: 'person',
+  followup: 'flag', finished: 'check', mentions: 'person',
 };
 
-const TOGGLES: readonly ChipKind[] = ['attachment', 'event', 'unread', 'flagged', 'pinned', 'answered', 'forwarded', 'priority'];
+const TOGGLES: readonly ChipKind[] = ['attachment', 'event', 'unread', 'flagged', 'pinned', 'answered', 'forwarded', 'priority', 'followup', 'finished'];
 
 /** What the popover is editing: an existing chip, or a new one of `kind`. */
 interface Editing { kind: ChipKind; chip: Chip | null; anchor: HTMLElement }
@@ -69,6 +69,8 @@ function toggleLabel(kind: ChipKind, term: Term | undefined): string {
     case 'answered': return t(value === 'unanswered' || negated ? 'search-chip-unanswered' : 'search-chip-answered');
     case 'forwarded': return t(value === 'unforwarded' || negated ? 'search-chip-unforwarded' : 'search-chip-forwarded');
     case 'priority': return t(value === 'low-priority' ? (negated ? 'search-chip-not-low-priority' : 'search-chip-low-priority') : (negated ? 'search-chip-not-high-priority' : 'search-chip-high-priority'));
+    case 'followup': return t(negated ? 'search-chip-no-followup' : 'search-chip-followup');
+    case 'finished': return t(negated ? 'search-chip-unfinished' : 'search-chip-finished');
     default: return t(negated || (term?.kind === 'field' && term.op === 'pinned' && /^(false|0)$/iu.test(value)) ? 'search-chip-unpinned' : 'search-chip-pinned');
   }
 }
@@ -160,6 +162,8 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
         { id: 'event', label: t('search-chip-event'), icon: 'calendar', run: () => addFlag('has', 'calendar', ['calendar']) },
         { id: 'unread', label: t('search-chip-unread'), icon: 'mailRead', run: () => addFlag('is', 'unread', ['unread', 'read']) },
         { id: 'flagged', label: t('search-chip-flagged'), icon: 'flag', run: () => addFlag('is', 'flagged', ['flagged', 'unflagged']) },
+        { id: 'followup', label: t('search-chip-followup'), icon: 'flag', run: () => addFlag('is', 'followup', ['followup']) },
+        { id: 'finished', label: t('search-chip-finished'), icon: 'check', run: () => addFlag('is', 'finished', ['finished']) },
         edit('mentions', 'person', 'search-field-mentions'),
         { id:'mentions-me',label:t('search-chip-mentions-me'),icon:'person',run:()=>addFlag('mentions','me',['me']) },
         { id: 'answered', label: t('search-chip-answered'), icon: 'reply', run: () => addFlag('is', 'answered', ['answered', 'unanswered']) },
@@ -177,6 +181,8 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
     {op:'has',value:'attachment',alike:['attachment'],label:'search-chip-attachment'},
     {op:'is',value:'unread',alike:['unread','read'],label:'search-chip-unread'},
     {op:'is',value:'flagged',alike:['flagged','unflagged'],label:'search-chip-flagged'},
+    {op:'is',value:'followup',alike:['followup'],label:'search-chip-followup'},
+    {op:'is',value:'finished',alike:['finished'],label:'search-chip-finished'},
     {op:'mentions',value:'me',alike:['me'],label:'search-chip-mentions-me'},
   ] as const;
   const enabledFlag=(op:Operator,value:string):boolean=>query().terms.some(term=>term.kind==='field'&&term.op===op&&term.value===value&&!term.negated);

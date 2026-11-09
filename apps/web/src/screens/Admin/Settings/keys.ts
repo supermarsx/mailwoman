@@ -124,6 +124,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'reader.actions.security',
   'reader.actions.headers',
   'reader.actions.sweep',
+  'reader.actions.finish-followup',
   'reader.actions.print',
   'reader.actions.export',
   'reader.actions.properties',

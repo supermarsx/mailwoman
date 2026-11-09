@@ -1098,7 +1098,7 @@ describe('mail slice — archive / trash / spam / move', () => {
   it('refuses and explains when the destination folder does not exist', async () => {
     for (const [method, missing, message] of [
       ['archiveMessage', 'archive', 'No Archive folder'],
-      ['trashMessage', 'trash', 'No Trash folder'],
+      ['trashMessage', 'trash', 'No Trash folder is configured. Choose one in Settings > Folders.'],
       ['markSpam', 'junk', 'No Spam folder'],
     ] as const) {
       await withBoxes([email('a')], withoutRoles(missing), async (mail, { toast }) => {
@@ -1143,6 +1143,22 @@ describe('mail slice — archive / trash / spam / move', () => {
 });
 
 describe('mail slice — follow-ups', () => {
+  it('finishes a reminder and ordinary flag together, then undo restores both',async()=>{
+    await withInbox([email('a',{followUpAt:'2026-09-01T09:00:00Z',keywords:{$flagged:true,custom:true}})],async mail=>{
+      await mail.completeFollowUp('a');
+      expect(mail.messages()[0]).toMatchObject({followUpAt:null,keywords:{'mw-followup-completed':true,custom:true}});
+      expect(mail.messages()[0]?.keywords?.['$flagged']).toBeUndefined();expect(mail.followUps()).toEqual([]);
+      await mail.undoNow();expect(mail.messages()[0]).toMatchObject({followUpAt:'2026-09-01T09:00:00Z',keywords:{$flagged:true,custom:true}});
+      expect(mail.messages()[0]?.keywords?.['mw-followup-completed']).toBeUndefined();
+    });
+  });
+  it('reopens a finished message when it is flagged again and undo restores completion',async()=>{
+    await withInbox([email('a',{keywords:{'mw-followup-completed':true}})],async mail=>{
+      await mail.flagMessage('a',true);expect(mail.messages()[0]?.keywords).toEqual({$flagged:true});
+      await mail.undoNow();expect(mail.messages()[0]?.keywords).toEqual({'mw-followup-completed':true});
+    });
+  });
+
   it('setFollowUp lists the message under follow-ups and undo clears it', async () => {
     await withInbox([email('a'), email('b')], async (mail) => {
       await mail.setFollowUp('a', '2026-09-01T09:00:00Z');
@@ -1207,7 +1223,7 @@ describe('mail slice — sweep edges', () => {
   it('refuses a sweep with no Trash folder rather than deleting outright', async () => {
     await withBoxes(aged, withoutRoles('trash'), async (mail, { toast }) => {
       await mail.executeSweep('news@shop.example', 'all');
-      expect(toast).toHaveBeenCalledWith('error', 'No Trash folder');
+      expect(toast).toHaveBeenCalledWith('error', 'No Trash folder is configured. Choose one in Settings > Folders.');
       expect(mail.messages()).toHaveLength(2);
     });
   });
@@ -1612,7 +1628,7 @@ describe('mail slice — user-facing strings', () => {
   it.each([
     ['a toast message', new RegExp(String.raw`showToast\(\s*'[a-z]+',\s*${quoted}`, 'g')],
     ['an undo label', new RegExp(String.raw`showUndo\(\s*${quoted}`, 'g')],
-    ['a thrown message', new RegExp(String.raw`new Error\(\s*${quoted}`, 'g')],
+    ['a thrown message', new RegExp(String.raw`throw\s+new Error\(\s*${quoted}`, 'g')],
     ['a default action label', new RegExp(String.raw`actionLabel\s*=\s*${quoted}`, 'g')],
     ['a relocation label', new RegExp(String.raw`relocateWithUndo\([^)]*,\s*${quoted}\s*\)`, 'g')],
   ])('has no string literal as %s', (_what, pattern) => {
@@ -1630,7 +1646,7 @@ describe('mail slice — user-facing strings', () => {
     ].join('\n');
     expect(sample.match(new RegExp(String.raw`showToast\(\s*'[a-z]+',\s*${quoted}`, 'g'))).toHaveLength(1);
     expect(sample.match(new RegExp(String.raw`showUndo\(\s*${quoted}`, 'g'))).toHaveLength(1);
-    expect(sample.match(new RegExp(String.raw`new Error\(\s*${quoted}`, 'g'))).toHaveLength(1);
+    expect(sample.match(new RegExp(String.raw`throw\s+new Error\(\s*${quoted}`, 'g'))).toHaveLength(1);
     expect(sample.match(new RegExp(String.raw`actionLabel\s*=\s*${quoted}`, 'g'))).toHaveLength(1);
     expect(sample.match(new RegExp(String.raw`relocateWithUndo\([^)]*,\s*${quoted}\s*\)`, 'g'))).toHaveLength(1);
   });

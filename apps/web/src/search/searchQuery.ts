@@ -51,6 +51,8 @@ export function canonicalValue(op: Operator, value: string): string {
     return value;
   }
   if (op === 'is') {
+    if (lower === 'follow-up') return 'followup';
+    if (lower === 'completed') return 'finished';
     if (lower === 'starred') return 'flagged';
     if (lower === 'replied') return 'answered';
     if (lower === 'unreplied' || lower === 'notanswered') return 'unanswered';
@@ -305,7 +307,7 @@ export function setOptionalField(query: SearchQuery, op: Operator, value: string
 
 export type ChipKind =
   | 'from' | 'to' | 'cc' | 'subject' | 'body' | 'text' | 'filename' | 'tag' | 'mentions'
-  | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned' | 'answered' | 'forwarded' | 'priority'
+  | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned' | 'answered' | 'forwarded' | 'priority' | 'followup' | 'finished'
   | 'date' | 'size' | 'scope' | 'other' | 'expr';
 
 export interface Chip {
@@ -346,6 +348,7 @@ export function chipsOf(query: SearchQuery): Chip[] {
         if (term.value === 'pinned') return one('pinned');
         if (term.value === 'answered' || term.value === 'unanswered') return one('answered');
         if (term.value === 'forwarded' || term.value === 'unforwarded') return one('forwarded');
+        if (term.value === 'followup' || term.value === 'finished') return one(term.value);
         if (term.value === 'high-priority' || term.value === 'low-priority') return one('priority');
         return one('other');
       case 'pinned':
@@ -486,7 +489,7 @@ export function offlineQueryOf(input: string, all?:readonly ScopeMailbox[]): Off
   const texts: string[] = [];
   for (const term of query.terms) {
     if(isTrashOption(term))continue;
-    if (term.kind === 'expr' || term.negated && !(term.kind === 'field' && term.op === 'has')) return { text: input };
+    if (term.kind === 'expr' || term.negated && !(term.kind === 'field' && (term.op === 'has' || term.op === 'is' && (term.value === 'followup' || term.value === 'finished')))) return { text: input };
     if (term.kind === 'text') { texts.push(term.value); continue; }
     const { op, value } = term;
     if(op==='in'&&all){out.inMailbox=resolveScope(value,all)?.id??value;}
@@ -496,6 +499,7 @@ export function offlineQueryOf(input: string, all?:readonly ScopeMailbox[]): Off
     else if (op === 'has' && value === 'attachment') out.hasAttachment = !term.negated;
     else if (op === 'is' && (value === 'unread' || value === 'read')) out[value === 'unread' ? 'notKeyword' : 'hasKeyword'] = '$seen';
     else if (op === 'is' && value === 'flagged' && out.hasKeyword === undefined) out.hasKeyword = '$flagged';
+    else if (op === 'is' && (value === 'followup' || value === 'finished')) out[value] = !term.negated;
     else return { text: input };
   }
   if (texts.length > 0) out.text = texts.join(' ');

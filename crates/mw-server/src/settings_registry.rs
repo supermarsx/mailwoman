@@ -3070,6 +3070,11 @@ pub static REGISTRY: &[SettingDef] = &[
         "where the raw headers reader action appears: toolbar, More menu, or hidden; permissions still apply"
     ),
     def!(
+        "reader.actions.finish-followup",
+        Kind::Enum(&["toolbar", "menu", "hidden"]), "\"menu\"", GDU, "reader",
+        "where the finish follow-up reader action appears: toolbar, More menu, or hidden"
+    ),
+    def!(
         "reader.actions.sweep",
         Kind::Enum(&["toolbar", "menu", "hidden"]),
         "\"toolbar\"",

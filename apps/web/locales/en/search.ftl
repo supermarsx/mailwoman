@@ -71,5 +71,9 @@ search-refine-domain = Search messages from this domain
 
 search-include-trash-scoped = Include Trash applies when searching all folders. The selected folder is searched directly.
 
+search-chip-followup = Marked for follow-up
+search-chip-no-followup = Not marked for follow-up
+search-chip-finished = Finished
+search-chip-unfinished = Not finished
 search-field-mentions = Mentions
 search-chip-mentions-me = Mentions me

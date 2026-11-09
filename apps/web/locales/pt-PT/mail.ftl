@@ -1435,6 +1435,12 @@ mail-list-order-size = Tamanho, maiores primeiro
 
 mail-list-order-size-asc = Tamanho, menores primeiro
 
+mail-mark-finished = Marcar como concluído
+
+mail-follow-up-finished = Seguimento concluído
+
+mail-toast-follow-up-finished = Seguimento marcado como concluído
+
 mail-mentions-me = Menciona-me
 
 mail-mentions-me-help = Pesquisar mensagens que mencionam um dos seus endereços de email

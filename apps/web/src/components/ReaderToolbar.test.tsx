@@ -10,13 +10,13 @@ import {saveDraft} from './compose/drafts-store.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {fetchMailHeaders} from '../api/mailHeaders.ts';
 
-const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn(),archive:vi.fn(),trash:vi.fn(),spam:vi.fn(),search:vi.fn(),moveFocus:vi.fn(),focusEnabled:false,focusValue:undefined as 'focused'|'other'|undefined,boxes:[] as Mailbox[],extras:undefined as ContextAction[]|undefined,settings:{} as Record<string,{value:unknown;locked?:boolean;source?:string}>,bumpSettings:()=>{}}));
+const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn(),archive:vi.fn(),trash:vi.fn(),finish:vi.fn().mockResolvedValue(undefined),spam:vi.fn(),search:vi.fn(),moveFocus:vi.fn(),focusEnabled:false,focusValue:undefined as 'focused'|'other'|undefined,boxes:[] as Mailbox[],extras:undefined as ContextAction[]|undefined,settings:{} as Record<string,{value:unknown;locked?:boolean;source?:string}>,bumpSettings:()=>{}}));
 vi.mock('../realtime/context.ts',()=>({useRealtime:()=>({subTabs:{tabs:()=>[],activate:vi.fn()}})}));
 vi.mock('../api/transport.ts',()=>({createConfiguredClient:()=>({jmap:state.jmap})}));
 vi.mock('../api/mailHeaders.ts',async original=>({...await original<typeof import('../api/mailHeaders.ts')>(),fetchMailHeaders:vi.fn()}));
 vi.mock('../api/settings.ts',async()=>{const {createSignal}=await vi.importActual<typeof import('solid-js')>('solid-js');const [tick,bump]=createSignal(0);state.bumpSettings=()=>bump(value=>value+1);return {settings:()=>{tick();return {'reader.actionStyle':{value:'icons'},...state.settings};}};});
 vi.mock('../modules/contacts/saveFromMessage.rows.ts',async original=>{const actual=await original<typeof import('../modules/contacts/saveFromMessage.rows.ts')>();return {...actual,saveRowsFor:(...args:Parameters<typeof actual.saveRowsFor>)=>state.extras??actual.saveRowsFor(...args)};});
-vi.mock('../state/context.ts',()=>({useApp:()=>({identities:()=>[],contacts:()=>[],accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:state.search,mailboxes:()=>state.boxes,focusedInbox:()=>state.focusEnabled,senderFocus:()=>state.focusValue,alwaysMoveSender:state.moveFocus,showToast:vi.fn(),openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
+vi.mock('../state/context.ts',()=>({useApp:()=>({identities:()=>[],contacts:()=>[],accountId:()=> 'a',supportsFromDomainSearch:()=>true,searchMessageField:state.search,mailboxes:()=>state.boxes,focusedInbox:()=>state.focusEnabled,senderFocus:()=>state.focusValue,alwaysMoveSender:state.moveFocus,showToast:vi.fn(),openMessage:state.open,archiveMessage:state.archive,trashMessage:state.trash,completeFollowUp:state.finish,pinMessage:vi.fn(),markRead:vi.fn(),flagMessage:vi.fn(),markSpam:state.spam,exportMessage:vi.fn()})}));
 
 const email=(over:Partial<Email>={}):Email=>({id:'m1',threadId:'t1',subject:'Hello',from:[{name:'Ann',email:'ann@example.org'}],keywords:{$seen:true},mailboxIds:{inbox:true},...over}) as Email;
 const thread=(ids:string[])=>({methodResponses:[['Thread/get',{accountId:'a',list:[{id:'t1',emailIds:ids}],notFound:[]},'thread']]});
@@ -226,4 +226,13 @@ describe('reader action row: overflow into More',()=>{
   await waitFor(()=>expect(screen.queryByRole('dialog')).toBeNull());expect(more).toHaveFocus();
  });
 
+});
+
+
+describe('Finished reader action',()=>{
+ it('offers Finished only for an active follow-up and invokes the undoable state action',async()=>{
+  state.jmap.mockResolvedValue(thread(['m1']));toolbar({email:email({followUpAt:'2026-11-09T12:00:00Z'})});
+  fireEvent.click(screen.getByTestId('reader-more'));const action=document.querySelector<HTMLButtonElement>('[data-action-id="finish-followup"]');expect(action).not.toBeNull();fireEvent.click(action!);
+  expect(state.finish).toHaveBeenCalledWith('m1');
+ });
 });

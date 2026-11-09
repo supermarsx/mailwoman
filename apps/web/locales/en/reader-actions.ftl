@@ -10,6 +10,7 @@ reader-action-forward = Forward
 reader-action-edit-draft = Edit draft
 reader-action-open-draft = Open reply draft
 reader-action-delete = Delete
+reader-action-finish-followup = Mark follow-up finished
 reader-action-archive = Archive
 reader-action-move = Move
 reader-action-conversation = View conversation

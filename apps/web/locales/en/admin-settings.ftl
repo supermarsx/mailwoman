@@ -2237,3 +2237,7 @@ admin-settings-help-mail-badge-labels = Whether reader header badges show an ico
 admin-settings-key-mail-message-list-group = Message grouping
 
 admin-settings-help-mail-message-list-group = Group conversations by received or sent date, sender, subject, importance or size. Users may override this unless locked.
+
+admin-settings-key-reader-actions-finish-followup = Mark follow-up as finished action
+
+admin-settings-help-reader-actions-finish-followup = Choose toolbar, More menu or hidden for completing flagged messages and follow-up reminders.

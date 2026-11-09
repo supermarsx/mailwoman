@@ -1446,6 +1446,12 @@ mail-list-order-size = Size, largest first
 
 mail-list-order-size-asc = Size, smallest first
 
+mail-mark-finished = Mark as finished
+
+mail-follow-up-finished = Follow-up finished
+
+mail-toast-follow-up-finished = Follow-up marked as finished
+
 mail-mentions-me = Mentions me
 
 mail-mentions-me-help = Search messages that mention one of your email addresses

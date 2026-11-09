@@ -3419,6 +3419,9 @@ or HTML.
 `mail.reader.unsafeHtmlMode` defaults `sanitized`. For messages whose HTML is detected as unsafe: `sanitized` shows the cleaned HTML automatically, `ask` offers a per-message button to show it, `strict` shows only safe text. Active content and automatic remote resources stay blocked in every mode. Global/domain/user policy; a lock enforces the mode.
 <a id="reader.attachmentsDensity"></a>
 `reader.attachmentsDensity` is `compact` (default) or `comfortable` and sets the spacing of the reader's attachment list. Global/domain/user policy.
+<a id="reader.actions.finish-followup"></a>
+`reader.actions.finish-followup` chooses `toolbar`, `menu` (default), or `hidden`. The action is offered for active follow-ups and marks them finished through the shared undoable state action.
+
 <a id="cap.reading.original_html"></a>
 `cap.reading.original_html` defaults true. When false, the isolated original HTML reader option is not offered. It does not authorize scripts or unrestricted remote resources. See `mail.reader.allowOriginalHtml`.
 <a id="images.trustedHosts"></a>

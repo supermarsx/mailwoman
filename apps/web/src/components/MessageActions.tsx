@@ -155,6 +155,7 @@ export function MessageActions(props: { email: Email; onMore?:(event:MouseEvent)
       </button>
       </Show>
 
+      <Show when={props.email.keywords?.['mw-followup-completed']===true}><span class={css.followUpMark} role="img" aria-label={t('mail-follow-up-finished')} data-testid="msg-finished-mark"><Icon name="check"/></span></Show>
       <Show when={hasFollowUp()}>
         <span
           class={`msg-followup ${css.followUpMark}`}

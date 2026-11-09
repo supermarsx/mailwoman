@@ -2237,3 +2237,7 @@ admin-settings-help-mail-badge-labels = Se os selos do cabeçalho do leitor most
 admin-settings-key-mail-message-list-group = Agrupamento de mensagens
 
 admin-settings-help-mail-message-list-group = Agrupar conversas por data de receção ou envio, remetente, assunto, importância ou tamanho. Os utilizadores podem alterar esta opção se não estiver bloqueada.
+
+admin-settings-key-reader-actions-finish-followup = Ação marcar seguimento como concluído
+
+admin-settings-help-reader-actions-finish-followup = Escolher barra de ferramentas, menu Mais ou oculto para concluir mensagens sinalizadas e lembretes de seguimento.
