@@ -3419,6 +3419,12 @@ or HTML.
 `mail.reader.unsafeHtmlMode` defaults `sanitized`. For messages whose HTML is detected as unsafe: `sanitized` shows the cleaned HTML automatically, `ask` offers a per-message button to show it, `strict` shows only safe text. Active content and automatic remote resources stay blocked in every mode. Global/domain/user policy; a lock enforces the mode.
 <a id="reader.attachmentsDensity"></a>
 `reader.attachmentsDensity` is `compact` (default) or `comfortable` and sets the spacing of the reader's attachment list. Global/domain/user policy.
+<a id="cap.reading.delete_sender"></a>
+`cap.reading.delete_sender` is an administrator-only global/domain capability, off by default. It permits the optional reader action to find all matching sender messages across folders and move them to Trash after confirmation. The user must also choose Toolbar or More for `reader.actions.delete-sender`, whose default is Hidden. Candidate queries are bounded and incomplete/truncated results refuse the action. Exact From addresses and mailbox rights are checked; this action never permanently deletes messages and uses normal Trash Undo.
+
+<a id="reader.actions.delete-sender"></a>
+`reader.actions.delete-sender` chooses `toolbar`, `menu`, or `hidden` (default). Global/domain/user policy. It does not grant the administrator capability.
+
 <a id="reader.actions.finish-followup"></a>
 `reader.actions.finish-followup` chooses `toolbar`, `menu` (default), or `hidden`. The action is offered for active follow-ups and marks them finished through the shared undoable state action.
 

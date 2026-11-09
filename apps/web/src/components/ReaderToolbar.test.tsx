@@ -9,6 +9,7 @@ import {activateAccountPreferences,suspendAccountPreferences} from '../api/accou
 import {saveDraft} from './compose/drafts-store.ts';
 import type {Email} from '../api/jmap-types.ts';
 import {fetchMailHeaders} from '../api/mailHeaders.ts';
+import {clearFeatures,loadFeatures} from '../state/features.ts';
 
 const state=vi.hoisted(()=>({jmap:vi.fn(),open:vi.fn(),archive:vi.fn(),trash:vi.fn(),finish:vi.fn().mockResolvedValue(undefined),spam:vi.fn(),search:vi.fn(),moveFocus:vi.fn(),focusEnabled:false,focusValue:undefined as 'focused'|'other'|undefined,boxes:[] as Mailbox[],extras:undefined as ContextAction[]|undefined,settings:{} as Record<string,{value:unknown;locked?:boolean;source?:string}>,bumpSettings:()=>{}}));
 vi.mock('../realtime/context.ts',()=>({useRealtime:()=>({subTabs:{tabs:()=>[],activate:vi.fn()}})}));
@@ -229,7 +230,38 @@ describe('reader action row: overflow into More',()=>{
 });
 
 
-describe('Finished reader action',()=>{
+describe('optional sender deletion and Finished actions',()=>{
+ afterEach(()=>clearFeatures());
+ async function allowSender(){
+  await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.delete_sender':{enabled:true,limits:{},settings:{}}}}),{headers:{'content-type':'application/json'}})});
+  state.boxes=[{id:'inbox',name:'Inbox',role:'inbox'},{id:'archive',name:'Archive',role:'archive'},{id:'trash',name:'Trash',role:'trash'}] as Mailbox[];
+  state.settings={'cap.reading.delete_sender':{value:true},'reader.actions.delete-sender':{value:'toolbar'}};state.bumpSettings();
+  state.jmap.mockImplementation(async(request:{methodCalls:[string,Record<string,unknown>,string][]})=>{
+   if(request.methodCalls.some(call=>call[0]==='Email/query')){
+    const list=[email(),email({id:'unloaded',mailboxIds:{archive:true}})];
+    return{methodResponses:[['Email/query',{accountId:'a',queryState:'s',position:0,total:2,ids:list.map(email=>email.id)},'q'],['Email/get',{accountId:'a',list,notFound:[]},'g']]};
+   }
+   return thread(['m1']);
+  });
+ }
+ it('is absent by default and placement cannot grant a disabled administrator capability',async()=>{
+  state.jmap.mockResolvedValue(thread(['m1']));state.settings={'reader.actions.delete-sender':{value:'toolbar'}};state.bumpSettings();toolbar();
+  expect(screen.queryByTestId('reader-delete-sender')).toBeNull();
+ });
+ it('requires count-bearing confirmation and passes verified unloaded messages to shared Trash undo',async()=>{
+  await allowSender();toolbar();fireEvent.click(await screen.findByTestId('reader-delete-sender'));
+  let dialog=await screen.findByTestId('delete-sender-confirm');expect(dialog).toHaveTextContent('2 messages');
+  fireEvent.click(within(dialog).getByRole('button',{name:'Cancel'}));expect(state.trash).not.toHaveBeenCalled();
+  await waitFor(()=>expect(screen.getByTestId('reader-delete-sender')).toBeEnabled());fireEvent.click(screen.getByTestId('reader-delete-sender'));dialog=await screen.findByTestId('delete-sender-confirm');
+  fireEvent.click(within(dialog).getByRole('button',{name:'Move 2 messages to Trash'}));
+  await waitFor(()=>expect(state.trash).toHaveBeenCalledWith(['m1','unloaded'],expect.arrayContaining([expect.objectContaining({id:'unloaded',mailboxIds:{archive:true}})])));
+ });
+ it('rechecks policy after the confirmation is shown',async()=>{
+  await allowSender();toolbar();fireEvent.click(await screen.findByTestId('reader-delete-sender'));
+  const dialog=await screen.findByTestId('delete-sender-confirm');state.settings['cap.reading.delete_sender']={value:false};state.bumpSettings();
+  fireEvent.click(within(dialog).getByRole('button',{name:'Move 2 messages to Trash'}));await Promise.resolve();
+  expect(state.trash).not.toHaveBeenCalled();
+ });
  it('offers Finished only for an active follow-up and invokes the undoable state action',async()=>{
   state.jmap.mockResolvedValue(thread(['m1']));toolbar({email:email({followUpAt:'2026-11-09T12:00:00Z'})});
   fireEvent.click(screen.getByTestId('reader-more'));const action=document.querySelector<HTMLButtonElement>('[data-action-id="finish-followup"]');expect(action).not.toBeNull();fireEvent.click(action!);

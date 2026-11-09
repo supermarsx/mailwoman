@@ -45,6 +45,11 @@ import {colorRowAction,type ReaderColorProps} from './ReaderColorMenu.tsx';
 import {RawMessageHeaders} from './RawMessageHeaders.tsx';
 import {ACTION_ICONS} from '../actionIcons.ts';
 import {isDraftMessage} from './draftMessage.ts';
+import {createConfirm} from './confirm.tsx';
+import {createConfiguredClient} from '../api/transport.ts';
+import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
+import {features,featuresLoaded} from '../state/features.ts';
+import {prepareSenderDelete,senderDeleteRights} from './senderDelete.ts';
 import { loadCatalog } from '../i18n/catalog.ts';
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('properties'); void loadCatalog('search');
@@ -104,11 +109,28 @@ export function ReaderToolbar(props:{
  const realtime=useRealtime();
  const [sweeping,setSweeping]=createSignal(false);
  const [headersOpen,setHeadersOpen]=createSignal(false);
+ const senderDeleteConfirm=createConfirm();
+ const [deletingSender,setDeletingSender]=createSignal(false);
  const id=()=>props.email.id;
  const replyDrafts=createReplyDraftIndex(app.accountId);
  const isDraft=()=>props.onEditDraft!==undefined&&isDraftMessage(props.email,app.mailboxes());
  const replyDraft=()=>props.onOpenReplyDraft?replyDrafts().get(id()):undefined;
  const sender=()=>props.email.from?.[0]?.email??'';
+ const canDeleteSender=()=>featuresLoaded()&&features()['reading.delete_sender']?.enabled===true&&settings()['cap.reading.delete_sender']?.value!==false;
+ async function deleteSender():Promise<void>{
+  const owner=preferenceAccount(),message=id();if(!owner||!preferenceAccountIsCurrent(owner)||owner.id!==app.accountId()||!canDeleteSender()||deletingSender())return;
+  const current=()=>preferenceAccountIsCurrent(owner)&&owner.id===app.accountId()&&id()===message&&props.active&&canDeleteSender();
+  setDeletingSender(true);
+  try{
+   const plan=await prepareSenderDelete(createConfiguredClient(),owner.id,sender(),app.mailboxes(),current);
+   if(!current()||!senderDeleteRights(plan,app.mailboxes()))throw new Error('senderDeleteUnavailable');
+   if(plan.emails.length===0){app.showToast('info',t('mail-delete-sender-empty'));return;}
+   if(!await senderDeleteConfirm.ask({title:t('mail-delete-sender-title'),body:t('mail-delete-sender-detail',{count:plan.emails.length,sender:plan.sender}),confirmLabel:t('mail-delete-sender-confirm',{count:plan.emails.length}),testId:'delete-sender-confirm'}))return;
+   if(!current()||!senderDeleteRights(plan,app.mailboxes()))throw new Error('senderDeleteUnavailable');
+   await app.trashMessage(plan.emails.map(email=>email.id),plan.emails);
+  }catch{if(preferenceAccountIsCurrent(owner))app.showToast('error',t('mail-delete-sender-failed'));}
+  finally{setDeletingSender(false);}
+ }
  const pinned=()=>props.email.pinned===true;
  const unread=()=>props.email.keywords?.['$seen']!==true;
  const flagged=()=>props.email.keywords?.['$flagged']===true;
@@ -128,6 +150,7 @@ export function ReaderToolbar(props:{
  // (read, flagged, a new link count) updates its button in place and never
  // re-creates a button that has focus. `ids` decides which are present.
  const all:Record<string,RowAction>={
+  'delete-sender':plain({id:'delete-sender',icon:icon('delete'),label:()=>t('mail-delete-sender-title'),help:()=>t('mail-delete-sender-help'),testId:'reader-delete-sender',disabled:deletingSender,run:()=>{void deleteSender();}}),
   'finish-followup':plain({id:'finish-followup',icon:icon('check'),label:()=>t('mail-mark-finished'),help:()=>t('mail-mark-finished'),testId:'reader-finish-followup',run:()=>{void app.completeFollowUp(id()).catch(()=>app.showToast('error',t('mail-context-failed')));}}),
   reply:plain({id:'reply',icon:icon(ACTION_ICONS.reply),label:()=>t('mail-reply'),help:()=>t('mail-action-help-reply'),testId:'reader-reply',disabled:()=>props.preparing,run:()=>props.onReply('reply')}),
   'reply-all':plain({id:'reply-all',icon:icon(ACTION_ICONS.replyAll),label:()=>t('mail-reply-all'),help:()=>t('mail-action-help-reply-all'),testId:'reader-reply-all',disabled:()=>props.preparing,run:()=>props.onReply('reply-all')}),
@@ -166,7 +189,7 @@ export function ReaderToolbar(props:{
    inline:()=><ReaderAction icon="serverMetadata" label={t('mail-headers-title')} help={t('mail-headers-action-help')} testId="reader-headers" popup="dialog" expanded={headersOpen()} onClick={()=>setHeadersOpen(true)}/>,
    menu:()=>[{id:'headers',label:t('mail-headers-title'),icon:'serverMetadata',run:()=>{setHeadersOpen(true);}}]},
  };
- const primaryIds=createMemo(()=>[...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
+ const primaryIds=createMemo(()=>[...(sender()!==''&&canDeleteSender()?['delete-sender']:[]),...((props.email.followUpAt||props.email.keywords?.['$flagged'])&&!props.email.keywords?.['mw-followup-completed']?['finish-followup']:[]),...(isDraft()?['edit-draft']:[]),...(mailFeature('allowReply')&&!isDraft()?['reply','reply-all']:[]),...(mailFeature('allowForward')&&!isDraft()?['forward']:[]),...(replyDraft()?['open-draft']:[]),...(conversation.available()?['conversation']:[]),...(linkReview.count()>0?['links']:[]),'pin','read','flag','archive','move','delete',...(mailFeature('showSpam')?['spam']:[]),...(mailFeature('allowDownload')?['export']:[]),...(mailFeature('allowPrint')?['print']:[]),'zoom','search',...(sender()!==''?['sweep']:[]),'security',...(props.colors?['colors']:[]),...(props.headersUrl?['headers']:[]),...(messageDialogEnabled()?['properties']:[])],undefined,{equals:(a,b)=>a.length===b.length&&a.every((value,index)=>value===b[index])});
  const extraRows=createMemo(()=>[...saveRowsFor(app,[props.email]),...focusActions(app,props.email),...messageActionRows(app,props.email,new Set(['move-to']))]);
  const extraId=(value:ContextAction)=>readerMenuActionId(value.id)??value.id;
  const extraIds=createMemo(()=>[...new Set(extraRows().map(extraId))].filter(key=>!primaryIds().includes(key)));
@@ -240,6 +263,7 @@ export function ReaderToolbar(props:{
    <For each={ids()}>{key=>{const value=actionFor(key);return <span ref={element=>{observer?.observe(element);onCleanup(()=>observer?.unobserve(element));}} class={css.item} classList={{[css.groupEnd]:value.groupEnd===true}} data-reader-item={key} data-reader-placement={placement(key)} hidden={placement(key)!=='toolbar'||folded().has(key)}>{value.inline()}</span>;}}</For>
    <button ref={moreButton} type="button" class={`btn btn--ghost reader-action reader-action--compact ${a11y.focusable} ${css.more}`} classList={{[css.moreIdle]:idle()}} aria-label={t('mail-more-actions')} title={t('mail-more-actions')} aria-haspopup="menu" aria-expanded={menu.isOpen()} aria-hidden={idle()?'true':undefined} tabindex={idle()?-1:0} data-testid="reader-more" onClick={toggleMore}><Icon name="more"/></button>
    {menu.menu()}
+   <senderDeleteConfirm.Dialog/>
    {conversation.dialog()}
    {linkReview.dialog()}
    <Show when={headersOpen()&&props.active&&props.headersUrl}>{url=><RawMessageHeaders url={url()} scope={props.headersScope??`${app.accountId()}:${id()}`} onClose={closeHeaders}/>}</Show>

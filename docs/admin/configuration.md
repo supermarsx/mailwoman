@@ -381,6 +381,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="cap.compose.read-receipts"></a>`cap.compose.read_receipts` | features | global+domain+admin_user | true | plain |  | yes | JMAP Email/set create with mailwomanRequestReadReceipt (feature_gate.rs) |
 | <a id="cap.compose.open-tracking"></a>`cap.compose.open_tracking` | features | global+domain+admin_user | true | plain |  | yes | Allow outgoing tracking pixels; enforced on mint, bind and image recording using the sender's current policy |
 | <a id="cap.reading.original-html"></a>`cap.reading.original_html` | features | global+domain+admin_user | true | plain |  | yes | Allow the isolated original HTML reader option; does not authorize scripts or unrestricted remote resources |
+| <a id="cap.reading.delete-sender"></a>`cap.reading.delete_sender` | features | global+domain | false | plain |  | yes | Allow the optional confirmed sender-to-Trash reader action |
+| <a id="reader.actions.delete-sender"></a>`reader.actions.delete-sender` | reader | global+domain+user | "hidden" | plain |  | yes | placement of sender-to-Trash action; administrator capability required |
 | <a id="reader.actions.finish-followup"></a>`reader.actions.finish-followup` | reader | global+domain+user | "menu" | plain |  | yes | placement of finish follow-up reader action |
 | <a id="mail.reader.alloworiginalhtml"></a>`mail.reader.allowOriginalHtml` | privacy | global+domain+user | false | plain |  | yes | Offer an explicit per-message original HTML formatting override; off by default and never selected automatically |
 | <a id="cap.signatures"></a>`cap.signatures` | features | global+domain+admin_user | true | plain |  | yes | writes under /api/account/signatures (feature_gate.rs) |

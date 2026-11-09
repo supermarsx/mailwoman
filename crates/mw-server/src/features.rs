@@ -288,6 +288,13 @@ pub(crate) static CATALOGUE: &[FeatureDef] = &[
         "ui",
     ),
     toggle(
+        "reading.delete_sender",
+        "reading",
+        &["cap.reading.delete_sender"],
+        &[],
+        &[],
+    ),
+    toggle(
         "reading.zoom",
         "reading",
         &["cap.zoom"],
@@ -1810,6 +1817,7 @@ mod t98_tests {
                     && !matches!(
                         *key,
                         "cap.sieve.raw_edit"
+                            | "cap.reading.delete_sender"
                             | "cap.sieve.forward_external"
                             | "cap.remote_content.direct"
                     )
@@ -1818,6 +1826,7 @@ mod t98_tests {
                 }
             }
         }
+        assert!(!on("reading.delete_sender"));
         assert_eq!(
             registry::lookup("limit.linked_mailboxes").unwrap().default,
             "0"

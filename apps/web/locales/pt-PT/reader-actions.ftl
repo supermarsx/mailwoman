@@ -12,6 +12,7 @@ reader-action-forward = Reencaminhar
 reader-action-edit-draft = Editar rascunho
 reader-action-open-draft = Abrir rascunho de resposta
 reader-action-delete = Eliminar
+reader-action-delete-sender = Eliminar todas as mensagens deste remetente
 reader-action-finish-followup = Concluir seguimento
 reader-action-archive = Arquivar
 reader-action-move = Mover

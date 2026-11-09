@@ -2241,6 +2241,14 @@ admin-settings-key-mail-message-list-group = Message grouping
 
 admin-settings-help-mail-message-list-group = Group conversations by received or sent date, sender, subject, importance or size. Users may override this unless locked.
 
+admin-settings-key-cap-reading-delete-sender = Allow deleting all mail from a sender
+
+admin-settings-help-cap-reading-delete-sender = Allow users to enable the reader action that moves all matching sender messages to Trash after confirmation. Disabled by default. The feature profile must also permit it.
+
+admin-settings-key-reader-actions-delete-sender = Delete all messages from sender action
+
+admin-settings-help-reader-actions-delete-sender = Hidden by default. Choose toolbar or More menu to enable it when the sender-delete capability and feature profile allow it. Users may override placement unless locked.
+
 admin-settings-key-reader-actions-finish-followup = Mark follow-up as finished action
 
 admin-settings-help-reader-actions-finish-followup = Choose toolbar, More menu or hidden for completing flagged messages and follow-up reminders.

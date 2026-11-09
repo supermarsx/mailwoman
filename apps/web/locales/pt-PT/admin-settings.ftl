@@ -2241,6 +2241,14 @@ admin-settings-key-mail-message-list-group = Agrupamento de mensagens
 
 admin-settings-help-mail-message-list-group = Agrupar conversas por data de receção ou envio, remetente, assunto, importância ou tamanho. Os utilizadores podem alterar esta opção se não estiver bloqueada.
 
+admin-settings-key-cap-reading-delete-sender = Permitir eliminar todo o correio de um remetente
+
+admin-settings-help-cap-reading-delete-sender = Permitir ativar a ação que move todas as mensagens do remetente para o Lixo após confirmação. Desativada por predefinição; o perfil de funcionalidades também tem de a permitir.
+
+admin-settings-key-reader-actions-delete-sender = Ação eliminar todas as mensagens do remetente
+
+admin-settings-help-reader-actions-delete-sender = Oculta por predefinição. Escolher barra de ferramentas ou menu Mais para ativar quando a capacidade e o perfil o permitirem. Os utilizadores podem alterar a posição se não estiver bloqueada.
+
 admin-settings-key-reader-actions-finish-followup = Ação marcar seguimento como concluído
 
 admin-settings-help-reader-actions-finish-followup = Escolher barra de ferramentas, menu Mais ou oculto para concluir mensagens sinalizadas e lembretes de seguimento.

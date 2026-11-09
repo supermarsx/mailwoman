@@ -334,7 +334,7 @@ export interface MailSlice {
   // The relocations and the read/flag marks take one id or many. Many ids are
   // ONE `Email/set` request (t28-e16), and one undo puts every message back.
   archiveMessage(ids: Id | readonly Id[]): Promise<void>;
-  trashMessage(ids: Id | readonly Id[]): Promise<void>;
+  trashMessage(ids: Id | readonly Id[], knownEmails?: readonly Email[]): Promise<void>;
   moveMessage(ids: Id | readonly Id[], mailboxId: Id): Promise<void>;
   markSpam(ids: Id | readonly Id[]): Promise<void>;
   /** Set or clear `$seen` (read / unread). */
@@ -1313,6 +1313,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     label: (count: number) => string,
     progress = false,
     onMoved?: (ids:readonly Id[])=>void,
+    knownEmails: readonly Email[] = [],
   ): Promise<void> {
     const acct = accountId();
     const current = captureMailAuthority();
@@ -1327,7 +1328,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (offList.length > 0) {
       const open = openEmail();
       for (const id of offList) {
-        const known = open !== null && open.id === id ? open : null;
+        const known = open !== null && open.id === id ? open : knownEmails.find(email=>email.id===id)??null;
         if (known !== null) taken = [...taken, { email: known, index: -1 }];
         if (known !== null && open !== null && open.id === id) closeMessage();
       }
@@ -1509,7 +1510,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       count === 1 ? t('mail-toast-archived') : t('mail-toast-archived-count', { count }),
     );
   }
-  async function trashMessage(ids: Id | readonly Id[]): Promise<void> {
+  async function trashMessage(ids: Id | readonly Id[], knownEmails?: readonly Email[]): Promise<void> {
     const target = roleOf(mailboxes(), 'trash');
     if (target === null) {
       showToast('error', t('mail-toast-no-trash-folder'));
@@ -1520,6 +1521,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       count === 1 ? t('mail-toast-trashed') : t('mail-toast-trashed-count', { count }),
       true,
       moved=>{if(account)messagesTrashed({accountId:account,mailboxId,sort,ids:moved,order});},
+      knownEmails,
     );
   }
   async function markSpam(ids: Id | readonly Id[]): Promise<void> {

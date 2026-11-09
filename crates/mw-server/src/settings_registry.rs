@@ -1061,6 +1061,10 @@ pub static REGISTRY: &[SettingDef] = &[
         "Allow the isolated original HTML reader option; does not authorize scripts or unrestricted remote resources"
     ),
     def!(
+        "cap.reading.delete_sender", Kind::Bool, "false", Scopes::GlobalDomain,
+        "features", "Allow the optional reader action that moves all messages from a sender to Trash after confirmation"
+    ),
+    def!(
         "mail.reader.allowOriginalHtml",
         Kind::Bool,
         "false",
@@ -3068,6 +3072,11 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "reader",
         "where the raw headers reader action appears: toolbar, More menu, or hidden; permissions still apply"
+    ),
+    def!(
+        "reader.actions.delete-sender",
+        Kind::Enum(&["toolbar", "menu", "hidden"]), "\"hidden\"", GDU, "reader",
+        "where the delete sender reader action appears; hidden by default and requires the administrator capability"
     ),
     def!(
         "reader.actions.finish-followup",

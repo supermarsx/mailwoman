@@ -10,6 +10,7 @@ export const READER_ACTIONS=[
  {id:'edit-draft',labelKey:'reader-action-edit-draft',defaultPlacement:'toolbar'},
  {id:'open-draft',labelKey:'reader-action-open-draft',defaultPlacement:'toolbar'},
  {id:'delete',labelKey:'reader-action-delete',defaultPlacement:'toolbar'},
+ {id:'delete-sender',labelKey:'reader-action-delete-sender',defaultPlacement:'hidden'},
  {id:'finish-followup',labelKey:'reader-action-finish-followup',defaultPlacement:'menu'},
  {id:'archive',labelKey:'reader-action-archive',defaultPlacement:'toolbar'},
  {id:'move',labelKey:'reader-action-move',defaultPlacement:'toolbar'},
