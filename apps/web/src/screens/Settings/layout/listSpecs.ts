@@ -44,6 +44,8 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
     { id: 'privacy-strip-mailer-headers', label: 'privacy-strip-mailer-headers', help: 'privacy-strip-mailer-help' },
     { id: 'privacy-image-retries', label: 'privacy-image-retry-attempts', help: 'privacy-image-retry-help' }, { id: 'privacy-image-retry-delay', label: 'privacy-image-retry-delay' },
     { id: 'privacy-unsafe-html', label: 'privacy-unsafe-html', help: 'privacy-unsafe-html-help' }, { id: 'privacy-tracker-choice', label: 'privacy-tracker-choice', help: 'privacy-tracker-choice-help' },
+  ] },
+  { id: 'privacy-card-original-html', section: 'privacy', title: 'original-html-settings-title', help: 'original-html-settings-help', rows: [
     { id: 'privacy-original-html', label: 'privacy-original-html-allow', help: 'privacy-original-html-help' },
   ] },
   { id: 'privacy-card-trusted-links', section: 'privacy', title: 'privacy-trusted-links-title', help: 'privacy-trusted-links-help', rows: [

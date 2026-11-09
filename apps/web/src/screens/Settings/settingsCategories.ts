@@ -13,7 +13,7 @@ export const SETTINGS_CATEGORIES: readonly SettingsCategory[] = [
     { id: 'identities', label: 'settings-ident-title', icon: 'identityProvider', terms: 'from address sender name' },
     { id: 'signatures', label: 'settings-sig-title', icon: 'signature' },
     { id: 'security', label: 'security-center-title', icon: 'shield', terms: 'password passkey totp two factor authentication sessions encryption' },
-    { id: 'privacy', label: 'privacy-title', icon: 'eyeOff', terms: 'remote images tracking telemetry analytics' },
+    { id: 'privacy', label: 'privacy-title', icon: 'eyeOff', terms: 'remote images tracking telemetry analytics original html unsanitized sanitizing sanitization formatting layout' },
   ] },
   { id: 'mail', label: 'settings-category-mail', sections: [
     { id: 'reader', label: 'reader-settings-title', icon: 'mailRead', terms: 'message reading images layout dark mode' },

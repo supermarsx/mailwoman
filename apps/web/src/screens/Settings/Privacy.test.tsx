@@ -45,6 +45,19 @@ describe('Privacy settings', () => {
     await strict(true);expect(toggle).toBeDisabled();expect(toggle).not.toBeChecked();expect(toggle.closest('div')!.querySelector('button')).toBeDisabled();
     await strict(false);expect(toggle).toBeEnabled();expect(toggle).toBeChecked();expect(writes).toEqual([]);
   });
+  it('explains Original HTML policy restrictions and keeps the saved preference when capability or profile changes', async () => {
+    await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:true}}}))});
+    render(() => <Privacy />);
+    const toggle = await screen.findByLabelText('Allow Original HTML per message'); await waitFor(() => expect(toggle).toBeEnabled());
+    expect(await screen.findByRole('region', {name:'Original message HTML'})).toContainElement(toggle);
+    expect(screen.getByText(/After enabling this option/)).toBeVisible();
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.reader.allowOriginalHtml':free(true),'cap.reading.original_html':free(false,true)}}))});
+    expect(toggle).toBeDisabled(); expect(toggle).not.toBeChecked(); expect(screen.getByText(/administrator has disabled the Original HTML capability/)).toBeVisible();
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.reader.allowOriginalHtml':free(true),'cap.reading.original_html':free(true,true)}}))});
+    expect(toggle).toBeEnabled(); expect(toggle).toBeChecked();
+    await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'reading.original_html':{enabled:false}}}))});
+    expect(toggle).toBeDisabled(); expect(screen.getByText(/disabled in this account’s feature profile/)).toBeVisible(); expect(writes).toEqual([]);
+  });
   it('hides native outgoing-header controls for upstream proxy accounts', async () => {
     vi.mocked(remotePolicy).mockResolvedValue({mode:'ask', trackers:true, cleanLinks:true, allowDirect:false, inlineParts:false, locked:{mode:false,trackers:false,cleanLinks:false}});
     render(() => <Privacy />);

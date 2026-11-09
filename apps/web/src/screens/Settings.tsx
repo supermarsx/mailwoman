@@ -179,7 +179,7 @@ export function Settings(props: SettingsProps): JSX.Element {
     void loadCatalog('appearance');
     void loadCatalog('settings-policy');
     void loadCatalog('color-picker');
-    void loadCatalog('nextcloud'); void loadCatalog('reader'); void loadCatalog('privacy'); void loadCatalog('security');
+    void loadCatalog('nextcloud'); void loadCatalog('reader'); void loadCatalog('privacy'); void loadCatalog('original-html-settings'); void loadCatalog('security');
   });
   const themeHold = useSetting('appearance.theme', '');
   const accentHold = useSetting('appearance.accent', '');

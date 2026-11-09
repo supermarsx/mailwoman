@@ -4,7 +4,7 @@ import { useSetting } from './useSetting.ts';
 import { remotePolicy, type RemoteMode } from '../../api/remote-content.ts';
 import { isNativeAuth } from '../../api/serverAddress.ts';
 import { TrustedLinkDomains } from './TrustedLinkDomains.tsx';
-import {featureOn,featuresLoaded} from '../../state/features.ts';
+import { OriginalHtmlPreference } from './OriginalHtmlPreference.tsx';
 import { SettingRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as css from './styles.css.ts';
@@ -12,8 +12,6 @@ export function Privacy(): JSX.Element {
   onMount(() => { void loadCatalog('privacy'); void loadCatalog('settings-policy'); });
   const mode = useSetting<RemoteMode>('privacy.remoteContent', 'ask', (v): v is RemoteMode => typeof v === 'string' && ['block','ask','proxy','direct'].includes(v));
   const unsafeHtml=useSetting<string>('mail.reader.unsafeHtmlMode','sanitized',(v):v is string=>typeof v==='string'&&['ask','strict','sanitized'].includes(v));
-  const originalHtml=useSetting('mail.reader.allowOriginalHtml',false),originalCap=useSetting('cap.reading.original_html',true);
-  const originalAvailable=()=>featuresLoaded()&&featureOn('reading.original_html')&&originalCap.value()&&!(unsafeHtml.value()==='strict'&&unsafeHtml.locked());
   const trackers = useSetting('privacy.trackers', true);
   const trackerOverride=useSetting('privacy.trackerOverrideAllowed',true);
   const trackerChoiceAllowed=()=>!(trackers.locked()&&trackers.value());
@@ -51,10 +49,8 @@ export function Privacy(): JSX.Element {
       <SettingRow controlId="privacy-tracker-choice" label={t('privacy-tracker-choice')} help={t('privacy-tracker-choice-help')} handle={trackerOverride} lockNote={trackerOverride.locked()||!trackerChoiceAllowed()} resetLabel={t('privacy-inherit')} resetDisabled={free(trackerOverride)||!trackerChoiceAllowed()} onReset={()=>{if(trackerChoiceAllowed())void trackerOverride.reset();}}>{describedBy =>
         <input id="privacy-tracker-choice" type="checkbox" checked={trackerChoiceAllowed()&&trackerOverride.value()} disabled={free(trackerOverride)||!trackerChoiceAllowed()} aria-describedby={describedBy()} onChange={event=>{if(trackerChoiceAllowed())void trackerOverride.set(event.currentTarget.checked);}}/>
       }</SettingRow>
-      <SettingRow controlId="privacy-original-html" label={t('privacy-original-html-allow')} help={t('privacy-original-html-help')} handle={originalHtml} lockNote={originalHtml.locked()||!originalAvailable()} resetLabel={t('privacy-inherit')} resetDisabled={free(originalHtml)||!originalAvailable()} onReset={()=>{if(originalAvailable())void originalHtml.reset();}}>{describedBy =>
-        <input id="privacy-original-html" type="checkbox" checked={originalAvailable()&&originalHtml.value()} disabled={free(originalHtml)||!originalAvailable()} aria-describedby={describedBy()} onChange={event=>{if(originalAvailable())void originalHtml.set(event.currentTarget.checked);}}/>
-      }</SettingRow>
     </SettingsCard>
+    <OriginalHtmlPreference />
     <TrustedLinkDomains />
   </>;
 }
