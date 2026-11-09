@@ -1,0 +1,3 @@
+import {defineConfig,devices} from '@playwright/test';
+const baseURL=process.env['PLAYWRIGHT_MOCK_BASE_URL']??'http://localhost:8080';
+export default defineConfig({testDir:'.',testMatch:'compact-reply.spec.ts',workers:1,retries:0,timeout:75000,expect:{timeout:15000},reporter:'list',outputDir:'../test-results/compact-reply',use:{baseURL,serviceWorkers:'block',trace:'retain-on-failure',screenshot:'only-on-failure'},projects:[{name:'desktop',use:{...devices['Desktop Chrome'],viewport:{width:1600,height:1000}}},{name:'phone',use:{...devices['Desktop Chrome'],viewport:{width:390,height:844},hasTouch:true}}]});
