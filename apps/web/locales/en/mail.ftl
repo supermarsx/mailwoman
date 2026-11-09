@@ -1391,3 +1391,57 @@ mail-mark-as = Mark as
 
 mail-order-by = Order by
 mail-list-order-locked = The message order is locked by your administrator.
+
+mail-group-by = Group by
+
+mail-list-group-none = No grouping
+
+mail-list-group-received = Received date
+
+mail-list-group-sent = Sent date
+
+mail-list-group-sender = From
+
+mail-list-group-subject = Subject
+
+mail-list-group-importance = Importance
+
+mail-list-group-size = Size
+
+mail-list-group-locked = Message grouping is locked by your administrator.
+
+mail-list-group-no-subject = (No subject)
+
+mail-list-group-date-unknown = Unknown date
+
+mail-list-group-priority-high = High importance
+
+mail-list-group-priority-normal = Normal importance
+
+mail-list-group-priority-low = Low importance
+
+mail-list-group-size-tiny = Under 25 KB
+
+mail-list-group-size-small = 25–100 KB
+
+mail-list-group-size-medium = 100 KB–1 MB
+
+mail-list-group-size-large = 1–10 MB
+
+mail-list-group-size-huge = 10 MB and above
+
+mail-list-order-sender-desc = Sender, Z to A
+
+mail-list-order-subject-desc = Subject, Z to A
+
+mail-list-order-sent-newest = Sent, newest first
+
+mail-list-order-sent-oldest = Sent, oldest first
+
+mail-list-order-importance = Importance, high first
+
+mail-list-order-importance-asc = Importance, low first
+
+mail-list-order-size = Size, largest first
+
+mail-list-order-size-asc = Size, smallest first

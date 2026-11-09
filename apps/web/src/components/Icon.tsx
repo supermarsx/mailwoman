@@ -104,7 +104,7 @@ export type IconName =
   | 'sync'
   | 'more'
   | 'conversation'
-  | 'sort'
+  | 'sort' | 'sortAlphaAsc' | 'sortAlphaDesc'
   | 'quote'
   | 'clearFormat'
   | 'bold'
@@ -247,6 +247,8 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   more: () => <path d="M2 8 H4 M7 8 H9 M12 8 H14" {...S} />,
   grip: () => <><circle cx="5.5" cy="3.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="3.5" r="1.2" fill="currentColor"/><circle cx="5.5" cy="8" r="1.2" fill="currentColor"/><circle cx="10.5" cy="8" r="1.2" fill="currentColor"/><circle cx="5.5" cy="12.5" r="1.2" fill="currentColor"/><circle cx="10.5" cy="12.5" r="1.2" fill="currentColor"/></>,
   conversation: () => <><path d="M1 2 H10 V8 H5 L2 10.5 V8 H1 Z" {...S}/><path d="M12.5 5 H15 V12 H14 V14.5 L11 12 H6 V10.5" {...S}/></>,
+  sortAlphaAsc: () => <><path d="M1 7 L3 1 L5 7 M2 5 H4 M1 10 H5 L1 15 H5 M11 2 V14 M8 11 L11 14 L14 11" {...S}/></>,
+  sortAlphaDesc: () => <><path d="M1 7 L3 1 L5 7 M2 5 H4 M1 10 H5 L1 15 H5 M11 14 V2 M8 5 L11 2 L14 5" {...S}/></>,
   sort: () => <path d="M3 5 L8 1 L13 5 M3 11 L8 15 L13 11" {...S} />,
   alignLeft: () => <path d="M2 3H14M2 6.5H9M2 10H14M2 13.5H9" {...S}/>,
   alignCenter: () => <path d="M2 3H14M4.5 6.5H11.5M2 10H14M4.5 13.5H11.5" {...S}/>,

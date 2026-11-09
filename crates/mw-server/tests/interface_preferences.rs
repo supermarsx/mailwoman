@@ -9,6 +9,7 @@ fn interface_and_message_preferences_support_user_and_admin_policy() {
         "appearance.lowContrast",
         "mail.messageListStyle",
         "mail.messageListOrder",
+        "mail.messageListGroup",
         "mail.messageListPreview",
         "mail.afterDelete",
         "reader.attachmentsAtEnd",

@@ -191,3 +191,25 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Ministry-grey concrete, faded paper text, Big Brother red; messages set in monospace.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = White page, black outlines, primary red, blue and yellow, Ben-Day dots in the sidebar.
+
+appearance-preference-mail-message-list-group = Message grouping
+
+appearance-preference-option-sender-desc = Sender, Z to A
+
+appearance-preference-option-subject-desc = Subject, Z to A
+
+appearance-preference-option-sent-newest = Sent, newest first
+
+appearance-preference-option-sent-oldest = Sent, oldest first
+
+appearance-preference-option-importance = Importance, high first
+
+appearance-preference-option-importance-asc = Importance, low first
+
+appearance-preference-option-size = Size, largest first
+
+appearance-preference-option-size-asc = Size, smallest first
+
+appearance-preference-option-received = Received date
+
+appearance-preference-option-sent = Sent date

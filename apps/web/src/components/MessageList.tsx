@@ -24,7 +24,7 @@ import { messageTimeZone } from './TimeHelpers.tsx';
 import { useActions } from '../keymap/index.ts';
 import {modifierSelectionEnabled,dragToFolderEnabled} from './mailInteractions.ts';
 import {beginMessageDrag,clearMessageDrag} from './messageDrag.ts';
-import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
+import { projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
 import { observeListViewport, viewportNeedsPage } from './listViewport.ts';
 import { TagChips } from './TagChips.tsx';
 import { EventHint } from './EventHint.tsx';
@@ -38,11 +38,13 @@ import {rowExpired,visibleRows} from './listExpiry.ts';
 import * as bulk from './bulkBar.css.ts';
 import './messageFlash.css.ts';
 import {focusRequest,clearFocusRequest,focusMessageInFolder} from './messageFocus.ts';
-import { groupThreads, threadKey, type ThreadVisualRow } from './threads.ts';
+import { threadKey, type ThreadVisualRow } from './threads.ts';
 import {ReadingPaneControl} from './ReadingPaneControl.tsx';
 import {settings} from '../api/settings.ts';
 import {createContextMenu} from './ContextMenu.tsx';
 import {createMessageOrder,isMessageListOrder,MESSAGE_LIST_ORDERS,type MessageOrderController} from './messageOrder.ts';
+import {groupMessageRows,groupedWindow,groupedRowTop,groupedIndexAt} from './messageGrouping.ts';
+import * as groupCss from './messageGrouping.css.ts';
 import {MessageOrderMenu} from './MessageOrderMenu.tsx';
 import {PriorityMark} from './PriorityMark.tsx';
 import {isPropertiesShortcut,openMessageProperties} from './properties/host.tsx';
@@ -486,7 +488,10 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const tableMode=()=>settings()['mail.messageListStyle']?.value==='table';
   const rowHeight = (): number => tableMode() ? ({compact:36,cozy:44,relaxed:52}[app.density()]) : ROW_HEIGHTS[app.density()];
   // The FLAT list folded into visual rows (singletons + conversation heads/members).
-  const rows = createMemo<ThreadVisualRow[]>(() => groupThreads(visibleRows(app.listMessages()) as Email[], expanded()));
+  const grouping=createMemo(()=>groupMessageRows(visibleRows(app.listMessages()) as Email[],expanded(),order.group(),rowHeight(),messageTimeZone()));
+  const rows=()=>grouping().rows;
+  const rowTop=(index:number)=>groupedRowTop(grouping(),index,rowHeight());
+  const indexAt=(top:number)=>groupedIndexAt(grouping(),top,rowHeight());
   // How many slots the list spans: the loaded rows plus the query's unfetched
   // tail. This is what makes the scrollbar and `aria-setsize` describe the FOLDER
   // rather than the page — before paging they described `rows().length`, so a
@@ -499,7 +504,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // this memo notifies on every scroll EVENT — including the many that leave
   // the mounted slice unchanged — and rebuilt the whole window each time.
   const win = createMemo(
-    () => computeWindow(scrollTop(), viewportH(), rowHeight(), spanRows()+loadingTail()),
+    () => groupedWindow(grouping(),scrollTop(),viewportH(),rowHeight(),spanRows()+loadingTail()),
     undefined,
     { equals: sameWindow },
   );
@@ -671,7 +676,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // Fill the measured viewport on arrival/resize, then prefetch near the loaded
   // edge on a scroll gesture. The state slice retains page-size and exhaustion
   // policy; this layer only decides when the visible list needs another page.
-  const pagingScope = (): string => JSON.stringify([app.accountId(),preferenceAccount()?.generation,app.selectedMailboxId(),app.searchActive(),app.search?.(),settings()['mail.messageListOrder']?.value]);
+  const pagingScope = (): string => JSON.stringify([app.accountId(),preferenceAccount()?.generation,app.selectedMailboxId(),app.searchActive(),app.search?.(),settings()['mail.messageListOrder']?.value,order.group(),messageTimeZone()]);
   let lastPageExtent: string | undefined;
   let pagingDisposed = false;
   const [autoFillPaused, setAutoFillPaused] = createSignal(false);
@@ -690,7 +695,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     // A replacement folder can mount before ResizeObserver delivers its first
     // notification; never fill it using the previous folder's container height.
     const height = scroller?.clientHeight || viewportH();
-    if (!(prefetch ? win().endIndex >= rows().length - LOAD_MORE_SLACK : viewportNeedsPage(scrollTop(), height, rowHeight(), rows().length))) return;
+    if (!(prefetch ? win().endIndex >= rows().length - LOAD_MORE_SLACK : (order.group()==='none'?viewportNeedsPage(scrollTop(),height,rowHeight(),rows().length):win().endIndex>=rows().length))) return;
     const extent = JSON.stringify([pagingScope(),app.loadedRange(),rows().length]);
     // State normally exhausts a no-progress page. Also avoid reissuing the same
     // automatic continuation if a transport refuses it without changing state.
@@ -728,7 +733,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   function onScroll(): void {
     if (scroller !== undefined) {
       const focused=focusedRowEl();
-      if(focused){const index=rows().findIndex(row=>rowId(row)===focused[0]);const top=index*rowHeight();if(top+rowHeight()<scroller.scrollTop||top>scroller.scrollTop+(scroller.clientHeight||viewportH())){focusedRowId=null;focused[1].blur();}}
+      if(focused){const index=rows().findIndex(row=>rowId(row)===focused[0]);const top=rowTop(index);if(top+rowHeight()<scroller.scrollTop||top>scroller.scrollTop+(scroller.clientHeight||viewportH())){focusedRowId=null;focused[1].blur();}}
       setScrollTop(scroller.scrollTop);
       if (scroller.clientHeight > 0) setViewportH(scroller.clientHeight);
       reportAnchor();
@@ -755,7 +760,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     if (index < 0) return;
     clearFocusRequest();
     const view = scroller.clientHeight || viewportH();
-    scroller.scrollTop = Math.max(0, index * rowHeight() - (view - rowHeight()) / 2);
+    scroller.scrollTop = Math.max(0, rowTop(index) - (view - rowHeight()) / 2);
     setScrollTop(scroller.scrollTop);
     setCursor(index);
     const host = scroller;
@@ -772,7 +777,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   createEffect(on([focusRequest, rows, app.listLoading], () => { if (focusRequest() !== null) queueMicrotask(applyFocusRequest); }));
   function reportAnchor(): void {
     if (!props.onAnchorChange || scroller === undefined || pendingAnchor !== null || app.listLoading()) return;
-    const top = scroller.scrollTop < rowHeight() / 2 ? undefined : rows()[Math.round(scroller.scrollTop / rowHeight())];
+    const top = scroller.scrollTop < rowHeight() / 2 ? undefined : rows()[indexAt(scroller.scrollTop)];
     const id = top === undefined ? null : top.email.id;
     if (id === reportedAnchor) return;
     reportedAnchor = id;
@@ -787,7 +792,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     const index = all.findIndex((row) => row.email.id === id || (row.kind === 'head' && idsOf(row).includes(id)));
     if (index < 0) return; // Gone, or past the loaded pages: the list stays at the top.
     reportedAnchor = id;
-    scroller.scrollTop = index * rowHeight();
+    scroller.scrollTop = rowTop(index);
     setScrollTop(scroller.scrollTop);
     setCursor(index);
   }
@@ -800,12 +805,12 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     setCursor(next);
     if (scroller !== undefined) {
       const h = rowHeight();
-      const rowTop = next * h;
-      const rowBottom = rowTop + h;
+      const targetTop = rowTop(next);
+      const rowBottom = targetTop + h;
       // The selection bar covers the scroller's bottom padding (t58): a row is
       // in view only above it.
       const visible = scroller.clientHeight - (parseFloat(getComputedStyle(scroller).paddingBottom) || 0);
-      if (rowTop < scroller.scrollTop) scroller.scrollTop = rowTop;
+      if (targetTop < scroller.scrollTop) scroller.scrollTop = targetTop;
       else if (rowBottom > scroller.scrollTop + visible) {
         scroller.scrollTop = rowBottom - visible;
       }
@@ -925,7 +930,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     slice();scrollTop();
     listMotion.update({host:scroller,ids:motionIds(),busy:app.listLoading()||app.loadingMore(),scope:JSON.stringify([
       app.accountId(),preferenceAccount()?.generation,app.selectedMailboxId(),app.searchActive(),app.search?.(),
-      rowHeight(),settings()['mail.messageListOrder']?.value,[...expanded()].sort(),
+      rowHeight(),settings()['mail.messageListOrder']?.value,order.group(),[...expanded()].sort(),
     ])});
   });
   // The mounted slots with no row yet, as absolute indices. Plain numbers so
@@ -988,10 +993,11 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
               aria-label={t('mail-list-label')}
               style={{ height: `${win().totalHeight}px` }}
             >
+              <For each={grouping().headers.filter(header=>header.index>=split().loadedStart&&header.index<split().loadedEnd)}>{header=><li role="presentation" class={groupCss.header} style={{top:`${header.top}px`}}><span class={groupCss.label} title={header.label}>{header.label}</span><span class={groupCss.count}>{header.count}</span></li>}</For>
               <For each={pendingSlots()}>
                 {(index) => (
                   <PlaceholderRow
-                    top={index * rowHeight()}
+                    top={rowTop(index)}
                     height={rowHeight()}
                     index={index}
                     total={app.total()===null?null:spanRows()}
@@ -1021,7 +1027,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                         <MessageRow contextMenu={messageMenu}
                           replyDraft={replyDrafts().get(row().email.id)}
                           email={row().email}
-                          top={index() * rowHeight()}
+                          top={rowTop(index())}
                           height={rowHeight()}
                           index={index()}
                           total={spanRows()}
@@ -1038,7 +1044,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                       <ThreadHeadRow contextMenu={messageMenu}
                         replyDraft={threadDrafts().get(row().key)} answered={answeredThreads().has(row().key)} forwarded={forwardedThreads().has(row().key)}
                         row={row()}
-                        top={index() * rowHeight()}
+                        top={rowTop(index())}
                         height={rowHeight()}
                         index={index()}
                         total={spanRows()}

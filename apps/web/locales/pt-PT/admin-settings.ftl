@@ -2233,3 +2233,7 @@ admin-settings-key-mail-badge-density = Tamanho dos selos do leitor
 admin-settings-help-mail-badge-density = Tamanho dos selos no cabeçalho do leitor: compacto ou confortável.
 admin-settings-key-mail-badge-labels = Texto dos selos do leitor
 admin-settings-help-mail-badge-labels = Se os selos do cabeçalho do leitor mostram ícone com texto, ou só o ícone.
+
+admin-settings-key-mail-message-list-group = Agrupamento de mensagens
+
+admin-settings-help-mail-message-list-group = Agrupar conversas por data de receção ou envio, remetente, assunto, importância ou tamanho. Os utilizadores podem alterar esta opção se não estiver bloqueada.

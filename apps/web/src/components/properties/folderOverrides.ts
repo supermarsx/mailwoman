@@ -22,7 +22,7 @@ export const OVERRIDE_DEFS:readonly OverrideDef[]=[
  {key:'badgeColour',prop:'badgeColour',setting:null,type:{kind:'colour'}},
  {key:'compactBadge',prop:'compactBadge',setting:'mail.compactFolderBadges',type:{kind:'bool'}},
  {key:'notifications',prop:'notifications',setting:null,type:{kind:'enum',options:['on','off','vips']}},
- {key:'sort',prop:'sort',setting:'mail.messageListOrder',type:{kind:'enum',options:['date','from','subject','size']},fromSetting:v=>v==='newest'||v==='oldest'?'date':v==='sender'?'from':v},
+ {key:'sort',prop:'sort',setting:'mail.messageListOrder',type:{kind:'enum',options:['date','from','subject','size']},fromSetting:v=>typeof v==='string'?(v==='newest'||v==='oldest'||v.startsWith('sent-')?'date':v.startsWith('sender')?'from':v.startsWith('subject')?'subject':v.startsWith('size')?'size':'date'):v},
  {key:'threading',prop:'threading',setting:'mail.threading',type:{kind:'bool'}},
  {key:'previewLines',prop:'previewLines',setting:null,type:{kind:'lines'}},
  {key:'markReadDelay',prop:'markReadDelayMs',setting:null,type:{kind:'delay'}},

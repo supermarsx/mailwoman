@@ -3564,11 +3564,19 @@ pub static REGISTRY: &[SettingDef] = &[
     ),
     def!(
         "mail.messageListOrder",
-        Kind::Enum(&["newest", "oldest", "sender", "subject"]),
+        Kind::Enum(&["newest", "oldest", "sender", "sender-desc", "subject", "subject-desc", "sent-newest", "sent-oldest", "importance", "importance-asc", "size", "size-asc"]),
         "\"newest\"",
         GDU,
         "mail",
         "message list ordering"
+    ),
+    def!(
+        "mail.messageListGroup",
+        Kind::Enum(&["none", "received", "sent", "sender", "subject", "importance", "size"]),
+        "\"none\"",
+        GDU,
+        "mail",
+        "message list grouping"
     ),
     def!(
         "mail.list.pageSize",
@@ -9875,6 +9883,20 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    #[test]
+    fn message_order_and_group_choices_are_user_and_admin_configurable() {
+        for (key, values) in [
+            ("mail.messageListOrder", &["newest", "oldest", "sender", "sender-desc", "subject", "subject-desc", "sent-newest", "sent-oldest", "importance", "importance-asc", "size", "size-asc"][..]),
+            ("mail.messageListGroup", &["none", "received", "sent", "sender", "subject", "importance", "size"][..]),
+        ] {
+            let definition = REGISTRY.iter().find(|definition| definition.key == key).unwrap();
+            assert!(matches!(definition.scopes, Scopes::GlobalDomainUser));
+            assert!(definition.user_visible());
+            for value in values { assert!(validate(definition, &serde_json::json!(value), "/value").is_ok()); }
+            assert!(validate(definition, &serde_json::json!("arbitrary"), "/value").is_err());
+        }
     }
 
     /// The cookie consent keys are admin-only (global and per domain, with lock and

@@ -185,3 +185,25 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Betão cinzento de ministério, texto em papel desbotado e vermelho do Grande Irmão; mensagens em monoespaçado.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Página branca, contornos pretos, vermelho, azul e amarelo primários e pontos Ben-Day na barra lateral.
+
+appearance-preference-mail-message-list-group = Agrupamento de mensagens
+
+appearance-preference-option-sender-desc = Remetente, Z a A
+
+appearance-preference-option-subject-desc = Assunto, Z a A
+
+appearance-preference-option-sent-newest = Envio, mais recentes primeiro
+
+appearance-preference-option-sent-oldest = Envio, mais antigas primeiro
+
+appearance-preference-option-importance = Importância, alta primeiro
+
+appearance-preference-option-importance-asc = Importância, baixa primeiro
+
+appearance-preference-option-size = Tamanho, maiores primeiro
+
+appearance-preference-option-size-asc = Tamanho, menores primeiro
+
+appearance-preference-option-received = Data de receção
+
+appearance-preference-option-sent = Data de envio

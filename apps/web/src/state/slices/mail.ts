@@ -42,6 +42,8 @@ import {
   type DraftInput,
 } from '../../api/jmap.ts';
 import { bindTrackingToken, withTrackingPixel } from '../../api/tracking.ts';
+import {messageSort} from '../messageSort.ts';
+import {displayTimeZone} from '../../i18n/timezones.ts';
 import { attachmentPolicyUrl } from '../../api/attachmentPolicy.ts';
 import {
   buildDownloadUrl,
@@ -1692,7 +1694,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       })
       : searchEmails(acct, src.filter, limit, page);
     const order=settings()['mail.messageListOrder']?.value;
-    const sort=order==='oldest'?[{property:'receivedAt',isAscending:true}]:order==='sender'?[{property:'from',isAscending:true},{property:'receivedAt',isAscending:false}]:order==='subject'?[{property:'subject',isAscending:true},{property:'receivedAt',isAscending:false}]:[{property:'receivedAt',isAscending:false}];
+    const sort=messageSort(order,settings()['mail.messageListGroup']?.value,displayTimeZone(settings()['time.displayZone']?.value));
     for(const call of request.methodCalls)if(call[0]==='Email/query')call[1]['sort']=sort;
     return request;
   }
@@ -1965,12 +1967,13 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     const src = pageSource();
     if (acct === null || (!includeSearch && searchActive())) return;
     if (src === null || (!includeSearch && src.kind !== 'mailbox')) return;
-    // A replace or an append already in flight is strictly better than this
-    // refresh; superseding it would abandon a spinner nothing else clears.
-    if (listLoading() || loadingMore()) return;
+    // Push refreshes can wait for current work. An explicit order/group change
+    // supersedes the old query, including an append, so it cannot mix pages
+    // from two different arrangements or silently lose the user's choice.
+    if (listLoading() || loadingMore()) {if(includeSearch)await loadFirstPage(acct,src);return;}
     const range = loadedRange();
     const loaded = Math.max(pageSize(), range.end - range.start + hiddenRows);
-    if (loaded > REFRESH_MAX_ROWS) return; // see REFRESH_MAX_ROWS
+    if (loaded > REFRESH_MAX_ROWS) {if(includeSearch)await loadFirstPage(acct,src);return;} // see REFRESH_MAX_ROWS
     const req = beginListRequest();
     try {
       const refreshReq = pageRequest(acct, src, range.start, loaded, true);

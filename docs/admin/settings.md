@@ -3438,7 +3438,10 @@ or HTML.
 <a id="mail.messageListStyle"></a>
 `mail.messageListStyle` is `cards` (default) or `table`; `table` shows Gmail-style rows with column headings. Global/domain/user policy.
 <a id="mail.messageListOrder"></a>
-`mail.messageListOrder` orders the message list: `newest` (default), `oldest`, `sender` or `subject`. Global/domain/user policy.
+`mail.messageListOrder` orders the full paginated message list: `newest` (default) and `oldest` use received time; `sender`/`sender-desc` and `subject`/`subject-desc` select ascending/descending text order; `sent-newest`/`sent-oldest` use sent time; `importance`/`importance-asc` select high/low importance first; `size`/`size-asc` select largest/smallest first. Global/domain/user policy.
+
+<a id="mail.messageListGroup"></a>
+`mail.messageListGroup` groups the message list: `none` (default), `received`, `sent`, `sender`, `subject`, `importance` or `size`. The grouping comparator precedes the selected message order for every server page; explicit grouped ordering supersedes semantic relevance ranking. Global/domain/user policy.
 
 <a id="mail.list.pageSize"></a>
 `mail.list.pageSize` sets how many messages the message list fetches per page as a user scrolls to the end (default 50, range 20 to 200). Global/domain/user policy; an administrator lock fixes the value.

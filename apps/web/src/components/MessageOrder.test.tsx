@@ -54,7 +54,7 @@ describe('message order surfaces',()=>{
   const result=await mount(options);const button=screen.getByRole('button',{name:'Order by'});expect(button).toBeVisible();expect(button).toHaveAttribute('aria-haspopup','menu');
   expect(button.querySelector('[data-icon="sort"]')).not.toBeNull();expect(screen.getByRole('group',{name:'View options'})).toContainElement(button);
   expect(screen.queryByRole('button',{name:'Select messages'})).toBeNull();expect(screen.queryByRole('combobox',{name:'Reading pane'})).toBeNull();
-  const menu=openOrder();expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(4);expect(within(menu).getByRole('menuitemradio',{name:'Newest first'})).toHaveAttribute('aria-checked','true');
+  const menu=openOrder();expect(within(menu).getAllByRole('menuitemradio')).toHaveLength(12);expect(within(menu).getByRole('menuitemradio',{name:'Newest first'})).toHaveAttribute('aria-checked','true');
   if(options.empty){expect(await screen.findByText('No messages')).toBeInTheDocument();expect(result.container.querySelector('.list__empty')).not.toBeNull();}
  });
  it('offers Order by on both a message and the empty list background',async()=>{
@@ -62,11 +62,11 @@ describe('message order surfaces',()=>{
   const parent=screen.getByRole('menuitem',{name:'Order by'});expect(parent).toHaveAttribute('aria-haspopup','menu');fireEvent.click(parent);
   expect(screen.getByRole('menu',{name:'Order by'})).toBeVisible();fireEvent.keyDown(screen.getByRole('menu',{name:'Order by'}),{key:'Escape'});fireEvent.keyDown(screen.getByRole('menu',{name:'More actions'}),{key:'Escape'});
   fireEvent.contextMenu(result.container.querySelector('section.list')!);expect(screen.getByRole('menu',{name:'View options'})).toBeVisible();fireEvent.click(screen.getByRole('menuitem',{name:'Order by'}));
-  expect(screen.getAllByRole('menuitemradio')).toHaveLength(4);
+  expect(screen.getAllByRole('menuitemradio')).toHaveLength(12);
  });
  it('does not offer a mutation while the administrator locks message order',async()=>{
-  const result=await mount({style:'table',locked:true});expect(screen.getByRole('button',{name:'Order by'})).toBeDisabled();expect(screen.getByRole('combobox',{name:'Message order'})).toBeDisabled();
-  fireEvent.contextMenu(result.container.querySelector('.list__row')!);expect(screen.getByRole('menuitem',{name:'Order by'})).toHaveAttribute('aria-disabled','true');expect(result.writes).toEqual([]);
+  const result=await mount({style:'table',locked:true});expect(screen.getByRole('button',{name:'Order by'})).toBeEnabled();const lockedMenu=openOrder();expect(within(lockedMenu).getByRole('menuitemradio',{name:'Oldest first'})).toHaveAttribute('aria-disabled','true');expect(within(lockedMenu).getByRole('menuitem',{name:'Group by'})).toHaveAttribute('aria-haspopup','menu');fireEvent.keyDown(lockedMenu,{key:'Escape'});expect(screen.getByRole('combobox',{name:'Message order'})).toBeDisabled();
+  fireEvent.contextMenu(result.container.querySelector('.list__row')!);fireEvent.click(screen.getByRole('menuitem',{name:'Order by'}));expect(screen.getByRole('menuitemradio',{name:'Oldest first'})).toHaveAttribute('aria-disabled','true');expect(result.writes).toEqual([]);
  });
  it('reports a failed menu save and keeps the confirmed checked order',async()=>{
   const result=await mount({fail:true}),toast=vi.spyOn(result.app,'showToast');fireEvent.click(within(openOrder()).getByRole('menuitemradio',{name:'Oldest first'}));

@@ -2233,3 +2233,7 @@ admin-settings-key-mail-badge-density = Reader badge size
 admin-settings-help-mail-badge-density = Size of the badges in the reader header: compact or comfortable.
 admin-settings-key-mail-badge-labels = Reader badge labels
 admin-settings-help-mail-badge-labels = Whether reader header badges show an icon with text, or the icon only.
+
+admin-settings-key-mail-message-list-group = Message grouping
+
+admin-settings-help-mail-message-list-group = Group conversations by received or sent date, sender, subject, importance or size. Users may override this unless locked.

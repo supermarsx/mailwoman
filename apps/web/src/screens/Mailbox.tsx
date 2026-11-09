@@ -364,7 +364,7 @@ export function MailboxScreen(): JSX.Element {
   }
   const compactBadges=()=>settings()['mail.compactFolderBadges']?.value!==false;
   const folderCountShown=(box:{role?:string|null;unreadEmails:number;totalEmails:number})=>showsFolderCount(box,folderCountMode(),folderCountScope());
-  createEffect(on(()=>settings()['mail.messageListOrder']?.value??'newest',()=>{if(app.accountId())void app.refreshMessageOrder();},{defer:true}));
+  createEffect(on(()=>JSON.stringify([settings()['mail.messageListOrder']?.value??'newest',settings()['mail.messageListGroup']?.value??'none',settings()['time.displayZone']?.value]),()=>{if(app.accountId())void app.refreshMessageOrder();},{defer:true}));
   /** `mail.closeOnDelete`: the message views (reading pane, message tabs, detached panes) of deleted messages close instead of staying open on a message that is gone. */
   function closeDeleted(ids:ReadonlySet<string>):void {
     const closing=viewsClosedByDelete(ids,{previewId,panes:panes()});

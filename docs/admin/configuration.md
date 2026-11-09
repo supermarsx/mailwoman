@@ -684,6 +684,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="appearance.lowcontrast"></a>`appearance.lowContrast` | appearance | global+domain+user | false | plain |  | yes | soften interface text contrast |
 | <a id="mail.messageliststyle"></a>`mail.messageListStyle` | mail | global+domain+user | "cards" | plain |  | yes | message list cards or Gmail-style rows with column headings |
 | <a id="mail.messagelistorder"></a>`mail.messageListOrder` | mail | global+domain+user | "newest" | plain |  | yes | message list ordering |
+| <a id="mail.messagelistgroup"></a>`mail.messageListGroup` | mail | global+domain+user | "none" | plain |  | yes | message list grouping |
 | <a id="mail.list.pagesize"></a>`mail.list.pageSize` | mail | global+domain+user | 50 | plain |  | yes | messages fetched per page when the message list is scrolled |
 | <a id="mail.messagelistpreview"></a>`mail.messageListPreview` | mail | global+domain+user | true | plain |  | yes | show body snippets in message list |
 | <a id="mail.afterdelete"></a>`mail.afterDelete` | mail | global+domain+user | "next" | plain |  | yes | message shown after deleting the open message |
