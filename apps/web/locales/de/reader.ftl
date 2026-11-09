@@ -64,3 +64,63 @@ reader-card-loading = Laden
 reader-card-loading-help = Was Sie sehen, während eine Nachricht geöffnet wird.
 settings-mail-card-list = Nachrichtenliste
 settings-mail-card-list-help = Zeilenaktionen und was die Liste tut, wenn Sie eine Nachricht bearbeiten.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Laden Sie { $name } herunter
+
+reader-attachments-download-all = Alles herunterladen
+
+reader-attachments-download-all-blocked = Die Anhangsrichtlinie blockiert hier jede Datei
+
+reader-attachments-download-all-busy = Vorbereiten der ZIP-Datei
+
+reader-attachments-download-all-label = Laden Sie alle Anhänge als ZIP-Datei herunter
+
+reader-attachments-download-all-none = Es sind keine Anhänge zum Herunterladen vorhanden
+
+reader-attachments-download-all-warned = { $count ->
+        [one] Eine Datei, die einer Bestätigung bedarf, wurde weggelassen. Laden Sie es einzeln herunter.
+       *[other] { $count } Dateien, die eine Bestätigung benötigen, wurden ausgelassen. Laden Sie sie einzeln herunter.
+    }
+
+reader-attachments-download-blocked = { $name } kann nicht heruntergeladen werden: { $reason }
+
+reader-attachments-download-label = { $name } ({ $size }) herunterladen
+
+reader-attachments-download-off = Downloads sind deaktiviert
+
+reader-attachments-inline-group = { $count ->
+        [one] { $count } Inline-Bild
+       *[other] { $count } Inline-Bilder
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [one] { $count } Inline-Bild
+       *[other] { $count } Inline-Bilder
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Klicken Sie auf die Leiste, um sie zu erweitern oder zu reduzieren
+
+reader-attachmentsBarClickToToggle-help = Durch Klicken auf eine beliebige Stelle in der Anhangsleiste wird die Funktion umgeschaltet. Im ausgeschalteten Zustand funktioniert nur die Pfeiltaste.
+
+reader-attachmentsBarDownloadAll = Klicken Sie auf die Schaltfläche „Alle herunterladen“.
+
+reader-attachmentsBarDownloadAll-help = Zeigt in der Leiste eine Schaltfläche an, die die Anhänge als eine ZIP-Datei herunterlädt.
+
+reader-attachmentsBarShowDownloadButtons = Download-Schaltflächen in Anhängen
+
+reader-attachmentsBarShowDownloadButtons-help = Zeigen Sie die Download-Schaltfläche jedes Anhangs an, wenn Sie den Mauszeiger darüber bewegen oder den Fokus fokussieren, immer oder nie.
+
+reader-attachmentsBarZipInlineImages = Fügen Sie Inline-Bilder in das ZIP ein.
+
+reader-attachmentsBarZipInlineImages-help = Bilder, die im Nachrichtentext erscheinen, werden von „Alle herunterladen“ ausgeschlossen, es sei denn, diese Option ist aktiviert.
+
+reader-card-attachments-bar = Anhängeleiste
+
+reader-card-attachments-bar-help = Wie die Leiste über den Anhängen einer Nachricht reagiert und was sie bietet. Als gesperrt markierte Leitungen werden von Ihrem Administrator eingerichtet.
+
+reader-option-always = Immer
+
+reader-option-hover = Beim Schweben oder Fokussieren
+
+reader-option-never = Niemals

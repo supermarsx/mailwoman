@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = У цій теці є вкладені т�
 delete-folder-error-forbidden = Ви не можете видалити цю теку.
 delete-folder-error-notFound = Цієї теки більше немає. Оновіть список тек.
 delete-folder-error-failed = Не вдалося видалити теку. Повторіть спробу.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = Цей обліковий запис заблоковано, тому папки не можна видалити.
+
+delete-folder-error-processingRestricted = Обробка цього облікового запису обмежена, тому папки не можна видалити.

@@ -713,3 +713,104 @@ cache-preloadMessages = メッセージ本文の先読みを許可
 cache-excludedFolders = プリロードから除外するフォルダー
 cache-exclusions-help = 1 行に 1 つのルール: role:trash、role:junk、role:inbox、role:drafts、role:sent、role:archive、または id: に続けて正確なフォルダー ID。
 cache-refreshOnOpen = 開いたときにキャッシュされた内容を更新
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = 認証 (DMARC)
+
+settings-badge-auth-help = DMARC の結果。セキュリティの詳細がすべて表示されます。
+
+settings-badge-density = バッジのサイズ
+
+settings-badge-density-comfortable = 快適
+
+settings-badge-density-compact = コンパクト
+
+settings-badge-density-help = すべてのバッジのコンパクトまたは快適な高さと間隔。
+
+settings-badge-folder = フォルダー
+
+settings-badge-folder-help = メッセージが保存される場所。重要な場合にのみ、ジャンクとゴミ箱に表示されます。
+
+settings-badge-labels = バッジラベル
+
+settings-badge-labels-help = テキスト付きのアイコン、またはアイコンのみ (全文はツールヒントとスクリーン リーダーに表示されます)。
+
+settings-badge-labels-icon = アイコンのみ
+
+settings-badge-labels-text = アイコンとテキスト
+
+settings-badge-list = メーリングリスト
+
+settings-badge-list-help = メッセージの送信元のメーリング リスト。サブスクリプションの詳細とアクションが開きます。購読を解除した後もメールが届き続ける場合にのみ表示されます。
+
+settings-badge-mode-always = いつも
+
+settings-badge-mode-never = 決してしない
+
+settings-badge-mode-notable = 目立った時のみ
+
+settings-badge-sanitized = サニタイズ済み HTML
+
+settings-badge-sanitized-help = HTML サニタイザーがメッセージに対して行ったこと。何かがブロックされたときにそれが表示されるのは、注目に値する場合のみです。
+
+settings-badge-spam = スパムスコア
+
+settings-badge-spam-help = 受信サーバーがメッセージ ヘッダーに書き込んだスコア。
+
+settings-folders-hide-empty = サイドバーの空のフォルダーを非表示にする
+
+settings-folders-hide-empty-help = フォルダーにメッセージが含まれている場合、フォルダーが再表示されます。受信トレイ、検索フォルダー、数が不明なフォルダー、および表示されているフォルダーの親は表示されたままになります。 [プロパティ]、[表示] で個々のフォルダーをオーバーライドします。すべてのフォルダーがこのリストに残ります。
+
+settings-folders-list-card = フォルダーのリストと順序
+
+settings-header-auto-collapse = 書き込み後にヘッダーを折ります(秒)
+
+settings-header-auto-collapse-help = 本文にこの秒数フォーカスがあり、ヘッダーに受信者と件名がある場合、本文は概要行に折りたたまれます。 0 はこれをオフにします。
+
+settings-message-badges = メッセージバッジ
+
+settings-message-badges-help = 開いているメッセージのヘッダーに表示するバッジを選択します。優先マークはフォルダーとサイドバーの下に設定されます。バッジを右クリックして非表示にすることもできます。
+
+settings-reply-from-headers = ID を選択するヘッダー
+
+settings-reply-from-headers-help = 1 行に 1 つのヘッダー名が次の順序で試行されます: Delivered-To、X-Original-To、Envelope-To、X-Forwarded-To、Resent-To、To、Cc。省略されたヘッダーは読み込まれません。
+
+settings-reply-from-headers-invalid = 次の名前のみを 1 行に 1 つ使用します: Delivered-To、X-Original-To、Envelope-To、X-Forwarded-To、Resent-To、To、Cc。
+
+settings-reply-from-headers-save = ヘッダーの順序を保存する
+
+settings-sessions-linked-created = リンクが作成されました
+
+settings-sessions-linked-details = リンクの詳細
+
+settings-sessions-linked-kind = リンクタイプ
+
+settings-sessions-linked-kind-linked = リンクされたメールボックス
+
+settings-sessions-linked-last-used = 最後に使用した
+
+settings-sessions-linked-line = リンクされたメールボックスへのアクセス · { $origin } から
+
+settings-sessions-linked-line-hidden = リンクされたメールボックスへのアクセス
+
+settings-sessions-linked-origin = 由来
+
+settings-sessions-linked-removed = 不明 (アカウントが削除されました)
+
+settings-sessions-linked-revoke = リンクへのアクセスを取り消す
+
+settings-sessions-linked-revoke-label = { $mailbox } のリンク アクセスを取り消します
+
+settings-sessions-linked-target = メールボックスが開かれました
+
+settings-sessions-origin-full = 完全な住所
+
+settings-sessions-origin-help = このテーブルが、リンクされたメールボックス セッションの元のアカウントにどのような名前を付けるかを制御します。あなた自身のセッションで、あなただけがそれを見ることができます。
+
+settings-sessions-origin-hidden = 隠された
+
+settings-sessions-origin-masked-local-part = 最初の部分をマスクしたアドレス
+
+settings-sessions-origin-setting = リンクされたメールボックスへのアクセス元を表示する
+
+settings-shortcuts-search = 検索ショートカット

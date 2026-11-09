@@ -745,3 +745,104 @@ cache-preloadMessages = السماح بتحميل نصوص الرسائل است
 cache-excludedFolders = المجلدات المستثناة من التحميل المسبق
 cache-exclusions-help = قاعدة واحدة في كل سطر: role:trash أو role:junk أو role:inbox أو role:drafts أو role:sent أو role:archive، أو id: متبوعًا بمعرّف المجلد المطابق تمامًا.
 cache-refreshOnOpen = تحديث المحتوى المخزَّن مؤقتًا عند الفتح
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = المصادقة (DMARC)
+
+settings-badge-auth-help = النتيجة DMARC؛ يفتح تفاصيل الأمان الكاملة.
+
+settings-badge-density = حجم الشارة
+
+settings-badge-density-comfortable = مريح
+
+settings-badge-density-compact = مدمج
+
+settings-badge-density-help = ارتفاع وتباعد صغير أو مريح لكل شارة.
+
+settings-badge-folder = مجلد
+
+settings-badge-folder-help = حيث يتم تخزين الرسالة. فقط عندما يعرضها ملحوظًا للملفات غير المرغوب فيها والمهملات.
+
+settings-badge-labels = تسميات شارة
+
+settings-badge-labels-help = أيقونة تحتوي على نص، أو الأيقونة وحدها (يظل النص الكامل في تلميح الأدوات ولبرامج قراءة الشاشة).
+
+settings-badge-labels-icon = أيقونة فقط
+
+settings-badge-labels-text = أيقونة والنص
+
+settings-badge-list = القائمة البريدية
+
+settings-badge-list-help = القائمة البريدية التي جاءت منها الرسالة؛ يفتح تفاصيل وإجراءات الاشتراك. فقط عندما يظهر ملحوظًا عندما يستمر وصول البريد بعد إلغاء الاشتراك.
+
+settings-badge-mode-always = دائما
+
+settings-badge-mode-never = أبدا
+
+settings-badge-mode-notable = فقط عندما تكون ملحوظة
+
+settings-badge-sanitized = معقمة HTML
+
+settings-badge-sanitized-help = ماذا فعل معقم HTML بالرسالة. فقط عندما يظهر ذلك بشكل ملحوظ عندما تم حظر شيء ما.
+
+settings-badge-spam = نقاط البريد العشوائي
+
+settings-badge-spam-help = النتيجة التي كتبها الخادم المتلقي في رؤوس الرسالة.
+
+settings-folders-hide-empty = إخفاء المجلدات الفارغة في الشريط الجانبي
+
+settings-folders-hide-empty-help = تظهر المجلدات مرة أخرى عندما تحتوي على رسائل. يظل البريد الوارد، ومجلدات البحث، والمجلدات ذات الأعداد غير المعروفة، والمجلدات الأصلية للمجلدات المرئية معروضة. تجاوز المجلدات الفردية ضمن خصائص، عرض؛ يبقى كل مجلد في هذه القائمة.
+
+settings-folders-list-card = قائمة المجلدات والنظام
+
+settings-header-auto-collapse = قم بطي الرأس بعد الكتابة (ثواني)
+
+settings-header-auto-collapse-help = عندما يركز الجسم على هذه الثواني العديدة ويكون الرأس به مستلم وموضوع، يتم طيه إلى سطر الملخص. 0 يوقف هذا.
+
+settings-message-badges = شارات الرسالة
+
+settings-message-badges-help = اختر الشارات التي تظهر في رأس الرسالة المفتوحة. يتم تعيين علامات الأولوية ضمن المجلدات والشريط الجانبي. يمكنك أيضًا النقر بزر الماوس الأيمن على الشارة لإخفائها.
+
+settings-reply-from-headers = الرؤوس التي تختار الهوية
+
+settings-reply-from-headers-help = اسم رأس واحد لكل سطر، تمت تجربته بالترتيب التالي: تم التسليم إلى، X-Original-To، Envelope-To، X-Forwarded-To، Resent-To، To، Cc. لا تتم قراءة الرأس المتروك.
+
+settings-reply-from-headers-invalid = استخدم هذه الأسماء فقط، واحد في كل سطر: Deliveryed-To، X-Original-To، Envelope-To، X-Forwarded-To، Resent-To، To، Cc.
+
+settings-reply-from-headers-save = حفظ ترتيب الرأس
+
+settings-sessions-linked-created = تم إنشاء الرابط
+
+settings-sessions-linked-details = تفاصيل الارتباط
+
+settings-sessions-linked-kind = نوع الرابط
+
+settings-sessions-linked-kind-linked = صندوق البريد المرتبط
+
+settings-sessions-linked-last-used = آخر استخدام
+
+settings-sessions-linked-line = الوصول إلى صندوق البريد المرتبط · من { $origin }
+
+settings-sessions-linked-line-hidden = الوصول إلى صندوق البريد المرتبط
+
+settings-sessions-linked-origin = يأتي من
+
+settings-sessions-linked-removed = غير معروف (تمت إزالة الحساب)
+
+settings-sessions-linked-revoke = إبطال الوصول إلى الارتباط
+
+settings-sessions-linked-revoke-label = إبطال الوصول إلى الرابط لـ { $mailbox }
+
+settings-sessions-linked-target = تم فتح صندوق البريد
+
+settings-sessions-origin-full = العنوان الكامل
+
+settings-sessions-origin-help = التحكم في كيفية تسمية هذا الجدول للحساب الذي تأتي منه جلسة صندوق البريد المرتبطة. أنت فقط تراه، في جلساتك الخاصة.
+
+settings-sessions-origin-hidden = مخفي
+
+settings-sessions-origin-masked-local-part = عنوان مع الجزء الأول ملثمين
+
+settings-sessions-origin-setting = أظهر من أين يأتي الوصول إلى صندوق البريد المرتبط
+
+settings-shortcuts-search = اختصارات البحث

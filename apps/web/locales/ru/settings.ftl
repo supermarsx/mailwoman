@@ -744,3 +744,104 @@ settings-folder-icon-group-personal = Личное и развлечения
 settings-folder-icon-group-tech = Техника и инструменты
 settings-folder-icon-search-label = Поиск значков
 settings-folder-icon-no-match = Подходящих значков нет
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Аутентификация (DMARC)
+
+settings-badge-auth-help = Результат DMARC; он открывает полную информацию о безопасности.
+
+settings-badge-density = Размер значка
+
+settings-badge-density-comfortable = Удобный
+
+settings-badge-density-compact = Компактный
+
+settings-badge-density-help = Компактная или удобная высота и расстояние для каждого значка.
+
+settings-badge-folder = Папка
+
+settings-badge-folder-help = Где хранится сообщение. Только тогда, когда заметный показывает это для мусора и мусора.
+
+settings-badge-labels = Этикетки для значков
+
+settings-badge-labels-help = Значок с текстом или только значок (полный текст остается в подсказке и для программ чтения с экрана).
+
+settings-badge-labels-icon = Только значок
+
+settings-badge-labels-text = Значок и текст
+
+settings-badge-list = Список рассылки
+
+settings-badge-list-help = Список рассылки, из которого пришло сообщение; он открывает сведения о подписке и действиях. Только когда notable показывает это, когда почта продолжает приходить после того, как вы отписались.
+
+settings-badge-mode-always = Всегда
+
+settings-badge-mode-never = Никогда
+
+settings-badge-mode-notable = Только когда заметно
+
+settings-badge-sanitized = Продезинфицирован HTML
+
+settings-badge-sanitized-help = Что дезинфицирующее средство HTML сделало с сообщением. Только когда notable показывает это, когда что-то было заблокировано.
+
+settings-badge-spam = Оценка спама
+
+settings-badge-spam-help = Оценка, которую принимающий сервер записал в заголовки сообщений.
+
+settings-folders-hide-empty = Скрыть пустые папки на боковой панели
+
+settings-folders-hide-empty-help = Папки появляются снова, когда они содержат сообщения. Папка «Входящие», папки поиска, папки с неизвестным количеством и родительские папки видимых папок остаются видимыми. Переопределить отдельные папки в разделе «Свойства», «Отображение»; каждая папка остается в этом списке.
+
+settings-folders-list-card = Список папок и порядок
+
+settings-header-auto-collapse = Свернуть заголовок после написания (секунды)
+
+settings-header-auto-collapse-help = Когда тело находится в фокусе в течение этого количества секунд, а в заголовке есть получатель и тема, оно сворачивается в итоговую строку. 0 отключает это.
+
+settings-message-badges = Значки сообщений
+
+settings-message-badges-help = Выберите, какие значки будут отображаться в заголовке открытого сообщения. Метки приоритета устанавливаются в папках и на боковой панели. Вы также можете щелкнуть значок правой кнопкой мыши, чтобы скрыть его.
+
+settings-reply-from-headers = Заголовки, которые выбирают идентичность
+
+settings-reply-from-headers-help = Одно имя заголовка в строке, пробовалось в следующем порядке: Доставлено, X-оригинал-кому, конверт-кому, X-перенаправлено-кому, повторно отправлено, кому, копия. Оставленный заголовок не читается.
+
+settings-reply-from-headers-invalid = Используйте только эти имена, по одному в строке: Доставлено-Кому, X-Оригинал-Кому, Конверт-Кому, X-Перенаправлено-Кому, Повторно-Кому, Кому, Копия.
+
+settings-reply-from-headers-save = Сохранить порядок заголовков
+
+settings-sessions-linked-created = Ссылка создана
+
+settings-sessions-linked-details = Подробности ссылки
+
+settings-sessions-linked-kind = Тип ссылки
+
+settings-sessions-linked-kind-linked = Связанный почтовый ящик
+
+settings-sessions-linked-last-used = Последнее использование
+
+settings-sessions-linked-line = Доступ к связанному почтовому ящику · с { $origin }
+
+settings-sessions-linked-line-hidden = Доступ к связанному почтовому ящику
+
+settings-sessions-linked-origin = Происходит из
+
+settings-sessions-linked-removed = Неизвестно (удален аккаунт)
+
+settings-sessions-linked-revoke = Отменить доступ по ссылке
+
+settings-sessions-linked-revoke-label = Отменить доступ по ссылке для { $mailbox }
+
+settings-sessions-linked-target = Почтовый ящик открыт
+
+settings-sessions-origin-full = Полный адрес
+
+settings-sessions-origin-help = Управляет тем, как эта таблица называет учетную запись, из которой происходит связанный сеанс почтового ящика. Только вы видите это на своих сеансах.
+
+settings-sessions-origin-hidden = Скрытый
+
+settings-sessions-origin-masked-local-part = Адрес с замаскированной первой частью
+
+settings-sessions-origin-setting = Показать, откуда происходит доступ к связанному почтовому ящику
+
+settings-shortcuts-search = Поиск ярлыков

@@ -161,3 +161,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] { $count } 人のユーザーの機能プロファイルを変更しました。
 }
 admin-userlist-bulk-failed = { $done } 件完了、{ $failed } 件失敗: { $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = 期限 { $date }
+
+admin-user-compliance-empty = このアカウントにはデータ要求はありません。
+
+admin-user-compliance-help = このアカウントのアドレスに対してリクエストが提出されました。データ リクエストで 1 つを開き、それに基づいて操作します。
+
+admin-user-compliance-open-all = すべてのデータリクエストを開く
+
+admin-user-compliance-title = このアカウントのデータリクエスト
+
+admin-user-never = 決してしない
+
+admin-user-overview-last-signin = 最終サインイン
+
+admin-user-overview-status = ステータス
+
+admin-user-status-active = アクティブ
+
+admin-user-status-deleted = 削除されました
+
+admin-user-status-deleting = 削除中
+
+admin-user-status-disabled = ブロックされました
+
+admin-user-tab-access = アクセスと削除
+
+admin-user-tab-compliance = コンプライアンス
+
+admin-user-tab-overview = 概要
+
+admin-user-tab-profile = 機能プロファイル
+
+admin-user-tab-security = セキュリティ
+
+admin-user-tab-sessions = セッション
+
+admin-user-tabs-label = アカウントセクション

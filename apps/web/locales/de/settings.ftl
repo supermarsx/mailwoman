@@ -723,3 +723,104 @@ settings-folder-icon-group-personal = Persönliches und Freizeit
 settings-folder-icon-group-tech = Technik und Werkzeuge
 settings-folder-icon-search-label = Symbole suchen
 settings-folder-icon-no-match = Keine passenden Symbole
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Authentifizierung (DMARC)
+
+settings-badge-auth-help = Das DMARC-Ergebnis; Es werden die vollständigen Sicherheitsdetails geöffnet.
+
+settings-badge-density = Abzeichengröße
+
+settings-badge-density-comfortable = Bequem
+
+settings-badge-density-compact = Kompakt
+
+settings-badge-density-help = Kompakte oder komfortable Höhe und Abstände für jedes Abzeichen.
+
+settings-badge-folder = Ordner
+
+settings-badge-folder-help = Wo die Nachricht gespeichert ist. Nur wenn es auffällt, zeigt es sich für Junk and Trash.
+
+settings-badge-labels = Abzeichenetiketten
+
+settings-badge-labels-help = Symbol mit Text oder nur das Symbol (der vollständige Text bleibt im Tooltip und für Screenreader).
+
+settings-badge-labels-icon = Nur Symbol
+
+settings-badge-labels-text = Symbol und Text
+
+settings-badge-list = Mailingliste
+
+settings-badge-list-help = Die Mailingliste, von der die Nachricht stammt; Es öffnet die Abonnementdetails und -aktionen. Nur wenn bemerkenswert, wird es angezeigt, wenn weiterhin E-Mails eingehen, nachdem Sie sich abgemeldet haben.
+
+settings-badge-mode-always = Immer
+
+settings-badge-mode-never = Niemals
+
+settings-badge-mode-notable = Nur wenn es bemerkenswert ist
+
+settings-badge-sanitized = Desinfiziert HTML
+
+settings-badge-sanitized-help = Was das Desinfektionsmittel HTML mit der Nachricht gemacht hat. Erst wenn bemerkenswert ist, wird angezeigt, wenn etwas blockiert wurde.
+
+settings-badge-spam = Spam-Score
+
+settings-badge-spam-help = Die Punktzahl, die der empfangende Server in die Nachrichtenheader geschrieben hat.
+
+settings-folders-hide-empty = Leere Ordner in der Seitenleiste ausblenden
+
+settings-folders-hide-empty-help = Ordner werden wieder angezeigt, wenn sie Nachrichten enthalten. Posteingang, Suchordner, Ordner mit unbekannter Anzahl und übergeordnete Ordner sichtbarer Ordner bleiben angezeigt. Überschreiben Sie einzelne Ordner unter Eigenschaften, Anzeige. Jeder Ordner bleibt in dieser Liste.
+
+settings-folders-list-card = Ordnerliste und Reihenfolge
+
+settings-header-auto-collapse = Falten Sie den Header nach dem Schreiben (Sekunden)
+
+settings-header-auto-collapse-help = Wenn der Text so viele Sekunden lang den Fokus hatte und die Kopfzeile einen Empfänger und einen Betreff enthält, wird sie in die Zusammenfassungszeile eingeblendet. 0 schaltet dies aus.
+
+settings-message-badges = Nachrichtenabzeichen
+
+settings-message-badges-help = Wählen Sie aus, welche Abzeichen in der Kopfzeile einer geöffneten Nachricht angezeigt werden. Prioritätsmarkierungen werden unter Ordnern und Seitenleiste festgelegt. Sie können auch mit der rechten Maustaste auf ein Abzeichen klicken, um es auszublenden.
+
+settings-reply-from-headers = Header, die die Identität auswählen
+
+settings-reply-from-headers-help = Ein Header-Name pro Zeile, versucht in dieser Reihenfolge: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc. Ein weggelassener Header wird nicht gelesen.
+
+settings-reply-from-headers-invalid = Verwenden Sie nur diese Namen, einen pro Zeile: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc.
+
+settings-reply-from-headers-save = Kopfreihenfolge speichern
+
+settings-sessions-linked-created = Link erstellt
+
+settings-sessions-linked-details = Linkdetails
+
+settings-sessions-linked-kind = Linktyp
+
+settings-sessions-linked-kind-linked = Verknüpftes Postfach
+
+settings-sessions-linked-last-used = Zuletzt verwendet
+
+settings-sessions-linked-line = Zugriff auf verknüpfte Postfächer · ab { $origin }
+
+settings-sessions-linked-line-hidden = Zugriff auf verknüpfte Postfächer
+
+settings-sessions-linked-origin = Kommt von
+
+settings-sessions-linked-removed = Unbekannt (Konto entfernt)
+
+settings-sessions-linked-revoke = Linkzugriff widerrufen
+
+settings-sessions-linked-revoke-label = Linkzugriff für { $mailbox } widerrufen
+
+settings-sessions-linked-target = Postfach geöffnet
+
+settings-sessions-origin-full = Vollständige Adresse
+
+settings-sessions-origin-help = Steuert, wie diese Tabelle das Konto benennt, von dem eine verknüpfte Postfachsitzung stammt. Nur Sie sehen es in Ihren eigenen Sitzungen.
+
+settings-sessions-origin-hidden = Versteckt
+
+settings-sessions-origin-masked-local-part = Adresse mit maskiertem ersten Teil
+
+settings-sessions-origin-setting = Zeigen Sie an, woher der Zugriff auf das verknüpfte Postfach kommt
+
+settings-shortcuts-search = Suchverknüpfungen

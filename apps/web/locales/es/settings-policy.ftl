@@ -44,3 +44,6 @@ cache-card-prefetch = Precarga
 cache-card-prefetch-help = Cargue los mensajes con antelación para que se abran al instante. Usa más datos.
 settings-folder-counts-card = Globos de contador
 settings-folder-counts-card-help = Qué muestran los números junto a las carpetas y qué carpetas tienen uno.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Idioma y región

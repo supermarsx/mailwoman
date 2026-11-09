@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = الجلب من المصدر
 privacy-speed-phase-decode = فك الترميز وإعادة الترميز
 privacy-speed-phase-other = كل ما عدا ذلك
 privacy-speed-note = تُقاس على عملية هذا الخادم فقط، وتُحفظ في الذاكرة وتكون فارغة بعد إعادة التشغيل. المئينات دقيقة في حدود { $error } %. لا تُخزَّن أي عناوين URL أو مضيفين أو حسابات.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = انضمت عمليات الجلب والطلبات ذات الأولوية
+
+privacy-work-coalesced-series = انضمت عمليات الجلب إلى واحدة أثناء الرحلة
+
+privacy-work-handle = التعامل مع معدل ضرب ذاكرة التخزين المؤقت
+
+privacy-work-handle-series = التعامل مع زيارات ذاكرة التخزين المؤقت
+
+privacy-work-per-interval = لكل فترة أخذ العينات
+
+privacy-work-percent = حصة من عمليات البحث عن المقبض
+
+privacy-work-priority-series = طلبات الأولوية
+
+privacy-work-resized = تم تصغير حجم الصور
+
+privacy-work-resized-series = تم تغيير حجمها
+
+privacy-work-revalidated-series = إعادة التحقق
+
+privacy-work-saved = البايتات المحفوظة عن طريق تصغير الحجم
+
+privacy-work-saved-series = تم حفظ البايتات
+
+privacy-work-stale = تم تقديم الصور القديمة وإعادة التحقق من صحتها
+
+privacy-work-stale-series = خدم قديمة
+
+privacy-work-title = تم تجنب العمل وإعادة تشكيله

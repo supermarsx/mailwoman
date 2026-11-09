@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = 部委灰的混凝土、褪色的纸色文字、老大哥红；邮件使用等宽字体。
 appearance-theme-pop-art = 波普艺术
 appearance-theme-pop-art-desc = 白色页面、黑色轮廓、三原色红蓝黄，侧边栏带本戴点。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = 重要性
+
+appearance-preference-group-option-none = 没有分组
+
+appearance-preference-group-option-received = 收到日期
+
+appearance-preference-group-option-sender = 发件人
+
+appearance-preference-group-option-sent = 发送日期
+
+appearance-preference-group-option-size = 留言大小
+
+appearance-preference-group-option-subject = 主题
+
+appearance-preference-mail-list-pageSize = 每页加载的消息数（20 至 200）
+
+appearance-preference-mail-messageListGroup = 消息分组
+
+appearance-preference-message-group-help = 将相关消息放在组标题下。对于连续列表选择“无分组”。您的消息顺序适用于每个组。
+
+appearance-preference-message-order-help = 选择每个组内的消息顺序，或在分组关闭时选择整个列表中的消息顺序。
+
+appearance-preference-option-importance = 重要性，高在先
+
+appearance-preference-option-importance-asc = 重要性，从低到高
+
+appearance-preference-option-received = 收到日期
+
+appearance-preference-option-sender-desc = 发送者，Z 到 A
+
+appearance-preference-option-sent = 发送日期
+
+appearance-preference-option-sent-newest = 已发送，最新的优先
+
+appearance-preference-option-sent-oldest = 已发送，最老的在前
+
+appearance-preference-option-size = 尺寸，最大的在前
+
+appearance-preference-option-size-asc = 尺寸，最小的在前
+
+appearance-preference-option-subject-desc = 主题，Z 到 A

@@ -63,3 +63,32 @@ search-refine-subject = Nachrichten mit diesem Betreff suchen
 search-refine-folder = In diesem Ordner suchen
 search-refine-domain = Nachrichten von dieser Domain suchen
 search-include-trash-scoped = „Papierkorb einbeziehen“ gilt bei der Suche in allen Ordnern. Der ausgewählte Ordner wird direkt durchsucht.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Beantwortet
+
+search-chip-finished = Fertig
+
+search-chip-followup = Zur Nachverfolgung markiert
+
+search-chip-forwarded = Weitergeleitet
+
+search-chip-high-priority = Hohe Priorität
+
+search-chip-low-priority = Niedrige Priorität
+
+search-chip-mentions-me = Erwähnt mich
+
+search-chip-no-followup = Nicht zur Nachverfolgung markiert
+
+search-chip-not-high-priority = Keine hohe Priorität
+
+search-chip-not-low-priority = Keine niedrige Priorität
+
+search-chip-unanswered = Nicht beantwortet
+
+search-chip-unfinished = Nicht fertig
+
+search-chip-unforwarded = Nicht weitergeleitet
+
+search-field-mentions = Erwähnungen

@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Concreto cinza de ministério, texto cor de papel desbotado, vermelho Grande Irmão; mensagens em fonte monoespaçada.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Página branca, contornos pretos, vermelho, azul e amarelo primários, pontos Ben-Day na barra lateral.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Importância
+
+appearance-preference-group-option-none = Sem agrupamento
+
+appearance-preference-group-option-received = Data de recebimento
+
+appearance-preference-group-option-sender = Remetente
+
+appearance-preference-group-option-sent = Data de envio
+
+appearance-preference-group-option-size = Tamanho da mensagem
+
+appearance-preference-group-option-subject = Assunto
+
+appearance-preference-mail-list-pageSize = Mensagens carregadas por página (20 a 200)
+
+appearance-preference-mail-messageListGroup = Agrupamento de mensagens
+
+appearance-preference-message-group-help = Mantenha as mensagens relacionadas juntas nos títulos dos grupos. Escolha Nenhum agrupamento para obter uma lista contínua. A ordem das suas mensagens se aplica a cada grupo.
+
+appearance-preference-message-order-help = Escolha a ordem das mensagens em cada grupo ou em toda a lista quando o agrupamento estiver desativado.
+
+appearance-preference-option-importance = Importância, alta primeiro
+
+appearance-preference-option-importance-asc = Importância, baixa primeiro
+
+appearance-preference-option-received = Data de recebimento
+
+appearance-preference-option-sender-desc = Remetente, Z a A
+
+appearance-preference-option-sent = Data de envio
+
+appearance-preference-option-sent-newest = Enviado, mais novo primeiro
+
+appearance-preference-option-sent-oldest = Enviado, mais antigo primeiro
+
+appearance-preference-option-size = Tamanho, maior primeiro
+
+appearance-preference-option-size-asc = Tamanho, o menor primeiro
+
+appearance-preference-option-subject-desc = Assunto, Z a A

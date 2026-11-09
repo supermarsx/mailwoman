@@ -1225,3 +1225,270 @@ mail-color-confirm-title = Modifier vos couleurs de message par défaut ?
 mail-color-confirm-body = Chaque message utilisera « { $mode } », sauf si vous le modifiez pour un message en particulier.
 mail-color-confirm = Définir par défaut
 mail-color-default-failed = Vos couleurs de message par défaut n’ont pas pu être enregistrées.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = Les messages sélectionnés n'ont aucune pièce jointe à télécharger.
+
+mail-attachments-zip-all-blocked = Rien n'a été téléchargé : la politique de pièces jointes bloque tous les { $skipped } fichiers.
+
+mail-attachments-zip-gathering = Collecte des pièces jointes de { $count } messages…
+
+mail-attachments-zip-skipped = { $skipped ->
+        [0] { $skipped } fichiers bloqués par la politique de pièces jointes ont été laissés de côté.
+        [one] { $skipped } fichier bloqué par la politique de pièces jointes a été laissé de côté.
+        [many] { $skipped } fichiers bloqués par la politique de pièces jointes ont été laissés de côté.
+       *[other] { $skipped } fichiers bloqués par la politique de pièces jointes ont été laissés de côté.
+    }
+
+mail-attachments-zip-unreadable = Les pièces jointes des messages { $count } n'ont pas pu être lues et ont été laissées de côté.
+
+mail-bulk-download-attachments = Téléchargez les pièces jointes au format ZIP
+
+mail-compose-from-via = Il correspondait à l'en-tête { $header }.
+
+mail-compose-from-why-match-domain = Envoi depuis { $identity } car le message a été remis à { $address }, une adresse du même domaine.
+
+mail-compose-from-why-match-pattern = Envoi depuis { $identity } car le message a été envoyé vers { $address }, ce qui correspond au modèle d'adresse de cette identité.
+
+mail-compose-ribbon-autohide = Masquer automatiquement le ruban (Ctrl+F1)
+
+mail-compose-ribbon-pin = Toujours afficher le ruban (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+        [0] Téléchargez les pièces jointes de { $count } messages sélectionnés sous le nom ZIP
+        [one] Téléchargez les pièces jointes du message sélectionné sous le nom ZIP
+        [many] Téléchargez les pièces jointes de { $count } messages sélectionnés sous le nom ZIP
+       *[other] Téléchargez les pièces jointes de { $count } messages sélectionnés sous le nom ZIP
+    }
+
+mail-context-download-thread-attachments = Téléchargez toutes les { $count } pièces jointes de la conversation au format ZIP
+
+mail-context-open-new-tab = Ouvrir dans un nouvel onglet
+
+mail-delete-sender-confirm = Déplacer { $count } messages vers la corbeille
+
+mail-delete-sender-detail = Déplacer les messages { $count } de { $sender } vers la corbeille ? Les messages déjà dans la corbeille sont exclus. Vous pouvez annuler cette action.
+
+mail-delete-sender-empty = Il n'y a aucun message de cet expéditeur en dehors de la corbeille.
+
+mail-delete-sender-failed = Impossible de vérifier chaque message correspondant et ses autorisations. Rien n'a été bougé ; essayer à nouveau.
+
+mail-delete-sender-help = Recherchez les messages de cet expéditeur dans tous les dossiers et déplacez-les vers la corbeille après confirmation.
+
+mail-delete-sender-title = Supprimer tous les messages de cet expéditeur
+
+mail-draft-continue = Continuer la modification
+
+mail-draft-edit = Modifier le brouillon
+
+mail-draft-edit-failed = Le brouillon n'a pas pu être ouvert pour modification
+
+mail-draft-edit-help = Ouvrez ce brouillon dans le compositeur pour continuer à le modifier
+
+mail-draft-notice = Ceci est un brouillon
+
+mail-file-copied = Copié dans le presse-papiers.
+
+mail-file-copy-failed = Impossible de copier dans le presse-papiers.
+
+mail-file-copy-fingerprint = Copier l'empreinte digitale
+
+mail-file-copy-name = Copier le nom du fichier
+
+mail-file-created = Créé
+
+mail-file-creator = Créé avec
+
+mail-file-details-button = Détails du fichier
+
+mail-file-details-tooltip = Afficher les détails du fichier et l'empreinte digitale
+
+mail-file-encryption = Protection par mot de passe
+
+mail-file-encryption-none = Aucun mot de passe n'a été demandé
+
+mail-file-encryption-password = Un mot de passe était nécessaire pour l'ouvrir
+
+mail-file-fingerprint = Empreinte digitale
+
+mail-file-name = Nom du fichier
+
+mail-file-pages = Pages
+
+mail-file-pdf-version = Version PDF
+
+mail-file-producer = Producteur
+
+mail-file-verify-help = Comparez ces groupes avec une empreinte digitale que l'expéditeur vous a donnée d'une autre manière, comme un appel ou son site Web. Si tous les groupes correspondent, vous avez exactement les mêmes octets.
+
+mail-file-verify-title = Vérifier l'empreinte digitale
+
+mail-follow-up-finished = Suivi terminé
+
+mail-group-by = Regrouper par
+
+mail-header-attachments = { $count ->
+        [0] { $count } pièces jointes
+        [one] { $count } pièce jointe
+        [many] { $count } pièces jointes
+       *[other] { $count } pièces jointes
+    }
+
+mail-header-expand-short = Développer l'en-tête du message (Alt+H)
+
+mail-list-group-date-unknown = Date inconnue
+
+mail-list-group-importance = Importance
+
+mail-list-group-locked = Le regroupement des messages est verrouillé par votre administrateur.
+
+mail-list-group-no-subject = (Aucun sujet)
+
+mail-list-group-none = Aucun regroupement
+
+mail-list-group-priority-high = Haute importance
+
+mail-list-group-priority-low = Faible importance
+
+mail-list-group-priority-normal = Importance normale
+
+mail-list-group-received = Date de réception
+
+mail-list-group-sender = De
+
+mail-list-group-sent = Date d'envoi
+
+mail-list-group-size = Taille
+
+mail-list-group-size-huge = 10 Mo et plus
+
+mail-list-group-size-large = 1 à 10 Mo
+
+mail-list-group-size-medium = 100 Ko à 1 Mo
+
+mail-list-group-size-small = 25 à 100 Ko
+
+mail-list-group-size-tiny = Moins de 25 Ko
+
+mail-list-group-subject = Sujet
+
+mail-list-order-importance = Importance, élevée en premier
+
+mail-list-order-importance-asc = Importance, faible d'abord
+
+mail-list-order-locked = L'ordre des messages est verrouillé par votre administrateur.
+
+mail-list-order-sender-desc = Expéditeur, Z à A
+
+mail-list-order-sent-newest = Envoyé, le plus récent en premier
+
+mail-list-order-sent-oldest = Envoyé, le plus ancien en premier
+
+mail-list-order-size = Taille, la plus grande en premier
+
+mail-list-order-size-asc = Taille, la plus petite en premier
+
+mail-list-order-subject-desc = Sujet, Z à A
+
+mail-mark-answered = Marquer comme répondu
+
+mail-mark-as = Marquer comme
+
+mail-mark-finished = Marquer comme terminé
+
+mail-mark-forwarded = Marquer comme transféré
+
+mail-mark-not-forwarded = Marquer comme non transféré
+
+mail-mark-unanswered = Marquer comme sans réponse
+
+mail-mentions-me = Me mentionne
+
+mail-mentions-me-help = Rechercher des messages qui mentionnent l'une de vos adresses e-mail
+
+mail-move-search = Rechercher des dossiers
+
+mail-order-by = Commander par
+
+mail-reader-folder-go = Stocké dans { $folder } · Aller au dossier
+
+mail-reply-draft-discard = Ignorer la réponse
+
+mail-reply-draft-discard-detail = Supprimer définitivement cette réponse en cours ? Cela ne peut pas être annulé.
+
+mail-reply-draft-discard-title = Supprimer cette réponse ?
+
+mail-status-from-match-domain = À partir de { $identity }
+
+mail-status-from-match-pattern = À partir de { $identity }
+
+mail-status-from-via = Réponse depuis { $identity } car cela correspond à { $header }
+
+mail-toast-follow-up-finished = Suivi marqué comme terminé
+
+mail-toast-marked-answered = { $count ->
+        [0] { $count } messages marqués comme répondus
+        [one] { $count } message marqué comme répondu
+        [many] { $count } messages marqués comme répondus
+       *[other] { $count } messages marqués comme répondus
+    }
+
+mail-toast-marked-forwarded = { $count ->
+        [0] { $count } messages marqués comme transférés
+        [one] { $count } message marqué comme transféré
+        [many] { $count } messages marqués comme transférés
+       *[other] { $count } messages marqués comme transférés
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+        [0] { $count } messages marqués comme non transférés
+        [one] { $count } message marqué comme non transféré
+        [many] { $count } messages marqués comme non transférés
+       *[other] { $count } messages marqués comme non transférés
+    }
+
+mail-toast-marked-unanswered = { $count ->
+        [0] { $count } messages marqués comme sans réponse
+        [one] { $count } message marqué comme sans réponse
+        [many] { $count } messages marqués comme sans réponse
+       *[other] { $count } messages marqués comme sans réponse
+    }
+
+mail-toast-move-failed-reason = Impossible de déplacer les messages ({ $reason }). Rien n'a été bougé.
+
+mail-toast-update-refused-reason = { $count ->
+        [0] Le serveur a refusé le déplacement pour { $count } messages : { $reason }
+        [one] Le serveur a refusé le déplacement pour un message : { $reason }
+        [many] Le serveur a refusé le déplacement pour { $count } messages : { $reason }
+       *[other] Le serveur a refusé le déplacement pour { $count } messages : { $reason }
+    }
+
+reader-badge-hide = Masquer ce badge
+
+reader-badge-locked = Défini par votre administrateur
+
+reader-badge-menu = Insigne de message
+
+reader-badge-notable = Afficher uniquement lorsque cela est notable
+
+reader-sanitized-always = Le contenu actif tel que les scripts reste désactivé.
+
+reader-sanitized-clean = Le message HTML ne nécessitait aucune modification
+
+reader-sanitized-clean-detail = Rien n'a été supprimé ou bloqué du HTML de ce message.
+
+reader-sanitized-counts = { $blocked } éléments distants bloqués, { $trackers } éléments de suivi.
+
+reader-sanitized-detail = Le message HTML a été nettoyé avant d'être affiché. Le contenu distant suit vos paramètres de confidentialité.
+
+reader-sanitized-hosts = Hôtes distants
+
+reader-sanitized-remote = Contenu distant bloqué
+
+reader-sanitized-short = Désinfecté HTML
+
+reader-sanitized-short-blocked = HTML bloqué
+
+reader-sanitized-short-clean = HTML nettoyer
+
+reader-sanitized-trackers = Suivi des articles

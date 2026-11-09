@@ -75,3 +75,153 @@ folder-dnd-more-actions = Расположение
 folder-dnd-selected-move = Переместить выбранные в…
 folder-dnd-locked-row = Заблокировано
 folder-dnd-problem-pin = Закреплённые папки остаются над остальными. Сначала открепите её, чтобы переместить туда.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Пусто…
+
+folder-bar-label = Действия для выбранных папок
+
+folder-bar-mark-read = Отметить все прочитанными
+
+folder-bar-pin = Пин-код
+
+folder-bar-star = Звезда
+
+folder-bar-unpin = Открепить
+
+folder-bar-unstar = Снять пометку
+
+folder-dnd-handle-hint = Перетащите, чтобы переместить эту папку
+
+folder-pinned-group = Закреплено
+
+folder-pinned-unpin-zone = Перетащите сюда, чтобы открепить
+
+settings-folders-bulk-delete-body = { $folders ->
+        [one] { $folders } и сообщения { $messages } в ней будут удалены. Это невозможно отменить.
+        [few] { $folders } папки (с их подпапками) и сообщения { $messages } в них будут удалены. Это невозможно отменить.
+        [many] { $folders } (с их подпапками) и сообщения { $messages } в них будут удалены. Это невозможно отменить.
+       *[other] { $folders } (с их подпапками) и сообщения { $messages } в них будут удалены. Это невозможно отменить.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [one] Удалить { $count } папку
+        [few] Удалить { $count } папки
+        [many] Удалить { $count } папок
+       *[other] Удалить { $count } папки
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [one] Удалена { $count } папка
+        [few] Удалил { $count } папки
+        [many] Удалено { $count } папок
+       *[other] Удалил { $count } папки
+    }
+
+settings-folders-bulk-delete-failed = Ничего не было удалено. Не удалено: { $names }
+
+settings-folders-bulk-delete-list = Папки для удаления
+
+settings-folders-bulk-delete-none = Ни одну из выбранных папок удалить невозможно (системные папки и папки, которые вы не можете удалить, пропускаются).
+
+settings-folders-bulk-delete-others = Также не удалено: { $names }
+
+settings-folders-bulk-delete-partial = Удалены папки { $done }. Не удалено: { $names }
+
+settings-folders-bulk-delete-partial-done = Удалены папки { $done }.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [one] Не удалено, поскольку учетная запись находится под юридическим запретом: { $names }
+        [few] Не удалено, поскольку учетная запись находится под юридическим запретом ({ $count } папки): { $names }
+        [many] Не удалено, поскольку учетная запись находится под юридическим запретом ({ $count } папок): { $names }
+       *[other] Не удалено, поскольку учетная запись находится под юридическим запретом ({ $count } папки): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [one] Не удалено, поскольку обработка учетной записи ограничена: { $names }
+        [few] Не удалено, поскольку обработка учетной записи ограничена ({ $count } папки): { $names }
+        [many] Не удалено, поскольку обработка учетной записи ограничена ({ $count } папок): { $names }
+       *[other] Не удалено, поскольку обработка учетной записи ограничена ({ $count } папки): { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } выбранные папки пропускаются, поскольку их невозможно удалить: { $names }
+
+settings-folders-bulk-delete-subfolders = Также удалите подпапки каждой папки
+
+settings-folders-bulk-delete-subfolders-off = Будут удалены только выбранные папки. Папка, в которой все еще есть подпапка вне выделенной области, сохраняется.
+
+settings-folders-bulk-delete-title = { $count ->
+        [one] Удалить { $count } папку?
+        [few] Удалить { $count } папки?
+        [many] Удалить { $count } папок?
+       *[other] Удалить { $count } папки?
+    }
+
+settings-folders-bulk-empty-body = Сообщения { $total } в папках { $folders } будут удалены: { $toTrash } перемещаются в корзину и их можно отменить, { $permanent } удаляются навсегда и их нельзя вернуть обратно. Подпапки не трогаются.
+
+settings-folders-bulk-empty-confirm = Очистите папки
+
+settings-folders-bulk-empty-counting = Подсчет сообщений в каждой папке…
+
+settings-folders-bulk-empty-done = Опустошены папки { $count }, сообщения { $messages }.
+
+settings-folders-bulk-empty-fail-refused = сервер отказался от части; { $remaining } сообщения остаются
+
+settings-folders-bulk-empty-fail-stopped = остановился; { $remaining } сообщения остаются
+
+settings-folders-bulk-empty-fail-uncertain = результат последней партии неизвестен; проверьте папку
+
+settings-folders-bulk-empty-list = Папки, которые нужно очистить
+
+settings-folders-bulk-empty-partial = Опустошены папки { $done }; { $failed } не удалось. Посмотрите список.
+
+settings-folders-bulk-empty-permanent = Сообщения { $count } удаляются навсегда
+
+settings-folders-bulk-empty-progress = { $done } из { $of } папок выполнено, { $messages } сообщений обработано. Сейчас: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = невозможно было посчитать, пропустили
+
+settings-folders-bulk-empty-skip-empty = уже пусто, пропущено
+
+settings-folders-bulk-empty-skip-permanent-denied = будут удалены навсегда, которые администратор отключил, пропустил
+
+settings-folders-bulk-empty-skip-search = сохраненный поиск, пропущен
+
+settings-folders-bulk-empty-skip-unsupported = этот аккаунт не может очистить его, пропущено
+
+settings-folders-bulk-empty-title = { $count ->
+        [one] Очистить { $count } папку?
+        [few] Очистить { $count } папки?
+        [many] Очистить { $count } папок?
+       *[other] Очистить выбранные папки ({ $count })?
+    }
+
+settings-folders-bulk-empty-to-trash = Сообщения { $count } перемещаются в корзину.
+
+settings-folders-bulk-empty-undo-label = Опустошенные папки { $count } (сообщения { $messages })
+
+settings-folders-delete-selected = Удалить…
+
+settings-folders-select-user = Выбрать все папки пользователя
+
+settings-folders-subscribe-failed = Подписки не удалось изменить.
+
+settings-folders-subscribe-partial = Изменены папки { $done }; { $failed } изменить невозможно.
+
+settings-folders-subscribe-selected = Подписаться
+
+settings-folders-subscribed = { $count ->
+        [one] Подписан на { $count } папку
+        [few] Подписан на { $count } папки
+        [many] Подписан на { $count } папок
+       *[other] Подписан на { $count } папки
+    }
+
+settings-folders-unsubscribe-selected = Отписаться
+
+settings-folders-unsubscribed = { $count ->
+        [one] Отписался от { $count } папки
+        [few] Отписался от { $count } папок
+        [many] Отписался от { $count } папок
+       *[other] Отписался от { $count } папок
+    }

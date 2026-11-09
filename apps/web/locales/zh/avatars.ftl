@@ -20,3 +20,18 @@ avatars-domain-icon = { $name } 域名图标 · 此图标不验证发件人身�
 avatars-favorites-first = 在收件人建议中优先显示收藏的联系人
 avatars-favorites-first-help = 输入收件人时，你加星标的联系人会排在其他匹配项之前。只改变顺序，不会隐藏任何建议。
 avatars-favorites-first-default = 恢复继承的收藏偏好设置
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = 品牌标志需要认证
+
+avatars-require-auth-always = 始终（需要通过检查）
+
+avatars-require-auth-default = 恢复继承的身份验证首选项
+
+avatars-require-auth-help = 选择何时可以用公认的公司徽标替换发件人旁边的姓名缩写。从不：只要发件人的域匹配，就显示它。仅当检查失败时（默认）：显示它，除非消息失败DKIM或DMARC。始终：仅当邮件通过 DKIM 且对齐的 DMARC 检查该公司自己的域时才显示，因此尚未检查的邮件会显示缩写。域匹配包括子域，例如mail.example.com。此首选项与您的帐户一起保存，并且可以由您的管理员保留。
+
+avatars-require-auth-known-failure = 仅当检查失败时
+
+avatars-require-auth-never = 从不（仅匹配域）
+
+avatars-unverified-sender = 未经验证的发件人 · 没有显示品牌图标，因为此邮件未通过身份验证检查

@@ -1118,3 +1118,18 @@ admin-insights-empty-rules = У цьому діапазоні жодне ада�
 admin-insights-share-of = { $share } запитів
 admin-nav-encryption = Шифрування
 admin-nav-retention = Зберігання
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Помилки клієнта
+
+admin-session-linked-device = Початкова сесія: { $device }
+
+admin-session-linked-line = Доступ до пов’язаної поштової скриньки · від { $origin }
+
+admin-session-linked-line-hidden = Доступ до пов’язаної поштової скриньки
+
+admin-session-linked-open = Відкрити вихідний рахунок
+
+admin-session-linked-removed = Доступ до зв’язаної поштової скриньки · вихідний обліковий запис видалено
+
+admin-session-linked-restricted = Доступ до пов’язаної поштової скриньки · походження не показано (немає доступу до цього облікового запису)

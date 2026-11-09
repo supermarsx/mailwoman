@@ -723,3 +723,104 @@ settings-folder-icon-group-personal = Personal y ocio
 settings-folder-icon-group-tech = Tecnología y herramientas
 settings-folder-icon-search-label = Buscar iconos
 settings-folder-icon-no-match = Ningún icono coincide
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Autenticación (DMARC)
+
+settings-badge-auth-help = El resultado DMARC; abre todos los detalles de seguridad.
+
+settings-badge-density = Tamaño de la insignia
+
+settings-badge-density-comfortable = Cómodo
+
+settings-badge-density-compact = Compacto
+
+settings-badge-density-help = Altura y espacio compactos o cómodos para cada credencial.
+
+settings-badge-folder = Carpeta
+
+settings-badge-folder-help = Donde se almacena el mensaje. Sólo cuando es notable lo muestra como basura y basura.
+
+settings-badge-labels = Etiquetas de insignia
+
+settings-badge-labels-help = Icono con texto, o el icono solo (el texto completo permanece en la información sobre herramientas y para los lectores de pantalla).
+
+settings-badge-labels-icon = Solo icono
+
+settings-badge-labels-text = Icono y texto
+
+settings-badge-list = lista de correo
+
+settings-badge-list-help = La lista de correo de la que procede el mensaje; abre los detalles y acciones de la suscripción. Solo cuando es notable lo muestra cuando el correo sigue llegando después de cancelar la suscripción.
+
+settings-badge-mode-always = siempre
+
+settings-badge-mode-never = nunca
+
+settings-badge-mode-notable = Sólo cuando es notable
+
+settings-badge-sanitized = Desinfectado HTML
+
+settings-badge-sanitized-help = Qué le hizo el desinfectante HTML al mensaje. Solo cuando es notable lo muestra cuando algo fue bloqueado.
+
+settings-badge-spam = Puntuación de spam
+
+settings-badge-spam-help = La puntuación que el servidor receptor escribió en los encabezados del mensaje.
+
+settings-folders-hide-empty = Ocultar carpetas vacías en la barra lateral
+
+settings-folders-hide-empty-help = Las carpetas reaparecen cuando contienen mensajes. La bandeja de entrada, las carpetas de búsqueda, las carpetas con recuentos desconocidos y las carpetas principales de las carpetas visibles permanecen mostradas. Anule carpetas individuales en Propiedades, Pantalla; todas las carpetas permanecen en esta lista.
+
+settings-folders-list-card = Lista de carpetas y orden
+
+settings-header-auto-collapse = Doblar el encabezado después de escribir (segundos)
+
+settings-header-auto-collapse-help = Cuando el cuerpo ha estado enfocado durante tantos segundos y el encabezado tiene un destinatario y un asunto, se pliega a la línea de resumen. 0 desactiva esto.
+
+settings-message-badges = Insignias de mensaje
+
+settings-message-badges-help = Elija qué insignias aparecen en el encabezado de un mensaje abierto. Las marcas de prioridad se establecen en Carpetas y barra lateral. También puede hacer clic derecho en una insignia para ocultarla.
+
+settings-reply-from-headers = Cabeceras que eligen la identidad
+
+settings-reply-from-headers-help = Un nombre de encabezado por línea, probado en este orden: Entregado a, X-Original-a, Sobre-a, X-Reenviado-a, Reenviado-a, A, Cc. Un encabezado omitido no se lee.
+
+settings-reply-from-headers-invalid = Utilice solo estos nombres, uno por línea: Entregado a, X-Original-a, Sobre-a, X-Reenviado-a, Reenviado-a, A, Cc.
+
+settings-reply-from-headers-save = Guardar orden de encabezado
+
+settings-sessions-linked-created = Enlace creado
+
+settings-sessions-linked-details = Detalles del enlace
+
+settings-sessions-linked-kind = Tipo de enlace
+
+settings-sessions-linked-kind-linked = Buzón vinculado
+
+settings-sessions-linked-last-used = último usado
+
+settings-sessions-linked-line = Acceso al buzón vinculado · desde { $origin }
+
+settings-sessions-linked-line-hidden = Acceso al buzón vinculado
+
+settings-sessions-linked-origin = viene de
+
+settings-sessions-linked-removed = Desconocido (cuenta eliminada)
+
+settings-sessions-linked-revoke = Revocar el acceso al enlace
+
+settings-sessions-linked-revoke-label = Revocar el acceso al enlace para { $mailbox }
+
+settings-sessions-linked-target = Buzón abierto
+
+settings-sessions-origin-full = dirección completa
+
+settings-sessions-origin-help = Controla cómo esta tabla nombra la cuenta de la que proviene una sesión de buzón vinculado. Sólo tú lo ves, en tus propias sesiones.
+
+settings-sessions-origin-hidden = Oculto
+
+settings-sessions-origin-masked-local-part = Dirección con la primera parte enmascarada.
+
+settings-sessions-origin-setting = Mostrar de dónde proviene el acceso al buzón vinculado
+
+settings-shortcuts-search = Buscar atajos

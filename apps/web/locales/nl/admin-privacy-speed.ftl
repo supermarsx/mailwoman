@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = Upstream ophalen
 privacy-speed-phase-decode = Decoderen en opnieuw coderen
 privacy-speed-phase-other = Al het overige
 privacy-speed-note = Alleen gemeten op dit serverproces, in het geheugen bewaard en leeg na een herstart. Percentielen zijn nauwkeurig tot op { $error } %. Er worden geen URL's, hosts of accounts opgeslagen.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = Gezamenlijke ophaalacties en prioriteitsverzoeken
+
+privacy-work-coalesced-series = Fetches samengevoegd met één tijdens de vlucht
+
+privacy-work-handle = Behandel het cachetrefferpercentage
+
+privacy-work-handle-series = Verwerk cachehits
+
+privacy-work-per-interval = Per bemonsteringsinterval
+
+privacy-work-percent = Aandeel van handle-zoekopdrachten
+
+privacy-work-priority-series = Prioritaire verzoeken
+
+privacy-work-resized = Afbeeldingen verkleind
+
+privacy-work-resized-series = Formaat gewijzigd
+
+privacy-work-revalidated-series = Opnieuw gevalideerd
+
+privacy-work-saved = Bytes bespaard door downscaling
+
+privacy-work-saved-series = Bytes opgeslagen
+
+privacy-work-stale = Oude afbeeldingen weergegeven en opnieuw gevalideerd
+
+privacy-work-stale-series = Oud geserveerd
+
+privacy-work-title = Werk vermeden en hervormd

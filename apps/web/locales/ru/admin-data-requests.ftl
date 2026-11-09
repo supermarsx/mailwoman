@@ -72,3 +72,58 @@ admin-dr-trail = Журнал
 admin-dr-behalf = Подать запрос за пользователя
 admin-dr-behalf-help = Для запроса, полученного по почте или лично. Человека не просят подтверждать сообщением.
 admin-dr-behalf-submit = Подать запрос
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Массовые действия
+
+admin-dr-bulk-action = Действие
+
+admin-dr-bulk-approve = Утвердить
+
+admin-dr-bulk-assign = Назначить
+
+admin-dr-bulk-clear = Очистить выбор
+
+admin-dr-bulk-csv = CSV выбора
+
+admin-dr-bulk-extend = Продлить срок выполнения
+
+admin-dr-bulk-failed = Отказался
+
+admin-dr-bulk-field-assignee = Назначить (пусто очищается)
+
+admin-dr-bulk-field-extend = Причина продления
+
+admin-dr-bulk-field-note = Примечание (необязательно)
+
+admin-dr-bulk-field-reason = Причина
+
+admin-dr-bulk-hold = Поместить под юридическое задержание
+
+admin-dr-bulk-ok = Готово
+
+admin-dr-bulk-reject = Отклонить
+
+admin-dr-bulk-release-hold = Освободите юридическую блокировку
+
+admin-dr-bulk-run = { $count ->
+        [one] Подать заявку на { $count } запрос
+        [few] Применить к { $count } запросам
+        [many] Применить к { $count } запросам
+       *[other] Применить к { $count } запросам
+    }
+
+admin-dr-bulk-select = Выберите запрос { $address }
+
+admin-dr-bulk-select-all = Выберите каждый запрос из списка
+
+admin-dr-bulk-selected = { $count ->
+        [one] выбран { $count } запрос
+        [few] выбрано { $count } запроса
+        [many] выбрано { $count } запросов
+       *[other] Выбрано { $count } запроса
+    }
+
+admin-dr-bulk-summary = Готово на { $done }; отказался на { $failed }. Отклоненные запросы остаются выбранными.
+
+admin-dr-more = Загрузить больше запросов

@@ -75,3 +75,153 @@ folder-dnd-more-actions = Organiser
 folder-dnd-selected-move = Déplacer la sélection vers…
 folder-dnd-locked-row = Verrouillé
 folder-dnd-problem-pin = Les dossiers épinglés restent au-dessus des autres. Désépinglez-le d’abord pour le déplacer à cet endroit.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Vide…
+
+folder-bar-label = Actions pour les dossiers sélectionnés
+
+folder-bar-mark-read = Marquer tout comme lu
+
+folder-bar-pin = Épingle
+
+folder-bar-star = Étoile
+
+folder-bar-unpin = Désépingler
+
+folder-bar-unstar = Supprimer la star
+
+folder-dnd-handle-hint = Faites glisser pour déplacer ce dossier
+
+folder-pinned-group = Épinglé
+
+folder-pinned-unpin-zone = Déposez ici pour désépingler
+
+settings-folders-bulk-delete-body = { $folders ->
+        [0] { $folders } dossiers (avec leurs sous-dossiers) et les messages { $messages } qu'ils contiennent seront supprimés. Cela ne peut pas être annulé.
+        [one] { $folders } dossier et les messages { $messages } qu'il contient seront supprimés. Cela ne peut pas être annulé.
+        [many] { $folders } dossiers (avec leurs sous-dossiers) et les messages { $messages } qu'ils contiennent seront supprimés. Cela ne peut pas être annulé.
+       *[other] { $folders } dossiers (avec leurs sous-dossiers) et les messages { $messages } qu'ils contiennent seront supprimés. Cela ne peut pas être annulé.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [0] Supprimer { $count } dossiers
+        [one] Supprimer { $count } dossier
+        [many] Supprimer { $count } dossiers
+       *[other] Supprimer { $count } dossiers
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [0] Supprimé { $count } dossiers
+        [one] { $count } dossier supprimé
+        [many] Supprimé { $count } dossiers
+       *[other] Supprimé { $count } dossiers
+    }
+
+settings-folders-bulk-delete-failed = Rien n'a été supprimé. Non supprimé : { $names }
+
+settings-folders-bulk-delete-list = Dossiers à supprimer
+
+settings-folders-bulk-delete-none = Aucun des dossiers sélectionnés ne peut être supprimé (les dossiers système et les dossiers que vous ne pouvez pas supprimer sont ignorés).
+
+settings-folders-bulk-delete-others = Non supprimé non plus : { $names }
+
+settings-folders-bulk-delete-partial = Dossiers { $done } supprimés. Non supprimé : { $names }
+
+settings-folders-bulk-delete-partial-done = Dossiers { $done } supprimés.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [0] Non supprimé car le compte est sous conservation légale ({ $count } dossiers) : { $names }
+        [one] Non supprimé car le compte est sous rétention légale : { $names }
+        [many] Non supprimé car le compte est sous conservation légale ({ $count } dossiers) : { $names }
+       *[other] Non supprimé car le compte est sous conservation légale ({ $count } dossiers) : { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [0] Non supprimé car le traitement du compte est restreint ({ $count } dossiers) : { $names }
+        [one] Non supprimé car le traitement du compte est restreint : { $names }
+        [many] Non supprimé car le traitement du compte est restreint ({ $count } dossiers) : { $names }
+       *[other] Non supprimé car le traitement du compte est restreint ({ $count } dossiers) : { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } les dossiers sélectionnés sont ignorés car ils ne peuvent pas être supprimés : { $names }
+
+settings-folders-bulk-delete-subfolders = Supprimez également les sous-dossiers de chaque dossier
+
+settings-folders-bulk-delete-subfolders-off = Seuls les dossiers sélectionnés sont supprimés. Un dossier comportant encore un sous-dossier en dehors de la sélection est conservé.
+
+settings-folders-bulk-delete-title = { $count ->
+        [0] Supprimer { $count } dossiers ?
+        [one] Supprimer { $count } dossier ?
+        [many] Supprimer { $count } dossiers ?
+       *[other] Supprimer { $count } dossiers ?
+    }
+
+settings-folders-bulk-empty-body = { $total } les messages dans les dossiers { $folders } seront supprimés : { $toTrash } seront déplacés vers la corbeille et pourront être annulés, { $permanent } seront définitivement supprimés et ne pourront pas être récupérés. Les sous-dossiers ne sont pas touchés.
+
+settings-folders-bulk-empty-confirm = Vider les dossiers
+
+settings-folders-bulk-empty-counting = Compter les messages dans chaque dossier…
+
+settings-folders-bulk-empty-done = { $count } dossiers vidés, { $messages } messages
+
+settings-folders-bulk-empty-fail-refused = le serveur en a refusé une partie ; { $remaining } messages restent
+
+settings-folders-bulk-empty-fail-stopped = arrêté; { $remaining } messages restent
+
+settings-folders-bulk-empty-fail-uncertain = le résultat du dernier lot est inconnu ; vérifie le dossier
+
+settings-folders-bulk-empty-list = Dossiers à vider
+
+settings-folders-bulk-empty-partial = Dossiers { $done } vidés ; { $failed } a échoué. Voir la liste.
+
+settings-folders-bulk-empty-permanent = { $count } les messages sont définitivement supprimés
+
+settings-folders-bulk-empty-progress = { $done } de { $of } dossiers terminés, { $messages } messages traités. Maintenant : { $name }
+
+settings-folders-bulk-empty-skip-count-failed = ne pouvait pas être compté, ignoré
+
+settings-folders-bulk-empty-skip-empty = déjà vide, ignoré
+
+settings-folders-bulk-empty-skip-permanent-denied = serait définitivement supprimé, ce que l'administrateur a désactivé, ignoré
+
+settings-folders-bulk-empty-skip-search = une recherche enregistrée, ignorée
+
+settings-folders-bulk-empty-skip-unsupported = ce compte ne peut pas le vider, ignoré
+
+settings-folders-bulk-empty-title = { $count ->
+        [0] Vider { $count } dossiers ?
+        [one] Vider { $count } dossier ?
+        [many] Vider { $count } dossiers ?
+       *[other] Vider { $count } dossiers ?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } les messages sont déplacés vers la corbeille
+
+settings-folders-bulk-empty-undo-label = Dossiers { $count } vidés (messages { $messages })
+
+settings-folders-delete-selected = Supprimer…
+
+settings-folders-select-user = Sélectionnez tous les dossiers utilisateur
+
+settings-folders-subscribe-failed = Les abonnements n'ont pas pu être modifiés.
+
+settings-folders-subscribe-partial = Dossiers { $done } modifiés ; { $failed } n'a pas pu être modifié.
+
+settings-folders-subscribe-selected = Abonnez-vous
+
+settings-folders-subscribed = { $count ->
+        [0] Abonné à { $count } dossiers
+        [one] Abonné à { $count } dossier
+        [many] Abonné à { $count } dossiers
+       *[other] Abonné à { $count } dossiers
+    }
+
+settings-folders-unsubscribe-selected = Se désabonner
+
+settings-folders-unsubscribed = { $count ->
+        [0] Désabonné de { $count } dossiers
+        [one] Désabonné de { $count } dossier
+        [many] Désabonné de { $count } dossiers
+       *[other] Désabonné de { $count } dossiers
+    }

@@ -182,3 +182,14 @@ admin-retention-userrules-users = ルールのあるユーザー
 admin-retention-userrules-rules = 有効なルール
 admin-retention-userrules-changed = 過去 30 日間に変更されたメッセージ
 admin-retention-userrules-lastjob = 前回のジョブ
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-retention-intro = 各ストアが個人データと行動データを保存する期間、およびサーバー ログ ファイルがどのようにローテーションされるか。毎日のスイープでは、以下の制限よりも古い行が削除されます。これらは構成可能なコントロールです。彼ら自身では、いかなる法律にも準拠した展開を行うわけではありません。
+
+admin-retention-loading = 保持を読み込み中…
+
+admin-retention-never = 決してしない
+
+admin-retention-title = 保持とログのローテーション
+
+admin-retention-unavailable = このサーバーでは保持を利用できません。

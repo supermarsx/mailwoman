@@ -116,3 +116,94 @@ retention-history-matched = Знайдено
 retention-history-changed = Змінено
 retention-history-errors = Помилки
 retention-context-action = Зберігання…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Календарі
+
+pim-cal-days = Днів після завершення події
+
+pim-cal-enabled = Видалити завершені події
+
+pim-cal-help = Видаляйте події у вибраних вами календарях через задану кількість днів після їх завершення. Повторювані події ніколи не видаляються.
+
+pim-cal-title = Календар подій
+
+pim-days-range = Виберіть між { $min } та { $max } днями.
+
+pim-held-title = Видалені нотатки можна відновити
+
+pim-held-until = Зберігається до { $when }
+
+pim-limits = Між { $min } і { $max } днями.
+
+pim-notes-days = Днів із моменту останньої зміни нотатки
+
+pim-notes-enabled = Видаліть незаймані нотатки
+
+pim-notes-help = Видаліть нотатки, які ви не змінювали протягом встановленої кількості днів. Закріплені нотатки зберігаються. Видалену нотатку можна відновити протягом { $days } днів.
+
+pim-notes-title = Примітки
+
+pim-off = Вимкнено вашим адміністратором.
+
+pim-preview = Попередній перегляд
+
+pim-restore = Відновити
+
+pim-result = Події { $events } та примітки { $notes }.
+
+pim-run = Біжи зараз
+
+pim-run-title = Біжи зараз
+
+pim-save = зберегти
+
+pim-skipped = { $count } варіант(ів) було пропущено, оскільки ваш адміністратор їх вимкнув.
+
+pim-untitled = Замітка без назви
+
+retention-action-stripAttachments = Видаліть великі вкладення
+
+retention-do-stripAttachments = видалені вкладення
+
+retention-error-strip-disabled = Видалення вкладень заборонено вашим адміністратором.
+
+retention-error-strip-min = Правило, яке видаляє вкладення, має чекати щонайменше { $days } днів.
+
+retention-fd-action = Що відбувається з поштою в { $folder }
+
+retention-fd-days = Днів до обробки { $folder }
+
+retention-fd-help = Встановіть, як довго лист залишатиметься в папці перед переміщенням або видаленням. Папка, для якої встановлено значення «Успадкувати», не має власного за замовчуванням; наведені вище правила та обмеження адміністратора все ще застосовуються. Підпапки слідують за папкою.
+
+retention-fd-inherit = Успадкувати
+
+retention-fd-mandatory = Адміністратор зберігає цю папку протягом { $days } днів
+
+retention-fd-protected = Охороняється адміністратором
+
+retention-fd-save = Зберегти стандартні параметри папки
+
+retention-fd-title = Стандартні параметри папки
+
+retention-rule-strip-off = Вимкнено вашим адміністратором
+
+retention-strip-allowed = Правило може видаляти вкладення розміром принаймні { $kb } КБ із пошти, що має принаймні { $days } день тому. Коротка примітка замінює кожне вкладення.
+
+retention-strip-denied = Ваш адміністратор вимкнув видалення вкладень.
+
+retention-strip-done = З повідомлень { $count } вилучено вкладення, звільнивши { $size }.
+
+retention-strip-inline-kept = Зображення, показані в повідомленні, зберігаються.
+
+retention-strip-inline-removed = Зображення, показані всередині повідомлення, також видаляються.
+
+retention-strip-limits = Видаляє вкладення розміром принаймні { $kb } КБ із пошти, що має принаймні { $days } день тому. Оригінал залишається у кошику { $undo } днів.
+
+retention-strip-preview = Повідомлення { $count } втратять вкладення, звільняючи { $size }.
+
+retention-strip-preview-estimate = Близько { $count } повідомлень втратить вкладення, звільнивши до { $size }.
+
+retention-strip-skipped = { $count } правил, які видаляють вкладення, було пропущено, оскільки ваш адміністратор вимкнув це.
+
+retention-summary-stripAttachments = через { $days } днів великі вкладення видалено

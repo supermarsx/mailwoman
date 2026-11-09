@@ -1287,3 +1287,270 @@ mail-color-confirm-title = Изменить цвета сообщений по �
 mail-color-confirm-body = Все сообщения будут использовать режим «{ $mode }», пока вы не измените его для отдельного сообщения.
 mail-color-confirm = Сделать по умолчанию
 mail-color-default-failed = Не удалось сохранить цвета сообщений по умолчанию.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = Выбранные сообщения не имеют вложений для загрузки.
+
+mail-attachments-zip-all-blocked = Ничего не было загружено: политика вложений блокирует все файлы { $skipped }.
+
+mail-attachments-zip-gathering = Сбор вложений сообщений { $count }…
+
+mail-attachments-zip-skipped = { $skipped ->
+        [one] { $skipped } файл, заблокированный политикой вложений, был исключен.
+        [few] { $skipped } файла, заблокированные политикой вложений, были исключены.
+        [many] { $skipped } файлов, заблокированных политикой вложений, были исключены.
+       *[other] { $skipped } файла, заблокированные политикой вложений, были исключены.
+    }
+
+mail-attachments-zip-unreadable = Вложения сообщений { $count } не удалось прочитать и были исключены.
+
+mail-bulk-download-attachments = Загрузите вложения как ZIP
+
+mail-compose-from-via = Он соответствовал заголовку { $header }.
+
+mail-compose-from-why-match-domain = Отправка из { $identity }, поскольку сообщение было доставлено на { $address }, адрес в том же домене.
+
+mail-compose-from-why-match-pattern = Отправка с { $identity }, поскольку сообщение было отправлено на { $address }, что соответствует шаблону адреса этого идентификатора.
+
+mail-compose-ribbon-autohide = Автоматическое скрытие ленты (Ctrl+F1)
+
+mail-compose-ribbon-pin = Всегда показывать ленту (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+        [one] Загрузите вложения выбранного сообщения как ZIP
+        [few] Загрузите вложения к { $count } выбранным сообщениям как ZIP
+        [many] Загрузите вложения из { $count } выбранных сообщений как ZIP
+       *[other] Загрузите вложения из { $count } выбранных сообщений как ZIP
+    }
+
+mail-context-download-thread-attachments = Загрузите все вложения беседы { $count } как ZIP.
+
+mail-context-open-new-tab = Открыть в новой вкладке
+
+mail-delete-sender-confirm = Переместить сообщения { $count } в корзину.
+
+mail-delete-sender-detail = Переместить сообщения { $count } из { $sender } в корзину? Сообщения, уже находящиеся в корзине, исключаются. Вы можете отменить это действие.
+
+mail-delete-sender-empty = За пределами корзины нет сообщений от этого отправителя.
+
+mail-delete-sender-failed = Не удалось проверить каждое соответствующее сообщение и его разрешения. Ничего не было перемещено; Попробуйте еще раз.
+
+mail-delete-sender-help = Найдите сообщения этого отправителя во всех папках и после подтверждения переместите их в корзину.
+
+mail-delete-sender-title = Удалить все сообщения от этого отправителя
+
+mail-draft-continue = Продолжить редактирование
+
+mail-draft-edit = Изменить черновик
+
+mail-draft-edit-failed = Черновик не удалось открыть для редактирования.
+
+mail-draft-edit-help = Откройте этот черновик в композиторе, чтобы продолжить его редактирование.
+
+mail-draft-notice = Это черновик
+
+mail-file-copied = Скопировано в буфер обмена.
+
+mail-file-copy-failed = Не удалось скопировать в буфер обмена.
+
+mail-file-copy-fingerprint = Копировать отпечаток пальца
+
+mail-file-copy-name = Скопировать имя файла
+
+mail-file-created = Создано
+
+mail-file-creator = Создано с
+
+mail-file-details-button = Детали файла
+
+mail-file-details-tooltip = Показать сведения о файле и отпечаток пальца
+
+mail-file-encryption = Защита паролем
+
+mail-file-encryption-none = Пароль не запрашивался
+
+mail-file-encryption-password = Чтобы открыть его, требовался пароль
+
+mail-file-fingerprint = Отпечаток пальца
+
+mail-file-name = Имя файла
+
+mail-file-pages = Страницы
+
+mail-file-pdf-version = PDF версия
+
+mail-file-producer = Продюсер
+
+mail-file-verify-help = Сравните эти группы с отпечатком пальца, который отправитель дал вам другим способом, например, по телефону или на своем веб-сайте. Если все группы совпадают, у вас точно одинаковые байты.
+
+mail-file-verify-title = Проверьте отпечаток пальца
+
+mail-follow-up-finished = Последующие действия завершены
+
+mail-group-by = Группировать по
+
+mail-header-attachments = { $count ->
+        [one] { $count } вложение
+        [few] { $count } вложения
+        [many] { $count } вложений
+       *[other] { $count } вложения
+    }
+
+mail-header-expand-short = Развернуть заголовок сообщения (Alt+H)
+
+mail-list-group-date-unknown = Неизвестная дата
+
+mail-list-group-importance = Важность
+
+mail-list-group-locked = Группировка сообщений заблокирована администратором.
+
+mail-list-group-no-subject = (Нет темы)
+
+mail-list-group-none = Нет группировки
+
+mail-list-group-priority-high = Высокая важность
+
+mail-list-group-priority-low = Низкая важность
+
+mail-list-group-priority-normal = Нормальная важность
+
+mail-list-group-received = Дата получения
+
+mail-list-group-sender = От
+
+mail-list-group-sent = Дата отправки
+
+mail-list-group-size = Размер
+
+mail-list-group-size-huge = 10 МБ и выше
+
+mail-list-group-size-large = 1–10 МБ
+
+mail-list-group-size-medium = 100 КБ–1 МБ
+
+mail-list-group-size-small = 25–100 КБ
+
+mail-list-group-size-tiny = Менее 25 КБ
+
+mail-list-group-subject = Тема
+
+mail-list-order-importance = Важность, высокая в первую очередь
+
+mail-list-order-importance-asc = Важность, сначала низкая
+
+mail-list-order-locked = Порядок сообщений заблокирован вашим администратором.
+
+mail-list-order-sender-desc = Отправитель, от Я до А
+
+mail-list-order-sent-newest = Отправлено, сначала самое новое
+
+mail-list-order-sent-oldest = Отправлено, сначала самое старое
+
+mail-list-order-size = Размер, сначала самый большой
+
+mail-list-order-size-asc = Размер, сначала самый маленький
+
+mail-list-order-subject-desc = Тема: от Я до А
+
+mail-mark-answered = Отметить как ответ
+
+mail-mark-as = Отметить как
+
+mail-mark-finished = Отметить как завершенное
+
+mail-mark-forwarded = Отметить как перенаправленное
+
+mail-mark-not-forwarded = Отметить как не пересланное
+
+mail-mark-unanswered = Отметить как оставшийся без ответа
+
+mail-mentions-me = Упоминает меня
+
+mail-mentions-me-help = Поиск сообщений, в которых упоминается один из ваших адресов электронной почты.
+
+mail-move-search = Поиск по папкам
+
+mail-order-by = Заказать по
+
+mail-reader-folder-go = Хранится в { $folder } · Перейти в папку
+
+mail-reply-draft-discard = Отменить ответ
+
+mail-reply-draft-discard-detail = Удалить этот ответ навсегда? Это невозможно отменить.
+
+mail-reply-draft-discard-title = Удалить этот ответ?
+
+mail-status-from-match-domain = От { $identity }
+
+mail-status-from-match-pattern = От { $identity }
+
+mail-status-from-via = Отвечаю с { $identity }, потому что оно соответствует { $header }
+
+mail-toast-follow-up-finished = Продолжение отмечено как завершенное
+
+mail-toast-marked-answered = { $count ->
+        [one] { $count } сообщение отмечено как отвеченное
+        [few] { $count } сообщения отмечены как отвеченные
+        [many] { $count } сообщений отмечены как отвеченные
+       *[other] { $count } сообщения отмечены как отвеченные
+    }
+
+mail-toast-marked-forwarded = { $count ->
+        [one] { $count } сообщение помечено как пересланное
+        [few] { $count } сообщения отмечены как пересланные
+        [many] { $count } сообщений помечены как пересланные
+       *[other] { $count } сообщения отмечены как пересланные
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+        [one] { $count } сообщение помечено как не пересланное
+        [few] { $count } сообщения отмечены как не пересланные
+        [many] { $count } сообщений помечены как не пересланные
+       *[other] { $count } сообщения отмечены как не пересланные
+    }
+
+mail-toast-marked-unanswered = { $count ->
+        [one] { $count } сообщение помечено как оставшееся без ответа
+        [few] { $count } сообщения отмечены как неотвеченные
+        [many] { $count } сообщений помечены как неотвеченные
+       *[other] { $count } сообщения отмечены как неотвеченные
+    }
+
+mail-toast-move-failed-reason = Не удалось переместить сообщения ({ $reason }). Ничего не было перемещено.
+
+mail-toast-update-refused-reason = { $count ->
+        [one] Сервер отказал в перемещении по одному сообщению: { $reason }
+        [few] Сервер отклонил перемещение сообщений ({ $count }): { $reason }
+        [many] Сервер отклонил перемещение для { $count } сообщений: { $reason }
+       *[other] Сервер отказал в перемещении на { $count } сообщения: { $reason }
+    }
+
+reader-badge-hide = Скрыть этот значок
+
+reader-badge-locked = Устанавливается вашим администратором
+
+reader-badge-menu = Значок сообщения
+
+reader-badge-notable = Показывать только тогда, когда это заметно
+
+reader-sanitized-always = Активный контент, например сценарии, остается отключенным.
+
+reader-sanitized-clean = Сообщение HTML не требует изменений.
+
+reader-sanitized-clean-detail = Из этого сообщения HTML ничего не было удалено или заблокировано.
+
+reader-sanitized-counts = { $blocked } удаленные элементы заблокированы, { $trackers } элементы отслеживания.
+
+reader-sanitized-detail = Сообщение HTML было очищено перед показом. Удаленный контент соответствует вашим настройкам конфиденциальности.
+
+reader-sanitized-hosts = Удаленные хосты
+
+reader-sanitized-remote = Удаленный контент заблокирован
+
+reader-sanitized-short = Продезинфицирован HTML
+
+reader-sanitized-short-blocked = HTML заблокирован
+
+reader-sanitized-short-clean = HTML чистый
+
+reader-sanitized-trackers = Отслеживание предметов

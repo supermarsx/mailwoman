@@ -164,3 +164,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Hormigón gris ministerio, texto en papel desvaído, rojo del Gran Hermano; mensajes en fuente monoespaciada.
 appearance-theme-pop-art = Arte pop
 appearance-theme-pop-art-desc = Página blanca, contornos negros, rojo, azul y amarillo primarios, puntos Ben-Day en la barra lateral.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Importancia
+
+appearance-preference-group-option-none = Sin agrupación
+
+appearance-preference-group-option-received = Fecha de recepción
+
+appearance-preference-group-option-sender = Remitente
+
+appearance-preference-group-option-sent = Fecha de envío
+
+appearance-preference-group-option-size = Tamaño del mensaje
+
+appearance-preference-group-option-subject = Asunto
+
+appearance-preference-mail-list-pageSize = Mensajes cargados por página (20 a 200)
+
+appearance-preference-mail-messageListGroup = Agrupación de mensajes
+
+appearance-preference-message-group-help = Mantenga los mensajes relacionados juntos bajo los encabezados de grupo. Elija Sin agrupación para obtener una lista continua. El orden de sus mensajes se aplica dentro de cada grupo.
+
+appearance-preference-message-order-help = Elija el orden de los mensajes dentro de cada grupo o en toda la lista cuando la agrupación esté desactivada.
+
+appearance-preference-option-importance = Importancia, alta primero
+
+appearance-preference-option-importance-asc = Importancia, baja primero
+
+appearance-preference-option-received = Fecha de recepción
+
+appearance-preference-option-sender-desc = Remitente, Z a A
+
+appearance-preference-option-sent = Fecha de envío
+
+appearance-preference-option-sent-newest = Enviado, lo más nuevo primero
+
+appearance-preference-option-sent-oldest = Enviado, el más antiguo primero
+
+appearance-preference-option-size = Tamaño, el más grande primero
+
+appearance-preference-option-size-asc = Tamaño, el más pequeño primero
+
+appearance-preference-option-subject-desc = Asunto, Z a A

@@ -175,3 +175,122 @@ contacts-favorites-empty = お気に入りはまだありません。連絡先�
 contacts-membership-count = { $count ->
    *[other] { $count } 人のメンバー
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } はすでに連絡先にあります。
+
+contacts-save-already-badge = すでに保存されています
+
+contacts-save-already-many = すべての { $count } の連絡先がすでに保存されています。
+
+contacts-save-automated = これは自動送信者 (返信なし、通知) のように見えます。
+
+contacts-save-book = アドレス帳
+
+contacts-save-book-readonly = { $name } (読み取り専用)
+
+contacts-save-cancel = キャンセル
+
+contacts-save-choose = 連絡先を選択してください…
+
+contacts-save-contacts = このメッセージから連絡先を保存します
+
+contacts-save-dialog-title = このメッセージから連絡先を保存します
+
+contacts-save-email = 電子メール
+
+contacts-save-failed = 連絡先を保存できませんでした。もう一度やり直してください。
+
+contacts-save-group = グループ
+
+contacts-save-group-none = グループなし
+
+contacts-save-loading = アドレスを読み込み中…
+
+contacts-save-name = 名前
+
+contacts-save-new = 新しい連絡先を保存する
+
+contacts-save-no-book = 新しい連絡先を取得できるアドレス帳はありません。
+
+contacts-save-no-sender = このメッセージには送信者アドレスがありません。
+
+contacts-save-note = { $date } のメッセージから保存されました
+
+contacts-save-nothing = 保存する人がいません: 誰もがすでに連絡先に登録されています、あなたですか、あるいは自動化されているように見えます。
+
+contacts-save-open = 開く
+
+contacts-save-open-contact = オープンコンタクト
+
+contacts-save-open-link = オープンコンタクト
+
+contacts-save-own = これはあなた自身のアドレスの 1 つです。
+
+contacts-save-partial = { $total } 件中 { $saved } 件の連絡先を保存しました。他の人は救われませんでした。
+
+contacts-save-pick = { $email } を節約
+
+contacts-save-recipients = すべての受信者を保存する
+
+contacts-save-removed = 保存された連絡先が削除されました。
+
+contacts-save-role-bcc = Bcc
+
+contacts-save-role-cc = Cc
+
+contacts-save-role-from = から
+
+contacts-save-role-replyTo = 返信先
+
+contacts-save-role-sender = 送信者
+
+contacts-save-role-to = に
+
+contacts-save-saved-heading = すでに連絡先にあります
+
+contacts-save-saved-many = { $count } 件の連絡先を { $book } に保存しました
+
+contacts-save-saved-one = { $name } から { $book } に保存しました
+
+contacts-save-sender = 送信者を連絡先として保存
+
+contacts-save-settings-book = アドレス帳
+
+contacts-save-settings-book-default = デフォルトのアドレス帳
+
+contacts-save-settings-enabled = このメッセージから連絡先を保存する
+
+contacts-save-settings-enabled-help = メッセージ メニューとリーダーの [その他] メニューに項目を追加します。
+
+contacts-save-settings-note = 日付を記したメモを追加する
+
+contacts-save-settings-note-help = メモには「メッセージを保存しました」と日付が続きます。
+
+contacts-save-settings-reply-to = リストと通知の送信者に Reply-To を使用する
+
+contacts-save-settings-reply-to-help = これらの送信者の From ではなく Reply-To アドレスを保存します。
+
+contacts-save-settings-scope = ダイアログで最初にチェックを入れます
+
+contacts-save-settings-scope-all = メッセージに参加している皆さん
+
+contacts-save-settings-scope-sender = 送信者のみ
+
+contacts-save-settings-sender = オファー 送信者を連絡先として保存
+
+contacts-save-settings-sender-help = メッセージ メニューのワンクリック項目。
+
+contacts-save-settings-skip = 自動送信者をスキップする
+
+contacts-save-settings-skip-help = チェックを入れない限り、非応答アドレス、通知アドレス、および返送アドレスは除外されます。
+
+contacts-save-settings-title = メッセージから連絡先を保存する
+
+contacts-save-show-automated = 自動アドレスと応答なしアドレスを表示する
+
+contacts-save-submit = { $count ->
+       *[other] { $count } 件の連絡先を保存
+    }
+
+contacts-save-undo = 元に戻す

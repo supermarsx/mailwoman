@@ -163,3 +163,24 @@ multiselect-count = { $count ->
 
 # -- Machine translation (2026-11): added to match en ---------------------
 common-rate-limited = サーバーが混み合っています。数秒待ってからもう一度お試しください。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+combobox-empty = 一致しません
+
+combobox-toggle = { $label } のオプションを表示
+
+common-attach-cat-archive = アーカイブ
+
+common-attach-cat-document = 書類
+
+common-attach-cat-spreadsheet = スプレッドシート
+
+common-conn-reconnecting = 再接続中…
+
+common-viewer-pdf-details = 技術的な詳細
+
+common-viewer-pdf-details-help = 問題を報告するときは、次の行を含めてください。文書コンテンツは含まれていません。
+
+timezone-group-other = その他
+
+timezone-use-browser = ブラウザのタイムゾーン ({ $zone }) を使用する

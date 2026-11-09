@@ -64,3 +64,63 @@ reader-card-loading = Laden
 reader-card-loading-help = Wat u ziet terwijl een bericht wordt geopend.
 settings-mail-card-list = Berichtenlijst
 settings-mail-card-list-help = Rij-acties en wat de lijst doet wanneer u een bericht bewerkt.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Downloaden { $name }
+
+reader-attachments-download-all = Alles downloaden
+
+reader-attachments-download-all-blocked = Het bijlagebeleid blokkeert hier elk bestand
+
+reader-attachments-download-all-busy = Het ZIP-bestand voorbereiden
+
+reader-attachments-download-all-label = Download alle bijlagen als ZIP bestand
+
+reader-attachments-download-all-none = Er zijn geen bijlagen om te downloaden
+
+reader-attachments-download-all-warned = { $count ->
+        [one] Eén bestand dat een bevestiging nodig heeft, is weggelaten. Download het zelf.
+       *[other] Er zijn { $count } bestanden weggelaten die een bevestiging nodig hebben. Download ze één voor één.
+    }
+
+reader-attachments-download-blocked = { $name } kan niet worden gedownload: { $reason }
+
+reader-attachments-download-label = Downloaden { $name } ({ $size })
+
+reader-attachments-download-off = Downloads zijn uitgeschakeld
+
+reader-attachments-inline-group = { $count ->
+        [one] { $count } inline-afbeelding
+       *[other] { $count } inline-afbeeldingen
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [one] { $count } inline-afbeelding
+       *[other] { $count } inline-afbeeldingen
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Klik op de balk om uit te vouwen of samen te vouwen
+
+reader-attachmentsBarClickToToggle-help = Als u ergens op de bijlagenbalk klikt, wordt deze omgeschakeld. Wanneer uitgeschakeld, doet alleen de pijlknop dat.
+
+reader-attachmentsBarDownloadAll = Knop Alles downloaden
+
+reader-attachmentsBarDownloadAll-help = Toon een knop op de balk die de bijlagen downloadt als één ZIP bestand.
+
+reader-attachmentsBarShowDownloadButtons = Downloadknoppen op bijlagen
+
+reader-attachmentsBarShowDownloadButtons-help = Toon de downloadknop van elke bijlage door aanwijzen of focussen, altijd of nooit.
+
+reader-attachmentsBarZipInlineImages = Voeg inline afbeeldingen toe in de ZIP
+
+reader-attachmentsBarZipInlineImages-help = Afbeeldingen die in de berichttekst verschijnen, worden buiten Download alles gelaten, tenzij dit is ingeschakeld.
+
+reader-card-attachments-bar = Bijlagenbalk
+
+reader-card-attachments-bar-help = Hoe de balk boven de bijlagen van een bericht reageert en wat deze biedt. Lijnen die als vergrendeld zijn gemarkeerd, worden door uw beheerder ingesteld.
+
+reader-option-always = Altijd
+
+reader-option-hover = Bij hover of focus
+
+reader-option-never = Nooit

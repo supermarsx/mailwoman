@@ -63,3 +63,32 @@ search-refine-subject = 搜索此主题的邮件
 search-refine-folder = 在此文件夹中搜索
 search-refine-domain = 搜索此域名的邮件
 search-include-trash-scoped = “包含废纸篓”仅在搜索所有文件夹时生效。所选文件夹会被直接搜索。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = 已回答
+
+search-chip-finished = 完成
+
+search-chip-followup = 标记为后续
+
+search-chip-forwarded = 转发
+
+search-chip-high-priority = 高优先级
+
+search-chip-low-priority = 低优先级
+
+search-chip-mentions-me = 提到我
+
+search-chip-no-followup = 未标记为后续
+
+search-chip-not-high-priority = 优先级不高
+
+search-chip-not-low-priority = 优先级不低
+
+search-chip-unanswered = 未回复
+
+search-chip-unfinished = 未完成
+
+search-chip-unforwarded = 未转发
+
+search-field-mentions = 提及

@@ -635,3 +635,24 @@ admin-protect-sim-cause-no-database = ninguna base de datos cargada
 admin-protect-sim-cause-not-found = dirección no incluida en la base de datos
 admin-protect-sim-heightened-off = El modo reforzado de inicio de sesión está desactivado.
 admin-protect-sim-heightened-on = El modo reforzado de inicio de sesión está activado: la espera se ralentiza a { $pace } ({ $cooldown }), desafío forzado: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sesiones y reinicios
+
+admin-secdash-sessions-admin = Sesiones de consola
+
+admin-secdash-sessions-mailbox = Sesiones de buzón
+
+admin-secdash-sessions-native = Sesiones de aplicaciones
+
+admin-secdash-sessions-reason-persisted = almacenado en la base de datos, sellado con la clave del servidor
+
+admin-secdash-sessions-reason-server-key-changed = las sesiones almacenadas no se abren con la clave del servidor actual; restaurar el archivo de clave original
+
+admin-secdash-sessions-reason-server-key-ephemeral = la clave del servidor no se mantiene durante los reinicios
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts está desactivado, por lo que las sesiones finalizan cuando se inicia el servidor
+
+admin-secdash-sessions-survive-no = Las sesiones sobreviven a los reinicios: no ({ $reason })
+
+admin-secdash-sessions-survive-yes = Las sesiones sobreviven a los reinicios: sí ({ $reason })

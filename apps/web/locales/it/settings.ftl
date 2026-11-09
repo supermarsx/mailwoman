@@ -719,3 +719,104 @@ settings-folder-icon-group-personal = Personale e svago
 settings-folder-icon-group-tech = Tecnologia e strumenti
 settings-folder-icon-search-label = Cerca icone
 settings-folder-icon-no-match = Nessuna icona corrisponde
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Autenticazione (DMARC)
+
+settings-badge-auth-help = Il risultato DMARC; apre tutti i dettagli di sicurezza.
+
+settings-badge-density = Dimensioni del distintivo
+
+settings-badge-density-comfortable = Confortevole
+
+settings-badge-density-compact = Compatto
+
+settings-badge-density-help = Altezza e spaziatura compatta o comoda per ogni badge.
+
+settings-badge-folder = Cartella
+
+settings-badge-folder-help = Dove è archiviato il messaggio. Solo quando è notevole lo mostra per Junk and Trash.
+
+settings-badge-labels = Etichette per badge
+
+settings-badge-labels-help = Icona con testo o solo icona (il testo completo rimane nella descrizione comando e per le utilità per la lettura dello schermo).
+
+settings-badge-labels-icon = Solo icona
+
+settings-badge-labels-text = Icona e testo
+
+settings-badge-list = Lista di posta
+
+settings-badge-list-help = La mailing list da cui proviene il messaggio; apre i dettagli e le azioni dell'abbonamento. Solo quando notevole lo mostra quando la posta continua ad arrivare dopo aver annullato l'iscrizione.
+
+settings-badge-mode-always = Sempre
+
+settings-badge-mode-never = Mai
+
+settings-badge-mode-notable = Solo quando notevole
+
+settings-badge-sanitized = Sanificato HTML
+
+settings-badge-sanitized-help = Che cosa ha fatto il disinfettante HTML al messaggio. Solo quando notevole lo mostra quando qualcosa è stato bloccato.
+
+settings-badge-spam = Punteggio spam
+
+settings-badge-spam-help = Il punteggio che il server ricevente ha scritto nelle intestazioni dei messaggi.
+
+settings-folders-hide-empty = Nascondi le cartelle vuote nella barra laterale
+
+settings-folders-hide-empty-help = Le cartelle riappaiono quando contengono messaggi. La posta in arrivo, le cartelle di ricerca, le cartelle con conteggi sconosciuti e le cartelle principali delle cartelle visibili rimangono visualizzate. Sostituisci le singole cartelle in Proprietà, Visualizzazione; ogni cartella rimane in questo elenco.
+
+settings-folders-list-card = Elenco e ordine delle cartelle
+
+settings-header-auto-collapse = Piega l'intestazione dopo aver scritto (secondi)
+
+settings-header-auto-collapse-help = Quando il corpo è stato concentrato per questo numero di secondi e l'intestazione ha un destinatario e un oggetto, si ripiega sulla riga di riepilogo. 0 lo disattiva.
+
+settings-message-badges = Badge dei messaggi
+
+settings-message-badges-help = Scegli quali badge visualizzare nell'intestazione di un messaggio aperto. I segni di priorità sono impostati in Cartelle e barra laterale. Puoi anche fare clic con il pulsante destro del mouse su un badge per nasconderlo.
+
+settings-reply-from-headers = Intestazioni che scelgono l'identità
+
+settings-reply-from-headers-help = Un nome di intestazione per riga, provato in questo ordine: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc. Un'intestazione tralasciata non viene letta.
+
+settings-reply-from-headers-invalid = Utilizza solo questi nomi, uno per riga: Consegnato-A, X-Originale-A, Busta-A, X-Inoltrato-A, Risentito-A, A, Cc.
+
+settings-reply-from-headers-save = Salva l'ordine delle intestazioni
+
+settings-sessions-linked-created = Collegamento creato
+
+settings-sessions-linked-details = Dettagli del collegamento
+
+settings-sessions-linked-kind = Tipo di collegamento
+
+settings-sessions-linked-kind-linked = Casella di posta collegata
+
+settings-sessions-linked-last-used = Ultimo usato
+
+settings-sessions-linked-line = Accesso alla casella di posta collegata · da { $origin }
+
+settings-sessions-linked-line-hidden = Accesso alla casella di posta collegata
+
+settings-sessions-linked-origin = Viene da
+
+settings-sessions-linked-removed = Sconosciuto (account rimosso)
+
+settings-sessions-linked-revoke = Revoca l'accesso al collegamento
+
+settings-sessions-linked-revoke-label = Revoca l'accesso al collegamento per { $mailbox }
+
+settings-sessions-linked-target = Cassetta postale aperta
+
+settings-sessions-origin-full = Indirizzo completo
+
+settings-sessions-origin-help = Controlla il modo in cui questa tabella denomina l'account da cui proviene una sessione di cassetta postale collegata. Solo tu lo vedi, nelle tue sessioni.
+
+settings-sessions-origin-hidden = Nascosto
+
+settings-sessions-origin-masked-local-part = Indirizzo con la prima parte mascherata
+
+settings-sessions-origin-setting = Mostra da dove proviene l'accesso alla casella di posta collegata
+
+settings-shortcuts-search = Cerca scorciatoie

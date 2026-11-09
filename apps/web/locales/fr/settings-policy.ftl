@@ -44,3 +44,6 @@ cache-card-prefetch = Préchargement
 cache-card-prefetch-help = Charger les messages à l’avance pour qu’ils s’ouvrent instantanément. Consomme plus de données.
 settings-folder-counts-card = Pastilles de compteur
 settings-folder-counts-card-help = Ce qu’indiquent les nombres à côté des dossiers et quels dossiers en ont un.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Langue et région

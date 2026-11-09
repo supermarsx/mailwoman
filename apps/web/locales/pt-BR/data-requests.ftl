@@ -101,3 +101,30 @@ dr-event-due-soon = Prazo próximo
 dr-event-overdue = Atrasada
 dr-event-retry = Repetida
 dr-event-grace-skipped = Período de espera dispensado por um administrador
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = O que você se opõe
+
+dr-objection-purposes-help = Quando um administrador aprova a solicitação, seu consentimento para cada finalidade marcada é retirado imediatamente. Você pode ativar uma finalidade novamente mais tarde em Consentimentos.
+
+dr-objection-purposes-list = Objeção a: { $purposes }
+
+dr-purpose-analytics = Estatísticas de uso
+
+dr-purpose-analyticsTag = Etiqueta do Google Analytics
+
+dr-purpose-assistant = Assistente
+
+dr-purpose-integrations = Integrações e chaves API
+
+dr-purpose-openTracking = Rastreamento de abertura e leitura
+
+dr-purpose-push = Notificações push
+
+dr-rectify-banner = Atualizando detalhes da solicitação { $ref }
+
+dr-rectify-done = Marcar como concluído
+
+dr-rectify-edit = Editar meus dados
+
+dr-rectify-ref = Referência { $ref }. Cite-o se você nos escrever sobre esta correção.

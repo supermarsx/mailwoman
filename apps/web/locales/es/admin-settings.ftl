@@ -1856,3 +1856,616 @@ admin-settings-key-ratelimit-anon-per-minute = Solicitudes de consentimiento an�
 admin-settings-help-ratelimit-anon-per-minute = Solicitudes por minuto que una dirección recupera en las rutas anónimas de consentimiento de cookies. Rango 1-600; por defecto 30.
 admin-settings-key-ratelimit-trusted-multiplier = Asignación de la cuenta desde un origen conocido (%)
 admin-settings-help-ratelimit-trusted-multiplier = Porcentaje de la asignación de solicitudes de la cuenta que recibe un buzón con sesión iniciada cuando la solicitud proviene de un origen con un inicio de sesión correcto registrado. 100 mantiene la asignación base. Nunca relaja los presupuestos anónimo, de administrador o de user-agent ni un bloqueo activo. Rango 100-1000; por defecto 150.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-attachments-bar-click-to-toggle = Ya sea que al hacer clic en cualquier lugar de la barra de archivos adjuntos del lector se expanda o se contraiga. Cuando está apagado, solo lo hace el botón de flecha.
+
+admin-settings-help-attachments-bar-download-all = Si la barra de archivos adjuntos ofrece un botón Descargar todo que guarda los archivos adjuntos permitidos como un archivo ZIP.
+
+admin-settings-help-attachments-bar-show-download-buttons = Cuando cada archivo adjunto en la barra muestra su botón de descarga: al pasar el mouse o enfocar (predeterminado), siempre o nunca. Las descargas aún siguen la política de archivos adjuntos y mail.allowDownload.
+
+admin-settings-help-attachments-bar-zip-inline-images = Si las imágenes que se muestran dentro del texto del mensaje están incluidas en Descargar todo ZIP. Desactivado de forma predeterminada.
+
+admin-settings-help-cap-reading-delete-sender = Permita que los usuarios habiliten la acción del lector que mueve todos los mensajes coincidentes del remitente a la Papelera después de la confirmación. Deshabilitado por defecto. El perfil de característica también debe permitirlo.
+
+admin-settings-help-compose-feature-family = Activa o desactiva un control de compositor mediante la identificación de la función. Activado por defecto; bloquearlo para evitar que los usuarios lo cambien.
+
+admin-settings-help-compose-headers-allow-auto-submitted = Permite a los usuarios configurar el envío automático (RFC 3834) en un mensaje. Desactivado por defecto: indica a otros sistemas que no respondan.
+
+admin-settings-help-compose-headers-allow-custom = Permite a los usuarios agregar sus propios encabezados (hasta 20, nombres verificados, encabezados protegidos rechazados).
+
+admin-settings-help-compose-headers-allow-return-receipt-to = Permite a los usuarios solicitar recibos con el encabezado Devolución de recibo heredado. Desactivado de forma predeterminada.
+
+admin-settings-help-compose-headers-allow-threading-edit = Permite a los usuarios editar respuestas y referencias, o iniciar un nuevo hilo a partir de una respuesta.
+
+admin-settings-help-compose-headers-forced = Un par Nombre=valor por línea, agregado a cada mensaje enviado desde el dominio y reemplazando el valor del usuario. Se rechazan los encabezados protegidos.
+
+admin-settings-help-compose-insert-image-resize-default = El tamaño con el que comienza el cuadro de diálogo Imagen desde archivo: original, grande (1600 px) o mediano (1024 px).
+
+admin-settings-help-compose-insert-max-inline-image-mb = Las imágenes de mayor tamaño no se colocan en el cuerpo del mensaje; todavía se pueden adjuntar. 1 a 50.
+
+admin-settings-help-compose-layout-default-font = Familia de fuentes, tamaño y color con el que comienza un nuevo mensaje, como familia|tamaño|#color. Vacío usa la fuente del tema.
+
+admin-settings-help-compose-reply-to-allow-override = Cuando está desactivado, el Responder a de la identidad se utiliza tal cual y los usuarios no pueden editarlo ni eliminarlo.
+
+admin-settings-help-compose-reply-to-show = Si el compositor muestra la fila Responder a: solo cuando una identidad o el mensaje original tiene una, siempre o nunca.
+
+admin-settings-help-compose-sent-folder-fixed-id = Rol de carpeta o identificación utilizada cuando la regla es "carpeta fija".
+
+admin-settings-help-compose-sent-folder-mode = Dónde va la copia de un mensaje enviado: la carpeta Enviado normal, una carpeta fija, por dominio del destinatario, por identidad o por reglas de asunto.
+
+admin-settings-help-compose-sent-folder-per-identity = Un par identidad=carpeta por línea. Se utiliza cuando la regla es "por identidad".
+
+admin-settings-help-compose-sent-folder-rules = Una regla por línea, domain:example.com=carpeta o subject:text=carpeta. El primer partido gana.
+
+admin-settings-help-compose-sent-folder-skip-copy = Nunca guarde una copia de un mensaje enviado. Un administrador puede forzar que esto se active o desactive.
+
+admin-settings-help-compose-styles-custom = Los estilos de compositor propios de un usuario como JSON, escritos por la galería de estilos. Los usuarios lo configuran; No hay nada que configurar aquí.
+
+admin-settings-help-compose-styles-default-set = El aspecto de la galería de estilos del compositor: predeterminado, moderno, clásico o compacto.
+
+admin-settings-help-compose-styles-max-custom = La mayoría de los estilos personalizados que un usuario puede conservar en el compositor. 0 desactiva Crear estilo.
+
+admin-settings-help-contacts-save-from-message-add-note = Agregue la nota "Guardado desde un mensaje el <fecha>" a los contactos guardados desde un mensaje. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-contacts-save-from-message-default-book = La identificación de la libreta de direcciones que recibe los contactos guardados de un mensaje; "predeterminado" utiliza la libreta de direcciones predeterminada. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-contacts-save-from-message-default-scope = Qué participantes se marcan primero en el cuadro de diálogo Guardar contactos: solo el remitente, el remitente y Responder a, o todos. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-contacts-save-from-message-enabled = Oferta Guardar contactos de este mensaje en menús de mensajes. Cuando está apagado, el elemento está oculto. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-contacts-save-from-message-skip-automated = Deje las direcciones de no respuesta, notificación y rebote fuera del cuadro de diálogo Guardar contactos a menos que lo marque manualmente. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-contacts-save-sender-enabled = Ofrezca el elemento Guardar remitente como contacto con un solo clic en los menús de mensajes. Cuando está apagado, el elemento está oculto. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-contacts-save-sender-use-reply-to = Guarde la dirección Responder a en lugar de De cuando el remitente sea una lista de correo o una dirección de notificación. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-dsr-admin-step-up = Activado (predeterminado): un administrador que aprueba una solicitud de datos, ejecuta un borrado o aprueba de forma masiva debe primero confirmar que es él nuevamente (contraseña y segundo factor, o una clave de acceso). La confirmación dura cinco minutos. Desactivado elimina la marca adicional; la decisión aún se registra en el registro de solicitud.
+
+admin-settings-help-export-default-format = El formato con el que comienza el diálogo de exportación.
+
+admin-settings-help-export-default-scope = El alcance con el que comienza el diálogo de exportación: mensaje, conversación, selección o carpeta.
+
+admin-settings-help-export-dialog-enabled = Exportar en la vista de mensajes y los menús de mensajes abre un cuadro de diálogo en su lugar. Cuando están desactivados, esos menús descargan un mensaje como .eml.
+
+admin-settings-help-export-folder-enabled = Permita a los usuarios descargar una carpeta completa como ZIP de mensajes. Cada exportación es auditada.
+
+admin-settings-help-export-folder-format = Los formatos que ofrece una exportación de carpetas: un ZIP de archivos .eml, un ZIP que contiene un archivo mbox, o ambos.
+
+admin-settings-help-export-folder-include-subfolders = Si una exportación de carpeta incluye sus subcarpetas de forma predeterminada, mantenidas como una estructura de carpetas en ZIP.
+
+admin-settings-help-export-folder-max-bytes = La mayor cantidad de bytes de mensajes que puede contener una exportación de carpeta. Se rechaza una carpeta más grande con el tamaño mostrado.
+
+admin-settings-help-export-folder-max-messages = La mayor cantidad de mensajes que puede contener una exportación de carpeta.
+
+admin-settings-help-export-formats = Los formatos que ofrece el cuadro de diálogo de exportación: eml, mbox, txt, md, msg, docx, csv, json, pdf. El servidor rechaza un formato creado por el servidor listado.
+
+admin-settings-help-export-message-download-enabled = Permitir a los usuarios descargar un mensaje como .eml, solo sus encabezados o como un archivo mbox.
+
+admin-settings-help-folders-hide-empty = Oculta carpetas vacías en la barra lateral. Los usuarios pueden cambiar el valor predeterminado o anularlo para carpetas individuales a menos que esta configuración esté bloqueada. No se elimina ningún correo.
+
+admin-settings-help-folders-pinned-hide-from-tree = Las carpetas fijadas se muestran en un grupo Fijado encima del árbol de carpetas y también mantienen su lugar en el árbol. Activado oculta una carpeta fijada que no tiene subcarpetas en el árbol, por lo que se muestra solo en el grupo Fijado. Una carpeta fijada con subcarpetas permanece en el árbol.
+
+admin-settings-help-mail-badge-auth = Cuando el encabezado del lector muestra la insignia de autenticación DMARC: siempre, solo cuando sea notable o nunca.
+
+admin-settings-help-mail-badge-density = Tamaño de las credenciales en el cabezal del lector: compacto o cómodo.
+
+admin-settings-help-mail-badge-folder = Cuando el encabezado del lector muestra la insignia de la carpeta: siempre, solo cuando sea notable o nunca.
+
+admin-settings-help-mail-badge-headers = Muestre una insignia en el lector para los encabezados Caducar, Responder por, Sensibilidad y Reemplazar de un mensaje.
+
+admin-settings-help-mail-badge-labels = Si las insignias de encabezado del lector muestran un ícono con texto o solo el ícono.
+
+admin-settings-help-mail-badge-list = Cuando el encabezado del lector muestra la insignia de la lista de correo: siempre, solo cuando sea notable o nunca. Necesita un encabezado List-Id o List-Unsubscribe.
+
+admin-settings-help-mail-badge-sanitized = Cuando el encabezado del lector muestra la insignia HTML desinfectada: siempre, solo cuando sea notable o nunca.
+
+admin-settings-help-mail-badge-spam = Cuando el encabezado del lector muestra la insignia de puntuación de spam: siempre, solo cuando sea notable o nunca.
+
+admin-settings-help-mail-brand-avatars-require-auth = nunca: muestra un logotipo siempre que el dominio coincida. error conocido (predeterminado): muéstrelo a menos que el resultado DKIM o DMARC almacenado en caché del mensaje sea un error; Los mensajes no marcados mantienen el logo. siempre: mostrarlo solo después de un pase DMARC alineado con DKIM para el dominio propio de la marca. Las anulaciones de usuarios y dominios se pueden bloquear.
+
+admin-settings-help-mail-compose-header-auto-collapse-seconds = Segundos en los que el cuerpo debe mantener el foco antes de que un encabezado completo de destinatario y asunto se pliegue en su resumen. Elija 0 para desactivar el plegado cronometrado, o 1 a 60 segundos. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-mail-compose-priority-default = La prioridad con la que comienza un nuevo mensaje en el compositor.
+
+admin-settings-help-mail-compose-priority-enabled = Muestra el selector de prioridad Normal, Alta y Baja en el grupo de Opciones del compositor. Cuando está desactivado, el correo nuevo se envía sin encabezados de prioridad.
+
+admin-settings-help-mail-expiry-hide-expired = Qué hacer con un mensaje cuya fecha de caducidad ya pasó: nada, mostrarlo atenuado o sugerir archivarlo.
+
+admin-settings-help-mail-list-keep = Los remitentes y las listas de correo siempre se mantienen, uno por línea como sender:address o list:List-Id. Limpia este remitente, cancela sugerencias de suscripción y omítalas en las reglas de retención.
+
+admin-settings-help-mail-list-page-size = Cuántos mensajes recupera la lista cada vez que un usuario se desplaza hasta el final. Valor predeterminado 50, de 20 a 200. Los usuarios eligen su propio valor a menos que lo bloquee.
+
+admin-settings-help-mail-list-unsubscribe-mode = Cómo funciona cancelar la suscripción cuando una lista ofrece una solicitud con un solo clic: pregunte primero, envíela de inmediato o abra solo el enlace o el borrador de la lista.
+
+admin-settings-help-mail-message-list-group = Agrupa conversaciones por fecha de recepción o envío, remitente, tema, importancia o tamaño. Los usuarios pueden anular esto a menos que estén bloqueados.
+
+admin-settings-help-mail-priority-marks = Qué prioridad marca la lista de mensajes, las conversaciones y el lector: alta y baja, solo alta o ninguna. Los usuarios eligen en Configuración > Carpetas y barra lateral a menos que estén bloqueados.
+
+admin-settings-help-mail-priority-marks-style = Cómo se ve una marca de prioridad: un ícono, un ícono con las palabras Alta o Baja, o una barra delgada. El icono y el texto mantienen el significado sin color.
+
+admin-settings-help-mail-priority-send-headers = Qué encabezados recibe un mensaje de prioridad alta o baja cuando se envía: cualquiera de Importancia, Prioridad X y Prioridad X-MSMail.
+
+admin-settings-help-mail-priority-trust-sender-headers = Si se muestra una prioridad establecida por el remitente: siempre, solo cuando el mensaje pasó una verificación DMARC alineada, o nunca. Utilice confiable o nunca contra remitentes que marcan cada mensaje como de alta prioridad.
+
+admin-settings-help-mail-reply-from-header-priority = Los encabezados de los mensajes se leen, en este orden, para encontrar la dirección a la que se envió un mensaje al elegir la identidad para una respuesta. Nombres: Entregado a, X-Original-a, Sobre-a, X-Reenviado-a, Reenviado a, A, Cc. Un encabezado omitido no se lee.
+
+admin-settings-help-mail-search-default-scope = Inicie nuevas búsquedas de correo normales en la carpeta actual o en todas las carpetas. Esto controla el valor predeterminado inicial, incluso cuando está bloqueado; Los usuarios aún pueden elegir un alcance diferente para una búsqueda en particular. Se conservan las consultas guardadas y de ámbito explícito.
+
+admin-settings-help-metrics-dimensions-enabled = Almacene las estadísticas guardadas divididas por tipo de cliente (web) y clase de dispositivo (escritorio, móvil). Desactívelo para almacenar una fila combinada por métrica y minuto.
+
+admin-settings-help-metrics-persist-enabled = Guarde las estadísticas de rendimiento (velocidad del proxy de imagen, tiempos de carga del navegador, límite de velocidad y recuentos de protección de solicitudes) en la base de datos cada intervalo de descarga y cuando el servidor se detenga, de modo que los gráficos mantengan su historial después de un reinicio. Nada identifica a una persona, dirección o mensaje. Desactívelo para mantenerlos solo en la memoria.
+
+admin-settings-help-metrics-persist-flush-seconds = Con qué frecuencia se escriben las estadísticas de rendimiento en la base de datos (de 5 a 3600 segundos). Un servidor que muere sin previo aviso pierde como máximo esta cantidad.
+
+admin-settings-help-observability-client-capture-console = También informe las llamadas de console.error, como máximo cinco por minuto por página. Desactivado de forma predeterminada porque las bibliotecas registran las condiciones esperadas.
+
+admin-settings-help-observability-client-capture-csp = Informe las violaciones de la Política de seguridad de contenido que detecte el navegador, con la directiva bloqueada y el origen únicamente. Activado de forma predeterminada.
+
+admin-settings-help-observability-client-enabled = Recopile informes de errores de la aplicación web (límites de errores, errores no detectados, fragmentos fallidos, errores de trabajadores, infracciones CSP) con seguimientos de pila eliminados, que se muestran en Observabilidad > Errores del cliente. Activado de forma predeterminada. Los informes no contienen contenido de mensajes, direcciones, tokens, nombres de archivos adjuntos ni consultas URL. Apague para detener la recolección; los informes existentes caducan con su retención.
+
+admin-settings-help-observability-client-forward = Envíe también cada informe eliminado al receptor de errores configurado con MW_ERROR_FORWARD_URL. Desactivado de forma predeterminada. Sin un receptor configurado no se envía nada.
+
+admin-settings-help-observability-client-include-account-hash = Agregue un hash unidireccional con clave de la cuenta a los informes enviados desde una sesión iniciada, de modo que los informes de una cuenta se puedan diferenciar sin nombrarla. Desactivado de forma predeterminada. El hash cambia cuando gira la clave de privacidad.
+
+admin-settings-help-observability-client-max-per-session = La mayoría de los informes de error se pueden enviar al cargar una página (de 1 a 1000). Las repeticiones del mismo error dentro de 60 segundos cuentan una vez. Por defecto 20.
+
+admin-settings-help-observability-client-sample-rate = Fracción de informes de error que envía un navegador, de 0 a 1. Valor predeterminado 1 (todos). La carga de cada página aún se detiene en el límite por sesión.
+
+admin-settings-help-observability-client-source-maps = Resuelva las posiciones de los paquetes en los seguimientos de la pila de los archivos fuente cuando la compilación envió mapas fuente ocultos (creados con MW_SOURCEMAP=hidden). Los mapas solo los lee el servidor y nunca se muestran a los navegadores. Activado de forma predeterminada; sin mapas se muestran los marcos sin formato.
+
+admin-settings-help-privacy-error-reports = Si un navegador envía un informe de error cuando falla parte de la aplicación. Activado de forma predeterminada. Ámbito global, de dominio y de usuario: establezca el valor predeterminado aquí o bloquéelo; las personas pueden desactivarlo por sí mismas en Configuración > Privacidad a menos que esté bloqueado.
+
+admin-settings-help-privacy-image-cache-max-stale-secs = Segundos después de su frescura, se guarda una imagen en caché para responder cuando no se puede alcanzar el origen. Nunca por debajo de la ventana de revalidación. Rango 0–604800; predeterminado 86400.
+
+admin-settings-help-privacy-image-cache-stale-secs = Segundos después de su frescura, una imagen almacenada en caché todavía se muestra al mismo tiempo mientras se revalida en segundo plano. Zero lo apaga. Rango 0–86400; predeterminado 3600.
+
+admin-settings-help-privacy-image-resize-enabled = Escale imágenes remotas de gran tamaño hasta el ancho que solicite el lector (320, 640, 960, 1280 o 1600 píxeles). Las imágenes animadas se sirven sin escala. Desactivado de forma predeterminada.
+
+admin-settings-help-privacy-image-resize-format = Auto elige el mejor codificador de la compilación, que es PNG. Automático predeterminado.
+
+admin-settings-help-privacy-image-resize-max-pixels = Las imágenes con más píxeles decodificados se muestran sin escala; el tamaño se lee en el encabezado antes de cualquier decodificación. Rango 100000–64000000; predeterminado 4000000.
+
+admin-settings-help-privacy-image-resize-max-width = La imagen más amplia que produce el cambio de tamaño. Rango 320–1600; predeterminado 1600.
+
+admin-settings-help-privacy-sessions-show-linked-origin = Cómo se nombra en Configuración > Seguridad > Sesiones la cuenta de la que proviene una sesión de acceso al buzón vinculado: la dirección completa, la dirección con la primera parte del nombre enmascarada o nada. El valor se muestra únicamente al propietario de las sesiones, nunca a otros usuarios. Predeterminado: dirección completa.
+
+admin-settings-help-properties-folder-enabled = Oferta Propiedades en los menús de carpetas y en el acceso directo. Cuando está desactivado, el cuadro de diálogo no está disponible.
+
+admin-settings-help-properties-folder-notes-enabled = Permitir una descripción o nota en cada carpeta.
+
+admin-settings-help-properties-folder-notes-max-length = La mayor cantidad de caracteres que puede contener una nota de carpeta.
+
+admin-settings-help-properties-folder-overrides-allowed = Qué configuraciones un usuario puede anular para una sola carpeta. Una anulación que no aparece en la lista se oculta y se ignora cualquier valor almacenado.
+
+admin-settings-help-properties-folder-sections = Las secciones del cuadro de diálogo Propiedades de la carpeta: general, remota, tamaño, fuera de línea, anulaciones, notas, acciones. Una sección que no aparece en la lista está oculta.
+
+admin-settings-help-properties-folder-size-compute = Cuando se calcula el tamaño de una carpeta en el servidor: nunca, cuando se abre el cuadro de diálogo o en segundo plano. Contar un buzón grande le cuesta al servidor un escaneo.
+
+admin-settings-help-properties-headers-raw = Permita que el cuadro de diálogo Propiedades del mensaje enumere los encabezados sin formato. Cuando está desactivado, solo se muestra el resumen analizado.
+
+admin-settings-help-properties-message-enabled = Oferta Propiedades en los menús de mensajes y en el acceso directo. Cuando está desactivado, el cuadro de diálogo no está disponible.
+
+admin-settings-help-properties-message-permanent-delete = Si el cuadro de diálogo del mensaje puede eliminar un mensaje definitivamente: permitirlo, preguntarlo dos veces o rechazarlo. Un mensaje bajo retención legal nunca se elimina. La eliminación de esta manera no se puede deshacer.
+
+admin-settings-help-properties-message-sections = Las secciones del cuadro de diálogo Propiedades del mensaje: resumen, puntuación, encabezados, archivos adjuntos, acciones. Una sección que no aparece en la lista está oculta.
+
+admin-settings-help-properties-offline-clear-enabled = Permita a los usuarios borrar el caché sin conexión de una sola carpeta desde su cuadro de diálogo Propiedades.
+
+admin-settings-help-properties-remote-location-visibility = Qué parte de la ubicación del lado del servidor ven los usuarios: completa (host y ruta), host enmascarado (host parcialmente oculto), solo ruta (ruta del buzón sin el host) u oculta.
+
+admin-settings-help-properties-scoring-show = Muestre la puntuación de spam, los resultados de autenticación y las señales de seguridad en el cuadro de diálogo Propiedades del mensaje.
+
+admin-settings-help-properties-shortcut-enabled = Abra el cuadro de diálogo Propiedades desde el teclado en una carpeta enfocada o mensaje seleccionado.
+
+admin-settings-help-properties-shortcut-key = La combinación de teclas que abre Propiedades; Alt+Entrar de forma predeterminada.
+
+admin-settings-help-reader-actions-archive = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-block-sender = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-colors = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-conversation = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-create-filter = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-delete = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-delete-sender = Oculto por defecto. Elija la barra de herramientas o el menú Más para habilitarlo cuando la capacidad de eliminación del remitente y el perfil de funciones lo permitan. Los usuarios pueden anular la ubicación a menos que estén bloqueados.
+
+admin-settings-help-reader-actions-edit-draft = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-export = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-finish-followup = Elija la barra de herramientas, el menú Más u oculto para completar mensajes marcados y recordatorios de seguimiento.
+
+admin-settings-help-reader-actions-flag = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-focus-focused = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-focus-other = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-forward = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-headers = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-links = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-move = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-not-spam = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-open-draft = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-pin = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-print = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-properties = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-read = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-reply = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-reply-all = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-save-contacts = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-save-sender = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-search = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-security = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-spam = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-sweep = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-view-source = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-reader-actions-zoom = Elija barra de herramientas, menú Más u oculto. Se siguen aplicando restricciones de funciones, permisos y contexto de mensajes. Los usuarios pueden elegir a menos que esté bloqueado.
+
+admin-settings-help-retention-client-errors-event-days = Días en que se mantiene una ocurrencia de error de navegador individual (su seguimiento de pila y clase de navegador). Predeterminado 30. Un grupo se mantiene por más tiempo; consulte la siguiente configuración.
+
+admin-settings-help-retention-client-errors-group-days = Días que se conserva un grupo de errores del navegador (nombre, mensaje, recuentos) después de su última visualización. Predeterminado 180. Nunca más corto que la retención de ocurrencia.
+
+admin-settings-help-retention-metrics-day-buckets-days = Días de estadísticas de rendimiento diario que se conservan antes de que se eliminen. 0 los mantiene sin límite, lo que permite que la tabla crezca lentamente mientras el servidor esté en funcionamiento.
+
+admin-settings-help-retention-metrics-hour-buckets-days = Días de estadísticas de rendimiento por hora que se mantienen antes de fusionarse en filas diarias (al menos 1).
+
+admin-settings-help-retention-metrics-minute-buckets-hours = Horas de estadísticas de rendimiento de un minuto que se conservan antes de fusionarlas en filas por horas (al menos 1).
+
+admin-settings-help-retention-user-allow-strip-attachments = Si los usuarios pueden crear reglas que eliminen archivos adjuntos grandes del correo antiguo. Desactivado de forma predeterminada. Mientras está desactivada, la acción está oculta en el editor de reglas, una regla que la usa se rechaza cuando se guarda y las reglas guardadas anteriormente se omiten cuando se ejecuta el trabajo.
+
+admin-settings-help-retention-user-calendar-enabled = Si los usuarios pueden elegir calendarios cuyos eventos se eliminen una cantidad determinada de días después de su finalización. Desactivado de forma predeterminada. Mientras está desactivada, la opción está oculta en Configuración, la opción se rechaza cuando se guarda y las opciones guardadas anteriormente no se ejecutan.
+
+admin-settings-help-retention-user-calendar-max-days = La mayoría de los días un usuario puede esperar antes de que se eliminen los eventos finalizados. Un valor mayor se rechaza cuando se guarda y se reduce cuando se ejecuta.
+
+admin-settings-help-retention-user-calendar-min-days = Menos días después de que finalizó un evento antes de que una regla de usuario pueda eliminarlo. Un valor menor se rechaza cuando se guarda y se aumenta cuando se ejecuta.
+
+admin-settings-help-retention-user-notes-enabled = Si los usuarios pueden optar por eliminar las notas que no han cambiado durante un número determinado de días. Desactivado de forma predeterminada. Las notas eliminadas se pueden restaurar hasta que finalice la ventana de deshacer para las reglas de retención.
+
+admin-settings-help-retention-user-notes-max-days = La mayoría de los días, un usuario puede esperar antes de que se eliminen las notas intactas. Un valor mayor se rechaza cuando se guarda y se reduce cuando se ejecuta.
+
+admin-settings-help-retention-user-notes-min-days = La menor cantidad de días que una nota debe permanecer intacta antes de que una regla de usuario pueda eliminarla. Un valor menor se rechaza cuando se guarda y se aumenta cuando se ejecuta.
+
+admin-settings-help-retention-user-strip-keep-inline-images = Si las imágenes que se muestran dentro del cuerpo del mensaje se conservan cuando se eliminan los archivos adjuntos.
+
+admin-settings-help-retention-user-strip-min-age-days = El menor número de días que debe tener un mensaje antes de que una regla pueda eliminar sus archivos adjuntos. Un valor menor se rechaza cuando la regla se guarda y se genera cuando se ejecuta.
+
+admin-settings-help-retention-user-strip-min-attachment-kb = Sólo se eliminan los archivos adjuntos de al menos este tamaño. Los archivos adjuntos más pequeños permanecen con el mensaje.
+
+admin-settings-help-retention-user-strip-undo-days = Días que el mensaje original permanece en la Papelera después de que se eliminaron sus archivos adjuntos. -1 sigue a la ventana de deshacer para las reglas de retención. 0 elimina el original de una vez.
+
+admin-settings-help-server-shutdown-grace-seconds = Cuánto tiempo un servidor detenido permite que finalicen las solicitudes en curso antes de cerrar las conexiones, en segundos. La variable MW_HTTP_SHUTDOWN_TIMEOUT_MS lo anula. Aplica en la próxima salida.
+
+admin-settings-help-session-last-activity-flush-seconds = La hora de la última vez que se vio una sesión se escribe como máximo con esta frecuencia, en segundos. Zero lo escribe en cada solicitud. No cambia los límites inactivos o absolutos. Aplica en la próxima salida.
+
+admin-settings-help-session-persist-across-restarts = Cuando está activado, las sesiones de buzón, aplicación y consola siguen siendo válidas después de que se reinicia el servidor. Cuando está apagado, cada sesión finaliza cuando se inicia el servidor. Aplica en la próxima salida.
+
+admin-settings-key-attachments-bar-click-to-toggle = Haga clic en la barra de archivos adjuntos para alternar
+
+admin-settings-key-attachments-bar-download-all = botón descargar todo
+
+admin-settings-key-attachments-bar-show-download-buttons = Botones de descarga de archivos adjuntos
+
+admin-settings-key-attachments-bar-zip-inline-images = Imágenes en línea en Descargar todo ZIP
+
+admin-settings-key-cap-reading-delete-sender = Permitir eliminar todo el correo de un remitente
+
+admin-settings-key-compose-feature-family = Características del compositor
+
+admin-settings-key-compose-headers-allow-auto-submitted = Permitir envío automático
+
+admin-settings-key-compose-headers-allow-custom = Permitir encabezados personalizados
+
+admin-settings-key-compose-headers-allow-return-receipt-to = Permitir acuse de recibo a
+
+admin-settings-key-compose-headers-allow-threading-edit = Permitir editar encabezados de subprocesos
+
+admin-settings-key-compose-headers-forced = Cabezazos forzados
+
+admin-settings-key-compose-insert-image-resize-default = Preajuste de tamaño de imagen
+
+admin-settings-key-compose-insert-max-inline-image-mb = Imagen en línea más grande (MB)
+
+admin-settings-key-compose-layout-default-font = Fuente de mensaje predeterminada
+
+admin-settings-key-compose-reply-to-allow-override = Permitir cambiar Responder a
+
+admin-settings-key-compose-reply-to-show = Fila Responder a
+
+admin-settings-key-compose-sent-folder-fixed-id = Copia enviada: carpeta fija
+
+admin-settings-key-compose-sent-folder-mode = Copia enviada: regla de carpeta
+
+admin-settings-key-compose-sent-folder-per-identity = Copia enviada: carpeta por identidad
+
+admin-settings-key-compose-sent-folder-rules = Copia enviada: reglas
+
+admin-settings-key-compose-sent-folder-skip-copy = Copia enviada: no guardar
+
+admin-settings-key-compose-styles-custom = Estilos personalizados
+
+admin-settings-key-compose-styles-default-set = Conjunto de estilos
+
+admin-settings-key-compose-styles-max-custom = Estilos personalizados por usuario
+
+admin-settings-key-contacts-save-from-message-add-note = Nota sobre los contactos guardados de un mensaje
+
+admin-settings-key-contacts-save-from-message-default-book = Libreta de direcciones para contactos guardados de un mensaje
+
+admin-settings-key-contacts-save-from-message-default-scope = Los contactos se marcan primero al guardar desde un mensaje
+
+admin-settings-key-contacts-save-from-message-enabled = Guardar contactos de un mensaje
+
+admin-settings-key-contacts-save-from-message-skip-automated = Omitir remitentes automáticos al guardar contactos
+
+admin-settings-key-contacts-save-sender-enabled = Guardar remitente como contacto
+
+admin-settings-key-contacts-save-sender-use-reply-to = Guardar Responder a para los remitentes de la lista
+
+admin-settings-key-dsr-admin-step-up = Confirmar nuevamente antes de aprobar
+
+admin-settings-key-export-default-format = Formato predeterminado del cuadro de diálogo de exportación
+
+admin-settings-key-export-default-scope = Alcance predeterminado del diálogo de exportación
+
+admin-settings-key-export-dialog-enabled = Diálogo de exportación
+
+admin-settings-key-export-folder-enabled = Exportación de carpetas
+
+admin-settings-key-export-folder-format = Formato de exportación de carpetas
+
+admin-settings-key-export-folder-include-subfolders = Incluir subcarpetas en la exportación
+
+admin-settings-key-export-folder-max-bytes = Límite de tamaño de exportación de carpeta
+
+admin-settings-key-export-folder-max-messages = Límite de mensajes de exportación de carpetas
+
+admin-settings-key-export-formats = Exportar formatos de diálogo
+
+admin-settings-key-export-message-download-enabled = Descarga de mensajes
+
+admin-settings-key-folders-hide-empty = Ocultar carpetas vacías
+
+admin-settings-key-folders-pinned-hide-from-tree = Ocultar carpetas ancladas del árbol
+
+admin-settings-key-mail-badge-auth = Insignia de autenticación
+
+admin-settings-key-mail-badge-density = Tamaño de la credencial del lector
+
+admin-settings-key-mail-badge-folder = Insignia de carpeta
+
+admin-settings-key-mail-badge-headers = Insignias de encabezado
+
+admin-settings-key-mail-badge-labels = Etiquetas de credenciales de lector
+
+admin-settings-key-mail-badge-list = Insignia de lista de correo
+
+admin-settings-key-mail-badge-sanitized = Insignia HTML desinfectada
+
+admin-settings-key-mail-badge-spam = Insignia de puntuación de spam
+
+admin-settings-key-mail-brand-avatars-require-auth = Se necesita autenticación para los logotipos de marcas.
+
+admin-settings-key-mail-compose-header-auto-collapse-seconds = Retraso en el colapso automático del encabezado del compositor
+
+admin-settings-key-mail-compose-priority-default = Prioridad de mensaje predeterminada
+
+admin-settings-key-mail-compose-priority-enabled = Selector de prioridad en el compositor.
+
+admin-settings-key-mail-expiry-hide-expired = Mensajes caducados
+
+admin-settings-key-mail-list-keep = mantener siempre
+
+admin-settings-key-mail-list-page-size = Tamaño de página de la lista de mensajes
+
+admin-settings-key-mail-list-unsubscribe-mode = Lista de correo darse de baja
+
+admin-settings-key-mail-message-list-group = Agrupación de mensajes
+
+admin-settings-key-mail-priority-marks = Marcas de prioridad
+
+admin-settings-key-mail-priority-marks-style = Estilo de marca de prioridad
+
+admin-settings-key-mail-priority-send-headers = Encabezados de prioridad escritos en el envío
+
+admin-settings-key-mail-priority-trust-sender-headers = Confiar en la prioridad establecida por el remitente
+
+admin-settings-key-mail-reply-from-header-priority = Encabezados que eligen la identidad de respuesta
+
+admin-settings-key-mail-search-default-scope = Ámbito de búsqueda de correo predeterminado
+
+admin-settings-key-metrics-dimensions-enabled = Dividir estadísticas por tipo de cliente y clase de dispositivo
+
+admin-settings-key-metrics-persist-enabled = Mantenga estadísticas entre reinicios
+
+admin-settings-key-metrics-persist-flush-seconds = Intervalo para guardar estadísticas (segundos)
+
+admin-settings-key-observability-client-capture-console = Informar errores de la consola
+
+admin-settings-key-observability-client-capture-csp = Informar violaciones CSP
+
+admin-settings-key-observability-client-enabled = Informes de errores del navegador
+
+admin-settings-key-observability-client-forward = Reenviar informes de errores
+
+admin-settings-key-observability-client-include-account-hash = Agregar hash de cuenta a los informes de errores
+
+admin-settings-key-observability-client-max-per-session = Informes de errores por carga de página
+
+admin-settings-key-observability-client-sample-rate = Frecuencia de muestreo del informe de errores
+
+admin-settings-key-observability-client-source-maps = Resolver seguimientos de pila con mapas de origen
+
+admin-settings-key-privacy-error-reports = Enviar informes de errores
+
+admin-settings-key-privacy-image-cache-max-stale-secs = Mantener obsoleto cuando falla el origen (segundos)
+
+admin-settings-key-privacy-image-cache-stale-secs = Servir rancio mientras se revalida (segundos)
+
+admin-settings-key-privacy-image-resize-enabled = Cambiar el tamaño de imágenes grandes
+
+admin-settings-key-privacy-image-resize-format = Formato de imagen redimensionado
+
+admin-settings-key-privacy-image-resize-max-pixels = Imagen más grande para cambiar de tamaño (píxeles)
+
+admin-settings-key-privacy-image-resize-max-width = Imagen redimensionada más amplia (píxeles)
+
+admin-settings-key-privacy-sessions-show-linked-origin = Origen del buzón vinculado en sesiones
+
+admin-settings-key-properties-folder-enabled = Cuadro de diálogo de propiedades de carpeta
+
+admin-settings-key-properties-folder-notes-enabled = notas de carpeta
+
+admin-settings-key-properties-folder-notes-max-length = Longitud de la nota de la carpeta
+
+admin-settings-key-properties-folder-overrides-allowed = Se permiten anulaciones por carpeta
+
+admin-settings-key-properties-folder-sections = Secciones de diálogo de carpeta
+
+admin-settings-key-properties-folder-size-compute = Cálculo del tamaño de la carpeta
+
+admin-settings-key-properties-headers-raw = encabezados sin procesar
+
+admin-settings-key-properties-message-enabled = Diálogo de propiedades del mensaje
+
+admin-settings-key-properties-message-permanent-delete = Eliminación permanente de propiedades
+
+admin-settings-key-properties-message-sections = Secciones de diálogo de mensajes
+
+admin-settings-key-properties-offline-clear-enabled = Borrar caché sin conexión por carpeta
+
+admin-settings-key-properties-remote-location-visibility = Detalle de ubicación remota
+
+admin-settings-key-properties-scoring-show = Detalles de puntuación y autenticación
+
+admin-settings-key-properties-shortcut-enabled = Acceso directo a propiedades
+
+admin-settings-key-properties-shortcut-key = Tecla de método abreviado de propiedades
+
+admin-settings-key-reader-actions-archive = Ubicación de la acción de archivo
+
+admin-settings-key-reader-actions-block-sender = Bloquear la ubicación de la acción del remitente
+
+admin-settings-key-reader-actions-colors = Ubicación de la acción de colores del mensaje
+
+admin-settings-key-reader-actions-conversation = Ver la ubicación de la acción de la conversación
+
+admin-settings-key-reader-actions-create-filter = Crear ubicación de acción de filtro
+
+admin-settings-key-reader-actions-delete = Eliminar ubicación de acción
+
+admin-settings-key-reader-actions-delete-sender = Eliminar todos los mensajes de la acción del remitente
+
+admin-settings-key-reader-actions-edit-draft = Editar la ubicación del borrador de la acción
+
+admin-settings-key-reader-actions-export = Ubicación de la acción de exportación
+
+admin-settings-key-reader-actions-finish-followup = Marcar el seguimiento como acción finalizada
+
+admin-settings-key-reader-actions-flag = Ubicación de la acción marcar/desmarcar
+
+admin-settings-key-reader-actions-focus-focused = Mover a ubicación de acción enfocada
+
+admin-settings-key-reader-actions-focus-other = Mover a otra ubicación de acción
+
+admin-settings-key-reader-actions-forward = Colocación de acción hacia adelante
+
+admin-settings-key-reader-actions-headers = Colocación de acciones de encabezados sin formato
+
+admin-settings-key-reader-actions-links = Revisar la ubicación de la acción de los enlaces
+
+admin-settings-key-reader-actions-move = Mover ubicación de acción
+
+admin-settings-key-reader-actions-not-spam = Ubicación de acción no spam
+
+admin-settings-key-reader-actions-open-draft = Abrir ubicación de acción de borrador de respuesta
+
+admin-settings-key-reader-actions-pin = Ubicación de la acción de fijar/desanclar
+
+admin-settings-key-reader-actions-print = Ubicación de la acción de impresión
+
+admin-settings-key-reader-actions-properties = Ubicación de la acción de propiedades del mensaje
+
+admin-settings-key-reader-actions-read = Ubicación de acción leída/no leída
+
+admin-settings-key-reader-actions-reply = Ubicación de la acción de respuesta
+
+admin-settings-key-reader-actions-reply-all = Responder a todas las acciones
+
+admin-settings-key-reader-actions-save-contacts = Guardar ubicación de la acción de los contactos del mensaje
+
+admin-settings-key-reader-actions-save-sender = Guardar ubicación de la acción del remitente
+
+admin-settings-key-reader-actions-search = Ubicación de la acción de búsqueda relacionada
+
+admin-settings-key-reader-actions-security = Ubicación de la acción en modo de seguridad
+
+admin-settings-key-reader-actions-spam = Marcar como ubicación de acción spam
+
+admin-settings-key-reader-actions-sweep = Barrer la ubicación de la acción del remitente
+
+admin-settings-key-reader-actions-view-source = Ver ubicación de la acción de origen del mensaje
+
+admin-settings-key-reader-actions-zoom = Ubicación de la acción de zoom
+
+admin-settings-key-retention-client-errors-event-days = Ocurrencias de errores mantenidas (días)
+
+admin-settings-key-retention-client-errors-group-days = Grupos de errores mantenidos (días)
+
+admin-settings-key-retention-metrics-day-buckets-days = Estadísticas diarias mantenidas (días)
+
+admin-settings-key-retention-metrics-hour-buckets-days = Estadísticas horarias mantenidas (días)
+
+admin-settings-key-retention-metrics-minute-buckets-hours = Estadísticas de minutos guardadas (horas)
+
+admin-settings-key-retention-user-allow-strip-attachments = Los usuarios pueden eliminar archivos adjuntos del correo antiguo.
+
+admin-settings-key-retention-user-calendar-enabled = Los usuarios pueden eliminar eventos del calendario finalizados.
+
+admin-settings-key-retention-user-calendar-max-days = La mayoría de los días antes de que se eliminen los eventos finalizados
+
+admin-settings-key-retention-user-calendar-min-days = Se eliminan el menor número de días antes de que se eliminen los eventos finalizados
+
+admin-settings-key-retention-user-notes-enabled = Los usuarios pueden eliminar notas intactas.
+
+admin-settings-key-retention-user-notes-max-days = La mayoría de los días antes de que se eliminen las notas intactas
+
+admin-settings-key-retention-user-notes-min-days = Menos días antes de que se eliminen las notas intactas
+
+admin-settings-key-retention-user-strip-keep-inline-images = Mantener imágenes en línea
+
+admin-settings-key-retention-user-strip-min-age-days = Menos días antes de que se eliminen los archivos adjuntos
+
+admin-settings-key-retention-user-strip-min-attachment-kb = Se eliminó el archivo adjunto más pequeño (KB)
+
+admin-settings-key-retention-user-strip-undo-days = Ventana para deshacer después de eliminar los archivos adjuntos (días)
+
+admin-settings-key-server-shutdown-grace-seconds = Período de gracia de cierre
+
+admin-settings-key-session-last-activity-flush-seconds = Intervalo de escritura visto por última vez
+
+admin-settings-key-session-persist-across-restarts = Mantener sesiones durante los reinicios

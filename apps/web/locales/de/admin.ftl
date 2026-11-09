@@ -1085,3 +1085,18 @@ admin-insights-empty-rules = In diesem Zeitraum wurde keine adaptive Regel ausge
 admin-insights-share-of = { $share } der Anfragen
 admin-nav-encryption = Verschlüsselung
 admin-nav-retention = Aufbewahrung
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Clientfehler
+
+admin-session-linked-device = Ursprungssitzung: { $device }
+
+admin-session-linked-line = Zugriff auf verknüpfte Postfächer · ab { $origin }
+
+admin-session-linked-line-hidden = Zugriff auf verknüpfte Postfächer
+
+admin-session-linked-open = Origin-Konto eröffnen
+
+admin-session-linked-removed = Zugriff auf verknüpfte Postfächer · Ursprungskonto entfernt
+
+admin-session-linked-restricted = Zugriff auf verknüpfte Postfächer · Herkunft nicht angezeigt (kein Zugriff auf dieses Konto)

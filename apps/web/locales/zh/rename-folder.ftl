@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = 此文件夹包含子文件夹。请先删
 delete-folder-error-forbidden = 你无法删除此文件夹。
 delete-folder-error-notFound = 此文件夹已不存在。请刷新文件夹列表。
 delete-folder-error-failed = 无法删除文件夹，请重试。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = 该帐户已被合法保留，因此无法删除文件夹。
+
+delete-folder-error-processingRestricted = 该帐户的处理受到限制，因此无法删除文件夹。

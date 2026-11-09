@@ -20,3 +20,18 @@ avatars-domain-icon = { $name } のドメインアイコン · このアイコ�
 avatars-favorites-first = 宛先の候補でお気に入りの連絡先を先に表示
 avatars-favorites-first-help = 宛先を入力すると、スターを付けた連絡先が他の候補より先に表示されます。変わるのは順序だけで、候補が非表示になることはありません。
 avatars-favorites-first-default = 継承されたお気に入り設定に戻す
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = ブランドロゴには認証が必要です
+
+avatars-require-auth-always = 常に (チェックに合格する必要があります)
+
+avatars-require-auth-default = 継承された認証設定を復元する
+
+avatars-require-auth-help = 認識された企業のロゴが送信者の横のイニシャルに置き換わる場合を選択します。しない: 送信者のドメインが一致するたびに表示します。チェックが失敗した場合のみ (デフォルト): メッセージが失敗した場合 (DKIM または DMARC) を除き、表示します。常に: メッセージがその会社独自のドメインの DKIM と調整された DMARC チェックを通過した場合にのみ表示するため、まだチェックされていないメールにはイニシャルが表示されます。ドメインの一致には、mail.example.com などのサブドメインが含まれます。この設定はアカウントとともに保存され、管理者が保持できます。
+
+avatars-require-auth-known-failure = チェックが失敗した場合のみ
+
+avatars-require-auth-never = なし (ドメインのみで一致)
+
+avatars-unverified-sender = 未確認の送信者 · このメッセージは認証チェックに合格しなかったため、ブランド アイコンは表示されません

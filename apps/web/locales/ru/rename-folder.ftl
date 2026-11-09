@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = В этой папке есть вложе
 delete-folder-error-forbidden = Вы не можете удалить эту папку.
 delete-folder-error-notFound = Этой папки больше нет. Обновите список папок.
 delete-folder-error-failed = Не удалось удалить папку. Повторите попытку.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = Этот аккаунт заблокирован по закону, поэтому папки невозможно удалить.
+
+delete-folder-error-processingRestricted = Обработка этого аккаунта ограничена, поэтому папки нельзя удалить.

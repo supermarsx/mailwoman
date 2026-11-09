@@ -1166,3 +1166,246 @@ mail-color-confirm-title = メッセージの既定の色を変更しますか�
 mail-color-confirm-body = メッセージ単位で変更しない限り、すべてのメッセージで「{ $mode }」が使用されます。
 mail-color-confirm = 既定にする
 mail-color-default-failed = メッセージの既定の色を保存できませんでした。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = 選択したメッセージにはダウンロードする添付ファイルがありません。
+
+mail-attachments-zip-all-blocked = 何もダウンロードされませんでした。添付ファイル ポリシーにより、すべての { $skipped } ファイルがブロックされています。
+
+mail-attachments-zip-gathering = { $count } 件のメッセージの添付ファイルを収集しています…
+
+mail-attachments-zip-skipped = { $skipped ->
+       *[other] 添付ファイル ポリシーによってブロックされた { $skipped } 個のファイルが除外されました。
+    }
+
+mail-attachments-zip-unreadable = { $count } メッセージの添付ファイルは読み取れず、残されました。
+
+mail-bulk-download-attachments = 添付ファイルを ZIP としてダウンロードします
+
+mail-compose-from-via = { $header } ヘッダーと一致しました。
+
+mail-compose-from-why-match-domain = メッセージは同じドメインのアドレスである { $address } に配信されたため、{ $identity } から送信されます。
+
+mail-compose-from-why-match-pattern = メッセージは { $address } に送信されたため、{ $identity } から送信されます。これはその ID のアドレス パターンに一致します。
+
+mail-compose-ribbon-autohide = リボンの自動非表示 (Ctrl+F1)
+
+mail-compose-ribbon-pin = 常にリボンを表示 (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+       *[other] 選択した { $count } つのメッセージの添付ファイルを ZIP としてダウンロードします
+    }
+
+mail-context-download-thread-attachments = 会話のすべての { $count } 添付ファイルを ZIP としてダウンロードします
+
+mail-context-open-new-tab = 新しいタブで開く
+
+mail-delete-sender-confirm = { $count } メッセージをゴミ箱に移動
+
+mail-delete-sender-detail = { $count } メッセージを { $sender } からゴミ箱に移動しますか?すでにゴミ箱に入っているメッセージは除外されます。この操作は元に戻すことができます。
+
+mail-delete-sender-empty = この送信者からのメッセージはゴミ箱の外にはありません。
+
+mail-delete-sender-failed = 一致するすべてのメッセージとそのアクセス許可を確認できませんでした。何も動かなかった。もう一度やり直してください。
+
+mail-delete-sender-help = すべてのフォルダーからこの送信者のメッセージを検索し、確認後にゴミ箱に移動します。
+
+mail-delete-sender-title = この送信者からのすべてのメッセージを削除します
+
+mail-draft-continue = 編集を続ける
+
+mail-draft-edit = ドラフトの編集
+
+mail-draft-edit-failed = 下書きを編集のために開くことができませんでした
+
+mail-draft-edit-help = 編集を続けるには、このドラフトをコンポーザで開いてください
+
+mail-draft-notice = これは草案です
+
+mail-file-copied = クリップボードにコピーされました。
+
+mail-file-copy-failed = クリップボードにコピーできませんでした。
+
+mail-file-copy-fingerprint = 指紋をコピーする
+
+mail-file-copy-name = ファイル名をコピーする
+
+mail-file-created = 作成されました
+
+mail-file-creator = で作成されました
+
+mail-file-details-button = ファイルの詳細
+
+mail-file-details-tooltip = ファイルの詳細とフィンガープリントを表示する
+
+mail-file-encryption = パスワード保護
+
+mail-file-encryption-none = パスワードは要求されませんでした
+
+mail-file-encryption-password = 開くにはパスワードが必要でした
+
+mail-file-fingerprint = 指紋
+
+mail-file-name = ファイル名
+
+mail-file-pages = ページ
+
+mail-file-pdf-version = PDF バージョン
+
+mail-file-producer = プロデューサー
+
+mail-file-verify-help = これらのグループを、電話や Web サイトなど、送信者が別の方法で提供したフィンガープリントと比較します。すべてのグループが一致する場合、まったく同じバイトがあることになります。
+
+mail-file-verify-title = 指紋を検証する
+
+mail-follow-up-finished = フォローアップ終了
+
+mail-group-by = グループ化
+
+mail-header-attachments = { $count ->
+       *[other] 添付ファイル{ $count }個
+    }
+
+mail-header-expand-short = メッセージヘッダーを展開します (Alt+H)
+
+mail-list-group-date-unknown = 日付不明
+
+mail-list-group-importance = 重要性
+
+mail-list-group-locked = メッセージのグループ化は管理者によってロックされています。
+
+mail-list-group-no-subject = (件名なし)
+
+mail-list-group-none = グループ化なし
+
+mail-list-group-priority-high = 重要性が高い
+
+mail-list-group-priority-low = 重要度が低い
+
+mail-list-group-priority-normal = 通常の重要性
+
+mail-list-group-received = 受信日
+
+mail-list-group-sender = から
+
+mail-list-group-sent = 送信日
+
+mail-list-group-size = サイズ
+
+mail-list-group-size-huge = 10MB以上
+
+mail-list-group-size-large = 1～10MB
+
+mail-list-group-size-medium = 100KB～1MB
+
+mail-list-group-size-small = 25～100KB
+
+mail-list-group-size-tiny = 25KB未満
+
+mail-list-group-subject = 件名
+
+mail-list-order-importance = 重要性、優先度が高い
+
+mail-list-order-importance-asc = 重要度、最初は低い
+
+mail-list-order-locked = メッセージの順序は管理者によってロックされています。
+
+mail-list-order-sender-desc = 送信者、Z から A
+
+mail-list-order-sent-newest = 送信済み、新しい順
+
+mail-list-order-sent-oldest = 古いものから順に送信
+
+mail-list-order-size = サイズ、大きい順
+
+mail-list-order-size-asc = サイズ、小さい順
+
+mail-list-order-subject-desc = 主題、Z から A
+
+mail-mark-answered = 回答済みとしてマークする
+
+mail-mark-as = としてマーク
+
+mail-mark-finished = 完了としてマークする
+
+mail-mark-forwarded = 転送済みとしてマークする
+
+mail-mark-not-forwarded = 未転送としてマークする
+
+mail-mark-unanswered = 未回答としてマークする
+
+mail-mentions-me = 私について言及します
+
+mail-mentions-me-help = 自分の電子メール アドレスのいずれかに言及するメッセージを検索する
+
+mail-move-search = フォルダーを検索する
+
+mail-order-by = 注文方法
+
+mail-reader-folder-go = { $folder }に保存されています · フォルダーに移動
+
+mail-reply-draft-discard = 返信を破棄する
+
+mail-reply-draft-discard-detail = 進行中のこの返信を完全に削除しますか?これを元に戻すことはできません。
+
+mail-reply-draft-discard-title = この返信を破棄しますか?
+
+mail-status-from-match-domain = { $identity }から
+
+mail-status-from-match-pattern = { $identity }から
+
+mail-status-from-via = { $header }と一致したため、{ $identity }から返信します
+
+mail-toast-follow-up-finished = フォローアップは完了としてマークされています
+
+mail-toast-marked-answered = { $count ->
+       *[other] { $count } 件のメッセージが返信済みとしてマークされています
+    }
+
+mail-toast-marked-forwarded = { $count ->
+       *[other] { $count } 件のメッセージが転送済みとしてマークされています
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+       *[other] { $count } 件のメッセージが転送されないとマークされています
+    }
+
+mail-toast-marked-unanswered = { $count ->
+       *[other] { $count } 件のメッセージが未回答としてマークされています
+    }
+
+mail-toast-move-failed-reason = メッセージを移動できませんでした ({ $reason })。何も動かなかった。
+
+mail-toast-update-refused-reason = { $count ->
+       *[other] サーバーは { $count } 件のメッセージの移動を拒否しました: { $reason }
+    }
+
+reader-badge-hide = このバッジを非表示にする
+
+reader-badge-locked = 管理者によって設定される
+
+reader-badge-menu = メッセージバッジ
+
+reader-badge-notable = 注目すべき場合のみ表示
+
+reader-sanitized-always = スクリプトなどのアクティブなコンテンツは無効のままです。
+
+reader-sanitized-clean = メッセージ HTML は変更の必要はありません
+
+reader-sanitized-clean-detail = このメッセージの HTML からは何も削除またはブロックされませんでした。
+
+reader-sanitized-counts = { $blocked } リモート アイテムがブロックされ、{ $trackers } 追跡アイテム。
+
+reader-sanitized-detail = メッセージ HTML は、表示される前にサニタイズされました。リモート コンテンツはプライバシー設定に従います。
+
+reader-sanitized-hosts = リモートホスト
+
+reader-sanitized-remote = リモートコンテンツがブロックされました
+
+reader-sanitized-short = サニタイズ済み HTML
+
+reader-sanitized-short-blocked = HTML ブロックされました
+
+reader-sanitized-short-clean = HTML きれい
+
+reader-sanitized-trackers = アイテムの追跡

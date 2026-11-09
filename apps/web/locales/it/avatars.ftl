@@ -20,3 +20,18 @@ avatars-domain-icon = Icona del dominio { $name } · l'identità del mittente no
 avatars-favorites-first = Mostra prima i contatti preferiti nei suggerimenti dei destinatari
 avatars-favorites-first-help = I contatti con la stella compaiono prima delle altre corrispondenze quando digiti un destinatario. Cambia solo l'ordine; nessun suggerimento viene nascosto.
 avatars-favorites-first-default = Ripristina preferenza ereditata per i preferiti
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = Autenticazione necessaria per i loghi del marchio
+
+avatars-require-auth-always = Sempre (richiede un controllo superato)
+
+avatars-require-auth-default = Ripristina la preferenza di autenticazione ereditata
+
+avatars-require-auth-help = Scegli quando il logo di un'azienda riconosciuta può sostituire le iniziali accanto al mittente. Mai: mostralo ogni volta che il dominio del mittente corrisponde. Solo se un controllo fallisce (impostazione predefinita): mostralo a meno che il messaggio non sia fallito DKIM o DMARC. Sempre: mostralo solo quando il messaggio ha superato DKIM e un controllo DMARC allineato per il dominio di quella società, quindi la posta non ancora controllata mostra le iniziali. La corrispondenza del dominio include sottodomini come mail.example.com. Questa preferenza viene salvata con il tuo account e può essere mantenuta dal tuo amministratore.
+
+avatars-require-auth-known-failure = Solo se un controllo fallisce
+
+avatars-require-auth-never = Mai (corrisponde solo al dominio)
+
+avatars-unverified-sender = Mittente non verificato · non viene mostrata alcuna icona del marchio perché questo messaggio non ha superato il controllo di autenticazione

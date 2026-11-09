@@ -744,3 +744,104 @@ settings-folder-icon-group-personal = Osobiste i rozrywka
 settings-folder-icon-group-tech = Technika i narzędzia
 settings-folder-icon-search-label = Szukaj ikon
 settings-folder-icon-no-match = Brak pasujących ikon
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Uwierzytelnianie (DMARC)
+
+settings-badge-auth-help = Wynik DMARC; otwiera pełne szczegóły bezpieczeństwa.
+
+settings-badge-density = Rozmiar odznaki
+
+settings-badge-density-comfortable = Wygodne
+
+settings-badge-density-compact = Kompaktowy
+
+settings-badge-density-help = Kompaktowa lub wygodna wysokość i odstępy dla każdej plakietki.
+
+settings-badge-folder = Folder
+
+settings-badge-folder-help = Miejsce przechowywania wiadomości. Tylko wtedy, gdy Notable pokaże to dla Junk and Trash.
+
+settings-badge-labels = Etykiety odznak
+
+settings-badge-labels-help = Ikona z tekstem lub sama ikona (pełny tekst pozostaje w podpowiedzi i dla czytników ekranu).
+
+settings-badge-labels-icon = Tylko ikona
+
+settings-badge-labels-text = Ikona i tekst
+
+settings-badge-list = Lista mailingowa
+
+settings-badge-list-help = Lista mailingowa, z której pochodzi wiadomość; otwiera szczegóły subskrypcji i działania. Tylko wtedy, gdy Notable pokazuje to, gdy poczta wciąż przychodzi po rezygnacji z subskrypcji.
+
+settings-badge-mode-always = Zawsze
+
+settings-badge-mode-never = Nigdy
+
+settings-badge-mode-notable = Tylko wtedy, gdy jest to zauważalne
+
+settings-badge-sanitized = Zdezynfekowany HTML
+
+settings-badge-sanitized-help = Co środek dezynfekujący HTML zrobił z wiadomością. Tylko wtedy, gdy zauważalne, pokazuje to, gdy coś zostało zablokowane.
+
+settings-badge-spam = Wynik spamu
+
+settings-badge-spam-help = Wynik, który serwer odbierający zapisał w nagłówkach wiadomości.
+
+settings-folders-hide-empty = Ukryj puste foldery na pasku bocznym
+
+settings-folders-hide-empty-help = Foldery pojawiają się ponownie, gdy zawierają wiadomości. Skrzynka odbiorcza, foldery wyszukiwania, foldery o nieznanej liczbie i foldery nadrzędne widocznych folderów pozostają widoczne. Zastąp poszczególne foldery w obszarze Właściwości, Wyświetlacz; każdy folder pozostanie na tej liście.
+
+settings-folders-list-card = Lista folderów i kolejność
+
+settings-header-auto-collapse = Złóż nagłówek po napisaniu (sekundy)
+
+settings-header-auto-collapse-help = Kiedy treść była skupiona przez tyle sekund, a nagłówek zawiera odbiorcę i temat, składa się do linii podsumowania. 0 wyłącza to.
+
+settings-message-badges = Odznaki wiadomości
+
+settings-message-badges-help = Wybierz, które plakietki mają się pojawiać w nagłówku otwartej wiadomości. Znaki priorytetu ustawia się w obszarze Foldery i pasek boczny. Możesz także kliknąć plakietkę prawym przyciskiem myszy, aby ją ukryć.
+
+settings-reply-from-headers = Nagłówki, które wybierają tożsamość
+
+settings-reply-from-headers-help = Jedna nazwa nagłówka w każdym wierszu, wypróbowana w następującej kolejności: Dostarczono do, X-Oryginał do, Koperta do, X-Przesłano do, Wysłano ponownie do, Do, DW. Pominięty nagłówek nie jest czytany.
+
+settings-reply-from-headers-invalid = Używaj tylko tych nazw, po jednej w każdym wierszu: Dostarczono do, X-Oryginał do, Koperta do, X-Przesłano do, Wysłano ponownie do, Do, DW.
+
+settings-reply-from-headers-save = Zapisz kolejność nagłówków
+
+settings-sessions-linked-created = Utworzono łącze
+
+settings-sessions-linked-details = Szczegóły linku
+
+settings-sessions-linked-kind = Typ łącza
+
+settings-sessions-linked-kind-linked = Połączona skrzynka pocztowa
+
+settings-sessions-linked-last-used = Ostatnio używany
+
+settings-sessions-linked-line = Dostęp do połączonej skrzynki pocztowej · od { $origin }
+
+settings-sessions-linked-line-hidden = Dostęp do połączonej skrzynki pocztowej
+
+settings-sessions-linked-origin = Pochodzi z
+
+settings-sessions-linked-removed = Nieznane (konto usunięte)
+
+settings-sessions-linked-revoke = Cofnij dostęp do linku
+
+settings-sessions-linked-revoke-label = Odbierz dostęp do linku dla { $mailbox }
+
+settings-sessions-linked-target = Skrzynka pocztowa otwarta
+
+settings-sessions-origin-full = Pełny adres
+
+settings-sessions-origin-help = Kontroluje sposób, w jaki ta tabela nazywa konto, z którego pochodzi sesja połączonej skrzynki pocztowej. Tylko Ty to widzisz podczas swoich własnych sesji.
+
+settings-sessions-origin-hidden = Ukryty
+
+settings-sessions-origin-masked-local-part = Adres z zamaskowaną pierwszą częścią
+
+settings-sessions-origin-setting = Pokaż, skąd pochodzi dostęp do połączonej skrzynki pocztowej
+
+settings-shortcuts-search = Wyszukaj skróty

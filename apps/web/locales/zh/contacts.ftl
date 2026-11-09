@@ -175,3 +175,122 @@ contacts-favorites-empty = 还没有收藏。使用联系人上的星标即可�
 contacts-membership-count = { $count ->
    *[other] { $count } 位成员
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } 已在您的通讯录中。
+
+contacts-save-already-badge = 已保存
+
+contacts-save-already-many = 所有{ $count }联系人均已保存。
+
+contacts-save-automated = 这看起来像一个自动发件人（无回复，通知）。
+
+contacts-save-book = 地址簿
+
+contacts-save-book-readonly = { $name }（只读）
+
+contacts-save-cancel = 取消
+
+contacts-save-choose = 选择联系人...
+
+contacts-save-contacts = 保存此消息中的联系人
+
+contacts-save-dialog-title = 保存此消息中的联系人
+
+contacts-save-email = 电子邮件
+
+contacts-save-failed = 无法保存联系人。再试一次。
+
+contacts-save-group = 集团
+
+contacts-save-group-none = 无组
+
+contacts-save-loading = 正在加载地址...
+
+contacts-save-name = 名称
+
+contacts-save-new = 保存新联系人
+
+contacts-save-no-book = 没有地址簿可以容纳新的联系人。
+
+contacts-save-no-sender = 此消息没有发件人地址。
+
+contacts-save-note = 从{ $date }的消息中保存
+
+contacts-save-nothing = 没有人可以保存：每个人都已经在您的联系人中，是您，还是看起来是自动化的。
+
+contacts-save-open = 打开
+
+contacts-save-open-contact = 打开联系方式
+
+contacts-save-open-link = 打开联系方式
+
+contacts-save-own = 这是您自己的地址之一。
+
+contacts-save-partial = 已保存 { $saved } 个联系人，共 { $total } 个。其他人无法获救。
+
+contacts-save-pick = 节省{ $email }
+
+contacts-save-recipients = 保存所有收件人
+
+contacts-save-removed = 已保存的联系人已删除。
+
+contacts-save-role-bcc = 密件抄送
+
+contacts-save-role-cc = 抄送
+
+contacts-save-role-from = 来自
+
+contacts-save-role-replyTo = 回复
+
+contacts-save-role-sender = 发件人
+
+contacts-save-role-to = 至
+
+contacts-save-saved-heading = 已在您的通讯录中
+
+contacts-save-saved-many = 已将{ $count }联系人保存到{ $book }
+
+contacts-save-saved-one = 已保存{ $name }至{ $book }
+
+contacts-save-sender = 将发件人保存为联系人
+
+contacts-save-settings-book = 地址簿
+
+contacts-save-settings-book-default = 默认地址簿
+
+contacts-save-settings-enabled = 优惠 保存此消息中的联系人
+
+contacts-save-settings-enabled-help = 将项目添加到消息菜单和阅读器“更多”菜单。
+
+contacts-save-settings-note = 添加带有日期的注释
+
+contacts-save-settings-note-help = 注释上写着“从消息中保存”，后跟日期。
+
+contacts-save-settings-reply-to = 对列表和通知发件人使用回复
+
+contacts-save-settings-reply-to-help = 保存这些发件人的回复地址而不是发件人地址。
+
+contacts-save-settings-scope = 在对话框中首先勾选
+
+contacts-save-settings-scope-all = 大家都在留言
+
+contacts-save-settings-scope-sender = 仅限发件人
+
+contacts-save-settings-sender = 报价 将发件人保存为联系人
+
+contacts-save-settings-sender-help = 消息菜单中的一键式项目。
+
+contacts-save-settings-skip = 跳过自动发件人
+
+contacts-save-settings-skip-help = 除非您勾选，否则将忽略无回复、通知和退回邮件地址。
+
+contacts-save-settings-title = 保存消息中的联系人
+
+contacts-save-show-automated = 显示自动地址和无回复地址
+
+contacts-save-submit = { $count ->
+       *[other] 保存 { $count } 个联系人
+    }
+
+contacts-save-undo = 撤消

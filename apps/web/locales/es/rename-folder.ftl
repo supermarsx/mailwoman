@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = Esta carpeta tiene subcarpetas. Elimínela
 delete-folder-error-forbidden = No puede eliminar esta carpeta.
 delete-folder-error-notFound = Esta carpeta ya no existe. Actualice la lista de carpetas.
 delete-folder-error-failed = No se pudo eliminar la carpeta. Inténtelo de nuevo.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = Esta cuenta está bajo retención legal, por lo que no se pueden eliminar carpetas.
+
+delete-folder-error-processingRestricted = El procesamiento de esta cuenta está restringido, por lo que no se pueden eliminar carpetas.

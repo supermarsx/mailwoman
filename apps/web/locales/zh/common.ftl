@@ -177,3 +177,24 @@ multiselect-count = { $count ->
 
 # -- Machine translation (2026-11): added to match en ---------------------
 common-rate-limited = 服务器繁忙，请等待几秒后重试。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+combobox-empty = 没有匹配项
+
+combobox-toggle = 显示{ $label }的选项
+
+common-attach-cat-archive = 档案
+
+common-attach-cat-document = 文件
+
+common-attach-cat-spreadsheet = 电子表格
+
+common-conn-reconnecting = 正在重新连接...
+
+common-viewer-pdf-details = 技术细节
+
+common-viewer-pdf-details-help = 报告问题时请包括这些行。它们不包含文档内容。
+
+timezone-group-other = 其他
+
+timezone-use-browser = 使用浏览器时区 ({ $zone })

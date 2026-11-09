@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = Deze map heeft submappen. Verwijder of ver
 delete-folder-error-forbidden = U kunt deze map niet verwijderen.
 delete-folder-error-notFound = Deze map bestaat niet meer. Vernieuw de maplijst.
 delete-folder-error-failed = De map kon niet worden verwijderd. Probeer het opnieuw.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = Er geldt een wettelijke bewaarplicht voor dit account, dus mappen kunnen niet worden verwijderd.
+
+delete-folder-error-processingRestricted = De verwerking van dit account is beperkt, dus mappen kunnen niet worden verwijderd.

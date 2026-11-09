@@ -20,3 +20,18 @@ avatars-domain-icon = Domeinpictogram van { $name } · de identiteit van de afze
 avatars-favorites-first = Favoriete contacten eerst tonen in ontvangersuggesties
 avatars-favorites-first-help = Contacten met een ster staan boven andere overeenkomsten wanneer u een ontvanger typt. Alleen de volgorde verandert; er wordt geen suggestie verborgen.
 avatars-favorites-first-default = Overgenomen voorkeur voor favorieten herstellen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = Authenticatie vereist voor merklogo's
+
+avatars-require-auth-always = Altijd (vereist een geslaagde controle)
+
+avatars-require-auth-default = Herstel overgenomen authenticatievoorkeur
+
+avatars-require-auth-help = Kies wanneer het logo van een erkend bedrijf de initialen naast een afzender mag vervangen. Nooit: toon het wanneer het domein van de afzender overeenkomt. Alleen als een controle is mislukt (standaard): toon deze tenzij het bericht DKIM of DMARC is mislukt. Altijd: toon het alleen als het bericht DKIM is gepasseerd en een uitgelijnde DMARC controle voor het eigen domein van dat bedrijf, dus nog niet gecontroleerde mail toont initialen. De domeinmatch omvat subdomeinen zoals mail.example.com. Deze voorkeur wordt opgeslagen bij uw account en kan worden bewaard door uw beheerder.
+
+avatars-require-auth-known-failure = Alleen als een controle mislukt
+
+avatars-require-auth-never = Nooit (alleen match op domein)
+
+avatars-unverified-sender = Ongeverifieerde afzender · Er wordt geen merkpictogram weergegeven omdat dit bericht de authenticatiecontrole niet heeft doorstaan

@@ -20,3 +20,18 @@ avatars-domain-icon = Ikona domeny { $name } · ta ikona nie weryfikuje tożsamo
 avatars-favorites-first = Pokazuj ulubione kontakty jako pierwsze w podpowiedziach odbiorców
 avatars-favorites-first-help = Kontakty oznaczone gwiazdką są wyświetlane przed innymi dopasowaniami podczas wpisywania odbiorcy. Zmienia się tylko kolejność; żadna podpowiedź nie jest ukrywana.
 avatars-favorites-first-default = Przywróć dziedziczone ustawienie ulubionych
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = Uwierzytelnienie wymagane w przypadku logo marki
+
+avatars-require-auth-always = Zawsze (wymagaj pozytywnego sprawdzenia)
+
+avatars-require-auth-default = Przywróć odziedziczone preferencje uwierzytelniania
+
+avatars-require-auth-help = Wybierz, kiedy logo uznanej firmy może zastąpić inicjały obok nadawcy. Nigdy: pokaż go za każdym razem, gdy domena nadawcy będzie zgodna. Tylko jeśli sprawdzenie się nie powiodło (domyślnie): pokaż je, chyba że komunikat nie powiódł się DKIM lub DMARC. Zawsze: pokazuj to tylko wtedy, gdy wiadomość przeszła DKIM i dopasowane sprawdzenie DMARC dla własnej domeny tej firmy, aby poczta, która nie została jeszcze sprawdzona, zawierała inicjały. Dopasowanie domeny obejmuje subdomeny, takie jak mail.example.com. Ta preferencja jest zapisana na Twoim koncie i może być przechowywana przez administratora.
+
+avatars-require-auth-known-failure = Tylko w przypadku niepowodzenia kontroli
+
+avatars-require-auth-never = Nigdy (dopasuj tylko w domenie)
+
+avatars-unverified-sender = Niezweryfikowany nadawca · nie jest wyświetlana żadna ikona marki, ponieważ ta wiadomość nie przeszła kontroli uwierzytelnienia

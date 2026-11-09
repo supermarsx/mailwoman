@@ -177,3 +177,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] Functieprofiel van { $count } gebruikers gewijzigd.
  }
 admin-userlist-bulk-failed = { $done } voltooid, { $failed } mislukt: { $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = verschuldigd { $date }
+
+admin-user-compliance-empty = Geen gegevensverzoeken voor dit account.
+
+admin-user-compliance-help = Verzoeken ingediend voor de adressen van dit account. Open er een in Gegevensverzoeken om ernaar te handelen.
+
+admin-user-compliance-open-all = Open alle gegevensverzoeken
+
+admin-user-compliance-title = Gegevensverzoeken voor dit account
+
+admin-user-never = Nooit
+
+admin-user-overview-last-signin = Laatste aanmelding
+
+admin-user-overview-status = Status
+
+admin-user-status-active = Actief
+
+admin-user-status-deleted = Verwijderd
+
+admin-user-status-deleting = Verwijderen
+
+admin-user-status-disabled = Geblokkeerd
+
+admin-user-tab-access = Toegang en verwijdering
+
+admin-user-tab-compliance = Naleving
+
+admin-user-tab-overview = Overzicht
+
+admin-user-tab-profile = Functieprofiel
+
+admin-user-tab-security = Beveiliging
+
+admin-user-tab-sessions = Sessies
+
+admin-user-tabs-label = Accountsecties

@@ -102,3 +102,6 @@ rules-vacation-saved-off = Збережено. Автовідповіді вим
 rules-vacation-runs-server = Цю відповідь надсилає поштовий сервер, коли надходить лист.
 rules-vacation-runs-engine = Mailwoman надсилає цю відповідь під час синхронізації нової пошти у вхідних, тож відповідь може зачекати до наступної синхронізації.
 rules-vacation-unavailable = Відповіді на час відпустки недоступні для цього облікового запису: поштовий сервер їх не підтримує або адміністратор їх вимкнув.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Список розсилки (List-Id)

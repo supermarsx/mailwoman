@@ -95,3 +95,6 @@ rules-vacation-saved-off = 保存しました。自動返信はオフです。
 rules-vacation-runs-server = メールが届いたときに、メールサーバーがこの返信を送信します。
 rules-vacation-runs-engine = Mailwoman は受信トレイの新着メールを同期するときにこの返信を送信するため、返信は次回の同期まで待つ場合があります。
 rules-vacation-unavailable = このアカウントでは不在時の返信を利用できません。メールサーバーが対応していないか、管理者が無効にしています。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = メーリングリスト (リスト ID)

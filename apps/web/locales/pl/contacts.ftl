@@ -182,3 +182,125 @@ contacts-bulk-favorites-added = Dodano do ulubionych: { $count }.
 contacts-bulk-favorites-removed = Usunięto z ulubionych: { $count }.
 contacts-row-menu = Akcje dla: { $name }
 contacts-favorites-empty = Brak ulubionych. Użyj gwiazdki przy kontakcie, aby dodać.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } jest już w Twoich kontaktach.
+
+contacts-save-already-badge = Już zapisane
+
+contacts-save-already-many = Wszystkie kontakty { $count } są już zapisane.
+
+contacts-save-automated = Wygląda na to, że nadawca jest automatyczny (brak odpowiedzi, powiadomienia).
+
+contacts-save-book = Książka adresowa
+
+contacts-save-book-readonly = { $name } (tylko do odczytu)
+
+contacts-save-cancel = Anuluj
+
+contacts-save-choose = Wybierz kontakty…
+
+contacts-save-contacts = Zapisz kontakty z tej wiadomości
+
+contacts-save-dialog-title = Zapisz kontakty z tej wiadomości
+
+contacts-save-email = E-mail
+
+contacts-save-failed = Nie udało się zapisać kontaktu. Spróbuj ponownie.
+
+contacts-save-group = Grupa
+
+contacts-save-group-none = Brak grupy
+
+contacts-save-loading = Ładowanie adresów…
+
+contacts-save-name = Imię
+
+contacts-save-new = Zapisz nowe kontakty
+
+contacts-save-no-book = Żadna książka adresowa nie może przyjąć nowych kontaktów.
+
+contacts-save-no-sender = Ta wiadomość nie ma adresu nadawcy.
+
+contacts-save-note = Zapisano z wiadomości o numerze { $date }
+
+contacts-save-nothing = Nikogo do zapisania: wszyscy są już w Twoich kontaktach, to ty, albo wygląda na zautomatyzowanego.
+
+contacts-save-open = Otwórz
+
+contacts-save-open-contact = Otwórz kontakt
+
+contacts-save-open-link = Otwórz kontakt
+
+contacts-save-own = To jest jeden z Twoich adresów.
+
+contacts-save-partial = Zapisano { $saved } z { $total } kontaktów. Pozostałych nie udało się uratować.
+
+contacts-save-pick = Zapisz { $email }
+
+contacts-save-recipients = Zapisz wszystkich odbiorców
+
+contacts-save-removed = Zapisane kontakty zostały usunięte.
+
+contacts-save-role-bcc = UDW
+
+contacts-save-role-cc = Dw
+
+contacts-save-role-from = Od
+
+contacts-save-role-replyTo = Odpowiedź-do
+
+contacts-save-role-sender = Nadawca
+
+contacts-save-role-to = Do
+
+contacts-save-saved-heading = Już w Twoich kontaktach
+
+contacts-save-saved-many = Zapisano { $count } kontaktów w { $book }
+
+contacts-save-saved-one = Zapisano { $name } do { $book }
+
+contacts-save-sender = Zapisz nadawcę jako kontakt
+
+contacts-save-settings-book = Książka adresowa
+
+contacts-save-settings-book-default = Domyślna książka adresowa
+
+contacts-save-settings-enabled = Oferta Zapisz kontakty z tej wiadomości
+
+contacts-save-settings-enabled-help = Dodaje element do menu wiadomości i menu czytnika Więcej.
+
+contacts-save-settings-note = Dodaj notatkę z datą
+
+contacts-save-settings-note-help = Notatka brzmi „Zapisano z wiadomości w dniu”, po której następuje data.
+
+contacts-save-settings-reply-to = Użyj funkcji Reply-To dla nadawców list i powiadomień
+
+contacts-save-settings-reply-to-help = Zapisuje adres Reply-To zamiast From dla tych nadawców.
+
+contacts-save-settings-scope = Zaznaczone jako pierwsze w oknie dialogowym
+
+contacts-save-settings-scope-all = Wszyscy w wiadomości
+
+contacts-save-settings-scope-sender = Tylko nadawca
+
+contacts-save-settings-sender = Oferta Zapisz nadawcę jako kontakt
+
+contacts-save-settings-sender-help = Element dostępny jednym kliknięciem w menu wiadomości.
+
+contacts-save-settings-skip = Pomiń automatycznych nadawców
+
+contacts-save-settings-skip-help = Pomija adresy bez odpowiedzi, powiadomień i zwrotów, chyba że je zaznaczysz.
+
+contacts-save-settings-title = Zapisz kontakty z wiadomości
+
+contacts-save-show-automated = Pokaż adresy automatyczne i adresy, na które nie ma odpowiedzi
+
+contacts-save-submit = { $count ->
+        [one] Zapisz { $count } kontakt
+        [few] Zapisz { $count } kontakty
+        [many] Zapisz { $count } kontaktów
+       *[other] Zapisz { $count } kontaktów
+    }
+
+contacts-save-undo = Cofnij

@@ -63,3 +63,32 @@ search-refine-subject = البحث في الرسائل بهذا الموضوع
 search-refine-folder = البحث في هذا المجلد
 search-refine-domain = البحث في رسائل هذا النطاق
 search-include-trash-scoped = يسري خيار «تضمين المهملات» عند البحث في كل المجلدات. أما المجلد المحدد فيُبحث فيه مباشرة.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = أجاب
+
+search-chip-finished = انتهى
+
+search-chip-followup = تم وضع علامة للمتابعة
+
+search-chip-forwarded = إعادة توجيه
+
+search-chip-high-priority = أولوية عالية
+
+search-chip-low-priority = أولوية منخفضة
+
+search-chip-mentions-me = يذكرني
+
+search-chip-no-followup = لم يتم وضع علامة للمتابعة
+
+search-chip-not-high-priority = ليست ذات أولوية عالية
+
+search-chip-not-low-priority = ليست ذات أولوية منخفضة
+
+search-chip-unanswered = لم يتم الرد
+
+search-chip-unfinished = لم ينته
+
+search-chip-unforwarded = لم تتم إعادة توجيهها
+
+search-field-mentions = يذكر

@@ -241,3 +241,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] تغيّر ملف الميزات لـ { $count } مستخدم.
 }
 admin-userlist-bulk-failed = اكتمل { $done }، وفشل { $failed }: { $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = مستحق { $date }
+
+admin-user-compliance-empty = لا توجد طلبات بيانات لهذا الحساب.
+
+admin-user-compliance-help = الطلبات المقدمة لعناوين هذا الحساب. افتح واحدة في طلبات البيانات للتعامل معها.
+
+admin-user-compliance-open-all = فتح كافة طلبات البيانات
+
+admin-user-compliance-title = طلبات البيانات لهذا الحساب
+
+admin-user-never = أبدا
+
+admin-user-overview-last-signin = آخر تسجيل دخول
+
+admin-user-overview-status = الحالة
+
+admin-user-status-active = نشط
+
+admin-user-status-deleted = تم الحذف
+
+admin-user-status-deleting = حذف
+
+admin-user-status-disabled = محظور
+
+admin-user-tab-access = الوصول والإزالة
+
+admin-user-tab-compliance = الامتثال
+
+admin-user-tab-overview = نظرة عامة
+
+admin-user-tab-profile = ملف تعريف الميزة
+
+admin-user-tab-security = الأمن
+
+admin-user-tab-sessions = الجلسات
+
+admin-user-tabs-label = أقسام الحساب

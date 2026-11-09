@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = Pobranie ze źródła
 privacy-speed-phase-decode = Dekodowanie i ponowne kodowanie
 privacy-speed-phase-other = Wszystko inne
 privacy-speed-note = Zmierzone tylko w procesie tego serwera, przechowywane w pamięci i puste po ponownym uruchomieniu. Percentyle są dokładne z błędem do { $error } %. Nie są przechowywane żadne adresy URL, hosty ani konta.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = Połączone pobrania i żądania priorytetowe
+
+privacy-work-coalesced-series = Pobieracze łączą się z jednym w locie
+
+privacy-work-handle = Obsługuj współczynnik trafień w pamięci podręcznej
+
+privacy-work-handle-series = Obsługuj trafienia w pamięci podręcznej
+
+privacy-work-per-interval = Na interwał próbkowania
+
+privacy-work-percent = Udział wyszukiwań uchwytów
+
+privacy-work-priority-series = Żądania priorytetowe
+
+privacy-work-resized = Obrazy zmniejszone
+
+privacy-work-resized-series = Zmieniono rozmiar
+
+privacy-work-revalidated-series = Ponowna walidacja
+
+privacy-work-saved = Bajty zaoszczędzone przez zmniejszenie skali
+
+privacy-work-saved-series = Bajty zapisane
+
+privacy-work-stale = Wyświetlono i ponownie zweryfikowano nieaktualne obrazy
+
+privacy-work-stale-series = Podawane nieświeże
+
+privacy-work-title = Uniknięto pracy i zmieniono jej kształt

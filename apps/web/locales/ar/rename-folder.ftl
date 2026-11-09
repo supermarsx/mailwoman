@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = يحتوي هذا المجلد على مج
 delete-folder-error-forbidden = لا يمكنك حذف هذا المجلد.
 delete-folder-error-notFound = هذا المجلد لم يعد موجودًا. حدّث قائمة المجلدات.
 delete-folder-error-failed = تعذّر حذف المجلد. حاول مرة أخرى.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = هذا الحساب خاضع للحجز القانوني، لذا لا يمكن حذف المجلدات.
+
+delete-folder-error-processingRestricted = معالجة هذا الحساب مقيدة، لذلك لا يمكن حذف المجلدات.

@@ -639,3 +639,24 @@ admin-protect-sim-cause-no-database = nenhum banco de dados carregado
 admin-protect-sim-cause-not-found = endereço fora do banco de dados
 admin-protect-sim-heightened-off = O modo reforçado de login está desativado.
 admin-protect-sim-heightened-on = O modo reforçado de login está ativado: a espera é ajustada para { $pace } ({ $cooldown }), desafio forçado: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sessões e reinicializações
+
+admin-secdash-sessions-admin = Sessões de console
+
+admin-secdash-sessions-mailbox = Sessões de caixa de correio
+
+admin-secdash-sessions-native = Sessões de aplicativos
+
+admin-secdash-sessions-reason-persisted = armazenado no banco de dados, selado com a chave do servidor
+
+admin-secdash-sessions-reason-server-key-changed = as sessões armazenadas não abrem com a chave do servidor atual; restaurar o arquivo de chave original
+
+admin-secdash-sessions-reason-server-key-ephemeral = a chave do servidor não é mantida durante as reinicializações
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts está desativado, então as sessões terminam quando o servidor inicia
+
+admin-secdash-sessions-survive-no = As sessões sobrevivem às reinicializações: não ({ $reason })
+
+admin-secdash-sessions-survive-yes = As sessões sobrevivem às reinicializações: sim ({ $reason })

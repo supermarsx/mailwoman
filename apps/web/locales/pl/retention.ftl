@@ -116,3 +116,94 @@ retention-history-matched = Dopasowano
 retention-history-changed = Zmieniono
 retention-history-errors = Błędy
 retention-context-action = Retencja…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Kalendarze
+
+pim-cal-days = Kilka dni po zakończeniu wydarzenia
+
+pim-cal-enabled = Usuń zakończone wydarzenia
+
+pim-cal-help = Usuń wydarzenia z wybranych kalendarzy po określonej liczbie dni po ich zakończeniu. Wydarzenia cykliczne nigdy nie są usuwane.
+
+pim-cal-title = Wydarzenia w kalendarzu
+
+pim-days-range = Wybierz pomiędzy { $min } i { $max } dni.
+
+pim-held-title = Usunięte notatki, które możesz przywrócić
+
+pim-held-until = Przechowywane do { $when }
+
+pim-limits = Od { $min } do { $max } dni.
+
+pim-notes-days = Dni od ostatniej zmiany notatki
+
+pim-notes-enabled = Usuń nietknięte notatki
+
+pim-notes-help = Usuń notatki, których nie zmieniłeś przez określoną liczbę dni. Przypięte notatki zostaną zachowane. Usuniętą notatkę można przywrócić przez { $days } dni.
+
+pim-notes-title = Notatki
+
+pim-off = Wyłączone przez administratora.
+
+pim-preview = Podgląd
+
+pim-restore = Przywróć
+
+pim-result = { $events } zdarzenia i { $notes } notatki.
+
+pim-run = Uciekaj teraz
+
+pim-run-title = Uciekaj teraz
+
+pim-save = Zapisz
+
+pim-skipped = { $count } opcji zostało pominiętych, ponieważ administrator je wyłączył.
+
+pim-untitled = Notatka bez tytułu
+
+retention-action-stripAttachments = Usuń duże załączniki
+
+retention-do-stripAttachments = załączniki usunięte
+
+retention-error-strip-disabled = Usuwanie załączników zostało wyłączone przez administratora.
+
+retention-error-strip-min = Reguła usuwająca załączniki musi poczekać co najmniej { $days } dni.
+
+retention-fd-action = Co dzieje się z pocztą w numerze { $folder }
+
+retention-fd-days = Kilka dni przed przetworzeniem { $folder }
+
+retention-fd-help = Ustaw, jak długo poczta pozostaje w folderze, zanim zostanie przeniesiona lub usunięta. Folder ustawiony na „Dziedzicz” nie ma własnego folderu domyślnego; w dalszym ciągu obowiązują zasady powyższe oraz limity administratora. Podfoldery podążają za folderem.
+
+retention-fd-inherit = Dziedzicz
+
+retention-fd-mandatory = Administrator przechowuje ten folder przez { $days } dni
+
+retention-fd-protected = Chronione przez administratora
+
+retention-fd-save = Zapisz domyślne ustawienia folderu
+
+retention-fd-title = Domyślne ustawienia folderu
+
+retention-rule-strip-off = Wyłączone przez administratora
+
+retention-strip-allowed = Reguła może usuwać załączniki o rozmiarze co najmniej { $kb } KB z poczty starszej niż { $days } dni. Krótka notatka zastępuje każdy załącznik.
+
+retention-strip-denied = Usuwanie załączników zostało wyłączone przez administratora.
+
+retention-strip-done = Usunięto załączniki z wiadomości { $count }, zwalniając { $size }.
+
+retention-strip-inline-kept = Obrazy pokazane w wiadomości zostaną zachowane.
+
+retention-strip-inline-removed = Obrazy widoczne w wiadomości również zostaną usunięte.
+
+retention-strip-limits = Usuwa załączniki o rozmiarze co najmniej { $kb } KB z poczty starszej niż { $days } dni. Oryginał pozostaje w Koszu przez { $undo } dni.
+
+retention-strip-preview = Wiadomości { $count } utraciłyby załączniki, uwalniając { $size }.
+
+retention-strip-preview-estimate = Około { $count } wiadomości spowoduje utratę załączników, uwalniając maksymalnie { $size }.
+
+retention-strip-skipped = { $count } reguły usuwające załączniki zostały pominięte, ponieważ administrator wyłączył tę opcję.
+
+retention-summary-stripAttachments = po { $days } dniach usunięto duże załączniki

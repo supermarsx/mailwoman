@@ -732,3 +732,104 @@ cache-refreshOnOpen = 打开时刷新缓存内容
 
 # -- Machine translation (2026-11): added to match en ---------------------
 settings-sig-image-size = { $name } 放不下:含图片在内,签名的 HTML 限制为 2 MiB。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = 身份验证（DMARC）
+
+settings-badge-auth-help = DMARC 结果；它会打开完整的安全详细信息。
+
+settings-badge-density = 徽章尺寸
+
+settings-badge-density-comfortable = 舒适
+
+settings-badge-density-compact = 紧凑型
+
+settings-badge-density-help = 每个徽章的高度和间距紧凑或舒适。
+
+settings-badge-folder = 文件夹
+
+settings-badge-folder-help = 消息存储的位置。仅当显着时才会显示垃圾和垃圾。
+
+settings-badge-labels = 徽章标签
+
+settings-badge-labels-help = 带有文本的图标，或单独的图标（完整文本保留在工具提示中并供屏幕阅读器使用）。
+
+settings-badge-labels-icon = 仅图标
+
+settings-badge-labels-text = 图标和文字
+
+settings-badge-list = 邮件列表
+
+settings-badge-list-help = 消息来自的邮件列表；它会打开订阅详细信息和操作。仅当您取消订阅后邮件不断到达时才会显着显示。
+
+settings-badge-mode-always = 总是
+
+settings-badge-mode-never = 从来没有
+
+settings-badge-mode-notable = 仅当引人注目时
+
+settings-badge-sanitized = 已消毒HTML
+
+settings-badge-sanitized-help = HTML 消毒剂对消息做了什么。仅当某些内容被阻止时才会显着显示。
+
+settings-badge-spam = 垃圾邮件分数
+
+settings-badge-spam-help = 接收服务器写入消息标头的分数。
+
+settings-folders-hide-empty = 隐藏侧边栏中的空文件夹
+
+settings-folders-hide-empty-help = 当文件夹包含消息时，它们会重新出现。收件箱、搜索文件夹、计数未知的文件夹以及可见文件夹的父级保持显示。覆盖“属性”、“显示”下的各个文件夹；每个文件夹都保留在此列表中。
+
+settings-folders-list-card = 文件夹列表和顺序
+
+settings-header-auto-collapse = 写入后折叠标题（秒）
+
+settings-header-auto-collapse-help = 当正文获得焦点这么多秒并且标头有收件人和主题时，它会折叠到摘要行。 0 将其关闭。
+
+settings-message-badges = 消息徽章
+
+settings-message-badges-help = 选择在打开的邮件标题中显示哪些徽章。优先级标记设置在文件夹和侧边栏下。您还可以右键单击徽章将其隐藏。
+
+settings-reply-from-headers = 选择身份的标头
+
+settings-reply-from-headers-help = 每行一个标头名称，按以下顺序尝试：Delivered-To、X-Original-To、Envelope-To、X-Forwarded-To、Resent-To、To、Cc。未读取的标头不会被读取。
+
+settings-reply-from-headers-invalid = 仅使用这些名称，每行一个：Delivered-To、X-Original-To、Envelope-To、X-Forwarded-To、Resent-To、To、Cc。
+
+settings-reply-from-headers-save = 保存标题顺序
+
+settings-sessions-linked-created = 链接已创建
+
+settings-sessions-linked-details = 链接详情
+
+settings-sessions-linked-kind = 链接类型
+
+settings-sessions-linked-kind-linked = 联动邮箱
+
+settings-sessions-linked-last-used = 上次使用
+
+settings-sessions-linked-line = 链接邮箱访问·来自{ $origin }
+
+settings-sessions-linked-line-hidden = 链接邮箱访问
+
+settings-sessions-linked-origin = 来自
+
+settings-sessions-linked-removed = 未知（已删除帐户）
+
+settings-sessions-linked-revoke = 撤销链接访问权限
+
+settings-sessions-linked-revoke-label = 撤销{ $mailbox }的链接访问权限
+
+settings-sessions-linked-target = 邮箱已打开
+
+settings-sessions-origin-full = 完整地址
+
+settings-sessions-origin-help = 控制此表如何命名链接邮箱会话来自的帐户。只有您在自己的会话中看到它。
+
+settings-sessions-origin-hidden = 隐藏
+
+settings-sessions-origin-masked-local-part = 第一部分被屏蔽的地址
+
+settings-sessions-origin-setting = 显示链接邮箱访问的来源
+
+settings-shortcuts-search = 搜索快捷方式

@@ -639,3 +639,24 @@ admin-protect-sim-cause-no-database = nessun database caricato
 admin-protect-sim-cause-not-found = indirizzo non presente nel database
 admin-protect-sim-heightened-off = La modalità rafforzata degli accessi è disattivata.
 admin-protect-sim-heightened-on = La modalità rafforzata degli accessi è attiva: l'attesa è portata a { $pace } ({ $cooldown }), sfida forzata: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sessioni e riavvii
+
+admin-secdash-sessions-admin = Sessioni in consolle
+
+admin-secdash-sessions-mailbox = Sessioni di casella di posta
+
+admin-secdash-sessions-native = Sessioni dell'app
+
+admin-secdash-sessions-reason-persisted = archiviato nel database, sigillato con la chiave del server
+
+admin-secdash-sessions-reason-server-key-changed = le sessioni memorizzate non si aprono con la chiave del server corrente; ripristinare il file della chiave originale
+
+admin-secdash-sessions-reason-server-key-ephemeral = la chiave del server non viene mantenuta durante i riavvii
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts è disattivato, quindi le sessioni terminano all'avvio del server
+
+admin-secdash-sessions-survive-no = Le sessioni sopravvivono al riavvio: no ({ $reason })
+
+admin-secdash-sessions-survive-yes = Le sessioni sopravvivono al riavvio: sì ({ $reason })

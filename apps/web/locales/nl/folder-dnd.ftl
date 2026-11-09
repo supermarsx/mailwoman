@@ -75,3 +75,135 @@ folder-dnd-more-actions = Schikken
 folder-dnd-selected-move = Geselecteerde verplaatsen naar…
 folder-dnd-locked-row = Vergrendeld
 folder-dnd-problem-pin = Vastgezette mappen blijven boven de andere. Maak ze eerst los om ze daarheen te verplaatsen.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Leeg…
+
+folder-bar-label = Acties voor de geselecteerde mappen
+
+folder-bar-mark-read = Markeer alles als gelezen
+
+folder-bar-pin = Vastzetten
+
+folder-bar-star = Ster
+
+folder-bar-unpin = Losmaken
+
+folder-bar-unstar = Ster verwijderen
+
+folder-dnd-handle-hint = Sleep om deze map te verplaatsen
+
+folder-pinned-group = Vastgezet
+
+folder-pinned-unpin-zone = Kom hierheen om los te maken
+
+settings-folders-bulk-delete-body = { $folders ->
+        [one] { $folders } map en de { $messages } berichten daarin worden verwijderd. Dit kan niet ongedaan worden gemaakt.
+       *[other] { $folders } mappen (met hun submappen) en de { $messages } berichten daarin worden verwijderd. Dit kan niet ongedaan worden gemaakt.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [one] Verwijder { $count } map
+       *[other] Verwijder { $count } mappen
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [one] { $count } map verwijderd
+       *[other] { $count } mappen verwijderd
+    }
+
+settings-folders-bulk-delete-failed = Er is niets verwijderd. Niet verwijderd: { $names }
+
+settings-folders-bulk-delete-list = Mappen om te verwijderen
+
+settings-folders-bulk-delete-none = Geen van de geselecteerde mappen kan worden verwijderd (systeemmappen en mappen die u niet mag verwijderen worden overgeslagen).
+
+settings-folders-bulk-delete-others = Ook niet verwijderd: { $names }
+
+settings-folders-bulk-delete-partial = { $done } mappen verwijderd. Niet verwijderd: { $names }
+
+settings-folders-bulk-delete-partial-done = { $done } mappen verwijderd.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [one] Niet verwijderd omdat er een wettelijke bewaarplicht op het account rust: { $names }
+       *[other] Niet verwijderd omdat het account onder een wettelijke bewaarplicht valt ({ $count } mappen): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [one] Niet verwijderd omdat de verwerking van het account beperkt is: { $names }
+       *[other] Niet verwijderd omdat de verwerking van het account beperkt is ({ $count } mappen): { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } geselecteerde mappen worden overgeslagen omdat ze niet kunnen worden verwijderd: { $names }
+
+settings-folders-bulk-delete-subfolders = Verwijder ook de submappen van elke map
+
+settings-folders-bulk-delete-subfolders-off = Alleen de geselecteerde mappen worden verwijderd. Een map die nog een submap buiten de selectie heeft, wordt behouden.
+
+settings-folders-bulk-delete-title = { $count ->
+        [one] { $count } map verwijderen?
+       *[other] { $count } mappen verwijderen?
+    }
+
+settings-folders-bulk-empty-body = { $total } berichten in { $folders } mappen worden verwijderd: { $toTrash } verplaatsen naar de prullenbak en kunnen ongedaan worden gemaakt, { $permanent } worden voorgoed verwijderd en kunnen niet meer worden teruggehaald. Submappen worden niet aangeraakt.
+
+settings-folders-bulk-empty-confirm = Maak de mappen leeg
+
+settings-folders-bulk-empty-counting = De berichten in elke map tellen...
+
+settings-folders-bulk-empty-done = { $count } mappen geleegd, { $messages } berichten
+
+settings-folders-bulk-empty-fail-refused = de server weigerde een deel ervan; { $remaining } berichten blijven bestaan
+
+settings-folders-bulk-empty-fail-stopped = gestopt; { $remaining } berichten blijven bestaan
+
+settings-folders-bulk-empty-fail-uncertain = het resultaat van de laatste batch is onbekend; controleer de map
+
+settings-folders-bulk-empty-list = Mappen om te legen
+
+settings-folders-bulk-empty-partial = { $done } mappen geleegd; { $failed } is mislukt. Zie de lijst.
+
+settings-folders-bulk-empty-permanent = { $count } berichten worden voorgoed verwijderd
+
+settings-folders-bulk-empty-progress = { $done } van { $of } mappen klaar, { $messages } berichten verwerkt. Nu: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = kon niet worden geteld, overgeslagen
+
+settings-folders-bulk-empty-skip-empty = al leeg, overgeslagen
+
+settings-folders-bulk-empty-skip-permanent-denied = voorgoed zou worden verwijderd, wat de beheerder heeft uitgeschakeld en overgeslagen
+
+settings-folders-bulk-empty-skip-search = een opgeslagen zoekopdracht, overgeslagen
+
+settings-folders-bulk-empty-skip-unsupported = dit account kan het niet legen, overgeslagen
+
+settings-folders-bulk-empty-title = { $count ->
+        [one] { $count } map leegmaken?
+       *[other] { $count } mappen leegmaken?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } berichten worden naar de prullenbak verplaatst
+
+settings-folders-bulk-empty-undo-label = { $count } mappen geleegd ({ $messages } berichten)
+
+settings-folders-delete-selected = Verwijderen…
+
+settings-folders-select-user = Selecteer alle gebruikersmappen
+
+settings-folders-subscribe-failed = De abonnementen konden niet worden gewijzigd.
+
+settings-folders-subscribe-partial = { $done } mappen gewijzigd; { $failed } kon niet worden gewijzigd.
+
+settings-folders-subscribe-selected = Abonneer je
+
+settings-folders-subscribed = { $count ->
+        [one] Geabonneerd op { $count } map
+       *[other] Geabonneerd op { $count } mappen
+    }
+
+settings-folders-unsubscribe-selected = Afmelden
+
+settings-folders-unsubscribed = { $count ->
+        [one] Afgemeld voor { $count } map
+       *[other] Afgemeld voor { $count } mappen
+    }

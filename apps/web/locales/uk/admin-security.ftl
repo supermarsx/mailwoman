@@ -651,3 +651,24 @@ admin-protect-sim-cause-no-database = базу не завантажено
 admin-protect-sim-cause-not-found = адреси немає в базі
 admin-protect-sim-heightened-off = Підвищений режим входу вимкнено.
 admin-protect-sim-heightened-on = Підвищений режим входу ввімкнено: паузу збільшено до { $pace } ({ $cooldown }), завдання примусово: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Сеанси та перезапуски
+
+admin-secdash-sessions-admin = Консольні сесії
+
+admin-secdash-sessions-mailbox = Сеанси поштової скриньки
+
+admin-secdash-sessions-native = Сеанси програми
+
+admin-secdash-sessions-reason-persisted = зберігаються в базі даних, запечатані ключем сервера
+
+admin-secdash-sessions-reason-server-key-changed = збережені сесії не відкриваються за допомогою поточного ключа сервера; відновити вихідний файл ключа
+
+admin-secdash-sessions-reason-server-key-ephemeral = ключ сервера не зберігається під час перезапусків
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts вимкнено, тому сесії завершуються, коли запускається сервер
+
+admin-secdash-sessions-survive-no = Сеанси виживають після перезапусків: ні ({ $reason })
+
+admin-secdash-sessions-survive-yes = Сеанси виживають після перезапусків: так ({ $reason })

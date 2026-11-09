@@ -1118,3 +1118,18 @@ admin-insights-empty-rules = W tym zakresie nie zadziałała żadna reguła adap
 admin-insights-share-of = { $share } żądań
 admin-nav-encryption = Szyfrowanie
 admin-nav-retention = Przechowywanie
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Błędy klienta
+
+admin-session-linked-device = Sesja początkowa: { $device }
+
+admin-session-linked-line = Dostęp do połączonej skrzynki pocztowej · od { $origin }
+
+admin-session-linked-line-hidden = Dostęp do połączonej skrzynki pocztowej
+
+admin-session-linked-open = Otwórz konto Origin
+
+admin-session-linked-removed = Dostęp do połączonej skrzynki pocztowej · Usunięto konto Origin
+
+admin-session-linked-restricted = Dostęp do połączonej skrzynki pocztowej · nie pokazano pochodzenia (brak dostępu do tego konta)

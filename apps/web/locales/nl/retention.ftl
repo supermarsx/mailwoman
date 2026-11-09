@@ -116,3 +116,94 @@ retention-history-matched = Overeenkomsten
 retention-history-changed = Gewijzigd
 retention-history-errors = Fouten
 retention-context-action = Bewaartermijn…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Kalenders
+
+pim-cal-days = Dagen nadat een evenement is geëindigd
+
+pim-cal-enabled = Verwijder beëindigde evenementen
+
+pim-cal-help = Verwijder evenementen in de agenda's die u kiest een bepaald aantal dagen nadat ze zijn geëindigd. Terugkerende evenementen worden nooit verwijderd.
+
+pim-cal-title = Agenda-evenementen
+
+pim-days-range = Kies tussen { $min } en { $max } dagen.
+
+pim-held-title = Verwijderde notities die u kunt herstellen
+
+pim-held-until = Bewaard tot { $when }
+
+pim-limits = Tussen { $min } en { $max } dagen.
+
+pim-notes-days = Dagen sinds een notitie voor het laatst is gewijzigd
+
+pim-notes-enabled = Verwijder onaangeroerde notities
+
+pim-notes-help = Verwijder notities die u een bepaald aantal dagen niet hebt gewijzigd. Vastgezette notities blijven bewaard. Een verwijderde notitie kan gedurende { $days } dagen worden hersteld.
+
+pim-notes-title = Opmerkingen
+
+pim-off = Uitgezet door uw beheerder.
+
+pim-preview = Voorbeeld
+
+pim-restore = Herstellen
+
+pim-result = { $events } gebeurtenis(sen) en { $notes } notitie(s).
+
+pim-run = Ren nu
+
+pim-run-title = Ren nu
+
+pim-save = Opslaan
+
+pim-skipped = { $count } keuze(s) zijn overgeslagen omdat uw beheerder deze heeft uitgeschakeld.
+
+pim-untitled = Naamloze notitie
+
+retention-action-stripAttachments = Verwijder grote bijlagen
+
+retention-do-stripAttachments = bijlagen verwijderd
+
+retention-error-strip-disabled = Het verwijderen van bijlagen is uitgeschakeld door uw beheerder.
+
+retention-error-strip-min = Een regel die bijlagen verwijdert, moet minimaal { $days } dagen wachten.
+
+retention-fd-action = Wat gebeurt er met e-mail in { $folder }
+
+retention-fd-days = Dagen voordat { $folder } wordt verwerkt
+
+retention-fd-help = Stel in hoe lang e-mail in een map blijft staan voordat deze wordt verplaatst of verwijderd. Een map die is ingesteld op "Overnemen" heeft geen eigen standaard; de bovenstaande regels en de beheerderslimieten zijn nog steeds van toepassing. Submappen volgen hun map.
+
+retention-fd-inherit = Erven
+
+retention-fd-mandatory = De beheerder bewaart deze map { $days } dagen
+
+retention-fd-protected = Beschermd door de beheerder
+
+retention-fd-save = Bewaar mapstandaarden
+
+retention-fd-title = Standaardwaarden voor mappen
+
+retention-rule-strip-off = Uitgezet door uw beheerder
+
+retention-strip-allowed = Een regel kan bijlagen van minimaal { $kb } KB verwijderen uit e-mails die minimaal { $days } dagen oud zijn. Een korte notitie vervangt elke bijlage.
+
+retention-strip-denied = Het verwijderen van bijlagen is uitgeschakeld door uw beheerder.
+
+retention-strip-done = Bijlagen verwijderd uit { $count } bericht(en), waardoor { $size } vrijkomt.
+
+retention-strip-inline-kept = Afbeeldingen die in het bericht worden weergegeven, blijven behouden.
+
+retention-strip-inline-removed = Afbeeldingen die in het bericht worden weergegeven, worden ook verwijderd.
+
+retention-strip-limits = Verwijdert bijlagen van minimaal { $kb } KB uit e-mails die minimaal { $days } dagen oud zijn. Het origineel blijft { $undo } dagen in de prullenbak.
+
+retention-strip-preview = Bij { $count } bericht(en) zouden de bijlagen verloren gaan, waardoor { $size } vrijkomt.
+
+retention-strip-preview-estimate = Bij ongeveer { $count } bericht(en) zouden de bijlagen verloren gaan, waardoor er { $size } vrijkomt.
+
+retention-strip-skipped = { $count } regel(s) die bijlagen verwijderen zijn overgeslagen omdat uw beheerder dit heeft uitgeschakeld.
+
+retention-summary-stripAttachments = na { $days } dagen worden grote bijlagen verwijderd

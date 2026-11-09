@@ -66,3 +66,69 @@ reader-card-loading = Загрузка
 reader-card-loading-help = Что вы видите, пока сообщение открывается.
 settings-mail-card-list = Список сообщений
 settings-mail-card-list-help = Действия в строках и поведение списка после действия с сообщением.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Скачать { $name }
+
+reader-attachments-download-all = Скачать все
+
+reader-attachments-download-all-blocked = Политика вложений блокирует здесь все файлы.
+
+reader-attachments-download-all-busy = Подготовка файла ZIP
+
+reader-attachments-download-all-label = Загрузите все вложения в виде файла ZIP.
+
+reader-attachments-download-all-none = Нет вложений для скачивания
+
+reader-attachments-download-all-warned = { $count ->
+        [one] Один файл, требующий подтверждения, был пропущен. Загрузите его самостоятельно.
+        [few] { $count } файла, требующие подтверждения, были исключены. Загрузите их один за другим.
+        [many] { $count } файлов, требующих подтверждения, были исключены. Загрузите их один за другим.
+       *[other] { $count } файла, требующие подтверждения, были исключены. Загрузите их один за другим.
+    }
+
+reader-attachments-download-blocked = { $name } невозможно скачать: { $reason }
+
+reader-attachments-download-label = Скачать { $name } ({ $size })
+
+reader-attachments-download-off = Загрузки отключены
+
+reader-attachments-inline-group = { $count ->
+        [one] { $count } встроенное изображение
+        [few] { $count } встроенных изображения
+        [many] { $count } встроенных изображений
+       *[other] { $count } встроенных изображения
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [one] { $count } встроенное изображение
+        [few] { $count } встроенных изображения
+        [many] { $count } встроенных изображений
+       *[other] { $count } встроенных изображения
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Нажмите на панель, чтобы развернуть или свернуть
+
+reader-attachmentsBarClickToToggle-help = Щелчок в любом месте панели вложений переключает ее. В выключенном состоянии работает только кнопка со стрелкой.
+
+reader-attachmentsBarDownloadAll = Кнопка «Загрузить все»
+
+reader-attachmentsBarDownloadAll-help = Покажите кнопку на панели, которая загружает вложения как один файл ZIP.
+
+reader-attachmentsBarShowDownloadButtons = Кнопки загрузки во вложениях
+
+reader-attachmentsBarShowDownloadButtons-help = Показывать кнопку загрузки каждого вложения при наведении курсора или фокусе, всегда или никогда.
+
+reader-attachmentsBarZipInlineImages = Включите встроенные изображения в ZIP.
+
+reader-attachmentsBarZipInlineImages-help = Изображения, которые появляются внутри текста сообщения, не включены в параметр «Загрузить все», если этот параметр не включен.
+
+reader-card-attachments-bar = Панель вложений
+
+reader-card-attachments-bar-help = Как реагирует панель над вложениями к сообщению и что она предлагает. Линии, помеченные как заблокированные, устанавливаются администратором.
+
+reader-option-always = Всегда
+
+reader-option-hover = При наведении или фокусировке
+
+reader-option-never = Никогда

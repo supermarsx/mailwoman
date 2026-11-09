@@ -1093,3 +1093,18 @@ admin-insights-empty-rules = لم تُفعَّل أي قاعدة تكيفية ف
 admin-insights-share-of = { $share } من الطلبات
 admin-nav-encryption = التشفير
 admin-nav-retention = الاحتفاظ
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = أخطاء العميل
+
+admin-session-linked-device = جلسة الأصل: { $device }
+
+admin-session-linked-line = الوصول إلى صندوق البريد المرتبط · من { $origin }
+
+admin-session-linked-line-hidden = الوصول إلى صندوق البريد المرتبط
+
+admin-session-linked-open = فتح حساب الأصل
+
+admin-session-linked-removed = الوصول إلى صندوق البريد المرتبط · تمت إزالة الحساب الأصلي
+
+admin-session-linked-restricted = الوصول إلى صندوق البريد المرتبط · الأصل غير معروض (لا يمكن الوصول إلى هذا الحساب)

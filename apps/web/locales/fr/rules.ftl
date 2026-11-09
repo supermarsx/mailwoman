@@ -95,3 +95,6 @@ rules-vacation-saved-off = Enregistré. Les réponses automatiques sont désacti
 rules-vacation-runs-server = Votre serveur de messagerie envoie cette réponse à l’arrivée des messages.
 rules-vacation-runs-engine = Mailwoman envoie cette réponse lorsqu’il synchronise les nouveaux messages de la boîte de réception ; une réponse peut donc attendre la prochaine synchronisation.
 rules-vacation-unavailable = Les réponses d’absence ne sont pas disponibles pour ce compte : son serveur de messagerie ne les propose pas, ou votre administrateur les a désactivées.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Liste de diffusion (List-Id)

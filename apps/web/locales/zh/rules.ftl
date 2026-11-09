@@ -102,3 +102,6 @@ rules-vacation-saved-off = 已保存。自动回复已关闭。
 rules-vacation-runs-server = 邮件送达时，由你的邮件服务器发送此回复。
 rules-vacation-runs-engine = Mailwoman 在同步收件箱新邮件时发送此回复，因此回复可能要等到下次同步。
 rules-vacation-unavailable = 此账户无法使用休假回复：其邮件服务器不提供该功能，或管理员已将其关闭。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = 邮件列表（列表 ID）

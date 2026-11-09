@@ -72,3 +72,58 @@ admin-dr-trail = Trilha
 admin-dr-behalf = Enviar uma solicitação para um usuário
 admin-dr-behalf-help = Para uma solicitação recebida por correio ou pessoalmente. A pessoa não precisa confirmar por mensagem.
 admin-dr-behalf-submit = Enviar solicitação
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Ações em massa
+
+admin-dr-bulk-action = Ação
+
+admin-dr-bulk-approve = Aprovar
+
+admin-dr-bulk-assign = Atribuir
+
+admin-dr-bulk-clear = Limpar seleção
+
+admin-dr-bulk-csv = CSV da seleção
+
+admin-dr-bulk-extend = Estender a data de vencimento
+
+admin-dr-bulk-failed = Recusado
+
+admin-dr-bulk-field-assignee = Atribuir a (limpezas vazias)
+
+admin-dr-bulk-field-extend = Motivo da extensão
+
+admin-dr-bulk-field-note = Nota (opcional)
+
+admin-dr-bulk-field-reason = Razão
+
+admin-dr-bulk-hold = Colocado sob retenção legal
+
+admin-dr-bulk-ok = Concluído
+
+admin-dr-bulk-reject = Rejeitar
+
+admin-dr-bulk-release-hold = Liberar retenção legal
+
+admin-dr-bulk-run = { $count ->
+        [0] Aplicar a { $count } solicitações
+        [one] Aplicar a { $count } solicitação
+        [many] Aplicar a { $count } solicitações
+       *[other] Aplicar a { $count } solicitações
+    }
+
+admin-dr-bulk-select = Selecione a solicitação de { $address }
+
+admin-dr-bulk-select-all = Selecione todas as solicitações listadas
+
+admin-dr-bulk-selected = { $count ->
+        [0] { $count } solicitações selecionadas
+        [one] { $count } solicitação selecionada
+        [many] { $count } solicitações selecionadas
+       *[other] { $count } solicitações selecionadas
+    }
+
+admin-dr-bulk-summary = Feito para { $done }; recusou por { $failed }. As solicitações recusadas permanecem selecionadas.
+
+admin-dr-more = Carregar mais solicitações

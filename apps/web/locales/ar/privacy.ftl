@@ -219,3 +219,12 @@ privacy-image-group-cache = الذاكرة المؤقتة
 privacy-image-group-ram = طبقة الذاكرة
 privacy-image-group-disk = طبقة القرص
 privacy-image-group-tiering = التدرّج والصيانة
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-error-reports-help = عندما يفشل جزء من Mailwoman، يمكن للمتصفح أن يرسل إلى المسؤول تقريرًا فنيًا قصيرًا حتى يمكن إصلاحه. فهو يحتوي على نوع الخطأ ومكان حدوثه في التطبيق وإصدار التطبيق ونوع المتصفح. لا يحتفظ أبدًا بمحتوى الرسالة أو العناوين أو أسماء المرفقات أو ما كتبته.
+
+privacy-error-reports-send = إرسال تقارير الأخطاء من هذا المتصفح
+
+privacy-error-reports-send-help = قيد التشغيل بشكل افتراضي. قم بإيقاف تشغيله للاحتفاظ بهذه التقارير على جهازك. لا تزال لوحة الأخطاء تعرض مرجعًا يمكنك نسخه.
+
+privacy-error-reports-title = تقارير الأخطاء

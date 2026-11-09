@@ -178,3 +178,24 @@ multiselect-count = { $count ->
 
 # -- Machine translation (2026-11): added to match en ---------------------
 common-rate-limited = De server is bezet. Wacht een paar seconden en probeer het opnieuw.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+combobox-empty = Geen overeenkomsten
+
+combobox-toggle = Opties weergeven voor { $label }
+
+common-attach-cat-archive = Archief
+
+common-attach-cat-document = Documenten
+
+common-attach-cat-spreadsheet = Spreadsheets
+
+common-conn-reconnecting = Opnieuw verbinding maken…
+
+common-viewer-pdf-details = Technische details
+
+common-viewer-pdf-details-help = Voeg deze regels toe wanneer u het probleem rapporteert. Ze bevatten geen documentinhoud.
+
+timezone-group-other = Anders
+
+timezone-use-browser = Gebruik browsertijdzone ({ $zone })

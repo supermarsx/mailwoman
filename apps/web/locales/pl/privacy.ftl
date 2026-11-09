@@ -217,3 +217,12 @@ privacy-image-group-cache = Pamięć podręczna
 privacy-image-group-ram = Warstwa pamięci
 privacy-image-group-disk = Warstwa dyskowa
 privacy-image-group-tiering = Warstwowanie i konserwacja
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-error-reports-help = Gdy część Mailwoman ulegnie awarii, przeglądarka może wysłać administratorowi krótki raport techniczny, aby można było go naprawić. Przechowuje typ błędu, miejsce w aplikacji, w którym wystąpił błąd, wersję aplikacji i typ przeglądarki. Nigdy nie przechowuje treści wiadomości, adresów, nazw załączników ani tego, co wpisałeś.
+
+privacy-error-reports-send = Wysyłaj raporty o błędach z tej przeglądarki
+
+privacy-error-reports-send-help = Domyślnie włączone. Wyłącz, aby zachować te raporty na swoim urządzeniu. Panel błędów nadal pokazuje odnośnik, który możesz skopiować.
+
+privacy-error-reports-title = Raporty o błędach

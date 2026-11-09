@@ -102,3 +102,6 @@ rules-vacation-saved-off = Salvo. As respostas automáticas estão desativadas.
 rules-vacation-runs-server = Seu servidor de e-mail envia esta resposta quando chega uma mensagem.
 rules-vacation-runs-engine = O Mailwoman envia esta resposta ao sincronizar novas mensagens da caixa de entrada, então uma resposta pode esperar até a próxima sincronização.
 rules-vacation-unavailable = As respostas de férias não estão disponíveis para esta conta: o servidor de e-mail não as oferece ou o administrador as desativou.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Lista de discussão (List-Id)

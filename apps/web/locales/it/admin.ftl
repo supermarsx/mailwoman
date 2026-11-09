@@ -1091,3 +1091,18 @@ admin-insights-empty-rules = Nessuna regola adattiva è scattata in questo inter
 admin-insights-share-of = { $share } delle richieste
 admin-nav-encryption = Cifratura
 admin-nav-retention = Conservazione
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Errori del cliente
+
+admin-session-linked-device = Sessione di origine: { $device }
+
+admin-session-linked-line = Accesso alla casella di posta collegata · da { $origin }
+
+admin-session-linked-line-hidden = Accesso alla casella di posta collegata
+
+admin-session-linked-open = Apri un conto di origine
+
+admin-session-linked-removed = Accesso alla casella di posta collegata · Account di origine rimosso
+
+admin-session-linked-restricted = Accesso alla casella di posta collegata · origine non mostrata (nessun accesso a quell'account)

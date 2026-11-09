@@ -64,3 +64,66 @@ reader-card-loading = Caricamento
 reader-card-loading-help = Cosa viene mostrato mentre un messaggio si apre.
 settings-mail-card-list = Elenco dei messaggi
 settings-mail-card-list-help = Azioni sulle righe e cosa fa l'elenco quando si agisce su un messaggio.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Scarica { $name }
+
+reader-attachments-download-all = Scarica tutto
+
+reader-attachments-download-all-blocked = La politica degli allegati blocca tutti i file qui
+
+reader-attachments-download-all-busy = Preparazione del file ZIP
+
+reader-attachments-download-all-label = Scarica tutti gli allegati come file ZIP
+
+reader-attachments-download-all-none = Non ci sono allegati da scaricare
+
+reader-attachments-download-all-warned = { $count ->
+        [one] Un file che necessita di conferma è stato tralasciato. Scaricalo da solo.
+        [many] { $count } file che necessitano di conferma sono stati esclusi. Scaricateli uno per uno.
+       *[other] { $count } file che necessitano di conferma sono stati esclusi. Scaricateli uno per uno.
+    }
+
+reader-attachments-download-blocked = { $name } non può essere scaricato: { $reason }
+
+reader-attachments-download-label = Scarica { $name } ({ $size })
+
+reader-attachments-download-off = I download sono disattivati
+
+reader-attachments-inline-group = { $count ->
+        [one] { $count } immagine in linea
+        [many] { $count } immagini in linea
+       *[other] { $count } immagini in linea
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [one] { $count } immagine in linea
+        [many] { $count } immagini in linea
+       *[other] { $count } immagini in linea
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Fare clic sulla barra per espandere o comprimere
+
+reader-attachmentsBarClickToToggle-help = Facendo clic in un punto qualsiasi della barra degli allegati si attiva/disattiva. Quando è spento, funziona solo il pulsante freccia.
+
+reader-attachmentsBarDownloadAll = Pulsante Scarica tutto
+
+reader-attachmentsBarDownloadAll-help = Mostra un pulsante sulla barra che scarica gli allegati come un unico file ZIP.
+
+reader-attachmentsBarShowDownloadButtons = Pulsanti di download sugli allegati
+
+reader-attachmentsBarShowDownloadButtons-help = Mostra il pulsante di download di ciascun allegato al passaggio del mouse o sullo stato attivo, sempre o mai.
+
+reader-attachmentsBarZipInlineImages = Includi immagini in linea nel ZIP
+
+reader-attachmentsBarZipInlineImages-help = Le immagini che appaiono all'interno del testo del messaggio vengono escluse da Scarica tutto a meno che questa non sia attiva.
+
+reader-card-attachments-bar = Barra degli allegati
+
+reader-card-attachments-bar-help = Come risponde la barra sopra gli allegati di un messaggio e cosa offre. Le linee contrassegnate come bloccate sono impostate dall'amministratore.
+
+reader-option-always = Sempre
+
+reader-option-hover = Al passaggio del mouse o messa a fuoco
+
+reader-option-never = Mai

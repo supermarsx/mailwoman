@@ -182,3 +182,14 @@ admin-retention-userrules-users = 有规则的用户
 admin-retention-userrules-rules = 生效的规则
 admin-retention-userrules-changed = 过去 30 天更改的邮件
 admin-retention-userrules-lastjob = 上次任务
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-retention-intro = 每个商店保留个人和行为数据的时间以及服务器日志文件的轮换方式。每日扫描会删除早于以下限制的行。这些是可配置的控件；他们自己的部署并不符合任何法律。
+
+admin-retention-loading = 加载保留...
+
+admin-retention-never = 从来没有
+
+admin-retention-title = 保留和日志轮转
+
+admin-retention-unavailable = 保留在此服务器上不可用。

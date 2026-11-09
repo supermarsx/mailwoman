@@ -63,3 +63,32 @@ search-refine-subject = Berichten met dit onderwerp zoeken
 search-refine-folder = In deze map zoeken
 search-refine-domain = Berichten van dit domein zoeken
 search-include-trash-scoped = De optie Prullenbak meenemen geldt bij het zoeken in alle mappen. De geselecteerde map wordt rechtstreeks doorzocht.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Beantwoord
+
+search-chip-finished = Klaar
+
+search-chip-followup = Gemarkeerd voor vervolg
+
+search-chip-forwarded = Doorgestuurd
+
+search-chip-high-priority = Hoge prioriteit
+
+search-chip-low-priority = Lage prioriteit
+
+search-chip-mentions-me = Noemt mij
+
+search-chip-no-followup = Niet gemarkeerd voor vervolg
+
+search-chip-not-high-priority = Geen hoge prioriteit
+
+search-chip-not-low-priority = Geen lage prioriteit
+
+search-chip-unanswered = Niet beantwoord
+
+search-chip-unfinished = Niet klaar
+
+search-chip-unforwarded = Niet doorgestuurd
+
+search-field-mentions = Vermeldingen

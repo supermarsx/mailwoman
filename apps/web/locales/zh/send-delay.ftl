@@ -48,3 +48,88 @@ outbox-failed-drafts = 无法发送，已保存在你的草稿中。
 outbox-queued-count = { $count ->
    *[other] { $count } 封邮件等待发送
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = 下一次发送：{ $when }
+
+outbox-chip-title = 等待发送的消息
+
+outbox-chip-view-all = 打开发件箱
+
+outbox-delete = 删除
+
+outbox-delete-confirm = 删除消息？
+
+outbox-delete-failed = 该消息无法删除。 { $error }
+
+outbox-deleted = 排队的消息已被删除。
+
+outbox-edit-time = 编辑发送时间
+
+outbox-edit-time-conflict = 发送时间已更改或消息已发送。发件箱已重新加载。
+
+outbox-edit-time-current = 目前{ $when }
+
+outbox-edit-time-refused = 发送时间无法更改。 { $error }
+
+outbox-edit-time-save = 节省发送时间
+
+outbox-failed-toast = 无法发送消息。 { $error }
+
+outbox-failed-uncertain-toast = 消息可能已发送，也可能未发送。在再次发送之前检查已发送。
+
+outbox-open = 打开
+
+outbox-reader-actions = 排队的消息操作
+
+outbox-reader-cc = 抄送：{ $recipients }
+
+outbox-reader-label = 排队消息
+
+outbox-reader-loading = 正在加载消息...
+
+outbox-reader-to = 致：{ $recipients }
+
+outbox-reader-unavailable = 无法加载该消息。
+
+outbox-recall-to-drafts = 召回草稿
+
+outbox-send-again = 再次发送
+
+outbox-send-again-failed = 无法再次将消息排队。 { $error }
+
+outbox-send-again-queued = 该消息已排队等待再次发送。
+
+outbox-sent-copy-folder = 将保存在{ $folder }
+
+outbox-sent-copy-missing = 将保存在已发送中（所选文件夹不可用）
+
+outbox-sent-copy-skip = 不会保存任何副本
+
+outbox-status-attempts = { $count ->
+       *[other] 到目前为止 { $count } 次尝试
+    }
+
+outbox-status-canceled = 取消
+
+outbox-status-failed = 未发送
+
+outbox-status-held = 保持直到您释放为止
+
+outbox-status-last-error = 最后一个错误：{ $error }
+
+outbox-status-next-attempt = 下次尝试{ $when }
+
+outbox-status-queued = 排队
+
+outbox-status-retrying = 重试
+
+outbox-status-scheduled = 预定
+
+outbox-status-sending = 发送
+
+outbox-status-sends-at-in = 发送{ $when }（在{ $time }中）
+
+outbox-status-sent = 已发送
+
+outbox-status-uncertain = 交货未知

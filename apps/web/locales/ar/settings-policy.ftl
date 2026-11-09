@@ -44,3 +44,6 @@ cache-card-prefetch = الجلب المسبق
 cache-card-prefetch-help = حمّل الرسائل مسبقًا لتُفتح فورًا. يستهلك بيانات أكثر.
 settings-folder-counts-card = فقاعات العدّاد
 settings-folder-counts-card-help = ما تعرضه الأعداد بجانب المجلدات وأي المجلدات لها عدّاد.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = اللغة والمنطقة

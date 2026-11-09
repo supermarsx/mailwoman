@@ -182,3 +182,14 @@ admin-retention-userrules-users = المستخدمون الذين لديهم ق�
 admin-retention-userrules-rules = القواعد النشطة
 admin-retention-userrules-changed = الرسائل التي تغيّرت، آخر 30 يومًا
 admin-retention-userrules-lastjob = آخر مهمة
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-retention-intro = المدة التي يحتفظ فيها كل متجر بالبيانات الشخصية والسلوكية، وكيفية تدوير ملفات سجل الخادم. تؤدي عملية المسح اليومية إلى حذف الصفوف الأقدم من الحدود الموضحة أدناه. هذه عناصر تحكم قابلة للتكوين؛ إنهم لا يجعلون من تلقاء أنفسهم النشر متوافقًا مع أي قانون.
+
+admin-retention-loading = جارٍ تحميل الاحتفاظ…
+
+admin-retention-never = أبدا
+
+admin-retention-title = الاحتفاظ وتدوير السجل
+
+admin-retention-unavailable = الاحتفاظ غير متوفر على هذا الخادم.

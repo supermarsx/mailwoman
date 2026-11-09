@@ -75,3 +75,144 @@ folder-dnd-more-actions = Disponi
 folder-dnd-selected-move = Sposta le selezionate in…
 folder-dnd-locked-row = Bloccata
 folder-dnd-problem-pin = Le cartelle fissate restano sopra le altre. Sbloccarla prima per spostarla lì.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Vuoto…
+
+folder-bar-label = Azioni per le cartelle selezionate
+
+folder-bar-mark-read = Segna tutto letto
+
+folder-bar-pin = Perno
+
+folder-bar-star = Stella
+
+folder-bar-unpin = Sblocca
+
+folder-bar-unstar = Elimina stella
+
+folder-dnd-handle-hint = Trascina per spostare questa cartella
+
+folder-pinned-group = Appuntato
+
+folder-pinned-unpin-zone = Rilascia qui per sbloccare
+
+settings-folders-bulk-delete-body = { $folders ->
+        [one] { $folders } cartella e i messaggi { $messages } in essa contenuti verranno eliminati. Questa operazione non può essere annullata.
+        [many] { $folders } cartelle (con le relative sottocartelle) e i messaggi { $messages } in esse contenuti verranno eliminati. Questa operazione non può essere annullata.
+       *[other] { $folders } cartelle (con le relative sottocartelle) e i messaggi { $messages } in esse contenuti verranno eliminati. Questa operazione non può essere annullata.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [one] Elimina { $count } cartella
+        [many] Elimina { $count } cartelle
+       *[other] Elimina { $count } cartelle
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [one] Eliminata { $count } cartella
+        [many] Eliminate { $count } cartelle
+       *[other] Eliminate { $count } cartelle
+    }
+
+settings-folders-bulk-delete-failed = Niente è stato cancellato. Non cancellato: { $names }
+
+settings-folders-bulk-delete-list = Cartelle da eliminare
+
+settings-folders-bulk-delete-none = Nessuna delle cartelle selezionate può essere eliminata (le cartelle di sistema e le cartelle che non è possibile eliminare vengono saltate).
+
+settings-folders-bulk-delete-others = Inoltre non cancellato: { $names }
+
+settings-folders-bulk-delete-partial = Cartelle { $done } eliminate. Non cancellato: { $names }
+
+settings-folders-bulk-delete-partial-done = Cartelle { $done } eliminate.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [one] Non eliminato perché l'account è bloccato a fini giudiziari: { $names }
+        [many] Non eliminato perché l'account è soggetto a blocco legale ({ $count } cartelle): { $names }
+       *[other] Non eliminato perché l'account è soggetto a blocco legale ({ $count } cartelle): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [one] Non cancellato perché l'elaborazione dell'account è limitata: { $names }
+        [many] Non cancellato perché l'elaborazione dell'account è limitata ({ $count } cartelle): { $names }
+       *[other] Non cancellato perché l'elaborazione dell'account è limitata ({ $count } cartelle): { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } le cartelle selezionate vengono saltate perché non possono essere cancellate: { $names }
+
+settings-folders-bulk-delete-subfolders = Elimina anche le sottocartelle di ciascuna cartella
+
+settings-folders-bulk-delete-subfolders-off = Vengono eliminate solo le cartelle selezionate. Viene mantenuta una cartella che contiene ancora una sottocartella esterna alla selezione.
+
+settings-folders-bulk-delete-title = { $count ->
+        [one] Eliminare { $count } cartella?
+        [many] Eliminare { $count } cartelle?
+       *[other] Eliminare { $count } cartelle?
+    }
+
+settings-folders-bulk-empty-body = I messaggi { $total } nelle cartelle { $folders } verranno rimossi: { $toTrash } verranno spostati nel Cestino e potranno essere annullati, { $permanent } verranno eliminati definitivamente e non potranno essere ripristinati. Le sottocartelle non vengono toccate.
+
+settings-folders-bulk-empty-confirm = Svuota le cartelle
+
+settings-folders-bulk-empty-counting = Conteggio dei messaggi in ciascuna cartella...
+
+settings-folders-bulk-empty-done = Cartelle { $count } svuotate, messaggi { $messages }
+
+settings-folders-bulk-empty-fail-refused = il server ne ha rifiutato una parte; Rimangono { $remaining } messaggi
+
+settings-folders-bulk-empty-fail-stopped = fermato; Rimangono { $remaining } messaggi
+
+settings-folders-bulk-empty-fail-uncertain = il risultato dell'ultimo lotto è sconosciuto; controlla la cartella
+
+settings-folders-bulk-empty-list = Cartelle da svuotare
+
+settings-folders-bulk-empty-partial = Cartelle { $done } svuotate; { $failed } fallito. Vedi l'elenco.
+
+settings-folders-bulk-empty-permanent = { $count } i messaggi vengono cancellati definitivamente
+
+settings-folders-bulk-empty-progress = { $done } di { $of } cartelle completate, { $messages } messaggi elaborati. Adesso: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = non poteva essere contato, saltato
+
+settings-folders-bulk-empty-skip-empty = già vuoto, saltato
+
+settings-folders-bulk-empty-skip-permanent-denied = verrebbe eliminato definitivamente, cosa che l'amministratore ha disattivato, saltato
+
+settings-folders-bulk-empty-skip-search = una ricerca salvata, saltata
+
+settings-folders-bulk-empty-skip-unsupported = questo account non può svuotarlo, saltato
+
+settings-folders-bulk-empty-title = { $count ->
+        [one] Svuotare { $count } cartella?
+        [many] Svuotare { $count } cartelle?
+       *[other] Svuotare { $count } cartelle?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } i messaggi vengono spostati nel Cestino
+
+settings-folders-bulk-empty-undo-label = Cartelle { $count } svuotate (messaggi { $messages })
+
+settings-folders-delete-selected = Elimina…
+
+settings-folders-select-user = Seleziona tutte le cartelle utente
+
+settings-folders-subscribe-failed = Non è stato possibile modificare gli abbonamenti.
+
+settings-folders-subscribe-partial = Cartelle { $done } modificate; { $failed } non può essere modificato.
+
+settings-folders-subscribe-selected = Iscriviti
+
+settings-folders-subscribed = { $count ->
+        [one] Iscritto a { $count } cartella
+        [many] Sottoscritto a { $count } cartelle
+       *[other] Sottoscritto a { $count } cartelle
+    }
+
+settings-folders-unsubscribe-selected = Annulla l'iscrizione
+
+settings-folders-unsubscribed = { $count ->
+        [one] Iscrizione annullata da { $count } cartella
+        [many] Annullata l'iscrizione da { $count } cartelle
+       *[other] Annullata l'iscrizione da { $count } cartelle
+    }

@@ -116,3 +116,94 @@ retention-history-matched = المطابقة
 retention-history-changed = المتغيّرة
 retention-history-errors = الأخطاء
 retention-context-action = الاحتفاظ…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = التقاويم
+
+pim-cal-days = بعد أيام من انتهاء الحدث
+
+pim-cal-enabled = حذف الأحداث المنتهية
+
+pim-cal-help = قم بحذف الأحداث في التقاويم التي تختارها بعدد محدد من الأيام بعد انتهائها. لا يتم حذف الأحداث المتكررة أبدًا.
+
+pim-cal-title = أحداث التقويم
+
+pim-days-range = اختر بين { $min } و { $max } أيام.
+
+pim-held-title = الملاحظات التي تمت إزالتها يمكنك استعادتها
+
+pim-held-until = محتفظ به حتى { $when }
+
+pim-limits = بين { $min } و { $max } يوم.
+
+pim-notes-days = الأيام المنقضية منذ آخر تغيير للملاحظة
+
+pim-notes-enabled = إزالة الملاحظات التي لم تمسها
+
+pim-notes-help = قم بإزالة الملاحظات التي لم تقم بتغييرها لعدد محدد من الأيام. يتم الاحتفاظ بالملاحظات المثبتة. يمكن استعادة الملاحظة التي تمت إزالتها لمدة { $days } يومًا.
+
+pim-notes-title = ملاحظات
+
+pim-off = تم إيقافه بواسطة المشرف.
+
+pim-preview = معاينة
+
+pim-restore = استعادة
+
+pim-result = { $events } حدث (أحداث) و { $notes } ملاحظة (ملاحظات).
+
+pim-run = اركض الآن
+
+pim-run-title = اركض الآن
+
+pim-save = حفظ
+
+pim-skipped = تم تخطي { $count } الاختيار (الاختيارات) لأن المسؤول لديك قام بإيقاف تشغيلها.
+
+pim-untitled = مذكرة بلا عنوان
+
+retention-action-stripAttachments = إزالة المرفقات الكبيرة
+
+retention-do-stripAttachments = تمت إزالة المرفقات
+
+retention-error-strip-disabled = تم تعطيل إزالة المرفقات من قبل المسؤول.
+
+retention-error-strip-min = القاعدة التي تزيل المرفقات يجب أن تنتظر { $days } يوم على الأقل.
+
+retention-fd-action = ماذا يحدث للبريد في { $folder }
+
+retention-fd-days = قبل أيام من معالجة { $folder }
+
+retention-fd-help = قم بتعيين مدة بقاء البريد في المجلد قبل نقله أو حذفه. المجلد الذي تم تعيينه على "وراثة" ليس له إعدادات افتراضية خاصة به؛ لا تزال القواعد المذكورة أعلاه وحدود المسؤول سارية. تتبع المجلدات الفرعية المجلد الخاص بها.
+
+retention-fd-inherit = يرث
+
+retention-fd-mandatory = يحتفظ المسؤول بهذا المجلد لمدة { $days } يوم
+
+retention-fd-protected = محمي من قبل المسؤول
+
+retention-fd-save = حفظ الإعدادات الافتراضية للمجلد
+
+retention-fd-title = الإعدادات الافتراضية للمجلد
+
+retention-rule-strip-off = تم إيقافه بواسطة المشرف
+
+retention-strip-allowed = قد تقوم القاعدة بإزالة مرفقات لا تقل عن { $kb } كيلوبايت من البريد منذ { $days } يومًا على الأقل. ملاحظة قصيرة تحل محل كل مرفق.
+
+retention-strip-denied = تم إيقاف تشغيل إزالة المرفقات من قبل المسؤول.
+
+retention-strip-done = تمت إزالة المرفقات من { $count } الرسائل، وتحرير { $size }.
+
+retention-strip-inline-kept = يتم الاحتفاظ بالصور المعروضة داخل الرسالة.
+
+retention-strip-inline-removed = تتم إزالة الصور المعروضة داخل الرسالة أيضًا.
+
+retention-strip-limits = إزالة المرفقات التي لا تقل عن { $kb } كيلوبايت من البريد منذ { $days } يوم على الأقل. يبقى الأصل في سلة المهملات لمدة { $undo } يومًا.
+
+retention-strip-preview = { $count } ستفقد الرسالة (الرسائل) المرفقات، مما يؤدي إلى تحرير { $size }.
+
+retention-strip-preview-estimate = ستفقد حوالي { $count } من الرسائل (الرسائل) المرفقات، مما يؤدي إلى تحرير ما يصل إلى { $size }.
+
+retention-strip-skipped = { $count } تم تخطي القاعدة (القواعد) التي تزيل المرفقات لأن المسؤول لديك قام بإيقاف تشغيلها.
+
+retention-summary-stripAttachments = بعد { $days } يوم، تتم إزالة المرفقات الكبيرة

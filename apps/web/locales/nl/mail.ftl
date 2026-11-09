@@ -1223,3 +1223,254 @@ mail-color-confirm-title = Uw standaardberichtkleuren wijzigen?
 mail-color-confirm-body = Elk bericht gebruikt "{ $mode }", tenzij u dit voor één bericht wijzigt.
 mail-color-confirm = Standaard maken
 mail-color-default-failed = Uw standaardberichtkleuren konden niet worden opgeslagen.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = De geselecteerde berichten hebben geen bijlagen om te downloaden.
+
+mail-attachments-zip-all-blocked = Er is niets gedownload: het bijlagebeleid blokkeert alle { $skipped } bestanden.
+
+mail-attachments-zip-gathering = De bijlagen van { $count } berichten verzamelen…
+
+mail-attachments-zip-skipped = { $skipped ->
+        [one] Eén bestand dat werd geblokkeerd door het bijlagebeleid, werd weggelaten.
+       *[other] { $skipped } bestanden die door het bijlagebeleid zijn geblokkeerd, zijn weggelaten.
+    }
+
+mail-attachments-zip-unreadable = De bijlagen van { $count } berichten konden niet worden gelezen en werden weggelaten.
+
+mail-bulk-download-attachments = Bijlagen downloaden als ZIP
+
+mail-compose-from-via = Het kwam overeen met de koptekst { $header }.
+
+mail-compose-from-why-match-domain = Verzenden vanaf { $identity } omdat het bericht is afgeleverd op { $address }, een adres in hetzelfde domein.
+
+mail-compose-from-why-match-pattern = Verzenden vanaf { $identity } omdat het bericht is verzonden naar { $address }, wat past bij het adrespatroon van die identiteit.
+
+mail-compose-ribbon-autohide = Lint automatisch verbergen (Ctrl+F1)
+
+mail-compose-ribbon-pin = Lint altijd tonen (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+        [one] Download bijlagen van het geselecteerde bericht als ZIP
+       *[other] Download bijlagen van { $count } geselecteerde berichten als ZIP
+    }
+
+mail-context-download-thread-attachments = Download alle { $count } bijlagen van het gesprek als ZIP
+
+mail-context-open-new-tab = Openen in een nieuw tabblad
+
+mail-delete-sender-confirm = Verplaats { $count } berichten naar de prullenbak
+
+mail-delete-sender-detail = { $count } berichten van { $sender } naar de prullenbak verplaatsen? Berichten die al in de prullenbak staan, worden uitgesloten. U kunt deze actie ongedaan maken.
+
+mail-delete-sender-empty = Er zijn geen berichten van deze afzender buiten de Prullenbak.
+
+mail-delete-sender-failed = Kon niet elk overeenkomend bericht en de bijbehorende machtigingen verifiëren. Er werd niets verplaatst; probeer het opnieuw.
+
+mail-delete-sender-help = Zoek de berichten van deze afzender in alle mappen en verplaats ze na bevestiging naar de prullenbak.
+
+mail-delete-sender-title = Verwijder alle berichten van deze afzender
+
+mail-draft-continue = Ga door met bewerken
+
+mail-draft-edit = Concept bewerken
+
+mail-draft-edit-failed = Het concept kon niet worden geopend voor bewerking
+
+mail-draft-edit-help = Open dit concept in de componist om het te blijven bewerken
+
+mail-draft-notice = Dit is een ontwerp
+
+mail-file-copied = Gekopieerd naar het klembord.
+
+mail-file-copy-failed = Kan niet naar het klembord kopiëren.
+
+mail-file-copy-fingerprint = Vingerafdruk kopiëren
+
+mail-file-copy-name = Bestandsnaam kopiëren
+
+mail-file-created = Gemaakt
+
+mail-file-creator = Gemaakt met
+
+mail-file-details-button = Bestandsdetails
+
+mail-file-details-tooltip = Toon bestandsdetails en vingerafdruk
+
+mail-file-encryption = Wachtwoordbeveiliging
+
+mail-file-encryption-none = Er werd niet om een wachtwoord gevraagd
+
+mail-file-encryption-password = Om het te openen was een wachtwoord vereist
+
+mail-file-fingerprint = Vingerafdruk
+
+mail-file-name = Bestandsnaam
+
+mail-file-pages = Pagina's
+
+mail-file-pdf-version = PDF-versie
+
+mail-file-producer = Producent
+
+mail-file-verify-help = Vergelijk deze groepen met een vingerafdruk die de afzender u op een andere manier heeft gegeven, zoals een telefoontje of hun website. Als elke groep overeenkomt, heb je precies dezelfde bytes.
+
+mail-file-verify-title = Controleer de vingerafdruk
+
+mail-follow-up-finished = Vervolgafspraak afgerond
+
+mail-group-by = Groepeer op
+
+mail-header-attachments = { $count ->
+        [one] { $count } bijlage
+       *[other] { $count } bijlagen
+    }
+
+mail-header-expand-short = Berichtkop uitvouwen (Alt+H)
+
+mail-list-group-date-unknown = Onbekende datum
+
+mail-list-group-importance = Belang
+
+mail-list-group-locked = Het groeperen van berichten is vergrendeld door uw beheerder.
+
+mail-list-group-no-subject = (Geen onderwerp)
+
+mail-list-group-none = Geen groepering
+
+mail-list-group-priority-high = Groot belang
+
+mail-list-group-priority-low = Gering belang
+
+mail-list-group-priority-normal = Normaal belang
+
+mail-list-group-received = Datum ontvangen
+
+mail-list-group-sender = Van
+
+mail-list-group-sent = Datum verzonden
+
+mail-list-group-size = Grootte
+
+mail-list-group-size-huge = 10 MB en hoger
+
+mail-list-group-size-large = 1–10 MB
+
+mail-list-group-size-medium = 100 KB–1 MB
+
+mail-list-group-size-small = 25–100 KB
+
+mail-list-group-size-tiny = Onder 25 KB
+
+mail-list-group-subject = Onderwerp
+
+mail-list-order-importance = Belang eerst hoog
+
+mail-list-order-importance-asc = Belang eerst laag
+
+mail-list-order-locked = De berichtvolgorde is vergrendeld door uw beheerder.
+
+mail-list-order-sender-desc = Afzender, Z tot A
+
+mail-list-order-sent-newest = Verzonden, nieuwste eerst
+
+mail-list-order-sent-oldest = Verzonden, oudste eerst
+
+mail-list-order-size = Grootte, grootste eerst
+
+mail-list-order-size-asc = Maat, kleinste eerst
+
+mail-list-order-subject-desc = Onderwerp, Z tot A
+
+mail-mark-answered = Markeer als beantwoord
+
+mail-mark-as = Markeer als
+
+mail-mark-finished = Markeer als voltooid
+
+mail-mark-forwarded = Markeer als doorgestuurd
+
+mail-mark-not-forwarded = Markeer als niet doorgestuurd
+
+mail-mark-unanswered = Markeer als onbeantwoord
+
+mail-mentions-me = Noemt mij
+
+mail-mentions-me-help = Zoek naar berichten waarin een van uw e-mailadressen wordt vermeld
+
+mail-move-search = Zoek in mappen
+
+mail-order-by = Bestel per
+
+mail-reader-folder-go = Opgeslagen in { $folder } · Ga naar map
+
+mail-reply-draft-discard = Antwoord weggooien
+
+mail-reply-draft-discard-detail = Dit antwoord in behandeling definitief verwijderen? Dit kan niet ongedaan worden gemaakt.
+
+mail-reply-draft-discard-title = Dit antwoord verwijderen?
+
+mail-status-from-match-domain = Vanaf { $identity }
+
+mail-status-from-match-pattern = Vanaf { $identity }
+
+mail-status-from-via = Antwoord van { $identity } omdat het overeenkwam met { $header }
+
+mail-toast-follow-up-finished = Vervolg gemarkeerd als voltooid
+
+mail-toast-marked-answered = { $count ->
+        [one] { $count } bericht gemarkeerd als beantwoord
+       *[other] { $count } berichten gemarkeerd als beantwoord
+    }
+
+mail-toast-marked-forwarded = { $count ->
+        [one] { $count } bericht gemarkeerd als doorgestuurd
+       *[other] { $count } berichten gemarkeerd als doorgestuurd
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+        [one] { $count } bericht gemarkeerd als niet doorgestuurd
+       *[other] { $count } berichten gemarkeerd als niet doorgestuurd
+    }
+
+mail-toast-marked-unanswered = { $count ->
+        [one] { $count } bericht gemarkeerd als onbeantwoord
+       *[other] { $count } berichten gemarkeerd als onbeantwoord
+    }
+
+mail-toast-move-failed-reason = Kon de berichten niet verplaatsen ({ $reason }). Er werd niets verplaatst.
+
+mail-toast-update-refused-reason = { $count ->
+        [one] De server weigerde de zet voor één bericht: { $reason }
+       *[other] De server heeft de verhuizing geweigerd voor { $count } berichten: { $reason }
+    }
+
+reader-badge-hide = Verberg deze badge
+
+reader-badge-locked = Ingesteld door uw beheerder
+
+reader-badge-menu = Berichtbadge
+
+reader-badge-notable = Alleen weergeven als het opmerkelijk is
+
+reader-sanitized-always = Actieve inhoud zoals scripts blijft uitgeschakeld.
+
+reader-sanitized-clean = Bericht HTML had geen wijzigingen nodig
+
+reader-sanitized-clean-detail = Er is niets verwijderd of geblokkeerd uit de HTML van dit bericht.
+
+reader-sanitized-counts = { $blocked } externe items geblokkeerd, { $trackers } trackingitems.
+
+reader-sanitized-detail = Het bericht HTML werd opgeschoond voordat het werd weergegeven. Externe inhoud volgt uw privacy-instellingen.
+
+reader-sanitized-hosts = Externe hosts
+
+reader-sanitized-remote = Externe inhoud geblokkeerd
+
+reader-sanitized-short = Gezuiverd HTML
+
+reader-sanitized-short-blocked = HTML geblokkeerd
+
+reader-sanitized-short-clean = HTML schoon
+
+reader-sanitized-trackers = Artikelen volgen

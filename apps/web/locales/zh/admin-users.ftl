@@ -161,3 +161,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] 已更改 { $count } 位用户的功能配置文件。
 }
 admin-userlist-bulk-failed = 已完成 { $done } 项,失败 { $failed } 项:{ $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = 到期{ $date }
+
+admin-user-compliance-empty = 此帐户没有数据请求。
+
+admin-user-compliance-help = 对此帐户地址提出的请求。在数据请求中打开一个以对其进行操作。
+
+admin-user-compliance-open-all = 打开所有数据请求
+
+admin-user-compliance-title = 此帐户的数据请求
+
+admin-user-never = 从来没有
+
+admin-user-overview-last-signin = 上次登录
+
+admin-user-overview-status = 状态
+
+admin-user-status-active = 活跃
+
+admin-user-status-deleted = 已删除
+
+admin-user-status-deleting = 正在删除
+
+admin-user-status-disabled = 被阻止
+
+admin-user-tab-access = 访问和删除
+
+admin-user-tab-compliance = 合规性
+
+admin-user-tab-overview = 概述
+
+admin-user-tab-profile = 特征简介
+
+admin-user-tab-security = 安全性
+
+admin-user-tab-sessions = 会议
+
+admin-user-tabs-label = 账户部分

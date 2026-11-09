@@ -102,3 +102,6 @@ rules-vacation-saved-off = Gespeichert. Automatische Antworten sind aus.
 rules-vacation-runs-server = Ihr Mailserver sendet diese Antwort, sobald E-Mails eintreffen.
 rules-vacation-runs-engine = Mailwoman sendet diese Antwort, wenn neue Posteingangs-E-Mails synchronisiert werden; eine Antwort kann daher bis zur nächsten Synchronisierung warten.
 rules-vacation-unavailable = Abwesenheitsantworten sind für dieses Konto nicht verfügbar: Der Mailserver bietet sie nicht an, oder Ihre Administration hat sie deaktiviert.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Mailingliste (Listen-ID)

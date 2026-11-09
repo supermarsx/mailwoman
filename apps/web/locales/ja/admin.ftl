@@ -1087,3 +1087,18 @@ admin-insights-empty-rules = この範囲で発動した適応型ルールはあ
 admin-insights-share-of = リクエストの { $share }
 admin-nav-encryption = 暗号化
 admin-nav-retention = 保持
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = クライアントエラー
+
+admin-session-linked-device = 元のセッション: { $device }
+
+admin-session-linked-line = リンクされたメールボックスへのアクセス · { $origin } から
+
+admin-session-linked-line-hidden = リンクされたメールボックスへのアクセス
+
+admin-session-linked-open = オリジンアカウントを開く
+
+admin-session-linked-removed = リンクされたメールボックスへのアクセス · 元のアカウントが削除されました
+
+admin-session-linked-restricted = リンクされたメールボックスへのアクセス · 発信元が表示されない (そのアカウントへのアクセス権なし)

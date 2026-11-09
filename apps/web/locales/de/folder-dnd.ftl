@@ -75,3 +75,135 @@ folder-dnd-more-actions = Anordnen
 folder-dnd-selected-move = Auswahl verschieben nach …
 folder-dnd-locked-row = Gesperrt
 folder-dnd-problem-pin = Angeheftete Ordner bleiben über den anderen. Lösen Sie ihn zuerst, um ihn dorthin zu verschieben.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Leer…
+
+folder-bar-label = Aktionen für die ausgewählten Ordner
+
+folder-bar-mark-read = Alles als gelesen markieren
+
+folder-bar-pin = Pin
+
+folder-bar-star = Stern
+
+folder-bar-unpin = Lösen
+
+folder-bar-unstar = Unstar
+
+folder-dnd-handle-hint = Ziehen Sie, um diesen Ordner zu verschieben
+
+folder-pinned-group = Angepinnt
+
+folder-pinned-unpin-zone = Zum Lösen hierher fallen lassen
+
+settings-folders-bulk-delete-body = { $folders ->
+        [one] { $folders } Ordner und die darin enthaltenen { $messages } Nachrichten werden gelöscht. Dies kann nicht rückgängig gemacht werden.
+       *[other] { $folders }-Ordner (mit ihren Unterordnern) und die darin enthaltenen { $messages }-Nachrichten werden gelöscht. Dies kann nicht rückgängig gemacht werden.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [one] { $count } Ordner löschen
+       *[other] { $count } Ordner löschen
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [one] { $count } Ordner gelöscht
+       *[other] { $count } Ordner gelöscht
+    }
+
+settings-folders-bulk-delete-failed = Es wurde nichts gelöscht. Nicht gelöscht: { $names }
+
+settings-folders-bulk-delete-list = Zu löschende Ordner
+
+settings-folders-bulk-delete-none = Keiner der ausgewählten Ordner kann gelöscht werden (Systemordner und Ordner, die Sie nicht löschen dürfen, werden übersprungen).
+
+settings-folders-bulk-delete-others = Auch nicht gelöscht: { $names }
+
+settings-folders-bulk-delete-partial = Gelöschte { $done }-Ordner. Nicht gelöscht: { $names }
+
+settings-folders-bulk-delete-partial-done = Gelöschte { $done }-Ordner.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [one] Nicht gelöscht, da das Konto einer gesetzlichen Sperre unterliegt: { $names }
+       *[other] Nicht gelöscht, da das Konto einer rechtlichen Sperre unterliegt ({ $count } Ordner): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [one] Nicht gelöscht, da die Verarbeitung des Kontos eingeschränkt ist: { $names }
+       *[other] Nicht gelöscht, da die Verarbeitung des Kontos eingeschränkt ist ({ $count } Ordner): { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } ausgewählte Ordner werden übersprungen, da sie nicht gelöscht werden können: { $names }
+
+settings-folders-bulk-delete-subfolders = Löschen Sie außerdem die Unterordner jedes Ordners
+
+settings-folders-bulk-delete-subfolders-off = Nur die ausgewählten Ordner werden gelöscht. Ein Ordner, der außerhalb der Auswahl noch einen Unterordner hat, bleibt erhalten.
+
+settings-folders-bulk-delete-title = { $count ->
+        [one] { $count } Ordner löschen?
+       *[other] { $count } Ordner löschen?
+    }
+
+settings-folders-bulk-empty-body = { $total } Nachrichten in { $folders } Ordnern werden entfernt: { $toTrash } werden in den Papierkorb verschoben und können rückgängig gemacht werden, { $permanent } werden endgültig gelöscht und können nicht wiederhergestellt werden. Unterordner werden nicht berührt.
+
+settings-folders-bulk-empty-confirm = Leeren Sie die Ordner
+
+settings-folders-bulk-empty-counting = Zählen der Nachrichten in jedem Ordner…
+
+settings-folders-bulk-empty-done = { $count } Ordner, { $messages } Nachrichten geleert
+
+settings-folders-bulk-empty-fail-refused = der Server lehnte einen Teil davon ab; Es bleiben { $remaining } Meldungen übrig
+
+settings-folders-bulk-empty-fail-stopped = gestoppt; Es bleiben { $remaining } Meldungen übrig
+
+settings-folders-bulk-empty-fail-uncertain = das Ergebnis der letzten Charge ist unbekannt; Überprüfen Sie den Ordner
+
+settings-folders-bulk-empty-list = Ordner zum Leeren
+
+settings-folders-bulk-empty-partial = { $done } Ordner geleert; { $failed } fehlgeschlagen. Siehe die Liste.
+
+settings-folders-bulk-empty-permanent = { $count } Nachrichten werden endgültig gelöscht
+
+settings-folders-bulk-empty-progress = { $done } von { $of } Ordnern erledigt, { $messages } Nachrichten verarbeitet. Jetzt: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = konnte nicht gezählt werden, übersprungen
+
+settings-folders-bulk-empty-skip-empty = bereits leer, übersprungen
+
+settings-folders-bulk-empty-skip-permanent-denied = würde endgültig gelöscht werden, was der Administrator deaktiviert hat, übersprungen
+
+settings-folders-bulk-empty-skip-search = Eine gespeicherte Suche, übersprungen
+
+settings-folders-bulk-empty-skip-unsupported = Dieses Konto kann es nicht leeren, übersprungen
+
+settings-folders-bulk-empty-title = { $count ->
+        [one] { $count } Ordner leeren?
+       *[other] { $count } Ordner leeren?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } Nachrichten werden in den Papierkorb verschoben
+
+settings-folders-bulk-empty-undo-label = Geleerte { $count } Ordner ({ $messages } Nachrichten)
+
+settings-folders-delete-selected = Löschen…
+
+settings-folders-select-user = Wählen Sie alle Benutzerordner aus
+
+settings-folders-subscribe-failed = Die Abonnements konnten nicht geändert werden.
+
+settings-folders-subscribe-partial = { $done }-Ordner geändert; { $failed } konnte nicht geändert werden.
+
+settings-folders-subscribe-selected = Abonnieren
+
+settings-folders-subscribed = { $count ->
+        [one] { $count } Ordner abonniert
+       *[other] { $count } Ordner abonniert
+    }
+
+settings-folders-unsubscribe-selected = Abmelden
+
+settings-folders-unsubscribed = { $count ->
+        [one] { $count } Ordner abgemeldet
+       *[other] Von { $count } Ordnern abgemeldet
+    }

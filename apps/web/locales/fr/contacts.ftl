@@ -176,3 +176,125 @@ contacts-bulk-favorites-added = { $count } ajouté(s) aux favoris.
 contacts-bulk-favorites-removed = { $count } retiré(s) des favoris.
 contacts-row-menu = Actions pour { $name }
 contacts-favorites-empty = Aucun favori pour l’instant. Utilisez l’étoile d’un contact pour en ajouter.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } est déjà dans vos contacts.
+
+contacts-save-already-badge = Déjà enregistré
+
+contacts-save-already-many = Tous les { $count } contacts sont déjà enregistrés.
+
+contacts-save-automated = Cela ressemble à un expéditeur automatisé (non-réponse, notifications).
+
+contacts-save-book = Carnet d'adresses
+
+contacts-save-book-readonly = { $name } (lecture seule)
+
+contacts-save-cancel = Annuler
+
+contacts-save-choose = Choisissez des contacts…
+
+contacts-save-contacts = Enregistrer les contacts de ce message
+
+contacts-save-dialog-title = Enregistrer les contacts de ce message
+
+contacts-save-email = Courriel
+
+contacts-save-failed = Le contact n'a pas pu être enregistré. Essayer à nouveau.
+
+contacts-save-group = Groupe
+
+contacts-save-group-none = Aucun groupe
+
+contacts-save-loading = Chargement des adresses…
+
+contacts-save-name = Nom
+
+contacts-save-new = Enregistrer les nouveaux contacts
+
+contacts-save-no-book = Aucun carnet d'adresses ne peut prendre de nouveaux contacts.
+
+contacts-save-no-sender = Ce message n'a pas d'adresse d'expéditeur.
+
+contacts-save-note = Enregistré à partir d'un message sur { $date }
+
+contacts-save-nothing = Personne à sauvegarder : tout le monde est déjà dans vos contacts, c'est vous, ou semble automatisé.
+
+contacts-save-open = Ouvert
+
+contacts-save-open-contact = Contact ouvert
+
+contacts-save-open-link = Contact ouvert
+
+contacts-save-own = C'est l'une de vos propres adresses.
+
+contacts-save-partial = { $saved } de { $total } contacts enregistrés. Les autres n'ont pas pu être sauvés.
+
+contacts-save-pick = Économisez { $email }
+
+contacts-save-recipients = Enregistrer tous les destinataires
+
+contacts-save-removed = Contacts enregistrés supprimés.
+
+contacts-save-role-bcc = Cci
+
+contacts-save-role-cc = Cc
+
+contacts-save-role-from = De
+
+contacts-save-role-replyTo = Répondre à
+
+contacts-save-role-sender = Expéditeur
+
+contacts-save-role-to = À
+
+contacts-save-saved-heading = Déjà dans vos contacts
+
+contacts-save-saved-many = { $count } contacts enregistrés dans { $book }
+
+contacts-save-saved-one = Enregistré de { $name } à { $book }
+
+contacts-save-sender = Enregistrer l'expéditeur comme contact
+
+contacts-save-settings-book = Carnet d'adresses
+
+contacts-save-settings-book-default = Carnet d'adresses par défaut
+
+contacts-save-settings-enabled = Offre Enregistrer les contacts de ce message
+
+contacts-save-settings-enabled-help = Ajoute l'élément aux menus de messages et au menu Plus du lecteur.
+
+contacts-save-settings-note = Ajouter une note avec la date
+
+contacts-save-settings-note-help = La note indique "Enregistré à partir d'un message le" suivi de la date.
+
+contacts-save-settings-reply-to = Utiliser Répondre à pour les expéditeurs de listes et de notifications
+
+contacts-save-settings-reply-to-help = Enregistre l'adresse de réponse au lieu de De pour ces expéditeurs.
+
+contacts-save-settings-scope = Coché en premier dans la boîte de dialogue
+
+contacts-save-settings-scope-all = Tout le monde sur le message
+
+contacts-save-settings-scope-sender = Expéditeur uniquement
+
+contacts-save-settings-sender = Offre Enregistrer l'expéditeur comme contact
+
+contacts-save-settings-sender-help = Un élément en un clic dans les menus de messages.
+
+contacts-save-settings-skip = Ignorer les expéditeurs automatisés
+
+contacts-save-settings-skip-help = Oublie les adresses de non-réponse, de notification et de rebond à moins que vous ne les cochiez.
+
+contacts-save-settings-title = Enregistrer les contacts des messages
+
+contacts-save-show-automated = Afficher les adresses automatisées et sans réponse
+
+contacts-save-submit = { $count ->
+        [0] Enregistrer { $count } contacts
+        [one] Enregistrer { $count } contact
+        [many] Enregistrer { $count } contacts
+       *[other] Enregistrer { $count } contacts
+    }
+
+contacts-save-undo = Annuler

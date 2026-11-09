@@ -44,3 +44,6 @@ cache-card-prefetch = 预取
 cache-card-prefetch-help = 提前加载邮件，使其能即时打开。会使用更多流量。
 settings-folder-counts-card = 计数气泡
 settings-folder-counts-card-help = 文件夹旁边的计数显示什么内容，以及哪些文件夹有计数。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = 语言和地区

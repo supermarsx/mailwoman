@@ -50,3 +50,91 @@ outbox-queued-count = { $count ->
     [one] 1 message en attente d’envoi
    *[other] { $count } messages en attente d’envoi
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = Prochain envoi : { $when }
+
+outbox-chip-title = Messages en attente d'envoi
+
+outbox-chip-view-all = Ouvrir la boîte d'envoi
+
+outbox-delete = Supprimer
+
+outbox-delete-confirm = Supprimer le message ?
+
+outbox-delete-failed = Le message n'a pas pu être supprimé. { $error }
+
+outbox-deleted = Le message en file d'attente a été supprimé.
+
+outbox-edit-time = Modifier l'heure d'envoi
+
+outbox-edit-time-conflict = L'heure d'envoi a changé ou le message a déjà été envoyé. La boîte d'envoi a été rechargée.
+
+outbox-edit-time-current = Actuellement { $when }
+
+outbox-edit-time-refused = L'heure d'envoi n'a pas pu être modifiée. { $error }
+
+outbox-edit-time-save = Gagnez du temps d'envoi
+
+outbox-failed-toast = Un message n'a pas pu être envoyé. { $error }
+
+outbox-failed-uncertain-toast = Un message peut avoir été livré ou non. Cochez Envoyé avant de le renvoyer.
+
+outbox-open = Ouvert
+
+outbox-reader-actions = Actions des messages en file d'attente
+
+outbox-reader-cc = Cc : { $recipients }
+
+outbox-reader-label = Message en file d'attente
+
+outbox-reader-loading = Chargement du message…
+
+outbox-reader-to = À : { $recipients }
+
+outbox-reader-unavailable = Le message n'a pas pu être chargé.
+
+outbox-recall-to-drafts = Rappel aux brouillons
+
+outbox-send-again = Envoyer à nouveau
+
+outbox-send-again-failed = Impossible de remettre le message en file d'attente. { $error }
+
+outbox-send-again-queued = Le message est mis en file d'attente pour être renvoyé.
+
+outbox-sent-copy-folder = Sera enregistré en { $folder }
+
+outbox-sent-copy-missing = Sera enregistré dans Envoyés (le dossier choisi n'est pas disponible)
+
+outbox-sent-copy-skip = Aucune copie ne sera enregistrée
+
+outbox-status-attempts = { $count ->
+        [0] { $count } tentatives pour l'instant
+        [one] { $count } tentative jusqu'à présent
+        [many] { $count } tentatives pour l'instant
+       *[other] { $count } tentatives pour l'instant
+    }
+
+outbox-status-canceled = Annulé
+
+outbox-status-failed = Non envoyé
+
+outbox-status-held = Conservé jusqu'à ce que vous le relâchiez
+
+outbox-status-last-error = Dernière erreur : { $error }
+
+outbox-status-next-attempt = Prochaine tentative { $when }
+
+outbox-status-queued = En file d'attente
+
+outbox-status-retrying = Réessayer
+
+outbox-status-scheduled = Programmé
+
+outbox-status-sending = Envoi
+
+outbox-status-sends-at-in = Envoie { $when } (en { $time })
+
+outbox-status-sent = Envoyé
+
+outbox-status-uncertain = Livraison inconnue

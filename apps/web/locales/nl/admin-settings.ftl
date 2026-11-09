@@ -1850,3 +1850,616 @@ admin-settings-key-ratelimit-anon-per-minute = Anonieme toestemmingsverzoeken di
 admin-settings-help-ratelimit-anon-per-minute = Verzoeken per minuut die een adres terugkrijgt op de anonieme routes voor cookietoestemming. Bereik 1-600; standaard 30.
 admin-settings-key-ratelimit-trusted-multiplier = Accounthoeveelheid vanuit een bekende bron (%)
 admin-settings-help-ratelimit-trusted-multiplier = Percentage van de verzoekhoeveelheid van het account dat een ingelogde mailbox krijgt wanneer het verzoek komt van een bron met een geslaagde aanmelding op record. 100 houdt de basishoeveelheid aan. Versoepelt nooit de budgetten voor anoniem, beheerder of user-agent, noch een actieve blokkade. Bereik 100-1000; standaard 150.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-attachments-bar-click-to-toggle = Of u nu ergens op de bijlagenbalk van de lezer klikt, deze wordt uitgevouwen of samengevouwen. Wanneer uitgeschakeld, doet alleen de pijlknop dat.
+
+admin-settings-help-attachments-bar-download-all = Of de bijlagenbalk een knop Alles downloaden biedt waarmee de toegestane bijlagen als één ZIP-bestand worden opgeslagen.
+
+admin-settings-help-attachments-bar-show-download-buttons = Wanneer elke bijlage in de balk zijn downloadknop toont: bij hover of focus (standaard), altijd of nooit. Downloads volgen nog steeds het bijlagebeleid en mail.allowDownload.
+
+admin-settings-help-attachments-bar-zip-inline-images = Of afbeeldingen die in de berichttekst worden weergegeven, zijn opgenomen in Alles downloaden ZIP. Standaard uitgeschakeld.
+
+admin-settings-help-cap-reading-delete-sender = Sta gebruikers toe de leesactie in te schakelen die alle overeenkomende afzenderberichten na bevestiging naar de prullenbak verplaatst. Standaard uitgeschakeld. Het kenmerkprofiel moet dit ook toelaten.
+
+admin-settings-help-compose-feature-family = Schakel een componistbediening in of uit op basis van de feature-ID. Standaard ingeschakeld; vergrendel het om te voorkomen dat gebruikers het wijzigen.
+
+admin-settings-help-compose-headers-allow-auto-submitted = Hiermee kunnen gebruikers Automatisch verzonden (RFC 3834) instellen voor een bericht. Standaard uitgeschakeld: het vertelt andere systemen om niet te antwoorden.
+
+admin-settings-help-compose-headers-allow-custom = Hiermee kunnen gebruikers hun eigen headers toevoegen (maximaal 20, namen gecontroleerd, beveiligde headers geweigerd).
+
+admin-settings-help-compose-headers-allow-return-receipt-to = Hiermee kunnen gebruikers ontvangstbewijzen opvragen met de oude Return-Receipt-To-header. Standaard uitgeschakeld.
+
+admin-settings-help-compose-headers-allow-threading-edit = Hiermee kunnen gebruikers In-Reply-To en verwijzingen bewerken, of een nieuwe thread starten vanuit een antwoord.
+
+admin-settings-help-compose-headers-forced = Eén Naam=waarde-paar per regel, toegevoegd aan elk bericht dat vanuit het domein wordt verzonden en ter vervanging van de waarde van de gebruiker. Beschermde headers worden geweigerd.
+
+admin-settings-help-compose-insert-image-resize-default = De grootte van het dialoogvenster Afbeelding uit bestand begint met: origineel, groot (1600 px) of medium (1024 px).
+
+admin-settings-help-compose-insert-max-inline-image-mb = Afbeeldingen die groter zijn dan dit worden niet in de berichttekst geplaatst; ze kunnen nog steeds worden bevestigd. 1 tot 50.
+
+admin-settings-help-compose-layout-default-font = Lettertypefamilie, grootte en kleur waarmee een nieuw bericht begint, als family|size|#colour. Leeg gebruikt het themalettertype.
+
+admin-settings-help-compose-reply-to-allow-override = Als deze optie is uitgeschakeld, wordt de Reply-To van de identiteit gebruikt zoals deze is en kunnen gebruikers deze niet bewerken of verwijderen.
+
+admin-settings-help-compose-reply-to-show = Of de opsteller de Reply-To-rij toont: alleen als een identiteit of het originele bericht er één heeft, altijd of nooit.
+
+admin-settings-help-compose-sent-folder-fixed-id = Maprol of ID gebruikt als de regel 'vaste map' is.
+
+admin-settings-help-compose-sent-folder-mode = Waar de kopie van een verzonden bericht naartoe gaat: de normale map Verzonden, één vaste map, op domein van de ontvanger, op identiteit of op onderwerpregels.
+
+admin-settings-help-compose-sent-folder-per-identity = Eén identiteit=mappaar per regel. Wordt gebruikt als de regel 'op identiteit' is.
+
+admin-settings-help-compose-sent-folder-rules = Eén regel per regel, domain:example.com=map of subject:text=map. De eerste wedstrijd wint.
+
+admin-settings-help-compose-sent-folder-skip-copy = Bewaar nooit een kopie van een verzonden bericht. Een beheerder kan dit geforceerd in- of uitschakelen.
+
+admin-settings-help-compose-styles-custom = De eigen componiststijlen van een gebruiker als JSON, geschreven door de Stijlengalerij. Gebruikers stellen het in; er valt hier niets te configureren.
+
+admin-settings-help-compose-styles-default-set = Het uiterlijk van de Stijlengalerij van de componist: standaard, modern, klassiek of compact.
+
+admin-settings-help-compose-styles-max-custom = De meeste aangepaste stijlen die een gebruiker in de componist kan behouden. 0 schakelt Stijl maken uit.
+
+admin-settings-help-contacts-save-from-message-add-note = Voeg de notitie "Opgeslagen uit een bericht op <datum>" toe aan contacten die zijn opgeslagen uit een bericht. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-contacts-save-from-message-default-book = De adresboek-ID die contacten ontvangt die zijn opgeslagen uit een bericht; "standaard" gebruikt het standaardadresboek. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-contacts-save-from-message-default-scope = Welke deelnemers als eerste zijn aangevinkt in het dialoogvenster Contacten opslaan: alleen de afzender, de afzender en Reply-To, of iedereen. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-contacts-save-from-message-enabled = Aanbieding Bewaar contacten uit dit bericht in berichtmenu's. Wanneer uitgeschakeld, is het item verborgen. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-contacts-save-from-message-skip-automated = Laat no-reply-, notificatie- en bounce-adressen buiten het dialoogvenster Contacten opslaan, tenzij u dit handmatig aanvinkt. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-contacts-save-sender-enabled = Bied de mogelijkheid om met één klik de afzender op te slaan als contactitem in berichtmenu's. Wanneer uitgeschakeld, is het item verborgen. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-contacts-save-sender-use-reply-to = Sla het antwoordadres op in plaats van Van als de afzender een mailinglijst- of meldingsadres is. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-dsr-admin-step-up = Aan (standaard): een beheerder die een gegevensverzoek goedkeurt, een verwijdering uitvoert of bulksgewijs goedkeurt, moet eerst bevestigen dat hij/zij het opnieuw is (wachtwoord en tweede factor, of een wachtwoordsleutel). De bevestiging duurt vijf minuten. Uit verwijdert de extra controle; de beslissing wordt nog steeds vastgelegd in het verzoekspoor.
+
+admin-settings-help-export-default-format = Het formaat waarmee het exportdialoogvenster begint.
+
+admin-settings-help-export-default-scope = Het bereik waarmee het exportdialoogvenster begint: bericht, gesprek, selectie of map.
+
+admin-settings-help-export-dialog-enabled = Exporteren in de berichtweergave en de berichtmenu's openen ter plaatse een dialoogvenster. Als deze menu's zijn uitgeschakeld, downloaden ze het ene bericht als .eml.
+
+admin-settings-help-export-folder-enabled = Sta gebruikers toe een hele map te downloaden als een ZIP aan berichten. Elke export wordt gecontroleerd.
+
+admin-settings-help-export-folder-format = De formaten die een mapexport biedt: een ZIP van .eml-bestanden, een ZIP met een mbox-bestand, of beide.
+
+admin-settings-help-export-folder-include-subfolders = Of een mapexport standaard de submappen bevat, bewaard als mapstructuur in de ZIP.
+
+admin-settings-help-export-folder-max-bytes = Het aantal bytes aan berichten dat één mapexport kan bevatten. Een grotere map met het weergegeven formaat wordt geweigerd.
+
+admin-settings-help-export-folder-max-messages = Het aantal berichten dat één mapexport kan bevatten.
+
+admin-settings-help-export-formats = De formaten die het exportdialoogvenster biedt: eml, mbox, txt, md, msg, docx, csv, json, pdf. De server weigert een vermeld, door de server gebouwd formaat.
+
+admin-settings-help-export-message-download-enabled = Sta gebruikers toe een bericht te downloaden als .eml, alleen de headers, of als een mbox-bestand.
+
+admin-settings-help-folders-hide-empty = Verberg lege mappen in de zijbalk. Gebruikers kunnen de standaardinstelling wijzigen of overschrijven voor individuele mappen, tenzij deze instelling is vergrendeld. Er wordt geen e-mail verwijderd.
+
+admin-settings-help-folders-pinned-hide-from-tree = Vastgezette mappen worden weergegeven in een Vastgezette groep boven de mappenboom en behouden ook hun plaats in de boom. Aan verbergt een vastgezette map die geen submappen in de structuur heeft, zodat deze alleen in de groep Vastgezet wordt weergegeven. Een vastgezette map met submappen blijft in de boomstructuur staan.
+
+admin-settings-help-mail-badge-auth = Wanneer de header van de lezer de authenticatiebadge DMARC toont: altijd, alleen wanneer opmerkelijk, of nooit.
+
+admin-settings-help-mail-badge-density = Grootte van de badges in de header van de lezer: compact of comfortabel.
+
+admin-settings-help-mail-badge-folder = Wanneer de header van de lezer de mapbadge toont: altijd, alleen wanneer opmerkelijk of nooit.
+
+admin-settings-help-mail-badge-headers = Toon een badge in de reader voor de headers Expires, Reply-By, Sensitivity en Supersedes van een bericht.
+
+admin-settings-help-mail-badge-labels = Of kopbadges van lezers een pictogram met tekst tonen, of alleen het pictogram.
+
+admin-settings-help-mail-badge-list = Wanneer de header van de lezer de mailinglijstbadge toont: altijd, alleen wanneer opmerkelijk of nooit. Het heeft een List-Id- of List-Unsubscribe-header nodig.
+
+admin-settings-help-mail-badge-sanitized = Wanneer de header van de lezer de opgeschoonde HTML-badge toont: altijd, alleen wanneer opmerkelijk, of nooit.
+
+admin-settings-help-mail-badge-spam = Wanneer de header van de lezer de spamscore-badge toont: altijd, alleen wanneer opmerkelijk of nooit.
+
+admin-settings-help-mail-brand-avatars-require-auth = nooit: toon een logo wanneer het domein overeenkomt. bekende fout (standaard): toon dit tenzij het in de cache opgeslagen resultaat DKIM of DMARC van het bericht een fout is; niet-aangevinkte berichten behouden het logo. altijd: toon het alleen na een afgestemde DMARC pass met DKIM voor het eigen domein van het merk. Gebruikers- en domeinoverschrijvingen kunnen worden vergrendeld.
+
+admin-settings-help-mail-compose-header-auto-collapse-seconds = Enkele seconden moet de hoofdtekst de focus vasthouden voordat een volledige ontvanger en onderwerpkop naar de samenvatting worden gevouwen. Kies 0 om getimed vouwen uit te schakelen, of 1–60 seconden. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-mail-compose-priority-default = De prioriteit waarmee een nieuw bericht begint in de opsteller.
+
+admin-settings-help-mail-compose-priority-enabled = Toon de selector Normale, Hoge en Lage prioriteit in de groep Composeropties. Indien uitgeschakeld, wordt nieuwe e-mail verzonden zonder prioriteitskopteksten.
+
+admin-settings-help-mail-expiry-hide-expired = Wat te doen met een bericht waarvan de vervaldatum is verstreken: niets, grijs weergeven of voorstellen om het te archiveren.
+
+admin-settings-help-mail-list-keep = Afzenders en mailinglijsten worden altijd bijgehouden, één per regel als sender:address of list:List-Id. Ruim deze afzender op, afmeldsuggesties en bewaarregels sla deze over.
+
+admin-settings-help-mail-list-page-size = Hoeveel berichten de lijst ophaalt telkens wanneer een gebruiker naar het einde scrollt. Standaard 50, van 20 tot 200. Gebruikers kiezen hun eigen waarde, tenzij u deze vergrendelt.
+
+admin-settings-help-mail-list-unsubscribe-mode = Hoe Afmelden werkt als een lijst een verzoek met één klik aanbiedt: vraag het eerst, verzend het meteen of open alleen de link of het concept van de lijst.
+
+admin-settings-help-mail-message-list-group = Groepeer gesprekken op ontvangen of verzonden datum, afzender, onderwerp, belang of grootte. Gebruikers kunnen dit overschrijven, tenzij ze zijn vergrendeld.
+
+admin-settings-help-mail-priority-marks = Welke prioriteit de berichtenlijst, gesprekken en lezerweergave markeert: zowel hoog als laag, alleen hoog of geen. Gebruikers kiezen onder Instellingen > Mappen en zijbalk, tenzij vergrendeld.
+
+admin-settings-help-mail-priority-marks-style = Hoe een prioriteitsmarkering eruit ziet: een pictogram, een pictogram met de woorden Hoog of Laag, of een dunne balk. Icoon en tekst behouden de betekenis zonder kleur.
+
+admin-settings-help-mail-priority-send-headers = Welke headers een bericht met hoge of lage prioriteit krijgt wanneer het wordt verzonden: Belang, X-Prioriteit en X-MSMail-Prioriteit.
+
+admin-settings-help-mail-priority-trust-sender-headers = Of de door de afzender ingestelde prioriteit wordt weergegeven: altijd, alleen als het bericht een uitgelijnde DMARC-controle heeft doorstaan, of nooit. Gebruik vertrouwd of nooit tegen afzenders die elk bericht met hoge prioriteit markeren.
+
+admin-settings-help-mail-reply-from-header-priority = De berichtkoppen worden in deze volgorde gelezen om het adres te vinden waarnaar een bericht is verzonden bij het kiezen van de identiteit voor een antwoord. Namen: Bezorgd aan, X-Origineel-aan, Envelop-aan, X-doorgestuurd naar, Opnieuw verzonden aan, Aan, Cc. Een weggelaten header wordt niet gelezen.
+
+admin-settings-help-mail-search-default-scope = Start nieuwe normale e-mailzoekopdrachten in de huidige map of in alle mappen. Dit regelt de initiële standaard, inclusief wanneer deze is vergrendeld; gebruikers kunnen nog steeds een ander bereik kiezen voor een bepaalde zoekopdracht. Opgeslagen en expliciet bereikbare query's blijven behouden.
+
+admin-settings-help-metrics-dimensions-enabled = Sla de opgeslagen statistieken op, opgesplitst per clienttype (web) en apparaatklasse (desktop, mobiel). Schakel uit om één gecombineerde rij per statistiek en minuut op te slaan.
+
+admin-settings-help-metrics-persist-enabled = Sla de prestatiestatistieken (beeldproxysnelheid, browserlaadtijden, snelheidslimiet en aantal verzoekenbescherming) op in de database bij elk spoelinterval en wanneer de server stopt, zodat de grafieken hun geschiedenis behouden na een herstart. Niets identificeert een persoon, adres of bericht. Schakel uit om ze alleen in het geheugen te bewaren.
+
+admin-settings-help-metrics-persist-flush-seconds = Hoe vaak de prestatiestatistieken naar de database worden geschreven (5 tot 3600 seconden). Een server die zonder waarschuwing wordt afgesloten, verliest hoogstens zoveel.
+
+admin-settings-help-observability-client-capture-console = Rapporteer ook console.error-oproepen, maximaal vijf per minuut per pagina. Standaard uitgeschakeld omdat bibliotheken de verwachte omstandigheden registreren.
+
+admin-settings-help-observability-client-capture-csp = Rapporteer schendingen van het inhoudsbeveiligingsbeleid die de browser detecteert, met alleen de geblokkeerde richtlijn en oorsprong. Standaard ingeschakeld.
+
+admin-settings-help-observability-client-enabled = Verzamel foutrapporten van de web-app (foutgrenzen, niet-opgevangen fouten, mislukte chunks, werkerfouten, CSP-overtredingen) met opgeschoonde stapeltraceringen, weergegeven onder Waarneembaarheid > Clientfouten. Standaard ingeschakeld. Rapporten bevatten geen berichtinhoud, adressen, tokens, namen van bijlagen of URL-query's. Schakel uit om het verzamelen te stoppen; bestaande rapporten vervallen met hun bewaring.
+
+admin-settings-help-observability-client-forward = Stuur elk opgeschoond rapport ook naar de fout-sink die is geconfigureerd met MW_ERROR_FORWARD_URL. Standaard uitgeschakeld. Zonder geconfigureerde sink wordt er niets verzonden.
+
+admin-settings-help-observability-client-include-account-hash = Voeg een ingetoetste eenrichtingshash van het account toe aan rapporten die worden verzonden vanuit een ingelogde sessie, zodat rapporten van één account van elkaar kunnen worden onderscheiden zonder deze een naam te geven. Standaard uitgeschakeld. De hash verandert wanneer de privacysleutel draait.
+
+admin-settings-help-observability-client-max-per-session = De meeste foutrapporten kunnen worden verzonden na het laden van één pagina (1 tot 1000). Herhalingen van dezelfde fout binnen 60 seconden tellen één keer. Standaard 20.
+
+admin-settings-help-observability-client-sample-rate = Fractie van foutrapporten die een browser verzendt, van 0 tot 1. Standaard 1 (alles). Het laden van elke pagina stopt nog steeds bij de limiet per sessie.
+
+admin-settings-help-observability-client-source-maps = Los bundelposities in stapeltraceringen op naar bronbestanden wanneer de build verborgen bronkaarten heeft verzonden (gebouwd met MW_SOURCEMAP=hidden). Kaarten worden alleen door de server gelezen en nooit aan browsers aangeboden. Standaard ingeschakeld; zonder kaarten worden de onbewerkte frames getoond.
+
+admin-settings-help-privacy-error-reports = Of een browser een foutmelding stuurt als een deel van de app uitvalt. Standaard ingeschakeld. Globaal, domein en gebruikersbereik: stel hier de standaard in of vergrendel deze; mensen kunnen het zelf uitschakelen via Instellingen > Privacy, tenzij het vergrendeld is.
+
+admin-settings-help-privacy-image-cache-max-stale-secs = Seconden voorbij zijn versheid wordt een in de cache opgeslagen afbeelding bewaard om te antwoorden wanneer de oorsprong niet kan worden bereikt. Nooit onder het revalidatievenster. Bereik 0–604800; standaard 86400.
+
+admin-settings-help-privacy-image-cache-stale-secs = Seconden voorbij de versheid wordt een in het cachegeheugen opgeslagen afbeelding nog steeds onmiddellijk weergegeven terwijl deze op de achtergrond opnieuw wordt gevalideerd. Nul schakelt het uit. Bereik 0–86400; standaard 3600.
+
+admin-settings-help-privacy-image-resize-enabled = Schaal extra grote afbeeldingen op afstand terug naar de breedte waar de lezer om vraagt (320, 640, 960, 1280 of 1600 pixels). Geanimeerde afbeeldingen worden ongeschaald weergegeven. Standaard uitgeschakeld.
+
+admin-settings-help-privacy-image-resize-format = Automatisch kiest de beste encoder in de build, namelijk PNG. Standaard automatisch.
+
+admin-settings-help-privacy-image-resize-max-pixels = Afbeeldingen met meer gedecodeerde pixels dan dit worden ongeschaald weergegeven; de grootte wordt vóór elke decodering uit de header gelezen. Bereik 100.000–64.000.000; standaard 4000000.
+
+admin-settings-help-privacy-image-resize-max-width = De breedste afbeelding die het formaat wijzigt. Bereik 320–1600; standaard 1600.
+
+admin-settings-help-privacy-sessions-show-linked-origin = Hoe Instellingen > Beveiliging > Sessies de account een naam geeft waar een toegangssessie voor een gekoppelde mailbox vandaan komt: het volledige adres, het adres waarvan het eerste deel van de naam is gemaskeerd, of niets. De waarde wordt alleen getoond aan de eigenaar van de sessies, nooit aan andere gebruikers. Standaard: volledig adres.
+
+admin-settings-help-properties-folder-enabled = Bied eigenschappen aan in de mapmenu's en op de snelkoppeling. Indien uitgeschakeld, is het dialoogvenster niet beschikbaar.
+
+admin-settings-help-properties-folder-notes-enabled = Sta een beschrijving of notitie toe voor elke map.
+
+admin-settings-help-properties-folder-notes-max-length = Het maximale aantal tekens dat een mapnotitie kan bevatten.
+
+admin-settings-help-properties-folder-overrides-allowed = Welke instellingen een gebruiker voor een enkele map mag overschrijven. Een overschrijving die niet in de lijst staat, wordt verborgen en elke opgeslagen waarde wordt genegeerd.
+
+admin-settings-help-properties-folder-sections = De secties van het dialoogvenster Eigenschappen van de map: algemeen, extern, grootte, offline, overschrijvingen, notities, acties. Een sectie die niet in de lijst staat, is verborgen.
+
+admin-settings-help-properties-folder-size-compute = Wanneer de grootte van een map op de server wordt bepaald: nooit, wanneer het dialoogvenster wordt geopend, of op de achtergrond. Het tellen van een grote mailbox kost de server een scan.
+
+admin-settings-help-properties-headers-raw = Sta toe dat het dialoogvenster Eigenschappen van het bericht de onbewerkte headers weergeeft. Wanneer uitgeschakeld, wordt alleen de geparseerde samenvatting weergegeven.
+
+admin-settings-help-properties-message-enabled = Bied eigenschappen aan in de berichtmenu's en op de snelkoppeling. Indien uitgeschakeld, is het dialoogvenster niet beschikbaar.
+
+admin-settings-help-properties-message-permanent-delete = Of het berichtdialoogvenster een bericht voorgoed mag verwijderen: toestaan, twee keer vragen of weigeren. Een bericht onder wettelijke bewaarplicht wordt nooit verwijderd. Het op deze manier verwijderen kan niet ongedaan worden gemaakt.
+
+admin-settings-help-properties-message-sections = De secties van het dialoogvenster Eigenschappen van het bericht: samenvatting, score, kopteksten, bijlagen, acties. Een sectie die niet in de lijst staat, is verborgen.
+
+admin-settings-help-properties-offline-clear-enabled = Sta gebruikers toe de offline cache van een enkele map te wissen via het dialoogvenster Eigenschappen.
+
+admin-settings-help-properties-remote-location-visibility = Hoeveel van de locatie aan de serverzijde zien gebruikers: volledig (host en pad), gemaskeerde host (host gedeeltelijk verborgen), alleen pad (postbuspad zonder de host) of verborgen.
+
+admin-settings-help-properties-scoring-show = Toon spamscore, authenticatieresultaten en beveiligingssignalen in het berichteigenschappendialoogvenster.
+
+admin-settings-help-properties-shortcut-enabled = Open het dialoogvenster Eigenschappen vanaf het toetsenbord in een specifieke map of geselecteerd bericht.
+
+admin-settings-help-properties-shortcut-key = De toetsencombinatie die Eigenschappen opent; Standaard Alt+Enter.
+
+admin-settings-help-reader-actions-archive = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-block-sender = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-colors = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-conversation = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-create-filter = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-delete = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-delete-sender = Standaard verborgen. Kies de werkbalk of het menu Meer om dit in te schakelen wanneer de mogelijkheid voor het verwijderen van de afzender en het functieprofiel dit toestaan. Gebruikers kunnen de plaatsing overschrijven, tenzij deze is vergrendeld.
+
+admin-settings-help-reader-actions-edit-draft = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-export = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-finish-followup = Kies werkbalk, menu Meer of verborgen voor het voltooien van gemarkeerde berichten en vervolgherinneringen.
+
+admin-settings-help-reader-actions-flag = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-focus-focused = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-focus-other = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-forward = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-headers = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-links = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-move = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-not-spam = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-open-draft = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-pin = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-print = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-properties = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-read = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-reply = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-reply-all = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-save-contacts = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-save-sender = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-search = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-security = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-spam = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-sweep = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-view-source = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-reader-actions-zoom = Kies werkbalk, menu Meer of verborgen. Functiebeperkingen, machtigingen en berichtcontext zijn nog steeds van toepassing. Gebruikers kunnen kiezen tenzij dit is vergrendeld.
+
+admin-settings-help-retention-client-errors-event-days = Dagen waarop een individuele browserfout optreedt (de stacktracering en browserklasse) wordt bijgehouden. Standaard 30. Een groep wordt langer bewaard, zie de volgende instelling.
+
+admin-settings-help-retention-client-errors-group-days = Dagen waarop een browserfoutgroep (naam, bericht, aantal) wordt bewaard nadat deze voor het laatst is gezien. Standaard 180. Nooit korter dan de retentie van het voorkomen.
+
+admin-settings-help-retention-metrics-day-buckets-days = Dagen van dagelijkse prestatiestatistieken die worden bewaard voordat ze worden verwijderd. 0 houdt ze zonder limiet, waardoor de tafel langzaam groeit zolang de server draait.
+
+admin-settings-help-retention-metrics-hour-buckets-days = Dagen met prestatiestatistieken per uur die worden bewaard voordat ze worden samengevoegd in dagelijkse rijen (ten minste 1).
+
+admin-settings-help-retention-metrics-minute-buckets-hours = Uren met prestatiestatistieken van één minuut die worden bijgehouden voordat ze worden samengevoegd in rijen per uur (ten minste 1).
+
+admin-settings-help-retention-user-allow-strip-attachments = Of gebruikers regels mogen maken die grote bijlagen uit oude e-mail verwijderen. Standaard uitgeschakeld. Als deze actie is uitgeschakeld, wordt deze verborgen in de regeleditor. Een regel die er gebruik van maakt, wordt geweigerd wanneer deze wordt opgeslagen, en eerder opgeslagen regels worden overgeslagen wanneer de taak wordt uitgevoerd.
+
+admin-settings-help-retention-user-calendar-enabled = Of gebruikers agenda's mogen kiezen waarvan de afspraken een bepaald aantal dagen nadat ze zijn beëindigd, worden verwijderd. Standaard uitgeschakeld. Als deze optie is uitgeschakeld, is deze verborgen in Instellingen, wordt een keuze geweigerd wanneer deze wordt opgeslagen en worden eerder opgeslagen keuzes niet uitgevoerd.
+
+admin-settings-help-retention-user-calendar-max-days = De meeste dagen kan een gebruiker wachten voordat beëindigde gebeurtenissen worden verwijderd. Een grotere waarde wordt geweigerd bij het opslaan en verlaagd als deze wordt uitgevoerd.
+
+admin-settings-help-retention-user-calendar-min-days = Minste dagen nadat een gebeurtenis is geëindigd voordat een gebruikersregel deze kan verwijderen. Een kleinere waarde wordt geweigerd wanneer deze wordt opgeslagen en verhoogd wanneer deze wordt uitgevoerd.
+
+admin-settings-help-retention-user-notes-enabled = Of gebruikers ervoor kunnen kiezen notities te verwijderen die gedurende een bepaald aantal dagen niet zijn gewijzigd. Standaard uitgeschakeld. Verwijderde notities kunnen worden hersteld totdat het venster voor ongedaan maken voor bewaarregels eindigt.
+
+admin-settings-help-retention-user-notes-max-days = De meeste dagen kan een gebruiker wachten voordat onaangeroerde notities worden verwijderd. Een grotere waarde wordt geweigerd bij het opslaan en verlaagd als deze wordt uitgevoerd.
+
+admin-settings-help-retention-user-notes-min-days = Minimaal aantal dagen moet een notitie onaangeroerd blijven voordat een gebruikersregel deze kan verwijderen. Een kleinere waarde wordt geweigerd wanneer deze wordt opgeslagen en verhoogd wanneer deze wordt uitgevoerd.
+
+admin-settings-help-retention-user-strip-keep-inline-images = Of afbeeldingen die in de berichttekst worden weergegeven, behouden blijven wanneer bijlagen worden verwijderd.
+
+admin-settings-help-retention-user-strip-min-age-days = Het minimum aantal dagen dat een bericht oud moet zijn voordat een regel de bijlagen mag verwijderen. Een kleinere waarde wordt geweigerd wanneer de regel wordt opgeslagen en verhoogd wanneer deze wordt uitgevoerd.
+
+admin-settings-help-retention-user-strip-min-attachment-kb = Alleen bijlagen van minimaal dit formaat worden verwijderd. Kleinere bijlagen blijven bij het bericht.
+
+admin-settings-help-retention-user-strip-undo-days = Dagen dat het oorspronkelijke bericht in de prullenbak blijft staan nadat de bijlagen zijn verwijderd. -1 volgt het ongedaan maken-venster voor bewaarregels. 0 verwijdert het origineel in één keer.
+
+admin-settings-help-server-shutdown-grace-seconds = Hoe lang een stoppende server verzoeken tijdens de vlucht laat voltooien voordat de verbindingen worden gesloten, in seconden. De variabele MW_HTTP_SHUTDOWN_TIMEOUT_MS overschrijft deze. Geldt bij de volgende start.
+
+admin-settings-help-session-last-activity-flush-seconds = De laatst geziene tijd van een sessie wordt hoogstens zo vaak weergegeven, in seconden. Zero schrijft het bij elk verzoek. Het verandert niets aan de inactieve of absolute limieten. Geldt bij de volgende start.
+
+admin-settings-help-session-persist-across-restarts = Indien ingeschakeld, blijven mailbox-, app- en consolesessies geldig nadat de server opnieuw is opgestart. Indien uitgeschakeld, eindigt elke sessie wanneer de server start. Geldt bij de volgende start.
+
+admin-settings-key-attachments-bar-click-to-toggle = Klik op de bijlagenbalk om te schakelen
+
+admin-settings-key-attachments-bar-download-all = Knop Alles downloaden
+
+admin-settings-key-attachments-bar-show-download-buttons = Downloadknoppen voor bijlagen
+
+admin-settings-key-attachments-bar-zip-inline-images = Inline afbeeldingen in de Download alles ZIP
+
+admin-settings-key-cap-reading-delete-sender = Sta het verwijderen van alle e-mail van een afzender toe
+
+admin-settings-key-compose-feature-family = Composerfuncties
+
+admin-settings-key-compose-headers-allow-auto-submitted = Sta automatisch verzonden toe
+
+admin-settings-key-compose-headers-allow-custom = Aangepaste kopteksten toestaan
+
+admin-settings-key-compose-headers-allow-return-receipt-to = Retour-ontvangst-aan toestaan
+
+admin-settings-key-compose-headers-allow-threading-edit = Bewerken van threadingkoppen toestaan
+
+admin-settings-key-compose-headers-forced = Geforceerde kopteksten
+
+admin-settings-key-compose-insert-image-resize-default = Vooraf ingesteld beeldformaat
+
+admin-settings-key-compose-insert-max-inline-image-mb = Grootste inline-afbeelding (MB)
+
+admin-settings-key-compose-layout-default-font = Standaard berichtlettertype
+
+admin-settings-key-compose-reply-to-allow-override = Wijzigen van antwoord aan toestaan
+
+admin-settings-key-compose-reply-to-show = Antwoord-aan-rij
+
+admin-settings-key-compose-sent-folder-fixed-id = Verzonden kopie: vaste map
+
+admin-settings-key-compose-sent-folder-mode = Verzonden kopie: mapregel
+
+admin-settings-key-compose-sent-folder-per-identity = Verzonden kopie: map per identiteit
+
+admin-settings-key-compose-sent-folder-rules = Verzonden kopie: regels
+
+admin-settings-key-compose-sent-folder-skip-copy = Verzonden kopie: niet opslaan
+
+admin-settings-key-compose-styles-custom = Aangepaste stijlen
+
+admin-settings-key-compose-styles-default-set = Stijl ingesteld
+
+admin-settings-key-compose-styles-max-custom = Aangepaste stijlen per gebruiker
+
+admin-settings-key-contacts-save-from-message-add-note = Opmerking over contacten die zijn opgeslagen vanuit een bericht
+
+admin-settings-key-contacts-save-from-message-default-book = Adresboek voor contacten opgeslagen uit een bericht
+
+admin-settings-key-contacts-save-from-message-default-scope = Contacten zijn als eerste aangevinkt bij het opslaan van een bericht
+
+admin-settings-key-contacts-save-from-message-enabled = Bewaar contacten uit een bericht
+
+admin-settings-key-contacts-save-from-message-skip-automated = Sla geautomatiseerde afzenders over bij het opslaan van contacten
+
+admin-settings-key-contacts-save-sender-enabled = Afzender opslaan als contactpersoon
+
+admin-settings-key-contacts-save-sender-use-reply-to = Bewaar Reply-To voor lijstafzenders
+
+admin-settings-key-dsr-admin-step-up = Bevestig opnieuw voordat u goedkeurt
+
+admin-settings-key-export-default-format = Standaardformaat van dialoogvenster exporteren
+
+admin-settings-key-export-default-scope = Standaardbereik van dialoogvenster exporteren
+
+admin-settings-key-export-dialog-enabled = Dialoogvenster exporteren
+
+admin-settings-key-export-folder-enabled = Map exporteren
+
+admin-settings-key-export-folder-format = Exportformaat voor mappen
+
+admin-settings-key-export-folder-include-subfolders = Neem submappen op in de export
+
+admin-settings-key-export-folder-max-bytes = Limiet voor exportgrootte van map
+
+admin-settings-key-export-folder-max-messages = Berichtlimiet voor mapexport
+
+admin-settings-key-export-formats = Dialoogformaten exporteren
+
+admin-settings-key-export-message-download-enabled = Bericht downloaden
+
+admin-settings-key-folders-hide-empty = Verberg lege mappen
+
+admin-settings-key-folders-pinned-hide-from-tree = Verberg vastgezette mappen in de boomstructuur
+
+admin-settings-key-mail-badge-auth = Authenticatiebadge
+
+admin-settings-key-mail-badge-density = Grootte van lezersbadge
+
+admin-settings-key-mail-badge-folder = Mapbadge
+
+admin-settings-key-mail-badge-headers = Kopbadges
+
+admin-settings-key-mail-badge-labels = Etiketten voor lezersbadges
+
+admin-settings-key-mail-badge-list = Mailinglijst-badge
+
+admin-settings-key-mail-badge-sanitized = Gezuiverde HTML-badge
+
+admin-settings-key-mail-badge-spam = Spamscore-badge
+
+admin-settings-key-mail-brand-avatars-require-auth = Authenticatie vereist voor merklogo's
+
+admin-settings-key-mail-compose-header-auto-collapse-seconds = Vertraging voor automatisch samenvouwen van koptekst van componist
+
+admin-settings-key-mail-compose-priority-default = Standaard berichtprioriteit
+
+admin-settings-key-mail-compose-priority-enabled = Prioriteitskiezer in de componist
+
+admin-settings-key-mail-expiry-hide-expired = Verlopen berichten
+
+admin-settings-key-mail-list-keep = Altijd bewaren
+
+admin-settings-key-mail-list-page-size = Paginagrootte berichtenlijst
+
+admin-settings-key-mail-list-unsubscribe-mode = Mailinglijst Afmelden
+
+admin-settings-key-mail-message-list-group = Groepering van berichten
+
+admin-settings-key-mail-priority-marks = Prioriteitsmerken
+
+admin-settings-key-mail-priority-marks-style = Prioriteitsmarkeringsstijl
+
+admin-settings-key-mail-priority-send-headers = Prioriteitsheaders geschreven bij verzending
+
+admin-settings-key-mail-priority-trust-sender-headers = Vertrouw op de door de afzender ingestelde prioriteit
+
+admin-settings-key-mail-reply-from-header-priority = Headers die de antwoordidentiteit kiezen
+
+admin-settings-key-mail-search-default-scope = Standaard zoekbereik voor e-mail
+
+admin-settings-key-metrics-dimensions-enabled = Statistieken opsplitsen per clienttype en apparaatklasse
+
+admin-settings-key-metrics-persist-enabled = Houd statistieken bij over herstarts
+
+admin-settings-key-metrics-persist-flush-seconds = Interval voor het opslaan van statistieken (seconden)
+
+admin-settings-key-observability-client-capture-console = Consolefouten melden
+
+admin-settings-key-observability-client-capture-csp = Rapporteer CSP overtredingen
+
+admin-settings-key-observability-client-enabled = Browserfoutrapporten
+
+admin-settings-key-observability-client-forward = Foutrapporten doorsturen
+
+admin-settings-key-observability-client-include-account-hash = Voeg account-hash toe aan foutrapporten
+
+admin-settings-key-observability-client-max-per-session = Foutrapporten per geladen pagina
+
+admin-settings-key-observability-client-sample-rate = Bemonsteringsfrequentie foutrapport
+
+admin-settings-key-observability-client-source-maps = Los stacktraces op met bronkaarten
+
+admin-settings-key-privacy-error-reports = Foutrapporten verzenden
+
+admin-settings-key-privacy-image-cache-max-stale-secs = Blijf oud als de oorsprong faalt (seconden)
+
+admin-settings-key-privacy-image-cache-stale-secs = Serveer oud tijdens het revalideren (seconden)
+
+admin-settings-key-privacy-image-resize-enabled = Formaat van grote afbeeldingen wijzigen
+
+admin-settings-key-privacy-image-resize-format = Formaat van afbeelding aangepast
+
+admin-settings-key-privacy-image-resize-max-pixels = Grootste afbeelding waarvan het formaat kan worden gewijzigd (pixels)
+
+admin-settings-key-privacy-image-resize-max-width = Grootste afbeelding met gewijzigd formaat (pixels)
+
+admin-settings-key-privacy-sessions-show-linked-origin = Gekoppelde mailboxoorsprong in sessies
+
+admin-settings-key-properties-folder-enabled = Dialoogvenster Mapeigenschappen
+
+admin-settings-key-properties-folder-notes-enabled = Mapnotities
+
+admin-settings-key-properties-folder-notes-max-length = Lengte mapnotitie
+
+admin-settings-key-properties-folder-overrides-allowed = Overschrijvingen per map toegestaan
+
+admin-settings-key-properties-folder-sections = Mapdialoogsecties
+
+admin-settings-key-properties-folder-size-compute = Berekening van de mapgrootte
+
+admin-settings-key-properties-headers-raw = Ruwe kopteksten
+
+admin-settings-key-properties-message-enabled = Dialoogvenster Berichteigenschappen
+
+admin-settings-key-properties-message-permanent-delete = Permanente verwijdering uit eigenschappen
+
+admin-settings-key-properties-message-sections = Berichtdialoogsecties
+
+admin-settings-key-properties-offline-clear-enabled = Offline cache per map wissen
+
+admin-settings-key-properties-remote-location-visibility = Detail van afgelegen locatie
+
+admin-settings-key-properties-scoring-show = Score- en authenticatiedetails
+
+admin-settings-key-properties-shortcut-enabled = Snelkoppeling Eigenschappen
+
+admin-settings-key-properties-shortcut-key = Sneltoets Eigenschappen
+
+admin-settings-key-reader-actions-archive = Plaatsing van archiefactie
+
+admin-settings-key-reader-actions-block-sender = Blokkeer de plaatsing van afzenderacties
+
+admin-settings-key-reader-actions-colors = Berichtkleuren actieplaatsing
+
+admin-settings-key-reader-actions-conversation = Bekijk de plaatsing van gespreksacties
+
+admin-settings-key-reader-actions-create-filter = Filteractieplaatsing maken
+
+admin-settings-key-reader-actions-delete = Actieplaatsing verwijderen
+
+admin-settings-key-reader-actions-delete-sender = Verwijder alle berichten uit de afzenderactie
+
+admin-settings-key-reader-actions-edit-draft = Plaatsing van conceptactie bewerken
+
+admin-settings-key-reader-actions-export = Actieplaatsing exporteren
+
+admin-settings-key-reader-actions-finish-followup = Markeer de vervolgactie als voltooide actie
+
+admin-settings-key-reader-actions-flag = Markeer/demarkeer actieplaatsing
+
+admin-settings-key-reader-actions-focus-focused = Ga naar gerichte actieplaatsing
+
+admin-settings-key-reader-actions-focus-other = Ga naar Andere actieplaatsing
+
+admin-settings-key-reader-actions-forward = Plaatsing van voorwaartse actie
+
+admin-settings-key-reader-actions-headers = Plaatsing van onbewerkte koptekstacties
+
+admin-settings-key-reader-actions-links = Bekijk de plaatsing van de linksactie
+
+admin-settings-key-reader-actions-move = Verplaats actieplaatsing
+
+admin-settings-key-reader-actions-not-spam = Geen plaatsing van spamacties
+
+admin-settings-key-reader-actions-open-draft = Open antwoordconceptactieplaatsing
+
+admin-settings-key-reader-actions-pin = Actieplaatsing vastzetten/losmaken
+
+admin-settings-key-reader-actions-print = Plaatsing van afdrukactie
+
+admin-settings-key-reader-actions-properties = Berichteigenschappen actieplaatsing
+
+admin-settings-key-reader-actions-read = Plaatsing van gelezen/ongelezen actie
+
+admin-settings-key-reader-actions-reply = Plaatsing van antwoordactie
+
+admin-settings-key-reader-actions-reply-all = Beantwoord alle actieplaatsingen
+
+admin-settings-key-reader-actions-save-contacts = Bewaar de actieplaatsing van berichtcontacten
+
+admin-settings-key-reader-actions-save-sender = Plaatsing van afzenderactie opslaan
+
+admin-settings-key-reader-actions-search = Gerelateerde plaatsing van zoekacties
+
+admin-settings-key-reader-actions-security = Plaatsing van actie in beveiligingsmodus
+
+admin-settings-key-reader-actions-spam = Markeer de actieplaatsing als spam
+
+admin-settings-key-reader-actions-sweep = Plaatsing van actie voor sweep-afzender
+
+admin-settings-key-reader-actions-view-source = Bekijk de plaatsing van berichtbronacties
+
+admin-settings-key-reader-actions-zoom = Plaatsing van zoomacties
+
+admin-settings-key-retention-client-errors-event-days = Bijgehouden foutvoorvallen (dagen)
+
+admin-settings-key-retention-client-errors-group-days = Foutgroepen bewaard (dagen)
+
+admin-settings-key-retention-metrics-day-buckets-days = Dagelijkse statistieken bijgehouden (dagen)
+
+admin-settings-key-retention-metrics-hour-buckets-days = Bijgehouden statistieken per uur (dagen)
+
+admin-settings-key-retention-metrics-minute-buckets-hours = Bijgehouden minuutstatistieken (uren)
+
+admin-settings-key-retention-user-allow-strip-attachments = Gebruikers kunnen bijlagen uit oude e-mail verwijderen
+
+admin-settings-key-retention-user-calendar-enabled = Gebruikers kunnen beëindigde agenda-evenementen verwijderen
+
+admin-settings-key-retention-user-calendar-max-days = De meeste dagen vóór het einde van de evenementen worden verwijderd
+
+admin-settings-key-retention-user-calendar-min-days = De minste dagen vóór het einde van de evenementen worden verwijderd
+
+admin-settings-key-retention-user-notes-enabled = Gebruikers kunnen onaangeroerde notities verwijderen
+
+admin-settings-key-retention-user-notes-max-days = De meeste dagen voordat onaangeroerde aantekeningen worden verwijderd
+
+admin-settings-key-retention-user-notes-min-days = Minste dagen voordat onaangeroerde bankbiljetten worden verwijderd
+
+admin-settings-key-retention-user-strip-keep-inline-images = Bewaar inline afbeeldingen
+
+admin-settings-key-retention-user-strip-min-age-days = Minste dagen voordat bijlagen worden verwijderd
+
+admin-settings-key-retention-user-strip-min-attachment-kb = Kleinste verwijderde bijlage (KB)
+
+admin-settings-key-retention-user-strip-undo-days = Venster voor ongedaan maken nadat bijlagen zijn verwijderd (dagen)
+
+admin-settings-key-server-shutdown-grace-seconds = Uitstelperiode voor afsluiten
+
+admin-settings-key-session-last-activity-flush-seconds = Laatst gezien schrijfinterval
+
+admin-settings-key-session-persist-across-restarts = Behoud sessies tijdens herstarts

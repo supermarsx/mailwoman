@@ -72,3 +72,56 @@ admin-dr-trail = Cronologia
 admin-dr-behalf = Presenta una richiesta per un utente
 admin-dr-behalf-help = Per una richiesta ricevuta per posta o di persona. Alla persona non viene chiesto di confermare tramite messaggio.
 admin-dr-behalf-submit = Presenta richiesta
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Azioni collettive
+
+admin-dr-bulk-action = Azione
+
+admin-dr-bulk-approve = Approvare
+
+admin-dr-bulk-assign = Assegnare
+
+admin-dr-bulk-clear = Cancella selezione
+
+admin-dr-bulk-csv = CSV della selezione
+
+admin-dr-bulk-extend = Prolungare la data di scadenza
+
+admin-dr-bulk-failed = Rifiutato
+
+admin-dr-bulk-field-assignee = Assegna a (cancella vuoti)
+
+admin-dr-bulk-field-extend = Motivo della proroga
+
+admin-dr-bulk-field-note = Nota (facoltativa)
+
+admin-dr-bulk-field-reason = Motivo
+
+admin-dr-bulk-hold = Sotto custodia legale
+
+admin-dr-bulk-ok = Fatto
+
+admin-dr-bulk-reject = Rifiuta
+
+admin-dr-bulk-release-hold = Rilascia la conservazione legale
+
+admin-dr-bulk-run = { $count ->
+        [one] Applicare a { $count } richiesta
+        [many] Applica a { $count } richieste
+       *[other] Applica a { $count } richieste
+    }
+
+admin-dr-bulk-select = Seleziona la richiesta di { $address }
+
+admin-dr-bulk-select-all = Seleziona ogni richiesta elencata
+
+admin-dr-bulk-selected = { $count ->
+        [one] { $count } richiesta selezionata
+        [many] { $count } richieste selezionate
+       *[other] { $count } richieste selezionate
+    }
+
+admin-dr-bulk-summary = Fatto per { $done }; rifiutato per { $failed }. Le richieste rifiutate rimangono selezionate.
+
+admin-dr-more = Carica più richieste

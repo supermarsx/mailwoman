@@ -50,3 +50,89 @@ outbox-queued-count = { $count ->
     [one] 1 Nachricht wartet auf das Senden
    *[other] { $count } Nachrichten warten auf das Senden
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = Nächster Versand: { $when }
+
+outbox-chip-title = Nachrichten warten auf den Versand
+
+outbox-chip-view-all = Öffnen Sie den Postausgang
+
+outbox-delete = Löschen
+
+outbox-delete-confirm = Nachricht löschen?
+
+outbox-delete-failed = Die Nachricht konnte nicht gelöscht werden. { $error }
+
+outbox-deleted = Die Nachricht in der Warteschlange wurde gelöscht.
+
+outbox-edit-time = Sendezeit bearbeiten
+
+outbox-edit-time-conflict = Die Sendezeit hat sich geändert oder die Nachricht wurde bereits gesendet. Der Postausgang wurde neu geladen.
+
+outbox-edit-time-current = Derzeit { $when }
+
+outbox-edit-time-refused = Die Sendezeit konnte nicht geändert werden. { $error }
+
+outbox-edit-time-save = Sparen Sie Zeit beim Senden
+
+outbox-failed-toast = Eine Nachricht konnte nicht gesendet werden. { $error }
+
+outbox-failed-uncertain-toast = Möglicherweise wurde eine Nachricht zugestellt oder auch nicht. Überprüfen Sie „Gesendet“, bevor Sie es erneut senden.
+
+outbox-open = Offen
+
+outbox-reader-actions = Nachrichtenaktionen in der Warteschlange
+
+outbox-reader-cc = CC: { $recipients }
+
+outbox-reader-label = Nachricht in der Warteschlange
+
+outbox-reader-loading = Die Nachricht wird geladen…
+
+outbox-reader-to = An: { $recipients }
+
+outbox-reader-unavailable = Die Nachricht konnte nicht geladen werden.
+
+outbox-recall-to-drafts = Rückruf zu Entwürfen
+
+outbox-send-again = Nochmals senden
+
+outbox-send-again-failed = Die Nachricht konnte nicht erneut in die Warteschlange gestellt werden. { $error }
+
+outbox-send-again-queued = Die Nachricht wird zum erneuten Senden in die Warteschlange gestellt.
+
+outbox-sent-copy-folder = Wird in { $folder } gespeichert
+
+outbox-sent-copy-missing = Wird unter „Gesendet“ gespeichert (der ausgewählte Ordner ist nicht verfügbar)
+
+outbox-sent-copy-skip = Es wird keine Kopie gespeichert
+
+outbox-status-attempts = { $count ->
+        [one] Bisher { $count } Versuch
+       *[other] Bisher { $count } Versuche
+    }
+
+outbox-status-canceled = Abgesagt
+
+outbox-status-failed = Nicht gesendet
+
+outbox-status-held = Wird gehalten, bis Sie es freigeben
+
+outbox-status-last-error = Letzter Fehler: { $error }
+
+outbox-status-next-attempt = Nächster Versuch { $when }
+
+outbox-status-queued = In der Warteschlange
+
+outbox-status-retrying = Erneuter Versuch
+
+outbox-status-scheduled = Geplant
+
+outbox-status-sending = Senden
+
+outbox-status-sends-at-in = Sendet { $when } (in { $time })
+
+outbox-status-sent = Gesendet
+
+outbox-status-uncertain = Lieferung unbekannt

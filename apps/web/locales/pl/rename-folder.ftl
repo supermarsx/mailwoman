@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = Ten folder ma podfoldery. Najpierw usuń j
 delete-folder-error-forbidden = Nie możesz usunąć tego folderu.
 delete-folder-error-notFound = Ten folder już nie istnieje. Odśwież listę folderów.
 delete-folder-error-failed = Nie udało się usunąć folderu. Spróbuj ponownie.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = To konto jest prawnie zablokowane, więc folderów nie można usunąć.
+
+delete-folder-error-processingRestricted = Przetwarzanie tego konta jest ograniczone, dlatego nie można usunąć folderów.

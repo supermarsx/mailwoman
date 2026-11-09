@@ -1188,3 +1188,246 @@ mail-color-confirm-title = 更改默认邮件颜色？
 mail-color-confirm-body = 所有邮件都将使用“{ $mode }”，除非你为某封邮件单独更改。
 mail-color-confirm = 设为默认
 mail-color-default-failed = 无法保存你的默认邮件颜色。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = 所选邮件没有可供下载的附件。
+
+mail-attachments-zip-all-blocked = 未下载任何内容：附件策略阻止所有 { $skipped } 文件。
+
+mail-attachments-zip-gathering = 正在收集{ $count }条消息的附件...
+
+mail-attachments-zip-skipped = { $skipped ->
+       *[other] { $skipped } 个被附件策略阻止的文件被排除。
+    }
+
+mail-attachments-zip-unreadable = { $count } 条消息的附件无法阅读并被遗漏。
+
+mail-bulk-download-attachments = 下载附件为ZIP
+
+mail-compose-from-via = 它与 { $header } 标头匹配。
+
+mail-compose-from-why-match-domain = 从 { $identity } 发送，因为邮件已传递到同一域中的地址 { $address }。
+
+mail-compose-from-why-match-pattern = 从 { $identity } 发送，因为消息已发送到 { $address }，这符合该身份的地址模式。
+
+mail-compose-ribbon-autohide = 自动隐藏功能区 (Ctrl+F1)
+
+mail-compose-ribbon-pin = 始终显示功能区 (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+       *[other] 将 { $count } 条选定邮件的附件下载为 ZIP
+    }
+
+mail-context-download-thread-attachments = 将对话的所有 { $count } 附件下载为 ZIP
+
+mail-context-open-new-tab = 在新选项卡中打开
+
+mail-delete-sender-confirm = 将{ $count }邮件移至垃圾箱
+
+mail-delete-sender-detail = 将 { $count } 邮件从 { $sender } 移至垃圾箱？已在垃圾箱中的邮件将被排除。您可以撤消此操作。
+
+mail-delete-sender-empty = 在“已删除邮件”之外没有来自该发件人的邮件。
+
+mail-delete-sender-failed = 无法验证每条匹配的消息及其权限。没有任何东西被移动；再试一次。
+
+mail-delete-sender-help = 在所有文件夹中查找该发件人的邮件，并在确认后将其移至“废纸篓”。
+
+mail-delete-sender-title = 删除该发件人的所有邮件
+
+mail-draft-continue = 继续编辑
+
+mail-draft-edit = 编辑草稿
+
+mail-draft-edit-failed = 无法打开草稿进行编辑
+
+mail-draft-edit-help = 在作曲家中打开此草稿以继续编辑
+
+mail-draft-notice = 这是草稿
+
+mail-file-copied = 复制到剪贴板。
+
+mail-file-copy-failed = 无法复制到剪贴板。
+
+mail-file-copy-fingerprint = 复制指纹
+
+mail-file-copy-name = 复制文件名
+
+mail-file-created = 已创建
+
+mail-file-creator = 创建于
+
+mail-file-details-button = 文件详情
+
+mail-file-details-tooltip = 显示文件详细信息和指纹
+
+mail-file-encryption = 密码保护
+
+mail-file-encryption-none = 没有要求输入密码
+
+mail-file-encryption-password = 需要密码才能打开
+
+mail-file-fingerprint = 指纹
+
+mail-file-name = 文件名
+
+mail-file-pages = 页数
+
+mail-file-pdf-version = PDF版本
+
+mail-file-producer = 制片人
+
+mail-file-verify-help = 将这些组与发件人通过其他方式（例如电话或他们的网站）提供给您的指纹进行比较。如果每个组都匹配，则您将拥有完全相同的字节。
+
+mail-file-verify-title = 验证指纹
+
+mail-follow-up-finished = 后续已完成
+
+mail-group-by = 分组依据
+
+mail-header-attachments = { $count ->
+       *[other] { $count } 个附件
+    }
+
+mail-header-expand-short = 展开消息标题 (Alt+H)
+
+mail-list-group-date-unknown = 日期未知
+
+mail-list-group-importance = 重要性
+
+mail-list-group-locked = 邮件分组已被管理员锁定。
+
+mail-list-group-no-subject = （无主题）
+
+mail-list-group-none = 没有分组
+
+mail-list-group-priority-high = 高重要性
+
+mail-list-group-priority-low = 重要性低
+
+mail-list-group-priority-normal = 正常重要性
+
+mail-list-group-received = 收到日期
+
+mail-list-group-sender = 来自
+
+mail-list-group-sent = 发送日期
+
+mail-list-group-size = 尺寸
+
+mail-list-group-size-huge = 10MB及以上
+
+mail-list-group-size-large = 1–10 MB
+
+mail-list-group-size-medium = 100 KB–1 MB
+
+mail-list-group-size-small = 25–100 KB
+
+mail-list-group-size-tiny = 小于 25 KB
+
+mail-list-group-subject = 主题
+
+mail-list-order-importance = 重要性，高在先
+
+mail-list-order-importance-asc = 重要性，从低到高
+
+mail-list-order-locked = 消息顺序已被您的管理员锁定。
+
+mail-list-order-sender-desc = 发送者，Z 到 A
+
+mail-list-order-sent-newest = 已发送，最新的优先
+
+mail-list-order-sent-oldest = 已发送，最老的在前
+
+mail-list-order-size = 尺寸，最大的在前
+
+mail-list-order-size-asc = 尺寸，最小的在前
+
+mail-list-order-subject-desc = 主题，Z 到 A
+
+mail-mark-answered = 标记为已回答
+
+mail-mark-as = 标记为
+
+mail-mark-finished = 标记为已完成
+
+mail-mark-forwarded = 标记为已转发
+
+mail-mark-not-forwarded = 标记为未转发
+
+mail-mark-unanswered = 标记为未答复
+
+mail-mentions-me = 提到我
+
+mail-mentions-me-help = 搜索提及您的电子邮件地址之一的邮件
+
+mail-move-search = 搜索文件夹
+
+mail-order-by = 订购依据
+
+mail-reader-folder-go = 存储在 { $folder } · 转到文件夹
+
+mail-reply-draft-discard = 放弃回复
+
+mail-reply-draft-discard-detail = 要永久删除此回复吗？此操作无法撤消。
+
+mail-reply-draft-discard-title = 放弃这个回复？
+
+mail-status-from-match-domain = 从{ $identity }开始
+
+mail-status-from-match-pattern = 从{ $identity }开始
+
+mail-status-from-via = 从{ $identity }回复，因为它匹配{ $header }
+
+mail-toast-follow-up-finished = 后续标记为已完成
+
+mail-toast-marked-answered = { $count ->
+       *[other] { $count } 条消息标记为已回复
+    }
+
+mail-toast-marked-forwarded = { $count ->
+       *[other] { $count } 条消息标记为已转发
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+       *[other] { $count } 条消息标记为未转发
+    }
+
+mail-toast-marked-unanswered = { $count ->
+       *[other] { $count } 条消息标记为未回复
+    }
+
+mail-toast-move-failed-reason = 无法移动消息 ({ $reason })。什么都没有动。
+
+mail-toast-update-refused-reason = { $count ->
+       *[other] 服务器拒绝移动 { $count } 条消息：{ $reason }
+    }
+
+reader-badge-hide = 隐藏此徽章
+
+reader-badge-locked = 由您的管理员设置
+
+reader-badge-menu = 留言徽章
+
+reader-badge-notable = 仅在显着时显示
+
+reader-sanitized-always = 脚本等活动内容保持禁用状态。
+
+reader-sanitized-clean = 消息HTML无需更改
+
+reader-sanitized-clean-detail = 此消息的HTML中没有任何内容被删除或阻止。
+
+reader-sanitized-counts = { $blocked } 远程项目被阻止，{ $trackers } 跟踪项目。
+
+reader-sanitized-detail = 消息HTML在显示之前已被清理。远程内容遵循您的隐私设置。
+
+reader-sanitized-hosts = 远程主机
+
+reader-sanitized-remote = 远程内容被阻止
+
+reader-sanitized-short = 已消毒HTML
+
+reader-sanitized-short-blocked = HTML 被阻止
+
+reader-sanitized-short-clean = HTML 干净
+
+reader-sanitized-trackers = 追踪物品

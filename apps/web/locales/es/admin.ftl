@@ -1085,3 +1085,18 @@ admin-insights-empty-rules = No se activó ninguna regla adaptativa en este inte
 admin-insights-share-of = { $share } de las solicitudes
 admin-nav-encryption = Cifrado
 admin-nav-retention = Retención
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Errores del cliente
+
+admin-session-linked-device = Sesión de origen: { $device }
+
+admin-session-linked-line = Acceso al buzón vinculado · desde { $origin }
+
+admin-session-linked-line-hidden = Acceso al buzón vinculado
+
+admin-session-linked-open = Abrir cuenta de origen
+
+admin-session-linked-removed = Acceso al buzón vinculado · cuenta de origen eliminada
+
+admin-session-linked-restricted = Acceso al buzón vinculado · origen no mostrado (no hay acceso a esa cuenta)

@@ -639,3 +639,24 @@ admin-protect-sim-cause-no-database = geen database geladen
 admin-protect-sim-cause-not-found = adres niet in de database
 admin-protect-sim-heightened-off = De verhoogde modus voor aanmelden staat uit.
 admin-protect-sim-heightened-on = De verhoogde modus voor aanmelden staat aan: de wachttijd wordt gebracht op { $pace } ({ $cooldown }), uitdaging afgedwongen: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sessies en herstarts
+
+admin-secdash-sessions-admin = Consolesessies
+
+admin-secdash-sessions-mailbox = Mailbox-sessies
+
+admin-secdash-sessions-native = App-sessies
+
+admin-secdash-sessions-reason-persisted = opgeslagen in de database, verzegeld met de serversleutel
+
+admin-secdash-sessions-reason-server-key-changed = opgeslagen sessies worden niet geopend met de huidige serversleutel; herstel het originele sleutelbestand
+
+admin-secdash-sessions-reason-server-key-ephemeral = de serversleutel wordt niet bewaard bij opnieuw opstarten
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts is uitgeschakeld, dus sessies eindigen wanneer de server start
+
+admin-secdash-sessions-survive-no = Sessies overleven opnieuw opstarten: nee ({ $reason })
+
+admin-secdash-sessions-survive-yes = Sessies overleven opnieuw opstarten: ja ({ $reason })

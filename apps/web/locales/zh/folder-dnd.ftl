@@ -77,3 +77,126 @@ folder-dnd-more-actions = 排列
 folder-dnd-selected-move = 将所选项移到…
 folder-dnd-locked-row = 已锁定
 folder-dnd-problem-pin = 置顶的文件夹保持在其他文件夹上方。请先取消置顶再将其移到那里。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = 空……
+
+folder-bar-label = 对选定文件夹的操作
+
+folder-bar-mark-read = 标记全部已读
+
+folder-bar-pin = 销
+
+folder-bar-star = 明星
+
+folder-bar-unpin = 取消固定
+
+folder-bar-unstar = 取消星标
+
+folder-dnd-handle-hint = 拖动以移动该文件夹
+
+folder-pinned-group = 已固定
+
+folder-pinned-unpin-zone = 放到此处取消固定
+
+settings-folders-bulk-delete-body = { $folders ->
+       *[other] { $folders } 个文件夹（及其子文件夹）及其中的{ $messages } 条消息将被删除。此操作无法撤消。
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+       *[other] 删除 { $count } 个文件夹
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+       *[other] 已删除 { $count } 个文件夹
+    }
+
+settings-folders-bulk-delete-failed = 什么都没有被删除。未删除：{ $names }
+
+settings-folders-bulk-delete-list = 要删除的文件夹
+
+settings-folders-bulk-delete-none = 所选文件夹均不可删除（系统文件夹和您不能删除的文件夹将被跳过）。
+
+settings-folders-bulk-delete-others = 也没有删除：{ $names }
+
+settings-folders-bulk-delete-partial = 已删除 { $done } 文件夹。未删除：{ $names }
+
+settings-folders-bulk-delete-partial-done = 已删除 { $done } 文件夹。
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+       *[other] 未删除，因为该帐户处于合法保留状态（{ $count } 个文件夹）：{ $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+       *[other] 未删除，因为帐户处理受到限制（{ $count } 个文件夹）：{ $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } 选定的文件夹将被跳过，因为它们无法删除：{ $names }
+
+settings-folders-bulk-delete-subfolders = 同时删除每个文件夹的子文件夹
+
+settings-folders-bulk-delete-subfolders-off = 仅删除选定的文件夹。保留仍具有所选内容之外的子文件夹的文件夹。
+
+settings-folders-bulk-delete-title = { $count ->
+       *[other] 删除{ $count }个文件夹？
+    }
+
+settings-folders-bulk-empty-body = { $folders }文件夹中的{ $total }邮件将被删除：{ $toTrash }移至垃圾箱并可撤消，{ $permanent }将永久删除且无法恢复。子文件夹不会被触及。
+
+settings-folders-bulk-empty-confirm = 清空文件夹
+
+settings-folders-bulk-empty-counting = 计算每个文件夹中的邮件数...
+
+settings-folders-bulk-empty-done = 清空 { $count } 个文件夹、{ $messages } 条消息
+
+settings-folders-bulk-empty-fail-refused = 服务器拒绝了部分内容； { $remaining } 消息剩余
+
+settings-folders-bulk-empty-fail-stopped = 停止了； { $remaining } 消息剩余
+
+settings-folders-bulk-empty-fail-uncertain = 最后一批结果未知；检查文件夹
+
+settings-folders-bulk-empty-list = 要清空的文件夹
+
+settings-folders-bulk-empty-partial = 清空{ $done }文件夹； { $failed }失败。查看列表。
+
+settings-folders-bulk-empty-permanent = { $count } 消息被永久删除
+
+settings-folders-bulk-empty-progress = 已完成 { $done } 个文件夹（共 { $of }），已处理 { $messages } 条消息。现在：{ $name }
+
+settings-folders-bulk-empty-skip-count-failed = 无法计算，跳过
+
+settings-folders-bulk-empty-skip-empty = 已为空，已跳过
+
+settings-folders-bulk-empty-skip-permanent-denied = 将被永久删除，管理员已关闭，跳过
+
+settings-folders-bulk-empty-skip-search = 已保存的搜索，已跳过
+
+settings-folders-bulk-empty-skip-unsupported = 该帐号无法清空，已跳过
+
+settings-folders-bulk-empty-title = { $count ->
+       *[other] 清空 { $count } 个文件夹？
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } 邮件移至垃圾箱
+
+settings-folders-bulk-empty-undo-label = 清空 { $count } 文件夹（{ $messages } 消息）
+
+settings-folders-delete-selected = 删除...
+
+settings-folders-select-user = 选择所有用户文件夹
+
+settings-folders-subscribe-failed = 无法更改订阅。
+
+settings-folders-subscribe-partial = 更改了{ $done }文件夹； { $failed }无法更改。
+
+settings-folders-subscribe-selected = 订阅
+
+settings-folders-subscribed = { $count ->
+       *[other] 订阅了 { $count } 个文件夹
+    }
+
+settings-folders-unsubscribe-selected = 退订
+
+settings-folders-unsubscribed = { $count ->
+       *[other] 取消订阅 { $count } 个文件夹
+    }

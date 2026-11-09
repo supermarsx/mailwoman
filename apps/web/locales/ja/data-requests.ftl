@@ -101,3 +101,30 @@ dr-event-due-soon = まもなく期限
 dr-event-overdue = 期限超過
 dr-event-retry = 再試行
 dr-event-grace-skipped = 管理者が待機期間をスキップ
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = あなたが反対するもの
+
+dr-objection-purposes-help = 管理者がリクエストを承認すると、チェックを入れた目的ごとの同意がすぐに取り消されます。後で「同意」の下で目的を再度オンに切り替えることができます。
+
+dr-objection-purposes-list = 異議あり: { $purposes }
+
+dr-purpose-analytics = 使用状況の統計
+
+dr-purpose-analyticsTag = アナリティクスタグ
+
+dr-purpose-assistant = アシスタント
+
+dr-purpose-integrations = 統合と API キー
+
+dr-purpose-openTracking = 開いて読んだ追跡
+
+dr-purpose-push = プッシュ通知
+
+dr-rectify-banner = リクエスト { $ref } の詳細を更新中
+
+dr-rectify-done = 完了としてマークする
+
+dr-rectify-edit = 詳細を編集する
+
+dr-rectify-ref = 参照{ $ref }。この修正について私たちに手紙を書く場合は、それを引用してください。

@@ -63,3 +63,32 @@ search-refine-subject = Szukaj wiadomości z tym tematem
 search-refine-folder = Szukaj w tym folderze
 search-refine-domain = Szukaj wiadomości z tej domeny
 search-include-trash-scoped = Opcja Uwzględnij Kosz działa podczas przeszukiwania wszystkich folderów. Wybrany folder jest przeszukiwany bezpośrednio.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Odpowiedziano
+
+search-chip-finished = Skończone
+
+search-chip-followup = Oznaczono do dalszych działań
+
+search-chip-forwarded = Przesłane
+
+search-chip-high-priority = Wysoki priorytet
+
+search-chip-low-priority = Niski priorytet
+
+search-chip-mentions-me = Wspomina mnie
+
+search-chip-no-followup = Nieoznaczone do dalszych działań
+
+search-chip-not-high-priority = Nie wysoki priorytet
+
+search-chip-not-low-priority = Nie niski priorytet
+
+search-chip-unanswered = Brak odpowiedzi
+
+search-chip-unfinished = Nieskończone
+
+search-chip-unforwarded = Nie przesłano dalej
+
+search-field-mentions = Wspomnienia

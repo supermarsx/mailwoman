@@ -66,3 +66,75 @@ reader-card-loading = التحميل
 reader-card-loading-help = ما تراه أثناء فتح الرسالة.
 settings-mail-card-list = قائمة الرسائل
 settings-mail-card-list-help = إجراءات الصفوف وما تفعله القائمة عند تنفيذ إجراء على رسالة.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = تحميل { $name }
+
+reader-attachments-download-all = تحميل الكل
+
+reader-attachments-download-all-blocked = سياسة المرفقات تحظر كل ملف هنا
+
+reader-attachments-download-all-busy = تحضير الملف ZIP
+
+reader-attachments-download-all-label = قم بتنزيل جميع المرفقات كملف ZIP
+
+reader-attachments-download-all-none = لا توجد مرفقات للتحميل
+
+reader-attachments-download-all-warned = { $count ->
+        [zero] تم استبعاد { $count } ملفات تحتاج إلى تأكيد. قم بتنزيلها واحدة تلو الأخرى.
+        [one] تم استبعاد ملف واحد يحتاج إلى تأكيد. قم بتنزيله بمفرده.
+        [two] تم استبعاد ملفين يحتاجان إلى تأكيد. نزّلهما كلًا على حدة.
+        [few] تم استبعاد { $count } ملفات تحتاج إلى تأكيد. قم بتنزيلها واحدة تلو الأخرى.
+        [many] تم استبعاد { $count } ملفًا بحاجة إلى تأكيد. قم بتنزيلها واحدة تلو الأخرى.
+       *[other] تم استبعاد { $count } ملف بحاجة إلى تأكيد. قم بتنزيلها واحدة تلو الأخرى.
+    }
+
+reader-attachments-download-blocked = { $name } لا يمكن تحميله: { $reason }
+
+reader-attachments-download-label = تحميل { $name } ({ $size })
+
+reader-attachments-download-off = تم إيقاف التنزيلات
+
+reader-attachments-inline-group = { $count ->
+        [zero] { $count } صور مضمنة
+        [one] { $count } صورة مضمنة
+        [two] صورتان مضمنتان
+        [few] { $count } صور مضمنة
+        [many] { $count } صورة مضمنة
+       *[other] { $count } صورة مضمنة
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [zero] { $count } صور مضمنة
+        [one] { $count } صورة مضمنة
+        [two] صورتان مضمنتان
+        [few] { $count } صور مضمنة
+        [many] { $count } صورة مضمنة
+       *[other] { $count } صورة مضمنة
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = انقر فوق الشريط للتوسيع أو الطي
+
+reader-attachmentsBarClickToToggle-help = يؤدي النقر في أي مكان على شريط المرفقات إلى تبديله. عند إيقاف التشغيل، يعمل زر السهم فقط.
+
+reader-attachmentsBarDownloadAll = زر تنزيل الكل
+
+reader-attachmentsBarDownloadAll-help = إظهار زر على الشريط يقوم بتنزيل المرفقات كملف ZIP واحد.
+
+reader-attachmentsBarShowDownloadButtons = أزرار التحميل في المرفقات
+
+reader-attachmentsBarShowDownloadButtons-help = أظهر زر تنزيل كل مرفق عند التمرير أو التركيز، دائمًا، أو أبدًا.
+
+reader-attachmentsBarZipInlineImages = تضمين الصور المضمنة في ZIP
+
+reader-attachmentsBarZipInlineImages-help = يتم استبعاد الصور التي تظهر داخل نص الرسالة من تنزيل الكل ما لم يتم تشغيل هذا الخيار.
+
+reader-card-attachments-bar = شريط المرفقات
+
+reader-card-attachments-bar-help = كيف يستجيب الشريط الموجود أعلى مرفقات الرسالة وما يقدمه. يتم تعيين الخطوط التي تم وضع علامة "مقفلة" عليها بواسطة المسؤول.
+
+reader-option-always = دائما
+
+reader-option-hover = عند التمرير أو التركيز
+
+reader-option-never = أبدا

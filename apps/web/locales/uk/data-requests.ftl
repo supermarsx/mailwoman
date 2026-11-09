@@ -101,3 +101,30 @@ dr-event-due-soon = Строк скоро спливає
 dr-event-overdue = Прострочено
 dr-event-retry = Повторено
 dr-event-grace-skipped = Адміністратор пропустив період очікування
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = Те, проти чого ви заперечуєте
+
+dr-objection-purposes-help = Коли адміністратор схвалює запит, ваша згода для кожної мети, яку ви відмічаєте, одразу відкликається. Ви можете знову ввімкнути ціль пізніше в розділі «Згоди».
+
+dr-objection-purposes-list = Заперечення проти: { $purposes }
+
+dr-purpose-analytics = Статистика використання
+
+dr-purpose-analyticsTag = Аналітичний тег
+
+dr-purpose-assistant = помічник
+
+dr-purpose-integrations = Інтеграції та клавіші API
+
+dr-purpose-openTracking = Відкрийте та прочитайте відстеження
+
+dr-purpose-push = Push-повідомлення
+
+dr-rectify-banner = Оновлення даних для запиту { $ref }
+
+dr-rectify-done = Позначити як виконане
+
+dr-rectify-edit = Редагувати мої дані
+
+dr-rectify-ref = Посилання { $ref }. Цитуйте його, якщо будете писати нам про це виправлення.

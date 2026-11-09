@@ -216,3 +216,12 @@ privacy-image-group-tiering = 分层与维护
 
 # -- Machine translation (2026-11): added to match en ---------------------
 privacy-trusted-links-domains-help = 每行一个域名,例如 example.com。匹配是精确的:example.com 不会信任 examples.com 或 example.com.other.net。国际化域名请使用 ASCII 形式(xn--)。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-error-reports-help = 当 Mailwoman 的一部分出现故障时，浏览器可以向管理员发送简短的技术报告，以便进行修复。它保存错误类型、应用程序中发生错误的位置、应用程序版本和浏览器类型。它从不保存消息内容、地址、附件名称或您键入的内容。
+
+privacy-error-reports-send = 从此浏览器发送错误报告
+
+privacy-error-reports-send-help = 默认开启。关闭以将这些报告保留在您的设备上。错误面板仍然显示您可以复制的参考。
+
+privacy-error-reports-title = 错误报告

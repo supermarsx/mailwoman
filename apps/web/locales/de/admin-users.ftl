@@ -177,3 +177,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] Funktionsprofil von { $count } Benutzern geändert.
 }
 admin-userlist-bulk-failed = { $done } erledigt, { $failed } fehlgeschlagen: { $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = fällig { $date }
+
+admin-user-compliance-empty = Keine Datenanfragen für dieses Konto.
+
+admin-user-compliance-help = Für die Adressen dieses Kontos wurden Anträge eingereicht. Öffnen Sie eine unter Datenanfragen, um darauf zu reagieren.
+
+admin-user-compliance-open-all = Öffnen Sie alle Datenanfragen
+
+admin-user-compliance-title = Datenanfragen für dieses Konto
+
+admin-user-never = Niemals
+
+admin-user-overview-last-signin = Letzte Anmeldung
+
+admin-user-overview-status = Status
+
+admin-user-status-active = Aktiv
+
+admin-user-status-deleted = Gelöscht
+
+admin-user-status-deleting = Löschen
+
+admin-user-status-disabled = Blockiert
+
+admin-user-tab-access = Zugriff und Entfernung
+
+admin-user-tab-compliance = Compliance
+
+admin-user-tab-overview = Übersicht
+
+admin-user-tab-profile = Funktionsprofil
+
+admin-user-tab-security = Sicherheit
+
+admin-user-tab-sessions = Sitzungen
+
+admin-user-tabs-label = Kontoabschnitte

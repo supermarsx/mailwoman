@@ -50,3 +50,90 @@ outbox-queued-count = { $count ->
     [one] 1 messaggio in attesa di invio
    *[other] { $count } messaggi in attesa di invio
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = Prossimo invio: { $when }
+
+outbox-chip-title = Messaggi in attesa di invio
+
+outbox-chip-view-all = Apri Posta in uscita
+
+outbox-delete = Elimina
+
+outbox-delete-confirm = Eliminare il messaggio?
+
+outbox-delete-failed = Impossibile eliminare il messaggio. { $error }
+
+outbox-deleted = Il messaggio in coda è stato eliminato.
+
+outbox-edit-time = Modifica l'ora di invio
+
+outbox-edit-time-conflict = L'ora di invio è cambiata oppure il messaggio è già stato inviato. La posta in uscita è stata ricaricata.
+
+outbox-edit-time-current = Attualmente { $when }
+
+outbox-edit-time-refused = Non è stato possibile modificare l'ora di invio. { $error }
+
+outbox-edit-time-save = Risparmia tempo di invio
+
+outbox-failed-toast = Non è stato possibile inviare un messaggio. { $error }
+
+outbox-failed-uncertain-toast = Un messaggio potrebbe essere stato recapitato o meno. Controlla Inviato prima di inviarlo nuovamente.
+
+outbox-open = Aperto
+
+outbox-reader-actions = Azioni sui messaggi in coda
+
+outbox-reader-cc = Cc: { $recipients }
+
+outbox-reader-label = Messaggio in coda
+
+outbox-reader-loading = Caricamento del messaggio...
+
+outbox-reader-to = A: { $recipients }
+
+outbox-reader-unavailable = Impossibile caricare il messaggio.
+
+outbox-recall-to-drafts = Richiamo alle bozze
+
+outbox-send-again = Invia di nuovo
+
+outbox-send-again-failed = Impossibile mettere nuovamente in coda il messaggio. { $error }
+
+outbox-send-again-queued = Il messaggio viene messo in coda per essere inviato nuovamente.
+
+outbox-sent-copy-folder = Verrà salvato in { $folder }
+
+outbox-sent-copy-missing = Verrà salvato in Inviati (la cartella scelta non è disponibile)
+
+outbox-sent-copy-skip = Nessuna copia verrà salvata
+
+outbox-status-attempts = { $count ->
+        [one] { $count } tentativo finora
+        [many] { $count } tentativi finora
+       *[other] { $count } tentativi finora
+    }
+
+outbox-status-canceled = Annullato
+
+outbox-status-failed = Non inviato
+
+outbox-status-held = Trattenuto finché non lo rilasci
+
+outbox-status-last-error = Ultimo errore: { $error }
+
+outbox-status-next-attempt = Prossimo tentativo { $when }
+
+outbox-status-queued = In coda
+
+outbox-status-retrying = Nuovo tentativo
+
+outbox-status-scheduled = Programmato
+
+outbox-status-sending = Invio
+
+outbox-status-sends-at-in = Invia { $when } (in { $time })
+
+outbox-status-sent = Inviato
+
+outbox-status-uncertain = Consegna sconosciuta

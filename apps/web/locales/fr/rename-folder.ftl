@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = Ce dossier contient des sous-dossiers. Sup
 delete-folder-error-forbidden = Vous ne pouvez pas supprimer ce dossier.
 delete-folder-error-notFound = Ce dossier n’existe plus. Actualisez la liste des dossiers.
 delete-folder-error-failed = Le dossier n’a pas pu être supprimé. Réessayez.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = Ce compte est sous protection légale, les dossiers ne peuvent donc pas être supprimés.
+
+delete-folder-error-processingRestricted = Le traitement de ce compte est restreint, les dossiers ne peuvent donc pas être supprimés.

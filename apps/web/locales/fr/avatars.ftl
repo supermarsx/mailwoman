@@ -20,3 +20,18 @@ avatars-domain-icon = Icône du domaine { $name } · l’identité de l’expéd
 avatars-favorites-first = Afficher d’abord les contacts favoris dans les suggestions de destinataires
 avatars-favorites-first-help = Les contacts marqués d’une étoile apparaissent avant les autres résultats lorsque vous saisissez un destinataire. Seul l’ordre change ; aucune suggestion n’est masquée.
 avatars-favorites-first-default = Rétablir la préférence de favoris héritée
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = Authentification requise pour les logos de marque
+
+avatars-require-auth-always = Toujours (nécessite un chèque réussi)
+
+avatars-require-auth-default = Restaurer les préférences d'authentification héritées
+
+avatars-require-auth-help = Choisissez quand le logo d'une entreprise reconnue peut remplacer les initiales à côté d'un expéditeur. Jamais : affichez-le chaque fois que le domaine de l'expéditeur correspond. Uniquement si une vérification a échoué (par défaut) : l'afficher sauf si le message a échoué DKIM ou DMARC. Toujours : affichez-le uniquement lorsque le message a passé DKIM et une vérification alignée DMARC pour le propre domaine de cette entreprise, afin que le courrier non encore vérifié affiche les initiales. La correspondance de domaine inclut des sous-domaines tels que mail.example.com. Cette préférence est enregistrée avec votre compte et peut être détenue par votre administrateur.
+
+avatars-require-auth-known-failure = Seulement si une vérification a échoué
+
+avatars-require-auth-never = Jamais (correspondance sur le domaine uniquement)
+
+avatars-unverified-sender = Expéditeur non vérifié · aucune icône de marque ne s'affiche car ce message n'a pas passé le contrôle d'authentification

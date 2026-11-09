@@ -21,3 +21,10 @@ spam-score-col-description = Beschrijving
 spam-score-points-missing = Niet opgegeven
 spam-score-no-rules = De koptekst vermeldt geen afzonderlijke regels.
 spam-score-not-scanned = Mailwoman toont deze scores zoals de ontvangende server ze heeft geschreven; het bericht zelf wordt niet gescand.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+spam-score-copied = Uitsplitsing gekopieerd.
+
+spam-score-copy = Kopieer uitsplitsing
+
+spam-score-copy-failed = De uitsplitsing kon niet worden gekopieerd. Probeer het opnieuw.

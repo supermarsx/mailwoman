@@ -190,3 +190,127 @@ contacts-membership-count = { $count ->
     [many] { $count } عضوًا
    *[other] { $count } عضو
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } موجود بالفعل في جهات الاتصال الخاصة بك.
+
+contacts-save-already-badge = تم الحفظ بالفعل
+
+contacts-save-already-many = جميع جهات الاتصال { $count } محفوظة بالفعل.
+
+contacts-save-automated = يبدو هذا كمرسل آلي (عدم الرد، الإشعارات).
+
+contacts-save-book = دفتر العناوين
+
+contacts-save-book-readonly = { $name } (للقراءة فقط)
+
+contacts-save-cancel = إلغاء
+
+contacts-save-choose = اختر جهات الاتصال...
+
+contacts-save-contacts = حفظ جهات الاتصال من هذه الرسالة
+
+contacts-save-dialog-title = حفظ جهات الاتصال من هذه الرسالة
+
+contacts-save-email = البريد الإلكتروني
+
+contacts-save-failed = لا يمكن حفظ جهة الاتصال. حاول ثانية.
+
+contacts-save-group = المجموعة
+
+contacts-save-group-none = لا توجد مجموعة
+
+contacts-save-loading = جارٍ تحميل العناوين…
+
+contacts-save-name = الاسم
+
+contacts-save-new = حفظ جهات الاتصال الجديدة
+
+contacts-save-no-book = لا يمكن لأي دفتر عناوين أن يأخذ جهات اتصال جديدة.
+
+contacts-save-no-sender = هذه الرسالة ليس لها عنوان المرسل.
+
+contacts-save-note = تم الحفظ من رسالة على { $date }
+
+contacts-save-nothing = لا أحد لحفظه: الجميع موجود بالفعل في جهات الاتصال الخاصة بك، أو أنت، أو يبدو آليًا.
+
+contacts-save-open = مفتوح
+
+contacts-save-open-contact = فتح الاتصال
+
+contacts-save-open-link = فتح الاتصال
+
+contacts-save-own = هذا هو أحد العناوين الخاصة بك.
+
+contacts-save-partial = تم حفظ { $saved } من { $total } جهات الاتصال. لا يمكن إنقاذ الآخرين.
+
+contacts-save-pick = حفظ { $email }
+
+contacts-save-recipients = حفظ كافة المستلمين
+
+contacts-save-removed = تمت إزالة جهات الاتصال المحفوظة.
+
+contacts-save-role-bcc = نسخة مخفية الوجهة
+
+contacts-save-role-cc = نسخة
+
+contacts-save-role-from = من
+
+contacts-save-role-replyTo = الرد على
+
+contacts-save-role-sender = المرسل
+
+contacts-save-role-to = ل
+
+contacts-save-saved-heading = بالفعل في جهات الاتصال الخاصة بك
+
+contacts-save-saved-many = تم حفظ { $count } جهات الاتصال إلى { $book }
+
+contacts-save-saved-one = تم الحفظ { $name } إلى { $book }
+
+contacts-save-sender = حفظ المرسل كجهة اتصال
+
+contacts-save-settings-book = دفتر العناوين
+
+contacts-save-settings-book-default = دفتر العناوين الافتراضي
+
+contacts-save-settings-enabled = عرض حفظ جهات الاتصال من هذه الرسالة
+
+contacts-save-settings-enabled-help = إضافة العنصر إلى قوائم الرسائل وقائمة المزيد للقارئ.
+
+contacts-save-settings-note = أضف ملاحظة بالتاريخ
+
+contacts-save-settings-note-help = تقرأ الملاحظة "تم الحفظ من رسالة بتاريخ" متبوعة بالتاريخ.
+
+contacts-save-settings-reply-to = استخدم الرد على مرسلي القائمة والإشعارات
+
+contacts-save-settings-reply-to-help = يحفظ عنوان الرد على بدلاً من من لهؤلاء المرسلين.
+
+contacts-save-settings-scope = تم تحديده أولاً في مربع الحوار
+
+contacts-save-settings-scope-all = الجميع على الرسالة
+
+contacts-save-settings-scope-sender = المرسل فقط
+
+contacts-save-settings-sender = عرض حفظ المرسل كجهة اتصال
+
+contacts-save-settings-sender-help = عنصر بنقرة واحدة في قوائم الرسائل.
+
+contacts-save-settings-skip = تخطي المرسلين الآليين
+
+contacts-save-settings-skip-help = يترك عناوين عدم الرد والإشعارات والارتداد إلا إذا قمت بتحديدها.
+
+contacts-save-settings-title = حفظ جهات الاتصال من الرسائل
+
+contacts-save-show-automated = إظهار العناوين الآلية وعدم الرد
+
+contacts-save-submit = { $count ->
+        [zero] حفظ { $count } جهات الاتصال
+        [one] حفظ جهة اتصال واحدة
+        [two] حفظ جهتي اتصال
+        [few] حفظ { $count } جهات اتصال
+        [many] حفظ { $count } جهة اتصال
+       *[other] حفظ { $count } جهة اتصال
+    }
+
+contacts-save-undo = تراجع

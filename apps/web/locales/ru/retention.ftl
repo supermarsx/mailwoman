@@ -116,3 +116,94 @@ retention-history-matched = Найдено
 retention-history-changed = Изменено
 retention-history-errors = Ошибки
 retention-context-action = Хранение…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Календари
+
+pim-cal-days = Через несколько дней после окончания мероприятия
+
+pim-cal-enabled = Удалить завершенные мероприятия
+
+pim-cal-help = Удалять события в выбранных вами календарях через заданное количество дней после их окончания. Повторяющиеся события никогда не удаляются.
+
+pim-cal-title = События календаря
+
+pim-days-range = Выберите между { $min } и { $max } днями.
+
+pim-held-title = Удаленные заметки, которые можно восстановить
+
+pim-held-until = Хранится до { $when }
+
+pim-limits = Между { $min } и { $max } днями.
+
+pim-notes-days = Количество дней с момента последнего изменения заметки
+
+pim-notes-enabled = Удалить нетронутые заметки
+
+pim-notes-help = Удалите заметки, которые вы не меняли в течение заданного количества дней. Закрепленные заметки сохраняются. Удаленную заметку можно восстановить в течение { $days } дней.
+
+pim-notes-title = Примечания
+
+pim-off = Отключено администратором.
+
+pim-preview = Предварительный просмотр
+
+pim-restore = Восстановить
+
+pim-result = Событие(я) { $events } и примечание(я) { $notes }.
+
+pim-run = Беги сейчас
+
+pim-run-title = Беги сейчас
+
+pim-save = Сохранить
+
+pim-skipped = Варианты { $count } были пропущены, поскольку администратор их отключил.
+
+pim-untitled = Заметка без названия
+
+retention-action-stripAttachments = Удаление больших вложений
+
+retention-do-stripAttachments = вложения удалены
+
+retention-error-strip-disabled = Удаление вложений отключено администратором.
+
+retention-error-strip-min = Правило, удаляющее вложения, должно ждать не менее { $days } дней.
+
+retention-fd-action = Что произойдет с почтой в { $folder }
+
+retention-fd-days = За несколько дней до обработки { $folder }
+
+retention-fd-help = Установите, как долго почта будет оставаться в папке, прежде чем она будет перемещена или удалена. Папка, для которой установлено значение «Наследовать», не имеет собственного значения по умолчанию; приведенные выше правила и ограничения администратора по-прежнему применяются. Подпапки следуют за своей папкой.
+
+retention-fd-inherit = Наследовать
+
+retention-fd-mandatory = Администратор хранит эту папку { $days } дней.
+
+retention-fd-protected = Защищено администратором
+
+retention-fd-save = Сохранить настройки папки по умолчанию
+
+retention-fd-title = Папка по умолчанию
+
+retention-rule-strip-off = Отключено администратором
+
+retention-strip-allowed = Правило может удалять вложения размером не менее { $kb } КБ из почты не старше { $days } дней. Каждое вложение заменяется небольшой заметкой.
+
+retention-strip-denied = Удаление вложений отключено администратором.
+
+retention-strip-done = Вложения удалены из сообщений { $count }, освобождая { $size }.
+
+retention-strip-inline-kept = Изображения, показанные внутри сообщения, сохраняются.
+
+retention-strip-inline-removed = Изображения, показанные внутри сообщения, также будут удалены.
+
+retention-strip-limits = Удаляет вложения размером не менее { $kb } КБ из почты не старше { $days } дней. Оригинал хранится в корзине { $undo } дней.
+
+retention-strip-preview = Сообщения { $count } потеряют вложения, освобождая { $size }.
+
+retention-strip-preview-estimate = Около { $count } сообщений потеряют вложения, освободив до { $size }.
+
+retention-strip-skipped = Правила { $count }, удаляющие вложения, были пропущены, поскольку администратор отключил эту функцию.
+
+retention-summary-stripAttachments = через { $days } дней большие вложения удалены

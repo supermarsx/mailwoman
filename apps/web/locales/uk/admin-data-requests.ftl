@@ -72,3 +72,58 @@ admin-dr-trail = Журнал
 admin-dr-behalf = Подати запит за користувача
 admin-dr-behalf-help = Для запиту, отриманого поштою або особисто. Людину не просять підтверджувати повідомленням.
 admin-dr-behalf-submit = Подати запит
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Масові дії
+
+admin-dr-bulk-action = Дія
+
+admin-dr-bulk-approve = Затвердити
+
+admin-dr-bulk-assign = Призначити
+
+admin-dr-bulk-clear = Очистити вибір
+
+admin-dr-bulk-csv = CSV вибору
+
+admin-dr-bulk-extend = Продовжте термін
+
+admin-dr-bulk-failed = Відмовлено
+
+admin-dr-bulk-field-assignee = Призначити (порожнє очищає)
+
+admin-dr-bulk-field-extend = Причина продовження
+
+admin-dr-bulk-field-note = Примітка (необов'язково)
+
+admin-dr-bulk-field-reason = Причина
+
+admin-dr-bulk-hold = Покласти під юридичне утримання
+
+admin-dr-bulk-ok = Готово
+
+admin-dr-bulk-reject = Відхиляти
+
+admin-dr-bulk-release-hold = Звільнити законне утримання
+
+admin-dr-bulk-run = { $count ->
+        [one] Звернутися до { $count } запиту
+        [few] Подати заявку на { $count } запити
+        [many] Застосувати до { $count } запитів
+       *[other] Застосувати до { $count } запитів
+    }
+
+admin-dr-bulk-select = Виберіть запит { $address }
+
+admin-dr-bulk-select-all = Виберіть кожен запит із списку
+
+admin-dr-bulk-selected = { $count ->
+        [one] Вибрано { $count } запит
+        [few] Вибрано { $count } запити
+        [many] Вибрано { $count } запитів
+       *[other] Вибрано { $count } запити
+    }
+
+admin-dr-bulk-summary = Виконано за { $done }; відмовлено за { $failed }. Відхилені запити залишаються вибраними.
+
+admin-dr-more = Завантажити більше запитів

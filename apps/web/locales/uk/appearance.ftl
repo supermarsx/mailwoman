@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Міністерський сірий бетон, вицвілий паперовий текст, червоний колір Великого Брата; повідомлення набрано моноширинним шрифтом.
 appearance-theme-pop-art = Поп-арт
 appearance-theme-pop-art-desc = Біла сторінка, чорні контури, основні червоний, синій і жовтий кольори, крапки Бен-Дея на бічній панелі.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Важливість
+
+appearance-preference-group-option-none = Без групування
+
+appearance-preference-group-option-received = Дата отримання
+
+appearance-preference-group-option-sender = Відправник
+
+appearance-preference-group-option-sent = Дата відправлення
+
+appearance-preference-group-option-size = Розмір повідомлення
+
+appearance-preference-group-option-subject = Тема
+
+appearance-preference-mail-list-pageSize = Кількість повідомлень, завантажених на сторінку (від 20 до 200)
+
+appearance-preference-mail-messageListGroup = Групування повідомлень
+
+appearance-preference-message-group-help = Зберігайте пов’язані повідомлення під заголовками груп. Виберіть Без групування для безперервного списку. Ваш порядок повідомлень застосовується до кожної групи.
+
+appearance-preference-message-order-help = Виберіть порядок повідомлень у кожній групі або в усьому списку, якщо групування вимкнено.
+
+appearance-preference-option-importance = Важливість, перш за все висока
+
+appearance-preference-option-importance-asc = Важливість, спочатку низька
+
+appearance-preference-option-received = Дата отримання
+
+appearance-preference-option-sender-desc = Відправник, від Я до А
+
+appearance-preference-option-sent = Дата відправлення
+
+appearance-preference-option-sent-newest = Надіслано, спочатку найновіші
+
+appearance-preference-option-sent-oldest = Надіслано, спочатку найстаріші
+
+appearance-preference-option-size = Розмір, спочатку найбільший
+
+appearance-preference-option-size-asc = Розмір, спочатку найменший
+
+appearance-preference-option-subject-desc = Тема від Я до А

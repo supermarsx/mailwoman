@@ -116,3 +116,94 @@ retention-history-matched = 該当
 retention-history-changed = 変更
 retention-history-errors = エラー
 retention-context-action = 保持ルール…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = カレンダー
+
+pim-cal-days = イベント終了から数日後
+
+pim-cal-enabled = 終了したイベントを削除する
+
+pim-cal-help = 選択したカレンダー内のイベントは、終了後設定日数後に削除されます。定期的なイベントは削除されません。
+
+pim-cal-title = カレンダーイベント
+
+pim-days-range = { $min } 日から { $max } 日の間で選択します。
+
+pim-held-title = 削除されたメモは復元可能です
+
+pim-held-until = { $when }まで保持
+
+pim-limits = { $min } 日から { $max } 日の間。
+
+pim-notes-days = メモが最後に変更されてからの日数
+
+pim-notes-enabled = 触れられていないメモを削除する
+
+pim-notes-help = 一定の日数変更しなかったメモを削除します。ピン留めされたメモは保持されます。削除したメモは、{ $days } 日間復元できます。
+
+pim-notes-title = 注意事項
+
+pim-off = 管理者によってオフにされています。
+
+pim-preview = プレビュー
+
+pim-restore = 復元
+
+pim-result = { $events } イベントと { $notes } メモ。
+
+pim-run = 今すぐ実行
+
+pim-run-title = 今すぐ実行
+
+pim-save = 保存
+
+pim-skipped = 管理者がオフにしたため、{ $count } 個の選択肢がスキップされました。
+
+pim-untitled = 無題のメモ
+
+retention-action-stripAttachments = 大きな添付ファイルを削除する
+
+retention-do-stripAttachments = 添付ファイルが削除されました
+
+retention-error-strip-disabled = 添付ファイルの削除は管理者によって無効にされています。
+
+retention-error-strip-min = 添付ファイルを削除するルールは、少なくとも { $days } 日待つ必要があります。
+
+retention-fd-action = { $folder } のメールはどうなりますか
+
+retention-fd-days = { $folder } が処理されるまでの日数
+
+retention-fd-help = メールが移動または削除されるまでに、フォルダー内にメールが保持される期間を設定します。 「継承」に設定されたフォルダーには、独自のデフォルトはありません。上記のルールと管理者の制限は引き続き適用されます。サブフォルダーはそのフォルダーの後に続きます。
+
+retention-fd-inherit = 継承する
+
+retention-fd-mandatory = 管理者はこのフォルダーを { $days } 日間保持します
+
+retention-fd-protected = 管理者によって保護されています
+
+retention-fd-save = フォルダーのデフォルトを保存する
+
+retention-fd-title = フォルダーのデフォルト
+
+retention-rule-strip-off = 管理者によってオフにされました
+
+retention-strip-allowed = ルールにより、少なくとも { $days } 日経過したメールから少なくとも { $kb } KB の添付ファイルが削除される場合があります。各添付ファイルは短いメモに置き換えられます。
+
+retention-strip-denied = 添付ファイルの削除は管理者によってオフにされています。
+
+retention-strip-done = { $count } メッセージから添付ファイルが削除され、{ $size } が解放されました。
+
+retention-strip-inline-kept = メッセージ内に表示される画像は保持されます。
+
+retention-strip-inline-removed = メッセージ内に表示されていた画像も削除されます。
+
+retention-strip-limits = 少なくとも { $days } 日前のメールから、少なくとも { $kb } KB の添付ファイルを削除します。オリジナルは { $undo } 日間ゴミ箱に残ります。
+
+retention-strip-preview = { $count } メッセージの添付ファイルが失われ、{ $size } が解放されます。
+
+retention-strip-preview-estimate = 約 { $count } 個のメッセージの添付ファイルが失われ、最大 { $size } 個のメッセージが解放されます。
+
+retention-strip-skipped = 管理者がこれをオフにしたため、添付ファイルを削除する { $count } ルールがスキップされました。
+
+retention-summary-stripAttachments = { $days } 日後、大きな添付ファイルが削除されました

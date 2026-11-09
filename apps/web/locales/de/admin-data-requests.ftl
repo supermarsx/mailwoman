@@ -72,3 +72,54 @@ admin-dr-trail = Verlauf
 admin-dr-behalf = Anfrage für einen Benutzer stellen
 admin-dr-behalf-help = Für eine Anfrage, die postalisch oder persönlich eingegangen ist. Die Person wird nicht um eine Bestätigung per Nachricht gebeten.
 admin-dr-behalf-submit = Anfrage stellen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Massenaktionen
+
+admin-dr-bulk-action = Aktion
+
+admin-dr-bulk-approve = Genehmigen
+
+admin-dr-bulk-assign = Zuweisen
+
+admin-dr-bulk-clear = Klare Auswahl
+
+admin-dr-bulk-csv = CSV der Auswahl
+
+admin-dr-bulk-extend = Verlängern Sie das Fälligkeitsdatum
+
+admin-dr-bulk-failed = Abgelehnt
+
+admin-dr-bulk-field-assignee = Zuweisen zu (leer löscht)
+
+admin-dr-bulk-field-extend = Grund für die Verlängerung
+
+admin-dr-bulk-field-note = Hinweis (optional)
+
+admin-dr-bulk-field-reason = Grund
+
+admin-dr-bulk-hold = Unter rechtliche Sperre gestellt
+
+admin-dr-bulk-ok = Fertig
+
+admin-dr-bulk-reject = Ablehnen
+
+admin-dr-bulk-release-hold = Geben Sie die rechtliche Sperre auf
+
+admin-dr-bulk-run = { $count ->
+        [one] Bewerben Sie sich auf { $count } Anfrage
+       *[other] Bewerben Sie sich auf { $count } Anfragen
+    }
+
+admin-dr-bulk-select = Wählen Sie die Anfrage { $address }
+
+admin-dr-bulk-select-all = Wählen Sie jede aufgelistete Anfrage aus
+
+admin-dr-bulk-selected = { $count ->
+        [one] { $count } Anfrage ausgewählt
+       *[other] { $count } Anfragen ausgewählt
+    }
+
+admin-dr-bulk-summary = Fertig für { $done }; abgelehnt für { $failed }. Die abgelehnten Anfragen bleiben ausgewählt.
+
+admin-dr-more = Weitere Anfragen laden

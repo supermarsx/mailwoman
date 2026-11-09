@@ -21,3 +21,10 @@ spam-score-col-description = Beschreibung
 spam-score-points-missing = Nicht angegeben
 spam-score-no-rules = Der Header führt keine einzelnen Regeln auf.
 spam-score-not-scanned = Mailwoman zeigt diese Bewertungen so an, wie der empfangende Server sie geschrieben hat; die Nachricht selbst wird nicht geprüft.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+spam-score-copied = Aufschlüsselung kopiert.
+
+spam-score-copy = Aufschlüsselung kopieren
+
+spam-score-copy-failed = Die Aufschlüsselung konnte nicht kopiert werden. Versuchen Sie es erneut.

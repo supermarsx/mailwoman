@@ -1122,3 +1122,18 @@ admin-insights-empty-rules = In dit bereik is geen adaptieve regel afgegaan.
 admin-insights-share-of = { $share } van de verzoeken
 admin-nav-encryption = Versleuteling
 admin-nav-retention = Bewaartermijnen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Fouten van klanten
+
+admin-session-linked-device = Origin-sessie: { $device }
+
+admin-session-linked-line = Toegang tot gekoppelde mailbox · vanaf { $origin }
+
+admin-session-linked-line-hidden = Gekoppelde mailboxtoegang
+
+admin-session-linked-open = Open een origin-account
+
+admin-session-linked-removed = Toegang tot gekoppelde mailbox · oorsprongsaccount verwijderd
+
+admin-session-linked-restricted = Toegang tot gekoppelde mailbox · herkomst niet getoond (geen toegang tot dat account)

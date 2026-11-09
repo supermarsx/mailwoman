@@ -102,3 +102,6 @@ rules-vacation-saved-off = Opgeslagen. Automatische antwoorden staan uit.
 rules-vacation-runs-server = Uw mailserver verstuurt dit antwoord wanneer er e-mail binnenkomt.
 rules-vacation-runs-engine = Mailwoman verstuurt dit antwoord wanneer nieuwe inbox-e-mail wordt gesynchroniseerd, dus een antwoord kan tot de volgende synchronisatie wachten.
 rules-vacation-unavailable = Afwezigheidsantwoorden zijn niet beschikbaar voor dit account: de mailserver biedt ze niet aan of uw beheerder heeft ze uitgeschakeld.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Mailinglijst (Lijst-ID)

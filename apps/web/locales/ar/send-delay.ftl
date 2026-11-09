@@ -58,3 +58,93 @@ outbox-queued-count = { $count ->
     [many] { $count } رسالة بانتظار الإرسال
    *[other] { $count } رسالة بانتظار الإرسال
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = الإرسال التالي: { $when }
+
+outbox-chip-title = رسائل في انتظار الإرسال
+
+outbox-chip-view-all = افتح صندوق الصادر
+
+outbox-delete = حذف
+
+outbox-delete-confirm = هل تريد حذف الرسالة؟
+
+outbox-delete-failed = لا يمكن حذف الرسالة. { $error }
+
+outbox-deleted = تم حذف الرسالة الموضوعة في قائمة الانتظار.
+
+outbox-edit-time = تعديل وقت الإرسال
+
+outbox-edit-time-conflict = تم تغيير وقت الإرسال أو تم إرسال الرسالة بالفعل. تم إعادة تحميل علبة الصادر.
+
+outbox-edit-time-current = حاليا { $when }
+
+outbox-edit-time-refused = لا يمكن تغيير وقت الإرسال. { $error }
+
+outbox-edit-time-save = حفظ وقت الإرسال
+
+outbox-failed-toast = لا يمكن إرسال الرسالة. { $error }
+
+outbox-failed-uncertain-toast = ربما تم تسليم الرسالة أو لم يتم تسليمها. تحقق من الإرسال قبل إرساله مرة أخرى.
+
+outbox-open = مفتوح
+
+outbox-reader-actions = إجراءات الرسائل في قائمة الانتظار
+
+outbox-reader-cc = نسخة: { $recipients }
+
+outbox-reader-label = رسالة في قائمة الانتظار
+
+outbox-reader-loading = جارٍ تحميل الرسالة...
+
+outbox-reader-to = إلى: { $recipients }
+
+outbox-reader-unavailable = لا يمكن تحميل الرسالة.
+
+outbox-recall-to-drafts = أذكر للمسودات
+
+outbox-send-again = أرسل مرة أخرى
+
+outbox-send-again-failed = لا يمكن وضع الرسالة في قائمة الانتظار مرة أخرى. { $error }
+
+outbox-send-again-queued = يتم وضع الرسالة في قائمة الانتظار لإرسالها مرة أخرى.
+
+outbox-sent-copy-folder = سيتم الحفظ في { $folder }
+
+outbox-sent-copy-missing = سيتم حفظه في "المرسلة" (المجلد المختار غير متوفر)
+
+outbox-sent-copy-skip = لن يتم حفظ أي نسخة
+
+outbox-status-attempts = { $count ->
+        [zero] { $count } محاولات حتى الآن
+        [one] { $count } محاولة حتى الآن
+        [two] محاولتان حتى الآن
+        [few] { $count } محاولات حتى الآن
+        [many] { $count } محاولة حتى الآن
+       *[other] { $count } محاولة حتى الآن
+    }
+
+outbox-status-canceled = تم الإلغاء
+
+outbox-status-failed = لم يتم إرسالها
+
+outbox-status-held = عقد حتى يمكنك الافراج عنه
+
+outbox-status-last-error = الخطأ الأخير: { $error }
+
+outbox-status-next-attempt = المحاولة التالية { $when }
+
+outbox-status-queued = في قائمة الانتظار
+
+outbox-status-retrying = إعادة المحاولة
+
+outbox-status-scheduled = المقرر
+
+outbox-status-sending = إرسال
+
+outbox-status-sends-at-in = يرسل { $when } (في { $time })
+
+outbox-status-sent = تم الإرسال
+
+outbox-status-uncertain = التسليم غير معروف

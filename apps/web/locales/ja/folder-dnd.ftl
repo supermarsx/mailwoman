@@ -77,3 +77,126 @@ folder-dnd-more-actions = 並べ替え
 folder-dnd-selected-move = 選択したものの移動先…
 folder-dnd-locked-row = ロック中
 folder-dnd-problem-pin = 固定したフォルダーは他のフォルダーより上に表示されます。そこに移動するには、先に固定を解除してください。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = 空っぽ…
+
+folder-bar-label = 選択したフォルダーに対するアクション
+
+folder-bar-mark-read = すべて既読としてマークする
+
+folder-bar-pin = ピン
+
+folder-bar-star = スター
+
+folder-bar-unpin = 固定を解除する
+
+folder-bar-unstar = スターを外す
+
+folder-dnd-handle-hint = このフォルダをドラッグして移動します
+
+folder-pinned-group = 固定された
+
+folder-pinned-unpin-zone = ここにドロップして固定を解除します
+
+settings-folders-bulk-delete-body = { $folders ->
+       *[other] { $folders } つのフォルダー (サブフォルダーも含む) とその中の { $messages } メッセージが削除されます。これを元に戻すことはできません。
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+       *[other] { $count } 個のフォルダーを削除
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+       *[other] { $count } 個のフォルダーを削除しました
+    }
+
+settings-folders-bulk-delete-failed = 何も削除されませんでした。削除されていません: { $names }
+
+settings-folders-bulk-delete-list = 削除するフォルダー
+
+settings-folders-bulk-delete-none = 選択したフォルダーは削除できません (システム フォルダーと削除できないフォルダーはスキップされます)。
+
+settings-folders-bulk-delete-others = こちらも削除されていません: { $names }
+
+settings-folders-bulk-delete-partial = { $done } 個のフォルダーが削除されました。削除されていません: { $names }
+
+settings-folders-bulk-delete-partial-done = { $done } 個のフォルダーが削除されました。
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+       *[other] アカウントが訴訟ホールド下にあるため削除されませんでした ({ $count } フォルダー): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+       *[other] アカウントの処理が制限されているため削除されませんでした（{ $count }フォルダー）：{ $names }
+    }
+
+settings-folders-bulk-delete-skipped = 選択した { $count } フォルダーは削除できないためスキップされます: { $names }
+
+settings-folders-bulk-delete-subfolders = 各フォルダーのサブフォルダーも削除します
+
+settings-folders-bulk-delete-subfolders-off = 選択したフォルダーのみが削除されます。選択範囲外にサブフォルダーがまだあるフォルダーは保持されます。
+
+settings-folders-bulk-delete-title = { $count ->
+       *[other] { $count } 個のフォルダーを削除しますか?
+    }
+
+settings-folders-bulk-empty-body = { $folders } フォルダー内の{ $total } メッセージは削除されます。{ $toTrash } はゴミ箱に移動して元に戻すことができます。{ $permanent } は完全に削除され、元に戻すことはできません。サブフォルダーには触れません。
+
+settings-folders-bulk-empty-confirm = フォルダーを空にする
+
+settings-folders-bulk-empty-counting = 各フォルダー内のメッセージを数えています…
+
+settings-folders-bulk-empty-done = 空の { $count } フォルダー、{ $messages } メッセージ
+
+settings-folders-bulk-empty-fail-refused = サーバーはその一部を拒否しました。 { $remaining } メッセージが残っています
+
+settings-folders-bulk-empty-fail-stopped = 止まった。 { $remaining } メッセージが残っています
+
+settings-folders-bulk-empty-fail-uncertain = 最後のバッチの結果は不明です。フォルダーを確認してください
+
+settings-folders-bulk-empty-list = 空にするフォルダー
+
+settings-folders-bulk-empty-partial = { $done } フォルダーを空にしました。 { $failed } は失敗しました。リストを参照してください。
+
+settings-folders-bulk-empty-permanent = { $count } メッセージは永久に削除されます
+
+settings-folders-bulk-empty-progress = { $of } フォルダー中 { $done } 個が完了し、{ $messages } メッセージが処理されました。現在: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = 数えられなかった、スキップされた
+
+settings-folders-bulk-empty-skip-empty = すでに空です、スキップされました
+
+settings-folders-bulk-empty-skip-permanent-denied = 永久に削除されますが、管理者がオフにしてスキップしました
+
+settings-folders-bulk-empty-skip-search = 保存された検索、スキップされました
+
+settings-folders-bulk-empty-skip-unsupported = このアカウントは空にできません。スキップされました
+
+settings-folders-bulk-empty-title = { $count ->
+       *[other] { $count } フォルダーを空にしますか?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } メッセージがゴミ箱に移動されます
+
+settings-folders-bulk-empty-undo-label = 空の { $count } フォルダー ({ $messages } メッセージ)
+
+settings-folders-delete-selected = 削除…
+
+settings-folders-select-user = すべてのユーザーフォルダーを選択します
+
+settings-folders-subscribe-failed = サブスクリプションを変更できませんでした。
+
+settings-folders-subscribe-partial = { $done } フォルダーを変更しました。 { $failed } は変更できませんでした。
+
+settings-folders-subscribe-selected = 購読する
+
+settings-folders-subscribed = { $count ->
+       *[other] { $count } 個のフォルダーを購読しました
+    }
+
+settings-folders-unsubscribe-selected = 購読を解除する
+
+settings-folders-unsubscribed = { $count ->
+       *[other] { $count } 個のフォルダーの購読を解除しました
+    }

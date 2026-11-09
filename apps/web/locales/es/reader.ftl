@@ -64,3 +64,66 @@ reader-card-loading = Carga
 reader-card-loading-help = Lo que ve mientras se abre un mensaje.
 settings-mail-card-list = Lista de mensajes
 settings-mail-card-list-help = Acciones de fila y qué hace la lista cuando actúa sobre un mensaje.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Descargar { $name }
+
+reader-attachments-download-all = Descargar todo
+
+reader-attachments-download-all-blocked = La política de archivos adjuntos bloquea todos los archivos aquí.
+
+reader-attachments-download-all-busy = Preparando el archivo ZIP
+
+reader-attachments-download-all-label = Descargue todos los archivos adjuntos como un archivo ZIP
+
+reader-attachments-download-all-none = No hay archivos adjuntos para descargar.
+
+reader-attachments-download-all-warned = { $count ->
+        [one] Se omitió un archivo que necesita confirmación. Descárgalo solo.
+        [many] Se omitieron { $count } archivos que necesitan confirmación. Descárgalos uno por uno.
+       *[other] Se omitieron { $count } archivos que necesitan confirmación. Descárgalos uno por uno.
+    }
+
+reader-attachments-download-blocked = { $name } no se puede descargar: { $reason }
+
+reader-attachments-download-label = Descargar { $name } ({ $size })
+
+reader-attachments-download-off = Las descargas están desactivadas
+
+reader-attachments-inline-group = { $count ->
+        [one] { $count } imagen en línea
+        [many] { $count } imágenes en línea
+       *[other] { $count } imágenes en línea
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [one] { $count } imagen en línea
+        [many] { $count } imágenes en línea
+       *[other] { $count } imágenes en línea
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Haga clic en la barra para expandir o contraer
+
+reader-attachmentsBarClickToToggle-help = Al hacer clic en cualquier lugar de la barra de archivos adjuntos, se alterna. Cuando está apagado, solo lo hace el botón de flecha.
+
+reader-attachmentsBarDownloadAll = botón descargar todo
+
+reader-attachmentsBarDownloadAll-help = Muestra un botón en la barra que descarga los archivos adjuntos como un archivo ZIP.
+
+reader-attachmentsBarShowDownloadButtons = Botones de descarga en archivos adjuntos
+
+reader-attachmentsBarShowDownloadButtons-help = Muestre el botón de descarga de cada archivo adjunto al pasar el cursor o al enfocar, siempre o nunca.
+
+reader-attachmentsBarZipInlineImages = Incluir imágenes en línea en el ZIP
+
+reader-attachmentsBarZipInlineImages-help = Las imágenes que aparecen dentro del texto del mensaje no se incluyen en Descargar todo a menos que esté activado.
+
+reader-card-attachments-bar = Barra de archivos adjuntos
+
+reader-card-attachments-bar-help = Cómo responde la barra encima de los archivos adjuntos de un mensaje y qué ofrece. Las líneas marcadas como bloqueadas las establece su administrador.
+
+reader-option-always = siempre
+
+reader-option-hover = Al pasar el mouse o enfocar
+
+reader-option-never = nunca

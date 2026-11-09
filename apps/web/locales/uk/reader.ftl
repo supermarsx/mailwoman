@@ -66,3 +66,69 @@ reader-card-loading = Завантаження
 reader-card-loading-help = Що ви бачите, поки повідомлення відкривається.
 settings-mail-card-list = Список повідомлень
 settings-mail-card-list-help = Дії в рядках і поведінка списку після дії з повідомленням.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Завантажити { $name }
+
+reader-attachments-download-all = Завантажити все
+
+reader-attachments-download-all-blocked = Політика вкладень блокує всі файли тут
+
+reader-attachments-download-all-busy = Підготовка файлу ZIP
+
+reader-attachments-download-all-label = Завантажте всі вкладення як файл ZIP
+
+reader-attachments-download-all-none = Немає вкладень для завантаження
+
+reader-attachments-download-all-warned = { $count ->
+        [one] Один файл, який потребує підтвердження, пропущено. Завантажте його самостійно.
+        [few] { $count } файли, які потребують підтвердження, були пропущені. Завантажуйте їх один за одним.
+        [many] { $count } файлів, які потребують підтвердження, було пропущено. Завантажуйте їх один за одним.
+       *[other] { $count } файли, які потребують підтвердження, були пропущені. Завантажуйте їх один за одним.
+    }
+
+reader-attachments-download-blocked = { $name } неможливо завантажити: { $reason }
+
+reader-attachments-download-label = Завантажити { $name } ({ $size })
+
+reader-attachments-download-off = Завантаження вимкнено
+
+reader-attachments-inline-group = { $count ->
+        [one] { $count } вбудоване зображення
+        [few] { $count } вбудовані зображення
+        [many] { $count } вбудованих зображень
+       *[other] { $count } вбудованих зображень
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [one] { $count } вбудоване зображення
+        [few] { $count } вбудовані зображення
+        [many] { $count } вбудованих зображень
+       *[other] { $count } вбудованих зображень
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Натисніть панель, щоб розгорнути або згорнути
+
+reader-attachmentsBarClickToToggle-help = Клацніть будь-де на панелі вкладень, щоб перемкнути її. Коли вимкнено, працює лише кнопка зі стрілкою.
+
+reader-attachmentsBarDownloadAll = Кнопка завантажити все
+
+reader-attachmentsBarDownloadAll-help = Показати кнопку на панелі, яка завантажує вкладення як один файл ZIP.
+
+reader-attachmentsBarShowDownloadButtons = Кнопки завантаження вкладень
+
+reader-attachmentsBarShowDownloadButtons-help = Показувати кнопку завантаження кожного вкладення при наведенні або фокусі, завжди або ніколи.
+
+reader-attachmentsBarZipInlineImages = Включіть вбудовані зображення в ZIP
+
+reader-attachmentsBarZipInlineImages-help = Зображення, які з’являються всередині тексту повідомлення, залишаються поза Завантажити все, якщо цей параметр не ввімкнено.
+
+reader-card-attachments-bar = Панель вкладень
+
+reader-card-attachments-bar-help = Як реагує панель над вкладеннями повідомлення та що вона пропонує. Рядки, позначені як заблоковані, встановлює ваш адміністратор.
+
+reader-option-always = Завжди
+
+reader-option-hover = При наведенні або фокусі
+
+reader-option-never = Ніколи

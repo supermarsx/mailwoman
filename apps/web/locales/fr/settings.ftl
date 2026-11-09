@@ -723,3 +723,104 @@ settings-folder-icon-group-personal = Personnel et loisirs
 settings-folder-icon-group-tech = Technologie et outils
 settings-folder-icon-search-label = Rechercher des icônes
 settings-folder-icon-no-match = Aucune icône correspondante
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Authentification (DMARC)
+
+settings-badge-auth-help = Le résultat DMARC ; il ouvre tous les détails de sécurité.
+
+settings-badge-density = Taille du badge
+
+settings-badge-density-comfortable = Confortable
+
+settings-badge-density-compact = Compacte
+
+settings-badge-density-help = Hauteur et espacement compacts ou confortables pour chaque badge.
+
+settings-badge-folder = Dossier
+
+settings-badge-folder-help = Où le message est stocké. Seulement lorsque cela est notable, il l'affiche pour les déchets et les déchets.
+
+settings-badge-labels = Étiquettes de badge
+
+settings-badge-labels-help = Icône avec texte, ou icône seule (le texte intégral reste dans l'info-bulle et pour les lecteurs d'écran).
+
+settings-badge-labels-icon = Icône uniquement
+
+settings-badge-labels-text = Icône et texte
+
+settings-badge-list = Liste de diffusion
+
+settings-badge-list-help = La liste de diffusion d'où provient le message ; il ouvre les détails de l'abonnement et les actions. Uniquement lorsqu'il est notable, il l'affiche lorsque le courrier continue d'arriver après votre désabonnement.
+
+settings-badge-mode-always = Toujours
+
+settings-badge-mode-never = Jamais
+
+settings-badge-mode-notable = Seulement quand c'est notable
+
+settings-badge-sanitized = Désinfecté HTML
+
+settings-badge-sanitized-help = Ce que le désinfectant HTML a fait au message. Seulement lorsque notable le montre quand quelque chose a été bloqué.
+
+settings-badge-spam = Taux de spam
+
+settings-badge-spam-help = Le score que le serveur de réception a écrit dans les en-têtes du message.
+
+settings-folders-hide-empty = Masquer les dossiers vides dans la barre latérale
+
+settings-folders-hide-empty-help = Les dossiers réapparaissent lorsqu'ils contiennent des messages. La boîte de réception, les dossiers de recherche, les dossiers dont le nombre est inconnu et les parents des dossiers visibles restent affichés. Remplacez les dossiers individuels sous Propriétés, Affichage ; chaque dossier reste dans cette liste.
+
+settings-folders-list-card = Liste et ordre des dossiers
+
+settings-header-auto-collapse = Pliez l'en-tête après l'écriture (secondes)
+
+settings-header-auto-collapse-help = Lorsque le corps a eu le focus pendant autant de secondes et que l'en-tête a un destinataire et un sujet, il se replie sur la ligne récapitulative. 0 désactive cela.
+
+settings-message-badges = Insignes à messages
+
+settings-message-badges-help = Choisissez les badges qui apparaissent dans l'en-tête d'un message ouvert. Les marques de priorité sont définies sous Dossiers et barre latérale. Vous pouvez également cliquer avec le bouton droit sur un badge pour le masquer.
+
+settings-reply-from-headers = En-têtes qui choisissent l'identité
+
+settings-reply-from-headers-help = Un nom d'en-tête par ligne, essayé dans cet ordre : Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc. Un en-tête laissé de côté n'est pas lu.
+
+settings-reply-from-headers-invalid = Utilisez uniquement ces noms, un par ligne : Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc.
+
+settings-reply-from-headers-save = Enregistrer l'ordre d'en-tête
+
+settings-sessions-linked-created = Lien créé
+
+settings-sessions-linked-details = Détails du lien
+
+settings-sessions-linked-kind = Type de lien
+
+settings-sessions-linked-kind-linked = Boîte aux lettres liée
+
+settings-sessions-linked-last-used = Dernière utilisation
+
+settings-sessions-linked-line = Accès à la boîte aux lettres liée · à partir de { $origin }
+
+settings-sessions-linked-line-hidden = Accès à la boîte aux lettres liée
+
+settings-sessions-linked-origin = Vient de
+
+settings-sessions-linked-removed = Inconnu (compte supprimé)
+
+settings-sessions-linked-revoke = Révoquer l'accès au lien
+
+settings-sessions-linked-revoke-label = Révoquer l'accès au lien pour { $mailbox }
+
+settings-sessions-linked-target = Boîte aux lettres ouverte
+
+settings-sessions-origin-full = Adresse complète
+
+settings-sessions-origin-help = Contrôle la manière dont cette table nomme le compte d'où provient une session de boîte aux lettres liée. Vous seul le voyez, dans vos propres séances.
+
+settings-sessions-origin-hidden = Caché
+
+settings-sessions-origin-masked-local-part = Adresse avec la première partie masquée
+
+settings-sessions-origin-setting = Afficher d'où vient l'accès à la boîte aux lettres liée
+
+settings-shortcuts-search = Raccourcis de recherche

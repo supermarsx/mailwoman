@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Cemento grigio ministeriale, testo color carta sbiadita, rosso Grande Fratello; messaggi in carattere a spaziatura fissa.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Pagina bianca, contorni neri, rosso, blu e giallo primari, punti Ben-Day nella barra laterale.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Importanza
+
+appearance-preference-group-option-none = Nessun raggruppamento
+
+appearance-preference-group-option-received = Data di ricezione
+
+appearance-preference-group-option-sender = Mittente
+
+appearance-preference-group-option-sent = Data di invio
+
+appearance-preference-group-option-size = Dimensione del messaggio
+
+appearance-preference-group-option-subject = Oggetto
+
+appearance-preference-mail-list-pageSize = Messaggi caricati per pagina (da 20 a 200)
+
+appearance-preference-mail-messageListGroup = Raggruppamento dei messaggi
+
+appearance-preference-message-group-help = Mantieni insieme i messaggi correlati sotto intestazioni di gruppo. Scegli Nessun raggruppamento per un elenco continuo. L'ordine dei messaggi si applica all'interno di ciascun gruppo.
+
+appearance-preference-message-order-help = Scegli l'ordine dei messaggi all'interno di ciascun gruppo o nell'intero elenco quando il raggruppamento è disattivato.
+
+appearance-preference-option-importance = Importanza, alta per prima
+
+appearance-preference-option-importance-asc = Importanza, prima bassa
+
+appearance-preference-option-received = Data di ricezione
+
+appearance-preference-option-sender-desc = Mittente, dalla Z alla A
+
+appearance-preference-option-sent = Data di invio
+
+appearance-preference-option-sent-newest = Inviato, prima il più recente
+
+appearance-preference-option-sent-oldest = Inviato, prima il più vecchio
+
+appearance-preference-option-size = Dimensioni, prima la più grande
+
+appearance-preference-option-size-asc = Dimensioni, prima la più piccola
+
+appearance-preference-option-subject-desc = Soggetto, dalla Z alla A

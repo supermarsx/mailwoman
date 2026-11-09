@@ -742,3 +742,104 @@ settings-folder-icon-group-personal = Persoonlijk en plezier
 settings-folder-icon-group-tech = Techniek en gereedschap
 settings-folder-icon-search-label = Pictogrammen zoeken
 settings-folder-icon-no-match = Geen pictogrammen gevonden
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Authenticatie (DMARC)
+
+settings-badge-auth-help = Het DMARC resultaat; het opent de volledige beveiligingsdetails.
+
+settings-badge-density = Badge-grootte
+
+settings-badge-density-comfortable = Comfortabel
+
+settings-badge-density-compact = Compact
+
+settings-badge-density-help = Compacte of comfortabele hoogte en afstand voor elke badge.
+
+settings-badge-folder = Map
+
+settings-badge-folder-help = Waar het bericht wordt opgeslagen. Alleen als het opmerkelijk is, wordt het weergegeven voor Junk en Trash.
+
+settings-badge-labels = Badge-etiketten
+
+settings-badge-labels-help = Pictogram met tekst, of het pictogram alleen (de volledige tekst blijft in de tooltip en voor schermlezers).
+
+settings-badge-labels-icon = Alleen icoon
+
+settings-badge-labels-text = Icoon en tekst
+
+settings-badge-list = Mailinglijst
+
+settings-badge-list-help = De mailinglijst waar het bericht vandaan kwam; het opent de abonnementsgegevens en acties. Alleen wanneer opmerkelijk wordt weergegeven wanneer er e-mail blijft aankomen nadat u zich heeft afgemeld.
+
+settings-badge-mode-always = Altijd
+
+settings-badge-mode-never = Nooit
+
+settings-badge-mode-notable = Alleen als het opmerkelijk is
+
+settings-badge-sanitized = Gezuiverd HTML
+
+settings-badge-sanitized-help = Wat het HTML-ontsmettingsmiddel met de boodschap deed. Alleen wanneer opmerkelijk wordt aangegeven wanneer er iets is geblokkeerd.
+
+settings-badge-spam = Spamscore
+
+settings-badge-spam-help = De score die de ontvangende server in de berichtkoppen heeft geschreven.
+
+settings-folders-hide-empty = Verberg lege mappen in de zijbalk
+
+settings-folders-hide-empty-help = Mappen verschijnen opnieuw wanneer ze berichten bevatten. Inbox, zoekmappen, mappen met onbekende aantallen en bovenliggende mappen van zichtbare mappen blijven zichtbaar. Overschrijf individuele mappen onder Eigenschappen, Weergave; elke map blijft in deze lijst staan.
+
+settings-folders-list-card = Mappenlijst en volgorde
+
+settings-header-auto-collapse = Vouw de koptekst na het schrijven (seconden)
+
+settings-header-auto-collapse-help = Wanneer de hoofdtekst zoveel seconden focus heeft gehad en de koptekst een ontvanger en een onderwerp bevat, vouwt deze naar de samenvattingsregel. 0 schakelt dit uit.
+
+settings-message-badges = Berichtbadges
+
+settings-message-badges-help = Kies welke badges in de koptekst van een geopend bericht verschijnen. Prioriteitsmarkeringen worden ingesteld onder Mappen en zijbalk. U kunt ook met de rechtermuisknop op een badge klikken om deze te verbergen.
+
+settings-reply-from-headers = Headers die de identiteit kiezen
+
+settings-reply-from-headers-help = Eén headernaam per regel, geprobeerd in deze volgorde: afgeleverd-aan, X-origineel-aan, envelop-aan, X-doorgestuurd-naar, opnieuw verzonden-aan, aan, cc. Een weggelaten header wordt niet gelezen.
+
+settings-reply-from-headers-invalid = Gebruik alleen deze namen, één per regel: Bezorgd aan, X-Origineel-aan, Envelop-aan, X-doorgestuurd naar, Opnieuw verzonden naar, Aan, Cc.
+
+settings-reply-from-headers-save = Kopvolgorde opslaan
+
+settings-sessions-linked-created = Koppeling gemaakt
+
+settings-sessions-linked-details = Linkdetails
+
+settings-sessions-linked-kind = Linktype
+
+settings-sessions-linked-kind-linked = Gekoppelde mailbox
+
+settings-sessions-linked-last-used = Laatst gebruikt
+
+settings-sessions-linked-line = Toegang tot gekoppelde mailbox · vanaf { $origin }
+
+settings-sessions-linked-line-hidden = Gekoppelde mailboxtoegang
+
+settings-sessions-linked-origin = Komt uit
+
+settings-sessions-linked-removed = Onbekend (account verwijderd)
+
+settings-sessions-linked-revoke = Linktoegang intrekken
+
+settings-sessions-linked-revoke-label = Linktoegang intrekken voor { $mailbox }
+
+settings-sessions-linked-target = Brievenbus geopend
+
+settings-sessions-origin-full = Volledig adres
+
+settings-sessions-origin-help = Bepaalt hoe deze tabel het account noemt waar een gekoppelde mailboxsessie vandaan komt. Alleen jij ziet het, in je eigen sessies.
+
+settings-sessions-origin-hidden = Verborgen
+
+settings-sessions-origin-masked-local-part = Adres met het eerste deel gemaskeerd
+
+settings-sessions-origin-setting = Laat zien waar gekoppelde mailboxtoegang vandaan komt
+
+settings-shortcuts-search = Zoek snelkoppelingen

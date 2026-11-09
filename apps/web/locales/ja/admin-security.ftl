@@ -631,3 +631,24 @@ admin-protect-sim-cause-no-database = データベース未読み込み
 admin-protect-sim-cause-not-found = アドレスがデータベースにない
 admin-protect-sim-heightened-off = サインインの警戒モードはオフです。
 admin-protect-sim-heightened-on = サインインの警戒モードはオンです。クールダウンは { $pace }({ $cooldown })に制御され、チャレンジの強制： { $challenge }。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = セッションと再起動
+
+admin-secdash-sessions-admin = コンソールセッション
+
+admin-secdash-sessions-mailbox = メールボックスセッション
+
+admin-secdash-sessions-native = アプリセッション
+
+admin-secdash-sessions-reason-persisted = データベースに保存され、サーバーキーで封印されます
+
+admin-secdash-sessions-reason-server-key-changed = 保存されたセッションは、現在のサーバー キーでは開かれません。元のキーファイルを復元する
+
+admin-secdash-sessions-reason-server-key-ephemeral = サーバーキーは再起動後に保持されません
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts がオフになっているため、サーバーが起動するとセッションが終了します
+
+admin-secdash-sessions-survive-no = セッションは再起動後も存続します: いいえ ({ $reason })
+
+admin-secdash-sessions-survive-yes = セッションは再起動後も存続します: はい ({ $reason })

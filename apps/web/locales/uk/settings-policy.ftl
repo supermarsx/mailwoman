@@ -44,3 +44,6 @@ cache-card-prefetch = Попереднє завантаження
 cache-card-prefetch-help = Завантажувати повідомлення заздалегідь, щоб вони відкривалися миттєво. Використовує більше трафіку.
 settings-folder-counts-card = Лічильники
 settings-folder-counts-card-help = Що показують числа поруч із теками та в яких тек вони є.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Мова та регіон

@@ -635,3 +635,24 @@ admin-protect-sim-cause-no-database = aucune base chargée
 admin-protect-sim-cause-not-found = adresse absente de la base
 admin-protect-sim-heightened-off = Le mode renforcé de connexion est désactivé.
 admin-protect-sim-heightened-on = Le mode renforcé de connexion est activé : le délai d'attente est ralenti à { $pace } ({ $cooldown }), défi forcé : { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sessions et redémarrages
+
+admin-secdash-sessions-admin = Séances sur consoles
+
+admin-secdash-sessions-mailbox = Sessions de boîte aux lettres
+
+admin-secdash-sessions-native = Sessions d'application
+
+admin-secdash-sessions-reason-persisted = stocké dans la base de données, scellé avec la clé du serveur
+
+admin-secdash-sessions-reason-server-key-changed = les sessions stockées ne s'ouvrent pas avec la clé de serveur actuelle ; restaurer le fichier de clé d'origine
+
+admin-secdash-sessions-reason-server-key-ephemeral = la clé du serveur n'est pas conservée lors des redémarrages
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts est désactivé, donc les sessions se terminent au démarrage du serveur
+
+admin-secdash-sessions-survive-no = Les sessions survivent aux redémarrages : non ({ $reason })
+
+admin-secdash-sessions-survive-yes = Les sessions survivent aux redémarrages : oui ({ $reason })

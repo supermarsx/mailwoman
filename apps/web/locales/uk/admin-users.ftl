@@ -209,3 +209,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] Змінено профіль функцій { $count } користувача.
 }
 admin-userlist-bulk-failed = Виконано: { $done }, не вдалося: { $failed }: { $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = до оплати { $date }
+
+admin-user-compliance-empty = Для цього облікового запису немає запитів на дані.
+
+admin-user-compliance-help = Подано запити на адреси цього облікового запису. Відкрийте один із запитів на дані, щоб виконати дії.
+
+admin-user-compliance-open-all = Відкрийте всі запити даних
+
+admin-user-compliance-title = Запити даних для цього облікового запису
+
+admin-user-never = Ніколи
+
+admin-user-overview-last-signin = Останній вхід
+
+admin-user-overview-status = Статус
+
+admin-user-status-active = Активний
+
+admin-user-status-deleted = Видалено
+
+admin-user-status-deleting = Видалення
+
+admin-user-status-disabled = заблоковано
+
+admin-user-tab-access = Доступ і видалення
+
+admin-user-tab-compliance = Відповідність
+
+admin-user-tab-overview = Огляд
+
+admin-user-tab-profile = Профіль функцій
+
+admin-user-tab-security = Безпека
+
+admin-user-tab-sessions = Сеанси
+
+admin-user-tabs-label = Розділи облікового запису

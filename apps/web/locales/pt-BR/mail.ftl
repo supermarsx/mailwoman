@@ -1226,3 +1226,270 @@ mail-color-confirm-title = Alterar suas cores padrão de mensagem?
 mail-color-confirm-body = Todas as mensagens usarão "{ $mode }", a menos que você altere para uma mensagem específica.
 mail-color-confirm = Tornar padrão
 mail-color-default-failed = Não foi possível salvar suas cores padrão de mensagem.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = As mensagens selecionadas não possuem anexos para download.
+
+mail-attachments-zip-all-blocked = Nada foi baixado: a política de anexo bloqueia todos os arquivos { $skipped }.
+
+mail-attachments-zip-gathering = Coletando os anexos de { $count } mensagens…
+
+mail-attachments-zip-skipped = { $skipped ->
+        [0] { $skipped } arquivos bloqueados pela política de anexos foram deixados de fora.
+        [one] { $skipped } arquivo bloqueado pela política de anexos foi deixado de fora.
+        [many] { $skipped } arquivos bloqueados pela política de anexos foram deixados de fora.
+       *[other] { $skipped } arquivos bloqueados pela política de anexos foram deixados de fora.
+    }
+
+mail-attachments-zip-unreadable = Os anexos das mensagens { $count } não puderam ser lidos e foram deixados de fora.
+
+mail-bulk-download-attachments = Baixe anexos como ZIP
+
+mail-compose-from-via = Correspondeu ao cabeçalho { $header }.
+
+mail-compose-from-why-match-domain = Enviando de { $identity } porque a mensagem foi entregue para { $address }, um endereço no mesmo domínio.
+
+mail-compose-from-why-match-pattern = Enviando de { $identity } porque a mensagem foi enviada para { $address }, que se enquadra no padrão de endereço dessa identidade.
+
+mail-compose-ribbon-autohide = Ocultar automaticamente a faixa de opções (Ctrl+F1)
+
+mail-compose-ribbon-pin = Sempre mostrar a faixa de opções (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+        [0] Baixe anexos de { $count } mensagens selecionadas como ZIP
+        [one] Baixe os anexos da mensagem selecionada como ZIP
+        [many] Baixe anexos de { $count } mensagens selecionadas como ZIP
+       *[other] Baixe anexos de { $count } mensagens selecionadas como ZIP
+    }
+
+mail-context-download-thread-attachments = Baixe todos os { $count } anexos da conversa como ZIP
+
+mail-context-open-new-tab = Abrir em uma nova aba
+
+mail-delete-sender-confirm = Mover { $count } mensagens para a Lixeira
+
+mail-delete-sender-detail = Mover { $count } mensagens de { $sender } para a Lixeira? As mensagens que já estão na Lixeira são excluídas. Você pode desfazer esta ação.
+
+mail-delete-sender-empty = Não há mensagens deste remetente fora da Lixeira.
+
+mail-delete-sender-failed = Não foi possível verificar todas as mensagens correspondentes e suas permissões. Nada foi movido; tente novamente.
+
+mail-delete-sender-help = Encontre as mensagens deste remetente em todas as pastas e mova-as para a Lixeira após a confirmação.
+
+mail-delete-sender-title = Exclua todas as mensagens deste remetente
+
+mail-draft-continue = Continuar editando
+
+mail-draft-edit = Editar rascunho
+
+mail-draft-edit-failed = Não foi possível abrir o rascunho para edição
+
+mail-draft-edit-help = Abra este rascunho no compositor para continuar editando-o
+
+mail-draft-notice = Este é um rascunho
+
+mail-file-copied = Copiado para a área de transferência.
+
+mail-file-copy-failed = Não foi possível copiar para a área de transferência.
+
+mail-file-copy-fingerprint = Copiar impressão digital
+
+mail-file-copy-name = Copiar nome do arquivo
+
+mail-file-created = Criado
+
+mail-file-creator = Criado com
+
+mail-file-details-button = Detalhes do arquivo
+
+mail-file-details-tooltip = Mostrar detalhes do arquivo e impressão digital
+
+mail-file-encryption = Proteção por senha
+
+mail-file-encryption-none = Nenhuma senha foi solicitada
+
+mail-file-encryption-password = Foi necessária uma senha para abri-lo
+
+mail-file-fingerprint = Impressão digital
+
+mail-file-name = Nome do arquivo
+
+mail-file-pages = Páginas
+
+mail-file-pdf-version = Versão PDF
+
+mail-file-producer = Produtor
+
+mail-file-verify-help = Compare esses grupos com uma impressão digital que o remetente forneceu de outra forma, como uma ligação ou seu site. Se todos os grupos corresponderem, você terá exatamente os mesmos bytes.
+
+mail-file-verify-title = Verifique a impressão digital
+
+mail-follow-up-finished = Acompanhamento concluído
+
+mail-group-by = Agrupar por
+
+mail-header-attachments = { $count ->
+        [0] { $count } anexos
+        [one] { $count } anexo
+        [many] { $count } anexos
+       *[other] { $count } anexos
+    }
+
+mail-header-expand-short = Expandir cabeçalho da mensagem (Alt+H)
+
+mail-list-group-date-unknown = Data desconhecida
+
+mail-list-group-importance = Importância
+
+mail-list-group-locked = O agrupamento de mensagens é bloqueado pelo seu administrador.
+
+mail-list-group-no-subject = (Sem assunto)
+
+mail-list-group-none = Sem agrupamento
+
+mail-list-group-priority-high = Alta importância
+
+mail-list-group-priority-low = Baixa importância
+
+mail-list-group-priority-normal = Importância normal
+
+mail-list-group-received = Data de recebimento
+
+mail-list-group-sender = De
+
+mail-list-group-sent = Data de envio
+
+mail-list-group-size = Tamanho
+
+mail-list-group-size-huge = 10 MB e acima
+
+mail-list-group-size-large = 1–10MB
+
+mail-list-group-size-medium = 100 KB – 1 MB
+
+mail-list-group-size-small = 25–100 KB
+
+mail-list-group-size-tiny = Menos de 25 KB
+
+mail-list-group-subject = Assunto
+
+mail-list-order-importance = Importância, alta primeiro
+
+mail-list-order-importance-asc = Importância, baixa primeiro
+
+mail-list-order-locked = A ordem das mensagens é bloqueada pelo seu administrador.
+
+mail-list-order-sender-desc = Remetente, Z a A
+
+mail-list-order-sent-newest = Enviado, mais novo primeiro
+
+mail-list-order-sent-oldest = Enviado, mais antigo primeiro
+
+mail-list-order-size = Tamanho, maior primeiro
+
+mail-list-order-size-asc = Tamanho, o menor primeiro
+
+mail-list-order-subject-desc = Assunto, Z a A
+
+mail-mark-answered = Marcar como respondido
+
+mail-mark-as = Marcar como
+
+mail-mark-finished = Marcar como concluído
+
+mail-mark-forwarded = Marcar como encaminhado
+
+mail-mark-not-forwarded = Marcar como não encaminhado
+
+mail-mark-unanswered = Marcar como sem resposta
+
+mail-mentions-me = Menciona-me
+
+mail-mentions-me-help = Pesquise mensagens que mencionem um dos seus endereços de e-mail
+
+mail-move-search = Pesquisar pastas
+
+mail-order-by = Encomendar por
+
+mail-reader-folder-go = Armazenado em { $folder } · Vá para a pasta
+
+mail-reply-draft-discard = Descartar resposta
+
+mail-reply-draft-discard-detail = Remover permanentemente esta resposta em andamento? Isto não pode ser desfeito.
+
+mail-reply-draft-discard-title = Descartar esta resposta?
+
+mail-status-from-match-domain = De { $identity }
+
+mail-status-from-match-pattern = De { $identity }
+
+mail-status-from-via = Respondendo de { $identity } porque correspondeu a { $header }
+
+mail-toast-follow-up-finished = Acompanhamento marcado como concluído
+
+mail-toast-marked-answered = { $count ->
+        [0] { $count } mensagens marcadas como respondidas
+        [one] { $count } mensagem marcada como respondida
+        [many] { $count } mensagens marcadas como respondidas
+       *[other] { $count } mensagens marcadas como respondidas
+    }
+
+mail-toast-marked-forwarded = { $count ->
+        [0] { $count } mensagens marcadas como encaminhadas
+        [one] { $count } mensagem marcada como encaminhada
+        [many] { $count } mensagens marcadas como encaminhadas
+       *[other] { $count } mensagens marcadas como encaminhadas
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+        [0] { $count } mensagens marcadas como não encaminhadas
+        [one] { $count } mensagem marcada como não encaminhada
+        [many] { $count } mensagens marcadas como não encaminhadas
+       *[other] { $count } mensagens marcadas como não encaminhadas
+    }
+
+mail-toast-marked-unanswered = { $count ->
+        [0] { $count } mensagens marcadas como não respondidas
+        [one] { $count } mensagem marcada como não respondida
+        [many] { $count } mensagens marcadas como não respondidas
+       *[other] { $count } mensagens marcadas como não respondidas
+    }
+
+mail-toast-move-failed-reason = Não foi possível mover as mensagens ({ $reason }). Nada foi movido.
+
+mail-toast-update-refused-reason = { $count ->
+        [0] O servidor recusou a mudança por { $count } mensagens: { $reason }
+        [one] O servidor recusou a mudança para uma mensagem: { $reason }
+        [many] O servidor recusou a mudança por { $count } mensagens: { $reason }
+       *[other] O servidor recusou a mudança por { $count } mensagens: { $reason }
+    }
+
+reader-badge-hide = Ocultar este selo
+
+reader-badge-locked = Definido pelo seu administrador
+
+reader-badge-menu = Selo de mensagem
+
+reader-badge-notable = Mostrar apenas quando for notável
+
+reader-sanitized-always = O conteúdo ativo, como scripts, permanece desativado.
+
+reader-sanitized-clean = Mensagem HTML não precisou de alterações
+
+reader-sanitized-clean-detail = Nada foi removido ou bloqueado do HTML desta mensagem.
+
+reader-sanitized-counts = { $blocked } itens remotos bloqueados, { $trackers } itens de rastreamento.
+
+reader-sanitized-detail = A mensagem HTML foi higienizada antes de ser exibida. O conteúdo remoto segue suas configurações de privacidade.
+
+reader-sanitized-hosts = Hosts remotos
+
+reader-sanitized-remote = Conteúdo remoto bloqueado
+
+reader-sanitized-short = Higienizado HTML
+
+reader-sanitized-short-blocked = HTML bloqueado
+
+reader-sanitized-short-clean = HTML limpar
+
+reader-sanitized-trackers = Itens de rastreamento

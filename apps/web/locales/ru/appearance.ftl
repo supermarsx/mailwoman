@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Министерский серый бетон, выцветший бумажный текст, красный цвет Большого Брата; сообщения набраны моноширинным шрифтом.
 appearance-theme-pop-art = Поп-арт
 appearance-theme-pop-art-desc = Белая страница, чёрные контуры, основные красный, синий и жёлтый цвета, точки Бен-Дея на боковой панели.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Важность
+
+appearance-preference-group-option-none = Нет группировки
+
+appearance-preference-group-option-received = Дата получения
+
+appearance-preference-group-option-sender = Отправитель
+
+appearance-preference-group-option-sent = Дата отправки
+
+appearance-preference-group-option-size = Размер сообщения
+
+appearance-preference-group-option-subject = Тема
+
+appearance-preference-mail-list-pageSize = Сообщений загружается на страницу (от 20 до 200)
+
+appearance-preference-mail-messageListGroup = Группировка сообщений
+
+appearance-preference-message-group-help = Храните связанные сообщения вместе под заголовками групп. Выберите «Без группировки» для непрерывного списка. Ваш порядок сообщений применяется внутри каждой группы.
+
+appearance-preference-message-order-help = Выберите порядок сообщений внутри каждой группы или по всему списку, если группировка отключена.
+
+appearance-preference-option-importance = Важность, высокая в первую очередь
+
+appearance-preference-option-importance-asc = Важность, сначала низкая
+
+appearance-preference-option-received = Дата получения
+
+appearance-preference-option-sender-desc = Отправитель, от Я до А
+
+appearance-preference-option-sent = Дата отправки
+
+appearance-preference-option-sent-newest = Отправлено, сначала самое новое
+
+appearance-preference-option-sent-oldest = Отправлено, сначала самое старое
+
+appearance-preference-option-size = Размер, сначала самый большой
+
+appearance-preference-option-size-asc = Размер, сначала самый маленький
+
+appearance-preference-option-subject-desc = Тема: от Я до А

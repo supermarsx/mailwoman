@@ -63,3 +63,32 @@ search-refine-subject = Шукати повідомлення з цією тем
 search-refine-folder = Шукати в цій теці
 search-refine-domain = Шукати повідомлення з цього домену
 search-include-trash-scoped = Параметр «Враховувати кошик» діє під час пошуку в усіх теках. Вибрана тека переглядається безпосередньо.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = відповів
+
+search-chip-finished = Готово
+
+search-chip-followup = Позначено для подальших дій
+
+search-chip-forwarded = Переслано
+
+search-chip-high-priority = Високий пріоритет
+
+search-chip-low-priority = Низький пріоритет
+
+search-chip-mentions-me = Згадує мене
+
+search-chip-no-followup = Не позначено для подальшого перегляду
+
+search-chip-not-high-priority = Не високий пріоритет
+
+search-chip-not-low-priority = Не низький пріоритет
+
+search-chip-unanswered = Без відповіді
+
+search-chip-unfinished = Не закінчено
+
+search-chip-unforwarded = Не пересилається
+
+search-field-mentions = Згадки

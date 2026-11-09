@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = خرسانة رمادية بلون الوزارات، ونص بلون ورق باهت، وأحمر الأخ الأكبر؛ والرسائل بخط أحادي المسافة.
 appearance-theme-pop-art = بوب آرت
 appearance-theme-pop-art-desc = صفحة بيضاء، وخطوط سوداء، والأحمر والأزرق والأصفر الأساسية، ونقاط بن داي في الشريط الجانبي.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = أهمية
+
+appearance-preference-group-option-none = لا يوجد تجميع
+
+appearance-preference-group-option-received = تاريخ الاستلام
+
+appearance-preference-group-option-sender = المرسل
+
+appearance-preference-group-option-sent = تاريخ الإرسال
+
+appearance-preference-group-option-size = حجم الرسالة
+
+appearance-preference-group-option-subject = الموضوع
+
+appearance-preference-mail-list-pageSize = الرسائل المحملة في كل صفحة (20 إلى 200)
+
+appearance-preference-mail-messageListGroup = تجميع الرسائل
+
+appearance-preference-message-group-help = احتفظ بالرسائل ذات الصلة معًا تحت عناوين المجموعة. اختر بلا تجميع لقائمة مستمرة. ينطبق ترتيب رسالتك داخل كل مجموعة.
+
+appearance-preference-message-order-help = اختر ترتيب الرسائل داخل كل مجموعة، أو عبر القائمة بأكملها عندما يكون التجميع متوقفًا.
+
+appearance-preference-option-importance = الأهمية، عالية أولاً
+
+appearance-preference-option-importance-asc = الأهمية، منخفضة أولاً
+
+appearance-preference-option-received = تاريخ الاستلام
+
+appearance-preference-option-sender-desc = المرسل، Z إلى A
+
+appearance-preference-option-sent = تاريخ الإرسال
+
+appearance-preference-option-sent-newest = أرسلت، الأحدث أولا
+
+appearance-preference-option-sent-oldest = أرسلت، الأقدم أولا
+
+appearance-preference-option-size = الحجم، الأكبر أولاً
+
+appearance-preference-option-size-asc = الحجم، الأصغر أولاً
+
+appearance-preference-option-subject-desc = الموضوع، Z إلى A

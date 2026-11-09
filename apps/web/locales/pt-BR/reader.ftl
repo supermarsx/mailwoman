@@ -64,3 +64,69 @@ reader-card-loading = Carregamento
 reader-card-loading-help = O que aparece enquanto uma mensagem é aberta.
 settings-mail-card-list = Lista de mensagens
 settings-mail-card-list-help = Ações nas linhas e o que a lista faz quando você age sobre uma mensagem.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Baixar { $name }
+
+reader-attachments-download-all = Baixar tudo
+
+reader-attachments-download-all-blocked = A política de anexos bloqueia todos os arquivos aqui
+
+reader-attachments-download-all-busy = Preparando o arquivo ZIP
+
+reader-attachments-download-all-label = Baixe todos os anexos como um arquivo ZIP
+
+reader-attachments-download-all-none = Não há anexos para download
+
+reader-attachments-download-all-warned = { $count ->
+        [0] { $count } arquivos que precisam de confirmação foram deixados de fora. Baixe-os um por um.
+        [one] Um arquivo que precisa de confirmação foi deixado de fora. Faça o download sozinho.
+        [many] { $count } arquivos que precisam de confirmação foram deixados de fora. Baixe-os um por um.
+       *[other] { $count } arquivos que precisam de confirmação foram deixados de fora. Baixe-os um por um.
+    }
+
+reader-attachments-download-blocked = { $name } não pode ser baixado: { $reason }
+
+reader-attachments-download-label = Baixar { $name } ({ $size })
+
+reader-attachments-download-off = Os downloads estão desativados
+
+reader-attachments-inline-group = { $count ->
+        [0] { $count } imagens embutidas
+        [one] { $count } imagem embutida
+        [many] { $count } imagens embutidas
+       *[other] { $count } imagens embutidas
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [0] { $count } imagens embutidas
+        [one] { $count } imagem embutida
+        [many] { $count } imagens embutidas
+       *[other] { $count } imagens embutidas
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Clique na barra para expandir ou recolher
+
+reader-attachmentsBarClickToToggle-help = Clicar em qualquer lugar da barra de anexos a alterna. Quando desativado, apenas o botão de seta funciona.
+
+reader-attachmentsBarDownloadAll = Botão baixar tudo
+
+reader-attachmentsBarDownloadAll-help = Mostre um botão na barra que baixa os anexos como um arquivo ZIP.
+
+reader-attachmentsBarShowDownloadButtons = Botões de download em anexos
+
+reader-attachmentsBarShowDownloadButtons-help = Mostre o botão de download de cada anexo ao passar o mouse ou focar, sempre ou nunca.
+
+reader-attachmentsBarZipInlineImages = Incluir imagens embutidas no ZIP
+
+reader-attachmentsBarZipInlineImages-help = As imagens que aparecem dentro do texto da mensagem são deixadas de fora de Baixar tudo, a menos que esta opção esteja ativada.
+
+reader-card-attachments-bar = Barra de anexos
+
+reader-card-attachments-bar-help = Como a barra acima dos anexos de uma mensagem responde e o que ela oferece. As linhas marcadas como bloqueadas são definidas pelo seu administrador.
+
+reader-option-always = Sempre
+
+reader-option-hover = Ao passar o mouse ou focar
+
+reader-option-never = Nunca

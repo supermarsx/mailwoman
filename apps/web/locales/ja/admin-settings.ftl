@@ -1842,3 +1842,616 @@ admin-settings-key-ratelimit-anon-per-minute = 1 分あたりに回復する匿�
 admin-settings-help-ratelimit-anon-per-minute = 匿名の Cookie 同意ルートで、アドレスが 1 分あたりに回復するリクエスト数です。範囲は 1-600、デフォルトは 30 です。
 admin-settings-key-ratelimit-trusted-multiplier = 既知の接続元からのアカウント許容量(%)
 admin-settings-help-ratelimit-trusted-multiplier = サインインが成功した記録のある接続元からリクエストが来たときに、サインイン済みのメールボックスが得られるアカウントのリクエスト許容量に対する割合です。100 で基本の許容量のままです。匿名、管理者、ユーザーエージェントの予算や、有効なブロックを緩和することはありません。範囲は 100-1000、デフォルトは 150 です。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-attachments-bar-click-to-toggle = リーダーの添付ファイル バーのどこかをクリックすると、展開されるか折りたたまれます。オフの場合、矢印ボタンのみが機能します。
+
+admin-settings-help-attachments-bar-download-all = 添付ファイル バーに、許可された添付ファイルを 1 つの ZIP ファイルとして保存する [すべてダウンロード] ボタンが表示されるかどうか。
+
+admin-settings-help-attachments-bar-show-download-buttons = バー内の各添付ファイルにダウンロード ボタンが表示されるタイミング: ホバーまたはフォーカス時 (デフォルト)、常に、またはまったく表示されません。ダウンロードは引き続き添付ファイル ポリシーと mail.allowDownload に従います。
+
+admin-settings-help-attachments-bar-zip-inline-images = メッセージテキスト内に表示される画像がすべてダウンロード ZIP に含まれるかどうか。デフォルトではオフです。
+
+admin-settings-help-cap-reading-delete-sender = 確認後に一致するすべての送信者メッセージをゴミ箱に移動するリーダー アクションをユーザーが有効にできるようにします。デフォルトでは無効になっています。機能プロファイルでもそれを許可する必要があります。
+
+admin-settings-help-compose-feature-family = 機能 ID によってコンポーザー コントロールのオンとオフを切り替えます。デフォルトはオンです。ユーザーが変更できないようにするには、ロックしてください。
+
+admin-settings-help-compose-headers-allow-auto-submitted = ユーザーがメッセージに自動送信 (RFC 3834) を設定できるようにします。デフォルトではオフ: 他のシステムに応答しないように指示します。
+
+admin-settings-help-compose-headers-allow-custom = ユーザーが独自のヘッダーを追加できるようにします (最大 20 個、名前はチェックされ、保護されたヘッダーは拒否されます)。
+
+admin-settings-help-compose-headers-allow-return-receipt-to = ユーザーが従来の Return-Receipt-To ヘッダーを使用して領収書をリクエストできるようにします。デフォルトではオフです。
+
+admin-settings-help-compose-headers-allow-threading-edit = ユーザーは、In-Reply-To と References を編集したり、返信から新しいスレッドを開始したりできます。
+
+admin-settings-help-compose-headers-forced = 1 行に 1 つの Name=value ペアが、ドメインから送信されるすべてのメッセージに追加され、ユーザーの値を置き換えます。保護されたヘッダーは拒否されます。
+
+admin-settings-help-compose-insert-image-resize-default = [ファイルからの画像] ダイアログの開始サイズ: オリジナル、大 (1600 ピクセル)、または中 (1024 ピクセル)。
+
+admin-settings-help-compose-insert-max-inline-image-mb = これより大きい画像はメッセージ本文に配置されません。まだ取り付け可能です。 1から50まで。
+
+admin-settings-help-compose-layout-default-font = 新しいメッセージのフォント ファミリ、サイズ、色は family|size|#colour で始まります。 Empty はテーマ フォントを使用します。
+
+admin-settings-help-compose-reply-to-allow-override = オフの場合、アイデンティティの返信先がそのまま使用され、ユーザーは編集または削除できません。
+
+admin-settings-help-compose-reply-to-show = 作成者が Reply-To 行を表示するかどうか: ID または元のメッセージに Reply-To 行がある場合のみ、常に表示する、または表示しない。
+
+admin-settings-help-compose-sent-folder-fixed-id = ルールが「固定フォルダー」の場合に使用されるフォルダーの役割または ID。
+
+admin-settings-help-compose-sent-folder-mode = 送信されたメッセージのコピーの保存場所: 通常の送信フォルダー、1 つの固定フォルダー、受信者ドメインごと、ID ごと、または件名ルールごと。
+
+admin-settings-help-compose-sent-folder-per-identity = 1 行に 1 つの ID=フォルダー ペア。ルールが「ID による」場合に使用されます。
+
+admin-settings-help-compose-sent-folder-rules = 1 行に 1 つのルール、domain:example.com= フォルダーまたは subject:text= フォルダー。最初の試合が勝ちます。
+
+admin-settings-help-compose-sent-folder-skip-copy = 送信したメッセージのコピーは絶対に保管しないでください。管理者はこれを強制的にオンまたはオフにすることができます。
+
+admin-settings-help-compose-styles-custom = ユーザー自身の作曲家スタイルは、スタイル ギャラリーによって作成された JSON となります。ユーザーが設定します。ここでは設定するものは何もありません。
+
+admin-settings-help-compose-styles-default-set = 作曲家のスタイル ギャラリーの外観: デフォルト、モダン、クラシック、またはコンパクト。
+
+admin-settings-help-compose-styles-max-custom = ユーザーがコンポーザーに保持できるほとんどのカスタム スタイル。 0 はスタイルの作成をオフにします。
+
+admin-settings-help-contacts-save-from-message-add-note = メッセージから保存された連絡先に「<日付> のメッセージから保存されました」というメモを追加します。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-contacts-save-from-message-default-book = メッセージから保存された連絡先を受け取るアドレス帳 ID。 「default」はデフォルトのアドレス帳を使用します。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-contacts-save-from-message-default-scope = [連絡先の保存] ダイアログで最初にチェックされる参加者は、送信者のみ、送信者と返信先、または全員です。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-contacts-save-from-message-enabled = オファー このメッセージの連絡先をメッセージ メニューに保存します。オフの場合、項目は非表示になります。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-contacts-save-from-message-skip-automated = 手動でチェックを入れない限り、非返信アドレス、通知アドレス、およびバウンス アドレスを [連絡先の保存] ダイアログから除外したままにしておきます。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-contacts-save-sender-enabled = ワンクリックで送信者を連絡先アイテムとして保存する機能をメッセージ メニューに提供します。オフの場合、項目は非表示になります。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-contacts-save-sender-use-reply-to = 送信者がメーリング リストまたは通知アドレスである場合は、From ではなく Reply-To アドレスを保存します。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-dsr-admin-step-up = オン (デフォルト): データ要求の承認、消去の実行、または一括承認を行う管理者は、まず自分であることを再度確認する必要があります (パスワードと第 2 要素、またはパスキー)。確認には 5 分間かかります。オフにすると、余分なチェックが削除されます。決定は依然としてリクエスト証跡に記録されます。
+
+admin-settings-help-export-default-format = エクスポートダイアログの開始形式。
+
+admin-settings-help-export-default-scope = エクスポート ダイアログの開始範囲: メッセージ、会話、選択範囲、またはフォルダー。
+
+admin-settings-help-export-dialog-enabled = メッセージ ビューでエクスポートすると、メッセージ メニューが適切な場所にダイアログを開きます。オフの場合、これらのメニューは 1 つのメッセージを .eml としてダウンロードします。
+
+admin-settings-help-export-folder-enabled = ユーザーがフォルダー全体をメッセージの ZIP としてダウンロードできるようにします。各エクスポートは監査されます。
+
+admin-settings-help-export-folder-format = フォルダー エクスポートが提供する形式: .eml ファイルの ZIP、mbox ファイルを保持する ZIP、またはその両方。
+
+admin-settings-help-export-folder-include-subfolders = フォルダーのエクスポートにデフォルトでサブフォルダーが含まれるかどうか。これは、ZIP にフォルダー構造として保持されます。
+
+admin-settings-help-export-folder-max-bytes = 1 つのフォルダーにエクスポートできるメッセージの最大バイト数。表示されているサイズより大きなフォルダーは拒否されます。
+
+admin-settings-help-export-folder-max-messages = 1 つのフォルダーにエクスポートできるメッセージの最大数。
+
+admin-settings-help-export-formats = エクスポート ダイアログが提供する形式: eml、mbox、txt、md、msg、docx、csv、json、pdf。サーバーは、リストされたサーバー構築フォーマットを拒否します。
+
+admin-settings-help-export-message-download-enabled = ユーザーがメッセージを .eml、ヘッダーのみ、または mbox ファイルとしてダウンロードできるようにします。
+
+admin-settings-help-folders-hide-empty = サイドバーの空のフォルダーを非表示にします。この設定がロックされていない限り、ユーザーはデフォルトを変更したり、個々のフォルダーに対してデフォルトを上書きしたりできます。メールは削除されません。
+
+admin-settings-help-folders-pinned-hide-from-tree = ピン留めされたフォルダーは、フォルダー ツリーの上のピン留めされたグループに表示され、ツリー内の場所も維持されます。 [オン] にすると、サブフォルダーを持たない固定フォルダーがツリーから非表示になり、固定グループにのみ表示されます。サブフォルダーを含む固定フォルダーはツリー内に残ります。
+
+admin-settings-help-mail-badge-auth = リーダーのヘッダーに DMARC 認証バッジが表示される場合: 常に、注目に値する場合のみ、またはまったく表示されません。
+
+admin-settings-help-mail-badge-density = リーダーヘッダーのバッジのサイズ: コンパクトまたは快適。
+
+admin-settings-help-mail-badge-folder = リーダーのヘッダーにフォルダー バッジが表示される場合: 常に、注目に値する場合のみ、またはまったく表示されません。
+
+admin-settings-help-mail-badge-headers = メッセージの Expires、Reply-By、Sensitivity、および Supersedes ヘッダーのバッジをリーダーに表示します。
+
+admin-settings-help-mail-badge-labels = リーダーのヘッダー バッジにテキスト付きのアイコンが表示されるか、アイコンのみが表示されるか。
+
+admin-settings-help-mail-badge-list = リーダーのヘッダーにメーリング リストのバッジが表示される場合: 常に、注目に値する場合のみ、またはまったく表示されません。 List-Id または List-Unsubscribe ヘッダーが必要です。
+
+admin-settings-help-mail-badge-sanitized = リーダーのヘッダーにサニタイズされた HTML バッジが表示される場合: 常に、注目に値する場合のみ、またはまったく表示されません。
+
+admin-settings-help-mail-badge-spam = リーダーのヘッダーにスパム スコア バッジが表示される場合: 常に、注目に値する場合のみ、またはまったく表示されません。
+
+admin-settings-help-mail-brand-avatars-require-auth = Never: ドメインが一致するたびにロゴを表示します。 known-failure (デフォルト): キャッシュされたメッセージの DKIM または DMARC の結果が失敗でない限り、それを表示します。チェックされていないメッセージはロゴを保持します。常に: ブランド独自のドメインの DKIM と調整された DMARC パスの後にのみ表示します。ユーザーとドメインの上書きはロックできます。
+
+admin-settings-help-mail-compose-header-auto-collapse-seconds = 完全な受信者と件名のヘッダーがその概要に折りたたまれる前に、本文がフォーカスを保持しなければならない秒数。時間制限付きフォールディングを無効にする場合は 0、または 1 ～ 60 秒を選択します。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-mail-compose-priority-default = コンポーザー内で新しいメッセージが開始される優先順位。
+
+admin-settings-help-mail-compose-priority-enabled = 「composer Options」グループに「Normal」、「High」、「Low」の優先度セレクターを表示します。オフの場合、新しいメールは優先ヘッダーなしで送信されます。
+
+admin-settings-help-mail-expiry-hide-expired = 有効期限が過ぎたメッセージをどうするか: 何もしない、淡色表示する、またはアーカイブすることを提案します。
+
+admin-settings-help-mail-list-keep = 送信者とメーリング リストは、sender:address または list:List-Id として 1 行に 1 つずつ常に保持されます。この送信者をクリーンアップし、購読を解除する提案と、保持ルールによってスキップされます。
+
+admin-settings-help-mail-list-page-size = ユーザーが最後までスクロールするたびにリストが取得するメッセージの数。デフォルトは 50、20 ～ 200 です。これをロックしない限り、ユーザーは独自の値を選択します。
+
+admin-settings-help-mail-list-unsubscribe-mode = リストでワンクリックリクエストが提供されている場合の購読解除の仕組み: 最初に質問するか、すぐに送信するか、リストのリンクまたは下書きのみを開きます。
+
+admin-settings-help-mail-message-list-group = 受信または送信した日付、送信者、件名、重要性、サイズごとに会話をグループ化します。ロックされていない限り、ユーザーはこれをオーバーライドできます。
+
+admin-settings-help-mail-priority-marks = メッセージ リスト、会話、リーダー ショーにマークを付ける優先度 (高と低の両方、高のみ、またはなし)。ロックされていない限り、ユーザーは [設定] > [フォルダとサイドバー] で選択します。
+
+admin-settings-help-mail-priority-marks-style = 優先度マークの外観: アイコン、「高」または「低」という単語が表示されたアイコン、または細いバー。アイコンとテキストは色がなくても意味を保ちます。
+
+admin-settings-help-mail-priority-send-headers = 優先度の高いメッセージまたは低いメッセージが送信時に取得されるヘッダー: Importance、X-Priority、および X-MSMail-Priority のいずれか。
+
+admin-settings-help-mail-priority-trust-sender-headers = 送信者が設定した優先順位が表示されるかどうか: 常に、メッセージが整列された DMARC チェックに合格した場合のみ、またはまったく表示されません。すべてのメッセージに高優先度のマークを付ける送信者に対しては、trusted または Never を使用します。
+
+admin-settings-help-mail-reply-from-header-priority = メッセージ ヘッダーは、応答の ID を選択するときにメッセージの送信先アドレスを見つけるためにこの順序で読み取られます。名前: Delivered-To、X-Original-To、Envelope-To、X-Forwarded-To、Resent-To、To、Cc。省略されたヘッダーは読み込まれません。
+
+admin-settings-help-mail-search-default-scope = 現在のフォルダーまたはすべてのフォルダーで新しい通常のメール検索を開始します。これは、ロック時を含む初期デフォルトを制御します。ユーザーは、特定の検索に対して別の範囲を選択することもできます。保存され、明示的にスコープが設定されたクエリは保持されます。
+
+admin-settings-help-metrics-dimensions-enabled = 保存された統計をクライアントの種類 (Web) とデバイス クラス (デスクトップ、モバイル) ごとに分割して保存します。オフにすると、メトリックおよび分ごとに 1 つの結合された行が保存されます。
+
+admin-settings-help-metrics-persist-enabled = フラッシュ間隔ごと、およびサーバーの停止時にパフォーマンス統計 (イメージ プロキシ速度、ブラウザーの読み込み時間、レート制限およびリクエスト保護数) をデータベースに保存します。これにより、再起動後もグラフの履歴が保持されます。個人、住所、メッセージを特定するものは何もありません。メモリ内にのみ保存するにはオフにします。
+
+admin-settings-help-metrics-persist-flush-seconds = パフォーマンス統計がデータベースに書き込まれる頻度 (5 ～ 3600 秒)。警告なしにサーバーが強制終了された場合、最大でもこれだけの損失が発生します。
+
+admin-settings-help-observability-client-capture-console = また、console.error 呼び出しも、1 ページあたり最大 5 回ずつ報告します。ライブラリは予期される条件をログに記録するため、デフォルトではオフになっています。
+
+admin-settings-help-observability-client-capture-csp = ブラウザーが検出した Content-Security-Policy 違反を、ブロックされたディレクティブとオリジンのみを使用して報告します。デフォルトではオンです。
+
+admin-settings-help-observability-client-enabled = [オブザーバビリティ] > [クライアント エラー] に表示される、スクラブされたスタック トレースを使用して、Web アプリからエラー レポート (エラー境界、捕捉されなかったエラー、失敗したチャンク、ワーカー エラー、CSP 違反) を収集します。デフォルトではオンです。レポートには、メッセージの内容、アドレス、トークン、添付ファイル名、または URL クエリは含まれません。収集を停止するにはオフにします。既存のレポートは保持期間とともに期限切れになります。
+
+admin-settings-help-observability-client-forward = また、スクラブされた各レポートを、MW_ERROR_FORWARD_URL で構成されたエラー シンクに送信します。デフォルトではオフです。シンクが構成されていない場合、何も送信されません。
+
+admin-settings-help-observability-client-include-account-hash = サインイン セッションから送信されるレポートにアカウントのキー付き一方向ハッシュを追加すると、名前を付けなくても 1 つのアカウントからのレポートを区別できます。デフォルトではオフです。プライバシー キーがローテーションされると、ハッシュが変化します。
+
+admin-settings-help-observability-client-max-per-session = ほとんどのエラー レポートは 1 ページの読み込みで送信される可能性があります (1 ～ 1000)。 60 秒以内に同じエラーが繰り返された場合は 1 回カウントされます。デフォルトは 20。
+
+admin-settings-help-observability-client-sample-rate = ブラウザが送信するエラー レポートの割合 (0 ～ 1)。デフォルトは 1 (すべて)。各ページの読み込みは依然としてセッションあたりの制限で停止します。
+
+admin-settings-help-observability-client-source-maps = ビルドが非表示のソース マップ (MW_SOURCEMAP=hidden でビルド) を出荷したときに、スタック トレース内のバンドルの位置をソース ファイルに解決します。マップはサーバーによってのみ読み取られ、ブラウザーには決して提供されません。デフォルトではオンです。マップがなければ生のフレームが表示されます。
+
+admin-settings-help-privacy-error-reports = アプリの一部が失敗したときにブラウザがエラー レポートを送信するかどうか。デフォルトではオンです。グローバル、ドメイン、およびユーザーのスコープ: ここでデフォルトを設定するか、ロックします。ロックされていない限り、[設定] > [プライバシー] で自分でオフにできます。
+
+admin-settings-help-privacy-image-cache-max-stale-secs = キャッシュされた画像は、その鮮度を数秒経過しても、オリジンに到達できない場合に応答し続けます。再検証ウィンドウを下回らないようにしてください。範囲は 0 ～ 604800。デフォルトは86400です。
+
+admin-settings-help-privacy-image-cache-stale-secs = キャッシュされた画像は、その鮮度を数秒経過しても、バックグラウンドで再検証されている間、同時に提供されます。ゼロはそれをオフにします。範囲は 0 ～ 86400。デフォルトは 3600。
+
+admin-settings-help-privacy-image-resize-enabled = 特大のリモート画像をリーダーが要求する幅 (320、640、960、1280、または 1600 ピクセル) まで縮小します。アニメーション画像はスケールなしで提供されます。デフォルトではオフです。
+
+admin-settings-help-privacy-image-resize-format = ビルド内で最適なエンコーダー (PNG) が自動的に選択されます。デフォルトの自動。
+
+admin-settings-help-privacy-image-resize-max-pixels = これより多くのデコードされたピクセルを含む画像は、拡大縮小されずに提供されます。サイズはデコードの前にヘッダーから読み取られます。範囲は 100000 ～ 64000000。デフォルトは4000000です。
+
+admin-settings-help-privacy-image-resize-max-width = サイズ変更によって生成される最も幅の広い画像。範囲 320 ～ 1600。デフォルトは1600です。
+
+admin-settings-help-privacy-sessions-show-linked-origin = [設定] > [セキュリティ] > [セッション] で、リンク メールボックス アクセス セッションの元のアカウントに名前を付ける方法 (完全なアドレス、名前の最初の部分がマスクされたアドレス、または何も指定しない)。値はセッションの所有者にのみ表示され、他のユーザーには表示されません。デフォルト: 完全なアドレス。
+
+admin-settings-help-properties-folder-enabled = フォルダー メニューとショートカットでプロパティを提供します。オフの場合、ダイアログは使用できません。
+
+admin-settings-help-properties-folder-notes-enabled = 各フォルダーに説明やメモを追加できます。
+
+admin-settings-help-properties-folder-notes-max-length = フォルダーメモに保持できる最大文字数。
+
+admin-settings-help-properties-folder-overrides-allowed = ユーザーが単一のフォルダーに対してオーバーライドできる設定。リストされていないオーバーライドは非表示になり、保存された値は無視されます。
+
+admin-settings-help-properties-folder-sections = フォルダーのプロパティ ダイアログのセクション: 一般、リモート、サイズ、オフライン、オーバーライド、メモ、アクション。リストにないセクションは非表示になります。
+
+admin-settings-help-properties-folder-size-compute = サーバー上のフォルダーのサイズが判明したとき: ダイアログが開いたとき、またはバックグラウンドで、決して実行されません。大きなメールボックスをカウントすると、サーバーのスキャンにコストがかかります。
+
+admin-settings-help-properties-headers-raw = メッセージのプロパティ ダイアログに生のヘッダーを一覧表示できるようにします。オフの場合、解析された概要のみが表示されます。
+
+admin-settings-help-properties-message-enabled = メッセージ メニューとショートカットでプロパティを提供します。オフの場合、ダイアログは使用できません。
+
+admin-settings-help-properties-message-permanent-delete = メッセージ ダイアログでメッセージを永久に削除できるかどうか: 許可、2 回確認、または拒否。訴訟ホールド中のメッセージは決して削除されません。この方法で削除すると元に戻すことはできません。
+
+admin-settings-help-properties-message-sections = メッセージのプロパティ ダイアログのセクション: 概要、スコアリング、ヘッダー、添付ファイル、アクション。リストにないセクションは非表示になります。
+
+admin-settings-help-properties-offline-clear-enabled = ユーザーが [プロパティ] ダイアログから単一フォルダーのオフライン キャッシュをクリアできるようにします。
+
+admin-settings-help-properties-remote-location-visibility = ユーザーに表示されるサーバー側の場所の範囲: 完全 (ホストとパス)、マスクされたホスト (ホストの一部が非表示)、パスのみ (ホストのないメールボックス パス)、または非表示。
+
+admin-settings-help-properties-scoring-show = メッセージのプロパティ ダイアログにスパム スコア、認証結果、セキュリティ シグナルを表示します。
+
+admin-settings-help-properties-shortcut-enabled = キーボードから、フォーカスされたフォルダーまたは選択したメッセージの [プロパティ] ダイアログを開きます。
+
+admin-settings-help-properties-shortcut-key = プロパティを開くキーの組み合わせ。デフォルトでは Alt+Enter です。
+
+admin-settings-help-reader-actions-archive = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-block-sender = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-colors = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-conversation = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-create-filter = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-delete = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-delete-sender = デフォルトでは非表示になっています。送信者削除機能と機能プロファイルで許可されている場合は、ツールバーまたは [その他] メニューを選択して有効にします。ロックされていない限り、ユーザーは配置をオーバーライドできます。
+
+admin-settings-help-reader-actions-edit-draft = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-export = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-finish-followup = フラグ付きメッセージやフォローアップ リマインダーを完了するには、ツールバー、[その他] メニュー、または非表示を選択します。
+
+admin-settings-help-reader-actions-flag = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-focus-focused = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-focus-other = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-forward = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-headers = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-links = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-move = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-not-spam = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-open-draft = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-pin = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-print = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-properties = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-read = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-reply = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-reply-all = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-save-contacts = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-save-sender = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-search = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-security = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-spam = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-sweep = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-view-source = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-reader-actions-zoom = ツールバー、その他メニュー、または非表示を選択します。機能制限、権限、メッセージ コンテキストは引き続き適用されます。これがロックされていない限り、ユーザーは選択できます。
+
+admin-settings-help-retention-client-errors-event-days = 個々のブラウザ エラーの発生 (スタック トレースとブラウザ クラス) が保持される日数。デフォルトは 30 です。グループはより長く保持されます。次の設定を参照してください。
+
+admin-settings-help-retention-client-errors-group-days = ブラウザー エラー グループ (名前、メッセージ、カウント) が最後に確認されてから保持される日数。デフォルトは 180 です。オカレンス保持期間よりも短くすることはできません。
+
+admin-settings-help-retention-metrics-day-buckets-days = 毎日のパフォーマンス統計が削除されるまでに保持される日数。 0 を指定すると、それらが無制限に保持されるため、サーバーが実行されている間、テーブルはゆっくりと成長します。
+
+admin-settings-help-retention-metrics-hour-buckets-days = 日次行 (少なくとも 1 つ) にマージされる前に保持される時間ごとのパフォーマンス統計の日数。
+
+admin-settings-help-retention-metrics-minute-buckets-hours = 時間ごとの行 (少なくとも 1 つ) にマージされる前に保持される 1 分間のパフォーマンス統計の時間。
+
+admin-settings-help-retention-user-allow-strip-attachments = ユーザーが古いメールから大きな添付ファイルを削除するルールを作成できるかどうか。デフォルトではオフです。オフの場合、アクションはルール エディターで非表示になり、それを使用するルールは保存時に拒否され、以前に保存されたルールはジョブの実行時にスキップされます。
+
+admin-settings-help-retention-user-calendar-enabled = 終了から設定された日数後にイベントが削除されるカレンダーをユーザーが選択できるかどうか。デフォルトではオフです。オフの場合、オプションは設定で非表示になり、選択内容は保存時に拒否され、以前に保存された選択内容は実行されません。
+
+admin-settings-help-retention-user-calendar-max-days = 終了したイベントが削除されるまで、ユーザーはほとんどの日を待つことになります。より大きな値は保存時に拒否され、実行時に値が低くなります。
+
+admin-settings-help-retention-user-calendar-min-days = イベント終了後、ユーザー ルールによってイベントが削除されるまでの最短日数。より小さい値は保存時に拒否され、実行時に値が上げられます。
+
+admin-settings-help-retention-user-notes-enabled = 設定した日数変更されなかったメモをユーザーが削除できるかどうか。デフォルトではオフです。削除されたメモは、保持ルールの元に戻すウィンドウが終了するまで復元できます。
+
+admin-settings-help-retention-user-notes-max-days = ユーザーは、ほとんどの場合、手付かずのメモが削除されるまで待つことになります。より大きな値は保存時に拒否され、実行時に値が低くなります。
+
+admin-settings-help-retention-user-notes-min-days = ユーザー ルールによってメモが削除される前に、メモが何日も放置されていなければなりません。より小さい値は保存時に拒否され、実行時に値が上げられます。
+
+admin-settings-help-retention-user-strip-keep-inline-images = 添付ファイルが削除されたときに、メッセージ本文内に表示される画像が保持されるかどうか。
+
+admin-settings-help-retention-user-strip-min-age-days = ルールによって添付ファイルが削除される前に、メッセージが経過してから最短の日数が経過する必要があります。小さい値はルールの保存時に拒否され、実行時に発生します。
+
+admin-settings-help-retention-user-strip-min-attachment-kb = 少なくともこのサイズの添付ファイルのみが削除されます。小さい添付ファイルはメッセージと一緒に残ります。
+
+admin-settings-help-retention-user-strip-undo-days = 添付ファイルが削除された後、元のメッセージがゴミ箱に残る日数。 -1 は、保持ルールの元に戻すウィンドウに従います。 0 はオリジナルを一括削除します。
+
+admin-settings-help-server-shutdown-grace-seconds = 停止しているサーバーが接続を閉じるまでに、実行中のリクエストを終了させる時間 (秒単位)。 MW_HTTP_SHUTDOWN_TIMEOUT_MS 変数はこれをオーバーライドします。次回起動時から適用されます。
+
+admin-settings-help-session-last-activity-flush-seconds = セッションの最後に表示された時刻は、最大でもこの頻度 (秒単位) で書き込まれます。 Zero はリクエストごとにそれを書き込みます。アイドル制限または絶対制限は変更されません。次回起動時から適用されます。
+
+admin-settings-help-session-persist-across-restarts = オンにすると、メールボックス、アプリ、およびコンソールのセッションはサーバーの再起動後も有効なままになります。オフの場合、サーバーの起動時にすべてのセッションが終了します。次回起動時から適用されます。
+
+admin-settings-key-attachments-bar-click-to-toggle = 添付ファイルバーをクリックして切り替えます
+
+admin-settings-key-attachments-bar-download-all = 「すべてダウンロード」ボタン
+
+admin-settings-key-attachments-bar-show-download-buttons = 添付ファイルのダウンロードボタン
+
+admin-settings-key-attachments-bar-zip-inline-images = すべてダウンロード ZIP のインライン画像
+
+admin-settings-key-cap-reading-delete-sender = 送信者からのすべてのメールの削除を許可する
+
+admin-settings-key-compose-feature-family = 作曲家の特徴
+
+admin-settings-key-compose-headers-allow-auto-submitted = 自動送信を許可する
+
+admin-settings-key-compose-headers-allow-custom = カスタムヘッダーを許可する
+
+admin-settings-key-compose-headers-allow-return-receipt-to = 返送先の受信を許可する
+
+admin-settings-key-compose-headers-allow-threading-edit = スレッドヘッダーの編集を許可する
+
+admin-settings-key-compose-headers-forced = 強制ヘッダー
+
+admin-settings-key-compose-insert-image-resize-default = 画像サイズのプリセット
+
+admin-settings-key-compose-insert-max-inline-image-mb = 最大のインライン画像 (MB)
+
+admin-settings-key-compose-layout-default-font = デフォルトのメッセージフォント
+
+admin-settings-key-compose-reply-to-allow-override = 返信先の変更を許可する
+
+admin-settings-key-compose-reply-to-show = 返信先行
+
+admin-settings-key-compose-sent-folder-fixed-id = 送信コピー：固定フォルダー
+
+admin-settings-key-compose-sent-folder-mode = 送信済みコピー: フォルダー ルール
+
+admin-settings-key-compose-sent-folder-per-identity = 送信済みコピー: ID ごとのフォルダー
+
+admin-settings-key-compose-sent-folder-rules = 送信済みコピー: ルール
+
+admin-settings-key-compose-sent-folder-skip-copy = 送信済みコピー: 保存しないでください
+
+admin-settings-key-compose-styles-custom = カスタムスタイル
+
+admin-settings-key-compose-styles-default-set = スタイルセット
+
+admin-settings-key-compose-styles-max-custom = ユーザーごとのカスタムスタイル
+
+admin-settings-key-contacts-save-from-message-add-note = メッセージから保存された連絡先に関する注意事項
+
+admin-settings-key-contacts-save-from-message-default-book = メッセージから保存された連絡先のアドレス帳
+
+admin-settings-key-contacts-save-from-message-default-scope = メッセージから保存するときに最初にチェックマークが付けられる連絡先
+
+admin-settings-key-contacts-save-from-message-enabled = メッセージから連絡先を保存する
+
+admin-settings-key-contacts-save-from-message-skip-automated = 連絡先を保存するときに自動送信者をスキップする
+
+admin-settings-key-contacts-save-sender-enabled = 送信者を連絡先として保存
+
+admin-settings-key-contacts-save-sender-use-reply-to = リスト送信者の返信先を保存する
+
+admin-settings-key-dsr-admin-step-up = 承認する前にもう一度確認してください
+
+admin-settings-key-export-default-format = エクスポートダイアログのデフォルト形式
+
+admin-settings-key-export-default-scope = エクスポートダイアログのデフォルトスコープ
+
+admin-settings-key-export-dialog-enabled = エクスポートダイアログ
+
+admin-settings-key-export-folder-enabled = フォルダーのエクスポート
+
+admin-settings-key-export-folder-format = フォルダーのエクスポート形式
+
+admin-settings-key-export-folder-include-subfolders = エクスポートにサブフォルダーを含める
+
+admin-settings-key-export-folder-max-bytes = フォルダーのエクスポート サイズ制限
+
+admin-settings-key-export-folder-max-messages = フォルダーエクスポートメッセージの制限
+
+admin-settings-key-export-formats = ダイアログ形式のエクスポート
+
+admin-settings-key-export-message-download-enabled = メッセージのダウンロード
+
+admin-settings-key-folders-hide-empty = 空のフォルダーを非表示にする
+
+admin-settings-key-folders-pinned-hide-from-tree = 固定されたフォルダーをツリーから非表示にする
+
+admin-settings-key-mail-badge-auth = 認証バッジ
+
+admin-settings-key-mail-badge-density = リーダーバッジのサイズ
+
+admin-settings-key-mail-badge-folder = フォルダーバッジ
+
+admin-settings-key-mail-badge-headers = ヘッダーバッジ
+
+admin-settings-key-mail-badge-labels = 読者バッジのラベル
+
+admin-settings-key-mail-badge-list = メーリングリストのバッジ
+
+admin-settings-key-mail-badge-sanitized = サニタイズ済みの HTML バッジ
+
+admin-settings-key-mail-badge-spam = スパムスコアバッジ
+
+admin-settings-key-mail-brand-avatars-require-auth = ブランドロゴには認証が必要です
+
+admin-settings-key-mail-compose-header-auto-collapse-seconds = Composer ヘッダーの自動折りたたみ遅延
+
+admin-settings-key-mail-compose-priority-default = デフォルトのメッセージ優先度
+
+admin-settings-key-mail-compose-priority-enabled = Composer の優先順位セレクター
+
+admin-settings-key-mail-expiry-hide-expired = 期限切れのメッセージ
+
+admin-settings-key-mail-list-keep = 常に保管してください
+
+admin-settings-key-mail-list-page-size = メッセージリストのページサイズ
+
+admin-settings-key-mail-list-unsubscribe-mode = メーリングリストの購読を解除する
+
+admin-settings-key-mail-message-list-group = メッセージのグループ化
+
+admin-settings-key-mail-priority-marks = 優先マーク
+
+admin-settings-key-mail-priority-marks-style = 優先マークのスタイル
+
+admin-settings-key-mail-priority-send-headers = 送信時に書き込まれる優先ヘッダー
+
+admin-settings-key-mail-priority-trust-sender-headers = 送信者が設定した優先順位を信頼する
+
+admin-settings-key-mail-reply-from-header-priority = 応答 ID を選択するヘッダー
+
+admin-settings-key-mail-search-default-scope = デフォルトのメール検索範囲
+
+admin-settings-key-metrics-dimensions-enabled = 統計をクライアントの種類とデバイスクラスごとに分割する
+
+admin-settings-key-metrics-persist-enabled = 再起動後も統計を保持する
+
+admin-settings-key-metrics-persist-flush-seconds = 統計情報の保存間隔（秒）
+
+admin-settings-key-observability-client-capture-console = コンソールエラーを報告する
+
+admin-settings-key-observability-client-capture-csp = CSP 違反を報告する
+
+admin-settings-key-observability-client-enabled = ブラウザエラーレポート
+
+admin-settings-key-observability-client-forward = 転送エラーレポート
+
+admin-settings-key-observability-client-include-account-hash = エラーレポートにアカウントハッシュを追加
+
+admin-settings-key-observability-client-max-per-session = ページ読み込みごとのエラーレポート
+
+admin-settings-key-observability-client-sample-rate = エラーレポートのサンプルレート
+
+admin-settings-key-observability-client-source-maps = ソースマップを使用してスタックトレースを解決する
+
+admin-settings-key-privacy-error-reports = エラーレポートを送信する
+
+admin-settings-key-privacy-image-cache-max-stale-secs = オリジンに障害が発生した場合に古いままにする (秒)
+
+admin-settings-key-privacy-image-cache-stale-secs = 再検証中に古いものを提供する (秒)
+
+admin-settings-key-privacy-image-resize-enabled = 大きな画像のサイズを変更する
+
+admin-settings-key-privacy-image-resize-format = サイズ変更された画像フォーマット
+
+admin-settings-key-privacy-image-resize-max-pixels = サイズ変更する最大の画像 (ピクセル)
+
+admin-settings-key-privacy-image-resize-max-width = サイズ変更された画像の最大幅 (ピクセル)
+
+admin-settings-key-privacy-sessions-show-linked-origin = セッション内のリンクされたメールボックス起点
+
+admin-settings-key-properties-folder-enabled = フォルダーのプロパティダイアログ
+
+admin-settings-key-properties-folder-notes-enabled = フォルダーのメモ
+
+admin-settings-key-properties-folder-notes-max-length = フォルダーノートの長さ
+
+admin-settings-key-properties-folder-overrides-allowed = フォルダーごとの上書きが許可される
+
+admin-settings-key-properties-folder-sections = フォルダーダイアログのセクション
+
+admin-settings-key-properties-folder-size-compute = フォルダーサイズの計算
+
+admin-settings-key-properties-headers-raw = 生のヘッダー
+
+admin-settings-key-properties-message-enabled = メッセージプロパティダイアログ
+
+admin-settings-key-properties-message-permanent-delete = プロパティから完全に削除
+
+admin-settings-key-properties-message-sections = メッセージダイアログのセクション
+
+admin-settings-key-properties-offline-clear-enabled = フォルダーごとのオフライン キャッシュをクリアする
+
+admin-settings-key-properties-remote-location-visibility = 遠隔地の詳細
+
+admin-settings-key-properties-scoring-show = スコアリングと認証の詳細
+
+admin-settings-key-properties-shortcut-enabled = プロパティのショートカット
+
+admin-settings-key-properties-shortcut-key = プロパティのショートカットキー
+
+admin-settings-key-reader-actions-archive = アーカイブアクションの配置
+
+admin-settings-key-reader-actions-block-sender = 送信者アクションの配置をブロックする
+
+admin-settings-key-reader-actions-colors = メッセージカラーアクションの配置
+
+admin-settings-key-reader-actions-conversation = 会話アクションの配置を表示する
+
+admin-settings-key-reader-actions-create-filter = フィルターアクションの配置を作成する
+
+admin-settings-key-reader-actions-delete = アクションの配置を削除する
+
+admin-settings-key-reader-actions-delete-sender = 送信者からすべてのメッセージを削除するアクション
+
+admin-settings-key-reader-actions-edit-draft = ドラフトアクションの配置を編集する
+
+admin-settings-key-reader-actions-export = アクションの配置をエクスポート
+
+admin-settings-key-reader-actions-finish-followup = フォローアップを完了したアクションとしてマークする
+
+admin-settings-key-reader-actions-flag = フラグ/フラグ解除アクションの配置
+
+admin-settings-key-reader-actions-focus-focused = 集中的なアクションの配置に移動
+
+admin-settings-key-reader-actions-focus-other = 他のアクションの配置に移動
+
+admin-settings-key-reader-actions-forward = フォワードアクションの配置
+
+admin-settings-key-reader-actions-headers = 生のヘッダーアクションの配置
+
+admin-settings-key-reader-actions-links = リンクアクションの配置を確認する
+
+admin-settings-key-reader-actions-move = アクションの配置を移動する
+
+admin-settings-key-reader-actions-not-spam = スパムアクションの配置ではありません
+
+admin-settings-key-reader-actions-open-draft = 返信の下書きアクションの配置を開く
+
+admin-settings-key-reader-actions-pin = ピン留め/ピン留め解除アクションの配置
+
+admin-settings-key-reader-actions-print = 印刷アクションの配置
+
+admin-settings-key-reader-actions-properties = メッセージプロパティアクションの配置
+
+admin-settings-key-reader-actions-read = 既読/未読アクションの配置
+
+admin-settings-key-reader-actions-reply = 返信アクションの配置
+
+admin-settings-key-reader-actions-reply-all = すべてのアクションの配置を返信
+
+admin-settings-key-reader-actions-save-contacts = メッセージを保存する連絡先アクションの配置
+
+admin-settings-key-reader-actions-save-sender = 送信者アクションの配置を保存する
+
+admin-settings-key-reader-actions-search = 関連する検索アクションの配置
+
+admin-settings-key-reader-actions-security = セキュリティモードアクションの配置
+
+admin-settings-key-reader-actions-spam = スパムとしてマークするアクションの配置
+
+admin-settings-key-reader-actions-sweep = スイープセンダーアクションの配置
+
+admin-settings-key-reader-actions-view-source = メッセージソースアクションの配置を表示する
+
+admin-settings-key-reader-actions-zoom = ズームアクションの配置
+
+admin-settings-key-retention-client-errors-event-days = エラー発生の保持(日)
+
+admin-settings-key-retention-client-errors-group-days = エラーグループの保持数(日)
+
+admin-settings-key-retention-metrics-day-buckets-days = 保持される毎日の統計 (日)
+
+admin-settings-key-retention-metrics-hour-buckets-days = 保持される時間ごとの統計 (日)
+
+admin-settings-key-retention-metrics-minute-buckets-hours = 保持される分単位の統計 (時間)
+
+admin-settings-key-retention-user-allow-strip-attachments = ユーザーは古いメールから添付ファイルを削除できます
+
+admin-settings-key-retention-user-calendar-enabled = ユーザーは終了したカレンダーイベントを削除できます
+
+admin-settings-key-retention-user-calendar-max-days = 終了したイベントが削除されるほとんどの日前
+
+admin-settings-key-retention-user-calendar-min-days = 終了したイベントが削除されるまでの最短日数
+
+admin-settings-key-retention-user-notes-enabled = ユーザーは未変更のメモを削除できます
+
+admin-settings-key-retention-user-notes-max-days = 未変更のメモが削除されるまでのほとんどの日
+
+admin-settings-key-retention-user-notes-min-days = 未変更のメモが削除されるまでの最短日数
+
+admin-settings-key-retention-user-strip-keep-inline-images = インライン画像を保持する
+
+admin-settings-key-retention-user-strip-min-age-days = 添付ファイルが削除されるまでの最短日数
+
+admin-settings-key-retention-user-strip-min-attachment-kb = 削除された最小の添付ファイル (KB)
+
+admin-settings-key-retention-user-strip-undo-days = 添付ファイルを削除した後の元に戻すウィンドウ (日)
+
+admin-settings-key-server-shutdown-grace-seconds = シャットダウン猶予期間
+
+admin-settings-key-session-last-activity-flush-seconds = 最後に確認された書き込み間隔
+
+admin-settings-key-session-persist-across-restarts = 再起動後もセッションを維持する

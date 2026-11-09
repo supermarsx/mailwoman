@@ -1872,3 +1872,616 @@ admin-settings-key-ratelimit-anon-per-minute = طلبات الموافقة ال�
 admin-settings-help-ratelimit-anon-per-minute = عدد الطلبات في الدقيقة التي يستعيدها عنوان على مسارات موافقة ملفات تعريف الارتباط المجهولة. النطاق 1-600؛ الافتراضي 30.
 admin-settings-key-ratelimit-trusted-multiplier = حصة الحساب من مصدر معروف (%)
 admin-settings-help-ratelimit-trusted-multiplier = النسبة المئوية من حصة طلبات الحساب التي يحصل عليها صندوق بريد مسجَّل الدخول عندما يأتي الطلب من مصدر له تسجيل دخول ناجح مسجَّل. 100 تُبقي الحصة الأساسية. لا يخفف أبدًا ميزانيات المجهولين أو المسؤولين أو User-Agent ولا أي حظر نشط. النطاق 100-1000؛ الافتراضي 150.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-attachments-bar-click-to-toggle = ما إذا كان النقر في أي مكان على شريط مرفقات القارئ يؤدي إلى توسيعه أو طيه. عند إيقاف التشغيل، يعمل زر السهم فقط.
+
+admin-settings-help-attachments-bar-download-all = ما إذا كان شريط المرفقات يوفر زر تنزيل الكل الذي يحفظ المرفقات المسموح بها كملف ZIP واحد.
+
+admin-settings-help-attachments-bar-show-download-buttons = عندما يظهر كل مرفق في الشريط زر التنزيل الخاص به: عند التمرير أو التركيز (افتراضي)، أو دائمًا، أو أبدًا. لا تزال التنزيلات تتبع سياسة المرفقات وmail.allowDownload.
+
+admin-settings-help-attachments-bar-zip-inline-images = ما إذا كانت الصور المعروضة داخل نص الرسالة مضمنة في تنزيل الكل ZIP. إيقاف بشكل افتراضي.
+
+admin-settings-help-cap-reading-delete-sender = السماح للمستخدمين بتمكين إجراء القارئ الذي ينقل جميع رسائل المرسل المطابقة إلى سلة المهملات بعد التأكيد. معطل افتراضيا. يجب أن يسمح ملف تعريف الميزة بذلك أيضًا.
+
+admin-settings-help-compose-feature-family = قم بتشغيل أو إيقاف تشغيل عنصر تحكم الملحن بواسطة معرف الميزة. الافتراضي على؛ قفله لمنع المستخدمين من تغييره.
+
+admin-settings-help-compose-headers-allow-auto-submitted = يتيح للمستخدمين تعيين الإرسال التلقائي (RFC 3834) على الرسالة. متوقف بشكل افتراضي: يخبر الأنظمة الأخرى بعدم الرد.
+
+admin-settings-help-compose-headers-allow-custom = يتيح للمستخدمين إضافة رؤوسهم الخاصة (ما يصل إلى 20، مع فحص الأسماء، ورفض الرؤوس المحمية).
+
+admin-settings-help-compose-headers-allow-return-receipt-to = يتيح للمستخدمين طلب الإيصالات باستخدام رأس Return-Receipt-To القديم. إيقاف بشكل افتراضي.
+
+admin-settings-help-compose-headers-allow-threading-edit = يتيح للمستخدمين تحرير الرد والمراجع، أو بدء سلسلة رسائل جديدة من الرد.
+
+admin-settings-help-compose-headers-forced = اسم واحد=زوج قيمة في كل سطر، تتم إضافته إلى كل رسالة مرسلة من المجال واستبدال قيمة المستخدم. تم رفض الرؤوس المحمية.
+
+admin-settings-help-compose-insert-image-resize-default = الحجم الذي يبدأ به مربع حوار صورة من ملف: أصلي، كبير (1600 بكسل) أو متوسط (1024 بكسل).
+
+admin-settings-help-compose-insert-max-inline-image-mb = لا يتم وضع الصور الأكبر من هذا في نص الرسالة؛ لا يزال من الممكن إرفاقها. 1 إلى 50.
+
+admin-settings-help-compose-layout-default-font = عائلة الخطوط والحجم واللون الذي تبدأ به الرسالة الجديدة، مثل العائلة|الحجم|#اللون. فارغ يستخدم خط السمة.
+
+admin-settings-help-compose-reply-to-allow-override = عند إيقاف التشغيل، يتم استخدام الرد الخاص بالهوية كما هو ولا يمكن للمستخدمين تعديله أو إزالته.
+
+admin-settings-help-compose-reply-to-show = ما إذا كان الملحن يعرض صف الرد على: فقط عندما تحتوي الهوية أو الرسالة الأصلية على هوية واحدة، أو دائمًا، أو أبدًا.
+
+admin-settings-help-compose-sent-folder-fixed-id = يتم استخدام دور المجلد أو المعرف عندما تكون القاعدة "مجلدًا ثابتًا".
+
+admin-settings-help-compose-sent-folder-mode = أين تذهب نسخة الرسالة المرسلة: المجلد المرسل العادي، أو مجلد ثابت واحد، أو حسب مجال المستلم، أو حسب الهوية، أو حسب قواعد الموضوع.
+
+admin-settings-help-compose-sent-folder-per-identity = هوية واحدة = زوج المجلدات في كل سطر. يتم استخدامها عندما تكون القاعدة "حسب الهوية".
+
+admin-settings-help-compose-sent-folder-rules = قاعدة واحدة في كل سطر، domain:example.com=مجلد أو subject:text=مجلد. المباراة الأولى تفوز.
+
+admin-settings-help-compose-sent-folder-skip-copy = لا تحتفظ أبدًا بنسخة من الرسالة المرسلة. يمكن للمسؤول فرض هذا أو إيقاف تشغيله.
+
+admin-settings-help-compose-styles-custom = أنماط الملحن الخاصة بالمستخدم مثل JSON، كتبها معرض الأنماط. قام المستخدمون بتعيينه؛ لا يوجد شيء لتكوينه هنا.
+
+admin-settings-help-compose-styles-default-set = مظهر معرض أنماط الملحن: افتراضي أو حديث أو كلاسيكي أو مضغوط.
+
+admin-settings-help-compose-styles-max-custom = معظم الأنماط المخصصة التي يمكن للمستخدم الاحتفاظ بها في الملحن. 0 يتحول إلى إيقاف إنشاء النمط.
+
+admin-settings-help-contacts-save-from-message-add-note = أضف الملاحظة "تم الحفظ من رسالة في <التاريخ>" إلى جهات الاتصال المحفوظة من الرسالة. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-contacts-save-from-message-default-book = معرف دفتر العناوين الذي يستقبل جهات الاتصال المحفوظة من الرسالة؛ يستخدم "الافتراضي" دفتر العناوين الافتراضي. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-contacts-save-from-message-default-scope = المشاركون الذين يتم تحديدهم أولاً في مربع حوار حفظ جهات الاتصال: المرسل فقط، أو المرسل والرد، أو الجميع. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-contacts-save-from-message-enabled = عرض حفظ جهات الاتصال من هذه الرسالة في قوائم الرسائل. عندما يتم إخفاء العنصر. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-contacts-save-from-message-skip-automated = اترك عناوين عدم الرد والإشعارات والارتداد خارج مربع حوار حفظ جهات الاتصال ما لم يتم تحديدها يدويًا. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-contacts-save-sender-enabled = عرض بنقرة واحدة حفظ المرسل كعنصر جهة اتصال في قوائم الرسائل. عندما يتم إخفاء العنصر. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-contacts-save-sender-use-reply-to = احفظ عنوان الرد على بدلاً من من عندما يكون المرسل عبارة عن قائمة بريدية أو عنوان إشعار. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-dsr-admin-step-up = تشغيل (افتراضي): يجب على المسؤول الذي يوافق على طلب بيانات، أو يقوم بعملية مسح، أو يوافق بشكل مجمّع، التأكد أولاً من هويته مرة أخرى (كلمة المرور والعامل الثاني، أو مفتاح المرور). يستمر التأكيد لمدة خمس دقائق. يقوم Off بإزالة علامة الاختيار الإضافية؛ لا يزال القرار مسجلاً في مسار الطلب.
+
+admin-settings-help-export-default-format = التنسيق الذي يبدأ به مربع حوار التصدير.
+
+admin-settings-help-export-default-scope = النطاق الذي يبدأ به مربع حوار التصدير: رسالة أو محادثة أو تحديد أو مجلد.
+
+admin-settings-help-export-dialog-enabled = قم بالتصدير في عرض الرسالة وستفتح قوائم الرسائل مربع حوار في مكانه. عند إيقاف التشغيل، تقوم هذه القوائم بتنزيل الرسالة الواحدة بتنسيق .eml.
+
+admin-settings-help-export-folder-enabled = السماح للمستخدمين بتنزيل مجلد كامل كـ ZIP من الرسائل. يتم تدقيق كل تصدير.
+
+admin-settings-help-export-folder-format = التنسيقات التي يقدمها تصدير المجلد: ZIP من ملفات .eml، أو ZIP يحمل ملف mbox، أو كليهما.
+
+admin-settings-help-export-folder-include-subfolders = ما إذا كان تصدير المجلد يتضمن مجلداته الفرعية افتراضيًا، أم لا، ويتم الاحتفاظ بها كبنية مجلد في ZIP.
+
+admin-settings-help-export-folder-max-bytes = أكبر عدد من وحدات البايت من الرسائل التي يمكن أن يحتويها تصدير مجلد واحد. يتم رفض مجلد أكبر بالحجم الموضح.
+
+admin-settings-help-export-folder-max-messages = معظم الرسائل التي قد يحملها تصدير مجلد واحد.
+
+admin-settings-help-export-formats = التنسيقات التي يقدمها مربع حوار التصدير: eml، mbox، txt، md، msg، docx، csv، json، pdf. يرفض الخادم التنسيق المدرج خارج الخادم.
+
+admin-settings-help-export-message-download-enabled = السماح للمستخدمين بتنزيل رسالة بتنسيق ‎.eml أو رؤوسها فقط أو كملف mbox.
+
+admin-settings-help-folders-hide-empty = إخفاء المجلدات الفارغة في الشريط الجانبي. يمكن للمستخدمين تغيير الإعداد الافتراضي أو تجاوزه للمجلدات الفردية ما لم يتم قفل هذا الإعداد. لا يتم حذف أي بريد.
+
+admin-settings-help-folders-pinned-hide-from-tree = تظهر المجلدات المثبتة في مجموعة مثبتة أعلى شجرة المجلدات وتحتفظ أيضًا بمكانها في الشجرة. تشغيل يخفي المجلد المثبت الذي لا يحتوي على مجلدات فرعية من الشجرة، لذلك يظهر في المجموعة المثبتة فقط. يبقى المجلد المثبت مع المجلدات الفرعية في الشجرة.
+
+admin-settings-help-mail-badge-auth = عندما يعرض رأس القارئ شارة المصادقة DMARC: دائمًا، فقط عندما تكون ملحوظة، أو أبدًا.
+
+admin-settings-help-mail-badge-density = حجم الشارات في رأس القارئ: مضغوط أو مريح.
+
+admin-settings-help-mail-badge-folder = عندما يعرض رأس القارئ شارة المجلد: دائمًا، فقط عندما يكون ملحوظًا، أو أبدًا.
+
+admin-settings-help-mail-badge-headers = إظهار شارة في القارئ لرؤوس الرسالة "انتهاء الصلاحية" و"الرد حسب" و"الحساسية" و"الاستبدال".
+
+admin-settings-help-mail-badge-labels = ما إذا كانت شارات رأس القارئ تعرض رمزًا يحتوي على نص، أو الرمز فقط.
+
+admin-settings-help-mail-badge-list = عندما يعرض رأس القارئ شارة القائمة البريدية: دائمًا، فقط عندما تكون ملحوظة، أو أبدًا. يحتاج إلى رأس معرف القائمة أو قائمة إلغاء الاشتراك.
+
+admin-settings-help-mail-badge-sanitized = عندما يُظهر رأس القارئ شارة HTML المعقمة: دائمًا، فقط عندما يكون ملحوظًا، أو أبدًا.
+
+admin-settings-help-mail-badge-spam = عندما يعرض رأس القارئ شارة نتيجة البريد العشوائي: دائمًا، أو فقط عندما تكون ملحوظة، أو أبدًا.
+
+admin-settings-help-mail-brand-avatars-require-auth = أبدًا: إظهار شعار عندما يتطابق النطاق. فشل معروف (افتراضي): إظهاره إلا إذا كانت النتيجة DKIM أو DMARC للرسالة مخبأة؛ الرسائل غير المحددة تحتفظ بالشعار. دائمًا: اعرضه فقط بعد محاذاة DMARC مع DKIM للمجال الخاص بالعلامة التجارية. يمكن قفل تجاوزات المستخدم والمجال.
+
+admin-settings-help-mail-compose-header-auto-collapse-seconds = الثواني التي يجب أن يحتفظ فيها الجسم بالتركيز قبل طي المستلم الكامل ورأس الموضوع إلى ملخصه. اختر 0 لتعطيل الطي المحدد بوقت، أو من 1 إلى 60 ثانية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-mail-compose-priority-default = الأولوية التي تبدأ بها الرسالة الجديدة في الملحن.
+
+admin-settings-help-mail-compose-priority-enabled = إظهار محدد الأولوية "عادي" و"عالي" و"منخفض" في مجموعة خيارات الملحن. عند إيقاف التشغيل، يتم إرسال البريد الجديد بدون رؤوس الأولوية.
+
+admin-settings-help-mail-expiry-hide-expired = ما يجب فعله مع رسالة انقضى تاريخ انتهاء صلاحيتها: لا شيء، أو إظهارها باهتة، أو اقتراح أرشفتها.
+
+admin-settings-help-mail-list-keep = يتم الاحتفاظ دائمًا بالمرسلين والقوائم البريدية، واحدًا في كل سطر مثل sender:address أو list:List-Id. قم بتنظيف هذا المرسل واقتراحات إلغاء الاشتراك وتخطي قواعد الاحتفاظ بها.
+
+admin-settings-help-mail-list-page-size = عدد الرسائل التي تجلبها القائمة في كل مرة يقوم فيها المستخدم بالتمرير حتى النهاية. الافتراضي 50، من 20 إلى 200. يختار المستخدمون القيمة الخاصة بهم ما لم تقم بقفل هذا.
+
+admin-settings-help-mail-list-unsubscribe-mode = كيف يعمل إلغاء الاشتراك عندما تقدم القائمة طلبًا بنقرة واحدة: اسأل أولاً، أو أرسله مرة واحدة، أو افتح رابط القائمة أو مسودة القائمة فقط.
+
+admin-settings-help-mail-message-list-group = تجميع المحادثات حسب تاريخ الاستلام أو الإرسال، أو المرسل، أو الموضوع، أو الأهمية، أو الحجم. يمكن للمستخدمين تجاوز هذا ما لم يتم قفله.
+
+admin-settings-help-mail-priority-marks = ما هي الأولوية التي تحدد قائمة الرسائل والمحادثات وعرض القارئ: عالية ومنخفضة، عالية فقط، أو لا شيء. يختار المستخدمون ضمن الإعدادات > المجلدات والشريط الجانبي ما لم يكن مقفلاً.
+
+admin-settings-help-mail-priority-marks-style = كيف تبدو علامة الأولوية: رمز، أو رمز به الكلمات "عالي" أو "منخفض"، أو شريط رفيع. الأيقونة والنص يحافظان على المعنى بدون لون.
+
+admin-settings-help-mail-priority-send-headers = ما هي الرؤوس التي تحصل عليها الرسالة ذات الأولوية العالية أو المنخفضة عند إرسالها: أي من الأهمية وX-Priority وX-MSMail-Priority.
+
+admin-settings-help-mail-priority-trust-sender-headers = ما إذا كانت الأولوية التي حددها المرسل ستظهر: دائمًا، فقط عندما تمر الرسالة بعلامة DMARC محاذية، أو أبدًا. استخدم "موثوق" أو "مطلقًا" ضد المرسلين الذين يضعون علامة على كل رسالة ذات أولوية عالية.
+
+admin-settings-help-mail-reply-from-header-priority = تتم قراءة رؤوس الرسائل، بهذا الترتيب، للعثور على العنوان الذي تم إرسال الرسالة إليه عند اختيار هوية الرد. الأسماء: تم التسليم إلى، X-Original-To، Envelope-To، X-Forwarded-To، Resent-To، To، Cc. لا تتم قراءة الرأس المتروك.
+
+admin-settings-help-mail-search-default-scope = بدء عمليات بحث عادية جديدة للبريد في المجلد الحالي أو عبر كافة المجلدات. يتحكم هذا في الإعداد الافتراضي الأولي، بما في ذلك عند القفل؛ لا يزال بإمكان المستخدمين اختيار نطاق مختلف لبحث معين. يتم الاحتفاظ بالاستعلامات المحفوظة والمحددة بشكل واضح.
+
+admin-settings-help-metrics-dimensions-enabled = قم بتخزين الإحصائيات المحفوظة مقسمة حسب نوع العميل (الويب) وفئة الجهاز (سطح المكتب والجوال). قم بإيقاف تشغيله لتخزين صف واحد مدمج لكل متر ودقيقة.
+
+admin-settings-help-metrics-persist-enabled = احفظ إحصائيات الأداء (سرعة وكيل الصورة، وأوقات تحميل المتصفح، وحد المعدل، وأعداد حماية الطلب) في قاعدة البيانات في كل فاصل زمني للتدفق وعندما يتوقف الخادم، بحيث تحتفظ المخططات بسجلها بعد إعادة التشغيل. لا شيء يحدد هوية الشخص أو العنوان أو الرسالة. قم بإيقاف تشغيلها للاحتفاظ بها في الذاكرة فقط.
+
+admin-settings-help-metrics-persist-flush-seconds = عدد مرات كتابة إحصائيات الأداء إلى قاعدة البيانات (من 5 إلى 3600 ثانية). الخادم الذي يتم قتله دون سابق إنذار يخسر هذا القدر على الأكثر.
+
+admin-settings-help-observability-client-capture-console = قم أيضًا بالإبلاغ عن مكالمات console.error، بحد أقصى خمس دقائق لكل صفحة. متوقف بشكل افتراضي لأن المكتبات تسجل الظروف المتوقعة.
+
+admin-settings-help-observability-client-capture-csp = قم بالإبلاغ عن انتهاكات سياسة أمان المحتوى التي يكتشفها المتصفح، باستخدام التوجيه والأصل المحظورين فقط. قيد التشغيل بشكل افتراضي.
+
+admin-settings-help-observability-client-enabled = اجمع تقارير الأخطاء من تطبيق الويب (حدود الأخطاء، والأخطاء التي لم يتم اكتشافها، والأجزاء الفاشلة، وأخطاء العامل، وانتهاكات CSP) مع تتبعات المكدس التي تم مسحها، والتي تظهر ضمن إمكانية الملاحظة > أخطاء العميل. قيد التشغيل بشكل افتراضي. لا تحتوي التقارير على محتوى الرسالة أو العناوين أو الرموز المميزة أو أسماء المرفقات أو استعلامات URL. إيقاف لإيقاف التجميع؛ تنتهي صلاحية التقارير الحالية مع الاحتفاظ بها.
+
+admin-settings-help-observability-client-forward = أرسل أيضًا كل تقرير منقح إلى مصدر الأخطاء الذي تم تكوينه باستخدام MW_ERROR_FORWARD_URL. إيقاف بشكل افتراضي. بدون تكوين بالوعة لا يتم إرسال أي شيء.
+
+admin-settings-help-observability-client-include-account-hash = أضف تجزئة ذات اتجاه واحد للحساب إلى التقارير المرسلة من جلسة تسجيل الدخول، بحيث يمكن التمييز بين التقارير من حساب واحد دون تسميته. إيقاف بشكل افتراضي. يتغير التجزئة عندما يدور مفتاح الخصوصية.
+
+admin-settings-help-observability-client-max-per-session = قد يتم إرسال معظم تقارير الأخطاء عند تحميل صفحة واحدة (من 1 إلى 1000). يتم احتساب تكرار نفس الخطأ خلال 60 ثانية مرة واحدة. الافتراضي 20.
+
+admin-settings-help-observability-client-sample-rate = جزء من تقارير الخطأ التي يرسلها المتصفح، من 0 إلى 1. الافتراضي 1 (الكل). لا يزال تحميل كل صفحة يتوقف عند الحد الأقصى لكل جلسة.
+
+admin-settings-help-observability-client-source-maps = قم بحل مواضع الحزمة في تتبعات المكدس إلى الملفات المصدر عندما يتم شحن البناء لخرائط المصدر المخفية (التي تم إنشاؤها باستخدام MW_SOURCEMAP=hidden). تتم قراءة الخرائط بواسطة الخادم فقط ولا يتم عرضها على المتصفحات مطلقًا. قيد التشغيل بشكل افتراضي؛ بدون خرائط تظهر الإطارات الأولية.
+
+admin-settings-help-privacy-error-reports = ما إذا كان المتصفح يرسل تقرير خطأ عند فشل جزء من التطبيق. قيد التشغيل بشكل افتراضي. النطاق العالمي والمجال والمستخدم: اضبط الإعداد الافتراضي هنا أو قم بقفله؛ ويمكن للأشخاص إيقاف تشغيله بأنفسهم من خلال الإعدادات > الخصوصية ما لم يتم قفله.
+
+admin-settings-help-privacy-image-cache-max-stale-secs = بعد مرور ثوانٍ على نضارتها، يتم الاحتفاظ بالصورة المخزنة مؤقتًا للإجابة عندما لا يمكن الوصول إلى الأصل. لا تتواجد أبدًا أسفل نافذة إعادة التحقق. النطاق 0-604800؛ الافتراضي 86400.
+
+admin-settings-help-privacy-image-cache-stale-secs = بعد مرور ثوانٍ على نضارتها، يستمر عرض الصورة المخزنة مؤقتًا مرة واحدة أثناء إعادة التحقق من صحتها في الخلفية. الصفر يطفئه. النطاق 0-86400؛ الافتراضي 3600
+
+admin-settings-help-privacy-image-resize-enabled = قم بقياس الصور البعيدة كبيرة الحجم وصولاً إلى العرض الذي يطلبه القارئ (320 أو 640 أو 960 أو 1280 أو 1600 بكسل). يتم تقديم الصور المتحركة بدون مقياس. إيقاف بشكل افتراضي.
+
+admin-settings-help-privacy-image-resize-format = يقوم Auto باختيار أفضل برنامج تشفير في التصميم، وهو PNG. السيارات الافتراضية.
+
+admin-settings-help-privacy-image-resize-max-pixels = يتم عرض الصور التي تحتوي على عدد أكبر من وحدات البكسل التي تم فك تشفيرها بدون مقياس؛ تتم قراءة الحجم من الرأس قبل أي فك تشفير. النطاق 100000-64000000؛ الافتراضي 4000000
+
+admin-settings-help-privacy-image-resize-max-width = الصورة الأوسع التي ينتجها تغيير الحجم. النطاق 320-1600؛ الافتراضي 1600
+
+admin-settings-help-privacy-sessions-show-linked-origin = كيف تقوم الإعدادات > الأمان > الجلسات بتسمية الحساب الذي تأتي منه جلسة الوصول إلى صندوق البريد المرتبط: العنوان الكامل، أو العنوان الذي يحتوي على الجزء الأول من الاسم المقنع، أو لا شيء. تظهر القيمة فقط لمالك الجلسات، وليس للمستخدمين الآخرين أبدًا. الافتراضي: العنوان الكامل.
+
+admin-settings-help-properties-folder-enabled = عرض الخصائص في قوائم المجلدات وعلى الاختصار. عند إيقاف التشغيل، لا يكون مربع الحوار متاحًا.
+
+admin-settings-help-properties-folder-notes-enabled = السماح بوصف أو ملاحظة في كل مجلد.
+
+admin-settings-help-properties-folder-notes-max-length = أكبر عدد من الأحرف التي قد تحتوي عليها ملاحظة المجلد.
+
+admin-settings-help-properties-folder-overrides-allowed = الإعدادات التي يمكن للمستخدم تجاوزها لمجلد واحد. يتم إخفاء التجاوز غير المدرج ويتم تجاهل أي قيمة مخزنة.
+
+admin-settings-help-properties-folder-sections = أقسام مربع حوار خصائص المجلد: عام، بعيد، الحجم، غير متصل، التجاوزات، الملاحظات، الإجراءات. القسم غير المدرج مخفي.
+
+admin-settings-help-properties-folder-size-compute = عند تحديد حجم المجلد الموجود على الخادم: أبدًا، عند فتح مربع الحوار، أو في الخلفية. إن حساب صندوق بريد كبير يكلف الخادم إجراء فحص.
+
+admin-settings-help-properties-headers-raw = السماح لمربع حوار خصائص الرسالة بإدراج الرؤوس الأولية. عند إيقاف التشغيل، يظهر الملخص الذي تم تحليله فقط.
+
+admin-settings-help-properties-message-enabled = عرض الخصائص في قوائم الرسائل وعلى الاختصار. عند إيقاف التشغيل، لا يكون مربع الحوار متاحًا.
+
+admin-settings-help-properties-message-permanent-delete = ما إذا كان مربع حوار الرسالة قد يحذف رسالة إلى الأبد: السماح أو السؤال مرتين أو الرفض. لا يتم حذف أي رسالة تحت التحفظ القانوني مطلقًا. لا يمكن التراجع عن الحذف بهذه الطريقة.
+
+admin-settings-help-properties-message-sections = أقسام مربع حوار خصائص الرسالة: الملخص، والتسجيل، والعناوين، والمرفقات، والإجراءات. القسم غير المدرج مخفي.
+
+admin-settings-help-properties-offline-clear-enabled = السماح للمستخدمين بمسح ذاكرة التخزين المؤقت غير المتصلة لمجلد واحد من مربع حوار الخصائص الخاص به.
+
+admin-settings-help-properties-remote-location-visibility = مقدار ما يراه المستخدمون من الموقع من جانب الخادم: كامل (المضيف والمسار)، أو مضيف مقنع (مضيف مخفي جزئيًا)، أو مسار فقط (مسار صندوق البريد بدون المضيف)، أو مخفي.
+
+admin-settings-help-properties-scoring-show = أظهر نقاط البريد العشوائي ونتائج المصادقة وإشارات الأمان في مربع حوار خصائص الرسالة.
+
+admin-settings-help-properties-shortcut-enabled = افتح مربع حوار الخصائص من لوحة المفاتيح في المجلد الذي تم التركيز عليه أو الرسالة المحددة.
+
+admin-settings-help-properties-shortcut-key = مجموعة المفاتيح التي تفتح الخصائص؛ Alt+Enter بشكل افتراضي.
+
+admin-settings-help-reader-actions-archive = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-block-sender = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-colors = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-conversation = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-create-filter = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-delete = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-delete-sender = مخفي بشكل افتراضي. اختر شريط الأدوات أو قائمة المزيد لتمكينه عندما تسمح بذلك إمكانية حذف المرسل وملف تعريف الميزة. يمكن للمستخدمين تجاوز الموضع ما لم يتم قفله.
+
+admin-settings-help-reader-actions-edit-draft = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-export = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-finish-followup = اختر شريط الأدوات أو قائمة المزيد أو مخفيًا لإكمال الرسائل التي تم وضع علامة عليها وتذكيرات المتابعة.
+
+admin-settings-help-reader-actions-flag = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-focus-focused = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-focus-other = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-forward = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-headers = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-links = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-move = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-not-spam = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-open-draft = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-pin = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-print = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-properties = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-read = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-reply = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-reply-all = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-save-contacts = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-save-sender = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-search = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-security = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-spam = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-sweep = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-view-source = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-reader-actions-zoom = اختر شريط الأدوات أو قائمة المزيد أو مخفي. لا تزال قيود الميزات والأذونات وسياق الرسالة سارية. يمكن للمستخدمين الاختيار ما لم يتم تأمين هذا.
+
+admin-settings-help-retention-client-errors-event-days = أيام يتم الاحتفاظ بحدوث خطأ فردي في المتصفح (تتبع المكدس وفئة المتصفح). الافتراضي 30. يتم الاحتفاظ بالمجموعة لفترة أطول، راجع الإعداد التالي.
+
+admin-settings-help-retention-client-errors-group-days = أيام يتم الاحتفاظ بمجموعة أخطاء المتصفح (الاسم، الرسالة، الأعداد) بعد آخر ظهور لها. الافتراضي 180. أبدا أقصر من الاحتفاظ بالحدث.
+
+admin-settings-help-retention-metrics-day-buckets-days = يتم الاحتفاظ بأيام إحصائيات الأداء اليومي قبل حذفها. 0 يبقيهم بلا حدود، مما يسمح للجدول بالنمو ببطء طوال فترة تشغيل الخادم.
+
+admin-settings-help-retention-metrics-hour-buckets-days = يتم الاحتفاظ بأيام إحصائيات الأداء لكل ساعة قبل دمجها في الصفوف اليومية (1 على الأقل).
+
+admin-settings-help-retention-metrics-minute-buckets-hours = يتم الاحتفاظ بإحصائيات الأداء لمدة دقيقة واحدة قبل دمجها في صفوف كل ساعة (1 على الأقل).
+
+admin-settings-help-retention-user-allow-strip-attachments = ما إذا كان يمكن للمستخدمين إنشاء قواعد تزيل المرفقات الكبيرة من البريد القديم. إيقاف بشكل افتراضي. أثناء إيقاف التشغيل، يتم إخفاء الإجراء في محرر القواعد، ويتم رفض القاعدة التي تستخدمه عند حفظها، ويتم تخطي القواعد المحفوظة مسبقًا عند تشغيل المهمة.
+
+admin-settings-help-retention-user-calendar-enabled = ما إذا كان يمكن للمستخدمين اختيار التقويمات التي يتم حذف أحداثها بعد عدد محدد من الأيام من انتهائها. إيقاف بشكل افتراضي. أثناء إيقاف التشغيل، يكون الخيار مخفيًا في الإعدادات، ويتم رفض الاختيار عند حفظه، ولا يتم تشغيل الاختيارات المحفوظة مسبقًا.
+
+admin-settings-help-retention-user-calendar-max-days = في معظم الأيام، قد ينتظر المستخدم قبل أن يتم حذف الأحداث المنتهية. يتم رفض القيمة الأكبر عند حفظها وخفضها عند تشغيلها.
+
+admin-settings-help-retention-user-calendar-min-days = أقل أيام بعد انتهاء الحدث قبل أن تتمكن قاعدة المستخدم من حذفه. يتم رفض القيمة الأصغر عند حفظها ورفعها عند تشغيلها.
+
+admin-settings-help-retention-user-notes-enabled = لم يتغير ما إذا كان بإمكان المستخدمين اختيار إزالة الملاحظات لعدد محدد من الأيام. إيقاف بشكل افتراضي. يمكن استعادة الملاحظات التي تمت إزالتها حتى تنتهي نافذة التراجع عن قواعد الاحتفاظ.
+
+admin-settings-help-retention-user-notes-max-days = في معظم الأيام، قد ينتظر المستخدم قبل إزالة الملاحظات التي لم تمسها. يتم رفض القيمة الأكبر عند حفظها وخفضها عند تشغيلها.
+
+admin-settings-help-retention-user-notes-min-days = في أقل الأيام، يجب عدم المساس بالملاحظة قبل أن تتمكن قاعدة المستخدم من إزالتها. يتم رفض القيمة الأصغر عند حفظها ورفعها عند تشغيلها.
+
+admin-settings-help-retention-user-strip-keep-inline-images = ما إذا كان سيتم الاحتفاظ بالصور المعروضة داخل نص الرسالة عند إزالة المرفقات.
+
+admin-settings-help-retention-user-strip-min-age-days = أقل عدد من الأيام يجب أن تكون الرسالة قديمة قبل أن تتمكن القاعدة من إزالة مرفقاتها. يتم رفض القيمة الأصغر عندما يتم حفظ القاعدة ورفعها عند تشغيلها.
+
+admin-settings-help-retention-user-strip-min-attachment-kb = تتم إزالة المرفقات فقط بهذا الحجم على الأقل. تبقى المرفقات الأصغر مع الرسالة.
+
+admin-settings-help-retention-user-strip-undo-days = عدد الأيام التي تظل فيها الرسالة الأصلية في سلة المهملات بعد إزالة مرفقاتها. -1 يتبع نافذة التراجع عن قواعد الاحتفاظ. 0 يحذف الأصل مرة واحدة.
+
+admin-settings-help-server-shutdown-grace-seconds = المدة التي يسمح فيها الخادم المتوقف بانتهاء الطلبات أثناء الرحلة قبل أن يغلق الاتصالات، بالثواني. يتجاوزه المتغير MW_HTTP_SHUTDOWN_TIMEOUT_MS. ينطبق في البداية التالية.
+
+admin-settings-help-session-last-activity-flush-seconds = تتم كتابة وقت آخر مشاهدة للجلسة على الأكثر بالثواني. الصفر يكتبه عند كل طلب. لا يغير الحدود الخاملة أو المطلقة. ينطبق في البداية التالية.
+
+admin-settings-help-session-persist-across-restarts = عند التشغيل، تظل جلسات صندوق البريد والتطبيق ووحدة التحكم صالحة بعد إعادة تشغيل الخادم. عند إيقاف التشغيل، تنتهي كل جلسة عند بدء تشغيل الخادم. ينطبق في البداية التالية.
+
+admin-settings-key-attachments-bar-click-to-toggle = انقر فوق شريط المرفقات للتبديل
+
+admin-settings-key-attachments-bar-download-all = زر تنزيل الكل
+
+admin-settings-key-attachments-bar-show-download-buttons = أزرار تنزيل المرفقات
+
+admin-settings-key-attachments-bar-zip-inline-images = الصور المضمنة في تنزيل الكل ZIP
+
+admin-settings-key-cap-reading-delete-sender = السماح بحذف كل البريد من المرسل
+
+admin-settings-key-compose-feature-family = ميزات الملحن
+
+admin-settings-key-compose-headers-allow-auto-submitted = السماح بالإرسال التلقائي
+
+admin-settings-key-compose-headers-allow-custom = السماح بالعناوين المخصصة
+
+admin-settings-key-compose-headers-allow-return-receipt-to = السماح بإرجاع الإيصال إلى
+
+admin-settings-key-compose-headers-allow-threading-edit = السماح بتحرير رؤوس الخيوط
+
+admin-settings-key-compose-headers-forced = رؤوس القسري
+
+admin-settings-key-compose-insert-image-resize-default = حجم الصورة محدد مسبقًا
+
+admin-settings-key-compose-insert-max-inline-image-mb = أكبر صورة مضمنة (ميجابايت)
+
+admin-settings-key-compose-layout-default-font = خط الرسالة الافتراضي
+
+admin-settings-key-compose-reply-to-allow-override = السماح بتغيير الرد
+
+admin-settings-key-compose-reply-to-show = الرد على الصف
+
+admin-settings-key-compose-sent-folder-fixed-id = النسخة المرسلة: مجلد ثابت
+
+admin-settings-key-compose-sent-folder-mode = النسخة المرسلة: قاعدة المجلد
+
+admin-settings-key-compose-sent-folder-per-identity = النسخة المرسلة: مجلد لكل هوية
+
+admin-settings-key-compose-sent-folder-rules = النسخة المرسلة: القواعد
+
+admin-settings-key-compose-sent-folder-skip-copy = النسخة المرسلة: لا تحفظ
+
+admin-settings-key-compose-styles-custom = أنماط مخصصة
+
+admin-settings-key-compose-styles-default-set = مجموعة النمط
+
+admin-settings-key-compose-styles-max-custom = أنماط مخصصة لكل مستخدم
+
+admin-settings-key-contacts-save-from-message-add-note = ملاحظة حول جهات الاتصال المحفوظة من الرسالة
+
+admin-settings-key-contacts-save-from-message-default-book = دفتر العناوين لجهات الاتصال المحفوظة من الرسالة
+
+admin-settings-key-contacts-save-from-message-default-scope = تم وضع علامة على جهات الاتصال أولاً عند الحفظ من رسالة
+
+admin-settings-key-contacts-save-from-message-enabled = حفظ جهات الاتصال من الرسالة
+
+admin-settings-key-contacts-save-from-message-skip-automated = تخطي المرسلين الآليين عند حفظ جهات الاتصال
+
+admin-settings-key-contacts-save-sender-enabled = حفظ المرسل كجهة اتصال
+
+admin-settings-key-contacts-save-sender-use-reply-to = حفظ الرد لمرسلي القائمة
+
+admin-settings-key-dsr-admin-step-up = قم بالتأكيد مرة أخرى قبل الموافقة
+
+admin-settings-key-export-default-format = تصدير التنسيق الافتراضي لمربع الحوار
+
+admin-settings-key-export-default-scope = تصدير النطاق الافتراضي لمربع الحوار
+
+admin-settings-key-export-dialog-enabled = حوار التصدير
+
+admin-settings-key-export-folder-enabled = تصدير المجلد
+
+admin-settings-key-export-folder-format = تنسيق تصدير المجلد
+
+admin-settings-key-export-folder-include-subfolders = تضمين المجلدات الفرعية في التصدير
+
+admin-settings-key-export-folder-max-bytes = الحد الأقصى لحجم تصدير المجلد
+
+admin-settings-key-export-folder-max-messages = حد رسالة تصدير المجلد
+
+admin-settings-key-export-formats = تصدير صيغ الحوار
+
+admin-settings-key-export-message-download-enabled = تحميل الرسالة
+
+admin-settings-key-folders-hide-empty = إخفاء المجلدات الفارغة
+
+admin-settings-key-folders-pinned-hide-from-tree = إخفاء المجلدات المثبتة من الشجرة
+
+admin-settings-key-mail-badge-auth = شارة المصادقة
+
+admin-settings-key-mail-badge-density = حجم شارة القارئ
+
+admin-settings-key-mail-badge-folder = شارة المجلد
+
+admin-settings-key-mail-badge-headers = شارات الرأس
+
+admin-settings-key-mail-badge-labels = تسميات شارة القارئ
+
+admin-settings-key-mail-badge-list = شارة القائمة البريدية
+
+admin-settings-key-mail-badge-sanitized = شارة HTML معقمة
+
+admin-settings-key-mail-badge-spam = شارة النتيجة غير المرغوب فيها
+
+admin-settings-key-mail-brand-avatars-require-auth = المصادقة اللازمة لشعارات العلامة التجارية
+
+admin-settings-key-mail-compose-header-auto-collapse-seconds = تأخير الانهيار التلقائي لرأس الملحن
+
+admin-settings-key-mail-compose-priority-default = أولوية الرسالة الافتراضية
+
+admin-settings-key-mail-compose-priority-enabled = محدد الأولوية في الملحن
+
+admin-settings-key-mail-expiry-hide-expired = رسائل منتهية الصلاحية
+
+admin-settings-key-mail-list-keep = احتفظ دائما
+
+admin-settings-key-mail-list-page-size = حجم صفحة قائمة الرسائل
+
+admin-settings-key-mail-list-unsubscribe-mode = القائمة البريدية إلغاء الاشتراك
+
+admin-settings-key-mail-message-list-group = تجميع الرسائل
+
+admin-settings-key-mail-priority-marks = علامات الأولوية
+
+admin-settings-key-mail-priority-marks-style = نمط علامة الأولوية
+
+admin-settings-key-mail-priority-send-headers = رؤوس الأولوية مكتوبة عند الإرسال
+
+admin-settings-key-mail-priority-trust-sender-headers = الثقة بالأولوية التي حددها المرسل
+
+admin-settings-key-mail-reply-from-header-priority = الرؤوس التي تختار هوية الرد
+
+admin-settings-key-mail-search-default-scope = نطاق البحث الافتراضي في البريد
+
+admin-settings-key-metrics-dimensions-enabled = تقسيم الإحصائيات حسب نوع العميل وفئة الجهاز
+
+admin-settings-key-metrics-persist-enabled = احتفظ بالإحصائيات عبر عمليات إعادة التشغيل
+
+admin-settings-key-metrics-persist-flush-seconds = إحصائيات حفظ الفاصل الزمني (ثواني)
+
+admin-settings-key-observability-client-capture-console = الإبلاغ عن أخطاء وحدة التحكم
+
+admin-settings-key-observability-client-capture-csp = الإبلاغ عن مخالفات CSP
+
+admin-settings-key-observability-client-enabled = تقارير أخطاء المتصفح
+
+admin-settings-key-observability-client-forward = تقارير الأخطاء إلى الأمام
+
+admin-settings-key-observability-client-include-account-hash = إضافة تجزئة الحساب إلى تقارير الأخطاء
+
+admin-settings-key-observability-client-max-per-session = تقارير الأخطاء لكل تحميل صفحة
+
+admin-settings-key-observability-client-sample-rate = معدل عينة تقرير الخطأ
+
+admin-settings-key-observability-client-source-maps = حل آثار المكدس باستخدام خرائط المصدر
+
+admin-settings-key-privacy-error-reports = إرسال تقارير الأخطاء
+
+admin-settings-key-privacy-image-cache-max-stale-secs = تبقى قديمة عندما يفشل الأصل (ثواني)
+
+admin-settings-key-privacy-image-cache-stale-secs = خدمة قديمة أثناء إعادة التحقق (بالثواني)
+
+admin-settings-key-privacy-image-resize-enabled = تغيير حجم الصور الكبيرة
+
+admin-settings-key-privacy-image-resize-format = تم تغيير حجم تنسيق الصورة
+
+admin-settings-key-privacy-image-resize-max-pixels = أكبر صورة يمكن تغيير حجمها (بالبكسل)
+
+admin-settings-key-privacy-image-resize-max-width = أوسع صورة تم تغيير حجمها (بالبكسل)
+
+admin-settings-key-privacy-sessions-show-linked-origin = أصل صندوق البريد المرتبط في الجلسات
+
+admin-settings-key-properties-folder-enabled = مربع حوار خصائص المجلد
+
+admin-settings-key-properties-folder-notes-enabled = ملاحظات المجلد
+
+admin-settings-key-properties-folder-notes-max-length = طول مذكرة المجلد
+
+admin-settings-key-properties-folder-overrides-allowed = يُسمح بالتجاوزات لكل مجلد
+
+admin-settings-key-properties-folder-sections = أقسام حوار المجلد
+
+admin-settings-key-properties-folder-size-compute = حساب حجم المجلد
+
+admin-settings-key-properties-headers-raw = رؤوس خام
+
+admin-settings-key-properties-message-enabled = مربع حوار خصائص الرسالة
+
+admin-settings-key-properties-message-permanent-delete = الحذف الدائم من الخصائص
+
+admin-settings-key-properties-message-sections = أقسام حوار الرسالة
+
+admin-settings-key-properties-offline-clear-enabled = مسح ذاكرة التخزين المؤقت غير المتصلة لكل مجلد
+
+admin-settings-key-properties-remote-location-visibility = تفاصيل الموقع البعيد
+
+admin-settings-key-properties-scoring-show = تفاصيل التسجيل والمصادقة
+
+admin-settings-key-properties-shortcut-enabled = اختصار الخصائص
+
+admin-settings-key-properties-shortcut-key = مفتاح اختصار الخصائص
+
+admin-settings-key-reader-actions-archive = وضع عمل الأرشيف
+
+admin-settings-key-reader-actions-block-sender = حظر موضع إجراء المرسل
+
+admin-settings-key-reader-actions-colors = موضع إجراء ألوان الرسالة
+
+admin-settings-key-reader-actions-conversation = عرض موضع إجراء المحادثة
+
+admin-settings-key-reader-actions-create-filter = إنشاء موضع إجراء التصفية
+
+admin-settings-key-reader-actions-delete = حذف موضع الإجراء
+
+admin-settings-key-reader-actions-delete-sender = حذف كافة الرسائل من إجراء المرسل
+
+admin-settings-key-reader-actions-edit-draft = تعديل موضع الإجراء المسودة
+
+admin-settings-key-reader-actions-export = تصدير موضع الإجراء
+
+admin-settings-key-reader-actions-finish-followup = وضع علامة على المتابعة كإجراء منتهٍ
+
+admin-settings-key-reader-actions-flag = وضع علامة على موضع الإجراء/إلغاء تحديده
+
+admin-settings-key-reader-actions-focus-focused = انتقل إلى موضع العمل المركّز
+
+admin-settings-key-reader-actions-focus-other = انتقل إلى موضع الإجراء الآخر
+
+admin-settings-key-reader-actions-forward = وضع العمل إلى الأمام
+
+admin-settings-key-reader-actions-headers = وضع إجراء الرؤوس الأولية
+
+admin-settings-key-reader-actions-links = مراجعة موضع إجراء الروابط
+
+admin-settings-key-reader-actions-move = نقل موضع العمل
+
+admin-settings-key-reader-actions-not-spam = ليس موضع عمل غير مرغوب فيه
+
+admin-settings-key-reader-actions-open-draft = فتح موضع إجراء مسودة الرد
+
+admin-settings-key-reader-actions-pin = تثبيت/إزالة تثبيت موضع الإجراء
+
+admin-settings-key-reader-actions-print = طباعة موضع العمل
+
+admin-settings-key-reader-actions-properties = موضع إجراء خصائص الرسالة
+
+admin-settings-key-reader-actions-read = موضع الإجراء المقروء/غير المقروء
+
+admin-settings-key-reader-actions-reply = موضع إجراء الرد
+
+admin-settings-key-reader-actions-reply-all = الرد على كل موضع العمل
+
+admin-settings-key-reader-actions-save-contacts = حفظ موضع إجراء جهات اتصال الرسالة
+
+admin-settings-key-reader-actions-save-sender = حفظ موضع إجراء المرسل
+
+admin-settings-key-reader-actions-search = موضع إجراء البحث ذي الصلة
+
+admin-settings-key-reader-actions-security = موضع إجراء وضع الأمان
+
+admin-settings-key-reader-actions-spam = وضع علامة على موضع الإجراء غير المرغوب فيه
+
+admin-settings-key-reader-actions-sweep = اكتساح موضع عمل المرسل
+
+admin-settings-key-reader-actions-view-source = عرض موضع إجراء مصدر الرسالة
+
+admin-settings-key-reader-actions-zoom = تكبير موضع العمل
+
+admin-settings-key-retention-client-errors-event-days = تكرارات الأخطاء التي تم الاحتفاظ بها (أيام)
+
+admin-settings-key-retention-client-errors-group-days = تم الاحتفاظ بمجموعات الأخطاء (أيام)
+
+admin-settings-key-retention-metrics-day-buckets-days = الإحصائيات اليومية المحفوظة (أيام)
+
+admin-settings-key-retention-metrics-hour-buckets-days = الإحصائيات المحفوظة كل ساعة (أيام)
+
+admin-settings-key-retention-metrics-minute-buckets-hours = إحصائيات الدقائق التي تم الاحتفاظ بها (ساعات)
+
+admin-settings-key-retention-user-allow-strip-attachments = يمكن للمستخدمين إزالة المرفقات من البريد القديم
+
+admin-settings-key-retention-user-calendar-enabled = يمكن للمستخدمين حذف أحداث التقويم المنتهية
+
+admin-settings-key-retention-user-calendar-max-days = يتم حذف معظم الأيام التي تسبق الأحداث المنتهية
+
+admin-settings-key-retention-user-calendar-min-days = يتم حذف أقل عدد من الأيام قبل حذف الأحداث المنتهية
+
+admin-settings-key-retention-user-notes-enabled = يمكن للمستخدمين إزالة الملاحظات التي لم تمسها
+
+admin-settings-key-retention-user-notes-max-days = تتم إزالة الملاحظات التي لم تمسها في معظم الأيام
+
+admin-settings-key-retention-user-notes-min-days = أقل أيام قبل إزالة الملاحظات التي لم تمسها
+
+admin-settings-key-retention-user-strip-keep-inline-images = احتفظ بالصور المضمنة
+
+admin-settings-key-retention-user-strip-min-age-days = أقل عدد من الأيام قبل إزالة المرفقات
+
+admin-settings-key-retention-user-strip-min-attachment-kb = أصغر مرفق تمت إزالته (كيلو بايت)
+
+admin-settings-key-retention-user-strip-undo-days = نافذة التراجع بعد إزالة المرفقات (أيام)
+
+admin-settings-key-server-shutdown-grace-seconds = فترة سماح إيقاف التشغيل
+
+admin-settings-key-session-last-activity-flush-seconds = الفاصل الزمني للكتابة الذي تمت مشاهدته لآخر مرة
+
+admin-settings-key-session-persist-across-restarts = حافظ على الجلسات عبر عمليات إعادة التشغيل

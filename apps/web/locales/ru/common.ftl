@@ -183,3 +183,24 @@ multiselect-count = { $count ->
 
 # -- Machine translation (2026-11): added to match en ---------------------
 common-rate-limited = Сервер занят. Подождите несколько секунд и повторите попытку.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+combobox-empty = Нет совпадений
+
+combobox-toggle = Показать параметры для { $label }
+
+common-attach-cat-archive = Архивы
+
+common-attach-cat-document = Документы
+
+common-attach-cat-spreadsheet = Таблицы
+
+common-conn-reconnecting = Повторное подключение…
+
+common-viewer-pdf-details = Технические детали
+
+common-viewer-pdf-details-help = Включите эти строки, когда сообщаете о проблеме. Они не содержат содержания документа.
+
+timezone-group-other = Другое
+
+timezone-use-browser = Использовать часовой пояс браузера ({ $zone })

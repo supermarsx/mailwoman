@@ -20,3 +20,18 @@ avatars-domain-icon = Domain-Symbol für { $name } · Die Absenderidentität wir
 avatars-favorites-first = Favoriten in Empfängervorschlägen zuerst anzeigen
 avatars-favorites-first-help = Kontakte mit Stern stehen bei der Eingabe eines Empfängers vor den übrigen Treffern. Nur die Reihenfolge ändert sich; kein Vorschlag wird ausgeblendet.
 avatars-favorites-first-default = Geerbte Favoriten-Einstellung wiederherstellen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+avatars-require-auth = Authentifizierung für Markenlogos erforderlich
+
+avatars-require-auth-always = Immer (erfordert einen bestandenen Scheck)
+
+avatars-require-auth-default = Geerbte Authentifizierungseinstellung wiederherstellen
+
+avatars-require-auth-help = Wählen Sie aus, wann das Logo eines anerkannten Unternehmens die Initialen neben einem Absender ersetzen darf. Niemals: Zeigen Sie es immer dann an, wenn die Domäne des Absenders übereinstimmt. Nur wenn eine Prüfung fehlgeschlagen ist (Standard): Zeigt sie an, es sei denn, die Meldung DKIM oder DMARC ist fehlgeschlagen. Immer: nur anzeigen, wenn die Nachricht DKIM und eine ausgerichtete DMARC-Prüfung für die eigene Domäne des Unternehmens bestanden hat, sodass noch nicht überprüfte E-Mails Initialen anzeigen. Die Domänenübereinstimmung umfasst Subdomänen wie mail.example.com. Diese Einstellung wird in Ihrem Konto gespeichert und kann von Ihrem Administrator verwaltet werden.
+
+avatars-require-auth-known-failure = Nur wenn eine Prüfung fehlgeschlagen ist
+
+avatars-require-auth-never = Nie (nur Übereinstimmung mit der Domäne)
+
+avatars-unverified-sender = Nicht bestätigter Absender · Es wird kein Markensymbol angezeigt, da diese Nachricht die Authentifizierungsprüfung nicht bestanden hat

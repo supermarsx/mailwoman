@@ -63,3 +63,32 @@ search-refine-subject = Cerca messaggi con questo oggetto
 search-refine-folder = Cerca in questa cartella
 search-refine-domain = Cerca messaggi da questo dominio
 search-include-trash-scoped = Includi Cestino si applica quando si cerca in tutte le cartelle. La cartella selezionata viene cercata direttamente.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Risposto
+
+search-chip-finished = Finito
+
+search-chip-followup = Contrassegnato per il follow-up
+
+search-chip-forwarded = Inoltrato
+
+search-chip-high-priority = Alta priorità
+
+search-chip-low-priority = Bassa priorità
+
+search-chip-mentions-me = Mi menziona
+
+search-chip-no-followup = Non contrassegnato per il follow-up
+
+search-chip-not-high-priority = Non alta priorità
+
+search-chip-not-low-priority = Non a bassa priorità
+
+search-chip-unanswered = Non ho risposto
+
+search-chip-unfinished = Non finito
+
+search-chip-unforwarded = Non inoltrato
+
+search-field-mentions = Menzioni

@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = Récupération en amont
 privacy-speed-phase-decode = Décodage et réencodage
 privacy-speed-phase-other = Tout le reste
 privacy-speed-note = Mesuré uniquement sur ce processus serveur, conservé en mémoire et vide après un redémarrage. Les centiles sont précis à { $error } % près. Aucune URL, aucun hôte ni aucun compte n’est enregistré.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = Récupérations jointes et demandes prioritaires
+
+privacy-work-coalesced-series = Récupère joint à un en vol
+
+privacy-work-handle = Gérer le taux de réussite du cache
+
+privacy-work-handle-series = Gérer les accès au cache
+
+privacy-work-per-interval = Par intervalle d'échantillonnage
+
+privacy-work-percent = Part des recherches de handles
+
+privacy-work-priority-series = Demandes prioritaires
+
+privacy-work-resized = Images réduites
+
+privacy-work-resized-series = Redimensionné
+
+privacy-work-revalidated-series = Revalidé
+
+privacy-work-saved = Octets économisés grâce à la réduction d'échelle
+
+privacy-work-saved-series = Octets enregistrés
+
+privacy-work-stale = Images obsolètes diffusées et revalidées
+
+privacy-work-stale-series = Servi rassis
+
+privacy-work-title = Travaux évités et remodelés

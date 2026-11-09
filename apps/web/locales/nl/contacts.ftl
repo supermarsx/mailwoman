@@ -176,3 +176,123 @@ contacts-bulk-favorites-added = { $count } aan favorieten toegevoegd.
 contacts-bulk-favorites-removed = { $count } uit favorieten verwijderd.
 contacts-row-menu = Acties voor { $name }
 contacts-favorites-empty = Nog geen favorieten. Gebruik de ster bij een contact om er een toe te voegen.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } staat al in je contacten.
+
+contacts-save-already-badge = Al opgeslagen
+
+contacts-save-already-many = Alle { $count } contacten zijn al opgeslagen.
+
+contacts-save-automated = Dit lijkt op een geautomatiseerde afzender (geen antwoord, meldingen).
+
+contacts-save-book = Adresboek
+
+contacts-save-book-readonly = { $name } (alleen-lezen)
+
+contacts-save-cancel = Annuleer
+
+contacts-save-choose = Contacten kiezen…
+
+contacts-save-contacts = Bewaar contacten uit dit bericht
+
+contacts-save-dialog-title = Bewaar contacten uit dit bericht
+
+contacts-save-email = E-mail
+
+contacts-save-failed = Het contact kon niet worden opgeslagen. Probeer het opnieuw.
+
+contacts-save-group = Groep
+
+contacts-save-group-none = Geen groep
+
+contacts-save-loading = Adressen laden…
+
+contacts-save-name = Naam
+
+contacts-save-new = Bewaar nieuwe contacten
+
+contacts-save-no-book = Geen enkel adresboek kan nieuwe contacten opnemen.
+
+contacts-save-no-sender = Dit bericht heeft geen afzenderadres.
+
+contacts-save-note = Opgeslagen uit een bericht op { $date }
+
+contacts-save-nothing = Niemand om op te slaan: iedereen staat al in je contacten, jij ook, of ziet er geautomatiseerd uit.
+
+contacts-save-open = Openen
+
+contacts-save-open-contact = Contactpersoon openen
+
+contacts-save-open-link = Contactpersoon openen
+
+contacts-save-own = Dit is een van uw eigen adressen.
+
+contacts-save-partial = { $saved } van { $total } contacten opgeslagen. De anderen konden niet worden gered.
+
+contacts-save-pick = Bespaar { $email }
+
+contacts-save-recipients = Bewaar alle ontvangers
+
+contacts-save-removed = Opgeslagen contacten verwijderd.
+
+contacts-save-role-bcc = Bcc
+
+contacts-save-role-cc = CC
+
+contacts-save-role-from = Van
+
+contacts-save-role-replyTo = Antwoord-aan
+
+contacts-save-role-sender = Afzender
+
+contacts-save-role-to = Aan
+
+contacts-save-saved-heading = Staat al in uw contacten
+
+contacts-save-saved-many = { $count } contacten opgeslagen in { $book }
+
+contacts-save-saved-one = Opgeslagen { $name } tot { $book }
+
+contacts-save-sender = Afzender opslaan als contactpersoon
+
+contacts-save-settings-book = Adresboek
+
+contacts-save-settings-book-default = Standaard adresboek
+
+contacts-save-settings-enabled = Aanbieding Bewaar contacten uit dit bericht
+
+contacts-save-settings-enabled-help = Voegt het item toe aan berichtmenu's en het menu Meer van de lezer.
+
+contacts-save-settings-note = Voeg een notitie toe met de datum
+
+contacts-save-settings-note-help = Op het briefje staat 'Opgeslagen uit een bericht op', gevolgd door de datum.
+
+contacts-save-settings-reply-to = Gebruik Reply-To voor afzenders van lijsten en meldingen
+
+contacts-save-settings-reply-to-help = Slaat het antwoordadres op in plaats van Van voor die afzenders.
+
+contacts-save-settings-scope = Als eerste aangevinkt in het dialoogvenster
+
+contacts-save-settings-scope-all = Iedereen op het bericht
+
+contacts-save-settings-scope-sender = Alleen afzender
+
+contacts-save-settings-sender = Aanbieding Bewaar afzender als contactpersoon
+
+contacts-save-settings-sender-help = Een item met één klik in berichtmenu's.
+
+contacts-save-settings-skip = Sla geautomatiseerde afzenders over
+
+contacts-save-settings-skip-help = Laat no-reply-, notificatie- en bounce-adressen achterwege, tenzij u ze aanvinkt.
+
+contacts-save-settings-title = Bewaar contacten uit berichten
+
+contacts-save-show-automated = Toon geautomatiseerde adressen en adressen zonder antwoord
+
+contacts-save-submit = { $count ->
+        [one] Bewaar { $count } contactpersoon
+       *[other] Bewaar { $count } contacten
+    }
+
+contacts-save-undo = Ongedaan maken

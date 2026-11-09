@@ -177,3 +177,42 @@ admin-userlist-bulk-done-profile = { $count ->
    *[other] Perfil de recursos alterado para { $count } usuários.
  }
 admin-userlist-bulk-failed = { $done } concluídos, { $failed } com falha: { $reason }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-user-compliance-due = vencimento { $date }
+
+admin-user-compliance-empty = Nenhuma solicitação de dados para esta conta.
+
+admin-user-compliance-help = Solicitações arquivadas para os endereços desta conta. Abra uma em Solicitações de dados para agir de acordo.
+
+admin-user-compliance-open-all = Abra todas as solicitações de dados
+
+admin-user-compliance-title = Solicitações de dados para esta conta
+
+admin-user-never = Nunca
+
+admin-user-overview-last-signin = Último login
+
+admin-user-overview-status = Estado
+
+admin-user-status-active = Ativo
+
+admin-user-status-deleted = Excluído
+
+admin-user-status-deleting = Excluindo
+
+admin-user-status-disabled = Bloqueado
+
+admin-user-tab-access = Acesso e remoção
+
+admin-user-tab-compliance = Conformidade
+
+admin-user-tab-overview = Visão geral
+
+admin-user-tab-profile = Perfil de recursos
+
+admin-user-tab-security = Segurança
+
+admin-user-tab-sessions = Sessões
+
+admin-user-tabs-label = Seções da conta

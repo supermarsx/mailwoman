@@ -102,3 +102,6 @@ rules-vacation-saved-off = Сохранено. Автоответы отключ
 rules-vacation-runs-server = Этот ответ отправляет почтовый сервер при поступлении письма.
 rules-vacation-runs-engine = Mailwoman отправляет этот ответ при синхронизации новой почты во входящих, поэтому ответ может задержаться до следующей синхронизации.
 rules-vacation-unavailable = Ответы на время отпуска недоступны для этой учётной записи: почтовый сервер их не поддерживает или администратор их отключил.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Список рассылки (List-Id)

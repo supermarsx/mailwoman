@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Betonowa szarość ministerstwa, wyblakły papierowy tekst, czerwień Wielkiego Brata; wiadomości składane czcionką o stałej szerokości.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Biała strona, czarne kontury, podstawowa czerwień, błękit i żółć, punkty Ben-Day na pasku bocznym.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Znaczenie
+
+appearance-preference-group-option-none = Brak grupowania
+
+appearance-preference-group-option-received = Otrzymana data
+
+appearance-preference-group-option-sender = Nadawca
+
+appearance-preference-group-option-sent = Data wysłania
+
+appearance-preference-group-option-size = Rozmiar wiadomości
+
+appearance-preference-group-option-subject = Temat
+
+appearance-preference-mail-list-pageSize = Wiadomości ładowane na stronę (20 do 200)
+
+appearance-preference-mail-messageListGroup = Grupowanie wiadomości
+
+appearance-preference-message-group-help = Trzymaj powiązane wiadomości razem pod nagłówkami grup. Aby uzyskać ciągłą listę, wybierz opcję Brak grupowania. Kolejność wiadomości obowiązuje w każdej grupie.
+
+appearance-preference-message-order-help = Wybierz kolejność wiadomości w każdej grupie lub na całej liście, jeśli grupowanie jest wyłączone.
+
+appearance-preference-option-importance = Ważność, przede wszystkim wysoka
+
+appearance-preference-option-importance-asc = Ważność, najpierw niska
+
+appearance-preference-option-received = Otrzymana data
+
+appearance-preference-option-sender-desc = Nadawca, Z do A
+
+appearance-preference-option-sent = Data wysłania
+
+appearance-preference-option-sent-newest = Wysłano, najpierw najnowsze
+
+appearance-preference-option-sent-oldest = Wysłano, najpierw najstarsze
+
+appearance-preference-option-size = Rozmiar, najpierw największy
+
+appearance-preference-option-size-asc = Rozmiar, najpierw najmniejszy
+
+appearance-preference-option-subject-desc = Temat, Z do A

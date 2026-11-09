@@ -1378,3 +1378,286 @@ mail-color-confirm-title = تغيير ألوان الرسائل الافتراض
 mail-color-confirm-body = ستستخدم كل رسالة «{ $mode }» ما لم تغيّره لرسالة واحدة.
 mail-color-confirm = جعله الافتراضي
 mail-color-default-failed = تعذّر حفظ ألوان الرسائل الافتراضية.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = الرسائل المحددة لا تحتوي على مرفقات للتنزيل.
+
+mail-attachments-zip-all-blocked = لم يتم تنزيل أي شيء: سياسة المرفقات تحظر جميع الملفات التي يبلغ عددها { $skipped }.
+
+mail-attachments-zip-gathering = تجميع مرفقات { $count } الرسائل...
+
+mail-attachments-zip-skipped = { $skipped ->
+        [zero] تم استبعاد { $skipped } ملفات محظورة بواسطة سياسة المرفقات.
+        [one] تم استبعاد ملف واحد تم حظره بواسطة سياسة المرفقات.
+        [two] تم استبعاد ملفين حظرتهما سياسة المرفقات.
+        [few] تم استبعاد { $skipped } ملفات تم حظرها بواسطة سياسة المرفقات.
+        [many] تم استبعاد { $skipped } ملفًا تم حظرها بواسطة سياسة المرفقات.
+       *[other] تم استبعاد { $skipped } ملف تم حظرها بواسطة سياسة المرفقات.
+    }
+
+mail-attachments-zip-unreadable = تعذرت قراءة مرفقات رسائل { $count } وتم استبعادها.
+
+mail-bulk-download-attachments = تنزيل المرفقات بصيغة ZIP
+
+mail-compose-from-via = لقد تطابق مع رأس { $header }.
+
+mail-compose-from-why-match-domain = يتم الإرسال من { $identity } لأنه تم تسليم الرسالة إلى { $address }، وهو عنوان في نفس النطاق.
+
+mail-compose-from-why-match-pattern = يتم الإرسال من { $identity } لأنه تم إرسال الرسالة إلى { $address }، وهو ما يناسب نمط عنوان تلك الهوية.
+
+mail-compose-ribbon-autohide = إخفاء الشريط تلقائيًا (Ctrl+F1)
+
+mail-compose-ribbon-pin = إظهار الشريط دائمًا (Ctrl+F1)
+
+mail-context-download-selected-attachments = { $count ->
+        [zero] قم بتنزيل مرفقات { $count } رسالة محددة كـ ZIP
+        [one] قم بتنزيل مرفقات الرسالة المحددة كـ ZIP
+        [two] تنزيل مرفقات الرسالتين المحددتين بصيغة ZIP
+        [few] قم بتنزيل مرفقات { $count } رسائل مختارة كـ ZIP
+        [many] قم بتنزيل مرفقات { $count } رسالة مختارة كـ ZIP
+       *[other] قم بتنزيل مرفقات { $count } رسالة محددة كـ ZIP
+    }
+
+mail-context-download-thread-attachments = قم بتنزيل جميع { $count } مرفقات المحادثة كـ ZIP
+
+mail-context-open-new-tab = افتح في علامة تبويب جديدة
+
+mail-delete-sender-confirm = انقل { $count } الرسائل إلى سلة المهملات
+
+mail-delete-sender-detail = هل تريد نقل { $count } الرسائل من { $sender } إلى سلة المهملات؟ يتم استبعاد الرسائل الموجودة بالفعل في سلة المهملات. يمكنك التراجع عن هذا الإجراء.
+
+mail-delete-sender-empty = لا توجد رسائل من هذا المرسل خارج سلة المهملات.
+
+mail-delete-sender-failed = تعذر التحقق من كل رسالة مطابقة وأذوناتها. لم يتم نقل أي شيء. حاول ثانية.
+
+mail-delete-sender-help = ابحث عن رسائل هذا المرسل في جميع المجلدات وانقلها إلى سلة المهملات بعد التأكيد.
+
+mail-delete-sender-title = حذف كافة الرسائل من هذا المرسل
+
+mail-draft-continue = مواصلة التحرير
+
+mail-draft-edit = تحرير المسودة
+
+mail-draft-edit-failed = لا يمكن فتح المسودة للتحرير
+
+mail-draft-edit-help = افتح هذه المسودة في الملحن لمواصلة تحريرها
+
+mail-draft-notice = هذه مسودة
+
+mail-file-copied = تم النسخ إلى الحافظة.
+
+mail-file-copy-failed = تعذر النسخ إلى الحافظة.
+
+mail-file-copy-fingerprint = نسخ بصمة الإصبع
+
+mail-file-copy-name = انسخ اسم الملف
+
+mail-file-created = تم إنشاؤها
+
+mail-file-creator = تم الإنشاء باستخدام
+
+mail-file-details-button = تفاصيل الملف
+
+mail-file-details-tooltip = إظهار تفاصيل الملف وبصمة الإصبع
+
+mail-file-encryption = حماية كلمة المرور
+
+mail-file-encryption-none = لم يتم طلب كلمة المرور
+
+mail-file-encryption-password = كانت كلمة المرور مطلوبة لفتحه
+
+mail-file-fingerprint = بصمة الإصبع
+
+mail-file-name = اسم الملف
+
+mail-file-pages = الصفحات
+
+mail-file-pdf-version = PDF الإصدار
+
+mail-file-producer = منتج
+
+mail-file-verify-help = قارن هذه المجموعات ببصمة إصبع قدمها لك المرسل بطريقة أخرى، مثل مكالمة أو موقعه على الويب. إذا تطابقت كل مجموعة، فسيكون لديك نفس البايتات تمامًا.
+
+mail-file-verify-title = التحقق من بصمة الإصبع
+
+mail-follow-up-finished = انتهت المتابعة
+
+mail-group-by = تجميع حسب
+
+mail-header-attachments = { $count ->
+        [zero] { $count } مرفقات
+        [one] { $count } مرفق
+        [two] مرفقان
+        [few] { $count } مرفقات
+        [many] { $count } مرفقات
+       *[other] { $count } مرفق
+    }
+
+mail-header-expand-short = توسيع رأس الرسالة (Alt+H)
+
+mail-list-group-date-unknown = تاريخ غير معروف
+
+mail-list-group-importance = أهمية
+
+mail-list-group-locked = تم تأمين تجميع الرسائل من قبل المسؤول.
+
+mail-list-group-no-subject = (لا يوجد موضوع)
+
+mail-list-group-none = لا يوجد تجميع
+
+mail-list-group-priority-high = أهمية عالية
+
+mail-list-group-priority-low = أهمية منخفضة
+
+mail-list-group-priority-normal = أهمية عادية
+
+mail-list-group-received = تاريخ الاستلام
+
+mail-list-group-sender = من
+
+mail-list-group-sent = تاريخ الإرسال
+
+mail-list-group-size = الحجم
+
+mail-list-group-size-huge = 10 ميغابايت وما فوق
+
+mail-list-group-size-large = 1-10 ميجابايت
+
+mail-list-group-size-medium = 100 كيلو بايت – 1 ميجابايت
+
+mail-list-group-size-small = 25-100 كيلو بايت
+
+mail-list-group-size-tiny = أقل من 25 كيلو بايت
+
+mail-list-group-subject = الموضوع
+
+mail-list-order-importance = الأهمية، عالية أولاً
+
+mail-list-order-importance-asc = الأهمية، منخفضة أولاً
+
+mail-list-order-locked = تم تأمين ترتيب الرسائل من قبل المسؤول لديك.
+
+mail-list-order-sender-desc = المرسل، Z إلى A
+
+mail-list-order-sent-newest = أرسلت، الأحدث أولا
+
+mail-list-order-sent-oldest = أرسلت، الأقدم أولا
+
+mail-list-order-size = الحجم، الأكبر أولاً
+
+mail-list-order-size-asc = الحجم، الأصغر أولاً
+
+mail-list-order-subject-desc = الموضوع، Z إلى A
+
+mail-mark-answered = وضع علامة كإجابة
+
+mail-mark-as = وضع علامة كـ
+
+mail-mark-finished = وضع علامة على أنه انتهى
+
+mail-mark-forwarded = وضع علامة كمعاد توجيهها
+
+mail-mark-not-forwarded = وضع علامة "لم تتم إعادة توجيهها".
+
+mail-mark-unanswered = وضع علامة "بدون إجابة".
+
+mail-mentions-me = يذكرني
+
+mail-mentions-me-help = ابحث عن الرسائل التي تشير إلى أحد عناوين بريدك الإلكتروني
+
+mail-move-search = مجلدات البحث
+
+mail-order-by = اطلب بواسطة
+
+mail-reader-folder-go = مخزنة في { $folder } · انتقل إلى المجلد
+
+mail-reply-draft-discard = تجاهل الرد
+
+mail-reply-draft-discard-detail = هل تريد إزالة هذا الرد نهائيًا؟ لا يمكن التراجع عن هذا.
+
+mail-reply-draft-discard-title = هل تريد تجاهل هذا الرد؟
+
+mail-status-from-match-domain = من { $identity }
+
+mail-status-from-match-pattern = من { $identity }
+
+mail-status-from-via = الرد من { $identity } لأنه مطابق { $header }
+
+mail-toast-follow-up-finished = تم وضع علامة على المتابعة على أنها منتهية
+
+mail-toast-marked-answered = { $count ->
+        [zero] { $count } رسائل تم وضع علامة "تم الرد عليها".
+        [one] تم وضع علامة "تم الرد" على رسالة واحدة
+        [two] تم وضع علامة الرد على رسالتين
+        [few] تم وضع علامة على { $count } رسائل تم الرد عليها
+        [many] تم وضع علامة على { $count } رسالة تم الرد عليها
+       *[other] تم وضع علامة "تم الرد" على { $count } رسالة
+    }
+
+mail-toast-marked-forwarded = { $count ->
+        [zero] تم وضع علامة على { $count } رسالة كمعاد توجيهها
+        [one] تم وضع علامة على رسالة واحدة كمُعاد توجيهها
+        [two] تم وضع علامة إعادة التوجيه على رسالتين
+        [few] تم وضع علامة على { $count } رسائل كمعاد توجيهها
+        [many] تم وضع علامة على { $count } رسالة كمعاد توجيهها
+       *[other] تم وضع علامة على { $count } رسالة كمعاد توجيهها
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+        [zero] { $count } رسائل تم وضع علامة "لم تتم إعادة توجيهها".
+        [one] تم وضع علامة "لم تتم إعادة توجيه" على رسالة واحدة
+        [two] تمت إزالة علامة إعادة التوجيه من رسالتين
+        [few] تم وضع علامة على { $count } رسائل بأنها لم تتم إعادة توجيهها
+        [many] تم وضع علامة على { $count } رسالة بأنها لم تتم إعادة توجيهها
+       *[other] تم وضع علامة "لم تتم إعادة توجيهها" على { $count } رسالة
+    }
+
+mail-toast-marked-unanswered = { $count ->
+        [zero] { $count } رسائل تم وضع علامة "بدون إجابة".
+        [one] تم وضع علامة "لم يتم الرد" على رسالة واحدة
+        [two] تمت إزالة علامة الرد من رسالتين
+        [few] تم وضع علامة "بدون إجابة" على { $count } رسائل
+        [many] تم وضع علامة "بدون إجابة" على { $count } رسالة
+       *[other] تم وضع علامة "بدون إجابة" على { $count } رسالة
+    }
+
+mail-toast-move-failed-reason = تعذر نقل الرسائل ({ $reason }). لم يتم نقل أي شيء.
+
+mail-toast-update-refused-reason = { $count ->
+        [zero] رفض الخادم النقل لـ { $count } رسالة: { $reason }
+        [one] رفض الخادم النقل لرسالة واحدة: { $reason }
+        [two] رفض الخادم نقل رسالتين: { $reason }
+        [few] رفض السيرفر النقل لـ { $count } رسائل: { $reason }
+        [many] رفض الخادم النقل لـ { $count } رسالة: { $reason }
+       *[other] رفض الخادم النقل لـ { $count } رسالة: { $reason }
+    }
+
+reader-badge-hide = إخفاء هذه الشارة
+
+reader-badge-locked = تم تعيينه من قبل المسؤول الخاص بك
+
+reader-badge-menu = شارة الرسالة
+
+reader-badge-notable = تظهر فقط عندما تكون ملحوظة
+
+reader-sanitized-always = يظل المحتوى النشط مثل البرامج النصية معطلاً.
+
+reader-sanitized-clean = الرسالة HTML لا تحتاج إلى أي تغييرات
+
+reader-sanitized-clean-detail = لم تتم إزالة أو حظر أي شيء من HTML لهذه الرسالة.
+
+reader-sanitized-counts = { $blocked } العناصر البعيدة المحظورة، { $trackers } التتبع العناصر.
+
+reader-sanitized-detail = تم تعقيم الرسالة HTML قبل ظهورها. المحتوى البعيد يتبع إعدادات الخصوصية الخاصة بك.
+
+reader-sanitized-hosts = المضيفين عن بعد
+
+reader-sanitized-remote = تم حظر المحتوى البعيد
+
+reader-sanitized-short = معقمة HTML
+
+reader-sanitized-short-blocked = HTML محظور
+
+reader-sanitized-short-clean = HTML نظيف
+
+reader-sanitized-trackers = تتبع العناصر

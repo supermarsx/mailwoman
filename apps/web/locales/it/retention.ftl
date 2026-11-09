@@ -116,3 +116,94 @@ retention-history-matched = Corrispondenti
 retention-history-changed = Modificati
 retention-history-errors = Errori
 retention-context-action = Conservazione…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Calendari
+
+pim-cal-days = Giorni dopo la fine di un evento
+
+pim-cal-enabled = Elimina gli eventi terminati
+
+pim-cal-help = Elimina gli eventi nei calendari che scegli un determinato numero di giorni dopo la loro fine. Gli eventi ricorrenti non vengono mai eliminati.
+
+pim-cal-title = Eventi del calendario
+
+pim-days-range = Scegli tra { $min } e { $max } giorni.
+
+pim-held-title = Note rimosse che puoi ripristinare
+
+pim-held-until = Conservato fino al { $when }
+
+pim-limits = Tra { $min } e { $max } giorni.
+
+pim-notes-days = Giorni trascorsi dall'ultima modifica di una nota
+
+pim-notes-enabled = Rimuovi le note intatte
+
+pim-notes-help = Rimuovi le note che non hai modificato per un determinato numero di giorni. Le note appuntate vengono mantenute. Una nota rimossa può essere ripristinata per { $days } giorni.
+
+pim-notes-title = Note
+
+pim-off = Disattivato dall'amministratore.
+
+pim-preview = Anteprima
+
+pim-restore = Ripristina
+
+pim-result = { $events } evento/i e { $notes } nota/e.
+
+pim-run = Corri adesso
+
+pim-run-title = Corri adesso
+
+pim-save = Salva
+
+pim-skipped = { $count } scelte sono state ignorate perché l'amministratore le ha disattivate.
+
+pim-untitled = Nota senza titolo
+
+retention-action-stripAttachments = Rimuovere gli allegati di grandi dimensioni
+
+retention-do-stripAttachments = allegati rimossi
+
+retention-error-strip-disabled = La rimozione degli allegati è stata disabilitata dall'amministratore.
+
+retention-error-strip-min = Una regola che rimuove gli allegati deve attendere almeno { $days } giorni.
+
+retention-fd-action = Cosa succede alla posta in { $folder }
+
+retention-fd-days = Giorni prima dell'elaborazione di { $folder }
+
+retention-fd-help = Imposta per quanto tempo la posta rimane in una cartella prima che venga spostata o eliminata. Una cartella impostata su "Eredita" non ha una propria impostazione predefinita; valgono comunque le regole di cui sopra ed i limiti dell'amministratore. Le sottocartelle seguono la rispettiva cartella.
+
+retention-fd-inherit = Eredita
+
+retention-fd-mandatory = L'amministratore conserva questa cartella per { $days } giorni
+
+retention-fd-protected = Protetto dall'amministratore
+
+retention-fd-save = Salva le impostazioni predefinite della cartella
+
+retention-fd-title = Impostazioni predefinite della cartella
+
+retention-rule-strip-off = Disattivato dall'amministratore
+
+retention-strip-allowed = Una regola può rimuovere allegati di almeno { $kb } KB dalla posta vecchia di almeno { $days } giorni. Una breve nota sostituisce ogni allegato.
+
+retention-strip-denied = La rimozione degli allegati è stata disattivata dall'amministratore.
+
+retention-strip-done = Allegati rimossi dai messaggi { $count }, liberando { $size }.
+
+retention-strip-inline-kept = Le immagini mostrate all'interno del messaggio vengono conservate.
+
+retention-strip-inline-removed = Verranno rimosse anche le immagini mostrate all'interno del messaggio.
+
+retention-strip-limits = Rimuove gli allegati di almeno { $kb } KB dai messaggi di posta vecchi di almeno { $days } giorni. L'originale rimane nel Cestino per { $undo } giorni.
+
+retention-strip-preview = I messaggi { $count } perderebbero gli allegati, liberando { $size }.
+
+retention-strip-preview-estimate = Circa { $count } messaggi perderebbero gli allegati, liberando fino a { $size }.
+
+retention-strip-skipped = { $count } regole che rimuovono gli allegati sono state ignorate perché l'amministratore ha disattivato questa opzione.
+
+retention-summary-stripAttachments = dopo { $days } giorni, allegati di grandi dimensioni rimossi

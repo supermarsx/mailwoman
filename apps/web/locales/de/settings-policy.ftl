@@ -44,3 +44,6 @@ cache-card-prefetch = Vorabladen
 cache-card-prefetch-help = Nachrichten im Voraus laden, damit sie sofort geöffnet werden. Verbraucht mehr Daten.
 settings-folder-counts-card = Zähler-Badges
 settings-folder-counts-card-help = Was die Zahlen neben Ordnern anzeigen und welche Ordner einen Zähler haben.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Sprache und Region

@@ -168,3 +168,24 @@ multiselect-count = { $count ->
 
 # -- Machine translation (2026-11): added to match en ---------------------
 common-rate-limited = Le serveur est occupé. Patientez quelques secondes, puis réessayez.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+combobox-empty = Aucune correspondance
+
+combobox-toggle = Afficher les options pour { $label }
+
+common-attach-cat-archive = Archives
+
+common-attach-cat-document = Documents
+
+common-attach-cat-spreadsheet = Feuilles de calcul
+
+common-conn-reconnecting = Reconnexion…
+
+common-viewer-pdf-details = Détails techniques
+
+common-viewer-pdf-details-help = Incluez ces lignes lorsque vous signalez le problème. Ils ne contiennent aucun contenu de document.
+
+timezone-group-other = Autre
+
+timezone-use-browser = Utiliser le fuseau horaire du navigateur ({ $zone })

@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Ministeriumsgrauer Beton, verblasster Papiertext, Big-Brother-Rot; Nachrichten in Monospace-Schrift.
 appearance-theme-pop-art = Pop-Art
 appearance-theme-pop-art-desc = Weiße Seite, schwarze Konturen, Primärfarben Rot, Blau und Gelb, Ben-Day-Punkte in der Seitenleiste.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Bedeutung
+
+appearance-preference-group-option-none = Keine Gruppierung
+
+appearance-preference-group-option-received = Empfangsdatum
+
+appearance-preference-group-option-sender = Absender
+
+appearance-preference-group-option-sent = Sendedatum
+
+appearance-preference-group-option-size = Nachrichtengröße
+
+appearance-preference-group-option-subject = Betreff
+
+appearance-preference-mail-list-pageSize = Pro Seite geladene Nachrichten (20 bis 200)
+
+appearance-preference-mail-messageListGroup = Nachrichtengruppierung
+
+appearance-preference-message-group-help = Halten Sie verwandte Nachrichten unter Gruppenüberschriften zusammen. Wählen Sie „Keine Gruppierung“ für eine fortlaufende Liste. Ihre Nachrichtenreihenfolge gilt innerhalb jeder Gruppe.
+
+appearance-preference-message-order-help = Wählen Sie die Reihenfolge der Nachrichten innerhalb jeder Gruppe oder in der gesamten Liste, wenn die Gruppierung deaktiviert ist.
+
+appearance-preference-option-importance = Wichtigkeit, hoch zuerst
+
+appearance-preference-option-importance-asc = Wichtigkeit, niedrig zuerst
+
+appearance-preference-option-received = Empfangsdatum
+
+appearance-preference-option-sender-desc = Absender, Z bis A
+
+appearance-preference-option-sent = Sendedatum
+
+appearance-preference-option-sent-newest = Gesendet, das Neueste zuerst
+
+appearance-preference-option-sent-oldest = Gesendet, Älteste zuerst
+
+appearance-preference-option-size = Größe, größte zuerst
+
+appearance-preference-option-size-asc = Größe, das Kleinste zuerst
+
+appearance-preference-option-subject-desc = Betreff, Z bis A

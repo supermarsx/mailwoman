@@ -1118,3 +1118,18 @@ admin-insights-empty-rules = 此范围内没有自适应规则触发。
 admin-insights-share-of = 占请求的 { $share }
 admin-nav-encryption = 加密
 admin-nav-retention = 保留
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = 客户端错误
+
+admin-session-linked-device = 原始会话：{ $device }
+
+admin-session-linked-line = 链接邮箱访问·来自{ $origin }
+
+admin-session-linked-line-hidden = 链接邮箱访问
+
+admin-session-linked-open = 开设原始账户
+
+admin-session-linked-removed = 链接邮箱访问·原始帐户已删除
+
+admin-session-linked-restricted = 链接邮箱访问·来源未显示（无法访问该帐户）

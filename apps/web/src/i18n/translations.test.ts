@@ -100,3 +100,35 @@ describe('composer counts agree in number', () => {
     expect(format(locale, id, 3)).toBe(three);
   });
 });
+
+// Counts must remain dynamic across every locale's plural categories, including
+// million-sized counts and Arabic duals, rather than freezing the MT sample number.
+describe('translated attachment counts',()=>{
+  function format(locale:string,file:string,id:string,count:number):string {
+    const source=byLocale(locale).find(([name])=>name===file)?.[1]??'';
+    const bundle=new FluentBundle(locale,{useIsolating:false});
+    bundle.addResource(new FluentResource(source));
+    const errors:Error[]=[];
+    const result=bundle.formatPattern(bundle.getMessage(id)!.value!,{count,skipped:count,reason:'test'},errors);
+    expect(errors).toEqual([]);
+    return result;
+  }
+  it.each(LOCALES)('%s keeps file counts dynamic',locale=>{
+    for(const count of [0,1,2,3,5,11,21,100,1000000,2000000]) {
+      const result=format(locale,'attachments-filters.ftl','attach-filters-results',count);
+      if(locale==='ar'&&count===2) expect(result).toBe('ملفان');
+      else expect(result).toContain(new Intl.NumberFormat(locale).format(count));
+    }
+  });
+  it.each([
+    ['pt-BR','compose-insert.ftl','ins-drop-files'],
+    ['pt-BR','compose-insert.ftl','ins-drop-images'],
+    ['pt-BR','properties.ftl','props-bulk-senders-count'],
+    ['es','mail.ftl','mail-attachments-zip-skipped'],
+  ])('%s %s %s does not hard-code a million', (locale,file,id)=>{
+    expect(format(locale,file,id,2000000)).toContain(new Intl.NumberFormat(locale).format(2000000));
+  });
+  it('keeps Russian few counts dynamic in failure messages',()=>{
+    for(const count of [2,3,4,22,23])expect(format('ru','mail.ftl','mail-toast-update-refused-reason',count)).toContain(String(count));
+  });
+});

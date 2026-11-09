@@ -215,3 +215,12 @@ privacy-image-group-cache = Caché
 privacy-image-group-ram = Nivel de memoria
 privacy-image-group-disk = Nivel de disco
 privacy-image-group-tiering = Niveles y mantenimiento
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-error-reports-help = Cuando parte de Mailwoman falla, el navegador puede enviar a su administrador un breve informe técnico para que pueda solucionarlo. Contiene el tipo de error, en qué parte de la aplicación ocurrió, la versión de la aplicación y el tipo de navegador. Nunca contiene el contenido del mensaje, las direcciones, los nombres de los archivos adjuntos o lo que usted escribió.
+
+privacy-error-reports-send = Enviar informes de errores desde este navegador
+
+privacy-error-reports-send-help = Activado de forma predeterminada. Desactívelo para conservar estos informes en su dispositivo. El panel de error aún muestra una referencia que puedes copiar.
+
+privacy-error-reports-title = Informes de errores

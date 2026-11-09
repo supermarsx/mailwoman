@@ -44,3 +44,6 @@ cache-card-prefetch = Vooraf laden
 cache-card-prefetch-help = Laad berichten vooraf zodat ze direct openen. Gebruikt meer gegevens.
 settings-folder-counts-card = Tellerbolletjes
 settings-folder-counts-card-help = Wat de tellers naast mappen tonen en welke mappen er een hebben.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Taal en regio

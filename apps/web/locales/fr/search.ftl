@@ -63,3 +63,32 @@ search-refine-subject = Rechercher les messages ayant cet objet
 search-refine-folder = Rechercher dans ce dossier
 search-refine-domain = Rechercher les messages de ce domaine
 search-include-trash-scoped = « Inclure la corbeille » s’applique à la recherche dans tous les dossiers. Le dossier sélectionné est recherché directement.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Répondu
+
+search-chip-finished = Terminé
+
+search-chip-followup = Marqué pour suivi
+
+search-chip-forwarded = Transféré
+
+search-chip-high-priority = Haute priorité
+
+search-chip-low-priority = Faible priorité
+
+search-chip-mentions-me = Me mentionne
+
+search-chip-no-followup = Non marqué pour un suivi
+
+search-chip-not-high-priority = Pas une priorité élevée
+
+search-chip-not-low-priority = Pas de faible priorité
+
+search-chip-unanswered = Pas de réponse
+
+search-chip-unfinished = Pas fini
+
+search-chip-unforwarded = Non transféré
+
+search-field-mentions = Mentionné

@@ -72,3 +72,52 @@ admin-dr-trail = 轨迹
 admin-dr-behalf = 为用户提交请求
 admin-dr-behalf-help = 适用于通过邮寄或当面收到的请求。不会要求当事人通过消息确认。
 admin-dr-behalf-submit = 提交请求
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = 批量操作
+
+admin-dr-bulk-action = 行动
+
+admin-dr-bulk-approve = 批准
+
+admin-dr-bulk-assign = 分配
+
+admin-dr-bulk-clear = 清除选择
+
+admin-dr-bulk-csv = 选择的CSV
+
+admin-dr-bulk-extend = 延长截止日期
+
+admin-dr-bulk-failed = 拒绝
+
+admin-dr-bulk-field-assignee = 分配给（空清除）
+
+admin-dr-bulk-field-extend = 延期原因
+
+admin-dr-bulk-field-note = 注意（可选）
+
+admin-dr-bulk-field-reason = 原因
+
+admin-dr-bulk-hold = 依法扣留
+
+admin-dr-bulk-ok = 完成
+
+admin-dr-bulk-reject = 拒绝
+
+admin-dr-bulk-release-hold = 释放合法保留
+
+admin-dr-bulk-run = { $count ->
+       *[other] 适用于 { $count } 个请求
+    }
+
+admin-dr-bulk-select = 选择{ $address }的请求
+
+admin-dr-bulk-select-all = 选择列出的每个请求
+
+admin-dr-bulk-selected = { $count ->
+       *[other] 已选择 { $count } 个请求
+    }
+
+admin-dr-bulk-summary = 完成{ $done }；因{ $failed }而被拒绝。被拒绝的请求保持选中状态。
+
+admin-dr-more = 加载更多请求

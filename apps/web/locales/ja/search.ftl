@@ -63,3 +63,32 @@ search-refine-subject = この件名のメッセージを検索
 search-refine-folder = このフォルダー内を検索
 search-refine-domain = このドメインのメッセージを検索
 search-include-trash-scoped = 「ゴミ箱を含める」はすべてのフォルダーを検索するときに適用されます。選択したフォルダーはそのまま検索されます。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = 答えた
+
+search-chip-finished = 完了しました
+
+search-chip-followup = フォローアップ用にマーク済み
+
+search-chip-forwarded = 転送されました
+
+search-chip-high-priority = 高優先度
+
+search-chip-low-priority = 優先度が低い
+
+search-chip-mentions-me = 私について言及します
+
+search-chip-no-followup = フォローアップ対象としてマークされていません
+
+search-chip-not-high-priority = 優先度は高くありません
+
+search-chip-not-low-priority = 優先度は低くない
+
+search-chip-unanswered = 未回答
+
+search-chip-unfinished = 未完了
+
+search-chip-unforwarded = 転送されません
+
+search-field-mentions = 言及

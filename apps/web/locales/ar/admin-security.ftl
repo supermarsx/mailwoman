@@ -663,3 +663,24 @@ admin-protect-value-open = السماح بمرور الطلب
 admin-protect-invalid-whole = أدخل عددًا صحيحًا.
 admin-protect-invalid-min = أصغر قيمة مسموح بها هي { $min }.
 admin-protect-invalid-max = أكبر قيمة مسموح بها هي { $max }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = الجلسات وإعادة التشغيل
+
+admin-secdash-sessions-admin = جلسات وحدة التحكم
+
+admin-secdash-sessions-mailbox = جلسات صندوق البريد
+
+admin-secdash-sessions-native = جلسات التطبيق
+
+admin-secdash-sessions-reason-persisted = المخزنة في قاعدة البيانات، مختومة بمفتاح الخادم
+
+admin-secdash-sessions-reason-server-key-changed = لا يتم فتح الجلسات المخزنة باستخدام مفتاح الخادم الحالي؛ استعادة ملف المفتاح الأصلي
+
+admin-secdash-sessions-reason-server-key-ephemeral = لا يتم الاحتفاظ بمفتاح الخادم خلال عمليات إعادة التشغيل
+
+admin-secdash-sessions-reason-setting-off = تم إيقاف session.persistAcrossRestarts، لذا تنتهي الجلسات عند بدء تشغيل الخادم
+
+admin-secdash-sessions-survive-no = جلسات البقاء على قيد الحياة عند إعادة التشغيل: لا ({ $reason })
+
+admin-secdash-sessions-survive-yes = تستمر الجلسات في إعادة التشغيل: نعم ({ $reason })

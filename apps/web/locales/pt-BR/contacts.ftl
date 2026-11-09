@@ -176,3 +176,125 @@ contacts-bulk-favorites-added = { $count } adicionados aos favoritos.
 contacts-bulk-favorites-removed = { $count } removidos dos favoritos.
 contacts-row-menu = Ações para { $name }
 contacts-favorites-empty = Ainda não há favoritos. Use a estrela em um contato para adicionar um.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } já está em seus contatos.
+
+contacts-save-already-badge = Já salvo
+
+contacts-save-already-many = Todos os contatos { $count } já estão salvos.
+
+contacts-save-automated = Parece um remetente automático (sem resposta, notificações).
+
+contacts-save-book = Catálogo de endereços
+
+contacts-save-book-readonly = { $name } (somente leitura)
+
+contacts-save-cancel = Cancelar
+
+contacts-save-choose = Escolha contatos…
+
+contacts-save-contacts = Salvar contatos desta mensagem
+
+contacts-save-dialog-title = Salvar contatos desta mensagem
+
+contacts-save-email = E-mail
+
+contacts-save-failed = O contato não pôde ser salvo. Tente novamente.
+
+contacts-save-group = Grupo
+
+contacts-save-group-none = Nenhum grupo
+
+contacts-save-loading = Carregando endereços…
+
+contacts-save-name = Nome
+
+contacts-save-new = Salvar novos contatos
+
+contacts-save-no-book = Nenhum catálogo de endereços pode aceitar novos contatos.
+
+contacts-save-no-sender = Esta mensagem não tem endereço de remetente.
+
+contacts-save-note = Salvo de uma mensagem em { $date }
+
+contacts-save-nothing = Ninguém para salvar: todo mundo já está nos seus contatos, é você, ou parece automatizado.
+
+contacts-save-open = Abrir
+
+contacts-save-open-contact = Abrir contato
+
+contacts-save-open-link = Abrir contato
+
+contacts-save-own = Este é um dos seus próprios endereços.
+
+contacts-save-partial = Salvo { $saved } de { $total } contatos. Os outros não puderam ser salvos.
+
+contacts-save-pick = Economize { $email }
+
+contacts-save-recipients = Salvar todos os destinatários
+
+contacts-save-removed = Contatos salvos removidos.
+
+contacts-save-role-bcc = Cco
+
+contacts-save-role-cc = CC
+
+contacts-save-role-from = De
+
+contacts-save-role-replyTo = Responder para
+
+contacts-save-role-sender = Remetente
+
+contacts-save-role-to = Para
+
+contacts-save-saved-heading = Já está em seus contatos
+
+contacts-save-saved-many = { $count } contatos salvos em { $book }
+
+contacts-save-saved-one = Salvo { $name } em { $book }
+
+contacts-save-sender = Salvar remetente como contato
+
+contacts-save-settings-book = Catálogo de endereços
+
+contacts-save-settings-book-default = Catálogo de endereços padrão
+
+contacts-save-settings-enabled = Oferta Salvar contatos desta mensagem
+
+contacts-save-settings-enabled-help = Adiciona o item aos menus de mensagens e ao menu Mais do leitor.
+
+contacts-save-settings-note = Adicione uma nota com a data
+
+contacts-save-settings-note-help = A nota diz “Salvo de uma mensagem em” seguida da data.
+
+contacts-save-settings-reply-to = Use Reply-To para remetentes de listas e notificações
+
+contacts-save-settings-reply-to-help = Salva o endereço de resposta em vez de De para esses remetentes.
+
+contacts-save-settings-scope = Marcado primeiro na caixa de diálogo
+
+contacts-save-settings-scope-all = Todos na mensagem
+
+contacts-save-settings-scope-sender = Apenas remetente
+
+contacts-save-settings-sender = Oferta Salvar remetente como contato
+
+contacts-save-settings-sender-help = Um item de um clique nos menus de mensagens.
+
+contacts-save-settings-skip = Ignorar remetentes automatizados
+
+contacts-save-settings-skip-help = Omite endereços de não resposta, notificação e devolução, a menos que você os marque.
+
+contacts-save-settings-title = Salvar contatos de mensagens
+
+contacts-save-show-automated = Mostrar endereços automatizados e sem resposta
+
+contacts-save-submit = { $count ->
+        [0] Salve { $count } contatos
+        [one] Salvar { $count } contato
+        [many] Salve { $count } contatos
+       *[other] Salve { $count } contatos
+    }
+
+contacts-save-undo = Desfazer

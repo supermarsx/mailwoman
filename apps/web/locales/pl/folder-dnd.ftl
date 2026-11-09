@@ -75,3 +75,153 @@ folder-dnd-more-actions = Układ
 folder-dnd-selected-move = Przenieś zaznaczone do…
 folder-dnd-locked-row = Zablokowane
 folder-dnd-problem-pin = Przypięte foldery pozostają nad pozostałymi. Najpierw go odepnij, aby go tam przenieść.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Puste…
+
+folder-bar-label = Akcje dla wybranych folderów
+
+folder-bar-mark-read = Zaznacz wszystkie jako przeczytane
+
+folder-bar-pin = Przypnij
+
+folder-bar-star = Gwiazda
+
+folder-bar-unpin = Odepnij
+
+folder-bar-unstar = Usuń gwiazdkę
+
+folder-dnd-handle-hint = Przeciągnij, aby przenieść ten folder
+
+folder-pinned-group = Przypięty
+
+folder-pinned-unpin-zone = Upuść tutaj, aby odpiąć
+
+settings-folders-bulk-delete-body = { $folders ->
+        [one] { $folders } folder i zawarte w nim wiadomości { $messages } zostaną usunięte. Tego nie można cofnąć.
+        [few] { $folders } foldery (wraz z podfolderami) i zawarte w nich wiadomości { $messages } zostaną usunięte. Tego nie można cofnąć.
+        [many] { $folders } folderów (wraz z ich podfolderami) i zawarte w nich wiadomości { $messages } zostaną usunięte. Tego nie można cofnąć.
+       *[other] { $folders } folderów (wraz z ich podfolderami) i zawarte w nich wiadomości { $messages } zostaną usunięte. Tego nie można cofnąć.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [one] Usuń { $count } folder
+        [few] Usuń { $count } foldery
+        [many] Usuń { $count } folderów
+       *[other] Usuń { $count } folderu
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [one] Usunięto { $count } folder
+        [few] Usunięto { $count } foldery
+        [many] Usunięto { $count } folderów
+       *[other] Usunięto { $count } folderu
+    }
+
+settings-folders-bulk-delete-failed = Nic nie zostało usunięte. Nie usunięto: { $names }
+
+settings-folders-bulk-delete-list = Foldery do usunięcia
+
+settings-folders-bulk-delete-none = Żadnego z wybranych folderów nie można usunąć (foldery systemowe i foldery, których nie można usunąć, są pomijane).
+
+settings-folders-bulk-delete-others = Nie usunięto również: { $names }
+
+settings-folders-bulk-delete-partial = Usunięto { $done } folderów. Nie usunięto: { $names }
+
+settings-folders-bulk-delete-partial-done = Usunięto { $done } folderów.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [one] Nie usunięte, ponieważ konto jest objęte prawną blokadą: { $names }
+        [few] Nie usunięte, ponieważ konto jest objęte prawną blokadą ({ $count } foldery): { $names }
+        [many] Nie usunięte, ponieważ konto jest objęte prawną blokadą ({ $count } folderów): { $names }
+       *[other] Nie usunięte, ponieważ konto jest objęte prawną blokadą ({ $count } folderu): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [one] Nie usunięte, ponieważ przetwarzanie konta jest ograniczone: { $names }
+        [few] Nie usunięte, ponieważ przetwarzanie konta jest ograniczone ({ $count } foldery): { $names }
+        [many] Nie usunięte, ponieważ przetwarzanie konta jest ograniczone ({ $count } folderów): { $names }
+       *[other] Nie usunięte, ponieważ przetwarzanie konta jest ograniczone ({ $count } folderu): { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } wybrane foldery są pomijane, ponieważ nie można ich usunąć: { $names }
+
+settings-folders-bulk-delete-subfolders = Usuń także podfoldery każdego folderu
+
+settings-folders-bulk-delete-subfolders-off = Usuwane są tylko wybrane foldery. Folder, który nadal ma podfolder poza zaznaczeniem, zostanie zachowany.
+
+settings-folders-bulk-delete-title = { $count ->
+        [one] Usunąć { $count } folder?
+        [few] Usunąć { $count } foldery?
+        [many] Usunąć { $count } folderów?
+       *[other] Usunąć { $count } folderu?
+    }
+
+settings-folders-bulk-empty-body = { $total } wiadomości w folderach { $folders } zostaną usunięte: { $toTrash } zostaną przeniesione do Kosza i można je cofnąć, { $permanent } zostaną usunięte na stałe i nie będzie można ich przywrócić. Podfoldery nie są dotykane.
+
+settings-folders-bulk-empty-confirm = Opróżnij foldery
+
+settings-folders-bulk-empty-counting = Liczenie wiadomości w każdym folderze…
+
+settings-folders-bulk-empty-done = Opróżniono { $count } foldery, { $messages } wiadomości
+
+settings-folders-bulk-empty-fail-refused = serwer odmówił jego części; Pozostało { $remaining } wiadomości
+
+settings-folders-bulk-empty-fail-stopped = zatrzymany; Pozostało { $remaining } wiadomości
+
+settings-folders-bulk-empty-fail-uncertain = wynik ostatniej partii jest nieznany; sprawdź folder
+
+settings-folders-bulk-empty-list = Foldery do opróżnienia
+
+settings-folders-bulk-empty-partial = Opróżniono foldery { $done }; { $failed } nie powiodło się. Zobacz listę.
+
+settings-folders-bulk-empty-permanent = { $count } wiadomości są usuwane na zawsze
+
+settings-folders-bulk-empty-progress = Wykonano { $done } z { $of } folderów, przetworzono { $messages } wiadomości. Teraz: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = nie dało się policzyć, pominąć
+
+settings-folders-bulk-empty-skip-empty = już pusty, pominięty
+
+settings-folders-bulk-empty-skip-permanent-denied = zostałyby usunięte na dobre, co administrator wyłączył, pominął
+
+settings-folders-bulk-empty-skip-search = zapisane wyszukiwanie, pominięte
+
+settings-folders-bulk-empty-skip-unsupported = to konto nie może go opróżnić, pominięte
+
+settings-folders-bulk-empty-title = { $count ->
+        [one] Opróżnić { $count } folder?
+        [few] Opróżnić { $count } foldery?
+        [many] Opróżnić { $count } folderów?
+       *[other] Opróżnić wybrane foldery ({ $count })?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } wiadomości są przenoszone do Kosza
+
+settings-folders-bulk-empty-undo-label = Opróżniono foldery { $count } ({ $messages } wiadomości)
+
+settings-folders-delete-selected = Usuń…
+
+settings-folders-select-user = Wybierz wszystkie foldery użytkownika
+
+settings-folders-subscribe-failed = Nie można zmienić subskrypcji.
+
+settings-folders-subscribe-partial = Zmieniono foldery { $done }; Nie można zmienić { $failed }.
+
+settings-folders-subscribe-selected = Subskrybuj
+
+settings-folders-subscribed = { $count ->
+        [one] Subskrybowano { $count } folder
+        [few] Subskrybowano { $count } foldery
+        [many] Subskrybowano { $count } folderów
+       *[other] Subskrybowano { $count } folderu
+    }
+
+settings-folders-unsubscribe-selected = Zrezygnuj z subskrypcji
+
+settings-folders-unsubscribed = { $count ->
+        [one] Anulowano subskrypcję { $count } folderu
+        [few] Anulowano subskrypcję { $count } folderów
+        [many] Anulowano subskrypcję z { $count } folderów
+       *[other] Anulowano subskrypcję { $count } folderów
+    }

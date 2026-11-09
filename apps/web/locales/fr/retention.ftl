@@ -116,3 +116,94 @@ retention-history-matched = Correspondances
 retention-history-changed = Modifiés
 retention-history-errors = Erreurs
 retention-context-action = Conservation…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Calendriers
+
+pim-cal-days = Jours après la fin d'un événement
+
+pim-cal-enabled = Supprimer les événements terminés
+
+pim-cal-help = Supprimez les événements des calendriers que vous choisissez un nombre défini de jours après leur fin. Les événements récurrents ne sont jamais supprimés.
+
+pim-cal-title = Événements du calendrier
+
+pim-days-range = Choisissez entre { $min } et { $max } jours.
+
+pim-held-title = Notes supprimées que vous pouvez restaurer
+
+pim-held-until = Conservé jusqu'à { $when }
+
+pim-limits = Entre { $min } et { $max } jours.
+
+pim-notes-days = Jours depuis la dernière modification d'une note
+
+pim-notes-enabled = Supprimer les notes intactes
+
+pim-notes-help = Supprimez les notes que vous n'avez pas modifiées depuis un nombre de jours défini. Les notes épinglées sont conservées. Une note supprimée peut être restaurée pendant { $days } jours.
+
+pim-notes-title = Remarques
+
+pim-off = Désactivé par votre administrateur.
+
+pim-preview = Aperçu
+
+pim-restore = Restaurer
+
+pim-result = { $events } événement(s) et { $notes } note(s).
+
+pim-run = Courez maintenant
+
+pim-run-title = Courez maintenant
+
+pim-save = Enregistrer
+
+pim-skipped = { $count } choix(s) ont été ignorés car votre administrateur les a désactivés.
+
+pim-untitled = Note sans titre
+
+retention-action-stripAttachments = Supprimer les pièces jointes volumineuses
+
+retention-do-stripAttachments = pièces jointes supprimées
+
+retention-error-strip-disabled = La suppression des pièces jointes est désactivée par votre administrateur.
+
+retention-error-strip-min = Une règle qui supprime les pièces jointes doit attendre au moins { $days } jours.
+
+retention-fd-action = Qu'arrive-t-il au courrier en { $folder }
+
+retention-fd-days = Jours avant le traitement de { $folder }
+
+retention-fd-help = Définissez la durée pendant laquelle le courrier reste dans un dossier avant qu'il ne soit déplacé ou supprimé. Un dossier défini sur « Hériter » n'a pas de valeur par défaut propre ; les règles ci-dessus et les limites de l'administrateur s'appliquent toujours. Les sous-dossiers suivent leur dossier.
+
+retention-fd-inherit = Hériter
+
+retention-fd-mandatory = L'administrateur conserve ce dossier pendant { $days } jours
+
+retention-fd-protected = Protégé par l'administrateur
+
+retention-fd-save = Enregistrer les valeurs par défaut du dossier
+
+retention-fd-title = Valeurs par défaut du dossier
+
+retention-rule-strip-off = Désactivé par votre administrateur
+
+retention-strip-allowed = Une règle peut supprimer les pièces jointes d'au moins { $kb } Ko d'un courrier datant d'au moins { $days } jours. Une courte note remplace chaque pièce jointe.
+
+retention-strip-denied = La suppression des pièces jointes est désactivée par votre administrateur.
+
+retention-strip-done = Pièces jointes supprimées du(des) message(s) { $count }, libérant { $size }.
+
+retention-strip-inline-kept = Les images présentées à l'intérieur du message sont conservées.
+
+retention-strip-inline-removed = Les images affichées à l’intérieur du message sont également supprimées.
+
+retention-strip-limits = Supprime les pièces jointes d'au moins { $kb } Ko du courrier datant d'au moins { $days } jours. L'original reste dans la corbeille pendant { $undo } jours.
+
+retention-strip-preview = Les messages { $count } perdraient leurs pièces jointes, libérant ainsi { $size }.
+
+retention-strip-preview-estimate = Environ { $count } message(s) perdrait les pièces jointes, libérant jusqu'à { $size }.
+
+retention-strip-skipped = { $count } règle(s) qui suppriment les pièces jointes ont été ignorées car votre administrateur a désactivé cette fonction.
+
+retention-summary-stripAttachments = après { $days } jours, pièces jointes volumineuses supprimées

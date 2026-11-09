@@ -61,3 +61,60 @@ reader-card-loading = 読み込み
 reader-card-loading-help = メッセージを開いている間に表示される内容。
 settings-mail-card-list = メッセージ一覧
 settings-mail-card-list-help = 行の操作と、メッセージを操作したときの一覧の動作。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = { $name }をダウンロード
+
+reader-attachments-download-all = すべてダウンロード
+
+reader-attachments-download-all-blocked = 添付ファイル ポリシーにより、ここですべてのファイルがブロックされます
+
+reader-attachments-download-all-busy = ZIP ファイルの準備
+
+reader-attachments-download-all-label = すべての添付ファイルを ZIP ファイルとしてダウンロードします
+
+reader-attachments-download-all-none = ダウンロードする添付ファイルはありません
+
+reader-attachments-download-all-warned = { $count ->
+       *[other] 確認が必要な { $count } ファイルが省略されました。一つずつダウンロードしてください。
+    }
+
+reader-attachments-download-blocked = { $name } はダウンロードできません: { $reason }
+
+reader-attachments-download-label = { $name } ({ $size }) をダウンロード
+
+reader-attachments-download-off = ダウンロードがオフになっています
+
+reader-attachments-inline-group = { $count ->
+       *[other] { $count } つのインライン画像
+    }
+
+reader-attachments-inline-summary = { $count ->
+       *[other] { $count } つのインライン画像
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = バーをクリックして展開または折りたたむ
+
+reader-attachmentsBarClickToToggle-help = 添付ファイル バーの任意の場所をクリックすると、添付ファイル バーが切り替わります。オフの場合、矢印ボタンのみが機能します。
+
+reader-attachmentsBarDownloadAll = 「すべてダウンロード」ボタン
+
+reader-attachmentsBarDownloadAll-help = 添付ファイルを 1 つの ZIP ファイルとしてダウンロードするボタンをバーに表示します。
+
+reader-attachmentsBarShowDownloadButtons = 添付ファイルのダウンロード ボタン
+
+reader-attachmentsBarShowDownloadButtons-help = ホバーまたはフォーカス時に各添付ファイルのダウンロード ボタンを常に表示するか、表示しないようにします。
+
+reader-attachmentsBarZipInlineImages = ZIP にインライン画像を含めます
+
+reader-attachmentsBarZipInlineImages-help = これがオンになっていない限り、メッセージ テキスト内に表示される画像は [すべてダウンロード] から除外されます。
+
+reader-card-attachments-bar = 添付ファイルバー
+
+reader-card-attachments-bar-help = メッセージの添付ファイルの上にあるバーがどのように反応し、何を提供するのか。ロックされた行は、管理者によって設定されます。
+
+reader-option-always = いつも
+
+reader-option-hover = ホバーまたはフォーカス時
+
+reader-option-never = 決してしない

@@ -101,3 +101,30 @@ dr-event-due-soon = Binnenkort verschuldigd
 dr-event-overdue = Te laat
 dr-event-retry = Opnieuw geprobeerd
 dr-event-grace-skipped = Wachttijd overgeslagen door een beheerder
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = Waar u bezwaar tegen heeft
+
+dr-objection-purposes-help = Wanneer een beheerder het verzoek goedkeurt, wordt uw toestemming voor elk door u aangevinkt doel in één keer ingetrokken. Onder Toestemmingen kunt u een doel later weer inschakelen.
+
+dr-objection-purposes-list = Bezwaar tegen: { $purposes }
+
+dr-purpose-analytics = Gebruiksstatistieken
+
+dr-purpose-analyticsTag = Analytics-tag
+
+dr-purpose-assistant = Assistent
+
+dr-purpose-integrations = Integraties en API sleutels
+
+dr-purpose-openTracking = Open en lees tracking
+
+dr-purpose-push = Pushmeldingen
+
+dr-rectify-banner = Gegevens bijwerken voor verzoek { $ref }
+
+dr-rectify-done = Markeer als klaar
+
+dr-rectify-edit = Bewerk mijn gegevens
+
+dr-rectify-ref = Referentie { $ref }. Citeer het als u ons schrijft over deze correctie.

@@ -1122,3 +1122,18 @@ admin-insights-empty-rules = Nenhuma regra adaptativa disparou neste intervalo.
 admin-insights-share-of = { $share } das solicitações
 admin-nav-encryption = Criptografia
 admin-nav-retention = Retenção
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Erros do cliente
+
+admin-session-linked-device = Sessão de origem: { $device }
+
+admin-session-linked-line = Acesso à caixa de correio vinculada · de { $origin }
+
+admin-session-linked-line-hidden = Acesso à caixa de correio vinculada
+
+admin-session-linked-open = Abrir conta de origem
+
+admin-session-linked-removed = Acesso à caixa de correio vinculada · conta de origem removida
+
+admin-session-linked-restricted = Acesso à caixa de correio vinculada · origem não mostrada (sem acesso a essa conta)

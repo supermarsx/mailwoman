@@ -742,3 +742,104 @@ settings-folder-icon-group-personal = Pessoal e diversão
 settings-folder-icon-group-tech = Tecnologia e ferramentas
 settings-folder-icon-search-label = Pesquisar ícones
 settings-folder-icon-no-match = Nenhum ícone corresponde
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Autenticação (DMARC)
+
+settings-badge-auth-help = O resultado DMARC; ele abre todos os detalhes de segurança.
+
+settings-badge-density = Tamanho do selo
+
+settings-badge-density-comfortable = Confortável
+
+settings-badge-density-compact = Compacto
+
+settings-badge-density-help = Altura e espaçamento compactos ou confortáveis para cada crachá.
+
+settings-badge-folder = Pasta
+
+settings-badge-folder-help = Onde a mensagem é armazenada. Somente quando notável mostra isso para Lixo e Lixo.
+
+settings-badge-labels = Etiquetas de crachá
+
+settings-badge-labels-help = Ícone com texto, ou apenas o ícone (o texto completo fica na dica e para leitores de tela).
+
+settings-badge-labels-icon = Somente ícone
+
+settings-badge-labels-text = Ícone e texto
+
+settings-badge-list = Lista de discussão
+
+settings-badge-list-help = A lista de discussão de onde veio a mensagem; ele abre os detalhes e ações da assinatura. Somente quando notável mostra quando o e-mail continua chegando após você cancelar a inscrição.
+
+settings-badge-mode-always = Sempre
+
+settings-badge-mode-never = Nunca
+
+settings-badge-mode-notable = Somente quando notável
+
+settings-badge-sanitized = Higienizado HTML
+
+settings-badge-sanitized-help = O que o desinfetante HTML fez com a mensagem. Somente quando notável mostra quando algo foi bloqueado.
+
+settings-badge-spam = Pontuação de spam
+
+settings-badge-spam-help = A pontuação que o servidor receptor escreveu nos cabeçalhos das mensagens.
+
+settings-folders-hide-empty = Ocultar pastas vazias na barra lateral
+
+settings-folders-hide-empty-help = As pastas reaparecem quando contêm mensagens. A caixa de entrada, as pastas de pesquisa, as pastas com contagens desconhecidas e os pais das pastas visíveis permanecem exibidos. Substitua pastas individuais em Propriedades, Exibição; cada pasta permanece nesta lista.
+
+settings-folders-list-card = Lista e ordem de pastas
+
+settings-header-auto-collapse = Dobre o cabeçalho depois de escrever (segundos)
+
+settings-header-auto-collapse-help = Quando o corpo estiver em foco por tantos segundos e o cabeçalho tiver um destinatário e um assunto, ele será dobrado na linha de resumo. 0 desativa isso.
+
+settings-message-badges = Emblemas de mensagens
+
+settings-message-badges-help = Escolha quais emblemas aparecem no cabeçalho de uma mensagem aberta. As marcas de prioridade são definidas em Pastas e barra lateral. Você também pode clicar com o botão direito em um emblema para ocultá-lo.
+
+settings-reply-from-headers = Cabeçalhos que escolhem a identidade
+
+settings-reply-from-headers-help = Um nome de cabeçalho por linha, tentado nesta ordem: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc. Um cabeçalho deixado de fora não é lido.
+
+settings-reply-from-headers-invalid = Use apenas estes nomes, um por linha: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc.
+
+settings-reply-from-headers-save = Salvar ordem de cabeçalho
+
+settings-sessions-linked-created = Link criado
+
+settings-sessions-linked-details = Detalhes do link
+
+settings-sessions-linked-kind = Tipo de link
+
+settings-sessions-linked-kind-linked = Caixa de correio vinculada
+
+settings-sessions-linked-last-used = Usado pela última vez
+
+settings-sessions-linked-line = Acesso à caixa de correio vinculada · de { $origin }
+
+settings-sessions-linked-line-hidden = Acesso à caixa de correio vinculada
+
+settings-sessions-linked-origin = Vem de
+
+settings-sessions-linked-removed = Desconhecido (conta removida)
+
+settings-sessions-linked-revoke = Revogar acesso ao link
+
+settings-sessions-linked-revoke-label = Revogar acesso ao link para { $mailbox }
+
+settings-sessions-linked-target = Caixa de correio aberta
+
+settings-sessions-origin-full = Endereço completo
+
+settings-sessions-origin-help = Controla como esta tabela nomeia a conta de onde vem uma sessão de caixa de correio vinculada. Só você vê isso, em suas próprias sessões.
+
+settings-sessions-origin-hidden = Oculto
+
+settings-sessions-origin-masked-local-part = Endereço com a primeira parte mascarada
+
+settings-sessions-origin-setting = Mostrar de onde vem o acesso à caixa de correio vinculada
+
+settings-shortcuts-search = Atalhos de pesquisa

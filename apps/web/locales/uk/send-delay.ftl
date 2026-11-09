@@ -54,3 +54,91 @@ outbox-queued-count = { $count ->
     [many] { $count } повідомлень очікують надсилання
    *[other] { $count } повідомлення очікують надсилання
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = Наступне надсилання: { $when }
+
+outbox-chip-title = Повідомлення очікують на надсилання
+
+outbox-chip-view-all = Відкрийте вихідні
+
+outbox-delete = Видалити
+
+outbox-delete-confirm = Видалити повідомлення?
+
+outbox-delete-failed = Не вдалося видалити повідомлення. { $error }
+
+outbox-deleted = Повідомлення в черзі видалено.
+
+outbox-edit-time = Редагувати час надсилання
+
+outbox-edit-time-conflict = Час надсилання змінено або повідомлення вже надіслано. Вихідні перезавантажено.
+
+outbox-edit-time-current = Зараз { $when }
+
+outbox-edit-time-refused = Неможливо змінити час надсилання. { $error }
+
+outbox-edit-time-save = Економія часу надсилання
+
+outbox-failed-toast = Не вдалося надіслати повідомлення. { $error }
+
+outbox-failed-uncertain-toast = Повідомлення може бути доставлено або не доставлено. Поставте прапорець «Надіслано» перед повторним надсиланням.
+
+outbox-open = відкритий
+
+outbox-reader-actions = Дії з повідомленнями в черзі
+
+outbox-reader-cc = Копія: { $recipients }
+
+outbox-reader-label = Повідомлення в черзі
+
+outbox-reader-loading = Завантаження повідомлення…
+
+outbox-reader-to = Кому: { $recipients }
+
+outbox-reader-unavailable = Не вдалося завантажити повідомлення.
+
+outbox-recall-to-drafts = Відкликання на чернетки
+
+outbox-send-again = Надіслати знову
+
+outbox-send-again-failed = Не вдалося знову поставити повідомлення в чергу. { $error }
+
+outbox-send-again-queued = Повідомлення поставлено в чергу для повторного надсилання.
+
+outbox-sent-copy-folder = Буде збережено через { $folder }
+
+outbox-sent-copy-missing = Буде збережено в Надіслані (вибрана папка недоступна)
+
+outbox-sent-copy-skip = Жодна копія не буде збережена
+
+outbox-status-attempts = { $count ->
+        [one] Наразі { $count } спроба
+        [few] Поки що { $count } спроби
+        [many] Наразі { $count } спроб
+       *[other] Наразі { $count } спроби
+    }
+
+outbox-status-canceled = Скасовано
+
+outbox-status-failed = Не відправлено
+
+outbox-status-held = Утримується, доки ви не відпустите
+
+outbox-status-last-error = Остання помилка: { $error }
+
+outbox-status-next-attempt = Наступна спроба { $when }
+
+outbox-status-queued = У черзі
+
+outbox-status-retrying = Повторна спроба
+
+outbox-status-scheduled = За розкладом
+
+outbox-status-sending = Відправка
+
+outbox-status-sends-at-in = Надсилає { $when } (в { $time })
+
+outbox-status-sent = Надіслано
+
+outbox-status-uncertain = Доставка невідома

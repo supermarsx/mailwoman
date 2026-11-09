@@ -101,3 +101,30 @@ dr-event-due-soon = Termin wkrótce
 dr-event-overdue = Po terminie
 dr-event-retry = Ponowiono
 dr-event-grace-skipped = Administrator pominął okres oczekiwania
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = Czemu się sprzeciwiasz
+
+dr-objection-purposes-help = Gdy administrator zatwierdzi żądanie, Twoja zgoda na każdy zaznaczony przez Ciebie cel zostanie natychmiast wycofana. Cel możesz włączyć ponownie później w sekcji Zgody.
+
+dr-objection-purposes-list = Sprzeciw wobec: { $purposes }
+
+dr-purpose-analytics = Statystyki użytkowania
+
+dr-purpose-analyticsTag = Tag analityczny
+
+dr-purpose-assistant = Asystent
+
+dr-purpose-integrations = Integracje i klucze API
+
+dr-purpose-openTracking = Otwórz i przeczytaj śledzenie
+
+dr-purpose-push = Powiadomienia push
+
+dr-rectify-banner = Aktualizowanie szczegółów żądania { $ref }
+
+dr-rectify-done = Oznacz jako gotowe
+
+dr-rectify-edit = Edytuj moje dane
+
+dr-rectify-ref = Numer referencyjny { $ref }. Zacytuj go, jeśli napiszesz do nas w sprawie tej korekty.

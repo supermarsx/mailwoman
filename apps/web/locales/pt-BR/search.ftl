@@ -63,3 +63,32 @@ search-refine-subject = Pesquisar mensagens com este assunto
 search-refine-folder = Pesquisar nesta pasta
 search-refine-domain = Pesquisar mensagens deste domínio
 search-include-trash-scoped = Incluir Lixeira se aplica ao pesquisar em todas as pastas. A pasta selecionada é pesquisada diretamente.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Respondido
+
+search-chip-finished = Concluído
+
+search-chip-followup = Marcado para acompanhamento
+
+search-chip-forwarded = Encaminhado
+
+search-chip-high-priority = Alta prioridade
+
+search-chip-low-priority = Baixa prioridade
+
+search-chip-mentions-me = Menciona-me
+
+search-chip-no-followup = Não marcado para acompanhamento
+
+search-chip-not-high-priority = Não é alta prioridade
+
+search-chip-not-low-priority = Não é baixa prioridade
+
+search-chip-unanswered = Não respondido
+
+search-chip-unfinished = Não concluído
+
+search-chip-unforwarded = Não encaminhado
+
+search-field-mentions = Menções

@@ -21,3 +21,10 @@ spam-score-col-description = الوصف
 spam-score-points-missing = غير مذكورة
 spam-score-no-rules = لا تدرج الترويسة أي قواعد منفردة.
 spam-score-not-scanned = يعرض Mailwoman هذه الدرجات كما كتبها الخادم المستلم؛ ولا يفحص الرسالة بنفسه.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+spam-score-copied = تم نسخ الانهيار.
+
+spam-score-copy = انهيار النسخ
+
+spam-score-copy-failed = لا يمكن نسخ الانهيار. حاول ثانية.

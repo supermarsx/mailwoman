@@ -1842,3 +1842,616 @@ admin-settings-key-ratelimit-anon-per-minute = 每分钟恢复的匿名同意请
 admin-settings-help-ratelimit-anon-per-minute = 一个地址在匿名 Cookie 同意路由上每分钟恢复的请求数。范围 1-600；默认 30。
 admin-settings-key-ratelimit-trusted-multiplier = 已知来源的账户额度(%)
 admin-settings-help-ratelimit-trusted-multiplier = 当请求来自有成功登录记录的来源时，已登录邮箱可获得的账户请求额度的百分比。100 保持基础额度。它绝不会放宽匿名、管理员或 User-Agent 预算，也不会放宽正在生效的拦截。范围 100-1000；默认 150。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-attachments-bar-click-to-toggle = 单击阅读器附件栏上的任意位置是否会展开或折叠它。关闭时，只有箭头按钮起作用。
+
+admin-settings-help-attachments-bar-download-all = 附件栏是否提供“全部下载”按钮，将允许的附件保存为一个 ZIP 文件。
+
+admin-settings-help-attachments-bar-show-download-buttons = 当栏中的每个附件显示其下载按钮时：悬停或聚焦（默认）、始终或从不。下载仍遵循附件策略和 mail.allowDownload。
+
+admin-settings-help-attachments-bar-zip-inline-images = 消息文本中显示的图像是否包含在全部下载ZIP中。默认关闭。
+
+admin-settings-help-cap-reading-delete-sender = 允许用户启用阅读器操作，在确认后将所有匹配的发件人邮件移至“废纸篓”。默认禁用。功能配置文件也必须允许这样做。
+
+admin-settings-help-compose-feature-family = 通过功能 ID 打开或关闭 Composer 控件。默认开启；锁定它以阻止用户更改它。
+
+admin-settings-help-compose-headers-allow-auto-submitted = 允许用户在消息上设置自动提交 (RFC 3834)。默认关闭：告诉其他系统不要回复。
+
+admin-settings-help-compose-headers-allow-custom = 允许用户添加自己的标头（最多 20 个，检查名称，拒绝受保护的标头）。
+
+admin-settings-help-compose-headers-allow-return-receipt-to = 允许用户使用旧的 Return-Receipt-To 标头请求收据。默认关闭。
+
+admin-settings-help-compose-headers-allow-threading-edit = 允许用户编辑回复和参考，或从回复开始新线程。
+
+admin-settings-help-compose-headers-forced = 每行一个名称=值对，添加到从域发送的每条消息中并替换用户的值。受保护的标头被拒绝。
+
+admin-settings-help-compose-insert-image-resize-default = “来自文件的图片”对话框的大小开头为：原始、大 (1600 像素) 或中 (1024 像素)。
+
+admin-settings-help-compose-insert-max-inline-image-mb = 大于此的图片不放置在消息正文中；它们仍然可以附着。 1 到 50。
+
+admin-settings-help-compose-layout-default-font = 新消息开头的字体系列、大小和颜色，如 family|size|#colour。空使用主题字体。
+
+admin-settings-help-compose-reply-to-allow-override = 关闭时，身份的回复按原样使用，用户无法编辑或删除它。
+
+admin-settings-help-compose-reply-to-show = 撰写者是否显示回复行：仅当身份或原始消息有一个、始终或从不时。
+
+admin-settings-help-compose-sent-folder-fixed-id = 当规则为“固定文件夹”时使用的文件夹角色或 ID。
+
+admin-settings-help-compose-sent-folder-mode = 已发送邮件的副本所在位置：普通的“已发送”文件夹、一个固定文件夹、按收件人域、身份或主题规则。
+
+admin-settings-help-compose-sent-folder-per-identity = 每行一个标识=文件夹对。当规则是“按身份”时使用。
+
+admin-settings-help-compose-sent-folder-rules = 每行一条规则，domain:example.com=文件夹或subject:text=文件夹。第一场比赛获胜。
+
+admin-settings-help-compose-sent-folder-skip-copy = 切勿保留已发送消息的副本。管理员可以强制打开或关闭此功能。
+
+admin-settings-help-compose-styles-custom = 用户自己的作曲家风格为JSON，由风格库编写。用户设置；这里没有什么可配置的。
+
+admin-settings-help-compose-styles-default-set = 作曲家风格库的外观：默认、现代、经典或紧凑。
+
+admin-settings-help-compose-styles-max-custom = 用户可以在编辑器中保留大多数自定义样式。 0 关闭创建样式。
+
+admin-settings-help-contacts-save-from-message-add-note = 将注释“从<日期>的消息中保存”添加到从消息中保存的联系人中。可以锁定用户和域覆盖。
+
+admin-settings-help-contacts-save-from-message-default-book = 接收消息中保存的联系人的通讯录id； “默认”使用默认地址簿。可以锁定用户和域覆盖。
+
+admin-settings-help-contacts-save-from-message-default-scope = 在“保存联系人”对话框中首先勾选哪些参与者：仅限发件人、发件人和回复者或所有人。可以锁定用户和域覆盖。
+
+admin-settings-help-contacts-save-from-message-enabled = 提供在消息菜单中保存此消息中的联系人。关闭时该项目被隐藏。可以锁定用户和域覆盖。
+
+admin-settings-help-contacts-save-from-message-skip-automated = 除非手动勾选，否则请将无回复地址、通知地址和退回邮件地址保留在“保存联系人”对话框之外。可以锁定用户和域覆盖。
+
+admin-settings-help-contacts-save-sender-enabled = 提供一键将发件人保存为消息菜单中的联系人项目的功能。关闭时该项目被隐藏。可以锁定用户和域覆盖。
+
+admin-settings-help-contacts-save-sender-use-reply-to = 当发件人是邮件列表或通知地址时，保存回复地址而不是发件人地址。可以锁定用户和域覆盖。
+
+admin-settings-help-dsr-admin-step-up = 开启（默认）：批准数据请求、运行删除或批量批准的管理员必须首先再次确认是他们本人（密码和第二因素或密钥）。确认持续五分钟。 Off 删除额外的检查；该决定仍记录在请求跟踪中。
+
+admin-settings-help-export-default-format = 导出对话框开始的格式。
+
+admin-settings-help-export-default-scope = 导出对话框开始的范围：消息、对话、选择或文件夹。
+
+admin-settings-help-export-dialog-enabled = 在消息视图和消息菜单中导出会打开一个对话框。关闭时，这些菜单会将一条消息下载为 .eml。
+
+admin-settings-help-export-folder-enabled = 允许用户将整个文件夹下载为ZIP 消息。每次出口都经过审核。
+
+admin-settings-help-export-folder-format = 文件夹导出提供的格式：.eml 文件的 ZIP、包含 mbox 文件的 ZIP，或两者兼而有之。
+
+admin-settings-help-export-folder-include-subfolders = 文件夹导出是否默认包含其子文件夹，以文件夹结构形式保存在ZIP中。
+
+admin-settings-help-export-folder-max-bytes = 一个文件夹导出可以容纳的最大字节数的消息。拒绝使用所示大小的较大文件夹。
+
+admin-settings-help-export-folder-max-messages = 一个文件夹导出可容纳的最多邮件。
+
+admin-settings-help-export-formats = 导出对话框提供的格式：eml、mbox、txt、md、msg、docx、csv、json、pdf。服务器拒绝列出的服务器构建格式。
+
+admin-settings-help-export-message-download-enabled = 允许用户将邮件下载为 .eml（仅包含标题）或 mbox 文件。
+
+admin-settings-help-folders-hide-empty = 隐藏侧边栏中的空文件夹。用户可以更改默认值或覆盖单个文件夹的默认值，除非此设置被锁定。没有邮件被删除。
+
+admin-settings-help-folders-pinned-hide-from-tree = 固定文件夹显示在文件夹树上方的固定组中，并保留其在树中的位置。打开会隐藏树中没有子文件夹的固定文件夹，因此它仅显示在固定组中。带有子文件夹的固定文件夹保留在树中。
+
+admin-settings-help-mail-badge-auth = 当读卡器标题显示DMARC身份验证徽章时：始终、仅在值得注意时或从不。
+
+admin-settings-help-mail-badge-density = 读卡器标头中的徽章尺寸：紧凑或舒适。
+
+admin-settings-help-mail-badge-folder = 当阅读器标题显示文件夹徽章时：始终、仅在值得注意时或从不。
+
+admin-settings-help-mail-badge-headers = 在阅读器中显示消息的“过期”、“回复者”、“敏感度”和“取代”标头的徽章。
+
+admin-settings-help-mail-badge-labels = 读者标题徽章是否显示带文本的图标，或仅显示图标。
+
+admin-settings-help-mail-badge-list = 当阅读器标题显示邮件列表徽章时：始终、仅在值得注意时或从不。它需要 List-Id 或 List-Unsubscribe 标头。
+
+admin-settings-help-mail-badge-sanitized = 当读卡器标题显示已清理的HTML徽章时：始终、仅在值得注意时或从不。
+
+admin-settings-help-mail-badge-spam = 当阅读器标题显示垃圾邮件分数徽章时：始终、仅在值得注意时或从不。
+
+admin-settings-help-mail-brand-avatars-require-auth = 从不：只要域名匹配就显示徽标。 known-failure（默认）：显示它，除非消息的缓存DKIM或DMARC结果失败；未经检查的消息保留徽标。始终：仅在品牌自己的域名的 DMARC 与 DKIM 对齐后显示。可以锁定用户和域覆盖。
+
+admin-settings-help-mail-compose-header-auto-collapse-seconds = 在完整的收件人和主题标题折叠到其摘要之前，正文必须保持焦点几秒钟。选择 0 禁用定时折叠，或选择 1-60 秒。用户可以选择，除非它被锁定。
+
+admin-settings-help-mail-compose-priority-default = 新消息在编辑器中开始的优先级。
+
+admin-settings-help-mail-compose-priority-enabled = 在作曲家选项组中显示“正常”、“高”和“低”优先级选择器。关闭时，将发送不带优先级标头的新邮件。
+
+admin-settings-help-mail-expiry-hide-expired = 如何处理过期日期已过的邮件：什么都没有、将其显示为灰色或建议将其存档。
+
+admin-settings-help-mail-list-keep = 始终保留发件人和邮件列表，每行一个作为sender:address或list:List-Id。清理此发件人、取消订阅建议并保留规则跳过它们。
+
+admin-settings-help-mail-list-page-size = 每次用户滚动到末尾时列表会获取多少条消息。默认 50，从 20 到 200。用户选择自己的值，除非您锁定此值。
+
+admin-settings-help-mail-list-unsubscribe-mode = 当列表提供一键式请求时，取消订阅的工作原理：先询问、立即发送，或者仅打开列表的链接或草稿。
+
+admin-settings-help-mail-message-list-group = 按接收或发送日期、发件人、主题、重要性或大小对对话进行分组。除非锁定，否则用户可以覆盖此设置。
+
+admin-settings-help-mail-priority-marks = 哪个优先级标记消息列表、对话和阅读器显示：高和低、仅高或无。用户在“设置”>“文件夹”和侧边栏下进行选择，除非锁定。
+
+admin-settings-help-mail-priority-marks-style = 优先级标记的外观：图标、带有“高”或“低”字样的图标或细条。图标和文字保持意义，没有颜色。
+
+admin-settings-help-mail-priority-send-headers = 高优先级或低优先级邮件在发送时获得哪些标头：Importance、X-Priority 和 X-MSMail-Priority 中的任何一个。
+
+admin-settings-help-mail-priority-trust-sender-headers = 是否显示发送者设置的优先级：始终，仅当消息通过对齐的 DMARC 检查时，或从不。对将每封邮件标记为高优先级的发件人使用“可信”或“从不”。
+
+admin-settings-help-mail-reply-from-header-priority = 消息头按此顺序读取，以查找在选择回复身份时消息发送到的地址。名称：递送至、X 原始至、信封至、X 转发至、重新发送至、收件人、抄送。未读取的标头不会被读取。
+
+admin-settings-help-mail-search-default-scope = 在当前文件夹或所有文件夹中开始新的普通邮件搜索。这控制初始默认值，包括锁定时；用户仍然可以为特定搜索选择不同的范围。已保存的查询和显式范围的查询将被保留。
+
+admin-settings-help-metrics-dimensions-enabled = 存储按客户端类型（Web）和设备类别（桌面、移动）划分的已保存统计信息。关闭以存储每个指标和分钟的组合行。
+
+admin-settings-help-metrics-persist-enabled = 每个刷新间隔以及服务器停止时将性能统计数据（图像代理速度、浏览器加载时间、速率限制和请求保护计数）保存到数据库中，以便图表在重新启动后保留其历史记录。没有任何东西可以识别个人、地址或消息。关闭以仅将它们保留在内存中。
+
+admin-settings-help-metrics-persist-flush-seconds = 性能统计信息写入数据库的频率（5 到 3600 秒）。没有任何警告就被杀死的服务器最多损失这么多。
+
+admin-settings-help-observability-client-capture-console = 还报告 console.error 调用，每页最多五次。默认情况下关闭，因为库会记录预期条件。
+
+admin-settings-help-observability-client-capture-csp = 报告浏览器检测到的内容安全策略违规行为，仅包含被阻止的指令和来源。默认开启。
+
+admin-settings-help-observability-client-enabled = 从 Web 应用程序收集错误报告（错误边界、未捕获的错误、失败的块、工作错误、CSP 违规）以及已清理的堆栈跟踪，显示在可观察性 > 客户端错误下。默认开启。报告不包含消息内容、地址、令牌、附件名称或 URL 查询。关闭停止采集；现有报告将随着保留而过期。
+
+admin-settings-help-observability-client-forward = 还将每个已清理的报告发送到使用 MW_ERROR_FORWARD_URL 配置的错误接收器。默认关闭。如果没有配置接收器，则不会发送任何内容。
+
+admin-settings-help-observability-client-include-account-hash = 将帐户的密钥单向哈希添加到从登录会话发送的报告中，以便无需命名即可区分来自一个帐户的报告。默认关闭。当隐私密钥轮换时，哈希值会发生变化。
+
+admin-settings-help-observability-client-max-per-session = 一页加载可能会发送大多数错误报告（1 到 1000）。 60 秒内重复出现相同错误算一次。默认 20。
+
+admin-settings-help-observability-client-sample-rate = 浏览器发送的错误报告的比例，从 0 到 1。默认为 1（全部）。每个页面加载仍然停止在每个会话限制。
+
+admin-settings-help-observability-client-source-maps = 当构建发布隐藏源映射（使用 MW_SOURCEMAP=hidden 构建）时，将堆栈跟踪中的包位置解析为源文件。地图只能由服务器读取，并且不会提供给浏览器。默认开启；如果没有地图，则会显示原始帧。
+
+admin-settings-help-privacy-error-reports = 当应用程序的一部分出现故障时，浏览器是否发送错误报告。默认开启。全局、域和用户范围：此处设置默认或锁定；人们可以在“设置”>“隐私”中自行将其关闭，除非它被锁定。
+
+admin-settings-help-privacy-image-cache-max-stale-secs = 过了几秒后，缓存的图像就会被保留，以便在无法到达原点时做出响应。切勿低于重新验证窗口。范围 0–604800；默认86400。
+
+admin-settings-help-privacy-image-cache-stale-secs = 缓存的图像在其新鲜度过后几秒仍会立即提供，同时在后台重新验证。零将其关闭。范围 0–86400；默认 3600。
+
+admin-settings-help-privacy-image-resize-enabled = 将超大远程图像缩小到读者要求的宽度（320、640、960、1280 或 1600 像素）。动画图像未缩放。默认关闭。
+
+admin-settings-help-privacy-image-resize-format = 自动选择构建中最好的编码器，即 PNG。默认自动。
+
+admin-settings-help-privacy-image-resize-max-pixels = 解码像素数多于此的图像未缩放；在任何解码之前从标头读取大小。范围 100000–64000000；默认 4000000。
+
+admin-settings-help-privacy-image-resize-max-width = 调整大小后生成的最宽图像。范围 320–1600；默认 1600。
+
+admin-settings-help-privacy-sessions-show-linked-origin = 设置 > 安全 > 会话如何命名链接邮箱访问会话来源的帐户：完整地址、屏蔽名称第一部分的地址或什么都没有。该值仅向会话所有者显示，而不会向其他用户显示。默认值：完整地址。
+
+admin-settings-help-properties-folder-enabled = 在文件夹菜单和快捷方式上提供属性。关闭时，该对话框不可用。
+
+admin-settings-help-properties-folder-notes-enabled = 允许对每个文件夹进行描述或注释。
+
+admin-settings-help-properties-folder-notes-max-length = 文件夹便笺可以容纳的最多字符。
+
+admin-settings-help-properties-folder-overrides-allowed = 用户可以为单个文件夹覆盖哪些设置。未列出的覆盖将被隐藏，并且任何存储的值都会被忽略。
+
+admin-settings-help-properties-folder-sections = 文件夹属性对话框的各个部分：常规、远程、大小、脱机、覆盖、注释、操作。未列出的部分被隐藏。
+
+admin-settings-help-properties-folder-size-compute = 当计算出服务器上文件夹的大小时：从不、当对话框打开时或在后台。对大邮箱进行计数会导致服务器扫描成本。
+
+admin-settings-help-properties-headers-raw = 允许消息属性对话框列出原始标头。关闭时，仅显示解析的摘要。
+
+admin-settings-help-properties-message-enabled = 在消息菜单和快捷方式上提供属性。关闭时，该对话框不可用。
+
+admin-settings-help-properties-message-permanent-delete = 消息对话框是否可以永久删除消息：允许、询问两次或拒绝。合法保留的消息永远不会被删除。通过这种方式删除无法撤消。
+
+admin-settings-help-properties-message-sections = 消息属性对话框的各个部分：摘要、评分、标题、附件、操作。未列出的部分被隐藏。
+
+admin-settings-help-properties-offline-clear-enabled = 允许用户从其“属性”对话框中清除单个文件夹的脱机缓存。
+
+admin-settings-help-properties-remote-location-visibility = 用户看到的服务器端位置的数量：完整（主机和路径）、屏蔽主机（主机部分隐藏）、仅路径（没有主机的邮箱路径）或隐藏。
+
+admin-settings-help-properties-scoring-show = 在消息属性对话框中显示垃圾邮件分数、身份验证结果和安全信号。
+
+admin-settings-help-properties-shortcut-enabled = 从键盘上打开焦点文件夹或选定消息的“属性”对话框。
+
+admin-settings-help-properties-shortcut-key = 打开属性的组合键；默认情况下是 Alt+Enter。
+
+admin-settings-help-reader-actions-archive = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-block-sender = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-colors = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-conversation = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-create-filter = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-delete = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-delete-sender = 默认隐藏。当发件人删除功能和功能配置文件允许时，选择工具栏或更多菜单以启用它。除非锁定，否则用户可以覆盖放置。
+
+admin-settings-help-reader-actions-edit-draft = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-export = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-finish-followup = 选择工具栏、更多菜单或隐藏来完成标记的消息和后续提醒。
+
+admin-settings-help-reader-actions-flag = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-focus-focused = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-focus-other = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-forward = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-headers = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-links = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-move = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-not-spam = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-open-draft = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-pin = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-print = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-properties = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-read = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-reply = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-reply-all = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-save-contacts = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-save-sender = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-search = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-security = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-spam = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-sweep = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-view-source = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-reader-actions-zoom = 选择工具栏、更多菜单或隐藏。功能限制、权限和消息上下文仍然适用。用户可以选择，除非它被锁定。
+
+admin-settings-help-retention-client-errors-event-days = 单个浏览器错误发生（其堆栈跟踪和浏览器类）的保留天数。默认 30。一组保留时间较长，请参阅下一个设置。
+
+admin-settings-help-retention-client-errors-group-days = 浏览器错误组（名称、消息、计数）自上次出现后保留的天数。默认 180。永远不要短于出现保留。
+
+admin-settings-help-retention-metrics-day-buckets-days = 删除前保留的每日性能统计数据天数。 0 使它们不受限制，这使得表在服务器运行期间缓慢增长。
+
+admin-settings-help-retention-metrics-hour-buckets-days = 每小时性能统计数据在合并到每日行（至少 1）之前保留的天数。
+
+admin-settings-help-retention-metrics-minute-buckets-hours = 在将一分钟性能统计数据合并到每小时行（至少 1 个）之前保留的小时数。
+
+admin-settings-help-retention-user-allow-strip-attachments = 用户是否可以创建从旧邮件中删除大附件的规则。默认关闭。关闭时，该操作隐藏在规则编辑器中，使用该操作的规则在保存时会被拒绝，并且在作业运行时会跳过之前保存的规则。
+
+admin-settings-help-retention-user-calendar-enabled = 用户是否可以选择其事件在结束后指定天数被删除的日历。默认关闭。关闭时，该选项隐藏在“设置”中，保存时会拒绝选择，并且不会运行之前保存的选择。
+
+admin-settings-help-retention-user-calendar-max-days = 大多数时候，用户可能会等待已结束的事件被删除。较大的值在保存时会被拒绝，并在运行时会降低。
+
+admin-settings-help-retention-user-calendar-min-days = 事件结束后最少几天用户规则可以将其删除。较小的值在保存时会被拒绝，并在运行时升高。
+
+admin-settings-help-retention-user-notes-enabled = 用户是否可以选择删除在设定的天数内未更改的注释。默认关闭。可以恢复已删除的注释，直到保留规则的撤消窗口结束。
+
+admin-settings-help-retention-user-notes-max-days = 大多数时候，用户可能会等待未触及的笔记被删除。较大的值在保存时会被拒绝，并在运行时会降低。
+
+admin-settings-help-retention-user-notes-min-days = 在用户规则将其删除之前，注释必须保持最少几天不变。较小的值在保存时会被拒绝，并在运行时升高。
+
+admin-settings-help-retention-user-strip-keep-inline-images = 删除附件时是否保留邮件正文中显示的图像。
+
+admin-settings-help-retention-user-strip-min-age-days = 在规则可以删除其附件之前，邮件必须是旧邮件的最少天数。保存规则时会拒绝较小的值，并在运行时引发该值。
+
+admin-settings-help-retention-user-strip-min-attachment-kb = 仅删除至少此大小的附件。较小的附件保留在邮件中。
+
+admin-settings-help-retention-user-strip-undo-days = 删除附件后，原始邮件在“已删除邮件”中保留的天数。 -1 遵循保留规则的撤消窗口。 0 立即删除原始内容。
+
+admin-settings-help-server-shutdown-grace-seconds = 停止的服务器在关闭连接之前允许正在进行的请求完成多长时间（以秒为单位）。 MW_HTTP_SHUTDOWN_TIMEOUT_MS 变量会覆盖它。适用于下次启动。
+
+admin-settings-help-session-last-activity-flush-seconds = 会话的最后查看时间最多以秒为单位写入。零在每个请求上写入它。它不会改变空闲或绝对限制。适用于下次启动。
+
+admin-settings-help-session-persist-across-restarts = 启用后，邮箱、应用程序和控制台会话在服务器重新启动后保持有效。关闭时，每个会话都会在服务器启动时结束。适用于下次启动。
+
+admin-settings-key-attachments-bar-click-to-toggle = 单击附件栏进行切换
+
+admin-settings-key-attachments-bar-download-all = 下载全部按钮
+
+admin-settings-key-attachments-bar-show-download-buttons = 附件下载按钮
+
+admin-settings-key-attachments-bar-zip-inline-images = 下载全部ZIP中的内嵌图像
+
+admin-settings-key-cap-reading-delete-sender = 允许删除发件人的所有邮件
+
+admin-settings-key-compose-feature-family = 作曲家功能
+
+admin-settings-key-compose-headers-allow-auto-submitted = 允许自动提交
+
+admin-settings-key-compose-headers-allow-custom = 允许自定义标头
+
+admin-settings-key-compose-headers-allow-return-receipt-to = 允许回执至
+
+admin-settings-key-compose-headers-allow-threading-edit = 允许编辑线程标题
+
+admin-settings-key-compose-headers-forced = 强制标头
+
+admin-settings-key-compose-insert-image-resize-default = 图片尺寸预设
+
+admin-settings-key-compose-insert-max-inline-image-mb = 最大内嵌图片(MB)
+
+admin-settings-key-compose-layout-default-font = 默认消息字体
+
+admin-settings-key-compose-reply-to-allow-override = 允许更改回复
+
+admin-settings-key-compose-reply-to-show = 回复行
+
+admin-settings-key-compose-sent-folder-fixed-id = 发送副本：固定文件夹
+
+admin-settings-key-compose-sent-folder-mode = 发送副本：文件夹规则
+
+admin-settings-key-compose-sent-folder-per-identity = 发送副本：每个身份的文件夹
+
+admin-settings-key-compose-sent-folder-rules = 发送副本：规则
+
+admin-settings-key-compose-sent-folder-skip-copy = 发送副本：不保存
+
+admin-settings-key-compose-styles-custom = 定制款式
+
+admin-settings-key-compose-styles-default-set = 风格设定
+
+admin-settings-key-compose-styles-max-custom = 每个用户的自定义样式
+
+admin-settings-key-contacts-save-from-message-add-note = 关于从消息中保存的联系人的注释
+
+admin-settings-key-contacts-save-from-message-default-book = 从消息中保存的联系人地址簿
+
+admin-settings-key-contacts-save-from-message-default-scope = 从消息中保存时首先勾选联系人
+
+admin-settings-key-contacts-save-from-message-enabled = 保存消息中的联系人
+
+admin-settings-key-contacts-save-from-message-skip-automated = 保存联系人时跳过自动发件人
+
+admin-settings-key-contacts-save-sender-enabled = 将发件人保存为联系人
+
+admin-settings-key-contacts-save-sender-use-reply-to = 保存列表发件人的回复
+
+admin-settings-key-dsr-admin-step-up = 再次确认后再批准
+
+admin-settings-key-export-default-format = 导出对话框默认格式
+
+admin-settings-key-export-default-scope = 导出对话框默认范围
+
+admin-settings-key-export-dialog-enabled = 导出对话框
+
+admin-settings-key-export-folder-enabled = 文件夹导出
+
+admin-settings-key-export-folder-format = 文件夹导出格式
+
+admin-settings-key-export-folder-include-subfolders = 在导出中包含子文件夹
+
+admin-settings-key-export-folder-max-bytes = 文件夹导出大小限制
+
+admin-settings-key-export-folder-max-messages = 文件夹导出邮件限制
+
+admin-settings-key-export-formats = 导出对话框格式
+
+admin-settings-key-export-message-download-enabled = 留言下载
+
+admin-settings-key-folders-hide-empty = 隐藏空文件夹
+
+admin-settings-key-folders-pinned-hide-from-tree = 从树中隐藏固定的文件夹
+
+admin-settings-key-mail-badge-auth = 认证徽章
+
+admin-settings-key-mail-badge-density = 读者徽章尺寸
+
+admin-settings-key-mail-badge-folder = 文件夹徽章
+
+admin-settings-key-mail-badge-headers = 标题徽章
+
+admin-settings-key-mail-badge-labels = 读者徽章标签
+
+admin-settings-key-mail-badge-list = 邮件列表徽章
+
+admin-settings-key-mail-badge-sanitized = 已消毒HTML徽章
+
+admin-settings-key-mail-badge-spam = 垃圾邮件分数徽章
+
+admin-settings-key-mail-brand-avatars-require-auth = 品牌标志需要认证
+
+admin-settings-key-mail-compose-header-auto-collapse-seconds = Composer 标头自动折叠延迟
+
+admin-settings-key-mail-compose-priority-default = 默认消息优先级
+
+admin-settings-key-mail-compose-priority-enabled = 作曲家中的优先级选择器
+
+admin-settings-key-mail-expiry-hide-expired = 过期消息
+
+admin-settings-key-mail-list-keep = 永远保留
+
+admin-settings-key-mail-list-page-size = 消息列表页面大小
+
+admin-settings-key-mail-list-unsubscribe-mode = 邮件列表 取消订阅
+
+admin-settings-key-mail-message-list-group = 消息分组
+
+admin-settings-key-mail-priority-marks = 优先标记
+
+admin-settings-key-mail-priority-marks-style = 优先标记样式
+
+admin-settings-key-mail-priority-send-headers = 发送时写入的优先级标头
+
+admin-settings-key-mail-priority-trust-sender-headers = 信任发件人设置的优先级
+
+admin-settings-key-mail-reply-from-header-priority = 选择回复身份的标头
+
+admin-settings-key-mail-search-default-scope = 默认邮件搜索范围
+
+admin-settings-key-metrics-dimensions-enabled = 按客户端类型和设备类别划分统计数据
+
+admin-settings-key-metrics-persist-enabled = 在重新启动期间保留统计信息
+
+admin-settings-key-metrics-persist-flush-seconds = 统计保存间隔（秒）
+
+admin-settings-key-observability-client-capture-console = 报告控制台错误
+
+admin-settings-key-observability-client-capture-csp = 举报CSP违规行为
+
+admin-settings-key-observability-client-enabled = 浏览器错误报告
+
+admin-settings-key-observability-client-forward = 转发错误报告
+
+admin-settings-key-observability-client-include-account-hash = 将帐户哈希添加到错误报告中
+
+admin-settings-key-observability-client-max-per-session = 每页加载错误报告
+
+admin-settings-key-observability-client-sample-rate = 错误报告采样率
+
+admin-settings-key-observability-client-source-maps = 使用源映射解析堆栈跟踪
+
+admin-settings-key-privacy-error-reports = 发送错误报告
+
+admin-settings-key-privacy-image-cache-max-stale-secs = 当源发生故障时保持陈旧（秒）
+
+admin-settings-key-privacy-image-cache-stale-secs = 重新验证时服务过时（秒）
+
+admin-settings-key-privacy-image-resize-enabled = 调整大图像的大小
+
+admin-settings-key-privacy-image-resize-format = 调整大小的图像格式
+
+admin-settings-key-privacy-image-resize-max-pixels = 要调整大小的最大图像（像素）
+
+admin-settings-key-privacy-image-resize-max-width = 最宽的调整大小图像（像素）
+
+admin-settings-key-privacy-sessions-show-linked-origin = 会话中链接的邮箱源
+
+admin-settings-key-properties-folder-enabled = 文件夹属性对话框
+
+admin-settings-key-properties-folder-notes-enabled = 文件夹笔记
+
+admin-settings-key-properties-folder-notes-max-length = 文件夹笔记长度
+
+admin-settings-key-properties-folder-overrides-allowed = 允许按文件夹覆盖
+
+admin-settings-key-properties-folder-sections = 文件夹对话框部分
+
+admin-settings-key-properties-folder-size-compute = 文件夹大小计算
+
+admin-settings-key-properties-headers-raw = 原始标头
+
+admin-settings-key-properties-message-enabled = 消息属性对话框
+
+admin-settings-key-properties-message-permanent-delete = 从属性中永久删除
+
+admin-settings-key-properties-message-sections = 消息对话框部分
+
+admin-settings-key-properties-offline-clear-enabled = 清除每个文件夹的离线缓存
+
+admin-settings-key-properties-remote-location-visibility = 远程位置详细信息
+
+admin-settings-key-properties-scoring-show = 评分和认证详细信息
+
+admin-settings-key-properties-shortcut-enabled = 属性快捷方式
+
+admin-settings-key-properties-shortcut-key = 属性快捷键
+
+admin-settings-key-reader-actions-archive = 存档动作放置
+
+admin-settings-key-reader-actions-block-sender = 阻止发件人操作放置
+
+admin-settings-key-reader-actions-colors = 消息颜色操作放置
+
+admin-settings-key-reader-actions-conversation = 查看对话动作放置
+
+admin-settings-key-reader-actions-create-filter = 创建过滤器操作放置
+
+admin-settings-key-reader-actions-delete = 删除动作放置
+
+admin-settings-key-reader-actions-delete-sender = 从发件人操作中删除所有邮件
+
+admin-settings-key-reader-actions-edit-draft = 编辑草稿操作位置
+
+admin-settings-key-reader-actions-export = 导出操作放置
+
+admin-settings-key-reader-actions-finish-followup = 将后续操作标记为已完成操作
+
+admin-settings-key-reader-actions-flag = 标记/取消标记动作放置
+
+admin-settings-key-reader-actions-focus-focused = 移至重点行动位置
+
+admin-settings-key-reader-actions-focus-other = 移至其他操作位置
+
+admin-settings-key-reader-actions-forward = 向前动作放置
+
+admin-settings-key-reader-actions-headers = 原始标题操作放置
+
+admin-settings-key-reader-actions-links = 检查链接操作放置
+
+admin-settings-key-reader-actions-move = 移动动作放置
+
+admin-settings-key-reader-actions-not-spam = 不是垃圾邮件操作放置
+
+admin-settings-key-reader-actions-open-draft = 打开回复草稿操作放置
+
+admin-settings-key-reader-actions-pin = 固定/取消固定动作放置
+
+admin-settings-key-reader-actions-print = 打印动作放置
+
+admin-settings-key-reader-actions-properties = 消息属性操作放置
+
+admin-settings-key-reader-actions-read = 已读/未读操作放置
+
+admin-settings-key-reader-actions-reply = 回复动作放置
+
+admin-settings-key-reader-actions-reply-all = 回复所有动作放置
+
+admin-settings-key-reader-actions-save-contacts = 保存消息联系人操作位置
+
+admin-settings-key-reader-actions-save-sender = 保存发件人操作放置
+
+admin-settings-key-reader-actions-search = 相关搜索操作放置
+
+admin-settings-key-reader-actions-security = 安全模式操作放置
+
+admin-settings-key-reader-actions-spam = 标记为垃圾邮件操作放置
+
+admin-settings-key-reader-actions-sweep = 扫一扫发件人操作放置
+
+admin-settings-key-reader-actions-view-source = 查看消息源操作放置
+
+admin-settings-key-reader-actions-zoom = 缩放动作放置
+
+admin-settings-key-retention-client-errors-event-days = 保留的错误发生次数（天）
+
+admin-settings-key-retention-client-errors-group-days = 保留的错误组（天）
+
+admin-settings-key-retention-metrics-day-buckets-days = 每日统计保存（天）
+
+admin-settings-key-retention-metrics-hour-buckets-days = 每小时保存统计数据（天）
+
+admin-settings-key-retention-metrics-minute-buckets-hours = 保存分钟统计数据（小时）
+
+admin-settings-key-retention-user-allow-strip-attachments = 用户可以从旧邮件中删除附件
+
+admin-settings-key-retention-user-calendar-enabled = 用户可以删除已结束的日历事件
+
+admin-settings-key-retention-user-calendar-max-days = 结束事件之前的大部分天数都会被删除
+
+admin-settings-key-retention-user-calendar-min-days = 结束事件最少几天被删除
+
+admin-settings-key-retention-user-notes-enabled = 用户可以删除未触及的笔记
+
+admin-settings-key-retention-user-notes-max-days = 未触及的笔记被删除之前的大多数日子
+
+admin-settings-key-retention-user-notes-min-days = 未触及的笔记被删除前最少几天
+
+admin-settings-key-retention-user-strip-keep-inline-images = 保留内嵌图像
+
+admin-settings-key-retention-user-strip-min-age-days = 附件被删除前最少几天
+
+admin-settings-key-retention-user-strip-min-attachment-kb = 删除的最小附件 (KB)
+
+admin-settings-key-retention-user-strip-undo-days = 删除附件后的撤消窗口（天）
+
+admin-settings-key-server-shutdown-grace-seconds = 关闭宽限期
+
+admin-settings-key-session-last-activity-flush-seconds = 最后查看的写入间隔
+
+admin-settings-key-session-persist-across-restarts = 重启后保持会话

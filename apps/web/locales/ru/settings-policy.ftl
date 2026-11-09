@@ -44,3 +44,6 @@ cache-card-prefetch = Предзагрузка
 cache-card-prefetch-help = Загружать сообщения заранее, чтобы они открывались мгновенно. Расходует больше трафика.
 settings-folder-counts-card = Счётчики
 settings-folder-counts-card-help = Что показывают числа рядом с папками и у каких папок они есть.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Язык и регион

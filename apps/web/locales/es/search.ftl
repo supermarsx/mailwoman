@@ -63,3 +63,32 @@ search-refine-subject = Buscar mensajes con este asunto
 search-refine-folder = Buscar en esta carpeta
 search-refine-domain = Buscar mensajes de este dominio
 search-include-trash-scoped = «Incluir la papelera» se aplica al buscar en todas las carpetas. La carpeta seleccionada se busca directamente.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Respondido
+
+search-chip-finished = Terminado
+
+search-chip-followup = Marcado para seguimiento
+
+search-chip-forwarded = reenviado
+
+search-chip-high-priority = alta prioridad
+
+search-chip-low-priority = Prioridad baja
+
+search-chip-mentions-me = me menciona
+
+search-chip-no-followup = No marcado para seguimiento
+
+search-chip-not-high-priority = No es alta prioridad
+
+search-chip-not-low-priority = No es baja prioridad
+
+search-chip-unanswered = No respondido
+
+search-chip-unfinished = No terminado
+
+search-chip-unforwarded = No reenviado
+
+search-field-mentions = Menciones

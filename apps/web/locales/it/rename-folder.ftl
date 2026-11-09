@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = Questa cartella ha sottocartelle. Rimuovil
 delete-folder-error-forbidden = Non può eliminare questa cartella.
 delete-folder-error-notFound = Questa cartella non esiste più. Aggiorna l'elenco delle cartelle.
 delete-folder-error-failed = Impossibile eliminare la cartella. Riprova.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = Questo account è soggetto a conservazione per motivi giudiziari, pertanto le cartelle non possono essere eliminate.
+
+delete-folder-error-processingRestricted = L'elaborazione di questo account è limitata, pertanto le cartelle non possono essere eliminate.

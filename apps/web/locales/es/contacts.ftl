@@ -178,3 +178,124 @@ contacts-bulk-favorites-added = { $count } añadidos a favoritos.
 contacts-bulk-favorites-removed = { $count } quitados de favoritos.
 contacts-row-menu = Acciones para { $name }
 contacts-favorites-empty = Aún no hay favoritos. Use la estrella de un contacto para añadir uno.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } ya está en tus contactos.
+
+contacts-save-already-badge = Ya guardado
+
+contacts-save-already-many = Todos los { $count } contactos ya están guardados.
+
+contacts-save-automated = Parece un remitente automático (sin respuesta, notificaciones).
+
+contacts-save-book = libreta de direcciones
+
+contacts-save-book-readonly = { $name } (solo lectura)
+
+contacts-save-cancel = Cancelar
+
+contacts-save-choose = Elige contactos…
+
+contacts-save-contacts = Guardar contactos de este mensaje
+
+contacts-save-dialog-title = Guardar contactos de este mensaje
+
+contacts-save-email = Correo electrónico
+
+contacts-save-failed = No se pudo guardar el contacto. Intentar otra vez.
+
+contacts-save-group = grupo
+
+contacts-save-group-none = Ningún grupo
+
+contacts-save-loading = Cargando direcciones…
+
+contacts-save-name = Nombre
+
+contacts-save-new = Guardar nuevos contactos
+
+contacts-save-no-book = Ninguna libreta de direcciones puede aceptar nuevos contactos.
+
+contacts-save-no-sender = Este mensaje no tiene dirección de remitente.
+
+contacts-save-note = Guardado de un mensaje el { $date }
+
+contacts-save-nothing = Nadie a quien salvar: todos ya están en tus contactos, eres tú o parecen automatizados.
+
+contacts-save-open = Abierto
+
+contacts-save-open-contact = Contacto abierto
+
+contacts-save-open-link = Contacto abierto
+
+contacts-save-own = Esta es una de sus propias direcciones.
+
+contacts-save-partial = Guardado { $saved } de { $total } contactos. Los demás no pudieron salvarse.
+
+contacts-save-pick = Guardar { $email }
+
+contacts-save-recipients = Guardar todos los destinatarios
+
+contacts-save-removed = Se eliminaron los contactos guardados.
+
+contacts-save-role-bcc = Cco
+
+contacts-save-role-cc = cc
+
+contacts-save-role-from = De
+
+contacts-save-role-replyTo = Responder a
+
+contacts-save-role-sender = Remitente
+
+contacts-save-role-to = a
+
+contacts-save-saved-heading = Ya en tus contactos
+
+contacts-save-saved-many = { $count } contactos guardados en { $book }
+
+contacts-save-saved-one = Guardado { $name } en { $book }
+
+contacts-save-sender = Guardar remitente como contacto
+
+contacts-save-settings-book = libreta de direcciones
+
+contacts-save-settings-book-default = Libreta de direcciones predeterminada
+
+contacts-save-settings-enabled = Oferta Guardar contactos de este mensaje
+
+contacts-save-settings-enabled-help = Agrega el elemento a los menús de mensajes y al menú Más del lector.
+
+contacts-save-settings-note = Añade una nota con la fecha.
+
+contacts-save-settings-note-help = La nota dice "Guardado desde un mensaje el" seguido de la fecha.
+
+contacts-save-settings-reply-to = Utilice Responder a para remitentes de listas y notificaciones
+
+contacts-save-settings-reply-to-help = Guarda la dirección Responder a en lugar de De para esos remitentes.
+
+contacts-save-settings-scope = Marcado primero en el diálogo
+
+contacts-save-settings-scope-all = Todos en el mensaje
+
+contacts-save-settings-scope-sender = Sólo remitente
+
+contacts-save-settings-sender = Oferta Guardar remitente como contacto
+
+contacts-save-settings-sender-help = Un elemento de un solo clic en los menús de mensajes.
+
+contacts-save-settings-skip = Saltar remitentes automáticos
+
+contacts-save-settings-skip-help = Omite direcciones de no respuesta, notificación y rebote a menos que las marques.
+
+contacts-save-settings-title = Guardar contactos de mensajes
+
+contacts-save-show-automated = Mostrar direcciones automatizadas y sin respuesta
+
+contacts-save-submit = { $count ->
+        [one] Guardar { $count } contacto
+        [many] Guardar { $count } contactos
+       *[other] Guardar { $count } contactos
+    }
+
+contacts-save-undo = Deshacer

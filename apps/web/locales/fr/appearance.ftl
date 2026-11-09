@@ -164,3 +164,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Béton gris ministère, texte papier délavé, rouge Big Brother ; messages en police à chasse fixe.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Page blanche, contours noirs, rouge, bleu et jaune primaires, points Ben-Day dans la barre latérale.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Importance
+
+appearance-preference-group-option-none = Aucun regroupement
+
+appearance-preference-group-option-received = Date de réception
+
+appearance-preference-group-option-sender = Expéditeur
+
+appearance-preference-group-option-sent = Date d'envoi
+
+appearance-preference-group-option-size = Taille du message
+
+appearance-preference-group-option-subject = Sujet
+
+appearance-preference-mail-list-pageSize = Messages chargés par page (20 à 200)
+
+appearance-preference-mail-messageListGroup = Regroupement des messages
+
+appearance-preference-message-group-help = Conservez les messages associés ensemble sous des titres de groupe. Choisissez Aucun regroupement pour une liste continue. L’ordre de vos messages s’applique au sein de chaque groupe.
+
+appearance-preference-message-order-help = Choisissez l'ordre des messages au sein de chaque groupe ou dans toute la liste lorsque le regroupement est désactivé.
+
+appearance-preference-option-importance = Importance, élevée en premier
+
+appearance-preference-option-importance-asc = Importance, faible d'abord
+
+appearance-preference-option-received = Date de réception
+
+appearance-preference-option-sender-desc = Expéditeur, Z à A
+
+appearance-preference-option-sent = Date d'envoi
+
+appearance-preference-option-sent-newest = Envoyé, le plus récent en premier
+
+appearance-preference-option-sent-oldest = Envoyé, le plus ancien en premier
+
+appearance-preference-option-size = Taille, la plus grande en premier
+
+appearance-preference-option-size-asc = Taille, la plus petite en premier
+
+appearance-preference-option-subject-desc = Sujet, Z à A

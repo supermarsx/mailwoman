@@ -1085,3 +1085,18 @@ admin-insights-empty-rules = Aucune règle adaptative ne s'est déclenchée sur 
 admin-insights-share-of = { $share } des requêtes
 admin-nav-encryption = Chiffrement
 admin-nav-retention = Conservation
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-obs-client-errors = Erreurs client
+
+admin-session-linked-device = Session d'origine : { $device }
+
+admin-session-linked-line = Accès à la boîte aux lettres liée · à partir de { $origin }
+
+admin-session-linked-line-hidden = Accès à la boîte aux lettres liée
+
+admin-session-linked-open = Ouvrir un compte d'origine
+
+admin-session-linked-removed = Accès à la boîte aux lettres liée · Compte d'origine supprimé
+
+admin-session-linked-restricted = Accès à la boîte aux lettres liée · origine non affichée (pas d'accès à ce compte)

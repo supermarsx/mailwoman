@@ -217,3 +217,12 @@ privacy-image-group-cache = Кеш
 privacy-image-group-ram = Рівень пам’яті
 privacy-image-group-disk = Рівень диска
 privacy-image-group-tiering = Розподіл за рівнями та обслуговування
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-error-reports-help = Коли частина Mailwoman дає збій, браузер може надіслати вашому адміністратору короткий технічний звіт, щоб це можна було виправити. Він містить тип помилки, де в програмі вона сталася, версію програми та тип браузера. Він ніколи не містить вміст повідомлення, адреси, назви вкладень або те, що ви ввели.
+
+privacy-error-reports-send = Надсилати звіти про помилки з цього браузера
+
+privacy-error-reports-send-help = Увімкнено за замовчуванням. Вимкніть, щоб ці звіти залишалися на вашому пристрої. На панелі помилок все ще відображається посилання, яке можна скопіювати.
+
+privacy-error-reports-title = Звіти про помилки

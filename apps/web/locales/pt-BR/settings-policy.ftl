@@ -44,3 +44,6 @@ cache-card-prefetch = Pré-carregamento
 cache-card-prefetch-help = Carregue mensagens com antecedência para que abram instantaneamente. Usa mais dados.
 settings-folder-counts-card = Balões de contagem
 settings-folder-counts-card-help = O que as contagens ao lado das pastas mostram e quais pastas têm uma.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Idioma e região

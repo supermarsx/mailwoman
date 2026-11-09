@@ -44,3 +44,6 @@ cache-card-prefetch = 先読み
 cache-card-prefetch-help = メッセージを事前に読み込み、すぐに開けるようにします。通信量が増えます。
 settings-folder-counts-card = カウンターバッジ
 settings-folder-counts-card-help = フォルダーの横のカウントが何を表すか、どのフォルダーにカウントを表示するかを設定します。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = 言語と地域

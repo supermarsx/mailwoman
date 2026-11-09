@@ -72,3 +72,58 @@ admin-dr-trail = Ślad
 admin-dr-behalf = Złóż wniosek w imieniu użytkownika
 admin-dr-behalf-help = Dla wniosku otrzymanego pocztą lub osobiście. Osoba nie jest proszona o potwierdzenie wiadomością.
 admin-dr-behalf-submit = Złóż wniosek
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Działania zbiorcze
+
+admin-dr-bulk-action = Akcja
+
+admin-dr-bulk-approve = Zatwierdź
+
+admin-dr-bulk-assign = Przypisz
+
+admin-dr-bulk-clear = Wyczyść wybór
+
+admin-dr-bulk-csv = CSV zaznaczenia
+
+admin-dr-bulk-extend = Przedłuż termin
+
+admin-dr-bulk-failed = Odmówił
+
+admin-dr-bulk-field-assignee = Przypisz do (puste kasuje)
+
+admin-dr-bulk-field-extend = Powód przedłużenia
+
+admin-dr-bulk-field-note = Uwaga (opcjonalnie)
+
+admin-dr-bulk-field-reason = Powód
+
+admin-dr-bulk-hold = Poddana kontroli prawnej
+
+admin-dr-bulk-ok = Gotowe
+
+admin-dr-bulk-reject = Odrzuć
+
+admin-dr-bulk-release-hold = Zwolnij legalną blokadę
+
+admin-dr-bulk-run = { $count ->
+        [one] Zastosuj do { $count } prośby
+        [few] Zastosuj do { $count } próśb
+        [many] Zastosuj do { $count } żądań
+       *[other] Zastosuj do { $count } wniosków
+    }
+
+admin-dr-bulk-select = Wybierz żądanie { $address }
+
+admin-dr-bulk-select-all = Wybierz każde żądanie na liście
+
+admin-dr-bulk-selected = { $count ->
+        [one] Wybrano { $count } prośbę
+        [few] Wybrano { $count } prośby
+        [many] Wybrano { $count } żądań
+       *[other] Wybrano { $count } żądania
+    }
+
+admin-dr-bulk-summary = Gotowe dla { $done }; odmówiono dla { $failed }. Odrzucone żądania pozostają zaznaczone.
+
+admin-dr-more = Załaduj więcej żądań

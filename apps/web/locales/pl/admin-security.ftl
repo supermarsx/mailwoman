@@ -651,3 +651,24 @@ admin-protect-sim-cause-no-database = nie wczytano bazy
 admin-protect-sim-cause-not-found = adresu nie ma w bazie
 admin-protect-sim-heightened-off = Tryb podwyższony logowania jest wyłączony.
 admin-protect-sim-heightened-on = Tryb podwyższony logowania jest włączony: odstęp zwiększono do { $pace } ({ $cooldown }), wyzwanie wymuszone: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sesje i restarty
+
+admin-secdash-sessions-admin = Sesje konsolowe
+
+admin-secdash-sessions-mailbox = Sesje w skrzynce pocztowej
+
+admin-secdash-sessions-native = Sesje aplikacji
+
+admin-secdash-sessions-reason-persisted = przechowywane w bazie danych, zapieczętowane kluczem serwera
+
+admin-secdash-sessions-reason-server-key-changed = przechowywane sesje nie otwierają się przy użyciu bieżącego klucza serwera; przywróć oryginalny plik klucza
+
+admin-secdash-sessions-reason-server-key-ephemeral = klucz serwera nie jest zachowywany podczas ponownego uruchomienia
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts jest wyłączone, więc sesje kończą się wraz z uruchomieniem serwera
+
+admin-secdash-sessions-survive-no = Sesje przetrwają ponowne uruchomienie: nie ({ $reason })
+
+admin-secdash-sessions-survive-yes = Sesje przetrwają ponowne uruchomienie: tak ({ $reason })

@@ -116,3 +116,94 @@ retention-history-matched = 匹配
 retention-history-changed = 已更改
 retention-history-errors = 错误
 retention-context-action = 保留规则…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = 日历
+
+pim-cal-days = 活动结束后几天
+
+pim-cal-enabled = 删除已结束的事件
+
+pim-cal-help = 在日历中选择的活动结束后指定天数后将其删除。重复发生的事件永远不会被删除。
+
+pim-cal-title = 日历事件
+
+pim-days-range = 在{ $min }和{ $max }天之间选择。
+
+pim-held-title = 已删除的笔记可以恢复
+
+pim-held-until = 保留到{ $when }
+
+pim-limits = { $min } 到{ $max } 天之间。
+
+pim-notes-days = 自上次更改注释以来的天数
+
+pim-notes-enabled = 删除未触及的笔记
+
+pim-notes-help = 删除您在指定天数内未更改的注释。保留固定的笔记。删除的笔记可以恢复{ $days }天。
+
+pim-notes-title = 注释
+
+pim-off = 已被您的管理员关闭。
+
+pim-preview = 预览
+
+pim-restore = 恢复
+
+pim-result = { $events } 事件和{ $notes } 注释。
+
+pim-run = 立即运行
+
+pim-run-title = 立即运行
+
+pim-save = 保存
+
+pim-skipped = { $count } 选项被跳过，因为您的管理员将其关闭。
+
+pim-untitled = 无标题笔记
+
+retention-action-stripAttachments = 删除大附件
+
+retention-do-stripAttachments = 附件已删除
+
+retention-error-strip-disabled = 您的管理员禁止删除附件。
+
+retention-error-strip-min = 删除附件的规则必须等待至少{ $days }天。
+
+retention-fd-action = { $folder } 中的邮件会发生什么情况
+
+retention-fd-days = 处理 { $folder } 之前的天数
+
+retention-fd-help = 设置邮件在移动或删除之前在文件夹中保留的时间。设置为“继承”的文件夹没有自己的默认值；上述规则和管理员限制仍然适用。子文件夹位于其文件夹后面。
+
+retention-fd-inherit = 继承
+
+retention-fd-mandatory = 管理员将此文件夹保留{ $days }天
+
+retention-fd-protected = 受管理员保护
+
+retention-fd-save = 保存文件夹默认值
+
+retention-fd-title = 文件夹默认值
+
+retention-rule-strip-off = 已被您的管理员关闭
+
+retention-strip-allowed = 规则可以从至少 { $days } 天前的邮件中删除至少 { $kb } KB 的附件。每个附件均由简短的注释代替。
+
+retention-strip-denied = 您的管理员已关闭删除附件功能。
+
+retention-strip-done = 从{ $count }邮件中删除附件，释放{ $size }。
+
+retention-strip-inline-kept = 消息内显示的图像将被保留。
+
+retention-strip-inline-removed = 消息中显示的图像也会被删除。
+
+retention-strip-limits = 从至少 { $days } 天前的邮件中删除至少 { $kb } KB 的附件。原件将在垃圾箱中保留{ $undo }天。
+
+retention-strip-preview = { $count }消息将丢失附件，释放{ $size }。
+
+retention-strip-preview-estimate = 大约 { $count } 封邮件将丢失附件，最多释放 { $size }。
+
+retention-strip-skipped = { $count } 删除附件的规则已被跳过，因为您的管理员已将其关闭。
+
+retention-summary-stripAttachments = { $days }天后，大附件被删除

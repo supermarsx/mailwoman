@@ -64,3 +64,69 @@ reader-card-loading = Chargement
 reader-card-loading-help = Ce que vous voyez pendant l’ouverture d’un message.
 settings-mail-card-list = Liste des messages
 settings-mail-card-list-help = Actions de ligne et comportement de la liste lorsque vous agissez sur un message.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = Télécharger { $name }
+
+reader-attachments-download-all = Téléchargez tout
+
+reader-attachments-download-all-blocked = La politique de pièce jointe bloque tous les fichiers ici
+
+reader-attachments-download-all-busy = Préparation du fichier ZIP
+
+reader-attachments-download-all-label = Téléchargez toutes les pièces jointes sous forme de fichier ZIP
+
+reader-attachments-download-all-none = Il n'y a aucune pièce jointe à télécharger
+
+reader-attachments-download-all-warned = { $count ->
+        [0] { $count } fichiers nécessitant une confirmation ont été laissés de côté. Téléchargez-les un par un.
+        [one] Un fichier nécessitant une confirmation a été laissé de côté. Téléchargez-le seul.
+        [many] { $count } fichiers nécessitant une confirmation ont été laissés de côté. Téléchargez-les un par un.
+       *[other] { $count } fichiers nécessitant une confirmation ont été laissés de côté. Téléchargez-les un par un.
+    }
+
+reader-attachments-download-blocked = { $name } ne peut pas être téléchargé : { $reason }
+
+reader-attachments-download-label = Télécharger { $name } ({ $size })
+
+reader-attachments-download-off = Les téléchargements sont désactivés
+
+reader-attachments-inline-group = { $count ->
+        [0] { $count } images en ligne
+        [one] { $count } image en ligne
+        [many] { $count } images en ligne
+       *[other] { $count } images en ligne
+    }
+
+reader-attachments-inline-summary = { $count ->
+        [0] { $count } images en ligne
+        [one] { $count } image en ligne
+        [many] { $count } images en ligne
+       *[other] { $count } images en ligne
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = Cliquez sur la barre pour agrandir ou réduire
+
+reader-attachmentsBarClickToToggle-help = Cliquer n’importe où sur la barre des pièces jointes la fait basculer. Lorsqu'il est désactivé, seul le bouton fléché le fait.
+
+reader-attachmentsBarDownloadAll = Bouton Télécharger tout
+
+reader-attachmentsBarDownloadAll-help = Afficher un bouton sur la barre qui télécharge les pièces jointes sous la forme d'un seul fichier ZIP.
+
+reader-attachmentsBarShowDownloadButtons = Boutons de téléchargement sur les pièces jointes
+
+reader-attachmentsBarShowDownloadButtons-help = Affichez le bouton de téléchargement de chaque pièce jointe en survol ou en focus, toujours ou jamais.
+
+reader-attachmentsBarZipInlineImages = Inclure des images en ligne dans le ZIP
+
+reader-attachmentsBarZipInlineImages-help = Les images qui apparaissent dans le texte du message sont exclues de l'option Télécharger tout, sauf si cette option est activée.
+
+reader-card-attachments-bar = Barre des pièces jointes
+
+reader-card-attachments-bar-help = Comment la barre au-dessus des pièces jointes d'un message réagit et ce qu'elle propose. Les lignes marquées verrouillées sont définies par votre administrateur.
+
+reader-option-always = Toujours
+
+reader-option-hover = En survol ou en mise au point
+
+reader-option-never = Jamais

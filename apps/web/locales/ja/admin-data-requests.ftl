@@ -72,3 +72,52 @@ admin-dr-trail = 履歴
 admin-dr-behalf = ユーザーに代わって請求を受け付ける
 admin-dr-behalf-help = 郵送または対面で受け取った請求用です。本人にメッセージでの確認は求められません。
 admin-dr-behalf-submit = 請求を受け付ける
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = 一括アクション
+
+admin-dr-bulk-action = アクション
+
+admin-dr-bulk-approve = 承認する
+
+admin-dr-bulk-assign = 割り当てる
+
+admin-dr-bulk-clear = 選択をクリア
+
+admin-dr-bulk-csv = 選択範囲のCSV
+
+admin-dr-bulk-extend = 期限を延長する
+
+admin-dr-bulk-failed = 拒否されました
+
+admin-dr-bulk-field-assignee = に割り当てます (空のクリア)
+
+admin-dr-bulk-field-extend = 延長の理由
+
+admin-dr-bulk-field-note = 注記 (オプション)
+
+admin-dr-bulk-field-reason = 理由
+
+admin-dr-bulk-hold = 法的ホールド下に置かれる
+
+admin-dr-bulk-ok = 完了
+
+admin-dr-bulk-reject = 拒否する
+
+admin-dr-bulk-release-hold = 法的ホールドを解除する
+
+admin-dr-bulk-run = { $count ->
+       *[other] { $count }件のリクエストに適用
+    }
+
+admin-dr-bulk-select = { $address }のリクエストを選択してください
+
+admin-dr-bulk-select-all = リストされているすべてのリクエストを選択します
+
+admin-dr-bulk-selected = { $count ->
+       *[other] { $count } 件のリクエストが選択されました
+    }
+
+admin-dr-bulk-summary = { $done } で完了しました。 { $failed } は拒否されました。拒否されたリクエストは選択されたままになります。
+
+admin-dr-more = さらにリクエストをロードする

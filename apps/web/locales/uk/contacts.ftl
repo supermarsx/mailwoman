@@ -182,3 +182,125 @@ contacts-bulk-favorites-added = Додано до обраного: { $count }.
 contacts-bulk-favorites-removed = Вилучено з обраного: { $count }.
 contacts-row-menu = Дії для: { $name }
 contacts-favorites-empty = В обраному поки порожньо. Натисніть зірочку біля контакту, щоб додати його.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } вже у ваших контактах.
+
+contacts-save-already-badge = Вже збережено
+
+contacts-save-already-many = Усі { $count } контактів уже збережено.
+
+contacts-save-automated = Це виглядає як автоматичний відправник (без відповіді, сповіщення).
+
+contacts-save-book = Адресна книга
+
+contacts-save-book-readonly = { $name } (тільки для читання)
+
+contacts-save-cancel = Скасувати
+
+contacts-save-choose = Виберіть контакти…
+
+contacts-save-contacts = Зберегти контакти з цього повідомлення
+
+contacts-save-dialog-title = Зберегти контакти з цього повідомлення
+
+contacts-save-email = Електронна пошта
+
+contacts-save-failed = Не вдалося зберегти контакт. Спробуйте знову.
+
+contacts-save-group = Група
+
+contacts-save-group-none = Жодної групи
+
+contacts-save-loading = Завантаження адрес…
+
+contacts-save-name = Ім'я
+
+contacts-save-new = Збережіть нові контакти
+
+contacts-save-no-book = Жодна адресна книга не може приймати нові контакти.
+
+contacts-save-no-sender = Це повідомлення не має адреси відправника.
+
+contacts-save-note = Збережено з повідомлення на { $date }
+
+contacts-save-nothing = Нікого не потрібно зберігати: усі вже є у ваших контактах, це ви, або виглядає автоматично.
+
+contacts-save-open = відкритий
+
+contacts-save-open-contact = Відкрити контакт
+
+contacts-save-open-link = Відкрити контакт
+
+contacts-save-own = Це одна з ваших власних адрес.
+
+contacts-save-partial = Збережено { $saved } з { $total } контактів. Інших врятувати не вдалося.
+
+contacts-save-pick = Заощаджуйте { $email }
+
+contacts-save-recipients = Зберегти всіх одержувачів
+
+contacts-save-removed = Збережені контакти видалено.
+
+contacts-save-role-bcc = Прихована копія
+
+contacts-save-role-cc = Cc
+
+contacts-save-role-from = Від
+
+contacts-save-role-replyTo = Відповісти
+
+contacts-save-role-sender = Відправник
+
+contacts-save-role-to = до
+
+contacts-save-saved-heading = Вже у ваших контактах
+
+contacts-save-saved-many = Збережено { $count } контактів у { $book }
+
+contacts-save-saved-one = Збережено { $name } до { $book }
+
+contacts-save-sender = Зберегти відправника як контакт
+
+contacts-save-settings-book = Адресна книга
+
+contacts-save-settings-book-default = Адресна книга за замовчуванням
+
+contacts-save-settings-enabled = Пропозиція Зберегти контакти з цього повідомлення
+
+contacts-save-settings-enabled-help = Додає елемент до меню повідомлень і до меню «Ще» читача.
+
+contacts-save-settings-note = Додайте примітку з датою
+
+contacts-save-settings-note-help = У примітці написано «Збережено з повідомлення», а потім дата.
+
+contacts-save-settings-reply-to = Використовуйте Reply-To для списків і відправників сповіщень
+
+contacts-save-settings-reply-to-help = Зберігає адресу «Відповісти» замість «Від» для цих відправників.
+
+contacts-save-settings-scope = Позначено першим у діалоговому вікні
+
+contacts-save-settings-scope-all = Всім на повідомлення
+
+contacts-save-settings-scope-sender = Лише відправник
+
+contacts-save-settings-sender = Пропозиція Зберегти відправника як контакт
+
+contacts-save-settings-sender-help = Пункт меню повідомлень, який можна зробити одним клацанням миші.
+
+contacts-save-settings-skip = Пропустити автоматичних відправників
+
+contacts-save-settings-skip-help = Виключає адреси для невідповідей, сповіщень і відмов, якщо ви не позначите їх.
+
+contacts-save-settings-title = Зберегти контакти з повідомлень
+
+contacts-save-show-automated = Показати автоматичні та невідповідні адреси
+
+contacts-save-submit = { $count ->
+        [one] Зберегти { $count } контакт
+        [few] Зберегти { $count } контакти
+        [many] Зберегти { $count } контактів
+       *[other] Збережіть { $count } контакту
+    }
+
+contacts-save-undo = Скасувати

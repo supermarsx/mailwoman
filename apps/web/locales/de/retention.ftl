@@ -116,3 +116,94 @@ retention-history-matched = Treffer
 retention-history-changed = Geändert
 retention-history-errors = Fehler
 retention-context-action = Aufbewahrung …
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Kalender
+
+pim-cal-days = Tage nach Ende einer Veranstaltung
+
+pim-cal-enabled = Beendete Ereignisse löschen
+
+pim-cal-help = Löschen Sie Ereignisse in den von Ihnen ausgewählten Kalendern eine festgelegte Anzahl von Tagen nach ihrem Ende. Wiederkehrende Ereignisse werden niemals gelöscht.
+
+pim-cal-title = Kalenderereignisse
+
+pim-days-range = Wählen Sie zwischen { $min } und { $max } Tagen.
+
+pim-held-title = Entfernte Notizen, die Sie wiederherstellen können
+
+pim-held-until = Bis { $when } aufbewahrt
+
+pim-limits = Zwischen { $min } und { $max } Tagen.
+
+pim-notes-days = Tage seit der letzten Änderung einer Notiz
+
+pim-notes-enabled = Entfernen Sie unberührte Notizen
+
+pim-notes-help = Entfernen Sie Notizen, die Sie eine bestimmte Anzahl von Tagen lang nicht geändert haben. Angeheftete Notizen bleiben erhalten. Eine entfernte Notiz kann { $days } Tage lang wiederhergestellt werden.
+
+pim-notes-title = Notizen
+
+pim-off = Von Ihrem Administrator deaktiviert.
+
+pim-preview = Vorschau
+
+pim-restore = Wiederherstellen
+
+pim-result = { $events } Ereignis(e) und { $notes } Notiz(en).
+
+pim-run = Lauf jetzt
+
+pim-run-title = Lauf jetzt
+
+pim-save = Speichern
+
+pim-skipped = { $count } Auswahl(en) wurden übersprungen, weil Ihr Administrator sie deaktiviert hat.
+
+pim-untitled = Unbenannte Notiz
+
+retention-action-stripAttachments = Entfernen Sie große Anhänge
+
+retention-do-stripAttachments = Anhänge entfernt
+
+retention-error-strip-disabled = Das Entfernen von Anhängen wurde von Ihrem Administrator deaktiviert.
+
+retention-error-strip-min = Eine Regel, die Anhänge entfernt, muss mindestens { $days } Tage warten.
+
+retention-fd-action = Was passiert mit der E-Mail-Adresse { $folder }?
+
+retention-fd-days = Tage bevor { $folder } verarbeitet wird
+
+retention-fd-help = Legen Sie fest, wie lange E-Mails in einem Ordner verbleiben, bevor sie verschoben oder gelöscht werden. Ein Ordner, der auf „Übernehmen“ eingestellt ist, hat keinen eigenen Standard; Es gelten weiterhin die oben genannten Regeln und die Beschränkungen des Administrators. Unterordner folgen ihrem Ordner.
+
+retention-fd-inherit = Erben
+
+retention-fd-mandatory = Der Administrator behält diesen Ordner { $days } Tage lang
+
+retention-fd-protected = Geschützt durch den Administrator
+
+retention-fd-save = Ordnerstandards speichern
+
+retention-fd-title = Ordnerstandards
+
+retention-rule-strip-off = Von Ihrem Administrator deaktiviert
+
+retention-strip-allowed = Eine Regel kann Anhänge von mindestens { $kb } KB aus E-Mails entfernen, die mindestens { $days } Tage alt sind. Eine kurze Notiz ersetzt jeden Anhang.
+
+retention-strip-denied = Das Entfernen von Anhängen wurde von Ihrem Administrator deaktiviert.
+
+retention-strip-done = Anhänge aus { $count } Nachricht(en) entfernt, wodurch { $size } freigegeben wird.
+
+retention-strip-inline-kept = Die in der Nachricht angezeigten Bilder bleiben erhalten.
+
+retention-strip-inline-removed = Die in der Nachricht angezeigten Bilder werden ebenfalls entfernt.
+
+retention-strip-limits = Entfernt Anhänge von mindestens { $kb } KB aus E-Mails, die mindestens { $days } Tage alt sind. Das Original bleibt { $undo } Tage im Papierkorb.
+
+retention-strip-preview = { $count }-Nachrichten würden Anhänge verlieren und { $size } freigeben.
+
+retention-strip-preview-estimate = Ungefähr { $count } Nachrichten würden Anhänge verlieren, wodurch bis zu { $size } frei würden.
+
+retention-strip-skipped = { $count } Regel(n) zum Entfernen von Anhängen wurden übersprungen, da Ihr Administrator dies deaktiviert hat.
+
+retention-summary-stripAttachments = Nach { $days } Tagen wurden große Anhänge entfernt

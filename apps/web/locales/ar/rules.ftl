@@ -95,3 +95,6 @@ rules-vacation-saved-off = تم الحفظ. الردود التلقائية مت
 rules-vacation-runs-server = يرسل خادم بريدك هذا الرد عند وصول البريد.
 rules-vacation-runs-engine = يرسل Mailwoman هذا الرد عند مزامنة البريد الجديد في الوارد، لذا قد ينتظر الرد حتى المزامنة التالية.
 rules-vacation-unavailable = ردود الإجازة غير متاحة لهذا الحساب: إما أن خادم بريده لا يوفرها، أو أن المسؤول أوقفها.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = القائمة البريدية (معرف القائمة)

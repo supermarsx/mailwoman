@@ -101,3 +101,30 @@ dr-event-due-soon = 即将到期
 dr-event-overdue = 已逾期
 dr-event-retry = 已重试
 dr-event-grace-skipped = 管理员已跳过等待期
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = 你反对什么
+
+dr-objection-purposes-help = 当管理员批准该请求后，您对您勾选的每个目的的同意将立即撤回。您可以稍后在“同意”下再次打开某个用途。
+
+dr-objection-purposes-list = 反对：{ $purposes }
+
+dr-purpose-analytics = 使用统计
+
+dr-purpose-analyticsTag = 分析标签
+
+dr-purpose-assistant = 助理
+
+dr-purpose-integrations = 集成和API键
+
+dr-purpose-openTracking = 打开并读取跟踪
+
+dr-purpose-push = 推送通知
+
+dr-rectify-banner = 正在更新请求的详细信息{ $ref }
+
+dr-rectify-done = 标记为已完成
+
+dr-rectify-edit = 编辑我的详细信息
+
+dr-rectify-ref = 参考号{ $ref }。如果您写信告知我们有关此更正的信息，请引用该内容。

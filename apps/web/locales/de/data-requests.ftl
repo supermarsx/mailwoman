@@ -101,3 +101,30 @@ dr-event-due-soon = Bald fällig
 dr-event-overdue = Überfällig
 dr-event-retry = Erneut versucht
 dr-event-grace-skipped = Wartezeit von einer Administration übersprungen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = Wogegen Sie Einwände haben
+
+dr-objection-purposes-help = Wenn ein Administrator die Anfrage genehmigt, wird Ihre Zustimmung für jeden von Ihnen angekreuzten Zweck sofort widerrufen. Sie können einen Zweck später unter Einwilligungen wieder einschalten.
+
+dr-objection-purposes-list = Einspruch gegen: { $purposes }
+
+dr-purpose-analytics = Nutzungsstatistiken
+
+dr-purpose-analyticsTag = Analytics-Tag
+
+dr-purpose-assistant = Assistent
+
+dr-purpose-integrations = Integrationen und API-Schlüssel
+
+dr-purpose-openTracking = Tracking öffnen und lesen
+
+dr-purpose-push = Push-Benachrichtigungen
+
+dr-rectify-banner = Details für Anfrage { $ref } werden aktualisiert
+
+dr-rectify-done = Als erledigt markieren
+
+dr-rectify-edit = Bearbeiten Sie meine Daten
+
+dr-rectify-ref = Referenz { $ref }. Geben Sie es an, wenn Sie uns bezüglich dieser Korrektur schreiben.

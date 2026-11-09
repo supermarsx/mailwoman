@@ -30,3 +30,8 @@ delete-folder-error-mailboxHasChild = このフォルダーにはサブフォル
 delete-folder-error-forbidden = このフォルダーは削除できません。
 delete-folder-error-notFound = このフォルダーは存在しません。フォルダー一覧を更新してください。
 delete-folder-error-failed = フォルダーを削除できませんでした。もう一度お試しください。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+delete-folder-error-legalHold = このアカウントは訴訟ホールド下にあるため、フォルダーを削除できません。
+
+delete-folder-error-processingRestricted = このアカウントは処理が制限されているため、フォルダーを削除できません。

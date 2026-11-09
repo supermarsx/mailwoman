@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = Busca upstream
 privacy-speed-phase-decode = Decodificar e recodificar
 privacy-speed-phase-other = Todo o resto
 privacy-speed-note = Medido somente neste processo do servidor, mantido em memória e vazio após uma reinicialização. Os percentis têm precisão de até { $error } %. Nenhum URL, host ou conta é armazenado.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = Buscas unidas e solicitações de prioridade
+
+privacy-work-coalesced-series = Buscas unidas a uma em voo
+
+privacy-work-handle = Lidar com a taxa de acertos do cache
+
+privacy-work-handle-series = Lidar com ocorrências de cache
+
+privacy-work-per-interval = Por intervalo de amostragem
+
+privacy-work-percent = Compartilhamento de pesquisas de identificador
+
+privacy-work-priority-series = Solicitações prioritárias
+
+privacy-work-resized = Imagens reduzidas
+
+privacy-work-resized-series = Redimensionado
+
+privacy-work-revalidated-series = Revalidado
+
+privacy-work-saved = Bytes salvos pela redução de escala
+
+privacy-work-saved-series = Bytes salvos
+
+privacy-work-stale = Imagens obsoletas veiculadas e revalidadas
+
+privacy-work-stale-series = Servido velho
+
+privacy-work-title = Trabalho evitado e remodelado

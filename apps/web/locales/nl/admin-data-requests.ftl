@@ -72,3 +72,54 @@ admin-dr-trail = Logboek
 admin-dr-behalf = Een verzoek indienen voor een gebruiker
 admin-dr-behalf-help = Voor een verzoek dat per post of persoonlijk is ontvangen. De persoon wordt niet gevraagd per bericht te bevestigen.
 admin-dr-behalf-submit = Verzoek indienen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Bulkacties
+
+admin-dr-bulk-action = Actie
+
+admin-dr-bulk-approve = Goedkeuren
+
+admin-dr-bulk-assign = Toewijzen
+
+admin-dr-bulk-clear = Duidelijke selectie
+
+admin-dr-bulk-csv = CSV van de selectie
+
+admin-dr-bulk-extend = Verleng de vervaldatum
+
+admin-dr-bulk-failed = Geweigerd
+
+admin-dr-bulk-field-assignee = Toewijzen aan (leeg wissen)
+
+admin-dr-bulk-field-extend = Reden van de verlenging
+
+admin-dr-bulk-field-note = Opmerking (optioneel)
+
+admin-dr-bulk-field-reason = Reden
+
+admin-dr-bulk-hold = Onder wettelijke bewaring geplaatst
+
+admin-dr-bulk-ok = Klaar
+
+admin-dr-bulk-reject = Afwijzen
+
+admin-dr-bulk-release-hold = Juridische bewaring vrijgeven
+
+admin-dr-bulk-run = { $count ->
+        [one] Geldig op { $count } aanvraag
+       *[other] Toepassen op { $count } aanvragen
+    }
+
+admin-dr-bulk-select = Selecteer het verzoek van { $address }
+
+admin-dr-bulk-select-all = Selecteer elk vermeld verzoek
+
+admin-dr-bulk-selected = { $count ->
+        [one] { $count } verzoek geselecteerd
+       *[other] { $count } verzoeken geselecteerd
+    }
+
+admin-dr-bulk-summary = Klaar voor { $done }; geweigerd voor { $failed }. De geweigerde verzoeken blijven geselecteerd.
+
+admin-dr-more = Laad meer verzoeken

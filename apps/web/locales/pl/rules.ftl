@@ -102,3 +102,6 @@ rules-vacation-saved-off = Zapisano. Odpowiedzi automatyczne są wyłączone.
 rules-vacation-runs-server = Tę odpowiedź wysyła serwer poczty po nadejściu wiadomości.
 rules-vacation-runs-engine = Mailwoman wysyła tę odpowiedź podczas synchronizacji nowej poczty w skrzynce odbiorczej, więc może ona poczekać do następnej synchronizacji.
 rules-vacation-unavailable = Odpowiedzi urlopowe nie są dostępne dla tego konta: serwer poczty ich nie obsługuje albo administrator je wyłączył.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+rules-cond-list-id = Lista mailingowa (List-Id)

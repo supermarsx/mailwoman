@@ -172,3 +172,24 @@ multiselect-count = { $count ->
 
 # -- Machine translation (2026-11): added to match en ---------------------
 common-rate-limited = الخادم مشغول. انتظر بضع ثوانٍ ثم حاول مرة أخرى.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+combobox-empty = لا توجد مباريات
+
+combobox-toggle = عرض خيارات { $label }
+
+common-attach-cat-archive = المحفوظات
+
+common-attach-cat-document = المستندات
+
+common-attach-cat-spreadsheet = جداول البيانات
+
+common-conn-reconnecting = جارٍ إعادة الاتصال…
+
+common-viewer-pdf-details = التفاصيل الفنية
+
+common-viewer-pdf-details-help = قم بتضمين هذه السطور عند الإبلاغ عن المشكلة. أنها لا تحتوي على محتوى الوثيقة.
+
+timezone-group-other = أخرى
+
+timezone-use-browser = استخدم المنطقة الزمنية للمتصفح ({ $zone })

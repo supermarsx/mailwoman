@@ -72,3 +72,58 @@ admin-dr-trail = Historique
 admin-dr-behalf = Déposer une demande pour un utilisateur
 admin-dr-behalf-help = Pour une demande reçue par courrier postal ou en personne. La personne n’a pas à confirmer par message.
 admin-dr-behalf-submit = Déposer la demande
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = Actions groupées
+
+admin-dr-bulk-action = Action
+
+admin-dr-bulk-approve = Approuver
+
+admin-dr-bulk-assign = Attribuer
+
+admin-dr-bulk-clear = Effacer la sélection
+
+admin-dr-bulk-csv = CSV de la sélection
+
+admin-dr-bulk-extend = Prolonger la date d'échéance
+
+admin-dr-bulk-failed = Refusé
+
+admin-dr-bulk-field-assignee = Attribuer à (vide efface)
+
+admin-dr-bulk-field-extend = Raison de la prolongation
+
+admin-dr-bulk-field-note = Remarque (facultatif)
+
+admin-dr-bulk-field-reason = Raison
+
+admin-dr-bulk-hold = Mettre sous conservation légale
+
+admin-dr-bulk-ok = Terminé
+
+admin-dr-bulk-reject = Rejeter
+
+admin-dr-bulk-release-hold = Libérer la retenue légale
+
+admin-dr-bulk-run = { $count ->
+        [0] Postuler à { $count } demandes
+        [one] Postuler à { $count } demande
+        [many] Postuler à { $count } demandes
+       *[other] Postuler à { $count } demandes
+    }
+
+admin-dr-bulk-select = Sélectionnez la demande de { $address }
+
+admin-dr-bulk-select-all = Sélectionnez chaque demande répertoriée
+
+admin-dr-bulk-selected = { $count ->
+        [0] { $count } demandes sélectionnées
+        [one] { $count } demande sélectionnée
+        [many] { $count } demandes sélectionnées
+       *[other] { $count } demandes sélectionnées
+    }
+
+admin-dr-bulk-summary = Fait pour { $done } ; refusé pour { $failed }. Les demandes refusées restent sélectionnées.
+
+admin-dr-more = Charger plus de demandes

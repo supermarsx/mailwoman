@@ -744,3 +744,104 @@ settings-folder-icon-group-personal = Особисте та розваги
 settings-folder-icon-group-tech = Техніка та інструменти
 settings-folder-icon-search-label = Пошук значків
 settings-folder-icon-no-match = Відповідних значків немає
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-badge-auth = Автентифікація (DMARC)
+
+settings-badge-auth-help = Результат DMARC; він відкриває повну інформацію про безпеку.
+
+settings-badge-density = Розмір значка
+
+settings-badge-density-comfortable = Комфортно
+
+settings-badge-density-compact = Компактний
+
+settings-badge-density-help = Компактна або зручна висота та відстань для кожного значка.
+
+settings-badge-folder = Папка
+
+settings-badge-folder-help = Де зберігається повідомлення. Лише тоді, коли помітно, показує це для сміття та сміття.
+
+settings-badge-labels = Ярлики значків
+
+settings-badge-labels-help = Піктограма з текстом або одна піктограма (повний текст залишається у підказці та для програм зчитування з екрана).
+
+settings-badge-labels-icon = Лише значок
+
+settings-badge-labels-text = Значок і текст
+
+settings-badge-list = Список розсилки
+
+settings-badge-list-help = Список розсилки, з якого надійшло повідомлення; він відкриває деталі підписки та дії. Лише тоді, коли notable показує це, коли листи надходять після того, як ви скасували підписку.
+
+settings-badge-mode-always = Завжди
+
+settings-badge-mode-never = Ніколи
+
+settings-badge-mode-notable = Тільки коли помітно
+
+settings-badge-sanitized = Продезінфіковано HTML
+
+settings-badge-sanitized-help = Що дезінфікуючий засіб HTML зробив із повідомленням. Лише тоді, коли notable показує, коли щось було заблоковано.
+
+settings-badge-spam = Рейтинг спаму
+
+settings-badge-spam-help = Оцінка, яку сервер-одержувач записав у заголовки повідомлення.
+
+settings-folders-hide-empty = Приховати порожні папки на бічній панелі
+
+settings-folders-hide-empty-help = Папки з’являються знову, коли містять повідомлення. Вхідні, папки пошуку, папки з невідомою кількістю та батьківські папки видимих ​​папок залишаються показаними. Перевизначити окремі папки в розділі «Властивості», «Відображення»; кожна папка залишається в цьому списку.
+
+settings-folders-list-card = Список і порядок папок
+
+settings-header-auto-collapse = Згорнути заголовок після написання (секунди)
+
+settings-header-auto-collapse-help = Коли основний текст перебуває у фокусі стільки секунд, а заголовок має одержувача та тему, він згортається до підсумкового рядка. 0 вимикає це.
+
+settings-message-badges = Значки повідомлень
+
+settings-message-badges-help = Виберіть, які значки відображатимуться в заголовку відкритого повідомлення. Позначки пріоритету встановлюються в папках і бічній панелі. Ви також можете клацнути значок правою кнопкою миші, щоб приховати його.
+
+settings-reply-from-headers = Заголовки, які вибирають ідентифікатор
+
+settings-reply-from-headers-help = Одне ім’я заголовка на рядок у такому порядку: «Доставлено», «Кому», «Кому», «Кому», «Кому», «Переслано», «Кому», «Кому», «Копія». Пропущений заголовок не читається.
+
+settings-reply-from-headers-invalid = Використовуйте лише ці назви, по одному на рядок: Delivered-To, X-Original-To, Envelope-To, X-Forwarded-To, Resent-To, To, Cc.
+
+settings-reply-from-headers-save = Зберегти порядок заголовків
+
+settings-sessions-linked-created = Посилання створено
+
+settings-sessions-linked-details = Деталі посилання
+
+settings-sessions-linked-kind = Тип посилання
+
+settings-sessions-linked-kind-linked = Пов'язана поштова скринька
+
+settings-sessions-linked-last-used = Останнє використання
+
+settings-sessions-linked-line = Доступ до пов’язаної поштової скриньки · від { $origin }
+
+settings-sessions-linked-line-hidden = Доступ до пов’язаної поштової скриньки
+
+settings-sessions-linked-origin = Походить з
+
+settings-sessions-linked-removed = Невідомо (вилучений обліковий запис)
+
+settings-sessions-linked-revoke = Скасувати доступ за посиланням
+
+settings-sessions-linked-revoke-label = Скасувати доступ за посиланням для { $mailbox }
+
+settings-sessions-linked-target = Поштову скриньку відкрито
+
+settings-sessions-origin-full = Повна адреса
+
+settings-sessions-origin-help = Керує тим, як ця таблиця називає обліковий запис, з якого походить пов’язаний сеанс поштової скриньки. Тільки ви бачите це на своїх власних сесіях.
+
+settings-sessions-origin-hidden = Прихований
+
+settings-sessions-origin-masked-local-part = Адреса з маскованою першою частиною
+
+settings-sessions-origin-setting = Показати, звідки надходить доступ до пов’язаної поштової скриньки
+
+settings-shortcuts-search = Швидкі клавіші пошуку

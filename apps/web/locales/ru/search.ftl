@@ -63,3 +63,32 @@ search-refine-subject = Найти сообщения с этой темой
 search-refine-folder = Искать в этой папке
 search-refine-domain = Найти сообщения с этого домена
 search-include-trash-scoped = Параметр «Включить корзину» действует при поиске по всем папкам. Выбранная папка просматривается напрямую.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+search-chip-answered = Ответил
+
+search-chip-finished = Закончено
+
+search-chip-followup = Отмечено для дальнейшего наблюдения
+
+search-chip-forwarded = Переадресовано
+
+search-chip-high-priority = Высокий приоритет
+
+search-chip-low-priority = Низкий приоритет
+
+search-chip-mentions-me = Упоминает меня
+
+search-chip-no-followup = Не помечено для дальнейшего наблюдения
+
+search-chip-not-high-priority = Не высокий приоритет
+
+search-chip-not-low-priority = Не низкий приоритет
+
+search-chip-unanswered = Не ответил
+
+search-chip-unfinished = Не закончено
+
+search-chip-unforwarded = Не пересылается
+
+search-field-mentions = Упоминания

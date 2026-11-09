@@ -48,3 +48,88 @@ outbox-failed-drafts = 送信できなかったため、下書きに保存され
 outbox-queued-count = { $count ->
    *[other] { $count } 件のメッセージが送信待ち
 }
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+outbox-chip-next = 次の送信: { $when }
+
+outbox-chip-title = 送信を待機しているメッセージ
+
+outbox-chip-view-all = 送信トレイを開く
+
+outbox-delete = 削除
+
+outbox-delete-confirm = メッセージを削除しますか?
+
+outbox-delete-failed = メッセージを削除できませんでした。 { $error }
+
+outbox-deleted = キューに入れられたメッセージが削除されました。
+
+outbox-edit-time = 送信時刻を編集する
+
+outbox-edit-time-conflict = 送信時間が変更されたか、メッセージはすでに送信されました。送信トレイが再ロードされました。
+
+outbox-edit-time-current = 現在 { $when }
+
+outbox-edit-time-refused = 送信時刻を変更できませんでした。 { $error }
+
+outbox-edit-time-save = 送信時間を節約する
+
+outbox-failed-toast = メッセージを送信できませんでした。 { $error }
+
+outbox-failed-uncertain-toast = メッセージは配信された場合もあれば、配信されなかった場合もあります。再度送信する前に「送信済み」にチェックを入れてください。
+
+outbox-open = 開く
+
+outbox-reader-actions = キューに入れられたメッセージのアクション
+
+outbox-reader-cc = Cc: { $recipients }
+
+outbox-reader-label = キューに入れられたメッセージ
+
+outbox-reader-loading = メッセージを読み込んでいます…
+
+outbox-reader-to = 宛先: { $recipients }
+
+outbox-reader-unavailable = メッセージを読み込めませんでした。
+
+outbox-recall-to-drafts = 下書きをリコールする
+
+outbox-send-again = 再送信
+
+outbox-send-again-failed = メッセージを再度キューに入れることができませんでした。 { $error }
+
+outbox-send-again-queued = メッセージは再送信するためにキューに入れられます。
+
+outbox-sent-copy-folder = { $folder }に保存されます
+
+outbox-sent-copy-missing = 送信済みに保存されます（選択したフォルダーは使用できません）
+
+outbox-sent-copy-skip = コピーは保存されません
+
+outbox-status-attempts = { $count ->
+       *[other] これまでに { $count } 回の試行
+    }
+
+outbox-status-canceled = キャンセルされました
+
+outbox-status-failed = 送信されませんでした
+
+outbox-status-held = 解放するまで保持される
+
+outbox-status-last-error = 最後のエラー: { $error }
+
+outbox-status-next-attempt = 次の試行 { $when }
+
+outbox-status-queued = キューに入れられました
+
+outbox-status-retrying = 再試行中
+
+outbox-status-scheduled = 予定されている
+
+outbox-status-sending = 送信中
+
+outbox-status-sends-at-in = { $when } を送信します ({ $time } 内)
+
+outbox-status-sent = 送信済み
+
+outbox-status-uncertain = 配送不明

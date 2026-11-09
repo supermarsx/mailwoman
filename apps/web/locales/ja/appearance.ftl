@@ -164,3 +164,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = 省庁のグレーのコンクリート、色あせた紙色のテキスト、ビッグ・ブラザーの赤。メッセージは等幅フォント。
 appearance-theme-pop-art = ポップアート
 appearance-theme-pop-art-desc = 白いページ、黒い輪郭線、原色の赤・青・黄、サイドバーにベンデイ・ドット。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = 重要性
+
+appearance-preference-group-option-none = グループ化なし
+
+appearance-preference-group-option-received = 受信日
+
+appearance-preference-group-option-sender = 送信者
+
+appearance-preference-group-option-sent = 送信日
+
+appearance-preference-group-option-size = メッセージサイズ
+
+appearance-preference-group-option-subject = 件名
+
+appearance-preference-mail-list-pageSize = ページごとにロードされるメッセージ (20 ～ 200)
+
+appearance-preference-mail-messageListGroup = メッセージのグループ化
+
+appearance-preference-message-group-help = 関連するメッセージをグループ見出しの下にまとめます。連続リストの場合は、「グループ化なし」を選択します。メッセージの順序は各グループ内に適用されます。
+
+appearance-preference-message-order-help = 各グループ内でのメッセージの順序、またはグループ化がオフの場合はリスト全体でのメッセージの順序を選択します。
+
+appearance-preference-option-importance = 重要性、優先度が高い
+
+appearance-preference-option-importance-asc = 重要度、最初は低い
+
+appearance-preference-option-received = 受信日
+
+appearance-preference-option-sender-desc = 送信者、Z から A
+
+appearance-preference-option-sent = 送信日
+
+appearance-preference-option-sent-newest = 送信済み、新しい順
+
+appearance-preference-option-sent-oldest = 古いものから順に送信
+
+appearance-preference-option-size = サイズ、大きい順
+
+appearance-preference-option-size-asc = サイズ、小さい順
+
+appearance-preference-option-subject-desc = 主題、Z から A

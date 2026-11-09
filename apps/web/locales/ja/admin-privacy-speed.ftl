@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = 上流からの取得
 privacy-speed-phase-decode = デコードと再エンコード
 privacy-speed-phase-other = その他すべて
 privacy-speed-note = このサーバープロセスのみで計測し、メモリ上に保持されるため、再起動後は空になります。パーセンタイルの精度は { $error } % 以内です。URL、ホスト、アカウントは保存されません。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = 結合フェッチと優先リクエスト
+
+privacy-work-coalesced-series = フェッチが飛行中にフェッチに結合されました
+
+privacy-work-handle = ハンドルキャッシュヒット率
+
+privacy-work-handle-series = キャッシュヒットの処理
+
+privacy-work-per-interval = サンプリング間隔ごと
+
+privacy-work-percent = ハンドル検索のシェア
+
+privacy-work-priority-series = 優先リクエスト
+
+privacy-work-resized = 縮小された画像
+
+privacy-work-resized-series = サイズ変更
+
+privacy-work-revalidated-series = 再検証されました
+
+privacy-work-saved = ダウンスケーリングによって節約されたバイト数
+
+privacy-work-saved-series = 保存されたバイト数
+
+privacy-work-stale = 古いイメージが提供され、再検証される
+
+privacy-work-stale-series = 古いものを提供する
+
+privacy-work-title = 作業の回避と再形成

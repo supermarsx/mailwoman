@@ -180,3 +180,46 @@ appearance-theme-nineteen-eighty-four = 1984
 appearance-theme-nineteen-eighty-four-desc = Ministeriegrijs beton, vergeelde papierkleurige tekst, Big Brother-rood; berichten in een monospace-lettertype.
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Witte pagina, zwarte contouren, primaire kleuren rood, blauw en geel, Ben-Day-stippen in de zijbalk.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-group-option-importance = Belang
+
+appearance-preference-group-option-none = Geen groepering
+
+appearance-preference-group-option-received = Datum ontvangen
+
+appearance-preference-group-option-sender = Afzender
+
+appearance-preference-group-option-sent = Datum verzonden
+
+appearance-preference-group-option-size = Berichtgrootte
+
+appearance-preference-group-option-subject = Onderwerp
+
+appearance-preference-mail-list-pageSize = Berichten geladen per pagina (20 tot 200)
+
+appearance-preference-mail-messageListGroup = Groepering van berichten
+
+appearance-preference-message-group-help = Houd gerelateerde berichten bij elkaar onder groepskoppen. Kies Geen groepering voor een doorlopende lijst. Binnen elke groep geldt uw berichtvolgorde.
+
+appearance-preference-message-order-help = Kies de volgorde van berichten binnen elke groep, of over de hele lijst als groeperen is uitgeschakeld.
+
+appearance-preference-option-importance = Belang eerst hoog
+
+appearance-preference-option-importance-asc = Belang eerst laag
+
+appearance-preference-option-received = Datum ontvangen
+
+appearance-preference-option-sender-desc = Afzender, Z tot A
+
+appearance-preference-option-sent = Datum verzonden
+
+appearance-preference-option-sent-newest = Verzonden, nieuwste eerst
+
+appearance-preference-option-sent-oldest = Verzonden, oudste eerst
+
+appearance-preference-option-size = Grootte, grootste eerst
+
+appearance-preference-option-size-asc = Maat, kleinste eerst
+
+appearance-preference-option-subject-desc = Onderwerp, Z tot A

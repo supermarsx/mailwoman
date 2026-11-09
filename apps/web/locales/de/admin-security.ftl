@@ -635,3 +635,24 @@ admin-protect-sim-cause-no-database = keine Datenbank geladen
 admin-protect-sim-cause-not-found = Adresse nicht in der Datenbank
 admin-protect-sim-heightened-off = Der erhöhte Anmeldemodus ist aus.
 admin-protect-sim-heightened-on = Der erhöhte Anmeldemodus ist an: Die Wartezeit wird auf { $pace } gedrosselt ({ $cooldown }), Challenge erzwungen: { $challenge }.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = Sitzungen und Neustarts
+
+admin-secdash-sessions-admin = Konsolensitzungen
+
+admin-secdash-sessions-mailbox = Postfachsitzungen
+
+admin-secdash-sessions-native = App-Sitzungen
+
+admin-secdash-sessions-reason-persisted = in der Datenbank gespeichert, versiegelt mit dem Serverschlüssel
+
+admin-secdash-sessions-reason-server-key-changed = Gespeicherte Sitzungen werden mit dem aktuellen Serverschlüssel nicht geöffnet. Stellen Sie die ursprüngliche Schlüsseldatei wieder her
+
+admin-secdash-sessions-reason-server-key-ephemeral = Der Serverschlüssel wird bei Neustarts nicht beibehalten
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts ist deaktiviert, sodass Sitzungen enden, wenn der Server startet
+
+admin-secdash-sessions-survive-no = Sitzungen überleben Neustarts: nein ({ $reason })
+
+admin-secdash-sessions-survive-yes = Sitzungen überleben Neustarts: ja ({ $reason })

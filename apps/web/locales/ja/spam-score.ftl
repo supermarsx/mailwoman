@@ -21,3 +21,10 @@ spam-score-col-description = 説明
 spam-score-points-missing = 記載なし
 spam-score-no-rules = ヘッダーには個別のルールが記載されていません。
 spam-score-not-scanned = Mailwoman は、受信サーバーが記録したとおりにこれらのスコアを表示します。メッセージ自体はスキャンしません。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+spam-score-copied = 内訳をコピーしました。
+
+spam-score-copy = コピーの内訳
+
+spam-score-copy-failed = 内訳をコピーできませんでした。もう一度やり直してください。

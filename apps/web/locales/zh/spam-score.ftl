@@ -21,3 +21,10 @@ spam-score-col-description = 说明
 spam-score-points-missing = 未提供
 spam-score-no-rules = 邮件头未列出任何单独的规则。
 spam-score-not-scanned = Mailwoman 按接收服务器写入的内容显示这些评分；它不会自行扫描邮件。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+spam-score-copied = 已复制细分。
+
+spam-score-copy = 复制细目
+
+spam-score-copy-failed = 无法复制细分。再试一次。

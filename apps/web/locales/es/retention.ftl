@@ -116,3 +116,94 @@ retention-history-matched = Coincidencias
 retention-history-changed = Cambiados
 retention-history-errors = Errores
 retention-context-action = Conservación…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Calendarios
+
+pim-cal-days = Días después de que terminó un evento
+
+pim-cal-enabled = Eliminar eventos finalizados
+
+pim-cal-help = Elimina eventos en los calendarios que elijas una cantidad determinada de días después de que finalizaron. Los eventos recurrentes nunca se eliminan.
+
+pim-cal-title = Eventos del calendario
+
+pim-days-range = Elige entre { $min } y { $max } días.
+
+pim-held-title = Notas eliminadas que puedes restaurar
+
+pim-held-until = Mantenido hasta { $when }
+
+pim-limits = Entre { $min } y { $max } días.
+
+pim-notes-days = Días desde la última vez que se cambió una nota
+
+pim-notes-enabled = Eliminar notas intactas
+
+pim-notes-help = Elimina las notas que no hayas cambiado durante un número determinado de días. Las notas fijadas se conservan. Una nota eliminada se puede restaurar durante { $days } días.
+
+pim-notes-title = Notas
+
+pim-off = Desactivado por su administrador.
+
+pim-preview = Vista previa
+
+pim-restore = Restaurar
+
+pim-result = { $events } evento(s) y { $notes } nota(s).
+
+pim-run = Corre ahora
+
+pim-run-title = Corre ahora
+
+pim-save = Guardar
+
+pim-skipped = Se omitieron { $count } opciones porque su administrador las desactivó.
+
+pim-untitled = Nota sin título
+
+retention-action-stripAttachments = Quitar archivos adjuntos grandes
+
+retention-do-stripAttachments = archivos adjuntos eliminados
+
+retention-error-strip-disabled = Su administrador deshabilita la eliminación de archivos adjuntos.
+
+retention-error-strip-min = Una regla que elimina archivos adjuntos debe esperar al menos { $days } días.
+
+retention-fd-action = ¿Qué pasa con el correo { $folder }?
+
+retention-fd-days = Días antes de que se procese { $folder }
+
+retention-fd-help = Establezca cuánto tiempo permanece el correo en una carpeta antes de moverlo o eliminarlo. Una carpeta configurada como "Heredar" no tiene ningún valor predeterminado propio; Las reglas anteriores y los límites del administrador aún se aplican. Las subcarpetas siguen a su carpeta.
+
+retention-fd-inherit = heredar
+
+retention-fd-mandatory = El administrador conserva esta carpeta durante { $days } días
+
+retention-fd-protected = Protegido por el administrador
+
+retention-fd-save = Guardar valores predeterminados de carpeta
+
+retention-fd-title = Valores predeterminados de carpeta
+
+retention-rule-strip-off = Desactivado por su administrador
+
+retention-strip-allowed = Una regla puede eliminar archivos adjuntos de al menos { $kb } KB de correo con al menos { $days } días de antigüedad. Una breve nota reemplaza cada archivo adjunto.
+
+retention-strip-denied = Su administrador desactiva la eliminación de archivos adjuntos.
+
+retention-strip-done = Se eliminaron archivos adjuntos de { $count } mensajes, liberando { $size }.
+
+retention-strip-inline-kept = Las imágenes que se muestran dentro del mensaje se conservan.
+
+retention-strip-inline-removed = Las imágenes que se muestran dentro del mensaje también se eliminan.
+
+retention-strip-limits = Elimina archivos adjuntos de al menos { $kb } KB del correo con al menos { $days } días de antigüedad. El original permanece en la Papelera durante { $undo } días.
+
+retention-strip-preview = Los mensajes { $count } perderían los archivos adjuntos y se liberarían { $size }.
+
+retention-strip-preview-estimate = Aproximadamente { $count } mensajes perderían sus archivos adjuntos, liberándose hasta { $size }.
+
+retention-strip-skipped = { $count } reglas que eliminan archivos adjuntos se omitieron porque su administrador las desactivó.
+
+retention-summary-stripAttachments = después de { $days } días, se eliminaron los archivos adjuntos grandes

@@ -216,3 +216,12 @@ privacy-image-group-tiering = 階層化とメンテナンス
 
 # -- Machine translation (2026-11): added to match en ---------------------
 privacy-trusted-links-domains-help = 1 行に 1 つのドメイン(例: example.com)。完全一致で判定されます。example.com は examples.com や example.com.other.net を信頼しません。国際化ドメイン名には ASCII 形式(xn--)を使用してください。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-error-reports-help = Mailウーマンの一部に障害が発生した場合、ブラウザは管理者に短い技術レポートを送信して修正できるようにします。エラーの種類、アプリ内のどこで発生したか、アプリのバージョン、ブラウザーの種類が保持されます。メッセージの内容、アドレス、添付ファイル名、または入力した内容は保持されません。
+
+privacy-error-reports-send = このブラウザからエラー レポートを送信する
+
+privacy-error-reports-send-help = デフォルトではオンです。これらのレポートをデバイス上に保持するにはオフにします。エラー パネルには、コピーできる参照が表示されています。
+
+privacy-error-reports-title = エラーレポート

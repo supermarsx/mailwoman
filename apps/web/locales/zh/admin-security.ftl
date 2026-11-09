@@ -629,3 +629,24 @@ admin-protect-sim-cause-no-database = 未加载数据库
 admin-protect-sim-cause-not-found = 地址不在数据库中
 admin-protect-sim-heightened-off = 登录加强模式已关闭。
 admin-protect-sim-heightened-on = 登录加强模式已开启：冷却限速为 { $pace }（{ $cooldown }），强制挑战：{ $challenge }。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-secdash-sessions = 会话和重新启动
+
+admin-secdash-sessions-admin = 控制台会话
+
+admin-secdash-sessions-mailbox = 邮箱会话
+
+admin-secdash-sessions-native = 应用程序会话
+
+admin-secdash-sessions-reason-persisted = 存储在数据库中，用服务器密钥密封
+
+admin-secdash-sessions-reason-server-key-changed = 存储的会话不能使用当前服务器密钥打开；恢复原始密钥文件
+
+admin-secdash-sessions-reason-server-key-ephemeral = 重新启动后不会保留服务器密钥
+
+admin-secdash-sessions-reason-setting-off = session.persistAcrossRestarts 已关闭，因此会话在服务器启动时结束
+
+admin-secdash-sessions-survive-no = 会话在重新启动后仍然有效：否 ({ $reason })
+
+admin-secdash-sessions-survive-yes = 会话在重新启动后仍然有效：是 ({ $reason })

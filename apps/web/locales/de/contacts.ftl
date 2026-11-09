@@ -176,3 +176,123 @@ contacts-bulk-favorites-added = { $count } zu den Favoriten hinzugefügt.
 contacts-bulk-favorites-removed = { $count } aus den Favoriten entfernt.
 contacts-row-menu = Aktionen für { $name }
 contacts-favorites-empty = Noch keine Favoriten. Mit dem Stern bei einem Kontakt fügen Sie einen hinzu.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+contacts-save-already = { $name } befindet sich bereits in Ihren Kontakten.
+
+contacts-save-already-badge = Bereits gespeichert
+
+contacts-save-already-many = Alle { $count } Kontakte sind bereits gespeichert.
+
+contacts-save-automated = Dies sieht aus wie ein automatisierter Absender (keine Antwort, Benachrichtigungen).
+
+contacts-save-book = Adressbuch
+
+contacts-save-book-readonly = { $name } (schreibgeschützt)
+
+contacts-save-cancel = Abbrechen
+
+contacts-save-choose = Kontakte auswählen…
+
+contacts-save-contacts = Kontakte aus dieser Nachricht speichern
+
+contacts-save-dialog-title = Kontakte aus dieser Nachricht speichern
+
+contacts-save-email = E-Mail
+
+contacts-save-failed = Der Kontakt konnte nicht gespeichert werden. Versuchen Sie es erneut.
+
+contacts-save-group = Gruppe
+
+contacts-save-group-none = Keine Gruppe
+
+contacts-save-loading = Adressen werden geladen…
+
+contacts-save-name = Name
+
+contacts-save-new = Neue Kontakte speichern
+
+contacts-save-no-book = Kein Adressbuch kann neue Kontakte aufnehmen.
+
+contacts-save-no-sender = Diese Nachricht hat keine Absenderadresse.
+
+contacts-save-note = Gespeichert aus einer Nachricht am { $date }
+
+contacts-save-nothing = Niemand zum Speichern: Jeder ist bereits in Ihren Kontakten, Sie selbst, oder sieht automatisiert aus.
+
+contacts-save-open = Offen
+
+contacts-save-open-contact = Kontakt öffnen
+
+contacts-save-open-link = Kontakt öffnen
+
+contacts-save-own = Dies ist eine Ihrer eigenen Adressen.
+
+contacts-save-partial = { $saved } von { $total } Kontakten gespeichert. Die anderen konnten nicht gerettet werden.
+
+contacts-save-pick = Sparen Sie { $email }
+
+contacts-save-recipients = Speichern Sie alle Empfänger
+
+contacts-save-removed = Gespeicherte Kontakte entfernt.
+
+contacts-save-role-bcc = Bcc
+
+contacts-save-role-cc = CC
+
+contacts-save-role-from = Von
+
+contacts-save-role-replyTo = Antwort an
+
+contacts-save-role-sender = Absender
+
+contacts-save-role-to = Zu
+
+contacts-save-saved-heading = Bereits in Ihren Kontakten
+
+contacts-save-saved-many = Gespeicherte { $count } Kontakte zu { $book }
+
+contacts-save-saved-one = { $name } bis { $book } gespeichert
+
+contacts-save-sender = Absender als Kontakt speichern
+
+contacts-save-settings-book = Adressbuch
+
+contacts-save-settings-book-default = Standardadressbuch
+
+contacts-save-settings-enabled = Angebot Kontakte aus dieser Nachricht speichern
+
+contacts-save-settings-enabled-help = Fügt das Element den Nachrichtenmenüs und dem Menü „Mehr“ des Readers hinzu.
+
+contacts-save-settings-note = Fügen Sie eine Notiz mit dem Datum hinzu
+
+contacts-save-settings-note-help = Die Notiz lautet „Gespeichert ab einer Nachricht am“, gefolgt vom Datum.
+
+contacts-save-settings-reply-to = Verwenden Sie „Antwort an“ für Listen- und Benachrichtigungsabsender
+
+contacts-save-settings-reply-to-help = Speichert für diese Absender die Antwortadresse anstelle der Absenderadresse.
+
+contacts-save-settings-scope = Im Dialog zuerst angekreuzt
+
+contacts-save-settings-scope-all = Jeder auf der Nachricht
+
+contacts-save-settings-scope-sender = Nur Absender
+
+contacts-save-settings-sender = Angebot Absender als Kontakt speichern
+
+contacts-save-settings-sender-help = Ein Ein-Klick-Element in Nachrichtenmenüs.
+
+contacts-save-settings-skip = Überspringen Sie automatisierte Absender
+
+contacts-save-settings-skip-help = Lässt No-Reply-, Benachrichtigungs- und Bounce-Adressen aus, sofern Sie diese nicht ankreuzen.
+
+contacts-save-settings-title = Kontakte aus Nachrichten speichern
+
+contacts-save-show-automated = Automatische und No-Reply-Adressen anzeigen
+
+contacts-save-submit = { $count ->
+        [one] { $count } Kontakt speichern
+       *[other] Speichern Sie { $count } Kontakte
+    }
+
+contacts-save-undo = Rückgängig machen

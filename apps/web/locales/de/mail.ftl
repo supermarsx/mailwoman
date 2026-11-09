@@ -1204,3 +1204,254 @@ mail-color-confirm-title = Ihre Standardfarben für Nachrichten ändern?
 mail-color-confirm-body = Jede Nachricht verwendet „{ $mode }“, solange Sie es nicht für eine einzelne Nachricht ändern.
 mail-color-confirm = Als Standard festlegen
 mail-color-default-failed = Ihre Standardfarben für Nachrichten konnten nicht gespeichert werden.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+mail-attachments-none = Die ausgewählten Nachrichten enthalten keine Anhänge zum Herunterladen.
+
+mail-attachments-zip-all-blocked = Es wurde nichts heruntergeladen: Die Anhangsrichtlinie blockiert alle { $skipped } Dateien.
+
+mail-attachments-zip-gathering = Sammeln der Anhänge von { $count } Nachrichten…
+
+mail-attachments-zip-skipped = { $skipped ->
+        [one] { $skipped } durch die Anhangsrichtlinie blockierte Datei wurde weggelassen.
+       *[other] { $skipped } Dateien, die durch die Anhangsrichtlinie blockiert wurden, wurden ausgelassen.
+    }
+
+mail-attachments-zip-unreadable = Die Anhänge von { $count } Nachrichten konnten nicht gelesen werden und wurden weggelassen.
+
+mail-bulk-download-attachments = Anhänge als ZIP herunterladen
+
+mail-compose-from-via = Es stimmte mit dem Header { $header } überein.
+
+mail-compose-from-why-match-domain = Senden von { $identity }, da die Nachricht an { $address } zugestellt wurde, eine Adresse in derselben Domäne.
+
+mail-compose-from-why-match-pattern = Senden von { $identity }, da die Nachricht an { $address } gesendet wurde, was dem Adressmuster dieser Identität entspricht.
+
+mail-compose-ribbon-autohide = Multifunktionsleiste automatisch ausblenden (Strg+F1)
+
+mail-compose-ribbon-pin = Multifunktionsleiste immer anzeigen (Strg+F1)
+
+mail-context-download-selected-attachments = { $count ->
+        [one] Laden Sie Anhänge der ausgewählten Nachricht als ZIP herunter
+       *[other] Laden Sie Anhänge von { $count } ausgewählten Nachrichten als ZIP herunter
+    }
+
+mail-context-download-thread-attachments = Laden Sie alle { $count } Anhänge des Gesprächs als ZIP herunter
+
+mail-context-open-new-tab = In einem neuen Tab öffnen
+
+mail-delete-sender-confirm = Verschieben Sie { $count } Nachrichten in den Papierkorb
+
+mail-delete-sender-detail = { $count } Nachrichten von { $sender } in den Papierkorb verschieben? Nachrichten, die sich bereits im Papierkorb befinden, werden ausgeschlossen. Sie können diese Aktion rückgängig machen.
+
+mail-delete-sender-empty = Außerhalb des Papierkorbs gibt es keine Nachrichten von diesem Absender.
+
+mail-delete-sender-failed = Es konnten nicht jede übereinstimmende Nachricht und ihre Berechtigungen überprüft werden. Nichts wurde bewegt; versuchen Sie es erneut.
+
+mail-delete-sender-help = Suchen Sie die Nachrichten dieses Absenders in allen Ordnern und verschieben Sie sie nach Bestätigung in den Papierkorb.
+
+mail-delete-sender-title = Alle Nachrichten von diesem Absender löschen
+
+mail-draft-continue = Bearbeiten Sie weiter
+
+mail-draft-edit = Entwurf bearbeiten
+
+mail-draft-edit-failed = Der Entwurf konnte nicht zur Bearbeitung geöffnet werden
+
+mail-draft-edit-help = Öffnen Sie diesen Entwurf im Composer, um ihn weiter zu bearbeiten
+
+mail-draft-notice = Dies ist ein Entwurf
+
+mail-file-copied = In die Zwischenablage kopiert.
+
+mail-file-copy-failed = Konnte nicht in die Zwischenablage kopieren.
+
+mail-file-copy-fingerprint = Fingerabdruck kopieren
+
+mail-file-copy-name = Dateinamen kopieren
+
+mail-file-created = Erstellt
+
+mail-file-creator = Erstellt mit
+
+mail-file-details-button = Dateidetails
+
+mail-file-details-tooltip = Dateidetails und Fingerabdruck anzeigen
+
+mail-file-encryption = Passwortschutz
+
+mail-file-encryption-none = Es wurde kein Passwort abgefragt
+
+mail-file-encryption-password = Zum Öffnen war ein Passwort erforderlich
+
+mail-file-fingerprint = Fingerabdruck
+
+mail-file-name = Dateiname
+
+mail-file-pages = Seiten
+
+mail-file-pdf-version = PDF-Version
+
+mail-file-producer = Produzent
+
+mail-file-verify-help = Vergleichen Sie diese Gruppen mit einem Fingerabdruck, den der Absender Ihnen auf andere Weise gegeben hat, beispielsweise durch einen Anruf oder auf seiner Website. Wenn jede Gruppe übereinstimmt, haben Sie genau die gleichen Bytes.
+
+mail-file-verify-title = Überprüfen Sie den Fingerabdruck
+
+mail-follow-up-finished = Nachbereitung abgeschlossen
+
+mail-group-by = Gruppieren nach
+
+mail-header-attachments = { $count ->
+        [one] { $count } Anhang
+       *[other] { $count } Anhänge
+    }
+
+mail-header-expand-short = Nachrichtenkopf erweitern (Alt+H)
+
+mail-list-group-date-unknown = Unbekanntes Datum
+
+mail-list-group-importance = Bedeutung
+
+mail-list-group-locked = Die Nachrichtengruppierung ist von Ihrem Administrator gesperrt.
+
+mail-list-group-no-subject = (Kein Thema)
+
+mail-list-group-none = Keine Gruppierung
+
+mail-list-group-priority-high = Hohe Bedeutung
+
+mail-list-group-priority-low = Geringe Bedeutung
+
+mail-list-group-priority-normal = Normale Bedeutung
+
+mail-list-group-received = Empfangsdatum
+
+mail-list-group-sender = Von
+
+mail-list-group-sent = Sendedatum
+
+mail-list-group-size = Größe
+
+mail-list-group-size-huge = 10 MB und mehr
+
+mail-list-group-size-large = 1–10 MB
+
+mail-list-group-size-medium = 100 KB–1 MB
+
+mail-list-group-size-small = 25–100 KB
+
+mail-list-group-size-tiny = Unter 25 KB
+
+mail-list-group-subject = Betreff
+
+mail-list-order-importance = Wichtigkeit, hoch zuerst
+
+mail-list-order-importance-asc = Wichtigkeit, niedrig zuerst
+
+mail-list-order-locked = Die Nachrichtenreihenfolge ist von Ihrem Administrator gesperrt.
+
+mail-list-order-sender-desc = Absender, Z bis A
+
+mail-list-order-sent-newest = Gesendet, das Neueste zuerst
+
+mail-list-order-sent-oldest = Gesendet, Älteste zuerst
+
+mail-list-order-size = Größe, größte zuerst
+
+mail-list-order-size-asc = Größe, das Kleinste zuerst
+
+mail-list-order-subject-desc = Betreff, Z bis A
+
+mail-mark-answered = Als beantwortet markieren
+
+mail-mark-as = Markieren als
+
+mail-mark-finished = Als fertig markieren
+
+mail-mark-forwarded = Als weitergeleitet markieren
+
+mail-mark-not-forwarded = Als nicht weitergeleitet markieren
+
+mail-mark-unanswered = Als unbeantwortet markieren
+
+mail-mentions-me = Erwähnt mich
+
+mail-mentions-me-help = Suchen Sie nach Nachrichten, in denen eine Ihrer E-Mail-Adressen erwähnt wird
+
+mail-move-search = Ordner durchsuchen
+
+mail-order-by = Bestellen nach
+
+mail-reader-folder-go = Gespeichert in { $folder } · Gehe zum Ordner
+
+mail-reply-draft-discard = Antwort verwerfen
+
+mail-reply-draft-discard-detail = Diese Antwort dauerhaft entfernen? Wird gerade bearbeitet? Dies kann nicht rückgängig gemacht werden.
+
+mail-reply-draft-discard-title = Diese Antwort verwerfen?
+
+mail-status-from-match-domain = Von { $identity }
+
+mail-status-from-match-pattern = Von { $identity }
+
+mail-status-from-via = Antwort von { $identity }, weil es mit { $header } übereinstimmte
+
+mail-toast-follow-up-finished = Nachverfolgung als abgeschlossen markiert
+
+mail-toast-marked-answered = { $count ->
+        [one] { $count } Nachricht als beantwortet markiert
+       *[other] { $count } Nachrichten als beantwortet markiert
+    }
+
+mail-toast-marked-forwarded = { $count ->
+        [one] { $count } Nachricht wurde als weitergeleitet markiert
+       *[other] { $count } Nachrichten als weitergeleitet markiert
+    }
+
+mail-toast-marked-not-forwarded = { $count ->
+        [one] { $count } Nachricht wurde als nicht weitergeleitet markiert
+       *[other] { $count } Nachrichten, die als nicht weitergeleitet markiert sind
+    }
+
+mail-toast-marked-unanswered = { $count ->
+        [one] { $count } Nachricht als unbeantwortet markiert
+       *[other] { $count } Nachrichten als unbeantwortet markiert
+    }
+
+mail-toast-move-failed-reason = Die Nachrichten konnten nicht verschoben werden ({ $reason }). Es wurde nichts bewegt.
+
+mail-toast-update-refused-reason = { $count ->
+        [one] Der Server hat die Verschiebung für eine Nachricht abgelehnt: { $reason }
+       *[other] Der Server hat die Verschiebung für { $count } Nachrichten abgelehnt: { $reason }
+    }
+
+reader-badge-hide = Verstecken Sie dieses Abzeichen
+
+reader-badge-locked = Wird von Ihrem Administrator festgelegt
+
+reader-badge-menu = Nachrichtenabzeichen
+
+reader-badge-notable = Nur anzeigen, wenn es bemerkenswert ist
+
+reader-sanitized-always = Aktive Inhalte wie Skripte bleiben deaktiviert.
+
+reader-sanitized-clean = Nachricht HTML benötigte keine Änderungen
+
+reader-sanitized-clean-detail = Aus der HTML dieser Nachricht wurde nichts entfernt oder blockiert.
+
+reader-sanitized-counts = { $blocked } Remote-Artikel blockiert, { $trackers } Tracking-Artikel.
+
+reader-sanitized-detail = Die Nachricht HTML wurde bereinigt, bevor sie angezeigt wurde. Remote-Inhalte unterliegen Ihren Datenschutzeinstellungen.
+
+reader-sanitized-hosts = Remote-Hosts
+
+reader-sanitized-remote = Remote-Inhalte blockiert
+
+reader-sanitized-short = Desinfiziert HTML
+
+reader-sanitized-short-blocked = HTML blockiert
+
+reader-sanitized-short-clean = HTML sauber
+
+reader-sanitized-trackers = Artikel verfolgen

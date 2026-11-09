@@ -101,3 +101,30 @@ dr-event-due-soon = موعده قريب
 dr-event-overdue = متأخر
 dr-event-retry = أُعيدت المحاولة
 dr-event-grace-skipped = تخطى المسؤول مهلة الانتظار
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+dr-objection-purposes = ما تعترض عليه
+
+dr-objection-purposes-help = عندما يوافق المسؤول على الطلب، يتم سحب موافقتك على كل غرض تحدده مرة واحدة. يمكنك تشغيل غرض مرة أخرى لاحقًا ضمن الموافقات.
+
+dr-objection-purposes-list = الاعتراض على: { $purposes }
+
+dr-purpose-analytics = إحصائيات الاستخدام
+
+dr-purpose-analyticsTag = علامة التحليلات
+
+dr-purpose-assistant = مساعد
+
+dr-purpose-integrations = التكامل ومفاتيح API
+
+dr-purpose-openTracking = فتح وقراءة التتبع
+
+dr-purpose-push = دفع الإخطارات
+
+dr-rectify-banner = تحديث التفاصيل للطلب { $ref }
+
+dr-rectify-done = وضع علامة "تم".
+
+dr-rectify-edit = تحرير التفاصيل الخاصة بي
+
+dr-rectify-ref = المرجع { $ref }. اقتبسها إذا كتبت لنا عن هذا التصحيح.

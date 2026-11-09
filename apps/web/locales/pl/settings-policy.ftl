@@ -44,3 +44,6 @@ cache-card-prefetch = Ładowanie wstępne
 cache-card-prefetch-help = Wczytuj wiadomości z wyprzedzeniem, aby otwierały się natychmiast. Zużywa więcej danych.
 settings-folder-counts-card = Liczniki
 settings-folder-counts-card-help = Co pokazują liczniki obok folderów i które foldery je mają.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+settings-language-card = Język i region

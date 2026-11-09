@@ -75,3 +75,144 @@ folder-dnd-more-actions = Organizar
 folder-dnd-selected-move = Mover la selección a…
 folder-dnd-locked-row = Bloqueada
 folder-dnd-problem-pin = Las carpetas fijadas permanecen sobre las demás. Desfíjela primero para moverla allí.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+folder-bar-empty = Vacío…
+
+folder-bar-label = Acciones para las carpetas seleccionadas
+
+folder-bar-mark-read = Marcar todo como leído
+
+folder-bar-pin = Alfiler
+
+folder-bar-star = estrella
+
+folder-bar-unpin = Desanclar
+
+folder-bar-unstar = Desestrellar
+
+folder-dnd-handle-hint = Arrastra para mover esta carpeta
+
+folder-pinned-group = Fijado
+
+folder-pinned-unpin-zone = Caída aquí para desanclar
+
+settings-folders-bulk-delete-body = { $folders ->
+        [one] Se eliminarán { $folders } carpeta y los { $messages } mensajes que contiene. Esto no se puede deshacer.
+        [many] { $folders } carpetas (con sus subcarpetas) y los { $messages } mensajes que contengan se eliminarán. Esto no se puede deshacer.
+       *[other] { $folders } carpetas (con sus subcarpetas) y los { $messages } mensajes que contengan se eliminarán. Esto no se puede deshacer.
+    }
+
+settings-folders-bulk-delete-confirm = { $count ->
+        [one] Eliminar { $count } carpeta
+        [many] Eliminar { $count } carpetas
+       *[other] Eliminar { $count } carpetas
+    }
+
+settings-folders-bulk-delete-done = { $count ->
+        [one] Eliminada { $count } carpeta
+        [many] Eliminadas { $count } carpetas
+       *[other] Eliminadas { $count } carpetas
+    }
+
+settings-folders-bulk-delete-failed = No se eliminó nada. No eliminado: { $names }
+
+settings-folders-bulk-delete-list = Carpetas para eliminar
+
+settings-folders-bulk-delete-none = Ninguna de las carpetas seleccionadas se puede eliminar (se omiten las carpetas del sistema y las carpetas que no puede eliminar).
+
+settings-folders-bulk-delete-others = Tampoco eliminado: { $names }
+
+settings-folders-bulk-delete-partial = Carpetas { $done } eliminadas. No eliminado: { $names }
+
+settings-folders-bulk-delete-partial-done = Carpetas { $done } eliminadas.
+
+settings-folders-bulk-delete-refused-legalHold = { $count ->
+        [one] No eliminado porque la cuenta está bajo retención legal: { $names }
+        [many] No eliminado porque la cuenta está bajo retención legal ({ $count } carpetas): { $names }
+       *[other] No eliminado porque la cuenta está bajo retención legal ({ $count } carpetas): { $names }
+    }
+
+settings-folders-bulk-delete-refused-processingRestricted = { $count ->
+        [one] No eliminado porque el procesamiento de la cuenta está restringido: { $names }
+        [many] No eliminado porque el procesamiento de la cuenta está restringido ({ $count } carpetas): { $names }
+       *[other] No eliminado porque el procesamiento de la cuenta está restringido ({ $count } carpetas): { $names }
+    }
+
+settings-folders-bulk-delete-skipped = { $count } las carpetas seleccionadas se omiten porque no se pueden eliminar: { $names }
+
+settings-folders-bulk-delete-subfolders = Elimina también las subcarpetas de cada carpeta.
+
+settings-folders-bulk-delete-subfolders-off = Solo se eliminan las carpetas seleccionadas. Se conserva una carpeta que todavía tiene una subcarpeta fuera de la selección.
+
+settings-folders-bulk-delete-title = { $count ->
+        [one] ¿Eliminar { $count } carpeta?
+        [many] ¿Eliminar { $count } carpetas?
+       *[other] ¿Eliminar { $count } carpetas?
+    }
+
+settings-folders-bulk-empty-body = { $total } mensajes en carpetas { $folders } se eliminarán: { $toTrash } se mueven a la Papelera y se pueden deshacer, { $permanent } se eliminan definitivamente y no se pueden recuperar. Las subcarpetas no se tocan.
+
+settings-folders-bulk-empty-confirm = vaciar las carpetas
+
+settings-folders-bulk-empty-counting = Contando los mensajes en cada carpeta…
+
+settings-folders-bulk-empty-done = Vació { $count } carpetas, { $messages } mensajes
+
+settings-folders-bulk-empty-fail-refused = el servidor rechazó parte del mismo; { $remaining } mensajes quedan
+
+settings-folders-bulk-empty-fail-stopped = detenido; { $remaining } mensajes quedan
+
+settings-folders-bulk-empty-fail-uncertain = se desconoce el resultado del último lote; revisa la carpeta
+
+settings-folders-bulk-empty-list = Carpetas para vaciar
+
+settings-folders-bulk-empty-partial = Carpetas { $done } vaciadas; { $failed } falló. Ver la lista.
+
+settings-folders-bulk-empty-permanent = { $count } mensajes se eliminan definitivamente
+
+settings-folders-bulk-empty-progress = { $done } de { $of } carpetas terminadas, { $messages } mensajes procesados. Ahora: { $name }
+
+settings-folders-bulk-empty-skip-count-failed = no se pudo contar, se omitió
+
+settings-folders-bulk-empty-skip-empty = ya vacío, saltado
+
+settings-folders-bulk-empty-skip-permanent-denied = se eliminaría definitivamente, lo cual el administrador ha desactivado, omitido
+
+settings-folders-bulk-empty-skip-search = una búsqueda guardada, omitida
+
+settings-folders-bulk-empty-skip-unsupported = esta cuenta no puede vaciarla, omitida
+
+settings-folders-bulk-empty-title = { $count ->
+        [one] ¿Vaciar { $count } carpeta?
+        [many] ¿Vaciar { $count } carpetas?
+       *[other] ¿Vaciar { $count } carpetas?
+    }
+
+settings-folders-bulk-empty-to-trash = { $count } mensajes se mueven a la Papelera
+
+settings-folders-bulk-empty-undo-label = Carpetas { $count } vaciadas (mensajes { $messages })
+
+settings-folders-delete-selected = Eliminar…
+
+settings-folders-select-user = Seleccionar todas las carpetas de usuario
+
+settings-folders-subscribe-failed = Las suscripciones no se pudieron cambiar.
+
+settings-folders-subscribe-partial = Se cambiaron { $done } carpetas; { $failed } no se pudo cambiar.
+
+settings-folders-subscribe-selected = Suscríbete
+
+settings-folders-subscribed = { $count ->
+        [one] Suscrito a { $count } carpeta
+        [many] Suscrito a { $count } carpetas
+       *[other] Suscrito a { $count } carpetas
+    }
+
+settings-folders-unsubscribe-selected = Darse de baja
+
+settings-folders-unsubscribed = { $count ->
+        [one] Cancelar suscripción a { $count } carpeta
+        [many] Cancelar suscripción de { $count } carpetas
+       *[other] Cancelar suscripción de { $count } carpetas
+    }

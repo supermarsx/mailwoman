@@ -72,3 +72,62 @@ admin-dr-trail = السجل
 admin-dr-behalf = تقديم طلب نيابةً عن مستخدم
 admin-dr-behalf-help = لطلب وصل بالبريد أو شخصيًا. لا يُطلب من الشخص التأكيد برسالة.
 admin-dr-behalf-submit = تقديم الطلب
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-dr-bulk = الإجراءات السائبة
+
+admin-dr-bulk-action = العمل
+
+admin-dr-bulk-approve = موافقة
+
+admin-dr-bulk-assign = تعيين
+
+admin-dr-bulk-clear = مسح التحديد
+
+admin-dr-bulk-csv = CSV من الاختيار
+
+admin-dr-bulk-extend = تمديد الموعد المحدد
+
+admin-dr-bulk-failed = رفض
+
+admin-dr-bulk-field-assignee = تعيين إلى (مسح فارغ)
+
+admin-dr-bulk-field-extend = سبب التمديد
+
+admin-dr-bulk-field-note = ملاحظة (اختياري)
+
+admin-dr-bulk-field-reason = السبب
+
+admin-dr-bulk-hold = وضع تحت الحجز القانوني
+
+admin-dr-bulk-ok = تم
+
+admin-dr-bulk-reject = رفض
+
+admin-dr-bulk-release-hold = الافراج عن الحجز القانوني
+
+admin-dr-bulk-run = { $count ->
+        [zero] تنطبق على { $count } طلبات
+        [one] تنطبق على طلب واحد
+        [two] تطبيق على طلبين
+        [few] تنطبق على { $count } طلبات
+        [many] تنطبق على { $count } طلبا
+       *[other] تنطبق على { $count } طلب
+    }
+
+admin-dr-bulk-select = اختر طلب { $address }
+
+admin-dr-bulk-select-all = حدد كل طلب مدرج
+
+admin-dr-bulk-selected = { $count ->
+        [zero] تم تحديد { $count } طلبات
+        [one] تم اختيار طلب واحد
+        [two] تم تحديد طلبين
+        [few] تم اختيار { $count } طلبات
+        [many] تم اختيار { $count } طلب
+       *[other] تم اختيار { $count } طلب
+    }
+
+admin-dr-bulk-summary = تم لـ { $done }; رفض ل { $failed }. تظل الطلبات المرفوضة محددة.
+
+admin-dr-more = تحميل المزيد من الطلبات

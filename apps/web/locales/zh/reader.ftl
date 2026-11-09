@@ -61,3 +61,60 @@ reader-card-loading = 加载
 reader-card-loading-help = 邮件打开时你看到的内容。
 settings-mail-card-list = 邮件列表
 settings-mail-card-list-help = 行操作，以及对邮件执行操作时列表的行为。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+reader-attachments-download = 下载{ $name }
+
+reader-attachments-download-all = 下载全部
+
+reader-attachments-download-all-blocked = 附件策略阻止此处的每个文件
+
+reader-attachments-download-all-busy = 准备ZIP文件
+
+reader-attachments-download-all-label = 将所有附件下载为 ZIP 文件
+
+reader-attachments-download-all-none = 没有附件可供下载
+
+reader-attachments-download-all-warned = { $count ->
+       *[other] 遗漏了 { $count } 个需要确认的文件。将它们一一下载。
+    }
+
+reader-attachments-download-blocked = { $name }无法下载：{ $reason }
+
+reader-attachments-download-label = 下载{ $name } ({ $size })
+
+reader-attachments-download-off = 下载已关闭
+
+reader-attachments-inline-group = { $count ->
+       *[other] { $count } 个内联图像
+    }
+
+reader-attachments-inline-summary = { $count ->
+       *[other] { $count } 个内联图像
+    } · { $size }
+
+reader-attachmentsBarClickToToggle = 单击该栏可展开或折叠
+
+reader-attachmentsBarClickToToggle-help = 单击附件栏上的任意位置可对其进行切换。关闭时，只有箭头按钮起作用。
+
+reader-attachmentsBarDownloadAll = 下载全部按钮
+
+reader-attachmentsBarDownloadAll-help = 在栏上显示一个按钮，将附件下载为一个 ZIP 文件。
+
+reader-attachmentsBarShowDownloadButtons = 附件上的下载按钮
+
+reader-attachmentsBarShowDownloadButtons-help = 在悬停或聚焦时显示每个附件的下载按钮，始终或从不。
+
+reader-attachmentsBarZipInlineImages = 在 ZIP 中包含内嵌图像
+
+reader-attachmentsBarZipInlineImages-help = 除非打开此选项，否则消息文本中出现的图像将不会被全部下载。
+
+reader-card-attachments-bar = 附件栏
+
+reader-card-attachments-bar-help = 邮件附件上方的栏如何响应以及它提供什么。标记为锁定的线路由管理员设置。
+
+reader-option-always = 总是
+
+reader-option-hover = 悬停或聚焦时
+
+reader-option-never = 从来没有

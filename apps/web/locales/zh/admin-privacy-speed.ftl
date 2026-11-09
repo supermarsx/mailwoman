@@ -42,3 +42,34 @@ privacy-speed-phase-upstream = 上游抓取
 privacy-speed-phase-decode = 解码和重新编码
 privacy-speed-phase-other = 其他所有
 privacy-speed-note = 仅在此服务器进程上测量，保存在内存中，重启后清空。百分位的误差在 { $error } % 以内。不存储任何 URL、主机或账户。
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-work-coalesced = 联合获取和优先级请求
+
+privacy-work-coalesced-series = 获取连接到飞行中的一个
+
+privacy-work-handle = 处理缓存命中率
+
+privacy-work-handle-series = 处理缓存命中
+
+privacy-work-per-interval = 每个采样间隔
+
+privacy-work-percent = 句柄查找的份额
+
+privacy-work-priority-series = 优先请求
+
+privacy-work-resized = 图像缩小
+
+privacy-work-resized-series = 调整大小
+
+privacy-work-revalidated-series = 重新验证
+
+privacy-work-saved = 通过缩减规模节省的字节数
+
+privacy-work-saved-series = 已保存字节数
+
+privacy-work-stale = 提供过时的图像并重新验证
+
+privacy-work-stale-series = 服务陈旧
+
+privacy-work-title = 工作被避免和重塑

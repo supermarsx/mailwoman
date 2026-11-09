@@ -116,3 +116,94 @@ retention-history-matched = Correspondentes
 retention-history-changed = Alteradas
 retention-history-errors = Erros
 retention-context-action = Retenção…
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+pim-cal-calendars = Calendários
+
+pim-cal-days = Dias após o término de um evento
+
+pim-cal-enabled = Excluir eventos encerrados
+
+pim-cal-help = Exclua eventos nos calendários que você escolher um determinado número de dias após seu término. Eventos recorrentes nunca são excluídos.
+
+pim-cal-title = Eventos do calendário
+
+pim-days-range = Escolha entre { $min } e { $max } dias.
+
+pim-held-title = Notas removidas que você pode restaurar
+
+pim-held-until = Mantido até { $when }
+
+pim-limits = Entre { $min } e { $max } dias.
+
+pim-notes-days = Dias desde que uma nota foi alterada pela última vez
+
+pim-notes-enabled = Remover notas intocadas
+
+pim-notes-help = Remova notas que você não alterou por um determinado número de dias. As notas fixadas são mantidas. Uma nota removida pode ser restaurada por { $days } dias.
+
+pim-notes-title = Notas
+
+pim-off = Desativado pelo seu administrador.
+
+pim-preview = Visualização
+
+pim-restore = Restaurar
+
+pim-result = { $events } evento(s) e { $notes } nota(s).
+
+pim-run = Corra agora
+
+pim-run-title = Corra agora
+
+pim-save = Salvar
+
+pim-skipped = { $count } opções foram ignoradas porque seu administrador as desativou.
+
+pim-untitled = Nota sem título
+
+retention-action-stripAttachments = Remover anexos grandes
+
+retention-do-stripAttachments = anexos removidos
+
+retention-error-strip-disabled = A remoção de anexos foi desativada pelo seu administrador.
+
+retention-error-strip-min = Uma regra que remove anexos deve esperar pelo menos { $days } dias.
+
+retention-fd-action = O que acontece com o correio em { $folder }
+
+retention-fd-days = Dias antes de { $folder } ser processado
+
+retention-fd-help = Defina quanto tempo o e-mail permanece em uma pasta antes de ser movido ou excluído. Uma pasta definida como "Herdar" não possui um padrão próprio; as regras acima e os limites do administrador ainda se aplicam. As subpastas seguem suas pastas.
+
+retention-fd-inherit = Herdar
+
+retention-fd-mandatory = O administrador mantém esta pasta por { $days } dias
+
+retention-fd-protected = Protegido pelo administrador
+
+retention-fd-save = Salvar padrões de pasta
+
+retention-fd-title = Padrões de pasta
+
+retention-rule-strip-off = Desativado pelo seu administrador
+
+retention-strip-allowed = Uma regra pode remover anexos de pelo menos { $kb } KB de e-mails com pelo menos { $days } dias. Uma breve nota substitui cada anexo.
+
+retention-strip-denied = A remoção de anexos está desativada pelo administrador.
+
+retention-strip-done = Anexos removidos de { $count } mensagem(s), liberando { $size }.
+
+retention-strip-inline-kept = As imagens mostradas dentro da mensagem são mantidas.
+
+retention-strip-inline-removed = As imagens mostradas dentro da mensagem também são removidas.
+
+retention-strip-limits = Remove anexos de pelo menos { $kb } KB de e-mails com pelo menos { $days } dias. O original permanece na Lixeira por { $undo } dias.
+
+retention-strip-preview = { $count } mensagens perderiam anexos, liberando { $size }.
+
+retention-strip-preview-estimate = Cerca de { $count } mensagens perderiam anexos, liberando até { $size }.
+
+retention-strip-skipped = { $count } regras que removem anexos foram ignoradas porque seu administrador desativou esta opção.
+
+retention-summary-stripAttachments = após { $days } dias, anexos grandes removidos
