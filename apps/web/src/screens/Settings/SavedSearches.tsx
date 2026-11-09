@@ -13,6 +13,7 @@ import { toast } from '../../components/toast/index.ts';
 import { SearchFolderEditor } from './SearchFolderEditor.tsx';
 import { useEntityNavigation } from './entityEditor.tsx';
 import * as css from './styles.css.ts';
+import { SearchScopePreferences } from './SearchScopePreferences.tsx';
 
 export interface SavedSearchesProps {
   service?: SettingsService;
@@ -67,6 +68,7 @@ function OwnedSavedSearches(props: SavedSearchesProps): JSX.Element {
     <Show when={editor()} keyed fallback={<section class={css.section} aria-label={t('settings-search-title')}>
       <h2 class={css.heading}>{t('settings-search-title')}</h2>
       <p class={css.prose}>{t('settings-search-intro')}</p>
+      <SearchScopePreferences />
       <div class={css.actions}><button class={css.button} type="button" onClick={() => void open()}>{t('settings-search-new')}</button></div>
 
       <Show

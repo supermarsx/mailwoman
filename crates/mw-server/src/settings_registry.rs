@@ -3592,6 +3592,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "messages fetched per page when the message list is scrolled"
     ),
     def!(
+        "mail.search.defaultScope",
+        Kind::Enum(&["current", "all"]),
+        r#""current""#,
+        GDU,
+        "mail",
+        "Default scope for a new normal mail search: current folder or all folders; explicit search scope choices remain available"
+    ),
+    def!(
         "mail.messageListPreview",
         Kind::Bool,
         "true",

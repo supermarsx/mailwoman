@@ -4,13 +4,16 @@ import { renderWithApp, mkEmail } from '../appHarness.tsx';
 import { SearchBox } from './SearchBox.tsx';
 import { relatedSearchActions } from './ReaderSearchMenu.tsx';
 import type { AppState } from '../../state/store.ts';
+import { clearSettings, loadSettings } from '../../api/settings.ts';
+import {loadFeatures,clearFeatures} from '../../state/features.ts';
 
-afterEach(() => vi.useRealTimers());
+afterEach(() => { vi.useRealTimers(); clearSettings();clearFeatures(); });
 
-async function setup(): Promise<{ app: AppState; input: HTMLInputElement }> {
+async function setup(defaultScope: 'current' | 'all' = 'all'): Promise<{ app: AppState; input: HTMLInputElement }> {
   const { app } = renderWithApp(() => <SearchBox />, { emails: [mkEmail('a', { subject: 'Hello' })] });
   await app.login({ username: 'me@example.org', password: 'p' });
   await waitFor(() => expect(app.mailboxes().length).toBeGreaterThan(0));
+  await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.search.defaultScope':{value:defaultScope,source:'global',locked:false}}}))});
   const input = screen.getByRole('searchbox', { name: 'Search mail' }) as HTMLInputElement;
   return { app, input };
 }
@@ -20,6 +23,53 @@ const submit = (input: HTMLInputElement, text: string): void => {
   fireEvent.input(input, { target: { value: text } });
   fireEvent.submit(input.closest('form')!);
 };
+
+describe('normal search default scope', () => {
+  it('keeps basic current-folder searches available without advanced operators while retaining typed operator policy',async()=>{
+    const {app,input}=await setup('current');
+    await loadFeatures({refresh:true,fetcher:async()=>new Response(JSON.stringify({features:{'search.operators':{enabled:false}}}))});
+    const search=vi.spyOn(app,'searchMessages');submit(input,'hello');
+    await waitFor(()=>expect(search).toHaveBeenCalledWith('hello in:Inbox',{semantic:false,scopeMailboxId:'inbox',baseQuery:'hello'}));
+    submit(input,'from:alice');await waitFor(()=>expect(search).toHaveBeenCalledWith('from:alice in:Inbox',{semantic:false,scopeMailboxId:'inbox',baseQuery:'from:alice'}));
+  });
+  it('offers follow-up, finished and mentions-me filters through the guided controls and canonical chips', async () => {
+    const {app,input}=await setup('current');fireEvent.click(screen.getByRole('button',{name:'Filters'}));
+    const guided=await screen.findByRole('region',{name:'Guided search'});
+    expect(within(bar()).getByRole('button',{name:/Folder: Inbox/})).toBeInTheDocument();expect(app.searchActive()).toBe(false);
+    fireEvent.click(within(guided).getByRole('checkbox',{name:'Marked for follow-up'}));
+    await waitFor(()=>expect(app.search()).toBe('in:Inbox is:followup'));
+    fireEvent.click(within(guided).getByRole('checkbox',{name:'Finished'}));
+    await waitFor(()=>expect(app.search()).toBe('in:Inbox is:followup is:finished'));
+    fireEvent.click(within(guided).getByRole('checkbox',{name:'Mentions me'}));
+    await waitFor(()=>expect(app.search()).toBe('in:Inbox is:followup is:finished mentions:me'));
+    expect(within(bar()).getByRole('button',{name:'Mentions me'})).toBeInTheDocument();
+    fireEvent.click(within(bar()).getByRole('button',{name:'Marked for follow-up'}));
+    await waitFor(()=>expect(input.value).toBe('in:Inbox -is:followup is:finished mentions:me'));
+    expect(within(bar()).getByRole('button',{name:'Not marked for follow-up'})).toBeInTheDocument();
+  });
+  it('starts in the current folder and follows folder navigation for the next search', async () => {
+    const {app,input} = await setup('current');const search=vi.spyOn(app,'searchMessages'); submit(input,'hello');
+    await waitFor(()=>expect(app.search()).toBe('hello in:Inbox'));
+    expect(search).toHaveBeenCalledWith('hello in:Inbox',{semantic:false,scopeMailboxId:'inbox',baseQuery:'hello'});
+    expect(within(bar()).getByRole('button',{name:/Folder: Inbox/})).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Clear'})); await app.selectMailbox('archive'); submit(input,'invoice');
+    await waitFor(()=>expect(app.search()).toBe('invoice in:Archive'));
+  });
+  it('keeps an explicit All folders choice through refinements even under a locked current-folder default', async () => {
+    const {app,input} = await setup('current'); submit(input,'hello');
+    fireEvent.click(await waitFor(()=>within(bar()).getByRole('button',{name:/Folder: Inbox/})));
+    const dialog=await screen.findByRole('dialog'); fireEvent.change(within(dialog).getByRole('combobox'),{target:{value:''}});fireEvent.click(within(dialog).getByRole('button',{name:'Apply'}));
+    await waitFor(()=>expect(app.search()).toBe('hello'));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.search.defaultScope':{value:'current',source:'global',locked:true}}}))});
+    submit(input,'hello subject:invoice'); await waitFor(()=>expect(app.search()).toBe('hello subject:invoice'));
+    fireEvent.click(screen.getByRole('button',{name:'Clear'})); submit(input,'new search');await waitFor(()=>expect(app.search()).toBe('new search in:Inbox'));
+  });
+  it('preserves a typed scope and searches initiated elsewhere', async () => {
+    const {app,input}=await setup('current');submit(input,'hello in:Archive');await waitFor(()=>expect(app.search()).toBe('hello in:Archive'));
+    await app.searchMessages('subject:saved');await waitFor(()=>expect(input.value).toBe('subject:saved'));
+    submit(input,'subject:saved from:alice');await waitFor(()=>expect(app.search()).toBe('subject:saved from:alice'));
+  });
+});
 
 describe('SearchBox (t88)', () => {
   it('searches the latest typed query after a short pause without submitting', async () => {

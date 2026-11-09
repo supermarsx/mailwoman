@@ -238,7 +238,7 @@ export interface MailSlice {
    *  cached-header search. Empty query clears back to the current mailbox. The
    *  optional `semantic` flag (V7 §14.3) requests embedding re-ranking; it is only
    *  ever set when the Assist semantic-search toggle is on. */
-  searchMessages(query: string, opts?: { semantic?: boolean }): Promise<void>;
+  searchMessages(query: string, opts?: { semantic?: boolean;scopeMailboxId?:Id;baseQuery?:string }): Promise<void>;
   /** Start or refine a search from a message (t88): with a search active the
    *  field is set in the current query (replacing the same field), else a new
    *  search starts. `in` takes a mailbox id and sets the folder scope. The value
@@ -2060,7 +2060,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     if (cur !== null) await selectMailbox(cur);
   }
 
-  async function searchMessages(query: string, opts?: { semantic?: boolean }): Promise<void> {
+  async function searchMessages(query: string, opts?: { semantic?: boolean;scopeMailboxId?:Id;baseQuery?:string }): Promise<void> {
     const acct = accountId();
     if (acct === null) return;
     setSearch(query);
@@ -2069,6 +2069,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       await clearSearch();
       return;
     }
+    const scopeMailboxId=opts?.scopeMailboxId&&mailboxes().some(box=>box.id===opts.scopeMailboxId)?opts.scopeMailboxId:undefined;
+    const baseQuery=scopeMailboxId&&typeof opts?.baseQuery==='string'?opts.baseQuery:query;
     // `mail.showSpam` off: the Junk folder and `$junk` messages stay out of results (nothing is deleted).
     const spamHidden=!mailFeature('showSpam');
     const excluded=[...excludedSearchMailboxes(parseQuery(query),mailboxes()),...(spamHidden?mailboxes().filter(box=>box.role==='junk').map(box=>box.id):[])];
@@ -2078,8 +2080,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // nowhere else.
     if (isOffline() && ctx.searchOffline) {
       const req=beginListRequest();
-      const hits = ctx.searchOffline({...offlineQueryOf(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{}),...(spamHidden?{notKeyword:'$junk'}:{})});
-      const projected=projectRows(hits,{kind:'search',filter:{text:serverQueryText(query,mailboxes()),...(excluded.length?{inMailboxOtherThan:excluded}:{})}},req);
+      const hits = ctx.searchOffline({...offlineQueryOf(baseQuery,mailboxes()),...(scopeMailboxId?{inMailbox:scopeMailboxId}:{}),...(excluded.length?{inMailboxOtherThan:excluded}:{}),...(spamHidden?{notKeyword:'$junk'}:{})});
+      const projected=projectRows(hits,{kind:'search',filter:{text:serverQueryText(baseQuery,mailboxes()),...(scopeMailboxId?{inMailbox:scopeMailboxId}:{}),...(excluded.length?{inMailboxOtherThan:excluded}:{})}},req);
       setPageSource(null);hiddenRows=0;
       setMessages(projected);
       setLoadedStart(0);
@@ -2095,10 +2097,11 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     // The whole operator string rides `filter.text`; the engine routes it to
     // mw-search, which parses `from:`/`subject:`/`larger:`/… itself (§2.1). The
     // semantic flag (V7 §14.3) is added only when the Assist toggle is on.
-    const text=serverQueryText(query, mailboxes());
+    const text=serverQueryText(baseQuery, mailboxes());
     const filter: FilterCondition = {
       // `in:` names (as the filter bar writes them) become mailbox ids here.
       ...(text.trim()?{text}:{}),
+      ...(scopeMailboxId?{inMailbox:scopeMailboxId}:{}),
       ...(excluded.length?{inMailboxOtherThan:excluded}:{}),
       ...(spamHidden?{notKeyword:'$junk'}:{}),
       ...(opts?.semantic === true ? { semantic: true } : {}),

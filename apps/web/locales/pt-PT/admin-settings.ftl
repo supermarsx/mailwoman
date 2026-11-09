@@ -2234,6 +2234,9 @@ admin-settings-help-mail-badge-density = Tamanho dos selos no cabeçalho do leit
 admin-settings-key-mail-badge-labels = Texto dos selos do leitor
 admin-settings-help-mail-badge-labels = Se os selos do cabeçalho do leitor mostram ícone com texto, ou só o ícone.
 
+admin-settings-key-mail-search-default-scope = Âmbito predefinido da pesquisa de correio
+admin-settings-help-mail-search-default-scope = Comece as novas pesquisas normais de correio na pasta atual ou em todas as pastas. Esta definição controla a predefinição inicial, mesmo quando bloqueada; os utilizadores podem escolher outro âmbito para uma pesquisa específica. As pesquisas guardadas e com âmbito explícito são preservadas.
+
 admin-settings-key-mail-message-list-group = Agrupamento de mensagens
 
 admin-settings-help-mail-message-list-group = Agrupar conversas por data de receção ou envio, remetente, assunto, importância ou tamanho. Os utilizadores podem alterar esta opção se não estiver bloqueada.

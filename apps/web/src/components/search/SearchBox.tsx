@@ -15,6 +15,8 @@ import * as a11y from '../mailA11y.css.ts';
 import { SemanticSearchToggle } from '../../modules/assist/index.ts';
 import { SearchFilterBar } from './SearchFilterBar.tsx';
 import * as css from './searchBar.css.ts';
+import { applyDefaultSearchScope, normalSearchRequest } from '../../search/defaultScope.ts';
+import {hasFolderScope} from '../../search/searchQuery.ts';
 
 export const LIVE_SEARCH_DELAY_MS = 250;
 
@@ -29,28 +31,35 @@ export function SearchBox(): JSX.Element {
   // V7 semantic search (§14.3): off by default; the toggle only renders when the
   // `search-semantic` Assist capability is granted, and its state rides the query.
   const [semantic, setSemantic] = createSignal(false);
+  const [explicitScope, setExplicitScope] = createSignal(app.searchActive());
+  let ownSearch: string | undefined;
+  let implicitScope: string | undefined;
   let pending: ReturnType<typeof setTimeout> | undefined;
   let composing = false;
   const cancelPending = (): void => { clearTimeout(pending); pending = undefined; };
   onCleanup(cancelPending);
   // A search started or refined elsewhere, or cleared, shows in the input.
-  createEffect(on(app.search, (value) => { cancelPending(); setQuery(value); }, { defer: true }));
+  createEffect(on(app.search, (value) => { cancelPending(); setQuery(value); if (value !== ownSearch) {setExplicitScope(value.trim() !== '');implicitScope=undefined;} ownSearch = undefined; }, { defer: true }));
   // A delayed query belongs to the mailbox where it was typed. Never carry it
   // into a different account or folder while the user is navigating.
   const scope = createMemo(() => JSON.stringify([app.accountId(), app.linkedMailboxId?.(), app.me()?.username,
     app.selectedMailboxId(), app.switchingMailbox?.()]));
-  createEffect(on(scope, () => { cancelPending(); composing = false; setQuery(app.search()); }, { defer: true }));
+  createEffect(on(scope, () => { cancelPending(); composing = false; implicitScope=undefined;setExplicitScope(false); setQuery(app.search()); }, { defer: true }));
   let input!: HTMLInputElement;
   let filtersButton!: HTMLButtonElement;
   const closeFilters = (): void => { setFiltersOpen(false); filtersButton.focus(); };
 
-  const run = (text: string): void => {
+  const run = (text: string, fromFilters=false): void => {
     cancelPending();
-    setQuery(text);
-    void app.searchMessages(text, { semantic: semantic() });
+    const request=normalSearchRequest(text,app.selectedMailboxId(),app.mailboxes(),explicitScope(),implicitScope,fromFilters&&!hasFolderScope(query()));
+    implicitScope=request.scopeMailboxId;
+    ownSearch = request.query;
+    setQuery(request.query);
+    void app.searchMessages(request.query, { semantic: semantic(),...(request.scopeMailboxId?{scopeMailboxId:request.scopeMailboxId,baseQuery:request.baseQuery??text}:{}) });
   };
   const clear = (): void => {
     cancelPending();
+    setExplicitScope(false); ownSearch = undefined;implicitScope=undefined;
     setQuery('');
     void app.clearSearch();
   };
@@ -141,8 +150,9 @@ export function SearchBox(): JSX.Element {
           <Show when={app.searchActive() || filtersOpen()}>
             <SearchFilterBar
               guided={filtersOpen()}
-              text={query}
-              onChange={run}
+              text={() => applyDefaultSearchScope(query(), app.selectedMailboxId(), app.mailboxes(), explicitScope(), filtersOpen())}
+              onChange={text=>run(text,true)}
+              onScopeChange={() => {setExplicitScope(true);implicitScope=undefined;}}
               mailboxes={app.mailboxes}
               currentMailboxId={app.selectedMailboxId}
             />

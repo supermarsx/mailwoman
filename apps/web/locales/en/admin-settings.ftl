@@ -2234,6 +2234,9 @@ admin-settings-help-mail-badge-density = Size of the badges in the reader header
 admin-settings-key-mail-badge-labels = Reader badge labels
 admin-settings-help-mail-badge-labels = Whether reader header badges show an icon with text, or the icon only.
 
+admin-settings-key-mail-search-default-scope = Default mail search scope
+admin-settings-help-mail-search-default-scope = Start new normal mail searches in the current folder or across all folders. This controls the initial default, including when locked; users can still choose a different scope for a particular search. Saved and explicitly scoped queries are preserved.
+
 admin-settings-key-mail-message-list-group = Message grouping
 
 admin-settings-help-mail-message-list-group = Group conversations by received or sent date, sender, subject, importance or size. Users may override this unless locked.

@@ -413,6 +413,9 @@ export const isSizeValue = (v: string): boolean => /^\d+\s*[kmg]?$/iu.test(v.tri
 
 export interface ScopeMailbox { readonly id: string; readonly name: string; readonly role?: string | null }
 
+/** Includes scopes nested in Boolean expressions, without matching quoted text. */
+export function hasFolderScope(input: string): boolean { return lex(input).some(token => token.t === 'atom' && token.field === 'in'); }
+
 /** How `in:` names a mailbox in the input: its name when no other mailbox shares
  *  it (case-insensitively), else its id. */
 export function scopeValue(mailbox: ScopeMailbox, all: readonly ScopeMailbox[]): string {

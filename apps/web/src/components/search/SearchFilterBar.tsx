@@ -26,6 +26,8 @@ export interface SearchFilterBarProps {
   onChange: (text: string) => void;
   mailboxes: Accessor<readonly ScopeMailbox[]>;
   currentMailboxId: Accessor<string | null>;
+  /** Distinguish an explicit All folders choice from an omitted initial scope. */
+  onScopeChange?: () => void;
 }
 
 /** Text-valued chips and the operator each writes. */
@@ -270,7 +272,7 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
         {(state) => (
           <ChipEditor
             state={state()} query={query()} mailboxes={props.mailboxes()} currentMailboxId={props.currentMailboxId()}
-            onApply={commit} onClose={() => { const anchor = state().anchor; setEditing(null); if (anchor.isConnected) anchor.focus(); else addButton.focus(); }}
+            onApply={next => { if (state().kind === 'scope') props.onScopeChange?.(); commit(next); }} onClose={() => { const anchor = state().anchor; setEditing(null); if (anchor.isConnected) anchor.focus(); else addButton.focus(); }}
           />
         )}
       </Show>

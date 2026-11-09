@@ -25,8 +25,10 @@ import { PIM_RETENTION_CARDS } from '../PimRetention.tsx';
 import { COMPOSER_FEATURES_CARD } from '../ComposerFeatures.tsx';
 import { COMPOSE_DELIVERY_CARD } from '../ComposeDelivery.tsx';
 import type { CardSpec } from './rows.tsx';
+import { SEARCH_SCOPE_CARD } from '../SearchScopePreferences.tsx';
 
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
+  SEARCH_SCOPE_CARD,
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
   COMPOSE_DELIVERY_CARD, COMPOSER_FEATURES_CARD,
   INTERFACE_CARD, FOLDER_COUNT_CARD, PROPERTIES_CARD, ...CACHE_CARDS, AVATAR_CARD, SAVE_CONTACTS_CARD, UNDO_CARD, ...APPEARANCE_CARDS, ...FOLDER_PREFERENCE_CARDS, ...NOTIFICATION_CARDS,
