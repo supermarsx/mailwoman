@@ -7,7 +7,7 @@ import * as css from './contextMenu.css.ts';
  * `separatorBefore` draws a separator above the item, to group related actions; arrow keys skip it. */
 export interface ContextAction {id:string;label:string;icon:IconName;disabled?:boolean;checked?:boolean;radio?:boolean;separatorBefore?:boolean;/** Why it is disabled, or what it does: shown as a tooltip. */title?:string;
  /** A chosen option among several (a radio-like menu, t57): a trailing check is drawn; announced through `checked`. */
- current?:boolean;children?:ContextAction[];run:()=>void|Promise<void>}
+ current?:boolean;children?:ContextAction[];searchLabel?:string;run:()=>void|Promise<void>}
 export function clampMenu(x:number,y:number,width:number,height:number,viewportWidth:number,viewportHeight:number):{left:number;top:number} {
  return {left:Math.max(8,Math.min(x,viewportWidth-width-8)),top:Math.max(8,Math.min(y,viewportHeight-height-8))};
 }
@@ -23,7 +23,7 @@ export function placePanel(input:{point:{x:number;y:number;above?:boolean};ancho
 }
 /** The scope is captured at open and rechecked at execution, including identity reuse.
  * `restoreFocus` is given the trigger that is gone: an action that re-renders its row replaces the trigger, and focus would fall to the body. */
-export function createContextMenu(options:{label:Accessor<string>;scope:Accessor<string>;actions:Accessor<ContextAction[]>;focusCurrent?:boolean;onError?:()=>void;restoreFocus?:(trigger?:HTMLElement)=>void;ownerDocument?:Accessor<Document|undefined>}) {
+export function createContextMenu(options:{label:Accessor<string>;scope:Accessor<string>;actions:Accessor<ContextAction[]>;focusCurrent?:boolean;searchLabel?:Accessor<string>;onError?:()=>void;restoreFocus?:(trigger?:HTMLElement)=>void;ownerDocument?:Accessor<Document|undefined>}) {
  const [position,setPosition]=createSignal<{x:number;y:number;scope:string;trigger:HTMLElement;document:Document;above?:boolean;anchored?:boolean}>();
  const owner=():Document=>options.ownerDocument?.()??document;
  function announce(doc:Document):void {close(false);const event=doc.createEvent('Event');event.initEvent('mailwoman-context-open',false,false);doc.dispatchEvent(event);}
@@ -65,8 +65,11 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
    doc.addEventListener('mailwoman-context-open',dismiss);doc.addEventListener('pointerdown',outside,true);host.addEventListener('resize',dismiss);host.addEventListener('scroll',dismiss,true);host.addEventListener('blur',frameFocus);
    onCleanup(()=>{clearInterval(frameFocusPoll);clearTimeout(frameFocusTimer);doc.removeEventListener('mailwoman-context-open',dismiss);doc.removeEventListener('pointerdown',outside,true);host.removeEventListener('resize',dismiss);host.removeEventListener('scroll',dismiss,true);host.removeEventListener('blur',frameFocus);});
   });
-  function Panel(panel:{actions:Accessor<ContextAction[]>;label:string;anchor?:HTMLButtonElement;back?:()=>void;valid:()=>boolean}):JSX.Element {
+  function Panel(panel:{actions:Accessor<ContextAction[]>;label:string;searchLabel?:string|undefined;anchor?:HTMLButtonElement;back?:()=>void;valid:()=>boolean}):JSX.Element {
    let element!:HTMLDivElement;
+   let searchInput:HTMLInputElement|undefined;
+   const [query,setQuery]=createSignal('');
+   const visibleActions=()=>{const needle=query().trim().toLocaleLowerCase();return needle?panel.actions().filter(action=>action.label.toLocaleLowerCase().includes(needle)):panel.actions();};
    const [coords,setCoords]=createSignal<{left:number;top:number;maxHeight?:number}>({left:8,top:8});
    const [child,setChild]=createSignal<{id:string;anchor:HTMLButtonElement}>();
    const buttons=()=>Array.from(element.querySelectorAll<HTMLButtonElement>(':scope > button:not([aria-disabled="true"])'));
@@ -77,6 +80,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
     const rect=element.getBoundingClientRect(),anchor=panel.anchor?.getBoundingClientRect();
     const rtl=host.getComputedStyle(element).direction==='rtl';
     setCoords(placePanel({point:props.point,...(anchor?{anchor}:{}),size:{width:rect.width,height:rect.height},viewport:{width:host.innerWidth,height:host.innerHeight},rtl}));
+    if(searchInput){searchInput.focus({preventScroll:true});return;}
     const rows=buttons();((options.focusCurrent?rows.find(row=>row.getAttribute('aria-checked')==='true')??rows[0]:rows[0])??element).focus({preventScroll:true});
    });
    function activate(id:string,button:HTMLButtonElement):void {
@@ -89,6 +93,7 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
    }
    function navigate(e:KeyboardEvent):void {
     const rtl=host.getComputedStyle(element).direction==='rtl';
+    if(e.target===searchInput&&e.key!=='Escape'&&e.key!=='Tab'){if(e.key==='ArrowDown'){e.preventDefault();buttons()[0]?.focus();}return;}
     if(e.key==='Escape'||(panel.back&&e.key===(rtl?'ArrowRight':'ArrowLeft'))){e.preventDefault();e.stopPropagation();if(panel.back)panel.back();else close();return;}
     if(e.key==='Tab'){close();return;}
     if(e.key===(rtl?'ArrowLeft':'ArrowRight')){const button=doc.activeElement as HTMLButtonElement;const action=panel.actions().find(item=>item.id===button.dataset['actionId']);if(action?.children?.length){e.preventDefault();e.stopPropagation();activate(action.id,button);}return;}
@@ -100,10 +105,12 @@ export function createContextMenu(options:{label:Accessor<string>;scope:Accessor
     const target=rows[next];if(target){target.focus({preventScroll:true});const item=target.getBoundingClientRect(),rect=element.getBoundingClientRect();if(item.bottom>rect.bottom)element.scrollTop+=item.bottom-rect.bottom;else if(item.top<rect.top)element.scrollTop-=rect.top-item.top;}
    }
    return <><div ref={element} role="menu" tabIndex={-1} aria-label={panel.label} class={css.menu} style={{left:`${coords().left}px`,top:`${coords().top}px`,...(coords().maxHeight===undefined?{}:{'max-height':`${coords().maxHeight}px`})}} on:keydown={navigate} on:contextmenu={e=>{e.preventDefault();e.stopPropagation();}} on:click={e=>e.stopPropagation()}>
-    <For each={panel.actions().map(action=>action.id)}>{id=>{const action=()=>panel.actions().find(item=>item.id===id)!;return <><Show when={action().separatorBefore}><div role="separator" class={css.separator}/></Show><button type="button" data-action-id={id} data-current={action().current?'true':undefined} role={action().radio?'menuitemradio':action().checked===undefined?'menuitem':'menuitemcheckbox'} aria-checked={action().checked} aria-haspopup={action().children?.length?'menu':undefined} aria-expanded={action().children?.length?child()?.id===id:undefined} class={css.item} title={action().title} aria-disabled={action().disabled===true} on:click={e=>activate(id,e.currentTarget)} on:pointerenter={()=>{if(child()?.id!==id)setChild(undefined);}}><Icon name={action().icon}/>{action().label}<Show when={action().current||action().checked||action().children?.length}><span class={css.current} aria-hidden="true"><Icon name={action().children?.length?'chevron':'check'}/></span></Show></button></>;}}</For>
-   </div><Show when={child()}>{entry=><Panel actions={()=>panel.actions().find(action=>action.id===entry().id)?.children??[]} label={childAction()?.label??''} anchor={entry().anchor} back={dismissChild} valid={()=>panel.valid()&&!panel.actions().find(action=>action.id===entry().id)?.disabled}/>}</Show></>;
+    <Show when={panel.searchLabel}><input ref={searchInput} type="search" aria-label={panel.searchLabel} placeholder={panel.searchLabel} value={query()} onInput={event=>{setChild(undefined);setQuery(event.currentTarget.value);}} style={{margin:'4px 8px 8px',width:'calc(100% - 16px)','box-sizing':'border-box'}}/></Show>
+    <Show when={query().trim()&&visibleActions().length===0}><div role="status" style={{padding:'8px 12px'}}>{panel.label}: 0</div></Show>
+    <For each={visibleActions().map(action=>action.id)}>{id=>{const action=()=>panel.actions().find(item=>item.id===id)!;return <><Show when={action().separatorBefore}><div role="separator" class={css.separator}/></Show><button type="button" data-action-id={id} data-current={action().current?'true':undefined} role={action().radio?'menuitemradio':action().checked===undefined?'menuitem':'menuitemcheckbox'} aria-checked={action().checked} aria-haspopup={action().children?.length?'menu':undefined} aria-expanded={action().children?.length?child()?.id===id:undefined} class={css.item} title={action().title} aria-disabled={action().disabled===true} on:click={e=>activate(id,e.currentTarget)} on:pointerenter={()=>{if(child()?.id!==id)setChild(undefined);}}><Icon name={action().icon}/>{action().label}<Show when={action().current||action().checked||action().children?.length}><span class={css.current} aria-hidden="true"><Icon name={action().children?.length?'chevron':'check'}/></span></Show></button></>;}}</For>
+   </div><Show when={child()}>{entry=><Panel actions={()=>panel.actions().find(action=>action.id===entry().id)?.children??[]} label={childAction()?.label??''} searchLabel={childAction()?.searchLabel} anchor={entry().anchor} back={dismissChild} valid={()=>panel.valid()&&!panel.actions().find(action=>action.id===entry().id)?.disabled}/>}</Show></>;
   }
-  return <div ref={container}><Panel actions={options.actions} label={options.label()} valid={()=>true}/></div>;
+  return <div ref={container}><Panel actions={options.actions} label={options.label()} searchLabel={options.searchLabel?.()} valid={()=>true}/></div>;
  }
  const menu=():JSX.Element=><Show when={position()} keyed>{point=><Portal mount={point.document.body}><MenuBody point={point}/></Portal>}</Show>;
  return {open,openBelow,openAbove,openAt,keydown,close,menu,isOpen:()=>position()!==undefined};

@@ -1446,6 +1446,8 @@ mail-list-order-size = Size, largest first
 
 mail-list-order-size-asc = Size, smallest first
 
+mail-move-search = Search folders
+
 mail-mark-finished = Mark as finished
 
 mail-follow-up-finished = Follow-up finished

@@ -1435,6 +1435,8 @@ mail-list-order-size = Tamanho, maiores primeiro
 
 mail-list-order-size-asc = Tamanho, menores primeiro
 
+mail-move-search = Pesquisar pastas
+
 mail-mark-finished = Marcar como concluído
 
 mail-follow-up-finished = Seguimento concluído

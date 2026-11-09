@@ -72,3 +72,9 @@ it('retains the current option marker while keyboard focus moves to another acti
  expect(screen.getByRole('menuitemradio',{name:'Another view'})).toHaveFocus();
  expect(selected).toHaveAttribute('data-current','true');expect(selected).toHaveAttribute('aria-checked','true');
 });
+
+it('searches within a submenu and navigates the filtered destinations without losing the target',()=>{
+ const run=vi.fn();render(()=>{const menu=createContextMenu({label:()=> 'Actions',scope:()=> 'account:message',actions:()=>[{id:'move',label:'Move to',icon:'moveTo',searchLabel:'Search folders',run:()=>{},children:[{id:'inbox',label:'Inbox',icon:'folder',run:()=>run('inbox')},{id:'project',label:'Projects / Alpha',icon:'folder',run:()=>run('project')}]}]});return <><button onClick={menu.open}>Target</button>{menu.menu()}</>;});
+ const target=screen.getByRole('button',{name:'Target'});fireEvent.click(target);fireEvent.click(screen.getByRole('menuitem',{name:'Move to'}));const search=screen.getByRole('searchbox',{name:'Search folders'});expect(search).toHaveFocus();fireEvent.input(search,{target:{value:'alpha'}});
+ expect(screen.queryByRole('menuitem',{name:'Inbox'})).toBeNull();expect(screen.getByRole('menuitem',{name:'Projects / Alpha'})).toBeVisible();fireEvent.keyDown(search,{key:'ArrowDown'});expect(screen.getByRole('menuitem',{name:'Projects / Alpha'})).toHaveFocus();fireEvent.click(screen.getByRole('menuitem',{name:'Projects / Alpha'}));expect(run).toHaveBeenCalledWith('project');expect(screen.queryByRole('menu')).toBeNull();expect(target).toHaveFocus();
+});

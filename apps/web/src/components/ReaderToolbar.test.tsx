@@ -236,3 +236,10 @@ describe('Finished reader action',()=>{
   expect(state.finish).toHaveBeenCalledWith('m1');
  });
 });
+
+it('retains folder search when Move to is configured in the More menu',async()=>{
+ state.jmap.mockResolvedValue(thread(['m1']));state.settings['reader.actions.move']={value:'menu'};
+ state.boxes=[{id:'inbox',name:'Inbox',parentId:null,role:'inbox',sortOrder:0,totalEmails:1,unreadEmails:0},{id:'project',name:'Project Alpha',parentId:null,role:null,sortOrder:1,totalEmails:0,unreadEmails:0}] as Mailbox[];
+ toolbar();fireEvent.click(screen.getByRole('button',{name:'More actions'}));fireEvent.click(screen.getByRole('menuitem',{name:'Move to…'}));
+ const search=screen.getByRole('searchbox',{name:'Search folders'});expect(search).toHaveFocus();fireEvent.input(search,{target:{value:'alpha'}});expect(screen.getByRole('menuitem',{name:'Project Alpha'})).toBeVisible();
+});

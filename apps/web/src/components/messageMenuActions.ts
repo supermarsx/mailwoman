@@ -68,7 +68,7 @@ export function notSpam(app:App,email:Email):Promise<void>|void {
 export function messageActionRows(app:App,email:Email,skip:ReadonlySet<string>=new Set()):ContextAction[] {
  const rows:ContextAction[]=[];
  const add=(row:ContextAction)=>{if(!skip.has(row.id))rows.push(row);};
- add({id:'move-to',label:t('mail-reader-move-to'),icon:'moveTo',children:moveActions(email,app),run:()=>{}});
+ add({id:'move-to',searchLabel:t('mail-move-search'),label:t('mail-reader-move-to'),icon:'moveTo',children:moveActions(email,app),run:()=>{}});
  if(inRole(email,app,'junk')&&app.mailboxes().some(box=>box.role==='inbox'))add({id:'not-spam',label:t('props-act-not-spam'),icon:'spam',run:()=>notSpam(app,email)});
  add({id:'view-source',label:t('props-act-source'),icon:'file',run:()=>viewSource(app,email.id)});
  if(senderOf(email)){

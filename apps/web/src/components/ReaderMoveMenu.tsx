@@ -13,7 +13,7 @@ import type { Email } from '../api/jmap-types.ts';
 /** The folders `email` can be moved to: any real folder it is not already in. */
 export function moveActions(email: Email, app: ReturnType<typeof useApp>): ContextAction[] {
   return app.mailboxes()
-    .filter((box) => email.mailboxIds?.[box.id] !== true && box.mailwomanSearchQuery === undefined && !spamFolderHidden(box))
+    .filter((box) => email.mailboxIds?.[box.id] !== true && box.mailwomanSearchQuery === undefined && box.myRights?.mayAddItems!==false && !spamFolderHidden(box))
     .map((box) => ({ id: `move:${box.id}`, label: box.name, icon: 'folder', run: () => void app.moveMessage(email.id, box.id) }));
 }
 
@@ -23,6 +23,7 @@ export function ReaderMoveMenu(props: { email: Email }): JSX.Element {
   let button!: HTMLButtonElement;
   const menu = createContextMenu({
     label: () => t('mail-reader-move-to'),
+    searchLabel:()=>t('mail-move-search'),
     scope: () => `${app.accountId()}:${props.email.id}`,
     restoreFocus: () => button?.focus(),
     actions: () => moveActions(props.email, app),

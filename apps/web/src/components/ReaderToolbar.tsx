@@ -61,7 +61,7 @@ function ReaderMenuAction(props:{id:string;action:()=>ContextAction|undefined;sc
  let button:HTMLButtonElement|undefined;
  const action=()=>props.action();
  const children=()=>action()?.children??[];
- const menu=createContextMenu({label:()=>action()?.label??'',scope:props.scope,actions:children,onError:props.onError,restoreFocus:()=>button?.focus()});
+ const menu=createContextMenu({label:()=>action()?.label??'',scope:props.scope,actions:children,searchLabel:()=>action()?.searchLabel??'',onError:props.onError,restoreFocus:()=>button?.focus()});
  return <>
   <ReaderAction icon={action()?.icon??'more'} label={action()?.label??''} help={action()?.title??action()?.label??''} testId={`reader-${props.id}`}
    disabled={action()?.disabled===true} pressed={action()?.checked}
@@ -145,7 +145,7 @@ export function ReaderToolbar(props:{
   read:plain({id:'read',icon:()=>unread()?ACTION_ICONS.markRead:ACTION_ICONS.markUnread,label:()=>unread()?t('mail-mark-read'):t('mail-mark-unread'),help:()=>t('mail-action-help-read'),testId:'reader-toggle-read',run:()=>void app.markRead(id(),unread()),local:true}),
   flag:plain({id:'flag',icon:icon('flag'),label:()=>flagged()?t('mail-unflag-message'):t('mail-flag-message'),help:()=>t('mail-action-help-flag'),testId:'reader-flag',pressed:flagged,run:()=>void app.flagMessage(id(),!flagged()),local:true}),
   archive:plain({id:'archive',icon:icon(ACTION_ICONS.archive),label:()=>t('mail-archive'),help:()=>t('mail-action-help-archive'),run:()=>void app.archiveMessage(id())}),
-  move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',label:t('mail-reader-move-to'),icon:ACTION_ICONS.moveTo,children:moveActions(props.email,app),run:()=>{}}]},
+  move:{id:'move',inline:()=><ReaderMoveMenu email={props.email}/>,menu:()=>[{id:'move',searchLabel:t('mail-move-search'),label:t('mail-reader-move-to'),icon:ACTION_ICONS.moveTo,children:moveActions(props.email,app),run:()=>{}}]},
   delete:plain({id:'delete',icon:icon('delete'),label:()=>t('mail-delete'),help:()=>t('mail-action-help-delete'),run:()=>void app.trashMessage(id())}),
   spam:plain({id:'spam',icon:icon('spam'),label:()=>t('mail-spam'),help:()=>t('mail-action-help-spam'),run:()=>void app.markSpam(id())}),
   export:plain({id:'export',icon:icon(ACTION_ICONS.export),label:()=>t('mail-export'),help:()=>t('mail-action-help-export'),testId:'reader-export',run:()=>{if(!exportFromMenu(app,id(),props.email))void app.exportMessage(id());}}),
