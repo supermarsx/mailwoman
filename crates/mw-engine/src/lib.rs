@@ -8,6 +8,7 @@
 //! [`backend`] seam; the orchestration itself is filled in by e6.
 
 mod attachment_metadata;
+mod mentions;
 pub mod account;
 pub mod acl;
 pub mod backend;

@@ -23,6 +23,7 @@ mod query;
 pub mod rerank;
 
 pub use query::{Clause, Expr, Sort, SortField, TextField, KW_PRIORITY_HIGH, KW_PRIORITY_LOW, normalize_sender_domain};
+pub use query::{KW_FOLLOWUP_ACTIVE, KW_FOLLOWUP_COMPLETED};
 pub use rerank::{cosine, rerank_by_cosine};
 
 use std::ops::Bound;
@@ -64,6 +65,11 @@ pub struct IndexDoc {
     pub body: String,
     /// `receivedAt` as a Unix timestamp (seconds), for `before:`/`after:`.
     pub date: i64,
+    /// Date header, falling back to received time for legacy/undated messages.
+    #[serde(default)]
+    pub sent_at: Option<i64>,
+    #[serde(default)]
+    pub from_address: Option<String>,
     pub has_attachment: bool,
     /// JMAP keywords (labels + system flags) — backs `tag:`/`is:unread`.
     pub keywords: Vec<String>,
@@ -91,6 +97,85 @@ pub struct IndexDoc {
     /// `#[serde(default)]` so an index doc written before this field still loads.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub list_signal: Option<String>,
+}
+
+fn importance_rank(doc: &IndexDoc) -> u64 {
+    if doc.keywords.iter().any(|key| key == KW_PRIORITY_HIGH) {
+        2
+    } else if doc.keywords.iter().any(|key| key == KW_PRIORITY_LOW) {
+        0
+    } else {
+        1
+    }
+}
+
+#[derive(PartialEq, Eq, PartialOrd, Ord)]
+enum SortValue {
+    Number(i128),
+    Text(String),
+}
+
+fn sort_value(doc: &IndexDoc, sort: Sort) -> SortValue {
+    match sort.field {
+        SortField::ReceivedAt => SortValue::Number(doc.date.into()),
+        SortField::SentAt => SortValue::Number(doc.sent_at.unwrap_or(doc.date).into()),
+        SortField::Importance => SortValue::Number(importance_rank(doc).into()),
+        SortField::Size => SortValue::Number(doc.size.into()),
+        SortField::From => SortValue::Text(doc.from.to_lowercase()),
+        SortField::Subject => SortValue::Text(doc.subject.to_lowercase()),
+        SortField::GroupReceived | SortField::GroupSent => {
+            use chrono::Datelike;
+            let stamp = if sort.field == SortField::GroupSent {
+                doc.sent_at.unwrap_or(doc.date)
+            } else {
+                doc.date
+            };
+            let day = chrono::DateTime::from_timestamp(stamp, 0)
+                .map(|instant| {
+                    instant
+                        .with_timezone(&sort.time_zone.unwrap_or(chrono_tz::UTC))
+                        .date_naive()
+                        .num_days_from_ce()
+                })
+                .unwrap_or(i32::MIN);
+            SortValue::Number(day.into())
+        }
+        SortField::GroupFrom => {
+            let first = doc.from.split(',').next().unwrap_or("");
+            let fallback = first
+                .split_once('<')
+                .and_then(|(_, rest)| rest.split_once('>'))
+                .map(|(address, _)| address)
+                .unwrap_or(first);
+            SortValue::Text(
+                doc.from_address
+                    .as_deref()
+                    .unwrap_or(fallback)
+                    .trim()
+                    .to_lowercase(),
+            )
+        }
+        SortField::GroupSubject => {
+            let mut subject = doc.subject.trim();
+            while let Some((prefix, rest)) = subject.split_once(':') {
+                if !matches!(
+                    prefix.trim().to_ascii_lowercase().as_str(),
+                    "re" | "fw" | "fwd"
+                ) {
+                    break;
+                }
+                subject = rest.trim_start();
+            }
+            SortValue::Text(subject.trim().to_lowercase())
+        }
+        SortField::GroupSize => SortValue::Number(match doc.size {
+            0..=25599 => 0,
+            25600..=102399 => 1,
+            102400..=1048575 => 2,
+            1048576..=10485759 => 3,
+            _ => 4,
+        }),
+    }
 }
 
 /// The calendar summary of one message (t78): what an Events row shows and what
@@ -235,6 +320,8 @@ struct Fields {
     from_sort: Field,
     subject_sort: Field,
     date: Field,
+    sent_at: Field,
+    importance: Field,
     size: Field,
     has_attachment: Field,
     pinned: Field,
@@ -247,6 +334,8 @@ struct Fields {
 
 /// Fast-field names used for sorting (must match the schema below).
 const F_DATE: &str = "date";
+const F_SENT_AT: &str = "sent_at";
+const F_IMPORTANCE: &str = "importance";
 const F_SIZE: &str = "size";
 const F_FROM_SORT: &str = "from_sort";
 const F_SUBJECT_SORT: &str = "subject_sort";
@@ -299,6 +388,8 @@ fn build_schema() -> (Schema, Fields) {
     let bulk = sb.add_u64_field("bulk", INDEXED);
     // Exact address domains; schema comparison triggers normal startup backfill.
     let from_domain = sb.add_text_field("from_domain", STRING);
+    let sent_at = sb.add_i64_field(F_SENT_AT, FAST);
+    let importance = sb.add_u64_field(F_IMPORTANCE, FAST);
     let schema = sb.build();
     let fields = Fields {
         stable_id,
@@ -322,6 +413,8 @@ fn build_schema() -> (Schema, Fields) {
         calendar_end,
         bulk,
         from_domain,
+        sent_at,
+        importance,
     };
     (schema, fields)
 }
@@ -467,6 +560,8 @@ impl Index {
         td.add_text(f.from_sort, doc.from.to_lowercase());
         td.add_text(f.subject_sort, doc.subject.to_lowercase());
         td.add_i64(f.date, doc.date);
+        td.add_i64(f.sent_at, doc.sent_at.unwrap_or(doc.date));
+        td.add_u64(f.importance, importance_rank(doc));
         td.add_u64(f.size, doc.size);
         td.add_u64(f.has_attachment, u64::from(doc.has_attachment));
         td.add_u64(f.pinned, u64::from(doc.pinned));
@@ -705,11 +800,32 @@ impl Index {
     /// with `limit == 0` it means "more matched than this index will ever
     /// return", which is the one that must never become a published total.
     pub fn search_hits(&self, query: &SearchQuery, limit: usize) -> Result<SearchHits> {
+        self.search_hits_ordered(query, limit, &[])
+    }
+
+    /// Compound order for grouped/paginated lists. The primary fast-field
+    /// collector retains the existing cap; tie breakers reuse stored documents
+    /// already read for each result rather than issuing per-message queries.
+    pub fn search_hits_ordered(
+        &self,
+        query: &SearchQuery,
+        limit: usize,
+        then: &[Sort],
+    ) -> Result<SearchHits> {
+        let compound = !then.is_empty()
+            || matches!(
+                query.sort.field,
+                SortField::GroupReceived
+                    | SortField::GroupSent
+                    | SortField::GroupFrom
+                    | SortField::GroupSubject
+                    | SortField::GroupSize
+            );
         let searcher = self.reader.searcher();
         let compiled = compile(&query.expr, &self.fields);
         let cap = if limit == 0 { MAX_HITS } else { limit };
         // One past the cap: if it comes back, the cap was binding.
-        let probe = cap.saturating_add(1);
+        let probe = if !compound { cap } else { MAX_HITS }.saturating_add(1);
         let order = if query.sort.ascending {
             Order::Asc
         } else {
@@ -717,7 +833,7 @@ impl Index {
         };
 
         let addrs: Vec<tantivy::DocAddress> = match query.sort.field {
-            SortField::ReceivedAt => searcher
+            SortField::ReceivedAt | SortField::GroupReceived => searcher
                 .search(
                     &compiled,
                     &TopDocs::with_limit(probe).order_by_fast_field::<i64>(F_DATE, order),
@@ -725,7 +841,7 @@ impl Index {
                 .into_iter()
                 .map(|(_, a)| a)
                 .collect(),
-            SortField::Size => searcher
+            SortField::Size | SortField::GroupSize => searcher
                 .search(
                     &compiled,
                     &TopDocs::with_limit(probe).order_by_fast_field::<u64>(F_SIZE, order),
@@ -733,7 +849,23 @@ impl Index {
                 .into_iter()
                 .map(|(_, a)| a)
                 .collect(),
-            SortField::From => searcher
+            SortField::SentAt | SortField::GroupSent => searcher
+                .search(
+                    &compiled,
+                    &TopDocs::with_limit(probe).order_by_fast_field::<i64>(F_SENT_AT, order),
+                )?
+                .into_iter()
+                .map(|(_, address)| address)
+                .collect(),
+            SortField::Importance => searcher
+                .search(
+                    &compiled,
+                    &TopDocs::with_limit(probe).order_by_fast_field::<u64>(F_IMPORTANCE, order),
+                )?
+                .into_iter()
+                .map(|(_, address)| address)
+                .collect(),
+            SortField::From | SortField::GroupFrom => searcher
                 .search(
                     &compiled,
                     &TopDocs::with_limit(probe).order_by_string_fast_field(F_FROM_SORT, order),
@@ -741,7 +873,7 @@ impl Index {
                 .into_iter()
                 .map(|(_, a)| a)
                 .collect(),
-            SortField::Subject => searcher
+            SortField::Subject | SortField::GroupSubject => searcher
                 .search(
                     &compiled,
                     &TopDocs::with_limit(probe).order_by_string_fast_field(F_SUBJECT_SORT, order),
@@ -753,11 +885,48 @@ impl Index {
 
         let truncated = addrs.len() > cap;
         let mut ids = Vec::with_capacity(addrs.len().min(cap));
-        for addr in addrs.into_iter().take(cap) {
+        let mut keyed = Vec::new();
+        let sorts: Vec<_> = std::iter::once(query.sort)
+            .chain(then.iter().copied())
+            .collect();
+        for addr in addrs.into_iter().take(if !compound { cap } else { probe }) {
             let td: TantivyDocument = searcher.doc(addr)?;
             if let Some(id) = td.get_first(self.fields.stable_id).and_then(|v| v.as_str()) {
-                ids.push(id.to_string());
+                if !compound {
+                    ids.push(id.to_string());
+                } else {
+                    let raw = td
+                        .get_first(self.fields.doc_json)
+                        .and_then(|value| value.as_str())
+                        .ok_or_else(|| SearchError::Io("missing sort document".into()))?;
+                    let doc: IndexDoc = serde_json::from_str(raw)
+                        .map_err(|error| SearchError::Io(format!("sort document: {error}")))?;
+                    keyed.push((
+                        id.to_string(),
+                        sorts
+                            .iter()
+                            .map(|sort| sort_value(&doc, *sort))
+                            .collect::<Vec<_>>(),
+                    ));
+                }
             }
+        }
+        if compound {
+            keyed.sort_by(|a, b| {
+                for (index, sort) in sorts.iter().enumerate() {
+                    let order = a.1[index].cmp(&b.1[index]);
+                    let order = if sort.ascending {
+                        order
+                    } else {
+                        order.reverse()
+                    };
+                    if !order.is_eq() {
+                        return order;
+                    }
+                }
+                a.0.cmp(&b.0)
+            });
+            ids = keyed.into_iter().take(cap).map(|(id, _)| id).collect();
         }
         Ok(SearchHits { ids, truncated })
     }
@@ -880,6 +1049,14 @@ fn clause_query(c: &Clause, f: &Fields) -> Box<dyn Query> {
         Clause::Mailbox(m) => term_query(f.mailbox, m),
         Clause::HasAttachment(b) => u64_term(f.has_attachment, u64::from(*b)),
         Clause::Pinned(b) => u64_term(f.pinned, u64::from(*b)),
+        Clause::FollowUp => Box::new(BooleanQuery::new(vec![
+            (Occur::Must, Box::new(BooleanQuery::new(vec![
+                (Occur::Should, term_query(f.keywords, query::KW_FOLLOWUP_ACTIVE)),
+                (Occur::Should, term_query(f.keywords, "$flagged")),
+            ])) as Box<dyn Query>),
+            (Occur::MustNot, term_query(f.keywords, query::KW_FOLLOWUP_COMPLETED)),
+        ])),
+        Clause::Mention(address) => term_query(f.keywords, &format!("$mw-mention:{}", address.trim().to_ascii_lowercase())),
         Clause::HasCalendar(b) => u64_term(f.has_calendar, u64::from(*b)),
         Clause::Bulk(b) => u64_term(f.bulk, u64::from(*b)),
         Clause::CalendarEndAfter(at) => Box::new(RangeQuery::new(

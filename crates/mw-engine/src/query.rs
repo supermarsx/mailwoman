@@ -191,6 +191,13 @@ impl EmailFilter {
 #[serde(rename_all = "camelCase")]
 pub enum SortProperty {
     ReceivedAt,
+    SentAt,
+    Importance,
+    MailwomanGroupReceived,
+    MailwomanGroupSent,
+    MailwomanGroupFrom,
+    MailwomanGroupSubject,
+    MailwomanGroupSize,
     Size,
     From,
     Subject,
@@ -203,6 +210,8 @@ pub struct Comparator {
     pub property: SortProperty,
     #[serde(default)]
     pub is_ascending: bool,
+    #[serde(default)]
+    pub time_zone: Option<String>,
 }
 
 /// A saved search surfaced as a virtual search folder (`role:null` +

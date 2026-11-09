@@ -41,6 +41,7 @@
 //! parameters from links.
 
 pub mod appearance;
+pub mod mentions;
 mod document_layout;
 mod reader;
 mod tidy;

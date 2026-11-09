@@ -5597,6 +5597,8 @@ dependencies = [
 name = "mw-search"
 version = "26.19.0"
 dependencies = [
+ "chrono",
+ "chrono-tz",
  "serde",
  "serde_json",
  "tantivy",

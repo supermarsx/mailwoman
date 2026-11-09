@@ -146,6 +146,8 @@ export interface Email {
   mailwomanAuth?: ListAuthSummary | null;
   /** The sender's priority from X-Priority / Importance / Priority / X-MSMail-Priority; absent means normal. */
   mailwomanPriority?: 'high' | 'low';
+  /** Canonical addresses explicitly mentioned in the authored body; index-derived, never inferred from To/Cc. */
+  mailwomanMentions?: string[];
 }
 
 /** What a list row needs of the full authentication verdict. */
@@ -225,10 +227,11 @@ export interface FilterCondition {
   semantic?: boolean;
 }
 /** Frozen `Email/query` sort properties (§2.1); default is `receivedAt` desc. */
-export type SortProperty = 'receivedAt' | 'size' | 'from' | 'subject';
+export type SortProperty = 'receivedAt' | 'sentAt' | 'importance' | 'size' | 'from' | 'subject';
 export interface Comparator {
   property: SortProperty | string;
   isAscending?: boolean;
+  timeZone?: string;
 }
 export interface EmailQueryArgs {
   accountId: Id;

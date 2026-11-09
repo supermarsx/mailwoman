@@ -103,6 +103,9 @@ const KW_FORWARDED: &str = "$forwarded";
 /// Index-only keywords the engine adds from a message's priority headers (they
 /// are never stored on the message): `is:high-priority` and `is:low-priority`.
 pub const KW_PRIORITY_HIGH: &str = "$priority-high";
+/// Index-only reminder marker and the persistent completed-follow-up keyword.
+pub const KW_FOLLOWUP_ACTIVE: &str = "$mw-followup-active";
+pub const KW_FOLLOWUP_COMPLETED: &str = "mw-followup-completed";
 pub const KW_PRIORITY_LOW: &str = "$priority-low";
 
 /// Maximum nesting depth for `(` grouping and `NOT` chains.
@@ -214,6 +217,10 @@ pub enum Clause {
     HasAttachment(bool),
     /// `pinned:` / `is:pinned`.
     Pinned(bool),
+    /// Active reminder or flagged message, excluding completed follow-ups.
+    FollowUp,
+    /// Exact canonical address in the index-only mention keyword family.
+    Mention(String),
     /// `has:calendar` (t78): the message carries calendar content.
     HasCalendar(bool),
     /// t94: the message carries a list, bulk or automated-mail header
@@ -249,6 +256,13 @@ pub enum Expr {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortField {
     ReceivedAt,
+    SentAt,
+    Importance,
+    GroupReceived,
+    GroupSent,
+    GroupFrom,
+    GroupSubject,
+    GroupSize,
     Size,
     From,
     Subject,
@@ -260,6 +274,7 @@ pub enum SortField {
 pub struct Sort {
     pub field: SortField,
     pub ascending: bool,
+    pub time_zone: Option<chrono_tz::Tz>,
 }
 
 impl Sort {
@@ -268,6 +283,7 @@ impl Sort {
         Sort {
             field: SortField::ReceivedAt,
             ascending: false,
+            time_zone: None,
         }
     }
 
@@ -275,7 +291,8 @@ impl Sort {
     pub fn for_field(field: SortField) -> Self {
         Sort {
             field,
-            ascending: !matches!(field, SortField::ReceivedAt),
+            ascending: !matches!(field, SortField::ReceivedAt | SortField::SentAt | SortField::Importance | SortField::GroupReceived | SortField::GroupSent | SortField::GroupSize),
+            time_zone: None,
         }
     }
 }
@@ -306,6 +323,7 @@ fn is_operator(name: &str) -> bool {
         name,
         "from"
             | "from-domain"
+            | "mentions"
             | "to"
             | "cc"
             | "subject"
@@ -443,6 +461,7 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
     let clause = match f.as_str() {
         "from" => text_clause(TextField::From, value, phrase),
         "from-domain" => Clause::FromDomain(value.trim().to_ascii_lowercase()),
+        "mentions" => Clause::Mention(value.trim().to_ascii_lowercase()),
         "to" => text_clause(TextField::To, value, phrase),
         "cc" => text_clause(TextField::Cc, value, phrase),
         "subject" => text_clause(TextField::Subject, value, phrase),
@@ -473,6 +492,8 @@ fn operator_atom(field: &str, value: String, phrase: bool) -> Expr {
             "flagged" | "starred" => Clause::Keyword(KW_FLAGGED.to_string()),
             "unflagged" => Clause::NotKeyword(KW_FLAGGED.to_string()),
             "pinned" => Clause::Pinned(true),
+            "followup" | "follow-up" => Clause::FollowUp,
+            "finished" | "completed" => Clause::Keyword(KW_FOLLOWUP_COMPLETED.to_string()),
             "answered" | "replied" => Clause::Keyword(KW_ANSWERED.to_string()),
             "unanswered" | "unreplied" | "notanswered" => {
                 Clause::NotKeyword(KW_ANSWERED.to_string())

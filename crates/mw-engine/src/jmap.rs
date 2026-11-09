@@ -64,6 +64,9 @@ mod events_view_tests;
 #[cfg(test)]
 #[path = "focus_tests.rs"]
 mod focus_tests;
+#[cfg(test)]
+#[path = "mentions_jmap_tests.rs"]
+mod mentions_jmap_tests;
 
 /// Build the JMAP [`Session`](mw_jmap::Session) resource for a connected account,
 /// advertising core + mail + submission and pointing every URL back at us.
@@ -711,7 +714,8 @@ impl Engine {
         }
         let comparator = first_comparator(args);
         let sort = search_index::sort_from_comparator(comparator.as_ref());
-        let custom_sort = sort != mw_search::Sort::received_desc();
+        let tie_breakers = sort_tie_breakers(args);
+        let custom_sort = sort != mw_search::Sort::received_desc() || !tie_breakers.is_empty();
 
         let mut additional_filter = None;
         if let Some(mailbox) = filter.in_mailbox.clone() {
@@ -821,7 +825,7 @@ impl Engine {
             });
         }
 
-        let mut hits = self.search_ids(account_id, &filter, sort, semantic).await?;
+        let mut hits = self.search_ids_ordered(account_id, &filter, sort, semantic, &tie_breakers).await?;
         if let Some(additional) = additional_filter
             && (additional.needs_search() || additional.in_mailbox_other_than.is_some())
         {
@@ -909,6 +913,17 @@ impl Engine {
         sort: mw_search::Sort,
         semantic: Option<bool>,
     ) -> Result<mw_search::SearchHits> {
+        self.search_ids_ordered(account_id, filter, sort, semantic, &[]).await
+    }
+
+    async fn search_ids_ordered(
+        &self,
+        account_id: &str,
+        filter: &EmailFilter,
+        sort: mw_search::Sort,
+        semantic: Option<bool>,
+        tie_breakers: &[mw_search::Sort],
+    ) -> Result<mw_search::SearchHits> {
         let mailbox_ids: Vec<String> = self
             .store()
             .list_mailboxes(account_id)
@@ -918,13 +933,22 @@ impl Engine {
             .collect();
         // Scope to a single mailbox only when the filter pins a real one.
         let scope = filter.in_mailbox.as_deref();
-        let sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
+        let mut sq = search_index::build_search_query(filter, sort, &mailbox_ids, scope);
+        if search_index::has_mentions_me(&sq.expr) {
+            let mut own = Vec::new();
+            if let Some(rt) = self.runtime(account_id) {
+                own.push(rt.identity.trim().to_lowercase());
+                own.extend(self.authorized_identities(account_id, &rt).await?.into_iter().map(|row| row.email.trim().to_lowercase()));
+            }
+            own.sort(); own.dedup();
+            search_index::expand_mentions_me(&mut sq.expr, &own);
+        }
         // `search_hits`, not `search`: the latter cannot say whether `MAX_HITS`
         // cut the result, and a `total` derived from a cut result is a wrong
         // number that looks exactly like a right one (V9).
         let mut hits = self
             .search()
-            .search_hits(&sq, 0)
+            .search_hits_ordered(&sq, 0, tie_breakers)
             .map_err(|e| EngineError::Protocol(format!("search: {e}")))?;
 
         // A8 (26.19, SPEC §10.4/§14.3): opt-in semantic re-rank. Reached ONLY when
@@ -937,7 +961,8 @@ impl Engine {
         // and that is the point: the web always sends `receivedAt desc`, so asking
         // for `semantic` is asking for relevance order instead. Paging is applied
         // by the caller AFTER this, so page 1 shows the most similar hits.
-        if filter.semantic.or(semantic) == Some(true)
+        if tie_breakers.is_empty()
+            && filter.semantic.or(semantic) == Some(true)
             && !self.index_paused(account_id).await
             && !self.store().restriction_blocks(account_id, "assistant").await
             && let Some(provider) = self.embedding_provider()
@@ -1153,7 +1178,7 @@ impl Engine {
                     .unwrap_or_default();
             let comparator = first_comparator(args);
             let sort = search_index::sort_from_comparator(comparator.as_ref());
-            let custom_sort = sort != mw_search::Sort::received_desc();
+            let custom_sort = sort != mw_search::Sort::received_desc() || !sort_tie_breakers(args).is_empty();
             if matches!(query_route(&filter, custom_sort), QueryRoute::Account)
                 && let Some(p) = self
                     .store()
@@ -1509,15 +1534,16 @@ impl Engine {
                     }
                 }
             }
+            // Both properties are projections of the ingest/rebuild index; no raw
+            // body fetch or HTML parse is needed per list page. Zero-access mail
+            // has no index and therefore supplies no server-derived mention list.
+            let indexed = self.search().fetch_doc(id).ok().flatten();
+            email["mailwomanMentions"] = json!(indexed.as_ref().map(|doc| crate::mentions::from_keywords(&doc.keywords)).unwrap_or_default());
             if fill.calendar {
                 // t78: read from the message's index document, where ingest put
                 // it: no body read. `null` for no calendar content, and for an
                 // account whose mail is not indexed (zero-access).
-                email[CALENDAR_PROPERTY] = self
-                    .search()
-                    .fetch_doc(id)
-                    .ok()
-                    .flatten()
+                email[CALENDAR_PROPERTY] = indexed
                     .and_then(|doc| doc.calendar)
                     .and_then(|hint| serde_json::to_value(hint).ok())
                     .unwrap_or(Value::Null);
@@ -2132,6 +2158,7 @@ impl Engine {
         let mut touched = false;
         let mut new_flags: Option<Vec<Flag>> = None;
         let mut new_pinned: Option<bool> = None;
+        let mut new_follow_up: Option<bool> = None;
 
         // Keywords arrive as a whole `keywords` object, which replaces the set,
         // and/or as RFC 8620 §5.3 patch paths `keywords/<kw>` (`true` sets,
@@ -2204,6 +2231,7 @@ impl Engine {
             if let Some(v) = patch.get("followUpAt") {
                 meta.follow_up_at = v.as_str().map(str::to_string);
             }
+            new_follow_up = Some(meta.follow_up_at.is_some());
             self.store()
                 .upsert_message_meta(
                     id,
@@ -2234,6 +2262,7 @@ impl Engine {
             stable_id: id.to_string(),
             flags: new_flags,
             pinned: new_pinned,
+            follow_up: new_follow_up,
             moved,
         }))
     }
@@ -4618,6 +4647,18 @@ fn first_comparator(args: &Value) -> Option<Comparator> {
         .and_then(|c| serde_json::from_value(c.clone()).ok())
 }
 
+fn sort_tie_breakers(args: &Value) -> Vec<mw_search::Sort> {
+    args.get("sort")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .skip(1)
+        .take(7)
+        .filter_map(|value| serde_json::from_value::<Comparator>(value.clone()).ok())
+        .map(|comparator| search_index::sort_from_comparator(Some(&comparator)))
+        .collect()
+}
+
 /// Resolve an `emailId` that may be a `#creationId` reference to a stable id.
 fn resolve_email_id(email_ref: &str, created_ids: &HashMap<String, String>) -> String {
     if let Some(client_id) = email_ref.strip_prefix('#') {
@@ -6398,6 +6439,66 @@ mod query_paging_tests {
     /// with the folder **at all**, and that is asserted directly by comparing
     /// two folder sizes rather than extrapolated from one.
     const FOLDER: usize = 2_000;
+
+    #[tokio::test]
+    async fn compound_message_order_is_applied_before_pages_and_query_changes_prefix() {
+        let f = Fixture::with(6).await;
+        let docs: Vec<_> = f
+            .ordered
+            .iter()
+            .enumerate()
+            .map(|(i, id)| mw_search::IndexDoc {
+                stable_id: id.clone(),
+                account_id: f.account.clone(),
+                mailbox_id: f.mailbox.clone(),
+                date: i as i64,
+                sent_at: Some(10 - i as i64),
+                size: i as u64,
+                keywords: match i % 3 {
+                    0 => vec![mw_search::KW_PRIORITY_HIGH.into()],
+                    2 => vec![mw_search::KW_PRIORITY_LOW.into()],
+                    _ => vec![],
+                },
+                ..mw_search::IndexDoc::default()
+            })
+            .collect();
+        f.engine.search().upsert_batch(&docs).unwrap();
+        let sort = json!([{"property":"importance","isAscending":false},{"property":"size","isAscending":true}]);
+        let expected: Vec<_> = [0, 3, 1, 4, 2, 5]
+            .into_iter()
+            .map(|i| f.ordered[i].clone())
+            .collect();
+        let first = f
+            .query(json!({"filter":f.in_mailbox(),"sort":sort,"limit":2,"calculateTotal":true}))
+            .await;
+        assert_eq!(first["total"], json!(6));
+        assert_eq!(ids_of(&first), expected[..2]);
+        let second = f
+            .query(json!({"filter":f.in_mailbox(),"sort":sort,"position":2,"limit":2}))
+            .await;
+        assert_eq!(ids_of(&second), expected[2..4]);
+        f.touch(6).await;
+        let changes=f.query_changes(json!({"filter":f.in_mailbox(),"sort":sort,"sinceQueryState":first["queryState"],"upToId":expected[3]})).await;
+        let added: Vec<_> = changes["added"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["id"].as_str().unwrap().to_owned())
+            .collect();
+        assert_eq!(added, expected[..4]);
+        let sent=f.query(json!({"filter":f.in_mailbox(),"sort":[{"property":"sentAt","isAscending":false}],"limit":6})).await;
+        assert_eq!(ids_of(&sent), f.ordered);
+        let grouped = f
+            .query(json!({"filter":f.in_mailbox(),"sort":[
+            {"property":"mailwomanGroupReceived","isAscending":false,"timeZone":"America/New_York"},
+            {"property":"size","isAscending":false}
+        ],"limit":6}))
+            .await;
+        assert_eq!(
+            ids_of(&grouped),
+            f.ordered.iter().rev().cloned().collect::<Vec<_>>()
+        );
+    }
 
     struct Fixture {
         engine: Engine,

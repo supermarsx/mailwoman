@@ -204,11 +204,11 @@ fn percent_decode(s: &str) -> String {
 /// `is_operator`); `name:value` with one of these is an operator search.
 const SEARCH_OPERATORS: &[&str] = &[
     "from", "to", "cc", "subject", "body", "text", "has", "filename", "before", "after", "in",
-    "is", "larger", "smaller", "tag", "pinned",
+    "is", "larger", "smaller", "tag", "pinned", "mentions", "from-domain", "list", "supersedes",
 ];
 
 fn has_operator(text: &str) -> bool {
-    text.split_whitespace().any(|token| {
+    text.split(|character:char| character.is_whitespace() || matches!(character,'('|')')).any(|token| {
         let token = token.trim_start_matches(['-', '(', '"']);
         token.split_once(':').is_some_and(|(name, value)| {
             !value.is_empty() && SEARCH_OPERATORS.contains(&name.to_ascii_lowercase().as_str())
@@ -854,6 +854,15 @@ pub(crate) async fn admit_account(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn mention_search_operators_require_the_operator_feature_even_in_adjacent_boolean_groups() {
+        for text in ["mentions:me", "(mentions:me)", "subject:hello OR(mentions:me)", "NOT(mentions:alice@example.org)", "from-domain:example.org", "list:news", "supersedes:old@example.org"] {
+            assert!(super::has_operator(text), "{text}");
+            assert!(super::jmap_features(&serde_json::json!({"methodCalls":[["Email/query",{"filter":{"text":text}},"q"]]})).contains("search.operators"));
+        }
+        for text in ["hello", "meeting at 10:30 re: budget", "mentions me in conversation"] { assert!(!super::has_operator(text), "{text}"); }
+        assert!(!super::jmap_features(&serde_json::json!({"methodCalls":[["Email/query",{"filter":{"text":"hello","inMailbox":"inbox"}},"q"]]})).contains("search.operators"));
+    }
     use super::*;
 
     #[test]

@@ -41,6 +41,7 @@ export const HEADER_PROPERTIES = [
   // The cached authentication summary the list needs for a brand logo (never computed per row).
   'mailwomanAuth',
   'mailwomanPriority',
+  'mailwomanMentions',
 ] as const;
 
 export const BODY_PROPERTIES = [
@@ -71,6 +72,7 @@ export const BODY_PROPERTIES = [
   'hasAttachment',
   'size',
   'mailwomanPriority',
+  'mailwomanMentions',
 ] as const;
 
 /** Default cap so an upstream can send more; enough for V0 flows. */

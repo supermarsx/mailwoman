@@ -141,7 +141,8 @@ fn sort_orders() {
             &idx,
             Sort {
                 field: SortField::Size,
-                ascending: true
+                ascending: true,
+                time_zone: None,
             }
         ),
         ids(&["m2", "m4", "m1", "m3"])
@@ -151,7 +152,8 @@ fn sort_orders() {
             &idx,
             Sort {
                 field: SortField::Size,
-                ascending: false
+                ascending: false,
+                time_zone: None,
             }
         ),
         ids(&["m3", "m1", "m4", "m2"])

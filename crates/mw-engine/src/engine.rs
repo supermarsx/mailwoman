@@ -46,6 +46,8 @@ pub(crate) struct IndexPatch {
     pub(crate) flags: Option<Vec<crate::backend::Flag>>,
     /// The pinned state now stored, if the update wrote engine-local metadata.
     pub(crate) pinned: Option<bool>,
+    /// Active reminder presence, when an engine-local metadata patch wrote it.
+    pub(crate) follow_up: Option<bool>,
     /// Whether the same patch also relocated the message.
     ///
     /// Such an id still needs its keywords patched into the index — `move_email`
@@ -58,12 +60,41 @@ pub(crate) struct IndexPatch {
 
 impl IndexPatch {
     fn apply(&self, doc: &mut mw_search::IndexDoc) {
+        let reminder = doc.keywords.iter().any(|keyword| keyword == mw_search::KW_FOLLOWUP_ACTIVE);
+        let derived: Vec<String> = doc.keywords.iter().filter(|keyword| {
+            keyword.starts_with("$mw-mention:") || keyword.starts_with("$list:") || keyword.starts_with("$supersedes:")
+                || keyword.as_str() == mw_search::KW_PRIORITY_HIGH || keyword.as_str() == mw_search::KW_PRIORITY_LOW
+        }).cloned().collect();
         if let Some(flags) = &self.flags {
             doc.keywords = flags_to_keywords(flags).into_keys().collect();
         }
+        doc.keywords.retain(|keyword| keyword != mw_search::KW_FOLLOWUP_ACTIVE);
+        if self.flags.is_some() { doc.keywords.extend(derived); }
+        if self.follow_up.unwrap_or(reminder) { doc.keywords.push(mw_search::KW_FOLLOWUP_ACTIVE.into()); }
         if let Some(pinned) = self.pinned {
             doc.pinned = pinned;
         }
+    }
+}
+
+#[cfg(test)]
+mod followup_index_patch_tests {
+    use super::IndexPatch;
+    #[test]
+    fn flag_updates_preserve_reminder_and_mentions_while_metadata_updates_can_clear_reminder() {
+        let mut doc = mw_search::IndexDoc { keywords: vec![mw_search::KW_FOLLOWUP_ACTIVE.into(), "$mw-mention:alice@example.org".into(), "$seen".into()], ..Default::default() };
+        IndexPatch {stable_id:"id".into(),flags:Some(vec![]),pinned:None,follow_up:None,moved:false}.apply(&mut doc);
+        assert_eq!(doc.keywords, vec!["$mw-mention:alice@example.org", mw_search::KW_FOLLOWUP_ACTIVE]);
+        IndexPatch {stable_id:"id".into(),flags:None,pinned:None,follow_up:Some(false),moved:false}.apply(&mut doc);
+        assert_eq!(doc.keywords, vec!["$mw-mention:alice@example.org"]);
+        IndexPatch {stable_id:"id".into(),flags:None,pinned:None,follow_up:Some(true),moved:false}.apply(&mut doc);
+        assert!(doc.keywords.iter().any(|value| value == mw_search::KW_FOLLOWUP_ACTIVE));
+    }
+    #[test]
+    fn flag_updates_preserve_priority_list_and_supersedes_index_only_keywords() {
+        let mut doc = mw_search::IndexDoc {keywords:vec![mw_search::KW_PRIORITY_HIGH.into(),"$list:news.example".into(),"$supersedes:old@example.org".into(),"$seen".into()],..Default::default()};
+        IndexPatch {stable_id:"id".into(),flags:Some(vec![]),pinned:None,follow_up:None,moved:false}.apply(&mut doc);
+        assert_eq!(doc.keywords,vec![mw_search::KW_PRIORITY_HIGH,"$list:news.example","$supersedes:old@example.org"]);
     }
 }
 
@@ -685,6 +716,7 @@ impl Engine {
                             stable_id: sid.clone(),
                             flags: Some(flags.clone()),
                             pinned: None,
+                            follow_up: None,
                             moved: false,
                         }])
                         .await;
@@ -1237,12 +1269,12 @@ impl Engine {
                 .collect();
         keywords.extend(list_keyword);
         keywords.extend(supersedes_kw);
-        let pinned = self
+        let meta = self
             .store
             .get_message_meta(stable_id)
             .await?
-            .map(|m| m.pinned)
-            .unwrap_or(false);
+            .unwrap_or_default();
+        if meta.follow_up_at.is_some() { keywords.push(mw_search::KW_FOLLOWUP_ACTIVE.into()); }
         Ok(search_index::build_index_doc(
             stable_id,
             &msg.account_id,
@@ -1251,7 +1283,7 @@ impl Engine {
             keywords,
             filenames,
             attachment_text,
-            pinned,
+            meta.pinned,
             calendar,
             list_signal,
         ))

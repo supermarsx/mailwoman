@@ -79,6 +79,8 @@ fn synthetic_corpus() -> Vec<IndexDoc> {
             vec![]
         };
         docs.push(IndexDoc {
+            from_address: Some(from.clone()),
+            sent_at: None,
             calendar: None,
             list_signal: None,
             stable_id: format!("m{i}"),

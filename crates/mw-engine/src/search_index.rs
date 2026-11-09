@@ -134,6 +134,9 @@ pub(crate) fn build_index_doc(
         Some("low") => keywords.push(mw_search::KW_PRIORITY_LOW.to_string()),
         _ => {}
     }
+    keywords.extend(crate::mentions::keywords(email));
+    keywords.sort();
+    keywords.dedup();
     IndexDoc {
         stable_id: stable_id.to_string(),
         account_id: account_id.to_string(),
@@ -153,6 +156,8 @@ pub(crate) fn build_index_doc(
         subject: email.subject.clone().unwrap_or_default(),
         body: body_text(email),
         date: unix_secs(email.received_at.as_deref()),
+        sent_at: email.sent_at.as_deref().map(|date| unix_secs(Some(date))),
+        from_address: email.from.as_ref().and_then(|from| from.first()).map(|from| from.email.trim().to_lowercase()),
         has_attachment: email.has_attachment,
         keywords,
         size: email.size,
@@ -172,6 +177,13 @@ pub(crate) fn sort_from_comparator(cmp: Option<&Comparator>) -> Sort {
         Some(c) => {
             let field = match c.property {
                 SortProperty::ReceivedAt => SortField::ReceivedAt,
+                SortProperty::SentAt => SortField::SentAt,
+                SortProperty::Importance => SortField::Importance,
+                SortProperty::MailwomanGroupReceived => SortField::GroupReceived,
+                SortProperty::MailwomanGroupSent => SortField::GroupSent,
+                SortProperty::MailwomanGroupFrom => SortField::GroupFrom,
+                SortProperty::MailwomanGroupSubject => SortField::GroupSubject,
+                SortProperty::MailwomanGroupSize => SortField::GroupSize,
                 SortProperty::Size => SortField::Size,
                 SortProperty::From => SortField::From,
                 SortProperty::Subject => SortField::Subject,
@@ -179,6 +191,7 @@ pub(crate) fn sort_from_comparator(cmp: Option<&Comparator>) -> Sort {
             Sort {
                 field,
                 ascending: c.is_ascending,
+                time_zone: c.time_zone.as_deref().and_then(|zone| zone.parse().ok()),
             }
         }
     }
@@ -314,6 +327,28 @@ pub(crate) fn build_search_query(
     }
 }
 
+/// Expand the account-relative mention operator in the AST, never by string
+/// replacement (which could rewrite quoted text or bypass Boolean scoping).
+pub(crate) fn has_mentions_me(expr: &Expr) -> bool {
+    match expr {
+        Expr::Clause(Clause::Mention(value)) => value.eq_ignore_ascii_case("me"),
+        Expr::And(parts) | Expr::Or(parts) => parts.iter().any(has_mentions_me),
+        Expr::Not(inner) => has_mentions_me(inner),
+        _ => false,
+    }
+}
+pub(crate) fn expand_mentions_me(expr: &mut Expr, addresses: &[String]) {
+    match expr {
+        Expr::Clause(Clause::Mention(value)) if value.eq_ignore_ascii_case("me") => {
+            *expr = if addresses.is_empty() { Expr::Not(Box::new(Expr::All)) }
+            else { Expr::Or(addresses.iter().map(|address| Expr::Clause(Clause::Mention(address.to_lowercase()))).collect()) };
+        }
+        Expr::And(parts) | Expr::Or(parts) => for part in parts { expand_mentions_me(part, addresses); },
+        Expr::Not(inner) => expand_mentions_me(inner, addresses),
+        _ => {},
+    }
+}
+
 /// A query no document satisfies. `mw-search` has no "none" expression;
 /// `NOT all` compiles to `+all -all`, which selects nothing.
 fn match_nothing(sort: Sort) -> SearchQuery {
@@ -340,6 +375,22 @@ fn parse_date_bound(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mentions_me_expands_only_the_operator_and_keeps_boolean_scope() {
+        let mut expr = mw_search::parse_query("subject:me OR (mentions:me AND -mentions:other@example.org)").unwrap().expr;
+        assert!(has_mentions_me(&expr));
+        expand_mentions_me(&mut expr, &["ME@example.org".into(), "alias@example.org".into()]);
+        assert!(!has_mentions_me(&expr));
+        let debug = format!("{expr:?}");
+        assert!(debug.contains("alias@example.org"));
+        assert!(debug.contains("me@example.org"));
+        assert!(debug.contains("other@example.org"));
+        assert!(debug.contains("Subject"));
+        let mut unknown = Expr::Clause(Clause::Mention("me".into()));
+        expand_mentions_me(&mut unknown, &[]);
+        assert_eq!(unknown, Expr::Not(Box::new(Expr::All)));
+    }
 
     #[test]
     fn priority_and_list_id_are_searchable_through_index_only_keywords() {
