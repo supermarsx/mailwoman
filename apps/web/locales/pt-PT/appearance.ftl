@@ -186,7 +186,7 @@ appearance-theme-nineteen-eighty-four-desc = Betão cinzento de ministério, tex
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = Página branca, contornos pretos, vermelho, azul e amarelo primários e pontos Ben-Day na barra lateral.
 
-appearance-preference-mail-message-list-group = Agrupamento de mensagens
+appearance-preference-mail-messageListGroup = Agrupamento de mensagens
 
 appearance-preference-option-sender-desc = Remetente, Z a A
 
@@ -207,3 +207,13 @@ appearance-preference-option-size-asc = Tamanho, menores primeiro
 appearance-preference-option-received = Data de receção
 
 appearance-preference-option-sent = Data de envio
+
+appearance-preference-group-option-none = Sem agrupamento
+appearance-preference-group-option-received = Data de receção
+appearance-preference-group-option-sent = Data de envio
+appearance-preference-group-option-sender = Remetente
+appearance-preference-group-option-subject = Assunto
+appearance-preference-group-option-importance = Importância
+appearance-preference-group-option-size = Tamanho da mensagem
+appearance-preference-message-order-help = Escolha a ordem das mensagens em cada grupo ou em toda a lista quando o agrupamento está desativado.
+appearance-preference-message-group-help = Mantenha mensagens relacionadas juntas sob cabeçalhos de grupo. Escolha Sem agrupamento para uma lista contínua. A ordem das mensagens aplica-se em cada grupo.

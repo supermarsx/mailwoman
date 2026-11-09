@@ -192,7 +192,7 @@ appearance-theme-nineteen-eighty-four-desc = Ministry-grey concrete, faded paper
 appearance-theme-pop-art = Pop Art
 appearance-theme-pop-art-desc = White page, black outlines, primary red, blue and yellow, Ben-Day dots in the sidebar.
 
-appearance-preference-mail-message-list-group = Message grouping
+appearance-preference-mail-messageListGroup = Message grouping
 
 appearance-preference-option-sender-desc = Sender, Z to A
 
@@ -213,3 +213,13 @@ appearance-preference-option-size-asc = Size, smallest first
 appearance-preference-option-received = Received date
 
 appearance-preference-option-sent = Sent date
+
+appearance-preference-group-option-none = No grouping
+appearance-preference-group-option-received = Received date
+appearance-preference-group-option-sent = Sent date
+appearance-preference-group-option-sender = Sender
+appearance-preference-group-option-subject = Subject
+appearance-preference-group-option-importance = Importance
+appearance-preference-group-option-size = Message size
+appearance-preference-message-order-help = Choose the order of messages within each group, or across the whole list when grouping is off.
+appearance-preference-message-group-help = Keep related messages together under group headings. Choose No grouping for a continuous list. Your message order applies within each group.
