@@ -14,6 +14,7 @@ import {
   parseAttachments,
   parseSize,
   type AttachmentItem,
+  type AttachmentFilters,
 } from './attachments.ts';
 
 describe('account attachment search', () => {
@@ -60,7 +61,7 @@ describe('viewerKindFor — MIME dispatch (frozen §2.4)', () => {
   it('categoryOf groups by the same routing (unsupported → other)', () => {
     expect(categoryOf('image/gif')).toBe('image');
     expect(categoryOf('application/pdf')).toBe('pdf');
-    expect(categoryOf('application/zip')).toBe('other');
+    expect(categoryOf('application/zip')).toBe('archive');
   });
 });
 
@@ -92,6 +93,7 @@ describe('attachmentsQuery', () => {
       '#ids': { resultOf: 'aq', name: 'Email/query', path: '/ids' },
     });
     expect((get[1] as { properties: string[] }).properties).toContain('attachments');
+    expect((get[1] as { properties: string[] }).properties).toContain('mailboxIds');
   });
 });
 
@@ -125,6 +127,7 @@ describe('parseAttachments', () => {
     expect(it).toMatchObject({ blobId: 'b1', name: 'q3.pdf', mime: 'application/pdf', size: 2048 });
     expect(it.from).toBe('Alice <alice@example.org>');
     expect(it.subject).toBe('Report');
+    expect(it.mailboxIds).toEqual({});
   });
 
   it('defaults name/mime/subject when missing', () => {
@@ -151,6 +154,42 @@ const sample: AttachmentItem[] = [
 ];
 
 describe('filterAttachments', () => {
+  it('combines independent form fields with AND and matches free words across message/file context', () => {
+    const items=sample.map(item=>({...item,mailboxIds:{inbox:true}}));
+    const filters:AttachmentFilters={text:'REPORT Alice Q3',filename:'report',from:'ALICE',subject:'q3',category:'pdf',extensions:['.PDF'],minSize:2_000_000,maxSize:2_000_000,after:'2026-03-01',before:'2026-03-01',mailboxId:'inbox'};
+    expect(filterAttachments(items,filters).map(item=>item.blobId)).toEqual(['b1']);
+    expect(filterAttachments(items,{...filters,subject:'missing'})).toEqual([]);
+    expect(filterAttachments(items,{...filters,mailboxId:'archive'})).toEqual([]);
+    expect(filterAttachments(sample,{mailboxId:'inbox'})).toEqual([]);
+  });
+  it('preserves contradictory advanced/form constraints instead of overriding them', () => {
+    expect(filterAttachments(sample,{and:[parseAttachmentQuery('from:alice'),{from:'bob'}]})).toEqual([]);
+    expect(filterAttachments(sample,{and:[parseAttachmentQuery('type:video'),{category:'pdf'}]})).toEqual([]);
+    expect(filterAttachments(sample,{and:[parseAttachmentQuery('filename:report alice'),{subject:'q3',extensions:['pdf']}]}).map(item=>item.blobId)).toEqual(['b1']);
+  });
+  it('matches separate free words across fields while retaining quoted phrases',()=>{
+    const items=[{...sample[0]!,name:'Annual report.pdf',from:'Alice Smith <alice@example.org>'}];
+    expect(filterAttachments(items,parseAttachmentQuery('Alice report'))).toHaveLength(1);
+    expect(filterAttachments(items,parseAttachmentQuery('Alice "annual report"'))).toHaveLength(1);
+    expect(filterAttachments(items,parseAttachmentQuery('"Alice Smith" report'))).toHaveLength(1);
+    expect(filterAttachments(items,parseAttachmentQuery('"Alice report"'))).toHaveLength(0);
+  });
+  it('normalizes extension lists and permits any listed extension while preserving other filters', () => {
+    expect(filterAttachments(sample,{extensions:[' .PDF ','.PNG'],maxSize:2_000_000}).map(item=>item.blobId)).toEqual(['b1','b2']);
+    expect(filterAttachments([{...sample[0]!,name:'backup.TAR.GZ'}],{extensions:['.tar.gz']})).toHaveLength(1);
+    expect(filterAttachments(sample,{extensions:['pdf'],from:'bob'})).toEqual([]);
+  });
+  it('includes the entire selected end date and compares offset timestamps as instants', () => {
+    const items=['2026-01-15T00:00:00Z','2026-01-15T23:59:59.999Z','2026-01-16T00:00:00Z','2026-01-16T01:00:00+02:00'].map((receivedAt,index)=>({...sample[0]!,blobId:String(index),receivedAt}));
+    expect(filterAttachments(items,{after:'2026-01-15',before:'2026-01-15'}).map(item=>item.blobId)).toEqual(['0','1','3']);
+    expect(filterAttachments(items,{after:'2026-01-16T00:00:00Z'}).map(item=>item.blobId)).toEqual(['2']);
+    for(const before of ['not-a-date','2026-02-31'])expect(filterAttachments(items,{before})).toEqual([]);
+    expect(filterAttachments([{...items[0]!,receivedAt:'invalid'}],{before:'2026-01-15'})).toEqual([]);
+  });
+  it('bounds nested composite filters, including accidental cycles', () => {
+    const cyclic:AttachmentFilters={};cyclic.and=[cyclic];
+    expect(filterAttachments(sample,cyclic)).toEqual([]);
+  });
   it('filters by category', () => {
     expect(filterAttachments(sample, { category: 'image' }).map((i) => i.blobId)).toEqual(['b2']);
     expect(filterAttachments(sample, { category: 'all' })).toHaveLength(3);
@@ -172,16 +211,21 @@ describe('filterAttachments', () => {
 });
 
 describe('parseAttachmentQuery — shared operators', () => {
+  it('keeps filename, subject, extensions, folder, and free text as separate constraints', () => {
+    expect(parseAttachmentQuery('filename:"annual report" subject:"Board meeting" ext:.pdf,.docx in:archive alice')).toEqual({filename:'annual report',subject:'Board meeting',extensions:['pdf','docx'],mailboxId:'archive',text:'alice'});
+    expect(filterAttachments(sample,parseAttachmentQuery('name:report from:alice Q3')).map(item=>item.blobId)).toEqual(['b1']);
+    for(const [value,category] of [['word','document'],['xlsx','spreadsheet'],['zip','archive']] as const)expect(parseAttachmentQuery(`type:${value}`).category).toBe(category);
+  });
   it('parses filename/type/from/larger/smaller/before/after', () => {
     const f = parseAttachmentQuery('filename:report type:pdf from:alice larger:1mb');
-    expect(f).toMatchObject({ text: 'report', category: 'pdf', from: 'alice', minSize: 1_000_000 });
+    expect(f).toMatchObject({ filename: 'report', category: 'pdf', from: 'alice', minSize: 1_000_000 });
   });
-  it('treats bare words as a filename search', () => {
+  it('treats bare words as a free metadata search', () => {
     expect(parseAttachmentQuery('quarterly budget')).toEqual({ text: 'quarterly budget' });
   });
   it('maps type aliases and quotes', () => {
     expect(parseAttachmentQuery('type:img').category).toBe('image');
-    expect(parseAttachmentQuery('name:"my file"').text).toBe('my file');
+    expect(parseAttachmentQuery('name:"my file"').filename).toBe('my file');
   });
   it('drops unknown operators to the free-text bucket', () => {
     expect(parseAttachmentQuery('bogus:x report').text).toBe('bogus:x report');
@@ -201,6 +245,30 @@ describe('parseSize', () => {
   });
   it('returns undefined for garbage', () => {
     expect(parseSize('big')).toBeUndefined();
+    expect(parseSize('999999999999999999999999mb')).toBeUndefined();
+    expect(parseSize('-1kb')).toBeUndefined();
+  });
+});
+
+describe('expanded attachment metadata categories',()=>{
+  it.each([
+    ['application/msword','','document'],
+    ['application/vnd.openxmlformats-officedocument.wordprocessingml.document','','document'],
+    ['application/vnd.ms-powerpoint','','document'],
+    ['application/vnd.oasis.opendocument.text','','document'],
+    ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet','','spreadsheet'],
+    ['text/csv; charset=utf-8','','spreadsheet'],
+    ['application/x-7z-compressed','','archive'],
+    ['application/gzip','','archive'],
+    ['application/octet-stream','Report.DOCX','document'],
+    ['application/octet-stream','Budget.XLSX','spreadsheet'],
+    ['application/octet-stream','Backup.tar.gz','archive'],
+    ['image/png','renamed.docx','image'],
+  ] as const)('classifies %s / %s as %s',(mime,name,category)=>expect(categoryOf(mime,name)).toBe(category));
+  it('copies folder metadata so a later source mutation cannot change a flattened item',()=>{
+    const source=email({mailboxIds:{inbox:true},attachments:[{blobId:'b',type:'application/pdf',name:'a.pdf',size:1}]});
+    const [item]=parseAttachments([source]);source.mailboxIds['inbox']=false;
+    expect(item?.mailboxIds).toEqual({inbox:true});
   });
 });
 

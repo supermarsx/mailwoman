@@ -47,6 +47,8 @@ export interface AttachmentItem {
   from: string;
   subject: string;
   receivedAt: string;
+  /** Owning folders; absent on older callers' locally constructed items. */
+  mailboxIds?: Record<Id, boolean>;
 }
 
 function firstFrom(from: EmailAddress[] | null): string {
@@ -77,7 +79,7 @@ export function attachmentsQuery(accountId: Id, limit = 200, position = 0): Jmap
         {
           accountId,
           '#ids': { resultOf: 'aq', name: 'Email/query', path: '/ids' },
-          properties: ['id', 'from', 'subject', 'receivedAt', 'size', 'attachments'],
+          properties: ['id', 'from', 'subject', 'receivedAt', 'size', 'mailboxIds', 'attachments'],
         },
         'ag',
       ],
@@ -100,6 +102,7 @@ export function parseAttachments(emails: EmailWithAttachments[]): AttachmentItem
         from: firstFrom(e.from),
         subject: e.subject ?? '(no subject)',
         receivedAt: e.receivedAt,
+        ...(e.mailboxIds ? {mailboxIds: {...e.mailboxIds}} : {}),
       });
     }
   }
@@ -207,43 +210,91 @@ export async function fetchObjectUrl(url: string): Promise<string> {
 
 // ── Filtering + operator search ─────────────────────────────────────────────
 
-export type TypeCategory = 'image' | 'pdf' | 'audio' | 'video' | 'text' | 'message' | 'other';
+export type TypeCategory = 'image' | 'pdf' | 'audio' | 'video' | 'text' | 'message' | 'document' | 'spreadsheet' | 'archive' | 'other';
 
 /** Group a MIME type using the very same routing as the viewers (`viewerKindFor`). */
-export function categoryOf(mime: string): TypeCategory {
-  const kind = viewerKindFor(mime);
+export function categoryOf(mime: string, name = ''): TypeCategory {
+  const normalized = mime.split(';', 1)[0]!.trim().toLowerCase();
+  const spreadsheet = /^(?:application\/(?:vnd\.ms-excel(?:\..*)?|vnd\.openxmlformats-officedocument\.spreadsheetml\..*|vnd\.oasis\.opendocument\.spreadsheet(?:-template)?)|text\/(?:csv|tab-separated-values))$/;
+  const document = /^application\/(?:msword|rtf|postscript|epub\+zip|vnd\.ms-word\..*|vnd\.openxmlformats-officedocument\.(?:wordprocessingml|presentationml)\..*|vnd\.oasis\.opendocument\.(?:text|presentation)(?:-template)?|vnd\.ms-powerpoint(?:\..*)?)$/;
+  const archive = /^application\/(?:zip|x-zip-compressed|x-7z-compressed|x-rar-compressed|vnd\.rar|gzip|x-gzip|x-tar|x-bzip2?|x-xz|zstd)$/;
+  if (spreadsheet.test(normalized)) return 'spreadsheet';
+  if (document.test(normalized) || normalized === 'text/rtf') return 'document';
+  const kind = viewerKindFor(normalized);
+  if (kind === 'unsupported' || normalized === 'application/zip') {
+    if (/\.(?:xlsx?|xlsm|xlsb|xltx?|ods|ots|csv|tsv)$/i.test(name)) return 'spreadsheet';
+    if (/\.(?:docx?|docm|dotx?|odt|ott|rtf|pptx?|pptm|odp|epub)$/i.test(name)) return 'document';
+    if (archive.test(normalized) || /\.(?:zip|7z|rar|tar|gz|bz2?|xz|zst)$/i.test(name)) return 'archive';
+  }
   // A calendar file is grouped with text, as before it had its own viewer (t53).
   return kind === 'unsupported' ? 'other' : kind === 'calendar' ? 'text' : kind;
 }
 
 export interface AttachmentFilters {
-  /** Filename substring (case-insensitive). */
+  /** Free words, each matching name, sender, or subject (case-insensitive). */
   text?: string;
+  /** A dedicated filename substring. */
+  filename?: string;
+  subject?: string;
+  /** OR within this list; leading dots and case are ignored. */
+  extensions?: readonly string[];
+  mailboxId?: Id;
+  /** Additional filters combined with AND, including advanced query + form. */
+  and?: readonly AttachmentFilters[];
   category?: TypeCategory | 'all';
   /** Sender substring (case-insensitive). */
   from?: string;
   minSize?: number;
   maxSize?: number;
-  /** ISO dates; `after` is inclusive-lower, `before` inclusive-upper. */
+  /** ISO instants inclusive; date-only values include their entire UTC day. */
   before?: string;
   after?: string;
 }
 
 export function filterAttachments(items: AttachmentItem[], f: AttachmentFilters): AttachmentItem[] {
-  const text = f.text?.toLowerCase();
-  const from = f.from?.toLowerCase();
-  return items.filter((it) => {
-    if (f.category !== undefined && f.category !== 'all' && categoryOf(it.mime) !== f.category) {
-      return false;
-    }
-    if (text !== undefined && text.length > 0 && !it.name.toLowerCase().includes(text)) return false;
-    if (from !== undefined && from.length > 0 && !it.from.toLowerCase().includes(from)) return false;
-    if (f.minSize !== undefined && it.size < f.minSize) return false;
-    if (f.maxSize !== undefined && it.size > f.maxSize) return false;
-    if (f.after !== undefined && it.receivedAt < f.after) return false;
-    if (f.before !== undefined && it.receivedAt > f.before) return false;
-    return true;
-  });
+  const budget = {remaining: 64};
+  function predicate(filters: AttachmentFilters, depth = 0): (item: AttachmentItem) => boolean {
+    if (depth > 8 || --budget.remaining < 0) return () => false;
+    const children = filters.and?.map(child => predicate(child, depth + 1)) ?? [];
+    const words = tokenize(filters.text ?? '').map(word => word.replace(/"/g, '').toLowerCase()).filter(Boolean);
+    const filename = filters.filename?.trim().toLowerCase();
+    const from = filters.from?.trim().toLowerCase();
+    const subject = filters.subject?.trim().toLowerCase();
+    const extensions = filters.extensions?.flatMap(value => value.split(/[,;\s]+/)).map(value => value.trim().replace(/^\.+/, '').toLowerCase()).filter(Boolean) ?? [];
+    const after = dateBound(filters.after, false), before = dateBound(filters.before, true);
+    return item => {
+      if (Number.isNaN(after) || Number.isNaN(before)) return false;
+      if ([filters.minSize, filters.maxSize].some(value => value !== undefined && (!Number.isFinite(value) || value < 0))) return false;
+      if (!children.every(matches => matches(item))) return false;
+      if (filters.category !== undefined && filters.category !== 'all' && categoryOf(item.mime, item.name) !== filters.category) return false;
+      const name = item.name.toLowerCase(), sender = item.from.toLowerCase(), title = item.subject.toLowerCase();
+      if (!words.every(word => name.includes(word) || sender.includes(word) || title.includes(word))) return false;
+      if (filename && !name.includes(filename)) return false;
+      if (from && !sender.includes(from)) return false;
+      if (subject && !title.includes(subject)) return false;
+      if (extensions.length && !extensions.some(extension => name.endsWith(`.${extension}`))) return false;
+      if (filters.mailboxId && item.mailboxIds?.[filters.mailboxId] !== true) return false;
+      if (filters.minSize !== undefined && item.size < filters.minSize) return false;
+      if (filters.maxSize !== undefined && item.size > filters.maxSize) return false;
+      if (after !== undefined || before !== undefined) {
+        const received = Date.parse(item.receivedAt);
+        if (!Number.isFinite(received) || (after !== undefined && received < after) || (before !== undefined && received > before)) return false;
+      }
+      return true;
+    };
+  }
+  return items.filter(predicate(f));
+}
+
+function dateBound(value: string | undefined, end: boolean): number | undefined {
+  if (!value) return undefined;
+  const date = Date.parse(value);
+  if (!Number.isFinite(date)) return Number.NaN;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    if (new Date(date).toISOString().slice(0, 10) !== value) return Number.NaN;
+    return date + (end ? 86_400_000 - 1 : 0);
+  }
+  return date;
 }
 
 /** Parse `1mb` / `500kb` / `2048` into bytes (undefined if unparseable). */
@@ -253,7 +304,8 @@ export function parseSize(raw: string): number | undefined {
   const n = Number.parseFloat(m[1]);
   const unit = (m[2] ?? 'b').toLowerCase();
   const mult = unit === 'gb' ? 1e9 : unit === 'mb' ? 1e6 : unit === 'kb' ? 1e3 : 1;
-  return Math.round(n * mult);
+  const bytes = Math.round(n * mult);
+  return Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : undefined;
 }
 
 function normalizeCategory(v: string): TypeCategory | 'all' {
@@ -277,6 +329,25 @@ function normalizeCategory(v: string): TypeCategory | 'all' {
     case 'eml':
     case 'tnef':
       return 'message';
+    case 'document':
+    case 'documents':
+    case 'doc':
+    case 'docx':
+    case 'word':
+      return 'document';
+    case 'spreadsheet':
+    case 'spreadsheets':
+    case 'sheet':
+    case 'xls':
+    case 'xlsx':
+    case 'csv':
+      return 'spreadsheet';
+    case 'archive':
+    case 'archives':
+    case 'zip':
+    case 'rar':
+    case '7z':
+      return 'archive';
     case 'all':
     case 'any':
       return 'all';
@@ -286,12 +357,12 @@ function normalizeCategory(v: string): TypeCategory | 'all' {
 }
 
 function tokenize(q: string): string[] {
-  return (q.match(/(?:[^\s"]+|"[^"]*")+/g) ?? []).map((t) => t.replace(/"/g, ''));
+  return q.match(/(?:[^\s"]+|"[^"]*")+/g) ?? [];
 }
 
 /**
  * Parse a search string using the shared operators (`filename:`/`type:`/`from:`/
- * `larger:`/`smaller:`/`before:`/`after:`); bare words fall back to filename.
+ * `larger:`/`smaller:`/`before:`/`after:`); bare words match message/file context.
  */
 export function parseAttachmentQuery(q: string): AttachmentFilters {
   const f: AttachmentFilters = {};
@@ -299,7 +370,7 @@ export function parseAttachmentQuery(q: string): AttachmentFilters {
   for (const tok of tokenize(q)) {
     const m = /^([a-z]+):(.*)$/i.exec(tok);
     const op = m?.[1]?.toLowerCase();
-    const val = m?.[2];
+    const val = m?.[2]?.replace(/"/g, '');
     if (op === undefined || val === undefined || val.length === 0) {
       free.push(tok);
       continue;
@@ -307,7 +378,7 @@ export function parseAttachmentQuery(q: string): AttachmentFilters {
     switch (op) {
       case 'filename':
       case 'name':
-        f.text = val;
+        f.filename = val;
         break;
       case 'type':
       case 'kind':
@@ -315,6 +386,18 @@ export function parseAttachmentQuery(q: string): AttachmentFilters {
         break;
       case 'from':
         f.from = val;
+        break;
+      case 'subject':
+        f.subject = val;
+        break;
+      case 'ext':
+      case 'extension':
+      case 'extensions':
+        f.extensions = val.split(/[,;]+/).map(value => value.replace(/^\.+/, '').toLowerCase()).filter(Boolean);
+        break;
+      case 'in':
+      case 'folder':
+        f.mailboxId = val;
         break;
       case 'larger': {
         const n = parseSize(val);
@@ -336,7 +419,7 @@ export function parseAttachmentQuery(q: string): AttachmentFilters {
         free.push(tok);
     }
   }
-  if (free.length > 0 && f.text === undefined) f.text = free.join(' ');
+  if (free.length > 0) f.text = free.join(' ');
   return f;
 }
 

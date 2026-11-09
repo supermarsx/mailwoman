@@ -45,6 +45,9 @@ const ICON: Record<TypeCategory, string> = {
   video: 'VID',
   text: 'TXT',
   message: 'MSG',
+  document: 'DOC',
+  spreadsheet: 'XLS',
+  archive: 'ZIP',
   other: 'FILE',
 };
 
@@ -55,7 +58,7 @@ function Thumb(props: {
   onSelect: ((item: StripItem) => void) | undefined;
   resolveThumb: ((item: StripItem) => Promise<string>) | undefined;
 }): JSX.Element {
-  const category = (): TypeCategory => categoryOf(props.item.mime);
+  const category = (): TypeCategory => categoryOf(props.item.mime, props.item.name);
   // t53: a calendar file opens as an event card.
   const isEvent = (): boolean => viewerKindFor(props.item.mime, props.item.name) === 'calendar';
   // One owner per thumb, so a thumb leaving the strip (or the whole strip

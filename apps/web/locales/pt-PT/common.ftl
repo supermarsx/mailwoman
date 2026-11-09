@@ -105,13 +105,16 @@ common-attach-search-placeholder = filename:report type:pdf larger:1mb from:alic
 common-attach-filter-type = Filtrar por tipo
 common-attach-loading = A carregar anexos…
 common-attach-empty = Nenhum anexo corresponde.
-common-attach-cat-all = todos
-common-attach-cat-image = imagem
-common-attach-cat-pdf = pdf
-common-attach-cat-text = texto
-common-attach-cat-audio = áudio
-common-attach-cat-video = vídeo
-common-attach-cat-other = outro
+common-attach-cat-all = Todos os tipos de ficheiro
+common-attach-cat-image = Imagens
+common-attach-cat-pdf = PDFs
+common-attach-cat-text = Ficheiros de texto
+common-attach-cat-audio = Áudio
+common-attach-cat-video = Vídeos
+common-attach-cat-other = Outros ficheiros
+common-attach-cat-document = Documentos
+common-attach-cat-spreadsheet = Folhas de cálculo
+common-attach-cat-archive = Ficheiros comprimidos
 
 # -- Password fields (components/PasswordInput.tsx): the button at the end of
 # every password field, on both sign-in screens and in settings. It is a toggle;
@@ -154,7 +157,7 @@ common-message-preview-failed = Não foi possível pré-visualizar este anexo de
 common-message-preview-attachments = Ficheiros nesta mensagem
 common-message-preview-download = Transferir ficheiro
 common-message-preview-size-bytes = { $count } bytes
-common-attach-cat-message = Mensagens / anexos do Outlook
+common-attach-cat-message = Mensagens de correio
 
 common-error-retry-help = Esta secção está temporariamente indisponível. Tente novamente para a recarregar.
 common-error-network-help = Verifique a ligação e tente novamente. O servidor pode estar temporariamente indisponível.
@@ -166,11 +169,20 @@ common-new-version-reloading = Está disponível uma nova versão; a recarregar�
 
 common-attach-account-changed = A conta mudou durante o carregamento dos anexos. Abra novamente «Anexos» para a conta atual.
 common-attach-search-account = Pesquisar em toda a conta
-common-attach-scanning = A pesquisar… { $pages } páginas de mensagens verificadas · { $count } ficheiros encontrados
-common-attach-scan-cancelled = Pesquisa cancelada · { $count } ficheiros encontrados em { $pages } páginas. Os resultados estão incompletos.
+common-attach-scanning = A pesquisar todos os anexos… { $count ->
+    [one] 1 ficheiro encontrado
+   *[other] { $count } ficheiros encontrados
+}
+common-attach-scan-cancelled = Pesquisa cancelada · { $count ->
+    [one] 1 ficheiro encontrado. Os resultados estão incompletos.
+   *[other] { $count } ficheiros encontrados. Os resultados estão incompletos.
+}
 common-attach-scan-incomplete = Pesquisa interrompida · { $count } ficheiros encontrados. Tente novamente para pesquisar toda a conta.
 common-attach-scan-limited = A mostrar os primeiros 1000 ficheiros correspondentes. Restrinja os filtros para encontrar ficheiros mais específicos.
-common-attach-scan-complete = Pesquisa concluída · { $count } ficheiros encontrados em { $pages } páginas de mensagens
+common-attach-scan-complete = Pesquisa concluída · { $count ->
+    [one] 1 ficheiro encontrado
+   *[other] { $count } ficheiros encontrados
+}
 common-attach-browse-pages = Percorrer páginas
 common-attach-cancel-search = Cancelar pesquisa
 multiselect-selected = Selecionados: { $label }

@@ -118,13 +118,16 @@ common-attach-search-placeholder = filename:report type:pdf larger:1mb from:alic
 common-attach-filter-type = Filter by type
 common-attach-loading = Loading attachments…
 common-attach-empty = No attachments match.
-common-attach-cat-all = all
-common-attach-cat-image = image
-common-attach-cat-pdf = pdf
-common-attach-cat-text = text
-common-attach-cat-audio = audio
-common-attach-cat-video = video
-common-attach-cat-other = other
+common-attach-cat-all = All file types
+common-attach-cat-image = Images
+common-attach-cat-pdf = PDFs
+common-attach-cat-text = Text files
+common-attach-cat-audio = Audio
+common-attach-cat-video = Videos
+common-attach-cat-other = Other files
+common-attach-cat-document = Documents
+common-attach-cat-spreadsheet = Spreadsheets
+common-attach-cat-archive = Archives
 
 # -- Password fields (components/PasswordInput.tsx): the button at the end of
 # every password field, on both sign-in screens and in settings. It is a toggle;
@@ -167,7 +170,7 @@ common-message-preview-failed = This message attachment could not be previewed. 
 common-message-preview-attachments = Files inside this message
 common-message-preview-download = Download file
 common-message-preview-size-bytes = { $count } bytes
-common-attach-cat-message = Messages / Outlook attachments
+common-attach-cat-message = Email messages
 
 common-error-retry-help = This section is temporarily unavailable. Try again to reload it.
 common-error-network-help = Check your connection, then try again. The server may be temporarily unavailable.
@@ -179,11 +182,20 @@ common-new-version-reloading = A new version is available, reloading…
 
 common-attach-account-changed = The account changed while loading attachments. Reopen Attachments for the current account.
 common-attach-search-account = Search entire account
-common-attach-scanning = Searching… { $pages } message pages checked · { $count } files found
-common-attach-scan-cancelled = Search cancelled · { $count } files found in { $pages } pages. Results are incomplete.
+common-attach-scanning = Searching all attachments… { $count ->
+    [one] 1 file found
+   *[other] { $count } files found
+}
+common-attach-scan-cancelled = Search cancelled · { $count ->
+    [one] 1 file found. Results are incomplete.
+   *[other] { $count } files found. Results are incomplete.
+}
 common-attach-scan-incomplete = Search interrupted · { $count } files found. Retry to search the entire account.
 common-attach-scan-limited = Showing the first 1,000 matching files. Narrow your filters to find more specific files.
-common-attach-scan-complete = Search complete · { $count } files found across { $pages } message pages
+common-attach-scan-complete = Search complete · { $count ->
+    [one] 1 file found
+   *[other] { $count } files found
+}
 common-attach-browse-pages = Browse pages
 common-attach-cancel-search = Cancel search
 multiselect-selected = Selected: { $label }
