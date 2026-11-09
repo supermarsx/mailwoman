@@ -72,3 +72,6 @@ search-refine-folder = Pesquisar nesta pasta
 search-refine-domain = Pesquisar mensagens deste domínio
 
 search-include-trash-scoped = Incluir o Lixo aplica-se à pesquisa em todas as pastas. A pasta selecionada é pesquisada diretamente.
+
+search-field-mentions = Menções
+search-chip-mentions-me = Menciona-me

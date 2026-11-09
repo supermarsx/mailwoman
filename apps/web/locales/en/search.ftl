@@ -70,3 +70,6 @@ search-refine-folder = Search in this folder
 search-refine-domain = Search messages from this domain
 
 search-include-trash-scoped = Include Trash applies when searching all folders. The selected folder is searched directly.
+
+search-field-mentions = Mentions
+search-chip-mentions-me = Mentions me

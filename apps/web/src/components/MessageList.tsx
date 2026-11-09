@@ -1,3 +1,4 @@
+import {mentionsAny} from '../modules/mentions/metadata.ts';
 import {hasFileAttachments} from './attachmentMetadata.ts';
 import {mailPrefetchEvents} from './mailPrefetchEvents.ts';
 import {ReplyDraftIndicator} from './ReplyState.tsx';
@@ -179,6 +180,11 @@ function FolderChip(props:{email:Email}): JSX.Element {
   );
 }
 
+function MentionMark(props:{mentioned:boolean}):JSX.Element {
+ return <Show when={props.mentioned}><span class="list__attach" role="img" aria-label={t('mail-mentions-me')} title={t('mail-mentions-me-help')} data-testid="row-mentions-me">@</span></Show>;
+}
+function ownMentionAddresses(app:ReturnType<typeof useApp>):string[]{return [...(app.identities?.()??[]).map(identity=>identity.email),app.me?.()?.username??''];}
+
 function MessageRow(props: {
   replyDraft:ReplyDraft|undefined;
   contextMenu:MessageMenu;
@@ -248,6 +254,7 @@ function MessageRow(props: {
           <Show when={email().pinned === true}>
             <span class="list__pin" aria-label={t('mail-pinned')}><Icon name="pin" /></span>
           </Show>
+          <MentionMark mentioned={mentionsAny(email().mailwomanMentions,ownMentionAddresses(app))}/>
           <PriorityMark priority={priorityOf(email())}/>
           <Show when={hasFileAttachments(email())}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
@@ -321,6 +328,7 @@ function ThreadHeadRow(props: {
   contextMenu:MessageMenu;
   onDragStart:(event:DragEvent)=>void;
   row: ThreadVisualRow;
+  mentioned?:boolean;
   top: number;
   height: number;
   index: number;
@@ -391,6 +399,7 @@ function ThreadHeadRow(props: {
           <span class={thread.count} aria-label={t('mail-thread-count', { count: props.row.count })}>
             {props.row.count}
           </span>
+          <MentionMark mentioned={props.mentioned===true}/>
           <PriorityMark priority={props.row.priority ?? priorityOf(rep())}/>
           <Show when={hasFileAttachments(props.row)}>
             <span class="list__attach" aria-label={t('mail-has-attachment')}><Icon name="attachment" /></span>
@@ -462,6 +471,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   const messageThreads=createMemo(()=>new Map(app.listMessages().map(email=>[email.id,threadKey(email)])));
   const threadDrafts=createMemo(()=>{const result=new Map<string,ReplyDraft>();for(const draft of replyDrafts().values()){const key=messageThreads().get(draft.emailId);if(key&&(!result.has(key)||result.get(key)!.savedAt<draft.savedAt))result.set(key,draft);}return result;});
   const answeredThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$answered']===true).map(threadKey)));
+  const mentionedThreads=createMemo(()=>{const own=ownMentionAddresses(app);return new Set(app.listMessages().filter(email=>mentionsAny(email.mailwomanMentions,own)).map(threadKey));});
   const forwardedThreads=createMemo(()=>new Set(app.listMessages().filter(email=>email.keywords?.['$forwarded']===true).map(threadKey)));
   const [contextEmail,setContextEmail]=createSignal<Email>();
   const [contextThread,setContextThread]=createSignal(false);
@@ -1041,7 +1051,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
                         />
                       }
                     >
-                      <ThreadHeadRow contextMenu={messageMenu}
+                      <ThreadHeadRow contextMenu={messageMenu} mentioned={mentionedThreads().has(row().key)}
                         replyDraft={threadDrafts().get(row().key)} answered={answeredThreads().has(row().key)} forwarded={forwardedThreads().has(row().key)}
                         row={row()}
                         top={rowTop(index())}

@@ -31,6 +31,7 @@ export interface SearchFilterBarProps {
 /** Text-valued chips and the operator each writes. */
 const TEXT_OPS: Partial<Record<ChipKind, Operator>> = {
   from: 'from', to: 'to', cc: 'cc', subject: 'subject', body: 'body', filename: 'filename', tag: 'tag',
+  mentions: 'mentions',
 };
 
 const FIELD_LABEL: Partial<Record<ChipKind, string>> = {
@@ -38,11 +39,13 @@ const FIELD_LABEL: Partial<Record<ChipKind, string>> = {
   body: 'search-field-body', text: 'search-field-text', filename: 'search-field-filename', tag: 'search-field-tag',
   date: 'search-field-date', size: 'search-field-size', scope: 'search-field-scope', expr: 'search-field-expression',
   other: 'search-field-other',
+  mentions: 'search-field-mentions',
 };
 
 const CHIP_ICON: Partial<Record<ChipKind, IconName>> = {
   attachment: 'attachment', event: 'calendar', unread: 'mailRead', flagged: 'flag', pinned: 'pin', answered: 'reply', forwarded: 'forward', priority: 'alert', date: 'clock',
   scope: 'folder', from: 'users', to: 'sent', subject: 'mail', body: 'file', text: 'search', size: 'archive',
+  mentions: 'person',
 };
 
 const TOGGLES: readonly ChipKind[] = ['attachment', 'event', 'unread', 'flagged', 'pinned', 'answered', 'forwarded', 'priority'];
@@ -118,6 +121,7 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
   /** The chip's whole visible text, which also names it to assistive tech. */
   const chipLabel = (chip: Chip): string => {
     if (TOGGLES.includes(chip.kind)) return toggleLabel(chip.kind, termAt(query(), chip));
+    if (chip.kind === 'mentions' && termAt(query(),chip)?.kind === 'field' && chipValue(chip) === 'me') return t('search-chip-mentions-me');
     if (chip.kind === 'scope') return `${t('search-field-scope')}: ${scopeName()}`;
     return `${t(FIELD_LABEL[chip.kind] ?? 'search-field-other')}: ${chipValue(chip)}`;
   };
@@ -156,6 +160,8 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
         { id: 'event', label: t('search-chip-event'), icon: 'calendar', run: () => addFlag('has', 'calendar', ['calendar']) },
         { id: 'unread', label: t('search-chip-unread'), icon: 'mailRead', run: () => addFlag('is', 'unread', ['unread', 'read']) },
         { id: 'flagged', label: t('search-chip-flagged'), icon: 'flag', run: () => addFlag('is', 'flagged', ['flagged', 'unflagged']) },
+        edit('mentions', 'person', 'search-field-mentions'),
+        { id:'mentions-me',label:t('search-chip-mentions-me'),icon:'person',run:()=>addFlag('mentions','me',['me']) },
         { id: 'answered', label: t('search-chip-answered'), icon: 'reply', run: () => addFlag('is', 'answered', ['answered', 'unanswered']) },
         { id: 'forwarded', label: t('search-chip-forwarded'), icon: 'forward', run: () => addFlag('is', 'forwarded', ['forwarded', 'unforwarded']) },
         { id: 'high-priority', label: t('search-chip-high-priority'), icon: 'alert', run: () => addFlag('is', 'high-priority', ['high-priority']) },
@@ -171,6 +177,7 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
     {op:'has',value:'attachment',alike:['attachment'],label:'search-chip-attachment'},
     {op:'is',value:'unread',alike:['unread','read'],label:'search-chip-unread'},
     {op:'is',value:'flagged',alike:['flagged','unflagged'],label:'search-chip-flagged'},
+    {op:'mentions',value:'me',alike:['me'],label:'search-chip-mentions-me'},
   ] as const;
   const enabledFlag=(op:Operator,value:string):boolean=>query().terms.some(term=>term.kind==='field'&&term.op===op&&term.value===value&&!term.negated);
   const removeFlag=(op:Operator,value:string):void=>commit(removeTerms(query(),query().terms.flatMap((term,index)=>term.kind==='field'&&term.op===op&&term.value===value&&!term.negated?[index]:[])));
@@ -222,7 +229,7 @@ export function SearchFilterBar(props: SearchFilterBarProps): JSX.Element {
                 onClick={(e) => press(chip(), e.currentTarget)}
               >
                 <Show when={CHIP_ICON[chip().kind]}>{(icon) => <Icon name={icon()} />}</Show>
-                <Show when={!toggle()} fallback={<span class={css.chipText}>{chipLabel(chip())}</span>}>
+                <Show when={!toggle() && !(chip().kind === 'mentions' && chipValue(chip()) === 'me')} fallback={<span class={css.chipText}>{chipLabel(chip())}</span>}>
                   <span class={css.chipText}><span class={css.chipField}>{t(FIELD_LABEL[chip().kind] ?? 'search-field-other')}:</span> {chipValue(chip())}</span>
                 </Show>
               </button>

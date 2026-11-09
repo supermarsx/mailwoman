@@ -18,7 +18,7 @@ import type { OfflineQuery } from '../offline/search.ts';
 
 /** Engine operators plus the local-only include:trash option. Unknown fields stay literal. */
 export const OPERATORS = [
-  'from', 'from-domain', 'to', 'cc', 'subject', 'body', 'text', 'filename', 'tag', 'in', 'has', 'is',
+  'from', 'from-domain', 'to', 'cc', 'subject', 'body', 'text', 'filename', 'tag', 'mentions', 'in', 'has', 'is',
   'before', 'after', 'larger', 'smaller', 'pinned', 'include',
 ] as const;
 export type Operator = (typeof OPERATORS)[number];
@@ -304,7 +304,7 @@ export function setOptionalField(query: SearchQuery, op: Operator, value: string
 // ---------------------------------------------------------------------------
 
 export type ChipKind =
-  | 'from' | 'to' | 'cc' | 'subject' | 'body' | 'text' | 'filename' | 'tag'
+  | 'from' | 'to' | 'cc' | 'subject' | 'body' | 'text' | 'filename' | 'tag' | 'mentions'
   | 'attachment' | 'event' | 'unread' | 'flagged' | 'pinned' | 'answered' | 'forwarded' | 'priority'
   | 'date' | 'size' | 'scope' | 'other' | 'expr';
 
@@ -352,6 +352,7 @@ export function chipsOf(query: SearchQuery): Chip[] {
         return one('pinned');
       case 'in':
         return term.negated ? one('other') : one('scope');
+      case 'mentions': return one('mentions');
       case 'after': case 'before':
         if (term.negated) return one('other');
         claimed.add(i);

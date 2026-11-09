@@ -1434,3 +1434,7 @@ mail-list-order-importance-asc = Importância, baixa primeiro
 mail-list-order-size = Tamanho, maiores primeiro
 
 mail-list-order-size-asc = Tamanho, menores primeiro
+
+mail-mentions-me = Menciona-me
+
+mail-mentions-me-help = Pesquisar mensagens que mencionam um dos seus endereços de email

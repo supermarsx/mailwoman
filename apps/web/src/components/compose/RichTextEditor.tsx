@@ -1,3 +1,5 @@
+import {mentionPlugin} from '../../modules/mentions/mentionPlugin.ts';
+import type {MentionSource} from '../../modules/mentions/mentionSource.ts';
 import {Portal} from 'solid-js/web';
 import {createAdvancedEditorTools} from './AdvancedEditorTools.tsx';
 import {Feature,createFormatControls,createPainter,type FormatAdapter} from './FormatControls.tsx';
@@ -178,6 +180,7 @@ export type EditorGroup = 'clipboard'|'font'|'paragraph'|'editing'|'view'|'inser
 export interface EditorContext { image: boolean; table: boolean }
 
 export interface RichTextEditorProps {
+  mentions?:MentionSource;
   /** Initial HTML to seed the document (from the composer's `bodyHtml`). */
   initialHtml: string;
   /** The host's ribbon shows the undo/redo history (the editor's own ribbon then omits it). */
@@ -328,6 +331,7 @@ export function RichTextEditor(props: RichTextEditorProps): JSX.Element {
     const state = EditorState.create({
       doc: docFromHtml(props.initialHtml, owned(), embedded()),
       plugins: [
+        ...(props.mentions?[mentionPlugin(props.mentions)]:[]),
         history(),
         tableLimitPlugin(()=>setEditorError(t('mail-editor-table-limits'))),
         keymap({

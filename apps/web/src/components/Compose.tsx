@@ -1,3 +1,6 @@
+import {attachPlainMentions} from '../modules/mentions/plainMentions.ts';
+import {toWithMention} from '../modules/mentions/mentions.ts';
+import type {MentionSource} from '../modules/mentions/mentionSource.ts';
 import {ccbccGroup,ccbccToggle} from './compose/composeHeader.css.ts';
 import {swapQuote} from './compose/quoteRegion.ts';
 import {ResponseTemplates} from './compose/ResponseTemplates.tsx';
@@ -244,12 +247,14 @@ export function Compose(props: {
     setLayout((cur) => (isEmptyLayout(cur) ? { font: decodeFont(saved) } : cur));
   });
 
+  const mentionSource:MentionSource={cards:()=>app.contacts(),lookup:query=>app.autocompleteContacts?.(query)??Promise.resolve([]),scope:()=>preferenceAccount(),onPick:pick=>setTo(toWithMention(to(),cc(),bcc(),pick,separator()==='semicolon'?';':','))};
+
   /** The plain-text Body field. It is the fallback for all three ways the rich
    *  editor can be absent — plain-text mode, the chunk still loading, and the
    *  chunk failing to load at all — so it lives in one place rather than three. */
   const plainBody = (): JSX.Element => (
     <><textarea
-      ref={plainArea}
+      ref={area=>{plainArea=area;onMount(()=>onCleanup(attachPlainMentions(area,mentionSource,value=>{setBody(value);setBodyHtml(plainToHtml(value));})));}}
       aria-label={t('mail-compose-body')}
       rows={compact() ? 4 : 10}
       value={body()}
@@ -554,6 +559,7 @@ export function Compose(props: {
     if (props.active !== false) toInputEl?.focus();
     void loadInitialIdentities();
     void app.loadContacts().catch(() => undefined);
+    void loadCatalog('mentions');
     // Probe the optional V7 backends ONCE (idempotent, silent on failure): a
     // NotConfigured directory / absent Nextcloud leaves `enabled` false so their
     // affordances never mount and the composer is byte-unchanged.
@@ -2376,10 +2382,11 @@ export function Compose(props: {
                 cold and the context offline. */}
             <AsyncBoundary fallback={() => plainBody()}>
               <Suspense fallback={plainBody()}>
-                <Show when={!sourceMode()} fallback={<HtmlSourceEditor reply={replyContext()} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onLinkClick={openLinkEdit} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
+                <Show when={!sourceMode()} fallback={<HtmlSourceEditor mentions={mentionSource} reply={replyContext()} externalHistory ribbonSlots={ribbon.slots} initialHtml={bodyHtml()} externalText={body} owned={ownedCids} upload={uploadInline} preview={async cid=>{const image=inlineImages().find(image=>image.cid===cid);return image?.previewUrl?blobUrlToDataUrl(image.previewUrl,image.type):null;}} onLinkClick={openLinkEdit} onChange={onEditorChange} onReady={setEditorApi}/>}><RichTextEditor
                   externalHistory
                   ribbonSlots={ribbon.slots}
                   omitGroups={['insert']}
+                  mentions={mentionSource}
                   initialHtml={bodyHtml()}
                   externalText={body}
                   ariaLabel={t('mail-compose-body')}
