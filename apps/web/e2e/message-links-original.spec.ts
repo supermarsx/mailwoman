@@ -16,6 +16,8 @@ async function fixture(page:Page,html:string){
  const ids=new Set<string>();
  await page.route(/\/jmap(?:\/api)?$/,async route=>{
   if(route.request().method()!=='POST')return route.continue();
+  const request=route.request().postDataJSON() as {methodCalls?:[string,unknown,string][]};
+  if(!request.methodCalls?.some(([method])=>method==='Email/get'))return route.continue();
   const response=await route.fetch();const body=await response.json() as {methodResponses?:[string,{list?:Record<string,unknown>[]},string][]};
   for(const[method,args]of body.methodResponses??[])if(method==='Email/get')for(const email of args.list??[]){
    if(email['subject']==='Lunch tomorrow?')ids.add(String(email['id']));if(!ids.has(String(email['id'])))continue;
@@ -73,4 +75,25 @@ for(const width of [1280,390])test(`real reader Loading label has inline margins
  }finally{release();await page.unroute(policy,handler);}
  const frame=await body(page);await expect(frame.getByText('Loader finished marker',{exact:true})).toBeVisible();
  await expect(page.locator('section.reader:visible .inline-loading[data-visible="true"]')).toHaveCount(0);
+});
+
+for(const count of [3,60])test(`link review adapts to ${count} links without overflowing the viewport`,async({page})=>{
+ await page.setViewportSize({width:1280,height:1000});
+ const html=Array.from({length:count},(_,index)=>`<p><a href="https://example.org/invoice-${index}?details=${'a'.repeat(1600)}">Invoice link ${index}</a></p>`).join('');
+ await fixture(page,html);await login(page);await messageRow(page,'Lunch tomorrow?').click();await page.getByTestId('reader-links').click();
+ const dialog=page.getByRole('dialog',{name:'Message links',exact:true}),panel=dialog.locator('section.message-links'),close=dialog.getByRole('button',{name:'Close',exact:true});
+ await expect(dialog).toBeVisible();await expect(panel.locator('.message-links__row')).toHaveCount(count);
+ const large=await panel.boundingBox();expect(large).not.toBeNull();expect(large!.y).toBeGreaterThanOrEqual(0);expect(large!.y+large!.height).toBeLessThanOrEqual(1000);
+ if(count===60)expect(large!.height).toBeGreaterThan(600);else expect(large!.height).toBeLessThan(500);
+ await page.setViewportSize({width:1280,height:450});
+ await expect.poll(async()=>{const box=await panel.boundingBox();return !!box&&box.x>=0&&box.y>=0&&box.x+box.width<=1280&&box.y+box.height<=450;}).toBe(true);
+ await panel.evaluate(element=>{element.scrollTop=element.scrollHeight;});await expect(close).toBeInViewport();
+ await panel.getByRole('button',{name:`Invoice link ${count-1}`,exact:true}).click();
+ const open=dialog.getByRole('link',{name:'Open in a new tab',exact:true});await open.scrollIntoViewIfNeeded();await expect(open).toBeInViewport();await expect(close).toBeInViewport();
+ const overflow=await panel.evaluate(element=>element.scrollWidth-element.clientWidth);expect(overflow).toBeLessThanOrEqual(1);
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await expect(page.getByTestId('reader-links')).toBeFocused();
+ // The compact layout remounts the reader; open its dialog afresh at phone width.
+ await page.setViewportSize({width:390,height:450});await messageRow(page,'Lunch tomorrow?').click();await page.getByTestId('reader-links').click();
+ await expect(dialog).toBeVisible();const phone=await panel.boundingBox();expect(phone).not.toBeNull();expect(phone!.x).toBeGreaterThanOrEqual(0);expect(phone!.y).toBeGreaterThanOrEqual(0);expect(phone!.x+phone!.width).toBeLessThanOrEqual(390);expect(phone!.y+phone!.height).toBeLessThanOrEqual(450);
+ await page.keyboard.press('Escape');await expect(dialog).toHaveCount(0);await page.unrouteAll({behavior:'wait'});
 });

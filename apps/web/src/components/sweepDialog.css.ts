@@ -20,3 +20,8 @@ globalStyle('.message-links__trusted',{justifySelf:'start',fontSize:'0.875em',co
 globalStyle('.message-links__destination',{display:'flex',flexDirection:'column',gap:vars.space[3]});
 globalStyle('.message-links__destination h3, .message-links__destination ul',{marginBlock:0});
 globalStyle('.message-links__destination > .btn',{alignSelf:'flex-start'});
+
+// Link review grows with its contents; the viewport-bound dialog owns scrolling.
+// Other sweep previews retain their compact limit.
+globalStyle('.message-links > .sweep__preview',{maxBlockSize:'none',overflowY:'visible',flexShrink:0});
+globalStyle('.message-links > .sweep__header',{position:'sticky',insetBlockStart:0,zIndex:1,background:vars.color.surface,flexShrink:0});
