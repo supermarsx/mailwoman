@@ -3,6 +3,7 @@
 import {test,expect,type Page} from '@playwright/test';
 import {login} from './helpers.ts';
 test.use({serviceWorkers:'block'});test.setTimeout(75000);
+test.afterEach(async({page})=>{await page.unrouteAll({behavior:'wait'});});
 type Order='newest'|'oldest'|'sender'|'subject';
 async function fixture(page:Page,options:{style?:'cards'|'table';empty?:boolean;locked?:boolean}={}){
  page.setDefaultTimeout(15000);await page.setViewportSize({width:1280,height:900});
@@ -34,6 +35,9 @@ async function backgroundOrder(page:Page){await page.locator('section.list:visib
 
 test('cards icon, row and background menus share checked order and persist the isolated preference',async({page})=>{
  const state=await fixture(page);const button=page.getByTestId('list-order-menu');await expect(button).toBeVisible();await expect(button.locator('[data-icon="sort"]')).toBeVisible();
+ await expect(page.getByRole('toolbar',{name:'Workspace layout'}).getByTestId('list-order-menu')).toBeVisible();
+ expect(await button.evaluate(node=>node.nextElementSibling?.getAttribute('data-testid'))).toBe('undo-redo');
+ await expect(state.list.getByTestId('list-order-menu')).toHaveCount(0);
  let menu=await iconMenu(page);await expect(menu.getByRole('menuitemradio',{name:'Newest first',exact:true})).toHaveAttribute('aria-checked','true');
  await menu.getByRole('menuitemradio',{name:'Oldest first',exact:true}).click();await expect.poll(()=>state.writes).toEqual(['oldest']);
  menu=await rowOrder(page);await expect(menu.getByRole('menuitemradio',{name:'Oldest first',exact:true})).toHaveAttribute('aria-checked','true');await menu.getByRole('menuitemradio',{name:'Sender',exact:true}).click();

@@ -64,6 +64,7 @@ export const childRow = style({
 /** The always-visible list toolbar that hosts the reading-pane control. */
 export const toolbar = style({
   display: 'flex',
+  selectors: { '&:empty': { display: 'none' } },
   flexWrap: 'wrap',
   alignItems: 'center',
   gap: '0.35rem',

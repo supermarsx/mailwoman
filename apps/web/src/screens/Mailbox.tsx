@@ -21,6 +21,8 @@ import {LinkedAccountControl} from '../components/accounts/LinkedAccountControl.
 import {accountIndicatorLabel} from '../components/accounts/MailboxPicker.tsx';
 import {mailboxNickname} from '../api/mailboxLayout.ts';
 import {CollapsibleBar} from '../components/bars/index.ts';
+import {MessageOrderMenu} from '../components/MessageOrderMenu.tsx';
+import {createMessageOrder} from '../components/messageOrder.ts';
 import {UndoRedoControl} from '../components/UndoRedoControl.tsx';
 import {OutboxChip} from '../components/OutboxChip.tsx';
 import {DetachedWorkspacePane,type DetachedPaneHandle} from '../components/DetachedWorkspacePane.tsx';
@@ -129,6 +131,7 @@ function refetchPim(app: ReturnType<typeof useApp>, surface: ShellSurface): void
 export function MailboxScreen(): JSX.Element {
   const branding=useBranding();
   const app = useApp();
+  const messageOrder=createMessageOrder(()=>app.showToast('error',t('mail-list-order-error')));
   const { subTabs } = useRealtime();
   /** The Mail tab is the strip's first tab. Seeded here, before any effect,
    *  because the saved-tab restore below runs in an effect that can fire before
@@ -1180,6 +1183,7 @@ export function MailboxScreen(): JSX.Element {
           <Show when={previewVisible()&&preview()!==null}><button type="button" class={`btn btn--ghost ${a11y.iconButton}`} aria-label={t('mail-toggle-list')} title={t('mail-toggle-list')} aria-pressed={listVisible()} onClick={()=>setAccountUiPreferences({messageListCollapsed:listVisible()})}><Icon name="layoutColumns"/></button></Show>
 
           <WorkspaceLayoutControls value={workspaceLayout()} onChange={setWorkspaceLayout}/>
+          <Show when={listVisible()}><MessageOrderMenu order={messageOrder} scope={()=>`${app.accountId()}:${preferenceAccount()?.generation}:${app.selectedMailboxId()}`} class={`btn btn--ghost ${a11y.iconButton}`}/></Show>
           <UndoRedoControl/>
           <PropertiesHost/>
           <ExportDialogHost/>
@@ -1191,7 +1195,7 @@ export function MailboxScreen(): JSX.Element {
         <div class={a11y.srOnly} role="status" aria-live="polite" aria-atomic="true" data-testid="message-opened-status">{openedNotice()}</div>
         <div class="workspace-body" ref={bodyElement} data-reading-pane={readingPane()} classList={{'workspace-body--split':splitVisible()}}>
           <div class={`mail-pane ${motion.surface}`} hidden={!listVisible()} data-mw-entering={mailEntering()}>
-            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList onOpenReplyDraft={id=>void openReplyDraft(id)} hideReadingPane hideSelectionToggle selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
+            <SearchBox /><InboxTabs /><EventsViewBar /><MessageList onOpenReplyDraft={id=>void openReplyDraft(id)} hideReadingPane hideSelectionToggle hideOrderControl selectionMode={listSelecting} onSelectionModeChange={setListSelecting} selectionReset={selectionReset} onOpenMessage={id=>void openFromList(id,'activate')} onOpenMessageTab={id=>void openFromList(id,'tab')} onCompose={openReply} restoreAnchor={restoreAnchor} onAnchorChange={setListAnchor}/>
           </div>
           <Show when={splitVisible()}><ResizeHandle label={t('mail-resize-list')} orientation={readingPane()==='bottom'?'horizontal':'vertical'} value={listSize()} min={listBounds().min} max={listBounds().max} onChange={setListDrag} onCommit={value=>{setAccountUiPreferences(readingPane()==='bottom'?{messageListHeight:value}:{messageListWidth:value});setListDrag(null);}}/></Show>
           <div class="workspace-panes" ref={tilesElement} data-layout={effectiveLayout()} data-pair={isSplitLayout(effectiveLayout())} data-companion={companion()!==null} hidden={!readersVisible()}>

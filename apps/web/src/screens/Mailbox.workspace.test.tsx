@@ -173,6 +173,9 @@ describe('retained mailbox workspace',()=>{
     const {app}=mount();await app.login({username:'me@example.org',password:'p'});
     const toolbar=screen.getByRole('toolbar',{name:'Workspace layout'});
     const select=within(toolbar).getByRole('button',{name:'Select messages'});
+    const order=within(toolbar).getByRole('button',{name:'Order by'});
+    expect(order.nextElementSibling).toBe(screen.getByTestId('undo-redo'));
+    expect(screen.getAllByRole('button',{name:'Order by'})).toHaveLength(1);
     expect(select).toHaveAttribute('aria-pressed','false');
     expect(screen.getAllByRole('button',{name:'Select messages'})).toHaveLength(1);
     fireEvent.click(select);fireEvent.click(await screen.findByText('Subject a',{selector:'.list__subject'}));
@@ -191,6 +194,7 @@ describe('retained mailbox workspace',()=>{
     await waitFor(()=>expect(screen.getByRole('tab',{name:'Subject a'})).toHaveAttribute('aria-selected','true'));
     expect(toggle()).not.toBeInTheDocument();
     expect(screen.queryByRole('button',{name:'Reading pane'})).not.toBeInTheDocument();
+    expect(screen.queryByRole('button',{name:'Order by'})).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Mail'}));
     expect(toggle()).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab',{name:'Subject a'}));

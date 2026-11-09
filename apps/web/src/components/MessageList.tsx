@@ -407,12 +407,12 @@ function ThreadHeadRow(props: {
 }
 
 /** The always-visible view toolbar: the reading-pane position control (W3). */
-function ListToolbar(props:{order:MessageOrderController;scope:()=>string;selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean;goToTop?:(()=>void)|undefined}): JSX.Element {
+function ListToolbar(props:{order:MessageOrderController;scope:()=>string;selecting:boolean;toggleSelection:()=>void;hideReadingPane?:boolean;hideSelectionToggle?:boolean;hideOrderControl?:boolean;goToTop?:(()=>void)|undefined}): JSX.Element {
   return (
     <div class={thread.toolbar} role="group" aria-label={t('mail-view-options')}>
       <Show when={!props.hideSelectionToggle}><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} aria-label={t('mail-select-messages')} aria-pressed={props.selecting} onClick={props.toggleSelection}><Icon name="bulkSelect"/></button></Show>
       <Show when={props.goToTop}>{goToTop=><button type="button" class={`${thread.segBtn} ${a11y.focusable}`} data-testid="list-go-to-top" aria-label={t('mail-go-to-top')} title={t('mail-go-to-top')} onClick={()=>goToTop()()}><Icon name="chevronUp"/></button>}</Show>
-      <MessageOrderMenu order={props.order} scope={props.scope}/><EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
+      <Show when={!props.hideOrderControl}><MessageOrderMenu order={props.order} scope={props.scope}/></Show><EmptyTrash/><Show when={!props.hideReadingPane}><ReadingPaneControl/></Show>
     </div>
   );
 }
@@ -440,7 +440,7 @@ function rowId(row: ThreadVisualRow): string {
  * shortcut); without it those fall back to `onOpenMessage`. Where each goes is
  * the host's decision (t74: Mailbox routes by the reading pane).
  */
-export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideReadingPane?:boolean; hideSelectionToggle?:boolean; selectionMode?:()=>boolean; onSelectionModeChange?:(enabled:boolean)=>void; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
+export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideReadingPane?:boolean; hideSelectionToggle?:boolean; hideOrderControl?:boolean; selectionMode?:()=>boolean; onSelectionModeChange?:(enabled:boolean)=>void; selectionReset?:()=>number; onOpenMessage?: (id: string) => void; onOpenMessageTab?: (id: string) => void; onCompose?: (initial:ComposeInitial)=>void;
   /** t109: a message to bring to the top once the list has loaded (a reload's scroll anchor); one that is not loaded is skipped. */
   restoreAnchor?: () => string | null;
   /** t109: the message in the top row as the user scrolls (null at the top). */
@@ -921,7 +921,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
 
   return (
     <section class="list" onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
-      <ListToolbar order={order} scope={orderScope} goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
+      <ListToolbar order={order} scope={orderScope} hideOrderControl={props.hideOrderControl===true} goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={order.value()} disabled={order.locked()||order.saving()} onChange={event=>{const select=event.currentTarget,value=select.value;if(isMessageListOrder(value))void order.set(value).then(()=>{if(select.isConnected)select.value=order.value();});}}><For each={MESSAGE_LIST_ORDERS}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
