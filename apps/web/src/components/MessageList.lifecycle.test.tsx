@@ -64,6 +64,8 @@ function refetchingClient(box: Email[]): Client {
  *  (`moveCursor` scrolling a row into view). */
 function makeScrollable(el: HTMLElement): void {
   Object.defineProperty(el, 'scrollTop', { value: 0, writable: true, configurable: true });
+  // Paging now requires a visible measured viewport; jsdom performs no layout.
+  Object.defineProperty(el, 'clientHeight', { value: 600, configurable: true });
 }
 
 function scrollTo(el: HTMLElement, top: number): void {

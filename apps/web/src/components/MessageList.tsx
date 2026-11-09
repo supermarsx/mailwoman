@@ -25,6 +25,7 @@ import { useActions } from '../keymap/index.ts';
 import {modifierSelectionEnabled,dragToFolderEnabled} from './mailInteractions.ts';
 import {beginMessageDrag,clearMessageDrag} from './messageDrag.ts';
 import { computeWindow, projectedRowCount, sameWindow, splitWindow } from './virtual.ts';
+import { observeListViewport, viewportNeedsPage } from './listViewport.ts';
 import { TagChips } from './TagChips.tsx';
 import { EventHint } from './EventHint.tsx';
 import { MessageActions } from './MessageActions.tsx';
@@ -568,6 +569,19 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   }
 
   let scroller: HTMLDivElement | undefined;
+  let listHost: HTMLElement | undefined;
+  const [hostVisible, setHostVisible] = createSignal(false);
+  const [viewportVisible, setViewportVisible] = createSignal(false);
+  function attachListHost(element: HTMLElement): void {
+    listHost = element;
+    const stop = observeListViewport(element, height => setHostVisible(height > 0));
+    onCleanup(stop);
+  }
+  function attachScroller(element: HTMLDivElement): void {
+    scroller = element;
+    const stop = observeListViewport(element, height => { setViewportVisible(height > 0); if (height > 0) setViewportH(height); });
+    onCleanup(() => { stop(); if (scroller === element) scroller = undefined; });
+  }
   /** `mail.showGoToTop`: back to the first message of the list as loaded (no reload); instant under reduced motion. */
   function goToTop(): void {
     if (!scroller) return;
@@ -654,27 +668,49 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
     });
   }
 
-  /**
-   * Request the next page once the mounted window nears the end of what is
-   * loaded. This is the ONLY thing that turns paging into a user-reachable
-   * feature: every server- and state-side piece landed in `3a8fefb`, but until
-   * a DOM event calls `loadMore()` the list stops at the first page and the app
-   * looks exactly as it did before paging existed.
-   *
-   * Gated on `loadingMore()` because scroll fires continuously — a handler
-   * without it issues a request per scroll event, dozens per gesture — and on
-   * `listLoading()` because a whole-list replace is already in flight and an
-   * append onto a list about to be discarded is wasted.
-   *
-   * Nothing here guards against re-requesting a page that came back holding only
-   * ids already loaded. It does not need to: `mail.ts` ends the query when a page
-   * adds nothing, so `hasMore()` is already false by the next scroll event. That
-   * guard lived here briefly and was moved once the state layer could express it —
-   * two copies of the same rule is how they drift apart.
-   */
-  function maybeLoadMore(): void {
-    if (!app.hasMore() || app.loadingMore() || app.listLoading() || app.loadMoreFailed?.() === true) return;
-    if (win().endIndex >= rows().length - LOAD_MORE_SLACK) void app.loadMore();
+  // Fill the measured viewport on arrival/resize, then prefetch near the loaded
+  // edge on a scroll gesture. The state slice retains page-size and exhaustion
+  // policy; this layer only decides when the visible list needs another page.
+  const pagingScope = (): string => JSON.stringify([app.accountId(),preferenceAccount()?.generation,app.selectedMailboxId(),app.searchActive(),app.search?.(),settings()['mail.messageListOrder']?.value]);
+  let lastPageExtent: string | undefined;
+  let pagingDisposed = false;
+  const [autoFillPaused, setAutoFillPaused] = createSignal(false);
+  let noVisualProgress = 0;
+  let autoRequest: { scope: string } | undefined;
+  // A pause must survive layout changes caused by its own continuation button.
+  createEffect(on([pagingScope, rowHeight], () => { noVisualProgress = 0; setAutoFillPaused(false); }));
+  onCleanup(() => { pagingDisposed = true; });
+  function maybeLoadMore(prefetch = false): void {
+    const scope = pagingScope();
+    if (pagingDisposed || autoFillPaused() || autoRequest?.scope === scope || !app.online() || !app.hasMore() || app.loadingMore() || app.listLoading() || app.loadMoreFailed?.() === true) return;
+    const host = scroller ?? listHost;
+    // Hidden retained lists have no viewport to fill, including scroll events
+    // delivered by a layout change while the list is hidden.
+    if (!host?.isConnected || host.clientHeight <= 0) return;
+    // A replacement folder can mount before ResizeObserver delivers its first
+    // notification; never fill it using the previous folder's container height.
+    const height = scroller?.clientHeight || viewportH();
+    if (!(prefetch ? win().endIndex >= rows().length - LOAD_MORE_SLACK : viewportNeedsPage(scrollTop(), height, rowHeight(), rows().length))) return;
+    const extent = JSON.stringify([pagingScope(),app.loadedRange(),rows().length]);
+    // State normally exhausts a no-progress page. Also avoid reissuing the same
+    // automatic continuation if a transport refuses it without changing state.
+    if (extent === lastPageExtent) return;
+    lastPageExtent = extent;
+    const request = { scope }, before = rows().length;
+    autoRequest = request;
+    void app.loadMore().finally(() => {
+      if (pagingDisposed || pagingScope() !== scope || autoRequest !== request) return;
+      // New messages can fold into the same collapsed conversation or remain
+      // hidden. Four pages without visual growth are enough for one automatic
+      // fill; leave the next continuation to an explicit user action.
+      noVisualProgress = rows().length > before ? 0 : noVisualProgress + 1;
+      if (noVisualProgress >= 4) setAutoFillPaused(true);
+      autoRequest = undefined;
+      queueMicrotask(() => { if (!pagingDisposed && pagingScope() === scope) maybeLoadMore(); });
+    });
+  }
+  function resumeViewportFill(): void {
+    noVisualProgress = 0; lastPageExtent = undefined; setAutoFillPaused(false); maybeLoadMore();
   }
 
   // Re-evaluate after every state change that can leave the viewport at the
@@ -682,9 +718,11 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // the window grew). Scroll events alone miss those, which left the skeleton
   // tail up with no request behind it.
   createEffect(() => {
-    void [rows().length, win().endIndex, app.loadingMore(), app.listLoading()];
+    const scope = pagingScope();
+    void [rows().length, scrollTop(), viewportH(), hostVisible(), viewportVisible(), rowHeight(), app.loadingMore(), app.online(), app.hasMore()];
+    if (app.listLoading()) { lastPageExtent = undefined; noVisualProgress = 0; setAutoFillPaused(false); return; }
     if (app.loadMoreFailed?.() === true) return;
-    queueMicrotask(maybeLoadMore);
+    queueMicrotask(() => { if (!pagingDisposed && pagingScope() === scope) maybeLoadMore(); });
   });
 
   function onScroll(): void {
@@ -695,7 +733,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
       if (scroller.clientHeight > 0) setViewportH(scroller.clientHeight);
       reportAnchor();
     }
-    maybeLoadMore();
+    maybeLoadMore(true);
   }
   // t109: the scroll position is kept as the top row's message, not pixels, so
   // it survives a density change and rows arriving above it.
@@ -903,7 +941,7 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   // is "still loading", not "No messages". The list reloads once it is indexed.
   const sync = createInitialSync(() => (app.searchActive() ? null : app.selectedMailboxId()), () => app.refreshCurrentMailbox());
   // Rows can all be hidden client-side (expired mail in `hide` mode) while more pages exist: that is "still loading", not an empty folder.
-  const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending() || (app.messages().length > 0 && app.hasMore() && app.loadMoreFailed?.() !== true));
+  const showSkeleton = (): boolean => rows().length === 0 && (app.listLoading() || app.switchingMailbox() || sync.pending() || (!autoFillPaused() && app.messages().length > 0 && app.hasMore() && app.loadMoreFailed?.() !== true));
   const skeletonRows = (): number => Math.max(4, Math.min(16, Math.ceil((globalThis.innerHeight || 800) / rowHeight())));
 
   // One delayed spinner covers initial loads, folder changes and linked/primary
@@ -920,25 +958,25 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
   onCleanup(() => loadToast.cancel());
 
   return (
-    <section class="list" onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
+    <section ref={attachListHost} class="list" onContextMenu={backgroundContext} data-list-style={tableMode()?'table':'cards'} aria-label={t('mail-list-label')} aria-busy={app.listLoading() || app.loadingMore() || showSkeleton()}>
       <ListToolbar order={order} scope={orderScope} hideOrderControl={props.hideOrderControl===true} goToTop={mailFeature('showGoToTop')&&rows().length>0?goToTop:undefined} hideSelectionToggle={props.hideSelectionToggle===true} hideReadingPane={props.hideReadingPane===true} selecting={selecting()} toggleSelection={()=>setSelecting(value=>!value)}/>
       <Show when={tableMode()}><div class="list-column-headers"><span>{t('mail-from')}</span><span>{t('mail-subject')}</span><select aria-label={t('mail-list-order')} value={order.value()} disabled={order.locked()||order.saving()} onChange={event=>{const select=event.currentTarget,value=select.value;if(isMessageListOrder(value))void order.set(value).then(()=>{if(select.isConnected)select.value=order.value();});}}><For each={MESSAGE_LIST_ORDERS}>{order=><option value={order}>{t(`mail-list-order-${order}`)}</option>}</For></select></div></Show>
       <OfflineQueueNotice />
       <Show when={sync.running() && rows().length > 0}><div class={loadingCss.syncProgress} aria-hidden="true" data-testid="sync-progress" /></Show>
         <Show when={rows().length > 0} fallback={
-          <Show when={showSkeleton()} fallback={
+          <Show when={!autoFillPaused()}><Show when={showSkeleton()} fallback={
             <Show when={sync.failed()} fallback={<p class="list__empty">{t('mail-empty')}</p>}>
               <AsyncError message={t('mail-initial-sync-error')} detail={t('mail-initial-sync-error-help')} onRetry={() => sync.retry()} />
             </Show>
           }>
             <AsyncPending variant="messages" quiet bounded={!sync.pending()} rowHeight={rowHeight()} rows={skeletonRows()} message={t('mail-loading')} onRetry={()=>void app.refreshCurrentMailbox()}/>
-          </Show>
+          </Show></Show>
         }>
           <div
             class="list__scroll"
             classList={{ [barCss.listInset]: selecting() || app.selectedIds().size > 0 }}
             inert={app.listLoading()}
-            ref={scroller}
+            ref={attachScroller}
             onScroll={onScroll}
             onKeyDown={onKeyDown}
             onFocusIn={onListFocusIn}
@@ -1025,6 +1063,9 @@ export function MessageList(props: { onOpenReplyDraft?:(id:string)=>void;hideRea
             </Show>
           </div>
         </Show>
+      <Show when={autoFillPaused() && app.hasMore() && app.loadMoreFailed?.() !== true}>
+        <button type="button" disabled={app.loadingMore() || app.listLoading() || !app.online()} onClick={resumeViewportFill}>{t('mail-conversation-more')}</button>
+      </Show>
       {/* The floating selection bar (t58): over the list, after it in tab order.
           It never takes focus itself; Esc/F6 in it come back to the cursor row. */}
       <MailSelectionBar selecting={selecting()} onCompose={props.onCompose} onClear={()=>{app.clearSelection();setSelecting(false);}} returnFocus={()=>moveCursor(cursor())}/>

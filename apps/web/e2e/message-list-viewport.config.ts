@@ -1,0 +1,2 @@
+import {defineConfig,devices} from '@playwright/test';
+export default defineConfig({testDir:'.',testMatch:'message-list-viewport.spec.ts',workers:1,retries:0,timeout:75000,expect:{timeout:15000},reporter:'list',outputDir:'../test-results/message-list-viewport',use:{baseURL:'http://localhost:8080',serviceWorkers:'block',trace:'retain-on-failure',screenshot:'only-on-failure'},projects:[{name:'chromium',use:{...devices['Desktop Chrome']}},{name:'firefox',use:{...devices['Desktop Firefox']}}]});
