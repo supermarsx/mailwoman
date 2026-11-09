@@ -5,3 +5,6 @@
 .delivery-status__recipient summary { cursor: pointer; }
 .delivery-status__recipient code { margin-inline-start: .5rem; }
 .delivery-status__diagnostic { white-space: pre-wrap; }
+
+.delivery-status__meaning { margin-block: .75rem; padding-inline-start: .75rem; border-inline-start: 3px solid var(--border); max-inline-size: 72ch; }
+.delivery-status__meaning h4 { margin: 0; font-size: inherit; }

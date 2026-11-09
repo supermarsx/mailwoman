@@ -15,6 +15,10 @@ it('renders escaped report claims without turning delivery into a read receipt',
   expect(screen.getByText(/<img src=x/)).toBeVisible();
   expect(container.querySelector('img')).toBeNull();
   expect(screen.getByText('Reported failure')).toBeVisible();
+  expect(screen.getByText(/recipient mailbox does not exist/)).toBeVisible();
+  expect(screen.getByText(/Permanent failure: resending/)).toBeVisible();
+  expect(screen.getByText('What to do')).toBeVisible();
+  expect(screen.getByText('Server diagnostic')).toBeVisible();
 });
 it('does not query unsupported proxy sessions or suspend the whole reader',async()=>{
   render(()=><Suspense fallback={<p>Pending page</p>}><h1>Reader</h1><DeliveryStatus accountId="a" emailId="m" enabled={false}/></Suspense>);
@@ -38,4 +42,31 @@ it('rejects malformed and unbounded wire projections',()=>{
   expect(deliveryReport({...report,recipients:Array(65).fill(report.recipients[0])})).toBeNull();
   expect(deliveryReport({...report,recipients:[{...report.recipients[0],status:'success'}]})).toBeNull();
   expect(deliveryReport({...report,reportingMta:'x'.repeat(4097)})).toBeNull();
+});
+
+it.each([
+  ['5.7.26', /Multiple message-authentication checks failed/],
+  ['5.7.133', /precise detail is provider-specific/],
+  ['5.2.2', /recipient mailbox is full/],
+  ['4.4.7', /delivery time limit expired/],
+])('shows a readable explanation for %s without hiding the original code',async(status,meaning)=>{
+  await loadCatalog('mail-dsn');
+  vi.mocked(fetchDeliveryReport).mockResolvedValue({...report,recipients:[{...report.recipients[0]!,status}]});
+  render(()=><DeliveryStatus accountId="a" emailId="m" enabled/>);
+  expect(await screen.findByText(meaning)).toBeVisible();
+  expect(screen.getByText(status)).toBeVisible();
+  expect(screen.getByText(/<img src=x/)).toBeVisible();
+});
+
+it('shows the detected provider and a fixed documentation link while preserving raw diagnostic text',async()=>{
+  await loadCatalog('mail-dsn');
+  vi.mocked(fetchDeliveryReport).mockResolvedValue({...report,recipients:[{...report.recipients[0]!,status:'5.1.10',remoteMta:'dns; tenant.mail.protection.outlook.com'}]});
+  const {container}=render(()=><DeliveryStatus accountId="a" emailId="m" enabled/>);
+  expect(await screen.findByText(/Exchange could not resolve this recipient/)).toBeVisible();
+  expect(screen.getByText('Microsoft Exchange / Microsoft 365')).toBeVisible();
+  expect(screen.queryByText(/declares that it accepts no email/)).toBeNull();
+  expect(screen.getByRole('link',{name:'Provider documentation'})).toHaveAttribute('href','https://learn.microsoft.com/en-us/troubleshoot/exchange/email-delivery/ndr/non-delivery-reports-in-exchange-online');
+  expect(screen.getByText('5.1.10')).toBeVisible();
+  expect(screen.getByText(/<img src=x/)).toBeVisible();
+  expect(container.querySelector('img')).toBeNull();
 });
