@@ -118,6 +118,87 @@ pub(crate) fn hostile_probe_path(path: &str) -> bool {
     {
         return true;
     }
+    // Foreign consoles and well-known exposure/exploitation endpoints. Keep
+    // generic /login, /health, /metrics, OpenAPI and mail discovery paths out:
+    // these also have legitimate first-party uses. Entries match whole segments.
+    const FOREIGN_TARGETS: &[&str] = &[
+        "/manager/html",
+        "/manager/status",
+        "/host-manager/html",
+        "/jmx-console",
+        "/web-console",
+        "/console/login/loginform.jsp",
+        "/weblogic",
+        "/wls-wsat",
+        "/jolokia",
+        "/solr/admin",
+        "/h2-console",
+        "/jenkins/script",
+        "/jenkins/scripttext",
+        "/jenkins/cli",
+        "/hudson/script",
+        "/actuator/env",
+        "/actuator/heapdump",
+        "/actuator/configprops",
+        "/actuator/mappings",
+        "/actuator/threaddump",
+        "/actuator/gateway/routes",
+        "/druid/index.html",
+        "/druid/login.html",
+        "/nifi-api/access/config",
+        "/geoserver/web",
+        "/geoserver/rest/about/version",
+        "/server-status",
+        "/server-info",
+        "/telescope/requests",
+        "/_ignition/execute-solution",
+        "/_profiler/phpinfo",
+        "/debug/default/view",
+        "/debug/default/index",
+        "/vendor/phpunit",
+        "/phpunit/phpunit/src/util/php/eval-stdin.php",
+        "/roundcube/installer",
+        "/phpmyadmin/scripts/setup.php",
+        "/hnap1",
+        "/boaform/admin",
+        "/gponform/diagform",
+        "/goform/setusbmount",
+        "/sdk/vimservice",
+        "/.docker/config.json",
+        "/.kube/config",
+        "/.vscode/sftp.json",
+        "/.idea/workspace.xml",
+        "/.svn/entries",
+        "/.hg/hgrc",
+        "/app/etc/local.xml",
+        "/app/etc/env.php",
+        "/web-inf/web.xml",
+        "/web-inf/classes/application.properties",
+        "/meta-inf/maven",
+        "/proc/self/environ",
+        "/proc/self/cmdline",
+        "/etc/passwd",
+    ];
+    if FOREIGN_TARGETS.iter().any(|target| {
+        let needle: Vec<_> = target.split('/').filter(|part| !part.is_empty()).collect();
+        needle.len() <= segments.len()
+            && segments
+                .windows(needle.len())
+                .any(|window| window == needle)
+    }) || matches!(
+        last,
+        "phpinfo.php"
+            | "info.php"
+            | "adminer.php"
+            | "c99.php"
+            | "r57.php"
+            | "wso.php"
+            | "alfa.php"
+            | "cmd.php"
+            | "eval-stdin.php"
+    ) {
+        return true;
+    }
     for (index, segment) in segments.iter().enumerate() {
         let tail = &segments[index + 1..];
         match *segment {
@@ -196,6 +277,65 @@ fn environment_file(value: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn consoles_exposure_and_fingerprinting_endpoints_use_whole_paths() {
+        for path in [
+            "/manager/html",
+            "/tools/host-manager/html",
+            "/JMX-CONSOLE/",
+            "/jolokia/version",
+            "/ACTUATOR/heapdump",
+            "/app/actuator/env/profiles",
+            "/actuator/gateway/routes",
+            "/jenkins/scriptText",
+            "/solr/admin/info/system",
+            "/h2-console/login.jsp",
+            "/_ignition/execute-solution",
+            "/_profiler/phpinfo",
+            "/debug/default/view",
+            "/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php",
+            "/nested/phpinfo.php",
+            "/.docker/config.json",
+            "/.kube/config",
+            "/.vscode/sftp.json",
+            "/.svn/entries",
+            "/WEB-INF/web.xml",
+            "/app/etc/local.xml",
+            "/proc/self/environ",
+            "/etc/passwd",
+            "/%61ctuator/%65nv",
+            "/app/../jenkins/script",
+            "/nested/r57.php",
+        ] {
+            assert!(hostile_probe_path(path), "{path}");
+        }
+        for path in [
+            "/manager",
+            "/actuator-guide/env",
+            "/actuator/env.js",
+            "/jenkins/scripture",
+            "/solr/admin-guide",
+            "/phpinfo.php.txt",
+            "/cmd.php.png",
+            "/proc/self/status",
+            "/api/files/actuator/env",
+            "/jmap/download/a/phpinfo.php",
+            "/dav/files/.kube/config",
+            "/api/openapi.json",
+            "/openapi.json",
+            "/swagger",
+            "/health",
+            "/metrics",
+            "/.well-known/jmap",
+            "/.well-known/oauth-authorization-server",
+            "/autodiscover/autodiscover.xml",
+            "/help?path=/actuator/env",
+            "/safe%3fpath=/manager/html",
+        ] {
+            assert!(!hostile_probe_path(path), "{path}");
+        }
+    }
 
     #[test]
     fn sensitive_env_files_use_whole_known_variants_at_any_depth() {

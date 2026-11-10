@@ -2914,7 +2914,7 @@ generic settings route. See [Admin-probe protection](../security/admin-panel.md#
 | <a id="security.adminProbe.repeatWindowSecs"></a>`security.adminProbe.repeatWindowSecs` | `86400` | 0–2592000 | A block starting this soon after the previous one ended is a repeat. |
 | <a id="security.adminProbe.blockStatus"></a>`security.adminProbe.blockStatus` | `"429"` | `429`, `403` | Status of the blocked answer (with `Retry-After`). |
 | <a id="security.adminProbe.signals"></a>`security.adminProbe.signals` | all four | `probe-path`, `slug-guess`, `admin-signin-failed`, `admin-unauthenticated` | Which misses count. |
-| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 20 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, …) | up to 100, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
+| <a id="security.adminProbe.probePaths"></a>`security.adminProbe.probePaths` | 97 paths (`/admin`, `/wp-admin`, `/.env`, `/manager/html`, `/jolokia`, …) | up to 100, each starting with `/` | Paths scanners ask for; matched as whole segments, any case. |
 | <a id="security.adminProbe.allowlist"></a>`security.adminProbe.allowlist` | `[]` | up to 100 IPs/CIDRs | Never counted or blocked. |
 | <a id="security.adminProbe.auditIp"></a>`security.adminProbe.auditIp` | `"masked"` | `masked`, `full` | Source in the audit log and the API: IPv4 /24 and IPv6 /48, or the address. |
 | <a id="security.adminProbe.fail2banLog"></a>`security.adminProbe.fail2banLog` | `true` | bool | Write the `mailwoman[admin-probe]` line on each block. |

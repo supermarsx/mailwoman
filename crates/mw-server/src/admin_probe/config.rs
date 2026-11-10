@@ -255,6 +255,13 @@ mod tests {
         assert!(hit("/blog/wp-login.php"));
         assert!(hit("/manager/html"));
         assert!(hit("/.git/config"));
+        assert!(hit("/phpmyadmin5/index.php"));
+        assert!(hit("/host-manager/html"));
+        assert!(hit("/jolokia/read/java.lang:type=Runtime"));
+        assert!(hit("/.aws/credentials"));
+        assert!(hit("/vendor/phpunit/phpunit/src/Util/PHP/eval-stdin.php"));
+        assert!(!hit("/jolokia-guide"));
+        assert!(!hit("/.well-known/jmap"));
         assert!(!hit("/wp-administration"));
         assert!(!hit("/manager"));
         assert!(!hit("/"));
