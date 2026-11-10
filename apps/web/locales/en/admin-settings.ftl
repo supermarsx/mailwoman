@@ -2262,3 +2262,8 @@ admin-settings-help-mail-conversations-enabled = Off by default. Group loaded re
 
 admin-settings-key-links-trusted-sender-domains = Trusted sender domains for message links
 admin-settings-help-links-trusted-sender-domains = Up to 100 exact lowercase sender domains whose reviewed message links are enabled automatically. Subdomains are separate. This does not trust destination websites or allow remote images. Empty by default; users can change it unless locked.
+
+admin-settings-key-reader-attachment-action-style = Attachment preview actions
+admin-settings-help-reader-attachment-action-style = Show Download and File details beside the preview title as icons (default), labels, or icons and labels. Can be set and locked globally, per domain, or per user.
+admin-settings-key-reader-attachment-thumbnails = Image attachment thumbnails
+admin-settings-help-reader-attachment-thumbnails = Off by default. Allow visible image attachments to load thumbnail previews. Attachment security rules still apply. Can be set and locked globally, per domain, or per user.

@@ -348,6 +348,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.badge.auth', 'mail.badge.spam', 'mail.badge.sanitized', 'mail.badge.folder', 'mail.badge.list', 'mail.list.unsubscribeMode', 'mail.list.keep', 'mail.badge.density', 'mail.badge.labels',
   'mail.reader.unsafeHtmlMode',
   'reader.attachmentsDensity',
+  'reader.attachmentActionStyle',
+  'reader.attachmentThumbnails',
   'reader.colorMode', 'reader.fontSize', 'reader.lineHeight',
   'reader.contentWidth', 'reader.loading', 'reader.loadingDelayMs', 'reader.zoom', 'reader.attachmentsCollapsed',
   'attachments.bar.clickToToggle', 'attachments.bar.showDownloadButtons', 'attachments.bar.downloadAll', 'attachments.bar.zipInlineImages',

@@ -10,6 +10,7 @@ import { SecurityPopup } from '../components/SecurityPanel.tsx';
 import { formatNumber, t } from '../i18n';
 import { formatSize } from './attachments.ts';
 import { FINGERPRINT_ALGORITHM, groupHex, type AttachmentDetails } from './attachmentDetails.ts';
+import {attachmentActionStyle} from './previewPreferences.ts';
 
 export type { AttachmentDetails } from './attachmentDetails.ts';
 
@@ -20,8 +21,8 @@ export function AttachmentDetailsButton(props: { details: AttachmentDetails }): 
   const close = (): void => { setOpen(false); button?.focus(); };
   return <>
     <button type="button" ref={button} class="btn btn--ghost attachment-details__button" aria-haspopup="dialog" aria-expanded={open()} aria-controls={open() ? id : undefined}
-      title={t('mail-file-details-tooltip')} data-testid="attachment-details-button" onClick={() => setOpen(true)}>
-      <Icon name="info"/><span>{t('mail-file-details-button')}</span>
+      title={t('mail-file-details-tooltip')} aria-label={t('mail-file-details-button')} data-testid="attachment-details-button" onClick={() => setOpen(true)}>
+      <Show when={attachmentActionStyle()!=='labels'}><Icon name="info"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('mail-file-details-button')}</span></Show>
     </button>
     <Show when={open()}><DetailsDialog id={id} details={props.details} onClose={close}/></Show>
   </>;

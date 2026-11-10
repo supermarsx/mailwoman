@@ -2503,3 +2503,12 @@ admin-settings-key-mail-conversations-enabled = تجميع الرسائل في �
 admin-settings-help-links-trusted-sender-domains = ما يصل إلى 100 نطاق مرسل بأحرف صغيرة يتم تمكين روابط الرسائل التي تمت مراجعتها تلقائيًا. النطاقات الفرعية منفصلة. هذا لا يثق في مواقع الوجهة ولا يسمح بالصور عن بعد. فارغة افتراضيا؛ يمكن للمستخدمين تغييره ما لم يتم قفله.
 
 admin-settings-key-links-trusted-sender-domains = نطاقات المرسل الموثوق بها لارتباطات الرسائل
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = قم بعرض تفاصيل التنزيل والملف بجوار عنوان المعاينة كأيقونات (افتراضي)، أو تسميات، أو أيقونات وتسميات. يمكن ضبطها وتأمينها عالميًا، لكل مجال، أو لكل مستخدم.
+
+admin-settings-help-reader-attachment-thumbnails = إيقاف بشكل افتراضي. السماح لمرفقات الصور المرئية بتحميل معاينات الصور المصغرة. لا تزال قواعد أمان المرفقات سارية. يمكن ضبطها وتأمينها عالميًا، لكل مجال، أو لكل مستخدم.
+
+admin-settings-key-reader-attachment-action-style = إجراءات معاينة المرفقات
+
+admin-settings-key-reader-attachment-thumbnails = الصور المصغرة المرفقة

@@ -2487,3 +2487,12 @@ admin-settings-key-mail-conversations-enabled = Gruppieren Sie Nachrichten in Ko
 admin-settings-help-links-trusted-sender-domains = Bis zu 100 genaue Absenderdomänen in Kleinbuchstaben, deren überprüfte Nachrichtenlinks automatisch aktiviert werden. Subdomains sind getrennt. Dadurch werden Zielwebsites nicht als vertrauenswürdig eingestuft und Remote-Bilder werden nicht zugelassen. Standardmäßig leer; Benutzer können es ändern, sofern es nicht gesperrt ist.
 
 admin-settings-key-links-trusted-sender-domains = Vertrauenswürdige Absenderdomänen für Nachrichtenlinks
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Download- und Dateidetails werden neben dem Vorschautitel als Symbole (Standard), Beschriftungen oder Symbole und Beschriftungen angezeigt. Kann global, pro Domäne oder pro Benutzer festgelegt und gesperrt werden.
+
+admin-settings-help-reader-attachment-thumbnails = Standardmäßig deaktiviert. Erlauben Sie sichtbaren Bildanhängen das Laden von Miniaturvorschauen. Es gelten weiterhin die Sicherheitsregeln für Anhänge. Kann global, pro Domäne oder pro Benutzer festgelegt und gesperrt werden.
+
+admin-settings-key-reader-attachment-action-style = Vorschauaktionen für Anhänge
+
+admin-settings-key-reader-attachment-thumbnails = Miniaturansichten der Bildanhänge

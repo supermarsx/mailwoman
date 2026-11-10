@@ -1,13 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@solidjs/testing-library';
 import { AttachmentDetailsButton, type AttachmentDetails } from './AttachmentDetails.tsx';
+import {clearSettings,loadSettings} from '../api/settings.ts';
 import { groupHex, parsePdfDate, viewerDetailsFrom } from './attachmentDetails.ts';
 
 const DIGEST = '0123456789abcdef'.repeat(4);
 const details = (over: Partial<AttachmentDetails> = {}): AttachmentDetails => ({
   name: 'Quarterly report.pdf', mime: 'application/pdf', size: 1_234_567, digest: DIGEST, type: 'PDF document', extension: 'pdf', detected: 'application/pdf', ...over,
 });
-afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); clearSettings(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe('formatting', () => {
   it('groups a fingerprint into 8-character blocks', () => {
@@ -32,6 +33,14 @@ describe('formatting', () => {
 });
 
 describe('AttachmentDetailsButton', () => {
+  it.each(['icons','labels','icons-labels'])('keeps an accessible name in %s presentation',async style=>{
+    await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:{'reader.attachmentActionStyle':{value:style,source:'user',locked:false}}}))});
+    render(()=><AttachmentDetailsButton details={details()}/>);
+    const button=screen.getByRole('button',{name:'File details'});
+    expect(button.textContent).toBe(style==='icons'?'':'File details');
+    expect(button.querySelector('svg')!==null).toBe(style!=='labels');
+  });
+
   it('is a labelled button with a tooltip that opens a modal dialog and returns focus on Escape', async () => {
     render(() => <AttachmentDetailsButton details={details()}/>);
     const button = screen.getByRole('button', { name: 'File details' });

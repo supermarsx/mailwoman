@@ -1,11 +1,14 @@
 .attachment-tab { display:flex; flex-direction:column; gap:1rem; min-width:0; min-height:0; height:100%; overflow:auto; padding:1rem; }
 .attachment-tab__header { display:flex; align-items:center; gap:.75rem; }
-.attachment-tab__header h2 { margin:0; overflow-wrap:anywhere; font-size:1.1rem; min-width:0; }
+.attachment-tab__header h2 { margin:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:1.1rem; min-width:0; flex:1 1 auto; }
+.attachment-tab__header > svg { flex:0 0 auto; }
+.attachment-tab__actions { margin-inline-start:auto; display:flex; align-items:center; gap:.25rem; flex:0 0 auto; max-inline-size:70%; overflow-x:auto; }
+.attachment-tab__actions .btn { display:inline-flex; align-items:center; justify-content:center; gap:.4rem; min-inline-size:var(--touch-target,2.5rem); }
 .attachment-details__button { margin-inline-start:auto; flex:0 0 auto; display:inline-flex; align-items:center; gap:.4rem; min-height:var(--touch-target, 2.5rem); }
 .attachment-details__button:focus-visible, .attachment-details__copy:focus-visible { outline:var(--focus-ring-width) solid var(--focus); outline-offset:2px; }
 .attachment-tab__warning { display:flex; gap:.5rem; align-items:flex-start; padding:.75rem; border-inline-start:var(--border-heavy) solid var(--danger); margin:0; background:var(--surface); }
 .attachment-tab__download { align-self:flex-start; }
-.attachment-tab__viewer { flex:1 1 auto; min-height:20rem; min-width:0; }
+.attachment-tab__viewer { flex:1 1 auto; min-height:0; min-width:0; overflow:hidden; }
 
 .attachment-tab a { color: var(--mw-link-derived, var(--link)); }
 .attachment-tab__warning { color: var(--text); }

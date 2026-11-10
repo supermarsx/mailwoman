@@ -1,0 +1,20 @@
+# Machine translation (t32, 2026-10). Not reviewed by a native speaker.
+image-viewer-controls = Controlos da imagem
+image-viewer-zoom-out = Reduzir
+image-viewer-zoom-in = Ampliar
+image-viewer-fit = Ajustar imagem à vista
+image-viewer-width = Ajustar imagem à largura
+image-viewer-actual = Tamanho real (100%)
+image-viewer-rotate-left = Rodar para a esquerda
+image-viewer-rotate-right = Rodar para a direita
+image-viewer-flip-horizontal = Inverter horizontalmente
+image-viewer-flip-vertical = Inverter verticalmente
+image-viewer-reset = Repor vista da imagem
+image-viewer-zoom = Nível de ampliação
+image-viewer-copy = Copiar imagem
+image-viewer-copy-unavailable = A cópia de imagens não está disponível neste navegador ou para este tamanho de imagem.
+image-viewer-copied = Imagem copiada.
+image-viewer-copy-failed = Não foi possível copiar a imagem. Tente transferi-la.
+image-viewer-fullscreen = Alternar ecrã inteiro
+image-viewer-fullscreen-failed = Não foi possível abrir o ecrã inteiro.
+image-viewer-failed = Não foi possível carregar a imagem.

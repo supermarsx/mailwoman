@@ -2487,3 +2487,12 @@ admin-settings-key-mail-conversations-enabled = Regrouper les messages en conver
 admin-settings-help-links-trusted-sender-domains = Jusqu'à 100 domaines d'expéditeurs en minuscules exacts dont les liens de messages examinés sont activés automatiquement. Les sous-domaines sont distincts. Cela ne fait pas confiance aux sites Web de destination et n'autorise pas les images distantes. Vide par défaut ; les utilisateurs peuvent le modifier à moins qu'il ne soit verrouillé.
 
 admin-settings-key-links-trusted-sender-domains = Domaines d'expéditeur de confiance pour les liens de messages
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Afficher les détails du téléchargement et du fichier à côté du titre de l'aperçu sous forme d'icônes (par défaut), d'étiquettes ou d'icônes et d'étiquettes. Peut être défini et verrouillé globalement, par domaine ou par utilisateur.
+
+admin-settings-help-reader-attachment-thumbnails = Désactivé par défaut. Autorisez les pièces jointes d’images visibles à charger des aperçus miniatures. Les règles de sécurité des pièces jointes s'appliquent toujours. Peut être défini et verrouillé globalement, par domaine ou par utilisateur.
+
+admin-settings-key-reader-attachment-action-style = Actions d’aperçu des pièces jointes
+
+admin-settings-key-reader-attachment-thumbnails = Vignettes des images jointes

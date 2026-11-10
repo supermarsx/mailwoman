@@ -1,0 +1,9 @@
+attachment-preview-title = Attachment previews
+attachment-preview-help = Choose how attachment previews and their actions appear.
+attachment-preview-actions = Preview action buttons
+attachment-preview-actions-help = Display Download and File details beside the file name as icons, labels, or both.
+attachment-preview-thumbnails = Show image attachment thumbnails
+attachment-preview-thumbnails-help = Off by default. When enabled, visible image attachments load small previews instead of file icons. Attachment security rules still apply.
+attachment-preview-style-icons = Icons
+attachment-preview-style-labels = Labels
+attachment-preview-style-icons-labels = Icons and labels

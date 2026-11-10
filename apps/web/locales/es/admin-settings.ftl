@@ -2487,3 +2487,12 @@ admin-settings-key-mail-conversations-enabled = Agrupar mensajes en conversacion
 admin-settings-help-links-trusted-sender-domains = Hasta 100 dominios de remitentes exactos en minúsculas cuyos enlaces de mensajes revisados se habilitan automáticamente. Los subdominios están separados. Esto no confía en los sitios web de destino ni permite imágenes remotas. Vacío por defecto; los usuarios pueden cambiarlo a menos que estén bloqueados.
 
 admin-settings-key-links-trusted-sender-domains = Dominios de remitente confiables para enlaces de mensajes
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Muestre los detalles de Descarga y Archivo junto al título de la vista previa como íconos (predeterminado), etiquetas o íconos y etiquetas. Se puede configurar y bloquear globalmente, por dominio o por usuario.
+
+admin-settings-help-reader-attachment-thumbnails = Desactivado de forma predeterminada. Permita que los archivos adjuntos de imágenes visibles carguen vistas previas en miniatura. Se siguen aplicando las reglas de seguridad de los archivos adjuntos. Se puede configurar y bloquear globalmente, por dominio o por usuario.
+
+admin-settings-key-reader-attachment-action-style = Acciones de vista previa de archivos adjuntos
+
+admin-settings-key-reader-attachment-thumbnails = Miniaturas adjuntas de imágenes

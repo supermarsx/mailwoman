@@ -300,6 +300,8 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 |---|---|---|---|---|---|---|---|
 | <a id="mail.reader.unsafehtmlmode"></a>`mail.reader.unsafeHtmlMode` | mail | global+domain+user | "sanitized" | plain |  | yes | Handling of message HTML detected as unsafe |
 | <a id="reader.attachmentsdensity"></a>`reader.attachmentsDensity` | reader | global+domain+user | "compact" | plain |  | yes | Reader attachment list density |
+| <a id="reader.attachmentactionstyle"></a>`reader.attachmentActionStyle` | reader | global+domain+user | "icons" | plain | | yes | Attachment preview header actions: icons, labels, or icons-labels |
+| <a id="reader.attachmentthumbnails"></a>`reader.attachmentThumbnails` | reader | global+domain+user | false | plain | | yes | Opt in to visible image attachment thumbnails |
 | <a id="mail.composewindow"></a>`mail.composeWindow` | mail | global+domain+user | "tab" | plain |  | yes | Preferred composer location |
 | <a id="mail.replycopytooriginal"></a>`mail.replyCopyToOriginal` | mail | global+domain+user | false | plain |  | yes | Offer original folder for reply copies |
 | <a id="mail.forwardmode"></a>`mail.forwardMode` | mail | global+domain+user | "inline" | plain |  | yes | Preferred forwarding format |

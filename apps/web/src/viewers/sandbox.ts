@@ -45,7 +45,7 @@ function frameDoc(csp: string, body: string): string {
   return (
     '<!doctype html><html><head><meta charset="utf-8">' +
     `<meta http-equiv="Content-Security-Policy" content="${csp}">` +
-    `<style>${FRAME_STYLE}</style></head><body>${body}</body></html>`
+    `<style>${FRAME_STYLE}</style></head><body marginwidth="0" marginheight="0">${body}</body></html>`
   );
 }
 
@@ -54,7 +54,7 @@ export function mediaFrameDoc(kind: 'image' | 'audio' | 'video', dataUrl: string
   const dir = kind === 'image' ? 'img-src' : 'media-src';
   const el =
     kind === 'image'
-      ? `<img alt="attachment" src="${dataUrl}">`
+      ? `<img alt="attachment" width="100%" src="${dataUrl}">`
       : kind === 'audio'
         ? `<audio controls src="${dataUrl}"></audio>`
         : `<video controls playsinline src="${dataUrl}"></video>`;

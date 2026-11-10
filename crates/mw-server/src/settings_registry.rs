@@ -425,6 +425,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "Reader attachment list density"
     ),
     def!(
+        "reader.attachmentActionStyle",
+        Kind::Enum(&["icons", "labels", "icons-labels"]),
+        "\"icons\"",
+        GDU,
+        "reader",
+        "Presentation of download and file-details actions beside an attachment preview title"
+    ),
+    def!(
+        "reader.attachmentThumbnails",
+        Kind::Bool,
+        "false",
+        GDU,
+        "reader",
+        "Opt in to fetching image attachment thumbnails; no thumbnail bytes are fetched by default"
+    ),
+    def!(
         "mail.composeWindow",
         Kind::Enum(&["tab", "window"]),
         "\"tab\"",
@@ -9954,6 +9970,22 @@ mod tests {
             }
         }
         assert!(missing.is_empty(), "missing: {missing:?}");
+    }
+
+    #[test]
+    fn attachment_preview_preferences_are_user_scoped_and_opt_in() {
+        let thumbnails = REGISTRY.iter().find(|d| d.key == "reader.attachmentThumbnails").unwrap();
+        assert_eq!(thumbnails.default, "false");
+        assert!(matches!(thumbnails.scopes, Scopes::GlobalDomainUser));
+        assert!(thumbnails.user_visible());
+        let actions = REGISTRY.iter().find(|d| d.key == "reader.attachmentActionStyle").unwrap();
+        assert_eq!(actions.default, "\"icons\"");
+        assert!(matches!(actions.scopes, Scopes::GlobalDomainUser));
+        assert!(actions.user_visible());
+        for value in ["icons", "labels", "icons-labels"] {
+            assert!(validate(actions, &serde_json::json!(value), "/value").is_ok());
+        }
+        assert!(validate(actions, &serde_json::json!("anything"), "/value").is_err());
     }
 
     #[test]

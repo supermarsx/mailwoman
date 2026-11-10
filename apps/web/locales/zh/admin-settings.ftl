@@ -2473,3 +2473,12 @@ admin-settings-key-mail-conversations-enabled = 将消息分组到对话中
 admin-settings-help-links-trusted-sender-domains = 最多 100 个精确小写的发件人域，其已审阅的邮件链接会自动启用。子域是分开的。这不信任目标网站或允许远程图像。默认为空；除非锁定，否则用户可以更改它。
 
 admin-settings-key-links-trusted-sender-domains = 消息链接的可信发件人域
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = 在预览标题旁边将下载和文件详细信息显示为图标（默认）、标签或图标和标签。可以全局、每个域或每个用户设置和锁定。
+
+admin-settings-help-reader-attachment-thumbnails = 默认关闭。允许可见图像附件加载缩略图预览。附件安全规则仍然适用。可以全局、每个域或每个用户设置和锁定。
+
+admin-settings-key-reader-attachment-action-style = 附件预览操作
+
+admin-settings-key-reader-attachment-thumbnails = 图像附件缩略图

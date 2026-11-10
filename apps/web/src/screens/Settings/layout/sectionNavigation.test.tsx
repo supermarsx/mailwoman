@@ -25,7 +25,7 @@ it('shows every message display setting exactly once, as stacked cards with no e
  mount();
  for(const key of ALL_KEYS)expect(await screen.findAllByText(t(`reader-${key}`),{selector:'label'})).toHaveLength(1);
  expect(READER_CARDS.flatMap(c=>[...c.keys,...(c.leading?[c.leading]:[])]).sort()).toEqual([...ALL_KEYS].sort());
- expect(screen.getAllByRole('heading',{level:4})).toHaveLength(READER_CARDS.length+3);
+ expect(screen.getAllByRole('heading',{level:4})).toHaveLength(READER_CARDS.length+4);
  expect(screen.queryByRole('search')).toBeNull();
  expect(screen.queryByRole('textbox',{name:/search/i})).toBeNull();
  expect(document.querySelector('[data-kit-toggle],[data-kit-card],[data-kit-grid]')).toBeNull();

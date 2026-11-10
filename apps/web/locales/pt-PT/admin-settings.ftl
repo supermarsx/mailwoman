@@ -2262,3 +2262,12 @@ admin-settings-help-mail-conversations-enabled = Desativado por predefinição. 
 
 admin-settings-key-links-trusted-sender-domains = Domínios de remetentes fidedignos para ligações nas mensagens
 admin-settings-help-links-trusted-sender-domains = Até 100 domínios exatos de remetentes, em minúsculas, cujas ligações revistas são ativadas automaticamente. Os subdomínios são independentes. Não confia nos sites de destino nem permite imagens remotas. Vazio por predefinição; os utilizadores podem alterá-lo, salvo bloqueio.
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Mostrar detalhes de download e arquivo ao lado do título de visualização como ícones (padrão), rótulos ou ícones e rótulos. Pode ser configurado e bloqueado globalmente, por domínio ou por usuário.
+
+admin-settings-help-reader-attachment-thumbnails = Desativado por defeito. Permitir que anexos de imagens visíveis carreguem visualizações em miniatura. As regras de segurança dos anexos ainda se aplicam. Pode ser configurado e bloqueado globalmente, por domínio ou por usuário.
+
+admin-settings-key-reader-attachment-action-style = Ações de visualização de anexos
+
+admin-settings-key-reader-attachment-thumbnails = Miniaturas de anexos de imagens

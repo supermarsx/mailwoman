@@ -3830,3 +3830,15 @@ Global and domain, hot. Default `1`. Raising it asks everyone again; a yes for a
 <a id="consent.telemetry.text"></a>
 ### Consent text of telemetry (`consent.telemetry.text`)
 Global and domain, hot. Default `{}`. Map of locale to text, up to 2000 characters each. Empty uses the built-in text.
+
+<a id="reader.attachmentActionStyle"></a>
+`reader.attachmentActionStyle` is `icons` (default), `labels`, or `icons-labels`. Download and File details stay beside the attachment preview title. Global/domain/user policy, lockable.
+
+<a id="reader.attachmentThumbnails"></a>
+`reader.attachmentThumbnails` is a boolean, default `false`. Image attachments display file icons without fetching thumbnail bytes until explicitly enabled. Enabled previews load near the visible area and still follow attachment policy. Global/domain/user policy, lockable.
+
+<a id="mail.conversations.allowed"></a>
+`mail.conversations.allowed` controls availability of conversation grouping globally or per domain. Default `true`; users still opt in separately with `mail.conversations` (default `false`).
+
+<a id="mail.search.defaultScope"></a>
+`mail.search.defaultScope` is `folder` (default) or `all`. Searches start in the current folder unless the user chooses all folders. Global/domain/user policy, lockable.

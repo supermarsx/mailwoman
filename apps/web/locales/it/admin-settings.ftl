@@ -2481,3 +2481,12 @@ admin-settings-key-mail-conversations-enabled = Raggruppare i messaggi in conver
 admin-settings-help-links-trusted-sender-domains = Fino a 100 domini di mittenti esatti in minuscolo i cui collegamenti ai messaggi esaminati vengono abilitati automaticamente. I sottodomini sono separati. Questo non considera attendibili i siti Web di destinazione né consente immagini remote. Vuoto per impostazione predefinita; gli utenti possono modificarlo a meno che non siano bloccati.
 
 admin-settings-key-links-trusted-sender-domains = Domini dei mittenti attendibili per i collegamenti ai messaggi
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Mostra i dettagli di download e file accanto al titolo dell'anteprima come icone (impostazione predefinita), etichette o icone ed etichette. Può essere impostato e bloccato a livello globale, per dominio o per utente.
+
+admin-settings-help-reader-attachment-thumbnails = Disattivato per impostazione predefinita. Consenti agli allegati di immagini visibili di caricare le anteprime in miniatura. Si applicano ancora le regole di sicurezza degli allegati. Può essere impostato e bloccato a livello globale, per dominio o per utente.
+
+admin-settings-key-reader-attachment-action-style = Azioni di anteprima dell'allegato
+
+admin-settings-key-reader-attachment-thumbnails = Miniature delle immagini allegate

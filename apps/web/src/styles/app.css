@@ -1056,3 +1056,7 @@ table.settings-package-table { min-inline-size:38rem; }
 /* Secondary divider: user folders | views and queues. Inset and fainter than a full-width rule. */
 .sidebar__divider-secondary { block-size:0; margin:.35rem .75rem; border:0; border-block-start:1px solid color-mix(in srgb, var(--border-strong, currentColor) 55%, transparent); }
 @media (forced-colors: active) { .sidebar__divider-secondary { border-block-start-color:GrayText; } }
+
+.attachment-modal__name { flex:1 1 0; min-inline-size:0; }
+
+.attachment-modal > .mw-viewer { flex:1 1 0; min-block-size:0; }

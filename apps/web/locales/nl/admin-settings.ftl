@@ -2481,3 +2481,12 @@ admin-settings-key-mail-conversations-enabled = Groepeer berichten in gesprekken
 admin-settings-help-links-trusted-sender-domains = Maximaal 100 exacte afzenderdomeinen in kleine letters waarvan de beoordeelde berichtlinks automatisch worden ingeschakeld. Subdomeinen zijn gescheiden. Hierdoor worden bestemmingswebsites niet vertrouwd en worden externe afbeeldingen niet toegestaan. Standaard leeg; gebruikers kunnen dit wijzigen tenzij vergrendeld.
 
 admin-settings-key-links-trusted-sender-domains = Vertrouwde afzenderdomeinen voor berichtlinks
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Toon download- en bestandsdetails naast de voorbeeldtitel als pictogrammen (standaard), labels of pictogrammen en labels. Globaal, per domein of per gebruiker in te stellen en te vergrendelen.
+
+admin-settings-help-reader-attachment-thumbnails = Standaard uitgeschakeld. Sta zichtbare afbeeldingsbijlagen toe om miniatuurvoorbeelden te laden. Beveiligingsregels voor bijlagen zijn nog steeds van toepassing. Globaal, per domein of per gebruiker in te stellen en te vergrendelen.
+
+admin-settings-key-reader-attachment-action-style = Voorbeeldacties voor bijlagen
+
+admin-settings-key-reader-attachment-thumbnails = Miniaturen van afbeeldingsbijlagen

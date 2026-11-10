@@ -2473,3 +2473,12 @@ admin-settings-key-mail-conversations-enabled = メッセージを会話にグ�
 admin-settings-help-links-trusted-sender-domains = レビューされたメッセージ リンクが自動的に有効になる、正確な小文字の送信者ドメインが 100 個まで含まれます。サブドメインは別です。これは宛先 Web サイトを信頼せず、リモート画像も許可しません。デフォルトでは空です。ユーザーはロックされていない限り変更できます。
 
 admin-settings-key-links-trusted-sender-domains = メッセージリンクの信頼できる送信者ドメイン
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = ダウンロードとファイルの詳細をプレビュー タイトルの横にアイコン (デフォルト)、ラベル、またはアイコンとラベルとして表示します。グローバル、ドメインごと、またはユーザーごとに設定およびロックできます。
+
+admin-settings-help-reader-attachment-thumbnails = デフォルトではオフです。表示される画像添付ファイルがサムネイル プレビューを読み込めるようにします。添付ファイルのセキュリティ ルールは引き続き適用されます。グローバル、ドメインごと、またはユーザーごとに設定およびロックできます。
+
+admin-settings-key-reader-attachment-action-style = 添付ファイルのプレビューのアクション
+
+admin-settings-key-reader-attachment-thumbnails = 画像添付ファイルのサムネイル

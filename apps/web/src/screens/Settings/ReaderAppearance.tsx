@@ -9,6 +9,7 @@ import type { CardSpec } from './layout/rows.tsx';
 import * as css from './styles.css.ts';
 import { AttachmentsBarSettings, ATTACHMENTS_BAR_CARD_SPEC } from './AttachmentsBarSettings.tsx';
 import { snapZoom, ZOOM_STEPS } from '../../components/readerZoom.ts';
+import {AttachmentPreviewPreferences,ATTACHMENT_PREVIEW_CARD} from './AttachmentPreviewPreferences.tsx';
 
 type Field = { key: string; fallback: string | number; choices?: string[]; steps?: readonly number[]; min?: number; max?: number; step?: number };
 const fields: Record<string, Field> = {
@@ -61,6 +62,7 @@ export function ReaderAppearanceSettings(): JSX.Element {
     </SettingsCard>}</For>
     <ReaderActionPreferences />
     <AttachmentsBarSettings />
+    <AttachmentPreviewPreferences />
     <MessageBadges />
   </>;
 }
@@ -68,4 +70,4 @@ export function ReaderAppearanceSettings(): JSX.Element {
 export const READER_CARD_SPECS: readonly CardSpec[] = [...READER_CARDS.map(card => ({
   id: card.id, section: 'reader', title: card.title, help: card.help,
   rows: [...(card.leading ? [card.leading] : []), ...card.keys].map(key => ({ id: `reader-${key}`, label: `reader-${key}`, help: `reader-${key}-help` })),
-})), READER_ACTIONS_CARD, ATTACHMENTS_BAR_CARD_SPEC, MESSAGE_BADGES_CARD];
+})), READER_ACTIONS_CARD, ATTACHMENTS_BAR_CARD_SPEC, ATTACHMENT_PREVIEW_CARD, MESSAGE_BADGES_CARD];

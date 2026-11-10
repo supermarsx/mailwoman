@@ -1,4 +1,5 @@
-import { createResource, For, Show, type JSX } from 'solid-js';
+import { createComputed,createMemo,createResource,createSignal,onCleanup,onMount, For, Show, type JSX } from 'solid-js';
+import {attachmentThumbnailsEnabled} from './previewPreferences.ts';
 import './viewers.css';
 import { categoryOf, type TypeCategory } from './attachments.ts';
 import { blobUrlToDataUrl } from './sandbox.ts';
@@ -29,7 +30,7 @@ export interface ThumbnailStripProps {
   selectedBlobId?: string;
   onSelect?: (item: StripItem) => void;
   /** Resolve an image preview object URL; only called for `image/*` items. */
-  resolveThumb?: (item: StripItem) => Promise<string>;
+  resolveThumb?: (item: StripItem,signal?:AbortSignal) => Promise<string>;
   /** A small control beside each thumbnail (the bar's download button). It sits
    *  next to, never inside, the thumbnail's own button. `mode` decides when it shows. */
   renderAction?: (item: StripItem) => JSX.Element;
@@ -56,7 +57,7 @@ function Thumb(props: {
   drag?: { accountId: string | null; emailId: string } | undefined;
   selected: boolean;
   onSelect: ((item: StripItem) => void) | undefined;
-  resolveThumb: ((item: StripItem) => Promise<string>) | undefined;
+  resolveThumb: ((item: StripItem,signal?:AbortSignal) => Promise<string>) | undefined;
 }): JSX.Element {
   const category = (): TypeCategory => categoryOf(props.item.mime, props.item.name);
   // t53: a calendar file opens as an event card.
@@ -65,13 +66,30 @@ function Thumb(props: {
   // unmounting) revokes the Blob its preview pinned. A download that lands after
   // the thumb is gone is revoked on arrival by `adopt` (see objectUrl.ts).
   const urls = createObjectUrlOwner();
+  let button:HTMLButtonElement|undefined,currentUrl:string|undefined,pending:AbortController|undefined,generation=0;
+  const [visible,setVisible]=createSignal(typeof IntersectionObserver==='undefined'),[broken,setBroken]=createSignal(false);
+  const enabled=()=>attachmentThumbnailsEnabled()&&category()==='image'&&props.resolveThumb!==undefined;
+  const source=createMemo(()=>enabled()&&visible()?props.item:undefined);
+  createComputed(()=>{source();generation++;pending?.abort();urls.release(currentUrl);currentUrl=undefined;setBroken(false);});
+  onMount(()=>{if(typeof IntersectionObserver==='undefined'||!button)return;const observer=new IntersectionObserver(entries=>{if(entries.some(entry=>entry.isIntersecting)){setVisible(true);observer.disconnect();}},{rootMargin:'128px'});observer.observe(button);onCleanup(()=>observer.disconnect());});
+  onCleanup(()=>{generation++;pending?.abort();});
   const [preview] = createResource(
-    () => (category() === 'image' && props.resolveThumb !== undefined ? props.item : undefined),
-    async (item) => { const url = urls.adopt(await props.resolveThumb!(item)); return item.mime.split(';')[0]?.trim().toLowerCase() === 'image/svg+xml' ? await blobUrlToDataUrl(url, item.mime) : url; },
+    source,
+    async (item) => {
+      const captured=generation,request=new AbortController();pending=request;
+      try{
+        const url=urls.adopt(await props.resolveThumb!(item,request.signal));
+        if(request.signal.aborted||captured!==generation||!enabled()){urls.release(url);return;}
+        currentUrl=url;const result=item.mime.split(';')[0]?.trim().toLowerCase()==='image/svg+xml'?await blobUrlToDataUrl(url,item.mime):url;
+        if(request.signal.aborted||captured!==generation||!enabled()){urls.release(url);return;}
+        return result;
+      }catch{return;}
+    },
   );
   return (
     <button
       type="button"
+      ref={button}
       class="mw-thumb"
       classList={{ 'mw-thumb--active': props.selected }}
       role="option"
@@ -83,7 +101,7 @@ function Thumb(props: {
       onClick={() => props.onSelect?.(props.item)}
     >
       <span class="mw-thumb__preview" data-category={category()}>
-        <Show when={!preview.loading ? preview() : undefined} fallback={<span class="mw-thumb__icon">{isEvent() ? 'ICS' : ICON[category()]}</span>}>
+        <Show when={enabled()&&!broken()&&!preview.loading ? preview() : undefined} fallback={<span class="mw-thumb__icon">{isEvent() ? 'ICS' : ICON[category()]}</span>}>
           {(url) => (
             <img
               class="mw-thumb__img"
@@ -93,6 +111,7 @@ function Thumb(props: {
               decoding="async"
               width={THUMB_W}
               height={THUMB_H}
+              onError={()=>{setBroken(true);urls.release(currentUrl);currentUrl=undefined;}}
             />
           )}
         </Show>

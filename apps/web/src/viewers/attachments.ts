@@ -202,10 +202,10 @@ export function buildDownloadUrl(template: string, ref: BlobRef): string {
 }
 
 /** Fetch a blob (cookie-authed, same-origin) and wrap it in an object URL. */
-export async function fetchObjectUrl(url: string): Promise<string> {
-  const res = await apiFetch(url, { credentials: 'same-origin' });
+export async function fetchObjectUrl(url: string,signal?:AbortSignal): Promise<string> {
+  const res = await apiFetch(url, { credentials: 'same-origin',...(signal?{signal}:{}) });
   if (!res.ok) throw new Error(`attachment download failed: ${res.status}`);
-  return URL.createObjectURL(await res.blob());
+  const blob=await res.blob();signal?.throwIfAborted();return URL.createObjectURL(blob);
 }
 
 // ── Filtering + operator search ─────────────────────────────────────────────

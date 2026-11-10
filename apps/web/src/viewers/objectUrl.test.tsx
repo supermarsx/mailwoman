@@ -39,7 +39,7 @@ const live = new Set<string>();
 
 beforeEach(async () => {
   clearSettings();
-  await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:{'reader.attachmentsCollapsed':{value:false,source:'user',locked:false},'reader.attachmentsDensity':{value:'comfortable',source:'user',locked:false}}}))});
+  await loadSettings({fetcher:async()=>new Response(JSON.stringify({settings:{'reader.attachmentThumbnails':{value:true,source:'user',locked:false},'reader.attachmentsCollapsed':{value:false,source:'user',locked:false},'reader.attachmentsDensity':{value:'comfortable',source:'user',locked:false}}}))});
   created = 0;
   revoked = 0;
   live.clear();
@@ -150,6 +150,17 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
     expect(live.size).toBe(0);
   });
 
+  it('does not fetch image thumbnails by default and releases them when switched off',async()=>{
+    clearSettings();
+    const resolver=vi.fn(async()=>URL.createObjectURL(new Blob(['image'])));
+    const {container}=render(()=><ThumbnailStrip items={items(2,'image/png')} resolveThumb={resolver}/>);
+    expect(resolver).not.toHaveBeenCalled();expect(container.querySelector('img')).toBeNull();
+    const setting=async(value:boolean)=>loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'reader.attachmentThumbnails':{value,source:'user',locked:false}}}))});
+    await setting(true);await waitFor(()=>expect(container.querySelectorAll('img')).toHaveLength(2));
+    expect(created).toBe(2);
+    await setting(false);await waitFor(()=>expect(live.size).toBe(0));expect(container.querySelector('img')).toBeNull();expect(resolver).toHaveBeenCalledTimes(2);
+  });
+
   it('defaults to compact collapsed attachments, expands locally and resets for another message',async()=>{
     clearSettings();
     const [email,setEmail]=createSignal(emailWith(items(2,'image/png')));
@@ -184,7 +195,7 @@ describe('object-URL ownership — the balance (t22 L6)', () => {
     }
 
     // Closing the viewer releases the last one while still mounted.
-    fireEvent.click(container.querySelector<HTMLButtonElement>('.attachment-modal button')!);
+    fireEvent.click(container.querySelector<HTMLButtonElement>('.attachment-modal__bar > button')!);
     await waitFor(() => expect(live.size).toBe(0));
 
     unmount();

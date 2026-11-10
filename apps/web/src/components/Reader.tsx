@@ -38,6 +38,10 @@ import { createNarrowViewport, focusIsLost } from './narrowViewport.ts';
 import { readingPane } from './readingPane.ts';
 import { accountUiPreferences } from '../api/accountPreferences.ts';
 import { ThumbnailStrip, type StripItem } from '../viewers/ThumbnailStrip.tsx';
+import {AttachmentDetailsButton} from '../viewers/AttachmentDetails.tsx';
+import {inspectFile} from '../viewers/fileInfo.ts';
+import '../viewers/attachment-tab.css';
+import {attachmentThumbnailsEnabled,attachmentActionStyle} from '../viewers/previewPreferences.ts';
 import { AttachmentViewer } from '../viewers/AttachmentViewer.tsx';
 import { attachmentBarReason, isInlineResourcePart } from './attachmentBarReason.ts';
 import { attachmentDecision, attachmentPolicyUrl, loadAttachmentPolicy } from '../api/attachmentPolicy.ts';
@@ -303,14 +307,14 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
       { id: key, ...(retry ? { action: { label: t('common-retry'), run: retry } } : {}) });
   });
 
-  function blobUrlFor(item: StripItem, acknowledge=false): Promise<string> {
+  function blobUrlFor(item: StripItem, acknowledge=false,signal?:AbortSignal): Promise<string> {
     const allowed=decision(item);
     if(!allowed?.preview || (allowed.warning && !acknowledge))return Promise.resolve('');
     const url = app.downloadUrl();
     const acct = app.accountId();
     if (url === null || acct === null) return Promise.resolve('');
     return fetchObjectUrl(
-      attachmentPolicyUrl(buildDownloadUrl(url, { accountId: acct, blobId: item.blobId, name: item.name, mime: item.mime }),item.emailId,true,acknowledge),
+      attachmentPolicyUrl(buildDownloadUrl(url, { accountId: acct, blobId: item.blobId, name: item.name, mime: item.mime }),item.emailId,true,acknowledge),signal,
     );
   }
 
@@ -394,7 +398,7 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
           selectedBlobId={openItem()?.blobId ?? ''}
           dragSource={{ accountId: app.accountId(), emailId: props.email.id }}
           onSelect={(it) => {setAcknowledged(false); if(props.onOpenAttachment)props.onOpenAttachment(it);else setOpenItem(it);}}
-          {...(attachmentDensity()==='comfortable'?{resolveThumb:(item:StripItem)=>blobUrlFor(item)}:{})}
+          {...(attachmentThumbnailsEnabled()?{resolveThumb:(item:StripItem,signal?:AbortSignal)=>blobUrlFor(item,false,signal)}:{})}
           {...(downloadMode() !== 'never' ? {
             actionMode: downloadMode() as 'always' | 'hover',
             renderAction: (item: StripItem) => <AttachmentDownloadButton app={app} item={item} emailId={props.email.id} policy={attachmentPolicy.state === 'ready' ? attachmentPolicy() : undefined} allowDownload={allowDownload()} />,
@@ -468,7 +472,11 @@ export function AttachmentsPane(props: { email: Email; onOpenAttachment?: (item:
               data-testid="attachment-viewer"
             >
               <div class="attachment-modal__bar">
-                <span class="attachment-modal__name">{item().name}</span>
+                <span class="attachment-modal__name" title={item().name}>{item().name}</span>
+                <div class="attachment-tab__actions">
+                 <Show when={allowDownload()&&decision(item())?.allowed&&(!decision(item())?.warning||acknowledged())}><a class="btn btn--ghost" href={attachmentPolicyUrl(buildDownloadUrl(app.downloadUrl()!,{accountId:app.accountId()!,blobId:item().blobId,name:item().name,mime:item().mime}),props.email.id,false,acknowledged(),true)} download={item().name.replace(/[\\/]/g,'_')} rel="noopener" aria-label={t('common-message-preview-download')} title={t('common-message-preview-download')}><Show when={attachmentActionStyle()!=='labels'}><Icon name="download"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('common-message-preview-download')}</span></Show></a></Show>
+                 <AttachmentDetailsButton details={{name:item().name,mime:item().mime,size:item().size,digest:null,type:inspectFile(item().name,item().mime).description,extension:inspectFile(item().name,item().mime).extension,detected:null}}/>
+                </div>
                 <button
                   type="button"
                   class={`btn btn--ghost ${a11y.iconButton}`}

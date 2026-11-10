@@ -12,7 +12,7 @@ import type { JSX } from 'solid-js';
 export type IconName =
   | 'paneRight' | 'paneBottom' | 'layoutTabs' | 'layoutColumns' | 'layoutRows' | 'layoutMasonryColumns' | 'layoutMasonryRows'
   | 'tableRowBefore' | 'tableRowAfter' | 'tableRowDelete' | 'tableColumnBefore' | 'tableColumnAfter' | 'tableColumnDelete' | 'tableMerge' | 'tableSplit' | 'tableHeader'
-  | 'undo' | 'redo'
+  | 'undo' | 'redo' | 'imageFit' | 'imageWidth' | 'imageActual' | 'fullscreen'
   | 'alignLeft' | 'alignCenter' | 'alignRight' | 'rotateCw' | 'rotateCcw' | 'flipH' | 'flipV' | 'crop'
   | 'cut' | 'paste' | 'table' | 'paragraph' | 'paint' | 'eyedropper'
   | 'mailboxes' | 'signature' | 'compose' | 'mailCheck' | 'transfer' | 'palette' | 'keyboard' | 'bell' | 'package' | 'key'
@@ -253,6 +253,10 @@ const PATHS: Record<IconName, () => JSX.Element> = {
   alignLeft: () => <path d="M2 3H14M2 6.5H9M2 10H14M2 13.5H9" {...S}/>,
   alignCenter: () => <path d="M2 3H14M4.5 6.5H11.5M2 10H14M4.5 13.5H11.5" {...S}/>,
   alignRight: () => <path d="M2 3H14M7 6.5H14M2 10H14M7 13.5H14" {...S}/>,
+  imageFit: () => <><path d="M5 2H2V5M11 2H14V5M2 11V14H5M11 14H14V11" {...S}/><rect x="5" y="5" width="6" height="6" {...S}/></>,
+  imageWidth: () => <path d="M2 3V13M14 3V13M3 8H13M5 6L3 8L5 10M11 6L13 8L11 10" {...S}/>,
+  imageActual: () => <><rect x="2" y="2" width="12" height="12" {...S}/><path d="M5 6H6V10M10 6H11V10" {...S}/></>,
+  fullscreen: () => <path d="M6 2H2V6M10 2H14V6M2 10V14H6M14 10V14H10" {...S}/>,
   rotateCw: () => <path d="M13 8A5 5 0 1 1 11.5 4.5M13 2V5H10" {...S}/>,
   rotateCcw: () => <path d="M3 8A5 5 0 1 0 4.5 4.5M3 2V5H6" {...S}/>,
   flipH: () => <path d="M8 1V15M5 4L1 8L5 12ZM11 4L15 8L11 12Z" {...S}/>,

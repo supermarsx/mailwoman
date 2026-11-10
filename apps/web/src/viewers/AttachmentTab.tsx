@@ -10,6 +10,7 @@ import type { StripItem } from './ThumbnailStrip.tsx';
 import { t } from '../i18n';
 import { mailFeature } from '../state/mailFeatures.ts';
 import './attachment-tab.css';
+import {attachmentActionStyle} from './previewPreferences.ts';
 
 export interface AttachmentTabItem extends StripItem { downloadUrl: string }
 export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
@@ -41,19 +42,19 @@ export function AttachmentTab(props: { item: AttachmentTabItem }): JSX.Element {
   // What the open viewer reports about the document itself (a PDF's pages, producer...).
   const [extra, setExtra] = createSignal<ViewerDetails>();
   return <section class="attachment-tab" aria-label={props.item.name}>
-    <header class="attachment-tab__header"><Icon name={declared().icon}/><h2>{props.item.name}</h2>
-      <Show when={ready()}>{loaded => <AttachmentDetailsButton details={{ name: props.item.name, mime: props.item.mime || 'application/octet-stream', size: loaded().size, digest: loaded().digest, type: loaded().info.description, extension: loaded().info.extension, detected: loaded().info.detected, extra: extra() }}/>}</Show>
+    <header class="attachment-tab__header"><Icon name={declared().icon}/><h2 title={props.item.name}>{props.item.name}</h2>
+      <div class="attachment-tab__actions"><Show when={permitted()&&mailFeature('allowDownload')}><a class="btn btn--ghost attachment-tab__download" rel="noopener" href={ready()?.url??download()} download={props.item.name.replace(/[\\/]/g,'_')} aria-label={t('common-message-preview-download')} title={t('common-message-preview-download')}><Show when={attachmentActionStyle()!=='labels'}><Icon name="download"/></Show><Show when={attachmentActionStyle()!=='icons'}><span>{t('common-message-preview-download')}</span></Show></a></Show>
+      <Show when={ready()}>{loaded => <AttachmentDetailsButton details={{ name: props.item.name, mime: props.item.mime || 'application/octet-stream', size: loaded().size, digest: loaded().digest, type: loaded().info.description, extension: loaded().info.extension, detected: loaded().info.detected, extra: extra() }}/>}</Show></div>
     </header>
     <Show when={policy.loading}><p role="status">{t('mail-attachment-policy-loading')}</p></Show>
     <Show when={policy.error}><p role="alert">{t('mail-attachment-policy-unavailable')}</p></Show>
     <Show when={decision() && !decision()!.allowed}><p role="alert">{t('mail-attachment-policy-blocked')}</p></Show>
     <Show when={decision()?.warning && !acknowledged()}><p role="alert">{t('mail-attachment-policy-warning')}</p><button class="btn" onClick={()=>setAcknowledged(true)}>{t('mail-attachment-policy-acknowledge')}</button></Show>
-    <Show when={permitted() && !decision()?.preview}><p>{t('mail-attachment-policy-no-preview')}</p><Show when={mailFeature('allowDownload')}><a class="btn" href={download()} download={props.item.name}>{t('common-message-preview-download')}</a></Show></Show>
+    <Show when={permitted() && !decision()?.preview}><p>{t('mail-attachment-policy-no-preview')}</p></Show>
     <Show when={file.loading}><p role="status">{t('mail-attachment-loading')}</p></Show>
     <Show when={file.state === 'errored'}><p role="alert">{t('mail-attachment-failed')}</p><button class="btn" onClick={() => void refetch()}>{t('common-retry')}</button></Show>
     <Show when={ready()}>{loaded => <>
       <For each={loaded().info.warnings}>{warning => <p class="attachment-tab__warning" role="status"><Icon name="alert"/>{t(`mail-file-warning-${warning}`)}</p>}</For>
-      <Show when={mailFeature('allowDownload')}><a class="btn btn--ghost attachment-tab__download" href={loaded().url} download={props.item.name.replace(/[\\/]/g, '_')} rel="noopener">{t('common-message-preview-download')}</a></Show>
       <Show when={!loaded().info.blockPreview} fallback={<p>{t('mail-file-preview-blocked')}</p>}>
         <div class="attachment-tab__viewer"><AttachmentViewer part={{ partId: null, blobId: props.item.blobId, size: loaded().size, type: props.item.mime }} blobUrl={loaded().url} mime={props.item.mime} name={props.item.name} onDetails={setExtra}/></div>
       </Show>

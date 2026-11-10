@@ -2499,3 +2499,12 @@ admin-settings-key-mail-conversations-enabled = Grupuj wiadomości w rozmowy
 admin-settings-help-links-trusted-sender-domains = Do 100 domen nadawców zawierających małe litery, których linki do sprawdzanych wiadomości są włączane automatycznie. Subdomeny są oddzielne. Nie ufa witrynom docelowym ani nie zezwala na zdalne obrazy. Domyślnie pusty; użytkownicy mogą to zmienić, chyba że są zablokowane.
 
 admin-settings-key-links-trusted-sender-domains = Zaufane domeny nadawców dla linków do wiadomości
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-reader-attachment-action-style = Pokaż szczegóły pobierania i pliku obok tytułu podglądu jako ikony (domyślnie), etykiety lub ikony i etykiety. Można ustawić i zablokować globalnie, dla domeny lub dla użytkownika.
+
+admin-settings-help-reader-attachment-thumbnails = Domyślnie wyłączone. Zezwalaj na widoczne załączniki obrazów, aby ładować podglądy miniatur. Zasady bezpieczeństwa załączników nadal obowiązują. Można ustawić i zablokować globalnie, dla domeny lub dla użytkownika.
+
+admin-settings-key-reader-attachment-action-style = Działania podglądu załącznika
+
+admin-settings-key-reader-attachment-thumbnails = Miniatury załączników obrazów
