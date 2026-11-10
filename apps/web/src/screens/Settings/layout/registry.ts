@@ -1,3 +1,4 @@
+import {SETTINGS_TRANSFER_CARD} from '../SettingsTransfer.tsx';
 // Static search index for the converted Settings sections, so a search can list
 // rows in sections that have not been opened (and so are not in the DOM yet).
 // Each section exports its CardSpec list next to the component that renders it;
@@ -28,7 +29,7 @@ import type { CardSpec } from './rows.tsx';
 import { SEARCH_SCOPE_CARD } from '../SearchScopePreferences.tsx';
 
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
-  SEARCH_SCOPE_CARD,
+  SEARCH_SCOPE_CARD, SETTINGS_TRANSFER_CARD,
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
   COMPOSE_DELIVERY_CARD, COMPOSER_FEATURES_CARD,
   INTERFACE_CARD, FOLDER_COUNT_CARD, PROPERTIES_CARD, ...CACHE_CARDS, AVATAR_CARD, SAVE_CONTACTS_CARD, UNDO_CARD, ...APPEARANCE_CARDS, ...FOLDER_PREFERENCE_CARDS, ...NOTIFICATION_CARDS,

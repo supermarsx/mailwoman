@@ -1,3 +1,4 @@
+import {SettingsTransfer} from './Settings/SettingsTransfer.tsx';
 import {InterfacePreferences} from './Settings/InterfacePreferences.tsx';
 import {CachePreferences} from './Settings/CachePreferences.tsx';
 import {TextModePreference} from './Settings/TextModePreference.tsx';
@@ -323,6 +324,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         <Show when={!app.linkedMailboxId?.()}><AppearanceCustomization owner={() => { const accountId = app.accountId(); return accountId ? {kind: 'mailbox', accountId} : null; }} /></Show>
 
         <BarPreferences />
+        <SettingsTransfer />
 
         <Language />
         </div>}</RetainedSettingsSection>

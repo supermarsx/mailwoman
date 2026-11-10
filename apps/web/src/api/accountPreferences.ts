@@ -250,14 +250,37 @@ export const accountUiPreferences = preferences;
 export const accountUiPreferenceStatus = status;
 let controller: ReturnType<typeof createAccountPreferencesSync> | undefined;
 let stop: (() => void) | undefined;
-export function startAccountUiPreferences(): () => void {
+let activeTransport:AccountPreferencesApi=api;
+export function startAccountUiPreferences(transport:AccountPreferencesApi=api): () => void {
   if (stop) return stop;
-  const sync = createAccountPreferencesSync(api, setPreferences, setStatus);
+  activeTransport=transport;
+  const sync = createAccountPreferencesSync(transport, setPreferences, setStatus);
   controller = sync;
   const unsubscribe = observePreferenceAccount(account => sync.bind(account));
   const interval = setInterval(() => { if (preferenceAccount() && document.visibilityState === 'visible') void sync.refresh(); }, 30_000);
-  stop = () => { unsubscribe(); clearInterval(interval); sync.dispose(); controller = undefined; stop = undefined; };
+  stop = () => { unsubscribe(); clearInterval(interval); sync.dispose(); controller = undefined; activeTransport=api; stop = undefined; };
   return stop;
 }
 export function setAccountUiPreferences(patch: AccountUiPreferences): void { controller?.update(patch); }
 export async function retryAccountUiPreferences():Promise<void>{await controller?.flush();}
+
+/** Validate an imported patch on the server before it enters the optimistic queue.
+ * A rejected import must not leave an invalid dirty field blocking later saves. */
+export async function importAccountUiPreferences(patch:Partial<AccountUiPreferences>,owner:PreferenceAccount):Promise<void> {
+  const current=()=>preferenceAccountIsCurrent(owner);
+  if(!controller||!current())throw new Error('Preference account changed');
+  await controller.flush();
+  if(!current())throw new Error('Preference account changed');
+  const transport=activeTransport;
+  const latest=await transport.load();
+  if(!current())throw new Error('Preference account changed');
+  const saved=await transport.save({...latest.preferences,...patch},latest.etag);
+  const matches=()=>Object.keys(patch).every(key=>JSON.stringify(accountUiPreferences()[key as keyof AccountUiPreferences])===JSON.stringify(saved.preferences[key as keyof AccountUiPreferences]));
+  for(let attempt=0;attempt<40&&current();attempt++) {
+    await controller.refresh();
+    if(accountUiPreferenceStatus()==='synced'&&matches())return;
+    if(accountUiPreferenceStatus()==='error')break;
+    await new Promise(resolve=>setTimeout(resolve,100));
+  }
+  throw new Error('Preference refresh failed');
+}

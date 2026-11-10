@@ -68,3 +68,14 @@ it('keeps the effective placement and explains a refused save',async()=>{
  await waitFor(()=>expect(within(row).getByRole('alert')).toHaveTextContent(t('settings-policy-error-invalid')));
  expect(reply).toHaveValue('toolbar');expect(writes).toHaveLength(1);
 });
+
+it('filters actions by their translated name and previews current ribbon placements',async()=>{
+ await mount();fireEvent.click(screen.getByText('Preview your actions ribbon'));
+ const preview=screen.getByRole('list',{name:'Preview your actions ribbon'});
+ expect(within(preview).getByText(t('reader-action-reply'))).toBeVisible();
+ expect(within(preview).queryByText(t('reader-action-block-sender'))).toBeNull();
+ fireEvent.input(screen.getByRole('searchbox',{name:'Find a ribbon action'}),{target:{value:'Reply'}});
+ expect(screen.getAllByRole('combobox').length).toBe(3);
+ expect(control('open-draft')).toBeInTheDocument();
+ expect(control('reply')).toBeInTheDocument();expect(control('reply-all')).toBeInTheDocument();
+});
