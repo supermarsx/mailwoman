@@ -9,13 +9,14 @@ import {Compose} from './Compose.tsx';
 import {makeClient} from './appHarness.tsx';
 import {createAppState} from '../state/store.ts';
 import {AppContext} from '../state/context.ts';
-import {clearSettings} from '../api/settings.ts';
+import {clearSettings,loadSettings} from '../api/settings.ts';
+import {clearDrafts,listDrafts,saveDraft} from './compose/drafts-store.ts';
 import {toast} from './toast/toast.ts';
 import type {Me} from '../api/client.ts';
 
 const json=(value:unknown)=>new Response(JSON.stringify(value),{headers:{'content-type':'application/json'}});
 beforeAll(async()=>{await import('./compose/RichTextEditor.tsx');},60000);
-afterEach(()=>{vi.unstubAllGlobals();clearSettings();toast.clear();document.body.innerHTML='';});
+afterEach(()=>{vi.unstubAllGlobals();clearSettings();clearDrafts();toast.clear();document.body.innerHTML='';});
 
 async function signedIn(storage:boolean){
   vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL)=>String(input).endsWith('/api/account/drafts')?json({accountId:'acct1',supported:false,items:[]}):json({})));
@@ -68,4 +69,36 @@ it('opens the discard modal in the document that holds the composer (detached wi
   expect(document.querySelector('[role="alertdialog"]')).toBeNull();
   fireEvent.click(within(dialog).getByRole('button',{name:'Keep editing'}));
   expect(popup.querySelector('[role="alertdialog"]')).toBeNull();
+});
+
+it.each(['saving','uncertain','conflict','refused'] as const)('closes a resumed draft during %s and retains the latest local edits',async(status)=>{
+ const app=await signedIn(true);
+ saveDraft({id:'existing-draft',accountId:'acct1',storageAuthority:'test-storage-authority-acct1',serverRevision:'old-revision',to:'',subject:'Saved before',bodyText:'',bodyHtml:'',bodyFormat:'plain',savedAt:1});
+ let started=false;
+ vi.stubGlobal('fetch',vi.fn(async(input:RequestInfo|URL,init?:RequestInit)=>{
+  const path=String(input);
+  if(path.endsWith('/api/account/drafts'))return json({accountId:'acct1',storageAuthority:'test-storage-authority-acct1',supported:true,items:[]});
+  if(init?.method==='PUT'){
+   started=true;
+   if(status==='saving')return new Promise<Response>((_resolve,reject)=>{init.signal?.addEventListener('abort',()=>reject(new DOMException('Aborted','AbortError')),{once:true});});
+   return new Response(JSON.stringify({code:status==='conflict'?'draftConflict':status==='refused'?'draftSaveRefused':'draftSaveUncertain'}),{status:409,headers:{'content-type':'application/json'}});
+  }
+  return json({csrfToken:'csrf'});
+ }));
+ await loadSettings({refresh:true,fetcher:async()=>json({settings:{'mail.draftSaveMode':{value:'manual',source:'user',locked:false}}})});
+ let guard:(()=>Promise<boolean>)|undefined;
+ const view=render(()=><AppContext.Provider value={app}><Compose embedded resumeDraftId="existing-draft" onClose={()=>{}} registerBeforeClose={handler=>{guard=handler;}}/></AppContext.Provider>);
+ await waitFor(()=>expect(screen.getByLabelText('Subject')).toHaveValue('Saved before'));
+ fireEvent.input(screen.getByLabelText('Subject'),{target:{value:'Latest edits'}});
+ const actions=within(view.container.querySelector<HTMLElement>('.compose__header')!);
+ await waitFor(()=>expect(actions.getByRole('button',{name:'Save to Drafts'})).toBeEnabled());
+ fireEvent.click(actions.getByRole('button',{name:'Save to Drafts'}));
+ await waitFor(()=>expect(started).toBe(true));
+ if(status!=='saving')await waitFor(()=>expect(screen.getByTestId('account-draft-status')).not.toHaveTextContent('Saving to account Drafts'));
+ await expect(guard!()).resolves.toBe(true);
+ const recovered=listDrafts('acct1','test-storage-authority-acct1').find(draft=>draft.id==='existing-draft');
+ expect(recovered?.subject).toBe('Latest edits');
+ if(status!=='refused')expect(recovered?.serverStatus).toBe('uncertain');
+ expect(screen.queryByRole('alertdialog')).toBeNull();
+ view.unmount();
 });

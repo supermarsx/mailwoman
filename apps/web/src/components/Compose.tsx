@@ -1139,11 +1139,18 @@ export function Compose(props: {
   onCleanup(()=>closePrompt()?.answer(false));
   async function beforeDraftClose(discard=false):Promise<boolean>{
     if(sent||allowRecoveryClose||!ownsDraft())return true;
-    if(uploading()||remoteWriter?.isBusy())return false;
     if(closePrompt())return false;
     const reason=unsavedCloseReason();
     if(reason)return discard||confirmUnsavedClose(reason);
-    if(settings()['mail.draftSaveMode']?.value!=='manual'&&remoteWriter?.hasPending()&&!await remoteWriter.flush())return false;
+    // Closing is a local operation. A slow or failed account save must never trap
+    // the composer; retain the latest editor state before aborting its writer.
+    // An in-flight mutation may have reached the server, so require reconciliation
+    // on resume rather than replaying it against a potentially stale revision.
+    if(pendingDraft&&ownsDraft()){
+      if(remoteWriter?.isBusy()||remoteStatus()==='uncertain'||remoteStatus()==='conflict')pendingDraft={...pendingDraft,serverStatus:'uncertain'};
+      saveDraft(pendingDraft);
+    }
+    clearTimeout(saveTimer);remoteWriter?.dispose();remoteAbort?.abort();
     return true;
   }
   async function closeWithDraftSave():Promise<void>{if(await beforeDraftClose())props.onClose();}
