@@ -2484,3 +2484,6 @@ admin-settings-key-mail-conversations-allowed = Konversations-Threading verfügb
 admin-settings-key-mail-conversations-enabled = Gruppieren Sie Nachrichten in Konversationen
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = Bis zu 100 genaue Absenderdomänen in Kleinbuchstaben, deren überprüfte Nachrichtenlinks automatisch aktiviert werden. Subdomains sind getrennt. Dadurch werden Zielwebsites nicht als vertrauenswürdig eingestuft und Remote-Bilder werden nicht zugelassen. Standardmäßig leer; Benutzer können es ändern, sofern es nicht gesperrt ist.
+
+admin-settings-key-links-trusted-sender-domains = Vertrauenswürdige Absenderdomänen für Nachrichtenlinks

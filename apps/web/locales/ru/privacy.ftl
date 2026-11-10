@@ -226,3 +226,14 @@ privacy-error-reports-send = Отправлять отчеты об ошибка
 privacy-error-reports-send-help = Включено по умолчанию. Выключите эту функцию, чтобы сохранить эти отчеты на своем устройстве. На панели ошибок по-прежнему отображается ссылка, которую можно скопировать.
 
 privacy-error-reports-title = Отчеты об ошибках
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Перестать всегда разрешать ссылки из этого домена отправителя
+
+privacy-links-trust-domain = Всегда разрешать ссылки из этого домена отправителя
+
+privacy-trusted-link-sender-domains = Домены отправителя
+
+privacy-trusted-link-sender-domains-help = Разрешить проверенные ссылки в сообщениях именно из этих доменов отправителей. Один домен на строку; субдомены отдельные. Это не доверяет целевым веб-сайтам и не загружает изображения. Пустой список запрашивает каждое сообщение.
+
+privacy-trusted-link-sender-domains-save = Сохраняйте домены доверенных отправителей

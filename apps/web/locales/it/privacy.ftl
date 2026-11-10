@@ -226,3 +226,14 @@ privacy-error-reports-send = Invia segnalazioni di errori da questo browser
 privacy-error-reports-send-help = Attivo per impostazione predefinita. Disattiva per mantenere questi report sul tuo dispositivo. Il pannello di errore mostra ancora un riferimento che puoi copiare.
 
 privacy-error-reports-title = Segnalazioni di errori
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Smetti di consentire sempre i collegamenti da questo dominio del mittente
+
+privacy-links-trust-domain = Consenti sempre i collegamenti da questo dominio mittente
+
+privacy-trusted-link-sender-domains = Domini mittente
+
+privacy-trusted-link-sender-domains-help = Consenti collegamenti esaminati nei messaggi provenienti da questi domini esatti del mittente. Un dominio per linea; i sottodomini sono separati. Questo non si fida dei siti Web di destinazione né del caricamento delle immagini. Un elenco vuoto richiede ciascun messaggio.
+
+privacy-trusted-link-sender-domains-save = Salva i domini dei mittenti attendibili

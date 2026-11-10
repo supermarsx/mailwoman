@@ -416,6 +416,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'images.blockedHosts',
   'links.trustedDomains',
   'links.trustedSenders',
+  'links.trustedSenderDomains',
   'links.trustedSubdomains',
   'privacy.maxBytes',
   'privacy.imageConcurrencyMode',

@@ -174,6 +174,22 @@ describe('Reader signed privacy pipeline',()=>{
     expect(screen.queryByTestId('reader-body-blocked')).toBeNull();
   });
 
+  it('persists exact sender-domain link trust across senders without enabling images or similar domains',async()=>{
+    const writes:{key:string;value:unknown}[]=[];
+    await loadSettings({refresh:true,fetcher:async(url,init)=>{
+      if(init?.method==='PUT'){const value=JSON.parse(String(init.body)).value;writes.push({key:String(url),value});return json({value,locked:false,source:'user'});}
+      return json({settings:{'links.trustedSenderDomains':{value:[],locked:false,source:'user'}}});
+    }});
+    const second=message('m2','<a href="https://safe.test/page">Second</a>');second.from=[{name:'Other',email:'other@example.test'}];
+    const third=message('m3','<a href="https://safe.test/page">Third</a>');third.from=[{name:'Other',email:'other@example.test.evil'}];
+    const app=await open([message('m1','<a href="https://safe.test/page">First</a>'),second,third]);
+    fireEvent.click(await screen.findByRole('button',{name:'Link options'}));fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender domain'}));
+    await waitFor(()=>expect(writes).toEqual([{key:'/api/settings/links.trustedSenderDomains',value:['example.test']}]));
+    await app.openMessage('m2');await screen.findByRole('button',{name:'Link options'});await waitFor(()=>expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(true));
+    await app.openMessage('m3');await screen.findByRole('button',{name:'Link options'});await waitFor(()=>expect(new DOMParser().parseFromString(frame()?.srcdoc??'','text/html').querySelector('a')?.hasAttribute('href')).toBe(false));
+    expect(requests).toEqual([]);expect(granted).toBe(false);
+  });
+
   it('persists exact sender link trust separately from image grants and honors a current-message disable',async()=>{
     const writes:unknown[]=[];
     await loadSettings({refresh:true,fetcher:async(_url,init)=>{

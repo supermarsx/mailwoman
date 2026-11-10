@@ -2470,3 +2470,6 @@ admin-settings-key-mail-conversations-allowed = 会話スレッドを利用可�
 admin-settings-key-mail-conversations-enabled = メッセージを会話にグループ化する
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = レビューされたメッセージ リンクが自動的に有効になる、正確な小文字の送信者ドメインが 100 個まで含まれます。サブドメインは別です。これは宛先 Web サイトを信頼せず、リモート画像も許可しません。デフォルトでは空です。ユーザーはロックされていない限り変更できます。
+
+admin-settings-key-links-trusted-sender-domains = メッセージリンクの信頼できる送信者ドメイン

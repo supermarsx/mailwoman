@@ -53,6 +53,7 @@ export const PRIVACY_CARDS: readonly CardSpec[] = [
   ] },
   { id: 'privacy-card-trusted-senders', section: 'privacy', title: 'privacy-trusted-link-senders-title', help: 'privacy-trusted-link-senders-help', rows: [
     { id: 'trusted-link-senders', label: 'privacy-trusted-link-senders-list', help: 'privacy-trusted-link-senders-list-help' },
+    { id: 'trusted-link-sender-domains', label: 'privacy-trusted-link-sender-domains', help: 'privacy-trusted-link-sender-domains-help',keywords:'sender domain links trust always allow' },
   ] },
   { id: 'privacy-card-analytics', section: 'privacy', title: 'privacy-analytics-title', help: 'privacy-analytics-help', rows: [{ id: 'analytics-consent', label: 'privacy-analytics-consent' }] },
   { id: 'privacy-card-load-time', section: 'privacy', title: 'privacy-load-time-title', help: 'privacy-load-time-help', rows: [

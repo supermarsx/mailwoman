@@ -27,3 +27,11 @@ it('offers sender trust and revoke only through the compact menu and respects ad
  setEditable(true);fireEvent.click(screen.getByTestId('message-links-toggle'));setScope('account:other-message');expect(screen.queryByRole('menu')).toBeNull();
  fireEvent.click(screen.getByTestId('message-links-toggle'));fireEvent.click(screen.getByRole('menuitem',{name:'Stop always allowing links from this sender'}));expect(revoke).toHaveBeenCalledOnce();
 });
+it('offers independent sender-domain trust, revocation and administrator locks',()=>{
+ const [trusted,setTrusted]=createSignal(false),[editable,setEditable]=createSignal(true);
+ const trust=vi.fn(()=>{setTrusted(true);}),revoke=vi.fn(()=>{setTrusted(false);});
+ render(()=><LinkedFilesBar compact emailId="message" scope="account:message" urls={[]} links={['https://example.org']} linksReady onToggleLinks={()=>{}} domainTrusted={trusted()} domainTrustEditable={editable()} onTrustDomain={trust} onRevokeDomain={revoke}/>);
+ fireEvent.click(screen.getByTestId('message-links-toggle'));fireEvent.click(screen.getByRole('menuitem',{name:'Always allow links from this sender domain'}));expect(trust).toHaveBeenCalledOnce();
+ setEditable(false);fireEvent.click(screen.getByTestId('message-links-toggle'));const action=screen.getByRole('menuitem',{name:'Stop always allowing links from this sender domain'});expect(action).toHaveAttribute('aria-disabled','true');fireEvent.click(action);expect(revoke).not.toHaveBeenCalled();
+ setEditable(true);fireEvent.click(action);expect(revoke).toHaveBeenCalledOnce();
+});

@@ -2496,3 +2496,6 @@ admin-settings-key-mail-conversations-allowed = Зробіть ланцюжок 
 admin-settings-key-mail-conversations-enabled = Групуйте повідомлення в бесіди
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = До 100 точних доменів відправників у нижньому регістрі, переглянуті посилання на повідомлення яких активуються автоматично. Субдомени окремі. Це не довіряє цільовим веб-сайтам і не дозволяє віддалені зображення. За замовчуванням порожній; користувачі можуть змінити його, якщо він не заблокований.
+
+admin-settings-key-links-trusted-sender-domains = Довірені домени відправників для посилань на повідомлення

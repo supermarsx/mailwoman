@@ -17,6 +17,15 @@ export function TrustedLinkDomains(): JSX.Element {
   const domains = useSetting<string[]>('links.trustedDomains', [], isList);
   const subdomains = useSetting<boolean>('links.trustedSubdomains', false);
   const senders = useSetting<string[]>('links.trustedSenders', [], isList);
+  const senderDomains=useSetting<string[]>('links.trustedSenderDomains',[],isList);
+  const [domainText,setDomainText]=createSignal(''),[domainInvalid,setDomainInvalid]=createSignal('');
+  createEffect(()=>setDomainText(senderDomains.value().join('\n')));
+  const senderDomainsDisabled=()=>!senderDomains.entry()||senderDomains.locked()||senderDomains.saving();
+  async function saveSenderDomains():Promise<void>{
+    const entries=domainText().split(/[\n,;]+/).map(value=>value.trim()).filter(Boolean),bad=entries.filter(value=>normalizeTrustedLinkDomain(value)===null);
+    if(entries.length>100||bad.length){setDomainInvalid(t('privacy-trusted-links-invalid',{entries:bad.slice(0,3).join(', ')}));return;}
+    setDomainInvalid('');await senderDomains.set([...new Set(entries.map(value=>normalizeTrustedLinkDomain(value)!))]);
+  }
   const [text, setText] = createSignal('');
   const [invalid, setInvalid] = createSignal('');
   const [senderText,setSenderText]=createSignal(''),[senderInvalid,setSenderInvalid]=createSignal('');
@@ -57,6 +66,11 @@ export function TrustedLinkDomains(): JSX.Element {
         <div class={css.actions}><button type="button" class={css.button} disabled={sendersDisabled()} onClick={()=>void saveSenders()}>{t('privacy-trusted-link-senders-save')}</button></div>
       </>}</SettingRow>
       <Show when={senders.value().length}><ul class={trustCss.senders}><For each={senders.value()}>{sender=><li class={trustCss.sender}><span dir="ltr" class={trustCss.address}>{sender}</span> <button type="button" class={css.ghost} disabled={sendersDisabled()} onClick={()=>void senders.set(senders.value().filter(value=>value!==sender))}>{t('privacy-trusted-link-senders-remove',{sender})}</button></li>}</For></ul></Show>
+      <SettingRow controlId="trusted-link-sender-domains" stacked label={t('privacy-trusted-link-sender-domains')} help={t('privacy-trusted-link-sender-domains-help')} handle={senderDomains}>{describedBy=><>
+        <textarea id="trusted-link-sender-domains" class={css.textarea} value={domainText()} disabled={senderDomainsDisabled()} aria-invalid={domainInvalid()?'true':undefined} aria-describedby={describedBy()} onInput={event=>setDomainText(event.currentTarget.value)}/>
+        <Show when={domainInvalid()}><p role="alert">{domainInvalid()}</p></Show>
+        <div class={css.actions}><button type="button" class={css.button} disabled={senderDomainsDisabled()} onClick={()=>void saveSenderDomains()}>{t('privacy-trusted-link-sender-domains-save')}</button></div>
+      </>}</SettingRow>
     </SettingsCard>
   </>;
 }

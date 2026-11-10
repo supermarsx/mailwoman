@@ -1,4 +1,5 @@
 import {isMailbox} from '../api/jmap.ts';
+import {normalizeTrustedLinkDomain} from './linkTrust.ts';
 
 type SenderSettings=Readonly<Record<string,{value:unknown}|undefined>>;
 /** Trust exactly one mailbox. Preserve the case-sensitive local part, including
@@ -20,4 +21,16 @@ export function trustedLinkSenders(values:SenderSettings):string[] {
 export function isTrustedLinkSender(sender:string,values:SenderSettings):boolean {
  const normalized=normalizeTrustedLinkSender(sender);
  return normalized!==null&&trustedLinkSenders(values).includes(normalized);
+}
+/** Sender domains are exact DNS names, independent of destination-site trust. */
+export function trustedLinkSenderDomain(sender:string):string|null {
+ const address=normalizeTrustedLinkSender(sender);return address?normalizeTrustedLinkDomain(address.slice(address.lastIndexOf('@')+1)):null;
+}
+export function trustedLinkSenderDomains(values:SenderSettings):string[]{
+ const raw=values['links.trustedSenderDomains']?.value;
+ if(!Array.isArray(raw)||raw.length>100||raw.some(value=>typeof value!=='string'||normalizeTrustedLinkDomain(value)!==value))return [];
+ return [...new Set(raw as string[])];
+}
+export function isTrustedLinkSenderDomain(sender:string,values:SenderSettings):boolean{
+ const domain=trustedLinkSenderDomain(sender);return domain!==null&&trustedLinkSenderDomains(values).includes(domain);
 }

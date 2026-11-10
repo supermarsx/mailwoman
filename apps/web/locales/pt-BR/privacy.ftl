@@ -226,3 +226,14 @@ privacy-error-reports-send = Envie relatórios de erros deste navegador
 privacy-error-reports-send-help = Ativado por padrão. Desligue para manter esses relatórios no seu dispositivo. O painel de erros ainda mostra uma referência que você pode copiar.
 
 privacy-error-reports-title = Relatórios de erros
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Pare de permitir sempre links deste domínio de remetente
+
+privacy-links-trust-domain = Sempre permitir links deste domínio de remetente
+
+privacy-trusted-link-sender-domains = Domínios do remetente
+
+privacy-trusted-link-sender-domains-help = Permitir links revisados em mensagens desses domínios de remetente exatos. Um domínio por linha; subdomínios são separados. Isso não confia em sites de destino nem carrega imagens. Uma lista vazia solicita cada mensagem.
+
+privacy-trusted-link-sender-domains-save = Salvar domínios de remetentes confiáveis

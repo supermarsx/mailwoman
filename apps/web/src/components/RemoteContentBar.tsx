@@ -169,7 +169,7 @@ export function RemoteContentBar(props: RemoteContentBarProps): JSX.Element {
     if(props.trackerOverrideAllowed&&mode()!=='block')items.push({id:'trackers',label:t(props.trackersAllowed?'mail-privacy-trackers-block':'mail-privacy-trackers-allow'),icon:props.trackersAllowed?'shield':'eye',disabled:pending(),run:()=>change('trackers',()=>props.trackersAllowed?props.onRevoke?.({kind:'trackers-single',value:props.emailId},options):props.onGrant?.({kind:'trackers-single',value:props.emailId},options))});
     const manage = props.onManageHosts;
     if (manage && mode() !== 'block') items.push({ id: 'hosts', label: t('remote-banner-hosts-manage'), icon: 'domains', disabled: pending(), run: () => manage() });
-    if (mode() === 'ask' && !granted()) {
+    if (mode() === 'ask') {
       for (const kind of MENU_KINDS) {
         if (kind === 'per-sender' && props.sender === '') continue;
         if (kind === 'per-domain' && domain() === '') continue;

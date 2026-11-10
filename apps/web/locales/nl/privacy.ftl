@@ -226,3 +226,14 @@ privacy-error-reports-send = Foutrapporten verzenden vanuit deze browser
 privacy-error-reports-send-help = Standaard ingeschakeld. Schakel dit uit om deze rapporten op uw apparaat te bewaren. Het foutpaneel toont nog steeds een referentie die u kunt kopiëren.
 
 privacy-error-reports-title = Foutrapporten
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Sta niet langer altijd links toe vanaf dit afzenderdomein
+
+privacy-links-trust-domain = Sta altijd links toe vanuit dit afzenderdomein
+
+privacy-trusted-link-sender-domains = Afzenderdomeinen
+
+privacy-trusted-link-sender-domains-help = Sta beoordeelde links toe in berichten van deze exacte afzenderdomeinen. Eén domein per lijn; subdomeinen zijn gescheiden. Dit vertrouwt geen bestemmingswebsites en laadt geen afbeeldingen. Een lege lijst vraagt ​​om elk bericht.
+
+privacy-trusted-link-sender-domains-save = Bewaar vertrouwde afzenderdomeinen

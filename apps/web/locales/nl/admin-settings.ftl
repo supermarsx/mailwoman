@@ -2478,3 +2478,6 @@ admin-settings-key-mail-conversations-allowed = Maak gespreksthreads beschikbaar
 admin-settings-key-mail-conversations-enabled = Groepeer berichten in gesprekken
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = Maximaal 100 exacte afzenderdomeinen in kleine letters waarvan de beoordeelde berichtlinks automatisch worden ingeschakeld. Subdomeinen zijn gescheiden. Hierdoor worden bestemmingswebsites niet vertrouwd en worden externe afbeeldingen niet toegestaan. Standaard leeg; gebruikers kunnen dit wijzigen tenzij vergrendeld.
+
+admin-settings-key-links-trusted-sender-domains = Vertrouwde afzenderdomeinen voor berichtlinks

@@ -2259,3 +2259,6 @@ admin-settings-key-mail-conversations-allowed = Disponibilizar o agrupamento em 
 admin-settings-help-mail-conversations-allowed = Permite agrupar respostas relacionadas em conversas. Disponível por predefinição, mas a preferência do utilizador começa desativada. Desativar a disponibilidade sobrepõe-se à escolha do utilizador sem alterar o agrupamento por categorias.
 admin-settings-key-mail-conversations-enabled = Agrupar mensagens em conversas
 admin-settings-help-mail-conversations-enabled = Desativado por predefinição. Agrupa as respostas carregadas por conversa, independentemente de Agrupar por. Defina a predefinição ou bloqueie esta preferência. A disponibilidade das conversas também tem de estar ativada.
+
+admin-settings-key-links-trusted-sender-domains = Domínios de remetentes fidedignos para ligações nas mensagens
+admin-settings-help-links-trusted-sender-domains = Até 100 domínios exatos de remetentes, em minúsculas, cujas ligações revistas são ativadas automaticamente. Os subdomínios são independentes. Não confia nos sites de destino nem permite imagens remotas. Vazio por predefinição; os utilizadores podem alterá-lo, salvo bloqueio.

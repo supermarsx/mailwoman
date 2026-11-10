@@ -225,3 +225,14 @@ privacy-error-reports-send = 从此浏览器发送错误报告
 privacy-error-reports-send-help = 默认开启。关闭以将这些报告保留在您的设备上。错误面板仍然显示您可以复制的参考。
 
 privacy-error-reports-title = 错误报告
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = 停止始终允许来自该发件人域的链接
+
+privacy-links-trust-domain = 始终允许来自此发件人域的链接
+
+privacy-trusted-link-sender-domains = 发件人域
+
+privacy-trusted-link-sender-domains-help = 允许来自这些确切发件人域的邮件中经过审阅的链接。每行一个域；子域是分开的。这不信任目标网站或加载图像。空列表要求提供每条消息。
+
+privacy-trusted-link-sender-domains-save = 保存受信任的发件人域

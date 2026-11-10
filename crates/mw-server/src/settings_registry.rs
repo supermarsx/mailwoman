@@ -1353,6 +1353,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "exact sender mailboxes whose reviewed message links may open without per-message consent"
     ),
     def!(
+        "links.trustedSenderDomains",
+        Kind::StringList { max_len: 100, max_item: 253 },
+        "[]",
+        GDU,
+        "privacy",
+        "exact sender domains whose reviewed message links may open without per-message consent; independent of trusted destination domains"
+    ),
+    def!(
         "links.trustedSubdomains",
         Kind::Bool,
         "false",
@@ -8995,7 +9003,7 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
                     ) && !crate::account_signin_geo::valid_country(text))
                     || (matches!(
                         def.key,
-                        "links.trustedDomains" | "images.trustedHosts" | "images.blockedHosts"
+                        "links.trustedDomains" | "links.trustedSenderDomains" | "images.trustedHosts" | "images.blockedHosts"
                     ) && !link_trust::is_canonical(text))
                     || (def.key == "links.trustedSenders" && !link_trust::is_canonical_sender(text))
                     || (def.key == "security.protection.userAgentCategories"
@@ -9521,6 +9529,15 @@ impl From<StoreError> for CeilingError {
 mod tests {
     use super::*;
     use mw_store::ServerKey;
+
+    #[test]
+    fn sender_domain_link_trust_is_exact_and_bounded() {
+        let def=lookup("links.trustedSenderDomains").unwrap();
+        assert_eq!(def.scopes,Scopes::GlobalDomainUser);
+        assert_eq!(def.default_value(),json!([]));
+        assert!(validate(def,&json!(["example.test","sub.example.test"]),"/value").is_ok());
+        for value in [json!(["*.example.test"]),json!(["EXAMPLE.TEST"]),json!(["https://example.test"]),json!(["alice@example.test"]),json!(["com"]),json!(vec!["example.test";101])]{assert!(validate(def,&value,"/value").is_err(),"{value}");}
+    }
 
     #[test]
     fn mail_cache_policy_is_bounded_and_speculation_opt_in() {

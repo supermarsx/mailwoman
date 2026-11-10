@@ -418,6 +418,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="images.blockedhosts"></a>`images.blockedHosts` | privacy | global+domain+user | [] | plain |  | yes | image hosts (and their subdomains) whose remote images never load; wins over a trusted host and over any grant |
 | <a id="links.trusteddomains"></a>`links.trustedDomains` | privacy | global+domain+user | [] | plain |  | yes | exact trusted link domains that open from Review links without the destination step |
 | <a id="links.trustedsenders"></a>`links.trustedSenders` | privacy | global+domain+user | [] | plain |  | yes | exact sender mailboxes whose reviewed message links may open without per-message consent |
+| <a id="links.trustedsenderdomains"></a>`links.trustedSenderDomains` | privacy | global+domain+user | [] | plain |  | yes | exact sender domains whose reviewed message links may open without per-message consent; independent of trusted destination domains |
 | <a id="links.trustedsubdomains"></a>`links.trustedSubdomains` | privacy | global+domain+user | false | plain |  | yes | whether trusted link domains also trust their subdomains |
 | <a id="privacy.maxbytes"></a>`privacy.maxBytes` | privacy | global | 8388608 | plain |  | yes | Largest fetched remote image in bytes |
 | <a id="privacy.cachebytes"></a>`privacy.cacheBytes` | imageProxy | global | 33554432 | plain |  | yes | Remote image cache size in bytes |

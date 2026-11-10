@@ -2496,3 +2496,6 @@ admin-settings-key-mail-conversations-allowed = Сделайте цепочку 
 admin-settings-key-mail-conversations-enabled = Группируйте сообщения в беседы
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = До 100 доменов отправителей, написанных строчными буквами, ссылки на проверенные сообщения которых включаются автоматически. Субдомены отдельные. Это не доверяет целевым веб-сайтам и не разрешает удаленные изображения. По умолчанию пусто; пользователи могут изменить его, если он не заблокирован.
+
+admin-settings-key-links-trusted-sender-domains = Доверенные домены отправителей для ссылок на сообщения

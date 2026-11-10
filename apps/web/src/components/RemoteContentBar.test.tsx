@@ -89,6 +89,11 @@ describe('RemoteContentBar — blocked (ask)', () => {
 
 describe('RemoteContentBar — shown (ask, granted)', () => {
   const grant: RemoteImageGrant = { scopeKind: 'per-sender', scopeValue: 'bob@spam.example', grantedAt: '2026-07-19T00:00:00Z' };
+  it('keeps sender and domain grants available after enabling images for just one message',()=>{
+    const onGrant=vi.fn();render(()=><RemoteContentBar {...CTX} compact report={report()} activeGrant={{scopeKind:'single',scopeValue:'M1',grantedAt:''}} onGrant={onGrant}/>);
+    openMenu();fireEvent.click(screen.getByRole('menuitem',{name:/Always show images from .spam\.example.$/}));
+    expect(onGrant).toHaveBeenCalledWith({kind:'per-domain',value:'spam.example'},expect.anything());
+  });
 
   it('collapses to "Images shown · Undo"', () => {
     render(() => <RemoteContentBar {...CTX} report={report({ blockedCount: 0, blockedHosts: [] })} activeGrant={grant} />);

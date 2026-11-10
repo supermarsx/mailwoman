@@ -10,11 +10,18 @@ beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(async (url: string, init?: RequestInit) => {
     const body = init?.method === 'PUT' ? JSON.parse(String(init.body)) as { value: unknown } : null;
     if (body) { writes.push({ url, value: body.value }); return new Response(JSON.stringify(entry(body.value))); }
-    return new Response(JSON.stringify({ settings: known ? { 'links.trustedDomains': entry(['corp.test'], held), 'links.trustedSubdomains': entry(false, held), 'links.trustedSenders':entry(['Alice+news@corp.test'],held) } : {} }));
+    return new Response(JSON.stringify({ settings: known ? { 'links.trustedDomains': entry(['corp.test'], held), 'links.trustedSubdomains': entry(false, held), 'links.trustedSenders':entry(['Alice+news@corp.test'],held),'links.trustedSenderDomains':entry([],held) } : {} }));
   }));
 });
 
 describe('Trusted link domains settings', () => {
+  it('saves exact sender domains independently of sender addresses and destination sites',async()=>{
+    render(()=><TrustedLinkDomains/>);const box=await screen.findByLabelText('Sender domains');await waitFor(()=>expect(box).toBeEnabled());
+    fireEvent.input(box,{target:{value:'Example.Test\nexample.test\nsub.example.test'}});fireEvent.click(screen.getByRole('button',{name:'Save trusted sender domains'}));
+    await waitFor(()=>expect(writes).toEqual([{url:'/api/settings/links.trustedSenderDomains',value:['example.test','sub.example.test']}]));
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Save trusted sender domains'})).toBeEnabled());
+    fireEvent.input(box,{target:{value:'*.example.test'}});fireEvent.click(screen.getByRole('button',{name:'Save trusted sender domains'}));expect(await screen.findByRole('alert')).toBeInTheDocument();expect(writes).toHaveLength(1);
+  });
   it('saves a normalized, de-duplicated list and the subdomain switch', async () => {
     render(() => <TrustedLinkDomains />);
     const box = await screen.findByLabelText('Domains'); await waitFor(() => expect(box).toBeEnabled());
@@ -38,10 +45,11 @@ describe('Trusted link domains settings', () => {
 
   it('is read-only under an administrator lock and disabled against a server without the keys', async () => {
     held = true; const { unmount } = render(() => <TrustedLinkDomains />);
-    await waitFor(() => expect(screen.getAllByTestId('setting-lock-note')).toHaveLength(3));
+    await waitFor(() => expect(screen.getAllByTestId('setting-lock-note')).toHaveLength(4));
     expect(screen.getByLabelText('Domains')).toBeDisabled();
     expect(screen.getByLabelText(/Also trust subdomains/)).toBeDisabled();
     expect(screen.getByLabelText('Sender addresses')).toBeDisabled();
+    expect(screen.getByLabelText('Sender domains')).toBeDisabled();
     unmount(); clearSettings(); known = false;
     render(() => <TrustedLinkDomains />);
     await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalled());

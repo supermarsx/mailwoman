@@ -2484,3 +2484,6 @@ admin-settings-key-mail-conversations-allowed = Hacer que los hilos de conversac
 admin-settings-key-mail-conversations-enabled = Agrupar mensajes en conversaciones
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = Hasta 100 dominios de remitentes exactos en minúsculas cuyos enlaces de mensajes revisados se habilitan automáticamente. Los subdominios están separados. Esto no confía en los sitios web de destino ni permite imágenes remotas. Vacío por defecto; los usuarios pueden cambiarlo a menos que estén bloqueados.
+
+admin-settings-key-links-trusted-sender-domains = Dominios de remitente confiables para enlaces de mensajes

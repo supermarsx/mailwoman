@@ -2259,3 +2259,6 @@ admin-settings-key-mail-conversations-allowed = Make conversation threading avai
 admin-settings-help-mail-conversations-allowed = Allow users to group related replies into conversations. Available by default, but the user preference starts off. Disabling availability overrides the user's choice without changing category grouping.
 admin-settings-key-mail-conversations-enabled = Group messages into conversations
 admin-settings-help-mail-conversations-enabled = Off by default. Group loaded replies by thread, independently of Group by. Set the default or lock this preference. Conversation availability must also be enabled.
+
+admin-settings-key-links-trusted-sender-domains = Trusted sender domains for message links
+admin-settings-help-links-trusted-sender-domains = Up to 100 exact lowercase sender domains whose reviewed message links are enabled automatically. Subdomains are separate. This does not trust destination websites or allow remote images. Empty by default; users can change it unless locked.

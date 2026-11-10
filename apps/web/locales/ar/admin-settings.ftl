@@ -2500,3 +2500,6 @@ admin-settings-key-mail-conversations-allowed = جعل ترابط المحادث
 admin-settings-key-mail-conversations-enabled = تجميع الرسائل في المحادثات
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = ما يصل إلى 100 نطاق مرسل بأحرف صغيرة يتم تمكين روابط الرسائل التي تمت مراجعتها تلقائيًا. النطاقات الفرعية منفصلة. هذا لا يثق في مواقع الوجهة ولا يسمح بالصور عن بعد. فارغة افتراضيا؛ يمكن للمستخدمين تغييره ما لم يتم قفله.
+
+admin-settings-key-links-trusted-sender-domains = نطاقات المرسل الموثوق بها لارتباطات الرسائل

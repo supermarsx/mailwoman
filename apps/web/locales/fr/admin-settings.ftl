@@ -2484,3 +2484,6 @@ admin-settings-key-mail-conversations-allowed = Rendre le fil de conversation di
 admin-settings-key-mail-conversations-enabled = Regrouper les messages en conversations
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = Jusqu'à 100 domaines d'expéditeurs en minuscules exacts dont les liens de messages examinés sont activés automatiquement. Les sous-domaines sont distincts. Cela ne fait pas confiance aux sites Web de destination et n'autorise pas les images distantes. Vide par défaut ; les utilisateurs peuvent le modifier à moins qu'il ne soit verrouillé.
+
+admin-settings-key-links-trusted-sender-domains = Domaines d'expéditeur de confiance pour les liens de messages

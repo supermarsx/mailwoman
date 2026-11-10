@@ -228,3 +228,14 @@ privacy-error-reports-send = إرسال تقارير الأخطاء من هذا 
 privacy-error-reports-send-help = قيد التشغيل بشكل افتراضي. قم بإيقاف تشغيله للاحتفاظ بهذه التقارير على جهازك. لا تزال لوحة الأخطاء تعرض مرجعًا يمكنك نسخه.
 
 privacy-error-reports-title = تقارير الأخطاء
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = توقف دائمًا عن السماح بالارتباطات من مجال المرسل هذا
+
+privacy-links-trust-domain = السماح دائمًا بالارتباطات من مجال المرسل هذا
+
+privacy-trusted-link-sender-domains = مجالات المرسل
+
+privacy-trusted-link-sender-domains-help = السماح بالروابط التي تمت مراجعتها في الرسائل من نطاقات المرسل المحددة هذه. مجال واحد في كل سطر؛ النطاقات الفرعية منفصلة. هذا لا يثق في مواقع الوجهة أو يقوم بتحميل الصور. قائمة فارغة تسأل عن كل رسالة.
+
+privacy-trusted-link-sender-domains-save = حفظ مجالات المرسل الموثوق بها

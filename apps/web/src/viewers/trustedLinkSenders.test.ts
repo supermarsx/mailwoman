@@ -1,7 +1,14 @@
 import {describe,expect,it} from 'vitest';
 import vectors from './trustedLinkSenders.vectors.json';
-import {isTrustedLinkSender,normalizeTrustedLinkSender,trustedLinkSenders} from './trustedLinkSenders.ts';
+import {isTrustedLinkSender,isTrustedLinkSenderDomain,normalizeTrustedLinkSender,trustedLinkSenders,trustedLinkSenderDomains} from './trustedLinkSenders.ts';
 describe('exact trusted link senders',()=>{
+ it('trusts only the exact sender domain and keeps sender and destination trust independent',()=>{
+  const values={'links.trustedSenderDomains':{value:['example.test']},'links.trustedDomains':{value:['destination.test']}};
+  expect(isTrustedLinkSenderDomain('Alice@EXAMPLE.TEST',values)).toBe(true);
+  for(const sender of ['alice@sub.example.test','alice@evilexample.test','alice@example.test.evil','alice@destination.test','alice@[127.0.0.1]','Alice <alice@example.test>'])expect(isTrustedLinkSenderDomain(sender,values)).toBe(false);
+  expect(isTrustedLinkSender('Alice@example.test',values)).toBe(false);
+  for(const raw of [['EXAMPLE.TEST'],['*.example.test'],['com'],['example.test',3],Array(101).fill('example.test')])expect(trustedLinkSenderDomains({'links.trustedSenderDomains':{value:raw}})).toEqual([]);
+ });
  it.each(vectors)('normalizes $input',({input,normalized})=>expect(normalizeTrustedLinkSender(input)).toBe(normalized));
  it('preserves local case, dots and plus aliases rather than broadening a saved trust decision',()=>{
   const values={'links.trustedSenders':{value:['Alice+news@example.test']}};

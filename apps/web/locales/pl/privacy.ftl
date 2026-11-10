@@ -226,3 +226,14 @@ privacy-error-reports-send = Wysyłaj raporty o błędach z tej przeglądarki
 privacy-error-reports-send-help = Domyślnie włączone. Wyłącz, aby zachować te raporty na swoim urządzeniu. Panel błędów nadal pokazuje odnośnik, który możesz skopiować.
 
 privacy-error-reports-title = Raporty o błędach
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Przestań zawsze zezwalać na linki z tej domeny nadawcy
+
+privacy-links-trust-domain = Zawsze zezwalaj na linki z tej domeny nadawcy
+
+privacy-trusted-link-sender-domains = Domeny nadawcy
+
+privacy-trusted-link-sender-domains-help = Zezwalaj na sprawdzane linki w wiadomościach pochodzących z domen dokładnie tych nadawców. Jedna domena na linię; subdomeny są oddzielne. Nie ufa witrynom docelowym ani nie ładuje obrazów. Pusta lista pyta o każdą wiadomość.
+
+privacy-trusted-link-sender-domains-save = Zapisz zaufane domeny nadawców

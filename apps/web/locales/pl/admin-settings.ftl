@@ -2496,3 +2496,6 @@ admin-settings-key-mail-conversations-allowed = Udostępnij wątki konwersacji
 admin-settings-key-mail-conversations-enabled = Grupuj wiadomości w rozmowy
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = Do 100 domen nadawców zawierających małe litery, których linki do sprawdzanych wiadomości są włączane automatycznie. Subdomeny są oddzielne. Nie ufa witrynom docelowym ani nie zezwala na zdalne obrazy. Domyślnie pusty; użytkownicy mogą to zmienić, chyba że są zablokowane.
+
+admin-settings-key-links-trusted-sender-domains = Zaufane domeny nadawców dla linków do wiadomości

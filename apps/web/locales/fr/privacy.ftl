@@ -224,3 +224,14 @@ privacy-error-reports-send = Envoyer des rapports d'erreurs depuis ce navigateur
 privacy-error-reports-send-help = Activé par défaut. Désactivez-la pour conserver ces rapports sur votre appareil. Le panneau d'erreur affiche toujours une référence que vous pouvez copier.
 
 privacy-error-reports-title = Rapports d'erreurs
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Arrêtez de toujours autoriser les liens provenant de ce domaine d'expéditeur
+
+privacy-links-trust-domain = Toujours autoriser les liens provenant de ce domaine d'expéditeur
+
+privacy-trusted-link-sender-domains = Domaines d'expéditeur
+
+privacy-trusted-link-sender-domains-help = Autoriser les liens examinés dans les messages provenant de ces domaines d'expéditeur précis. Un domaine par ligne ; les sous-domaines sont séparés. Cela ne fait pas confiance aux sites Web de destination et ne charge pas les images. Une liste vide demande chaque message.
+
+privacy-trusted-link-sender-domains-save = Enregistrer les domaines d'expéditeurs approuvés

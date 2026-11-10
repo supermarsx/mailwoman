@@ -224,3 +224,9 @@ privacy-error-reports-title = Error reports
 privacy-error-reports-help = When part of Mailwoman fails, the browser can send your administrator a short technical report so it can be fixed. It holds the error type, where in the app it happened, the app version and the browser type. It never holds message content, addresses, attachment names or what you typed.
 privacy-error-reports-send = Send error reports from this browser
 privacy-error-reports-send-help = On by default. Turn off to keep these reports on your device. The error panel still shows a reference you can copy.
+
+privacy-links-trust-domain = Always allow links from this sender domain
+privacy-links-revoke-domain = Stop always allowing links from this sender domain
+privacy-trusted-link-sender-domains = Sender domains
+privacy-trusted-link-sender-domains-help = Allow reviewed links in messages from these exact sender domains. One domain per line; subdomains are separate. This does not trust destination websites or load images. An empty list asks for each message.
+privacy-trusted-link-sender-domains-save = Save trusted sender domains

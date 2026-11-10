@@ -225,3 +225,14 @@ privacy-error-reports-send = このブラウザからエラー レポートを�
 privacy-error-reports-send-help = デフォルトではオンです。これらのレポートをデバイス上に保持するにはオフにします。エラー パネルには、コピーできる参照が表示されています。
 
 privacy-error-reports-title = エラーレポート
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = この送信者ドメインからのリンクを常に許可しないようにする
+
+privacy-links-trust-domain = この送信者ドメインからのリンクを常に許可します
+
+privacy-trusted-link-sender-domains = 送信者ドメイン
+
+privacy-trusted-link-sender-domains-help = これらの正確な送信者ドメインからのメッセージ内のレビュー済みリンクを許可します。 1 行に 1 つのドメイン。サブドメインは別です。これは宛先 Web サイトを信頼したり、画像をロードしたりしません。空のリストは各メッセージを要求します。
+
+privacy-trusted-link-sender-domains-save = 信頼できる送信者ドメインを保存する

@@ -2478,3 +2478,6 @@ admin-settings-key-mail-conversations-allowed = Disponibilizar o encadeamento de
 admin-settings-key-mail-conversations-enabled = Agrupar mensagens em conversas
 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-links-trusted-sender-domains = Até 100 domínios de remetentes exatos em letras minúsculas cujos links de mensagens revisados são ativados automaticamente. Os subdomínios são separados. Isso não confia em sites de destino nem permite imagens remotas. Vazio por padrão; os usuários podem alterá-lo, a menos que estejam bloqueados.
+
+admin-settings-key-links-trusted-sender-domains = Domínios de remetentes confiáveis para links de mensagens

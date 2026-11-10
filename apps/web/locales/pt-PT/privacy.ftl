@@ -227,3 +227,9 @@ privacy-error-reports-title = Relatórios de erros
 privacy-error-reports-help = Quando uma parte do Mailwoman falha, o navegador pode enviar ao administrador um relatório técnico curto para que o problema seja corrigido. Contém o tipo de erro, onde na aplicação ocorreu, a versão da aplicação e o tipo de navegador. Nunca contém conteúdo de mensagens, endereços, nomes de anexos nem o que escreveu.
 privacy-error-reports-send = Enviar relatórios de erros deste navegador
 privacy-error-reports-send-help = Ativado por predefinição. Desative para manter estes relatórios no seu dispositivo. O painel de erro continua a mostrar uma referência que pode copiar.
+
+privacy-links-trust-domain = Permitir sempre ligações deste domínio do remetente
+privacy-links-revoke-domain = Deixar de permitir sempre ligações deste domínio do remetente
+privacy-trusted-link-sender-domains = Domínios dos remetentes
+privacy-trusted-link-sender-domains-help = Permite ligações revistas em mensagens destes domínios exatos dos remetentes. Um domínio por linha; os subdomínios são independentes. Não confia nos sites de destino nem carrega imagens. Uma lista vazia pede autorização em cada mensagem.
+privacy-trusted-link-sender-domains-save = Guardar domínios de remetentes fidedignos

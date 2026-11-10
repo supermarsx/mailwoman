@@ -224,3 +224,14 @@ privacy-error-reports-send = Senden Sie Fehlerberichte von diesem Browser
 privacy-error-reports-send-help = Standardmäßig aktiviert. Deaktivieren Sie diese Option, um diese Berichte auf Ihrem Gerät zu behalten. Im Fehlerbereich wird weiterhin eine Referenz angezeigt, die Sie kopieren können.
 
 privacy-error-reports-title = Fehlerberichte
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-links-revoke-domain = Hören Sie auf, immer Links von dieser Absenderdomäne zuzulassen
+
+privacy-links-trust-domain = Erlauben Sie immer Links von dieser Absenderdomäne
+
+privacy-trusted-link-sender-domains = Absenderdomänen
+
+privacy-trusted-link-sender-domains-help = Erlauben Sie überprüfte Links in Nachrichten von genau diesen Absenderdomänen. Eine Domain pro Zeile; Subdomains sind getrennt. Dadurch werden Zielwebsites nicht vertrauenswürdig und Bilder werden nicht geladen. Für jede Nachricht wird eine leere Liste abgefragt.
+
+privacy-trusted-link-sender-domains-save = Speichern Sie vertrauenswürdige Absenderdomänen

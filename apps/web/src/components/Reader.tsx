@@ -65,7 +65,7 @@ import { SweepDialog } from './SweepDialog.tsx';
 import {ReaderToolbar} from './ReaderToolbar.tsx';
 import {createMessageLinkConsent} from './messageLinkConsent.ts';
 import {reviewMessageLinks} from '../viewers/messageLinks.ts';
-import {isTrustedLinkSender,normalizeTrustedLinkSender,trustedLinkSenders} from '../viewers/trustedLinkSenders.ts';
+import {isTrustedLinkSender,isTrustedLinkSenderDomain,normalizeTrustedLinkSender,trustedLinkSenders,trustedLinkSenderDomain,trustedLinkSenderDomains} from '../viewers/trustedLinkSenders.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import { InviteCard, hasCalendarPart } from './InviteCard.tsx';
 // V7 auto-tag (SPEC §14.3, e14b): model-suggested labels for the open message.
@@ -1042,17 +1042,19 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const linksReady=()=>linkAccountCurrent()&&bodyAllowsContent()&&resourceValue(privacy)!==undefined&&!privacy.loading&&!readerBody.loading&&currentBody()!==undefined;
   const linkSender=()=>app.openEmail()?.from?.length===1?normalizeTrustedLinkSender(sender()):null;
   const senderLinksTrusted=()=>linkAccountCurrent()&&settingsLoadStatus()==='ready'&&linkSender()!==null&&isTrustedLinkSender(linkSender()!,settings());
+  const domainLinksTrusted=()=>linkAccountCurrent()&&settingsLoadStatus()==='ready'&&linkSender()!==null&&isTrustedLinkSenderDomain(linkSender()!,settings());
   const [trustPending,setTrustPending]=createSignal<string|null>(null);
   const senderTrustPending=()=>trustPending()===linkConsentScope();
   const senderTrustEditable=()=>linkAccountCurrent()&&settingsLoadStatus()==='ready'&&!!settings()['links.trustedSenders']&&!settings()['links.trustedSenders']!.locked&&linkSender()!==null&&(senderLinksTrusted()||trustedLinkSenders(settings()).length<100);
-  const {enabled:linksEnabled,toggle:toggleLinks,enable:enableLinks,disable:disableLinks}=createMessageLinkConsent(linkConsentScope,linksReady,senderLinksTrusted);
-  async function setSenderLinkTrust(allow:boolean):Promise<void>{
-    const owner=linkAuthority(),address=linkSender(),scope=linkConsentScope();
-    if(!owner||!address||!linksReady()||!senderTrustEditable()||senderTrustPending())return;
-    const list=trustedLinkSenders(settings()),next=allow?[...new Set([...list,address])]:list.filter(value=>value!==address);
+  const domainTrustEditable=()=>linkAccountCurrent()&&settingsLoadStatus()==='ready'&&!!settings()['links.trustedSenderDomains']&&!settings()['links.trustedSenderDomains']!.locked&&linkSender()!==null&&trustedLinkSenderDomain(linkSender()!)!==null&&(domainLinksTrusted()||trustedLinkSenderDomains(settings()).length<100);
+  const {enabled:linksEnabled,toggle:toggleLinks,enable:enableLinks,disable:disableLinks}=createMessageLinkConsent(linkConsentScope,linksReady,()=>senderLinksTrusted()||domainLinksTrusted());
+  async function setSenderLinkTrust(allow:boolean,domain=false):Promise<void>{
+    const owner=linkAuthority(),senderAddress=linkSender(),address=domain&&senderAddress?trustedLinkSenderDomain(senderAddress):senderAddress,scope=linkConsentScope();
+    if(!owner||!address||!linksReady()||!(domain?domainTrustEditable():senderTrustEditable())||senderTrustPending())return;
+    const list=domain?trustedLinkSenderDomains(settings()):trustedLinkSenders(settings()),next=allow?[...new Set([...list,address])]:list.filter(value=>value!==address);
     setTrustPending(scope);
-    const current=()=>preferenceAccountIsCurrent(owner)&&linkAccountCurrent()&&scope===linkConsentScope()&&address===linkSender();
-    try{await writeSetting('links.trustedSenders',next);if(current()){if(allow)enableLinks();else disableLinks();}}
+    const current=()=>preferenceAccountIsCurrent(owner)&&linkAccountCurrent()&&scope===linkConsentScope()&&senderAddress===linkSender();
+    try{await writeSetting(domain?'links.trustedSenderDomains':'links.trustedSenders',next);if(current()){if(allow)enableLinks();else disableLinks();}}
     catch{if(current())app.showToast('error',t('privacy-links-trust-failed'));}
     finally{if(trustPending()===scope)setTrustPending(null);}
   }
@@ -1574,6 +1576,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                   linksReady:linksReady(),linksEnabled:linksEnabled(),onToggleLinks:toggleLinks,senderTrusted:senderLinksTrusted(),
                   senderTrustEditable:senderTrustEditable(),senderTrustPending:senderTrustPending(),onTrustSender:()=>setSenderLinkTrust(true),
                   onRevokeSender:()=>setSenderLinkTrust(false),emailId:email().id,scope:linkConsentScope(),urls:currentBody()?.refs.files??[],links:currentBody()?.refs.links??[]
+                  ,domainTrusted:domainLinksTrusted(),domainTrustEditable:domainTrustEditable(),onTrustDomain:()=>setSenderLinkTrust(true,true),onRevokeDomain:()=>setSenderLinkTrust(false,true)
                 }:undefined}/>
                 <Show when={hostsOpen()&&showRemoteBar()}><ImageHostRules hosts={imageSourceHosts()} lists={hostLists()} disabled={settingsLoadStatus()!=='ready'||!!(settings()['images.trustedHosts']?.locked||settings()['images.blockedHosts']?.locked)} onChange={setImageHostRule}/></Show>
                 <Show when={settings()['reader.attachmentsAtEnd']?.value !== true}><AttachmentsPane email={email()} encrypted={showDecrypt()} {...(props.onOpenAttachment ? {onOpenAttachment:props.onOpenAttachment} : {})} /></Show>

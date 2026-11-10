@@ -38,7 +38,7 @@ function shortLink(url: string): string {
   try { const u = new URL(url); return `${u.hostname}${u.pathname === '/' ? '' : u.pathname}`; } catch { return url; }
 }
 
-export interface LinkedFilesBarProps {compact?:boolean;emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; senderTrusted?:boolean; senderTrustEditable?:boolean; senderTrustPending?:boolean; onTrustSender?:()=>void|Promise<void>; onRevokeSender?:()=>void|Promise<void>; urls: readonly string[]; links: readonly string[] }
+export interface LinkedFilesBarProps {compact?:boolean;emailId: string; scope: string; linksReady?:boolean; linksEnabled?:boolean; onToggleLinks?:()=>void; senderTrusted?:boolean; senderTrustEditable?:boolean; senderTrustPending?:boolean; onTrustSender?:()=>void|Promise<void>; onRevokeSender?:()=>void|Promise<void>; domainTrusted?:boolean;domainTrustEditable?:boolean;onTrustDomain?:()=>void|Promise<void>;onRevokeDomain?:()=>void|Promise<void>; urls: readonly string[]; links: readonly string[] }
 export function LinkedFilesBar(props: LinkedFilesBarProps): JSX.Element {
   const [pending, setPending] = createSignal(false);
   createEffect(on(() => props.scope, () => setPending(false)));
@@ -90,6 +90,7 @@ export function LinkedFilesBar(props: LinkedFilesBarProps): JSX.Element {
     const items:ContextAction[]=[];
     if(props.compact&&props.linksEnabled&&props.onToggleLinks)items.push({id:'message-links',label:t('privacy-links-disable'),icon:'link',disabled:consentPending(),run:toggleLinks});
     if(props.onTrustSender||props.onRevokeSender)items.push({id:'sender-links',label:t(props.senderTrusted?'privacy-links-revoke-sender':'privacy-links-trust-sender'),icon:props.senderTrusted?'shield':'check',separatorBefore:items.length>0,disabled:props.senderTrustEditable!==true||props.senderTrustPending===true||props.linksReady===false,run:()=>props.senderTrusted?props.onRevokeSender?.():props.onTrustSender?.()});
+    if(props.onTrustDomain||props.onRevokeDomain)items.push({id:'domain-links',label:t(props.domainTrusted?'privacy-links-revoke-domain':'privacy-links-trust-domain'),icon:'domains',disabled:props.domainTrustEditable!==true||props.senderTrustPending===true||props.linksReady===false,run:()=>props.domainTrusted?props.onRevokeDomain?.():props.onTrustDomain?.()});
     return items;
   };
   const consentMenu=createContextMenu({label:()=>t('privacy-links-options'),scope:()=>props.scope,actions:consentActions,onError:()=>toast.error(t('privacy-links-trust-failed'))});
