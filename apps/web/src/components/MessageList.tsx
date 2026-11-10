@@ -242,6 +242,18 @@ function MessageRow(props: {
           <span class={a11y.srOnly}>{t('mail-unread')}</span>
         </Show>
         <span class={a11y.srOnly}>{t('mail-row-position', { pos: props.index + 1, total: props.total })}</span>
+        <MessageRowContent email={email()} selected={props.selected} replyDraft={props.replyDraft}/>
+      </button>
+      <FolderChip email={email()}/>
+      <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
+    </li>
+  );
+}
+
+/** Shared row presentation for the main list and independently opened folder tabs. */
+export function MessageRowContent(props:{email:Email;selected:boolean;replyDraft:ReplyDraft|undefined}):JSX.Element {
+  const app=useApp(),email=()=>props.email;
+  return <>
         <span class={`list__line1 ${rowCss.line1}`}>
           <SelectedMark selected={props.selected} />
           {/* isolate the sender: it shares a line with the date, so a spoofed
@@ -272,11 +284,7 @@ function MessageRow(props: {
         <span class="list__subject">{displayText(email().subject ?? t('mail-no-subject'))}</span>
         <Show when={settings()['mail.messageListPreview']?.value!==false}><span class={`list__preview ${rowCss.preview}`}><EventHint hint={email().mailwomanCalendar} />{displayText(email().preview)}</span></Show>
         <TagChips email={email()} />
-      </button>
-      <FolderChip email={email()}/>
-      <MessageActions email={email()} onMore={e=>props.contextMenu.open(e,email())} contextOpen={props.contextMenu.isOpen(email().id)}/>
-    </li>
-  );
+  </>;
 }
 
 /**

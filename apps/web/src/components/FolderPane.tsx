@@ -10,7 +10,9 @@ import {createConfiguredClient} from '../api/transport.ts';
 import {createFolderView} from './folderView.ts';
 import {AsyncError,AsyncPending} from './AsyncState.tsx';
 import {createInitialSync} from './initialSync.ts';
-import {senderLabel} from './MessageList.tsx';
+import {MessageRowContent} from './MessageList.tsx';
+import * as rowCss from './messageRow.css.ts';
+import * as bulkCss from './bulkBar.css.ts';
 import {modifierSelectionEnabled} from './mailInteractions.ts';
 import {useActions} from '../keymap/index.ts';
 import {preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
@@ -118,10 +120,10 @@ export function FolderPane(props:{onOpenReplyDraft?:(id:string)=>void;mailboxId:
    <ul class={css.list} aria-label={box()?.name??t('folder-tabs-unavailable')} aria-busy={view.loading()||(view.messages().length===0&&sync.pending())}>
     <For each={rowIds()}>{id=>{let last=rowById().get(id)!;const email=():Email=>{const found=rowById().get(id);if(found)last=found;return last;};return <li class={css.row} data-selected={view.selection().has(id)} data-unread={!email().keywords?.['$seen']}>
      <input type="checkbox" disabled={busy()} checked={view.selection().has(id)} aria-label={t('folder-tabs-select',{subject:email().subject??''})} onChange={()=>view.select(id,false,true)}/>
-     <button type="button" disabled={busy()} class={css.message} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle||props.selecting===true);if(!props.selecting&&!extend&&!toggle&&view.current())props.onOpen(id);}}>
-      <strong>{email().subject||t('mail-no-subject')}</strong><span>{senderLabel(email().from)}</span><span class="meta">{email().preview}</span>
+     <button type="button" disabled={busy()} class={`list__row ${rowCss.row} ${css.message}`} classList={{'list__row--unread':!email().keywords?.['$seen'],'list__row--selected':view.selection().has(id),[bulkCss.selectedRow]:view.selection().has(id)}} data-folder-message={id} onKeyDown={event=>key(event,id)} onClick={event=>{const extend=modifierSelectionEnabled()&&event.shiftKey,toggle=modifierSelectionEnabled()&&(event.ctrlKey||event.metaKey);view.select(id,extend,toggle||props.selecting===true);if(!props.selecting&&!extend&&!toggle&&view.current())props.onOpen(id);}}>
+      <MessageRowContent email={email()} selected={view.selection().has(id)} replyDraft={replyDrafts().get(id)}/>
      </button>
-     <ReaderReplyState answered={email().keywords?.['$answered']===true} forwarded={email().keywords?.['$forwarded']===true} draft={replyDrafts().get(id)} onOpen={props.onOpenReplyDraft}/>
+     <Show when={replyDrafts().get(id)&&props.onOpenReplyDraft}><ReaderReplyState answered={false} forwarded={false} draft={replyDrafts().get(id)} onOpen={props.onOpenReplyDraft}/></Show>
     </li>;}}</For>
    </ul>
    <Show when={!view.loading()&&!view.error()&&view.messages().length===0&&!sync.pending()&&!sync.failed()}><p>{t('folder-tabs-empty')}</p></Show>
