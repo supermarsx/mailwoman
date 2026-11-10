@@ -2473,4 +2473,14 @@ admin-settings-key-session-persist-across-restarts = Mantener sesiones durante l
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = Desactivado de forma predeterminada. Guarde instantáneas de correo cifradas con ámbito de cuenta durante las recargas del navegador sin vencimiento. Se siguen aplicando los límites de entrada y bytes existentes. Los usuarios pueden borrar las copias guardadas; Al deshabilitar esta preferencia, se eliminan del navegador activo. Esto no otorga permiso de almacenamiento persistente al navegador ni descarga archivos adjuntos.
 
+admin-settings-help-mail-conversations-allowed = Permita que los usuarios agrupen respuestas relacionadas en conversaciones. Disponible de forma predeterminada, pero comienza la preferencia del usuario. Al deshabilitar la disponibilidad se anula la elección del usuario sin cambiar la agrupación de categorías.
+
+admin-settings-help-mail-conversations-enabled = Desactivado de forma predeterminada. Agrupar respuestas cargadas por hilo, independientemente de Agrupar por. Establezca el valor predeterminado o bloquee esta preferencia. También se debe habilitar la disponibilidad de conversación.
+
 admin-settings-key-mail-cache-keep-indefinitely = Mantener la caché de correo del navegador indefinidamente
+
+admin-settings-key-mail-conversations-allowed = Hacer que los hilos de conversación estén disponibles
+
+admin-settings-key-mail-conversations-enabled = Agrupar mensajes en conversaciones
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

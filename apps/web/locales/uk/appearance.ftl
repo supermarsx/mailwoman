@@ -223,3 +223,8 @@ appearance-preference-option-size = Розмір, спочатку найбіл�
 appearance-preference-option-size-asc = Розмір, спочатку найменший
 
 appearance-preference-option-subject-desc = Тема від Я до А
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = За замовчуванням вимкнено. Згортайте відповідні відповіді в бесіди, що розгортаються, незалежно від Групувати за. Включаються лише повідомлення, завантажені в поточну папку або пошук. Ваш адміністратор може зробити цю функцію недоступною або заблокувати це налаштування.
+
+appearance-preference-mail-conversations-enabled = Групуйте повідомлення в бесіди

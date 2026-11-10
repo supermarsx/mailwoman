@@ -2255,3 +2255,7 @@ admin-settings-help-reader-actions-finish-followup = Choose toolbar, More menu o
 
 admin-settings-key-mail-cache-keep-indefinitely = Keep browser mail cache indefinitely
 admin-settings-help-mail-cache-keep-indefinitely = Off by default. Save encrypted account-scoped mail snapshots across browser reloads without age expiry. Existing entry and byte limits still apply. Users can clear saved copies; disabling this preference removes them on the active browser. This does not grant browser persistent-storage permission or download attachments.
+admin-settings-key-mail-conversations-allowed = Make conversation threading available
+admin-settings-help-mail-conversations-allowed = Allow users to group related replies into conversations. Available by default, but the user preference starts off. Disabling availability overrides the user's choice without changing category grouping.
+admin-settings-key-mail-conversations-enabled = Group messages into conversations
+admin-settings-help-mail-conversations-enabled = Off by default. Group loaded replies by thread, independently of Group by. Set the default or lock this preference. Conversation availability must also be enabled.

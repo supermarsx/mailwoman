@@ -2473,4 +2473,14 @@ admin-settings-key-session-persist-across-restarts = Conserver les sessions lors
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = Désactivé par défaut. Enregistrez des instantanés de courrier chiffrés au niveau du compte lors des recharges du navigateur sans expiration de l'âge. Les limites d’entrées et d’octets existantes s’appliquent toujours. Les utilisateurs peuvent effacer les copies enregistrées ; la désactivation de cette préférence les supprime du navigateur actif. Cela n’accorde pas l’autorisation de stockage persistant au navigateur ni le téléchargement de pièces jointes.
 
+admin-settings-help-mail-conversations-allowed = Autorisez les utilisateurs à regrouper les réponses associées dans des conversations. Disponible par défaut, mais la préférence de l'utilisateur démarre. La désactivation de la disponibilité remplace le choix de l'utilisateur sans modifier le regroupement de catégories.
+
+admin-settings-help-mail-conversations-enabled = Désactivé par défaut. Regroupez les réponses chargées par fil de discussion, indépendamment de Grouper par. Définissez la valeur par défaut ou verrouillez cette préférence. La disponibilité des conversations doit également être activée.
+
 admin-settings-key-mail-cache-keep-indefinitely = Conserver le cache de messagerie du navigateur indéfiniment
+
+admin-settings-key-mail-conversations-allowed = Rendre le fil de conversation disponible
+
+admin-settings-key-mail-conversations-enabled = Regrouper les messages en conversations
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

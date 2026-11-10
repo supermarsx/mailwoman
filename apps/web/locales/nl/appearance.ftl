@@ -223,3 +223,8 @@ appearance-preference-option-size = Grootte, grootste eerst
 appearance-preference-option-size-asc = Maat, kleinste eerst
 
 appearance-preference-option-subject-desc = Onderwerp, Z tot A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = Standaard uitgeschakeld. Vouw gerelateerde antwoorden samen in uitbreidbare gesprekken, onafhankelijk van Groeperen op. Alleen berichten die in de huidige map of zoekopdracht zijn geladen, worden opgenomen. Uw beheerder kan deze functie niet beschikbaar maken of deze voorkeur vergrendelen.
+
+appearance-preference-mail-conversations-enabled = Groepeer berichten in gesprekken

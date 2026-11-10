@@ -2485,4 +2485,14 @@ admin-settings-key-session-persist-across-restarts = Utrzymuj sesje po ponownym 
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = Domyślnie wyłączone. Zapisuj zaszyfrowane migawki poczty o zasięgu konta podczas ponownego ładowania przeglądarki bez utraty wieku. Istniejące limity wpisów i bajtów nadal obowiązują. Użytkownicy mogą wyczyścić zapisane kopie; wyłączenie tej preferencji powoduje ich usunięcie w aktywnej przeglądarce. Nie przyznaje to przeglądarce pozwolenia na trwałe przechowywanie ani pobierania załączników.
 
+admin-settings-help-mail-conversations-allowed = Zezwalaj użytkownikom na grupowanie powiązanych odpowiedzi w wątki. Dostępne domyślnie, ale zaczynają się preferencje użytkownika. Wyłączenie dostępności zastępuje wybór użytkownika bez zmiany grupowania kategorii.
+
+admin-settings-help-mail-conversations-enabled = Domyślnie wyłączone. Grupuj załadowane odpowiedzi według wątków, niezależnie od opcji Grupuj według. Ustaw ustawienie domyślne lub zablokuj tę preferencję. Dostępność konwersacji musi być również włączona.
+
 admin-settings-key-mail-cache-keep-indefinitely = Przechowuj pamięć podręczną poczty przeglądarki na czas nieokreślony
+
+admin-settings-key-mail-conversations-allowed = Udostępnij wątki konwersacji
+
+admin-settings-key-mail-conversations-enabled = Grupuj wiadomości w rozmowy
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

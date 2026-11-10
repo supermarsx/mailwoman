@@ -223,3 +223,6 @@ appearance-preference-group-option-importance = Importance
 appearance-preference-group-option-size = Message size
 appearance-preference-message-order-help = Choose the order of messages within each group, or across the whole list when grouping is off.
 appearance-preference-message-group-help = Keep related messages together under group headings. Choose No grouping for a continuous list. Your message order applies within each group.
+
+appearance-preference-mail-conversations-enabled = Group messages into conversations
+appearance-preference-conversations-help = Off by default. Fold related replies into expandable conversations, independently of Group by. Only messages loaded in the current folder or search are included. Your administrator can make this feature unavailable or lock this preference.

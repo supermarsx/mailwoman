@@ -223,3 +223,8 @@ appearance-preference-option-size = 尺寸，最大的在前
 appearance-preference-option-size-asc = 尺寸，最小的在前
 
 appearance-preference-option-subject-desc = 主题，Z 到 A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = 默认关闭。将相关回复折叠到可扩展的对话中，独立于分组依据。仅包含当前文件夹或搜索中加载的消息。您的管理员可以使此功能不可用或锁定此首选项。
+
+appearance-preference-mail-conversations-enabled = 将消息分组到对话中

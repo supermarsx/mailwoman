@@ -82,6 +82,8 @@ export const KNOWN_KEYS: readonly string[] = [
   'mail.cache.refreshOnOpen',
   'mail.cache.enabled',
   'mail.cache.keepIndefinitely',
+  'mail.conversations.allowed',
+  'mail.conversations.enabled',
   'mail.cache.mailboxes',
   'mail.cache.messages',
   'mail.cache.freshSeconds',

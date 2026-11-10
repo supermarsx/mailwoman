@@ -4,6 +4,7 @@ import {settings,writeSetting} from '../api/settings.ts';
 import {t} from '../i18n';
 import type {IconName} from './Icon.tsx';
 import type {ContextAction} from './ContextMenu.tsx';
+import {CONVERSATIONS_KEY,conversationsAllowed,conversationsEnabled} from './conversationPreference.ts';
 export const MESSAGE_LIST_ORDERS=['newest','oldest','sender','sender-desc','subject','subject-desc','sent-newest','sent-oldest','importance','importance-asc','size','size-asc'] as const;
 export type MessageListOrder=typeof MESSAGE_LIST_ORDERS[number];
 export const MESSAGE_LIST_GROUPS=['none','received','sent','sender','subject','importance','size'] as const;
@@ -29,7 +30,11 @@ export function createMessageOrder(onError:()=>void){
   try{await writeSetting(MESSAGE_LIST_GROUP_KEY,value);return true;}catch{onError();return false;}finally{setSaving(false);}
  }
  const sortActions=():ContextAction[]=>MESSAGE_LIST_ORDERS.map(value=>({id:`message-order:${value}`,label:t(`mail-list-order-${value}`),icon:orderIcons[value],radio:true,checked:messageListOrder()===value,disabled:locked()||saving(),...(locked()?{title:t('mail-list-order-locked')}:{}),run:async()=>{await set(value);}}));
- const actions=():ContextAction[]=>[...sortActions(),{id:'message-group',label:t('mail-group-by'),icon:'shapes',separatorBefore:true,children:MESSAGE_LIST_GROUPS.map(value=>({id:`message-group:${value}`,label:t(`mail-list-group-${value}`),icon:groupIcons[value],radio:true,checked:messageListGroup()===value,disabled:groupLocked()||saving(),...(groupLocked()?{title:t('mail-list-group-locked')}:{}),run:async()=>{await setGroup(value);}})),run:()=>{}}];
+ async function setConversations(value:boolean):Promise<void>{
+  if(!conversationsAllowed()||settings()[CONVERSATIONS_KEY]?.locked||saving()){onError();return;}
+  setSaving(true);try{await writeSetting(CONVERSATIONS_KEY,value);}catch{onError();}finally{setSaving(false);}
+ }
+ const actions=():ContextAction[]=>[...sortActions(),{id:'message-group',label:t('mail-group-by'),icon:'shapes',separatorBefore:true,children:MESSAGE_LIST_GROUPS.map(value=>({id:`message-group:${value}`,label:t(`mail-list-group-${value}`),icon:groupIcons[value],radio:true,checked:messageListGroup()===value,disabled:groupLocked()||saving(),...(groupLocked()?{title:t('mail-list-group-locked')}:{}),run:async()=>{await setGroup(value);}})),run:()=>{}},{id:'message-conversations',label:t('appearance-preference-mail-conversations-enabled'),icon:'shapes',checked:conversationsEnabled(),disabled:!conversationsAllowed()||settings()[CONVERSATIONS_KEY]?.locked===true||saving(),run:()=>setConversations(!conversationsEnabled())}];
  const contextAction=():ContextAction=>({id:'message-order',label:t('mail-order-by'),icon:'sort',separatorBefore:true,disabled:saving(),children:actions(),run:()=>{}});
  return {value:messageListOrder,group:messageListGroup,locked,groupLocked,saving,set,setGroup,actions,contextAction};
 }

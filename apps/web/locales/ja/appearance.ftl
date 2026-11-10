@@ -207,3 +207,8 @@ appearance-preference-option-size = サイズ、大きい順
 appearance-preference-option-size-asc = サイズ、小さい順
 
 appearance-preference-option-subject-desc = 主題、Z から A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = デフォルトではオフです。グループ化とは別に、関連する返信を展開可能な会話にまとめます。現在のフォルダーまたは検索にロードされたメッセージのみが含まれます。管理者は、この機能を使用不可にしたり、この設定をロックしたりできます。
+
+appearance-preference-mail-conversations-enabled = メッセージを会話にグループ化する

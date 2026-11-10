@@ -223,3 +223,8 @@ appearance-preference-option-size = Tamanho, maior primeiro
 appearance-preference-option-size-asc = Tamanho, o menor primeiro
 
 appearance-preference-option-subject-desc = Assunto, Z a A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = Desativado por padrão. Dobre as respostas relacionadas em conversas expansíveis, independentemente de Agrupar por. Somente mensagens carregadas na pasta ou pesquisa atual são incluídas. Seu administrador pode tornar esse recurso indisponível ou bloquear essa preferência.
+
+appearance-preference-mail-conversations-enabled = Agrupar mensagens em conversas

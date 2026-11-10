@@ -22,6 +22,7 @@ beforeEach(async () => {
 afterEach(() => { cleanup(); clearSettings(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const flush = async (): Promise<void> => { for (let i = 0; i < 20; i++) await Promise.resolve(); };
 async function mount(count = 200, options: { repeat?: boolean; held?: boolean; failed?: boolean; threaded?: boolean; hidden?: boolean } = {}) {
+  if(options.threaded)await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.list.pageSize':{value:20,locked:true,source:'global'},'mail.conversations.enabled':{value:true,locked:false,source:'user'}}}))});
   const client = makeClient(); const base = client.jmap;
   const calls: { position: number; limit: number; box: string; signal?: AbortSignal }[] = [];
   let release: (() => void) | undefined;

@@ -61,7 +61,8 @@ export function threadKey(email: Email): string {
  * The representative (`head.email`) is the member with the latest `receivedAt`,
  * independent of array order, so a head always shows the freshest message.
  */
-export function groupThreads(emails: Email[], expanded: ReadonlySet<string>): ThreadVisualRow[] {
+export function groupThreads(emails: Email[], expanded: ReadonlySet<string>, enabled=true): ThreadVisualRow[] {
+  if(!enabled)return emails.map(email=>({kind:'single',key:email.id,email,count:1,unread:email.keywords?.['$seen']!==true,expanded:false,senderCount:1,hasAttachment:hasFileAttachments(email)}));
   const order: string[] = [];
   const groups = new Map<string, Email[]>();
   for (const e of emails) {

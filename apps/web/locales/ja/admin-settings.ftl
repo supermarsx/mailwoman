@@ -2459,4 +2459,14 @@ admin-settings-key-session-persist-across-restarts = 再起動後もセッショ
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = デフォルトではオフです。暗号化されたアカウント スコープのメール スナップショットをブラウザのリロード後も有効期限なしで保存します。既存のエントリおよびバイト制限は引き続き適用されます。ユーザーは保存されたコピーを消去できます。この設定を無効にすると、アクティブなブラウザーからそれらが削除されます。これにより、ブラウザーの永続ストレージ権限が付与されたり、添付ファイルをダウンロードしたりすることはありません。
 
+admin-settings-help-mail-conversations-allowed = ユーザーが関連する返信を会話にグループ化できるようにします。デフォルトで利用可能ですが、最初はユーザー設定が優先されます。可用性を無効にすると、カテゴリのグループ化を変更せずに、ユーザーの選択が上書きされます。
+
+admin-settings-help-mail-conversations-enabled = デフォルトではオフです。グループ化とは独立して、読み込まれた応答をスレッドごとにグループ化します。デフォルトを設定するか、この設定をロックします。会話の可用性も有効にする必要があります。
+
 admin-settings-key-mail-cache-keep-indefinitely = ブラウザのメールキャッシュを無期限に保持する
+
+admin-settings-key-mail-conversations-allowed = 会話スレッドを利用可能にする
+
+admin-settings-key-mail-conversations-enabled = メッセージを会話にグループ化する
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

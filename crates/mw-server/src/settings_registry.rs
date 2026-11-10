@@ -281,6 +281,7 @@ impl SettingDef {
             || matches!(
                 self.key,
                 "mail.templates.shared"
+                    | "mail.conversations.allowed"
                     | "mail.templates.allowPersonal"
                     | "mail.send.recallDelayMaxSeconds"
                     | "mail.send.allowRecall"
@@ -3591,6 +3592,22 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "message list ordering"
+    ),
+    def!(
+        "mail.conversations.allowed",
+        Kind::Bool,
+        "true",
+        GD,
+        "mail",
+        "Make conversation threading available; users still opt in separately"
+    ),
+    def!(
+        "mail.conversations.enabled",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Group related replies into expandable conversations independently of category grouping"
     ),
     def!(
         "mail.messageListGroup",
@@ -9532,6 +9549,11 @@ mod tests {
             assert!(validate(def, &def.default_value(), "/value").is_ok());
         }
         assert_eq!(lookup("mail.cache.keepIndefinitely").unwrap().default_value(), json!(false));
+        assert_eq!(lookup("mail.conversations.enabled").unwrap().default_value(), json!(false));
+        assert_eq!(lookup("mail.conversations.enabled").unwrap().scopes, Scopes::GlobalDomainUser);
+        assert_eq!(lookup("mail.conversations.allowed").unwrap().default_value(), json!(true));
+        assert_eq!(lookup("mail.conversations.allowed").unwrap().scopes, Scopes::GlobalDomain);
+        assert!(lookup("mail.conversations.allowed").unwrap().user_visible());
         assert_eq!(
             lookup("mail.cache.prefetchEnabled")
                 .unwrap()

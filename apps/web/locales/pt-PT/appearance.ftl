@@ -217,3 +217,6 @@ appearance-preference-group-option-importance = Importância
 appearance-preference-group-option-size = Tamanho da mensagem
 appearance-preference-message-order-help = Escolha a ordem das mensagens em cada grupo ou em toda a lista quando o agrupamento está desativado.
 appearance-preference-message-group-help = Mantenha mensagens relacionadas juntas sob cabeçalhos de grupo. Escolha Sem agrupamento para uma lista contínua. A ordem das mensagens aplica-se em cada grupo.
+
+appearance-preference-mail-conversations-enabled = Agrupar mensagens em conversas
+appearance-preference-conversations-help = Desativado por predefinição. Reúne respostas relacionadas em conversas expansíveis, independentemente de Agrupar por. Inclui apenas mensagens carregadas na pasta ou pesquisa atual. O administrador pode tornar esta funcionalidade indisponível ou bloquear esta preferência.

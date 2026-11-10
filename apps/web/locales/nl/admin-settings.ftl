@@ -2467,4 +2467,14 @@ admin-settings-key-session-persist-across-restarts = Behoud sessies tijdens hers
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = Standaard uitgeschakeld. Bewaar versleutelde, accountgerichte e-mailmomentopnamen tijdens het herladen van browsers zonder dat de leeftijd verstrijkt. Bestaande invoer- en bytelimieten zijn nog steeds van toepassing. Gebruikers kunnen opgeslagen kopieën wissen; Als u deze voorkeur uitschakelt, worden ze in de actieve browser verwijderd. Dit geeft geen toestemming voor persistente opslag in de browser of voor het downloaden van bijlagen.
 
+admin-settings-help-mail-conversations-allowed = Sta gebruikers toe gerelateerde antwoorden te groeperen in gesprekken. Standaard beschikbaar, maar de gebruikersvoorkeur begint. Als u de beschikbaarheid uitschakelt, wordt de keuze van de gebruiker overschreven zonder de categoriegroepering te wijzigen.
+
+admin-settings-help-mail-conversations-enabled = Standaard uitgeschakeld. Groepeer geladen antwoorden per thread, onafhankelijk van Groeperen op. Stel de standaard in of vergrendel deze voorkeur. De beschikbaarheid van gesprekken moet ook zijn ingeschakeld.
+
 admin-settings-key-mail-cache-keep-indefinitely = Bewaar de e-mailcache van de browser voor onbepaalde tijd
+
+admin-settings-key-mail-conversations-allowed = Maak gespreksthreads beschikbaar
+
+admin-settings-key-mail-conversations-enabled = Groepeer berichten in gesprekken
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

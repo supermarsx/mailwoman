@@ -45,3 +45,12 @@ it('keeps grouping disabled under an administrator lock',async()=>{
  const group=await screen.findByRole('combobox',{name:'Message grouping'});
  expect(group).toHaveValue('sender');expect(group).toBeDisabled();
 });
+it('keeps conversation threading opt-in, saves its separate key, and honors admin availability',async()=>{
+ const entries:Record<string,{value:unknown;source:string;locked:boolean}>={'mail.conversations.enabled':{value:false,source:'default',locked:false},'mail.conversations.allowed':{value:true,source:'global',locked:false}};
+ const fetcher=vi.fn(async(url:unknown,init?:RequestInit)=>{if(init?.method==='PUT'){const key=String(url).split('/').at(-1)!;entries[key]={value:JSON.parse(String(init.body)).value,source:'user',locked:false};return new Response(JSON.stringify(entries[key]));}return new Response(JSON.stringify({settings:entries}));});
+ await loadCatalog('appearance');await loadSettings({fetcher});render(()=><InterfacePreferences/>);
+ const checkbox=await screen.findByRole('checkbox',{name:'Group messages into conversations'});expect(checkbox).not.toBeChecked();fireEvent.click(checkbox);
+ await waitFor(()=>expect(fetcher).toHaveBeenCalledWith('/api/settings/mail.conversations.enabled',expect.objectContaining({method:'PUT',body:JSON.stringify({value:true})})));
+ entries['mail.conversations.allowed']={value:false,source:'global',locked:true};await loadSettings({refresh:true,fetcher});expect(checkbox).toBeDisabled();expect(checkbox).not.toBeChecked();
+ entries['mail.conversations.allowed']={value:true,source:'global',locked:false};entries['mail.conversations.enabled']={value:true,source:'global',locked:true};await loadSettings({refresh:true,fetcher});expect(checkbox).toBeDisabled();expect(checkbox).toBeChecked();
+});

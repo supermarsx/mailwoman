@@ -2467,4 +2467,14 @@ admin-settings-key-session-persist-across-restarts = Mantenha as sessões durant
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = Desativado por padrão. Salve instantâneos de e-mail criptografados com escopo de conta nas recargas do navegador sem expirar. Os limites de entrada e bytes existentes ainda se aplicam. Os usuários podem limpar as cópias salvas; desabilitar esta preferência os remove do navegador ativo. Isso não concede permissão de armazenamento persistente do navegador ou download de anexos.
 
+admin-settings-help-mail-conversations-allowed = Permitir que os usuários agrupem respostas relacionadas em conversas. Disponível por padrão, mas a preferência do usuário começa. A desativação da disponibilidade substitui a escolha do usuário sem alterar o agrupamento de categorias.
+
+admin-settings-help-mail-conversations-enabled = Desativado por padrão. Agrupar respostas carregadas por thread, independentemente de Agrupar por. Defina o padrão ou bloqueie esta preferência. A disponibilidade de conversa também deve estar habilitada.
+
 admin-settings-key-mail-cache-keep-indefinitely = Manter o cache de e-mail do navegador indefinidamente
+
+admin-settings-key-mail-conversations-allowed = Disponibilizar o encadeamento de conversas
+
+admin-settings-key-mail-conversations-enabled = Agrupar mensagens em conversas
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

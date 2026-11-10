@@ -223,3 +223,8 @@ appearance-preference-option-size = Rozmiar, najpierw największy
 appearance-preference-option-size-asc = Rozmiar, najpierw najmniejszy
 
 appearance-preference-option-subject-desc = Temat, Z do A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = Domyślnie wyłączone. Złóż powiązane odpowiedzi w rozwijalne wątki, niezależnie od opcji Grupuj według. Uwzględniane są tylko wiadomości załadowane w bieżącym folderze lub wyszukiwaniu. Administrator może wyłączyć tę funkcję lub zablokować tę preferencję.
+
+appearance-preference-mail-conversations-enabled = Grupuj wiadomości w rozmowy

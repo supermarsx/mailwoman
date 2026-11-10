@@ -2255,3 +2255,7 @@ admin-settings-help-reader-actions-finish-followup = Escolher barra de ferrament
 
 admin-settings-key-mail-cache-keep-indefinitely = Manter indefinidamente a cache de correio do navegador
 admin-settings-help-mail-cache-keep-indefinitely = Desativado por predefinição. Guarda cópias de correio encriptadas por conta entre recarregamentos do navegador, sem prazo de validade. Os limites de entradas e de bytes continuam a aplicar-se. Os utilizadores podem limpar as cópias guardadas; desativar esta preferência remove-as no navegador ativo. Esta opção não concede permissão de armazenamento persistente nem transfere anexos.
+admin-settings-key-mail-conversations-allowed = Disponibilizar o agrupamento em conversas
+admin-settings-help-mail-conversations-allowed = Permite agrupar respostas relacionadas em conversas. Disponível por predefinição, mas a preferência do utilizador começa desativada. Desativar a disponibilidade sobrepõe-se à escolha do utilizador sem alterar o agrupamento por categorias.
+admin-settings-key-mail-conversations-enabled = Agrupar mensagens em conversas
+admin-settings-help-mail-conversations-enabled = Desativado por predefinição. Agrupa as respostas carregadas por conversa, independentemente de Agrupar por. Defina a predefinição ou bloqueie esta preferência. A disponibilidade das conversas também tem de estar ativada.

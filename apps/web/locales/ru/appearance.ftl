@@ -223,3 +223,8 @@ appearance-preference-option-size = Размер, сначала самый бо
 appearance-preference-option-size-asc = Размер, сначала самый маленький
 
 appearance-preference-option-subject-desc = Тема: от Я до А
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = По умолчанию выключено. Сворачивайте связанные ответы в расширяемые беседы независимо от группировки. Включаются только сообщения, загруженные в текущую папку или в текущую папку поиска. Ваш администратор может сделать эту функцию недоступной или заблокировать эту настройку.
+
+appearance-preference-mail-conversations-enabled = Группируйте сообщения в беседы

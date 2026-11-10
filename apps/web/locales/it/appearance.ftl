@@ -223,3 +223,8 @@ appearance-preference-option-size = Dimensioni, prima la più grande
 appearance-preference-option-size-asc = Dimensioni, prima la più piccola
 
 appearance-preference-option-subject-desc = Soggetto, dalla Z alla A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = Disattivato per impostazione predefinita. Raggruppa le risposte correlate in conversazioni espandibili, indipendentemente da Raggruppa per. Vengono inclusi solo i messaggi caricati nella cartella o nella ricerca corrente. L'amministratore può rendere questa funzionalità non disponibile o bloccare questa preferenza.
+
+appearance-preference-mail-conversations-enabled = Raggruppare i messaggi in conversazioni

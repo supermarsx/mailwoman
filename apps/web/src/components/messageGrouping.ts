@@ -33,12 +33,12 @@ function category(email:Email,group:MessageListGroup,dates:{key:Intl.DateTimeFor
 /** Categorize whole conversations by their representative message. Expanded
  * children stay with their head; selection and thread actions keep their scope.
  * Server comparators put the grouping field before the chosen order. */
-export function groupMessageRows(emails:Email[],expanded:ReadonlySet<string>,group:MessageListGroup,rowHeight:number,timeZone='UTC'):GroupedMessageLayout {
- if(group==='none') {const rows=groupThreads(emails,expanded);return {rows,headers:[],tops:rows.map((_,i)=>i*rowHeight),height:rows.length*rowHeight};}
+export function groupMessageRows(emails:Email[],expanded:ReadonlySet<string>,group:MessageListGroup,rowHeight:number,timeZone='UTC',conversations=true):GroupedMessageLayout {
+ if(group==='none') {const rows=groupThreads(emails,expanded,conversations);return {rows,headers:[],tops:rows.map((_,i)=>i*rowHeight),height:rows.length*rowHeight};}
  const dates=group==='received'||group==='sent'?{key:new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}),label:new Intl.DateTimeFormat(formatLocale(),{timeZone,dateStyle:'full'})}:undefined;
  const buckets=new Map<string,{key:string;label:string;rows:ThreadVisualRow[];count:number}>();
  let current:{key:string;label:string}|undefined;
- for(const row of groupThreads(emails,expanded)){
+ for(const row of groupThreads(emails,expanded,conversations)){
   if(row.kind!=='child'||!current)current=category(row.email,group,dates);
   let bucket=buckets.get(current.key);if(!bucket){bucket={...current,rows:[],count:0};buckets.set(current.key,bucket);}
   bucket.rows.push(row);if(row.kind!=='child')bucket.count+=row.count;

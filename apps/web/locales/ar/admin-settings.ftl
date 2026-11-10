@@ -2489,4 +2489,14 @@ admin-settings-key-session-persist-across-restarts = حافظ على الجلس�
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = إيقاف بشكل افتراضي. احفظ لقطات البريد المشفرة على مستوى الحساب عبر عمليات إعادة تحميل المتصفح دون انتهاء صلاحية العمر. لا تزال حدود الإدخال والبايت الحالية مطبقة. يمكن للمستخدمين مسح النسخ المحفوظة. يؤدي تعطيل هذا التفضيل إلى إزالته من المتصفح النشط. وهذا لا يمنح المتصفح إذن التخزين الدائم أو تنزيل المرفقات.
 
+admin-settings-help-mail-conversations-allowed = السماح للمستخدمين بتجميع الردود ذات الصلة في المحادثات. متاح بشكل افتراضي، ولكن تفضيلات المستخدم تبدأ. يؤدي تعطيل الإتاحة إلى تجاوز اختيار المستخدم دون تغيير تجميع الفئات.
+
+admin-settings-help-mail-conversations-enabled = إيقاف بشكل افتراضي. قم بتجميع الردود المحملة حسب سلسلة الرسائل، بشكل مستقل عن التجميع حسب. قم بتعيين الإعداد الافتراضي أو قفل هذا التفضيل. يجب أيضًا تمكين توفر المحادثة.
+
 admin-settings-key-mail-cache-keep-indefinitely = احتفظ بذاكرة التخزين المؤقت لبريد المتصفح إلى أجل غير مسمى
+
+admin-settings-key-mail-conversations-allowed = جعل ترابط المحادثة متاحًا
+
+admin-settings-key-mail-conversations-enabled = تجميع الرسائل في المحادثات
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

@@ -207,3 +207,8 @@ appearance-preference-option-size = Taille, la plus grande en premier
 appearance-preference-option-size-asc = Taille, la plus petite en premier
 
 appearance-preference-option-subject-desc = Sujet, Z à A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = Désactivé par défaut. Regroupez les réponses associées dans des conversations extensibles, indépendamment de Regrouper par. Seuls les messages chargés dans le dossier ou la recherche en cours sont inclus. Votre administrateur peut rendre cette fonctionnalité indisponible ou verrouiller cette préférence.
+
+appearance-preference-mail-conversations-enabled = Regrouper les messages en conversations

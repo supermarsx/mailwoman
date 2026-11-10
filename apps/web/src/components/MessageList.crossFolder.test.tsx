@@ -1,3 +1,4 @@
+import {clearSettings,loadSettings} from '../api/settings.ts';
 import {afterEach,describe,expect,it,vi} from 'vitest';
 import {cleanup,render,screen,waitFor} from '@solidjs/testing-library';
 import {MessageList,listSpansFolders} from './MessageList.tsx';
@@ -7,7 +8,7 @@ import {AppContext} from '../state/context.ts';
 import * as focus from './messageFocus.ts';
 import type {Email,Mailbox} from '../api/jmap-types.ts';
 
-afterEach(()=>{cleanup();vi.restoreAllMocks();focus.clearFocusRequest();});
+afterEach(()=>{clearSettings();cleanup();vi.restoreAllMocks();focus.clearFocusRequest();});
 const box=(over:Partial<Mailbox>):Mailbox=>({id:'x',name:'X',parentId:null,role:null,sortOrder:9,totalEmails:0,unreadEmails:0,...over}) as Mailbox;
 
 describe('listSpansFolders',()=>{
@@ -47,6 +48,7 @@ describe('folder chip beyond search',()=>{
    mkEmail('t1',{subject:'Plans',threadId:'T',mailboxIds:{archive:true},receivedAt:'2026-01-01T10:00:00Z'}),
    mkEmail('t2',{subject:'Re: Plans',threadId:'T',mailboxIds:{archive:true},receivedAt:'2026-01-02T10:00:00Z'}),
   ],[],'inbox',true);
+  await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.conversations.enabled':{value:true,source:'user',locked:false}}}))});
   const head=await screen.findByTestId('thread-head');
   expect(head.parentElement!.querySelector('[data-testid="row-folder"]')).not.toBeNull();
  });
@@ -63,6 +65,7 @@ describe('a same-thread jump opens the conversation',()=>{
    mkEmail('t2',{subject:'Re: Plans',threadId:'T',receivedAt:'2026-01-02T10:00:00Z'}),
   ];
   const app=await mount(emails,[],'inbox');
+  await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.conversations.enabled':{value:true,source:'user',locked:false}}}))});
   const head=await screen.findByTestId('thread-head');
   expect(head.getAttribute('aria-expanded')??'false').not.toBe('true');
   expect(document.querySelector('.list__row[data-email-id="t1"]')).toBeNull();

@@ -117,6 +117,7 @@ describe('MessageList (virtualized)', () => {
     ];
     const { app, result } = renderWithApp(() => <MessageList />, { emails });
     await app.login({ username: 'me@example.org', password: 'p' });
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.conversations.enabled':{value:true,source:'user',locked:false}}}))});
     await waitFor(() => expect(app.messages().length).toBe(4));
 
     // One conversation head (rep = newest 'Re: Hi') + one singleton row.

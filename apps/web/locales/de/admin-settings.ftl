@@ -2473,4 +2473,14 @@ admin-settings-key-session-persist-across-restarts = Behalten Sie Sitzungen übe
 # Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
 admin-settings-help-mail-cache-keep-indefinitely = Standardmäßig deaktiviert. Speichern Sie verschlüsselte, kontobezogene E-Mail-Snapshots über Browser-Neuladevorgänge hinweg ohne Ablaufdatum. Bestehende Eintrags- und Bytegrenzen gelten weiterhin. Benutzer können gespeicherte Kopien löschen; Durch Deaktivieren dieser Einstellung werden sie im aktiven Browser entfernt. Dadurch wird keine Berechtigung zum dauerhaften Speichern des Browsers oder zum Herunterladen von Anhängen gewährt.
 
+admin-settings-help-mail-conversations-allowed = Ermöglichen Sie Benutzern, verwandte Antworten in Konversationen zu gruppieren. Standardmäßig verfügbar, aber die Benutzerpräferenz beginnt. Durch das Deaktivieren der Verfügbarkeit wird die Auswahl des Benutzers außer Kraft gesetzt, ohne dass die Kategoriegruppierung geändert wird.
+
+admin-settings-help-mail-conversations-enabled = Standardmäßig deaktiviert. Gruppieren Sie geladene Antworten nach Thread, unabhängig von „Gruppieren nach“. Legen Sie die Standardeinstellung fest oder sperren Sie diese Einstellung. Die Konversationsverfügbarkeit muss ebenfalls aktiviert sein.
+
 admin-settings-key-mail-cache-keep-indefinitely = Behalten Sie den E-Mail-Cache des Browsers auf unbestimmte Zeit bei
+
+admin-settings-key-mail-conversations-allowed = Konversations-Threading verfügbar machen
+
+admin-settings-key-mail-conversations-enabled = Gruppieren Sie Nachrichten in Konversationen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.

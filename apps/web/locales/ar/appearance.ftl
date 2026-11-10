@@ -223,3 +223,8 @@ appearance-preference-option-size = الحجم، الأكبر أولاً
 appearance-preference-option-size-asc = الحجم، الأصغر أولاً
 
 appearance-preference-option-subject-desc = الموضوع، Z إلى A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = إيقاف بشكل افتراضي. قم بطي الردود ذات الصلة في محادثات قابلة للتوسيع، بشكل مستقل عن التجميع حسب. يتم تضمين الرسائل التي تم تحميلها في المجلد الحالي أو البحث فقط. يمكن للمسؤول الخاص بك جعل هذه الميزة غير متاحة أو قفل هذا التفضيل.
+
+appearance-preference-mail-conversations-enabled = تجميع الرسائل في المحادثات

@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { waitFor } from '@solidjs/testing-library';
 import { MessageList, senderLabel } from './MessageList.tsx';
 import { renderWithApp, mkEmail } from './appHarness.tsx';
+import {clearSettings,loadSettings} from '../api/settings.ts';
 import { stripIsolates } from '../i18n/index.ts';
 
 describe('senderLabel', () => {
@@ -39,7 +40,7 @@ describe('senderLabel', () => {
 });
 
 describe('MessageList — the sender cell', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {localStorage.clear();clearSettings();});
 
   it('renders the label, address included, for a named and for a spoofing sender', async () => {
     const { app, result } = renderWithApp(() => <MessageList />, {
@@ -58,7 +59,7 @@ describe('MessageList — the sender cell', () => {
 });
 
 describe('MessageList — answered and forwarded marks', () => {
-  beforeEach(() => localStorage.clear());
+  beforeEach(() => {localStorage.clear();clearSettings();});
 
   it('shows each mark on the rows that carry the keyword, and on no other', async () => {
     const { app, result } = renderWithApp(() => <MessageList />, {
@@ -88,6 +89,7 @@ describe('MessageList — answered and forwarded marks', () => {
     });
     await app.login({ username: 'me@example.org', password: 'p' });
     await waitFor(() => expect(app.messages().length).toBe(2));
+    await loadSettings({refresh:true,fetcher:async()=>new Response(JSON.stringify({settings:{'mail.conversations.enabled':{value:true,source:'user',locked:false}}}))});
     const head = result.container.querySelector('[data-testid="thread-head"]')!;
     expect(head.querySelector('[data-testid="row-forwarded"]')?.getAttribute('title')).toBe('Forwarded');
     expect(head.querySelector('[data-testid="row-answered"]')).toBeNull();

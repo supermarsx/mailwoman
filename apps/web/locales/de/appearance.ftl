@@ -223,3 +223,8 @@ appearance-preference-option-size = Größe, größte zuerst
 appearance-preference-option-size-asc = Größe, das Kleinste zuerst
 
 appearance-preference-option-subject-desc = Betreff, Z bis A
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+appearance-preference-conversations-help = Standardmäßig deaktiviert. Falten Sie verwandte Antworten unabhängig von „Gruppieren nach“ in erweiterbare Konversationen. Es werden nur Nachrichten berücksichtigt, die im aktuellen Ordner oder in der Suche geladen sind. Ihr Administrator kann diese Funktion deaktivieren oder diese Einstellung sperren.
+
+appearance-preference-mail-conversations-enabled = Gruppieren Sie Nachrichten in Konversationen

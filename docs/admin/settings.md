@@ -241,6 +241,11 @@ What happens when a displayed message requests a read receipt: ask, never, autom
 
 Whether users get notifications for new mail. It does not change their notification rules.
 
+<a id="mail.conversations.enabled"></a>
+### Conversation threading (`mail.conversations.enabled`)
+
+Off by default. Users can enable **Group messages into conversations** in Settings > Appearance or the message list's Order by menu. This folds related replies into expandable rows independently of the Group by category setting. Only messages loaded in the current folder or search are included. Global/domain/user scope: administrators can set the default or lock the preference. `mail.conversations.allowed` is a separate global/domain availability switch, on by default; turning it off overrides the user preference without changing category grouping.
+
 <a id="mail.cache.keepIndefinitely"></a>
 ### Indefinite browser mail cache (`mail.cache.keepIndefinitely`)
 
