@@ -174,6 +174,7 @@ function Bar(props: SelectionBarProps): JSX.Element {
     if (e.key === 'Escape' || e.key === 'F6') {
       e.preventDefault();
       e.stopPropagation();
+      if(e.key==='Escape'&&props.active&&props.count===0) props.dismiss?.();
       props.returnFocus();
       return;
     }

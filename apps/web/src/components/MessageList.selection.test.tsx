@@ -64,6 +64,40 @@ describe('MessageList selection', () => {
     fireEvent.click(toggle);
     expect(screen.queryByTestId('bulk-bar')).not.toBeInTheDocument();
   });
+  it('Escape exits empty selection mode and ordinary row clicks open messages again',async()=>{
+    const {app}=await setup();const open=vi.spyOn(app,'openMessage');
+    const toggle=screen.getByRole('button',{name:'Select messages'});
+    fireEvent.click(toggle);
+    const first=row('Subject a');first.focus();
+    fireEvent.keyDown(first,{key:'Escape'});
+    expect(toggle).toHaveAttribute('aria-pressed','false');
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    fireEvent.click(first);expect(open).toHaveBeenCalledWith('a');
+  });
+  it('Escape exits empty selection mode from the bulk bar and restores list focus',async()=>{
+    await setup();const toggle=screen.getByRole('button',{name:'Select messages'});
+    fireEvent.click(toggle);const button=screen.getByTestId('bulk-select-all');button.focus();
+    fireEvent.keyDown(button,{key:'Escape'});
+    expect(toggle).toHaveAttribute('aria-pressed','false');
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+    await waitFor(()=>expect(document.activeElement).toBe(row('Subject a')));
+  });
+  it('Escape exits selection mode even when the folder has no message rows',async()=>{
+    await setup([]);const toggle=screen.getByRole('button',{name:'Select messages'});
+    fireEvent.click(toggle);toggle.focus();fireEvent.keyDown(toggle,{key:'Escape'});
+    expect(toggle).toHaveAttribute('aria-pressed','false');
+    expect(screen.queryByTestId('bulk-bar')).toBeNull();
+  });
+  it('Escape first clears selected rows, then exits the empty selection mode',async()=>{
+    const {app}=await setup();const toggle=screen.getByRole('button',{name:'Select messages'});
+    fireEvent.click(toggle);const first=row('Subject a');fireEvent.click(first);
+    expect(app.selectedIds().size).toBe(1);
+    fireEvent.keyDown(first,{key:'Escape'});
+    expect(app.selectedIds().size).toBe(0);expect(toggle).toHaveAttribute('aria-pressed','true');
+    expect(screen.getByTestId('bulk-bar')).toBeInTheDocument();
+    fireEvent.keyDown(first,{key:'Escape'});
+    expect(toggle).toHaveAttribute('aria-pressed','false');expect(screen.queryByTestId('bulk-bar')).toBeNull();
+  });
   it('selects by ordinary taps in explicit selection mode and clears back to opening messages',async()=>{
     const {app}=await setup();const open=vi.spyOn(app,'openMessage');
     fireEvent.click(screen.getByRole('button',{name:'Select messages'}));fireEvent.click(row('Subject a'));fireEvent.click(row('Subject b'));
