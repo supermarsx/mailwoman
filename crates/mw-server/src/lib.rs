@@ -122,6 +122,7 @@ pub mod webhooks;
 pub mod assist;
 pub mod directory;
 mod jmap_limits;
+mod jmap_discovery;
 pub mod nextcloud;
 mod nextcloud_accounts;
 mod nextcloud_config;
@@ -1623,6 +1624,8 @@ fn router(
         .merge(nextcloud_accounts::router())
         .merge(nextcloud_pim::router())
         .merge(packages::router())
+        .route("/.well-known/jmap", get(jmap_discovery::session))
+        .route("/.well-known/mailwoman", get(jmap_discovery::connection))
         .route("/jmap/session", get(jmap_session))
         .route(
             "/jmap/api",

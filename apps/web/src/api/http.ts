@@ -307,7 +307,7 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   let selected:string|null=null;
   if(ownServer&&!admin){
     const scope=linkedRoute(routePath);
-    if(mailboxContext!==undefined&&routePath!=='/api/me'&&routePath!=='/jmap/session')throw new LinkedContextUnsupportedError();
+    if(mailboxContext!==undefined&&routePath!=='/api/me'&&routePath!=='/jmap/session'&&routePath!=='/.well-known/jmap')throw new LinkedContextUnsupportedError();
     if(active&&scope==='unsupported')throw new LinkedContextUnsupportedError();
     selected=scope==='mailbox'?(mailboxContext===undefined?active?.linkId??null:mailboxContext):null;
     const headers=new Headers(given?.headers);

@@ -1,4 +1,38 @@
-# Native JMAP Core behavior
+# Connecting clients through Mailwoman
+
+Mailwoman's native mobile and desktop shells use the shared web client's JMAP transport. The deployment provides the Mailwoman server address; the user signs in to their mailbox, and Mailwoman connects to the configured upstream. The client never receives upstream credentials or connects directly to that upstream.
+
+## Discovery
+
+| Endpoint | Response |
+|---|---|
+| `/.well-known/mailwoman` | Public connection metadata: the JMAP Session URL and the native sign-in/sign-out endpoints. No accounts or account capabilities. |
+| `/.well-known/jmap` | Authenticated JMAP Session, with absolute API, upload, download and event-stream URLs pointing back through Mailwoman. |
+| `/jmap/session` | Existing Session route, retained for the browser and older clients. |
+
+These endpoints are also mounted under `MW_BASE_PATH`. The origin-root discovery endpoint advertises the deployment prefix. Set `MW_PUBLIC_URL` to the canonical public HTTPS address when reverse proxying; otherwise the usual trusted-proxy and Host handling supplies the origin. Session responses are `Cache-Control: no-store` and vary by credentials and linked-mailbox selector. An unauthenticated Session request returns 401 with a Bearer challenge.
+
+An operator who wants domain-based discovery may publish an RFC 8620 `_jmap._tcp` SRV record pointing at the HTTPS host. This change does not create or modify DNS records. Mailwoman's own shells already receive their server address from deployment configuration.
+
+## Native authentication and calls
+
+1. Read the public connection metadata or request the JMAP Session URL directly.
+2. Submit the existing `/api/login` JSON body with `username`, `password`, and `clientType: "native"`. Use the normal supported native origin. The built-in Tauri origins are accepted; `MW_NATIVE_ORIGINS` can add exact origins. Existing sign-in policy, anti-bot checks, two-factor challenges, and forced-password-change gates still apply.
+3. Complete any challenge through the existing native sign-in flow. A completed sign-in returns the native bearer token, which the shell stores in its OS credential store.
+4. Fetch the Session with `Authorization: Bearer <token>`. Choose the account and capabilities from that authenticated Session, then POST JMAP requests to its `apiUrl`. Use its upload and download templates for blobs.
+5. Sign out through `/api/logout` and remove the local token.
+
+The native shared client tries `/.well-known/jmap`, falls back to `/jmap/session` for older deployments lacking discovery, and consumes the advertised API address. Authentication refusals do not trigger that fallback. An advertised API outside the configured Mailwoman origin, deployment prefix, or JMAP namespace is refused before any bearer-bearing request is sent. Linked-mailbox Session discovery follows the same explicit account selection and authorization rules as the existing Session route.
+
+## Compatibility boundaries
+
+Discovery exposes the capabilities already supported by the selected Mailwoman account; it does not add unsupported JMAP methods or extensions. Mail, submission, storage quotas and the existing optional extensions remain capability-driven. The event-stream URL retains the existing server behavior; this does not add new event-stream query features or advertise a new WebSocket protocol extension.
+
+Our shells use Mailwoman's native bearer flow. A third-party JMAP client must support that authentication flow or accept its resulting bearer token. Publishing discovery does not add HTTP Basic sign-in or a general-purpose OAuth mail grant. Existing scoped Sieve API keys remain Sieve-only and do not gain access to mail.
+
+The loopback HTTP fixture verifies native login, authenticated discovery, and Mailbox/get plus Email/query through the advertised API. Shared-client tests verify discovery, fallback, bearer headers, proxy URL restrictions, linked routing and browser compatibility. These checks do not constitute an Android APK or physical-device test.
+
+## Native JMAP Core behavior
 
 The native engine answers `Core/echo` and returns method failures under the standard `error` response name. A failed method does not stop later calls. Result references validate the response name and support RFC 8620 wildcard array projection, flattening and JSON Pointer escapes. Conflicting normal and referenced arguments are refused. Echo preserves arbitrary client properties, including `type`.
 
@@ -23,7 +57,7 @@ Upstream-proxy mode retains the upstream capability and method contract. These C
 
 References: [RFC 8620](https://www.rfc-editor.org/rfc/rfc8620.html), [RFC 8621](https://www.rfc-editor.org/rfc/rfc8621.html).
 
-## Standards inventory (source audit, 2026-10-26)
+### Standards inventory (source audit, 2026-10-26)
 
 This inventory separates native protocol support from Mailwoman-specific features.
 It is not a full conformance certificate. Proxy mode exposes the verified upstream

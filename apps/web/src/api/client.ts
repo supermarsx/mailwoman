@@ -16,7 +16,8 @@ import { withLoginTimeout } from './loginTimeout.ts';
 import type { JmapRequest, JmapResponse, JmapSession } from './jmap-types.ts';
 import { basePath } from './basePath.ts';
 import { apiFetch,type ApiRequestInit } from './http.ts';
-import {linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
+import {linkedMailboxEpoch,activeLinkedMailbox,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
+import {jmapApiPath} from './jmapDiscovery.ts';
 import { keyedWrite, newIdempotencyKey, RecoveryError, type FailureReason, type RecoveryOptions } from './recovery.ts';
 
 /** What a refused answer says about itself, besides its status. */
@@ -186,7 +187,7 @@ function isTwofaGate(body: LoginResponse): body is { readonly twofaRequired: tru
 export type NetworkListener = (online: boolean) => void;
 
 /** The calls that need a session: with no server known they answer 401. */
-const SESSION_PATHS = new Set(['/api/me', '/jmap/session', '/jmap/api', '/api/sanitize']);
+const SESSION_PATHS = new Set(['/api/me', '/jmap/session', '/.well-known/jmap', '/jmap/api', '/api/sanitize']);
 
 /**
  * Optional bearer-auth provider for the native shell (plan §2.2). When present
@@ -351,6 +352,8 @@ let keepaliveInFlight = 0;
  * fail as unreachable.
  */
 export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): Client {
+  const currentBase=():string|null=>typeof base==='function'?base():base;
+  let discoveredApi:{base:string;epoch:number;path:string}|undefined;
   let loginPending = false;
   const listeners = new Set<NetworkListener>();
   const gateListeners = new Set<PasswordChangeRequiredListener>();
@@ -483,8 +486,19 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
     },
     session(context) {
       return guarded(async () => {
-        const res = await req(`/jmap/session`,context?{mailboxContext:context.linkId}:undefined);
-        return jsonOrGate<JmapSession>(res);
+        const epoch=linkedMailboxEpoch(),init=context?{mailboxContext:context.linkId}:undefined;
+        let res=await req(auth?'/.well-known/jmap':'/jmap/session',init);
+        // Older Mailwoman deployments may not publish discovery yet. An auth
+        // refusal is final; only a missing route (or old SPA fallback) retries.
+        if(auth&&([404,405,410].includes(res.status)||(res.ok&&res.headers.get('content-type')?.includes('text/html')))){
+          await res.body?.cancel();res=await req('/jmap/session',init);
+        }
+        const document=await jsonOrGate<JmapSession>(res),server=currentBase();
+        if(auth&&server!==null){
+          let path:string;try{if(typeof document.apiUrl!=='string')throw new Error();path=jmapApiPath(document.apiUrl,server);}catch{throw new ApiError(502,'invalid JMAP API address');}
+          if(epoch===linkedMailboxEpoch()&&(!context||context.linkId===(activeLinkedMailbox()?.linkId??null)))discoveredApi={base:server,epoch,path};
+        }
+        return document;
       });
     },
     jmap(body, opts) {
@@ -495,7 +509,7 @@ export function createClient(base: ClientBase = basePath(), auth?: ClientAuth): 
       return guarded(async () => {
         try {
           const key = opts?.idempotencyKey === false ? undefined : opts?.idempotencyKey ?? (isKeyedCreate(body) ? newIdempotencyKey() : undefined);
-          const send = (): Promise<Response> => req(`/jmap/api`, {
+          const send = (): Promise<Response> => req(auth&&discoveredApi?.base===currentBase()&&discoveredApi.epoch===linkedMailboxEpoch()?discoveredApi.path:'/jmap/api', {
             method: 'POST',
             headers: { 'content-type': 'application/json' },
             body: text,

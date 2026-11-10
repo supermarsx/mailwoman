@@ -143,7 +143,7 @@ function stripBase(pathname) {
 }
 
 function isApiPath(pathname) {
-  return pathname.startsWith('/jmap/') || pathname.startsWith('/api/');
+  return pathname.startsWith('/jmap/') || pathname.startsWith('/api/') || pathname === '/.well-known/jmap' || pathname === '/.well-known/mailwoman';
 }
 
 // The navigations this worker owns: the mail app's shell, and nothing else. The

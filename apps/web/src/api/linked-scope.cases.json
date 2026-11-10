@@ -4,6 +4,7 @@
   "/api/me",
   "/api/policy",
   "/jmap/session",
+  "/.well-known/jmap",
   "/jmap/api",
   "/jmap/upload/acc",
   "/api/settings",
@@ -105,6 +106,7 @@
   "/api/client-timing"
  ],
  "public": [
+  "/.well-known/mailwoman",
   "/api/public-config",
   "/api/signin/challenge",
   "/api/appearance/sandbox"

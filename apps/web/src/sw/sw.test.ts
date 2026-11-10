@@ -78,6 +78,8 @@ describe('what the worker stores', () => {
     ['the server-side export', '/api/export/m123', 'cors'],
     ['the signed-in identity', '/api/me', 'cors'],
     ['the JMAP session', '/jmap/session', 'cors'],
+    ['JMAP discovery', '/.well-known/jmap', 'cors'],
+    ['native connection discovery', '/.well-known/mailwoman', 'cors'],
     ['the event stream', '/jmap/eventsource', 'cors'],
     ['an API path that is not on the allowlist', '/api/password/policy', 'cors'],
     ['an allowlisted path with a query string', '/api/sso/providers?domain=example.org', 'cors'],

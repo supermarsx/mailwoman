@@ -4,6 +4,8 @@ A **thin** mobile shell, same model as the desktop shell (SPEC §16 / plan t7 §
 embeds the hash-verified `apps/web/dist` SPA + mobile OS integration only. **No
 protocol logic, no forked UI.**
 
+The shared native transport supports [Mailwoman JMAP discovery and authentication](../../docs/admin/jmap.md), including deployment prefixes and older-server fallback. The server address remains deployment-provided.
+
 - **Android is the buildable gate** (APK, F-Droid-friendly, CI).
 - **iOS is best-effort / documented** (needs macOS + an Apple account — not
   available on this Windows machine; plan §1.9/§9).
