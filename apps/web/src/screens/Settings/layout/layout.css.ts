@@ -51,8 +51,8 @@ globalStyle(`${rowControl} select, ${rowControl} input:not([type="checkbox"])`, 
 // A checkbox's size, accent and cursor come from styles/checks.css.ts alone.
 
 // Deep link target (SettingsRoute.card): a short outline, no layout change.
-const flash = keyframes({ '0%': { outlineColor: vars.color.accent }, '100%': { outlineColor: 'transparent' } });
-globalStyle('[data-card-flash]', { outline: '2px solid transparent', outlineOffset: '4px', animation: `${flash} 1.6s ease-out`, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none', outlineColor: vars.color.accent } } });
+const flash = keyframes({ '0%, 35%': { outlineColor: vars.color.accent, backgroundColor: vars.color.surface }, '100%': { outlineColor: 'transparent', backgroundColor:'transparent' } });
+globalStyle('[data-card-flash]', { outline: '2px solid transparent', outlineOffset: '4px', animation: `${flash} 2.4s ease-out`, '@media': { '(prefers-reduced-motion: reduce)': { animation: 'none', outlineColor: vars.color.accent } } });
 
 // A row whose control needs the full width under its label.
 export const rowStacked = style({

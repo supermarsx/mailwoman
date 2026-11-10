@@ -17,7 +17,7 @@ export interface SettingsNavProps {
   supported: (section: string) => boolean;
   onSelect: (section: string) => void;
   /** A matching setting row: open its section scrolled to its card. */
-  onOpenCard?: (section: string, card: string) => void;
+  onOpenCard?: (section: string, card: string, row?: string) => void;
 }
 
 const NEXT = new Set(['ArrowDown', 'ArrowRight']);
@@ -76,7 +76,7 @@ export function SettingsNav(props: SettingsNavProps): JSX.Element {
         );
       }}</For>
       <Show when={rowHits().length}><ul class={workspace.rowHits} aria-label={t('settings-kit-other-sections')}>
-        <For each={rowHits()}>{hit=><li><button type="button" data-settings-hit={hit.row} onClick={()=>props.onOpenCard?.(hit.section,hit.card)}>{hit.label}<span>{hit.cardTitle}</span></button></li>}</For>
+        <For each={rowHits()}>{hit=><li><button type="button" data-settings-hit={hit.row} onClick={()=>props.onOpenCard?.(hit.section,hit.card,hit.row)}>{hit.label}<span>{hit.cardTitle}</span></button></li>}</For>
       </ul></Show>
       </div></Show>
       {menu.menu()}

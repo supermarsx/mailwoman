@@ -240,7 +240,7 @@ export function Settings(props: SettingsProps): JSX.Element {
         </header></Show>
 
         <div class={props.embedded ? workspace.body : workspace.legacy}>
-          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} onQueryChange={setSectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})} onOpenCard={(section,card)=>{setSectionQuery('');void navigation.navigate({section,card});}}/></Show>
+          <Show when={props.embedded}><SettingsNav current={()=>navigation.route().section} query={sectionQuery} onQueryChange={setSectionQuery} supported={supportedSection} onSelect={section=>void navigation.navigate({section})} onOpenCard={(section,card,row)=>{void navigation.navigate({section,card,...(row?{row}:{})}).then(opened=>{if(opened)setSectionQuery('');});}}/></Show>
           <div class={workspace.content} ref={settingsContent}>
           <Show when={props.embedded}><Breadcrumbs class={workspace.crumb} testId="settings-breadcrumb" label={t('settings-breadcrumb')} loadingLabel={t('settings-crumb-loading')} items={settingsCrumbs(navigation.route()).map(c=>c.route?{label:c.label,onNavigate:()=>void navigation.navigate(c.route!)}:{label:c.label})}/></Show>
           <RetainedSettingsSection name="appearance" active={visible('appearance')} accountBound={false}>{()=> <div class={workspace.appearance}>

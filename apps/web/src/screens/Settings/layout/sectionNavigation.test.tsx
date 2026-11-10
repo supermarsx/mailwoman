@@ -53,7 +53,7 @@ it('the section search lists matching settings rows from every section and opens
  render(()=><SettingsNav current={()=>'reader'} query={()=>'forward header'} supported={()=>true} onSelect={()=>undefined} onOpenCard={open}/>);
  const hit=await screen.findByRole('button',{name:new RegExp(t('settings-quote-style'))});
  fireEvent.click(hit);
- expect(open).toHaveBeenCalledWith('compose','compose-card-addressing');
+ expect(open).toHaveBeenCalledWith('compose','compose-card-addressing',hit.getAttribute('data-settings-hit'));
 });
 it('says nothing matches when neither a section nor a row does',()=>{
  render(()=><SettingsNav current={()=>'reader'} query={()=>'zzzzqq'} supported={()=>true} onSelect={()=>undefined} onOpenCard={()=>undefined}/>);
@@ -67,4 +67,18 @@ it('Special folders is a native collapsible block, closed until opened, and a de
  const details=document.querySelector<HTMLDetailsElement>('#folders-card-roles > details')!;
  expect(details.querySelector('summary')).toHaveTextContent(t('settings-folder-role-title'));
  await waitFor(()=>expect(details.open).toBe(true));
+});
+
+it('search targets scroll to and highlight the exact setting row, and repeat on a second selection',async()=>{
+ const nav=createSettingsNavigation({section:'reader',card:'reader-card-text',row:'reader-fontSize'});
+ const scroll=vi.fn();Element.prototype.scrollIntoView=scroll;
+ render(()=><SettingsNavigationContext.Provider value={nav}><RetainedSettingsSection name="reader" active accountBound={false}>{()=><ReaderAppearanceSettings/>}</RetainedSettingsSection></SettingsNavigationContext.Provider>);
+ const control=await screen.findByLabelText(t('reader-fontSize'));
+ await waitFor(()=>expect(control.closest('[data-setting-row]')).toHaveAttribute('data-card-flash'));
+ expect(document.getElementById('reader-card-text')).not.toHaveAttribute('data-card-flash');
+ expect(document.activeElement).toBe(control);
+ const calls=scroll.mock.calls.length;
+ await nav.navigate({section:'reader',card:'reader-card-text',row:'reader-fontSize'});
+ await waitFor(()=>expect(scroll.mock.calls.length).toBeGreaterThan(calls));
+ expect(control.closest('[data-setting-row]')).toHaveAttribute('data-card-flash');
 });
