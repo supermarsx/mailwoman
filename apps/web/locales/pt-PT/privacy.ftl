@@ -233,3 +233,22 @@ privacy-links-revoke-domain = Deixar de permitir sempre ligações deste domíni
 privacy-trusted-link-sender-domains = Domínios dos remetentes
 privacy-trusted-link-sender-domains-help = Permite ligações revistas em mensagens destes domínios exatos dos remetentes. Um domínio por linha; os subdomínios são independentes. Não confia nos sites de destino nem carrega imagens. Uma lista vazia pede autorização em cada mensagem.
 privacy-trusted-link-sender-domains-save = Guardar domínios de remetentes fidedignos
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Preferência de host de imagem salva.
+
+privacy-feedback-images-off = Permissão de imagem removida.
+
+privacy-feedback-images-on = Permissão de imagem salva. As imagens permitidas podem agora ser carregadas.
+
+privacy-feedback-link-domain-off = Confiança do link de domínio removida para { $address }.
+
+privacy-feedback-link-domain-on = Serão permitidos links nas mensagens do domínio { $address }.
+
+privacy-feedback-link-sender-off = Confiança do link do remetente removida para { $address }.
+
+privacy-feedback-link-sender-on = Links serão permitidos em mensagens de { $address }.
+
+privacy-feedback-links-off = Links desativados para esta mensagem.
+
+privacy-feedback-links-on = Links activados para esta mensagem.

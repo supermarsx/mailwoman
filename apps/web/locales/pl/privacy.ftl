@@ -237,3 +237,22 @@ privacy-trusted-link-sender-domains = Domeny nadawcy
 privacy-trusted-link-sender-domains-help = Zezwalaj na sprawdzane linki w wiadomościach pochodzących z domen dokładnie tych nadawców. Jedna domena na linię; subdomeny są oddzielne. Nie ufa witrynom docelowym ani nie ładuje obrazów. Pusta lista pyta o każdą wiadomość.
 
 privacy-trusted-link-sender-domains-save = Zapisz zaufane domeny nadawców
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Zapisano preferencje hosta obrazu.
+
+privacy-feedback-images-off = Usunięto uprawnienia do obrazu.
+
+privacy-feedback-images-on = Zapisano uprawnienia do obrazu. Można teraz załadować dozwolone obrazy.
+
+privacy-feedback-link-domain-off = Usunięto zaufanie łącza domeny dla { $address }.
+
+privacy-feedback-link-domain-on = Linki będą dozwolone w wiadomościach z domeny { $address }.
+
+privacy-feedback-link-sender-off = Usunięto zaufanie do łącza nadawcy dla { $address }.
+
+privacy-feedback-link-sender-on = Linki będą dozwolone w wiadomościach od { $address }.
+
+privacy-feedback-links-off = Linki dla tej wiadomości są wyłączone.
+
+privacy-feedback-links-on = Włączono linki dla tej wiadomości.

@@ -237,3 +237,22 @@ privacy-trusted-link-sender-domains = Afzenderdomeinen
 privacy-trusted-link-sender-domains-help = Sta beoordeelde links toe in berichten van deze exacte afzenderdomeinen. Eén domein per lijn; subdomeinen zijn gescheiden. Dit vertrouwt geen bestemmingswebsites en laadt geen afbeeldingen. Een lege lijst vraagt ​​om elk bericht.
 
 privacy-trusted-link-sender-domains-save = Bewaar vertrouwde afzenderdomeinen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Voorkeur voor afbeeldingshost opgeslagen.
+
+privacy-feedback-images-off = Afbeeldingsrechten verwijderd.
+
+privacy-feedback-images-on = Afbeeldingsrechten opgeslagen. Toegestane afbeeldingen kunnen nu worden geladen.
+
+privacy-feedback-link-domain-off = Domeinlinkvertrouwen verwijderd voor { $address }.
+
+privacy-feedback-link-domain-on = Links zijn toegestaan in berichten van het domein { $address }.
+
+privacy-feedback-link-sender-off = Het vertrouwen van de afzenderlink is verwijderd voor { $address }.
+
+privacy-feedback-link-sender-on = Links zijn toegestaan in berichten van { $address }.
+
+privacy-feedback-links-off = Links uitgeschakeld voor dit bericht.
+
+privacy-feedback-links-on = Links ingeschakeld voor dit bericht.

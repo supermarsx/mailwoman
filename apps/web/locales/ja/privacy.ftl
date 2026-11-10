@@ -236,3 +236,22 @@ privacy-trusted-link-sender-domains = 送信者ドメイン
 privacy-trusted-link-sender-domains-help = これらの正確な送信者ドメインからのメッセージ内のレビュー済みリンクを許可します。 1 行に 1 つのドメイン。サブドメインは別です。これは宛先 Web サイトを信頼したり、画像をロードしたりしません。空のリストは各メッセージを要求します。
 
 privacy-trusted-link-sender-domains-save = 信頼できる送信者ドメインを保存する
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = イメージホスト設定が保存されました。
+
+privacy-feedback-images-off = 画像の許可が削除されました。
+
+privacy-feedback-images-on = 画像の許可が保存されました。許可された画像を読み込めるようになりました。
+
+privacy-feedback-link-domain-off = { $address } のドメイン リンクの信頼が削除されました。
+
+privacy-feedback-link-domain-on = ドメイン { $address } からのメッセージではリンクが許可されます。
+
+privacy-feedback-link-sender-off = { $address } の送信者リンクの信頼が削除されました。
+
+privacy-feedback-link-sender-on = { $address } からのメッセージではリンクが許可されます。
+
+privacy-feedback-links-off = このメッセージに対するリンクは無効になっています。
+
+privacy-feedback-links-on = このメッセージに対してリンクが有効になっています。

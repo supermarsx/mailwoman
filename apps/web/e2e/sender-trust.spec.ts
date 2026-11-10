@@ -1,6 +1,8 @@
 import {test,expect,type Page} from '@playwright/test';
 import {login,messageRow} from './helpers.ts';
 test.use({serviceWorkers:'block'});test.setTimeout(90000);
+// Drain fixture requests before Playwright disposes their response bodies.
+test.afterEach(async({page})=>{await page.unrouteAll({behavior:'wait'});});
 async function fixture(page:Page,locked=false){
  const values:Record<string,unknown>={'links.trustedSenders':[],'links.trustedSenderDomains':[],'mail.reader.unsafeHtmlMode':'sanitized','notifications.askPermission':false};
  const writes:{key:string;value:unknown}[]=[],grants:{scopeKind:string;scopeValue:string;grantedAt:string}[]=[];
@@ -32,17 +34,18 @@ async function fixture(page:Page,locked=false){
   }await route.fulfill({response,json:body});
  });return {writes,grants};
 }
-const anchor=(page:Page)=>page.locator('section.reader:visible').frameLocator('iframe.reader__frame').frameLocator('iframe').getByText('Controlled link',{exact:true});
+const anchor=(page:Page)=>page.locator('section.reader:visible').frameLocator('iframe.reader__frame').frameLocator('iframe:visible').getByText('Controlled link',{exact:true});
 test('sender and domain permissions stay independent and image grants can be promoted after Show images',async({page})=>{
  await page.setViewportSize({width:1440,height:1000});const {writes,grants}=await fixture(page);await login(page);await messageRow(page,'Lunch tomorrow?').click();await expect(anchor(page)).not.toHaveAttribute('href');
  await page.getByRole('button',{name:'Link options',exact:true}).click();await page.getByRole('menuitem',{name:'Always allow links from this sender',exact:true}).click();
  await expect.poll(()=>writes.at(-1)).toEqual({key:'links.trustedSenders',value:['sender@example.test']});
+ await expect(page.getByText(/Links will be allowed in messages from .*sender@example\.test/)).toBeVisible();
  await page.getByRole('button',{name:'Link options',exact:true}).click();await page.getByRole('menuitem',{name:'Stop always allowing links from this sender',exact:true}).click();
  await expect.poll(()=>writes.at(-1)).toEqual({key:'links.trustedSenders',value:[]});
  await page.getByRole('button',{name:'Link options',exact:true}).click();await page.getByRole('menuitem',{name:'Always allow links from this sender domain',exact:true}).click();
  await expect.poll(()=>writes.at(-1)).toEqual({key:'links.trustedSenderDomains',value:['example.test']});expect(grants).toEqual([]);
  await messageRow(page,'Welcome to Mailwoman').click();await expect(anchor(page)).toHaveAttribute('href','https://destination.example.test/page');
- await page.getByRole('button',{name:'Show images',exact:true}).click();await expect.poll(()=>grants.at(-1)?.scopeKind).toBe('single');
+ await page.getByRole('button',{name:'Show images',exact:true}).click();await expect.poll(()=>grants.at(-1)?.scopeKind).toBe('single');await expect(page.getByText('Image permission saved. Allowed images can now load.',{exact:true})).toBeVisible();
  await page.getByRole('button',{name:'More image options',exact:true}).click();await page.getByRole('menuitem',{name:/Always show images from .other@example\.test./}).click();
  await expect.poll(()=>grants.at(-1)?.scopeKind).toBe('per-sender');
  await page.getByRole('button',{name:'More image options',exact:true}).click();await page.getByRole('menuitem',{name:/Always show images from .example\.test.$/}).click();

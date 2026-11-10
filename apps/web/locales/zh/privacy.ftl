@@ -236,3 +236,22 @@ privacy-trusted-link-sender-domains = 发件人域
 privacy-trusted-link-sender-domains-help = 允许来自这些确切发件人域的邮件中经过审阅的链接。每行一个域；子域是分开的。这不信任目标网站或加载图像。空列表要求提供每条消息。
 
 privacy-trusted-link-sender-domains-save = 保存受信任的发件人域
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = 图像主机首选项已保存。
+
+privacy-feedback-images-off = 图片权限已删除。
+
+privacy-feedback-images-on = 已保存图像权限。现在可以加载允许的图像。
+
+privacy-feedback-link-domain-off = 已删除{ $address }的域链接信任。
+
+privacy-feedback-link-domain-on = 来自域{ $address }的消息中将允许链接。
+
+privacy-feedback-link-sender-off = 删除了{ $address }的发件人链接信任。
+
+privacy-feedback-link-sender-on = 来自{ $address }的消息中允许存在链接。
+
+privacy-feedback-links-off = 此消息的链接已禁用。
+
+privacy-feedback-links-on = 为此消息启用链接。

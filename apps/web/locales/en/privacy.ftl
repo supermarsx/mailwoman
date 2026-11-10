@@ -230,3 +230,13 @@ privacy-links-revoke-domain = Stop always allowing links from this sender domain
 privacy-trusted-link-sender-domains = Sender domains
 privacy-trusted-link-sender-domains-help = Allow reviewed links in messages from these exact sender domains. One domain per line; subdomains are separate. This does not trust destination websites or load images. An empty list asks for each message.
 privacy-trusted-link-sender-domains-save = Save trusted sender domains
+
+privacy-feedback-links-on = Links enabled for this message.
+privacy-feedback-links-off = Links disabled for this message.
+privacy-feedback-link-sender-on = Links will be allowed in messages from { $address }.
+privacy-feedback-link-sender-off = Sender link trust removed for { $address }.
+privacy-feedback-link-domain-on = Links will be allowed in messages from the domain { $address }.
+privacy-feedback-link-domain-off = Domain link trust removed for { $address }.
+privacy-feedback-images-on = Image permission saved. Allowed images can now load.
+privacy-feedback-images-off = Image permission removed.
+privacy-feedback-image-host = Image host preference saved.

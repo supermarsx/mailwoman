@@ -239,3 +239,22 @@ privacy-trusted-link-sender-domains = مجالات المرسل
 privacy-trusted-link-sender-domains-help = السماح بالروابط التي تمت مراجعتها في الرسائل من نطاقات المرسل المحددة هذه. مجال واحد في كل سطر؛ النطاقات الفرعية منفصلة. هذا لا يثق في مواقع الوجهة أو يقوم بتحميل الصور. قائمة فارغة تسأل عن كل رسالة.
 
 privacy-trusted-link-sender-domains-save = حفظ مجالات المرسل الموثوق بها
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = تم حفظ تفضيلات مضيف الصورة.
+
+privacy-feedback-images-off = تمت إزالة إذن الصورة.
+
+privacy-feedback-images-on = تم حفظ إذن الصورة. يمكن الآن تحميل الصور المسموح بها.
+
+privacy-feedback-link-domain-off = تمت إزالة الثقة في رابط المجال لـ { $address }.
+
+privacy-feedback-link-domain-on = سيتم السماح بالروابط في الرسائل من النطاق { $address }.
+
+privacy-feedback-link-sender-off = تمت إزالة ثقة رابط المرسل لـ { $address }.
+
+privacy-feedback-link-sender-on = سيتم السماح بالروابط في الرسائل من { $address }.
+
+privacy-feedback-links-off = تم تعطيل الروابط لهذه الرسالة.
+
+privacy-feedback-links-on = تم تمكين الروابط لهذه الرسالة.

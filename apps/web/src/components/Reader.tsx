@@ -1031,6 +1031,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
       // Both lists in one pass; the body is re-rendered and hot-patched once the settings arrive.
       await writeSetting('images.blockedHosts',[...next.blocked]);
       await writeSetting('images.trustedHosts',[...next.trusted]);
+      app.showToast('success',t('privacy-feedback-image-host'));
     }catch{app.showToast('error',t('image-hosts-failed'));}
   }
 
@@ -1047,14 +1048,15 @@ function ReaderBody(props: ReaderProps): JSX.Element {
   const senderTrustPending=()=>trustPending()===linkConsentScope();
   const senderTrustEditable=()=>linkAccountCurrent()&&settingsLoadStatus()==='ready'&&!!settings()['links.trustedSenders']&&!settings()['links.trustedSenders']!.locked&&linkSender()!==null&&(senderLinksTrusted()||trustedLinkSenders(settings()).length<100);
   const domainTrustEditable=()=>linkAccountCurrent()&&settingsLoadStatus()==='ready'&&!!settings()['links.trustedSenderDomains']&&!settings()['links.trustedSenderDomains']!.locked&&linkSender()!==null&&trustedLinkSenderDomain(linkSender()!)!==null&&(domainLinksTrusted()||trustedLinkSenderDomains(settings()).length<100);
-  const {enabled:linksEnabled,toggle:toggleLinks,enable:enableLinks,disable:disableLinks}=createMessageLinkConsent(linkConsentScope,linksReady,()=>senderLinksTrusted()||domainLinksTrusted());
+  const {enabled:linksEnabled,toggle:toggleLinksConsent,enable:enableLinks,disable:disableLinks}=createMessageLinkConsent(linkConsentScope,linksReady,()=>senderLinksTrusted()||domainLinksTrusted());
+  function toggleLinks():void{if(!linksReady())return;toggleLinksConsent();app.showToast('success',t(linksEnabled()?'privacy-feedback-links-on':'privacy-feedback-links-off'));}
   async function setSenderLinkTrust(allow:boolean,domain=false):Promise<void>{
     const owner=linkAuthority(),senderAddress=linkSender(),address=domain&&senderAddress?trustedLinkSenderDomain(senderAddress):senderAddress,scope=linkConsentScope();
     if(!owner||!address||!linksReady()||!(domain?domainTrustEditable():senderTrustEditable())||senderTrustPending())return;
     const list=domain?trustedLinkSenderDomains(settings()):trustedLinkSenders(settings()),next=allow?[...new Set([...list,address])]:list.filter(value=>value!==address);
     setTrustPending(scope);
     const current=()=>preferenceAccountIsCurrent(owner)&&linkAccountCurrent()&&scope===linkConsentScope()&&senderAddress===linkSender();
-    try{await writeSetting(domain?'links.trustedSenderDomains':'links.trustedSenders',next);if(current()){if(allow)enableLinks();else disableLinks();}}
+    try{await writeSetting(domain?'links.trustedSenderDomains':'links.trustedSenders',next);if(current()){if(allow)enableLinks();else disableLinks();app.showToast('success',t(domain?(allow?'privacy-feedback-link-domain-on':'privacy-feedback-link-domain-off'):(allow?'privacy-feedback-link-sender-on':'privacy-feedback-link-sender-off'),{address:isolate(address)}));}}
     catch{if(current())app.showToast('error',t('privacy-links-trust-failed'));}
     finally{if(trustPending()===scope)setTrustPending(null);}
   }
@@ -1403,6 +1405,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     // An explicit Show images supersedes an earlier "Cancel loading" for this message.
     clearImagesCancelled();
     await remoteImages.grant(acct, scope, options);
+    if(app.accountId()===acct)app.showToast('success',t('privacy-feedback-images-on'));
     void refetchGrants();
     // Re-fetch + re-sanitize so the now-permitted images load through the proxy.
     await reloadOpenMessage().catch(() => undefined);
@@ -1413,6 +1416,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
     if (acct === null) return;
     clearImagesCancelled();
     await remoteImages.revoke(acct, scope, options);
+    if(app.accountId()===acct)app.showToast('success',t('privacy-feedback-images-off'));
     void refetchGrants();
     await reloadOpenMessage().catch(() => undefined);
   }

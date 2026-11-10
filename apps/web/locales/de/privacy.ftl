@@ -235,3 +235,22 @@ privacy-trusted-link-sender-domains = Absenderdomänen
 privacy-trusted-link-sender-domains-help = Erlauben Sie überprüfte Links in Nachrichten von genau diesen Absenderdomänen. Eine Domain pro Zeile; Subdomains sind getrennt. Dadurch werden Zielwebsites nicht vertrauenswürdig und Bilder werden nicht geladen. Für jede Nachricht wird eine leere Liste abgefragt.
 
 privacy-trusted-link-sender-domains-save = Speichern Sie vertrauenswürdige Absenderdomänen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Image-Host-Präferenz gespeichert.
+
+privacy-feedback-images-off = Bildberechtigung entfernt.
+
+privacy-feedback-images-on = Bildberechtigung gespeichert. Zulässige Bilder können jetzt geladen werden.
+
+privacy-feedback-link-domain-off = Domain-Link-Vertrauen für { $address } entfernt.
+
+privacy-feedback-link-domain-on = Links sind in Nachrichten von der Domäne { $address } zulässig.
+
+privacy-feedback-link-sender-off = Die Vertrauenswürdigkeit des Absender-Links wurde für { $address } entfernt.
+
+privacy-feedback-link-sender-on = Links sind in Nachrichten von { $address } erlaubt.
+
+privacy-feedback-links-off = Links für diese Nachricht deaktiviert.
+
+privacy-feedback-links-on = Für diese Nachricht aktivierte Links.

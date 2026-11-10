@@ -237,3 +237,22 @@ privacy-trusted-link-sender-domains = Домены отправителя
 privacy-trusted-link-sender-domains-help = Разрешить проверенные ссылки в сообщениях именно из этих доменов отправителей. Один домен на строку; субдомены отдельные. Это не доверяет целевым веб-сайтам и не загружает изображения. Пустой список запрашивает каждое сообщение.
 
 privacy-trusted-link-sender-domains-save = Сохраняйте домены доверенных отправителей
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Настройки хоста изображений сохранены.
+
+privacy-feedback-images-off = Разрешение на изображение удалено.
+
+privacy-feedback-images-on = Разрешение на изображение сохранено. Разрешенные изображения теперь могут загружаться.
+
+privacy-feedback-link-domain-off = Доверие к доменной ссылке удалено для { $address }.
+
+privacy-feedback-link-domain-on = Ссылки будут разрешены в сообщениях с домена { $address }.
+
+privacy-feedback-link-sender-off = Доверие к ссылке отправителя удалено для { $address }.
+
+privacy-feedback-link-sender-on = Ссылки будут разрешены в сообщениях от { $address }.
+
+privacy-feedback-links-off = Ссылки отключены для этого сообщения.
+
+privacy-feedback-links-on = Ссылки включены для этого сообщения.

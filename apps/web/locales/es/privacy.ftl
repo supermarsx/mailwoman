@@ -235,3 +235,22 @@ privacy-trusted-link-sender-domains = Dominios del remitente
 privacy-trusted-link-sender-domains-help = Permitir enlaces revisados en mensajes de estos dominios de remitente exactos. Un dominio por línea; Los subdominios están separados. Esto no confía en los sitios web de destino ni carga imágenes. Una lista vacía pregunta por cada mensaje.
 
 privacy-trusted-link-sender-domains-save = Guardar dominios de remitentes de confianza
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Preferencia de host de imagen guardada.
+
+privacy-feedback-images-off = Permiso de imagen eliminado.
+
+privacy-feedback-images-on = Permiso de imagen guardado. Las imágenes permitidas ahora se pueden cargar.
+
+privacy-feedback-link-domain-off = Se eliminó la confianza del enlace de dominio por { $address }.
+
+privacy-feedback-link-domain-on = Se permitirán enlaces en mensajes del dominio { $address }.
+
+privacy-feedback-link-sender-off = Se eliminó la confianza del enlace del remitente por { $address }.
+
+privacy-feedback-link-sender-on = Se permitirán enlaces en mensajes a partir de { $address }.
+
+privacy-feedback-links-off = Enlaces deshabilitados para este mensaje.
+
+privacy-feedback-links-on = Enlaces habilitados para este mensaje.

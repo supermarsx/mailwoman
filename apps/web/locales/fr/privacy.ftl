@@ -235,3 +235,22 @@ privacy-trusted-link-sender-domains = Domaines d'expéditeur
 privacy-trusted-link-sender-domains-help = Autoriser les liens examinés dans les messages provenant de ces domaines d'expéditeur précis. Un domaine par ligne ; les sous-domaines sont séparés. Cela ne fait pas confiance aux sites Web de destination et ne charge pas les images. Une liste vide demande chaque message.
 
 privacy-trusted-link-sender-domains-save = Enregistrer les domaines d'expéditeurs approuvés
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+privacy-feedback-image-host = Préférence d’hôte d’image enregistrée.
+
+privacy-feedback-images-off = Autorisation d'image supprimée.
+
+privacy-feedback-images-on = Autorisation d'image enregistrée. Les images autorisées peuvent désormais se charger.
+
+privacy-feedback-link-domain-off = Approbation du lien de domaine supprimée pour { $address }.
+
+privacy-feedback-link-domain-on = Les liens seront autorisés dans les messages du domaine { $address }.
+
+privacy-feedback-link-sender-off = Confiance du lien de l'expéditeur supprimée pour { $address }.
+
+privacy-feedback-link-sender-on = Les liens seront autorisés dans les messages de { $address }.
+
+privacy-feedback-links-off = Liens désactivés pour ce message.
+
+privacy-feedback-links-on = Liens activés pour ce message.
