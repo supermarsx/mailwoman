@@ -843,3 +843,10 @@ settings-sessions-origin-masked-local-part = Adres met het eerste deel gemaskeer
 settings-sessions-origin-setting = Laat zien waar gekoppelde mailboxtoegang vandaan komt
 
 settings-shortcuts-search = Zoek snelkoppelingen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = Houd recent bezochte mappen en berichten gereed om te openen. Kopieën blijven standaard in het geheugen van dit tabblad. Schakel opslag voor onbepaalde tijd in om versleutelde kopieën te bewaren tijdens herlaadbeurten. Als u vooraf laadt, wordt e-mail nooit als gelezen gemarkeerd en worden externe afbeeldingen niet geladen.
+
+cache-keepIndefinitely = Bewaar e-mail in de cache voor onbepaalde tijd
+
+cache-keepIndefinitely-help = Standaard uitgeschakeld. Bewaar gecodeerde kopieën in deze browser tijdens herlaadbeurten zonder dat de leeftijd verstrijkt. Online berichten worden nog steeds vernieuwd. De invoer- en bytelimieten zijn nog steeds van toepassing. Als u dit uitschakelt of in de cache opgeslagen e-mail wist, worden opgeslagen kopieën verwijderd. Het wissen van browsergegevens kan ze ook verwijderen. Bijlagen worden niet gedownload voor offline gebruik.

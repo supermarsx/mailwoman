@@ -2469,3 +2469,8 @@ admin-settings-key-server-shutdown-grace-seconds = Délai de grâce d'arrêt
 admin-settings-key-session-last-activity-flush-seconds = Intervalle d'écriture pour la dernière fois
 
 admin-settings-key-session-persist-across-restarts = Conserver les sessions lors des redémarrages
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = Désactivé par défaut. Enregistrez des instantanés de courrier chiffrés au niveau du compte lors des recharges du navigateur sans expiration de l'âge. Les limites d’entrées et d’octets existantes s’appliquent toujours. Les utilisateurs peuvent effacer les copies enregistrées ; la désactivation de cette préférence les supprime du navigateur actif. Cela n’accorde pas l’autorisation de stockage persistant au navigateur ni le téléchargement de pièces jointes.
+
+admin-settings-key-mail-cache-keep-indefinitely = Conserver le cache de messagerie du navigateur indéfiniment

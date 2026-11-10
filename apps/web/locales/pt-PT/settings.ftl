@@ -817,3 +817,7 @@ settings-badge-labels-icon = Só ícone
 
 settings-folders-hide-empty = Ocultar pastas vazias na barra lateral
 settings-folders-hide-empty-help = As pastas reaparecem quando contêm mensagens. A Caixa de entrada, as pastas de pesquisa, as pastas com contagens desconhecidas e as pastas ascendentes de pastas visíveis continuam disponíveis. Pode alterar cada pasta em Propriedades, Apresentação; todas permanecem nesta lista.
+
+cache-keepIndefinitely = Manter indefinidamente o correio em cache
+cache-keepIndefinitely-help = Desativado por predefinição. Mantém cópias encriptadas neste navegador entre recarregamentos, sem prazo de validade. As mensagens continuam a ser atualizadas online. Os limites de entradas e de bytes continuam a aplicar-se. Desativar esta opção ou limpar o correio em cache remove as cópias guardadas. A limpeza dos dados do navegador também as pode remover. Os anexos não são transferidos para utilização offline.
+cache-help-durable = Mantém as pastas e mensagens visitadas recentemente prontas a abrir. Por predefinição, as cópias ficam na memória deste separador. Ative o armazenamento indefinido para manter cópias encriptadas entre recarregamentos. O pré-carregamento nunca marca correio como lido nem carrega imagens remotas.

@@ -824,3 +824,10 @@ settings-sessions-origin-masked-local-part = Adresse mit maskiertem ersten Teil
 settings-sessions-origin-setting = Zeigen Sie an, woher der Zugriff auf das verknüpfte Postfach kommt
 
 settings-shortcuts-search = Suchverknüpfungen
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = Halten Sie kürzlich besuchte Ordner und Nachrichten zum Öffnen bereit. Standardmäßig bleiben Kopien im Speicher dieser Registerkarte. Aktivieren Sie die unbegrenzte Speicherung, um verschlüsselte Kopien auch beim erneuten Laden aufzubewahren. Durch das Vorladen werden E-Mails niemals als gelesen markiert oder entfernte Bilder geladen.
+
+cache-keepIndefinitely = Bewahren Sie zwischengespeicherte E-Mails auf unbestimmte Zeit auf
+
+cache-keepIndefinitely-help = Standardmäßig deaktiviert. Behalten Sie verschlüsselte Kopien in diesem Browser über Neuladevorgänge hinweg bei, ohne dass das Alter abläuft. Online-Nachrichten werden weiterhin aktualisiert. Die Eintrags- und Bytegrenzen gelten weiterhin. Durch Deaktivieren oder Löschen zwischengespeicherter E-Mails werden gespeicherte Kopien entfernt. Durch das Löschen von Browserdaten können sie ebenfalls entfernt werden. Anhänge werden nicht zur Offline-Verwendung heruntergeladen.

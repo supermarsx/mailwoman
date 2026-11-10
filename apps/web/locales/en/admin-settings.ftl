@@ -2252,3 +2252,6 @@ admin-settings-help-reader-actions-delete-sender = Hidden by default. Choose too
 admin-settings-key-reader-actions-finish-followup = Mark follow-up as finished action
 
 admin-settings-help-reader-actions-finish-followup = Choose toolbar, More menu or hidden for completing flagged messages and follow-up reminders.
+
+admin-settings-key-mail-cache-keep-indefinitely = Keep browser mail cache indefinitely
+admin-settings-help-mail-cache-keep-indefinitely = Off by default. Save encrypted account-scoped mail snapshots across browser reloads without age expiry. Existing entry and byte limits still apply. Users can clear saved copies; disabling this preference removes them on the active browser. This does not grant browser persistent-storage permission or download attachments.

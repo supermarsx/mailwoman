@@ -12,4 +12,8 @@ describe('folderCachePredicate',()=>{
   expect(keep(JSON.stringify(['message','other']),'message')).toBe(false);
   expect(keep('not json','message')).toBe(false);
  });
+ it('also clears a durable message from a previous session in the folder',()=>{
+  expect(keep(JSON.stringify(['message','previous-session']),'message',{email:{mailboxIds:{'inbox-1':true}}})).toBe(true);
+  expect(keep(JSON.stringify(['message','previous-session']),'message',{email:{mailboxIds:{archive:true}}})).toBe(false);
+ });
 });

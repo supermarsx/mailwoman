@@ -821,3 +821,7 @@ settings-badge-labels-icon = Icon only
 
 settings-folders-hide-empty = Hide empty folders in the sidebar
 settings-folders-hide-empty-help = Folders reappear when they contain messages. Inbox, search folders, folders with unknown counts, and parents of visible folders stay shown. Override individual folders under Properties, Display; every folder remains in this list.
+
+cache-keepIndefinitely = Keep cached mail indefinitely
+cache-keepIndefinitely-help = Off by default. Keep encrypted copies in this browser across reloads without age expiry. Online messages still refresh. The entry and byte limits still apply. Turning this off or clearing cached mail removes saved copies. Browser data clearing can also remove them. Attachments are not downloaded for offline use.
+cache-help-durable = Keep recently visited folders and messages ready to open. By default, copies stay in this tab's memory. Enable indefinite storage to keep encrypted copies across reloads. Preloading never marks mail read or loads remote images.

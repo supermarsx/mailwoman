@@ -568,6 +568,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "Browser session mail cache: messages"
     ),
     def!(
+        "mail.cache.keepIndefinitely",
+        Kind::Bool,
+        "false",
+        GDU,
+        "mail",
+        "Opt in to encrypted browser mail storage across reloads without age expiry; capacity limits and manual clearing still apply"
+    ),
+    def!(
         "mail.cache.freshSeconds",
         int(0, 3600),
         r#"30"#,
@@ -9500,6 +9508,7 @@ mod tests {
     #[test]
     fn mail_cache_policy_is_bounded_and_speculation_opt_in() {
         for key in [
+            "keepIndefinitely",
             "enabled",
             "mailboxes",
             "messages",
@@ -9522,6 +9531,7 @@ mod tests {
             assert_eq!(def.scopes, Scopes::GlobalDomainUser);
             assert!(validate(def, &def.default_value(), "/value").is_ok());
         }
+        assert_eq!(lookup("mail.cache.keepIndefinitely").unwrap().default_value(), json!(false));
         assert_eq!(
             lookup("mail.cache.prefetchEnabled")
                 .unwrap()

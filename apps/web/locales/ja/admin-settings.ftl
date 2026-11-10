@@ -2455,3 +2455,8 @@ admin-settings-key-server-shutdown-grace-seconds = シャットダウン猶予�
 admin-settings-key-session-last-activity-flush-seconds = 最後に確認された書き込み間隔
 
 admin-settings-key-session-persist-across-restarts = 再起動後もセッションを維持する
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = デフォルトではオフです。暗号化されたアカウント スコープのメール スナップショットをブラウザのリロード後も有効期限なしで保存します。既存のエントリおよびバイト制限は引き続き適用されます。ユーザーは保存されたコピーを消去できます。この設定を無効にすると、アクティブなブラウザーからそれらが削除されます。これにより、ブラウザーの永続ストレージ権限が付与されたり、添付ファイルをダウンロードしたりすることはありません。
+
+admin-settings-key-mail-cache-keep-indefinitely = ブラウザのメールキャッシュを無期限に保持する

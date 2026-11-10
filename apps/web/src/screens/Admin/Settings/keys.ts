@@ -81,6 +81,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'cap.reading.delete_sender',
   'mail.cache.refreshOnOpen',
   'mail.cache.enabled',
+  'mail.cache.keepIndefinitely',
   'mail.cache.mailboxes',
   'mail.cache.messages',
   'mail.cache.freshSeconds',

@@ -318,6 +318,7 @@ the routes under `/settings`. Each key's details are in [settings.md](settings.m
 | <a id="mail.cache.enabled"></a>`mail.cache.enabled` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: enabled |
 | <a id="mail.cache.mailboxes"></a>`mail.cache.mailboxes` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: mailboxes |
 | <a id="mail.cache.messages"></a>`mail.cache.messages` | mail | global+domain+user | true | plain |  | yes | Browser session mail cache: messages |
+| <a id="mail.cache.keepindefinitely"></a>`mail.cache.keepIndefinitely` | mail | global+domain+user | false | plain |  | yes | Opt in to encrypted browser mail storage across reloads without age expiry; capacity limits and manual clearing still apply |
 | <a id="mail.cache.freshseconds"></a>`mail.cache.freshSeconds` | mail | global+domain+user | 30 | plain |  | yes | Browser session mail cache: freshSeconds |
 | <a id="mail.cache.maxageseconds"></a>`mail.cache.maxAgeSeconds` | mail | global+domain+user | 300 | plain |  | yes | Browser session mail cache: maxAgeSeconds |
 | <a id="mail.cache.maxentries"></a>`mail.cache.maxEntries` | mail | global+domain+user | 32 | plain |  | yes | Browser session mail cache: maxEntries |

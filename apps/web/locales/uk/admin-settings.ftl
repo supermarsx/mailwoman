@@ -2481,3 +2481,8 @@ admin-settings-key-server-shutdown-grace-seconds = Пільговий періо
 admin-settings-key-session-last-activity-flush-seconds = Інтервал запису останнього відвідування
 
 admin-settings-key-session-persist-across-restarts = Зберігати сеанси після перезапусків
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = За замовчуванням вимкнено. Зберігайте зашифровані знімки електронної пошти в межах облікового запису під час перезавантаження веб-переглядача без закінчення терміну дії. Існуючі обмеження на введення та кількість байтів все ще застосовуються. Користувачі можуть очистити збережені копії; вимкнення цього параметра видаляє їх у активному браузері. Це не надає веб-переглядачу дозвіл на постійне зберігання чи завантаження вкладень.
+
+admin-settings-key-mail-cache-keep-indefinitely = Зберігати поштовий кеш браузера на невизначений термін

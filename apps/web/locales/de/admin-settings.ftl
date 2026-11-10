@@ -2469,3 +2469,8 @@ admin-settings-key-server-shutdown-grace-seconds = Kulanzfrist für das Herunter
 admin-settings-key-session-last-activity-flush-seconds = Zuletzt gesehenes Schreibintervall
 
 admin-settings-key-session-persist-across-restarts = Behalten Sie Sitzungen über Neustarts hinweg bei
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = Standardmäßig deaktiviert. Speichern Sie verschlüsselte, kontobezogene E-Mail-Snapshots über Browser-Neuladevorgänge hinweg ohne Ablaufdatum. Bestehende Eintrags- und Bytegrenzen gelten weiterhin. Benutzer können gespeicherte Kopien löschen; Durch Deaktivieren dieser Einstellung werden sie im aktiven Browser entfernt. Dadurch wird keine Berechtigung zum dauerhaften Speichern des Browsers oder zum Herunterladen von Anhängen gewährt.
+
+admin-settings-key-mail-cache-keep-indefinitely = Behalten Sie den E-Mail-Cache des Browsers auf unbestimmte Zeit bei

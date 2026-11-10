@@ -824,3 +824,10 @@ settings-sessions-origin-masked-local-part = Dirección con la primera parte enm
 settings-sessions-origin-setting = Mostrar de dónde proviene el acceso al buzón vinculado
 
 settings-shortcuts-search = Buscar atajos
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = Mantenga las carpetas y los mensajes visitados recientemente listos para abrir. De forma predeterminada, las copias permanecen en la memoria de esta pestaña. Habilite el almacenamiento indefinido para mantener copias cifradas durante las recargas. La precarga nunca marca el correo leído ni carga imágenes remotas.
+
+cache-keepIndefinitely = Mantener el correo en caché indefinidamente
+
+cache-keepIndefinitely-help = Desactivado de forma predeterminada. Mantenga copias cifradas en este navegador durante las recargas sin vencimiento. Los mensajes en línea aún se actualizan. Se siguen aplicando los límites de entrada y bytes. Desactivar esto o borrar el correo en caché elimina las copias guardadas. La limpieza de datos del navegador también puede eliminarlos. Los archivos adjuntos no se descargan para su uso sin conexión.

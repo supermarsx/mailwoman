@@ -1,5 +1,6 @@
 import type {PreferenceAccount} from '../api/accountPreferenceLifecycle.ts';
 import type {MailCachePolicy} from './mailCachePolicy.ts';
+import type {PersistentMailStore} from '../offline/persistentMail.ts';
 export type MailCacheKind='mailbox'|'message';
 export type PrefetchTrigger='hover'|'focus'|'idle';
 export interface PrefetchOptions {trigger:PrefetchTrigger;folderId?:string;folderRole?:string}
@@ -8,20 +9,27 @@ interface Entry<T>{value:T;at:number;bytes:number;kind:MailCacheKind;key:string}
 interface Job<T>{key:string;kind:MailCacheKind;owner:PreferenceAccount;loader:Loader<T>;controller:AbortController;promise:Promise<T>;resolve:(value:T)=>void;reject:(error:unknown)=>void;speculative:boolean;started:boolean;ready:boolean;timer?:ReturnType<typeof setTimeout>;options?:PrefetchOptions;epoch:number;waiters:number;publish:boolean}
 const aborted=()=>new DOMException('Mail cache request cancelled','AbortError');
 const sameOwner=(a:PreferenceAccount|null,b:PreferenceAccount|null)=>a===b||!!a&&!!b&&a.id===b.id&&a.generation===b.generation&&a.storageAuthority===b.storageAuthority;
-/** Session-only cache. All requests use caller-supplied authenticated transport. */
-export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;currentOwner:()=>PreferenceAccount|null;now?:()=>number;canPrefetch?:()=>boolean}){
+/** Bounded session cache with optional encrypted, account-scoped offline snapshots.
+ * All requests use caller-supplied authenticated transport. */
+export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;currentOwner:()=>PreferenceAccount|null;now?:()=>number;canPrefetch?:()=>boolean;persistent?:PersistentMailStore<T>;persistenceResolved?:()=>boolean}){
  const now=options.now??Date.now;
  const entries=new Map<string,Entry<T>>(),jobs=new Map<string,Job<T>>();
  const detached=new Set<Job<T>>();
- let bytes=0,epoch=0,disposed=false,owner=options.currentOwner(),fingerprint='';
+ let bytes=0,epoch=0,restoreEpoch=0,disposed=false,owner=options.currentOwner(),fingerprint='',persisting=false;
  const id=(key:string,kind:MailCacheKind)=>JSON.stringify([kind,key]);
  const enabled=(kind:MailCacheKind,p:MailCachePolicy)=>p.enabled&&(kind==='mailbox'?p.mailboxes:p.messages);
  function remove(key:string){const entry=entries.get(key);if(entry){bytes-=entry.bytes;entries.delete(key);}}
  function cancel(job:Job<T>){if(job.timer!==undefined)clearTimeout(job.timer);job.controller.abort();if(jobs.get(id(job.key,job.kind))===job)jobs.delete(id(job.key,job.kind));job.reject(aborted());}
- function clear(){epoch++;entries.clear();bytes=0;for(const job of new Set([...jobs.values(),...detached]))cancel(job);detached.clear();}
+ function clear(){epoch++;restoreEpoch++;entries.clear();bytes=0;for(const job of new Set([...jobs.values(),...detached]))cancel(job);detached.clear();}
  function syncPolicy(){
   const next=options.currentOwner(),policy=options.policy(),stamp=JSON.stringify(policy);
-  if(!sameOwner(owner,next)){clear();owner=next;}
+  const changedOwner=!sameOwner(owner,next);
+  if(changedOwner){clear();owner=next;}
+  if(changedOwner)persisting=false;
+  if(options.persistenceResolved?.()!==false){
+   if(persisting&&!policy.keepIndefinitely&&owner&&options.persistent)void options.persistent.clear(owner).catch(()=>undefined);
+   persisting=policy.keepIndefinitely;
+  }
   if(fingerprint!==stamp){invalidate(undefined,{abort:false});fingerprint=stamp;}
   return policy;
  }
@@ -37,6 +45,7 @@ export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;curre
   const p=syncPolicy();if(!job.publish||job.epoch!==epoch||!admitted(job.owner)||job.controller.signal.aborted||!enabled(job.kind,p))return;
   let copy:T,size:number;try{copy=structuredClone(value);size=new TextEncoder().encode(JSON.stringify(copy)).byteLength;}catch{return;}
   if(size>p.maxBytes)return;
+  if(p.keepIndefinitely&&options.persistent)void options.persistent.put(job.owner,job.key,job.kind,copy,p).catch(()=>undefined);
   const cacheKey=id(job.key,job.kind);remove(cacheKey);entries.set(cacheKey,{value:copy,at:now(),bytes:size,kind:job.kind,key:job.key});bytes+=size;trim(p);
  }
  function speculativeAllowed(kind:MailCacheKind,o:PrefetchOptions,p:MailCachePolicy){
@@ -94,6 +103,7 @@ export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;curre
   return ()=>{if(job.speculative){cancel(job);pump();}};
  }
  function invalidate(predicate?:(key:string,kind:MailCacheKind)=>boolean,request:{abort?:boolean}={}){
+  restoreEpoch++;
   for(const [key,entry] of entries)if(!predicate||predicate(entry.key,entry.kind))remove(key);
   for(const job of [...jobs.values()])if(!predicate||predicate(job.key,job.kind)){
    if(request.abort!==false||job.speculative)cancel(job);
@@ -101,5 +111,19 @@ export function createMailReadCache<T>(options:{policy:()=>MailCachePolicy;curre
   }
  }
  function dispose(){disposed=true;clear();}
- return {peek,load,prefetch,invalidate,clear,dispose,syncPolicy,stats:()=>({entries:entries.size,bytes,queued:[...jobs.values()].filter(j=>!j.started).length,inflight:[...jobs.values()].filter(j=>j.started).length})};
+ async function restore(captured:PreferenceAccount,key:string,kind:MailCacheKind):Promise<T|undefined>{
+  const p=syncPolicy(),generation=restoreEpoch;
+  if(!admitted(captured)||!enabled(kind,p)||!p.keepIndefinitely)return;
+  try{
+   const value=await options.persistent?.get(captured,key,kind);
+   const current=syncPolicy();
+   if(generation!==restoreEpoch||!admitted(captured)||!enabled(kind,current)||!current.keepIndefinitely)return;
+   return value;
+  }catch{return;}
+ }
+ function purge(predicate?:(key:string,kind:MailCacheKind,value?:T)=>boolean):Promise<void>{
+  const captured=options.currentOwner();invalidate(predicate,{abort:false});
+  return captured&&options.persistent?options.persistent.clear(captured,predicate).catch(()=>undefined):Promise.resolve();
+ }
+ return {peek,load,prefetch,invalidate,clear,purge,restore,dispose,syncPolicy,stats:()=>({entries:entries.size,bytes,queued:[...jobs.values()].filter(j=>!j.started).length,inflight:[...jobs.values()].filter(j=>j.started).length})};
 }

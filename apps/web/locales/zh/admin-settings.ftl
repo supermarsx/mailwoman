@@ -2455,3 +2455,8 @@ admin-settings-key-server-shutdown-grace-seconds = 关闭宽限期
 admin-settings-key-session-last-activity-flush-seconds = 最后查看的写入间隔
 
 admin-settings-key-session-persist-across-restarts = 重启后保持会话
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = 默认关闭。在浏览器重新加载时保存加密的帐户范围的邮件快照，且不会过期。现有的条目和字节限制仍然适用。用户可以清除已保存的副本；禁用此首选项会将它们从活动浏览器中删除。这不会授予浏览器持久存储权限或下载附件。
+
+admin-settings-key-mail-cache-keep-indefinitely = 无限期保留浏览器邮件缓存

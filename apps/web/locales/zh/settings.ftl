@@ -833,3 +833,10 @@ settings-sessions-origin-masked-local-part = 第一部分被屏蔽的地址
 settings-sessions-origin-setting = 显示链接邮箱访问的来源
 
 settings-shortcuts-search = 搜索快捷方式
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = 保持最近访问的文件夹和消息随时可以打开。默认情况下，副本保留在此选项卡的内存中。启用无限期存储以在重新加载时保留加密副本。预加载永远不会标记邮件已读或加载远程图像。
+
+cache-keepIndefinitely = 无限期保留缓存的邮件
+
+cache-keepIndefinitely-help = 默认关闭。在重新加载时在此浏览器中保留加密副本，且不会过期。网上消息还在刷新。条目和字节限制仍然适用。关闭此功能或清除缓存的邮件会删除保存的副本。浏览器数据清除也可以将其删除。不会下载附件供离线使用。

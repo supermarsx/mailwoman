@@ -109,6 +109,7 @@ import { createContextMenu, type ContextAction } from './ContextMenu.tsx';
 import { formatBytes } from '../i18n/format.ts';
 import { createRemoteImageLoad } from './remoteImageToast.ts';
 import { DirectReaderFrame,type ReaderImageProgress } from './DirectReaderFrame.tsx';
+import {ReaderZoomBox} from './ReaderZoomBox.tsx';
 import {featureOn,featuresLoaded} from '../state/features.ts';
 import type {OriginalHtml} from '../viewers/originalHtml.ts';
 import { createAddressContactCard, contactComposeInitial, ContactAddresses } from './AddressContactCard.tsx';
@@ -722,6 +723,12 @@ export function Reader(props: ReaderProps): JSX.Element {
 }
 function ReaderBody(props: ReaderProps): JSX.Element {
   const app = useApp();
+  const [browserOnline,setBrowserOnline]=createSignal(typeof navigator==='undefined'||navigator.onLine!==false);
+  onMount(()=>{
+    const update=():void=>{setBrowserOnline(navigator.onLine!==false);};
+    window.addEventListener('online',update);window.addEventListener('offline',update);
+    onCleanup(()=>{window.removeEventListener('online',update);window.removeEventListener('offline',update);});
+  });
   const replyDrafts=createReplyDraftIndex(app.accountId);
   const [linkAuthority,setLinkAuthority]=createSignal(preferenceAccount());
   onCleanup(observePreferenceAccount(account=>setLinkAuthority(account)));
@@ -1592,7 +1599,9 @@ function ReaderBody(props: ReaderProps): JSX.Element {
                     missed something, only the fixed hash-authorized address
                     handler runs; the opaque frame cannot access its parent.
                   */}
-                  <DirectReaderFrame linksEnabled={linksEnabled()} suspended={!bodyReady()} html={frameHtml() ?? ''} title={t('mail-message-body')} documentKey={frameKey()} loadingFallback={anyLoading() || switching() ? messageLoading() : <p class="reader__empty">{t('mail-no-content')}</p>} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
+                  <Show when={app.online()&&browserOnline()} fallback={<ReaderZoomBox><iframe class="reader__frame" data-testid="reader-offline-frame" title={t('mail-message-body')} sandbox="" referrerPolicy="no-referrer" srcdoc={bodyFrameDoc('sanitized-no-media',{html:frameHtml()??''},frameOptions())}/></ReaderZoomBox>}>
+                    <DirectReaderFrame linksEnabled={linksEnabled()} suspended={!bodyReady()} html={frameHtml() ?? ''} title={t('mail-message-body')} documentKey={frameKey()} loadingFallback={anyLoading() || switching() ? messageLoading() : <p class="reader__empty">{t('mail-no-content')}</p>} onDisplayed={receiptDidDisplay} onAddressContext={addressContext} onImageProgress={progress=>setImageProgress({scope:htmlRenderScope(),key:receiptDocumentKey(),html:bodySrcdoc(),progress})}/>
+                  </Show>
                 </Show>
               }
             >

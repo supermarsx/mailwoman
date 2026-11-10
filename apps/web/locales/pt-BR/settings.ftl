@@ -843,3 +843,10 @@ settings-sessions-origin-masked-local-part = Endereço com a primeira parte masc
 settings-sessions-origin-setting = Mostrar de onde vem o acesso à caixa de correio vinculada
 
 settings-shortcuts-search = Atalhos de pesquisa
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = Mantenha as pastas e mensagens visitadas recentemente prontas para serem abertas. Por padrão, as cópias permanecem na memória desta guia. Ative o armazenamento indefinido para manter cópias criptografadas durante as recargas. O pré-carregamento nunca marca mensagens lidas ou carrega imagens remotas.
+
+cache-keepIndefinitely = Manter mensagens em cache indefinidamente
+
+cache-keepIndefinitely-help = Desativado por padrão. Mantenha cópias criptografadas neste navegador durante recarregamentos sem expiração. As mensagens online ainda são atualizadas. Os limites de entrada e bytes ainda se aplicam. Desativar isso ou limpar os e-mails em cache remove as cópias salvas. A limpeza dos dados do navegador também pode removê-los. Os anexos não são baixados para uso offline.

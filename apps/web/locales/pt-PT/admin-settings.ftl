@@ -2252,3 +2252,6 @@ admin-settings-help-reader-actions-delete-sender = Oculta por predefinição. Es
 admin-settings-key-reader-actions-finish-followup = Ação marcar seguimento como concluído
 
 admin-settings-help-reader-actions-finish-followup = Escolher barra de ferramentas, menu Mais ou oculto para concluir mensagens sinalizadas e lembretes de seguimento.
+
+admin-settings-key-mail-cache-keep-indefinitely = Manter indefinidamente a cache de correio do navegador
+admin-settings-help-mail-cache-keep-indefinitely = Desativado por predefinição. Guarda cópias de correio encriptadas por conta entre recarregamentos do navegador, sem prazo de validade. Os limites de entradas e de bytes continuam a aplicar-se. Os utilizadores podem limpar as cópias guardadas; desativar esta preferência remove-as no navegador ativo. Esta opção não concede permissão de armazenamento persistente nem transfere anexos.

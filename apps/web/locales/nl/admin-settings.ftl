@@ -2463,3 +2463,8 @@ admin-settings-key-server-shutdown-grace-seconds = Uitstelperiode voor afsluiten
 admin-settings-key-session-last-activity-flush-seconds = Laatst gezien schrijfinterval
 
 admin-settings-key-session-persist-across-restarts = Behoud sessies tijdens herstarts
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = Standaard uitgeschakeld. Bewaar versleutelde, accountgerichte e-mailmomentopnamen tijdens het herladen van browsers zonder dat de leeftijd verstrijkt. Bestaande invoer- en bytelimieten zijn nog steeds van toepassing. Gebruikers kunnen opgeslagen kopieën wissen; Als u deze voorkeur uitschakelt, worden ze in de actieve browser verwijderd. Dit geeft geen toestemming voor persistente opslag in de browser of voor het downloaden van bijlagen.
+
+admin-settings-key-mail-cache-keep-indefinitely = Bewaar de e-mailcache van de browser voor onbepaalde tijd

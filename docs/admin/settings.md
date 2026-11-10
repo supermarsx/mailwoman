@@ -241,6 +241,13 @@ What happens when a displayed message requests a read receipt: ask, never, autom
 
 Whether users get notifications for new mail. It does not change their notification rules.
 
+<a id="mail.cache.keepIndefinitely"></a>
+### Indefinite browser mail cache (`mail.cache.keepIndefinitely`)
+
+Off by default. Users can opt in under Settings > Message display > Cached mail. Global/domain/user scope: administrators can set or lock the preference. Opened messages and cached folder lists are encrypted in IndexedDB and partitioned by the authenticated account and server-issued storage authority. They survive tab closure and reloads without age expiry. Online reads continue to refresh normally; saved copies provide a fallback on network failure. Attachment downloads are not stored by this feature.
+
+The existing `mail.cache.maxEntries` and `mail.cache.maxBytes` capacity limits still apply, with least recently used copies removed when space is needed. Turning the preference off in an active browser or using Clear cached mail removes its saved copies. Clearing one folder also removes its saved messages from earlier sessions. Successfully destroyed messages are removed from the local cache. Browser data clearing or storage pressure can remove browser data; the separate `offline.persistentStorageAllowed` policy controls permission requests for browser eviction protection and does not itself enable this cache.
+
 <a id="offline.retentionDays"></a>
 ### Offline cache age (`offline.retentionDays`)
 

@@ -20,6 +20,7 @@ import { toastTarget } from '../../components/toast/context.ts';
 
 import { batch,createSignal, createMemo, createEffect, getOwner, onCleanup, type Accessor } from 'solid-js';
 import {createMailReadCache, type PrefetchTrigger} from '../mailReadCache.ts';
+import {persistentMailStore} from '../../offline/persistentMail.ts';
 import {folderCachePredicate} from '../folderCache.ts';
 import {readMailCachePolicy} from '../mailCachePolicy.ts';
 import { ApiError, NetworkError, PasswordChangeRequired, type Client, type LoginInput, type Me } from '../../api/client.ts';
@@ -80,7 +81,7 @@ import type { SliceContext } from './context.ts';
 import { createFocusedSenders } from '../focusedSenders.ts';
 import type { FocusedSender } from '../../api/focusedSenders.ts';
 import { currentMarkReadPolicy, decideMarkRead } from './readPolicy.ts';
-import { settings, writeSetting } from '../../api/settings.ts';
+import { settings, settingsLoadStatus, writeSetting } from '../../api/settings.ts';
 import { mailFeature } from '../mailFeatures.ts';
 import { effectiveRecallSeconds } from '../sendDelay.ts';
 import { recallQueued, sendQueuedNow, type QueuedSend } from '../queuedSend.ts';
@@ -460,16 +461,27 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const sanitizedHtml = (): string | null => activeReader() ? activeReader()!.sanitizedHtml() : legacySanitizedHtml();
   const readLoading = (): boolean => activeReader()?.readLoading() ?? legacyReadLoading();
   const cacheOwner=()=>{const owner=preferenceAccount();return owner?.id===accountId()?owner:null;};
-  const readCache=createMailReadCache<CachedMailRead>({policy:readMailCachePolicy,currentOwner:cacheOwner,
+  const readCache=createMailReadCache<CachedMailRead>({policy:readMailCachePolicy,currentOwner:cacheOwner,persistent:persistentMailStore<CachedMailRead>(),persistenceResolved:()=>settingsLoadStatus()==='ready',
     canPrefetch:()=>!switchingMailbox()&&!isOffline()&&!listLoading()&&!loadingMore()});
   const stopCacheAuthority=observePreferenceAccount(()=>{readCache.syncPolicy();relocations.clear();});
   createEffect(()=>{readMailCachePolicy();readCache.syncPolicy();});
-  if(getOwner())onCleanup(()=>{stopCacheAuthority();readCache.dispose();});
+  const purgeOfflineCache=()=>{void readCache.purge();};
+  if(typeof window!=='undefined')window.addEventListener('mw:offline-purge',purgeOfflineCache);
+  if(getOwner())onCleanup(()=>{stopCacheAuthority();readCache.dispose();if(typeof window!=='undefined')window.removeEventListener('mw:offline-purge',purgeOfflineCache);});
   const messageCacheKey=(id:Id)=>JSON.stringify(['message',id]);
   function cachedMessage(id:Id):Extract<CachedMailRead,{kind:'message'}>|undefined {
     const owner=cacheOwner();if(!owner)return;
     const value=readCache.peek(owner,messageCacheKey(id),'message')?.value;
     return value?.kind==='message'?value:undefined;
+  }
+  async function restoredMessage(id:Id):Promise<Extract<CachedMailRead,{kind:'message'}>|undefined> {
+    const owner=cacheOwner();if(!owner)return;
+    const value=await readCache.restore(owner,messageCacheKey(id),'message');
+    if(value?.kind!=='message'||!value.email||value.email.id!==id)return;
+    // Reapply the current sanitizer instead of trusting HTML saved by an older release.
+    const html=await sanitizeStrip(extractHtmlBody(value.email));
+    if(cacheOwner()!==owner)return;
+    return {...value,html};
   }
   async function fetchFullMessage(account:string,id:Id,signal:AbortSignal,background=false):Promise<CachedMailRead> {
     const response=await jmapCall(emailGetFull(account,id),background?{signal,pace:'background'}:{signal});
@@ -513,7 +525,7 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
           return await loadFullMessage(account,id,signal);
         } catch (error) {
           if (!(error instanceof NetworkError)) {if(error instanceof ApiError&&[401,403,404].includes(error.status))readCache.clear();throw error;}
-          const cached=cachedMessage(id);if(cached)return cached;
+          const cached=cachedMessage(id)??await restoredMessage(id);if(cached)return cached;
           const email=messages().find(message=>message.id===id) ?? null;
           return {email,html:email ? await sanitizeStrip(extractHtmlBody(email)) : null};
         }
@@ -681,7 +693,17 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   const jmapCall: Client['jmap'] = async (request,options) => {
     const mutation=request.methodCalls.some(([method])=>method.endsWith('/set')||method.endsWith('/import'));
     if(mutation)readCache.invalidate(undefined,{abort:false});
-    try{return await client.jmap(request,options);}finally{if(mutation)readCache.invalidate(undefined,{abort:false});}
+    try{
+      const response=await client.jmap(request,options);
+      const destroyed=new Set<string>();let removedFolder=false;
+      for(const [method,result] of response.methodResponses){
+        if(method==='Email/set'&&Array.isArray(result['destroyed']))for(const id of result['destroyed'])if(typeof id==='string')destroyed.add(id);
+        if(method==='Mailbox/set'&&Array.isArray(result['destroyed'])&&result['destroyed'].length>0)removedFolder=true;
+      }
+      if(removedFolder)await readCache.purge();
+      else if(destroyed.size)await readCache.purge((key,kind)=>kind==='mailbox'||[...destroyed].some(id=>key===messageCacheKey(id)));
+      return response;
+    }finally{if(mutation)readCache.invalidate(undefined,{abort:false});}
   };
 
   const [inboxTab, setInboxTab] = createSignal<InboxTab>('focused');
@@ -1810,7 +1832,12 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
       // A superseded request's failure is not the user's problem: the request
       // that replaced it owns the outcome, including the error surface.
       if (!isCurrent(req)) return;
-      if(cached&&err instanceof NetworkError)return;
+      if(err instanceof NetworkError){
+        if(cached)return;
+        const saved=src.kind==='mailbox'&&owner?await readCache.restore(owner,key,'mailbox'):undefined;
+        if(!isCurrent(req))return;
+        if(saved?.kind==='mailbox'){apply(saved.response);return;}
+      }
       if(err instanceof ApiError&&[401,403,404].includes(err.status))readCache.clear();
       // Retained rows belong to the previous folder and must not become active
       // under the newly selected folder after a failed request.
@@ -1936,7 +1963,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
   }
 
   async function readFromCache(id: Id, current:()=>boolean): Promise<void> {
-    const cached = messages().find((m) => m.id === id) ?? null;
+    const saved=await restoredMessage(id);if(!current())return;
+    const cached = saved?.email??messages().find((m) => m.id === id) ?? null;
     const html=cached !== null ? await sanitizeStrip(extractHtmlBody(cached)) : null;
     if(!current())return;
     setOpenEmail(cached);
@@ -2674,8 +2702,8 @@ export function createMailSlice(ctx: SliceContext): MailSlice {
     login,
     logout,
     selectMailbox,
-    clearMailCache:()=>readCache.invalidate(undefined,{abort:false}),
-    clearFolderCache:(mailboxId:Id)=>readCache.invalidate(folderCachePredicate(mailboxId,messages().filter(message=>message.mailboxIds[mailboxId]).map(message=>message.id)),{abort:false}),
+    clearMailCache:()=>{void readCache.purge();},
+    clearFolderCache:(mailboxId:Id)=>{void readCache.purge(folderCachePredicate(mailboxId,messages().filter(message=>message.mailboxIds[mailboxId]).map(message=>message.id)));},
     mailCacheStats:()=>readCache.stats(),
     prefetchMailbox,
     prefetchMessage,

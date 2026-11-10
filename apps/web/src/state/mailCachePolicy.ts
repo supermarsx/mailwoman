@@ -1,7 +1,7 @@
 import {settings,settingsLoadStatus} from '../api/settings.ts';
 
 export const MAIL_CACHE_FIELDS = [
- ['enabled',true],['refreshOnOpen',true],['mailboxes',true],['messages',true],
+ ['enabled',true],['refreshOnOpen',true],['mailboxes',true],['messages',true],['keepIndefinitely',false],
  ['freshSeconds',30,0,3600],['maxAgeSeconds',300,1,86400],
  ['maxEntries',32,1,512],['maxBytes',16777216,65536,268435456],
  ['prefetchEnabled',false],['hoverEnabled',true],['focusEnabled',true],
@@ -10,13 +10,13 @@ export const MAIL_CACHE_FIELDS = [
 ] as const;
 export type MailCacheField = typeof MAIL_CACHE_FIELDS[number][0];
 export interface MailCachePolicy {
- enabled:boolean;refreshOnOpen:boolean;mailboxes:boolean;messages:boolean;freshSeconds:number;maxAgeSeconds:number;
+ enabled:boolean;refreshOnOpen:boolean;mailboxes:boolean;messages:boolean;keepIndefinitely:boolean;freshSeconds:number;maxAgeSeconds:number;
  maxEntries:number;maxBytes:number;prefetchEnabled:boolean;hoverEnabled:boolean;focusEnabled:boolean;
  dwellMs:number;idleEnabled:boolean;idleDelayMs:number;maxConcurrency:number;maxQueued:number;
  preloadMessages:boolean;excludedFolders:readonly string[];
 }
 export const DEFAULT_MAIL_CACHE_POLICY:MailCachePolicy={
- enabled:true,refreshOnOpen:true,mailboxes:true,messages:true,freshSeconds:30,maxAgeSeconds:300,maxEntries:32,maxBytes:16777216,
+ enabled:true,refreshOnOpen:true,mailboxes:true,messages:true,keepIndefinitely:false,freshSeconds:30,maxAgeSeconds:300,maxEntries:32,maxBytes:16777216,
  prefetchEnabled:false,hoverEnabled:true,focusEnabled:true,dwellMs:200,idleEnabled:false,idleDelayMs:1500,
  maxConcurrency:1,maxQueued:8,preloadMessages:false,excludedFolders:['role:trash','role:junk'],
 };
@@ -31,7 +31,7 @@ export function readMailCachePolicy():MailCachePolicy {
  }
  const excluded=map['mail.cache.excludedFolders']?.value;
  if(Array.isArray(excluded)&&excluded.length<=100&&excluded.every(v=>typeof v==='string'&&v.length>0&&v.length<=256&&![...v].some(c=>c.charCodeAt(0)<32||c.charCodeAt(0)===127)))result.excludedFolders=excluded as string[];
- if(settingsLoadStatus()!=='ready')result.prefetchEnabled=false;
+ if(settingsLoadStatus()!=='ready'){result.prefetchEnabled=false;result.keepIndefinitely=false;}
  result.freshSeconds=Math.min(result.freshSeconds,result.maxAgeSeconds);
  return result;
 }

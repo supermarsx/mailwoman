@@ -2485,3 +2485,8 @@ admin-settings-key-server-shutdown-grace-seconds = فترة سماح إيقاف 
 admin-settings-key-session-last-activity-flush-seconds = الفاصل الزمني للكتابة الذي تمت مشاهدته لآخر مرة
 
 admin-settings-key-session-persist-across-restarts = حافظ على الجلسات عبر عمليات إعادة التشغيل
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = إيقاف بشكل افتراضي. احفظ لقطات البريد المشفرة على مستوى الحساب عبر عمليات إعادة تحميل المتصفح دون انتهاء صلاحية العمر. لا تزال حدود الإدخال والبايت الحالية مطبقة. يمكن للمستخدمين مسح النسخ المحفوظة. يؤدي تعطيل هذا التفضيل إلى إزالته من المتصفح النشط. وهذا لا يمنح المتصفح إذن التخزين الدائم أو تنزيل المرفقات.
+
+admin-settings-key-mail-cache-keep-indefinitely = احتفظ بذاكرة التخزين المؤقت لبريد المتصفح إلى أجل غير مسمى

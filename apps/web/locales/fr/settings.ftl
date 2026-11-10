@@ -824,3 +824,10 @@ settings-sessions-origin-masked-local-part = Adresse avec la première partie ma
 settings-sessions-origin-setting = Afficher d'où vient l'accès à la boîte aux lettres liée
 
 settings-shortcuts-search = Raccourcis de recherche
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = Gardez les dossiers et les messages récemment visités prêts à être ouverts. Par défaut, les copies restent dans la mémoire de cet onglet. Activez le stockage indéfini pour conserver des copies chiffrées lors des rechargements. Le préchargement ne marque jamais le courrier lu ni ne charge les images distantes.
+
+cache-keepIndefinitely = Conserver indéfiniment le courrier en cache
+
+cache-keepIndefinitely-help = Désactivé par défaut. Conservez des copies cryptées dans ce navigateur lors des recharges sans expiration de l'âge. Les messages en ligne sont toujours actualisés. Les limites d'entrée et d'octets s'appliquent toujours. La désactivation de cette option ou la suppression du courrier en cache supprime les copies enregistrées. La suppression des données du navigateur peut également les supprimer. Les pièces jointes ne sont pas téléchargées pour une utilisation hors ligne.

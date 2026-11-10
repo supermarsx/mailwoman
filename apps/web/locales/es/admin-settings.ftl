@@ -2469,3 +2469,8 @@ admin-settings-key-server-shutdown-grace-seconds = Período de gracia de cierre
 admin-settings-key-session-last-activity-flush-seconds = Intervalo de escritura visto por última vez
 
 admin-settings-key-session-persist-across-restarts = Mantener sesiones durante los reinicios
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = Desactivado de forma predeterminada. Guarde instantáneas de correo cifradas con ámbito de cuenta durante las recargas del navegador sin vencimiento. Se siguen aplicando los límites de entrada y bytes existentes. Los usuarios pueden borrar las copias guardadas; Al deshabilitar esta preferencia, se eliminan del navegador activo. Esto no otorga permiso de almacenamiento persistente al navegador ni descarga archivos adjuntos.
+
+admin-settings-key-mail-cache-keep-indefinitely = Mantener la caché de correo del navegador indefinidamente

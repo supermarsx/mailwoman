@@ -2481,3 +2481,8 @@ admin-settings-key-server-shutdown-grace-seconds = Okres karencji wyłączenia
 admin-settings-key-session-last-activity-flush-seconds = Ostatnio widziany interwał zapisu
 
 admin-settings-key-session-persist-across-restarts = Utrzymuj sesje po ponownym uruchomieniu
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+admin-settings-help-mail-cache-keep-indefinitely = Domyślnie wyłączone. Zapisuj zaszyfrowane migawki poczty o zasięgu konta podczas ponownego ładowania przeglądarki bez utraty wieku. Istniejące limity wpisów i bajtów nadal obowiązują. Użytkownicy mogą wyczyścić zapisane kopie; wyłączenie tej preferencji powoduje ich usunięcie w aktywnej przeglądarce. Nie przyznaje to przeglądarce pozwolenia na trwałe przechowywanie ani pobierania załączników.
+
+admin-settings-key-mail-cache-keep-indefinitely = Przechowuj pamięć podręczną poczty przeglądarki na czas nieokreślony

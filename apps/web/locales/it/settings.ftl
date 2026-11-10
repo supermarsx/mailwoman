@@ -820,3 +820,10 @@ settings-sessions-origin-masked-local-part = Indirizzo con la prima parte masche
 settings-sessions-origin-setting = Mostra da dove proviene l'accesso alla casella di posta collegata
 
 settings-shortcuts-search = Cerca scorciatoie
+
+# Machine translation refresh (2026-11-09). Not reviewed by a native speaker.
+cache-help-durable = Mantieni le cartelle e i messaggi visitati di recente pronti per l'apertura. Per impostazione predefinita, le copie rimangono nella memoria di questa scheda. Abilita l'archiviazione a tempo indeterminato per mantenere copie crittografate tra i ricaricamenti. Il precaricamento non contrassegna mai la posta letta né carica immagini remote.
+
+cache-keepIndefinitely = Conserva la posta nella cache a tempo indeterminato
+
+cache-keepIndefinitely-help = Disattivato per impostazione predefinita. Conserva copie crittografate in questo browser durante i ricaricamenti senza scadenza. I messaggi in linea si aggiornano ancora. Si applicano ancora i limiti di immissione e di byte. La disattivazione o la cancellazione della posta memorizzata nella cache rimuove le copie salvate. Anche la cancellazione dei dati del browser può rimuoverli. Gli allegati non vengono scaricati per l'utilizzo offline.
