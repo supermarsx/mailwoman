@@ -1,3 +1,5 @@
+import { createSignal } from 'solid-js';
+import { parseAdminPath } from '../shell/router.ts';
 import { describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, screen, waitFor, within } from '@solidjs/testing-library';
 import Restrictions, { type RestrictionRow, type RestrictionsApi } from './index.tsx';
@@ -34,9 +36,11 @@ describe('Admin restrictions', () => {
 
   it('applies a restriction with a reason and the chosen scopes', async () => {
     const a = api();
-    renderInShell(() => <Restrictions api={a} />);
+    const [route, setRoute] = createSignal(parseAdminPath('/admin#/compliance/restrictions'));
+    renderInShell(() => <Restrictions api={a} />, { route, navigate: (path) => setRoute(parseAdminPath(path)) });
     await screen.findByTestId('restriction-table');
-    fireEvent.input(screen.getByLabelText('Address'), { target: { value: 'bo@example.test' } });
+    fireEvent.click(screen.getByRole('link', { name: 'Restrict a person' }));
+    fireEvent.input(await screen.findByLabelText('Address'), { target: { value: 'bo@example.test' } });
     fireEvent.input(screen.getByLabelText('Reason'), { target: { value: 'contests accuracy' } });
     fireEvent.click(screen.getByLabelText('Analytics and open tracking'));
     fireEvent.click(screen.getByTestId('restriction-apply'));

@@ -58,7 +58,7 @@ describe('Policy tab', () => {
 });
 
 describe('Records tab', () => {
-  it('lists generated and custom rows, exports and adds', async () => {
+  it.each(['activity', 'processor'] as const)('lists generated and custom rows, exports and guides adding a %s', async (kind) => {
     const api = {
       records: vi.fn(async () => ({
         activities: [{ id: 'mail-service', builtin: true, enabled: true, name: 'Mail service', purpose: 'Providing mail' }, { id: 'c1', builtin: false, enabled: true, name: 'Payroll', purpose: 'Pay staff' }],
@@ -74,10 +74,13 @@ describe('Records tab', () => {
     expect(screen.getByTestId('record-mail-service')).toHaveTextContent('Generated');
     fireEvent.click(screen.getByTestId('export-activities-csv'));
     await waitFor(() => expect(api.exportRecords).toHaveBeenCalledWith('activities', 'csv', 'en'));
-    fireEvent.click(screen.getByTestId('add-activity'));
+    fireEvent.click(screen.getByTestId(`add-${kind}`));
     fireEvent.input(screen.getByTestId('record-name'), { target: { value: 'Newsletter' } });
+    fireEvent.click(screen.getByTestId('record-next'));
+    fireEvent.click(screen.getByTestId('record-next'));
+    expect(screen.getByRole('dialog')).toHaveTextContent('Review and save');
     fireEvent.click(screen.getByTestId('record-save'));
-    await waitFor(() => expect(api.addRecord).toHaveBeenCalledWith('activity', 'Newsletter', expect.objectContaining({ purpose: '' }), true));
+    await waitFor(() => expect(api.addRecord).toHaveBeenCalledWith(kind, 'Newsletter', expect.objectContaining({ purpose: '' }), true));
   });
 });
 

@@ -3,7 +3,7 @@
 // described are configuration; whether a deployment meets a given law is for the
 // operator to decide.
 
-import { For, Match, Show, Suspense, Switch, createResource, lazy, onMount, type Component, type JSX } from 'solid-js';
+import { For, Match, Show, Switch, createResource, lazy, onMount, type Component, type JSX } from 'solid-js';
 import { loadCatalog, t } from '../../../i18n';
 import { useShell } from '../shell/context.ts';
 import { hrefFor, sectionPath } from '../shell/router.ts';
@@ -59,13 +59,11 @@ export function AdminCompliance(): JSX.Element {
       <p class={css.note}>{t('compliance-intro')}</p>
       <SectionTabs label={t('compliance-title')} items={items()} selected={selected()} navigate={open} />
       <AdminSubtabPanel>
-        <Suspense fallback={<p role="status">{t('admin-shell-loading')}</p>}>
           <Switch>
             <Match when={selected() === 'overview'}><Overview tabs={tabs()} open={open} /></Match>
-            <Match when={current()}>{(tab) => { const C = tabComponent(tab()); return <C />; }}</Match>
+            <Match when={current()} keyed>{(tab) => { const C = tabComponent(tab); return <C />; }}</Match>
             <Match when={true}><p role="alert">{t('privacy-tab-denied')}</p></Match>
           </Switch>
-        </Suspense>
       </AdminSubtabPanel>
     </section>
   );

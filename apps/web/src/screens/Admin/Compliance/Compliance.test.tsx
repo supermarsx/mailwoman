@@ -1,5 +1,6 @@
-import { describe, expect, it } from 'vitest';
-import { cleanup, screen, waitFor } from '@solidjs/testing-library';
+import { createSignal } from 'solid-js';
+import { describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, screen, waitFor } from '@solidjs/testing-library';
 import { AdminCompliance } from './index.tsx';
 import { COMPLIANCE_TABS, canOpenComplianceTab } from './tabs.ts';
 import { complianceRouteAlias } from './complianceRoute.ts';
@@ -30,6 +31,25 @@ describe('Compliance hub', () => {
     await waitFor(() => expect(screen.getByTestId('compliance-overview')).toBeTruthy());
     for (const tab of COMPLIANCE_TABS) expect(screen.queryByTestId(`compliance-card-${tab.id}`)).toBeTruthy();
     cleanup();
+  });
+
+  it('replaces the panel when navigating directly between two loaded tabs', async () => {
+    const first = COMPLIANCE_TABS.find((tab) => tab.id === 'retention')!;
+    const second = COMPLIANCE_TABS.find((tab) => tab.id === 'restrictions')!;
+    const loadFirst = vi.spyOn(first, 'load').mockResolvedValue({ default: () => <p>Retention panel</p> });
+    const loadSecond = vi.spyOn(second, 'load').mockResolvedValue({ default: () => <p>Restrictions panel</p> });
+    const [route, setRoute] = createSignal(parseAdminPath('/admin#/compliance/retention'));
+    const view = renderInShell(() => <AdminCompliance />, { route, navigate: (path) => setRoute(parseAdminPath(path)) });
+    try {
+      await screen.findByText('Retention panel');
+      fireEvent.click(screen.getByRole('link', { name: /restrictions/i }));
+      await screen.findByText('Restrictions panel');
+      expect(screen.queryByText('Retention panel')).toBeNull();
+    } finally {
+      view.unmount();
+      loadFirst.mockRestore();
+      loadSecond.mockRestore();
+    }
   });
 
   it('gates tabs on capability', () => {

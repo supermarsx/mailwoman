@@ -8,6 +8,10 @@ import { For, Show, createResource, createSignal, onMount, type JSX } from 'soli
 import { formatDateTime, loadCatalog, t } from '../../../i18n';
 import { listAdminSettings, type AdminSetting } from '../../../api/admin/settings.ts';
 import { adminRequest } from '../shell/adminApi.ts';
+import { useShell } from '../shell/context.ts';
+import { sectionPath } from '../shell/router.ts';
+import { SectionTabs } from '../shell/SectionTabs.tsx';
+import { AdminSubtabPanel } from '../shell/AdminSubtabPanel.tsx';
 import { AdminSubsection } from '../AdminSubsection.tsx';
 import { InlineSettingEditor } from '../Settings/InlineSettingEditor.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
@@ -39,6 +43,17 @@ const when = (s: number | null): string => (s === null ? '' : formatDateTime(s *
 
 export default function Restrictions(props: { api?: RestrictionsApi }): JSX.Element {
   const api = props.api ?? restrictionsApi;
+  const shell = useShell();
+  const tabs = [
+    { id: 'list', label: 'admin-restrictions-list' },
+    { id: 'apply', label: 'admin-restrictions-apply' },
+    { id: 'settings', label: 'admin-restrictions-settings' },
+  ];
+  const selected = () => {
+    const id = shell.router.route().rest[1];
+    return tabs.some((tab) => tab.id === id) ? id! : 'list';
+  };
+
   onMount(() => void loadCatalog('admin-restrictions'));
   const [showAll, setShowAll] = createSignal(false);
   const [list, { refetch }] = createResource(() => ({ all: showAll() }), (k) => api.list(k.all));
@@ -67,6 +82,13 @@ export default function Restrictions(props: { api?: RestrictionsApi }): JSX.Elem
       <h2 class={css.heading}>{t('admin-restrictions-title')}</h2>
       <p class={css.note}>{t('admin-restrictions-intro')}</p>
 
+      <SectionTabs label={t('admin-restrictions-title')} selected={selected()}
+        items={tabs.map((tab) => ({ id: tab.id, label: t(tab.label), path: sectionPath('compliance', ['restrictions', tab.id]) }))}
+        navigate={(path) => void shell.router.navigate(path)} />
+      <AdminSubtabPanel>
+      <Show when={message()}><p role="status">{message()}</p></Show>
+      <Show when={failure()}><p role="alert">{describeAdminError(failure())}</p></Show>
+      <Show when={selected() === 'apply'}>
       <AdminSubsection title={t('admin-restrictions-apply')}>
         <form onSubmit={(e) => {
           e.preventDefault();
@@ -84,10 +106,10 @@ export default function Restrictions(props: { api?: RestrictionsApi }): JSX.Elem
           <p><label>{t('admin-restrictions-days')} <input type="number" min="0" max="3650" value={days()} onInput={(e) => setDays(e.currentTarget.value)} /></label></p>
           <button type="submit" class="btn" data-testid="restriction-apply">{t('admin-restrictions-apply-button')}</button>
         </form>
-        <Show when={message()}><p role="status">{message()}</p></Show>
-        <Show when={failure()}><p role="alert">{describeAdminError(failure())}</p></Show>
       </AdminSubsection>
+      </Show>
 
+      <Show when={selected() === 'list'}>
       <AdminSubsection title={t('admin-restrictions-list')}
         actions={<label><input type="checkbox" checked={showAll()} onChange={(e) => setShowAll(e.currentTarget.checked)} /> {t('admin-restrictions-show-history')}</label>}>
         <Show when={(list.latest?.restrictions.length ?? 0) > 0} fallback={<p>{t('admin-restrictions-none')}</p>}>
@@ -118,9 +140,13 @@ export default function Restrictions(props: { api?: RestrictionsApi }): JSX.Elem
         </Show>
       </AdminSubsection>
 
+      </Show>
+      <Show when={selected() === 'settings'}>
       <AdminSubsection title={t('admin-restrictions-settings')} description={t('admin-restrictions-settings-help')}>
         <For each={settingRows()}>{(row) => <InlineSettingEditor settingKey={row.key} setting={row} noScoped />}</For>
       </AdminSubsection>
+      </Show>
+      </AdminSubtabPanel>
     </section>
   );
 }

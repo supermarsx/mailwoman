@@ -3,9 +3,10 @@
 // Exports are CSV, JSON and print-ready HTML. The records describe what is
 // configured; completeness and fitness for any law are for the operator to judge.
 
-import { For, Show, createResource, createSignal, type JSX } from 'solid-js';
+import { For, Show, createEffect, createResource, createSignal, createUniqueId, type JSX } from 'solid-js';
 import { t } from '../../../i18n';
 import { complianceApi, saveText, type ComplianceApi, type Lang, type RecordRow } from '../../../api/admin/compliance.ts';
+import { InsertDialog } from '../../../components/compose/insert/InsertDialog.tsx';
 import { AdminSubsection } from '../AdminSubsection.tsx';
 import { describeAdminError } from '../shell/Feedback.tsx';
 import * as css from '../admin.css.ts';
@@ -25,22 +26,78 @@ function Editor(props: { kind: Kind; row: RecordRow | null; onSave: (name: strin
   const [name, setName] = createSignal(props.row?.name ?? '');
   const [enabled, setEnabled] = createSignal(props.row?.enabled ?? true);
   const [fields, setFields] = createSignal<Record<string, string>>(Object.fromEntries(names.map((n) => [n, String((props.row as Record<string, unknown> | null)?.[n] ?? '')])));
+  const [step, setStep] = createSignal(0);
+  const [saving, setSaving] = createSignal(false);
+  const [error, setError] = createSignal<unknown>();
+  const id = createUniqueId();
+  let heading: HTMLHeadingElement | undefined;
+  createEffect(() => {
+    const current = step();
+    if (current > 0) heading?.focus();
+  });
+  const label = (key: string): string => t(key === 'name' ? 'compliance-records-name' : `compliance-records-field-${key}`);
+  const group = () => step() === 0 ? names.slice(0, 2) : names.slice(2);
+  const close = () => { if (!saving()) props.onCancel(); };
+  async function save(): Promise<void> {
+    if (saving() || !name().trim()) return;
+    setSaving(true);
+    setError(undefined);
+    try { await props.onSave(name().trim(), fields(), enabled()); }
+    catch (failure) { setError(failure); }
+    finally { setSaving(false); }
+  }
+
   return (
-    <form class={ccss.sectionBox} onSubmit={(e) => { e.preventDefault(); void props.onSave(name(), fields(), enabled()); }} data-testid="record-editor">
-      <label>{t('compliance-records-name')}
-        <input class={ccss.field} value={name()} onInput={(e) => setName(e.currentTarget.value)} maxLength={200} required data-testid="record-name" />
-      </label>
-      <For each={names}>{(n) => (
-        <label>{t(`compliance-records-field-${n}`)}
-          <textarea class={ccss.textarea} value={fields()[n] ?? ''} onInput={(e) => setFields({ ...fields(), [n]: e.currentTarget.value })} maxLength={2000} />
-        </label>
-      )}</For>
-      <label><input type="checkbox" checked={enabled()} onChange={(e) => setEnabled(e.currentTarget.checked)} /> {t('compliance-records-enabled')}</label>
-      <div class={ccss.row}>
-        <button type="submit" class="btn" data-testid="record-save">{t('compliance-records-save')}</button>
-        <button type="button" class="btn btn--ghost" onClick={props.onCancel}>{t('compliance-cancel')}</button>
-      </div>
-    </form>
+    <InsertDialog title={t(props.row ? 'compliance-records-edit' : `compliance-records-add-${props.kind}`)}
+      testId="record-editor" busy={saving()} onClose={close}>
+      <form class={ccss.sectionBox} onSubmit={(event) => {
+        event.preventDefault();
+        if (step() < 2) setStep(step() + 1);
+        else void save();
+      }}>
+        <h3 tabindex="-1" ref={heading}>{t(`compliance-record-guide-step-${step()}`)}</h3>
+        <p>{t(`compliance-record-guide-${props.kind}-${step()}`)}</p>
+        <Show when={step() === 0}>
+          <label>{label('name')}
+            <input class={ccss.field} value={name()} onInput={(event) => setName(event.currentTarget.value)}
+              maxLength={200} required data-testid="record-name" aria-describedby={`${id}-name`} />
+          </label>
+          <small id={`${id}-name`}>{t(`compliance-record-guide-name-${props.kind}`)}</small>
+        </Show>
+        <Show when={step() < 2} fallback={
+          <>
+            <dl>
+              <dt>{label('name')}</dt><dd>{name()}</dd>
+              <For each={names}>{(key) => <><dt>{label(key)}</dt><dd>{fields()[key] || '—'}</dd></>}</For>
+            </dl>
+            <label><input type="checkbox" checked={enabled()} disabled={saving()}
+              onChange={(event) => setEnabled(event.currentTarget.checked)} /> {t('compliance-records-enabled')}</label>
+          </>
+        }>
+          <For each={group()}>{(key) => (
+            <div>
+              <label>{label(key)}
+                <textarea class={ccss.textarea} value={fields()[key] ?? ''} maxLength={2000}
+                  aria-describedby={`${id}-${key}`} title={t(`compliance-record-guide-field-${key}`)}
+                  onInput={(event) => setFields({ ...fields(), [key]: event.currentTarget.value })} />
+              </label>
+              <small id={`${id}-${key}`}>{t(`compliance-record-guide-field-${key}`)}</small>
+            </div>
+          )}</For>
+        </Show>
+        <Show when={error()}><p role="alert">{describeAdminError(error())}</p></Show>
+        <div class={ccss.row}>
+          <Show when={step() > 0}>
+            <button type="button" class="btn btn--ghost" disabled={saving()}
+              onClick={() => setStep(step() - 1)}>{t('common-back')}</button>
+          </Show>
+          <button type="submit" class="btn" disabled={saving() || !name().trim()}
+            data-testid={step() === 2 ? 'record-save' : 'record-next'}>
+            {t(step() === 2 ? 'compliance-records-save' : 'common-next')}
+          </button>
+        </div>
+      </form>
+    </InsertDialog>
   );
 }
 
@@ -116,15 +173,14 @@ export default function RecordsTab(props: { api?: ComplianceApi; canWrite?: bool
       </label>
       <Show when={data.error}><p role="alert">{describeAdminError(data.error)}</p></Show>
       <Show when={failure()}><p role="alert">{describeAdminError(failure())}</p></Show>
-      <Show when={editing()}>
+      <Show when={editing()} keyed>
         {(e) => (
-          <Editor kind={e().kind} row={e().row} onCancel={() => setEditing(null)}
+          <Editor kind={e.kind} row={e.row} onCancel={() => setEditing(null)}
             onSave={async (name, fields, enabled) => {
-              await run(async () => {
-                if (e().row) await api.updateRecord(e().row!.id, e().kind, name, fields, enabled);
-                else await api.addRecord(e().kind, name, fields, enabled);
-                setEditing(null);
-              });
+              if (e.row) await api.updateRecord(e.row.id, e.kind, name, fields, enabled);
+              else await api.addRecord(e.kind, name, fields, enabled);
+              setEditing(null);
+              await run(async () => {});
             }} />
         )}
       </Show>
