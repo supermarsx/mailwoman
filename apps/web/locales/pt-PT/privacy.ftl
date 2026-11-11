@@ -252,3 +252,10 @@ privacy-feedback-link-sender-on = Links serão permitidos em mensagens de { $add
 privacy-feedback-links-off = Links desativados para esta mensagem.
 
 privacy-feedback-links-on = Links activados para esta mensagem.
+
+privacy-tab-content = Conteúdo das mensagens
+privacy-tab-consent = Cookies e consentimento
+privacy-tab-diagnostics = Diagnóstico
+privacy-tab-data = Os seus dados
+privacy-tab-requests = Pedidos de dados
+privacy-tabs-label = Definições de privacidade

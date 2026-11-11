@@ -240,3 +240,10 @@ privacy-feedback-link-domain-off = Domain link trust removed for { $address }.
 privacy-feedback-images-on = Image permission saved. Allowed images can now load.
 privacy-feedback-images-off = Image permission removed.
 privacy-feedback-image-host = Image host preference saved.
+
+privacy-tab-content = Message content
+privacy-tab-consent = Cookies and consent
+privacy-tab-diagnostics = Diagnostics
+privacy-tab-data = Your data
+privacy-tab-requests = Data requests
+privacy-tabs-label = Privacy settings
