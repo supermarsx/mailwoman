@@ -184,6 +184,7 @@ function SpanBarButton(props: {
       data-testid="span-bar"
       data-span={props.bar.span}
       data-continues={edge()}
+      data-calendar-event-id={inst().event.id}
       data-status={chipStatus(inst())}
       data-busy={chipBusy(inst())}
       style={{ ...chipStyle(inst()), 'inline-size': `calc(${props.bar.span} * (100% + ${css.spanGap}) - ${css.spanGap})` }}
@@ -273,6 +274,7 @@ function EventChip(props: {
     <button
       type="button"
       class={css.eventBlock}
+      data-calendar-event-id={props.inst.event.id}
       data-status={chipStatus(props.inst)}
       data-busy={chipBusy(props.inst)}
       style={{
@@ -571,7 +573,7 @@ export function MonthView(props: ViewProps): JSX.Element {
                             type="button"
                             tabindex={-1}
                             class={css.monthEvent}
-                            data-status={chipStatus(inst)}
+                            data-calendar-event-id={inst.event.id} data-status={chipStatus(inst)}
                             data-busy={chipBusy(inst)}
                             style={chipStyle(inst)}
                             title={inst.event.title}
@@ -636,7 +638,7 @@ function MonthGrid(props: { controller: CalendarController; year: number; month0
                         <button
                           type="button"
                           class={css.monthEvent}
-                          data-status={chipStatus(inst)}
+                          data-calendar-event-id={inst.event.id} data-status={chipStatus(inst)}
                           style={chipStyle(inst)}
                           title={inst.event.title}
                           aria-label={eventLabel(inst)}
@@ -705,7 +707,7 @@ export function AgendaView(props: ViewProps): JSX.Element {
               </div>
               <For each={props.controller.instancesForDay(day)}>
                 {(inst) => (
-                  <button type="button" class={css.agendaRow} data-status={chipStatus(inst)} aria-label={eventLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
+                  <button type="button" class={css.agendaRow} data-calendar-event-id={inst.event.id} data-status={chipStatus(inst)} aria-label={eventLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
                     <span class={css.agendaTime} aria-hidden="true">
                       {inst.allDay ? t('calendar-all-day-full') : `${formatTime(inst.start)} – ${formatTime(inst.end)}`}
                     </span>
@@ -792,7 +794,7 @@ export function ScheduleView(props: ViewProps): JSX.Element {
                   </div>
                 </Show>
                 <div role="listitem">
-                  <button type="button" class={css.scheduleRow} data-status={chipStatus(inst)} aria-label={scheduleLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
+                  <button type="button" class={css.scheduleRow} data-calendar-event-id={inst.event.id} data-status={chipStatus(inst)} aria-label={scheduleLabel(inst)} onClick={() => props.onOpenEvent(inst)}>
                     <span class={css.scheduleRange} aria-hidden="true">
                       {inst.allDay ? t('calendar-all-day-full') : `${formatTime(inst.start)} – ${formatTime(inst.end)}`}
                     </span>

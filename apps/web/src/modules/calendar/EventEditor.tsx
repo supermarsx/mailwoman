@@ -55,6 +55,7 @@ export interface EventEditorProps {
   event: CalendarEvent | null;
   /** Pre-fill the start when creating from a slot (defaults to now). */
   defaultStart?: Date | undefined;
+  defaultCalendarId?:string|undefined;
   onClose: () => void;
 }
 
@@ -81,7 +82,7 @@ export function EventEditor(props: EventEditorProps): JSX.Element {
   const ev = props.event;
   const startDate = ev !== null ? localToDate(ev.start) : (props.defaultStart ?? new Date());
 
-  const [calendarId, setCalendarId] = createSignal(ev?.calendarId ?? props.controller.visibleCalendars()[0]?.id ?? props.controller.calendars()[0]?.id ?? '');
+  const [calendarId, setCalendarId] = createSignal(ev?.calendarId ?? props.defaultCalendarId ?? props.controller.visibleCalendars()[0]?.id ?? props.controller.calendars()[0]?.id ?? '');
   const [title, setTitle] = createSignal(ev?.title ?? '');
   const [description, setDescription] = createSignal(ev?.description ?? '');
   const [location, setLocation] = createSignal(ev?.locations[0]?.name ?? '');

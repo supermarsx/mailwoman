@@ -149,3 +149,12 @@ describe('friendly attachment filters',()=>{
   fireEvent.change(screen.getByLabelText('Search in'),{target:{value:'all'}});await screen.findByText('logo.png',{}, {timeout:3000});
  });
 });
+
+it('exposes file, download and parent-message actions through a keyboard context menu',async()=>{
+ const open=vi.fn(),download=vi.fn(),parent=vi.fn();
+ render(()=><Attachments items={items} onOpen={open} onDownload={download} onOpenMessage={parent}/>);
+ const row=(await screen.findByRole('button',{name:'Q3-report.pdf'})).closest('tr')!;
+ fireEvent.keyDown(row,{key:'F10',shiftKey:true});
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Download'}));expect(download).toHaveBeenCalledWith(items[0]);
+ fireEvent.contextMenu(row);fireEvent.click(await screen.findByRole('menuitem',{name:'Open the message containing this attachment'}));expect(parent).toHaveBeenCalledWith(items[0]);
+});

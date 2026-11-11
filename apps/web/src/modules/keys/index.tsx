@@ -1,4 +1,6 @@
 import { InlineLoading } from '../../components/InlineLoading.tsx';
+import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
+import {handleModuleActions} from '../../state/moduleActions.ts';
 // Key-management module (plan §2.5, §3 e2). The Settings/Security surface for
 // OpenPGP + S/MIME keys: own-key generation (OpenPGP, or an S/MIME key with a
 // self-signed certificate) and import (armored + PKCS#12) with a preview step, an
@@ -53,6 +55,7 @@ export function KeysModule(): JSX.Element {
   const [selectedId, setSelectedId] = createSignal<Id | null>(null);
   const [showGenerate, setShowGenerate] = createSignal(false);
   const [showImport, setShowImport] = createSignal(false);
+  handleModuleActions('keys',action=>{if(action==='new')setShowGenerate(true);else if(action==='import')setShowImport(true);});
 
   onMount(() => {
     void loadCatalog('keys');
@@ -216,6 +219,13 @@ function KeyGroup(props: {
   selectedId: Id | null;
   onSelect: (id: Id) => void;
 }): JSX.Element {
+  const app=useApp();
+  const rowMenu=createEntityContextMenu({items:()=>props.keys,id:key=>key.id,name:keyTitle,scope:()=>[app.accountId(),app.keysEpoch()],onError:()=>app.showToast('error',t('mail-context-failed')),actions:key=>[
+    {id:'open',label:t('common-open'),icon:'key',run:()=>props.onSelect(key.id)},
+    {id:'fingerprint',label:t('common-copy-fingerprint'),icon:'copy',run:()=>navigator.clipboard.writeText(key.fingerprint)},
+    {id:'export-public',label:t('common-export-public-key'),icon:'download',disabled:!key.publicKeyArmored&&!key.certPem,separatorBefore:true,run:()=>download(`${fileStem(key)}.${key.kind==='pgp'?'asc':'pem'}`,key.publicKeyArmored??key.certPem??'','text/plain')},
+    {id:'trust',label:t('keys-trust-label'),icon:'shield',separatorBefore:true,run:()=>undefined,children:TRUST_OPTIONS.map(trust=>({id:trust,label:t(`keys-trust-${trust}`),icon:'shield',radio:true,checked:key.trust===trust,run:()=>app.setKeyTrust(key.id,trust)}))},
+  ]});
   return (
     <div>
       <h2 class={css.heading}>{props.heading}</h2>
@@ -232,6 +242,7 @@ function KeyGroup(props: {
                   class={css.keyRow}
                   aria-current={props.selectedId === key.id ? 'true' : undefined}
                   onClick={() => props.onSelect(key.id)}
+                  {...rowMenu.bind(key.id)}
                 >
                   <span class={css.rowBody}>
                     <span class={css.rowName}>{keyTitle(key)}</span>
@@ -244,6 +255,7 @@ function KeyGroup(props: {
           </For>
         </ul>
       </Show>
+      {rowMenu.menu()}
     </div>
   );
 }

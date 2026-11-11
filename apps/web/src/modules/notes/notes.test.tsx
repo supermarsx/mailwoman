@@ -240,3 +240,13 @@ describe('note pin feedback', () => {
     } finally { dispose(); }
   });
 });
+
+it('pins a note from the list context menu and keeps its editor available',async()=>{
+ const {slice}=setup([mkNote('context',{title:'Context note'})]);
+ fireEvent.contextMenu(await screen.findByRole('option',{name:/Context note/}));
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Pin note'}));
+ await waitFor(()=>expect(slice.notes()[0]?.pinned).toBe(true));
+ fireEvent.contextMenu(screen.getByRole('option',{name:/Context note/}));
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Open'}));
+ expect(await screen.findByLabelText('Note editor')).toBeInTheDocument();
+});

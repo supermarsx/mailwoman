@@ -1,4 +1,6 @@
 import { InlineLoading } from '../../components/InlineLoading.tsx';
+import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
+import {handleModuleActions} from '../../state/moduleActions.ts';
 // Tasks module (plan §2.5, §3 e5) — mounted into the app shell via the frozen
 // `AppModule` registry (`shell/modules.ts`). Task lists (CalDAV VTODO
 // collections), a create form, root tasks with nested subtasks, the My Day /
@@ -77,6 +79,14 @@ export function TasksModule(): JSX.Element {
   const [eventId, setEventId] = createSignal('');
   const [dragId, setDragId] = createSignal<Id | null>(null);
   const [notice, setNotice] = createSignal<string | null>(null);
+  let titleInput:HTMLInputElement|undefined;
+  const newTask=()=>queueMicrotask(()=>titleInput?.focus());
+  handleModuleActions('tasks',action=>{if(action==='new')newTask();else if(action==='my-day')setView('myDay');});
+  const listMenu=createEntityContextMenu({items:()=>[{id:'all',name:t('tasks-all')},{id:'my-day',name:t('tasks-my-day')},...app.taskLists().map(list=>({id:`list:${list.id}`,name:list.name}))],id:item=>item.id,name:item=>item.name,scope:app.accountId,actions:item=>[
+    {id:'open',label:t('common-open'),icon:'folder',run:()=>{if(item.id==='my-day')setView('myDay');else if(item.id==='all')selectAll();else selectList(item.id.slice(5));}},
+    {id:'new',label:t('common-new'),icon:'plus',disabled:noList(),run:()=>{if(item.id.startsWith('list:'))selectList(item.id.slice(5));newTask();}},
+    {id:'refresh',label:t('common-refresh'),icon:'sync',separatorBefore:true,run:()=>app.loadTasks()},
+  ]});
 
   onMount(() => {
     void loadCatalog('tasks');
@@ -152,6 +162,7 @@ export function TasksModule(): JSX.Element {
             class={css.navButton}
             aria-current={listActive(null)}
             onClick={selectAll}
+            {...listMenu.bind('all')}
           >
             {t('tasks-all')}
           </button>
@@ -159,6 +170,7 @@ export function TasksModule(): JSX.Element {
             type="button"
             class={css.navButton}
             aria-current={view() === 'myDay'}
+            {...listMenu.bind('my-day')}
             onClick={() => setView('myDay')}
           >
             {t('tasks-my-day')}
@@ -172,6 +184,7 @@ export function TasksModule(): JSX.Element {
                 class={css.navButton}
                 aria-current={listActive(list.id)}
                 onClick={() => selectList(list.id)}
+                {...listMenu.bind(`list:${list.id}`)}
               >
                 <span class={css.colorDot} style={{ background: list.color }} aria-hidden="true" />
                 <span class={css.title}><bdi>{list.name}</bdi></span>
@@ -186,6 +199,7 @@ export function TasksModule(): JSX.Element {
               class={css.input}
               type="text"
               aria-label={t('tasks-new-title')}
+              ref={titleInput}
               placeholder={t('tasks-add-placeholder')}
               value={newTitle()}
               onInput={(e) => setNewTitle(e.currentTarget.value)}
@@ -255,6 +269,7 @@ export function TasksModule(): JSX.Element {
           </div>
         </div>
       </section>
+      {listMenu.menu()}
     </NoticeContext.Provider>
   );
 }
@@ -392,11 +407,19 @@ function TaskItem(props: { task: Task }): JSX.Element {
     void app.deleteTask(props.task.id);
   }
 
+  const rowMenu=createEntityContextMenu({items:()=>app.tasks(),id:task=>task.id,name:task=>task.title,scope:app.accountId,actions:task=>[
+    {id:'edit',label:t('common-edit'),icon:'edit',run:startEdit},
+    {id:'complete',label:t(isDone(task)?'tasks-reopen':'tasks-complete',{title:task.title}),icon:'check',run:()=>app.toggleComplete(task.id)},
+    {id:'my-day',label:t(app.myDayTasks().some(item=>item.id===task.id)?'common-context-remove-my-day':'common-context-my-day'),icon:'calendar',run:()=>app.setMyDay(task.id,!app.myDayTasks().some(item=>item.id===task.id))},
+    {id:'priority',label:t('tasks-field-priority'),icon:'flag',separatorBefore:true,run:()=>undefined,children:PRIORITY_CHOICES.map(choice=>({id:`priority-${choice.value}`,label:t(choice.label),icon:'flag',radio:true,checked:priorityChoice(task.priority)===choice.value,run:()=>app.updateTask(task.id,{priority:choice.value})}))},
+    {id:'delete',label:t('common-delete'),icon:'delete',separatorBefore:true,run:()=>{startEdit();setConfirmingDelete(true);}},
+  ]});
+
   return (
-    <Show
+    <>{rowMenu.menu()}<Show
       when={editing()}
       fallback={
-        <div class={`${css.row} ${done() ? css.rowDone : ''}`}>
+        <div class={`${css.row} ${done() ? css.rowDone : ''}`} tabIndex={0} {...rowMenu.bind(props.task.id)}>
           <input
             type="checkbox"
             class={css.checkbox}
@@ -483,6 +506,6 @@ function TaskItem(props: { task: Task }): JSX.Element {
           </Show>
         </div>
       </form>
-    </Show>
+    </Show></>
   );
 }

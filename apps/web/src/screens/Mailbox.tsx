@@ -1,5 +1,8 @@
 import {recalledDraftId,takeRecalledDraft} from '../state/recalledDraft.ts';
 import {pendingCompose,takePendingCompose} from '../state/pendingCompose.ts';
+import {requestModuleAction,type ModuleAction} from '../state/moduleActions.ts';
+import {createEntityContextMenu} from '../components/entityContextMenu.ts';
+import {attachmentDecision,attachmentPolicyUrl,loadAttachmentPolicy} from '../api/attachmentPolicy.ts';
 import {settingsRequest} from '../state/settingsRequest.ts';
 import {onMessagesTrashed} from '../state/trashEvents.ts';
 import {CreateFolderDialog,FolderCreationControl} from '../components/FolderMaintenance.tsx';
@@ -308,6 +311,14 @@ export function MailboxScreen(): JSX.Element {
     if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind:'attachment',title:item.name,attachment:{...item,downloadUrl:buildDownloadUrl(template,{accountId,blobId:item.blobId,name:item.name,mime:item.mime})}}]);
     subTabs.open({id,kind:'attachment',title:item.name});
   }
+  async function downloadAttachmentItem(item:StripItem):Promise<void>{
+    const owner=preferenceAccount(),accountId=app.accountId(),template=app.downloadUrl();
+    if(!owner||!accountId||!template||!mailFeature('allowDownload'))return;
+    const decision=attachmentDecision(await loadAttachmentPolicy(),item);
+    if(!preferenceAccountIsCurrent(owner)||app.accountId()!==accountId)return;
+    if(!decision.allowed||decision.warning){openAttachmentTab(item);return;}
+    const a=document.createElement('a');a.href=attachmentPolicyUrl(buildDownloadUrl(template,{accountId,blobId:item.blobId,name:item.name,mime:item.mime}),item.emailId,false,false,true);a.download=item.name.replace(/[\\/]/g,'_');a.rel='noopener';a.click();
+  }
   function openReply(initial:ComposeInitial,sourceMailboxId?:string):void {openComposer(sourceMailboxId?{...initial,sourceMailboxId}:initial);}
   function openSettings(restoring=false):void {
     if(!restoring)noteWorkspaceIntent();
@@ -513,6 +524,19 @@ export function MailboxScreen(): JSX.Element {
   const initialRoute=router.route();
   let initialRoutePending=true;
   const surface = (): ShellSurface => router.route().surface;
+  const launch=(id:string,action:ModuleAction)=>{requestModuleAction(id,action);router.navigate(id as ShellSurface);};
+  const sidebarMenu=createEntityContextMenu({items:()=>[...shownModules(),...(featureOn('views.attachments')?[{id:'attachments',label:t('mail-nav-attachments'),icon:'attachment' as const}]:[]),{id:'outbox',label:t('mail-nav-outbox'),icon:'clock' as const}],id:item=>item.id,name:item=>item.label,scope:app.accountId,actions:item=>{
+    const id=item.id as ShellSurface;
+    return [
+      {id:'open',label:t('common-open'),icon:item.icon,run:()=>router.navigate(id)},
+      {id:'open-tab',label:t('mail-context-open-new-tab'),icon:'layoutTabs',run:()=>{const url=new URL(location.href);url.searchParams.delete('message');url.hash=`/${id}`;window.open(url.href,'_blank','noopener');}},
+      ...(['calendar','tasks','notes','contacts','keys'].includes(id)?[{id:'new',label:t('common-new'),icon:'plus' as const,separatorBefore:true,run:()=>launch(id,'new')}]:[]),
+      ...(['calendar','contacts','keys'].includes(id)?[{id:'import',label:t('common-context-import'),icon:'folder' as const,run:()=>launch(id,'import')}]:[]),
+      ...(id==='tasks'?[{id:'my-day',label:t('common-context-my-day'),icon:'calendar' as const,run:()=>launch(id,'my-day')}]:[]),
+      ...(id==='attachments'?[{id:'pinned',label:t('common-context-pinned'),icon:'pin' as const,run:()=>launch(id,'pinned')}]:[]),
+      {id:'refresh',label:t('common-refresh'),icon:'sync',separatorBefore:true,run:async()=>{if(id==='attachments')launch(id,'refresh');else if(id==='outbox')await app.refreshOutbox();else if(id==='keys')await app.loadKeys();else if(id==='calendar')await app.calendarController().load();else if(id==='tasks')await app.loadTasks();else if(id==='notes')await app.loadNotes();else if(id==='contacts')await app.loadContacts();}},
+    ];
+  }});
   // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
   const unifiedEnabled=()=>settings()['mail.unifiedInbox']?.value===true;
   const transfer=()=>{const request=pendingMessageTransfer();return request&&transfersEnabled()&&isTransferAccountCurrent(request.owner)?request:undefined;};
@@ -1111,6 +1135,7 @@ export function MailboxScreen(): JSX.Element {
             class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'attachments' }} aria-label={t('mail-nav-attachments')} title={t('mail-nav-attachments')}
             onClick={() => router.navigate('attachments')}
+            {...sidebarMenu.bind('attachments')}
           >
             <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
           </button></Show>
@@ -1127,11 +1152,12 @@ export function MailboxScreen(): JSX.Element {
               <Icon name="book"/><span class="sidebar__box-name">{t('response-templates-workspace')}</span>
             </button>
           </Show>
-          <Show when={featureOn('views.events')}><EventsNavEntry active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/></Show>
+          <Show when={featureOn('views.events')}><EventsNavEntry onOpenTab={()=>openFolderTab(EVENTS_VIEW_ID)} active={surface() === 'mail' && app.selectedMailboxId() === EVENTS_VIEW_ID} onSelect={() => { router.navigate('mail'); subTabs.activate('mail'); void app.selectMailbox(EVENTS_VIEW_ID); }}/></Show>
           <button
             type="button"
             class={`sidebar__box ${a11y.focusable}`}
             classList={{ 'sidebar__box--active': surface() === 'outbox' }} aria-label={t('mail-nav-outbox')} title={t('mail-nav-outbox')}
+            {...sidebarMenu.bind('outbox')}
             onClick={() => {
               router.navigate('outbox');
               void app.refreshOutbox();
@@ -1168,6 +1194,7 @@ export function MailboxScreen(): JSX.Element {
                 classList={{ 'sidebar__box--active': surface() === m.id }}
                 aria-label={m.label} title={m.label}
                 data-testid={`nav-${m.id}`}
+                {...sidebarMenu.bind(m.id)}
                 onClick={() => router.navigate(m.id as ShellSurface)}
               >
                 <span class="sidebar__box-icon" aria-hidden="true"><Icon name={m.icon} /></span>
@@ -1177,6 +1204,7 @@ export function MailboxScreen(): JSX.Element {
           </For>
         </nav>
         </div>
+        {sidebarMenu.menu()}
         <div class="sidebar__footer">
         <Show when={folderMode()!=='compact'||narrow()}><QuotaMeter accountId={app.accountId()} refresh={app.mailboxes()}/></Show>
         <div class={sidebarFooterActions}>
@@ -1238,7 +1266,7 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='composer'}><Compose embedded registerBeforeClose={(handler,dirty)=>{pane.beforeClose=handler;pane.dirty=dirty;}} onSubjectChange={subject=>subTabs.rename(pane.id,subject.trim()||rawT('mail-compose'))} onDraftIdChange={id=>{if(pane.draftId!==id){pane.draftId=id;setDraftRevision(value=>value+1);}}} {...(pane.draftId?{resumeDraftId:pane.draftId}:{})} active={subTabs.activeId()===pane.id} onClose={()=>void closePane(pane.id)} {...(pane.initial ? {initial:pane.initial} : {})}/></Show>
               <Show when={pane.kind==='folder'&&pane.reference}><FolderPane onOpenReplyDraft={id=>void openReplyDraft(id)} onSelectionModeChange={enabled=>setFolderSelecting(modes=>({...modes,[pane.id]:enabled}))} selecting={folderSelecting()[pane.id]===true} mailboxId={pane.reference!} beforeGlobalAction={()=>pane.detach?.reattach()} registerRefresh={refresh=>{pane.refresh=refresh;}} active={subTabs.activeId()===pane.id} companion={companion()===pane.id} onOpen={id=>void openDraftOrMessage(id,pane.id)}/></Show>
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
-              <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
+              <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onDownload={downloadAttachmentItem} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
               <Show when={pane.surface==='unified'&&unifiedEnabled()}>
                 <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null}/></Suspense>

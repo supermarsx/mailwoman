@@ -130,3 +130,12 @@ describe('Events sidebar entry and filter (t78)', () => {
     });
   });
 });
+
+it('offers upcoming filtering and refresh directly on the Events sidebar entry',async()=>{
+ const {app}=harness();await app.login({username:'me@example.org',password:'p'});
+ fireEvent.contextMenu(screen.getByTestId('sidebar-events'));
+ const toggle=await screen.findByRole('menuitemcheckbox',{name:'Upcoming only'});
+ expect(toggle).toHaveAttribute('aria-checked','false');fireEvent.click(toggle);
+ await waitFor(()=>expect(app.eventsUpcoming()).toBe(true));
+ fireEvent.contextMenu(screen.getByTestId('sidebar-events'));expect(await screen.findByRole('menuitem',{name:'Refresh'})).toBeVisible();
+});

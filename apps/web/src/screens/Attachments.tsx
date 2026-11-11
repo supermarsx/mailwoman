@@ -3,6 +3,9 @@
 
 import { batch, createEffect, createMemo, createResource, createSignal, onCleanup, For, Show, type JSX } from 'solid-js';
 import { t, formatDate, loadCatalog } from '../i18n';
+import {createEntityContextMenu} from '../components/entityContextMenu.ts';
+import {handleModuleActions} from '../state/moduleActions.ts';
+import {mailFeature} from '../state/mailFeatures.ts';
 import {accountUiPreferences,setAccountUiPreferences} from '../api/accountPreferences.ts';
 import {observePreferenceAccount,preferenceAccount,preferenceAccountIsCurrent} from '../api/accountPreferenceLifecycle.ts';
 import {createConfiguredClient} from '../api/transport.ts';
@@ -36,6 +39,7 @@ export interface AttachmentsProps {
   mailboxes?: readonly {id:string;name:string;parentId?:string|null;mailwomanSearchQuery?:string}[];
   onOpen?: (item: AttachmentItem) => void;
   onOpenMessage?: (item: AttachmentItem) => void;
+  onDownload?: (item:AttachmentItem)=>void|Promise<void>;
 }
 
 const CATEGORIES: Array<TypeCategory | 'all'> = [
@@ -66,6 +70,7 @@ const SEARCH_DELAY=400;
 export function Attachments(props: AttachmentsProps): JSX.Element {
   void loadCatalog('attachments-filters');
   const [pinnedOnly,setPinnedOnly]=createSignal(false);
+  handleModuleActions('attachments',action=>{if(action==='pinned')setPinnedOnly(true);else if(action==='refresh')queueMicrotask(()=>void refetch());});
   const pins=()=>accountUiPreferences().pinnedAttachments??[];
   const isPinned=(item:AttachmentItem)=>pins().some(pin=>pin.emailId===item.emailId&&pin.blobId===item.blobId);
   const [pinOwner,setPinOwner]=createSignal(preferenceAccount());
@@ -178,6 +183,13 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
     return [...rows].sort((a,b)=>{const av=value(a),bv=value(b);return (typeof av==='number'&&typeof bv==='number'?av-bv:String(av).localeCompare(String(bv),undefined,{numeric:true,sensitivity:'base'}))*(ascending?1:-1);});
   });
 
+  const rowMenu=createEntityContextMenu({items:filtered,id:item=>JSON.stringify([item.emailId,item.blobId]),name:item=>item.name,scope:()=>props.accountId,actions:item=>[
+    {id:'open',label:t('common-open'),icon:'file',disabled:!props.onOpen,run:()=>props.onOpen?.(item)},
+    {id:'download',label:t('common-viewer-download'),icon:'download',disabled:!props.onDownload||!mailFeature('allowDownload'),run:()=>props.onDownload?.(item)},
+    {id:'message',label:t('common-attach-open-message'),icon:'mail',disabled:!props.onOpenMessage,run:()=>props.onOpenMessage?.(item)},
+    {id:'pin',label:t(isPinned(item)?'common-context-unpin':'attach-pin'),icon:'pin',disabled:!ownsPins()||!isPinned(item)&&pins().length>=100,separatorBefore:true,run:()=>togglePin(item)},
+    {id:'copy',label:t('common-copy'),icon:'copy',run:()=>navigator.clipboard.writeText(item.name)},
+  ]});
   return (
     <section class="mw-attach" data-mw-surface aria-label={t('common-attach-title')}>
       <header class="mw-attach__bar">
@@ -232,7 +244,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
           <div class={table.wrap} role="region" aria-label={t('common-attach-title')} tabIndex={0}><table class={table.table} aria-label={t('common-attach-title')} aria-busy={data.loading||searching()}><thead><tr><For each={COLUMNS}>{key=><th scope="col" aria-sort={sort().column===key?(sort().ascending?'ascending':'descending'):'none'}><button type="button" class={table.name} onClick={()=>setSort(old=>({column:key,ascending:old.column===key?!old.ascending:true}))}>{t(`common-attach-column-${key}`)}<Show when={sort().column===key}><Icon name={sort().ascending?'chevronUp':'chevronDown'}/></Show></button></th>}</For></tr></thead><tbody>
             <For each={filtered()}>
               {(item) => (
-                <tr>
+                <tr tabIndex={0} {...rowMenu.bind(JSON.stringify([item.emailId,item.blobId]))}>
                   <td>
                   <button
                     type="button"
@@ -256,6 +268,7 @@ export function Attachments(props: AttachmentsProps): JSX.Element {
         <span>{t('common-attach-page',{page:positions().length})}</span>
         <button type="button" disabled={data.loading || current()?.nextPosition == null} onClick={()=>{const next=current()?.nextPosition;if(next!=null)setPositions(old=>[...old,next]);}}>{t('common-attach-next')}</button>
       </nav></Show>
+      {rowMenu.menu()}
     </section>
   );
 }

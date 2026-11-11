@@ -21,7 +21,7 @@ function renderOutbox(subs: OutboxSubmission[], messages: Record<string, OutboxM
     cancelOutbox: vi.fn(async (_id: string) => undefined),
     recallOutbox: vi.fn(async (_id: string) => undefined),
   };
-  const app = { outbox: () => subs, outboxLoading: () => loading, outboxMessages: () => messages, ...calls } as unknown as AppState;
+  const app = { accountId:()=> 'outbox-test',outbox: () => subs, outboxLoading: () => loading, outboxMessages: () => messages, ...calls } as unknown as AppState;
   render(() => (
     <AppContext.Provider value={app}>
       <Outbox />
@@ -143,4 +143,13 @@ describe('Outbox', () => {
       vi.useRealTimers();
     }
   });
+});
+
+it('offers Release for held messages and avoids unsafe resend for uncertain delivery in context menus',async()=>{
+ const calls=renderOutbox([sub('held-menu',{mailwomanHold:'manual'}),sub('unknown-menu',{undoStatus:'final',mailwomanDeliveryUncertain:true})]);
+ fireEvent.contextMenu(row('held'));fireEvent.click(await screen.findByRole('menuitem',{name:'Release'}));
+ expect(calls.sendOutboxNow).toHaveBeenCalledWith('held-menu');
+ fireEvent.contextMenu(row('uncertain'));await screen.findByRole('menu');
+ expect(screen.queryByRole('menuitem',{name:'Send again'})).toBeNull();
+ expect(screen.queryByRole('menuitem',{name:'Send now'})).toBeNull();
 });

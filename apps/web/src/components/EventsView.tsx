@@ -9,6 +9,7 @@
 
 import { createEffect, on, onCleanup, Show, type JSX } from 'solid-js';
 import { useApp } from '../state/context.ts';
+import {createEntityContextMenu} from './entityContextMenu.ts';
 import { t } from '../i18n/index.ts';
 import { EVENTS_VIEW_ID } from '../api/jmap.ts';
 import { FolderCountBadge } from './FolderCountBadge.tsx';
@@ -18,8 +19,14 @@ import * as css from './eventsView.css.ts';
 
 /** The sidebar entry. `active` is whether the mail surface shows the view;
  *  `onSelect` opens it the way a folder row does. */
-export function EventsNavEntry(props: { active: boolean; onSelect: () => void }): JSX.Element {
+export function EventsNavEntry(props: { active: boolean; onSelect: () => void; onOpenTab?:()=>void }): JSX.Element {
   const app = useApp();
+  const context=createEntityContextMenu({items:()=>[{id:'events',name:t('mail-nav-events')}],id:item=>item.id,name:item=>item.name,scope:app.accountId,actions:()=>[
+    {id:'open',label:t('common-open'),icon:'calendar',run:props.onSelect},
+    ...(props.onOpenTab?[{id:'open-tab',label:t('mail-context-open-new-tab'),icon:'layoutTabs' as const,run:props.onOpenTab}]:[]),
+    {id:'upcoming',label:t('mail-events-upcoming'),icon:'calendar',checked:app.eventsUpcoming(),separatorBefore:true,run:()=>app.setEventsUpcoming(!app.eventsUpcoming())},
+    {id:'refresh',label:t('common-refresh'),icon:'sync',run:async()=>{await app.refreshEventsCounts();if(props.active)await app.selectMailbox(EVENTS_VIEW_ID);}},
+  ]});
   // Recount whenever the folders' counts move (a new message, a read, a move):
   // they change on the same events this view's counts do. Debounced, so a burst
   // of folder updates costs one request.
@@ -31,7 +38,7 @@ export function EventsNavEntry(props: { active: boolean; onSelect: () => void })
   }));
   onCleanup(() => { if (timer !== undefined) clearTimeout(timer); });
   return (
-    <button
+    <><button
       type="button"
       class={`sidebar__box ${a11y.focusable}`}
       classList={{ 'sidebar__box--active': props.active }}
@@ -40,10 +47,11 @@ export function EventsNavEntry(props: { active: boolean; onSelect: () => void })
       aria-current={props.active ? 'true' : undefined}
       data-testid="sidebar-events"
       onClick={() => props.onSelect()}
+      {...context.bind('events')}
     >
       <Icon name="calendar" /><span class="sidebar__box-name">{t('mail-nav-events')}</span>
       <Show when={app.eventsCounts()}>{(counts) => <FolderCountBadge folder={{ role: null, unreadEmails: counts().unread, totalEmails: counts().total }} />}</Show>
-    </button>
+    </button>{context.menu()}</>
   );
 }
 

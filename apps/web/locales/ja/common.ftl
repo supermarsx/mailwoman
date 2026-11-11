@@ -184,3 +184,20 @@ common-viewer-pdf-details-help = 問題を報告するときは、次の行を�
 timezone-group-other = その他
 
 timezone-use-browser = ブラウザのタイムゾーン ({ $zone }) を使用する
+
+common-context-actions = { $name } の操作
+common-open = 開く
+common-new = 新しい項目
+common-refresh = 更新
+common-duplicate = 複製
+common-copy-fingerprint = フィンガープリントをコピー
+common-export-public-key = 公開鍵または証明書をエクスポート
+common-context-show = 表示
+common-context-show-only = このカレンダーのみ表示
+common-context-color = 色
+common-context-import = インポート
+common-context-export = エクスポート
+common-context-pinned = ピン留めした項目
+common-context-unpin = ピン留めを解除
+common-context-my-day = 今日の予定に追加
+common-context-remove-my-day = 今日の予定から削除

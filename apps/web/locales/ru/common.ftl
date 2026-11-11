@@ -204,3 +204,20 @@ common-viewer-pdf-details-help = Включите эти строки, когд�
 timezone-group-other = Другое
 
 timezone-use-browser = Использовать часовой пояс браузера ({ $zone })
+
+common-context-actions = Действия для { $name }
+common-open = Открыть
+common-new = Новый элемент
+common-refresh = Обновить
+common-duplicate = Дублировать
+common-copy-fingerprint = Копировать отпечаток
+common-export-public-key = Экспортировать открытый ключ или сертификат
+common-context-show = Показать
+common-context-show-only = Показать только этот календарь
+common-context-color = Цвет
+common-context-import = Импорт
+common-context-export = Экспорт
+common-context-pinned = Закреплённые элементы
+common-context-unpin = Открепить
+common-context-my-day = Добавить в Мой день
+common-context-remove-my-day = Убрать из Моего дня

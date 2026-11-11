@@ -55,7 +55,7 @@ describe('KeysModule', () => {
 
   it('lists the account own keys after load', async () => {
     renderModule();
-    expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid="inline-loading"]')).not.toBeNull();
     const ownList = await screen.findByRole('list', { name: 'Your keys' });
     expect(within(ownList).getByText('me@example.org')).toBeInTheDocument();
   });
@@ -321,4 +321,14 @@ describe('KeysModule in a linked mailbox (t87 D11)', () => {
     expect(app.hasVaultedKey('P'.repeat(40))).toBe(false);
     suspendAccountPreferences();
   });
+});
+
+it('offers fingerprint and public export actions and changes trust through its submenu',async()=>{
+ const {app}=renderModule();const row=await screen.findByRole('button',{name:/me@example\.org/});
+ fireEvent.contextMenu(row);
+ expect(await screen.findByRole('menuitem',{name:'Copy fingerprint'})).toBeVisible();
+ expect(screen.getByRole('menuitem',{name:'Export public key or certificate'})).toHaveAttribute('aria-disabled','false');
+ fireEvent.click(screen.getByRole('menuitem',{name:'Trust'}));
+ fireEvent.click(await screen.findByRole('menuitemradio',{name:'verified'}));
+ await waitFor(()=>expect(app.ownKeys()[0]?.trust).toBe('verified'));
 });

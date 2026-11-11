@@ -70,7 +70,10 @@ describe('Mailbox move targets and mail.showSpam',()=>{
   };
   const rowMenu=async()=>{
     fireEvent.contextMenu(await screen.findByText('Subject a',{selector:'.list__subject'}));
-    return within(await screen.findByRole('menu')).getAllByRole('menuitem').map(item=>item.textContent?.trim());
+    const menu=await screen.findByRole('menu');
+    const mark=within(menu).queryByRole('menuitem',{name:'Mark as'});
+    if(mark)fireEvent.click(mark);
+    return screen.getAllByRole('menuitem').map(item=>item.textContent?.trim());
   };
   it('offers Junk as a bulk move target and a Mark spam row by default',async()=>{
     values={};await selectOne();
@@ -117,4 +120,18 @@ describe('Mailbox and mail.closeOnDelete',()=>{
     await new Promise(resolve=>setTimeout(resolve,100));
     expect(messageTab(realtime)).toBeDefined();
   });
+});
+
+it('provides contextual sidebar actions for every PIM view, Attachments and Outbox',async()=>{
+ await mount({});
+ for(const label of ['Calendar','Tasks','Notes','Contacts','Keys','Attachments','Outbox']){
+  const buttons=screen.getAllByRole('button',{name:label});
+  const target=buttons.find(button=>button.classList.contains('sidebar__box'))!;
+  expect(target).toBeDefined();fireEvent.contextMenu(target);
+  expect(await screen.findByRole('menuitem',{name:'Open'})).toBeVisible();
+  expect(screen.getByRole('menuitem',{name:'Open in a new tab'})).toBeVisible();
+  expect(screen.getByRole('menuitem',{name:'Refresh'})).toBeVisible();
+  if(['Calendar','Tasks','Notes','Contacts','Keys'].includes(label))expect(screen.getByRole('menuitem',{name:'New item'})).toBeVisible();
+  fireEvent.keyDown(screen.getByRole('menu'),{key:'Escape'});
+ }
 });

@@ -1,4 +1,6 @@
 import { InlineLoading } from '../../components/InlineLoading.tsx';
+import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
+import {handleModuleActions} from '../../state/moduleActions.ts';
 import { Icon } from '../../components/Icon.tsx';
 // Notes module (plan §2.5, §3 e6). A two-pane personal-notes surface mounted into
 // the app shell beside Mail: a searchable/filterable list (pinned first, color
@@ -64,6 +66,7 @@ export function NotesModule(): JSX.Element {
     }
   }
 
+  handleModuleActions('notes',action=>{if(action==='new')void newNote();});
   return (
     <section class="notes" aria-label={t('notes-title')} data-module="notes">
       <NotesList
@@ -86,6 +89,13 @@ function NotesList(props: {
   onNew: () => void;
 }): JSX.Element {
   const app = useApp();
+  const rowMenu=createEntityContextMenu({items:app.filteredNotes,id:note=>note.id,name:note=>note.title||t('notes-untitled'),scope:app.accountId,onError:()=>app.showToast('error',t('mail-context-failed')),actions:note=>[
+    {id:'open',label:t('common-open'),icon:'edit',run:()=>props.onSelect(note.id)},
+    {id:'pin',label:t(note.pinned?'notes-unpin':'notes-pin'),icon:'pin',run:()=>app.toggleNotePin(note.id)},
+    {id:'duplicate',label:t('common-duplicate'),icon:'copy',run:async()=>{const copy=await app.createNote({title:note.title,bodyHtml:note.bodyHtml,bodyText:note.bodyText,tags:[...note.tags],color:note.color,notebookId:note.notebookId,links:[...note.links]});props.onSelect(copy.id);}},
+    {id:'copy',label:t('common-copy'),icon:'copy',run:()=>navigator.clipboard.writeText(noteBodyText(note))},
+    {id:'delete',label:t('notes-delete'),icon:'delete',separatorBefore:true,run:()=>app.deleteNote(note.id)},
+  ]});
   return (
     <div class="notes__list" aria-label={t('notes-list')}>
       <div class="notes__toolbar">
@@ -138,6 +148,7 @@ function NotesList(props: {
                 role="option"
                 aria-selected={note.id === props.selectedId}
                 onClick={() => props.onSelect(note.id)}
+                {...rowMenu.bind(note.id)}
               >
                 <span class="notes__swatch" style={{ background: note.color }} aria-hidden="true" />
                 <span class="notes__item-main">
@@ -159,6 +170,7 @@ function NotesList(props: {
           )}
         </For>
       </ul>
+      {rowMenu.menu()}
     </div>
   );
 }

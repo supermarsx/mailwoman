@@ -91,7 +91,7 @@ function renderTasks(tasks: Task[], onJmap?: (body: JmapRequest) => void): AppSt
 // ── tests ───────────────────────────────────────────────────────────────────
 
 describe('TasksModule', () => {
-  it('shows initial list loading rather than an empty task result',()=>{const app={...createAppState(mockClient([])),tasksLoading:()=>true,loadTasks:async()=>undefined};render(()=><AppContext.Provider value={app}><TasksModule/></AppContext.Provider>);expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();});
+  it('shows initial list loading rather than an empty task result',()=>{const app={...createAppState(mockClient([])),tasksLoading:()=>true,loadTasks:async()=>undefined};render(()=><AppContext.Provider value={app}><TasksModule/></AppContext.Provider>);expect(document.querySelector('[data-testid="inline-loading"]')).not.toBeNull();});
   it('renders the loaded task list and its lists in the sidebar', async () => {
     renderTasks([mkTask({ id: 't1', title: 'Write the report' }), mkTask({ id: 't2', title: 'Book the room' })]);
     expect(await screen.findByText('Write the report')).toBeInTheDocument();
@@ -328,4 +328,17 @@ describe('TasksModule — adding before the task lists have loaded (t32-h11)', (
     const create = (sets[0]!.methodCalls[0]![1] as { create: { new: { listId: string; title: string } } }).create.new;
     expect(create).toMatchObject({ listId: 'l1', title: 'Early task' });
   });
+});
+
+it('offers task completion, priority and My Day from its context menu and list actions in the sidebar',async()=>{
+ const app=renderTasks([mkTask({id:'context-task',title:'Context task'})]);
+ fireEvent.contextMenu((await screen.findByText('Context task')).closest('[data-task-id]')!.querySelector('[tabindex]')!);
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Add to My Day'}));
+ await waitFor(()=>expect(app.tasks()[0]?.myDayDate).not.toBeNull());
+ fireEvent.contextMenu(screen.getByText('Context task'));
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Priority'}));
+ fireEvent.click(await screen.findByRole('menuitemradio',{name:'High'}));
+ await waitFor(()=>expect(app.tasks()[0]?.priority).toBe(1));
+ fireEvent.contextMenu(screen.getByRole('button',{name:'Work'}));
+ expect(await screen.findByRole('menuitem',{name:'New item'})).toBeVisible();
 });

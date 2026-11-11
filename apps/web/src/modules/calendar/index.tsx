@@ -1,4 +1,6 @@
 import { InlineLoading } from '../../components/InlineLoading.tsx';
+import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
+import {handleModuleActions} from '../../state/moduleActions.ts';
 import { Icon } from '../../components/Icon.tsx';
 import { ColorField } from '../../components/color/ColorPicker.tsx';
 import {MiniCalendar} from './MiniCalendar.tsx';
@@ -77,6 +79,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   const [editorOpen, setEditorOpen] = createSignal(false);
   const [editing, setEditing] = createSignal<CalendarEvent | null>(null);
   const [defaultStart, setDefaultStart] = createSignal<Date | undefined>(undefined);
+  const [defaultCalendar,setDefaultCalendar]=createSignal<string>();
   const [resolverOpen, setResolverOpen] = createSignal(false);
   // P1 share dialog target, P3 quick-add line, P4 category filter, P6 webcal URL.
   const [sharing, setSharing] = createSignal<Calendar | null>(null);
@@ -124,20 +127,24 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
 
   onMount(() => {
     void loadCatalog('calendar');
+    void loadCatalog('appearance');
     void c.load();
   });
 
-  function openNew(): void {
+  function openNew(calendarId?:string): void {
+    setDefaultCalendar(calendarId);
     setEditing(null);
     setDefaultStart(undefined);
     setEditorOpen(true);
   }
   function openNewAt(day: Date): void {
+    setDefaultCalendar(undefined);
     setEditing(null);
     setDefaultStart(day);
     setEditorOpen(true);
   }
   function openEvent(masterId: string): void {
+    setDefaultCalendar(undefined);
     setEditing(c.masterById(masterId) ?? null);
     setDefaultStart(undefined);
     setEditorOpen(true);
@@ -224,9 +231,42 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
   }
 
   let importInput: HTMLInputElement | undefined;
+  handleModuleActions('calendar',action=>{if(action==='new')openNew();else if(action==='import')queueMicrotask(()=>importInput?.click());});
+  const calendarMenu=createEntityContextMenu({items:c.calendars,id:cal=>cal.id,name:cal=>cal.name,scope:c.identity,onError:()=>setFeedback({kind:'error',text:t('mail-context-failed')}),actions:cal=>[
+    {id:'new',label:t('calendar-new-event'),icon:'plus',disabled:cal.isReadOnlyOverlay,run:()=>openNew(cal.id)},
+    {id:'visible',label:t('common-context-show'),icon:'eye',checked:cal.isVisible,run:()=>c.toggleCalendar(cal.id)},
+    {id:'only',label:t('common-context-show-only'),icon:'calendar',run:async()=>{for(const other of c.calendars())if(other.isVisible!==(other.id===cal.id))await c.toggleCalendar(other.id);}},
+    {id:'color',label:t('common-context-color'),icon:'palette',run:()=>undefined,children:[['green','#22c55e'],['blue','#3b82f6'],['violet','#a855f7'],['red','#ef4444'],['orange','#f97316'],['yellow','#eab308']].map(([name,color])=>({id:color!,label:t(`appearance-accent-${name}`),icon:'palette',radio:true,checked:cal.color.toLowerCase()===color,run:()=>c.setCalendarColor(cal.id,color!)}))},
+    {id:'share',label:t('calendar-share'),icon:'share',disabled:cal.isReadOnlyOverlay,separatorBefore:true,run:()=>{setSharing(cal);}},
+    {id:'export',label:t('common-context-export'),icon:'download',run:async()=>triggerDownload('calendar.ics',await c.exportIcs({calendarId:cal.id}))},
+    {id:'refresh',label:t('common-refresh'),icon:'sync',run:()=>cal.isReadOnlyOverlay&&cal.caldavUrl?c.refreshSubscription(cal.id):c.load()},
+  ]});
+  const eventMenu=createEntityContextMenu({items:c.masters,id:event=>event.id,name:event=>event.title,scope:c.identity,onError:()=>setFeedback({kind:'error',text:t('mail-context-failed')}),actions:event=>{
+    const readOnly=c.calendars().find(cal=>cal.id===event.calendarId)?.isReadOnlyOverlay??true;
+    return [
+      {id:'open',label:t('common-open'),icon:'calendar',run:()=>openEvent(event.id)},
+      {id:'duplicate',label:t('common-duplicate'),icon:'copy',disabled:readOnly,run:async()=>{const id=await c.createEvent({calendarId:event.calendarId,title:event.title,description:event.description,start:event.start,timeZone:event.timeZone,duration:event.duration,showWithoutTime:event.showWithoutTime,locations:event.locations});if(id)openEvent(id);}},
+      {id:'export',label:t('common-context-export'),icon:'download',run:async()=>triggerDownload('event.ics',await c.exportIcs({eventIds:[event.id]}))},
+      {id:'delete',label:t('common-delete'),icon:'delete',disabled:readOnly,separatorBefore:true,run:()=>c.deleteEvent(event.id)},
+    ];
+  }});
+  const [contextDate,setContextDate]=createSignal('');
+  const dateMenu=createEntityContextMenu({items:()=>contextDate()?[{id:contextDate(),name:contextDate()}]:[],id:item=>item.id,name:item=>item.name,scope:c.identity,actions:item=>[
+    {id:'new',label:t('calendar-new-event'),icon:'plus',disabled:!c.calendars().some(cal=>!cal.isReadOnlyOverlay),run:()=>openNewAt(new Date(`${item.id}T09:00:00`))},
+    {id:'day',label:t('calendar-view-day'),icon:'calendar',run:()=>{c.goToDate(new Date(`${item.id}T12:00:00`));c.setView('day');}},
+    {id:'week',label:t('calendar-view-week'),icon:'calendar',run:()=>{c.goToDate(new Date(`${item.id}T12:00:00`));c.setView('week');}},
+  ]});
+  const eventContext=(event:MouseEvent|KeyboardEvent)=>{
+    if(event.type!=='contextmenu'&&(event as KeyboardEvent).key!=='ContextMenu'&&!((event as KeyboardEvent).shiftKey&&(event as KeyboardEvent).key==='F10'))return;
+    const id=(event.target as Element).closest<HTMLElement>('[data-calendar-event-id]')?.dataset.calendarEventId;
+    const date=(event.target as Element).closest<HTMLElement>('[data-date]')?.dataset.date;
+    if(!id&&(!date||!/^\d{4}-\d{2}-\d{2}$/.test(date)))return;
+    if(!id)setContextDate(date!);
+    const binding=id?eventMenu.bind(id):dateMenu.bind(date!);if(event.type==='contextmenu')binding.onContextMenu(event as MouseEvent);else binding.onKeyDown(event as KeyboardEvent);
+  };
 
   return (
-    <section class={css.module} aria-label={t('calendar-title')} data-module="calendar">
+    <section class={css.module} aria-label={t('calendar-title')} data-module="calendar" onContextMenu={eventContext} onKeyDown={eventContext}>
       <div class={css.toolbar}>
         <span class={css.title} aria-live="polite">{headerLabel(c)}</span>
         <button type="button" class={css.button} onClick={() => c.goPrev()} aria-label={t('calendar-prev')}><Icon name="chevronLeft" /></button>
@@ -258,7 +298,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
             {t('calendar-resolve-conflicts', { count: c.conflicts().length })}
           </button>
         </Show>
-        <button type="button" class={css.primaryButton} onClick={openNew}>{t('calendar-new-event')}</button>
+        <button type="button" class={css.primaryButton} onClick={()=>openNew()}>{t('calendar-new-event')}</button>
         <input
           class={`${css.input} ${css.quickAdd}`}
           placeholder={t('calendar-quick-add-placeholder')}
@@ -291,7 +331,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
                   object, and a re-created row would drop keyboard focus from the checkbox. */}
               <Index each={c.calendars()}>
                 {(cal) => (
-                  <li class={css.calItem}>
+                  <li class={css.calItem} tabIndex={0} {...calendarMenu.bind(cal().id)}>
                     <input
                       type="checkbox"
                       checked={cal().isVisible}
@@ -386,7 +426,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
       </div>
 
       <Show when={editorOpen()}>
-        <EventEditor controller={c} event={editing()} defaultStart={defaultStart()} onClose={() => setEditorOpen(false)} />
+        <EventEditor controller={c} event={editing()} defaultStart={defaultStart()} defaultCalendarId={defaultCalendar()} onClose={() => setEditorOpen(false)} />
       </Show>
 
       <Show when={resolverOpen()}>
@@ -406,6 +446,7 @@ export function CalendarApp(props: CalendarAppProps): JSX.Element {
           />
         )}
       </Show>
+      {calendarMenu.menu()}{eventMenu.menu()}{dateMenu.menu()}
     </section>
   );
 }

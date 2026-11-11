@@ -199,3 +199,20 @@ common-viewer-pdf-details-help = Voeg deze regels toe wanneer u het probleem rap
 timezone-group-other = Anders
 
 timezone-use-browser = Gebruik browsertijdzone ({ $zone })
+
+common-context-actions = Acties voor { $name }
+common-open = Openen
+common-new = Nieuw item
+common-refresh = Vernieuwen
+common-duplicate = Dupliceren
+common-copy-fingerprint = Vingerafdruk kopiëren
+common-export-public-key = Openbare sleutel of certificaat exporteren
+common-context-show = Tonen
+common-context-show-only = Alleen deze agenda tonen
+common-context-color = Kleur
+common-context-import = Importeren
+common-context-export = Exporteren
+common-context-pinned = Vastgemaakte items
+common-context-unpin = Losmaken
+common-context-my-day = Toevoegen aan Mijn dag
+common-context-remove-my-day = Verwijderen uit Mijn dag

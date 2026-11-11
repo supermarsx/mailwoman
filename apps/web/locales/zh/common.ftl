@@ -198,3 +198,20 @@ common-viewer-pdf-details-help = 报告问题时请包括这些行。它们不�
 timezone-group-other = 其他
 
 timezone-use-browser = 使用浏览器时区 ({ $zone })
+
+common-context-actions = { $name } 的操作
+common-open = 打开
+common-new = 新建项目
+common-refresh = 刷新
+common-duplicate = 创建副本
+common-copy-fingerprint = 复制指纹
+common-export-public-key = 导出公钥或证书
+common-context-show = 显示
+common-context-show-only = 仅显示此日历
+common-context-color = 颜色
+common-context-import = 导入
+common-context-export = 导出
+common-context-pinned = 已固定项目
+common-context-unpin = 取消固定
+common-context-my-day = 添加到我的一天
+common-context-remove-my-day = 从我的一天移除

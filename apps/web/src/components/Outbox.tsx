@@ -91,6 +91,8 @@ export function Outbox(): JSX.Element {
   const [selectedId, setSelectedId] = createSignal<string | null>(null);
   const [editTimeId, setEditTimeId] = createSignal<string | null>(null);
   const [menuId, setMenuId] = createSignal<string | null>(null);
+  const [menuOwner,setMenuOwner]=createSignal(preferenceAccount());
+  onCleanup(observePreferenceAccount(setMenuOwner));
   const selected = () => app.outbox().find((s) => s.id === selectedId());
   const menuActions = (): ContextAction[] => {
     const sub = app.outbox().find((s) => s.id === menuId());
@@ -107,7 +109,7 @@ export function Outbox(): JSX.Element {
     if (status.waiting || status.kind === 'failed') rows.push({ id: 'delete', label: t('outbox-delete'), icon: ACTION_ICONS.outboxDelete, separatorBefore: true, run: async () => { await app.deleteOutbox(sub.id); } });
     return rows;
   };
-  const rowMenu = createContextMenu({ label: () => t('mail-outbox-label'), scope: () => `outbox:${menuId()}`, actions: menuActions, onError: () => app.showToast('error', t('mail-context-failed')) });
+  const rowMenu = createContextMenu({ label: () => t('mail-outbox-label'), scope: () => JSON.stringify([menuOwner(),app.accountId(),menuId(),!!app.outbox().find(sub=>sub.id===menuId())]), actions: menuActions, onError: () => app.showToast('error', t('mail-context-failed')) });
   function refresh(owner:PreferenceAccount|null=preferenceAccount()):void {
     if(owner===null)return;
     setFailed(false);

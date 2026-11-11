@@ -1,4 +1,6 @@
 import { InlineLoading } from '../../components/InlineLoading.tsx';
+import {createEntityContextMenu} from '../../components/entityContextMenu.ts';
+import {handleModuleActions} from '../../state/moduleActions.ts';
 import {PersonAvatar} from '../../components/PersonAvatar.tsx';
 import { Icon } from '../../components/Icon.tsx';
 // Contacts module (plan §2.5, §3 e7). Address books, the contact list
@@ -63,6 +65,7 @@ export function ContactsModule(): JSX.Element {
   const back = (): void => { setPanel('view'); };
   function manageMembership(groupId: Id | null): void { setMembershipGroup(groupId); setPanel('membership'); }
   const [editingGroup,setEditingGroup] = createSignal<string|null>(null);
+  handleModuleActions('contacts',action=>{if(action==='new'){app.selectContact(null);setPanel('create');}else if(action==='import')setPanel('import');});
   onCleanup(observePreferenceAccount(() => setPanel('view')));
 
   const isAll = createMemo(
@@ -95,11 +98,14 @@ export function ContactsModule(): JSX.Element {
     actions: () => {
       const card = menuCard();
       if (!card) return [];
-      const live = app.contactById(card.id) ?? card;
+      const live = app.contactById(card.id);
+      if(!live)return [];
       const actions = createShareActions(app, () => app.contactById(card.id) ?? card, () => document, requestCompose);
       const address = primaryEmail(live);
       const draft = address ? contactComposeInitial(address, live.name.full) : null;
       return [
+        { id:'open',label:t('common-open'),icon:'person',run:()=>openContact(live.id) },
+        { id:'edit',label:t('common-edit'),icon:'edit',run:()=>{app.selectContact(live.id);setPanel('edit');} },
         { id: 'favorite', label: t(live.isFavorite ? 'contacts-favorite-remove' : 'contacts-favorite-add'), icon: live.isFavorite ? 'starOutline' : 'star', run: () => { void toggleFavorite(app, live.id); } },
         { id: 'email', label: t('contacts-address-compose'), icon: 'mail', disabled: !draft, run: () => { if (draft) requestCompose(draft); } },
         { id: 'share', label: t('contacts-share'), icon: 'share', separatorBefore: true, run: () => undefined, children: [
@@ -108,10 +114,13 @@ export function ContactsModule(): JSX.Element {
           { id: 'share-download', label: t('contacts-share-download'), icon: 'download', run: () => actions.download() },
           ...(actions.nativeAvailable() ? [{ id: 'share-native', label: t('contacts-share-native'), icon: 'share', run: () => actions.native() } satisfies ContextAction] : []),
         ] },
+        { id:'membership',label:t('contacts-membership-title'),icon:'users',run:()=>{app.selectContact(live.id);manageMembership(null);} },
+        { id:'delete',label:t('common-delete'),icon:'delete',separatorBefore:true,run:()=>app.deleteContact(live.id) },
       ] satisfies ContextAction[];
     },
   });
 
+  onCleanup(observePreferenceAccount(()=>{setMenuCard(null);rowMenu.close(false);}));
   function openContact(id: Id): void {
     app.selectContact(id);
     setPanel('view');
@@ -150,6 +159,7 @@ export function ContactsModule(): JSX.Element {
       <Show when={panel() === 'view'}>
       <Sidebar
         isAll={isAll()}
+        onNewContact={()=>{app.selectContact(null);setPanel('create');}}
         onNewGroup={() => {setEditingGroup(null);setPanel('group');}}
         onEditGroup={id=>{setEditingGroup(id);setPanel('group');}}
         onImport={() => setPanel('import')}
@@ -267,12 +277,31 @@ export function ContactsModule(): JSX.Element {
 
 function Sidebar(props: {
   isAll: boolean;
+  onNewContact:()=>void;
   onNewGroup: () => void;
   onEditGroup: (id:string) => void;
   onImport: () => void;
   onMembership: () => void;
 }): JSX.Element {
   const app = useApp();
+  const bookMenu=createEntityContextMenu({items:()=>[{id:'all',name:t('contacts-all')},{id:'favorites',name:t('contacts-favorites')},...app.addressBooks().map(book=>({id:`book:${book.id}`,name:book.name}))],id:item=>item.id,name:item=>item.name,scope:app.accountId,actions:item=>{
+    const open=()=>{app.selectAddressBook(item.id.startsWith('book:')?item.id.slice(5):null);app.setSelectedGroup(null);app.setFavoritesOnly(item.id==='favorites');};
+    const cards=()=>app.contacts().filter(card=>item.id==='favorites'?card.isFavorite:item.id==='all'||card.addressBookId===item.id.slice(5));
+    return [
+      {id:'open',label:t('common-open'),icon:'book',run:open},
+      {id:'new',label:t('contacts-new'),icon:'plus',run:()=>{open();props.onNewContact();}},
+      {id:'import',label:t('contacts-import'),icon:'folder',run:()=>{open();props.onImport();}},
+      {id:'export',label:t('contacts-export-vcard'),icon:'download',separatorBefore:true,run:()=>download('contacts.vcf',toVCardDocument(cards()),'text/vcard')},
+      {id:'refresh',label:t('common-refresh'),icon:'sync',run:()=>app.loadContacts()},
+    ];
+  }});
+  const groupMenu=createEntityContextMenu({items:app.contactGroups,id:group=>group.id,name:group=>group.name,scope:app.accountId,actions:group=>[
+    {id:'open',label:t('common-open'),icon:'users',run:()=>{app.setSelectedGroup(group.id);app.setFavoritesOnly(false);}},
+    {id:'edit',label:t('common-edit'),icon:'edit',run:()=>props.onEditGroup(group.id)},
+    {id:'members',label:t('contacts-membership-title'),icon:'users',run:()=>{app.setSelectedGroup(group.id);props.onMembership();}},
+    {id:'export',label:t('contacts-export-vcard'),icon:'download',run:()=>download('contacts.vcf',toVCardDocument(app.contacts().filter(card=>group.memberIds.includes(card.id))),'text/vcard')},
+    {id:'delete',label:t('common-delete'),icon:'delete',separatorBefore:true,run:async()=>{await app.deleteGroup(group.id);}},
+  ]});
 
   const memberCount = (groupId: Id): number => {
     const g = app.contactGroups().find((x) => x.id === groupId);
@@ -286,6 +315,7 @@ function Sidebar(props: {
         type="button"
         class={css.navButton}
         aria-current={props.isAll}
+        {...bookMenu.bind('all')}
         onClick={() => { app.selectAddressBook(null); app.setSelectedGroup(null); app.setFavoritesOnly(false); }}
       >
         <span>{t('contacts-all')}</span>
@@ -295,6 +325,7 @@ function Sidebar(props: {
         type="button"
         class={css.navButton}
         aria-current={app.favoritesOnly()}
+        {...bookMenu.bind('favorites')}
         onClick={() => { app.setFavoritesOnly(!app.favoritesOnly()); app.setSelectedGroup(null); }}
       >
         <span><Icon name="star" /> {t('contacts-favorites')}</span>
@@ -306,6 +337,7 @@ function Sidebar(props: {
             type="button"
             class={css.navButton}
             aria-current={app.selectedAddressBookId() === book.id}
+            {...bookMenu.bind(`book:${book.id}`)}
             onClick={() => { app.selectAddressBook(book.id); app.setSelectedGroup(null); app.setFavoritesOnly(false); }}
           >
             <span><bdi>{book.name}</bdi></span>
@@ -328,6 +360,7 @@ function Sidebar(props: {
             type="button"
             class={css.navButton}
             aria-current={app.selectedGroupId() === group.id}
+            {...groupMenu.bind(group.id)}
             onClick={() => { app.setSelectedGroup(app.selectedGroupId() === group.id ? null : group.id); app.setFavoritesOnly(false); }}
           >
             <span><bdi>{group.name}</bdi></span>
@@ -340,6 +373,7 @@ function Sidebar(props: {
 
       <h2 class={css.heading}>{t('contacts-data')}</h2>
       <button type="button" class={css.navButton} onClick={props.onImport}>{t('contacts-import')}</button>
+      {bookMenu.menu()}{groupMenu.menu()}
     </aside>
   );
 }

@@ -193,3 +193,40 @@ describe('EventEditor', () => {
     expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull();
   });
 });
+
+it('offers event actions and visibility and color submenus on calendar sidebar rows',async()=>{
+ const {controller}=await renderApp();
+ fireEvent.contextMenu(screen.getByTitle('Design review'));
+ expect(await screen.findByRole('menuitem',{name:'Duplicate'})).toBeVisible();
+ fireEvent.click(screen.getByRole('menuitem',{name:'Open'}));
+ expect(await screen.findByRole('button',{name:'Accept'})).toBeInTheDocument();
+ fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+ const calendar=controller.calendars()[0]!;
+ const row=screen.getByRole('checkbox',{name:`Toggle ${calendar.name}`}).closest('li')!;
+ fireEvent.contextMenu(row);
+ expect(await screen.findByRole('menuitemcheckbox',{name:'Show'})).toHaveAttribute('aria-checked','true');
+ fireEvent.click(screen.getByRole('menuitem',{name:'Color'}));
+ fireEvent.click(await screen.findByRole('menuitemradio',{name:'Violet'}));
+ await waitFor(()=>expect(controller.calendars().find(item=>item.id===calendar.id)?.color).toBe('#a855f7'));
+});
+
+it('creates from the chosen calendar and offers a new event on day cells',async()=>{
+ const {controller}=await renderApp();const calendar=controller.calendars()[1]!;
+ fireEvent.contextMenu(screen.getByRole('checkbox',{name:`Toggle ${calendar.name}`}).closest('li')!);
+ fireEvent.click(await screen.findByRole('menuitem',{name:'New event'}));
+ expect(document.getElementById('ev-cal')).toHaveValue(calendar.id);
+ fireEvent.click(screen.getByRole('button',{name:'Cancel'}));
+ const cell=document.querySelector<HTMLElement>('[role="gridcell"][data-date]')!;
+ fireEvent.contextMenu(cell);expect(await screen.findByRole('menuitem',{name:'New event'})).toBeVisible();
+ fireEvent.click(screen.getByRole('menuitem',{name:'Day'}));
+ expect(controller.view()).toBe('day');
+});
+
+it('disables event writes on a subscription calendar while leaving viewing and export available',async()=>{
+ const store=createMockStore();const event=store.events.find(item=>item.id==='ev-review')!;
+ store.calendars.find(item=>item.id===event.calendarId)!.isReadOnlyOverlay=true;
+ await renderApp(store);fireEvent.contextMenu(screen.getByTitle('Design review'));
+ expect(await screen.findByRole('menuitem',{name:'Duplicate'})).toHaveAttribute('aria-disabled','true');
+ expect(screen.getByRole('menuitem',{name:'Delete'})).toHaveAttribute('aria-disabled','true');
+ expect(screen.getByRole('menuitem',{name:'Export'})).toHaveAttribute('aria-disabled','false');
+});

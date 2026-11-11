@@ -16,7 +16,7 @@ function renderModule(seed: ContactsSeed = defaultSeed()): { app: AppState } {
 }
 
 describe('ContactsModule', () => {
-  it('shows an initial loading skeleton rather than an empty contact list',()=>{const app={...createAppState(makeContactsClient(defaultSeed())),contactsLoading:()=>true,loadContacts:async()=>undefined};render(()=><AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>);expect(document.querySelector('[data-skeleton="list"]')).not.toBeNull();});
+  it('shows an initial loading skeleton rather than an empty contact list',()=>{const app={...createAppState(makeContactsClient(defaultSeed())),contactsLoading:()=>true,loadContacts:async()=>undefined};render(()=><AppContext.Provider value={app}><ContactsModule/></AppContext.Provider>);expect(document.querySelector('[data-testid="inline-loading"]')).not.toBeNull();});
   beforeEach(() => localStorage.clear());
 
   it('lists the account contacts after load', async () => {
@@ -193,4 +193,12 @@ describe('ContactsModule', () => {
     fireEvent.click(within(card).getByRole('button', { name: 'Manage group membership' }));
     expect(await screen.findByTestId('contacts-membership-page')).toBeInTheDocument();
   });
+});
+
+it('opens contact editing and group management from context menus',async()=>{
+ const {app}=renderModule();
+ fireEvent.contextMenu(await screen.findByText('Ada Lovelace'));
+ fireEvent.click(await screen.findByRole('menuitem',{name:'Edit'}));
+ expect(app.selectedContact()?.id).toBe('c1');
+ expect(await screen.findByRole('button',{name:'Save'})).toBeInTheDocument();
 });

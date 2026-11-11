@@ -189,3 +189,20 @@ common-viewer-pdf-details-help = Incluez ces lignes lorsque vous signalez le pro
 timezone-group-other = Autre
 
 timezone-use-browser = Utiliser le fuseau horaire du navigateur ({ $zone })
+
+common-context-actions = Actions pour { $name }
+common-open = Ouvrir
+common-new = Nouvel élément
+common-refresh = Actualiser
+common-duplicate = Dupliquer
+common-copy-fingerprint = Copier l’empreinte
+common-export-public-key = Exporter la clé publique ou le certificat
+common-context-show = Afficher
+common-context-show-only = Afficher uniquement ce calendrier
+common-context-color = Couleur
+common-context-import = Importer
+common-context-export = Exporter
+common-context-pinned = Éléments épinglés
+common-context-unpin = Désépingler
+common-context-my-day = Ajouter à Ma journée
+common-context-remove-my-day = Retirer de Ma journée

@@ -193,3 +193,20 @@ common-viewer-pdf-details-help = قم بتضمين هذه السطور عند ا
 timezone-group-other = أخرى
 
 timezone-use-browser = استخدم المنطقة الزمنية للمتصفح ({ $zone })
+
+common-context-actions = إجراءات { $name }
+common-open = فتح
+common-new = عنصر جديد
+common-refresh = تحديث
+common-duplicate = تكرار
+common-copy-fingerprint = نسخ البصمة
+common-export-public-key = تصدير المفتاح العام أو الشهادة
+common-context-show = إظهار
+common-context-show-only = إظهار هذا التقويم فقط
+common-context-color = اللون
+common-context-import = استيراد
+common-context-export = تصدير
+common-context-pinned = العناصر المثبتة
+common-context-unpin = إلغاء التثبيت
+common-context-my-day = إضافة إلى يومي
+common-context-remove-my-day = إزالة من يومي
