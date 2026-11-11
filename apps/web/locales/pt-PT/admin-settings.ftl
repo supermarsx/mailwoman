@@ -2275,12 +2275,15 @@ admin-settings-key-retention-image-handles-grace-days = Conservação de identif
 admin-settings-help-retention-image-handles-grace-days = Dias de conservação dos identificadores de imagem após a expiração. Zero elimina-os após expirarem.
 admin-settings-key-mail-templates-show-in-sidebar = Mostrar Modelos na barra lateral
 admin-settings-help-mail-templates-show-in-sidebar = Mostra o espaço de trabalho Modelos na barra lateral enquanto os modelos estiverem ativados. Os administradores podem definir e bloquear esta preferência.
+
 admin-settings-key-folders-colour = Cor predefinida das pastas
 admin-settings-help-folders-colour = Defina uma cor #RRGGBB para os ícones e nomes das pastas. Limpe o valor para seguir o tema. Bloqueie para impedir alterações individuais.
 admin-settings-key-reader-actions-create-task = Ação de criar tarefa
 admin-settings-help-reader-actions-create-task = Escolha barra de ferramentas, menu Mais ou oculto para criar uma tarefa a partir de uma mensagem.
+
 admin-settings-key-receipts-schedule-allowed = Confirmações de leitura agendadas
 admin-settings-help-receipts-schedule-allowed = Permite agendar confirmações de leitura pedidas para uma mensagem ou remetente.
+
 admin-settings-key-mail-unified-inbox = Correio unificado
 admin-settings-help-mail-unified-inbox = Consulte e pesquise a caixa de correio principal e as caixas associadas em conjunto.
 admin-settings-key-mail-cross-account-transfer = Copiar ou mover para outra conta

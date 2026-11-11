@@ -2267,16 +2267,20 @@ admin-settings-key-reader-attachment-action-style = Attachment preview actions
 admin-settings-help-reader-attachment-action-style = Show Download and File details beside the preview title as icons (default), labels, or icons and labels. Can be set and locked globally, per domain, or per user.
 admin-settings-key-reader-attachment-thumbnails = Image attachment thumbnails
 admin-settings-help-reader-attachment-thumbnails = Off by default. Allow visible image attachments to load thumbnail previews. Attachment security rules still apply. Can be set and locked globally, per domain, or per user.
+
 admin-settings-key-retention-image-handles-grace-days = Expired image handle retention
 admin-settings-help-retention-image-handles-grace-days = Days expired image handles are kept before cleanup. Zero removes them after expiry.
 admin-settings-key-mail-templates-show-in-sidebar = Show Templates in the sidebar
 admin-settings-help-mail-templates-show-in-sidebar = Show the Templates workspace in the mailbox sidebar while templates are enabled. Administrators can set and lock the preference.
+
 admin-settings-key-folders-colour = Default folder colour
 admin-settings-help-folders-colour = Set a #RRGGBB colour for folder icons and names. Clear the value to follow the theme. Lock it to prevent individual overrides.
 admin-settings-key-reader-actions-create-task = Create task action
 admin-settings-help-reader-actions-create-task = Choose toolbar, More menu or hidden for creating a task from a message.
+
 admin-settings-key-receipts-schedule-allowed = Scheduled read receipts
 admin-settings-help-receipts-schedule-allowed = Allow users to schedule requested read receipts for a message or sender.
+
 admin-settings-key-mail-unified-inbox = Unified mail
 admin-settings-help-mail-unified-inbox = Browse and search the primary and linked mailboxes together.
 admin-settings-key-mail-cross-account-transfer = Copy or move to another account
