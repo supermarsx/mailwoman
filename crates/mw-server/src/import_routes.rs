@@ -136,6 +136,9 @@ async fn import_formats(State(state): State<AppState>, headers: HeaderMap) -> Re
         Ok(session) => session,
         Err(response) => return response,
     };
+    if let Err(response) = crate::mailbox_target_fence(&state, &session, &headers).await {
+        return response;
+    }
     let engine_ready = state.engine.is_some();
     let available = match &state.engine {
         Some(engine) => match engine.import_available(&session.account_id).await {
@@ -245,6 +248,9 @@ async fn ingest_messages(
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    if let Err(response) = crate::mailbox_target_fence(state, &session, headers).await {
+        return response;
+    }
     let Some(engine) = &state.engine else {
         return (
             StatusCode::NOT_IMPLEMENTED,

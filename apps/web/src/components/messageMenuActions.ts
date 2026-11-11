@@ -16,6 +16,7 @@ import {queueRuleDraft,senderRuleDraft} from '../state/ruleDraft.ts';
 import {requestSettings} from '../state/settingsRequest.ts';
 import type {MessageDialogActions} from './properties/MessageProperties.tsx';
 import {featureOn} from '../state/features.ts';
+import {requestMessageTransfer,transfersEnabled} from '../state/messageTransferRequest.ts';
 import {createMessageTask} from './messageTask.ts';
 import {moveActions} from './ReaderMoveMenu.tsx';
 import { loadCatalog } from '../i18n/catalog.ts';
@@ -73,6 +74,7 @@ export function messageActionRows(app:App,email:Email,skip:ReadonlySet<string>=n
  add({id:'move-to',searchLabel:t('mail-move-search'),label:t('mail-reader-move-to'),icon:'moveTo',children:moveActions(email,app),run:()=>{}});
  if(inRole(email,app,'junk')&&app.mailboxes().some(box=>box.role==='inbox'))add({id:'not-spam',label:t('props-act-not-spam'),icon:'spam',run:()=>notSpam(app,email)});
  if(featureOn('tasks') && app.accountId?.())add({id:'create-task',label:t('message-task-action'),icon:'check',run:()=>createMessageTask(app,email)});
+ if(transfersEnabled())add({id:'cross-account-transfer',label:t('workspace-transfer-title'),icon:'moveTo',run:()=>requestMessageTransfer(email)});
  add({id:'view-source',label:t('props-act-source'),icon:'file',run:()=>viewSource(app,email.id)});
  if(senderOf(email)){
   add({id:'create-filter',label:t('props-act-filter'),icon:'filter',run:()=>createFilterFrom(email)});

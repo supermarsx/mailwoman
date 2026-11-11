@@ -1,7 +1,7 @@
 import {afterEach,beforeEach,describe,expect,it,vi} from 'vitest';
 import {apiFetch,setNativeTransport} from './http.ts';
 import {installLinkedMailbox} from './linkedMailboxSession.ts';
-import {activateAccountPreferences,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
+import {activateAccountPreferences,preferenceAccount,suspendAccountPreferences} from './accountPreferenceLifecycle.ts';
 vi.mock('../components/StepUpDialog.tsx',()=>({requestStepUp:async(options:{send:(proof:unknown,begin:boolean)=>Promise<Response>})=>(await options.send({password:'parent-proof'},false)).ok}));
 const child={linkId:'child-link',accountId:'same',storageAuthority:'msa1_child_verified'};
 const header=(init?:RequestInit)=>new Headers(init?.headers).get('x-mailwoman-link');
@@ -65,4 +65,26 @@ describe('linked mailbox: page-held URLs',()=>{
     await apiFetch('/jmap/download/acc/blob1/a.png');
     expect(header(send.mock.calls[0]?.[1])).toBe(child.linkId);
   });
+});
+
+it('addresses a verified workspace mailbox without switching the active selection',async()=>{
+ const send=vi.fn(async(_url:string,_init?:RequestInit)=>ok());vi.stubGlobal('fetch',send);
+ const target={linkId:'different-link',accountId:'other',storageAuthority:'msa1_different_verified',owner:preferenceAccount()!};
+ await apiFetch('/jmap/api',{method:'POST',mailboxTarget:target});
+ await apiFetch('/api/import/formats',{mailboxTarget:{...target,linkId:null}});
+ await apiFetch('/jmap/api',{method:'POST'});
+ const headers=new Headers(send.mock.calls[0]?.[1]?.headers);
+ expect(headers.get('x-mailwoman-link')).toBe('different-link');
+ expect(headers.get('x-mailwoman-account')).toBe('other');
+ expect(headers.get('x-mailwoman-storage-authority')).toBe(target.storageAuthority);
+ expect(send.mock.calls[0]?.[1]?.redirect).toBe('error');
+ expect(header(send.mock.calls[1]?.[1])).toBeNull();
+ expect(header(send.mock.calls[2]?.[1])).toBe(child.linkId);
+ await expect(apiFetch('/api/settings',{mailboxTarget:target})).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});
+ await expect(apiFetch('https://elsewhere.example/jmap/api',{method:'POST',mailboxTarget:target})).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});
+ const schemeRelative='/' + String.fromCharCode(92) + 'elsewhere.example/jmap/api';
+ await expect(apiFetch(schemeRelative,{method:'POST',mailboxTarget:target})).rejects.toMatchObject({name:'LinkedContextUnsupportedError'});
+ suspendAccountPreferences();
+ await expect(apiFetch('/jmap/api',{method:'POST',mailboxTarget:target})).rejects.toMatchObject({name:'AbortError'});
+ expect(send).toHaveBeenCalledTimes(3);
 });

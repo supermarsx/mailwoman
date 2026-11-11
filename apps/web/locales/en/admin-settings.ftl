@@ -2277,3 +2277,7 @@ admin-settings-key-reader-actions-create-task = Create task action
 admin-settings-help-reader-actions-create-task = Choose toolbar, More menu or hidden for creating a task from a message.
 admin-settings-key-receipts-schedule-allowed = Scheduled read receipts
 admin-settings-help-receipts-schedule-allowed = Allow users to schedule requested read receipts for a message or sender.
+admin-settings-key-mail-unified-inbox = Unified mail
+admin-settings-help-mail-unified-inbox = Browse and search the primary and linked mailboxes together.
+admin-settings-key-mail-cross-account-transfer = Copy or move to another account
+admin-settings-help-mail-cross-account-transfer = Transfer messages between linked mailboxes that support export and import.

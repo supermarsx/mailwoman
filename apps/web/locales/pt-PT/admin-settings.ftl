@@ -2281,3 +2281,7 @@ admin-settings-key-reader-actions-create-task = Ação de criar tarefa
 admin-settings-help-reader-actions-create-task = Escolha barra de ferramentas, menu Mais ou oculto para criar uma tarefa a partir de uma mensagem.
 admin-settings-key-receipts-schedule-allowed = Confirmações de leitura agendadas
 admin-settings-help-receipts-schedule-allowed = Permite agendar confirmações de leitura pedidas para uma mensagem ou remetente.
+admin-settings-key-mail-unified-inbox = Correio unificado
+admin-settings-help-mail-unified-inbox = Consulte e pesquise a caixa de correio principal e as caixas associadas em conjunto.
+admin-settings-key-mail-cross-account-transfer = Copiar ou mover para outra conta
+admin-settings-help-mail-cross-account-transfer = Transfira mensagens entre caixas associadas que suportem exportação e importação.

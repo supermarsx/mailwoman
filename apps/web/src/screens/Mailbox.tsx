@@ -97,6 +97,9 @@ import { ConfirmDialog } from './Admin/shell/ConfirmDialog.tsx';
 import { Ribbon } from '../components/Ribbon.tsx';
 import { Settings } from './Settings.tsx';
 import { SharingDialog } from './SharingDialog.tsx';
+import {closeMessageTransfer,pendingMessageTransfer,transfersEnabled} from '../state/messageTransferRequest.ts';
+import {preferenceAccountIsCurrent as isTransferAccountCurrent} from '../api/accountPreferenceLifecycle.ts';
+import {MessageTransferDialog} from './MessageTransferDialog.tsx';
 import { Attachments } from './Attachments.tsx';
 import { AsyncBoundary } from '../components/ErrorBoundary.tsx';
 import { AsyncPending } from '../components/AsyncState.tsx';
@@ -113,6 +116,8 @@ import { AssistPanel } from '../modules/assist/index.ts';
 // t88: the search input, its icon buttons and the filter chips.
 import { SearchBox } from '../components/search/SearchBox.tsx';
 
+const UnifiedMail = lazy(() => import('./UnifiedMail.tsx'));
+void loadCatalog('workspace-mail');
 const Templates = lazy(() => import('./Templates.tsx'));
 void loadCatalog('response-templates');
 // i18n: the ids this file shows live in these catalogs, which load with it.
@@ -509,16 +514,19 @@ export function MailboxScreen(): JSX.Element {
   let initialRoutePending=true;
   const surface = (): ShellSurface => router.route().surface;
   // t98: a surface the feature profile turns off (also when the profile loads or changes later) goes back to mail.
-  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
+  const unifiedEnabled=()=>settings()['mail.unifiedInbox']?.value===true;
+  const transfer=()=>{const request=pendingMessageTransfer();return request&&transfersEnabled()&&isTransferAccountCurrent(request.owner)?request:undefined;};
+  createEffect(()=>{workspaceOwner();if(pendingMessageTransfer()&&!transfer())closeMessageTransfer();});
+  const surfaceAllowed = (d: ShellSurface): boolean => !((d==='unified'&&settingsLoadStatus()==='ready'&&!unifiedEnabled())||(d==='templates'&&settings()['mail.templates.enabled']?.value===false)||(d==='attachments'&&!featureOn('views.attachments'))||(isPimSurface(d)&&!featureOn(d))||(d==='keys'&&!featureOn('keys')));
   createEffect(()=>{const d=surface();if(!surfaceAllowed(d))untrack(()=>router.navigate('mail'));});
   createEffect(()=>{const off=panes().filter(pane=>pane.surface!==undefined&&!surfaceAllowed(pane.surface)).map(pane=>pane.id);if(off.length>0)untrack(()=>void closePanes(off));});
-  createEffect(()=>{const destination=surface(),accountId=app.accountId();untrack(()=>{
+  createEffect(()=>{const destination=surface(),accountId=app.accountId(),unified=unifiedEnabled();untrack(()=>{
     if(destination==='mail'){if(activePane()?.surface)subTabs.activate('mail');return;}
-    if(!surfaceAllowed(destination))return;
+    if(!surfaceAllowed(destination)||destination==='unified'&&!unified)return;
     if(!accountId)return;
     const module=APP_NAV_MODULES.find(item=>item.id===destination);
     const kind=destination==='attachments'?'attachments':destination==='outbox'?'outbox':'module';
-    const title=module?rawT(`common-module-${module.id}`):rawT(destination==='templates'?'response-templates-workspace':destination==='attachments'?'mail-nav-attachments':'mail-nav-outbox');
+    const title=module?rawT(`common-module-${module.id}`):rawT(destination==='unified'?'unified-mail-title':destination==='templates'?'response-templates-workspace':destination==='attachments'?'mail-nav-attachments':'mail-nav-outbox');
     const id=`surface:${accountId}:${destination}`;if(!canOpenPane(id)){router.navigate(activePane()?.surface??'mail');return;}
     if(!panes().some(pane=>pane.id===id))setPanes(old=>[...old,{id,kind,title,surface:destination,reference:destination}]);
     subTabs.open({id,kind,title});
@@ -907,6 +915,7 @@ export function MailboxScreen(): JSX.Element {
       return box?.name ?? t('mail-brand');
     }
     if (s === 'outbox') return t('mail-nav-outbox');
+    if (s === 'unified') return t('unified-mail-title');
     if (s === 'templates') return t('response-templates-workspace');
     if (s === 'attachments') return t('mail-nav-attachments');
     return APP_NAV_MODULES.find((m) => m.id === s)?.label ?? t('mail-brand');
@@ -1105,6 +1114,12 @@ export function MailboxScreen(): JSX.Element {
           >
             <Icon name="attachment"/><span class="sidebar__box-name">{t('mail-nav-attachments')}</span>
           </button></Show>
+          <Show when={unifiedEnabled()}>
+            <button type="button" class="sidebar__box" classList={{'sidebar__box--active':surface()==='unified'}}
+              title={t('unified-mail-title')} aria-label={t('unified-mail-title')} onClick={()=>router.navigate('unified')}>
+              <Icon name="mailboxes"/><span class="sidebar__box-name">{t('unified-mail-title')}</span>
+            </button>
+          </Show>
           <Show when={settings()['mail.templates.enabled']?.value === true && settings()['mail.templates.showInSidebar']?.value !== false}>
             <button type="button" class={`sidebar__box ${a11y.focusable}`}
               classList={{'sidebar__box--active': surface() === 'templates'}} aria-label={t('response-templates-workspace')}
@@ -1225,6 +1240,9 @@ export function MailboxScreen(): JSX.Element {
               <Show when={pane.kind==='outbox'}><Outbox/></Show>
               <Show when={pane.kind==='attachments'}><Attachments accountId={app.accountId()} mailboxes={app.mailboxes()} loadPage={position=>app.listAttachmentsPage(position)} onOpen={openAttachmentTab} onOpenMessage={item=>openMessageTab(item.emailId)}/></Show>
               <Show when={pane.kind==='sharing'&&pane.reference&&pane.accountId}><SharingDialog embedded mailboxId={pane.reference!} accountId={pane.accountId!} mailboxName={pane.title} onClose={()=>void closePane(pane.id)}/></Show>
+              <Show when={pane.surface==='unified'&&unifiedEnabled()}>
+                <Suspense fallback={<AsyncPending/>}><UnifiedMail activeLink={app.linkedMailboxId?.()??null}/></Suspense>
+              </Show>
               <Show when={pane.surface === 'templates'}>
                 <AsyncBoundary><Suspense fallback={<AsyncPending message={t('mail-loading')}/>}>
                   <Templates onCompose={initial => openComposer(initial)} />
@@ -1243,6 +1261,12 @@ export function MailboxScreen(): JSX.Element {
             <Show when={app.selectedIds().size>0} fallback={<Show when={preview()} fallback={<p class="reader__empty">{t('mail-reader-empty')}</p>}>{view=><Reader onOpenReplyDraft={id=>void openReplyDraft(id)} onEditDraft={id=>void editDraft(id)} view={view()} active={previewVisible()} onClose={closePreview} onCompose={initial=>openReply(initial,previewSourceMailboxId)} onOpenAttachment={openAttachmentTab} onExport={messageId=>void openExport(messageId)} onOpenSettings={section=>{openSettings();const pane=panes().find(item=>item.id===`settings:${app.accountId() ?? ''}`);void pane?.navigation?.navigate({section});}}/>}</Show>}><BulkSelectionSummary onCancel={()=>setSelectionReset(value=>value+1)}/></Show>
           </section>
         </div>
+        <Show when={transfer()} keyed>{request=>
+          <MessageTransferDialog request={request} activeLink={app.linkedMailboxId?.()??null} onClose={closeMessageTransfer} onSuccess={result=>{
+            app.showToast('success',t(`workspace-transfer-${result}`));
+            if(result==='moved'&&request.sourceLink===(app.linkedMailboxId?.()??null))void app.refreshFolders().catch(()=>undefined);
+          }}/>
+        }</Show>
         <ConfirmDialog open={dirtyClose()!==null} testId="workspace-tabs-close-dirty"
           title={t('workspace-tabs-close-dirty-title',{count:dirtyClose()?.titles.length??0})} body={t('workspace-tabs-close-dirty-body')}
           confirmLabel={t('workspace-tabs-close-dirty-discard')} cancelLabel={t('workspace-tabs-close-dirty-keep')}

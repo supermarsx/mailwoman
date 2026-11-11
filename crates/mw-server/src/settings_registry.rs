@@ -3392,6 +3392,22 @@ pub static REGISTRY: &[SettingDef] = &[
         "most recent mail actions any user may keep in the Undo and Redo history"
     ),
     def!(
+        "mail.unifiedInbox",
+        Kind::Bool,
+        "false",
+        GDU,
+        "folders",
+        "show a unified mail view across the primary and ready linked mailboxes"
+    ),
+    def!(
+        "mail.crossAccountTransfer",
+        Kind::Bool,
+        "false",
+        GDU,
+        "folders",
+        "show copy and move actions between linked mailbox accounts"
+    ),
+    def!(
         "folders.hideEmpty",
         Kind::Bool,
         "false",

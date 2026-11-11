@@ -38,15 +38,24 @@
 import { basePath, stripBase } from './basePath.ts';
 import { consolePath } from './adminPath.ts';
 import { adminSessionGeneration,observeAdminResponse } from './adminSession.ts';
-import { preferenceAccount, preferenceAccountIsCurrent } from './accountPreferenceLifecycle.ts';
+import { preferenceAccount, preferenceAccountIsCurrent, type PreferenceAccount } from './accountPreferenceLifecycle.ts';
 import {activeLinkedMailbox,linkedMailboxEpoch,LinkedContextUnsupportedError} from './linkedMailboxSession.ts';
 import {linkedRoute,linkedUnsignedResource} from './linkedAccountRouting.ts';
 import { recoverRequest, type RecoveryOptions } from './recovery.ts';
 import { rateAwareSend, type PaceClass } from './rateAware.ts';
 
+export interface MailboxTarget {
+  readonly linkId: string | null;
+  readonly accountId: string;
+  readonly storageAuthority: string;
+  readonly owner: PreferenceAccount;
+}
+
 export interface ApiRequestInit extends RequestInit {
   /** Explicit effective-Me/discovery probe. Never sent as a fetch option. */
   mailboxContext?:string|null;
+  /** Verified catalog target for unified mail and transfers. */
+  mailboxTarget?:MailboxTarget;
   /** t82: retry/recover this request (see `recovery.ts`). Never sent as a fetch option. */
   recovery?:RecoveryOptions;
   /** t106: `background` pacing for prefetch and other work nobody is waiting for (see `rateAware.ts`). Never sent as a fetch option. */
@@ -287,6 +296,7 @@ const confirming = new Map<string, Promise<boolean>>();
 
 /** A refusal occurs before the handler mutates state. Confirm once, then retry once. */
 export async function apiFetch(input: string, options?: ApiRequestInit): Promise<Response> {
+  if(options?.mailboxTarget && /^(?:blob|data):/i.test(input))throw new LinkedContextUnsupportedError();
   // blob:/data: URLs name bytes the page already holds, not an API route: no linked-context check, no CSRF, no retry.
   if (/^(?:blob|data):/i.test(input)) { const { mailboxContext: _m, pace: _p, recovery: _r, ...plain } = options ?? {}; return fetch(input, plain); }
   if (options?.recovery !== undefined) {
@@ -295,8 +305,8 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
     return recoverRequest(input, rest, (init) => apiFetch(input, init as ApiRequestInit | undefined), { ...recovery, authority });
   }
   const contextEpoch=linkedMailboxEpoch();
-  const {mailboxContext,pace,...ordinary}=options??{};
-  let given:RequestInit|undefined=mailboxContext===undefined&&pace===undefined?options:ordinary;
+  const {mailboxContext,mailboxTarget,pace,...ordinary}=options??{};
+  let given:RequestInit|undefined=mailboxContext===undefined&&mailboxTarget===undefined&&pace===undefined?options:ordinary;
   const adminEpoch=adminSessionGeneration();
   const routePath=requestPath(input);
   const admin=routePath.startsWith(`${consolePath()}/`);
@@ -304,12 +314,21 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
   const expectedOrigin=native?.base()?new URL(native.base()!).origin:globalThis.location?.origin;
   const ownServer=isRootRelative(input)||target.origin===expectedOrigin;
   const active=activeLinkedMailbox();
+  if(mailboxTarget){
+    const method=(given?.method??'GET').toUpperCase();
+    const allowed=(method==='POST'&&(routePath==='/jmap/api'||routePath==='/api/import/eml'))
+      ||(method==='GET'&&(routePath==='/api/import/formats'||/^\/api\/export\/[^/]+$/.test(routePath)));
+    const rootOrigin=globalThis.location?.origin??'http://localhost';
+    const scopedOrigin=isRootRelative(input)?rootOrigin:expectedOrigin;
+    if(target.origin!==scopedOrigin||admin||!allowed||mailboxContext!==undefined||!mailboxTarget.accountId||!mailboxTarget.storageAuthority)throw new LinkedContextUnsupportedError();
+  }
   let selected:string|null=null;
   if(ownServer&&!admin){
     const scope=linkedRoute(routePath);
     if(mailboxContext!==undefined&&routePath!=='/api/me'&&routePath!=='/jmap/session'&&routePath!=='/.well-known/jmap')throw new LinkedContextUnsupportedError();
     if(active&&scope==='unsupported')throw new LinkedContextUnsupportedError();
-    selected=scope==='mailbox'?(mailboxContext===undefined?active?.linkId??null:mailboxContext):null;
+    if(mailboxTarget&&scope!=='mailbox')throw new LinkedContextUnsupportedError();
+    selected=mailboxTarget?mailboxTarget.linkId:scope==='mailbox'?(mailboxContext===undefined?active?.linkId??null:mailboxContext):null;
     const headers=new Headers(given?.headers);
     if(headers.has('x-mailwoman-link'))throw new LinkedContextUnsupportedError();
     if(target.searchParams.has('mwLink')){
@@ -317,12 +336,17 @@ export async function apiFetch(input: string, options?: ApiRequestInit): Promise
       target.searchParams.delete('mwLink');
       input=isRootRelative(input)?`${target.pathname}${target.search}${target.hash}`:target.href;
     }
-    if(selected){headers.set('x-mailwoman-link',selected);given={...given,headers};}
+    if(selected)headers.set('x-mailwoman-link',selected);
+    if(mailboxTarget){
+      headers.set('x-mailwoman-account',mailboxTarget.accountId);
+      headers.set('x-mailwoman-storage-authority',mailboxTarget.storageAuthority);
+    }
+    if(selected||mailboxTarget)given={...given,headers,...(mailboxTarget?{redirect:'error' as const}:{})};
   }
   const account=preferenceAccount();
   const expectedAccount=new Headers(given?.headers).get('X-Mailwoman-Account');
   const assertAuthority=():void=>{
-    if(given?.signal?.aborted||(!admin&&ownServer&&contextEpoch!==linkedMailboxEpoch())||(admin&&adminEpoch!==adminSessionGeneration())||(expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
+    if(given?.signal?.aborted||(!admin&&ownServer&&contextEpoch!==linkedMailboxEpoch())||(admin&&adminEpoch!==adminSessionGeneration())||(mailboxTarget&&!preferenceAccountIsCurrent(mailboxTarget.owner))||(!mailboxTarget&&expectedAccount!==null&&account!==null&&(!preferenceAccountIsCurrent(account)||account.id!==expectedAccount)))throw new DOMException('Authentication changed before dispatch','AbortError');
   };
   const originalNative = native;
   const originalToken = originalNative === null ? null : await originalNative.token();

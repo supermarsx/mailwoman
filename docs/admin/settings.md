@@ -123,6 +123,15 @@ Set a default hex colour for folder icons and names. An empty value follows the 
 Choose the toolbar, More menu, or Hidden for the reader action. The action
 uses the current mailbox's task lists and keeps a link to the source message.
 
+<a id="mail.unifiedInbox"></a>
+### Unified mail
+
+Enable a shared view of the primary and ready linked mailboxes. Users can browse across equivalent folder roles, search across accounts, and open each result in its original mailbox.
+
+<a id="mail.crossAccountTransfer"></a>
+### Cross-account transfers
+
+Enable copy and move actions for linked mailboxes. Transfer uses native EML export and durable import. A move then puts the original in Trash. Per-account export, import and folder permissions apply. Message flags and application-local metadata are outside the EML file.
 
 <a id="folders.hideEmpty"></a>
 ### Hide empty folders (`folders.hideEmpty`)

@@ -5,11 +5,14 @@ import type { CardSpec } from './rows.tsx';
 import { loadCatalog } from '../../../i18n/catalog.ts';
 // i18n: the ids this file shows live in these catalogs, which load with it.
 void loadCatalog('folder-dnd');
+void loadCatalog('workspace-mail');
 
 export const FOLDER_PREFERENCE_CARDS: readonly CardSpec[] = [
   { id: 'folders-card-display', section: 'folders', title: 'settings-folders-title', help: 'settings-folders-help', rows: [
     { id: 'folders-collapse-user', label: 'settings-folders-collapse-user', help: 'settings-folders-hidden-help' },
     { id: 'folders-colour', label: 'settings-folders-colour', help: 'settings-folders-colour-help' },
+    { id: 'folders-unified-inbox', label: 'unified-mail-title', help: 'unified-mail-setting-help' },
+    { id: 'folders-cross-account-transfer', label: 'workspace-transfer-title', help: 'workspace-transfer-setting-help' },
     { id: 'folders-hide-empty', label: 'settings-folders-hide-empty', help: 'settings-folders-hide-empty-help' },
   ] },
   { id: 'folders-arrange-card', section: 'folders', title: 'folder-dnd-arrange-title', help: 'folder-dnd-arrange-help', rows: [

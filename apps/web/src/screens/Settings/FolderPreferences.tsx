@@ -93,6 +93,8 @@ function FolderIconEditor(props:{folder:PreferenceFolder;prefs:Accessor<AccountU
 }
 export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
  const defaultColour=useSetting<string>('folders.colour','',(v):v is string=>v===''||isFolderColour(v));
+ const unified=useSetting<boolean>('mail.unifiedInbox',false);
+ const transfers=useSetting<boolean>('mail.crossAccountTransfer',false);
  const hideEmpty=useSetting<boolean>('folders.hideEmpty',false,(value):value is boolean=>typeof value==='boolean');
  const navigation=props.navigation??createSettingsNavigation({section:'folders'});
  const app=useContext(AppContext),owner=preferenceAccount();
@@ -205,6 +207,8 @@ export function FolderPreferences(props:FolderPreferencesProps):JSX.Element {
   <ControlRow controlId="folders-colour" group label={t('settings-folders-colour')} help={t('settings-folders-colour-help')} note={<LockNote id="folders-colour-lock" locked={defaultColour.locked()}/>}>{()=>
    <><ColorField label={t('settings-folders-colour')} value={defaultColour.value()||null} fallback="#3366cc" emptyLabel={t('color-picker-default')} disabled={defaultColour.locked()||defaultColour.saving()} onChange={value=>void defaultColour.set(value??'')}/><Show when={defaultColour.error()}><span role="alert">{defaultColour.error()}</span></Show></>
   }</ControlRow>
+  <ToggleRow id="folders-unified-inbox" label={t('unified-mail-title')} help={t('unified-mail-setting-help')} handle={unified}/>
+  <ToggleRow id="folders-cross-account-transfer" label={t('workspace-transfer-title')} help={t('workspace-transfer-setting-help')} handle={transfers}/>
   <ToggleRow id="folders-hide-empty" label={t('settings-folders-hide-empty')} help={t('settings-folders-hide-empty-help')} handle={hideEmpty}/>
   <Show when={!props.onChange&&app&&ability()?.manages&&current()}><button type="button" class="btn btn--ghost" onClick={()=>setCreating({})}><Icon name="folder"/>{t('folder-create')}</button></Show>
   </SettingsCard>

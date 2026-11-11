@@ -15,6 +15,7 @@ export type ShellSurface =
   | 'mail'
   | 'outbox'
   | 'attachments'
+  | 'unified'
   | 'templates'
   | 'calendar'
   | 'tasks'
@@ -29,6 +30,7 @@ const ALL_SURFACES = new Set<ShellSurface>([
   'mail',
   'outbox',
   'attachments',
+  'unified',
   'templates',
   'calendar',
   'tasks',

@@ -3428,6 +3428,9 @@ async fn jmap_api(
         // A credential lookup must never inherit another browser's proof.
         session.id.clear();
     }
+    if let Err(response) = mailbox_target_fence(&state, &session, &headers).await {
+        return response;
+    }
     // Authorize the entire batch before connecting an account or forwarding
     // any call. A disabled feature cannot hide behind a permitted first call.
     let mut request: Value = match serde_json::from_slice(&body) {
@@ -4552,6 +4555,9 @@ async fn export_message(
         Ok(s) => s,
         Err(resp) => return resp,
     };
+    if let Err(response) = mailbox_target_fence(&state, &session, &headers).await {
+        return response;
+    }
     if let Err(response) =
         step_up::require_user(&state, &session, step_up::StepUpAction::DataExport).await
     {
@@ -6008,6 +6014,22 @@ pub(crate) fn cookie_value(headers: &HeaderMap) -> Option<String> {
 ///
 /// Every session-authed handler calls this, so a held account reaches nothing but
 /// the handlers that call [`authed_with_gate`] instead.
+pub(crate) async fn mailbox_target_fence(
+    state: &AppState, session: &mw_store::Session, headers: &HeaderMap,
+) -> Result<(), Response> {
+    const AUTHORITY: &str = "x-mailwoman-storage-authority";
+    let Some(authority) = headers.get(AUTHORITY) else { return Ok(()); };
+    if headers.get("x-mailwoman-account").and_then(|value| value.to_str().ok()) != Some(session.account_id.as_str()) {
+        return Err(StatusCode::CONFLICT.into_response());
+    }
+    let expected = state.store.session_storage_authority(&session.id).await
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE.into_response())?;
+    if expected.is_none() || expected.as_deref() != authority.to_str().ok() {
+        return Err(StatusCode::CONFLICT.into_response());
+    }
+    Ok(())
+}
+
 pub(crate) async fn authed(
     state: &AppState,
     headers: &HeaderMap,
