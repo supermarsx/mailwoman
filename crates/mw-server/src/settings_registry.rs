@@ -3120,6 +3120,14 @@ pub static REGISTRY: &[SettingDef] = &[
         "where the delete sender reader action appears; hidden by default and requires the administrator capability"
     ),
     def!(
+        "reader.actions.create-task",
+        Kind::Enum(&["toolbar", "menu", "hidden"]),
+        "\"menu\"",
+        GDU,
+        "reader",
+        "placement of create task from message reader action"
+    ),
+    def!(
         "reader.actions.finish-followup",
         Kind::Enum(&["toolbar", "menu", "hidden"]), "\"menu\"", GDU, "reader",
         "where the finish follow-up reader action appears: toolbar, More menu, or hidden"

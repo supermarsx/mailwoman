@@ -3,9 +3,9 @@ import {READER_ACTIONS,READER_ACTION_PLACEMENTS,isReaderActionPlacement,readerAc
 import {PRIORITY} from './ReaderToolbar.tsx';
 describe('reader action placement contract',()=>{
  it('has unique registry-safe keys and preserves all existing defaults',()=>{
-  expect(READER_ACTIONS).toHaveLength(33);expect(new Set(READER_ACTIONS.map(item=>item.id)).size).toBe(33);
+  expect(READER_ACTIONS).toHaveLength(34);expect(new Set(READER_ACTIONS.map(item=>item.id)).size).toBe(34);
   expect(READER_ACTIONS.filter(item=>item.defaultPlacement==='toolbar')).toHaveLength(23);
-  expect(READER_ACTIONS.filter(item=>item.defaultPlacement==='menu')).toHaveLength(9);
+  expect(READER_ACTIONS.filter(item=>item.defaultPlacement==='menu')).toHaveLength(10);
   expect(READER_ACTIONS.filter(item=>item.defaultPlacement==='hidden').map(item=>item.id)).toEqual(['delete-sender']);
   for(const item of READER_ACTIONS){expect(item.id).toMatch(/^[a-z][a-z0-9-]*$/);expect(readerActionKey(item.id)).toBe(`reader.actions.${item.id}`);expect(readerActionPlacement(item.id,{})).toBe(item.defaultPlacement);}
   expect(Object.keys(PRIORITY).sort()).toEqual(READER_ACTIONS.filter(item=>item.defaultPlacement==='toolbar').map(item=>item.id).sort());

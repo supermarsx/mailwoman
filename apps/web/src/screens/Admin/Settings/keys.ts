@@ -131,6 +131,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'reader.actions.sweep',
   'reader.actions.delete-sender',
   'reader.actions.finish-followup',
+  'reader.actions.create-task',
   'reader.actions.print',
   'reader.actions.export',
   'reader.actions.properties',

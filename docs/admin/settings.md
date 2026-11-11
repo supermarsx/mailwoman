@@ -112,6 +112,12 @@ An integer from 0 to 50, default 50. The most actions any user may keep in the U
 
 Administrators can enable scheduled read receipts for native mailboxes with `receipts.scheduleAllowed`. A sender schedule applies to eligible messages opened in a full reader before the chosen time. Clearing a sender schedule stops enrolling new messages. Cancel individual queued receipts from the message.
 
+<a id="reader.actions.create-task"></a>
+### Create task from message
+
+Choose the toolbar, More menu, or Hidden for the reader action. The action
+uses the current mailbox's task lists and keeps a link to the source message.
+
 
 <a id="folders.hideEmpty"></a>
 ### Hide empty folders (`folders.hideEmpty`)

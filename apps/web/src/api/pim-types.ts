@@ -112,6 +112,7 @@ export interface Task {
   status: 'needs-action' | 'in-process' | 'completed' | 'cancelled';
   progress: string;
   recurrenceRules: Array<Record<string, unknown>>;
+  links?: { type: string; id: Id }[];
   /** Parent task id for subtasks (RELATED-TO), or `null`. */
   parentId: Id | null;
   /** The date this task is pinned to My Day / Today, or `null`. */

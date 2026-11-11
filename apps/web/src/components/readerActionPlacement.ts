@@ -36,6 +36,7 @@ export const READER_ACTIONS=[
  {id:'not-spam',labelKey:'reader-action-not-spam',defaultPlacement:'menu'},
  {id:'view-source',labelKey:'reader-action-view-source',defaultPlacement:'menu'},
  {id:'create-filter',labelKey:'reader-action-create-filter',defaultPlacement:'menu'},
+ {id:'create-task',labelKey:'message-task-action',defaultPlacement:'menu'},
  {id:'block-sender',labelKey:'reader-action-block-sender',defaultPlacement:'menu'},
  ] as const;
 export type ReaderActionId=typeof READER_ACTIONS[number]['id'];

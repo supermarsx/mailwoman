@@ -21,6 +21,7 @@ import {
   type JSX,
 } from 'solid-js';
 import { rawT, t, loadCatalog } from '../../i18n';
+import { withBase } from '../../api/basePath.ts';
 import { useApp } from '../../state/context.ts';
 import { isDone } from '../../state/slices/tasks.ts';
 import type { Id } from '../../api/jmap-types.ts';
@@ -79,6 +80,7 @@ export function TasksModule(): JSX.Element {
 
   onMount(() => {
     void loadCatalog('tasks');
+    void loadCatalog('message-task');
     void app.loadTasks();
   });
 
@@ -409,6 +411,16 @@ function TaskItem(props: { task: Task }): JSX.Element {
           <Show when={scheduleLabel(props.task) !== ''}>
             <span class={css.meta}>{scheduleLabel(props.task)}</span>
           </Show>
+          <For each={(props.task.links ?? []).filter(link => link.type === 'email' && typeof link.id === 'string' && link.id)}>
+            {link => {
+              const query = new URLSearchParams({ message: link.id });
+              const mailbox = app.linkedMailboxId?.();
+              if (mailbox) query.set('mailbox', mailbox);
+              return <a class={css.button} href={withBase(`/?${query}#/mail`)} target="_blank" rel="noopener">
+                {t('message-task-open-source')}
+              </a>;
+            }}
+          </For>
           <button
             type="button"
             class={css.button}

@@ -307,6 +307,7 @@ export function createTasksSlice(ctx: SliceContext): TasksSlice {
         status: create.status ?? 'needs-action',
         progress: create.progress ?? '',
         recurrenceRules: create.recurrenceRules ?? [],
+        ...(create.fromEmail ? { links: [{ type: 'email', id: create.fromEmail.emailId }] } : {}),
         parentId: create.parentId ?? null,
         myDayDate: create.myDayDate ?? null,
         etag: created?.etag ?? null,

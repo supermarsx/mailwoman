@@ -2275,5 +2275,7 @@ admin-settings-key-retention-image-handles-grace-days = Conservação de identif
 admin-settings-help-retention-image-handles-grace-days = Dias de conservação dos identificadores de imagem após a expiração. Zero elimina-os após expirarem.
 admin-settings-key-mail-templates-show-in-sidebar = Mostrar Modelos na barra lateral
 admin-settings-help-mail-templates-show-in-sidebar = Mostra o espaço de trabalho Modelos na barra lateral enquanto os modelos estiverem ativados. Os administradores podem definir e bloquear esta preferência.
+admin-settings-key-reader-actions-create-task = Ação de criar tarefa
+admin-settings-help-reader-actions-create-task = Escolha barra de ferramentas, menu Mais ou oculto para criar uma tarefa a partir de uma mensagem.
 admin-settings-key-receipts-schedule-allowed = Confirmações de leitura agendadas
 admin-settings-help-receipts-schedule-allowed = Permite agendar confirmações de leitura pedidas para uma mensagem ou remetente.
