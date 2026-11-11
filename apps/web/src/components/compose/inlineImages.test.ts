@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { embedSignatureImages, embeddedImageFile, embeddedImageSources, inlineAttachments, inlineRefusal, newCid, referencedCids } from './inlineImages.ts';
 
 const img = (cid: string): { cid: string; blobId: string; type: string; name: string; size: number } => ({
@@ -66,4 +66,15 @@ describe('embedded signature images (t49)', () => {
     expect(await embedSignatureImages(html, async () => [{ cid: 'c1@mailwoman' }])).toBe('<p><img src="cid:c1@mailwoman" alt="a"></p><p><img src="cid:c1@mailwoman" alt="b"></p>');
     expect(await embedSignatureImages(html, async () => [])).toBe(html);
   });
+});
+
+it('creates unique inline image IDs when randomUUID is unavailable',()=>{
+ const getRandomValues=crypto.getRandomValues.bind(crypto);
+ vi.stubGlobal('crypto',{getRandomValues});
+ try{
+  const first=newCid(),second=newCid();
+  expect(first).toMatch(/^[0-9a-f]{32}@mailwoman$/);
+  expect(second).not.toBe(first);
+  expect(newCid(()=> 'chosen-id')).toBe('chosen-id@mailwoman');
+ }finally{vi.unstubAllGlobals();}
 });

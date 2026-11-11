@@ -5,7 +5,7 @@ import {signContent,signedSource,remoteServerBase,type SignedContent} from '../.
 import type {StoredInlineImage} from './drafts-store.ts';
 import {embeddedImageFile} from './inlineImages.ts';
 
-const MAX_IMAGES=64,MAX_BYTES=16*1024*1024,MAX_TOTAL=32*1024*1024,DEADLINE=12_000;
+const MAX_IMAGES=64,MAX_BYTES=16*1024*1024,MAX_TOTAL=32*1024*1024,DEFAULT_IMAGE_BUDGET=90_000,MAX_PREPARATION_BUDGET=300_000;
 type Element=T.Element;
 type Image={key:string;kind:'remote'|'part'|'data';value:string};
 const attr=(node:Element,name:string)=>node.attrs.find(item=>item.name===name)?.value??'';
@@ -31,6 +31,7 @@ function cssUrls(source:string,replace:(value:string)=>string):string {
 export interface ReplyImageOptions {
  emailId:string;accountId:string;cidParts:Readonly<Record<string,string>>;
  allowRemote:boolean;allowInline:boolean;blockTrackers:boolean;
+ imageLoadBudgetMs?:number|undefined;
  current:()=>boolean;signal?:AbortSignal;
  upload:(file:File,signal:AbortSignal)=>Promise<StoredInlineImage>;
  sign?:typeof signContent;fetcher?:typeof apiFetch;
@@ -61,7 +62,10 @@ export async function embedReplyImages(html:string,options:ReplyImageOptions):Pr
  });
  const controller=new AbortController(),signal=controller.signal;
  const cancel=()=>controller.abort();options.signal?.addEventListener('abort',cancel,{once:true});if(options.signal?.aborted)cancel();
- const timer=setTimeout(cancel,DEADLINE),inline:StoredInlineImage[]=[],resolved=new Map<string,string>();let bytesRead=0,budgetExhausted=false;
+ const configured=options.imageLoadBudgetMs;
+ const imageBudget=typeof configured==='number'&&Number.isFinite(configured)?Math.max(1_000,Math.min(300_000,configured)):DEFAULT_IMAGE_BUDGET;
+ const deadline=Math.min(MAX_PREPARATION_BUDGET,imageBudget*Math.max(1,Math.ceil(images.size/2)));
+ const timer=setTimeout(cancel,deadline),inline:StoredInlineImage[]=[],resolved=new Map<string,string>();let bytesRead=0,budgetExhausted=false;
  const current=()=>{if(!options.current())controller.abort();return !signal.aborted;};
  try{
   if(!options.current())throw abort();
@@ -74,6 +78,12 @@ export async function embedReplyImages(html:string,options:ReplyImageOptions):Pr
   const worker=async()=>{
    while(index<candidates.length&&!budgetExhausted&&current()){
     const image=candidates[index++]!;
+    const imageController=new AbortController();
+    const cancelImage=()=>imageController.abort();
+    signal.addEventListener('abort',cancelImage,{once:true});
+    if(signal.aborted)cancelImage();
+    const imageSignal=imageController.signal;
+    const imageTimer=setTimeout(()=>imageController.abort(),imageBudget);
     try{
      let file:File|null=null;
      if(image.kind==='data'){file=embeddedImageFile(image.value,'reply-image.png');bytesRead+=file?.size??0;if(bytesRead>MAX_TOTAL){budgetExhausted=true;break;}}
@@ -81,22 +91,23 @@ export async function embedReplyImages(html:string,options:ReplyImageOptions):Pr
       const path=image.kind==='remote'?signed.images.find(item=>item.url===image.value)?.src:signed.parts.find(item=>item.blobId===image.value)?.src;
       const src=path?signedSource(path,image.kind==='remote'?'i':'p',remoteServerBase()):null;
       if(!src)continue;
-      const response=await bounded((options.fetcher??apiFetch)(src,{signal,redirect:'error',headers:{'X-Mailwoman-Account':options.accountId}}),signal);
+      const response=await bounded((options.fetcher??apiFetch)(src,{signal:imageSignal,redirect:'error',headers:{'X-Mailwoman-Account':options.accountId}}),imageSignal);
       if(!current()||budgetExhausted){void response.body?.cancel().catch(()=>undefined);break;}
       if(!response.ok||response.headers.get('x-mw-remote-content')==='tracker'||response.headers.get('content-type')?.split(';')[0]?.trim().toLowerCase()!=='image/png'||Number(response.headers.get('content-length'))>MAX_BYTES){void response.body?.cancel().catch(()=>undefined);continue;}
       const reader=response.body?.getReader();if(!reader)continue;const chunks:Uint8Array[]=[];let length=0;
-      try{for(;;){if(budgetExhausted||!current())throw abort();const chunk=await bounded(reader.read(),signal);if(chunk.done)break;length+=chunk.value.length;bytesRead+=chunk.value.length;if(bytesRead>MAX_TOTAL)budgetExhausted=true;if(length>MAX_BYTES||budgetExhausted)throw new Error('Image byte limit');chunks.push(chunk.value);}}finally{void reader.cancel().catch(()=>undefined);}
+      try{for(;;){if(budgetExhausted||!current())throw abort();const chunk=await bounded(reader.read(),imageSignal);if(chunk.done)break;length+=chunk.value.length;bytesRead+=chunk.value.length;if(bytesRead>MAX_TOTAL)budgetExhausted=true;if(length>MAX_BYTES||budgetExhausted)throw new Error('Image byte limit');chunks.push(chunk.value);}}finally{void reader.cancel().catch(()=>undefined);}
       const data=new Uint8Array(length);let offset=0;for(const chunk of chunks){data.set(chunk,offset);offset+=chunk.length;}
       if(data.length<24||!data.slice(0,8).every((byte,index)=>byte===[137,80,78,71,13,10,26,10][index]))continue;
       const view=new DataView(data.buffer),width=view.getUint32(16),height=view.getUint32(20);if(width===0||height===0||width>16384||height>16384||width*height*4>256*1024*1024||options.blockTrackers&&width<=2&&height<=2)continue;
       file=new File([data],'reply-image.png',{type:'image/png'});
      }
-     if(!file||file.size>MAX_BYTES||!current())continue;
-     const stored=await bounded(options.upload(file,signal),signal);
+     if(!file||file.size>MAX_BYTES||!current()||imageSignal.aborted)continue;
+     const stored=await bounded(options.upload(file,imageSignal),imageSignal);
      if(!current())break;
      if(!/^[A-Za-z0-9!#$%&'*+/=?^_`{|}~.@-]{1,255}$/.test(stored.cid)||!stored.blobId)continue;
      inline.push(stored);resolved.set(image.key,'cid:'+stored.cid);
     }catch{/* One failure must not erase the reply or its other images. */}
+    finally{clearTimeout(imageTimer);signal.removeEventListener('abort',cancelImage);}
    }
   };
   await Promise.all([worker(),worker()]);

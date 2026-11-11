@@ -1184,6 +1184,7 @@ function ReaderBody(props: ReaderProps): JSX.Element {
         const copied=await embedReplyImages(shown.source.html,{
           emailId:email.id,accountId:preparation.account,cidParts:context.cidParts,
           allowRemote:context.allowRemote,allowInline:context.allowInline,blockTrackers:context.blockTrackers,
+          imageLoadBudgetMs:policy().imageLoadBudgetMs,
           current:preparation.current,signal:preparation.signal,
           upload:async(file,signal)=>{
             const contract=await(session??=jmapClient.session());

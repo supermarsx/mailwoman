@@ -38,8 +38,13 @@ export const INLINE_IMAGE_TYPES: ReadonlySet<string> = new Set([
 
 /** A new Content-ID: a random UUID at a fixed right-hand side, which is atext
  *  and `@` only, as the engine requires. */
-export function newCid(random: () => string = () => crypto.randomUUID()): string {
-  return `${random()}@mailwoman`;
+export function newCid(random?: () => string): string {
+  if (random) return `${random()}@mailwoman`;
+  if (typeof crypto.randomUUID === 'function') return `${crypto.randomUUID()}@mailwoman`;
+  // getRandomValues is available in browser contexts where randomUUID is absent.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  const id = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+  return `${id}@mailwoman`;
 }
 
 /** Why `file` cannot be placed in the body, or `null` when it can. */

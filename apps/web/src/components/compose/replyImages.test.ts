@@ -52,10 +52,41 @@ it('never uploads or publishes into a changed account after a late image respons
  let current=true,release!:(response:Response)=>void;const o=options({current:()=>current,fetcher:vi.fn<typeof apiFetch>().mockImplementation(()=>new Promise(resolve=>{release=resolve;}))});const work=embedReplyImages(`<img src="mw-rc:0">${image()}`,o);await vi.waitFor(()=>expect(o.fetcher).toHaveBeenCalledOnce());current=false;release(png());await expect(work).rejects.toMatchObject({name:'AbortError'});expect(o.upload).not.toHaveBeenCalled();
 });
 it('bounds the complete preparation deadline even if an image never responds',async()=>{
- vi.useFakeTimers();const o=options({fetcher:vi.fn<typeof apiFetch>().mockImplementation(()=>new Promise(()=>{}))});const work=embedReplyImages(`<p>Keep reply</p><img src="mw-rc:0">${image()}`,o);await vi.advanceTimersByTimeAsync(12_001);const result=await work;expect(result.html).toContain('Keep reply');expect(result.inline).toEqual([]);expect(result.omitted).toBe(1);expect(o.upload).not.toHaveBeenCalled();
+ vi.useFakeTimers();const o=options({fetcher:vi.fn<typeof apiFetch>().mockImplementation(()=>new Promise(()=>{}))});const work=embedReplyImages(`<p>Keep reply</p><img src="mw-rc:0">${image()}`,o);await vi.advanceTimersByTimeAsync(90_001);const result=await work;expect(result.html).toContain('Keep reply');expect(result.inline).toEqual([]);expect(result.omitted).toBe(1);expect(o.upload).not.toHaveBeenCalled();
 });
 it('uses only two image workers for a large signed batch',async()=>{
  const urls=Array.from({length:8},(_,index)=>`https://images.example.org/${index}.png`);let active=0,peak=0;
  const o=options({sign:vi.fn<typeof signContent>().mockResolvedValue({images:urls.map((url,index)=>({url,src:`/api/rc/i/image${index}.signature`})),parts:[],files:[],refused:[]}),fetcher:vi.fn<typeof apiFetch>().mockImplementation(async()=>{peak=Math.max(peak,++active);await new Promise(resolve=>setTimeout(resolve,5));active--;return png();})});
  const result=await embedReplyImages(urls.map((url,index)=>`<img src="mw-rc:${index}">${image(String(index),url)}`).join(''),o);expect(result.inline).toHaveLength(8);expect(peak).toBe(2);
+});
+
+it('copies a 23-image reply when each proxy response takes longer than twelve seconds',async()=>{
+ vi.useFakeTimers();
+ const urls=Array.from({length:23},(_,index)=>`https://images.example.org/slow-${index}.png`);
+ const o=options({
+  imageLoadBudgetMs:90_000,
+  sign:vi.fn<typeof signContent>().mockResolvedValue({images:urls.map((url,index)=>({url,src:`/api/rc/i/slow${index}.signature`})),parts:[],files:[],refused:[]}),
+  fetcher:vi.fn<typeof apiFetch>().mockImplementation(()=>new Promise(resolve=>setTimeout(()=>resolve(png()),13_000))),
+ });
+ const work=embedReplyImages(urls.map((url,index)=>`<img src="mw-rc:${index}">${image(String(index),url)}`).join(''),o);
+ await vi.advanceTimersByTimeAsync(13_000*12+1);
+ const result=await work;
+ expect(result.inline).toHaveLength(23);
+ expect(result.omitted).toBe(0);
+ expect(o.upload).toHaveBeenCalledTimes(23);
+});
+
+it('uses the configured per-image timeout and continues after a stalled image',async()=>{
+ vi.useFakeTimers();
+ const other='https://images.example.org/other.png';
+ const o=options({
+  imageLoadBudgetMs:2_000,
+  sign:vi.fn<typeof signContent>().mockResolvedValue({images:[{url:remote,src:'/api/rc/i/stalled.signature'},{url:other,src:'/api/rc/i/good.signature'}],parts:[],files:[],refused:[]}),
+  fetcher:vi.fn<typeof apiFetch>().mockImplementation(url=>String(url).includes('stalled')?new Promise(()=>{}):Promise.resolve(png())),
+ });
+ const work=embedReplyImages(`<img src="mw-rc:0"><img src="mw-rc:1">${image()}${image('1',other)}`,o);
+ await vi.advanceTimersByTimeAsync(2_001);
+ const result=await work;
+ expect(result.inline).toHaveLength(1);
+ expect(result.omitted).toBe(1);
 });
