@@ -1,3 +1,4 @@
+import {formatDate as regionalDate} from '../../i18n/format.ts';
 import { createResource, createSignal, Show, type JSX } from 'solid-js';
 import { apiFetch } from '../../api/http.ts';
 import { basePath } from '../../api/basePath.ts';
@@ -53,7 +54,7 @@ export function SigninGeography(): JSX.Element {
       await refetchHistory();
     } finally { setForgetting(false); }
   }
-  const day = (seconds: number): string => new Date(seconds * 1000).toLocaleDateString();
+  const day = (seconds: number): string => regionalDate(seconds*1000);
   const [mode, setMode] = createSignal<string | null>(null);
   const [countries, setCountries] = createSignal<string | null>(null);
   const [ips, setIps] = createSignal<string | null>(null);

@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../i18n/format.ts';
 // Reader badges for the optional message headers: Sensitivity, Reply-By, Expires
 // (with the expired state and the user's "expired messages" choice) and
 // Supersedes. The values come with the opened message (Email/get header:<Name>:asText).
@@ -22,7 +23,7 @@ export function HeaderFactsBadges(props: {
   const visible = (): boolean => settings()['mail.badge.headers']?.value !== false;
   const mode = () => { const v = settings()['mail.expiry.hideExpired']?.value; return isExpiryMode(v) ? v : 'off'; };
   const f = (): HeaderFacts => factsFromEmail(props.email);
-  const date = (d: Date): string => d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const date = (d: Date): string => regionalDateTime(d);
   const expired = (): boolean => isExpired(f(), props.now?.() ?? new Date());
   const [superseded] = createResource(() => (visible() && props.messageId && props.supersededLookup ? props.messageId : null), (id) => props.supersededLookup!(id));
   const supersededBadge = (): JSX.Element => <Show when={resourceValue(superseded) === true}>

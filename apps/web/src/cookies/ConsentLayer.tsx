@@ -1,3 +1,4 @@
+import {formatDate as regionalDate} from '../i18n/format.ts';
 // The cookie consent control: a banner, card or modal chosen by the administrator,
 // with Accept all, Reject all and a per-category view. It is also the Cookie
 // preferences dialog that Settings, the sign-in page and the footer reopen.
@@ -153,7 +154,7 @@ export function ConsentLayer(): JSX.Element {
           </Show>
         </div>
         <Show when={consentStored() && reopened()}>
-          <p class={css.note}>{t('cookies-decided', { date: new Date(consentStored()!.decidedAt).toLocaleDateString(activeLocaleSignal()) })}</p>
+          <p class={css.note}>{t('cookies-decided', { date: regionalDate(consentStored()!.decidedAt) })}</p>
         </Show>
       </div>
     </Show>

@@ -2302,6 +2302,20 @@ JSON array of lowercase types or top-level wildcards requiring acknowledgement. 
 
 ## Time zone helpers
 
+### Regional date and time formats
+
+The following global/domain/user settings default to `auto`. Users can change them in **Settings → Time zones → Region, date and time formats**; administrators can set defaults or lock them in the **Time** category. Automatic formatting follows the selected app language, retaining its explicit region or a matching browser language's region. It affects display labels, not stored instants, ISO dates, recurrence calculations or wire formats.
+
+| Setting | Values |
+| --- | --- |
+| <a id="time.region"></a>`time.region` | `auto` or an uppercase two-letter region such as `GB`, `US`, `PT` or `BR` |
+| <a id="time.dateFormat"></a>`time.dateFormat` | `auto`, `short`, `medium`, `long`, `full`, or a display pattern such as `yyyy-MM-dd`, `dd/MM/yyyy`, `MM/dd/yyyy` |
+| <a id="time.timeFormat"></a>`time.timeFormat` | `auto`, a standard style, or a display pattern such as `HH:mm:ss` or `h:mm a` |
+| <a id="time.hourCycle"></a>`time.hourCycle` | `auto`, `12`, `24`; explicit `H` or `h` pattern tokens take precedence |
+| <a id="time.firstDayOfWeek"></a>`time.firstDayOfWeek` | `auto`, or `0` (Sunday) through `6` (Saturday), applied to calendar views and inserted calendar snapshots |
+
+Date patterns support `yyyy`, `yy`, `M`, `MM`, `MMM`, `MMMM`, `d`, `dd`, `EEE` and `EEEE`. Time patterns support `H`, `HH`, `h`, `hh`, `m`, `mm`, `s`, `ss`, `a`, `aaaa`, `z` and `zzzz`. Quote literal text with apostrophes; double an apostrophe to include it. Patterns are bounded to 120 UTF-8 bytes and validated on both client and server. Live examples show the result before saving. Calendar date keys and timezone arithmetic remain independent of these presentation preferences.
+
 <a id="time.displayZone"></a>`time.displayZone` is global/domain/user text, default `local`. Use a supported IANA zone such as `Europe/Lisbon`, or `local` for the device zone. This changes display, not stored message instants.
 
 <a id="time.comparisonZone"></a>`time.comparisonZone` is global/domain/user text, default empty. A second explicit IANA zone supports sender/recipient scheduling comparisons; no person's location is inferred from their address.

@@ -1,6 +1,7 @@
 import type {Email} from '../api/jmap-types.ts';
 import {t} from '../i18n';
-import {formatLocale} from '../i18n/format.ts';
+import {formatDateWith} from '../i18n/format.ts';
+import {calendarDateInZone} from '../i18n/timezones.ts';
 import {groupThreads,type ThreadVisualRow} from './threads.ts';
 import {priorityOf} from './messagePriority.ts';
 import type {MessageListGroup} from './messageOrder.ts';
@@ -10,7 +11,7 @@ export const GROUP_HEADER_HEIGHT=32;
 export interface MessageGroupHeader {key:string;label:string;count:number;index:number;top:number}
 export interface GroupedMessageLayout {rows:ThreadVisualRow[];headers:MessageGroupHeader[];tops:number[];height:number}
 
-function category(email:Email,group:MessageListGroup,dates:{key:Intl.DateTimeFormat;label:Intl.DateTimeFormat}|undefined):{key:string;label:string} {
+function category(email:Email,group:MessageListGroup,dates:{key:Pick<Intl.DateTimeFormat,'format'>;label:Pick<Intl.DateTimeFormat,'format'>}|undefined):{key:string;label:string} {
  if(group==='sender'){
   const sender=email.from?.[0],address=sender?.email??'';
   return {key:address.trim().toLowerCase(),label:sender?.name?`${sender.name} <${address}>`:address||t('mail-unknown-sender')};
@@ -35,7 +36,7 @@ function category(email:Email,group:MessageListGroup,dates:{key:Intl.DateTimeFor
  * Server comparators put the grouping field before the chosen order. */
 export function groupMessageRows(emails:Email[],expanded:ReadonlySet<string>,group:MessageListGroup,rowHeight:number,timeZone='UTC',conversations=true):GroupedMessageLayout {
  if(group==='none') {const rows=groupThreads(emails,expanded,conversations);return {rows,headers:[],tops:rows.map((_,i)=>i*rowHeight),height:rows.length*rowHeight};}
- const dates=group==='received'||group==='sent'?{key:new Intl.DateTimeFormat('en-CA',{timeZone,year:'numeric',month:'2-digit',day:'2-digit'}),label:new Intl.DateTimeFormat(formatLocale(),{timeZone,dateStyle:'full'})}:undefined;
+ const dates=group==='received'||group==='sent'?{key:{format:(date:Date)=>calendarDateInZone(date,timeZone)},label:{format:(date:Date)=>formatDateWith(date,{timeZone,dateStyle:'full'})}}:undefined;
  const buckets=new Map<string,{key:string;label:string;rows:ThreadVisualRow[];count:number}>();
  let current:{key:string;label:string}|undefined;
  for(const row of groupThreads(emails,expanded,conversations)){

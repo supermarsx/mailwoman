@@ -161,6 +161,7 @@ export const KNOWN_KEYS: readonly string[] = [
   'contacts.saveSender.useReplyTo',
   'nextcloud.syncIntervalSecs',
   'time.displayZone',
+  'time.region','time.dateFormat','time.timeFormat','time.hourCycle','time.firstDayOfWeek',
   'time.comparisonZone',
   'time.showHelpers',
   'notifications.pushAllowed',

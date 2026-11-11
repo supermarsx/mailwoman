@@ -1,0 +1,19 @@
+regional-title = المنطقة وتنسيقات التاريخ والوقت
+regional-help = تتبع الإعدادات التلقائية اللغة والمنطقة. لا تغيّر التنسيقات التواريخ المحفوظة.
+regional-region = المنطقة
+regional-region-help = auto أو رمز منطقة من حرفين، مثل GB أو US أو PT.
+regional-dateFormat = تنسيق التاريخ
+regional-dateFormat-help = auto أو short أو medium أو long أو full أو نمط مثل yyyy-MM-dd أو dd/MM/yyyy. ضع النص الحرفي بين 'علامتي اقتباس'.
+regional-timeFormat = تنسيق الوقت
+regional-timeFormat-help = auto أو short أو medium أو long أو full أو HH:mm:ss / h:mm a. H = 24 ساعة، h = 12 ساعة، a = AM/PM.
+regional-hourCycle = الساعة
+regional-hourCycle-help = تكون الأولوية للرمز H أو h في النمط المخصص.
+regional-firstDayOfWeek = أول يوم في الأسبوع
+regional-firstDayOfWeek-help = يتبع الإعداد التلقائي قواعد التقويم الإقليمية.
+regional-auto = تلقائي (اللغة والمنطقة)
+regional-clock-12 = ساعة بنظام 12 ساعة
+regional-clock-24 = ساعة بنظام 24 ساعة
+regional-preview = معاينة التنسيق (UTC)
+regional-invalid = استخدم auto أو منطقة صحيحة أو نمطًا مدعومًا. أغلق علامات الاقتباس.
+regional-discard = هل تريد تجاهل تغييرات التنسيق غير المحفوظة؟
+regional-clock-auto = { regional-auto }

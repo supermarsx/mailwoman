@@ -27,8 +27,10 @@ import { COMPOSER_FEATURES_CARD } from '../ComposerFeatures.tsx';
 import { COMPOSE_DELIVERY_CARD } from '../ComposeDelivery.tsx';
 import type { CardSpec } from './rows.tsx';
 import { SEARCH_SCOPE_CARD } from '../SearchScopePreferences.tsx';
+import {REGIONAL_CARD} from '../RegionalFormats.tsx';
 
 export const SETTINGS_REGISTRY: readonly CardSpec[] = [
+  REGIONAL_CARD,
   SEARCH_SCOPE_CARD, SETTINGS_TRANSFER_CARD,
   ...READER_CARD_SPECS, ...MAIL_CARD_SPECS, ...COMPOSE_CARDS, COMPOSE_DEFAULTS_CARD, DRAFT_SAVE_CARD,
   COMPOSE_DELIVERY_CARD, COMPOSER_FEATURES_CARD,

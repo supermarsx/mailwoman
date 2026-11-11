@@ -2518,3 +2518,18 @@ admin-settings-linked-disable-confirm = Wyłącz i usuń zapisany dostęp
 
 admin-settings-key-reader-auto-hide-header = Automatycznie ukrywaj nagłówki wiadomości
 admin-settings-help-reader-auto-hide-header = Otwieraj każdą wiadomość ze zwiniętymi danymi nadawcy, odbiorców i metadanymi. Temat i działania pozostają widoczne. Użyj Pokaż nagłówek, aby zobaczyć szczegóły. Domyślnie wyłączone.
+
+admin-settings-key-time-region = Region
+admin-settings-help-time-region = auto lub dwuliterowy kod regionu, np. GB, US lub PT.
+
+admin-settings-key-time-date-format = Format daty
+admin-settings-help-time-date-format = auto, short, medium, long, full lub wzorzec, np. yyyy-MM-dd albo dd/MM/yyyy. Tekst dosłowny umieść w 'apostrofach'.
+
+admin-settings-key-time-time-format = Format godziny
+admin-settings-help-time-time-format = auto, short, medium, long, full lub HH:mm:ss / h:mm a. H = 24 godziny, h = 12 godzin, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Zegar
+admin-settings-help-time-hour-cycle = Symbole H lub h we własnym wzorcu mają pierwszeństwo.
+
+admin-settings-key-time-first-day-of-week = Pierwszy dzień tygodnia
+admin-settings-help-time-first-day-of-week = Automatycznie według regionalnych zasad kalendarza.

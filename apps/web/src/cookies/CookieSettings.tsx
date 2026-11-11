@@ -1,3 +1,4 @@
+import {formatDate as regionalDate} from '../i18n/format.ts';
 // Settings > Privacy: the visitor's current cookie choices and a button that
 // reopens the consent dialog. Shown only while the administrator has the control on.
 
@@ -19,7 +20,7 @@ export function CookieSettings(): JSX.Element {
           <li>{t('cookies-category-necessary')}: {t('cookies-always-on')}</li>
           <For each={offered()}>{(c) => <li>{t(`cookies-category-${c}`)}: {consentEffective()?.allowed[c] ? t('cookies-state-on') : t('cookies-state-off')}</li>}</For>
         </ul>
-        <Show when={consentStored()}><p class={css.meta}>{t('cookies-decided', { date: new Date(consentStored()!.decidedAt).toLocaleDateString() })}</p></Show>
+        <Show when={consentStored()}><p class={css.meta}>{t('cookies-decided', { date: regionalDate(consentStored()!.decidedAt) })}</p></Show>
         <p><button type="button" class="btn btn--ghost" onClick={() => openCookiePreferences()}>{t('cookies-preferences-link')}</button>{' '}
           <button type="button" class="btn btn--ghost" onClick={() => void scanNow(true)}>{t('cookies-scan-now')}</button></p>
         <Show when={policyLinks(consentConfig()).privacy || policyLinks(consentConfig()).cookies}>

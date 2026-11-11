@@ -10,6 +10,7 @@ import { ControlRow } from './layout/SettingRow.tsx';
 import { SettingsCard } from './layout/SettingsCard.tsx';
 import * as kit from './layout/layout.css.ts';
 import * as css from './styles.css.ts';
+import {RegionalFormats} from './RegionalFormats.tsx';
 
 function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:SettingsNavigation}):JSX.Element {
   const setting=useSetting<string>(`time.${props.kind}`,props.kind==='displayZone'?'local':'');
@@ -33,11 +34,11 @@ function ZoneField(props:{kind:'displayZone'|'comparisonZone';navigation:Setting
 }
 export function TimeZones(props:{navigation:SettingsNavigation}):JSX.Element {
   const helpers=useSetting<boolean>('time.showHelpers',true);
-  return <SettingsCard id="time-card" wide title={t('settings-time-title')} description={t('settings-time-help')}>
+  return <><RegionalFormats navigation={props.navigation}/><SettingsCard id="time-card" wide title={t('settings-time-title')} description={t('settings-time-help')}>
     <ControlRow controlId="time-helpers" label={t('settings-time-helpers')} note={<><LockNote locked={helpers.locked()}/>
     <Show when={helpers.error()}><p role="alert">{helpers.error()}</p></Show></>}>{()=>
       <input id="time-helpers" type="checkbox" checked={helpers.value()} disabled={!helpers.entry()||helpers.locked()||helpers.saving()} onChange={event=>void helpers.set(event.currentTarget.checked)}/>
     }</ControlRow>
     <For each={['displayZone','comparisonZone'] as const}>{kind=><ZoneField kind={kind} navigation={props.navigation}/>}</For>
-  </SettingsCard>;
+  </SettingsCard></>;
 }

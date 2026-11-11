@@ -2506,3 +2506,18 @@ admin-settings-linked-disable-confirm = Désactiver et effacer l’accès enregi
 
 admin-settings-key-reader-auto-hide-header = Masquer automatiquement les en-têtes des messages
 admin-settings-help-reader-auto-hide-header = Ouvrir chaque message avec les détails de l’expéditeur, des destinataires et les métadonnées repliés. L’objet et les actions restent visibles. Utilisez Afficher l’en-tête pour voir les détails. Désactivé par défaut.
+
+admin-settings-key-time-region = Région
+admin-settings-help-time-region = auto ou un code de région de deux lettres, comme GB, US ou PT.
+
+admin-settings-key-time-date-format = Format de date
+admin-settings-help-time-date-format = auto, short, medium, long, full ou un motif tel que yyyy-MM-dd ou dd/MM/yyyy. Placez le texte littéral entre 'apostrophes'.
+
+admin-settings-key-time-time-format = Format d’heure
+admin-settings-help-time-time-format = auto, short, medium, long, full ou HH:mm:ss / h:mm a. H = 24 heures, h = 12 heures, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Horloge
+admin-settings-help-time-hour-cycle = Les symboles H ou h d’un motif personnalisé sont prioritaires.
+
+admin-settings-key-time-first-day-of-week = Premier jour de la semaine
+admin-settings-help-time-first-day-of-week = Automatique suit les conventions régionales du calendrier.

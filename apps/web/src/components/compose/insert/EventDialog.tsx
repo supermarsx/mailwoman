@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../../../i18n/format.ts';
 // Insert event: pick an existing event of the user's calendars, or write a new one.
 // Inserts an HTML summary block and returns the .ics for the host to attach
 // (METHOD:REQUEST with ORGANIZER when there are attendees, else PUBLISH).
@@ -79,7 +80,7 @@ export function EventDialog(props: {
     if (ev.title === '' || ev.organizer.email === '') return;
     const labels = { when: t('ins-event-when'), where: t('ins-event-where'), who: t('ins-event-who') };
     const html = eventSummaryHtml(ev, labels);
-    const text = [ev.title, `${labels.when}: ${new Intl.DateTimeFormat(undefined, { timeZone: ev.tz, dateStyle: 'full', timeStyle: 'short' }).format(new Date(ev.start))} (${ev.tz})`, ev.location ? `${labels.where}: ${ev.location}` : '', ev.attendees.length ? `${labels.who}: ${ev.attendees.join(', ')}` : ''].filter(Boolean).join('\n');
+    const text = [ev.title, `${labels.when}: ${regionalDateTime(ev.start,{timeZone:ev.tz,dateStyle:'full',timeStyle:'short'})} (${ev.tz})`, ev.location ? `${labels.where}: ${ev.location}` : '', ev.attendees.length ? `${labels.who}: ${ev.attendees.join(', ')}` : ''].filter(Boolean).join('\n');
     const ics = buildEventIcs(ev);
     const finish = (): void => props.onInsert(html, text, ics);
     if (!alsoCreate()) { finish(); return; }
@@ -92,7 +93,7 @@ export function EventDialog(props: {
       ...(ev.location ? { locations: [{ name: ev.location }] } : {}), ...(ev.description ? { description: ev.description } : {}),
     }).then((id) => { if (id === null) setError(t('ins-event-create-failed')); else finish(); }).catch(() => setError(t('ins-event-create-failed'))).finally(() => setBusy(false));
   };
-  const fmt = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  const fmt = {format:(date:Date)=>regionalDateTime(date)};
   return (
     <InsertDialog title={t(props.existing ? 'ins-event-existing' : 'ins-event-new')} testId="insert-event-dialog" returnTo={props.returnTo} busy={busy() || loaded.loading} onClose={props.onClose} onSubmit={insert} submitDisabled={title().trim() === '' || props.identity === null}>
       <Show when={props.existing}>

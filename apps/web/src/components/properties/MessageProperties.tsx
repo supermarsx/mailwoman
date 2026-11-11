@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 // The message Properties dialog: summary and server location, scoring and
 // authentication, the raw headers with the Received chain, attachments, and
 // whole-message actions (download, permanent delete, copy id, go to folder).
@@ -42,7 +43,7 @@ interface AttachmentPart {name?:string|null;type?:string|null;blobId?:string|nul
 interface Location {id:string;mailboxId:string;mailboxPath:string|null;uid:number;uidValidity:number}
 const DETAIL_PROPERTIES=['id','blobId','from','to','cc','bcc','replyTo','subject','receivedAt','sentAt','messageId','inReplyTo','references','keywords','mailboxIds','threadId','size','hasAttachment','attachments','mailwomanPriority'];
 const addresses=(list:ReadonlyArray<{name?:string|null;email:string}>|null|undefined)=>(list??[]).map(a=>a.name?`${a.name} <${a.email}>`:a.email).join(', ');
-const when=(iso:string|undefined|null)=>{if(!iso)return t('props-none');const d=new Date(iso);return Number.isNaN(d.getTime())?iso:d.toLocaleString();};
+const when=(iso:string|undefined|null)=>{if(!iso)return t('props-none');const d=new Date(iso);return Number.isNaN(d.getTime())?iso:regionalDateTime(d);};
 
 export function MessageDialogs(props:{email:Email;actions?:MessageDialogActions;onClose:()=>void}):JSX.Element {
  const app=useApp(),client=createConfiguredClient(),titleId=`props-${createUniqueId()}`;

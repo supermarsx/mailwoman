@@ -33,6 +33,8 @@ use serde_json::{Value, json};
 
 pub mod link_trust;
 
+#[path = "regional_format.rs"]
+mod regional_format;
 use mw_store::settings_policy::{
     ResolveInput, SettingPolicyRow, SettingScope, SettingSource, SettingSubject, SettingValueRow,
     resolve,
@@ -2198,6 +2200,46 @@ pub static REGISTRY: &[SettingDef] = &[
         GDU,
         "mail",
         "separator inserted after a finished recipient"
+    ),
+    def!(
+        "time.region",
+        text(Text::Plain, 4),
+        "\"auto\"",
+        GDU,
+        "time",
+        "formatting region: auto follows the user language and matching browser region; an uppercase two-letter region overrides it"
+    ),
+    def!(
+        "time.dateFormat",
+        text(Text::Plain, 120),
+        "\"auto\"",
+        GDU,
+        "time",
+        "date display: auto, short, medium, long, full, or a bounded yyyy/MM/dd-style pattern with quoted literals"
+    ),
+    def!(
+        "time.timeFormat",
+        text(Text::Plain, 120),
+        "\"auto\"",
+        GDU,
+        "time",
+        "time display: auto, short, medium, long, full, or a bounded HH:mm:ss or h:mm a-style pattern"
+    ),
+    def!(
+        "time.hourCycle",
+        Kind::Enum(&["auto", "12", "24"]),
+        "\"auto\"",
+        GDU,
+        "time",
+        "12-hour or 24-hour clock; auto follows regional defaults and explicit pattern tokens take precedence"
+    ),
+    def!(
+        "time.firstDayOfWeek",
+        Kind::Enum(&["auto", "0", "1", "2", "3", "4", "5", "6"]),
+        "\"auto\"",
+        GDU,
+        "time",
+        "first calendar weekday: auto follows regional conventions, 0 is Sunday, 1 Monday through 6 Saturday"
     ),
     def!(
         "time.displayZone",
@@ -8789,6 +8831,14 @@ pub fn validate(def: &SettingDef, value: &Value, field: &str) -> Result<Value, R
             &format!("{field}/{index}"),
             format!("must be one of {}", ACCESS_PROTOCOLS.join(", ")),
         ));
+    }
+    if def.key == "time.region" && !value.as_str().is_some_and(regional_format::valid_region) {
+        return bad("must be auto or an uppercase two-letter region code".into());
+    }
+    if matches!(def.key, "time.dateFormat" | "time.timeFormat")
+        && !value.as_str().is_some_and(|pattern| regional_format::valid_format(pattern, def.key == "time.dateFormat"))
+    {
+        return bad("must be auto, a date/time style, or a valid bounded display pattern with quoted literals".into());
     }
     if matches!(def.key, "time.displayZone" | "time.comparisonZone")
         && !value.as_str().is_some_and(|zone| {

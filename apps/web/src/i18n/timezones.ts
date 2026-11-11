@@ -1,9 +1,18 @@
 /** Time-zone calculations never infer a person's location from an email address. */
+import {formatDateWith} from './format.ts';
 export function validTimeZone(value: string): boolean {
   if (!value || value.length > 64 || !/^[A-Za-z_+-]+(?:\/[A-Za-z0-9_+-]+)*$/.test(value)) return false;
   try { new Intl.DateTimeFormat('en', { timeZone: value }).format(0); return true; } catch { return false; }
 }
 export function localTimeZone(): string { return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'; }
+const dateKeyFormatters=new Map<string,Intl.DateTimeFormat>();
+/** An invariant Gregorian date key for calculations, independent of display preferences. */
+export function calendarDateInZone(date:Date,zone:string):string {
+ let formatter=dateKeyFormatters.get(zone);
+ if(!formatter){formatter=new Intl.DateTimeFormat('en-CA-u-ca-gregory-nu-latn',{timeZone:zone,year:'numeric',month:'2-digit',day:'2-digit'});if(dateKeyFormatters.size>=128)dateKeyFormatters.clear();dateKeyFormatters.set(zone,formatter);}
+ const parts=Object.fromEntries(formatter.formatToParts(date).map(part=>[part.type,part.value]));
+ return `${parts['year']}-${parts['month']}-${parts['day']}`;
+}
 /** Canonical IANA zones from the browser's bundled time-zone database, no network. */
 export function supportedTimeZones(): string[] {
   const api=Intl as typeof Intl & {supportedValuesOf?:(key:string)=>string[]};
@@ -72,5 +81,5 @@ export function formatUtcOffset(minutes: number): string {
 }
 /** The wall-clock time in `zone` at `at`, 24-hour `HH:MM`. */
 export function zoneClock(zone: string, at: Date = new Date()): string {
-  try { return new Intl.DateTimeFormat('en-GB',{timeZone:zone,hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(at); } catch { return ''; }
+  try { return formatDateWith(at,{timeZone:zone,hour:'2-digit',minute:'2-digit'}); } catch { return ''; }
 }

@@ -1,0 +1,19 @@
+regional-title = Région et formats de date et d’heure
+regional-help = Les valeurs automatiques suivent la langue et la région. Les formats ne modifient pas les dates enregistrées.
+regional-region = Région
+regional-region-help = auto ou un code de région de deux lettres, comme GB, US ou PT.
+regional-dateFormat = Format de date
+regional-dateFormat-help = auto, short, medium, long, full ou un motif tel que yyyy-MM-dd ou dd/MM/yyyy. Placez le texte littéral entre 'apostrophes'.
+regional-timeFormat = Format d’heure
+regional-timeFormat-help = auto, short, medium, long, full ou HH:mm:ss / h:mm a. H = 24 heures, h = 12 heures, a = AM/PM.
+regional-hourCycle = Horloge
+regional-hourCycle-help = Les symboles H ou h d’un motif personnalisé sont prioritaires.
+regional-firstDayOfWeek = Premier jour de la semaine
+regional-firstDayOfWeek-help = Automatique suit les conventions régionales du calendrier.
+regional-auto = Automatique (langue et région)
+regional-clock-12 = Horloge sur 12 heures
+regional-clock-24 = Horloge sur 24 heures
+regional-preview = Aperçu du format (UTC)
+regional-invalid = Utilisez auto, une région valide ou un motif pris en charge. Fermez les apostrophes.
+regional-discard = Abandonner les modifications de format non enregistrées ?
+regional-clock-auto = { regional-auto }

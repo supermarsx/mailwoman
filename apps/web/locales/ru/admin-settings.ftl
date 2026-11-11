@@ -2518,3 +2518,18 @@ admin-settings-linked-disable-confirm = Отключить и удалить с�
 
 admin-settings-key-reader-auto-hide-header = Автоматически скрывать заголовки сообщений
 admin-settings-help-reader-auto-hide-header = Открывать сообщения со свёрнутыми данными отправителя, получателей и метаданными. Тема и действия остаются видимыми. Нажмите Показать заголовок для просмотра подробностей. По умолчанию отключено.
+
+admin-settings-key-time-region = Регион
+admin-settings-help-time-region = auto или двухбуквенный код региона, например GB, US или PT.
+
+admin-settings-key-time-date-format = Формат даты
+admin-settings-help-time-date-format = auto, short, medium, long, full или шаблон, например yyyy-MM-dd либо dd/MM/yyyy. Обычный текст заключайте в 'кавычки'.
+
+admin-settings-key-time-time-format = Формат времени
+admin-settings-help-time-time-format = auto, short, medium, long, full или HH:mm:ss / h:mm a. H = 24 часа, h = 12 часов, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Часы
+admin-settings-help-time-hour-cycle = Символы H или h в своём шаблоне имеют приоритет.
+
+admin-settings-key-time-first-day-of-week = Первый день недели
+admin-settings-help-time-first-day-of-week = Автоматически по региональным правилам календаря.

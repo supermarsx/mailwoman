@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 // Active-session listing + revocation (t16 e15, SPEC §19 — S11).
 //
 // Lists the account's live sessions (metadata only; raw ids never leave the
@@ -92,7 +93,7 @@ export function Sessions(props: SessionsProps): JSX.Element {
 
   function when(seconds?: number): string {
     if (seconds === undefined) return '—';
-    try { return new Date(seconds * 1000).toLocaleString(); } catch { return String(seconds); }
+    try { return regionalDateTime(seconds*1000); } catch { return String(seconds); }
   }
   function originName(view: LinkedOriginView): string | undefined {
     return view.removed ? t('settings-sessions-linked-removed') : view.origin;

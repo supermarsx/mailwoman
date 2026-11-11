@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../i18n/format.ts';
 import {attachPlainMentions} from '../modules/mentions/plainMentions.ts';
 import {toWithMention} from '../modules/mentions/mentions.ts';
 import type {MentionSource} from '../modules/mentions/mentionSource.ts';
@@ -1885,7 +1886,7 @@ export function Compose(props: {
       items.push({id:'identity',severity:'neutral',icon:'mail',label:via?t('mail-status-from-via',{identity:who,header}):t(`mail-status-from-${choice.reason}`,{identity:who}),detail:t(`mail-compose-from-why-${choice.reason}`,{address,identity:who})+(via?` ${t('mail-compose-from-via',{header})}`:''),testId:'compose-from-hint',actionLabel:t('mail-compose-from-change'),onAction:()=>{setFromVisibleOverride(true);setFromChipOpen(true);revealHeader();}});
     }
     if(uploading())items.push({id:'upload',severity:'busy',icon:'attachment',label:t('mail-compose-uploading')});
-    if(sendAt()!==''){const when=new Date(sendAt());if(!Number.isNaN(when.getTime()))items.push({id:'scheduled',severity:'neutral',icon:'clock',label:t('mail-compose-recall-scheduled',{when:when.toLocaleString()})});}
+    if(sendAt()!==''){const when=new Date(sendAt());if(!Number.isNaN(when.getTime()))items.push({id:'scheduled',severity:'neutral',icon:'clock',label:t('mail-compose-recall-scheduled',{when:regionalDateTime(when)})});}
     const held=app.cancelableOutbox().length;
     if(held>0)items.push({id:'recall',severity:'neutral',icon:'clock',label:t('mail-status-held',{count:held}),onClick:()=>openRecall()});
     if(!localDraftAuthority())items.push({id:'storage',severity:'warning',icon:'alert',label:t('mail-status-storage'),detail:t('mail-compose-private-storage-unavailable')});

@@ -2522,3 +2522,18 @@ admin-settings-linked-disable-confirm = تعطيل ومسح الوصول الم�
 
 admin-settings-key-reader-auto-hide-header = إخفاء رؤوس الرسائل تلقائيًا
 admin-settings-help-reader-auto-hide-header = افتح كل رسالة مع طي تفاصيل المرسل والمستلمين والبيانات الوصفية. يبقى الموضوع والإجراءات ظاهرين. استخدم إظهار الرأس لعرض التفاصيل. معطّل افتراضيًا.
+
+admin-settings-key-time-region = المنطقة
+admin-settings-help-time-region = auto أو رمز منطقة من حرفين، مثل GB أو US أو PT.
+
+admin-settings-key-time-date-format = تنسيق التاريخ
+admin-settings-help-time-date-format = auto أو short أو medium أو long أو full أو نمط مثل yyyy-MM-dd أو dd/MM/yyyy. ضع النص الحرفي بين 'علامتي اقتباس'.
+
+admin-settings-key-time-time-format = تنسيق الوقت
+admin-settings-help-time-time-format = auto أو short أو medium أو long أو full أو HH:mm:ss / h:mm a. H = 24 ساعة، h = 12 ساعة، a = AM/PM.
+
+admin-settings-key-time-hour-cycle = الساعة
+admin-settings-help-time-hour-cycle = تكون الأولوية للرمز H أو h في النمط المخصص.
+
+admin-settings-key-time-first-day-of-week = أول يوم في الأسبوع
+admin-settings-help-time-first-day-of-week = يتبع الإعداد التلقائي قواعد التقويم الإقليمية.

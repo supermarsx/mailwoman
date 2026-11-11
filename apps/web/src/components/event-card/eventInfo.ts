@@ -1,3 +1,4 @@
+import {calendarDateInZone} from '../../i18n/timezones.ts';
 // Pure helpers for the reader's event card (t53): when an event happens in the
 // viewer's zone, its recurrence in words, and the links in its location and
 // description. Everything here reads untrusted calendar text and returns plain
@@ -81,7 +82,7 @@ export function eventRange(ev: CardEvent, viewerZone: string): EventRange | null
 }
 
 function sameDayIn(a: Date, b: Date, zone: string): boolean {
-  const key = (d: Date): string => formatDateWith(d, { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
+  const key = (d: Date): string => calendarDateInZone(d,zone);
   return key(a) === key(b);
 }
 

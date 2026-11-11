@@ -1,3 +1,4 @@
+import {formatDateWith} from '../../i18n/format.ts';
 // The composer's bottom status bar: one fixed-height strip under the editor
 // that holds every notice (draft save state, the identity hint, pre-send
 // problems, upload and recall state), so nothing above the fields appears or
@@ -52,7 +53,7 @@ export function splitItems(items: readonly StatusItem[], capacity: number): { in
 /** The clock time shown next to "Saved", in the user's locale. */
 export function savedTime(at: Date, locale?: string): string {
   try {
-    return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit' }).format(at);
+    return formatDateWith(at,{hour:'2-digit',minute:'2-digit'},locale);
   } catch {
     return at.toISOString().slice(11, 16);
   }

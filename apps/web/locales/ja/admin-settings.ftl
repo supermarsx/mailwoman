@@ -2492,3 +2492,18 @@ admin-settings-linked-disable-confirm = 無効にして保存済みアクセス�
 
 admin-settings-key-reader-auto-hide-header = メッセージのヘッダーを自動的に隠す
 admin-settings-help-reader-auto-hide-header = 各メッセージを開く際、差出人、宛先、メタデータの詳細を折りたたみます。件名と操作は表示したままです。ヘッダーを表示で詳細を確認できます。既定では無効です。
+
+admin-settings-key-time-region = 地域
+admin-settings-help-time-region = auto または GB、US、PT などの2文字の地域コード。
+
+admin-settings-key-time-date-format = 日付の形式
+admin-settings-help-time-date-format = auto、short、medium、long、full、または yyyy-MM-dd や dd/MM/yyyy などのパターン。文字列は '引用符' で囲みます。
+
+admin-settings-key-time-time-format = 時刻の形式
+admin-settings-help-time-time-format = auto、short、medium、long、full、または HH:mm:ss / h:mm a。H = 24時間、h = 12時間、a = AM/PM。
+
+admin-settings-key-time-hour-cycle = 時計
+admin-settings-help-time-hour-cycle = カスタムパターンの H または h が優先されます。
+
+admin-settings-key-time-first-day-of-week = 週の最初の曜日
+admin-settings-help-time-first-day-of-week = 自動設定は地域の暦の慣習に従います。

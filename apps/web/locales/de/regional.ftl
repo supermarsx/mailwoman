@@ -1,0 +1,19 @@
+regional-title = Region, Datums- und Zeitformate
+regional-help = Automatische Vorgaben folgen Sprache und Region. Anzeigeformate ändern keine gespeicherten Daten.
+regional-region = Region
+regional-region-help = auto oder ein Regionscode mit zwei Buchstaben, z. B. GB, US oder PT.
+regional-dateFormat = Datumsformat
+regional-dateFormat-help = auto, short, medium, long, full oder ein Muster wie yyyy-MM-dd oder dd/MM/yyyy. Literalen Text in 'Anführungszeichen' setzen.
+regional-timeFormat = Zeitformat
+regional-timeFormat-help = auto, short, medium, long, full oder HH:mm:ss / h:mm a. H = 24 Stunden, h = 12 Stunden, a = AM/PM.
+regional-hourCycle = Uhrformat
+regional-hourCycle-help = Benutzerdefinierte H- oder h-Muster haben Vorrang.
+regional-firstDayOfWeek = Erster Wochentag
+regional-firstDayOfWeek-help = Automatisch folgt den regionalen Kalenderregeln.
+regional-auto = Automatisch (Sprache und Region)
+regional-clock-12 = 12-Stunden-Uhr
+regional-clock-24 = 24-Stunden-Uhr
+regional-preview = Formatvorschau (UTC)
+regional-invalid = auto, eine gültige Region oder ein unterstütztes Muster verwenden. Anführungszeichen schließen.
+regional-discard = Ungespeicherte Formatänderungen verwerfen?
+regional-clock-auto = { regional-auto }

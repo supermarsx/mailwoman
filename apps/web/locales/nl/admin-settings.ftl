@@ -2500,3 +2500,18 @@ admin-settings-linked-disable-confirm = Uitschakelen en opgeslagen toegang wisse
 
 admin-settings-key-reader-auto-hide-header = Berichtkoppen automatisch verbergen
 admin-settings-help-reader-auto-hide-header = Open elk bericht met ingeklapte afzender-, ontvanger- en metagegevens. Het onderwerp en de acties blijven zichtbaar. Gebruik Kop tonen om de details te zien. Standaard uitgeschakeld.
+
+admin-settings-key-time-region = Regio
+admin-settings-help-time-region = auto of een regiocode van twee letters, zoals GB, US of PT.
+
+admin-settings-key-time-date-format = Datumnotatie
+admin-settings-help-time-date-format = auto, short, medium, long, full of een patroon zoals yyyy-MM-dd of dd/MM/yyyy. Zet letterlijke tekst tussen 'aanhalingstekens'.
+
+admin-settings-key-time-time-format = Tijdnotatie
+admin-settings-help-time-time-format = auto, short, medium, long, full of HH:mm:ss / h:mm a. H = 24 uur, h = 12 uur, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Klok
+admin-settings-help-time-hour-cycle = H of h in een aangepast patroon heeft voorrang.
+
+admin-settings-key-time-first-day-of-week = Eerste dag van de week
+admin-settings-help-time-first-day-of-week = Automatisch volgt de regionale kalenderconventies.

@@ -2518,3 +2518,18 @@ admin-settings-linked-disable-confirm = Вимкнути та видалити �
 
 admin-settings-key-reader-auto-hide-header = Автоматично приховувати заголовки повідомлень
 admin-settings-help-reader-auto-hide-header = Відкривати повідомлення зі згорнутими даними відправника, одержувачів і метаданими. Тема й дії залишаються видимими. Натисніть Показати заголовок для перегляду подробиць. Типово вимкнено.
+
+admin-settings-key-time-region = Регіон
+admin-settings-help-time-region = auto або дволітерний код регіону, наприклад GB, US чи PT.
+
+admin-settings-key-time-date-format = Формат дати
+admin-settings-help-time-date-format = auto, short, medium, long, full або шаблон, наприклад yyyy-MM-dd чи dd/MM/yyyy. Звичайний текст беріть у 'лапки'.
+
+admin-settings-key-time-time-format = Формат часу
+admin-settings-help-time-time-format = auto, short, medium, long, full або HH:mm:ss / h:mm a. H = 24 години, h = 12 годин, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Годинник
+admin-settings-help-time-hour-cycle = Символи H або h у власному шаблоні мають пріоритет.
+
+admin-settings-key-time-first-day-of-week = Перший день тижня
+admin-settings-help-time-first-day-of-week = Автоматично за регіональними правилами календаря.

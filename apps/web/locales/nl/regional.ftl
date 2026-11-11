@@ -1,0 +1,19 @@
+regional-title = Regio, datum- en tijdnotatie
+regional-help = Automatische waarden volgen je taal en regio. Notaties veranderen opgeslagen datums niet.
+regional-region = Regio
+regional-region-help = auto of een regiocode van twee letters, zoals GB, US of PT.
+regional-dateFormat = Datumnotatie
+regional-dateFormat-help = auto, short, medium, long, full of een patroon zoals yyyy-MM-dd of dd/MM/yyyy. Zet letterlijke tekst tussen 'aanhalingstekens'.
+regional-timeFormat = Tijdnotatie
+regional-timeFormat-help = auto, short, medium, long, full of HH:mm:ss / h:mm a. H = 24 uur, h = 12 uur, a = AM/PM.
+regional-hourCycle = Klok
+regional-hourCycle-help = H of h in een aangepast patroon heeft voorrang.
+regional-firstDayOfWeek = Eerste dag van de week
+regional-firstDayOfWeek-help = Automatisch volgt de regionale kalenderconventies.
+regional-auto = Automatisch (taal en regio)
+regional-clock-12 = 12-uursklok
+regional-clock-24 = 24-uursklok
+regional-preview = Notatievoorbeeld (UTC)
+regional-invalid = Gebruik auto, een geldige regio of een ondersteund patroon. Sluit aanhalingstekens.
+regional-discard = Niet-opgeslagen notatiewijzigingen verwerpen?
+regional-clock-auto = { regional-auto }

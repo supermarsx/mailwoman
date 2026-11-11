@@ -2500,3 +2500,18 @@ admin-settings-linked-disable-confirm = Desativar e limpar o acesso salvo
 
 admin-settings-key-reader-auto-hide-header = Ocultar automaticamente os cabeçalhos das mensagens
 admin-settings-help-reader-auto-hide-header = Abrir cada mensagem com os detalhes do remetente, destinatários e metadados recolhidos. O assunto e as ações permanecem visíveis. Use Mostrar cabeçalho para ver os detalhes. Desativado por padrão.
+
+admin-settings-key-time-region = Região
+admin-settings-help-time-region = auto ou um código de região de duas letras, como GB, US ou PT.
+
+admin-settings-key-time-date-format = Formato de data
+admin-settings-help-time-date-format = auto, short, medium, long, full ou um padrão como yyyy-MM-dd ou dd/MM/yyyy. Coloque texto literal entre 'aspas'.
+
+admin-settings-key-time-time-format = Formato de hora
+admin-settings-help-time-time-format = auto, short, medium, long, full ou HH:mm:ss / h:mm a. H = 24 horas, h = 12 horas, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Relógio
+admin-settings-help-time-hour-cycle = Os símbolos H ou h de um padrão personalizado têm prioridade.
+
+admin-settings-key-time-first-day-of-week = Primeiro dia da semana
+admin-settings-help-time-first-day-of-week = Automático segue as convenções da região.

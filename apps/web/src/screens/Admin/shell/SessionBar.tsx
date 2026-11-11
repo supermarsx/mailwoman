@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../../../i18n/format.ts';
 // The admin session bar: what is left of the admin session, along the bottom edge.
 //
 // It counts down to whichever of the two server deadlines comes first (the idle
@@ -86,8 +87,8 @@ export function SessionBar(props: SessionBarProps): JSX.Element {
   const signedIn = (): string => {
     const at = bar.timing()?.signedInAt;
     if (at === undefined) return '';
-    try { return new Intl.DateTimeFormat(document.documentElement.lang || undefined, { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(at * 1000)); }
-    catch { return new Date(at * 1000).toLocaleString(); }
+    try { return regionalDateTime(at*1000); }
+    catch { return regionalDateTime(at*1000); }
   };
 
   return (

@@ -172,6 +172,7 @@ export function Settings(props: SettingsProps): JSX.Element {
   let panel!: HTMLElement;
   onMount(() => {
     void loadCatalog('settings');
+    void loadCatalog('regional');
     void loadCatalog('linked-accounts');
     void loadCatalog('mail-transfer');
     void loadCatalog('retention');

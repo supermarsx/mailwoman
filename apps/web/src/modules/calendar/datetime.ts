@@ -10,6 +10,7 @@
 // (add days/months), never naive millisecond addition, so DST shifts are safe.
 
 import { formatDateWith, formatLocale } from '../../i18n/format.ts';
+import {regionalWeekStart} from '../../i18n/regional.ts';
 
 /** Parsed components of a `LocalDateTime` / date string. */
 export interface DateParts {
@@ -162,6 +163,7 @@ export function startOfWeek(d: Date, weekStartsOn: number = 1): Date {
  * load window both consult this so they always agree on where a week begins.
  */
 export function localeWeekStart(locale?: string): number {
+  const override=regionalWeekStart();if(locale===undefined&&override!==undefined)return override;
   try {
     const tag = locale ?? weekLocale();
     const loc = new Intl.Locale(tag) as Intl.Locale & {
@@ -184,10 +186,7 @@ export function localeWeekStart(locale?: string): number {
  * the same language, so `en` on an `en-GB` browser still starts on Monday.
  */
 function weekLocale(): string {
-  const app = formatLocale();
-  const browser = typeof navigator !== 'undefined' ? navigator.language : '';
-  const lang = (tag: string): string => tag.split('-')[0]!.toLowerCase();
-  return browser !== '' && lang(browser) === lang(app) ? browser : app;
+  return formatLocale();
 }
 
 export function sameDay(a: Date, b: Date): boolean {

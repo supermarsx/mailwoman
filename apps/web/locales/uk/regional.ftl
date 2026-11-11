@@ -1,0 +1,19 @@
+regional-title = Регіон і формати дати та часу
+regional-help = Автоматичні значення залежать від мови й регіону. Формати не змінюють збережені дати.
+regional-region = Регіон
+regional-region-help = auto або дволітерний код регіону, наприклад GB, US чи PT.
+regional-dateFormat = Формат дати
+regional-dateFormat-help = auto, short, medium, long, full або шаблон, наприклад yyyy-MM-dd чи dd/MM/yyyy. Звичайний текст беріть у 'лапки'.
+regional-timeFormat = Формат часу
+regional-timeFormat-help = auto, short, medium, long, full або HH:mm:ss / h:mm a. H = 24 години, h = 12 годин, a = AM/PM.
+regional-hourCycle = Годинник
+regional-hourCycle-help = Символи H або h у власному шаблоні мають пріоритет.
+regional-firstDayOfWeek = Перший день тижня
+regional-firstDayOfWeek-help = Автоматично за регіональними правилами календаря.
+regional-auto = Автоматично (мова й регіон)
+regional-clock-12 = 12-годинний формат
+regional-clock-24 = 24-годинний формат
+regional-preview = Приклад формату (UTC)
+regional-invalid = Використовуйте auto, правильний регіон або підтримуваний шаблон. Закрийте лапки.
+regional-discard = Відкинути незбережені зміни формату?
+regional-clock-auto = { regional-auto }

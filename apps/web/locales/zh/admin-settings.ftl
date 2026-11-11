@@ -2492,3 +2492,18 @@ admin-settings-linked-disable-confirm = 禁用并清除已保存访问
 
 admin-settings-key-reader-auto-hide-header = 自动隐藏邮件标头
 admin-settings-help-reader-auto-hide-header = 打开每封邮件时折叠发件人、收件人和元数据详情。主题和操作保持可见。使用显示标头可查看详情。默认关闭。
+
+admin-settings-key-time-region = 地区
+admin-settings-help-time-region = auto 或两个字母的地区代码，例如 GB、US 或 PT。
+
+admin-settings-key-time-date-format = 日期格式
+admin-settings-help-time-date-format = auto、short、medium、long、full，或 yyyy-MM-dd、dd/MM/yyyy 等模式。文字内容请放在 '引号' 中。
+
+admin-settings-key-time-time-format = 时间格式
+admin-settings-help-time-time-format = auto、short、medium、long、full，或 HH:mm:ss / h:mm a。H = 24小时，h = 12小时，a = AM/PM。
+
+admin-settings-key-time-hour-cycle = 时钟
+admin-settings-help-time-hour-cycle = 自定义模式中的 H 或 h 优先。
+
+admin-settings-key-time-first-day-of-week = 每周的第一天
+admin-settings-help-time-first-day-of-week = 自动遵循地区日历惯例。

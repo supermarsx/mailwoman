@@ -1,3 +1,4 @@
+import {calendarDateInZone} from '../../i18n/timezones.ts';
 // The Outlook-style mini day agenda beside an event card (t53): the account's
 // own calendar for the event's day, a few hours either side, the event drawn
 // over it, and every own event that overlaps it marked as a conflict. Uses the
@@ -24,11 +25,11 @@ function localMinutes(d: Date, zone: string): number {
 
 /** The instant of local midnight of the day `d` falls on, in `zone`, and the next. */
 export function dayBounds(d: Date, zone: string): { from: Date; to: Date; ymd: string } {
-  const ymd = formatDateWith(d, { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' });
-  const parts = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(d);
+  const ymd = calendarDateInZone(d,zone);
+  const parts = calendarDateInZone(d,zone);
   const from = wallTimeCandidates(`${parts}T00:00:00`, zone)[0] ?? new Date(`${parts}T00:00:00Z`);
   const next = new Date(from.getTime() + 26 * 3_600_000);
-  const nextParts = new Intl.DateTimeFormat('en-CA', { timeZone: zone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(next);
+  const nextParts = calendarDateInZone(next,zone);
   const to = wallTimeCandidates(`${nextParts}T00:00:00`, zone)[0] ?? new Date(from.getTime() + 86_400_000);
   return { from, to, ymd };
 }

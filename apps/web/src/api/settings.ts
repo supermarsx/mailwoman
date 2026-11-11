@@ -22,6 +22,7 @@
 
 import { createSignal } from 'solid-js';
 import {configureMailLeetspeak} from '../i18n/presentation.ts';
+import {configureRegionalSettings} from '../i18n/regional.ts';
 import { withBase } from './basePath.ts';
 import { apiFetch } from './http.ts';
 import { idempotentWrite } from './recovery.ts';
@@ -174,6 +175,7 @@ export async function deleteSetting(key: string, fetcher: Fetcher = defaultFetch
 
 const [settingsMap, setSettingsMap] = createSignal<SettingsMap>({});
 configureMailLeetspeak(()=>settingsMap()['appearance.leetspeak']?.value===true);
+configureRegionalSettings(()=>settingsMap());
 const [settingsStatus, setSettingsStatus] = createSignal<'idle' | 'loading' | 'ready' | 'signed-out' | 'error'>(
   'idle',
 );

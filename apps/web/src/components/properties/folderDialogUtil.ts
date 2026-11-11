@@ -1,10 +1,11 @@
+import {formatDate as regionalDate,formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 // Small helpers shared by the folder dialog's header and tabs.
 import {t} from '../../i18n';
 import {toast} from '../toast/toast.ts';
 import type {Mailbox} from '../../api/jmap-types.ts';
 
-export const dateText=(iso:string|null|undefined)=>{if(!iso)return t('props-none');const d=new Date(iso);return Number.isNaN(d.getTime())?iso:d.toLocaleDateString(undefined,{year:'numeric',month:'short',day:'numeric'});};
-export const dateTimeText=(iso:string|null|undefined)=>{if(!iso)return t('props-none');const d=new Date(iso);return Number.isNaN(d.getTime())?iso:d.toLocaleString();};
+export const dateText=(iso:string|null|undefined)=>{if(!iso)return t('props-none');const d=new Date(iso);return Number.isNaN(d.getTime())?iso:regionalDate(d);};
+export const dateTimeText=(iso:string|null|undefined)=>{if(!iso)return t('props-none');const d=new Date(iso);return Number.isNaN(d.getTime())?iso:regionalDateTime(d);};
 
 /** Copy `text`, then say so (or say it failed). */
 export async function copyText(text:string,done=t('props-act-copied')):Promise<void> {

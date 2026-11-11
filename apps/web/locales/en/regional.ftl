@@ -1,0 +1,19 @@
+regional-title = Region, date and time formats
+regional-help = Automatic defaults follow your language and region. Display formats do not change stored dates.
+regional-region = Region
+regional-region-help = auto or a two-letter region code, such as GB, US or PT.
+regional-dateFormat = Date format
+regional-dateFormat-help = auto, short, medium, long, full or a pattern such as yyyy-MM-dd or dd/MM/yyyy. Put literal text in 'quotes'.
+regional-timeFormat = Time format
+regional-timeFormat-help = auto, short, medium, long, full or HH:mm:ss / h:mm a. H = 24-hour, h = 12-hour, a = AM/PM.
+regional-hourCycle = Clock
+regional-hourCycle-help = Custom H or h pattern tokens take precedence.
+regional-firstDayOfWeek = First day of the week
+regional-firstDayOfWeek-help = Automatic follows regional calendar conventions.
+regional-auto = Automatic (language and region)
+regional-clock-12 = 12-hour clock
+regional-clock-24 = 24-hour clock
+regional-preview = Format preview (UTC)
+regional-invalid = Use auto, a valid region or a supported pattern. Close quoted text.
+regional-discard = Discard unsaved regional-format changes?
+regional-clock-auto = { regional-auto }

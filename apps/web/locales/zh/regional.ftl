@@ -1,0 +1,19 @@
+regional-title = 地区及日期时间格式
+regional-help = 自动设置遵循语言和地区。显示格式不会更改已保存的日期。
+regional-region = 地区
+regional-region-help = auto 或两个字母的地区代码，例如 GB、US 或 PT。
+regional-dateFormat = 日期格式
+regional-dateFormat-help = auto、short、medium、long、full，或 yyyy-MM-dd、dd/MM/yyyy 等模式。文字内容请放在 '引号' 中。
+regional-timeFormat = 时间格式
+regional-timeFormat-help = auto、short、medium、long、full，或 HH:mm:ss / h:mm a。H = 24小时，h = 12小时，a = AM/PM。
+regional-hourCycle = 时钟
+regional-hourCycle-help = 自定义模式中的 H 或 h 优先。
+regional-firstDayOfWeek = 每周的第一天
+regional-firstDayOfWeek-help = 自动遵循地区日历惯例。
+regional-auto = 自动（语言和地区）
+regional-clock-12 = 12小时时钟
+regional-clock-24 = 24小时时钟
+regional-preview = 格式预览（UTC）
+regional-invalid = 请使用 auto、有效地区或支持的模式。请闭合引号。
+regional-discard = 放弃尚未保存的格式更改？
+regional-clock-auto = { regional-auto }

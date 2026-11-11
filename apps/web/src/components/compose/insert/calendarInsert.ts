@@ -1,3 +1,6 @@
+import {formatDateWith} from '../../../i18n/format.ts';
+import {localeWeekStart} from '../../../modules/calendar/datetime.ts';
+import {regionalWeekStart} from '../../../i18n/regional.ts';
 // Calendar blocks for the Insert tab: free slots, an agenda, a month snapshot, an
 // event summary, and the iCalendar (.ics) that goes with an event. All output is
 // mail-safe HTML (tables, inline styles) built from plain data; the caller fetches
@@ -31,8 +34,8 @@ export function zonedToUtc(y: number, m: number, d: number, h: number, min: numb
 }
 
 const pad = (n: number): string => String(n).padStart(2, '0');
-const timeIn = (ms: number, tz: string, locale?: string): string => new Intl.DateTimeFormat(locale, { timeZone: tz, hour: '2-digit', minute: '2-digit' }).format(new Date(ms));
-const dayLabel = (ms: number, tz: string, locale?: string): string => new Intl.DateTimeFormat(locale, { timeZone: tz, weekday: 'short', day: 'numeric', month: 'short' }).format(new Date(ms));
+const timeIn = (ms: number, tz: string, locale?: string): string => formatDateWith(new Date(ms),{timeZone:tz,hour:'2-digit',minute:'2-digit'},locale);
+const dayLabel = (ms: number, tz: string, locale?: string): string => formatDateWith(new Date(ms),{timeZone:tz,weekday:'short',day:'numeric',month:'short'},locale);
 
 const TABLE = 'border-collapse:collapse;font-family:Arial,Helvetica,sans-serif;font-size:13px;color:#222222';
 const CELL = 'border:1px solid #c8c8c8;padding:5px 10px;vertical-align:top';
@@ -116,7 +119,7 @@ export function agendaHtml(events: readonly AgendaEvent[], o: AgendaOptions): st
 export interface SnapshotOptions { year: number; month: number; tz: string; visibility: Visibility; weekStartsOn?: number; locale?: string; labels: { note: string } }
 
 export function snapshotHtml(events: readonly AgendaEvent[], o: SnapshotOptions): string {
-  const startDow = o.weekStartsOn ?? 1;
+  const startDow = o.weekStartsOn ?? regionalWeekStart() ?? localeWeekStart(o.locale);
   const first = Date.UTC(o.year, o.month - 1, 1);
   const days = new Date(o.year, o.month, 0).getDate();
   const lead = (new Date(first).getUTCDay() - startDow + 7) % 7;
@@ -125,7 +128,7 @@ export function snapshotHtml(events: readonly AgendaEvent[], o: SnapshotOptions)
     const p = partsIn(Date.parse(ev.start), o.tz);
     if (p.y === o.year && p.m === o.month) byDay.set(p.d, [...(byDay.get(p.d) ?? []), ev]);
   }
-  const names = Array.from({ length: 7 }, (_, i) => new Intl.DateTimeFormat(o.locale, { weekday: 'short', timeZone: 'UTC' }).format(new Date(Date.UTC(2024, 0, 7 + ((startDow + i) % 7)))));
+  const names = Array.from({ length: 7 }, (_, i) => formatDateWith(new Date(Date.UTC(2024,0,7+((startDow+i)%7))),{weekday:'short',timeZone:'UTC'},o.locale));
   const cells: string[] = [];
   for (let i = 0; i < lead; i++) cells.push(`<td style="${CELL}"></td>`);
   for (let d = 1; d <= days; d++) {
@@ -138,7 +141,7 @@ export function snapshotHtml(events: readonly AgendaEvent[], o: SnapshotOptions)
   while (cells.length % 7 !== 0) cells.push(`<td style="${CELL}"></td>`);
   const rows: string[] = [];
   for (let i = 0; i < cells.length; i += 7) rows.push(`<tr>${cells.slice(i, i + 7).join('')}</tr>`);
-  const title = new Intl.DateTimeFormat(o.locale, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(first));
+  const title = formatDateWith(new Date(first),{month:'long',year:'numeric',timeZone:'UTC'},o.locale);
   return `<table data-mw-calendar="snapshot" cellpadding="0" cellspacing="0" style="${TABLE}"><caption style="text-align:left;font-weight:bold;padding:4px 0">${esc(title)}</caption><thead><tr>${names.map((n) => `<th style="${HEAD}">${esc(n)}</th>`).join('')}</tr></thead><tbody>${rows.join('')}</tbody></table><p style="font-family:Arial,Helvetica,sans-serif;font-size:12px;color:#555555;margin:4px 0 0">${esc(o.labels.note.replace('{tz}', o.tz))}</p>`;
 }
 
@@ -158,7 +161,7 @@ export interface EventDraft {
 }
 
 export function eventSummaryHtml(ev: EventDraft, labels: { when: string; where: string; who: string }, locale?: string): string {
-  const fmt = new Intl.DateTimeFormat(locale, { timeZone: ev.tz, dateStyle: 'full', timeStyle: 'short' });
+  const fmt = {format:(date:Date)=>formatDateWith(date,{timeZone:ev.tz,dateStyle:'full',timeStyle:'short'},locale)};
   const row = (k: string, v: string): string => (v === '' ? '' : `<tr><td style="${CELL};color:#555555">${esc(k)}</td><td style="${CELL}">${v}</td></tr>`);
   return `<table data-mw-calendar="event" cellpadding="0" cellspacing="0" style="${TABLE}"><tbody><tr><td colspan="2" style="${HEAD}"><strong>${esc(ev.title)}</strong></td></tr>${row(labels.when, `${esc(fmt.format(new Date(ev.start)))} \u2013 ${esc(timeIn(ev.end, ev.tz, locale))} (${esc(ev.tz)})`)}${row(labels.where, esc(ev.location ?? ''))}${row(labels.who, esc(ev.attendees.join(', ')))}${ev.description ? `<tr><td colspan="2" style="${CELL}">${esc(ev.description).replace(/\n/g, '<br>')}</td></tr>` : ''}</tbody></table>`;
 }

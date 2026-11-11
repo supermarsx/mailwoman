@@ -1,11 +1,11 @@
 // Locale-aware formatting for dates, times, numbers, byte sizes and lists
 // (t32-admin §2.9).
 //
-// Every function formats in the ACTIVE APP LOCALE (the one `t()` uses), not the
-// browser's default locale: a user who picked German in Mailwoman sees German
-// dates even on an English browser. Reading the locale goes through the
-// registry's reactive signal, so a call inside JSX re-renders when the locale
-// changes, exactly like `t()`.
+// Display formatting follows the active app language plus the effective user's
+// region, date/time patterns and clock preference. Automatic region retains a
+// matching browser language's region; explicit policy values can override it.
+// These reads are reactive, so existing views update when preferences change.
+// Calendar keys and wire formats use invariant helpers instead.
 //
 // Use these instead of `toLocaleString()` / `toLocaleDateString()` /
 // `new Intl.*Format(undefined, …)` anywhere in the app; the hard-coded-string
@@ -16,6 +16,7 @@
 // here only for code that must branch on the CLDR category itself.
 
 import { activeLocaleSignal } from './registry.ts';
+import {configuredDateParts,regionalLocale,regionalOptions} from './regional.ts';
 
 /** A date-like input: a `Date`, epoch milliseconds, or an ISO-8601 string. */
 export type DateInput = Date | number | string;
@@ -33,9 +34,9 @@ function cached<T>(kind: string, locale: string, options: object | undefined, ma
   return f;
 }
 
-/** The locale every formatter uses: the active app locale (reactive). */
+/** The active language refined by the effective regional preference (reactive). */
 export function formatLocale(): string {
-  return activeLocaleSignal();
+  return regionalLocale(activeLocaleSignal());
 }
 
 function toDate(value: DateInput): Date | null {
@@ -43,15 +44,17 @@ function toDate(value: DateInput): Date | null {
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
-function dateTimeFormat(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
-  const locale = formatLocale();
+function dateTimeFormat(options: Intl.DateTimeFormatOptions,locale = formatLocale()): Intl.DateTimeFormat {
   return cached('dt', locale, options, () => new Intl.DateTimeFormat(locale, options));
 }
 
-/** Format with explicit `Intl.DateTimeFormat` options. Returns '' for an invalid date. */
-export function formatDateWith(value: DateInput, options: Intl.DateTimeFormatOptions): string {
+/** Format a display label with Intl options and regional overrides. Never use for date keys. */
+export function formatDateWith(value: DateInput, options: Intl.DateTimeFormatOptions,locale?:string): string {
   const d = toDate(value);
-  return d === null ? '' : dateTimeFormat(options).format(d);
+  if(d===null)return '';
+  const make=(options:Intl.DateTimeFormatOptions)=>dateTimeFormat(options,locale??formatLocale());
+  const parts=configuredDateParts(d,options,make);
+  return parts?parts.map(part=>part.value).join(''):make(regionalOptions(options)).format(d);
 }
 
 /** A calendar date, e.g. "Oct 23, 2026" in `en`. Returns '' for an invalid date. */
@@ -75,7 +78,7 @@ export function formatDateTime(
 /** Parts of a formatted date, for callers that lay out the pieces themselves. */
 export function formatDateToParts(value: DateInput, options: Intl.DateTimeFormatOptions): Intl.DateTimeFormatPart[] {
   const d = toDate(value);
-  return d === null ? [] : dateTimeFormat(options).formatToParts(d);
+  return d === null ? [] : configuredDateParts(d,options,dateTimeFormat)??dateTimeFormat(regionalOptions(options)).formatToParts(d);
 }
 
 const SECOND = 1000;

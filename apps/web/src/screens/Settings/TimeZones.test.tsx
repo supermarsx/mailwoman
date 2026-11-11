@@ -4,7 +4,7 @@ import { TimeZones } from './TimeZones.tsx';
 import { createSettingsNavigation } from './navigation.tsx';
 const data=vi.hoisted(()=>({values:{} as Record<string,{value:unknown;locked:boolean}>,save:vi.fn(),reset:vi.fn()}));
 vi.mock('./useSetting.ts',()=>({useSetting:(key:string,fallback:unknown)=>({value:()=>data.values[key]?.value??fallback,entry:()=>data.values[key],locked:()=>data.values[key]?.locked===true,saving:()=>false,error:()=>'',set:(value:unknown)=>data.save(key,value),reset:()=>data.reset(key)})}));
-beforeEach(()=>{data.values={'time.displayZone':{value:'local',locked:false},'time.comparisonZone':{value:'',locked:false},'time.showHelpers':{value:true,locked:false}};data.save.mockReset().mockResolvedValue(true);data.reset.mockReset();});
+beforeEach(()=>{data.values={'time.displayZone':{value:'local',locked:false},'time.comparisonZone':{value:'',locked:false},'time.showHelpers':{value:true,locked:false}};for(const key of ['region','dateFormat','timeFormat','hourCycle','firstDayOfWeek'])data.values['time.'+key]={value:'auto',locked:false};data.save.mockReset().mockResolvedValue(true);data.reset.mockReset();});
 it('validates and saves an explicit comparison through account settings',async()=>{
  render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
  const input=screen.getByLabelText('Comparison time zone');
@@ -42,4 +42,17 @@ it('asks to discard in the in-app dialog, never window.confirm, and a bulk close
  await expect(again).resolves.toBe(true);
  expect(native).not.toHaveBeenCalled();
  native.mockRestore();
+});
+
+it('keeps regional defaults automatic, validates patterns and saves explicit preferences',async()=>{
+ render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
+ const date=await screen.findByLabelText('Date format');expect(date).toHaveValue('auto');
+ fireEvent.input(date,{target:{value:'YYYY-MM-DD'}});fireEvent.submit(date.closest('form')!);expect(await screen.findByRole('alert')).toHaveTextContent('supported pattern');expect(data.save).not.toHaveBeenCalled();
+ fireEvent.input(date,{target:{value:'dd/MM/yyyy'}});fireEvent.submit(date.closest('form')!);await waitFor(()=>expect(data.save).toHaveBeenCalledWith('time.dateFormat','dd/MM/yyyy'));
+ const region=screen.getByLabelText('Region');fireEvent.input(region,{target:{value:'pt'}});fireEvent.submit(region.closest('form')!);await waitFor(()=>expect(data.save).toHaveBeenCalledWith('time.region','PT'));
+ fireEvent.change(screen.getByLabelText('Clock'),{target:{value:'24'}});expect(data.save).toHaveBeenCalledWith('time.hourCycle','24');
+});
+it('honours regional administrator locks',async()=>{
+ data.values['time.dateFormat']!.locked=true;render(()=><TimeZones navigation={createSettingsNavigation({section:'time'})}/>);
+ expect(await screen.findByLabelText('Date format')).toBeDisabled();expect(data.save).not.toHaveBeenCalled();
 });

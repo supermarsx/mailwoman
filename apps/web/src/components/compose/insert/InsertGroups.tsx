@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../../../i18n/format.ts';
 // The composer's Insert tab (Office style): Attach, Illustrations, Links, Cards and
 // calendar, Symbols. The composer owns the draft; these groups call back through
 // `InsertHost`. Every control is wrapped in its feature flag (`insert.*`), so a
@@ -200,7 +201,7 @@ export function InsertGroups(props: { host: InsertHost; /** The composer's own a
             <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-hr" disabled={host.disabled()} onMouseDown={(event) => event.preventDefault()} onClick={() => host.insertBlock('<hr>', '\n----------\n')}><Icon name="minus" /><span class="compose-rib__text">{t('ins-hr')}</span></button></RibbonItem>
           </Show>
           <Show when={on.dateStamp()}>
-            <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-date" disabled={host.disabled()} onMouseDown={(event) => event.preventDefault()} onClick={() => { const text = new Intl.DateTimeFormat(undefined, { dateStyle: 'long', timeStyle: 'short' }).format(new Date()); host.insertInline(text, text); }}><Icon name="clock" /><span class="compose-rib__text">{t('ins-date')}</span></button></RibbonItem>
+            <RibbonItem><button type="button" class={`compose-rt__btn ${a11y.focusable}`} data-testid="insert-date" disabled={host.disabled()} onMouseDown={(event) => event.preventDefault()} onClick={() => { const text = regionalDateTime(new Date(),{dateStyle:'long',timeStyle:'short'}); host.insertInline(text, text); }}><Icon name="clock" /><span class="compose-rib__text">{t('ins-date')}</span></button></RibbonItem>
           </Show>
         </RibbonGroup>
       </Show>

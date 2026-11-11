@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../i18n/format.ts';
 // The "File details" button of an attachment tab and the dialog it opens: file
 // name, type, size, the SHA-256 fingerprint (in groups, with copy buttons) and
 // what the open viewer learned about the document (a PDF's pages, producer,
@@ -40,7 +41,7 @@ function DetailsDialog(props: { id: string; details: AttachmentDetails; onClose:
     <dd>{value}<Show when={copyText !== undefined}><button type="button" class="attachment-details__copy" aria-label={copyLabel} title={copyLabel} onClick={() => void copy(copyText!)}><Icon name="copy"/></button></Show></dd>
   </>;
   const extra = (): NonNullable<AttachmentDetails['extra']> => d().extra ?? {};
-  const created = (): string | undefined => { const iso = extra().created; return iso === undefined ? undefined : new Date(iso).toLocaleString(); };
+  const created = (): string | undefined => { const iso = extra().created; return iso === undefined ? undefined : regionalDateTime(iso); };
   return <SecurityPopup id={props.id} labelledBy={`${props.id}-title`} title={t('mail-file-details')} onClose={props.onClose}>
     <div class="attachment-details" data-testid="attachment-details" aria-describedby={`${titleId}-note`}>
       <dl class="attachment-details__list">

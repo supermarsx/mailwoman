@@ -1,3 +1,4 @@
+import {formatDateTime as regionalDateTime} from '../../i18n/format.ts';
 // Settings backups sent by this server to an administrator-owned Nextcloud folder (t64).
 // The app password is write-only: the server answers `hasAppPassword`, never the value.
 import {Show,createEffect,createSignal,useContext,type JSX} from 'solid-js';
@@ -64,7 +65,7 @@ export function ConfigBackupNextcloud():JSX.Element{
       <Show when={view()?.config?.webdavUrl}>{url=><p class={css.note}>{t('admin-ncbackup-webdav')} <code>{url()}</code></p>}</Show>
       <div><button class="btn btn--primary" type="submit" disabled={busy()||!dirty()}>{t('admin-ncbackup-save')}</button> <button class="btn" type="button" disabled={busy()||!configured()||dirty()} onClick={test}>{t('admin-ncbackup-test')}</button> <button class="btn" type="button" disabled={busy()||!configured()||dirty()} onClick={run}><Icon name="nextcloud"/>{t('admin-ncbackup-run')}</button> <Show when={configured()}><button class="btn" type="button" disabled={busy()} onClick={remove}>{t('admin-ncbackup-remove')}</button></Show></div>
     </form>
-    <Show when={view()?.lastRun}>{last=><p class={css.note}>{last().ok?t('admin-ncbackup-last-ok',{file:last().file??'',at:new Date(last().at*1000).toLocaleString()}):t('admin-ncbackup-last-failed',{at:new Date(last().at*1000).toLocaleString(),reason:describeFailure(last())})}</p>}</Show>
+    <Show when={view()?.lastRun}>{last=><p class={css.note}>{last().ok?t('admin-ncbackup-last-ok',{file:last().file??'',at:regionalDateTime(last().at*1000)}):t('admin-ncbackup-last-failed',{at:regionalDateTime(last().at*1000),reason:describeFailure(last())})}</p>}</Show>
     </Show>
   </section>;
 }

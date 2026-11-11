@@ -1,3 +1,4 @@
+import {formatDate as regionalDate} from '../../../i18n/format.ts';
 // "Message options...": the optional headers of one message (Sensitivity,
 // Reply-By, Expires, Supersedes, legacy Return-Receipt-To) and an Advanced panel
 // (Auto-Submitted, threading headers, custom headers). Every part is behind its
@@ -146,7 +147,7 @@ export function MessageOptions(props: MessageOptionsProps): JSX.Element {
                       <Show when={!pickFailed()} fallback={<small role="alert">{t('mo-supersedes-failed')}</small>}>
                         <Show when={(choices() ?? []).length > 0} fallback={<small>{choices() === null ? t('mo-supersedes-loading') : t('mo-supersedes-none')}</small>}>
                           <ul role="listbox" aria-label={t('mo-supersedes-pick')}>
-                            <For each={choices() ?? []}>{(c) => <li role="option" aria-selected={o().supersedes === c.messageId}><button type="button" class="compose-rt__btn" data-testid="mo-supersedes-choice" onClick={() => { set({ supersedes: c.messageId }); setPicking(false); }}><span>{c.subject || t('mo-supersedes-no-subject')}</span> <small>{c.date ? new Date(c.date).toLocaleDateString() : ''}</small></button></li>}</For>
+                            <For each={choices() ?? []}>{(c) => <li role="option" aria-selected={o().supersedes === c.messageId}><button type="button" class="compose-rt__btn" data-testid="mo-supersedes-choice" onClick={() => { set({ supersedes: c.messageId }); setPicking(false); }}><span>{c.subject || t('mo-supersedes-no-subject')}</span> <small>{c.date ? regionalDate(c.date) : ''}</small></button></li>}</For>
                           </ul>
                         </Show>
                       </Show>

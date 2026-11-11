@@ -2295,3 +2295,18 @@ admin-settings-linked-disable-confirm = Disable and clear saved access
 
 admin-settings-key-reader-auto-hide-header = Automatically hide message headers
 admin-settings-help-reader-auto-hide-header = Open each message with sender, recipient and metadata details collapsed. The subject and actions stay visible. Use Show header to reveal the details. Off by default.
+
+admin-settings-key-time-region = Region
+admin-settings-help-time-region = auto or a two-letter region code, such as GB, US or PT.
+
+admin-settings-key-time-date-format = Date format
+admin-settings-help-time-date-format = auto, short, medium, long, full or a pattern such as yyyy-MM-dd or dd/MM/yyyy. Put literal text in 'quotes'.
+
+admin-settings-key-time-time-format = Time format
+admin-settings-help-time-time-format = auto, short, medium, long, full or HH:mm:ss / h:mm a. H = 24-hour, h = 12-hour, a = AM/PM.
+
+admin-settings-key-time-hour-cycle = Clock
+admin-settings-help-time-hour-cycle = Custom H or h pattern tokens take precedence.
+
+admin-settings-key-time-first-day-of-week = First day of the week
+admin-settings-help-time-first-day-of-week = Automatic follows regional calendar conventions.

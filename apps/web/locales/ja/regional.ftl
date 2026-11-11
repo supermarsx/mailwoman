@@ -1,0 +1,19 @@
+regional-title = 地域と日付・時刻の形式
+regional-help = 自動設定は言語と地域に従います。表示形式は保存された日時を変更しません。
+regional-region = 地域
+regional-region-help = auto または GB、US、PT などの2文字の地域コード。
+regional-dateFormat = 日付の形式
+regional-dateFormat-help = auto、short、medium、long、full、または yyyy-MM-dd や dd/MM/yyyy などのパターン。文字列は '引用符' で囲みます。
+regional-timeFormat = 時刻の形式
+regional-timeFormat-help = auto、short、medium、long、full、または HH:mm:ss / h:mm a。H = 24時間、h = 12時間、a = AM/PM。
+regional-hourCycle = 時計
+regional-hourCycle-help = カスタムパターンの H または h が優先されます。
+regional-firstDayOfWeek = 週の最初の曜日
+regional-firstDayOfWeek-help = 自動設定は地域の暦の慣習に従います。
+regional-auto = 自動（言語と地域）
+regional-clock-12 = 12時間表示
+regional-clock-24 = 24時間表示
+regional-preview = 形式のプレビュー（UTC）
+regional-invalid = auto、有効な地域、または対応するパターンを使用してください。引用符を閉じてください。
+regional-discard = 保存していない形式の変更を破棄しますか？
+regional-clock-auto = { regional-auto }
