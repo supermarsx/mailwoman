@@ -308,10 +308,10 @@ export function createFormatControls(adapter: FormatAdapter) {
     effects: (): JSX.Element => <EffectsMenu adapter={adapter} ready={ready} />,
     sortMenu: (): JSX.Element => <Feature id="format.sort"><SortMenu adapter={adapter} ready={ready} /></Feature>,
     pasteLarge: (): JSX.Element => (
-      <div class="cfmt-paste">
+      <div class="cfmt-paste cfmt-split" role="group" aria-label={t('mail-editor-paste')}>
         {button('mail-editor-paste', 'paste', () => adapter.paste('keep'), { testId: 'rt-paste', large: true, text: true })}
         <Feature id="format.pasteOptions">
-          <MenuButton label={t('cfmt-paste-options')} icon="chevronDown" testId="rt-paste-options" disabled={!ready()} buttonClass="compose-rt__btn cfmt-arrow cfmt-arrow--wide">
+          <MenuButton label={t('cfmt-paste-options')} icon="chevronDown" testId="rt-paste-options" disabled={!ready()} buttonClass="compose-rt__btn cfmt-arrow">
             {(close) => <For each={PASTE_MODES}>{(mode) => (
               <button type="button" role="menuitem" class="cfmt-menu__row" data-testid={`paste-${mode}`} onMouseDown={noFocus} onClick={() => { adapter.paste(mode); close(); }}>{t(`cfmt-paste-${mode}`)}</button>
             )}</For>}

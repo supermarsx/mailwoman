@@ -6,7 +6,11 @@
 .cfmt-arrow { min-inline-size: 1rem !important; inline-size: 1.1rem; padding-inline: 0 !important; justify-content: center; border-start-start-radius: 0; border-end-start-radius: 0; }
 .cfmt-arrow svg { inline-size: .65rem; block-size: .65rem; }
 .cfmt-arrow--wide { inline-size: 100%; block-size: 1rem !important; border-radius: var(--radius-sm); }
-.cfmt-paste { display: flex; flex-direction: column; align-items: stretch; justify-content: center; block-size: 100%; }
+.cfmt-paste { display: inline-flex; align-items: stretch; block-size: 100%; border: var(--border-hair) solid var(--border); border-radius: var(--radius-sm); overflow: visible; }
+.cfmt-paste > .compose-rt__btn { border: 0; border-start-end-radius: 0; border-end-end-radius: 0; }
+.cfmt-paste .cfmt-arrow { block-size: 100%; border: 0; border-inline-start: var(--border-hair) solid var(--border); border-start-start-radius: 0; border-end-start-radius: 0; }
+.cfmt-paste > .cfmt-menu-root > * { display: inline-flex; align-items: stretch; block-size: 100%; }
+.cfmt-paste > .compose-rt__btn:only-child { border-radius: inherit; }
 .cfmt-menu { display: flex; flex-direction: column; min-inline-size: 11rem; gap: 2px; color: var(--text); }
 .cfmt-menu hr { inline-size: 100%; margin-block: .25rem; border: 0; border-block-start: var(--border-hair) solid var(--border); }
 .cfmt-menu__grid { display: grid; grid-template-columns: repeat(3, minmax(5.5rem, 1fr)); gap: 4px; }
