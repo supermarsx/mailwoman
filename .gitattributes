@@ -9,6 +9,10 @@ Dockerfile      text eol=lf
 *.service       text eol=lf
 .dockerignore   text eol=lf
 .gitattributes  text eol=lf
+
+# Exclude Fluent translation catalogs from GitHub language statistics.
+*.ftl linguist-detectable=false
+
 # PDF.js provenance checks hash upstream bytes exactly, including line endings.
 apps/web/public/pdfjs/** -text
 apps/web/public/pdf.worker.mjs -text
