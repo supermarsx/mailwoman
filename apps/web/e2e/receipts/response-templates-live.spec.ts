@@ -80,3 +80,28 @@ test('the Templates sidebar opens a full message as a draft', async ({ page }) =
     await page.unrouteAll({ behavior: 'wait' });
   }
 });
+
+test('files dropped on the visual editor are attached', async ({ page }) => {
+  test.skip(test.info().project.name === 'phone', 'Desktop file drag gesture');
+  let uploads = 0;
+  await page.route(/\/jmap\/upload\//, async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    uploads++;
+    const accountId = new URL(route.request().url()).pathname.split('/').at(-1);
+    await route.fulfill({ status: 201, json: { accountId, blobId: 'drop-fixture-blob', size: 11, type: 'text/plain' } });
+  });
+  await login(page);
+  await page.locator('.sidebar__compose').click();
+  const composer = page.locator('form.compose').last();
+  const body = composer.getByRole('tabpanel', { name: 'Visual editor' }).frameLocator('iframe').locator('#mw-native-editor');
+  await expect(body).toBeVisible();
+  await body.evaluate(node => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['hello world'], 'dropped.txt', { type: 'text/plain' }));
+    for (const name of ['dragenter', 'dragover', 'drop']) {
+      node.dispatchEvent(new DragEvent(name, { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }
+  });
+  await expect(composer.getByTestId('compose-attachments')).toContainText('dropped.txt');
+  expect(uploads).toBe(1);
+});

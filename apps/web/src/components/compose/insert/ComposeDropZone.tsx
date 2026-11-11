@@ -34,8 +34,6 @@ export interface DropHost {
   fetchAttachment(token: AttachmentDragToken, signal: AbortSignal): Promise<File>;
   /** A message as `.eml`, by id. */
   fetchMessage(id: string, signal: AbortSignal): Promise<File>;
-  /** The drop landed on the body surface (images go inline). */
-  onBody(target: EventTarget | null): boolean;
   report(message: string): void;
 }
 
@@ -77,17 +75,18 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
   }
 
   async function onDrop(event: DragEvent): Promise<void> {
-    const wantsInline = event.shiftKey || host.onBody(event.target);
+    const wantsInline = event.shiftKey || !host.attachAllowed();
     // Read everything that vanishes with the event now: the drop point and the tokens.
     const point = host.dropPoint?.(event.clientX, event.clientY) ?? null;
     const token = host.attachAllowed() ? readAttachmentDrag(event.dataTransfer) : null;
     const messageIds = host.messagesAllowed() ? takeMessageDrag(event, host.accountId()) : null;
-    const files = await collect(event);
     setBusy(true);
     setActive(true);
     controller = new AbortController();
     const bad: { name: string; reason: string }[] = [];
     try {
+      const files = await collect(event);
+      if (controller.signal.aborted) return;
       if (files.length > 0) {
         const plan: DropPlan = planFiles(files, { maxBytes: host.maxBytes(), policy: host.policy(), inlineImages: host.inlineAllowed() && wantsInline, attachAllowed: host.attachAllowed() });
         for (const r of plan.refused) bad.push({ name: r.name, reason: reason(r.reason) });
@@ -115,6 +114,8 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
           else await host.attachFiles([eml]);
         } catch { if (!controller.signal.aborted) bad.push({ name: id, reason: reason('message') }); }
       }
+    } catch {
+      if (!controller.signal.aborted) host.report(t('ins-drop-folder-truncated'));
     } finally {
       setBusy(false);
       controller = null;
@@ -147,10 +148,12 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
       if (depth === 0 || event.relatedTarget === null) end();
     };
     const drop = (event: DragEvent): void => {
-      if (!active()) return;
+      const accepted=accepts(event);
+      if (!accepted && !dragCarriesContent(event.dataTransfer)) return;
       event.preventDefault();
-      event.stopPropagation();
-      void onDrop(event);
+      event.stopImmediatePropagation();
+      if (accepted && !busy()) void onDrop(event);
+      else if (!busy()) end();
     };
     const root = host.root() ?? doc.body;
     // Capture on the document so a drop works over the editor, the ribbon and the header alike.
@@ -159,12 +162,33 @@ export function ComposeDropZone(props: { host: DropHost }): JSX.Element {
     const hOver = (e: DragEvent): void => inside(e, over);
     const hLeave = (e: DragEvent): void => inside(e, leave);
     const hDrop = (e: DragEvent): void => inside(e, drop);
+    const editorDocuments = new Map<HTMLIFrameElement, Document>();
+    const editorListeners = [['dragenter', enter], ['dragover', over], ['dragleave', leave], ['drop', drop], ['dragend', end]] as const;
+    function bindEditor(frame: HTMLIFrameElement): void {
+      const inner = frame.contentDocument;
+      const previous = editorDocuments.get(frame);
+      if (previous === inner) return;
+      if (previous) for (const [type, handler] of editorListeners) previous.removeEventListener(type, handler as EventListener, true);
+      editorDocuments.delete(frame);
+      if (inner?.documentElement?.getAttribute('data-mw-native-document') !== 'true') return;
+      editorDocuments.set(frame, inner);
+      for (const [type, handler] of editorListeners) inner.addEventListener(type, handler as EventListener, true);
+    }
+    const frameLoaded = (event: Event): void => {
+      if (event.target instanceof HTMLIFrameElement) bindEditor(event.target);
+    };
+    root.addEventListener('load', frameLoaded, true);
+    root.querySelectorAll('iframe').forEach(bindEditor);
     doc.addEventListener('dragenter', hEnter, true);
     doc.addEventListener('dragover', hOver, true);
     doc.addEventListener('dragleave', hLeave, true);
     doc.addEventListener('drop', hDrop, true);
     doc.addEventListener('dragend', end, true);
     onCleanup(() => {
+      root.removeEventListener('load', frameLoaded, true);
+      for (const inner of editorDocuments.values()) {
+        for (const [type, handler] of editorListeners) inner.removeEventListener(type, handler as EventListener, true);
+      }
       doc.removeEventListener('dragenter', hEnter, true);
       doc.removeEventListener('dragover', hOver, true);
       doc.removeEventListener('dragleave', hLeave, true);

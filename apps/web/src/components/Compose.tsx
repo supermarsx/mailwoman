@@ -1612,7 +1612,6 @@ export function Compose(props: {
       if (!res.ok) throw new Error('export refused');
       return new File([await res.blob()], `message-${id.slice(0, 8)}.eml`, { type: 'message/rfc822' });
     },
-    onBody: (target) => target instanceof Element && target.closest('.compose-rt__surface, [data-testid="compose-richtext"]') !== null,
     report: (message) => toast.info(message),
   };
 

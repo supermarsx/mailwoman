@@ -79,28 +79,41 @@ function dropHost(over: Partial<DropHost> = {}): DropHost {
   return {
     root: () => root, attachAllowed: () => true, inlineAllowed: () => true, messagesAllowed: () => true, maxBytes: () => 1000, policy: () => null, accountId: () => 'a',
     attachFiles: vi.fn(async () => undefined), placeImages: vi.fn(async () => undefined), fetchAttachment: vi.fn(async () => new File(['x'], 'doc.pdf', { type: 'application/pdf' })),
-    fetchMessage: vi.fn(async () => new File(['x'], 'm.eml')), onBody: () => true, report: vi.fn(), ...over,
+    fetchMessage: vi.fn(async () => new File(['x'], 'm.eml')), report: vi.fn(), ...over,
   };
 }
-function drag(type: string, target: Element, files: File[], extra: { types?: string[]; data?: Record<string, string>; x?: number; y?: number } = {}): void {
+function drag(type: string, target: Element, files: File[], extra: { types?: string[]; data?: Record<string, string>; x?: number; y?: number; shift?: boolean } = {}): void {
   const e = new Event(type, { bubbles: true, cancelable: true }) as Event & Record<string, unknown>;
   e['dataTransfer'] = { types: [...(files.length ? ['Files'] : []), ...(extra.types ?? [])], items: files.map((f) => ({ kind: 'file', type: f.type })), files, getData: (k: string) => extra.data?.[k] ?? '', dropEffect: 'none' };
-  e['shiftKey'] = false; e['clientX'] = extra.x ?? 0; e['clientY'] = extra.y ?? 0;
+  e['shiftKey'] = extra.shift ?? false; e['clientX'] = extra.x ?? 0; e['clientY'] = extra.y ?? 0;
   target.dispatchEvent(e);
 }
 const png = (): File => new File([new Uint8Array(10)], 'p.png', { type: 'image/png' });
 
 describe('drop zone, drop point and tokens', () => {
+  it('attaches files dropped in the native visual editor document', async () => {
+    const host = dropHost();
+    const frame = document.createElement('iframe');
+    host.root()!.append(frame);
+    const inner = frame.contentDocument!;
+    inner.documentElement.setAttribute('data-mw-native-document', 'true');
+    render(() => <ComposeDropZone host={host} />);
+    const file = png();
+    drag('dragenter', inner.body, [file]);
+    drag('drop', inner.body, [file]);
+    await waitFor(() => expect(host.attachFiles).toHaveBeenCalledWith([file]));
+    expect(host.placeImages).not.toHaveBeenCalled();
+  });
   it('passes the editor position computed from the drop coordinates to the inline placement', async () => {
     const host = dropHost({ dropPoint: vi.fn((x: number, y: number) => x + y) });
     render(() => <ComposeDropZone host={host} />);
     drag('dragenter', host.root()!, [png()]);
-    drag('drop', host.root()!, [png()], { x: 30, y: 12 });
+    drag('drop', host.root()!, [png()], { x: 30, y: 12, shift: true });
     await waitFor(() => expect(host.placeImages).toHaveBeenCalled());
     expect((host.placeImages as ReturnType<typeof vi.fn>).mock.calls[0]![1]).toBe(42);
   });
   it('the counts line reflects what remains after validation', async () => {
-    const host = dropHost({ onBody: () => false, attachFiles: vi.fn(() => new Promise<void>(() => undefined)) });
+    const host = dropHost({ attachFiles: vi.fn(() => new Promise<void>(() => undefined)) });
     render(() => <ComposeDropZone host={host} />);
     const files = [new File(['x'], 'a.pdf', { type: 'application/pdf' }), new File([new Uint8Array(5000)], 'big.zip', { type: 'application/zip' }), new File([new Uint8Array(5000)], 'big2.zip', { type: 'application/zip' })];
     drag('dragenter', host.root()!, files);

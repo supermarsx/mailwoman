@@ -257,7 +257,7 @@ function dropHost(over: Partial<DropHost> = {}): DropHost {
   return {
     root: () => root, attachAllowed: () => true, inlineAllowed: () => true, messagesAllowed: () => true, maxBytes: () => 1000, policy: () => null, accountId: () => 'a',
     attachFiles: vi.fn(async () => undefined), placeImages: vi.fn(async () => undefined), fetchAttachment: vi.fn(async () => new File(['x'], 'a.pdf', { type: 'application/pdf' })), fetchMessage: vi.fn(async () => new File(['eml'], 'm.eml', { type: 'message/rfc822' })),
-    onBody: () => false, report: vi.fn(), ...over,
+    report: vi.fn(), ...over,
   };
 }
 

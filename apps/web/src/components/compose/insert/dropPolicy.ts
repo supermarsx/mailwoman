@@ -14,7 +14,7 @@ export type RefusalReason = 'size' | 'blocked' | 'empty' | 'total';
 export interface DropPlan {
   /** Files to attach. */
   attach: File[];
-  /** Image files to place in the body (Shift held, or dropped on the body). */
+  /** Image files to place in the body (Shift held). */
   inline: File[];
   refused: { name: string; reason: RefusalReason }[];
   /** Attached, but the admin policy flags them (executables and the like). */
@@ -24,7 +24,7 @@ export interface DropPlan {
 export interface DropOptions {
   maxBytes: number;
   policy?: AttachmentPolicy | null;
-  /** Place images in the body (Shift, or a drop on the body) and the feature is on. */
+  /** Place images in the body (Shift held) and the feature is on. */
   inlineImages: boolean;
   attachAllowed: boolean;
   alreadyBytes?: number;
@@ -79,6 +79,7 @@ export function summarizeDrag(dt: Pick<DataTransfer, 'types' | 'items'> | null):
     s.files++;
     if (INLINE_IMAGE_TYPES.has(item.type)) s.images++;
   }
+  if(s.files===0&&types.includes('Files'))s.files=1;
   return s;
 }
 
